@@ -1,0 +1,503 @@
+package output
+
+import (
+	"fmt"
+	"io"
+	"strings"
+	"sync"
+	"time"
+)
+
+// ProgressTracker defines the interface for progress tracking
+type ProgressTracker interface {
+	Update(current int, description string)
+	Increment(description string)
+	Finish(message string)
+	Stop()
+	SetTotal(total int)
+	GetCurrent() int
+	GetTotal() int
+	IsFinished() bool
+}
+
+// ProgressBar implements a text-based progress bar
+type ProgressBar struct {
+	writer      io.Writer
+	total       int
+	current     int
+	description string
+	finished    bool
+	startTime   time.Time
+	width       int
+	showPercent bool
+	showETA     bool
+	showRate    bool
+	mutex       sync.RWMutex
+
+	// Customization
+	barChar      string
+	emptyChar    string
+	leftBracket  string
+	rightBracket string
+}
+
+// ProgressBarConfig contains progress bar configuration
+type ProgressBarConfig struct {
+	Width        int    `yaml:"width" json:"width"`
+	ShowPercent  bool   `yaml:"show_percent" json:"show_percent"`
+	ShowETA      bool   `yaml:"show_eta" json:"show_eta"`
+	ShowRate     bool   `yaml:"show_rate" json:"show_rate"`
+	BarChar      string `yaml:"bar_char" json:"bar_char"`
+	EmptyChar    string `yaml:"empty_char" json:"empty_char"`
+	LeftBracket  string `yaml:"left_bracket" json:"left_bracket"`
+	RightBracket string `yaml:"right_bracket" json:"right_bracket"`
+}
+
+// NewProgressBar creates a new progress bar
+func NewProgressBar(writer io.Writer, total int) ProgressTracker {
+	return NewProgressBarWithConfig(writer, total, DefaultProgressBarConfig())
+}
+
+// NewProgressBarWithConfig creates a progress bar with custom configuration
+func NewProgressBarWithConfig(writer io.Writer, total int, config ProgressBarConfig) ProgressTracker {
+	return &ProgressBar{
+		writer:       writer,
+		total:        total,
+		current:      0,
+		startTime:    time.Now(),
+		width:        config.Width,
+		showPercent:  config.ShowPercent,
+		showETA:      config.ShowETA,
+		showRate:     config.ShowRate,
+		barChar:      config.BarChar,
+		emptyChar:    config.EmptyChar,
+		leftBracket:  config.LeftBracket,
+		rightBracket: config.RightBracket,
+	}
+}
+
+// Update updates the progress bar
+func (pb *ProgressBar) Update(current int, description string) {
+	pb.mutex.Lock()
+	defer pb.mutex.Unlock()
+
+	if pb.finished {
+		return
+	}
+
+	pb.current = current
+	pb.description = description
+	pb.render()
+}
+
+// Increment increments the progress bar
+func (pb *ProgressBar) Increment(description string) {
+	pb.mutex.Lock()
+	defer pb.mutex.Unlock()
+
+	if pb.finished {
+		return
+	}
+
+	pb.current++
+	pb.description = description
+	pb.render()
+}
+
+// Finish completes the progress bar
+func (pb *ProgressBar) Finish(message string) {
+	pb.mutex.Lock()
+	defer pb.mutex.Unlock()
+
+	if pb.finished {
+		return
+	}
+
+	pb.current = pb.total
+	pb.description = message
+	pb.finished = true
+	pb.render()
+	fmt.Fprintln(pb.writer) // New line after completion
+}
+
+// Stop stops the progress bar
+func (pb *ProgressBar) Stop() {
+	pb.mutex.Lock()
+	defer pb.mutex.Unlock()
+
+	pb.finished = true
+	fmt.Fprintln(pb.writer) // New line
+}
+
+// SetTotal sets the total value
+func (pb *ProgressBar) SetTotal(total int) {
+	pb.mutex.Lock()
+	defer pb.mutex.Unlock()
+
+	pb.total = total
+	if !pb.finished {
+		pb.render()
+	}
+}
+
+// GetCurrent returns the current progress
+func (pb *ProgressBar) GetCurrent() int {
+	pb.mutex.RLock()
+	defer pb.mutex.RUnlock()
+	return pb.current
+}
+
+// GetTotal returns the total value
+func (pb *ProgressBar) GetTotal() int {
+	pb.mutex.RLock()
+	defer pb.mutex.RUnlock()
+	return pb.total
+}
+
+// IsFinished returns whether the progress bar is finished
+func (pb *ProgressBar) IsFinished() bool {
+	pb.mutex.RLock()
+	defer pb.mutex.RUnlock()
+	return pb.finished
+}
+
+// render renders the progress bar
+func (pb *ProgressBar) render() {
+	if pb.total <= 0 {
+		// Indeterminate progress
+		fmt.Fprintf(pb.writer, "\r%s", pb.description)
+		return
+	}
+
+	// Calculate percentage
+	percent := float64(pb.current) / float64(pb.total) * 100
+	if percent > 100 {
+		percent = 100
+	}
+
+	// Calculate filled width
+	filledWidth := int(float64(pb.width) * percent / 100)
+	emptyWidth := pb.width - filledWidth
+
+	// Build progress bar
+	bar := pb.leftBracket +
+		strings.Repeat(pb.barChar, filledWidth) +
+		strings.Repeat(pb.emptyChar, emptyWidth) +
+		pb.rightBracket
+
+	// Build status line
+	status := fmt.Sprintf("\r%s %s", bar, pb.description)
+
+	// Add percentage if enabled
+	if pb.showPercent {
+		status += fmt.Sprintf(" %.1f%%", percent)
+	}
+
+	// Add ETA if enabled
+	if pb.showETA && pb.current > 0 {
+		elapsed := time.Since(pb.startTime)
+		if pb.current < pb.total {
+			remaining := time.Duration(float64(elapsed) * float64(pb.total-pb.current) / float64(pb.current))
+			status += fmt.Sprintf(" ETA: %s", pb.formatDuration(remaining))
+		}
+	}
+
+	// Add rate if enabled
+	if pb.showRate && pb.current > 0 {
+		elapsed := time.Since(pb.startTime)
+		rate := float64(pb.current) / elapsed.Seconds()
+		status += fmt.Sprintf(" %.1f/s", rate)
+	}
+
+	fmt.Fprint(pb.writer, status)
+}
+
+// formatDuration formats a duration for display
+func (pb *ProgressBar) formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// Spinner implements a spinning progress indicator
+type Spinner struct {
+	writer      io.Writer
+	description string
+	frames      []string
+	interval    time.Duration
+	current     int
+	running     bool
+	finished    bool
+	ticker      *time.Ticker
+	mutex       sync.RWMutex
+}
+
+// SpinnerConfig contains spinner configuration
+type SpinnerConfig struct {
+	Frames      []string      `yaml:"frames" json:"frames"`
+	Interval    time.Duration `yaml:"interval" json:"interval"`
+	Description string        `yaml:"description" json:"description"`
+}
+
+// NewSpinner creates a new spinner
+func NewSpinner(writer io.Writer, description string) ProgressTracker {
+	return NewSpinnerWithConfig(writer, DefaultSpinnerConfig(description))
+}
+
+// NewSpinnerWithConfig creates a spinner with custom configuration
+func NewSpinnerWithConfig(writer io.Writer, config SpinnerConfig) ProgressTracker {
+	return &Spinner{
+		writer:      writer,
+		description: config.Description,
+		frames:      config.Frames,
+		interval:    config.Interval,
+		current:     0,
+		running:     false,
+		finished:    false,
+	}
+}
+
+// Update updates the spinner description
+func (s *Spinner) Update(current int, description string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.finished {
+		return
+	}
+
+	s.description = description
+	if !s.running {
+		s.start()
+	}
+}
+
+// Increment does nothing for spinners (indeterminate progress)
+func (s *Spinner) Increment(description string) {
+	s.Update(0, description)
+}
+
+// Finish completes the spinner
+func (s *Spinner) Finish(message string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if s.finished {
+		return
+	}
+
+	s.stop()
+	s.finished = true
+	fmt.Fprintf(s.writer, "\r✓ %s\n", message)
+}
+
+// Stop stops the spinner
+func (s *Spinner) Stop() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.stop()
+	s.finished = true
+	fmt.Fprintln(s.writer) // New line
+}
+
+// SetTotal does nothing for spinners (indeterminate progress)
+func (s *Spinner) SetTotal(total int) {
+	// Spinners don't have a total
+}
+
+// GetCurrent returns 0 for spinners
+func (s *Spinner) GetCurrent() int {
+	return 0
+}
+
+// GetTotal returns 0 for spinners
+func (s *Spinner) GetTotal() int {
+	return 0
+}
+
+// IsFinished returns whether the spinner is finished
+func (s *Spinner) IsFinished() bool {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	return s.finished
+}
+
+// start starts the spinner animation
+func (s *Spinner) start() {
+	if s.running {
+		return
+	}
+
+	s.running = true
+	s.ticker = time.NewTicker(s.interval)
+
+	go func() {
+		for range s.ticker.C {
+			s.mutex.Lock()
+			if !s.running || s.finished {
+				s.mutex.Unlock()
+				return
+			}
+
+			frame := s.frames[s.current%len(s.frames)]
+			fmt.Fprintf(s.writer, "\r%s %s", frame, s.description)
+			s.current++
+			s.mutex.Unlock()
+		}
+	}()
+}
+
+// stop stops the spinner animation
+func (s *Spinner) stop() {
+	if !s.running {
+		return
+	}
+
+	s.running = false
+	if s.ticker != nil {
+		s.ticker.Stop()
+		s.ticker = nil
+	}
+}
+
+// MultiProgressTracker tracks multiple progress bars
+type MultiProgressTracker struct {
+	writer   io.Writer
+	trackers map[string]ProgressTracker
+	finished bool
+	mutex    sync.RWMutex
+}
+
+// NewMultiProgressTracker creates a new multi-progress tracker
+func NewMultiProgressTracker(writer io.Writer) *MultiProgressTracker {
+	return &MultiProgressTracker{
+		writer:   writer,
+		trackers: make(map[string]ProgressTracker),
+		finished: false,
+	}
+}
+
+// AddTracker adds a progress tracker
+func (mpt *MultiProgressTracker) AddTracker(name string, tracker ProgressTracker) {
+	mpt.mutex.Lock()
+	defer mpt.mutex.Unlock()
+
+	if !mpt.finished {
+		mpt.trackers[name] = tracker
+	}
+}
+
+// RemoveTracker removes a progress tracker
+func (mpt *MultiProgressTracker) RemoveTracker(name string) {
+	mpt.mutex.Lock()
+	defer mpt.mutex.Unlock()
+
+	if tracker, exists := mpt.trackers[name]; exists {
+		tracker.Stop()
+		delete(mpt.trackers, name)
+	}
+}
+
+// FinishAll finishes all trackers
+func (mpt *MultiProgressTracker) FinishAll() {
+	mpt.mutex.Lock()
+	defer mpt.mutex.Unlock()
+
+	for _, tracker := range mpt.trackers {
+		tracker.Stop()
+	}
+	mpt.finished = true
+}
+
+// GetTracker returns a tracker by name
+func (mpt *MultiProgressTracker) GetTracker(name string) (ProgressTracker, bool) {
+	mpt.mutex.RLock()
+	defer mpt.mutex.RUnlock()
+
+	tracker, exists := mpt.trackers[name]
+	return tracker, exists
+}
+
+// Default configurations
+
+// DefaultProgressBarConfig returns default progress bar configuration
+func DefaultProgressBarConfig() ProgressBarConfig {
+	return ProgressBarConfig{
+		Width:        50,
+		ShowPercent:  true,
+		ShowETA:      true,
+		ShowRate:     false,
+		BarChar:      "█",
+		EmptyChar:    "░",
+		LeftBracket:  "[",
+		RightBracket: "]",
+	}
+}
+
+// DefaultSpinnerConfig returns default spinner configuration
+func DefaultSpinnerConfig(description string) SpinnerConfig {
+	return SpinnerConfig{
+		Frames:      []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+		Interval:    100 * time.Millisecond,
+		Description: description,
+	}
+}
+
+// Alternative spinner frames
+var (
+	SpinnerFramesClassic = []string{"|", "/", "-", "\\"}
+	SpinnerFramesDots    = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	SpinnerFramesCircle  = []string{"◐", "◓", "◑", "◒"}
+	SpinnerFramesArrow   = []string{"←", "↖", "↑", "↗", "→", "↘", "↓", "↙"}
+	SpinnerFramesPulse   = []string{"●", "○", "●", "○"}
+)
+
+// ProgressIndicator combines multiple progress tracking methods
+type ProgressIndicator struct {
+	tracker     ProgressTracker
+	showSpinner bool
+	spinner     *Spinner
+}
+
+// NewProgressIndicator creates a new progress indicator
+func NewProgressIndicator(writer io.Writer, total int, showSpinner bool) *ProgressIndicator {
+	var tracker ProgressTracker
+
+	if total > 0 {
+		tracker = NewProgressBar(writer, total)
+	} else {
+		tracker = NewSpinner(writer, "Processing...")
+	}
+
+	var spinner *Spinner
+	if showSpinner && total > 0 {
+		spinner = NewSpinner(writer, "").(*Spinner)
+	}
+
+	return &ProgressIndicator{
+		tracker:     tracker,
+		showSpinner: showSpinner,
+		spinner:     spinner,
+	}
+}
+
+// Update updates the progress indicator
+func (pi *ProgressIndicator) Update(current int, description string) {
+	pi.tracker.Update(current, description)
+	if pi.spinner != nil {
+		pi.spinner.Update(0, description)
+	}
+}
+
+// Finish finishes the progress indicator
+func (pi *ProgressIndicator) Finish(message string) {
+	if pi.spinner != nil {
+		pi.spinner.Stop()
+	}
+	pi.tracker.Finish(message)
+}

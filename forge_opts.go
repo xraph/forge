@@ -1,6 +1,7 @@
 package forge
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/xraph/forge/pkg/logger"
 	"github.com/xraph/forge/pkg/metrics"
 	"github.com/xraph/forge/pkg/middleware"
+	"github.com/xraph/forge/pkg/plugins"
 	"github.com/xraph/forge/pkg/streaming"
 )
 
@@ -60,9 +62,10 @@ type ApplicationConfig struct {
 	MiddlewareConfig *middleware.ManagerConfig
 
 	// Component collections (to be added after initialization)
-	Services    []common.Service
-	Controllers []common.Controller
-	Plugins     []common.Plugin
+	Services      []common.Service
+	Controllers   []common.Controller
+	Plugins       []common.Plugin
+	PluginSources []PluginSource
 
 	// Service definitions for DI container
 	ServiceDefinitions []common.ServiceDefinition
@@ -701,6 +704,82 @@ func WithCacheEndpoints() ApplicationOption {
 		config.EnableCacheEndpoints = true
 		return nil
 	}
+}
+
+// Helper methods for creating plugin sources
+
+// NewFilePluginSource creates a plugin source from a file
+func NewFilePluginSource(filePath string, config map[string]interface{}) PluginSource {
+	return &FilePluginSource{
+		Path:   filePath,
+		Config: config,
+	}
+}
+
+// NewMarketplacePluginSource creates a plugin source from marketplace
+func NewMarketplacePluginSource(pluginID, version string, config map[string]interface{}) PluginSource {
+	return &MarketplacePluginSource{
+		PluginID: pluginID,
+		Version:  version,
+		Config:   config,
+	}
+}
+
+// NewURLPluginSource creates a plugin source from URL
+func NewURLPluginSource(url, version string, config map[string]interface{}) PluginSource {
+	return &URLPluginSource{
+		URL:     url,
+		Version: version,
+		Config:  config,
+	}
+}
+
+// NewDirectPluginSource creates a plugin source from an existing plugin instance
+func NewDirectPluginSource(plugin plugins.Plugin) PluginSource {
+	return &DirectPluginSource{
+		Plugin: plugin,
+	}
+}
+
+// Application configuration options for plugins
+
+// WithPluginSources adds plugin sources to load during application initialization
+func WithPluginSources(sources ...PluginSource) ApplicationOption {
+	return func(config *ApplicationConfig) error {
+		config.PluginSources = append(config.PluginSources, sources...)
+		return nil
+	}
+}
+
+// WithPluginFromFile adds a file-based plugin during initialization
+func WithPluginFromFile(filePath string, config map[string]interface{}) ApplicationOption {
+	return WithPluginSources(NewFilePluginSource(filePath, config))
+}
+
+// WithPluginFromMarketplace adds a marketplace plugin during initialization
+func WithPluginFromMarketplace(pluginID, version string, config map[string]interface{}) ApplicationOption {
+	return WithPluginSources(NewMarketplacePluginSource(pluginID, version, config))
+}
+
+// Enhanced application initialization to handle plugin sources
+func (app *ForgeApplication) loadPluginSources(config *ApplicationConfig) error {
+	if len(config.PluginSources) == 0 {
+		return nil
+	}
+
+	ctx := context.Background()
+	for i, source := range config.PluginSources {
+		if err := app.AddPluginFromSource(ctx, source); err != nil {
+			app.logger.Warn("failed to load plugin from source",
+				logger.Int("source_index", i),
+				logger.String("source_type", fmt.Sprintf("%T", source)),
+				logger.Error(err),
+			)
+			// Continue loading other plugins instead of failing completely
+		}
+	}
+
+	return nil
 }
 
 // =============================================================================

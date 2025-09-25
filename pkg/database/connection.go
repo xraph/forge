@@ -241,7 +241,7 @@ func (bc *BaseConnection) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed(bc.name, err)
 	}
 
-	// Start health check routine
+	// OnStart health check routine
 	if err := bc.startHealthCheck(); err != nil {
 		return common.ErrServiceStartFailed(bc.name, err)
 	}
@@ -266,7 +266,7 @@ func (bc *BaseConnection) OnStop(ctx context.Context) error {
 		logger.String("type", bc.dbType),
 	)
 
-	// Stop health check
+	// OnStop health check
 	bc.stopHealthCheck()
 
 	// Close database connection

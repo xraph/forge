@@ -147,22 +147,22 @@ func (cm *CronManager) OnStart(ctx context.Context) error {
 		cm.logger.Info("starting cron manager", logger.String("node_id", cm.nodeID))
 	}
 
-	// Start store
+	// OnStart store
 	if err := cm.store.HealthCheck(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
 
-	// Start executor
+	// OnStart executor
 	if err := cm.executor.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
 
-	// Start leader election
+	// OnStart leader election
 	if err := cm.leaderElector.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
 
-	// Start scheduler
+	// OnStart scheduler
 	if err := cm.scheduler.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
@@ -172,7 +172,7 @@ func (cm *CronManager) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
 
-	// Start background tasks
+	// OnStart background tasks
 	cm.wg.Add(1)
 	go cm.mainLoop(ctx)
 
@@ -208,7 +208,7 @@ func (cm *CronManager) OnStop(ctx context.Context) error {
 	// Wait for background tasks to finish
 	cm.wg.Wait()
 
-	// Stop components
+	// OnStop components
 	if err := cm.scheduler.Stop(ctx); err != nil {
 		if cm.logger != nil {
 			cm.logger.Error("failed to stop scheduler", logger.Error(err))

@@ -215,7 +215,7 @@ func (chc *CacheHealthChecker) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to register health checks: %w", err)
 	}
 
-	// Start monitoring goroutine
+	// OnStart monitoring goroutine
 	go chc.monitoringLoop(ctx)
 
 	if chc.logger != nil {

@@ -91,12 +91,12 @@ func (rpc *RaftRPC) Start(ctx context.Context) error {
 		return fmt.Errorf("RPC server already started")
 	}
 
-	// Start transport
+	// OnStart transport
 	if err := rpc.transport.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start transport: %w", err)
 	}
 
-	// Start message processing
+	// OnStart message processing
 	go rpc.processMessages(ctx)
 
 	rpc.started = true
@@ -123,7 +123,7 @@ func (rpc *RaftRPC) Stop(ctx context.Context) error {
 
 	close(rpc.shutdown)
 
-	// Stop transport
+	// OnStop transport
 	if err := rpc.transport.Stop(ctx); err != nil {
 		if rpc.logger != nil {
 			rpc.logger.Error("failed to stop transport", logger.Error(err))

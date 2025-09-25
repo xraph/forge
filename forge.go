@@ -24,6 +24,7 @@ import (
 	"github.com/xraph/forge/pkg/logger"
 	"github.com/xraph/forge/pkg/metrics"
 	"github.com/xraph/forge/pkg/middleware"
+	"github.com/xraph/forge/pkg/plugins"
 	"github.com/xraph/forge/pkg/router"
 	"github.com/xraph/forge/pkg/streaming"
 )
@@ -45,6 +46,7 @@ type ForgeApplication struct {
 	lifecycle      common.LifecycleManager
 	errorHandler   common.ErrorHandler
 	metricsHandler *metrics.MetricsEndpointHandler
+	pluginsManager plugins.PluginManager
 
 	// Add streaming manager
 	streamingManager streaming.StreamingManager
@@ -60,7 +62,6 @@ type ForgeApplication struct {
 	// Component collections
 	services    map[string]common.Service
 	controllers map[string]common.Controller
-	plugins     map[string]common.Plugin
 
 	sharedConfig commonConfig
 	appConfig    *ApplicationConfig
@@ -101,11 +102,14 @@ func NewApplication(name, version string, options ...ApplicationOption) (Forge, 
 		description:  appConfig.Description,
 		services:     make(map[string]common.Service),
 		controllers:  make(map[string]common.Controller),
-		plugins:      make(map[string]common.Plugin),
 		status:       common.ApplicationStatusNotStarted,
 		stopTimeout:  appConfig.StopTimeout,
 		sharedConfig: commonConfig{}, // Initialize shared config
 		appConfig:    appConfig,
+	}
+
+	if app.logger == nil {
+		app.logger = logger.GetGlobalLogger()
 	}
 
 	// Step 3: Initialize components in dependency order using container registration
@@ -119,37 +123,37 @@ func NewApplication(name, version string, options ...ApplicationOption) (Forge, 
 // initializeFromConfig initializes all application components from the stored configuration
 // Components are registered in the DI container and then resolved
 func (app *ForgeApplication) initializeFromConfig(config *ApplicationConfig) error {
-	// Phase 1: Create basic DI container (minimal, no dependencies)
+	// Create basic DI container (minimal, no dependencies)
 	if err := app.createBasicContainer(config); err != nil {
 		return fmt.Errorf("failed to create basic container: %w", err)
 	}
 
-	// Phase 2: Register all component service definitions in container
+	// Register all component service definitions in container
 	if err := app.registerComponentDefinitions(config); err != nil {
 		return fmt.Errorf("failed to register component definitions: %w", err)
 	}
 
-	// Phase 3: Register user-provided service definitions
+	// Register user-provided service definitions
 	if err := app.registerUserServiceDefinitions(config); err != nil {
 		return fmt.Errorf("failed to register user service definitions: %w", err)
 	}
 
-	// Phase 4: Resolve core components from container
+	// Resolve core components from container
 	if err := app.resolveCoreComponents(); err != nil {
 		return fmt.Errorf("failed to resolve core components: %w", err)
 	}
 
-	// Phase 5: Initialize router with resolved components
+	// Initialize router with resolved components
 	if err := app.initializeRouter(config); err != nil {
 		return fmt.Errorf("failed to initialize router: %w", err)
 	}
 
-	// Phase 6: Register application components (services, controllers, plugins)
+	// Register application components (services, controllers, plugins)
 	if err := app.registerApplicationComponents(config); err != nil {
 		return fmt.Errorf("failed to register application components: %w", err)
 	}
 
-	// Phase 7: Enable additional features
+	// Enable additional features
 	if err := app.enableFeatures(config); err != nil {
 		return fmt.Errorf("failed to enable features: %w", err)
 	}
@@ -159,10 +163,15 @@ func (app *ForgeApplication) initializeFromConfig(config *ApplicationConfig) err
 		return fmt.Errorf("validation failed: %w", err)
 	}
 
+	// Register plugin manager service definition
+	if err := app.registerPluginDefinition(config); err != nil {
+		return fmt.Errorf("failed to register plugin manager: %w", err)
+	}
+
 	return nil
 }
 
-// Phase 1: Create basic DI container
+// Create basic DI container
 func (app *ForgeApplication) createBasicContainer(config *ApplicationConfig) error {
 	// Use provided container or create new one
 	if config.Container != nil {
@@ -190,7 +199,7 @@ func (app *ForgeApplication) createBasicContainer(config *ApplicationConfig) err
 	return nil
 }
 
-// Phase 2: Register all component service definitions
+// Register all component service definitions
 func (app *ForgeApplication) registerComponentDefinitions(config *ApplicationConfig) error {
 	// Register logger service definition
 	if err := app.registerLoggerDefinition(config); err != nil {
@@ -490,7 +499,31 @@ func (app *ForgeApplication) registerLifecycleDefinition(config *ApplicationConf
 	})
 }
 
-// Phase 3: Register user-provided service definitions
+// Plugin manager registration
+func (app *ForgeApplication) registerPluginDefinition(config *ApplicationConfig) error {
+	// Register factory for lifecycle manager - it's typically provided by the container itself
+	err := plugins.RegisterService(app.container)
+	if err != nil {
+		return err
+	}
+
+	pm, err := app.container.ResolveNamed(common.PluginManagerKey)
+	if err != nil {
+		return err
+	}
+
+	manager, ok := pm.(plugins.PluginManager)
+	if !ok {
+		return fmt.Errorf("resolved plugin manager is not of correct type")
+	}
+
+	app.pluginsManager = manager
+	app.pluginsManager.SetRouter(app.router)
+	app.pluginsManager.SetMiddlewareManager(app.router.(*router.ForgeRouter).MiddlewareManager())
+	return nil
+}
+
+// Register user-provided service definitions
 func (app *ForgeApplication) registerUserServiceDefinitions(config *ApplicationConfig) error {
 	for _, definition := range config.ServiceDefinitions {
 		if err := app.container.Register(definition); err != nil {
@@ -500,7 +533,7 @@ func (app *ForgeApplication) registerUserServiceDefinitions(config *ApplicationC
 	return nil
 }
 
-// Phase 4: Resolve core components from container
+// Resolve core components from container
 func (app *ForgeApplication) resolveCoreComponents() error {
 	// Resolve logger
 	if l, err := app.container.ResolveNamed(common.LoggerKey); err != nil {
@@ -598,7 +631,7 @@ func (app *ForgeApplication) loadConfigSourcesDeferred(config *ApplicationConfig
 	return nil
 }
 
-// Phase 5: Initialize router with resolved components
+// Initialize router with resolved components
 func (app *ForgeApplication) initializeRouter(config *ApplicationConfig) error {
 	if app.container == nil {
 		return common.ErrValidationError("container", fmt.Errorf("container must be set before initializing router"))
@@ -640,7 +673,7 @@ func (app *ForgeApplication) initializeRouter(config *ApplicationConfig) error {
 	return nil
 }
 
-// Phase 6: Register application components
+// Register application components
 func (app *ForgeApplication) registerApplicationComponents(config *ApplicationConfig) error {
 	// Register services
 	for _, service := range config.Services {
@@ -666,7 +699,7 @@ func (app *ForgeApplication) registerApplicationComponents(config *ApplicationCo
 	return nil
 }
 
-// Phase 7: Enable additional features
+// Enable additional features
 func (app *ForgeApplication) enableFeatures(config *ApplicationConfig) error {
 	// Register standard services (now that all core components are available)
 	if err := app.registerStandardServices(); err != nil {
@@ -1063,7 +1096,6 @@ func (app *ForgeApplication) AddController(controller common.Controller) error {
 			logger.String("controller", controllerName),
 			logger.String("type", fmt.Sprintf("%T", controller)),
 			logger.String("dependencies", fmt.Sprintf("%v", controller.Dependencies())),
-			logger.Int("routes", len(controller.Routes())),
 			logger.Int("middleware", len(controller.Middleware())),
 		)
 	}
@@ -1136,18 +1168,9 @@ func (app *ForgeApplication) AddPlugin(plugin common.Plugin) error {
 	}
 
 	pluginName := plugin.Name()
-	if _, exists := app.plugins[pluginName]; exists {
-		return common.ErrServiceAlreadyExists(pluginName)
-	}
-
-	app.plugins[pluginName] = plugin
-
-	// Add to router if available
-	if app.router != nil {
-		if err := app.router.AddPlugin(plugin); err != nil {
-			delete(app.plugins, pluginName)
-			return err
-		}
+	err := app.pluginsManager.AddPlugin(context.Background(), plugin)
+	if err != nil {
+		return err
 	}
 
 	if app.logger != nil {
@@ -1170,18 +1193,18 @@ func (app *ForgeApplication) RemovePlugin(pluginName string) error {
 		return common.ErrLifecycleError("remove_plugin", fmt.Errorf("cannot remove plugin after application has started"))
 	}
 
-	if _, exists := app.plugins[pluginName]; !exists {
-		return common.ErrPluginNotFound(pluginName)
-	}
-
-	// Remove from router if available
-	if app.router != nil {
-		if err := app.router.RemovePlugin(pluginName); err != nil {
-			return err
+	// Unload plugin if it was loaded via plugin manager
+	if app.pluginsManager != nil {
+		if err := app.pluginsManager.UnloadPlugin(context.Background(), pluginName); err != nil {
+			// Log warning but don't fail - plugin might not have been loaded via manager
+			if app.logger != nil {
+				app.logger.Warn("failed to unload plugin from manager",
+					logger.String("plugin", pluginName),
+					logger.Error(err),
+				)
+			}
 		}
 	}
-
-	delete(app.plugins, pluginName)
 
 	if app.logger != nil {
 		app.logger.Info("plugin removed", logger.String("plugin", pluginName))
@@ -1191,27 +1214,11 @@ func (app *ForgeApplication) RemovePlugin(pluginName string) error {
 }
 
 func (app *ForgeApplication) GetPlugin(pluginName string) (common.Plugin, error) {
-	app.mu.RLock()
-	defer app.mu.RUnlock()
-
-	plugin, exists := app.plugins[pluginName]
-	if !exists {
-		return nil, common.ErrPluginNotFound(pluginName)
-	}
-
-	return plugin, nil
+	return app.pluginsManager.GetPlugin(pluginName)
 }
 
 func (app *ForgeApplication) GetPlugins() []common.Plugin {
-	app.mu.RLock()
-	defer app.mu.RUnlock()
-
-	plugins := make([]common.Plugin, 0, len(app.plugins))
-	for _, plugin := range app.plugins {
-		plugins = append(plugins, plugin)
-	}
-
-	return plugins
+	return app.pluginsManager.GetPlugins()
 }
 
 // =============================================================================
@@ -1235,7 +1242,7 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 			logger.String("version", app.version),
 			logger.Int("services", len(app.services)),
 			logger.Int("controllers", len(app.controllers)),
-			logger.Int("plugins", len(app.plugins)),
+			// logger.Int("plugins", len(app.plugins)),
 		)
 	}
 
@@ -1245,7 +1252,7 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		return err
 	}
 
-	// Start container
+	// OnStart container
 	if app.container != nil {
 		if err := app.container.Start(ctx); err != nil {
 			app.status = common.ApplicationStatusError
@@ -1253,7 +1260,7 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start services through lifecycle manager
+	// OnStart services through lifecycle manager
 	if app.lifecycle != nil {
 		if err := app.lifecycle.StartServices(ctx); err != nil {
 			app.status = common.ApplicationStatusError
@@ -1261,7 +1268,7 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start router
+	// OnStart router
 	if app.router != nil {
 		if err := app.router.Start(ctx); err != nil {
 			app.status = common.ApplicationStatusError
@@ -1286,7 +1293,7 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		app.metrics.Histogram("forge.application.startup_time").Observe(time.Since(app.startTime).Seconds())
 		app.metrics.Gauge("forge.application.services").Set(float64(len(app.services)))
 		app.metrics.Gauge("forge.application.controllers").Set(float64(len(app.controllers)))
-		app.metrics.Gauge("forge.application.plugins").Set(float64(len(app.plugins)))
+		app.metrics.Gauge("forge.application.plugins").Set(float64(len(app.pluginsManager.GetPlugins())))
 	}
 
 	return nil
@@ -1307,7 +1314,7 @@ func (app *ForgeApplication) Stop(ctx context.Context) error {
 		app.logger.Info("stopping application", logger.String("name", app.name))
 	}
 
-	// Stop HTTP server first
+	// OnStop HTTP server first
 	if app.server != nil {
 		if err := app.stopHTTPServer(ctx); err != nil {
 			if app.logger != nil {
@@ -1316,7 +1323,7 @@ func (app *ForgeApplication) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop router
+	// OnStop router
 	if app.router != nil {
 		if err := app.router.Stop(ctx); err != nil {
 			if app.logger != nil {
@@ -1325,7 +1332,7 @@ func (app *ForgeApplication) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop services through lifecycle manager
+	// OnStop services through lifecycle manager
 	if app.lifecycle != nil {
 		if err := app.lifecycle.StopServices(ctx); err != nil {
 			if app.logger != nil {
@@ -1334,7 +1341,7 @@ func (app *ForgeApplication) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop container
+	// OnStop container
 	if app.container != nil {
 		if err := app.container.Stop(ctx); err != nil {
 			if app.logger != nil {
@@ -1376,7 +1383,7 @@ func (app *ForgeApplication) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Start the application
+	// OnStart the application
 	if err := app.Start(ctx); err != nil {
 		return err
 	}
@@ -1538,7 +1545,7 @@ func (app *ForgeApplication) GetInfo() common.ApplicationInfo {
 		Uptime:      app.getUptime(),
 		Services:    len(app.services),
 		Controllers: len(app.controllers),
-		Plugins:     len(app.plugins),
+		Plugins:     len(app.pluginsManager.GetPlugins()),
 		Routes:      routeCount,
 		Middleware:  middlewareCount,
 	}
@@ -1652,9 +1659,8 @@ func (app *ForgeApplication) EventBus() events.EventBus {
 	return nil
 }
 
-func (app *ForgeApplication) MiddlewareManager() middleware.Manager {
-	// TODO implement me
-	panic("implement me")
+func (app *ForgeApplication) MiddlewareManager() *middleware.Manager {
+	return nil
 }
 
 func (app *ForgeApplication) StreamingManager() streaming.StreamingManager {

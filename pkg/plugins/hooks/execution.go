@@ -2,13 +2,16 @@ package hooks
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"math"
+	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // ExecutionEngine handles the execution of hooks with various strategies
@@ -168,7 +171,7 @@ func (ee *ExecutionEngineImpl) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop components
+	// OnStop components
 	if err := ee.cache.Stop(ctx); err != nil {
 		if ee.logger != nil {
 			ee.logger.Error("failed to stop cache", logger.Error(err))
@@ -253,7 +256,7 @@ func (ee *ExecutionEngineImpl) ExecuteSequential(ctx context.Context, hooks []pl
 
 		results = append(results, result)
 
-		// Stop execution if hook indicates to stop
+		// OnStop execution if hook indicates to stop
 		if !result.Continue && result.Error != nil {
 			break
 		}
@@ -411,7 +414,14 @@ func (ee *ExecutionEngineImpl) ExecuteWithRetry(ctx context.Context, hook plugin
 		// Add jitter if enabled
 		if retryConfig.Jitter && delay > 0 {
 			jitter := time.Duration(float64(delay) * 0.1) // 10% jitter
-			delay += time.Duration(float64(jitter) * (2*time.Now().UnixNano()%100 - 100) / 100)
+			// Use crypto/rand for better randomness
+			randomBytes := make([]byte, 4)
+			if _, err := rand.Read(randomBytes); err == nil {
+				// Convert to float in range [-1, 1]
+				randomValue := float64(int32(binary.BigEndian.Uint32(randomBytes))) / float64(math.MaxInt32)
+				delay += time.Duration(float64(jitter) * randomValue)
+			}
+
 		}
 	}
 

@@ -205,11 +205,11 @@ func (sw *ScheduledWarmer) Start(ctx context.Context) error {
 		return fmt.Errorf("scheduled warmer already started")
 	}
 
-	// Start the gocron scheduler
+	// OnStart the gocron scheduler
 	sw.scheduler.Start()
 	sw.started = true
 
-	// Start cleanup routine
+	// OnStart cleanup routine
 	go sw.cleanupRoutine(ctx)
 
 	if sw.logger != nil {
@@ -235,7 +235,7 @@ func (sw *ScheduledWarmer) Stop() error {
 		return fmt.Errorf("scheduled warmer not started")
 	}
 
-	// Stop the gocron scheduler
+	// OnStop the gocron scheduler
 	if err := sw.scheduler.Shutdown(); err != nil {
 		if sw.logger != nil {
 			sw.logger.Error("error shutting down scheduler", logger.Error(err))

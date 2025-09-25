@@ -276,7 +276,7 @@ func (cp *ContentPersonalization) Initialize(ctx context.Context, config ai.AIMi
 		return fmt.Errorf("failed to start personalization agent: %w", err)
 	}
 
-	// Start background tasks
+	// OnStart background tasks
 	go cp.cleanupProfiles(ctx)
 	go cp.cleanupCache(ctx)
 	if cp.config.LearningEnabled {

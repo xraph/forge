@@ -87,10 +87,10 @@ func (f *Follower) Start(ctx context.Context) error {
 	f.started = true
 	f.resetElectionTimer()
 
-	// Start election timeout monitoring
+	// OnStart election timeout monitoring
 	go f.monitorElectionTimeout()
 
-	// Start log application
+	// OnStart log application
 	go f.applyEntries()
 
 	if f.logger != nil {

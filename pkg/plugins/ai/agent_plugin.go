@@ -6,387 +6,435 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xraph/forge/pkg/ai"
-	"github.com/xraph/forge/pkg/ai/agents"
-	"github.com/xraph/forge/pkg/ai/coordination"
+	aicore "github.com/xraph/forge/pkg/ai/core"
+	"github.com/xraph/forge/pkg/ai/training"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
-// AIAgentPlugin extends the base Plugin interface for AI agent capabilities
+// AIAgentPlugin extends Plugin interface with AI agent-specific functionality
 type AIAgentPlugin interface {
-	plugins.Plugin
+	common.Plugin
 
 	// Agent management
-	CreateAgent(config AgentConfig) (AIAgent, error)
-	GetAgent(agentID string) (AIAgent, error)
-	RemoveAgent(agentID string) error
-	GetAgents() []AIAgent
+	CreateAgent(config aicore.AgentConfig) (aicore.AIAgent, error)
+	DestroyAgent(ctx context.Context, agentID string) error
+	GetAgent(agentID string) (aicore.AIAgent, error)
+	ListAgents() []aicore.AIAgent
 
 	// Agent types and capabilities
-	GetAgentTypes() []AgentType
-	GetAgentCapabilities() []Capability
+	GetAgentTypes() []aicore.AgentType
+	GetAgentCapabilities() []aicore.Capability
+	GetSupportedInputTypes() []string
+	GetSupportedOutputTypes() []string
 
-	// Agent training and optimization
-	TrainAgent(ctx context.Context, agent AIAgent, data TrainingData) error
-	OptimizeAgent(ctx context.Context, agentID string, metrics OptimizationMetrics) error
+	// Training and learning
+	TrainAgent(ctx context.Context, agent aicore.AIAgent, data TrainingData) error
+	UpdateAgentModel(ctx context.Context, agentID string, modelData []byte) error
+	GetTrainingStatus(agentID string) (TrainingStatus, error)
 
-	// Agent coordination
-	CreateCoordination(agents []string, strategy CoordinationStrategy) (Coordination, error)
-	GetCoordinations() []Coordination
+	// Configuration and optimization
+	OptimizeAgent(ctx context.Context, agentID string, criteria OptimizationCriteria) error
+	GetAgentOptimizationSuggestions(agentID string) ([]AgentOptimizationSuggestion, error)
 
-	// Agent lifecycle events
-	OnAgentCreated(agent AIAgent) error
-	OnAgentDestroyed(agentID string) error
-	OnAgentError(agentID string, err error) error
-}
-
-// AgentConfig contains configuration for creating an AI agent
-type AgentConfig struct {
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Type            ai.AgentType           `json:"type"`
-	Description     string                 `json:"description"`
-	Capabilities    []Capability           `json:"capabilities"`
-	Parameters      map[string]interface{} `json:"parameters"`
-	LearningEnabled bool                   `json:"learning_enabled"`
-	AutoApply       bool                   `json:"auto_apply"`
-	MaxConcurrency  int                    `json:"max_concurrency"`
-	Timeout         time.Duration          `json:"timeout"`
-	HealthCheck     HealthCheckConfig      `json:"health_check"`
-	Metadata        map[string]interface{} `json:"metadata"`
-}
-
-// Capability represents a capability that an agent can perform
-type Capability struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputType   string                 `json:"input_type"`
-	OutputType  string                 `json:"output_type"`
-	Parameters  []CapabilityParameter  `json:"parameters"`
-	Metadata    map[string]interface{} `json:"metadata"`
-}
-
-// CapabilityParameter defines a parameter for a capability
-type CapabilityParameter struct {
-	Name        string      `json:"name"`
-	Type        string      `json:"type"`
-	Description string      `json:"description"`
-	Required    bool        `json:"required"`
-	Default     interface{} `json:"default"`
-	Validation  string      `json:"validation"`
-}
-
-// HealthCheckConfig contains health check configuration for agents
-type HealthCheckConfig struct {
-	Enabled   bool          `json:"enabled"`
-	Interval  time.Duration `json:"interval"`
-	Timeout   time.Duration `json:"timeout"`
-	Threshold int           `json:"threshold"`
+	// Monitoring and analytics
+	GetAgentPerformance(agentID string) (AgentPerformance, error)
+	GetAgentAnalytics(agentID string, timeRange TimeRange) (AgentAnalytics, error)
+	MonitorAgent(ctx context.Context, agentID string, callback MonitorCallback) error
 }
 
 // TrainingData represents data used for training agents
 type TrainingData struct {
-	Type       string                 `json:"type"`
-	Data       []TrainingDataPoint    `json:"data"`
-	Metadata   map[string]interface{} `json:"metadata"`
-	Validation ValidationData         `json:"validation"`
-}
-
-// TrainingDataPoint represents a single training data point
-type TrainingDataPoint struct {
-	Input    interface{}            `json:"input"`
-	Expected interface{}            `json:"expected"`
-	Context  map[string]interface{} `json:"context"`
-	Weight   float64                `json:"weight"`
-}
-
-// ValidationData represents validation data for training
-type ValidationData struct {
-	Data          []TrainingDataPoint `json:"data"`
-	Metrics       []string            `json:"metrics"`
-	Threshold     float64             `json:"threshold"`
-	CrossValidate bool                `json:"cross_validate"`
-	Folds         int                 `json:"folds"`
-}
-
-// OptimizationMetrics contains metrics for agent optimization
-type OptimizationMetrics struct {
-	Performance   map[string]float64     `json:"performance"`
-	Accuracy      float64                `json:"accuracy"`
-	Latency       time.Duration          `json:"latency"`
-	ResourceUsage map[string]interface{} `json:"resource_usage"`
-	ErrorRate     float64                `json:"error_rate"`
-	Throughput    float64                `json:"throughput"`
-	UserFeedback  []FeedbackPoint        `json:"user_feedback"`
-}
-
-// FeedbackPoint represents user feedback for optimization
-type FeedbackPoint struct {
-	Action    string                 `json:"action"`
-	Success   bool                   `json:"success"`
-	Rating    float64                `json:"rating"`
-	Comments  string                 `json:"comments"`
-	Context   map[string]interface{} `json:"context"`
-	Timestamp time.Time              `json:"timestamp"`
-}
-
-// CoordinationStrategy defines how agents coordinate with each other
-type CoordinationStrategy struct {
-	Type       string                 `json:"type"` // hierarchical, peer-to-peer, consensus
-	Parameters map[string]interface{} `json:"parameters"`
-	Priority   []string               `json:"priority"` // Agent IDs in priority order
-	Conflict   string                 `json:"conflict"` // resolution strategy
-	Timeout    time.Duration          `json:"timeout"`
-}
-
-// Coordination represents a coordination between multiple agents
-type Coordination struct {
-	ID       string                 `json:"id"`
-	Agents   []string               `json:"agents"`
-	Strategy CoordinationStrategy   `json:"strategy"`
-	State    CoordinationState      `json:"state"`
-	Metadata map[string]interface{} `json:"metadata"`
-	Created  time.Time              `json:"created"`
-	Updated  time.Time              `json:"updated"`
-}
-
-// CoordinationState represents the state of agent coordination
-type CoordinationState struct {
-	Status    string                 `json:"status"`
-	Current   string                 `json:"current"` // Current active agent
-	Queue     []string               `json:"queue"`   // Queued agents
-	Conflicts []ConflictResolution   `json:"conflicts"`
-	Metrics   map[string]interface{} `json:"metrics"`
-	Updated   time.Time              `json:"updated"`
-}
-
-// ConflictResolution represents a conflict resolution between agents
-type ConflictResolution struct {
-	ID         string                 `json:"id"`
-	Agents     []string               `json:"agents"`
-	Conflict   string                 `json:"conflict"`
-	Resolution string                 `json:"resolution"`
-	Winner     string                 `json:"winner"`
-	Rationale  string                 `json:"rationale"`
-	Metadata   map[string]interface{} `json:"metadata"`
-	ResolvedAt time.Time              `json:"resolved_at"`
-}
-
-// AgentInput represents input data for an agent
-type AgentInput struct {
 	Type      string                 `json:"type"`
 	Data      interface{}            `json:"data"`
-	Context   map[string]interface{} `json:"context"`
-	Timestamp time.Time              `json:"timestamp"`
-	RequestID string                 `json:"request_id"`
-	Priority  int                    `json:"priority"`
-}
-
-// AgentOutput represents output from an agent
-type AgentOutput struct {
-	Type        string                 `json:"type"`
-	Data        interface{}            `json:"data"`
-	Confidence  float64                `json:"confidence"`
-	Explanation string                 `json:"explanation"`
-	Actions     []AgentAction          `json:"actions"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Timestamp   time.Time              `json:"timestamp"`
-}
-
-// AgentAction represents an action recommended by an agent
-type AgentAction struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Target      string                 `json:"target"`
-	Action      string                 `json:"action"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Priority    int                    `json:"priority"`
-	Condition   string                 `json:"condition,omitempty"`
-	Rollback    bool                   `json:"rollback"`
-	Timeout     time.Duration          `json:"timeout"`
-	Automatic   bool                   `json:"automatic"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Owner       string                 `json:"owner"`
-	Status      string                 `json:"status"`
-}
-
-// AgentFeedback represents feedback about an agent's performance
-type AgentFeedback struct {
-	ActionID  string                 `json:"action_id"`
-	Success   bool                   `json:"success"`
-	Outcome   interface{}            `json:"outcome"`
-	Metrics   map[string]float64     `json:"metrics"`
-	Context   map[string]interface{} `json:"context"`
-	Timestamp time.Time              `json:"timestamp"`
-}
-
-// AgentStats contains statistics about an agent
-type AgentStats struct {
-	TotalProcessed  int64           `json:"total_processed"`
-	TotalErrors     int64           `json:"total_errors"`
-	AverageLatency  time.Duration   `json:"average_latency"`
-	ErrorRate       float64         `json:"error_rate"`
-	LastProcessed   time.Time       `json:"last_processed"`
-	IsActive        bool            `json:"is_active"`
-	Confidence      float64         `json:"confidence"`
-	LearningMetrics LearningMetrics `json:"learning_metrics"`
-}
-
-// LearningMetrics contains metrics about an agent's learning
-type LearningMetrics struct {
-	TotalFeedback     int64     `json:"total_feedback"`
-	PositiveFeedback  int64     `json:"positive_feedback"`
-	NegativeFeedback  int64     `json:"negative_feedback"`
-	AccuracyScore     float64   `json:"accuracy_score"`
-	ImprovementRate   float64   `json:"improvement_rate"`
-	LastLearningEvent time.Time `json:"last_learning_event"`
-}
-
-// AgentHealth represents the health status of an agent
-type AgentHealth struct {
-	Status      string                 `json:"status"`
-	Message     string                 `json:"message"`
-	Details     map[string]interface{} `json:"details"`
-	CheckedAt   time.Time              `json:"checked_at"`
-	LastHealthy time.Time              `json:"last_healthy"`
-}
-
-// AgentCoordinator defines the interface for agent coordination
-type AgentCoordinator interface {
-	AddAgent(agent ai.AIAgent) error
-	RemoveAgent(agentID string) error
-	Coordinate(ctx context.Context, request CoordinationRequest) (CoordinationResponse, error)
-	GetActiveAgent() string
-	SetActiveAgent(agentID string) error
-}
-
-// CoordinationRequest represents a coordination request between agents
-type CoordinationRequest struct {
-	RequesterID string                 `json:"requester_id"`
-	TargetID    string                 `json:"target_id"`
-	Action      string                 `json:"action"`
-	Data        interface{}            `json:"data"`
-	Priority    int                    `json:"priority"`
-	Timeout     time.Duration          `json:"timeout"`
-	Context     map[string]interface{} `json:"context"`
-	Timestamp   time.Time              `json:"timestamp"`
-}
-
-// CoordinationResponse represents a response to a coordination request
-type CoordinationResponse struct {
-	RequestID string                 `json:"request_id"`
-	Success   bool                   `json:"success"`
-	Data      interface{}            `json:"data"`
-	Message   string                 `json:"message"`
+	Labels    []interface{}          `json:"labels,omitempty"`
+	Features  map[string]interface{} `json:"features"`
 	Metadata  map[string]interface{} `json:"metadata"`
 	Timestamp time.Time              `json:"timestamp"`
 }
 
+// TrainingStatus represents the status of agent training
+type TrainingStatus struct {
+	AgentID      string                  `json:"agent_id"`
+	Status       training.TrainingStatus `json:"status"` // training, completed, failed, paused
+	Progress     float64                 `json:"progress"`
+	Epoch        int                     `json:"epoch"`
+	Loss         float64                 `json:"loss"`
+	Accuracy     float64                 `json:"accuracy"`
+	StartedAt    time.Time               `json:"started_at"`
+	EstimatedETA time.Duration           `json:"estimated_eta"`
+	Message      string                  `json:"message"`
+}
+
+// OptimizationCriteria defines criteria for agent optimization
+type OptimizationCriteria struct {
+	Objectives    []string               `json:"objectives"`  // accuracy, speed, memory
+	Constraints   map[string]interface{} `json:"constraints"` // max_latency, max_memory
+	Preferences   map[string]float64     `json:"preferences"` // weighted preferences
+	TargetMetrics map[string]float64     `json:"target_metrics"`
+}
+
+// AgentOptimizationSuggestion represents a suggestion for improving agent performance
+type AgentOptimizationSuggestion struct {
+	Type        string                 `json:"type"`     // hyperparameter, architecture, data
+	Category    string                 `json:"category"` // performance, accuracy, efficiency
+	Suggestion  string                 `json:"suggestion"`
+	Impact      string                 `json:"impact"` // high, medium, low
+	Effort      string                 `json:"effort"` // low, medium, high
+	Parameters  map[string]interface{} `json:"parameters"`
+	Confidence  float64                `json:"confidence"`
+	Description string                 `json:"description"`
+}
+
+// AgentPerformance contains performance metrics for an agent
+type AgentPerformance struct {
+	AgentID         string                 `json:"agent_id"`
+	Accuracy        float64                `json:"accuracy"`
+	Precision       float64                `json:"precision"`
+	Recall          float64                `json:"recall"`
+	F1Score         float64                `json:"f1_score"`
+	Latency         time.Duration          `json:"latency"`
+	Throughput      float64                `json:"throughput"`
+	MemoryUsage     int64                  `json:"memory_usage"`
+	CPUUsage        float64                `json:"cpu_usage"`
+	ErrorRate       float64                `json:"error_rate"`
+	ConfidenceScore float64                `json:"confidence_score"`
+	CustomMetrics   map[string]interface{} `json:"custom_metrics"`
+	LastUpdated     time.Time              `json:"last_updated"`
+}
+
+// AgentAnalytics contains analytics data for an agent
+type AgentAnalytics struct {
+	AgentID           string               `json:"agent_id"`
+	TimeRange         TimeRange            `json:"time_range"`
+	RequestCount      int64                `json:"request_count"`
+	SuccessCount      int64                `json:"success_count"`
+	ErrorCount        int64                `json:"error_count"`
+	AverageLatency    time.Duration        `json:"average_latency"`
+	ThroughputHistory []ThroughputPoint    `json:"throughput_history"`
+	AccuracyHistory   []AccuracyPoint      `json:"accuracy_history"`
+	ErrorDistribution map[string]int64     `json:"error_distribution"`
+	ConfidenceTrend   []ConfidencePoint    `json:"confidence_trend"`
+	UserFeedback      []UserFeedbackPoint  `json:"user_feedback"`
+	ResourceUsage     []ResourceUsagePoint `json:"resource_usage"`
+	Insights          []AnalyticsInsight   `json:"insights"`
+}
+
+// TimeRange represents a time range for analytics
+type TimeRange struct {
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// ThroughputPoint represents a point in throughput history
+type ThroughputPoint struct {
+	Timestamp  time.Time `json:"timestamp"`
+	Throughput float64   `json:"throughput"`
+}
+
+// AccuracyPoint represents a point in accuracy history
+type AccuracyPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Accuracy  float64   `json:"accuracy"`
+}
+
+// ConfidencePoint represents a point in confidence trend
+type ConfidencePoint struct {
+	Timestamp  time.Time `json:"timestamp"`
+	Confidence float64   `json:"confidence"`
+}
+
+// UserFeedbackPoint represents user feedback data
+type UserFeedbackPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Rating    float64   `json:"rating"`
+	Feedback  string    `json:"feedback"`
+	Category  string    `json:"category"`
+}
+
+// ResourceUsagePoint represents resource usage data
+type ResourceUsagePoint struct {
+	Timestamp   time.Time `json:"timestamp"`
+	CPUUsage    float64   `json:"cpu_usage"`
+	MemoryUsage int64     `json:"memory_usage"`
+	GPUUsage    float64   `json:"gpu_usage,omitempty"`
+}
+
+// AnalyticsInsight represents an analytical insight
+type AnalyticsInsight struct {
+	Type        string                 `json:"type"`     // trend, anomaly, recommendation
+	Severity    string                 `json:"severity"` // info, warning, critical
+	Title       string                 `json:"title"`
+	Description string                 `json:"description"`
+	Data        map[string]interface{} `json:"data"`
+	Timestamp   time.Time              `json:"timestamp"`
+	ActionItems []string               `json:"action_items"`
+}
+
+// MonitorCallback defines callback function for agent monitoring
+type MonitorCallback func(agentID string, event MonitorEvent)
+
+// MonitorEvent represents a monitoring event
+type MonitorEvent struct {
+	Type      string                 `json:"type"`
+	Timestamp time.Time              `json:"timestamp"`
+	Data      map[string]interface{} `json:"data"`
+	Severity  string                 `json:"severity"`
+}
+
 // BaseAIAgentPlugin provides a base implementation for AI agent plugins
 type BaseAIAgentPlugin struct {
-	*plugins.BasePlugin
-	agents        map[string]ai.AIAgent
-	agentTypes    []ai.AgentType
-	capabilities  []ai.Capability
-	coordinator   *coordination.CoordinatedAgent
-	coordinations map[string]Coordination
-	mu            sync.RWMutex
-	logger        common.Logger
-	metrics       common.Metrics
+	*BasePlugin
+	agents           map[string]aicore.AIAgent
+	agentTypes       []aicore.AgentType
+	capabilities     []aicore.Capability
+	supportedInputs  []string
+	supportedOutputs []string
+	trainingJobs     map[string]*TrainingJob
+	monitors         map[string]context.CancelFunc
+	mu               sync.RWMutex
+}
+
+// BasePlugin should be implemented separately - this is a placeholder
+type BasePlugin struct {
+	id          string
+	name        string
+	version     string
+	description string
+	author      string
+	license     string
+	logger      common.Logger
+	metrics     common.Metrics
+	config      common.ConfigManager
+	container   common.Container
+	started     bool
+	mu          sync.RWMutex
+}
+
+// TrainingJob represents a training job for an agent
+type TrainingJob struct {
+	AgentID     string
+	Status      string
+	Progress    float64
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Error       error
+	mu          sync.RWMutex
 }
 
 // NewBaseAIAgentPlugin creates a new base AI agent plugin
-func NewBaseAIAgentPlugin(info plugins.PluginInfo, logger common.Logger, metrics common.Metrics) *BaseAIAgentPlugin {
+func NewBaseAIAgentPlugin(id, name, version string, agentTypes []aicore.AgentType, capabilities []aicore.Capability) *BaseAIAgentPlugin {
 	return &BaseAIAgentPlugin{
-		BasePlugin:    plugins.NewBasePlugin(info),
-		agents:        make(map[string]ai.AIAgent),
-		coordinations: make(map[string]Coordination),
-		logger:        logger,
-		metrics:       metrics,
+		BasePlugin: &BasePlugin{
+			id:      id,
+			name:    name,
+			version: version,
+		},
+		agents:           make(map[string]aicore.AIAgent),
+		agentTypes:       agentTypes,
+		capabilities:     capabilities,
+		supportedInputs:  []string{},
+		supportedOutputs: []string{},
+		trainingJobs:     make(map[string]*TrainingJob),
+		monitors:         make(map[string]context.CancelFunc),
 	}
+}
+
+// ID returns plugin ID
+func (p *BaseAIAgentPlugin) ID() string {
+	return p.BasePlugin.id
+}
+
+// Name returns plugin name
+func (p *BaseAIAgentPlugin) Name() string {
+	return p.BasePlugin.name
+}
+
+// Version returns plugin version
+func (p *BaseAIAgentPlugin) Version() string {
+	return p.BasePlugin.version
+}
+
+// Description returns plugin description
+func (p *BaseAIAgentPlugin) Description() string {
+	return p.BasePlugin.description
+}
+
+// Author returns plugin author
+func (p *BaseAIAgentPlugin) Author() string {
+	return p.BasePlugin.author
+}
+
+// License returns plugin license
+func (p *BaseAIAgentPlugin) License() string {
+	return p.BasePlugin.license
 }
 
 // Initialize initializes the AI agent plugin
 func (p *BaseAIAgentPlugin) Initialize(ctx context.Context, container common.Container) error {
-	if err := p.BasePlugin.Initialize(ctx, container); err != nil {
-		return err
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.BasePlugin.container = container
+
+	// Resolve dependencies
+	if logger, err := container.Resolve((*common.Logger)(nil)); err == nil {
+		p.BasePlugin.logger = logger.(common.Logger)
 	}
 
-	// Initialize coordinator if needed
-	if p.coordinator == nil {
-		p.coordinator = coordination.NewDefaultAgentCoordinator(p.logger, p.metrics)
+	if metrics, err := container.Resolve((*common.Metrics)(nil)); err == nil {
+		p.BasePlugin.metrics = metrics.(common.Metrics)
 	}
 
-	if p.logger != nil {
-		p.logger.Info("AI agent plugin initialized",
-			logger.String("plugin_id", p.ID()),
+	if config, err := container.Resolve((*common.ConfigManager)(nil)); err == nil {
+		p.BasePlugin.config = config.(common.ConfigManager)
+	}
+
+	if p.BasePlugin.logger != nil {
+		p.BasePlugin.logger.Info("AI agent plugin initialized",
+			logger.String("plugin_id", p.id),
+			logger.String("plugin_name", p.name),
 			logger.Int("agent_types", len(p.agentTypes)),
-			logger.Int("capabilities", len(p.capabilities)),
 		)
 	}
 
 	return nil
 }
 
-// CreateAgent creates a new AI agent
-func (p *BaseAIAgentPlugin) CreateAgent(config AgentConfig) (ai.AIAgent, error) {
+// Start starts the plugin
+func (p *BaseAIAgentPlugin) OnStart(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if _, exists := p.agents[config.ID]; exists {
-		return nil, fmt.Errorf("agent %s already exists", config.ID)
+	if p.BasePlugin.started {
+		return fmt.Errorf("plugin already started")
 	}
 
-	// Create agent based on type
-	agent, err := p.createAgentByType(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create agent: %w", err)
+	p.BasePlugin.started = true
+
+	if p.BasePlugin.logger != nil {
+		p.BasePlugin.logger.Info("AI agent plugin started", logger.String("plugin_id", p.id))
 	}
 
-	// Initialize agent
+	return nil
+}
+
+// Stop stops the plugin
+func (p *BaseAIAgentPlugin) OnStop(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.BasePlugin.started {
+		return fmt.Errorf("plugin not started")
+	}
+
+	// OnStop all agents
+	for agentID, agent := range p.agents {
+		if err := agent.Stop(ctx); err != nil && p.BasePlugin.logger != nil {
+			p.BasePlugin.logger.Error("failed to stop agent",
+				logger.String("agent_id", agentID),
+				logger.Error(err),
+			)
+		}
+	}
+
+	// Cancel all monitors
+	for agentID, cancel := range p.monitors {
+		cancel()
+		delete(p.monitors, agentID)
+	}
+
+	p.BasePlugin.started = false
+
+	if p.BasePlugin.logger != nil {
+		p.BasePlugin.logger.Info("AI agent plugin stopped", logger.String("plugin_id", p.id))
+	}
+
+	return nil
+}
+
+// Cleanup cleans up plugin resources
+func (p *BaseAIAgentPlugin) Cleanup(ctx context.Context) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Clean up agents
+	p.agents = make(map[string]aicore.AIAgent)
+	p.trainingJobs = make(map[string]*TrainingJob)
+	p.monitors = make(map[string]context.CancelFunc)
+
+	return nil
+}
+
+// Type returns plugin type
+func (p *BaseAIAgentPlugin) Type() plugins.PluginType {
+	return plugins.PluginTypeAI
+}
+
+// CreateAgent creates a new AI agent
+func (p *BaseAIAgentPlugin) CreateAgent(config aicore.AgentConfig) (aicore.AIAgent, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// This is a base implementation - should be overridden
+	agent := aicore.NewBaseAgent(
+		fmt.Sprintf("%s-%d", config.ID, len(p.agents)),
+		config.Name,
+		aicore.AgentTypeOptimization, // Default type
+		p.capabilities,
+	)
+
 	if err := agent.Initialize(context.Background(), config); err != nil {
 		return nil, fmt.Errorf("failed to initialize agent: %w", err)
 	}
 
-	// Set coordinator
-	if err := agent.SetCoordinator(p.coordinator); err != nil {
-		return nil, fmt.Errorf("failed to set coordinator: %w", err)
-	}
+	p.agents[agent.ID()] = agent
 
-	// Add to coordinator
-	if err := p.coordinator.AddAgent(agent); err != nil {
-		return nil, fmt.Errorf("failed to add agent to coordinator: %w", err)
-	}
-
-	p.agents[config.ID] = agent
-
-	// Notify lifecycle event
-	if err := p.OnAgentCreated(agent); err != nil {
-		p.logger.Warn("agent created notification failed", logger.Error(err))
-	}
-
-	if p.logger != nil {
-		p.logger.Info("agent created",
-			logger.String("agent_id", config.ID),
-			logger.String("agent_name", config.Name),
-			logger.String("agent_type", string(config.Type)),
+	if p.BasePlugin.logger != nil {
+		p.BasePlugin.logger.Info("agent created",
+			logger.String("plugin_id", p.id),
+			logger.String("agent_id", agent.ID()),
 		)
-	}
-
-	if p.metrics != nil {
-		p.metrics.Counter("forge.plugins.ai_agent_created").Inc()
-		p.metrics.Gauge("forge.plugins.ai_agents_total").Set(float64(len(p.agents)))
 	}
 
 	return agent, nil
 }
 
-// GetAgent returns an agent by ID
-func (p *BaseAIAgentPlugin) GetAgent(agentID string) (AIAgent, error) {
+// DestroyAgent destroys an AI agent
+func (p *BaseAIAgentPlugin) DestroyAgent(ctx context.Context, agentID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	agent, exists := p.agents[agentID]
+	if !exists {
+		return fmt.Errorf("agent %s not found", agentID)
+	}
+
+	if err := agent.Stop(ctx); err != nil {
+		return fmt.Errorf("failed to stop agent: %w", err)
+	}
+
+	delete(p.agents, agentID)
+
+	// Cancel monitoring if active
+	if cancel, exists := p.monitors[agentID]; exists {
+		cancel()
+		delete(p.monitors, agentID)
+	}
+
+	if p.BasePlugin.logger != nil {
+		p.BasePlugin.logger.Info("agent destroyed",
+			logger.String("plugin_id", p.id),
+			logger.String("agent_id", agentID),
+		)
+	}
+
+	return nil
+}
+
+// GetAgent returns an AI agent by ID
+func (p *BaseAIAgentPlugin) GetAgent(agentID string) (aicore.AIAgent, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -398,53 +446,12 @@ func (p *BaseAIAgentPlugin) GetAgent(agentID string) (AIAgent, error) {
 	return agent, nil
 }
 
-// RemoveAgent removes an agent
-func (p *BaseAIAgentPlugin) RemoveAgent(agentID string) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	agent, exists := p.agents[agentID]
-	if !exists {
-		return fmt.Errorf("agent %s not found", agentID)
-	}
-
-	// Stop agent
-	if err := agent.Stop(context.Background()); err != nil {
-		p.logger.Warn("failed to stop agent during removal", logger.Error(err))
-	}
-
-	// Remove from coordinator
-	if err := p.coordinator.RemoveAgent(agentID); err != nil {
-		p.logger.Warn("failed to remove agent from coordinator", logger.Error(err))
-	}
-
-	delete(p.agents, agentID)
-
-	// Notify lifecycle event
-	if err := p.OnAgentDestroyed(agentID); err != nil {
-		p.logger.Warn("agent destroyed notification failed", logger.Error(err))
-	}
-
-	if p.logger != nil {
-		p.logger.Info("agent removed",
-			logger.String("agent_id", agentID),
-		)
-	}
-
-	if p.metrics != nil {
-		p.metrics.Counter("forge.plugins.ai_agent_removed").Inc()
-		p.metrics.Gauge("forge.plugins.ai_agents_total").Set(float64(len(p.agents)))
-	}
-
-	return nil
-}
-
-// GetAgents returns all agents
-func (p *BaseAIAgentPlugin) GetAgents() []AIAgent {
+// ListAgents returns all agents
+func (p *BaseAIAgentPlugin) ListAgents() []aicore.AIAgent {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	agents := make([]AIAgent, 0, len(p.agents))
+	agents := make([]aicore.AIAgent, 0, len(p.agents))
 	for _, agent := range p.agents {
 		agents = append(agents, agent)
 	}
@@ -453,214 +460,376 @@ func (p *BaseAIAgentPlugin) GetAgents() []AIAgent {
 }
 
 // GetAgentTypes returns supported agent types
-func (p *BaseAIAgentPlugin) GetAgentTypes() []AgentType {
+func (p *BaseAIAgentPlugin) GetAgentTypes() []aicore.AgentType {
 	return p.agentTypes
 }
 
 // GetAgentCapabilities returns agent capabilities
-func (p *BaseAIAgentPlugin) GetAgentCapabilities() []Capability {
+func (p *BaseAIAgentPlugin) GetAgentCapabilities() []aicore.Capability {
 	return p.capabilities
 }
 
-// TrainAgent trains an agent with provided data
-func (p *BaseAIAgentPlugin) TrainAgent(ctx context.Context, agent AIAgent, data TrainingData) error {
-	// Default implementation - should be overridden by specific plugins
-	if p.logger != nil {
-		p.logger.Info("training agent",
-			logger.String("agent_id", agent.ID()),
-			logger.String("data_type", data.Type),
-			logger.Int("data_points", len(data.Data)),
-		)
-	}
+// GetSupportedInputTypes returns supported input types
+func (p *BaseAIAgentPlugin) GetSupportedInputTypes() []string {
+	return p.supportedInputs
+}
 
-	// Convert training data to feedback
-	for _, point := range data.Data {
-		feedback := AgentFeedback{
-			ActionID:  fmt.Sprintf("training-%d", time.Now().UnixNano()),
-			Success:   true, // Assume training data is correct
-			Outcome:   point.Expected,
-			Context:   point.Context,
+// GetSupportedOutputTypes returns supported output types
+func (p *BaseAIAgentPlugin) GetSupportedOutputTypes() []string {
+	return p.supportedOutputs
+}
+
+// TrainAgent trains an agent with provided data
+func (p *BaseAIAgentPlugin) TrainAgent(ctx context.Context, agent aicore.AIAgent, data TrainingData) error {
+	p.mu.Lock()
+	job := &TrainingJob{
+		AgentID:   agent.ID(),
+		Status:    "training",
+		Progress:  0.0,
+		StartedAt: time.Now(),
+	}
+	p.trainingJobs[agent.ID()] = job
+	p.mu.Unlock()
+
+	// OnStart training in background
+	go func() {
+		defer func() {
+			job.mu.Lock()
+			job.CompletedAt = time.Now()
+			if job.Error == nil {
+				job.Status = "completed"
+				job.Progress = 1.0
+			} else {
+				job.Status = "failed"
+			}
+			job.mu.Unlock()
+		}()
+
+		// Convert training data to agent feedback
+		feedback := aicore.AgentFeedback{
+			ActionID:  fmt.Sprintf("training-%d", time.Now().Unix()),
+			Success:   true, // Assume success for base implementation
+			Outcome:   data.Data,
+			Metrics:   map[string]float64{"accuracy": 0.85}, // Mock metrics
+			Context:   data.Metadata,
 			Timestamp: time.Now(),
 		}
 
 		if err := agent.Learn(ctx, feedback); err != nil {
-			return fmt.Errorf("failed to train agent: %w", err)
+			job.mu.Lock()
+			job.Error = err
+			job.mu.Unlock()
 		}
-	}
-
-	if p.metrics != nil {
-		p.metrics.Counter("forge.plugins.ai_agent_trained").Inc()
-	}
+	}()
 
 	return nil
 }
 
-// OptimizeAgent optimizes an agent based on metrics
-func (p *BaseAIAgentPlugin) OptimizeAgent(ctx context.Context, agentID string, metrics OptimizationMetrics) error {
+// UpdateAgentModel updates an agent's model
+func (p *BaseAIAgentPlugin) UpdateAgentModel(ctx context.Context, agentID string, modelData []byte) error {
 	agent, err := p.GetAgent(agentID)
 	if err != nil {
 		return err
 	}
 
-	// Convert optimization metrics to feedback
-	avgRating := 0.0
-	for _, feedback := range metrics.UserFeedback {
-		avgRating += feedback.Rating
-	}
-	if len(metrics.UserFeedback) > 0 {
-		avgRating /= float64(len(metrics.UserFeedback))
-	}
+	// Base implementation - should be overridden
+	_ = agent
+	_ = modelData
 
-	feedback := AgentFeedback{
-		ActionID: fmt.Sprintf("optimization-%d", time.Now().UnixNano()),
-		Success:  metrics.Accuracy > 0.8 && metrics.ErrorRate < 0.1,
-		Outcome:  metrics,
-		Metrics: map[string]float64{
-			"accuracy":    metrics.Accuracy,
-			"error_rate":  metrics.ErrorRate,
-			"throughput":  metrics.Throughput,
-			"user_rating": avgRating,
-		},
-		Context: map[string]interface{}{
-			"optimization": true,
-			"latency":      metrics.Latency.String(),
-		},
-		Timestamp: time.Now(),
-	}
-
-	if err := agent.Learn(ctx, feedback); err != nil {
-		return fmt.Errorf("failed to optimize agent: %w", err)
-	}
-
-	if p.logger != nil {
-		p.logger.Info("agent optimized",
+	if p.BasePlugin.logger != nil {
+		p.BasePlugin.logger.Info("agent model updated",
 			logger.String("agent_id", agentID),
-			logger.Float64("accuracy", metrics.Accuracy),
-			logger.Float64("error_rate", metrics.ErrorRate),
+			logger.Int("model_size", len(modelData)),
 		)
-	}
-
-	if p.metrics != nil {
-		p.metrics.Counter("forge.plugins.ai_agent_optimized").Inc()
 	}
 
 	return nil
 }
 
-// CreateCoordination creates coordination between agents
-func (p *BaseAIAgentPlugin) CreateCoordination(agents []string, strategy CoordinationStrategy) (Coordination, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	coordID := fmt.Sprintf("coord-%d", time.Now().UnixNano())
-	coordination := Coordination{
-		ID:       coordID,
-		Agents:   agents,
-		Strategy: strategy,
-		State: CoordinationState{
-			Status:    "active",
-			Current:   agents[0], // Start with first agent
-			Queue:     agents[1:],
-			Conflicts: []ConflictResolution{},
-			Metrics:   make(map[string]interface{}),
-			Updated:   time.Now(),
-		},
-		Metadata: make(map[string]interface{}),
-		Created:  time.Now(),
-		Updated:  time.Now(),
-	}
-
-	p.coordinations[coordID] = coordination
-
-	if p.logger != nil {
-		p.logger.Info("coordination created",
-			logger.String("coordination_id", coordID),
-			logger.String("agents", fmt.Sprintf("%v", agents)),
-			logger.String("strategy", strategy.Type),
-		)
-	}
-
-	return coordination, nil
-}
-
-// GetCoordinations returns all coordinations
-func (p *BaseAIAgentPlugin) GetCoordinations() []Coordination {
+// GetTrainingStatus returns training status for an agent
+func (p *BaseAIAgentPlugin) GetTrainingStatus(agentID string) (TrainingStatus, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	coords := make([]Coordination, 0, len(p.coordinations))
-	for _, coord := range p.coordinations {
-		coords = append(coords, coord)
+	job, exists := p.trainingJobs[agentID]
+	if !exists {
+		return TrainingStatus{}, fmt.Errorf("no training job found for agent %s", agentID)
 	}
 
-	return coords
-}
+	job.mu.RLock()
+	defer job.mu.RUnlock()
 
-// OnAgentCreated handles agent creation event
-func (p *BaseAIAgentPlugin) OnAgentCreated(agent AIAgent) error {
-	// Default implementation - can be overridden
-	if p.logger != nil {
-		p.logger.Info("agent lifecycle: created",
-			logger.String("agent_id", agent.ID()),
-		)
+	status := TrainingStatus{
+		AgentID:   agentID,
+		Status:    job.Status,
+		Progress:  job.Progress,
+		StartedAt: job.StartedAt,
 	}
-	return nil
+
+	if job.Error != nil {
+		status.Message = job.Error.Error()
+	}
+
+	return status, nil
 }
 
-// OnAgentDestroyed handles agent destruction event
-func (p *BaseAIAgentPlugin) OnAgentDestroyed(agentID string) error {
-	// Default implementation - can be overridden
-	if p.logger != nil {
-		p.logger.Info("agent lifecycle: destroyed",
+// OptimizeAgent optimizes an agent based on criteria
+func (p *BaseAIAgentPlugin) OptimizeAgent(ctx context.Context, agentID string, criteria OptimizationCriteria) error {
+	agent, err := p.GetAgent(agentID)
+	if err != nil {
+		return err
+	}
+
+	// Base implementation - should be overridden
+	_ = agent
+	_ = criteria
+
+	if p.BasePlugin.logger != nil {
+		p.BasePlugin.logger.Info("agent optimization started",
 			logger.String("agent_id", agentID),
+			logger.String("objectives", fmt.Sprintf("%v", criteria.Objectives)),
 		)
 	}
+
 	return nil
 }
 
-// OnAgentError handles agent error event
-func (p *BaseAIAgentPlugin) OnAgentError(agentID string, err error) error {
-	// Default implementation - can be overridden
-	if p.logger != nil {
-		p.logger.Error("agent lifecycle: error",
-			logger.String("agent_id", agentID),
-			logger.Error(err),
-		)
+// GetAgentOptimizationSuggestions returns optimization suggestions for an agent
+func (p *BaseAIAgentPlugin) GetAgentOptimizationSuggestions(agentID string) ([]AgentOptimizationSuggestion, error) {
+	agent, err := p.GetAgent(agentID)
+	if err != nil {
+		return nil, err
 	}
+
+	// Base implementation - return mock suggestions
+	stats := agent.GetStats()
+	suggestions := []AgentOptimizationSuggestion{}
+
+	if stats.ErrorRate > 0.1 {
+		suggestions = append(suggestions, AgentOptimizationSuggestion{
+			Type:        "training",
+			Category:    "accuracy",
+			Suggestion:  "Increase training data or adjust model parameters",
+			Impact:      "high",
+			Effort:      "medium",
+			Confidence:  0.8,
+			Description: "High error rate detected, additional training recommended",
+		})
+	}
+
+	if stats.AverageLatency > 100*time.Millisecond {
+		suggestions = append(suggestions, AgentOptimizationSuggestion{
+			Type:        "optimization",
+			Category:    "performance",
+			Suggestion:  "Optimize model inference pipeline",
+			Impact:      "medium",
+			Effort:      "low",
+			Confidence:  0.9,
+			Description: "Latency above threshold, optimization recommended",
+		})
+	}
+
+	return suggestions, nil
+}
+
+// GetAgentPerformance returns performance metrics for an agent
+func (p *BaseAIAgentPlugin) GetAgentPerformance(agentID string) (AgentPerformance, error) {
+	agent, err := p.GetAgent(agentID)
+	if err != nil {
+		return AgentPerformance{}, err
+	}
+
+	stats := agent.GetStats()
+	health := agent.GetHealth()
+
+	return AgentPerformance{
+		AgentID:         agentID,
+		Accuracy:        stats.LearningMetrics.AccuracyScore,
+		Latency:         stats.AverageLatency,
+		ErrorRate:       stats.ErrorRate,
+		ConfidenceScore: stats.Confidence,
+		CustomMetrics:   make(map[string]interface{}),
+		LastUpdated:     time.Now(),
+	}, nil
+}
+
+// GetAgentAnalytics returns analytics data for an agent
+func (p *BaseAIAgentPlugin) GetAgentAnalytics(agentID string, timeRange TimeRange) (AgentAnalytics, error) {
+	agent, err := p.GetAgent(agentID)
+	if err != nil {
+		return AgentAnalytics{}, err
+	}
+
+	stats := agent.GetStats()
+
+	// Base implementation - return mock analytics
+	return AgentAnalytics{
+		AgentID:           agentID,
+		TimeRange:         timeRange,
+		RequestCount:      stats.TotalProcessed,
+		SuccessCount:      stats.TotalProcessed - stats.TotalErrors,
+		ErrorCount:        stats.TotalErrors,
+		AverageLatency:    stats.AverageLatency,
+		ThroughputHistory: []ThroughputPoint{},
+		AccuracyHistory:   []AccuracyPoint{},
+		ErrorDistribution: make(map[string]int64),
+		ConfidenceTrend:   []ConfidencePoint{},
+		UserFeedback:      []UserFeedbackPoint{},
+		ResourceUsage:     []ResourceUsagePoint{},
+		Insights:          []AnalyticsInsight{},
+	}, nil
+}
+
+// MonitorAgent monitors an agent
+func (p *BaseAIAgentPlugin) MonitorAgent(ctx context.Context, agentID string, callback MonitorCallback) error {
+	agent, err := p.GetAgent(agentID)
+	if err != nil {
+		return err
+	}
+
+	// Cancel existing monitor if any
+	p.mu.Lock()
+	if cancel, exists := p.monitors[agentID]; exists {
+		cancel()
+	}
+
+	// OnStart monitoring
+	ctx, cancel := context.WithCancel(ctx)
+	p.monitors[agentID] = cancel
+	p.mu.Unlock()
+
+	// Monitor in background
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				stats := agent.GetStats()
+				health := agent.GetHealth()
+
+				event := MonitorEvent{
+					Type:      "stats",
+					Timestamp: time.Now(),
+					Data: map[string]interface{}{
+						"processed":     stats.TotalProcessed,
+						"errors":        stats.TotalErrors,
+						"error_rate":    stats.ErrorRate,
+						"confidence":    stats.Confidence,
+						"health_status": health.Status,
+					},
+					Severity: "info",
+				}
+
+				if stats.ErrorRate > 0.2 {
+					event.Severity = "warning"
+				}
+
+				callback(agentID, event)
+			}
+		}
+	}()
+
 	return nil
 }
 
-// createAgentByType creates an agent based on its type
-func (p *BaseAIAgentPlugin) createAgentByType(config AgentConfig) (ai.AIAgent, error) {
-	switch config.Type {
-	case ai.AgentTypeAnomalyDetection:
-		return agents.NewAnomalyDetectionAgent(config.ID, config.Name), nil
-	case ai.AgentTypeCacheManager:
-		return agents.NewCacheAgent(), nil
-	case ai.AgentTypeJobScheduler:
-		return
+// Implement remaining Plugin interface methods
 
+func (p *BaseAIAgentPlugin) Capabilities() []plugins.PluginCapability {
+	capabilities := make([]plugins.PluginCapability, len(p.capabilities))
+	for i, cap := range p.capabilities {
+		capabilities[i] = plugins.PluginCapability{
+			Name:        cap.Name,
+			Description: cap.Description,
+			Interface:   "AIAgent",
+			Methods:     []string{"Process", "Learn", "GetStats"},
+			Metadata:    cap.Metadata,
+		}
 	}
-	agent := ai.NewBaseAIAgent(config.ID, config.Name, config.Type, config.Capabilities, p.logger, p.metrics)
-	return agent, nil
+	return capabilities
 }
 
-// SetAgentTypes sets the supported agent types
-func (p *BaseAIAgentPlugin) SetAgentTypes(types []AgentType) {
-	p.agentTypes = types
+func (p *BaseAIAgentPlugin) Dependencies() []plugins.PluginDependency {
+	return []plugins.PluginDependency{
+		{
+			Name:     "ai-manager",
+			Type:     "service",
+			Required: true,
+		},
+		{
+			Name:     "logger",
+			Type:     "service",
+			Required: false,
+		},
+	}
 }
 
-// SetAgentCapabilities sets the agent capabilities
-func (p *BaseAIAgentPlugin) SetAgentCapabilities(capabilities []Capability) {
-	p.capabilities = capabilities
+func (p *BaseAIAgentPlugin) Middleware() []common.MiddlewareDefinition {
+	return []common.MiddlewareDefinition{}
 }
 
-// GetCoordinator returns the agent coordinator
-func (p *BaseAIAgentPlugin) GetCoordinator() AgentCoordinator {
-	return p.coordinator
+func (p *BaseAIAgentPlugin) Routes() []common.RouteDefinition {
+	return []common.RouteDefinition{}
 }
 
-// SetCoordinator sets the agent coordinator
-func (p *BaseAIAgentPlugin) SetCoordinator(coordinator AgentCoordinator) {
-	p.coordinator = coordinator
+func (p *BaseAIAgentPlugin) Services() []common.ServiceDefinition {
+	return []common.ServiceDefinition{}
+}
+
+func (p *BaseAIAgentPlugin) Commands() []plugins.CLICommand {
+	return []plugins.CLICommand{}
+}
+
+func (p *BaseAIAgentPlugin) Hooks() []plugins.Hook {
+	return []plugins.Hook{}
+}
+
+func (p *BaseAIAgentPlugin) ConfigSchema() plugins.ConfigSchema {
+	return plugins.ConfigSchema{}
+}
+
+func (p *BaseAIAgentPlugin) Configure(config interface{}) error {
+	return nil
+}
+
+func (p *BaseAIAgentPlugin) GetConfig() interface{} {
+	return nil
+}
+
+func (p *BaseAIAgentPlugin) HealthCheck(ctx context.Context) error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if !p.BasePlugin.started {
+		return fmt.Errorf("plugin not started")
+	}
+
+	// Check agent health
+	for agentID, agent := range p.agents {
+		health := agent.GetHealth()
+		if health.Status == aicore.AgentHealthStatusUnhealthy {
+			return fmt.Errorf("agent %s is unhealthy: %s", agentID, health.Message)
+		}
+	}
+
+	return nil
+}
+
+func (p *BaseAIAgentPlugin) GetMetrics() plugins.PluginMetrics {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return plugins.PluginMetrics{
+		CallCount:      int64(len(p.agents)),
+		ErrorCount:     0,
+		AverageLatency: 0,
+		LastExecuted:   time.Now(),
+		MemoryUsage:    0,
+		CPUUsage:       0,
+		HealthScore:    1.0,
+		Uptime:         time.Since(time.Now()),
+	}
 }

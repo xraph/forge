@@ -698,11 +698,11 @@ func (m *StreamingMetricsMiddleware) MiddlewareDefinition() common.MiddlewareDef
 // RegisterStreamingMetricsMiddleware registers streaming metrics middleware with the router
 func RegisterStreamingMetricsMiddleware(router common.Router, collector metrics.MetricsCollector) error {
 	middleware := CreateStreamingMetricsMiddleware(collector)
-	return router.AddMiddleware(middleware.MiddlewareDefinition())
+	return router.Use(middleware.MiddlewareDefinition())
 }
 
 // RegisterStreamingMetricsMiddlewareWithConfig registers streaming metrics middleware with custom config
 func RegisterStreamingMetricsMiddlewareWithConfig(router common.Router, collector metrics.MetricsCollector, config *StreamingMetricsConfig) error {
 	middleware := CreateStreamingMetricsMiddlewareWithConfig(collector, config)
-	return router.AddMiddleware(middleware.MiddlewareDefinition())
+	return router.Use(middleware.MiddlewareDefinition())
 }

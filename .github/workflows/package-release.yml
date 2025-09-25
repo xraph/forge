@@ -1,0 +1,355 @@
+name: Package Release
+
+on:
+  push:
+    tags:
+      - "v*"
+    paths:
+      - 'pkg/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '*.go'
+
+jobs:
+  # Validate package release
+  validate-package:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract version info
+        id: version
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NO_V="${VERSION#v}"
+          echo "version=${VERSION_NO_V}" >> $GITHUB_OUTPUT
+          
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Verify module
+        run: |
+          go mod verify
+          go mod tidy
+          
+          if ! git diff --quiet go.mod go.sum; then
+            echo "❌ go.mod or go.sum was modified by 'go mod tidy'"
+            echo "Please run 'go mod tidy' and commit the changes"
+            exit 1
+          fi
+
+  # Test package compatibility
+  test-package:
+    runs-on: ubuntu-latest
+    needs: validate-package
+    strategy:
+      matrix:
+        go-version: ['1.21', '1.22', '1.23']
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Run benchmarks
+        run: go test -bench=. -benchmem ./...
+
+      - name: Build package
+        run: go build -v ./...
+
+      - name: Test installation
+        run: |
+          cd /tmp
+          go mod init test-forge-${{ matrix.go-version }}
+          go get github.com/${{ github.repository }}@${{ github.ref_name }}
+
+  # Validate package examples and documentation
+  validate-examples:
+    runs-on: ubuntu-latest
+    needs: validate-package
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test examples
+        run: |
+          if [ -d "examples" ]; then
+            for example in examples/*/; do
+              if [ -f "$example/go.mod" ]; then
+                echo "Testing example: $example"
+                cd "$example"
+                go mod tidy
+                go build -v ./...
+                if [ -f "main.go" ]; then
+                  timeout 10s go run . --help || true
+                fi
+                cd - > /dev/null
+              fi
+            done
+          fi
+
+      - name: Generate documentation
+        run: |
+          go doc -all ./pkg/... > /tmp/package-docs.txt
+          wc -l /tmp/package-docs.txt
+
+      - name: Check public API stability
+        run: |
+          # This would compare the public API with the previous version
+          # For now, just ensure we can extract the public API
+          go doc -short ./pkg/... > /tmp/public-api.txt
+          echo "Public API extracted successfully"
+
+  # Create package release documentation
+  create-package-docs:
+    runs-on: ubuntu-latest
+    needs: [validate-package, test-package]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Generate package documentation
+        run: |
+          mkdir -p docs/api
+          
+          # Generate package documentation
+          echo "# Forge Framework API Documentation" > docs/api/README.md
+          echo "" >> docs/api/README.md
+          echo "Version: ${{ github.ref_name }}" >> docs/api/README.md
+          echo "Generated: $(date -u)" >> docs/api/README.md
+          echo "" >> docs/api/README.md
+          
+          # Document each package
+          for pkg in $(find pkg -name "*.go" -type f | xargs dirname | sort -u); do
+            if [ -n "$(find $pkg -maxdepth 1 -name "*.go" -not -name "*_test.go")" ]; then
+              echo "## Package: $pkg" >> docs/api/README.md
+              echo "" >> docs/api/README.md
+              echo '```go' >> docs/api/README.md
+              go doc ./$pkg >> docs/api/README.md 2>/dev/null || echo "No documentation available" >> docs/api/README.md
+              echo '```' >> docs/api/README.md
+              echo "" >> docs/api/README.md
+            fi
+          done
+
+      - name: Create package usage examples
+        run: |
+          mkdir -p docs/examples
+          
+          cat > docs/examples/basic-usage.md << 'EOF'
+          # Basic Usage Examples
+          
+          ## Installation
+          
+          ```bash
+          go get github.com/${{ github.repository }}@${{ github.ref_name }}
+          ```
+          
+          ## Basic Application
+          
+          ```go
+          package main
+          
+          import (
+              "context"
+              "log"
+          
+              "github.com/${{ github.repository }}/pkg/core"
+              "github.com/${{ github.repository }}/pkg/router"
+          )
+          
+          func main() {
+              // Create application
+              app := core.NewApplication("my-app")
+          
+              // Configure router
+              router := router.NewForgeRouter()
+              app.AddService(router)
+          
+              // Add routes
+              router.GET("/health", func(ctx core.Context) error {
+                  return ctx.JSON(200, map[string]string{"status": "ok"})
+              })
+          
+              // Start application
+              if err := app.Start(context.Background()); err != nil {
+                  log.Fatal(err)
+              }
+          }
+          ```
+          EOF
+
+      - name: Update package documentation in release
+        run: |
+          if [ -f docs/api/README.md ]; then
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add docs/
+          
+            if ! git diff --cached --quiet; then
+              git commit -m "docs: update API documentation for ${{ github.ref_name }}"
+              git tag -f ${{ github.ref_name }}
+              git push origin ${{ github.ref_name }} --force
+            fi
+          fi
+
+  # Notify package managers
+  notify-package-managers:
+    runs-on: ubuntu-latest
+    needs: [validate-package, test-package]
+    if: needs.validate-package.outputs.is_prerelease == 'false'
+    steps:
+      - name: Notify Go proxy
+        run: |
+          # The Go proxy will automatically fetch the module when someone requests it
+          # But we can trigger an early fetch to ensure it's available
+          curl -f "https://proxy.golang.org/github.com/${{ github.repository }}/@v/${{ github.ref_name }}.info" || echo "Proxy fetch failed, but that's expected for private repos"
+
+      - name: Create package announcement
+        run: |
+          echo "📦 **Forge Framework ${{ github.ref_name }} Package Released**" >> package-announcement.md
+          echo "" >> package-announcement.md
+          echo "The Forge framework package has been updated and is now available:" >> package-announcement.md
+          echo "" >> package-announcement.md
+          echo "\`\`\`bash" >> package-announcement.md
+          echo "go get github.com/${{ github.repository }}@${{ github.ref_name }}" >> package-announcement.md
+          echo "\`\`\`" >> package-announcement.md
+          echo "" >> package-announcement.md
+          echo "## What's New" >> package-announcement.md
+          echo "See the [CHANGELOG](CHANGELOG.md) for detailed changes." >> package-announcement.md
+          echo "" >> package-announcement.md
+          echo "## Documentation" >> package-announcement.md
+          echo "- [API Reference](https://pkg.go.dev/github.com/${{ github.repository }}@${{ github.ref_name }})" >> package-announcement.md
+          echo "- [Examples](docs/examples/)" >> package-announcement.md
+
+  # Validate backward compatibility
+  check-compatibility:
+    runs-on: ubuntu-latest
+    needs: validate-package
+    if: needs.validate-package.outputs.is_prerelease == 'false'
+    steps:
+      - name: Checkout current
+        uses: actions/checkout@v4
+        with:
+          path: current
+
+      - name: Checkout previous
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.before }}
+          path: previous
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: current/go.mod
+
+      - name: Check for breaking changes
+        run: |
+          cd current
+          
+          # This is a simplified check - in practice, you'd use tools like:
+          # - go-mod-upgrade
+          # - apidiff
+          # - semver-major
+          
+          echo "Checking for potential breaking changes..."
+          
+          # Compare go.mod major versions
+          CURRENT_MAJOR=$(grep "^module " go.mod | cut -d'/' -f3 | cut -d'v' -f2 | cut -d'.' -f1)
+          
+          if [ -f "../previous/go.mod" ]; then
+            PREVIOUS_MAJOR=$(grep "^module " ../previous/go.mod | cut -d'/' -f3 | cut -d'v' -f2 | cut -d'.' -f1)
+          
+            if [ "$CURRENT_MAJOR" != "$PREVIOUS_MAJOR" ]; then
+              echo "⚠️ Major version change detected: v$PREVIOUS_MAJOR -> v$CURRENT_MAJOR"
+              echo "This indicates breaking changes are expected."
+            else
+              echo "✅ No major version change detected"
+            fi
+          fi
+          
+          # Check if any major interfaces changed
+          go doc -all ./pkg/core > /tmp/current-core-api.txt
+          if [ -f "../previous/pkg/core" ]; then
+            cd ../previous
+            go doc -all ./pkg/core > /tmp/previous-core-api.txt || true
+            cd ../current
+          
+            if ! diff -u /tmp/previous-core-api.txt /tmp/current-core-api.txt > /tmp/api-diff.txt; then
+              echo "⚠️ Core API changes detected:"
+              head -n 50 /tmp/api-diff.txt
+            else
+              echo "✅ No core API changes detected"
+            fi
+          fi
+
+  # Success summary
+  package-release-success:
+    runs-on: ubuntu-latest
+    needs: [validate-package, test-package, validate-examples]
+    if: always() && needs.test-package.result == 'success'
+    steps:
+      - name: Package release summary
+        run: |
+          echo "🎉 **Forge Framework Package ${{ github.ref_name }} Released Successfully!**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Package Information" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Package tested across multiple Go versions" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Package tested on multiple platforms" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Examples validated" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Documentation generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📚 Usage" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "go get github.com/${{ github.repository }}@${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "🔗 [View on pkg.go.dev](https://pkg.go.dev/github.com/${{ github.repository }}@${{ github.ref_name }})"

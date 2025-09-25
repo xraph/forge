@@ -467,11 +467,11 @@ func CreateHTTPMetricsMiddlewareWithConfig(collector metrics.MetricsCollector, c
 // RegisterHTTPMetricsMiddleware registers HTTP metrics middleware with the router
 func RegisterHTTPMetricsMiddleware(router common.Router, collector metrics.MetricsCollector) error {
 	middleware := CreateHTTPMetricsMiddleware(collector)
-	return router.AddMiddleware(middleware)
+	return router.Use(middleware)
 }
 
 // RegisterHTTPMetricsMiddlewareWithConfig registers HTTP metrics middleware with custom config
 func RegisterHTTPMetricsMiddlewareWithConfig(router common.Router, collector metrics.MetricsCollector, config *HTTPMetricsConfig) error {
 	middleware := CreateHTTPMetricsMiddlewareWithConfig(collector, config)
-	return router.AddMiddleware(middleware)
+	return router.Use(middleware)
 }

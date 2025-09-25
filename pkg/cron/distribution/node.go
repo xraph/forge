@@ -196,7 +196,7 @@ func (nm *NodeManager) Start(ctx context.Context) error {
 		return common.ErrLifecycleError("start", fmt.Errorf("node manager already started"))
 	}
 
-	// Start background tasks
+	// OnStart background tasks
 	nm.wg.Add(4)
 	go nm.heartbeatLoop(ctx)
 	go nm.healthCheckLoop(ctx)

@@ -53,7 +53,7 @@ func (s *AIService) Dependencies() []string {
 
 // OnStart starts the AI service and initializes default agents
 func (s *AIService) OnStart(ctx context.Context) error {
-	// Start the AI manager
+	// OnStart the AI manager
 	if err := s.AIManager.OnStart(ctx); err != nil {
 		return err
 	}

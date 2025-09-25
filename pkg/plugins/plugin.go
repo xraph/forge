@@ -5,147 +5,53 @@ import (
 	"time"
 
 	"github.com/xraph/forge/pkg/common"
+	common2 "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // Plugin defines the interface for framework plugins
-type Plugin interface {
-	// Basic plugin information
-	ID() string
-	Name() string
-	Version() string
-	Description() string
-	Author() string
-	License() string
-
-	// Plugin lifecycle
-	Initialize(ctx context.Context, container common.Container) error
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
-	Cleanup(ctx context.Context) error
-
-	// Plugin capabilities
-	Type() PluginType
-	Capabilities() []PluginCapability
-	Dependencies() []PluginDependency
-
-	// Plugin extensions
-	Middleware() []common.MiddlewareDefinition
-	Routes() []common.RouteDefinition
-	Services() []common.ServiceDefinition
-	Commands() []CLICommand
-	Hooks() []Hook
-
-	// Plugin configuration
-	ConfigSchema() ConfigSchema
-	Configure(config interface{}) error
-	GetConfig() interface{}
-
-	// Plugin health and metrics
-	HealthCheck(ctx context.Context) error
-	GetMetrics() PluginMetrics
-}
+type Plugin = common2.Plugin
 
 // PluginType defines the type of plugin
-type PluginType string
+type PluginType = common2.PluginType
 
 const (
-	PluginTypeMiddleware  PluginType = "middleware"  // HTTP middleware plugins
-	PluginTypeDatabase    PluginType = "database"    // Database adapter plugins
-	PluginTypeAuth        PluginType = "auth"        // Authentication plugins
-	PluginTypeCache       PluginType = "cache"       // Cache backend plugins
-	PluginTypeStorage     PluginType = "storage"     // Storage backend plugins
-	PluginTypeMessaging   PluginType = "messaging"   // Message broker plugins
-	PluginTypeMonitoring  PluginType = "monitoring"  // Monitoring plugins
-	PluginTypeAI          PluginType = "ai"          // AI agent plugins
-	PluginTypeSecurity    PluginType = "security"    // Security plugins
-	PluginTypeIntegration PluginType = "integration" // Third-party integration plugins
-	PluginTypeUtility     PluginType = "utility"     // Utility plugins
-	PluginTypeExtension   PluginType = "extension"   // Framework extensions
+	PluginTypeMiddleware  = common2.PluginTypeMiddleware
+	PluginTypeDatabase    = common2.PluginTypeDatabase
+	PluginTypeAuth        = common2.PluginTypeAuth
+	PluginTypeCache       = common2.PluginTypeCache
+	PluginTypeStorage     = common2.PluginTypeStorage
+	PluginTypeMessaging   = common2.PluginTypeMessaging
+	PluginTypeMonitoring  = common2.PluginTypeMonitoring
+	PluginTypeAI          = common2.PluginTypeAI
+	PluginTypeSecurity    = common2.PluginTypeSecurity
+	PluginTypeIntegration = common2.PluginTypeIntegration
+	PluginTypeUtility     = common2.PluginTypeUtility
+	PluginTypeExtension   = common2.PluginTypeExtension
 )
 
 // PluginCapability describes what a plugin can do
-type PluginCapability struct {
-	Name        string                 `json:"name"`
-	Version     string                 `json:"version"`
-	Description string                 `json:"description"`
-	Interface   string                 `json:"interface"`
-	Methods     []string               `json:"methods"`
-	Metadata    map[string]interface{} `json:"metadata"`
-}
+type PluginCapability = common2.PluginCapability
 
 // PluginDependency describes a plugin dependency
-type PluginDependency struct {
-	Name       string `json:"name"`
-	Version    string `json:"version"`
-	Type       string `json:"type"` // plugin, service, package
-	Required   bool   `json:"required"`
-	Constraint string `json:"constraint"` // version constraint
-}
+type PluginDependency = common2.PluginDependency
 
 // PluginMetrics contains plugin performance metrics
-type PluginMetrics struct {
-	CallCount      int64         `json:"call_count"`
-	ErrorCount     int64         `json:"error_count"`
-	AverageLatency time.Duration `json:"average_latency"`
-	LastExecuted   time.Time     `json:"last_executed"`
-	MemoryUsage    int64         `json:"memory_usage"`
-	CPUUsage       float64       `json:"cpu_usage"`
-	HealthScore    float64       `json:"health_score"`
-	Uptime         time.Duration `json:"uptime"`
-}
+type PluginMetrics = common2.PluginMetrics
 
 // CLICommand represents a CLI command provided by a plugin
-type CLICommand struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Usage       string     `json:"usage"`
-	Flags       []CLIFlag  `json:"flags"`
-	Handler     CLIHandler `json:"-"`
-	Category    string     `json:"category"`
-	Hidden      bool       `json:"hidden"`
-	Aliases     []string   `json:"aliases"`
-	Examples    []string   `json:"examples"`
-}
+type CLICommand = common2.CLICommand
 
 // CLIFlag represents a command line flag
-type CLIFlag struct {
-	Name        string      `json:"name"`
-	ShortName   string      `json:"short_name"`
-	Description string      `json:"description"`
-	Required    bool        `json:"required"`
-	Default     interface{} `json:"default"`
-	Type        string      `json:"type"`
-}
+type CLIFlag = common2.CLIFlag
 
 // CLIHandler defines the signature for CLI command handlers
-type CLIHandler func(ctx context.Context, args []string, flags map[string]interface{}) error
+type CLIHandler = common2.CLIHandler
 
 // ConfigSchema defines the configuration schema for a plugin
-type ConfigSchema struct {
-	Version    string                    `json:"version"`
-	Type       string                    `json:"type"`
-	Title      string                    `json:"title"`
-	Properties map[string]ConfigProperty `json:"properties"`
-	Required   []string                  `json:"required"`
-	Examples   []interface{}             `json:"examples"`
-}
+type ConfigSchema = common2.ConfigSchema
 
 // ConfigProperty defines a configuration property
-type ConfigProperty struct {
-	Type        string                    `json:"type"`
-	Description string                    `json:"description"`
-	Default     interface{}               `json:"default"`
-	Enum        []interface{}             `json:"enum,omitempty"`
-	Format      string                    `json:"format,omitempty"`
-	Minimum     *float64                  `json:"minimum,omitempty"`
-	Maximum     *float64                  `json:"maximum,omitempty"`
-	MinLength   *int                      `json:"minLength,omitempty"`
-	MaxLength   *int                      `json:"maxLength,omitempty"`
-	Pattern     string                    `json:"pattern,omitempty"`
-	Items       *ConfigProperty           `json:"items,omitempty"`
-	Properties  map[string]ConfigProperty `json:"properties,omitempty"`
-	Required    []string                  `json:"required,omitempty"`
-}
+type ConfigProperty = common2.ConfigProperty
 
 // Hook defines framework extension points
 type Hook interface {
@@ -156,38 +62,27 @@ type Hook interface {
 }
 
 // HookType defines the type of hook
-type HookType string
+type HookType = common2.HookType
 
 const (
-	HookTypePreRequest     HookType = "pre_request"     // Before request processing
-	HookTypePostRequest    HookType = "post_request"    // After request processing
-	HookTypePreMiddleware  HookType = "pre_middleware"  // Before middleware execution
-	HookTypePostMiddleware HookType = "post_middleware" // After middleware execution
-	HookTypePreRoute       HookType = "pre_route"       // Before route handling
-	HookTypePostRoute      HookType = "post_route"      // After route handling
-	HookTypeServiceStart   HookType = "service_start"   // Service startup
-	HookTypeServiceStop    HookType = "service_stop"    // Service shutdown
-	HookTypeError          HookType = "error"           // Error handling
-	HookTypeHealthCheck    HookType = "health_check"    // Health check
-	HookTypeMetrics        HookType = "metrics"         // Metrics collection
+	HookTypePreRequest     = common2.HookTypePreRequest
+	HookTypePostRequest    = common2.HookTypePostRoute
+	HookTypePreMiddleware  = common2.HookTypePreMiddleware
+	HookTypePostMiddleware = common2.HookTypePostMiddleware
+	HookTypePreRoute       = common2.HookTypePreRoute
+	HookTypePostRoute      = common2.HookTypePostRoute
+	HookTypeServiceStart   = common2.HookTypeServiceStart
+	HookTypeServiceStop    = common2.HookTypeServiceStop
+	HookTypeError          = common2.HookTypeError
+	HookTypeHealthCheck    = common2.HookTypeHealthCheck
+	HookTypeMetrics        = common2.HookTypeMetrics
 )
 
 // HookData contains data passed to hooks
-type HookData struct {
-	Type      HookType               `json:"type"`
-	Context   context.Context        `json:"-"`
-	Data      interface{}            `json:"data"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	Timestamp time.Time              `json:"timestamp"`
-}
+type HookData = common2.HookData
 
 // HookResult contains the result of hook execution
-type HookResult struct {
-	Continue bool                   `json:"continue"`
-	Data     interface{}            `json:"data"`
-	Error    error                  `json:"error,omitempty"`
-	Metadata map[string]interface{} `json:"metadata"`
-}
+type HookResult = common2.HookResult
 
 // BasePlugin provides a basic implementation of the Plugin interface
 type BasePlugin struct {
@@ -296,9 +191,9 @@ func (p *BasePlugin) Middleware() []common.MiddlewareDefinition {
 	return []common.MiddlewareDefinition{}
 }
 
-// Routes returns route definitions (empty by default)
-func (p *BasePlugin) Routes() []common.RouteDefinition {
-	return []common.RouteDefinition{}
+// ConfigureRoutes returns route definitions (empty by default)
+func (p *BasePlugin) ConfigureRoutes(router common.Router) error {
+	return nil
 }
 
 // Services returns service definitions (empty by default)
@@ -352,119 +247,47 @@ func (p *BasePlugin) UpdateMetrics(callCount, errorCount int64, latency time.Dur
 }
 
 // PluginInfo contains metadata about a plugin
-type PluginInfo struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Version       string                 `json:"version"`
-	Description   string                 `json:"description"`
-	Author        string                 `json:"author"`
-	License       string                 `json:"license"`
-	Homepage      string                 `json:"homepage"`
-	Repository    string                 `json:"repository"`
-	Tags          []string               `json:"tags"`
-	Category      string                 `json:"category"`
-	Type          PluginType             `json:"type"`
-	Rating        float64                `json:"rating"`
-	Downloads     int64                  `json:"downloads"`
-	CreatedAt     time.Time              `json:"created_at"`
-	UpdatedAt     time.Time              `json:"updated_at"`
-	Capabilities  []PluginCapability     `json:"capabilities"`
-	Dependencies  []PluginDependency     `json:"dependencies"`
-	Compatibility []string               `json:"compatibility"`
-	Screenshots   []string               `json:"screenshots"`
-	Documentation string                 `json:"documentation"`
-	ConfigSchema  ConfigSchema           `json:"config_schema"`
-	Metadata      map[string]interface{} `json:"metadata"`
-}
+type PluginInfo = common2.PluginInfo
 
 // PluginPackage represents a plugin package
-type PluginPackage struct {
-	Info     PluginInfo        `json:"info"`
-	Binary   []byte            `json:"binary"`
-	Config   []byte            `json:"config"`
-	Docs     []byte            `json:"docs"`
-	Assets   map[string][]byte `json:"assets"`
-	Checksum string            `json:"checksum"`
-}
+type PluginPackage = common2.PluginPackage
 
 // PluginStats contains plugin statistics
-type PluginStats struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Version       string                 `json:"version"`
-	Type          PluginType             `json:"type"`
-	State         PluginState            `json:"state"`
-	LoadedAt      time.Time              `json:"loaded_at"`
-	StartedAt     time.Time              `json:"started_at"`
-	Uptime        time.Duration          `json:"uptime"`
-	Metrics       PluginMetrics          `json:"metrics"`
-	Dependencies  []PluginDependency     `json:"dependencies"`
-	Capabilities  []PluginCapability     `json:"capabilities"`
-	MemoryUsage   int64                  `json:"memory_usage"`
-	CPUUsage      float64                `json:"cpu_usage"`
-	LastError     string                 `json:"last_error,omitempty"`
-	HealthScore   float64                `json:"health_score"`
-	Configuration map[string]interface{} `json:"configuration"`
-}
+type PluginStats = common2.PluginStats
 
 // PluginState represents the state of a plugin
-type PluginState string
+type PluginState = common2.PluginState
 
 const (
-	PluginStateUnloaded    PluginState = "unloaded"
-	PluginStateLoaded      PluginState = "loaded"
-	PluginStateInitialized PluginState = "initialized"
-	PluginStateStarted     PluginState = "started"
-	PluginStateStopped     PluginState = "stopped"
-	PluginStateError       PluginState = "error"
+	PluginStateUnloaded    = common2.PluginStateUnloaded
+	PluginStateLoaded      = common2.PluginStateLoaded
+	PluginStateInitialized = common2.PluginStateInitialized
+	PluginStateStarted     = common2.PluginStateStarted
+	PluginStateStopped     = common2.PluginStateStopped
+	PluginStateError       = common2.PluginStateError
 )
 
 // PluginOperation represents an operation that can be performed on a plugin
-type PluginOperation struct {
-	Type       OperationType          `json:"type"`
-	Target     string                 `json:"target"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Timeout    time.Duration          `json:"timeout"`
-	Retries    int                    `json:"retries"`
-	Metadata   map[string]interface{} `json:"metadata"`
-}
+type PluginOperation = common2.PluginOperation
 
 // OperationType defines the type of operation
-type OperationType string
+type OperationType = common2.OperationType
 
 const (
-	OperationTypeLoad      OperationType = "load"
-	OperationTypeUnload    OperationType = "unload"
-	OperationTypeStart     OperationType = "start"
-	OperationTypeStop      OperationType = "stop"
-	OperationTypeConfigure OperationType = "configure"
-	OperationTypeExecute   OperationType = "execute"
-	OperationTypeQuery     OperationType = "query"
+	OperationTypeLoad      = common2.OperationTypeLoad
+	OperationTypeUnload    = common2.OperationTypeUnload
+	OperationTypeStart     = common2.OperationTypeStart
+	OperationTypeStop      = common2.OperationTypeStop
+	OperationTypeConfigure = common2.OperationTypeConfigure
+	OperationTypeExecute   = common2.OperationTypeExecute
+	OperationTypeQuery     = common2.OperationTypeQuery
 )
 
 // PluginRegistry defines the interface for plugin registry
-type PluginRegistry interface {
-	Register(plugin Plugin) error
-	Unregister(pluginID string) error
-	Get(pluginID string) (Plugin, error)
-	List() []Plugin
-	ListByType(pluginType PluginType) []Plugin
-	Search(query string) []Plugin
-	GetStats() RegistryStats
-}
+type PluginRegistry = common2.PluginRegistry
 
 // RegistryStats contains plugin registry statistics
-type RegistryStats struct {
-	TotalPlugins     int                 `json:"total_plugins"`
-	PluginsByType    map[PluginType]int  `json:"plugins_by_type"`
-	PluginsByState   map[PluginState]int `json:"plugins_by_state"`
-	LoadedPlugins    int                 `json:"loaded_plugins"`
-	ActivePlugins    int                 `json:"active_plugins"`
-	FailedPlugins    int                 `json:"failed_plugins"`
-	TotalMemoryUsage int64               `json:"total_memory_usage"`
-	AverageCPUUsage  float64             `json:"average_cpu_usage"`
-	LastUpdated      time.Time           `json:"last_updated"`
-}
+type RegistryStats = common2.RegistryStats
 
 // PluginContext provides context for plugin operations
 type PluginContext struct {

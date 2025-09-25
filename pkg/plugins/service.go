@@ -7,6 +7,8 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
+	"github.com/xraph/forge/pkg/plugins/security"
+	"github.com/xraph/forge/pkg/plugins/store"
 )
 
 // PluginService implements the common.Service interface for plugin management
@@ -45,21 +47,14 @@ type MarketplaceConfig struct {
 }
 
 // SecurityConfig contains security configuration
-type SecurityConfig struct {
-	Enabled             bool     `yaml:"enabled" json:"enabled"`
-	AllowedSources      []string `yaml:"allowed_sources" json:"allowed_sources"`
-	BlockedSources      []string `yaml:"blocked_sources" json:"blocked_sources"`
-	RequireSignature    bool     `yaml:"require_signature" json:"require_signature"`
-	TrustedPublishers   []string `yaml:"trusted_publishers" json:"trusted_publishers"`
-	MaxSandboxMemory    int64    `yaml:"max_sandbox_memory" json:"max_sandbox_memory"`
-	MaxSandboxCPU       float64  `yaml:"max_sandbox_cpu" json:"max_sandbox_cpu"`
-	NetworkIsolation    bool     `yaml:"network_isolation" json:"network_isolation"`
-	FileSystemIsolation bool     `yaml:"filesystem_isolation" json:"filesystem_isolation"`
-}
+type SecurityConfig = security.Config
 
 // NewPluginService creates a new plugin service
 func NewPluginService(container common.Container, logger common.Logger, metrics common.Metrics, config common.ConfigManager) *PluginService {
-	manager := NewPluginManager(container, logger, metrics, config)
+	manager, err := NewPluginManager(container, logger, metrics, config)
+	if err != nil {
+		panic(err)
+	}
 
 	return &PluginService{
 		manager:   manager,
@@ -103,7 +98,7 @@ func (ps *PluginService) OnStart(ctx context.Context) error {
 		return fmt.Errorf("failed to configure plugin manager: %w", err)
 	}
 
-	// Start plugin manager
+	// OnStart plugin manager
 	if err := ps.manager.OnStart(ctx); err != nil {
 		return fmt.Errorf("failed to start plugin manager: %w", err)
 	}
@@ -113,7 +108,7 @@ func (ps *PluginService) OnStart(ctx context.Context) error {
 		ps.logger.Warn("failed to load auto-load plugins", logger.Error(err))
 	}
 
-	// Start background tasks
+	// OnStart background tasks
 	go ps.startBackgroundTasks(ctx)
 
 	ps.started = true
@@ -138,7 +133,7 @@ func (ps *PluginService) OnStop(ctx context.Context) error {
 		return common.ErrServiceNotFound(ps.Name())
 	}
 
-	// Stop plugin manager
+	// OnStop plugin manager
 	if err := ps.manager.OnStop(ctx); err != nil {
 		ps.logger.Error("failed to stop plugin manager", logger.Error(err))
 	}
@@ -468,7 +463,7 @@ func (ps *PluginService) handleSearchPlugins(ctx common.Context) (interface{}, e
 	pluginType := ctx.QueryParam("type")
 	category := ctx.QueryParam("category")
 
-	searchQuery := PluginQuery{
+	searchQuery := store.PluginQuery{
 		Name:     query,
 		Category: category,
 		Limit:    50,
@@ -601,12 +596,12 @@ func (ps *PluginService) startBackgroundTasks(ctx context.Context) {
 		return
 	}
 
-	// Start update check task
+	// OnStart update check task
 	if config.UpdateCheckInterval > 0 {
 		go ps.updateCheckTask(ctx, config.UpdateCheckInterval)
 	}
 
-	// Start health check task
+	// OnStart health check task
 	if config.HealthCheckInterval > 0 {
 		go ps.healthCheckTask(ctx, config.HealthCheckInterval)
 	}

@@ -1,4 +1,0 @@
-You are building an opinionated backend framework in Golang. The project is broken down into phases. Follow the MD files starting with phase*.md,
-were * can be an integer like 1 which specifies the phase with detailed explanation of what is completed and what is missing.
-
-Also follow forge.md to see the complete scope of the project. Implement by the scope I reference building on existing features.

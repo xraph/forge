@@ -224,7 +224,7 @@ func (cs *ConsulSource) Watch(ctx context.Context, callback func(map[string]inte
 	cs.watchStop = make(chan struct{})
 	cs.watching = true
 
-	// Start watching goroutine
+	// OnStart watching goroutine
 	go cs.watchLoop(ctx, callback)
 
 	if cs.logger != nil {
@@ -490,7 +490,7 @@ func (cs *ConsulSource) handleWatchError(err error) {
 		cs.errorHandler.HandleError(nil, common.ErrConfigError(fmt.Sprintf("Consul watch error for prefix %s", cs.prefix), err))
 	}
 
-	// Stop watching on persistent errors
+	// OnStop watching on persistent errors
 	cs.StopWatch()
 }
 

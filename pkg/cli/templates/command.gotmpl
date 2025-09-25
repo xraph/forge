@@ -1,0 +1,142 @@
+// Package template for generating CLI commands
+package templates
+
+const CommandTemplate = `package cmd
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/xraph/forge/pkg/cli"
+	"github.com/xraph/forge/pkg/core"
+	"github.com/xraph/forge/pkg/logger"
+)
+
+// {{.CommandName}}Command represents the {{.CommandName}} command
+type {{.CommandName}}Command struct {
+	// Add command-specific fields here
+	{{range .Fields}}
+	{{.Name}} {{.Type}} ` + "`" + `{{.Tags}}` + "`" + `
+	{{end}}
+}
+
+// New{{.CommandName}}Command creates a new {{.CommandName}} command
+func New{{.CommandName}}Command() *cli.Command {
+	var cmd {{.CommandName}}Command
+
+	return cli.NewCommand("{{.CommandUse}}", "{{.ShortDescription}}").
+		WithLong("{{.LongDescription}}").
+		WithExample(` + "`" + `{{.Example}}` + "`" + `).
+		{{if .Flags}}WithFlags({{range .Flags}}
+			cli.{{.Type}}Flag("{{.Name}}", "{{.Shorthand}}", "{{.Usage}}", {{.Required}}),{{end}}
+		).{{end}}
+		{{if .Services}}WithService({{range .Services}}
+			(*{{.Type}})(nil),{{end}}
+		).{{end}}
+		{{if .Middleware}}WithMiddleware({{range .Middleware}}
+			{{.Name}},{{end}}
+		).{{end}}
+		WithConfig(&cli.CommandConfig{
+			RequireAuth:   {{.RequireAuth}},
+			OutputFormats: []string{{"json", "yaml", "table"}},
+			Timeout:       {{.Timeout}},
+		})
+
+	cmd.Run = cmd.execute
+	{{if .PreRun}}cmd.PreRun = cmd.preRun{{end}}
+	{{if .PostRun}}cmd.PostRun = cmd.postRun{{end}}
+
+	return cmd
+}
+
+// execute runs the {{.CommandName}} command
+func (c *{{.CommandName}}Command) execute(ctx cli.CLIContext, args []string) error {
+	{{if .Services}}// Resolve services{{range .Services}}
+	var {{.Name}} {{.Type}}
+	if err := ctx.Resolve(&{{.Name}}); err != nil {
+		return fmt.Errorf("failed to resolve {{.Name}}: %w", err)
+	}{{end}}{{end}}
+
+	{{if .Flags}}// Get flag values{{range .Flags}}
+	{{.VariableName}}, err := ctx.Get{{.GetterType}}Flag("{{.Name}}")
+	if err != nil {
+		return fmt.Errorf("failed to get {{.Name}} flag: %w", err)
+	}{{end}}{{end}}
+
+	// Log command execution
+	ctx.Info("executing {{.CommandName}} command",
+		logger.StringSlice("args", args),
+		{{range .Flags}}logger.{{.LogType}}("{{.Name}}", {{.VariableName}}),
+		{{end}}
+	)
+
+	// TODO: Implement command logic here
+	{{.Implementation}}
+
+	ctx.Success("{{.CommandName}} command completed successfully")
+	return nil
+}
+
+{{if .PreRun}}// preRun runs before the main command execution
+func (c *{{.CommandName}}Command) preRun(ctx cli.CLIContext, args []string) error {
+	ctx.Debug("pre-run for {{.CommandName}} command")
+	{{.PreRunImplementation}}
+	return nil
+}{{end}}
+
+{{if .PostRun}}// postRun runs after the main command execution
+func (c *{{.CommandName}}Command) postRun(ctx cli.CLIContext, args []string) error {
+	ctx.Debug("post-run for {{.CommandName}} command")
+	{{.PostRunImplementation}}
+	return nil
+}{{end}}
+
+{{if .Validation}}// validate validates command arguments and flags
+func (c *{{.CommandName}}Command) validate(ctx cli.CLIContext, args []string) error {
+	{{.ValidationImplementation}}
+	return nil
+}{{end}}
+
+{{if .CustomMethods}}{{range .CustomMethods}}
+// {{.Name}} {{.Description}}
+func (c *{{.CommandName}}Command) {{.Name}}({{.Parameters}}) {{.ReturnType}} {
+	{{.Implementation}}
+}
+{{end}}{{end}}
+`
+
+const SubcommandTemplate = `package cmd
+
+import (
+	"github.com/xraph/forge/pkg/cli"
+)
+
+// {{.ParentCommand}}Commands contains all subcommands for {{.ParentCommand}}
+type {{.ParentCommand}}Commands struct{}
+
+// New{{.ParentCommand}}Commands creates the {{.ParentCommand}} command group
+func New{{.ParentCommand}}Commands() *cli.Command {
+	return cli.NewCommand("{{.ParentCommandUse}}", "{{.ParentDescription}}").
+		WithLong("{{.ParentLongDescription}}").
+		WithSubcommands(
+			{{range .Subcommands}}New{{.Name}}Command(),
+			{{end}}
+		)
+}
+
+{{range .Subcommands}}
+// New{{.Name}}Command creates the {{.Name}} subcommand
+func New{{.Name}}Command() *cli.Command {
+	return cli.NewCommand("{{.Use}}", "{{.Description}}").
+		WithLong("{{.LongDescription}}").
+		WithExample(` + "`" + `{{.Example}}` + "`" + `)
+
+	cmd.Run = func(ctx cli.CLIContext, args []string) error {
+		{{.Implementation}}
+		return nil
+	}
+
+	return cmd
+}
+{{end}}
+`

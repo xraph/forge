@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"sync"
 
 	"github.com/xraph/forge/pkg/common"
+	"github.com/xraph/forge/pkg/logger"
 )
 
-// Resolver handles dependency resolution with enhanced type alias support
+// Resolver handles dependency resolution with simplified exact type matching
 type Resolver struct {
 	container *Container
 	cache     map[string]interface{}
@@ -25,8 +25,9 @@ func NewResolver(container *Container) *Resolver {
 	}
 }
 
-// CreateInstance creates an instance of a service
+// CreateInstance creates an instance of a service using exact type resolution
 func (r *Resolver) CreateInstance(ctx context.Context, registration *ServiceRegistration) (interface{}, error) {
+	// Check if instance already exists
 	if registration.Instance != nil {
 		return registration.Instance, nil
 	}
@@ -59,7 +60,7 @@ func (r *Resolver) CreateInstance(ctx context.Context, registration *ServiceRegi
 	return instance, nil
 }
 
-// createNewInstance creates a new instance using constructor
+// createNewInstance creates a new instance using constructor injection
 func (r *Resolver) createNewInstance(ctx context.Context, registration *ServiceRegistration) (interface{}, error) {
 	if registration.Constructor == nil {
 		return nil, common.ErrInvalidConfig("constructor", fmt.Errorf("no constructor provided for service %s", registration.Name))
@@ -91,8 +92,8 @@ func (r *Resolver) createNewInstance(ctx context.Context, registration *ServiceR
 			continue
 		}
 
-		// Resolve dependency with enhanced type matching
-		dependency, err := r.resolveDependencyWithEnhancedTypeMatching(ctx, paramType)
+		// Resolve dependency using exact type matching
+		dependency, err := r.resolveDependencyExact(ctx, paramType)
 		if err != nil {
 			return nil, common.ErrDependencyNotFound(registration.Name, paramType.String()).WithCause(err)
 		}
@@ -120,210 +121,110 @@ func (r *Resolver) createNewInstance(ctx context.Context, registration *ServiceR
 	return instance, nil
 }
 
-// resolveDependencyWithEnhancedTypeMatching resolves a dependency with comprehensive type matching
-func (r *Resolver) resolveDependencyWithEnhancedTypeMatching(ctx context.Context, paramType reflect.Type) (interface{}, error) {
-	// Strategy 1: Try exact type match first (most reliable)
-	if dependency, err := r.tryExactTypeMatch(ctx, paramType); err == nil {
-		return dependency, nil
+// resolveDependencyExact resolves a dependency using exact type matching
+func (r *Resolver) resolveDependencyExact(ctx context.Context, paramType reflect.Type) (interface{}, error) {
+	if r.container.logger != nil {
+		r.container.logger.Debug("resolving constructor dependency",
+			logger.String("param_type", paramType.String()),
+			logger.String("param_kind", paramType.Kind().String()),
+		)
 	}
 
-	// Strategy 2: Try type alias matching
-	if dependency, err := r.tryTypeAliasMatch(ctx, paramType); err == nil {
-		return dependency, nil
-	}
-
-	// Strategy 3: Try interface compatibility
-	if paramType.Kind() == reflect.Interface {
-		if dependency, err := r.tryInterfaceMatch(ctx, paramType); err == nil {
-			return dependency, nil
-		}
-	}
-
-	// Strategy 4: Try named service resolution (fallback)
-	if dependency, err := r.tryNamedServiceResolution(ctx, paramType); err == nil {
-		return dependency, nil
-	}
-
-	return nil, common.ErrServiceNotFound(paramType.String())
-}
-
-// tryExactTypeMatch attempts to find an exact type match
-func (r *Resolver) tryExactTypeMatch(ctx context.Context, paramType reflect.Type) (interface{}, error) {
-	// Check registered services by exact type
+	// Strategy 1: Try exact type match in services map
+	r.container.mu.RLock()
 	if registration, exists := r.container.services[paramType]; exists {
+		// FIXED: Added RUnlock to prevent deadlock.
+		r.container.mu.RUnlock()
+		if r.container.logger != nil {
+			r.container.logger.Debug("found exact type match in services map")
+		}
 		return r.CreateInstance(ctx, registration)
 	}
 
-	// Check named services for exact type match
-	for _, registration := range r.container.namedServices {
+	// Strategy 2: Try exact type match in named services
+	for name, registration := range r.container.namedServices {
 		if registration.Type == paramType {
+			// FIXED: Added RUnlock to prevent deadlock.
+			r.container.mu.RUnlock()
+			if r.container.logger != nil {
+				r.container.logger.Debug("found exact type match in named services",
+					logger.String("service_name", name))
+			}
 			return r.CreateInstance(ctx, registration)
 		}
 	}
 
-	return nil, common.ErrServiceNotFound(paramType.String())
-}
-
-// tryTypeAliasMatch attempts to match type aliases
-func (r *Resolver) tryTypeAliasMatch(ctx context.Context, paramType reflect.Type) (interface{}, error) {
-	// Check registered services with enhanced type alias matching
-	for registeredType, registration := range r.container.services {
-		if r.isTypeAlias(paramType, registeredType) {
-			return r.CreateInstance(ctx, registration)
+	// Strategy 3: Interface matching (only if param is interface)
+	if paramType.Kind() == reflect.Interface {
+		if r.container.logger != nil {
+			r.container.logger.Debug("param is interface, checking implementations")
 		}
-	}
 
-	// Check named services with enhanced type alias matching
-	for _, registration := range r.container.namedServices {
-		if r.isTypeAlias(paramType, registration.Type) {
-			return r.CreateInstance(ctx, registration)
+		// Check services map for implementations
+		for serviceType, registration := range r.container.services {
+			if r.implementsInterface(serviceType, paramType) {
+				// FIXED: Added RUnlock to prevent deadlock.
+				r.container.mu.RUnlock()
+				if r.container.logger != nil {
+					r.container.logger.Debug("found interface implementation in services map",
+						logger.String("impl_type", serviceType.String()))
+				}
+				return r.CreateInstance(ctx, registration)
+			}
 		}
-	}
 
-	return nil, common.ErrServiceNotFound(paramType.String())
-}
-
-// tryInterfaceMatch attempts to find interface implementations
-func (r *Resolver) tryInterfaceMatch(ctx context.Context, interfaceType reflect.Type) (interface{}, error) {
-	// Look for implementations in registered services
-	for serviceType, registration := range r.container.services {
-		if r.implementsInterface(serviceType, interfaceType) {
-			return r.CreateInstance(ctx, registration)
-		}
-	}
-
-	// Check named services
-	for _, registration := range r.container.namedServices {
-		if r.implementsInterface(registration.Type, interfaceType) {
-			return r.CreateInstance(ctx, registration)
-		}
-	}
-
-	return nil, common.ErrServiceNotFound(interfaceType.String())
-}
-
-// tryNamedServiceResolution attempts to resolve by common naming patterns
-func (r *Resolver) tryNamedServiceResolution(ctx context.Context, paramType reflect.Type) (interface{}, error) {
-	// Try common naming patterns
-	typeName := paramType.Name()
-	if typeName == "" {
-		return nil, common.ErrServiceNotFound(paramType.String())
-	}
-
-	// Generate possible service names
-	possibleNames := []string{
-		strings.ToLower(typeName),
-		strings.ToLower(typeName) + "-service",
-		strings.ToLower(typeName) + "service",
-		strings.ToLower(strings.TrimSuffix(typeName, "Service")),
-		strings.ToLower(strings.TrimSuffix(typeName, "Interface")),
-		typeName,                // exact case
-		strings.Title(typeName), // title case
-	}
-
-	// First, try direct named service resolution
-	for _, name := range possibleNames {
-		if registration, exists := r.container.namedServices[name]; exists {
-			if r.isCompatibleType(paramType, registration.Type) {
+		// Check named services for implementations
+		for name, registration := range r.container.namedServices {
+			if r.implementsInterface(registration.Type, paramType) {
+				// FIXED: Added RUnlock to prevent deadlock.
+				r.container.mu.RUnlock()
+				if r.container.logger != nil {
+					r.container.logger.Debug("found interface implementation in named services",
+						logger.String("service_name", name),
+						logger.String("impl_type", registration.Type.String()))
+				}
 				return r.CreateInstance(ctx, registration)
 			}
 		}
 	}
 
-	// NEW: Try reference name mappings
-	r.container.mu.RLock()
+	// Strategy 4: Try reference name resolution as fallback
 	referenceMappings := r.container.referenceNameMappings
 	r.container.mu.RUnlock()
 
-	for _, name := range possibleNames {
-		if actualName, mapped := referenceMappings[name]; mapped {
-			if registration, exists := r.container.namedServices[actualName]; exists {
-				if r.isCompatibleType(paramType, registration.Type) {
-					return r.CreateInstance(ctx, registration)
-				}
+	// Try the type name as a reference
+	typeName := paramType.Name()
+	if typeName != "" {
+		if actualName, mapped := referenceMappings[typeName]; mapped {
+			if r.container.logger != nil {
+				r.container.logger.Debug("found reference mapping for type name",
+					logger.String("type_name", typeName),
+					logger.String("actual_service", actualName))
 			}
+			return r.container.ResolveNamed(actualName)
 		}
+	}
+
+	// Try the full type string as a reference
+	typeString := paramType.String()
+	if actualName, mapped := referenceMappings[typeString]; mapped {
+		if r.container.logger != nil {
+			r.container.logger.Debug("found reference mapping for type string",
+				logger.String("type_string", typeString),
+				logger.String("actual_service", actualName))
+		}
+		return r.container.ResolveNamed(actualName)
+	}
+
+	if r.container.logger != nil {
+		r.container.logger.Error("failed to resolve dependency",
+			logger.String("param_type", paramType.String()))
 	}
 
 	return nil, common.ErrServiceNotFound(paramType.String())
 }
 
-// isTypeAlias checks if two types are aliases of each other with comprehensive checking
-func (r *Resolver) isTypeAlias(type1, type2 reflect.Type) bool {
-	// Direct comparison
-	if type1 == type2 {
-		return true
-	}
-
-	// String representation comparison (most reliable for type aliases)
-	if type1.String() == type2.String() {
-		return true
-	}
-
-	// Check underlying types
-	if type1.Kind() == type2.Kind() {
-		// For named types, check if they have the same name and package
-		if type1.Name() != "" && type2.Name() != "" {
-			// Same name in same package
-			if type1.Name() == type2.Name() && type1.PkgPath() == type2.PkgPath() {
-				return true
-			}
-
-			// Type alias patterns - one might be an alias of the other
-			if r.isLikelyTypeAlias(type1, type2) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// isLikelyTypeAlias checks for common type alias patterns
-func (r *Resolver) isLikelyTypeAlias(type1, type2 reflect.Type) bool {
-	name1, name2 := type1.Name(), type2.Name()
-	pkg1, pkg2 := type1.PkgPath(), type2.PkgPath()
-
-	// Check for cross-package aliases (e.g., core.Logger = logger.Logger)
-	if name1 == name2 && pkg1 != pkg2 {
-		// Common pattern: package name is contained in the type name
-		// e.g., logger.Logger and core.Logger where core imports logger
-		return true
-	}
-
-	// Check for interface aliases across packages
-	if type1.Kind() == reflect.Interface && type2.Kind() == reflect.Interface {
-		// If they have the same method signature, they're likely aliases
-		if r.haveSameMethodSignature(type1, type2) {
-			return true
-		}
-	}
-
-	return false
-}
-
-// haveSameMethodSignature checks if two interfaces have the same method signature
-func (r *Resolver) haveSameMethodSignature(interface1, interface2 reflect.Type) bool {
-	if interface1.NumMethod() != interface2.NumMethod() {
-		return false
-	}
-
-	for i := 0; i < interface1.NumMethod(); i++ {
-		method1 := interface1.Method(i)
-		method2, found := interface2.MethodByName(method1.Name)
-		if !found {
-			return false
-		}
-
-		if method1.Type.String() != method2.Type.String() {
-			return false
-		}
-	}
-
-	return true
-}
-
-// implementsInterface checks if a type implements an interface with comprehensive checking
+// implementsInterface checks if a type implements an interface
 func (r *Resolver) implementsInterface(implType, interfaceType reflect.Type) bool {
 	// Direct implementation check
 	if implType.Implements(interfaceType) {
@@ -335,37 +236,7 @@ func (r *Resolver) implementsInterface(implType, interfaceType reflect.Type) boo
 		return true
 	}
 
-	// For interface-to-interface, check if they're compatible
-	if implType.Kind() == reflect.Interface && interfaceType.Kind() == reflect.Interface {
-		return r.interfacesAreCompatible(implType, interfaceType)
-	}
-
 	return false
-}
-
-// interfacesAreCompatible checks if two interfaces are compatible
-func (r *Resolver) interfacesAreCompatible(impl, target reflect.Type) bool {
-	// Check if implementation interface has all methods of target interface
-	for i := 0; i < target.NumMethod(); i++ {
-		targetMethod := target.Method(i)
-		implMethod, found := impl.MethodByName(targetMethod.Name)
-		if !found {
-			return false
-		}
-
-		if implMethod.Type.String() != targetMethod.Type.String() {
-			return false
-		}
-	}
-
-	return true
-}
-
-// isCompatibleType checks if two types are compatible for dependency injection
-func (r *Resolver) isCompatibleType(paramType, serviceType reflect.Type) bool {
-	return r.isTypeAlias(paramType, serviceType) ||
-		r.implementsInterface(serviceType, paramType) ||
-		r.implementsInterface(paramType, serviceType)
 }
 
 // ClearCache clears the resolver cache
@@ -386,7 +257,7 @@ func (r *Resolver) GetCacheStats() map[string]interface{} {
 	}
 }
 
-// getCacheKeys returns the keys in the cache
+// getCacheKeys returns all cache keys (for debugging)
 func (r *Resolver) getCacheKeys() []string {
 	keys := make([]string, 0, len(r.cache))
 	for key := range r.cache {

@@ -343,7 +343,7 @@ func (am *AlertManager) Start(ctx context.Context) error {
 	am.running = true
 	am.stopChan = make(chan struct{})
 
-	// Start background alert monitoring
+	// OnStart background alert monitoring
 	go am.monitorAlerts()
 
 	if am.logger != nil {

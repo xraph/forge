@@ -79,7 +79,7 @@ func (am *AuthMiddleware) Handler() func(http.Handler) http.Handler {
 				return
 			}
 
-			// Start authentication process
+			// OnStart authentication process
 			startTime := time.Now()
 
 			// Extract room ID from request

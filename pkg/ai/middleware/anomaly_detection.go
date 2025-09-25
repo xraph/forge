@@ -256,7 +256,7 @@ func (ad *AnomalyDetection) Initialize(ctx context.Context, config ai.AIMiddlewa
 	// Initialize baseline metrics
 	ad.initializeBaseline()
 
-	// Start background tasks
+	// OnStart background tasks
 	go ad.baselineUpdateLoop(ctx)
 	go ad.cleanupLoop(ctx)
 	go ad.modelRetrainingLoop(ctx)

@@ -109,7 +109,7 @@ func (s *Service) OnStart(ctx context.Context) error {
 	s.started = true
 	s.startTime = time.Now()
 
-	// Start the metrics collector
+	// OnStart the metrics collector
 	if err := s.collector.OnStart(ctx); err != nil {
 		s.started = false
 		return common.ErrServiceStartFailed(s.name, err)
@@ -123,7 +123,7 @@ func (s *Service) OnStart(ctx context.Context) error {
 		}
 	}
 
-	// Start exporters
+	// OnStart exporters
 	if err := s.startExporters(ctx); err != nil {
 		s.logger.Error("failed to start exporters", logger.Error(err))
 		// Don't fail startup for this
@@ -149,12 +149,12 @@ func (s *Service) OnStop(ctx context.Context) error {
 
 	s.started = false
 
-	// Stop exporters
+	// OnStop exporters
 	if err := s.stopExporters(ctx); err != nil {
 		s.logger.Error("failed to stop exporters", logger.Error(err))
 	}
 
-	// Stop the metrics collector
+	// OnStop the metrics collector
 	if err := s.collector.OnStop(ctx); err != nil {
 		s.logger.Error("failed to stop metrics collector", logger.Error(err))
 	}
@@ -332,7 +332,7 @@ func (s *Service) startExporter(ctx context.Context, name string, config Exporte
 		)
 	}
 
-	// Start exporter goroutine
+	// OnStart exporter goroutine
 	go s.exporterLoop(ctx, name, config)
 
 	return nil
@@ -478,16 +478,20 @@ func RegisterMetricsCollector(container common.Container, config *ServiceConfig,
 		Instance:     service,
 		Singleton:    true,
 		Dependencies: []string{common.ConfigKey},
+		Extensions:   map[string]any{},
 	}); err != nil {
 		return err
 	}
 
 	return container.Register(common.ServiceDefinition{
-		Name:         CollectorKey,
-		Type:         (*common.Metrics)(nil),
-		Constructor:  func() common.Metrics { return service.GetCollector() },
-		Singleton:    true,
-		Dependencies: []string{MetricsKey},
+		Name:        CollectorKey,
+		Type:        (*common.Metrics)(nil),
+		Constructor: func() common.Metrics { return service.GetCollector() },
+		Singleton:   true,
+		// Dependencies: []string{MetricsKey},
+		Extensions: map[string]any{
+			"referenceNames": []string{"ForgeMetrics"},
+		},
 	})
 }
 

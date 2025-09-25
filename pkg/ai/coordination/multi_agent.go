@@ -204,17 +204,17 @@ func (mac *MultiAgentCoordinator) Start(ctx context.Context) error {
 		return fmt.Errorf("multi-agent coordinator already started")
 	}
 
-	// Start communication manager
+	// OnStart communication manager
 	if err := mac.communicator.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start communication manager: %w", err)
 	}
 
-	// Start consensus manager
+	// OnStart consensus manager
 	if err := mac.consensus.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start consensus manager: %w", err)
 	}
 
-	// Start coordination routines
+	// OnStart coordination routines
 	go mac.coordinationLoop(ctx)
 	go mac.healthMonitoring(ctx)
 	go mac.loadBalancing(ctx)
@@ -245,7 +245,7 @@ func (mac *MultiAgentCoordinator) Stop(ctx context.Context) error {
 		return fmt.Errorf("multi-agent coordinator not started")
 	}
 
-	// Stop all agents
+	// OnStop all agents
 	for _, agent := range mac.agents {
 		if err := agent.Agent.Stop(ctx); err != nil {
 			if mac.logger != nil {
@@ -257,14 +257,14 @@ func (mac *MultiAgentCoordinator) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop consensus manager
+	// OnStop consensus manager
 	if err := mac.consensus.Stop(ctx); err != nil {
 		if mac.logger != nil {
 			mac.logger.Error("failed to stop consensus manager", logger.Error(err))
 		}
 	}
 
-	// Stop communication manager
+	// OnStop communication manager
 	if err := mac.communicator.Stop(ctx); err != nil {
 		if mac.logger != nil {
 			mac.logger.Error("failed to stop communication manager", logger.Error(err))
@@ -361,7 +361,7 @@ func (mac *MultiAgentCoordinator) UnregisterAgent(agentID string) error {
 		return fmt.Errorf("agent %s not found", agentID)
 	}
 
-	// Stop the agent
+	// OnStop the agent
 	if err := agent.Agent.Stop(context.Background()); err != nil {
 		if mac.logger != nil {
 			mac.logger.Error("failed to stop agent during unregistration",

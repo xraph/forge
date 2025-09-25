@@ -333,7 +333,7 @@ func main() {
 	// 	log.Fatal("Failed to register health check handler:", err)
 	// }
 
-	// Start HTTP server
+	// OnStart HTTP server
 	go func() {
 		if err := app.StartServer(":8080"); err != nil {
 			log.Printf("Failed to start HTTP server: %v", err)

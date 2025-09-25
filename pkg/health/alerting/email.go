@@ -585,7 +585,7 @@ func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg
 	}
 	defer client.Close()
 
-	// Start TLS if configured
+	// OnStart TLS if configured
 	if en.config.UseStartTLS {
 		tlsConfig := &tls.Config{
 			ServerName:         en.config.SMTPHost,

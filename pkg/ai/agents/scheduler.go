@@ -722,7 +722,7 @@ func (a *SchedulerAgent) predictJobRuntime(job Job, historical HistoricalJobData
 
 // predictResourceUsage predicts job resource usage
 func (a *SchedulerAgent) predictResourceUsage(job Job, historical HistoricalJobData) ResourceUsage {
-	// Start with job requirements
+	// OnStart with job requirements
 	usage := ResourceUsage{
 		CPU:     job.ResourceRequirements.CPU,
 		Memory:  float64(job.ResourceRequirements.Memory),

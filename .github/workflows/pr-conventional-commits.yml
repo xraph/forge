@@ -1,0 +1,277 @@
+name: PR Conventional Commits Check
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened, edited ]
+
+jobs:
+  validate-commits:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Install commitlint dependencies
+      - name: Install Commitlint
+        run: |
+          npm install --save-dev @commitlint/config-conventional @commitlint/cli
+
+      # Create a temporary commitlint config
+      - name: Create Commitlint Config
+        run: |
+          cat > commitlint.config.js << 'EOF'
+          module.exports = {
+            extends: ['@commitlint/config-conventional'],
+            rules: {
+              'type-enum': [2, 'always', [
+                'build',
+                'chore',
+                'ci',
+                'docs',
+                'feat',
+                'fix',
+                'perf',
+                'refactor',
+                'revert',
+                'style',
+                'test'
+              ]],
+              'subject-case': [2, 'never', ['start-case', 'pascal-case', 'upper-case']],
+              'subject-max-length': [2, 'always', 100],
+              'body-max-line-length': [2, 'always', 100],
+              'footer-max-line-length': [2, 'always', 100]
+            }
+          }
+          EOF
+
+      # Validate PR title follows conventional commits format
+      - name: Check PR Title
+        id: check_title
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          echo "Checking PR title: $PR_TITLE"
+          
+          if echo "$PR_TITLE" | npx commitlint; then
+            echo "✅ PR title follows conventional commits format"
+            echo "title_valid=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ PR title does not follow conventional commits format"
+            echo "title_valid=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Validate all commits in the PR follow conventional commits format
+      - name: Check PR Commits
+        id: check_commits
+        run: |
+          echo "Checking commits from ${{ github.event.pull_request.base.sha }} to ${{ github.event.pull_request.head.sha }}"
+          
+          # Get all commits in the PR
+          COMMITS=$(git rev-list --reverse ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }})
+          COMMIT_COUNT=$(echo "$COMMITS" | wc -l)
+          VALID_COMMITS=0
+          INVALID_COMMITS=""
+          
+          for commit in $COMMITS; do
+            COMMIT_MSG=$(git log --format=%B -n 1 $commit | head -n 1)
+            echo "Checking commit $commit: $COMMIT_MSG"
+          
+            if echo "$COMMIT_MSG" | npx commitlint; then
+              VALID_COMMITS=$((VALID_COMMITS + 1))
+              echo "  ✅ Valid"
+            else
+              INVALID_COMMITS="$INVALID_COMMITS\n- $commit: $COMMIT_MSG"
+              echo "  ❌ Invalid"
+            fi
+          done
+          
+          echo "commit_count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+          echo "valid_commits=$VALID_COMMITS" >> $GITHUB_OUTPUT
+          
+          if [ $VALID_COMMITS -eq $COMMIT_COUNT ]; then
+            echo "commits_valid=true" >> $GITHUB_OUTPUT
+            echo "✅ All commits follow conventional commits format"
+          else
+            echo "commits_valid=false" >> $GITHUB_OUTPUT
+            echo "invalid_commits<<EOF" >> $GITHUB_OUTPUT
+            echo -e "$INVALID_COMMITS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "❌ Some commits do not follow conventional commits format"
+          fi
+
+      # Determine what type of release this would create
+      - name: Analyze Release Impact
+        id: release_impact
+        run: |
+          # Get PR title and commits to analyze impact
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          
+          # Check for breaking changes
+          if echo "$PR_TITLE" | grep -q "!:" || echo "$PR_TITLE" | grep -q "BREAKING CHANGE"; then
+            echo "release_type=major" >> $GITHUB_OUTPUT
+            echo "🚨 This PR contains BREAKING CHANGES - will trigger MAJOR release"
+          elif echo "$PR_TITLE" | grep -q "^feat"; then
+            echo "release_type=minor" >> $GITHUB_OUTPUT
+            echo "✨ This PR adds new features - will trigger MINOR release"
+          elif echo "$PR_TITLE" | grep -q "^fix"; then
+            echo "release_type=patch" >> $GITHUB_OUTPUT
+            echo "🐛 This PR contains bug fixes - will trigger PATCH release"
+          else
+            echo "release_type=none" >> $GITHUB_OUTPUT
+            echo "🔧 This PR contains non-releasable changes (docs, chore, etc.)"
+          fi
+
+      # Check if this is a release PR
+      - name: Check if Release PR
+        id: check_release_pr
+        run: |
+          PR_BRANCH="${{ github.head_ref }}"
+          if [[ "$PR_BRANCH" == release/* ]]; then
+            echo "is_release_pr=true" >> $GITHUB_OUTPUT
+            echo "🚀 This is a release preparation PR"
+          else
+            echo "is_release_pr=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Update PR with validation results
+      - name: Update PR with validation results
+        if: always()
+        run: |
+          # Prepare comment body
+          COMMENT_BODY="## 🤖 Conventional Commits Validation\n\n"
+          
+          # Add title validation result
+          if [ "${{ steps.check_title.outputs.title_valid }}" = "true" ]; then
+            COMMENT_BODY="${COMMENT_BODY}✅ **PR Title**: Follows conventional commits format\n"
+          else
+            COMMENT_BODY="${COMMENT_BODY}❌ **PR Title**: Does not follow conventional commits format\n"
+            COMMENT_BODY="${COMMENT_BODY}   Please update the PR title to follow the format: \`type(scope): description\`\n\n"
+          fi
+          
+          # Add commits validation result
+          if [ "${{ steps.check_commits.outputs.commits_valid }}" = "true" ]; then
+            COMMENT_BODY="${COMMENT_BODY}✅ **Commits**: All ${{ steps.check_commits.outputs.commit_count }} commits follow conventional commits format\n\n"
+          else
+            COMMENT_BODY="${COMMENT_BODY}❌ **Commits**: Some commits do not follow conventional commits format\n"
+            COMMENT_BODY="${COMMENT_BODY}   Invalid commits:${{ steps.check_commits.outputs.invalid_commits }}\n\n"
+          fi
+          
+          # Add release impact
+          if [ "${{ steps.check_release_pr.outputs.is_release_pr }}" != "true" ]; then
+            COMMENT_BODY="${COMMENT_BODY}## 🚀 Release Impact\n"
+            case "${{ steps.release_impact.outputs.release_type }}" in
+              "major")
+                COMMENT_BODY="${COMMENT_BODY}🚨 **MAJOR**: This PR contains breaking changes and will trigger a major version bump.\n"
+                ;;
+              "minor")
+                COMMENT_BODY="${COMMENT_BODY}✨ **MINOR**: This PR adds new features and will trigger a minor version bump.\n"
+                ;;
+              "patch")
+                COMMENT_BODY="${COMMENT_BODY}🐛 **PATCH**: This PR contains bug fixes and will trigger a patch version bump.\n"
+                ;;
+              "none")
+                COMMENT_BODY="${COMMENT_BODY}🔧 **No Release**: This PR contains non-releasable changes (docs, chore, ci, etc.).\n"
+                ;;
+            esac
+            COMMENT_BODY="${COMMENT_BODY}\n"
+          fi
+          
+          # Add guidelines if there are issues
+          if [ "${{ steps.check_title.outputs.title_valid }}" != "true" ] || [ "${{ steps.check_commits.outputs.commits_valid }}" != "true" ]; then
+            COMMENT_BODY="${COMMENT_BODY}## 📝 Conventional Commits Format\n\n"
+            COMMENT_BODY="${COMMENT_BODY}Please follow the conventional commits specification:\n\n"
+            COMMENT_BODY="${COMMENT_BODY}\`\`\`\n"
+            COMMENT_BODY="${COMMENT_BODY}type(scope): description\n\n"
+            COMMENT_BODY="${COMMENT_BODY}[optional body]\n\n"
+            COMMENT_BODY="${COMMENT_BODY}[optional footer(s)]\n"
+            COMMENT_BODY="${COMMENT_BODY}\`\`\`\n\n"
+            COMMENT_BODY="${COMMENT_BODY}**Types**: \`feat\`, \`fix\`, \`docs\`, \`style\`, \`refactor\`, \`test\`, \`chore\`, \`ci\`, \`build\`, \`perf\`, \`revert\`\n\n"
+            COMMENT_BODY="${COMMENT_BODY}**Examples**:\n"
+            COMMENT_BODY="${COMMENT_BODY}- \`feat(router): add middleware support\`\n"
+            COMMENT_BODY="${COMMENT_BODY}- \`fix(database): resolve connection timeout issue\`\n"
+            COMMENT_BODY="${COMMENT_BODY}- \`docs: update installation guide\`\n"
+            COMMENT_BODY="${COMMENT_BODY}- \`feat!: remove deprecated API\` (breaking change)\n\n"
+          fi
+          
+          # Find existing comment
+          COMMENT_ID=$(gh pr view ${{ github.event.pull_request.number }} --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | test("Conventional Commits Validation"))) | .id' | head -n 1)
+          
+          if [ -n "$COMMENT_ID" ]; then
+            echo "Updating existing comment $COMMENT_ID"
+            gh api -X PATCH repos/${{ github.repository }}/issues/comments/$COMMENT_ID \
+              -f body="$(echo -e "$COMMENT_BODY")"
+          else
+            echo "Creating new comment"
+            gh pr comment ${{ github.event.pull_request.number }} --body "$(echo -e "$COMMENT_BODY")"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Set status checks
+      - name: Set Status Checks
+        if: always()
+        run: |
+          # Set title status
+          if [ "${{ steps.check_title.outputs.title_valid }}" = "true" ]; then
+            gh api -X POST repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
+              -f state=success \
+              -f context="conventional-commits/title" \
+              -f description="PR title follows conventional commits format"
+          else
+            gh api -X POST repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
+              -f state=failure \
+              -f context="conventional-commits/title" \
+              -f description="PR title does not follow conventional commits format"
+          fi
+          
+          # Set commits status
+          if [ "${{ steps.check_commits.outputs.commits_valid }}" = "true" ]; then
+            gh api -X POST repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
+              -f state=success \
+              -f context="conventional-commits/commits" \
+              -f description="All commits follow conventional commits format"
+          else
+            gh api -X POST repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }} \
+              -f state=failure \
+              -f context="conventional-commits/commits" \
+              -f description="Some commits do not follow conventional commits format"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Label the PR based on commit types
+      - name: Label PR based on Conventional Commits
+        uses: bcoe/conventional-release-labels@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Add release type label
+      - name: Add Release Type Label
+        if: steps.release_impact.outputs.release_type != 'none' && steps.check_release_pr.outputs.is_release_pr != 'true'
+        run: |
+          RELEASE_TYPE="${{ steps.release_impact.outputs.release_type }}"
+          gh pr edit ${{ github.event.pull_request.number }} --add-label "release:$RELEASE_TYPE"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Final validation result
+      - name: Final Validation
+        run: |
+          if [ "${{ steps.check_title.outputs.title_valid }}" = "true" ] && [ "${{ steps.check_commits.outputs.commits_valid }}" = "true" ]; then
+            echo "✅ All conventional commits validations passed"
+            exit 0
+          else
+            echo "❌ Conventional commits validation failed"
+            exit 1
+          fi

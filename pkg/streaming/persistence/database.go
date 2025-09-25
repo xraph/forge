@@ -68,7 +68,7 @@ func NewDatabaseMessageStore(
 		return nil, fmt.Errorf("failed to migrate database schema: %w", err)
 	}
 
-	// Start cleanup routine
+	// OnStart cleanup routine
 	store.startCleanup()
 
 	return store, nil

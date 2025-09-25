@@ -1,0 +1,539 @@
+package {{.Package}}
+
+import (
+	"context"
+	"testing"
+	"time"
+	{{if .Database}}"database/sql"
+	"github.com/DATA-DOG/go-sqlmock"{{end}}
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+	{{if .Events}}"github.com/xraph/forge/pkg/events"{{end}}
+	{{if .Cache}}"github.com/xraph/forge/pkg/cache"{{end}}
+	"github.com/xraph/forge/pkg/common"
+)
+
+{{if .Database}}// MockDatabase represents a mock database connection
+type MockDatabase struct {
+	mock.Mock
+}
+
+func (m *MockDatabase) Name() string {
+	return "mock-db"
+}
+
+func (m *MockDatabase) Type() string {
+	return "mock"
+}
+
+func (m *MockDatabase) DB() interface{} {
+	args := m.Called()
+	return args.Get(0)
+}
+
+func (m *MockDatabase) HealthCheck(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockDatabase) Close() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockDatabase) Transaction(ctx context.Context, fn func(tx interface{}) error) error {
+	args := m.Called(ctx, fn)
+	return args.Error(0)
+}
+{{end}}
+
+{{if .Events}}// MockEventBus represents a mock event bus
+type MockEventBus struct {
+	mock.Mock
+}
+
+func (m *MockEventBus) Name() string {
+	return "mock-events"
+}
+
+func (m *MockEventBus) Dependencies() []string {
+	return []string{}
+}
+
+func (m *MockEventBus) OnStart(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockEventBus) OnStop(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockEventBus) OnHealthCheck(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *MockEventBus) Publish(ctx context.Context, event events.Event) error {
+	args := m.Called(ctx, event)
+	return args.Error(0)
+}
+
+func (m *MockEventBus) Subscribe(eventType string, handler events.EventHandler) error {
+	args := m.Called(eventType, handler)
+	return args.Error(0)
+}
+{{end}}
+
+{{if .Cache}}// MockCache represents a mock cache
+type MockCache struct {
+	mock.Mock
+}
+
+func (m *MockCache) Get(ctx context.Context, key string, dest interface{}) error {
+	args := m.Called(ctx, key, dest)
+	return args.Error(0)
+}
+
+func (m *MockCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+	args := m.Called(ctx, key, value, ttl)
+	return args.Error(0)
+}
+
+func (m *MockCache) Del(ctx context.Context, key string) error {
+	args := m.Called(ctx, key)
+	return args.Error(0)
+}
+
+func (m *MockCache) Ping(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+{{end}}
+
+// MockLogger represents a mock logger
+type MockLogger struct {
+	mock.Mock
+}
+
+func (m *MockLogger) Debug(msg string, fields ...common.LogField) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Info(msg string, fields ...common.LogField) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Warn(msg string, fields ...common.LogField) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Error(msg string, fields ...common.LogField) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) WithContext(ctx context.Context) common.Logger {
+	args := m.Called(ctx)
+	return args.Get(0).(common.Logger)
+}
+
+func (m *MockLogger) With(fields ...common.LogField) common.Logger {
+	args := m.Called(fields)
+	return args.Get(0).(common.Logger)
+}
+
+func (m *MockLogger) WithFields(fields map[string]interface{}) common.Logger {
+	args := m.Called(fields)
+	return args.Get(0).(common.Logger)
+}
+
+// Test setup helpers
+func setup{{.Name}}ServiceTest(t *testing.T) (
+	{{.Name}}Service,
+	*MockLogger,
+	{{if .Database}}*MockDatabase,{{end}}
+	{{if .Events}}*MockEventBus,{{end}}
+	{{if .Cache}}*MockCache,{{end}}
+) {
+	mockLogger := &MockLogger{}
+	{{if .Database}}mockDB := &MockDatabase{}{{end}}
+	{{if .Events}}mockEvents := &MockEventBus{}{{end}}
+	{{if .Cache}}mockCache := &MockCache{}{{end}}
+
+	service := New{{.Name}}Service(
+		mockLogger,
+		{{if .Database}}mockDB,{{end}}
+		{{if .Events}}mockEvents,{{end}}
+		{{if .Cache}}mockCache,{{end}}
+	)
+
+	return service, mockLogger{{if .Database}}, mockDB{{end}}{{if .Events}}, mockEvents{{end}}{{if .Cache}}, mockCache{{end}}
+}
+
+func TestNew{{.Name}}Service(t *testing.T) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+
+	assert.NotNil(t, service)
+	assert.Equal(t, "{{kebabCase .Name}}-service", service.Name())
+	assert.NotEmpty(t, service.Dependencies())
+
+	// Verify dependencies
+	deps := service.Dependencies()
+	{{if .Database}}assert.Contains(t, deps, "database-manager"){{end}}
+	{{if .Events}}assert.Contains(t, deps, "event-bus"){{end}}
+	{{if .Cache}}assert.Contains(t, deps, "cache-manager"){{end}}
+
+	logger.AssertExpectations(t)
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Events}}events.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+func TestService_OnStart(t *testing.T) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+	ctx := context.Background()
+
+	// Setup mocks
+	logger.On("Info", mock.AnythingOfType("string"), mock.Anything).Return()
+	{{if .Database}}db.On("HealthCheck", ctx).Return(nil){{end}}
+	{{if .Cache}}cache.On("Ping", ctx).Return(nil){{end}}
+
+	// Test successful start
+	err := service.OnStart(ctx)
+	assert.NoError(t, err)
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Events}}events.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+func TestService_OnHealthCheck(t *testing.T) {
+	service, _{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+	ctx := context.Background()
+
+	// Setup mocks for healthy services
+	{{if .Database}}db.On("HealthCheck", ctx).Return(nil){{end}}
+	{{if .Cache}}cache.On("Ping", ctx).Return(nil){{end}}
+
+	// Test healthy service
+	err := service.OnHealthCheck(ctx)
+	assert.NoError(t, err)
+
+	// Verify expectations
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+func TestService_Create{{.Name}}(t *testing.T) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+	ctx := context.Background()
+
+	req := &Create{{.Name}}Request{
+		Name:        "Test {{.Name}}",
+		Description: "Test description",
+		Metadata:    map[string]string{"key": "value"},
+	}
+
+	{{if .Database}}// Setup database mock
+	mockDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer mockDB.Close()
+
+	db.On("DB").Return(mockDB)
+
+	mock.ExpectExec(`INSERT INTO {{toSnakeCase (pluralize .Name)}}`).
+		WithArgs(sqlmock.AnyArg(), req.Name, req.Description, req.Metadata, sqlmock.AnyArg(), sqlmock.AnyArg(), 1).
+		WillReturnResult(sqlmock.NewResult(1, 1)){{end}}
+
+	{{if .Cache}}// Setup cache mock
+	cache.On("Set", ctx, mock.MatchedBy(func(key string) bool {
+		return key != ""
+	}), mock.AnythingOfType("*{{.Package}}.{{.Name}}"), 5*time.Minute).Return(nil){{end}}
+
+	{{if .Events}}// Setup events mock
+	events.On("Publish", ctx, mock.MatchedBy(func(event events.Event) bool {
+		return event.Type == "{{toSnakeCase .Name}}.created"
+	})).Return(nil){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return()
+	logger.On("Info", mock.AnythingOfType("string"), mock.Anything).Return()
+	logger.On("Warn", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test successful creation
+	result, err := service.Create{{.Name}}(ctx, req)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, req.Name, result.Name)
+	assert.Equal(t, req.Description, result.Description)
+	assert.Equal(t, req.Metadata, result.Metadata)
+	assert.NotEmpty(t, result.ID)
+	assert.NotEmpty(t, result.CreatedAt)
+	assert.NotEmpty(t, result.UpdatedAt)
+
+	{{if .Database}}// Verify database expectations
+	assert.NoError(t, mock.ExpectationsWereMet()){{end}}
+
+	// Verify mock expectations
+	logger.AssertExpectations(t)
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Events}}events.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+func TestService_Create{{.Name}}_ValidationError(t *testing.T) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+	ctx := context.Background()
+
+	// Test with empty name
+	req := &Create{{.Name}}Request{
+		Name:        "",
+		Description: "Test description",
+	}
+
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return()
+
+	result, err := service.Create{{.Name}}(ctx, req)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "name is required")
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Events}}events.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+func TestService_Get{{.Name}}(t *testing.T) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+	ctx := context.Background()
+	id := "test-id"
+
+	expected := &{{.Name}}{
+		ID:          id,
+		Name:        "Test {{.Name}}",
+		Description: "Test description",
+		Metadata:    map[string]string{"key": "value"},
+		CreatedAt:   "2023-01-01T00:00:00Z",
+		UpdatedAt:   "2023-01-01T00:00:00Z",
+		{{if .Database}}Version:     1,{{end}}
+	}
+
+	{{if .Cache}}// Setup cache miss
+	cache.On("Get", ctx, "{{toLower .Name}}:"+id, mock.AnythingOfType("*{{.Package}}.{{.Name}}")).Return(fmt.Errorf("cache miss")){{end}}
+
+	{{if .Database}}// Setup database mock
+	mockDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer mockDB.Close()
+
+	db.On("DB").Return(mockDB)
+
+	rows := sqlmock.NewRows([]string{"id", "name", "description", "metadata", "created_at", "updated_at", "version"}).
+		AddRow(expected.ID, expected.Name, expected.Description, expected.Metadata, expected.CreatedAt, expected.UpdatedAt, expected.Version)
+
+	mock.ExpectQuery(`SELECT (.+) FROM {{toSnakeCase (pluralize .Name)}} WHERE id`).
+		WithArgs(id).
+		WillReturnRows(rows){{end}}
+
+	{{if .Cache}}// Setup cache set
+	cache.On("Set", ctx, "{{toLower .Name}}:"+id, mock.AnythingOfType("*{{.Package}}.{{.Name}}"), 5*time.Minute).Return(nil){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return()
+	logger.On("Warn", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test successful get
+	result, err := service.Get{{.Name}}(ctx, id)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Equal(t, expected.ID, result.ID)
+	assert.Equal(t, expected.Name, result.Name)
+	assert.Equal(t, expected.Description, result.Description)
+
+	{{if .Database}}// Verify database expectations
+	assert.NoError(t, mock.ExpectationsWereMet()){{end}}
+
+	// Verify mock expectations
+	logger.AssertExpectations(t)
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Events}}events.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+func TestService_Get{{.Name}}_NotFound(t *testing.T) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+	ctx := context.Background()
+	id := "nonexistent-id"
+
+	{{if .Cache}}// Setup cache miss
+	cache.On("Get", ctx, "{{toLower .Name}}:"+id, mock.AnythingOfType("*{{.Package}}.{{.Name}}")).Return(fmt.Errorf("cache miss")){{end}}
+
+	{{if .Database}}// Setup database mock - no rows returned
+	mockDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer mockDB.Close()
+
+	db.On("DB").Return(mockDB)
+
+	mock.ExpectQuery(`SELECT (.+) FROM {{toSnakeCase (pluralize .Name)}} WHERE id`).
+		WithArgs(id).
+		WillReturnError(sql.ErrNoRows){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return()
+
+	// Test not found
+	result, err := service.Get{{.Name}}(ctx, id)
+
+	assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "not found")
+
+	{{if .Database}}// Verify database expectations
+	assert.NoError(t, mock.ExpectationsWereMet()){{end}}
+
+	// Verify mock expectations
+	logger.AssertExpectations(t)
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Events}}events.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+func TestService_Delete{{.Name}}(t *testing.T) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+	ctx := context.Background()
+	id := "test-id"
+
+	{{if .Database}}// Setup database mock
+	mockDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer mockDB.Close()
+
+	db.On("DB").Return(mockDB)
+
+	mock.ExpectExec(`DELETE FROM {{toSnakeCase (pluralize .Name)}} WHERE id`).
+		WithArgs(id).
+		WillReturnResult(sqlmock.NewResult(1, 1)){{end}}
+
+	{{if .Cache}}// Setup cache mock
+	cache.On("Del", ctx, "{{toLower .Name}}:"+id).Return(nil){{end}}
+
+	{{if .Events}}// Setup events mock
+	events.On("Publish", ctx, mock.MatchedBy(func(event events.Event) bool {
+		return event.Type == "{{toSnakeCase .Name}}.deleted" && event.AggregateID == id
+	})).Return(nil){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return()
+	logger.On("Info", mock.AnythingOfType("string"), mock.Anything).Return()
+	logger.On("Warn", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test successful deletion
+	err := service.Delete{{.Name}}(ctx, id)
+
+	assert.NoError(t, err)
+
+	{{if .Database}}// Verify database expectations
+	assert.NoError(t, mock.ExpectationsWereMet()){{end}}
+
+	// Verify mock expectations
+	logger.AssertExpectations(t)
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Events}}events.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+func TestService_List{{pluralize .Name}}(t *testing.T) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(t)
+	ctx := context.Background()
+
+	req := &List{{pluralize .Name}}Request{
+		Limit:  10,
+		Offset: 0,
+	}
+
+	{{if .Database}}// Setup database mock
+	mockDB, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer mockDB.Close()
+
+	db.On("DB").Return(mockDB)
+
+	// Mock count query
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM {{toSnakeCase (pluralize .Name)}}`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(2))
+
+	// Mock select query
+	rows := sqlmock.NewRows([]string{"id", "name", "description", "metadata", "created_at", "updated_at", "version"}).
+		AddRow("1", "{{.Name}} 1", "Description 1", map[string]string{}, "2023-01-01T00:00:00Z", "2023-01-01T00:00:00Z", 1).
+		AddRow("2", "{{.Name}} 2", "Description 2", map[string]string{}, "2023-01-01T00:00:00Z", "2023-01-01T00:00:00Z", 1)
+
+	mock.ExpectQuery(`SELECT (.+) FROM {{toSnakeCase (pluralize .Name)}} ORDER BY created_at DESC LIMIT`).
+		WithArgs(req.Limit, req.Offset).
+		WillReturnRows(rows){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return()
+	logger.On("Error", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test successful list
+	result, err := service.List{{pluralize .Name}}(ctx, req)
+
+	{{if .Database}}assert.NoError(t, err)
+	assert.NotNil(t, result)
+	assert.Len(t, result.Items, 2)
+	assert.Equal(t, int64(2), result.Total)
+	assert.Equal(t, req.Limit, result.Limit)
+	assert.Equal(t, req.Offset, result.Offset)
+	assert.False(t, result.HasMore)
+
+	// Verify database expectations
+	assert.NoError(t, mock.ExpectationsWereMet()){{else}}assert.Error(t, err)
+	assert.Nil(t, result)
+	assert.Contains(t, err.Error(), "storage backend not configured"){{end}}
+
+	// Verify mock expectations
+	logger.AssertExpectations(t)
+	{{if .Database}}db.AssertExpectations(t){{end}}
+	{{if .Events}}events.AssertExpectations(t){{end}}
+	{{if .Cache}}cache.AssertExpectations(t){{end}}
+}
+
+// Benchmark tests
+func BenchmarkService_Create{{.Name}}(b *testing.B) {
+	service, logger{{if .Database}}, db{{end}}{{if .Events}}, events{{end}}{{if .Cache}}, cache{{end}} := setup{{.Name}}ServiceTest(b)
+	ctx := context.Background()
+
+	// Setup mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return()
+	logger.On("Info", mock.AnythingOfType("string"), mock.Anything).Return()
+	logger.On("Warn", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	{{if .Database}}mockDB, mock, _ := sqlmock.New()
+	defer mockDB.Close()
+	db.On("DB").Return(mockDB)
+	mock.ExpectExec(`INSERT INTO {{toSnakeCase (pluralize .Name)}}`).
+		WillReturnResult(sqlmock.NewResult(1, 1)).Times(b.N){{end}}
+
+	{{if .Cache}}cache.On("Set", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Times(b.N){{end}}
+	{{if .Events}}events.On("Publish", mock.Anything, mock.Anything).Return(nil).Times(b.N){{end}}
+
+	req := &Create{{.Name}}Request{
+		Name:        "Benchmark {{.Name}}",
+		Description: "Benchmark description",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		service.Create{{.Name}}(ctx, req)
+	}
+}

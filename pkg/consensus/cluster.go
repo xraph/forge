@@ -166,12 +166,12 @@ func (c *ClusterImpl) Start(ctx context.Context) error {
 	}
 	c.raftNode = raftNode
 
-	// Start Raft node
+	// OnStart Raft node
 	if err := c.raftNode.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start Raft node: %w", err)
 	}
 
-	// Start leader election monitoring
+	// OnStart leader election monitoring
 	go c.monitorLeadership()
 
 	c.started = true
@@ -204,7 +204,7 @@ func (c *ClusterImpl) Stop(ctx context.Context) error {
 	// Signal shutdown
 	close(c.shutdownCh)
 
-	// Stop Raft node
+	// OnStop Raft node
 	if c.raftNode != nil {
 		if err := c.raftNode.Stop(ctx); err != nil {
 			if c.logger != nil {

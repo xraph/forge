@@ -197,7 +197,7 @@ func (ks *K8sSource) Watch(ctx context.Context, callback func(map[string]interfa
 	ks.watchStop = make(chan struct{})
 	ks.watching = true
 
-	// Start watching goroutines
+	// OnStart watching goroutines
 	go ks.watchConfigMaps(ctx, callback)
 	go ks.watchSecrets(ctx, callback)
 
@@ -714,7 +714,7 @@ func (ks *K8sSource) handleWatchError(err error) {
 		ks.errorHandler.HandleError(nil, common.ErrConfigError(fmt.Sprintf("Kubernetes watch error for namespace %s", ks.namespace), err))
 	}
 
-	// Stop watching on persistent errors
+	// OnStop watching on persistent errors
 	ks.StopWatch()
 }
 

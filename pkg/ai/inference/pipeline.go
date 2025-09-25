@@ -183,7 +183,7 @@ func (p *InferencePipeline) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start worker pool
+	// OnStart worker pool
 	for i := 0; i < p.config.MaxConcurrency; i++ {
 		worker := &PipelineWorker{
 			id:       fmt.Sprintf("pipeline-worker-%d", i),
@@ -199,7 +199,7 @@ func (p *InferencePipeline) Start(ctx context.Context) error {
 		}(worker)
 	}
 
-	// Start stats collection
+	// OnStart stats collection
 	p.wg.Add(1)
 	go func() {
 		defer p.wg.Done()

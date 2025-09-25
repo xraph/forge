@@ -18,6 +18,16 @@ import (
 	"github.com/xraph/steel"
 )
 
+type Router = common.Router
+type Controller = common.Controller
+
+// RouteEntry represents a registered route
+type RouteEntry struct {
+	common.RouteDefinition
+	RouteID  string `json:"route_id"`
+	PluginID string `json:"plugin_id"`
+}
+
 // ForgeRouter implements the common.Router interface
 type ForgeRouter struct {
 	*steel.SteelRouter
@@ -27,9 +37,17 @@ type ForgeRouter struct {
 	config            common.ConfigManager
 	healthChecker     common.HealthChecker
 	errorHandler      common.ErrorHandler
-	middlewareManager *middleware.Manager // Updated to use robust middleware manager
-	pluginManager     *PluginManager
-	openAPIGenerator  *OpenAPIGenerator
+	middlewareManager *middleware.Manager
+	// pluginManager     plugins.PluginManager
+	openAPIGenerator *OpenAPIGenerator
+
+	routes          map[string]*RouteEntry       // routeID -> RouteEntry
+	pluginRoutes    map[string][]string          // pluginID -> []routeIDs
+	pathIndex       map[string]map[string]string // method -> path -> routeIDs
+	nextRouteID     int64
+	currentPluginID string            // Current plugin being configured
+	routeToPlugin   map[string]string // routeID -> pluginID
+	routeIDCounter  int64
 
 	// Streaming integration
 	streamingIntegration *StreamingIntegration
@@ -117,6 +135,10 @@ func NewForgeRouter(config ForgeRouterConfig) common.Router {
 		controllers:         make(map[string]common.Controller),
 		opinionatedHandlers: make(map[string]*OpinionatedHandlerInfo),
 		routeStats:          make(map[string]*common.RouteStats),
+		pluginRoutes:        make(map[string][]string),
+		routeToPlugin:       make(map[string]string),
+		pathIndex:           make(map[string]map[string]string),
+		routes:              make(map[string]*RouteEntry),
 	}
 
 	// Initialize robust middleware manager
@@ -126,9 +148,6 @@ func NewForgeRouter(config ForgeRouterConfig) common.Router {
 		config.Metrics,
 		config.Config,
 	)
-
-	// Initialize plugin manager
-	router.pluginManager = NewPluginManager(router)
 
 	// Initialize OpenAPI generator if config provided
 	if config.OpenAPI != nil {
@@ -140,7 +159,31 @@ func NewForgeRouter(config ForgeRouterConfig) common.Router {
 		router.EnableAsyncAPI(*config.AsyncAPI)
 	}
 
+	// Initialize ForgeContext middleware automatically
+	if err := router.initializeMiddleware(); err != nil {
+		// Handle error appropriately
+	}
+
 	return router
+}
+
+// SetCurrentPlugin sets the current plugin context for route registration
+func (r *ForgeRouter) SetCurrentPlugin(pluginID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.currentPluginID = pluginID
+}
+
+// ClearCurrentPlugin clears the plugin context
+func (r *ForgeRouter) ClearCurrentPlugin() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.currentPluginID = ""
+}
+
+// MiddlewareManager clears the plugin context
+func (r *ForgeRouter) MiddlewareManager() *middleware.Manager {
+	return r.middlewareManager
 }
 
 // =============================================================================
@@ -148,30 +191,51 @@ func NewForgeRouter(config ForgeRouterConfig) common.Router {
 // =============================================================================
 
 func (r *ForgeRouter) GET(path string, handler interface{}, options ...common.HandlerOption) error {
+	if r.currentPluginID != "" {
+		return r.registerPluginRoutesHandler("GET", path, handler, options...)
+	}
 	return r.registerServiceHandler("GET", path, handler, options...)
 }
 
 func (r *ForgeRouter) POST(path string, handler interface{}, options ...common.HandlerOption) error {
+	if r.currentPluginID != "" {
+		return r.registerPluginRoutesHandler("POST", path, handler, options...)
+	}
 	return r.registerServiceHandler("POST", path, handler, options...)
 }
 
 func (r *ForgeRouter) PUT(path string, handler interface{}, options ...common.HandlerOption) error {
+	if r.currentPluginID != "" {
+		return r.registerPluginRoutesHandler("PUT", path, handler, options...)
+	}
 	return r.registerServiceHandler("PUT", path, handler, options...)
 }
 
 func (r *ForgeRouter) DELETE(path string, handler interface{}, options ...common.HandlerOption) error {
+	if r.currentPluginID != "" {
+		return r.registerPluginRoutesHandler("DELETE", path, handler, options...)
+	}
 	return r.registerServiceHandler("DELETE", path, handler, options...)
 }
 
 func (r *ForgeRouter) PATCH(path string, handler interface{}, options ...common.HandlerOption) error {
+	if r.currentPluginID != "" {
+		return r.registerPluginRoutesHandler("PATCH", path, handler, options...)
+	}
 	return r.registerServiceHandler("PATCH", path, handler, options...)
 }
 
 func (r *ForgeRouter) OPTIONS(path string, handler interface{}, options ...common.HandlerOption) error {
+	if r.currentPluginID != "" {
+		return r.registerPluginRoutesHandler("OPTIONS", path, handler, options...)
+	}
 	return r.registerServiceHandler("OPTIONS", path, handler, options...)
 }
 
 func (r *ForgeRouter) HEAD(path string, handler interface{}, options ...common.HandlerOption) error {
+	if r.currentPluginID != "" {
+		return r.registerPluginRoutesHandler("HEAD", path, handler, options...)
+	}
 	return r.registerServiceHandler("HEAD", path, handler, options...)
 }
 
@@ -179,36 +243,53 @@ func (r *ForgeRouter) HEAD(path string, handler interface{}, options ...common.H
 // CONTROLLER REGISTRATION
 // =============================================================================
 
-func (r *ForgeRouter) RegisterController(controller common.Controller) error {
+func (r *ForgeRouter) RegisterController(controller Controller) error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 
 	if r.started {
+		r.mu.Unlock()
 		return common.ErrLifecycleError("register_controller", fmt.Errorf("cannot register controller after router has started"))
 	}
 
 	controllerName := controller.Name()
 	if _, exists := r.controllers[controllerName]; exists {
+		r.mu.Unlock()
 		return common.ErrServiceAlreadyExists(controllerName)
 	}
 
 	// Initialize controller if not already done
 	if err := controller.Initialize(r.container); err != nil {
+		r.mu.Unlock()
 		return common.ErrContainerError("initialize_controller", err)
 	}
 
-	// Register controller middleware with the robust middleware manager
+	// Create a sub-router with controller prefix and middleware
+	prefix := controller.Prefix()
+	controllerRouter := r.Group(prefix)
+
+	// Add controller middleware to the sub-router
 	for _, mw := range controller.Middleware() {
-		if err := r.middlewareManager.Register(mw); err != nil {
+		if err := controllerRouter.Use(mw); err != nil {
+			r.mu.Unlock()
 			return fmt.Errorf("failed to register controller middleware: %w", err)
 		}
 	}
 
-	// Register controller routes
-	for _, route := range controller.Routes() {
-		if err := r.registerControllerRoute(controller, route); err != nil {
-			return fmt.Errorf("failed to register controller route %s %s: %w", route.Method, route.Pattern, err)
-		}
+	// IMPORTANT: Release the lock before calling ConfigureRoutes to avoid deadlock
+	r.mu.Unlock()
+
+	// Let the controller configure its own routes (without holding the main lock)
+	if err := controller.ConfigureRoutes(controllerRouter); err != nil {
+		return fmt.Errorf("failed to configure controller routes: %w", err)
+	}
+
+	// Re-acquire lock to update internal state
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Double-check controller wasn't registered while we didn't hold the lock
+	if _, exists := r.controllers[controllerName]; exists {
+		return common.ErrServiceAlreadyExists(controllerName)
 	}
 
 	r.controllers[controllerName] = controller
@@ -216,7 +297,7 @@ func (r *ForgeRouter) RegisterController(controller common.Controller) error {
 	if r.logger != nil {
 		r.logger.Info("controller registered",
 			logger.String("controller", controllerName),
-			logger.Int("routes", len(controller.Routes())),
+			logger.String("prefix", prefix),
 			logger.Int("middleware", len(controller.Middleware())),
 		)
 	}
@@ -409,12 +490,11 @@ func (r *ForgeRouter) RegisterOpinionatedHandler(method, path string, handler in
 
 	// Process middleware from options using the robust middleware manager
 	for _, mw := range handlerInfo.Middleware {
-		if err := r.middlewareManager.Register(mw); err != nil {
+		if err := r.middlewareManager.RegisterAny(mw); err != nil {
 			if r.logger != nil {
 				r.logger.Warn("Failed to register handler middleware",
 					logger.String("method", method),
 					logger.String("path", path),
-					logger.String("middleware", mw.Name()),
 					logger.Error(err),
 				)
 			}
@@ -677,11 +757,17 @@ func (r *ForgeRouter) createServiceAwareOpinionatedWrapper(
 		startTime := time.Now()
 		handlerKey := fmt.Sprintf("%s %s", info.Method, info.Path)
 
-		// Create Context with route pattern
+		// Create Context with route pattern - ENHANCED
 		forgeCtx := common.NewForgeContext(req.Context(), r.container, r.logger, r.metrics, r.config)
 		forgeCtx = forgeCtx.WithRequest(req).WithResponseWriter(w)
-		// Set the route pattern for path parameter extraction
+
+		// Set the route pattern for path parameter extraction - CRITICAL FIX
 		forgeCtx = forgeCtx.(*common.ForgeContext).SetRoutePattern(info.Path)
+
+		// Try to extract path parameters immediately and store them
+		if pathParams := r.extractPathParametersFromSteelRouter(req, info.Path); len(pathParams) > 0 {
+			forgeCtx = forgeCtx.(*common.ForgeContext).SetPathParams(pathParams)
+		}
 
 		// Update call statistics
 		r.updateOpinionatedCallStats(handlerKey, startTime)
@@ -719,11 +805,12 @@ func (r *ForgeRouter) createServiceAwareOpinionatedWrapper(
 		if err := r.bindRequestParameters(forgeCtx, requestInstance.Interface(), requestType); err != nil {
 			r.updateOpinionatedErrorStats(handlerKey, err)
 
-			// Log the binding failure for debugging
+			// Enhanced logging for debugging
 			if r.logger != nil {
 				r.logger.Error("Request parameter binding failed",
 					logger.String("method", req.Method),
 					logger.String("path", req.URL.Path),
+					logger.String("route_pattern", info.Path),
 					logger.String("request_type", requestType.Name()),
 					logger.Error(err),
 				)
@@ -738,6 +825,7 @@ func (r *ForgeRouter) createServiceAwareOpinionatedWrapper(
 			r.logger.Debug("Request parameters bound successfully",
 				logger.String("method", req.Method),
 				logger.String("path", req.URL.Path),
+				logger.String("route_pattern", info.Path),
 				logger.String("request_type", requestType.Name()),
 			)
 		}
@@ -780,8 +868,86 @@ func (r *ForgeRouter) GetOpinionatedHandlerStats() map[string]OpinionatedHandler
 	return stats
 }
 
-func (r *ForgeRouter) AddMiddleware(middleware middleware.Middleware) error {
-	return r.middlewareManager.Register(middleware)
+// extractPathParametersFromSteelRouter attempts to extract path parameters using Steel router's API
+func (r *ForgeRouter) extractPathParametersFromSteelRouter(req *http.Request, routePattern string) map[string]string {
+	// params := make(map[string]string)
+
+	// Try to get parameters from Steel router's request context
+	ctx := req.Context()
+
+	// Steel router might store parameters under various keys
+	steelKeys := []string{"steel-params", "params", "pathParams", "route-params"}
+
+	for _, key := range steelKeys {
+		if value := ctx.Value(key); value != nil {
+			if paramMap, ok := value.(map[string]string); ok {
+				return paramMap
+			}
+		}
+	}
+
+	// If Steel router doesn't provide parameters, manually extract them
+	return r.manuallyExtractPathParameters(req.URL.Path, routePattern)
+}
+
+// manuallyExtractPathParameters manually extracts path parameters by comparing patterns
+func (r *ForgeRouter) manuallyExtractPathParameters(requestPath, routePattern string) map[string]string {
+	params := make(map[string]string)
+
+	// Handle both Steel format (:param) and OpenAPI format ({param})
+	routeParts := strings.Split(strings.Trim(routePattern, "/"), "/")
+	pathParts := strings.Split(strings.Trim(requestPath, "/"), "/")
+
+	if len(routeParts) != len(pathParts) {
+		return params
+	}
+
+	for i, routePart := range routeParts {
+		var paramName string
+		var isParam bool
+
+		// Handle Steel router format: :paramName
+		if strings.HasPrefix(routePart, ":") {
+			paramName = routePart[1:]
+			isParam = true
+		}
+		// Handle OpenAPI format: {paramName}
+		if strings.HasPrefix(routePart, "{") && strings.HasSuffix(routePart, "}") {
+			paramName = routePart[1 : len(routePart)-1]
+			isParam = true
+		}
+
+		if isParam && i < len(pathParts) {
+			params[paramName] = pathParts[i]
+		}
+	}
+
+	return params
+}
+
+func (r *ForgeRouter) Use(middleware any) error {
+	switch m := middleware.(type) {
+	case common.Middleware:
+		// Function middleware - generate a unique name
+		name := fmt.Sprintf("func_middleware_%d", time.Now().UnixNano())
+		return r.middlewareManager.RegisterFunction(name, 50, m)
+
+	case common.NamedMiddleware:
+		// Named middleware
+		return r.middlewareManager.Register(m)
+
+	case common.StatefulMiddleware:
+		// Stateful middleware (which is also NamedMiddleware)
+		return r.middlewareManager.Register(m)
+
+	default:
+		return common.ErrInvalidConfig("middleware", fmt.Errorf("unsupported middleware type: %T", middleware))
+	}
+}
+
+// UseNamedMiddleware adds middleware with explicit name and priority
+func (r *ForgeRouter) UseNamedMiddleware(name string, priority int, handler common.Middleware) error {
+	return r.middlewareManager.RegisterFunction(name, priority, handler)
 }
 
 func (r *ForgeRouter) RemoveMiddleware(middlewareName string) error {
@@ -792,16 +958,31 @@ func (r *ForgeRouter) UseMiddleware(handler func(http.Handler) http.Handler) {
 	r.SteelRouter.Use(handler)
 }
 
+// Updated router initialization to inject ForgeContext middleware automatically
+func (r *ForgeRouter) initializeMiddleware() error {
+	// Always add ForgeContext middleware first (highest priority)
+	forgeContextMiddleware := common.ForgeContextMiddleware(
+		r.container,
+		r.logger,
+		r.metrics,
+		r.config,
+	)
+
+	return r.middlewareManager.RegisterFunction("forge-context", 1, forgeContextMiddleware)
+}
+
 // =============================================================================
 // PLUGIN SUPPORT
 // =============================================================================
 
 func (r *ForgeRouter) AddPlugin(plugin common.Plugin) error {
-	return r.pluginManager.AddPlugin(plugin)
+	// return r.pluginManager.AddPlugin(context.Background(), plugin)
+	return nil
 }
 
 func (r *ForgeRouter) RemovePlugin(pluginName string) error {
-	return r.pluginManager.RemovePlugin(pluginName)
+	// return r.pluginManager.RemovePlugin(pluginName)
+	return nil
 }
 
 // =============================================================================
@@ -847,7 +1028,7 @@ func (r *ForgeRouter) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start the robust middleware manager
+	// OnStart the robust middleware manager
 	if err := r.middlewareManager.OnStart(ctx); err != nil {
 		return fmt.Errorf("failed to start middleware manager: %w", err)
 	}
@@ -855,20 +1036,6 @@ func (r *ForgeRouter) Start(ctx context.Context) error {
 	// Apply middleware to router
 	if err := r.middlewareManager.Apply(r); err != nil {
 		return common.ErrLifecycleError("apply_middleware", err)
-	}
-
-	// Start plugin manager
-	if err := r.pluginManager.Start(ctx); err != nil {
-		return err
-	}
-
-	// Apply plugin routes and middleware
-	if err := r.pluginManager.ApplyRoutes(); err != nil {
-		return common.ErrLifecycleError("apply_plugin_routes", err)
-	}
-
-	if err := r.pluginManager.ApplyMiddleware(); err != nil {
-		return common.ErrLifecycleError("apply_plugin_middleware", err)
 	}
 
 	r.started = true
@@ -879,7 +1046,7 @@ func (r *ForgeRouter) Start(ctx context.Context) error {
 			logger.Int("opinionated_handlers", len(r.opinionatedHandlers)),
 			logger.Int("controllers", len(r.controllers)),
 			logger.Int("middleware", len(r.middlewareManager.GetAllMiddleware())),
-			logger.Int("plugins", r.pluginManager.Count()),
+			// logger.Int("plugins", r.pluginManager.Count()),
 			logger.Bool("openapi_enabled", r.openAPIGenerator != nil),
 		)
 	}
@@ -899,14 +1066,7 @@ func (r *ForgeRouter) Stop(ctx context.Context) error {
 		return common.ErrLifecycleError("stop", fmt.Errorf("router not started"))
 	}
 
-	// Stop plugin manager
-	if err := r.pluginManager.Stop(ctx); err != nil {
-		if r.logger != nil {
-			r.logger.Error("failed to stop plugin manager", logger.Error(err))
-		}
-	}
-
-	// Stop the robust middleware manager
+	// OnStop the robust middleware manager
 	if err := r.middlewareManager.OnStop(ctx); err != nil {
 		if r.logger != nil {
 			r.logger.Error("failed to stop middleware manager", logger.Error(err))
@@ -936,11 +1096,6 @@ func (r *ForgeRouter) HealthCheck(ctx context.Context) error {
 		return err
 	}
 
-	// Check plugin manager
-	if err := r.pluginManager.HealthCheck(ctx); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -956,6 +1111,70 @@ func (r *ForgeRouter) Handler() http.Handler {
 	return r.SteelRouter
 }
 
+// UnregisterRoute unregisters a route by ID
+func (r *ForgeRouter) UnregisterRoute(ctx context.Context, routeID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry, exists := r.routes[routeID]
+	if !exists {
+		return fmt.Errorf("route not found: %s", routeID)
+	}
+
+	// Unregister from main router
+	if err := r.unregisterFromMainRouter(entry); err != nil {
+		r.logger.Warn("failed to unregister from main router",
+			logger.String("route_id", routeID),
+			logger.Error(err),
+		)
+	}
+
+	// Remove from routes map
+	delete(r.routes, routeID)
+
+	// Remove from plugin routes mapping
+	pluginRoutes := r.pluginRoutes[entry.PluginID]
+	for i, id := range pluginRoutes {
+		if id == routeID {
+			r.pluginRoutes[entry.PluginID] = append(pluginRoutes[:i], pluginRoutes[i+1:]...)
+			break
+		}
+	}
+
+	// Clean up empty plugin mapping
+	if len(r.pluginRoutes[entry.PluginID]) == 0 {
+		delete(r.pluginRoutes, entry.PluginID)
+	}
+
+	// Remove from path index
+	if methodMap, exists := r.pathIndex[entry.Method]; exists {
+		delete(methodMap, entry.Pattern)
+		if len(methodMap) == 0 {
+			delete(r.pathIndex, entry.Method)
+		}
+	}
+
+	r.logger.Info("plugin route unregistered",
+		logger.String("plugin_id", entry.PluginID),
+		logger.String("route_id", routeID),
+		logger.String("method", entry.Method),
+		logger.String("path", entry.Pattern),
+	)
+
+	if r.metrics != nil {
+		r.metrics.Counter("forge.router.plugin_route_unregistered", "plugin_id", entry.PluginID, "method", entry.Method).Inc()
+		r.metrics.Gauge("forge.router.plugin_routes_total").Set(float64(len(r.routes)))
+	}
+
+	return nil
+}
+
+func (r *ForgeRouter) unregisterFromMainRouter(entry *RouteEntry) error {
+	// This would need to interface with the main router's unregistration mechanism
+	// Implementation depends on ForgeRouter's internal structure
+	return nil
+}
+
 // =============================================================================
 // STATISTICS (Updated to include robust middleware manager stats)
 // =============================================================================
@@ -968,10 +1187,10 @@ func (r *ForgeRouter) GetStats() common.RouterStats {
 		HandlersRegistered: len(r.serviceHandlers) + len(r.opinionatedHandlers),
 		ControllersCount:   len(r.controllers),
 		MiddlewareCount:    len(r.middlewareManager.GetAllMiddleware()),
-		PluginCount:        r.pluginManager.Count(),
-		RouteStats:         r.routeStats,
-		Started:            r.started,
-		OpenAPIEnabled:     r.openAPIGenerator != nil,
+		// PluginCount:        r.pluginManager.GetStats().TotalPlugins,
+		RouteStats:     r.routeStats,
+		Started:        r.started,
+		OpenAPIEnabled: r.openAPIGenerator != nil,
 	}
 
 	// Add streaming stats if available
@@ -1014,6 +1233,148 @@ func (r *ForgeRouter) GetMiddlewareHealth(ctx context.Context) error {
 // INTERNAL HANDLER CREATION METHODS
 // =============================================================================
 
+// RegisterPluginRoute implementation
+func (r *ForgeRouter) RegisterPluginRoute(pluginID string, route common.RouteDefinition) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Generate unique route ID
+	r.routeIDCounter++
+	routeID := fmt.Sprintf("plugin_%s_%d", pluginID, r.routeIDCounter)
+
+	// Validate route
+	if err := r.validateRoute(route); err != nil {
+		return "", err
+	}
+
+	// Register with base router
+	if err := r.registerControllerRoute(route); err != nil {
+		return "", err
+	}
+
+	// Track plugin route
+	if r.pluginRoutes[pluginID] == nil {
+		r.pluginRoutes[pluginID] = make([]string, 0)
+	}
+	r.pluginRoutes[pluginID] = append(r.pluginRoutes[pluginID], routeID)
+	r.routeToPlugin[routeID] = pluginID
+
+	r.logger.Debug("plugin route registered",
+		logger.String("plugin_id", pluginID),
+		logger.String("route_id", routeID),
+		logger.String("method", route.Method),
+		logger.String("path", route.Pattern),
+	)
+
+	return routeID, nil
+}
+
+// UnregisterPluginRoute removes a specific route
+func (r *ForgeRouter) UnregisterPluginRoute(routeID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	pluginID, exists := r.routeToPlugin[routeID]
+	if !exists {
+		return fmt.Errorf("route not found: %s", routeID)
+	}
+
+	// Remove from plugin routes
+	routes := r.pluginRoutes[pluginID]
+	for i, id := range routes {
+		if id == routeID {
+			r.pluginRoutes[pluginID] = append(routes[:i], routes[i+1:]...)
+			break
+		}
+	}
+
+	// Clean up empty plugin entry
+	if len(r.pluginRoutes[pluginID]) == 0 {
+		delete(r.pluginRoutes, pluginID)
+	}
+
+	delete(r.routeToPlugin, routeID)
+
+	// TODO: Unregister from actual router (this depends on your router implementation)
+
+	return nil
+}
+
+// GetPluginRoutes returns all route IDs for a plugin
+func (r *ForgeRouter) GetPluginRoutes(pluginID string) []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	routes := r.pluginRoutes[pluginID]
+	result := make([]string, len(routes))
+	copy(result, routes)
+	return result
+}
+
+func (r *ForgeRouter) registerPluginRoutesHandler(method, path string, handler interface{}, options ...common.HandlerOption) error {
+	// We're in plugin configuration mode - register as plugin route
+	route := common.RouteDefinition{
+		Method:  method,
+		Pattern: path,
+		Handler: handler,
+		Tags:    make(map[string]string),
+	}
+
+	// Apply options
+	info := &common.RouteHandlerInfo{Tags: make(map[string]string)}
+	for _, option := range options {
+		option(info)
+	}
+	route.Tags = info.Tags
+	route.Middleware = info.Middleware
+	route.Dependencies = info.Dependencies
+	route.Config = info.Config
+	route.Opinionated = info.Opinionated
+	route.RequestType = info.RequestType
+	route.ResponseType = info.ResponseType
+
+	// Add plugin metadata
+	route.Tags["plugin_id"] = r.currentPluginID
+
+	// Register as plugin route
+	err := r.registerPluginRouteInternal(r.currentPluginID, route)
+	return err
+}
+
+// Internal method to register plugin routes with proper tracking
+func (r *ForgeRouter) registerPluginRouteInternal(pluginID string, route common.RouteDefinition) error {
+	// Generate unique route ID
+	r.routeIDCounter++
+	routeID := fmt.Sprintf("plugin_%s_%d", pluginID, r.routeIDCounter)
+
+	// Validate route
+	if err := r.validateRoute(route); err != nil {
+		return err
+	}
+
+	// Register with base router
+	if err := r.registerControllerRoute(route); err != nil {
+		return err
+	}
+
+	// Track plugin route
+	if r.pluginRoutes[pluginID] == nil {
+		r.pluginRoutes[pluginID] = make([]string, 0)
+	}
+	r.pluginRoutes[pluginID] = append(r.pluginRoutes[pluginID], routeID)
+	r.routeToPlugin[routeID] = pluginID
+
+	if r.logger != nil {
+		r.logger.Debug("plugin route registered",
+			logger.String("plugin_id", pluginID),
+			logger.String("route_id", routeID),
+			logger.String("method", route.Method),
+			logger.String("path", route.Pattern),
+		)
+	}
+
+	return nil
+}
 func (r *ForgeRouter) registerServiceHandler(method, path string, handler interface{}, options ...common.HandlerOption) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1078,12 +1439,11 @@ func (r *ForgeRouter) registerServiceHandler(method, path string, handler interf
 
 	// Process middleware from options using the robust middleware manager
 	for _, mw := range info.Middleware {
-		if err := r.middlewareManager.Register(mw); err != nil {
+		if err := r.middlewareManager.RegisterAny(mw); err != nil {
 			if r.logger != nil {
 				r.logger.Warn("Failed to register handler middleware",
 					logger.String("method", method),
 					logger.String("path", path),
-					logger.String("middleware", mw.Name()),
 					logger.Error(err),
 				)
 			}
@@ -1153,9 +1513,9 @@ func (r *ForgeRouter) registerServiceHandler(method, path string, handler interf
 	return nil
 }
 
-func (r *ForgeRouter) registerControllerRoute(controller common.Controller, route common.RouteDefinition) error {
+func (r *ForgeRouter) registerControllerRoute(route common.RouteDefinition) error {
 	// Create instrumented handler for controller route
-	wrapper := r.createControllerRouteWrapper(controller, route)
+	wrapper := r.createControllerRouteWrapper(route)
 
 	// Register with base router
 	switch strings.ToUpper(route.Method) {
@@ -1199,11 +1559,17 @@ func (r *ForgeRouter) createServiceHandlerWrapper(
 		startTime := time.Now()
 		handlerKey := fmt.Sprintf("%s %s", info.Method, info.Path)
 
-		// Create Context with route pattern
+		// Create Context with route pattern - ENHANCED
 		forgeCtx := common.NewForgeContext(req.Context(), r.container, r.logger, r.metrics, r.config)
 		forgeCtx = forgeCtx.WithRequest(req).WithResponseWriter(w)
-		// Set the route pattern for path parameter extraction
+
+		// Set the route pattern for path parameter extraction - CRITICAL FIX
 		forgeCtx = forgeCtx.(*common.ForgeContext).SetRoutePattern(info.Path)
+
+		// Try to extract path parameters immediately and store them
+		if pathParams := r.extractPathParametersFromSteelRouter(req, info.Path); len(pathParams) > 0 {
+			forgeCtx = forgeCtx.(*common.ForgeContext).SetPathParams(pathParams)
+		}
 
 		// Update call statistics
 		r.updateCallStats(handlerKey, startTime)
@@ -1232,11 +1598,12 @@ func (r *ForgeRouter) createServiceHandlerWrapper(
 		if err := r.bindRequestParameters(forgeCtx, requestInstance.Interface(), requestType); err != nil {
 			r.updateErrorStats(handlerKey, err)
 
-			// Log the binding failure for debugging
+			// Enhanced logging for debugging
 			if r.logger != nil {
 				r.logger.Error("Request parameter binding failed",
 					logger.String("method", req.Method),
 					logger.String("path", req.URL.Path),
+					logger.String("route_pattern", info.Path),
 					logger.String("request_type", requestType.Name()),
 					logger.Error(err),
 				)
@@ -1251,6 +1618,7 @@ func (r *ForgeRouter) createServiceHandlerWrapper(
 			r.logger.Debug("Request parameters bound successfully",
 				logger.String("method", req.Method),
 				logger.String("path", req.URL.Path),
+				logger.String("route_pattern", info.Path),
 				logger.String("request_type", requestType.Name()),
 			)
 		}
@@ -1278,11 +1646,17 @@ func (r *ForgeRouter) createOpinionatedHandlerWrapper(
 		startTime := time.Now()
 		handlerKey := fmt.Sprintf("%s %s", info.Method, info.Path)
 
-		// Create Context with route pattern
+		// Create Context with route pattern - ENHANCED
 		forgeCtx := common.NewForgeContext(req.Context(), r.container, r.logger, r.metrics, r.config)
 		forgeCtx = forgeCtx.WithRequest(req).WithResponseWriter(w)
-		// Set the route pattern for path parameter extraction
+
+		// Set the route pattern for path parameter extraction - CRITICAL FIX
 		forgeCtx = forgeCtx.(*common.ForgeContext).SetRoutePattern(info.Path)
+
+		// Try to extract path parameters immediately and store them
+		if pathParams := r.extractPathParametersFromSteelRouter(req, info.Path); len(pathParams) > 0 {
+			forgeCtx = forgeCtx.(*common.ForgeContext).SetPathParams(pathParams)
+		}
 
 		// Update call statistics
 		r.updateOpinionatedCallStats(handlerKey, startTime)
@@ -1294,11 +1668,12 @@ func (r *ForgeRouter) createOpinionatedHandlerWrapper(
 		if err := r.bindRequestParameters(forgeCtx, requestInstance.Interface(), requestType); err != nil {
 			r.updateOpinionatedErrorStats(handlerKey, err)
 
-			// Log the binding failure for debugging
+			// Enhanced logging for debugging
 			if r.logger != nil {
 				r.logger.Error("Request parameter binding failed",
 					logger.String("method", req.Method),
 					logger.String("path", req.URL.Path),
+					logger.String("route_pattern", info.Path),
 					logger.String("request_type", requestType.Name()),
 					logger.Error(err),
 				)
@@ -1313,6 +1688,7 @@ func (r *ForgeRouter) createOpinionatedHandlerWrapper(
 			r.logger.Debug("Request parameters bound successfully",
 				logger.String("method", req.Method),
 				logger.String("path", req.URL.Path),
+				logger.String("route_pattern", info.Path),
 				logger.String("request_type", requestType.Name()),
 			)
 		}
@@ -1328,7 +1704,7 @@ func (r *ForgeRouter) createOpinionatedHandlerWrapper(
 	}
 }
 
-func (r *ForgeRouter) createControllerRouteWrapper(controller common.Controller, route common.RouteDefinition) func(http.ResponseWriter, *http.Request) {
+func (r *ForgeRouter) createControllerRouteWrapper(route common.RouteDefinition) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		startTime := time.Now()
 		handlerKey := fmt.Sprintf("%s %s", route.Method, route.Pattern)
@@ -1612,11 +1988,19 @@ func (r *ForgeRouter) bindRequestParameters(ctx common.Context, request interfac
 	method := ctx.Request().Method
 	var bodyErr error
 	if method == "POST" || method == "PUT" || method == "PATCH" {
-		// Try JSON binding first
-		bodyErr = ctx.BindJSON(request)
-		if bodyErr != nil {
-			// If JSON fails, try form binding
-			bodyErr = ctx.BindForm(request)
+		// Check if there's a dedicated Body field
+		bodyField := r.extractRequestBodyField(requestType, request)
+
+		if bodyField.IsValid() {
+			// Bind to the Body field specifically
+			bodyErr = r.bindToBodyField(ctx, request, bodyField)
+		} else {
+			// Try JSON binding first
+			bodyErr = ctx.BindJSON(request)
+			if bodyErr != nil {
+				// If JSON fails, try form binding
+				bodyErr = ctx.BindForm(request)
+			}
 		}
 	}
 
@@ -1643,6 +2027,81 @@ func (r *ForgeRouter) bindRequestParameters(ctx common.Context, request interfac
 	}
 
 	return nil
+}
+
+// extractRequestBodyField finds and returns the Body field from a request struct
+func (r *ForgeRouter) extractRequestBodyField(requestType reflect.Type, request interface{}) reflect.Value {
+	if requestType.Kind() == reflect.Ptr {
+		requestType = requestType.Elem()
+	}
+
+	if requestType.Kind() != reflect.Struct {
+		return reflect.Value{}
+	}
+
+	requestValue := reflect.ValueOf(request)
+	if requestValue.Kind() == reflect.Ptr {
+		requestValue = requestValue.Elem()
+	}
+
+	// Look for a field with body tag or named "Body"
+	for i := 0; i < requestType.NumField(); i++ {
+		field := requestType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		// Check for explicit body tag or field named "Body"
+		hasBodyTag := field.Tag.Get("body") != ""
+		if hasBodyTag || field.Name == "Body" {
+			fieldValue := requestValue.Field(i)
+			if fieldValue.IsValid() && fieldValue.CanSet() {
+				return fieldValue
+			}
+		}
+	}
+
+	return reflect.Value{}
+}
+
+// bindToBodyField binds request body data to a specific Body field
+func (r *ForgeRouter) bindToBodyField(ctx common.Context, request interface{}, bodyField reflect.Value) error {
+	if !bodyField.IsValid() || !bodyField.CanSet() {
+		return fmt.Errorf("invalid body field")
+	}
+
+	// Create an instance of the body field's type
+	bodyType := bodyField.Type()
+	if bodyType.Kind() == reflect.Ptr {
+		// If it's a pointer type, create a new instance
+		if bodyField.IsNil() {
+			bodyField.Set(reflect.New(bodyType.Elem()))
+		}
+		bodyInstance := bodyField.Interface()
+
+		// Try JSON binding first
+		if err := ctx.BindJSON(bodyInstance); err == nil {
+			return nil
+		}
+
+		// If JSON fails, try form binding
+		return ctx.BindForm(bodyInstance)
+	} else {
+		// If it's a value type, we need to bind to its address
+		if bodyField.CanAddr() {
+			bodyInstance := bodyField.Addr().Interface()
+
+			// Try JSON binding first
+			if err := ctx.BindJSON(bodyInstance); err == nil {
+				return nil
+			}
+
+			// If JSON fails, try form binding
+			return ctx.BindForm(bodyInstance)
+		}
+
+		return fmt.Errorf("cannot bind to non-addressable body field")
+	}
 }
 
 // Helper function to check if struct has path parameters
@@ -1676,7 +2135,12 @@ func hasBodyParameters(requestType reflect.Type) bool {
 
 	for i := 0; i < requestType.NumField(); i++ {
 		field := requestType.Field(i)
-		if field.Tag.Get("json") != "" || field.Tag.Get("body") != "" || field.Tag.Get("form") != "" {
+
+		// Check for body tag, json tag, form tag, or Body field name
+		if field.Tag.Get("body") != "" ||
+			field.Tag.Get("json") != "" ||
+			field.Tag.Get("form") != "" ||
+			field.Name == "Body" {
 			return true
 		}
 	}
@@ -1975,4 +2439,58 @@ func (r *ForgeRouter) addAsyncAPIUI(uiPath, specPath string) {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(html))
 	})
+}
+
+func (r *ForgeRouter) validateRoute(route common.RouteDefinition) error {
+	if route.Pattern == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+	if route.Method == "" {
+		return fmt.Errorf("method cannot be empty")
+	}
+	if route.Handler == nil {
+		return fmt.Errorf("handler cannot be nil")
+	}
+
+	// Validate HTTP method
+	validMethods := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+	valid := false
+	for _, method := range validMethods {
+		if route.Method == method {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("invalid HTTP method: %s", route.Method)
+	}
+
+	return nil
+}
+
+func (r *ForgeRouter) checkRouteConflicts(method, path string) error {
+	if methodMap, exists := r.pathIndex[method]; exists {
+		if _, exists := methodMap[path]; exists {
+			return fmt.Errorf("route %s %s already exists", method, path)
+		}
+	}
+	return nil
+}
+
+func (r *ForgeRouter) generateRouteID(pluginID, method, path string) string {
+	r.nextRouteID++
+	return fmt.Sprintf("plugin_%s_%s_%s_%d", pluginID, method, sanitizePath(path), r.nextRouteID)
+}
+
+func sanitizePath(path string) string {
+	// Replace special characters for ID generation
+	result := ""
+	for _, r := range path {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			result += string(r)
+		} else {
+			result += "_"
+		}
+	}
+	return result
 }

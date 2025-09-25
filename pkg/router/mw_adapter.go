@@ -155,15 +155,6 @@ func (rw *responseWrapper) Write(b []byte) (int, error) {
 // HELPER FUNCTIONS FOR MIDDLEWARE CONVERSION
 // =============================================================================
 
-// ConvertMiddlewaresToServiceMiddleware converts a slice of MiddlewareDefinition to Middleware
-func ConvertMiddlewaresToServiceMiddleware(definitions []common.MiddlewareDefinition) []middleware.Middleware {
-	serviceMiddlewares := make([]middleware.Middleware, len(definitions))
-	for i, def := range definitions {
-		serviceMiddlewares[i] = NewMiddlewareDefinitionAdapter(def)
-	}
-	return serviceMiddlewares
-}
-
 // RegisterMiddlewareDefinitions registers multiple middleware definitions with the manager
 func RegisterMiddlewareDefinitions(manager *middleware.Manager, definitions []common.MiddlewareDefinition) error {
 	for _, def := range definitions {

@@ -13,30 +13,53 @@ import (
 
 // PermissionManager manages plugin permissions
 type PermissionManager interface {
-	// Permission management
+
+	// GrantPermission grants the specified permission to a plugin, updating its permission set in the permission manager.
 	GrantPermission(ctx context.Context, pluginID string, permission Permission) error
+
+	// RevokePermission revokes a specific permission from the given plugin by its permission name.
 	RevokePermission(ctx context.Context, pluginID string, permissionName string) error
+
+	// HasPermission verifies if a plugin has the specified permission and returns the result along with any potential error.
 	HasPermission(ctx context.Context, pluginID string, permission Permission) (bool, error)
+
+	// GetPermissions retrieves the list of permissions associated with the specified plugin ID.
 	GetPermissions(ctx context.Context, pluginID string) ([]Permission, error)
 
-	// Permission checking
+	// CheckPermission verifies if the specified plugin has permission to perform the given action on the provided resource.
 	CheckPermission(ctx context.Context, pluginID string, resource string, action string) error
+
+	// CheckMultiplePermissions verifies a batch of permission checks for a specified plugin and returns an error if any fail.
 	CheckMultiplePermissions(ctx context.Context, pluginID string, checks []PermissionCheck) error
 
-	// Role-based permissions
+	// CreateRole creates a new role with the specified permissions and metadata. It returns an error if the operation fails.
 	CreateRole(ctx context.Context, role Role) error
+
+	// AssignRole assigns a role to the specified plugin by its pluginID. Returns an error if the operation fails.
 	AssignRole(ctx context.Context, pluginID string, roleName string) error
+
+	// RemoveRole removes the specified role from a plugin, ensuring the role no longer applies to the given plugin.
 	RemoveRole(ctx context.Context, pluginID string, roleName string) error
+
+	// GetRoles retrieves all roles assigned to a plugin identified by pluginID from the context.
 	GetRoles(ctx context.Context, pluginID string) ([]Role, error)
 
-	// Policy management
+	// CreatePolicy creates a new permission policy in the system using the provided policy details. Returns an error if it fails.
 	CreatePolicy(ctx context.Context, policy Policy) error
+
+	// UpdatePolicy updates an existing policy in the system based on the provided policy object and context.
 	UpdatePolicy(ctx context.Context, policy Policy) error
+
+	// DeletePolicy removes a policy by its name from the system. Returns an error if the operation fails.
 	DeletePolicy(ctx context.Context, policyName string) error
+
+	// EvaluatePolicy evaluates a policy request and returns the decision, associated policies, and optional context or an error.
 	EvaluatePolicy(ctx context.Context, request PolicyRequest) (PolicyResult, error)
 
-	// Audit and monitoring
+	// GetAuditLog retrieves the audit log entries for the specified plugin ID and returns them as a slice of AuditEntry.
 	GetAuditLog(ctx context.Context, pluginID string) ([]AuditEntry, error)
+
+	// GetPermissionStats retrieves aggregated permission statistics, including counts of permissions, roles, policies, and audit logs.
 	GetPermissionStats() PermissionStats
 }
 
@@ -103,7 +126,7 @@ type Policy struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
 	Version     string                 `json:"version"`
-	Rules       []PolicyRule           `json:"rules"`
+	Rules       []PermissionPolicyRule `json:"rules"`
 	Effect      PolicyEffect           `json:"effect"`
 	Priority    int                    `json:"priority"`
 	CreatedAt   time.Time              `json:"created_at"`
@@ -112,8 +135,8 @@ type Policy struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// PolicyRule defines a rule within a policy
-type PolicyRule struct {
+// PermissionPolicyRule defines a rule within a policy
+type PermissionPolicyRule struct {
 	Name       string                 `json:"name"`
 	Resources  []string               `json:"resources"`
 	Actions    []string               `json:"actions"`
@@ -747,7 +770,7 @@ func (pm *PermissionManagerImpl) policyApplies(policy Policy, request PolicyRequ
 	return true
 }
 
-func (pm *PermissionManagerImpl) ruleApplies(rule PolicyRule, request PolicyRequest) bool {
+func (pm *PermissionManagerImpl) ruleApplies(rule PermissionPolicyRule, request PolicyRequest) bool {
 	// Check if rule applies to the request
 	for _, resource := range rule.Resources {
 		if pm.resourceMatches(resource, request.Resource) {

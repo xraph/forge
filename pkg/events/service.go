@@ -143,7 +143,7 @@ func (es *EventService) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed(es.name, fmt.Errorf("failed to initialize event bus: %w", err))
 	}
 
-	// Start metrics collection if enabled
+	// OnStart metrics collection if enabled
 	if es.config.Metrics.Enabled && es.metrics != nil {
 		go es.startMetricsCollection(ctx)
 	}
@@ -178,7 +178,7 @@ func (es *EventService) OnStop(ctx context.Context) error {
 		)
 	}
 
-	// Stop event bus
+	// OnStop event bus
 	if es.bus != nil {
 		if err := es.bus.OnStop(ctx); err != nil {
 			if es.logger != nil {
@@ -309,7 +309,7 @@ func (es *EventService) initializeEventBus(ctx context.Context) error {
 		}
 	}
 
-	// Start event bus
+	// OnStart event bus
 	if err := bus.OnStart(ctx); err != nil {
 		return fmt.Errorf("failed to start event bus: %w", err)
 	}

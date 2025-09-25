@@ -415,11 +415,11 @@ func (m *AIAlertManager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize default alert rules: %w", err)
 	}
 
-	// Start alert checking ticker
+	// OnStart alert checking ticker
 	m.alertTicker = time.NewTicker(m.config.CheckInterval)
 	m.started = true
 
-	// Start alert processing goroutine
+	// OnStart alert processing goroutine
 	go m.processAlerts(ctx)
 
 	if m.logger != nil {

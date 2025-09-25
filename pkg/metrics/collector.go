@@ -135,7 +135,7 @@ func (c *collector) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed(c.name, err)
 	}
 
-	// Start collection goroutine
+	// OnStart collection goroutine
 	go c.collectionLoop(ctx)
 
 	if c.logger != nil {
@@ -162,7 +162,7 @@ func (c *collector) OnStop(ctx context.Context) error {
 
 	c.started = false
 
-	// Stop all custom collectors
+	// OnStop all custom collectors
 	for _, col := range c.customCollectors {
 		col.Reset()
 	}

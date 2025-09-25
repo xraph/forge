@@ -114,7 +114,7 @@ func NewLocalPresenceTracker(config PresenceConfig, logger common.Logger, metric
 		stopCh:        make(chan struct{}),
 	}
 
-	// Start cleanup routine
+	// OnStart cleanup routine
 	tracker.startCleanup()
 
 	return tracker

@@ -28,7 +28,7 @@ func (v *Validator) validateDependencies() error {
 		if registration.Name != "" {
 			allServices[registration.Name] = true
 		} else {
-			allServices[registration.Type.Name()] = true
+			allServices[registration.Type.String()] = true
 		}
 	}
 
@@ -42,7 +42,7 @@ func (v *Validator) validateDependencies() error {
 			if !allServices[dep] {
 				serviceName := registration.Name
 				if serviceName == "" {
-					serviceName = registration.Type.Name()
+					serviceName = registration.Type.String()
 				}
 				return common.ErrDependencyNotFound(serviceName, dep)
 			}
@@ -68,7 +68,7 @@ func (v *Validator) validateCircularDependencies() error {
 	for _, registration := range v.container.services {
 		serviceName := registration.Name
 		if serviceName == "" {
-			serviceName = registration.Type.Name()
+			serviceName = registration.Type.String()
 		}
 		graph[serviceName] = registration.Dependencies
 	}
@@ -143,47 +143,30 @@ func (v *Validator) validateServiceDefinitions() error {
 func (v *Validator) validateServiceDefinition(registration *ServiceRegistration) error {
 	serviceName := registration.Name
 	if serviceName == "" {
-		serviceName = registration.Type.Name()
+		serviceName = registration.Type.String()
 	}
 
-	// Validate type
 	if registration.Type == nil {
 		return common.ErrValidationError("type", fmt.Errorf("service %s has no type", serviceName))
 	}
 
-	// Validate constructor
 	if registration.Constructor != nil {
 		constructorType := reflect.TypeOf(registration.Constructor)
 		if constructorType.Kind() != reflect.Func {
 			return common.ErrValidationError("constructor", fmt.Errorf("service %s constructor must be a function", serviceName))
 		}
-
-		// Check that constructor returns the correct type
 		if constructorType.NumOut() == 0 {
 			return common.ErrValidationError("constructor", fmt.Errorf("service %s constructor must return at least one value", serviceName))
 		}
 
 		returnType := constructorType.Out(0)
-
-		// Handle pointer types - if constructor returns a pointer, get the element type
-		if returnType.Kind() == reflect.Ptr {
-			returnType = returnType.Elem()
-		}
-
-		// For interface types, check if the returned type implements the interface
 		if registration.Type.Kind() == reflect.Interface {
-			// Check if the constructor return type implements the service interface
-			if !returnType.Implements(registration.Type) {
-				// If returnType is a pointer type, check if it implements the interface
-				ptrType := reflect.PtrTo(returnType)
-				if !ptrType.Implements(registration.Type) {
-					return common.ErrValidationError("constructor",
-						fmt.Errorf("service %s constructor return type %s does not implement service interface %s",
-							serviceName, returnType, registration.Type))
-				}
+			if !returnType.Implements(registration.Type) && !reflect.PtrTo(returnType).Implements(registration.Type) {
+				return common.ErrValidationError("constructor",
+					fmt.Errorf("service %s constructor return type %s does not implement service interface %s",
+						serviceName, returnType, registration.Type))
 			}
 		} else {
-			// For concrete types, check exact match
 			if returnType != registration.Type {
 				return common.ErrValidationError("constructor",
 					fmt.Errorf("service %s constructor return type %s does not match service type %s",
@@ -393,6 +376,13 @@ func (v *Validator) serviceExists(serviceName string) bool {
 	// Check named services
 	if _, exists := v.container.namedServices[serviceName]; exists {
 		return true
+	}
+
+	// Check reference mappings
+	if actualName, mapped := v.container.referenceNameMappings[serviceName]; mapped {
+		if _, exists := v.container.namedServices[actualName]; exists {
+			return true
+		}
 	}
 
 	// Check services by type name

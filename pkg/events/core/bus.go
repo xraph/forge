@@ -167,7 +167,7 @@ func (eb *EventBusImpl) OnStart(ctx context.Context) error {
 		)
 	}
 
-	// Start all registered brokers
+	// OnStart all registered brokers
 	for name, broker := range eb.brokers {
 		if err := broker.Connect(ctx, nil); err != nil {
 			return common.ErrServiceStartFailed(eb.name, fmt.Errorf("failed to start broker %s: %w", name, err))
@@ -180,7 +180,7 @@ func (eb *EventBusImpl) OnStart(ctx context.Context) error {
 		}
 	}
 
-	// Start workers
+	// OnStart workers
 	for _, worker := range eb.workers {
 		eb.wg.Add(1)
 		go func(w *EventWorker) {
@@ -223,7 +223,7 @@ func (eb *EventBusImpl) OnStop(ctx context.Context) error {
 	// Wait for workers to finish processing
 	eb.wg.Wait()
 
-	// Stop all brokers
+	// OnStop all brokers
 	for name, broker := range eb.brokers {
 		if err := broker.Close(ctx); err != nil {
 			if eb.logger != nil {

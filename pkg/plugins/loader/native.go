@@ -13,7 +13,7 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // NativeLoader loads native Go plugins (using Go's plugin package)
@@ -42,6 +42,11 @@ type NativePluginWrapper struct {
 	metadata     map[string]interface{}
 	startTime    time.Time
 	metrics      plugins.PluginMetrics
+}
+
+func (npw *NativePluginWrapper) Controllers() []common.Controller {
+	// TODO implement me
+	panic("implement me")
 }
 
 // NewNativeLoader creates a new native Go plugin loader
@@ -350,12 +355,12 @@ func (npw *NativePluginWrapper) Initialize(ctx context.Context, container common
 	return npw.pluginImpl.Initialize(ctx, container)
 }
 
-func (npw *NativePluginWrapper) Start(ctx context.Context) error {
-	return npw.pluginImpl.Start(ctx)
+func (npw *NativePluginWrapper) OnStart(ctx context.Context) error {
+	return npw.pluginImpl.OnStart(ctx)
 }
 
-func (npw *NativePluginWrapper) Stop(ctx context.Context) error {
-	return npw.pluginImpl.Stop(ctx)
+func (npw *NativePluginWrapper) OnStop(ctx context.Context) error {
+	return npw.pluginImpl.OnStop(ctx)
 }
 
 func (npw *NativePluginWrapper) Cleanup(ctx context.Context) error {
@@ -393,18 +398,18 @@ func (npw *NativePluginWrapper) GetMetrics() plugins.PluginMetrics {
 	return npw.metrics
 }
 
-func (npw *NativePluginWrapper) Middleware() []common.MiddlewareDefinition {
+func (npw *NativePluginWrapper) Middleware() []any {
 	if npw.pluginImpl != nil {
 		return npw.pluginImpl.Middleware()
 	}
-	return []common.MiddlewareDefinition{}
+	return []any{}
 }
 
-func (npw *NativePluginWrapper) Routes() []common.RouteDefinition {
+func (npw *NativePluginWrapper) ConfigureRoutes(r common.Router) error {
 	if npw.pluginImpl != nil {
-		return npw.pluginImpl.Routes()
+		return npw.pluginImpl.ConfigureRoutes(r)
 	}
-	return []common.RouteDefinition{}
+	return nil
 }
 
 func (npw *NativePluginWrapper) Services() []common.ServiceDefinition {

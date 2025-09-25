@@ -1,0 +1,88 @@
+package {{.Package}}
+
+import (
+	"context"
+	"time"
+
+	"github.com/xraph/forge/pkg/common"
+)
+
+// {{.Name}}Service defines the interface for {{.Name | toLower}} service operations
+type {{.Name}}Service interface {
+	common.Service
+
+	// Business logic methods
+	{{- if .Methods}}
+	{{- range .Methods}}
+	{{.}}(ctx context.Context) error
+	{{- end}}
+	{{- else}}
+	Get{{.Name}}(ctx context.Context, id string) (*{{.Name}}, error)
+	Create{{.Name}}(ctx context.Context, data *Create{{.Name}}Request) (*{{.Name}}, error)
+	Update{{.Name}}(ctx context.Context, id string, data *Update{{.Name}}Request) (*{{.Name}}, error)
+	Delete{{.Name}}(ctx context.Context, id string) error
+	List{{.Name}}(ctx context.Context, filters *List{{.Name}}Filters) ([]*{{.Name}}, error)
+	{{- end}}
+
+	{{- if .Database}}
+	// Database operations
+	FindByID(ctx context.Context, id string) (*{{.Name}}, error)
+	Save(ctx context.Context, entity *{{.Name}}) error
+	{{- end}}
+
+	{{- if .Cache}}
+	// Cache operations
+	GetFromCache(ctx context.Context, key string) (*{{.Name}}, error)
+	SetInCache(ctx context.Context, key string, entity *{{.Name}}, ttl time.Duration) error
+	InvalidateCache(ctx context.Context, key string) error
+	{{- end}}
+
+	{{- if .Events}}
+	// Event operations
+	PublishEvent(ctx context.Context, eventType string, data interface{}) error
+	{{- end}}
+}
+
+{{- if not .Methods}}
+
+// Create{{.Name}}Request represents the data needed to create a new {{.Name | toLower}}
+type Create{{.Name}}Request struct {
+	// TODO: Add fields here based on your {{.Name | toLower}} structure
+}
+
+// Update{{.Name}}Request represents the data needed to update a {{.Name | toLower}}
+type Update{{.Name}}Request struct {
+	// TODO: Add fields here based on your {{.Name | toLower}} structure
+}
+
+// List{{.Name}}Filters represents filters for listing {{.Name | toLower | pluralize}}
+type List{{.Name}}Filters struct {
+	// TODO: Add filter fields here
+	Page     int    `json:"page" query:"page"`
+	Limit    int    `json:"limit" query:"limit"`
+	Sort     string `json:"sort" query:"sort"`
+	Search   string `json:"search" query:"search"`
+}
+
+// {{.Name}} represents the {{.Name | toLower}} entity
+type {{.Name}} struct {
+	ID          string    `json:"id" db:"id"`
+	{{- if .Timestamps}}
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	{{- end}}
+	{{- if .SoftDelete}}
+	DeletedAt   *time.Time `json:"deleted_at,omitempty" db:"deleted_at"`
+	{{- end}}
+
+	// TODO: Add your business fields here
+}
+
+{{- if .Database}}
+// TableName returns the database table name for {{.Name}}
+func ({{.Name | substr 0 1 | toLower}}) TableName() string {
+	return "{{.TableName | default (.Name | toLower | pluralize)}}"
+}
+{{- end}}
+
+{{- end}}

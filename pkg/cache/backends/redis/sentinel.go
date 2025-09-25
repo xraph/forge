@@ -106,7 +106,7 @@ func NewRedisSentinelCache(name string, config *cachecore.RedisConfig, logger co
 func (r *RedisSentinelCache) initSentinel() error {
 	// Create sentinel client
 	sentinelClient := redis.NewSentinelClient(&redis.Options{
-		Addr:     r.sentinels[0], // Start with first sentinel
+		Addr:     r.sentinels[0], // OnStart with first sentinel
 		Password: r.config.SentinelPassword,
 	})
 
@@ -142,7 +142,7 @@ func (r *RedisSentinelCache) initSentinel() error {
 		return fmt.Errorf("failed to load master info: %w", err)
 	}
 
-	// Start monitoring
+	// OnStart monitoring
 	r.startMonitoring()
 
 	if r.logger != nil {

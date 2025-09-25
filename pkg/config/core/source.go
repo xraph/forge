@@ -1,39 +1,13 @@
 package core
 
 import (
-	"context"
 	"time"
+
+	"github.com/xraph/forge/pkg/common"
 )
 
 // ConfigSource represents a source of configuration data
-type ConfigSource interface {
-	// Name returns the unique name of the configuration source
-	Name() string
-
-	// Priority returns the priority of this source (higher = more important)
-	Priority() int
-
-	// Load loads configuration data from the source
-	Load(ctx context.Context) (map[string]interface{}, error)
-
-	// Watch starts watching for configuration changes
-	Watch(ctx context.Context, callback func(map[string]interface{})) error
-
-	// StopWatch stops watching for configuration changes
-	StopWatch() error
-
-	// Reload forces a reload of the configuration source
-	Reload(ctx context.Context) error
-
-	// IsWatchable returns true if the source supports watching for changes
-	IsWatchable() bool
-
-	// SupportsSecrets returns true if the source supports secret management
-	SupportsSecrets() bool
-
-	// GetSecret retrieves a secret value from the source
-	GetSecret(ctx context.Context, key string) (string, error)
-}
+type ConfigSource = common.ConfigSource
 
 // ConfigSourceOptions contains options for creating a configuration source
 type ConfigSourceOptions struct {
@@ -62,38 +36,20 @@ type ValidationRule interface {
 }
 
 // SourceMetadata contains metadata about a configuration source
-type SourceMetadata struct {
-	Name         string                 `json:"name"`
-	Priority     int                    `json:"priority"`
-	Type         string                 `json:"type"`
-	LastLoaded   time.Time              `json:"last_loaded"`
-	LastModified time.Time              `json:"last_modified"`
-	IsWatching   bool                   `json:"is_watching"`
-	KeyCount     int                    `json:"key_count"`
-	ErrorCount   int                    `json:"error_count"`
-	LastError    string                 `json:"last_error,omitempty"`
-	Properties   map[string]interface{} `json:"properties"`
-}
+type SourceMetadata = common.SourceMetadata
 
 // ChangeType represents the type of configuration change
-type ChangeType string
+type ChangeType = common.ChangeType
 
 const (
-	ChangeTypeSet    ChangeType = "set"
-	ChangeTypeUpdate ChangeType = "update"
-	ChangeTypeDelete ChangeType = "delete"
-	ChangeTypeReload ChangeType = "reload"
+	ChangeTypeSet    = common.ChangeTypeSet
+	ChangeTypeUpdate = common.ChangeTypeUpdate
+	ChangeTypeDelete = common.ChangeTypeDelete
+	ChangeTypeReload = common.ChangeTypeReload
 )
 
 // ConfigChange represents a configuration change event
-type ConfigChange struct {
-	Source    string      `json:"source"`
-	Type      ChangeType  `json:"type"`
-	Key       string      `json:"key"`
-	OldValue  interface{} `json:"old_value,omitempty"`
-	NewValue  interface{} `json:"new_value,omitempty"`
-	Timestamp time.Time   `json:"timestamp"`
-}
+type ConfigChange = common.ConfigChange
 
 // ConfigSourceFactory creates configuration sources
 type ConfigSourceFactory interface {

@@ -239,7 +239,7 @@ func (alb *AdaptiveLoadBalance) Initialize(ctx context.Context, config ai.AIMidd
 		}
 	}
 
-	// Start background tasks
+	// OnStart background tasks
 	if alb.config.HealthCheckEnabled {
 		go alb.healthCheckLoop(ctx)
 	}

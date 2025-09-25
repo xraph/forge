@@ -1,0 +1,487 @@
+package {{.Package}}
+
+import (
+	{{- if .Validation}}
+	"fmt"
+	{{- end}}
+	"strconv"
+
+	"github.com/xraph/forge/pkg/common"
+	{{- if .Service}}
+	"{{.ProjectName}}/internal/services/{{.Service | toLower}}"
+	{{- end}}
+	{{- if .OpenAPI}}
+	"github.com/xraph/forge/pkg/openapi"
+	{{- end}}
+	{{- if .Streaming}}
+	"github.com/xraph/forge/pkg/streaming"
+	{{- end}}
+)
+
+// {{.Name}}Controller handles HTTP requests for {{.Name | toLower}} operations
+type {{.Name}}Controller struct {
+	logger common.Logger
+	{{- if .Service}}
+	{{.Service | toLower}}Service {{.Service | toLower}}.{{.Service}}Service
+	{{- end}}
+	{{- if .Streaming}}
+	streamingManager streaming.StreamingManager
+	{{- end}}
+
+	// TODO: Add your service dependencies here
+}
+
+// New{{.Name}}Controller creates a new {{.Name | toLower}} controller instance
+func New{{.Name}}Controller(
+	logger common.Logger{{if .Service}},
+	{{.Service | toLower}}Service {{.Service | toLower}}.{{.Service}}Service{{end}}{{if .Streaming}},
+	streamingManager streaming.StreamingManager{{end}},
+) *{{.Name}}Controller {
+	return &{{.Name}}Controller{
+		logger: logger,
+		{{- if .Service}}
+		{{.Service | toLower}}Service: {{.Service | toLower}}Service,
+		{{- end}}
+		{{- if .Streaming}}
+		streamingManager: streamingManager,
+		{{- end}}
+	}
+}
+
+// =============================================================================
+// Controller interface implementation
+// =============================================================================
+
+func (c *{{.Name}}Controller) Name() string {
+	return "{{.Name | toLower}}-controller"
+}
+
+func (c *{{.Name}}Controller) Prefix() string {
+	return "{{.RoutePrefix | default (printf "/%s" (.Name | toLower))}}"
+}
+
+func (c *{{.Name}}Controller) Dependencies() []string {
+	deps := []string{"logger"}
+	{{- if .Service}}
+	deps = append(deps, "{{.Service | toLower}}-service")
+	{{- end}}
+	{{- if .Streaming}}
+	deps = append(deps, "streaming-manager")
+	{{- end}}
+	{{- if .Dependencies}}
+	{{- range .Dependencies}}
+	deps = append(deps, "{{.}}")
+	{{- end}}
+	{{- end}}
+	return deps
+}
+
+func (c *{{.Name}}Controller) Middleware() []any {
+	middleware := []any{}
+	{{- if .Middleware}}
+	{{- range .Middleware}}
+	// middleware = append(middleware, {{.}})
+	{{- end}}
+	{{- end}}
+
+	// TODO: Add your middleware here
+	return middleware
+}
+
+func (c *{{.Name}}Controller) Initialize(container common.Container) error {
+	// Resolve dependencies from container
+	{{- if .Service}}
+	if service, err := container.ResolveNamed("{{.Service | toLower}}-service"); err == nil {
+		if {{.Service | toLower}}Service, ok := service.({{.Service | toLower}}.{{.Service}}Service); ok {
+			c.{{.Service | toLower}}Service = {{.Service | toLower}}Service
+		}
+	}
+	{{- end}}
+
+	// TODO: Resolve additional dependencies
+
+	return nil
+}
+
+func (c *{{.Name}}Controller) ConfigureRoutes(router common.Router) error {
+	{{- if .REST}}
+	// RESTful routes
+	router.GET(c.Prefix(), c.GetAll)
+	router.GET(c.Prefix()+"/:id", c.GetByID)
+	router.POST(c.Prefix(), c.Create)
+	router.PUT(c.Prefix()+"/:id", c.Update)
+	router.DELETE(c.Prefix()+"/:id", c.Delete)
+	{{- else}}
+	{{- if .Actions}}
+	{{- range .Actions}}
+	// router.{{. | toUpper}}(c.Prefix()+"/{{. | toLower}}", c.{{. | title}})
+	{{- end}}
+	{{- else}}
+	// Custom routes
+	router.GET(c.Prefix(), c.Index)
+	{{- end}}
+	{{- end}}
+
+	{{- if .WebSocket}}
+	// WebSocket endpoint
+	router.RegisterWebSocket(c.Prefix()+"/ws", c.HandleWebSocket)
+	{{- end}}
+
+	{{- if .SSE}}
+	// Server-Sent Events endpoint
+	router.RegisterSSE(c.Prefix()+"/events", c.HandleSSE)
+	{{- end}}
+
+	return nil
+}
+
+// =============================================================================
+// HTTP Route handlers
+// =============================================================================
+
+{{- if .REST}}
+
+{{- if .OpenAPI}}
+// GetAll retrieves all {{.Name | toLower | pluralize}}
+// @Summary Get all {{.Name | toLower | pluralize}}
+// @Description Retrieve a list of {{.Name | toLower | pluralize}} with optional filtering
+// @Tags {{.Name | toLower}}
+// @Accept json
+// @Produce json
+// @Param page query int false "Page number" default(1)
+// @Param limit query int false "Items per page" default(10)
+// @Param search query string false "Search query"
+// @Success 200 {array} {{.Service | default .Name}}.{{.Name}}
+// @Failure 400 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router {{.RoutePrefix | default (printf "/%s" (.Name | toLower))}} [get]
+{{- end}}
+func (c *{{.Name}}Controller) GetAll(ctx common.Context) error {
+	c.logger.Debug("getting all {{.Name | toLower | pluralize}}")
+
+	{{- if .Validation}}
+	// Parse and validate query parameters
+	page, _ := strconv.Atoi(ctx.QueryParam("page"))
+	if page <= 0 {
+		page = 1
+	}
+
+	limit, _ := strconv.Atoi(ctx.QueryParam("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 10
+	}
+
+	search := ctx.QueryParam("search")
+	{{- end}}
+
+	{{- if .Service}}
+	{{- if .Validation}}
+	filters := &{{.Service | toLower}}.List{{.Name}}Filters{
+		Page:   page,
+		Limit:  limit,
+		Search: search,
+	}
+
+	{{.Name | toLower | pluralize}}, err := c.{{.Service | toLower}}Service.List{{.Name}}(ctx, filters)
+	{{- else}}
+	{{.Name | toLower | pluralize}}, err := c.{{.Service | toLower}}Service.List{{.Name}}(ctx, nil)
+	{{- end}}
+	if err != nil {
+ 	c.logger.Error("failed to get {{.Name | toLower | pluralize}}", logger.Error(err))
+		return ctx.JSON(500, map[string]string{"error": "Internal server error"})
+	}
+
+	return ctx.JSON(200, {{.Name | toLower | pluralize}})
+	{{- else}}
+	// TODO: Implement GetAll logic
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "GetAll not implemented",
+		"data":    []interface{}{},
+	})
+	{{- end}}
+}
+
+{{- if .OpenAPI}}
+// GetByID retrieves a {{.Name | toLower}} by ID
+// @Summary Get {{.Name | toLower}} by ID
+// @Description Retrieve a specific {{.Name | toLower}} by its unique identifier
+// @Tags {{.Name | toLower}}
+// @Accept json
+// @Produce json
+// @Param id path string true "{{.Name}} ID"
+// @Success 200 {object} {{.Service | default .Name}}.{{.Name}}
+// @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router {{.RoutePrefix | default (printf "/%s" (.Name | toLower))}}/{id} [get]
+{{- end}}
+func (c *{{.Name}}Controller) GetByID(ctx common.Context) error {
+	id := ctx.PathParam("id")
+	if id == "" {
+		return ctx.JSON(400, map[string]string{"error": "ID is required"})
+	}
+
+	c.logger.Debug("getting {{.Name | toLower}} by ID", logger.String("id", id))
+
+	{{- if .Service}}
+	{{.Name | toLower}}, err := c.{{.Service | toLower}}Service.Get{{.Name}}(ctx, id)
+	if err != nil {
+		c.logger.Error("failed to get {{.Name | toLower}}",
+			logger.String("id", id),
+			logger.Error(err))
+		return ctx.JSON(404, map[string]string{"error": "{{.Name}} not found"})
+	}
+
+	return ctx.JSON(200, {{.Name | toLower}})
+	{{- else}}
+	// TODO: Implement GetByID logic
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "GetByID not implemented",
+		"id":      id,
+	})
+	{{- end}}
+}
+
+{{- if .OpenAPI}}
+// Create creates a new {{.Name | toLower}}
+// @Summary Create new {{.Name | toLower}}
+// @Description Create a new {{.Name | toLower}} with the provided data
+// @Tags {{.Name | toLower}}
+// @Accept json
+// @Produce json
+// @Param {{.Name | toLower}} body {{.Service | default .Name}}.Create{{.Name}}Request true "{{.Name}} creation data"
+// @Success 201 {object} {{.Service | default .Name}}.{{.Name}}
+// @Failure 400 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router {{.RoutePrefix | default (printf "/%s" (.Name | toLower))}} [post]
+{{- end}}
+func (c *{{.Name}}Controller) Create(ctx common.Context) error {
+	c.logger.Debug("creating {{.Name | toLower}}")
+
+	{{- if .Service}}
+	var req {{.Service | toLower}}.Create{{.Name}}Request
+	if err := ctx.BindJSON(&req); err != nil {
+		c.logger.Error("failed to bind JSON", logger.Error(err))
+		return ctx.JSON(400, map[string]string{"error": "Invalid JSON data"})
+	}
+
+	{{- if .Validation}}
+	// TODO: Add validation logic
+	{{- end}}
+
+	{{.Name | toLower}}, err := c.{{.Service | toLower}}Service.Create{{.Name}}(ctx, &req)
+	if err != nil {
+ 	c.logger.Error("failed to create {{.Name | toLower}}", logger.Error(err))
+		return ctx.JSON(500, map[string]string{"error": "Failed to create {{.Name | toLower}}"})
+	}
+
+	return ctx.JSON(201, {{.Name | toLower}})
+	{{- else}}
+	// TODO: Implement Create logic
+	return ctx.JSON(201, map[string]string{"message": "Create not implemented"})
+	{{- end}}
+}
+
+{{- if .OpenAPI}}
+// Update updates an existing {{.Name | toLower}}
+// @Summary Update {{.Name | toLower}}
+// @Description Update an existing {{.Name | toLower}} with the provided data
+// @Tags {{.Name | toLower}}
+// @Accept json
+// @Produce json
+// @Param id path string true "{{.Name}} ID"
+// @Param {{.Name | toLower}} body {{.Service | default .Name}}.Update{{.Name}}Request true "{{.Name}} update data"
+// @Success 200 {object} {{.Service | default .Name}}.{{.Name}}
+// @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router {{.RoutePrefix | default (printf "/%s" (.Name | toLower))}}/{id} [put]
+{{- end}}
+func (c *{{.Name}}Controller) Update(ctx common.Context) error {
+	id := ctx.PathParam("id")
+	if id == "" {
+		return ctx.JSON(400, map[string]string{"error": "ID is required"})
+	}
+
+	c.logger.Debug("updating {{.Name | toLower}}", logger.String("id", id))
+
+	{{- if .Service}}
+	var req {{.Service | toLower}}.Update{{.Name}}Request
+	if err := ctx.BindJSON(&req); err != nil {
+ 	c.logger.Error("failed to bind JSON", logger.Error(err))
+		return ctx.JSON(400, map[string]string{"error": "Invalid JSON data"})
+	}
+
+	{{- if .Validation}}
+	// TODO: Add validation logic
+	{{- end}}
+
+	{{.Name | toLower}}, err := c.{{.Service | toLower}}Service.Update{{.Name}}(ctx, id, &req)
+	if err != nil {
+		c.logger.Error("failed to update {{.Name | toLower}}",
+			logger.String("id", id),
+			logger.Error(err))
+		return ctx.JSON(500, map[string]string{"error": "Failed to update {{.Name | toLower}}"})
+	}
+
+	return ctx.JSON(200, {{.Name | toLower}})
+	{{- else}}
+	// TODO: Implement Update logic
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Update not implemented",
+		"id":      id,
+	})
+	{{- end}}
+}
+
+{{- if .OpenAPI}}
+// Delete deletes a {{.Name | toLower}}
+// @Summary Delete {{.Name | toLower}}
+// @Description Delete a {{.Name | toLower}} by its unique identifier
+// @Tags {{.Name | toLower}}
+// @Accept json
+// @Produce json
+// @Param id path string true "{{.Name}} ID"
+// @Success 204
+// @Failure 400 {object} map[string]interface{}
+// @Failure 404 {object} map[string]interface{}
+// @Failure 500 {object} map[string]interface{}
+// @Router {{.RoutePrefix | default (printf "/%s" (.Name | toLower))}}}/{id} [delete]
+{{- end}}
+func (c *{{.Name}}Controller) Delete(ctx common.Context) error {
+	id := ctx.PathParam("id")
+	if id == "" {
+		return ctx.JSON(400, map[string]string{"error": "ID is required"})
+	}
+
+	c.logger.Debug("deleting {{.Name | toLower}}", logger.String("id", id))
+
+	{{- if .Service}}
+	if err := c.{{.Service | toLower}}Service.Delete{{.Name}}(ctx, id); err != nil {
+		c.logger.Error("failed to delete {{.Name | toLower}}",
+			logger.String("id", id),
+			logger.Error(err))
+		return ctx.JSON(500, map[string]string{"error": "Failed to delete {{.Name | toLower}}"})
+	}
+
+	return ctx.Status(204)
+	{{- else}}
+	// TODO: Implement Delete logic
+	return ctx.JSON(200, map[string]interface{}{
+		"message": "Delete not implemented",
+		"id":      id,
+	})
+	{{- end}}
+}
+
+{{- else}}
+
+{{- if .Actions}}
+{{- range .Actions}}
+func (c *{{$.Name}}Controller) {{. | title}}(ctx common.Context) error {
+	c.logger.Debug("executing {{.}} action")
+
+	// TODO: Implement {{.}} logic
+	return ctx.JSON(200, map[string]string{"message": "{{.}} not implemented"})
+}
+{{- end}}
+{{- else}}
+
+func (c *{{.Name}}Controller) Index(ctx common.Context) error {
+	c.logger.Debug("{{.Name | toLower}} index")
+
+	// TODO: Implement Index logic
+	return ctx.JSON(200, map[string]string{
+		"controller": c.Name(),
+		"message":    "Index not implemented",
+	})
+}
+
+{{- end}}
+{{- end}}
+
+{{- if .WebSocket}}
+
+// =============================================================================
+// WebSocket handler
+// =============================================================================
+
+func (c *{{.Name}}Controller) HandleWebSocket(ctx common.Context, conn streaming.Connection) error {
+	c.logger.Info("WebSocket connection established",
+		logger.String("connection_id", conn.ID()),
+		logger.String("user_id", conn.UserID()))
+
+	// Send welcome message
+	welcomeMsg := streaming.Message{
+		Type: "welcome",
+		Data: map[string]interface{}{
+			"message":       "Connected to {{.Name | toLower}} WebSocket",
+			"connection_id": conn.ID(),
+		},
+	}
+
+	if err := conn.SendMessage(welcomeMsg); err != nil {
+ 	c.logger.Error("failed to send welcome message", logger.Error(err))
+		return err
+	}
+
+	// TODO: Implement your WebSocket message handling logic
+
+	// Keep connection alive
+	for conn.IsAlive() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// Handle incoming messages, send updates, etc.
+			// This is a simple example - implement your actual logic
+		}
+	}
+
+	return nil
+}
+
+{{- end}}
+
+{{- if .SSE}}
+
+// =============================================================================
+// Server-Sent Events handler
+// =============================================================================
+
+func (c *{{.Name}}Controller) HandleSSE(ctx common.Context, conn streaming.Connection) error {
+	c.logger.Info("SSE connection established",
+		logger.String("connection_id", conn.ID()),
+		logger.String("user_id", conn.UserID()))
+
+	// Send initial event
+	initialEvent := streaming.StreamingEvent{
+		Type: "connected",
+		Data: map[string]interface{}{
+			"message":       "Connected to {{.Name | toLower}} events",
+			"connection_id": conn.ID(),
+		},
+	}
+
+	if err := conn.SendEvent(initialEvent); err != nil {
+ 	c.logger.Error("failed to send initial event", logger.Error(err))
+		return err
+	}
+
+	// TODO: Implement your SSE event streaming logic
+
+	// Keep connection alive and send periodic updates
+	for conn.IsAlive() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// Send periodic events, updates, etc.
+			// This is a simple example - implement your actual logic
+		}
+	}
+
+	return nil
+}
+
+{{- end}}

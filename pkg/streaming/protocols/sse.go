@@ -221,10 +221,10 @@ func NewSSEConnection(
 	conn.SetRemoteAddr(r.RemoteAddr)
 	conn.SetUserAgent(r.UserAgent())
 
-	// Start event loop
+	// OnStart event loop
 	go conn.eventLoop()
 
-	// Start heartbeat if enabled
+	// OnStart heartbeat if enabled
 	if sseConfig.HeartbeatInterval > 0 {
 		conn.startHeartbeat()
 	}
@@ -268,7 +268,7 @@ func (c *SSEConnection) Close(ctx context.Context) error {
 	c.closeOnce.Do(func() {
 		c.setState(streamingcore.ConnectionStateClosing)
 
-		// Stop heartbeat
+		// OnStop heartbeat
 		if c.heartbeat != nil {
 			c.heartbeat.Stop()
 		}

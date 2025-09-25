@@ -188,7 +188,7 @@ func (irl *IntelligentRateLimit) Initialize(ctx context.Context, config ai.AIMid
 		return fmt.Errorf("failed to start rate limit agent: %w", err)
 	}
 
-	// Start background monitoring
+	// OnStart background monitoring
 	go irl.monitorSystemLoad(ctx)
 	go irl.analyzeUserPatterns(ctx)
 	go irl.updateAdaptiveLimits(ctx)

@@ -1,15 +1,27 @@
 package router
 
 import (
+	"encoding"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
+)
+
+// Add these type checks at the package level for efficiency
+var (
+	timeType            = reflect.TypeOf(time.Time{})
+	durationType        = reflect.TypeOf(time.Duration(0))
+	jsonMarshalerType   = reflect.TypeOf((*json.Marshaler)(nil)).Elem()
+	jsonUnmarshalerType = reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
+	textMarshalerType   = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+	textUnmarshalerType = reflect.TypeOf((*encoding.TextUnmarshaler)(nil)).Elem()
 )
 
 // OpenAPIGenerator handles OpenAPI 3.1.1 specification generation
@@ -401,21 +413,44 @@ func (g *OpenAPIGenerator) extractResourceFromPath(path string) string {
 }
 
 // extractParameters extracts parameters from request type with comprehensive tag support
+// extractParameters extracts parameters from request type with comprehensive tag support
 func (g *OpenAPIGenerator) extractParameters(requestType reflect.Type) []*common.Parameter {
 	var parameters []*common.Parameter
 
-	for i := 0; i < requestType.NumField(); i++ {
-		field := requestType.Field(i)
+	// Process all fields including embedded ones
+	g.extractParametersRecursive(requestType, "", &parameters)
+
+	return parameters
+}
+
+// extractParametersRecursive recursively processes struct fields including embedded structs
+func (g *OpenAPIGenerator) extractParametersRecursive(t reflect.Type, prefix string, parameters *[]*common.Parameter) {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	if t.Kind() != reflect.Struct {
+		return
+	}
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
 
 		if !field.IsExported() {
 			continue
 		}
 
+		// Handle embedded/anonymous fields by recursing into them
+		if field.Anonymous {
+			g.extractParametersRecursive(field.Type, prefix, parameters)
+			continue
+		}
+
 		tagInfo := g.parseFieldTags(field)
 
-		// Skip path parameters since they're already handled by path extraction
+		// Skip path parameters since they're handled separately
 		if tagInfo.Path != "" {
-			continue // Path parameters are handled separately in createOperation
+			continue
 		}
 
 		// Query parameters
@@ -425,7 +460,7 @@ func (g *OpenAPIGenerator) extractParameters(requestType reflect.Type) []*common
 				In:          "query",
 				Required:    tagInfo.Required,
 				Description: tagInfo.Description,
-				Schema:      g.convertTypeToSchemaWithTags(field.Type, tagInfo),
+				Schema:      g.convertTypeToQueryParameterSchema(field.Type, tagInfo),
 			}
 			if tagInfo.Example != nil {
 				param.Example = tagInfo.Example
@@ -436,7 +471,7 @@ func (g *OpenAPIGenerator) extractParameters(requestType reflect.Type) []*common
 			if tagInfo.AllowEmpty {
 				param.AllowEmptyValue = true
 			}
-			parameters = append(parameters, param)
+			*parameters = append(*parameters, param)
 		}
 
 		// Header parameters
@@ -446,7 +481,7 @@ func (g *OpenAPIGenerator) extractParameters(requestType reflect.Type) []*common
 				In:          "header",
 				Required:    tagInfo.Required,
 				Description: tagInfo.Description,
-				Schema:      g.convertTypeToSchemaWithTags(field.Type, tagInfo),
+				Schema:      g.convertTypeToQueryParameterSchema(field.Type, tagInfo),
 			}
 			if tagInfo.Example != nil {
 				param.Example = tagInfo.Example
@@ -454,7 +489,7 @@ func (g *OpenAPIGenerator) extractParameters(requestType reflect.Type) []*common
 			if tagInfo.Deprecated {
 				param.Deprecated = true
 			}
-			parameters = append(parameters, param)
+			*parameters = append(*parameters, param)
 		}
 
 		// Cookie parameters
@@ -464,16 +499,181 @@ func (g *OpenAPIGenerator) extractParameters(requestType reflect.Type) []*common
 				In:          "cookie",
 				Required:    tagInfo.Required,
 				Description: tagInfo.Description,
-				Schema:      g.convertTypeToSchemaWithTags(field.Type, tagInfo),
+				Schema:      g.convertTypeToQueryParameterSchema(field.Type, tagInfo),
 			}
 			if tagInfo.Example != nil {
 				param.Example = tagInfo.Example
 			}
-			parameters = append(parameters, param)
+			*parameters = append(*parameters, param)
+		}
+	}
+}
+
+// convertTypeToQueryParameterSchema converts a type to schema suitable for query parameters
+// Query parameters are always strings in HTTP, so we need special handling
+func (g *OpenAPIGenerator) convertTypeToQueryParameterSchema(t reflect.Type, tagInfo *common.FieldTagInfo) *common.Schema {
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	schema := &common.Schema{}
+
+	// Apply tag overrides first
+	if tagInfo.Type != "" {
+		schema.Type = tagInfo.Type
+	}
+	if tagInfo.Format != "" {
+		schema.Format = tagInfo.Format
+	}
+	if tagInfo.Description != "" {
+		schema.Description = tagInfo.Description
+	}
+	if tagInfo.Pattern != "" {
+		schema.Pattern = tagInfo.Pattern
+	}
+	if tagInfo.Example != nil {
+		schema.Example = tagInfo.Example
+	}
+	if tagInfo.Default != nil {
+		schema.Default = tagInfo.Default
+	}
+	if tagInfo.Deprecated {
+		schema.Deprecated = true
+	}
+
+	// Apply numeric constraints if present
+	if tagInfo.Min != nil {
+		schema.Minimum = tagInfo.Min
+	}
+	if tagInfo.Max != nil {
+		schema.Maximum = tagInfo.Max
+	}
+	if tagInfo.MultipleOf != nil {
+		schema.MultipleOf = tagInfo.MultipleOf
+	}
+	if tagInfo.MinLength != nil {
+		schema.MinLength = tagInfo.MinLength
+	}
+	if tagInfo.MaxLength != nil {
+		schema.MaxLength = tagInfo.MaxLength
+	}
+	if tagInfo.Enum != nil {
+		schema.Enum = tagInfo.Enum
+	}
+
+	// If type/format already set by tags, return early
+	if schema.Type != "" {
+		return schema
+	}
+
+	// Handle specific well-known types for query parameters
+	if g.isTimeType(t) {
+		schema.Type = "string"
+		if schema.Format == "" {
+			schema.Format = "date-time"
+		}
+		if schema.Description == "" {
+			schema.Description = "ISO 8601 date-time format"
+		}
+		if schema.Example == nil {
+			schema.Example = "2023-01-01T12:00:00Z"
+		}
+		return schema
+	}
+
+	if g.isDurationType(t) {
+		schema.Type = "string"
+		if schema.Format == "" {
+			schema.Format = "duration"
+		}
+		if schema.Description == "" {
+			schema.Description = "Duration in Go format (e.g., '1h30m', '5s')"
+		}
+		if schema.Example == nil {
+			schema.Example = "1h30m"
+		}
+		return schema
+	}
+
+	// Handle XID type specifically
+	if g.isXIDType(t) {
+		schema.Type = "string"
+		if schema.Format == "" {
+			schema.Format = "xid"
+		}
+		if schema.Description == "" {
+			schema.Description = "XID - globally unique identifier"
+		}
+		if schema.Example == nil {
+			schema.Example = "9m4e2mr0ui3e8a215n4g"
+		}
+		if schema.Pattern == "" {
+			schema.Pattern = "^[0-9a-v]{20}$"
+		}
+		schema.MinLength = ptrInt(20)
+		schema.MaxLength = ptrInt(20)
+		return schema
+	}
+
+	// Handle UUID types
+	if g.isUUIDType(t) {
+		schema.Type = "string"
+		if schema.Format == "" {
+			schema.Format = "uuid"
+		}
+		if schema.Description == "" {
+			schema.Description = "UUID - universally unique identifier"
+		}
+		if schema.Example == nil {
+			schema.Example = "550e8400-e29b-41d4-a716-446655440000"
+		}
+		if schema.Pattern == "" {
+			schema.Pattern = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+		}
+		return schema
+	}
+
+	// Handle types that implement text marshaling - treat as strings for query parameters
+	if g.implementsTextMarshaler(t) {
+		schema.Type = "string"
+		if schema.Description == "" {
+			schema.Description = fmt.Sprintf("%s as string", t.Name())
+		}
+		return schema
+	}
+
+	// Handle basic Go types for query parameters
+	switch t.Kind() {
+	case reflect.String:
+		schema.Type = "string"
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		schema.Type = "integer"
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		schema.Type = "integer"
+		schema.Minimum = ptrFloat64(0)
+	case reflect.Float32, reflect.Float64:
+		schema.Type = "number"
+	case reflect.Bool:
+		schema.Type = "boolean"
+	case reflect.Slice, reflect.Array:
+		// For query parameters, arrays are typically comma-separated strings
+		schema.Type = "array"
+		schema.Items = g.convertTypeToQueryParameterSchema(t.Elem(), &common.FieldTagInfo{})
+		// Add style information for array parameters
+		if schema.Extensions == nil {
+			schema.Extensions = make(map[string]interface{})
+		}
+		schema.Extensions["x-style"] = "form"
+		schema.Extensions["x-explode"] = false
+	default:
+		// For complex types in query parameters, treat as string
+		schema.Type = "string"
+		if schema.Description == "" {
+			schema.Description = fmt.Sprintf("%s serialized as string", t.Name())
 		}
 	}
 
-	return parameters
+	return schema
 }
 
 // hasBodyParameter checks for comprehensive body tags
@@ -489,12 +689,69 @@ func (g *OpenAPIGenerator) hasBodyParameter(requestType reflect.Type) bool {
 	return false
 }
 
+// extractRequestBodyField checks if a struct has a "Body" field for request body extraction
+func (g *OpenAPIGenerator) extractRequestBodyField(requestType reflect.Type) *reflect.StructField {
+	if requestType.Kind() == reflect.Ptr {
+		requestType = requestType.Elem()
+	}
+
+	if requestType.Kind() != reflect.Struct {
+		return nil
+	}
+
+	// Look for a field with body tag or named "Body"
+	for i := 0; i < requestType.NumField(); i++ {
+		field := requestType.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		tagInfo := g.parseFieldTags(field)
+
+		// Check for explicit body tag or field named "Body"
+		if tagInfo.Body || field.Name == "Body" {
+			if g.logger != nil {
+				g.logger.Debug("Found request body field",
+					logger.String("struct_name", requestType.Name()),
+					logger.String("body_field_type", field.Type.String()),
+					logger.String("body_field_name", field.Name),
+				)
+			}
+			return &field
+		}
+	}
+
+	return nil
+}
+
 // createRequestBody creates a request body specification with comprehensive content type support
 func (g *OpenAPIGenerator) createRequestBody(requestType reflect.Type) *common.RequestBody {
+	if requestType.Kind() == reflect.Ptr {
+		requestType = requestType.Elem()
+	}
+
 	requestBody := &common.RequestBody{
 		Description: fmt.Sprintf("Request body for %s", requestType.Name()),
 		Required:    g.isRequestBodyRequired(requestType),
 		Content:     make(map[string]*common.MediaType),
+	}
+
+	// Check if there's a dedicated Body field
+	bodyField := g.extractRequestBodyField(requestType)
+	var schemaType reflect.Type
+
+	if bodyField != nil {
+		// Use the Body field's type for the schema
+		schemaType = bodyField.Type
+		if g.logger != nil {
+			g.logger.Debug("Using Body field for request schema",
+				logger.String("request_type", requestType.Name()),
+				logger.String("body_field_type", schemaType.String()),
+			)
+		}
+	} else {
+		// Use the entire struct for the schema (existing behavior)
+		schemaType = requestType
 	}
 
 	hasJSON := false
@@ -502,11 +759,12 @@ func (g *OpenAPIGenerator) createRequestBody(requestType reflect.Type) *common.R
 	hasForm := false
 	hasMultipart := false
 
+	// Analyze the original struct for content type detection
 	for i := 0; i < requestType.NumField(); i++ {
 		field := requestType.Field(i)
 		tagInfo := g.parseFieldTags(field)
 
-		if tagInfo.JSON != "" || tagInfo.Body {
+		if tagInfo.Body || tagInfo.JSON != "" {
 			hasJSON = true
 		}
 		if tagInfo.XML != "" {
@@ -524,123 +782,32 @@ func (g *OpenAPIGenerator) createRequestBody(requestType reflect.Type) *common.R
 		hasJSON = true
 	}
 
+	// Generate schemas using the appropriate type
 	if hasJSON {
 		requestBody.Content["application/json"] = &common.MediaType{
-			Schema: g.convertTypeToSchema(requestType),
+			Schema: g.convertTypeToSchema(schemaType), // Use schemaType instead of requestType
 		}
 	}
 
 	if hasXML {
 		requestBody.Content["application/xml"] = &common.MediaType{
-			Schema: g.convertTypeToSchema(requestType),
+			Schema: g.convertTypeToSchema(schemaType),
 		}
 	}
 
 	if hasForm {
 		requestBody.Content["application/x-www-form-urlencoded"] = &common.MediaType{
-			Schema: g.convertFormSchema(requestType),
+			Schema: g.convertFormSchema(requestType), // Form still uses the full struct
 		}
 	}
 
 	if hasMultipart {
 		requestBody.Content["multipart/form-data"] = &common.MediaType{
-			Schema: g.convertFormSchema(requestType),
+			Schema: g.convertFormSchema(requestType), // Multipart still uses the full struct
 		}
 	}
 
 	return requestBody
-}
-
-// parseFieldTags parses all relevant tags from a struct field
-func (g *OpenAPIGenerator) parseFieldTags(field reflect.StructField) *common.FieldTagInfo {
-	tagInfo := &common.FieldTagInfo{
-		Extensions: make(map[string]interface{}),
-	}
-
-	// Parameter location tags
-	tagInfo.Path = field.Tag.Get("path")
-	tagInfo.Query = field.Tag.Get("query")
-	tagInfo.Header = field.Tag.Get("header")
-	tagInfo.Cookie = field.Tag.Get("cookie")
-	tagInfo.Body = field.Tag.Get("body") != ""
-	tagInfo.JSON = field.Tag.Get("json")
-	tagInfo.XML = field.Tag.Get("xml")
-	tagInfo.Form = field.Tag.Get("form")
-	tagInfo.Multipart = field.Tag.Get("multipart")
-
-	if tagInfo.JSON != "" && tagInfo.JSON != "-" {
-		parts := strings.Split(tagInfo.JSON, ",")
-		if len(parts) > 0 && parts[0] != "" {
-			if tagInfo.Form == "" {
-				tagInfo.Form = parts[0]
-			}
-		}
-	}
-
-	// Required validation
-	tagInfo.Required = field.Tag.Get("required") == "true" ||
-		strings.Contains(field.Tag.Get("validate"), "required")
-
-	// Numeric constraints
-	if minStr := field.Tag.Get("min"); minStr != "" {
-		if min, err := strconv.ParseFloat(minStr, 64); err == nil {
-			tagInfo.Min = &min
-		}
-	}
-	if maxStr := field.Tag.Get("max"); maxStr != "" {
-		if max, err := strconv.ParseFloat(maxStr, 64); err == nil {
-			tagInfo.Max = &max
-		}
-	}
-
-	// String length constraints
-	if minLenStr := field.Tag.Get("minlength"); minLenStr != "" {
-		if minLen, err := strconv.Atoi(minLenStr); err == nil {
-			tagInfo.MinLength = &minLen
-		}
-	}
-	if maxLenStr := field.Tag.Get("maxlength"); maxLenStr != "" {
-		if maxLen, err := strconv.Atoi(maxLenStr); err == nil {
-			tagInfo.MaxLength = &maxLen
-		}
-	}
-
-	tagInfo.Pattern = field.Tag.Get("pattern")
-
-	if enumStr := field.Tag.Get("enum"); enumStr != "" {
-		enumValues := strings.Split(enumStr, ",")
-		tagInfo.Enum = make([]interface{}, len(enumValues))
-		for i, val := range enumValues {
-			tagInfo.Enum[i] = strings.TrimSpace(val)
-		}
-	}
-
-	if multipleOfStr := field.Tag.Get("multipleOf"); multipleOfStr != "" {
-		if multipleOf, err := strconv.ParseFloat(multipleOfStr, 64); err == nil {
-			tagInfo.MultipleOf = &multipleOf
-		}
-	}
-
-	tagInfo.Description = g.getFieldDescription(field)
-	tagInfo.Title = field.Tag.Get("title")
-	tagInfo.Deprecated = field.Tag.Get("deprecated") == "true"
-
-	if exampleStr := field.Tag.Get("example"); exampleStr != "" {
-		tagInfo.Example = g.parseExample(exampleStr, field.Type)
-	}
-
-	tagInfo.Format = field.Tag.Get("format")
-	tagInfo.Type = field.Tag.Get("type")
-	tagInfo.AllowEmpty = field.Tag.Get("allowEmpty") == "true"
-
-	if defaultStr := field.Tag.Get("default"); defaultStr != "" {
-		tagInfo.Default = g.parseDefault(defaultStr, field.Type)
-	}
-
-	g.parseValidationTag(tagInfo, field.Tag.Get("validate"))
-	g.parseOpenAPIExtensions(tagInfo, field)
-
-	return tagInfo
 }
 
 // convertTypeToSchemaWithTags uses tag information
@@ -786,8 +953,20 @@ func (g *OpenAPIGenerator) convertTypeToSchema(t reflect.Type) *common.Schema {
 		t = t.Elem()
 	}
 
+	// Check for well-known types that should not be referenced
+	if schema := g.checkWellKnownTypes(t); schema != nil {
+		return schema
+	}
+
+	// Check for types that should be treated as strings
+	if g.shouldTreatAsString(t) {
+		return g.createStringSchemaForType(t)
+	}
+
 	typeName := t.Name()
-	if typeName != "" {
+
+	// Only create references for complex struct types, not for simple types
+	if typeName != "" && g.shouldCreateReference(t) {
 		if _, exists := g.spec.Components.Schemas[typeName]; exists {
 			return &common.Schema{
 				Ref: fmt.Sprintf("#/components/schemas/%s", typeName),
@@ -797,10 +976,81 @@ func (g *OpenAPIGenerator) convertTypeToSchema(t reflect.Type) *common.Schema {
 
 	schema := g.generateSchemaForType(t)
 
-	if typeName != "" && t.Kind() == reflect.Struct {
+	// Only store complex types in components
+	if typeName != "" && g.shouldCreateReference(t) && t.Kind() == reflect.Struct {
 		g.spec.Components.Schemas[typeName] = schema
 		return &common.Schema{
 			Ref: fmt.Sprintf("#/components/schemas/%s", typeName),
+		}
+	}
+
+	return schema
+}
+
+// shouldCreateReference determines if a type should be referenced vs inlined
+func (g *OpenAPIGenerator) shouldCreateReference(t reflect.Type) bool {
+	// Don't create references for:
+	// 1. Types that should be treated as primitives
+	// 2. Well-known types like time.Time
+	// 3. Simple wrapper types
+
+	if t == timeType || t == durationType {
+		return false
+	}
+
+	if g.shouldTreatAsString(t) {
+		return false
+	}
+
+	// Only create references for complex structs
+	if t.Kind() == reflect.Struct {
+		// If struct has only 1-2 fields, consider inlining
+		if t.NumField() <= 2 {
+			// Check if it's a simple wrapper
+			for i := 0; i < t.NumField(); i++ {
+				field := t.Field(i)
+				if !field.IsExported() {
+					continue
+				}
+				// If it's just wrapping a basic type, don't reference
+				if field.Type.Kind() == reflect.String ||
+					field.Type.Kind() == reflect.Int ||
+					field.Type.Kind() == reflect.Int64 {
+					return false
+				}
+			}
+		}
+		return true
+	}
+
+	return false
+}
+
+// createStringSchemaForType creates a string schema with appropriate format for the type
+func (g *OpenAPIGenerator) createStringSchemaForType(t reflect.Type) *common.Schema {
+	schema := &common.Schema{Type: "string"}
+
+	typeName := t.Name()
+	if typeName != "" {
+		schema.Description = fmt.Sprintf("%s as string", typeName)
+
+		// Set format based on type name patterns
+		lowerName := strings.ToLower(typeName)
+		switch {
+		case strings.Contains(lowerName, "email"):
+			schema.Format = "email"
+		case strings.Contains(lowerName, "url") || strings.Contains(lowerName, "uri"):
+			schema.Format = "uri"
+		case strings.Contains(lowerName, "phone"):
+			schema.Format = "phone"
+		case strings.Contains(lowerName, "uuid"):
+			schema.Format = "uuid"
+		case strings.Contains(lowerName, "date"):
+			schema.Format = "date"
+		case strings.Contains(lowerName, "time"):
+			schema.Format = "date-time"
+		case strings.Contains(lowerName, "password") || strings.Contains(lowerName, "secret"):
+			schema.Format = "password"
 		}
 	}
 
@@ -813,6 +1063,22 @@ func (g *OpenAPIGenerator) generateSchemaForType(t reflect.Type) *common.Schema 
 		t = t.Elem()
 	}
 
+	// Check for specific well-known types first
+	if schema := g.checkWellKnownTypes(t); schema != nil {
+		return schema
+	}
+
+	// Check for types that should definitely be treated as strings
+	if g.shouldTreatAsString(t) {
+		return g.createStringSchemaForType(t)
+	}
+
+	// Handle types with custom marshaling but unknown output
+	if g.implementsJSONMarshaler(t) {
+		return g.generateSchemaForCustomMarshalerType(t)
+	}
+
+	// Handle basic Go kinds as before...
 	switch t.Kind() {
 	case reflect.String:
 		return &common.Schema{Type: "string"}
@@ -851,10 +1117,22 @@ func (g *OpenAPIGenerator) generateStructSchema(t reflect.Type) *common.Schema {
 		Required:   []string{},
 	}
 
+	// Add type information
+	if t.Name() != "" {
+		schema.Title = t.Name()
+		schema.Description = fmt.Sprintf("%s object", t.Name())
+	}
+
 	for i := 0; i < t.NumField(); i++ {
 		field := t.Field(i)
 
 		if !field.IsExported() {
+			continue
+		}
+
+		// Handle embedded/anonymous fields (composition)
+		if field.Anonymous {
+			g.handleAnonymousField(schema, field)
 			continue
 		}
 
@@ -866,6 +1144,12 @@ func (g *OpenAPIGenerator) generateStructSchema(t reflect.Type) *common.Schema {
 		}
 
 		fieldSchema := g.convertTypeToSchemaWithTags(field.Type, tagInfo)
+
+		// Add field metadata
+		if fieldSchema.Description == "" {
+			fieldSchema.Description = g.getFieldDescription(field)
+		}
+
 		schema.Properties[fieldName] = fieldSchema
 
 		if tagInfo.Required {
@@ -874,6 +1158,40 @@ func (g *OpenAPIGenerator) generateStructSchema(t reflect.Type) *common.Schema {
 	}
 
 	return schema
+}
+
+// handleAnonymousField handles embedded/anonymous fields for composition
+func (g *OpenAPIGenerator) handleAnonymousField(schema *common.Schema, field reflect.StructField) {
+	fieldType := field.Type
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	if fieldType.Kind() == reflect.Struct {
+		// Inline the embedded struct's properties
+		embeddedSchema := g.generateStructSchema(fieldType)
+
+		// Merge properties
+		for propName, propSchema := range embeddedSchema.Properties {
+			if _, exists := schema.Properties[propName]; !exists {
+				schema.Properties[propName] = propSchema
+			}
+		}
+
+		// Merge required fields
+		for _, requiredField := range embeddedSchema.Required {
+			found := false
+			for _, existing := range schema.Required {
+				if existing == requiredField {
+					found = true
+					break
+				}
+			}
+			if !found {
+				schema.Required = append(schema.Required, requiredField)
+			}
+		}
+	}
 }
 
 // Helper methods
@@ -885,6 +1203,120 @@ func (g *OpenAPIGenerator) getJSONFieldName(field reflect.StructField, tagInfo *
 		}
 	}
 	return field.Name
+}
+
+// checkWellKnownTypes checks for specific well-known types and returns appropriate schemas
+func (g *OpenAPIGenerator) checkWellKnownTypes(t reflect.Type) *common.Schema {
+	// Handle time.Time
+	if t == timeType {
+		return &common.Schema{
+			Type:        "string",
+			Format:      "date-time",
+			Description: "RFC3339 formatted date-time",
+			Example:     "2023-01-01T12:00:00Z",
+		}
+	}
+
+	// Handle time.Duration
+	if t == durationType {
+		return &common.Schema{
+			Type:        "string",
+			Format:      "duration",
+			Description: "Duration in Go format (e.g., '1h30m', '5s')",
+			Example:     "1h30m",
+			Pattern:     "^[0-9]+(ns|us|µs|ms|s|m|h)+$",
+		}
+	}
+
+	// Handle xid.ID (by checking package path and type name)
+	if t.PkgPath() == "github.com/rs/xid" && t.Name() == "ID" {
+		return &common.Schema{
+			Type:        "string",
+			Format:      "xid",
+			Description: "XID - globally unique identifier",
+			Example:     "9m4e2mr0ui3e8a215n4g",
+			Pattern:     "^[0-9a-v]{20}$",
+			MinLength:   ptrInt(20),
+			MaxLength:   ptrInt(20),
+		}
+	}
+
+	// Handle UUID types (common packages)
+	if (t.PkgPath() == "github.com/google/uuid" || t.PkgPath() == "github.com/satori/go.uuid") && t.Name() == "UUID" {
+		return &common.Schema{
+			Type:        "string",
+			Format:      "uuid",
+			Description: "UUID - universally unique identifier",
+			Example:     "550e8400-e29b-41d4-a716-446655440000",
+			Pattern:     "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+		}
+	}
+
+	// Handle common string-based types
+	pkgPath := t.PkgPath()
+	typeName := t.Name()
+
+	// Handle ObjectID from MongoDB
+	if strings.Contains(pkgPath, "go.mongodb.org/mongo-driver/bson") && typeName == "ObjectID" {
+		return &common.Schema{
+			Type:        "string",
+			Format:      "objectid",
+			Description: "MongoDB ObjectID",
+			Example:     "507f1f77bcf86cd799439011",
+			Pattern:     "^[0-9a-f]{24}$",
+			MinLength:   ptrInt(24),
+			MaxLength:   ptrInt(24),
+		}
+	}
+
+	// Handle other common ID types that should be strings
+	if strings.HasSuffix(typeName, "ID") || strings.HasSuffix(typeName, "Id") {
+		if g.isLikelyStringBasedID(t) {
+			return &common.Schema{
+				Type:        "string",
+				Description: fmt.Sprintf("%s identifier", typeName),
+			}
+		}
+	}
+
+	return nil
+}
+
+// isLikelyStringBasedID checks if an ID type is likely string-based
+func (g *OpenAPIGenerator) isLikelyStringBasedID(t reflect.Type) bool {
+	// Check if type implements json.Marshaler/Unmarshaler
+	if reflect.PtrTo(t).Implements(jsonMarshalerType) || t.Implements(jsonMarshalerType) {
+		return true
+	}
+	if reflect.PtrTo(t).Implements(jsonUnmarshalerType) || t.Implements(jsonUnmarshalerType) {
+		return true
+	}
+
+	// Check if type implements encoding.TextMarshaler/TextUnmarshaler
+	if reflect.PtrTo(t).Implements(textMarshalerType) || t.Implements(textMarshalerType) {
+		return true
+	}
+	if reflect.PtrTo(t).Implements(textUnmarshalerType) || t.Implements(textUnmarshalerType) {
+		return true
+	}
+
+	// Check for string-based types by name patterns
+	typeName := t.Name()
+	if typeName != "" {
+		// Common patterns for string-based types
+		stringPatterns := []string{
+			"URL", "URI", "Email", "Phone", "Hash", "Token", "Key", "Secret",
+			"Code", "Slug", "Tag", "Name", "Title", "Status", "State", "Type",
+		}
+
+		for _, pattern := range stringPatterns {
+			if strings.Contains(typeName, pattern) && t.Kind() != reflect.Struct {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (g *OpenAPIGenerator) shouldIgnoreField(field reflect.StructField, tagInfo *common.FieldTagInfo) bool {
@@ -1010,6 +1442,18 @@ func (g *OpenAPIGenerator) parseValidationTag(tagInfo *common.FieldTagInfo, vali
 }
 
 func (g *OpenAPIGenerator) isRequestBodyRequired(requestType reflect.Type) bool {
+	if requestType.Kind() == reflect.Ptr {
+		requestType = requestType.Elem()
+	}
+
+	// Check if there's a Body field and if it's required
+	bodyField := g.extractRequestBodyField(requestType)
+	if bodyField != nil {
+		tagInfo := g.parseFieldTags(*bodyField)
+		return tagInfo.Required
+	}
+
+	// Existing logic for non-Body field structs
 	for i := 0; i < requestType.NumField(); i++ {
 		field := requestType.Field(i)
 		tagInfo := g.parseFieldTags(field)
@@ -1200,6 +1644,271 @@ func (g *OpenAPIGenerator) AddTag(tag *common.TagObject) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.spec.Tags = append(g.spec.Tags, tag)
+}
+
+// Improved type detection that doesn't assume all marshalers are strings
+func (g *OpenAPIGenerator) shouldTreatAsString(t reflect.Type) bool {
+	// Handle specific known types first
+	if g.checkWellKnownTypes(t) != nil {
+		return true // Well-known types are already handled as strings
+	}
+
+	// Check for common string-like patterns by name and underlying type
+	typeName := t.Name()
+	if typeName != "" {
+		// Strong indicators it's a string-based type
+		if g.isStringLikeType(t, typeName) {
+			return true
+		}
+	}
+
+	// For types implementing marshalers, be more conservative
+	if g.implementsJSONMarshaler(t) {
+		// Only treat as string if we have strong evidence
+		return g.isLikelyStringMarshaler(t, typeName)
+	}
+
+	return false
+}
+
+func (g *OpenAPIGenerator) isStringLikeType(t reflect.Type, typeName string) bool {
+	// Check underlying type
+	underlyingKind := t.Kind()
+	if underlyingKind == reflect.String {
+		return true
+	}
+
+	// Common string-like type name patterns
+	stringPatterns := []string{
+		"ID", "Id", "UUID", "URL", "URI", "Email", "Phone",
+		"Hash", "Token", "Key", "Secret", "Code", "Slug",
+		"Tag", "Status", "State", "Type", "Kind", "Name",
+	}
+
+	for _, pattern := range stringPatterns {
+		if strings.Contains(typeName, pattern) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (g *OpenAPIGenerator) isLikelyStringMarshaler(t reflect.Type, typeName string) bool {
+	// Conservative approach: only assume string for common patterns
+	if strings.HasSuffix(typeName, "ID") || strings.HasSuffix(typeName, "Id") {
+		return true
+	}
+
+	if strings.Contains(strings.ToLower(typeName), "time") ||
+		strings.Contains(strings.ToLower(typeName), "date") {
+		return true
+	}
+
+	// If underlying type is string, likely still a string
+	if t.Kind() == reflect.String {
+		return true
+	}
+
+	return false
+}
+
+func (g *OpenAPIGenerator) generateSchemaForCustomMarshalerType(t reflect.Type) *common.Schema {
+	typeName := t.Name()
+
+	// For unknown marshaler types, create a flexible schema
+	schema := &common.Schema{
+		Description: fmt.Sprintf("Custom type %s with JSON marshaling", typeName),
+	}
+
+	// Try to infer from underlying type and name
+	if g.isLikelyStringMarshaler(t, typeName) {
+		schema.Type = "string"
+		schema.Description += " (likely string-based)"
+	} else {
+		// Use oneOf to allow multiple possible JSON types
+		schema.OneOf = []*common.Schema{
+			{Type: "string"},
+			{Type: "number"},
+			{Type: "object"},
+			{Type: "array"},
+			{Type: "boolean"},
+		}
+		schema.Description += " (flexible JSON type)"
+	}
+
+	return schema
+}
+
+func (g *OpenAPIGenerator) implementsJSONMarshaler(t reflect.Type) bool {
+	return reflect.PtrTo(t).Implements(jsonMarshalerType) ||
+		t.Implements(jsonMarshalerType)
+}
+
+// Alternative approach: Runtime inspection (more accurate but has overhead)
+func (g *OpenAPIGenerator) inspectMarshalerOutput(t reflect.Type) string {
+	// Create zero value and try to marshal it
+	if t.Kind() == reflect.Ptr {
+		return "unknown" // Can't safely create pointer types
+	}
+
+	defer func() {
+		if recover() != nil {
+			// If marshaling panics, can't determine type
+		}
+	}()
+
+	zeroValue := reflect.Zero(t)
+	if !zeroValue.CanInterface() {
+		return "unknown"
+	}
+
+	if marshaler, ok := zeroValue.Interface().(json.Marshaler); ok {
+		data, err := marshaler.MarshalJSON()
+		if err != nil {
+			return "unknown"
+		}
+
+		// Parse the JSON to determine its type
+		var parsed interface{}
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			return "unknown"
+		}
+
+		switch parsed.(type) {
+		case string:
+			return "string"
+		case float64:
+			return "number"
+		case bool:
+			return "boolean"
+		case []interface{}:
+			return "array"
+		case map[string]interface{}:
+			return "object"
+		case nil:
+			return "null"
+		default:
+			return "unknown"
+		}
+	}
+
+	return "unknown"
+}
+
+func (g *OpenAPIGenerator) isTimeType(t reflect.Type) bool {
+	return t == timeType
+}
+
+func (g *OpenAPIGenerator) isDurationType(t reflect.Type) bool {
+	return t == durationType
+}
+
+func (g *OpenAPIGenerator) isXIDType(t reflect.Type) bool {
+	return t.PkgPath() == "github.com/rs/xid" && t.Name() == "ID"
+}
+
+func (g *OpenAPIGenerator) isUUIDType(t reflect.Type) bool {
+	return (t.PkgPath() == "github.com/google/uuid" || t.PkgPath() == "github.com/satori/go.uuid") &&
+		t.Name() == "UUID"
+}
+
+func (g *OpenAPIGenerator) implementsTextMarshaler(t reflect.Type) bool {
+	return reflect.PtrTo(t).Implements(textMarshalerType) || t.Implements(textMarshalerType)
+}
+
+// Update the parseFieldTags method to better handle query tag parsing
+func (g *OpenAPIGenerator) parseFieldTags(field reflect.StructField) *common.FieldTagInfo {
+	tagInfo := &common.FieldTagInfo{
+		Extensions: make(map[string]interface{}),
+	}
+
+	// Parameter location tags
+	tagInfo.Path = field.Tag.Get("path")
+	tagInfo.Query = field.Tag.Get("query")
+	tagInfo.Header = field.Tag.Get("header")
+	tagInfo.Cookie = field.Tag.Get("cookie")
+	tagInfo.Body = field.Tag.Get("body") != ""
+	tagInfo.JSON = field.Tag.Get("json")
+	tagInfo.XML = field.Tag.Get("xml")
+	tagInfo.Form = field.Tag.Get("form")
+	tagInfo.Multipart = field.Tag.Get("multipart")
+
+	// If no explicit query tag, check if field should be inferred as query parameter
+	if tagInfo.Query == "" && tagInfo.JSON != "" && tagInfo.JSON != "-" &&
+		tagInfo.Path == "" && tagInfo.Header == "" && tagInfo.Cookie == "" && !tagInfo.Body {
+		// Check if the JSON tag looks like it could be a query parameter
+		jsonParts := strings.Split(tagInfo.JSON, ",")
+		if len(jsonParts) > 0 && jsonParts[0] != "" {
+			// Only infer as query if it's not marked for body serialization
+			tagInfo.Query = jsonParts[0]
+		}
+	}
+
+	// Required validation
+	tagInfo.Required = field.Tag.Get("required") == "true" ||
+		strings.Contains(field.Tag.Get("validate"), "required")
+
+	// Numeric constraints
+	if minStr := field.Tag.Get("min"); minStr != "" {
+		if min, err := strconv.ParseFloat(minStr, 64); err == nil {
+			tagInfo.Min = &min
+		}
+	}
+	if maxStr := field.Tag.Get("max"); maxStr != "" {
+		if max, err := strconv.ParseFloat(maxStr, 64); err == nil {
+			tagInfo.Max = &max
+		}
+	}
+
+	// String length constraints
+	if minLenStr := field.Tag.Get("minlength"); minLenStr != "" {
+		if minLen, err := strconv.Atoi(minLenStr); err == nil {
+			tagInfo.MinLength = &minLen
+		}
+	}
+	if maxLenStr := field.Tag.Get("maxlength"); maxLenStr != "" {
+		if maxLen, err := strconv.Atoi(maxLenStr); err == nil {
+			tagInfo.MaxLength = &maxLen
+		}
+	}
+
+	tagInfo.Pattern = field.Tag.Get("pattern")
+
+	if enumStr := field.Tag.Get("enum"); enumStr != "" {
+		enumValues := strings.Split(enumStr, ",")
+		tagInfo.Enum = make([]interface{}, len(enumValues))
+		for i, val := range enumValues {
+			tagInfo.Enum[i] = strings.TrimSpace(val)
+		}
+	}
+
+	if multipleOfStr := field.Tag.Get("multipleOf"); multipleOfStr != "" {
+		if multipleOf, err := strconv.ParseFloat(multipleOfStr, 64); err == nil {
+			tagInfo.MultipleOf = &multipleOf
+		}
+	}
+
+	tagInfo.Description = g.getFieldDescription(field)
+	tagInfo.Title = field.Tag.Get("title")
+	tagInfo.Deprecated = field.Tag.Get("deprecated") == "true"
+
+	if exampleStr := field.Tag.Get("example"); exampleStr != "" {
+		tagInfo.Example = g.parseExample(exampleStr, field.Type)
+	}
+
+	tagInfo.Format = field.Tag.Get("format")
+	tagInfo.Type = field.Tag.Get("type")
+	tagInfo.AllowEmpty = field.Tag.Get("allowEmpty") == "true"
+
+	if defaultStr := field.Tag.Get("default"); defaultStr != "" {
+		tagInfo.Default = g.parseDefault(defaultStr, field.Type)
+	}
+
+	g.parseValidationTag(tagInfo, field.Tag.Get("validate"))
+	g.parseOpenAPIExtensions(tagInfo, field)
+
+	return tagInfo
 }
 
 func ptrFloat64(f float64) *float64 {

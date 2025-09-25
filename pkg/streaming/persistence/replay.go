@@ -231,7 +231,7 @@ func (r *DefaultMessageReplayer) ReplayMessages(ctx context.Context, request *Re
 	r.activeReplays[requestID] = activeReplay
 	r.replaysMu.Unlock()
 
-	// Start replay in background
+	// OnStart replay in background
 	go r.executeReplay(replayCtx, activeReplay)
 
 	// Update statistics

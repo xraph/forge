@@ -76,7 +76,7 @@ func NewAccessTracker() *AccessTracker {
 		stopCleanup: make(chan struct{}),
 	}
 
-	// Start cleanup routine
+	// OnStart cleanup routine
 	tracker.cleanupTicker = time.NewTicker(10 * time.Minute)
 	go tracker.runCleanup()
 

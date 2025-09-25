@@ -10,7 +10,7 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // HookMiddleware integrates hooks into the HTTP middleware pipeline

@@ -224,10 +224,10 @@ type ModelTrainerImpl struct {
 	models   map[string]TrainedModel
 	executor TrainingExecutor
 	monitor  TrainingMonitor
-	storage ModelStorage
-	logger  common.Logger
-	metrics common.Metrics
-	mu      sync.RWMutex
+	storage  ModelStorage
+	logger   common.Logger
+	metrics  common.Metrics
+	mu       sync.RWMutex
 	started  bool
 }
 
@@ -258,12 +258,12 @@ func (t *ModelTrainerImpl) StartTraining(ctx context.Context, request TrainingRe
 	}
 
 	// Create training job
-	job := 3@(request, t.logger, t.metrics)
+	job := New(request, t.logger, t.metrics)
 
 	// Store job
 	t.jobs[request.ID] = job
 
-	// Start training execution
+	// OnStart training execution
 	go func() {
 		if err := t.executor.Execute(ctx, job); err != nil {
 			t.logger.Error("training execution failed",

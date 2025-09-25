@@ -264,33 +264,33 @@ func (e *InferenceEngine) Start(ctx context.Context) error {
 		return fmt.Errorf("inference engine already started")
 	}
 
-	// Start pipeline
+	// OnStart pipeline
 	if err := e.pipeline.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start inference pipeline: %w", err)
 	}
 
-	// Start batcher if enabled
+	// OnStart batcher if enabled
 	if e.batcher != nil {
 		if err := e.batcher.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start request batcher: %w", err)
 		}
 	}
 
-	// Start cache if enabled
+	// OnStart cache if enabled
 	if e.cache != nil {
 		if err := e.cache.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start inference cache: %w", err)
 		}
 	}
 
-	// Start scaler if enabled
+	// OnStart scaler if enabled
 	if e.scaler != nil {
 		if err := e.scaler.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start inference scaler: %w", err)
 		}
 	}
 
-	// Start workers
+	// OnStart workers
 	e.workers = make([]*InferenceWorker, e.config.Workers)
 	for i := 0; i < e.config.Workers; i++ {
 		worker := NewInferenceWorker(InferenceWorkerConfig{
@@ -309,7 +309,7 @@ func (e *InferenceEngine) Start(ctx context.Context) error {
 		}(worker)
 	}
 
-	// Start stats collection
+	// OnStart stats collection
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
@@ -349,7 +349,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 	// Wait for workers to finish
 	e.wg.Wait()
 
-	// Stop scaler
+	// OnStop scaler
 	if e.scaler != nil {
 		if err := e.scaler.Stop(ctx); err != nil {
 			if e.logger != nil {
@@ -358,7 +358,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop cache
+	// OnStop cache
 	if e.cache != nil {
 		if err := e.cache.Stop(ctx); err != nil {
 			if e.logger != nil {
@@ -367,7 +367,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop batcher
+	// OnStop batcher
 	if e.batcher != nil {
 		if err := e.batcher.Stop(ctx); err != nil {
 			if e.logger != nil {
@@ -376,7 +376,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop pipeline
+	// OnStop pipeline
 	if err := e.pipeline.Stop(ctx); err != nil {
 		if e.logger != nil {
 			e.logger.Error("failed to stop inference pipeline", logger.Error(err))

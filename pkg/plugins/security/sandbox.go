@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -13,7 +12,7 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // PluginSandbox provides isolated execution environment for plugins
@@ -255,7 +254,7 @@ func (s *SandboxImpl) Create(ctx context.Context, config SandboxConfig) error {
 		return fmt.Errorf("failed to setup network restrictions: %w", err)
 	}
 
-	// Start monitoring
+	// OnStart monitoring
 	if err := s.startMonitoring(ctx); err != nil {
 		return fmt.Errorf("failed to start monitoring: %w", err)
 	}
@@ -308,7 +307,7 @@ func (s *SandboxImpl) Destroy(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Stop monitoring
+	// OnStop monitoring
 	if s.monitorCancel != nil {
 		s.monitorCancel()
 	}
@@ -359,14 +358,19 @@ func (s *SandboxImpl) createIsolatedEnvironment(ctx context.Context) error {
 }
 
 func (s *SandboxImpl) createLinuxNamespace(ctx context.Context) error {
-	// Create new namespaces for isolation
-	// This is a simplified implementation - in production, you'd use proper container technologies
-	cmd := exec.CommandContext(ctx, "unshare", "--pid", "--net", "--mount", "--uts", "--ipc")
+	// Create new namespaces for isolation using unshare command
+	cmd := exec.CommandContext(ctx, "unshare", "--pid", "--net", "--mount", "--uts", "--ipc", "--user")
 
-	// Set resource limits
+	// Set basic process attributes for security
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWNS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNET,
+		Setpgid: true, // Create new process group
+		Setsid:  true, // Create new session
 	}
+
+	// // Set resource limits if needed
+	// cmd.SysProcAttr.Setrlimit = []syscall.Rlimit{
+	// 	{Resource: syscall.RLIMIT_AS, Cur: uint64(s.config.MaxMemory), Max: uint64(s.config.MaxMemory)},
+	// }
 
 	s.cmd = cmd
 	return nil
@@ -517,12 +521,12 @@ func (s *SandboxImpl) executeLoad(ctx context.Context, plugin plugins.Plugin, op
 
 func (s *SandboxImpl) executeStart(ctx context.Context, plugin plugins.Plugin, operation plugins.PluginOperation) (interface{}, error) {
 	// Execute plugin start
-	return nil, plugin.Start(ctx)
+	return nil, plugin.OnStart(ctx)
 }
 
 func (s *SandboxImpl) executeStop(ctx context.Context, plugin plugins.Plugin, operation plugins.PluginOperation) (interface{}, error) {
 	// Execute plugin stop
-	return nil, plugin.Stop(ctx)
+	return nil, plugin.OnStop(ctx)
 }
 
 func (s *SandboxImpl) executeCustom(ctx context.Context, plugin plugins.Plugin, operation plugins.PluginOperation) (interface{}, error) {

@@ -125,7 +125,7 @@ func (m *AIManager) OnStart(ctx context.Context) error {
 	}
 	m.inferenceEngine = inferenceEngine
 
-	// Start coordinator if enabled
+	// OnStart coordinator if enabled
 	if config.EnableCoordination {
 		if err := m.coordinator.Start(ctx); err != nil {
 			return common.ErrServiceStartFailed("ai-manager", err)
@@ -158,7 +158,7 @@ func (m *AIManager) OnStop(ctx context.Context) error {
 		return common.ErrLifecycleError("stop", fmt.Errorf("AI manager not started"))
 	}
 
-	// Stop all agents
+	// OnStop all agents
 	for _, agent := range m.agents {
 		if err := agent.Stop(ctx); err != nil {
 			if m.logger != nil {
@@ -170,14 +170,14 @@ func (m *AIManager) OnStop(ctx context.Context) error {
 		}
 	}
 
-	// Stop coordinator
+	// OnStop coordinator
 	if err := m.coordinator.Stop(ctx); err != nil {
 		if m.logger != nil {
 			m.logger.Error("failed to stop coordinator", logger.Error(err))
 		}
 	}
 
-	// Stop inference engine
+	// OnStop inference engine
 	if m.inferenceEngine != nil {
 		if err := m.inferenceEngine.Stop(ctx); err != nil {
 			if m.logger != nil {
@@ -186,7 +186,7 @@ func (m *AIManager) OnStop(ctx context.Context) error {
 		}
 	}
 
-	// Stop model server
+	// OnStop model server
 	if m.modelServer != nil {
 		if err := m.modelServer.Stop(ctx); err != nil {
 			if m.logger != nil {
@@ -269,7 +269,7 @@ func (m *AIManager) RegisterAgent(agent AIAgent) error {
 		return common.ErrServiceStartFailed(agentID, err)
 	}
 
-	// Start agent
+	// OnStart agent
 	if err := agent.Start(context.Background()); err != nil {
 		return common.ErrServiceStartFailed(agentID, err)
 	}
@@ -314,7 +314,7 @@ func (m *AIManager) UnregisterAgent(agentID string) error {
 		return common.ErrServiceNotFound(agentID)
 	}
 
-	// Stop agent
+	// OnStop agent
 	if err := agent.Stop(context.Background()); err != nil {
 		if m.logger != nil {
 			m.logger.Error("failed to stop agent during unregistration",

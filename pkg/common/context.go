@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -478,7 +477,19 @@ func (c *ForgeContext) BindPath(target interface{}) error {
 	}
 
 	if len(params) == 0 {
-		return fmt.Errorf("no path parameters available")
+		// Enhanced debugging info
+		routePattern := c.GetString("route_pattern")
+		requestPath := c.request.URL.Path
+
+		if c.logger != nil {
+			c.logger.Debug("No path parameters found during binding",
+				logger.String("route_pattern", routePattern),
+				logger.String("request_path", requestPath),
+				logger.String("method", c.request.Method),
+			)
+		}
+
+		return fmt.Errorf("no path parameters available (route: %s, path: %s)", routePattern, requestPath)
 	}
 
 	return c.bindPathValues(target, params)
@@ -515,6 +526,22 @@ func (c *ForgeContext) bindHeaderValues(target interface{}, headers http.Header)
 	targetValue = targetValue.Elem()
 	targetType := targetValue.Type()
 
+	return c.bindStructFields(targetValue, targetType, func(fieldName string) (string, bool) {
+		headerValues := headers.Values(fieldName)
+		if len(headerValues) == 0 {
+			return "", false
+		}
+		return headerValues[0], true
+	}, "header")
+}
+
+// bindStructFields is a generic method to bind struct fields from various sources
+func (c *ForgeContext) bindStructFields(
+	targetValue reflect.Value,
+	targetType reflect.Type,
+	valueGetter func(fieldName string) (string, bool),
+	tags ...string,
+) error {
 	for i := 0; i < targetValue.NumField(); i++ {
 		field := targetValue.Field(i)
 		fieldType := targetType.Field(i)
@@ -523,44 +550,61 @@ func (c *ForgeContext) bindHeaderValues(target interface{}, headers http.Header)
 			continue
 		}
 
-		// Get field name from header tag
-		fieldName := c.getFieldName(fieldType, "header")
+		// Handle embedded/anonymous fields
+		if fieldType.Anonymous {
+			if err := c.bindEmbeddedFields(field, fieldType, valueGetter, tags...); err != nil {
+				return fmt.Errorf("failed to bind embedded field '%s': %w", fieldType.Name, err)
+			}
+			continue
+		}
+
+		// Get field name from tags
+		fieldName := c.getFieldName(fieldType, tags...)
 		if fieldName == "" || fieldName == "-" {
 			continue
 		}
 
-		// Get value from headers (headers are case-insensitive)
-		headerValues := headers.Values(fieldName)
-		if len(headerValues) == 0 {
+		// Get value from source
+		value, exists := valueGetter(fieldName)
+		if !exists {
 			// Check if field is required
 			if c.isFieldRequired(fieldType) {
-				return fmt.Errorf("required header '%s' is missing", fieldName)
+				return fmt.Errorf("required field '%s' is missing", fieldName)
 			}
 			continue
 		}
 
-		// Use the first header value, or join multiple values for slice types
-		var value string
-		if field.Kind() == reflect.Slice && field.Type().Elem().Kind() == reflect.String {
-			// For string slices, use all header values
-			slice := reflect.MakeSlice(field.Type(), len(headerValues), len(headerValues))
-			for j, headerValue := range headerValues {
-				slice.Index(j).SetString(headerValue)
-			}
-			field.Set(slice)
-			continue
-		} else {
-			// For single values, use the first header value
-			value = headerValues[0]
-		}
-
-		// Set field value
+		// Set field value using the type converter system
 		if err := c.setFieldValue(field, value, fieldType); err != nil {
-			return fmt.Errorf("failed to set header field '%s': %w", fieldName, err)
+			return fmt.Errorf("failed to set field '%s': %w", fieldName, err)
 		}
 	}
 
-	return c.validateStruct(target)
+	return nil
+}
+
+// bindEmbeddedFields handles embedded/anonymous struct fields
+func (c *ForgeContext) bindEmbeddedFields(
+	field reflect.Value,
+	fieldType reflect.StructField,
+	valueGetter func(fieldName string) (string, bool),
+	tags ...string,
+) error {
+	// Handle pointer to embedded struct
+	if field.Kind() == reflect.Ptr {
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		field = field.Elem()
+	}
+
+	// Only process struct types
+	if field.Kind() != reflect.Struct {
+		return nil
+	}
+
+	embeddedType := field.Type()
+	return c.bindStructFields(field, embeddedType, valueGetter, tags...)
 }
 
 // bindFormValues binds URL values to a struct
@@ -573,37 +617,13 @@ func (c *ForgeContext) bindFormValues(target interface{}, values url.Values) err
 	targetValue = targetValue.Elem()
 	targetType := targetValue.Type()
 
-	for i := 0; i < targetValue.NumField(); i++ {
-		field := targetValue.Field(i)
-		fieldType := targetType.Field(i)
-
-		if !field.CanSet() {
-			continue
-		}
-
-		// Get field name from tags
-		fieldName := c.getFieldName(fieldType, "form", "query")
-		if fieldName == "" || fieldName == "-" {
-			continue
-		}
-
-		// Get value from form/query
+	return c.bindStructFields(targetValue, targetType, func(fieldName string) (string, bool) {
 		formValues, exists := values[fieldName]
 		if !exists || len(formValues) == 0 {
-			// Check if field is required
-			if c.isFieldRequired(fieldType) {
-				return fmt.Errorf("required field '%s' is missing", fieldName)
-			}
-			continue
+			return "", false
 		}
-
-		// Set field value
-		if err := c.setFieldValue(field, formValues[0], fieldType); err != nil {
-			return fmt.Errorf("failed to set field '%s': %w", fieldName, err)
-		}
-	}
-
-	return c.validateStruct(target)
+		return formValues[0], true
+	}, "form", "query")
 }
 
 // bindPathValues binds path parameters to a struct
@@ -616,37 +636,10 @@ func (c *ForgeContext) bindPathValues(target interface{}, params map[string]stri
 	targetValue = targetValue.Elem()
 	targetType := targetValue.Type()
 
-	for i := 0; i < targetValue.NumField(); i++ {
-		field := targetValue.Field(i)
-		fieldType := targetType.Field(i)
-
-		if !field.CanSet() {
-			continue
-		}
-
-		// Get field name from path tag
-		fieldName := c.getFieldName(fieldType, "path")
-		if fieldName == "" || fieldName == "-" {
-			continue
-		}
-
-		// Get value from path params
+	return c.bindStructFields(targetValue, targetType, func(fieldName string) (string, bool) {
 		paramValue, exists := params[fieldName]
-		if !exists {
-			// Check if field is required
-			if c.isFieldRequired(fieldType) {
-				return fmt.Errorf("required path parameter '%s' is missing", fieldName)
-			}
-			continue
-		}
-
-		// Set field value
-		if err := c.setFieldValue(field, paramValue, fieldType); err != nil {
-			return fmt.Errorf("failed to set path parameter '%s': %w", fieldName, err)
-		}
-	}
-
-	return c.validateStruct(target)
+		return paramValue, exists
+	}, "path")
 }
 
 // getFieldName gets the field name from struct tags
@@ -660,6 +653,17 @@ func (c *ForgeContext) getFieldName(field reflect.StructField, tags ...string) s
 			}
 		}
 	}
+
+	// Fallback: if no explicit tag found, try to infer from JSON tag for query/form binding
+	if len(tags) > 0 && (tags[0] == "query" || tags[0] == "form") {
+		if jsonTag := field.Tag.Get("json"); jsonTag != "" && jsonTag != "-" {
+			parts := strings.Split(jsonTag, ",")
+			if len(parts) > 0 && parts[0] != "" {
+				return parts[0]
+			}
+		}
+	}
+
 	return ""
 }
 
@@ -671,50 +675,7 @@ func (c *ForgeContext) isFieldRequired(field reflect.StructField) bool {
 
 // setFieldValue sets a field value from string
 func (c *ForgeContext) setFieldValue(field reflect.Value, value string, fieldType reflect.StructField) error {
-	switch field.Kind() {
-	case reflect.String:
-		field.SetString(value)
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		intVal, err := strconv.ParseInt(value, 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid integer value: %s", value)
-		}
-		field.SetInt(intVal)
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		uintVal, err := strconv.ParseUint(value, 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid unsigned integer value: %s", value)
-		}
-		field.SetUint(uintVal)
-	case reflect.Float32, reflect.Float64:
-		floatVal, err := strconv.ParseFloat(value, 64)
-		if err != nil {
-			return fmt.Errorf("invalid float value: %s", value)
-		}
-		field.SetFloat(floatVal)
-	case reflect.Bool:
-		boolVal, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("invalid boolean value: %s", value)
-		}
-		field.SetBool(boolVal)
-	case reflect.Slice:
-		// Handle comma-separated values
-		if field.Type().Elem().Kind() == reflect.String {
-			values := strings.Split(value, ",")
-			slice := reflect.MakeSlice(field.Type(), len(values), len(values))
-			for i, val := range values {
-				slice.Index(i).SetString(strings.TrimSpace(val))
-			}
-			field.Set(slice)
-		} else {
-			return fmt.Errorf("unsupported slice type")
-		}
-	default:
-		return fmt.Errorf("unsupported field type: %v", field.Kind())
-	}
-
-	return nil
+	return ConvertFieldValue(field, value, fieldType.Type)
 }
 
 // validateStruct validates a struct using validation tags
@@ -854,21 +815,37 @@ func (c *ForgeContext) extractPathParametersFromRequest() map[string]string {
 	ctx := c.request.Context()
 
 	// Try common keys that routers use to store path parameters
-	commonKeys := []string{"pathParams", "params", "chi-context", "gorilla.mux.Vars", "httprouter.Params"}
+	commonKeys := []string{
+		"pathParams", "params", "chi-context", "gorilla.mux.Vars",
+		"httprouter.Params", "steel-params", "route-params",
+		"path-parameters", "url-params", "mux-vars",
+	}
 
 	for _, key := range commonKeys {
 		if value := ctx.Value(key); value != nil {
 			if paramMap, ok := value.(map[string]string); ok {
-				return paramMap
+				if len(paramMap) > 0 {
+					if c.logger != nil {
+						c.logger.Debug("Found path parameters in request context",
+							logger.String("context_key", key),
+							logger.Int("param_count", len(paramMap)),
+						)
+					}
+					return paramMap
+				}
 			}
-		}
-	}
 
-	// Try to extract from Steel router specific context
-	// Steel router might use a different key or structure
-	if steelParams := ctx.Value("steel-params"); steelParams != nil {
-		if paramMap, ok := steelParams.(map[string]string); ok {
-			return paramMap
+			// Try to handle other common parameter formats
+			if paramSlice, ok := value.([]string); ok && len(paramSlice) > 0 {
+				// Convert slice to map (some routers store as alternating key-value pairs)
+				paramMap := make(map[string]string)
+				for i := 0; i < len(paramSlice)-1; i += 2 {
+					paramMap[paramSlice[i]] = paramSlice[i+1]
+				}
+				if len(paramMap) > 0 {
+					return paramMap
+				}
+			}
 		}
 	}
 
@@ -885,8 +862,32 @@ func (c *ForgeContext) SetPathParams(params map[string]string) Context {
 // SetRoutePattern Add a helper method to set route pattern (for use by the router)
 func (c *ForgeContext) SetRoutePattern(pattern string) Context {
 	newCtx := c.copy()
+
+	// Store both the original pattern and a normalized version
 	newCtx.Set("route_pattern", pattern)
+	newCtx.Set("original_route_pattern", pattern)
+
+	// Also store a Steel-normalized version for compatibility
+	steelPattern := c.convertToSteelFormat(pattern)
+	if steelPattern != pattern {
+		newCtx.Set("steel_route_pattern", steelPattern)
+	}
+
 	return newCtx
+}
+
+// convertToSteelFormat converts OpenAPI format to Steel format for compatibility
+func (c *ForgeContext) convertToSteelFormat(pattern string) string {
+	parts := strings.Split(pattern, "/")
+
+	for i, part := range parts {
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			paramName := part[1 : len(part)-1]
+			parts[i] = ":" + paramName
+		}
+	}
+
+	return strings.Join(parts, "/")
 }
 
 // extractPathParametersFromRoute extracts path parameters by comparing route pattern with request path
@@ -898,33 +899,106 @@ func (c *ForgeContext) extractPathParametersFromRoute() map[string]string {
 	// Get the route pattern from context (should be set by the router)
 	routePattern := c.GetString("route_pattern")
 	if routePattern == "" {
+		// Try alternative context keys that might contain the route pattern
+		alternativeKeys := []string{"route_path", "pattern", "route", "handler_pattern"}
+		for _, key := range alternativeKeys {
+			if pattern := c.GetString(key); pattern != "" {
+				routePattern = pattern
+				break
+			}
+		}
+	}
+
+	if routePattern == "" {
+		if c.logger != nil {
+			c.logger.Debug("No route pattern found in context for path parameter extraction")
+		}
 		return make(map[string]string)
 	}
 
-	return c.extractPathParametersFromURL(routePattern, c.request.URL.Path)
+	params := c.extractPathParametersFromURL(routePattern, c.request.URL.Path)
+
+	if c.logger != nil {
+		c.logger.Debug("Path parameter extraction result",
+			logger.String("route_pattern", routePattern),
+			logger.String("request_path", c.request.URL.Path),
+			logger.Int("params_found", len(params)),
+		)
+
+		for key, value := range params {
+			c.logger.Debug("Extracted parameter",
+				logger.String("key", key),
+				logger.String("value", value),
+			)
+		}
+	}
+
+	return params
 }
 
 // extractPathParametersFromURL manually extracts path parameters from URL and route pattern
 func (c *ForgeContext) extractPathParametersFromURL(routePattern, requestPath string) map[string]string {
-	routeParts := strings.Split(routePattern, "/")
-	pathParts := strings.Split(requestPath, "/")
+	routeParts := strings.Split(strings.Trim(routePattern, "/"), "/")
+	pathParts := strings.Split(strings.Trim(requestPath, "/"), "/")
 
 	params := make(map[string]string)
 
+	// Handle empty paths
+	if routePattern == "/" && requestPath == "/" {
+		return params
+	}
+
 	if len(routeParts) != len(pathParts) {
+		if c.logger != nil {
+			c.logger.Debug("Path segment count mismatch",
+				logger.Int("route_segments", len(routeParts)),
+				logger.Int("path_segments", len(pathParts)),
+				logger.String("route_pattern", routePattern),
+				logger.String("request_path", requestPath),
+			)
+		}
 		return params // Path doesn't match pattern
 	}
 
 	for i, routePart := range routeParts {
+		var paramName string
+		var isParam bool
+
+		// Handle Steel router format: :paramName
 		if strings.HasPrefix(routePart, ":") {
-			paramName := routePart[1:] // Remove the ':' prefix
-			if i < len(pathParts) {
-				params[paramName] = pathParts[i]
+			paramName = routePart[1:] // Remove the ':' prefix
+			isParam = true
+		}
+		// Handle OpenAPI format: {paramName}
+		if strings.HasPrefix(routePart, "{") && strings.HasSuffix(routePart, "}") {
+			paramName = routePart[1 : len(routePart)-1] // Remove the '{' and '}'
+			isParam = true
+		}
+
+		if isParam && i < len(pathParts) {
+			params[paramName] = pathParts[i]
+			if c.logger != nil {
+				c.logger.Debug("Extracted path parameter",
+					logger.String("param_name", paramName),
+					logger.String("param_value", pathParts[i]),
+					logger.String("format", getParamFormat(routePart)),
+				)
 			}
 		}
 	}
 
 	return params
+}
+
+// Helper function to identify parameter format for logging
+func getParamFormat(routePart string) string {
+	if strings.HasPrefix(routePart, ":") {
+		return "steel" // :param
+	}
+	if strings.HasPrefix(routePart, "{") && strings.HasSuffix(routePart, "}") {
+		return "openapi" // {param}
+	}
+	return "literal"
 }
 
 // =============================================================================
@@ -1005,4 +1079,33 @@ func (c *ForgeContext) Query() string {
 		return ""
 	}
 	return c.request.URL.RawQuery
+}
+
+// ForgeContextKey is the context key for storing ForgeContext
+type contextKey string
+
+const ForgeContextKey contextKey = "forge_context"
+
+// GetForgeContext extracts ForgeContext from standard context
+func GetForgeContext(ctx context.Context) Context {
+	if forgeCtx := ctx.Value(ForgeContextKey); forgeCtx != nil {
+		if fc, ok := forgeCtx.(Context); ok {
+			return fc
+		}
+	}
+	return nil
+}
+
+// MustGetForgeContext extracts ForgeContext or panics
+func MustGetForgeContext(ctx context.Context) Context {
+	forgeCtx := GetForgeContext(ctx)
+	if forgeCtx == nil {
+		panic("ForgeContext not found in request context")
+	}
+	return forgeCtx
+}
+
+// WithForgeContext stores ForgeContext in standard context
+func WithForgeContext(ctx context.Context, forgeCtx Context) context.Context {
+	return context.WithValue(ctx, ForgeContextKey, forgeCtx)
 }

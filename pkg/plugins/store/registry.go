@@ -13,22 +13,23 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
-// PluginRegistry manages plugin metadata and local plugin storage
+// PluginRegistry manages both plugin instances and metadata storage
 type PluginRegistry struct {
-	config      StoreConfig
-	plugins     map[string]*PluginRegistryEntry
-	versions    map[string][]string
-	categories  map[string][]string
-	publishers  map[string][]string
-	mu          sync.RWMutex
-	dataDir     string
-	indexFile   string
-	logger      common.Logger
-	metrics     common.Metrics
-	initialized bool
+	config         StoreConfig
+	pluginEntries  map[string]*PluginRegistryEntry // Plugin metadata storage
+	pluginInstance map[string]plugins.Plugin       // Active plugin instances
+	versions       map[string][]string
+	categories     map[string][]string
+	publishers     map[string][]string
+	mu             sync.RWMutex
+	dataDir        string
+	indexFile      string
+	logger         common.Logger
+	metrics        common.Metrics
+	initialized    bool
 }
 
 // PluginRegistryEntry represents a plugin entry in the registry
@@ -62,17 +63,7 @@ type RegistryIndex struct {
 	Plugins     map[string]*PluginRegistryEntry `json:"plugins"`
 	Categories  map[string][]string             `json:"categories"`
 	Publishers  map[string][]string             `json:"publishers"`
-	Stats       RegistryStats                   `json:"stats"`
-}
-
-// RegistryStats contains registry statistics
-type RegistryStats struct {
-	TotalPlugins    int       `json:"total_plugins"`
-	TotalVersions   int       `json:"total_versions"`
-	TotalCategories int       `json:"total_categories"`
-	TotalPublishers int       `json:"total_publishers"`
-	LastUpdated     time.Time `json:"last_updated"`
-	IndexSize       int64     `json:"index_size"`
+	Stats       plugins.RegistryStats           `json:"stats"`
 }
 
 // NewPluginRegistry creates a new plugin registry
@@ -81,15 +72,16 @@ func NewPluginRegistry(config StoreConfig, logger common.Logger, metrics common.
 	indexFile := filepath.Join(dataDir, "index.json")
 
 	return &PluginRegistry{
-		config:     config,
-		plugins:    make(map[string]*PluginRegistryEntry),
-		versions:   make(map[string][]string),
-		categories: make(map[string][]string),
-		publishers: make(map[string][]string),
-		dataDir:    dataDir,
-		indexFile:  indexFile,
-		logger:     logger,
-		metrics:    metrics,
+		config:         config,
+		pluginEntries:  make(map[string]*PluginRegistryEntry),
+		pluginInstance: make(map[string]plugins.Plugin),
+		versions:       make(map[string][]string),
+		categories:     make(map[string][]string),
+		publishers:     make(map[string][]string),
+		dataDir:        dataDir,
+		indexFile:      indexFile,
+		logger:         logger,
+		metrics:        metrics,
 	}
 }
 
@@ -121,12 +113,12 @@ func (pr *PluginRegistry) Initialize(ctx context.Context) error {
 
 	pr.logger.Info("plugin registry initialized",
 		logger.String("data_dir", pr.dataDir),
-		logger.Int("total_plugins", len(pr.plugins)),
+		logger.Int("total_plugins", len(pr.pluginEntries)),
 	)
 
 	if pr.metrics != nil {
 		pr.metrics.Counter("forge.plugins.registry_initialized").Inc()
-		pr.metrics.Gauge("forge.plugins.registry_plugins").Set(float64(len(pr.plugins)))
+		pr.metrics.Gauge("forge.plugins.registry_plugins").Set(float64(len(pr.pluginEntries)))
 	}
 
 	return nil
@@ -157,8 +149,206 @@ func (pr *PluginRegistry) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Search searches for plugins in the registry
-func (pr *PluginRegistry) Search(ctx context.Context, query PluginQuery) ([]plugins.PluginInfo, error) {
+// Register registers a plugin instance in the registry
+func (pr *PluginRegistry) Register(plugin plugins.Plugin) error {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+
+	if !pr.initialized {
+		return fmt.Errorf("plugin registry not initialized")
+	}
+
+	pluginID := plugin.ID()
+
+	// Store the plugin instance
+	pr.pluginInstance[pluginID] = plugin
+
+	// Create or update plugin entry from instance
+	info := plugins.PluginInfo{
+		ID:           plugin.ID(),
+		Name:         plugin.Name(),
+		Version:      plugin.Version(),
+		Description:  plugin.Description(),
+		Author:       plugin.Author(),
+		License:      plugin.License(),
+		Type:         plugin.Type(),
+		Capabilities: plugin.Capabilities(),
+		Dependencies: plugin.Dependencies(),
+		ConfigSchema: plugin.ConfigSchema(),
+		UpdatedAt:    time.Now(),
+	}
+
+	entry := &PluginRegistryEntry{
+		Info:         info,
+		Versions:     []PluginVersionInfo{},
+		LocalPath:    "",
+		Installed:    true,
+		LastUpdated:  time.Now(),
+		Dependencies: plugin.Dependencies(),
+		Checksums:    make(map[string]string),
+		Metadata:     make(map[string]interface{}),
+	}
+
+	// Add version info
+	versionInfo := PluginVersionInfo{
+		Version:     plugin.Version(),
+		ReleaseDate: time.Now(),
+		Checksum:    "",
+		Size:        0,
+		Changes:     []string{},
+		Metadata:    make(map[string]interface{}),
+		Deprecated:  false,
+		Prerelease:  false,
+	}
+	entry.Versions = append(entry.Versions, versionInfo)
+
+	pr.pluginEntries[pluginID] = entry
+
+	// Update indices
+	pr.updateIndices(entry)
+
+	pr.logger.Debug("plugin registered",
+		logger.String("plugin_id", pluginID),
+		logger.String("version", plugin.Version()),
+	)
+
+	if pr.metrics != nil {
+		pr.metrics.Counter("forge.plugins.registry_register").Inc()
+	}
+
+	return nil
+}
+
+// Unregister removes a plugin from the registry
+func (pr *PluginRegistry) Unregister(pluginID string) error {
+	pr.mu.Lock()
+	defer pr.mu.Unlock()
+
+	if !pr.initialized {
+		return fmt.Errorf("plugin registry not initialized")
+	}
+
+	// Remove plugin instance
+	delete(pr.pluginInstance, pluginID)
+
+	// Update entry to mark as uninstalled
+	if entry, exists := pr.pluginEntries[pluginID]; exists {
+		entry.Installed = false
+		entry.LocalPath = ""
+	}
+
+	pr.logger.Debug("plugin unregistered",
+		logger.String("plugin_id", pluginID),
+	)
+
+	if pr.metrics != nil {
+		pr.metrics.Counter("forge.plugins.registry_unregister").Inc()
+	}
+
+	return nil
+}
+
+// Get retrieves a plugin instance by ID
+func (pr *PluginRegistry) Get(pluginID string) (plugins.Plugin, error) {
+	pr.mu.RLock()
+	defer pr.mu.RUnlock()
+
+	if !pr.initialized {
+		return nil, fmt.Errorf("plugin registry not initialized")
+	}
+
+	plugin, exists := pr.pluginInstance[pluginID]
+	if !exists {
+		return nil, fmt.Errorf("plugin not found: %s", pluginID)
+	}
+
+	if pr.metrics != nil {
+		pr.metrics.Counter("forge.plugins.registry_get").Inc()
+	}
+
+	return plugin, nil
+}
+
+// List returns all registered plugin instances
+func (pr *PluginRegistry) List() []plugins.Plugin {
+	pr.mu.RLock()
+	defer pr.mu.RUnlock()
+
+	plugins := make([]plugins.Plugin, 0, len(pr.pluginInstance))
+	for _, plugin := range pr.pluginInstance {
+		plugins = append(plugins, plugin)
+	}
+
+	return plugins
+}
+
+// ListByType returns plugins filtered by type
+func (pr *PluginRegistry) ListByType(pluginType plugins.PluginType) []plugins.Plugin {
+	pr.mu.RLock()
+	defer pr.mu.RUnlock()
+
+	var filteredPlugins []plugins.Plugin
+	for _, plugin := range pr.pluginInstance {
+		if plugin.Type() == pluginType {
+			filteredPlugins = append(filteredPlugins, plugin)
+		}
+	}
+
+	return filteredPlugins
+}
+
+// Search searches for plugins by query string
+func (pr *PluginRegistry) Search(query string) []plugins.Plugin {
+	pr.mu.RLock()
+	defer pr.mu.RUnlock()
+
+	var results []plugins.Plugin
+	queryLower := strings.ToLower(query)
+
+	for _, plugin := range pr.pluginInstance {
+		if strings.Contains(strings.ToLower(plugin.Name()), queryLower) ||
+			strings.Contains(strings.ToLower(plugin.Description()), queryLower) ||
+			strings.Contains(strings.ToLower(plugin.ID()), queryLower) {
+			results = append(results, plugin)
+		}
+	}
+
+	return results
+}
+
+// GetStats returns registry statistics
+func (pr *PluginRegistry) GetStats() plugins.RegistryStats {
+	pr.mu.RLock()
+	defer pr.mu.RUnlock()
+
+	stats := plugins.RegistryStats{
+		TotalPlugins:     len(pr.pluginInstance),
+		PluginsByType:    make(map[plugins.PluginType]int),
+		PluginsByState:   make(map[plugins.PluginState]int),
+		LoadedPlugins:    len(pr.pluginInstance),
+		ActivePlugins:    0,
+		FailedPlugins:    0,
+		TotalMemoryUsage: 0,
+		AverageCPUUsage:  0,
+		LastUpdated:      time.Now(),
+	}
+
+	// Count by type
+	for _, plugin := range pr.pluginInstance {
+		stats.PluginsByType[plugin.Type()]++
+		stats.ActivePlugins++
+	}
+
+	// Count by state (simplified - all loaded plugins are considered started)
+	stats.PluginsByState[plugins.PluginStateStarted] = len(pr.pluginInstance)
+
+	return stats
+}
+
+// Metadata management methods (for backwards compatibility)
+
+// SearchMetadata searches for plugins in the registry metadata
+func (pr *PluginRegistry) SearchMetadata(ctx context.Context, query PluginQuery) ([]plugins.PluginInfo, error) {
 	pr.mu.RLock()
 	defer pr.mu.RUnlock()
 
@@ -168,7 +358,7 @@ func (pr *PluginRegistry) Search(ctx context.Context, query PluginQuery) ([]plug
 
 	var results []plugins.PluginInfo
 
-	for _, entry := range pr.plugins {
+	for _, entry := range pr.pluginEntries {
 		if pr.matchesQuery(entry, query) {
 			results = append(results, entry.Info)
 		}
@@ -177,13 +367,13 @@ func (pr *PluginRegistry) Search(ctx context.Context, query PluginQuery) ([]plug
 	// Sort results
 	pr.sortResults(results, query.Sort)
 
-	pr.logger.Debug("registry search completed",
+	pr.logger.Debug("registry metadata search completed",
 		logger.String("query", query.Name),
 		logger.Int("results", len(results)),
 	)
 
 	if pr.metrics != nil {
-		pr.metrics.Counter("forge.plugins.registry_search").Inc()
+		pr.metrics.Counter("forge.plugins.registry_search_metadata").Inc()
 	}
 
 	return results, nil
@@ -198,7 +388,7 @@ func (pr *PluginRegistry) GetPluginInfo(ctx context.Context, pluginID string) (*
 		return nil, fmt.Errorf("plugin registry not initialized")
 	}
 
-	entry, exists := pr.plugins[pluginID]
+	entry, exists := pr.pluginEntries[pluginID]
 	if !exists {
 		return nil, fmt.Errorf("plugin not found: %s", pluginID)
 	}
@@ -219,7 +409,7 @@ func (pr *PluginRegistry) GetVersions(ctx context.Context, pluginID string) ([]s
 		return nil, fmt.Errorf("plugin registry not initialized")
 	}
 
-	entry, exists := pr.plugins[pluginID]
+	entry, exists := pr.pluginEntries[pluginID]
 	if !exists {
 		return nil, fmt.Errorf("plugin not found: %s", pluginID)
 	}
@@ -247,7 +437,7 @@ func (pr *PluginRegistry) Download(ctx context.Context, pluginID, version string
 		return plugins.PluginPackage{}, fmt.Errorf("plugin registry not initialized")
 	}
 
-	entry, exists := pr.plugins[pluginID]
+	entry, exists := pr.pluginEntries[pluginID]
 	if !exists {
 		return plugins.PluginPackage{}, fmt.Errorf("plugin not found: %s", pluginID)
 	}
@@ -317,7 +507,7 @@ func (pr *PluginRegistry) Publish(ctx context.Context, pkg plugins.PluginPackage
 	version := pkg.Info.Version
 
 	// Create or update plugin entry
-	entry, exists := pr.plugins[pluginID]
+	entry, exists := pr.pluginEntries[pluginID]
 	if !exists {
 		entry = &PluginRegistryEntry{
 			Info:         pkg.Info,
@@ -329,7 +519,7 @@ func (pr *PluginRegistry) Publish(ctx context.Context, pkg plugins.PluginPackage
 			Checksums:    make(map[string]string),
 			Metadata:     make(map[string]interface{}),
 		}
-		pr.plugins[pluginID] = entry
+		pr.pluginEntries[pluginID] = entry
 	}
 
 	// Add version info
@@ -388,7 +578,7 @@ func (pr *PluginRegistry) Publish(ctx context.Context, pkg plugins.PluginPackage
 
 	if pr.metrics != nil {
 		pr.metrics.Counter("forge.plugins.registry_publish").Inc()
-		pr.metrics.Gauge("forge.plugins.registry_plugins").Set(float64(len(pr.plugins)))
+		pr.metrics.Gauge("forge.plugins.registry_plugins").Set(float64(len(pr.pluginEntries)))
 	}
 
 	return nil
@@ -406,7 +596,7 @@ func (pr *PluginRegistry) RegisterLocalPlugin(ctx context.Context, pluginInfo pl
 	pluginID := pluginInfo.ID
 
 	// Create or update plugin entry
-	entry, exists := pr.plugins[pluginID]
+	entry, exists := pr.pluginEntries[pluginID]
 	if !exists {
 		entry = &PluginRegistryEntry{
 			Info:         pluginInfo,
@@ -418,7 +608,7 @@ func (pr *PluginRegistry) RegisterLocalPlugin(ctx context.Context, pluginInfo pl
 			Checksums:    make(map[string]string),
 			Metadata:     make(map[string]interface{}),
 		}
-		pr.plugins[pluginID] = entry
+		pr.pluginEntries[pluginID] = entry
 	} else {
 		entry.LocalPath = localPath
 		entry.Installed = true
@@ -473,7 +663,7 @@ func (pr *PluginRegistry) UnregisterLocalPlugin(ctx context.Context, pluginID st
 		return fmt.Errorf("plugin registry not initialized")
 	}
 
-	entry, exists := pr.plugins[pluginID]
+	entry, exists := pr.pluginEntries[pluginID]
 	if !exists {
 		return fmt.Errorf("plugin not found: %s", pluginID)
 	}
@@ -520,31 +710,6 @@ func (pr *PluginRegistry) GetPublishers() []string {
 	return publishers
 }
 
-// GetStats returns registry statistics
-func (pr *PluginRegistry) GetStats() RegistryStats {
-	pr.mu.RLock()
-	defer pr.mu.RUnlock()
-
-	totalVersions := 0
-	for _, entry := range pr.plugins {
-		totalVersions += len(entry.Versions)
-	}
-
-	indexSize := int64(0)
-	if info, err := os.Stat(pr.indexFile); err == nil {
-		indexSize = info.Size()
-	}
-
-	return RegistryStats{
-		TotalPlugins:    len(pr.plugins),
-		TotalVersions:   totalVersions,
-		TotalCategories: len(pr.categories),
-		TotalPublishers: len(pr.publishers),
-		LastUpdated:     time.Now(),
-		IndexSize:       indexSize,
-	}
-}
-
 // Helper methods
 
 func (pr *PluginRegistry) loadIndex() error {
@@ -562,13 +727,13 @@ func (pr *PluginRegistry) loadIndex() error {
 		return fmt.Errorf("failed to unmarshal index: %w", err)
 	}
 
-	pr.plugins = index.Plugins
+	pr.pluginEntries = index.Plugins
 	pr.categories = index.Categories
 	pr.publishers = index.Publishers
 
 	// Build versions map
 	pr.versions = make(map[string][]string)
-	for pluginID, entry := range pr.plugins {
+	for pluginID, entry := range pr.pluginEntries {
 		versions := make([]string, 0, len(entry.Versions))
 		for _, v := range entry.Versions {
 			versions = append(versions, v.Version)
@@ -583,7 +748,7 @@ func (pr *PluginRegistry) saveIndex() error {
 	index := RegistryIndex{
 		Version:     "1.0",
 		LastUpdated: time.Now(),
-		Plugins:     pr.plugins,
+		Plugins:     pr.pluginEntries,
 		Categories:  pr.categories,
 		Publishers:  pr.publishers,
 		Stats:       pr.GetStats(),

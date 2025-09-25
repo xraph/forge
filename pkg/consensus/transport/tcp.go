@@ -168,10 +168,10 @@ func (tt *TCPTransport) Start(ctx context.Context) error {
 
 	tt.listener = listener
 
-	// Start accepting connections
+	// OnStart accepting connections
 	go tt.acceptConnections()
 
-	// Start connection cleanup routine
+	// OnStart connection cleanup routine
 	go tt.cleanupConnections()
 
 	tt.started = true

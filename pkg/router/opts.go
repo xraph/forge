@@ -66,7 +66,7 @@ func WithConfig(config interface{}) common.HandlerOption {
 }
 
 // WithMiddleware sets middleware for the handler
-func WithMiddleware(middleware ...common.Middleware) common.HandlerOption {
+func WithMiddleware(middleware ...any) common.HandlerOption {
 	return func(info *common.RouteHandlerInfo) {
 		info.Middleware = middleware
 	}
@@ -192,7 +192,7 @@ func WithGroupTags(tags ...string) common.HandlerOption {
 }
 
 // WithGroupMiddleware creates a handler option that adds group middleware
-func WithGroupMiddleware(middleware ...common.Middleware) common.HandlerOption {
+func WithGroupMiddleware(middleware ...any) common.HandlerOption {
 	return func(info *common.RouteHandlerInfo) {
 		info.Middleware = append(info.Middleware, middleware...)
 	}
@@ -508,20 +508,36 @@ func (r *RESTfulRoutes) BuildRoutes(router common.Router) error {
 
 // ControllerBuilder helps build controllers with common patterns
 type ControllerBuilder struct {
+	prefix       string
 	name         string
 	dependencies []string
-	routes       []common.RouteDefinition
-	middleware   []common.Middleware
+	middleware   []any
+	routes       []routeConfig
+}
+
+// routeConfig stores route configuration for the builder
+type routeConfig struct {
+	method  string
+	pattern string
+	handler interface{}
+	options []common.HandlerOption
 }
 
 // NewControllerBuilder creates a new controller builder
 func NewControllerBuilder(name string) *ControllerBuilder {
 	return &ControllerBuilder{
 		name:         name,
+		prefix:       "/",
 		dependencies: make([]string, 0),
-		routes:       make([]common.RouteDefinition, 0),
-		middleware:   make([]common.Middleware, 0),
+		middleware:   make([]any, 0),
+		routes:       make([]routeConfig, 0),
 	}
+}
+
+// WithPrefix sets the controller prefix
+func (cb *ControllerBuilder) WithPrefix(prefix string) *ControllerBuilder {
+	cb.prefix = prefix
+	return cb
 }
 
 // WithDependency adds a dependency to the controller
@@ -531,28 +547,13 @@ func (cb *ControllerBuilder) WithDependency(dependency string) *ControllerBuilde
 }
 
 // WithRoute adds a route to the controller
-func (cb *ControllerBuilder) WithRoute(method, pattern string, handler common.ControllerHandler, options ...common.HandlerOption) *ControllerBuilder {
-	route := common.RouteDefinition{
-		Method:  method,
-		Pattern: pattern,
-		Handler: handler,
-		Tags:    make(map[string]string),
-	}
-
-	// Apply options to extract tags
-	tempInfo := &common.RouteHandlerInfo{
-		Tags: make(map[string]string),
-	}
-	for _, option := range options {
-		option(tempInfo)
-	}
-
-	route.Tags = tempInfo.Tags
-	route.Dependencies = tempInfo.Dependencies
-	route.Config = tempInfo.Config
-	route.Middleware = tempInfo.Middleware
-
-	cb.routes = append(cb.routes, route)
+func (cb *ControllerBuilder) WithRoute(method, pattern string, handler interface{}, options ...common.HandlerOption) *ControllerBuilder {
+	cb.routes = append(cb.routes, routeConfig{
+		method:  method,
+		pattern: pattern,
+		handler: handler,
+		options: options,
+	})
 	return cb
 }
 
@@ -565,39 +566,71 @@ func (cb *ControllerBuilder) WithMiddleware(middleware common.Middleware) *Contr
 // Build creates the controller
 func (cb *ControllerBuilder) Build() common.Controller {
 	return &builtController{
+		prefix:       cb.prefix,
 		name:         cb.name,
 		dependencies: cb.dependencies,
-		routes:       cb.routes,
 		middleware:   cb.middleware,
+		routes:       cb.routes,
 	}
 }
 
-// builtController implements common.Controller
+// builtController implements common.Controller with ConfigureRoutes
 type builtController struct {
 	name         string
+	prefix       string
 	dependencies []string
-	routes       []common.RouteDefinition
-	middleware   []common.Middleware
+	middleware   []any
+	routes       []routeConfig
 }
 
 func (c *builtController) Name() string {
 	return c.name
 }
 
+func (c *builtController) Prefix() string {
+	return c.prefix
+}
+
 func (c *builtController) Dependencies() []string {
 	return c.dependencies
 }
 
-func (c *builtController) Routes() []common.RouteDefinition {
-	return c.routes
-}
-
-func (c *builtController) Middleware() []common.Middleware {
+func (c *builtController) Middleware() []any {
 	return c.middleware
 }
 
 func (c *builtController) Initialize(container common.Container) error {
 	// Default initialization - override if needed
+	return nil
+}
+
+// ConfigureRoutes implements the flexible route configuration
+func (c *builtController) ConfigureRoutes(router common.Router) error {
+	for _, route := range c.routes {
+		var err error
+		switch strings.ToUpper(route.method) {
+		case "GET":
+			err = router.GET(route.pattern, route.handler, route.options...)
+		case "POST":
+			err = router.POST(route.pattern, route.handler, route.options...)
+		case "PUT":
+			err = router.PUT(route.pattern, route.handler, route.options...)
+		case "DELETE":
+			err = router.DELETE(route.pattern, route.handler, route.options...)
+		case "PATCH":
+			err = router.PATCH(route.pattern, route.handler, route.options...)
+		case "OPTIONS":
+			err = router.OPTIONS(route.pattern, route.handler, route.options...)
+		case "HEAD":
+			err = router.HEAD(route.pattern, route.handler, route.options...)
+		default:
+			return common.ErrInvalidConfig("method", fmt.Errorf("unsupported HTTP method: %s", route.method))
+		}
+
+		if err != nil {
+			return fmt.Errorf("failed to register route %s %s: %w", route.method, route.pattern, err)
+		}
+	}
 	return nil
 }
 

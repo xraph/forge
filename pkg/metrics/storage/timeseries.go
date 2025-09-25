@@ -388,10 +388,10 @@ func (ts *TimeSeriesStorage) Start(ctx context.Context) error {
 	ts.started = true
 	ts.stats.startTime = time.Now()
 
-	// Start cleanup goroutine
+	// OnStart cleanup goroutine
 	go ts.cleanupLoop()
 
-	// Start compression goroutine if enabled
+	// OnStart compression goroutine if enabled
 	if ts.compressionEnabled {
 		go ts.compressionLoop()
 	}

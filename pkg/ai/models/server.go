@@ -187,7 +187,7 @@ func (s *DefaultModelServer) Start(ctx context.Context) error {
 	s.startTime = time.Now()
 	s.healthStatus = ModelHealthStatusHealthy
 
-	// Start background health monitoring
+	// OnStart background health monitoring
 	s.wg.Add(1)
 	go s.healthMonitor()
 
@@ -216,7 +216,7 @@ func (s *DefaultModelServer) Stop(ctx context.Context) error {
 		return fmt.Errorf("model server not started")
 	}
 
-	// Stop background tasks
+	// OnStop background tasks
 	close(s.stopChan)
 	s.wg.Wait()
 

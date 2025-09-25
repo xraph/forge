@@ -214,19 +214,19 @@ func (rm *RetryManager) Start(ctx context.Context) error {
 		)
 	}
 
-	// Start retry workers
+	// OnStart retry workers
 	for i := 0; i < rm.config.WorkerCount; i++ {
 		rm.wg.Add(1)
 		go rm.retryWorker(ctx, i)
 	}
 
-	// Start dead letter queue processor
+	// OnStart dead letter queue processor
 	if rm.config.EnableDeadLetterQueue {
 		rm.wg.Add(1)
 		go rm.deadLetterWorker(ctx)
 	}
 
-	// Start cleanup worker
+	// OnStart cleanup worker
 	rm.wg.Add(1)
 	go rm.cleanupWorker(ctx)
 

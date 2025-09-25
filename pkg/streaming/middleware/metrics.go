@@ -155,7 +155,7 @@ func NewMetricsMiddleware(
 	// Initialize default collectors
 	middleware.initializeCollectors()
 
-	// Start background collection routine
+	// OnStart background collection routine
 	if config.Enabled {
 		go middleware.collectionRoutine()
 	}

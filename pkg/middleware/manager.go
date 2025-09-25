@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
@@ -12,14 +13,15 @@ import (
 
 // Manager manages all service middleware
 type Manager struct {
-	middleware map[string]Middleware
-	applied    []string
-	container  common.Container
-	logger     common.Logger
-	metrics    common.Metrics
-	config     common.ConfigManager
-	mu         sync.RWMutex
-	started    bool
+	entries      map[string]*middlewareEntry
+	applied      []string
+	container    common.Container
+	logger       common.Logger
+	metrics      common.Metrics
+	configManage common.ConfigManager
+	config       ManagerConfig
+	mu           sync.RWMutex
+	started      bool
 }
 
 // ManagerConfig contains configuration for the middleware manager
@@ -30,23 +32,23 @@ type ManagerConfig struct {
 // NewManager creates a new middleware manager
 func NewManager(container common.Container, logger common.Logger, metrics common.Metrics, config common.ConfigManager) *Manager {
 	return &Manager{
-		middleware: make(map[string]Middleware),
-		applied:    make([]string, 0),
-		container:  container,
-		logger:     logger,
-		metrics:    metrics,
-		config:     config,
+		entries:      make(map[string]*middlewareEntry),
+		applied:      make([]string, 0),
+		container:    container,
+		logger:       logger,
+		metrics:      metrics,
+		configManage: config,
 	}
 }
 
 // Name returns the service name
 func (m *Manager) Name() string {
-	return "middleware-manager"
+	return common.MiddlewareManagerKey
 }
 
 // Dependencies returns the service dependencies
 func (m *Manager) Dependencies() []string {
-	return []string{"logger", "metrics", "config-manager"}
+	return []string{common.LoggerKey, common.MetricsKey, common.ConfigKey}
 }
 
 // OnStart starts the middleware manager
@@ -58,23 +60,12 @@ func (m *Manager) OnStart(ctx context.Context) error {
 		return common.ErrLifecycleError("start", fmt.Errorf("middleware manager already started"))
 	}
 
-	// Load configuration
-	if err := m.loadConfiguration(); err != nil {
-		return common.ErrConfigError("failed to load middleware configuration", err)
-	}
-
-	// Validate dependencies
-	if err := m.validateDependencies(); err != nil {
+	// Initialize and start stateful middleware
+	if err := m.initializeStatefulMiddleware(ctx); err != nil {
 		return err
 	}
 
-	// Initialize all middleware
-	if err := m.initializeMiddleware(ctx); err != nil {
-		return err
-	}
-
-	// Start all middleware
-	if err := m.startMiddleware(ctx); err != nil {
+	if err := m.startStatefulMiddleware(ctx); err != nil {
 		return err
 	}
 
@@ -82,13 +73,13 @@ func (m *Manager) OnStart(ctx context.Context) error {
 
 	if m.logger != nil {
 		m.logger.Info("middleware manager started",
-			logger.Int("middleware_count", len(m.middleware)),
+			logger.Int("middleware_count", len(m.entries)),
 		)
 	}
 
 	if m.metrics != nil {
 		m.metrics.Counter("forge.middleware.manager_started").Inc()
-		m.metrics.Gauge("forge.middleware.count").Set(float64(len(m.middleware)))
+		m.metrics.Gauge("forge.middleware.count").Set(float64(len(m.entries)))
 	}
 
 	return nil
@@ -103,24 +94,10 @@ func (m *Manager) OnStop(ctx context.Context) error {
 		return common.ErrLifecycleError("stop", fmt.Errorf("middleware manager not started"))
 	}
 
-	// Stop all middleware in reverse order
-	stopOrder := make([]string, len(m.applied))
-	copy(stopOrder, m.applied)
-	for i := len(stopOrder)/2 - 1; i >= 0; i-- {
-		opp := len(stopOrder) - 1 - i
-		stopOrder[i], stopOrder[opp] = stopOrder[opp], stopOrder[i]
-	}
-
-	for _, name := range stopOrder {
-		if middleware, exists := m.middleware[name]; exists {
-			if err := middleware.OnStop(ctx); err != nil {
-				if m.logger != nil {
-					m.logger.Error("failed to stop middleware",
-						logger.String("middleware", name),
-						logger.Error(err),
-					)
-				}
-			}
+	// Stop stateful middleware in reverse order
+	if err := m.stopStatefulMiddleware(ctx); err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to stop some middleware", logger.Error(err))
 		}
 	}
 
@@ -146,19 +123,55 @@ func (m *Manager) OnHealthCheck(ctx context.Context) error {
 		return common.ErrHealthCheckFailed("middleware_manager", fmt.Errorf("middleware manager not started"))
 	}
 
-	// Check health of all middleware
-	for name, middleware := range m.middleware {
-		if err := middleware.OnHealthCheck(ctx); err != nil {
-			return common.ErrHealthCheckFailed("middleware_manager",
-				fmt.Errorf("middleware %s failed health check: %w", name, err))
+	// Check health of stateful middleware
+	for name, entry := range m.entries {
+		// Check error rates
+		stats := entry.stats.getStats()
+		if stats.CallCount > 0 {
+			errorRate := float64(stats.ErrorCount) / float64(stats.CallCount)
+			if errorRate > 0.5 { // 50% error rate threshold
+				return common.ErrHealthCheckFailed("middleware_manager",
+					fmt.Errorf("middleware %s has high error rate: %.2f%%", name, errorRate*100))
+			}
 		}
 	}
 
 	return nil
 }
 
+func (m *Manager) RegisterAny(middleware any) error {
+	switch mw := middleware.(type) {
+	case common.Middleware:
+		// Function middleware - generate a unique name
+		name := fmt.Sprintf("func_middleware_%d", time.Now().UnixNano())
+		return m.RegisterFunction(name, 50, mw)
+
+	case common.NamedMiddleware:
+		// Named middleware
+		return m.Register(mw)
+
+	case common.StatefulMiddleware:
+		// Stateful middleware (which is also NamedMiddleware)
+		return m.Register(mw)
+
+	default:
+		return common.ErrInvalidConfig("middleware", fmt.Errorf("unsupported middleware type: %T", middleware))
+	}
+}
+
+// RegisterFunction registers a function middleware with automatic naming
+func (m *Manager) RegisterFunction(name string, priority int, handler common.Middleware) error {
+	namedMiddleware := NewFunctionMiddleware(name, priority, handler)
+	return m.Register(namedMiddleware)
+}
+
+// RegisterFunctionWithDefaults registers a function middleware with default priority
+func (m *Manager) RegisterFunctionWithDefaults(name string, handler common.Middleware) error {
+	return m.RegisterFunction(name, 50, handler) // Default priority
+}
+
 // Register registers a new middleware
-func (m *Manager) Register(middleware Middleware) error {
+func (m *Manager) Register(middleware common.NamedMiddleware) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -167,23 +180,30 @@ func (m *Manager) Register(middleware Middleware) error {
 	}
 
 	name := middleware.Name()
-	if _, exists := m.middleware[name]; exists {
+	if _, exists := m.entries[name]; exists {
 		return common.ErrServiceAlreadyExists(name)
 	}
 
-	m.middleware[name] = middleware
+	// Wrap with instrumentation for internal stats
+	instrumented := newInstrumentedWrapper(middleware)
+
+	entry := &middlewareEntry{
+		middleware: instrumented,
+		stats:      instrumented.stats,
+	}
+
+	m.entries[name] = entry
 
 	if m.logger != nil {
 		m.logger.Info("middleware registered",
 			logger.String("name", name),
 			logger.Int("priority", middleware.Priority()),
-			logger.String("dependencies", fmt.Sprintf("%v", middleware.Dependencies())),
 		)
 	}
 
 	if m.metrics != nil {
 		m.metrics.Counter("forge.middleware.registered").Inc()
-		m.metrics.Gauge("forge.middleware.count").Set(float64(len(m.middleware)))
+		m.metrics.Gauge("forge.middleware.count").Set(float64(len(m.entries)))
 	}
 
 	return nil
@@ -198,21 +218,19 @@ func (m *Manager) Unregister(name string) error {
 		return common.ErrLifecycleError("unregister", fmt.Errorf("cannot unregister middleware after manager has started"))
 	}
 
-	if _, exists := m.middleware[name]; !exists {
+	if _, exists := m.entries[name]; !exists {
 		return common.ErrServiceNotFound(name)
 	}
 
-	delete(m.middleware, name)
+	delete(m.entries, name)
 
 	if m.logger != nil {
-		m.logger.Info("middleware unregistered",
-			logger.String("name", name),
-		)
+		m.logger.Info("middleware unregistered", logger.String("name", name))
 	}
 
 	if m.metrics != nil {
 		m.metrics.Counter("forge.middleware.unregistered").Inc()
-		m.metrics.Gauge("forge.middleware.count").Set(float64(len(m.middleware)))
+		m.metrics.Gauge("forge.middleware.count").Set(float64(len(m.entries)))
 	}
 
 	return nil
@@ -228,25 +246,32 @@ func (m *Manager) Apply(router common.Router) error {
 	}
 
 	// Sort middleware by priority
-	middlewareList := make([]Middleware, 0, len(m.middleware))
-	for _, middleware := range m.middleware {
-		middlewareList = append(middlewareList, middleware)
+	middlewareList := make([]*middlewareEntry, 0, len(m.entries))
+	for _, entry := range m.entries {
+		middlewareList = append(middlewareList, entry)
 	}
 
 	sort.Slice(middlewareList, func(i, j int) bool {
-		return middlewareList[i].Priority() < middlewareList[j].Priority()
+		return middlewareList[i].middleware.Priority() < middlewareList[j].middleware.Priority()
 	})
 
 	// Apply middleware in priority order
-	for _, middleware := range middlewareList {
-		handler := middleware.Handler()
+	for _, entry := range middlewareList {
+		handler := entry.middleware.Handler()
 		router.UseMiddleware(handler)
-		m.applied = append(m.applied, middleware.Name())
+
+		entry.applied = true
+		entry.appliedAt = time.Now()
+		entry.stats.applied = true
+		entry.stats.appliedAt = time.Now()
+		entry.stats.status = "applied"
+
+		m.applied = append(m.applied, entry.middleware.Name())
 
 		if m.logger != nil {
 			m.logger.Info("middleware applied",
-				logger.String("middleware", middleware.Name()),
-				logger.Int("priority", middleware.Priority()),
+				logger.String("middleware", entry.middleware.Name()),
+				logger.Int("priority", entry.middleware.Priority()),
 			)
 		}
 	}
@@ -259,26 +284,26 @@ func (m *Manager) Apply(router common.Router) error {
 }
 
 // GetMiddleware returns a middleware by name
-func (m *Manager) GetMiddleware(name string) (Middleware, error) {
+func (m *Manager) GetMiddleware(name string) (common.NamedMiddleware, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	middleware, exists := m.middleware[name]
+	entry, exists := m.entries[name]
 	if !exists {
 		return nil, common.ErrServiceNotFound(name)
 	}
 
-	return middleware, nil
+	return entry.middleware, nil
 }
 
 // GetAllMiddleware returns all middleware
-func (m *Manager) GetAllMiddleware() map[string]Middleware {
+func (m *Manager) GetAllMiddleware() map[string]common.NamedMiddleware {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	result := make(map[string]Middleware)
-	for name, middleware := range m.middleware {
-		result[name] = middleware
+	result := make(map[string]common.NamedMiddleware)
+	for name, entry := range m.entries {
+		result[name] = entry.middleware
 	}
 
 	return result
@@ -289,9 +314,9 @@ func (m *Manager) GetStats() map[string]MiddlewareStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	stats := make(map[string]MiddlewareStats)
-	for name, middleware := range m.middleware {
-		stats[name] = middleware.GetStats()
+	stats := make(map[string]common.MiddlewareStats)
+	for name, entry := range m.entries {
+		stats[name] = entry.stats.getStats()
 	}
 
 	return stats
@@ -302,12 +327,12 @@ func (m *Manager) GetMiddlewareStats(name string) (*MiddlewareStats, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	middleware, exists := m.middleware[name]
+	middleware, exists := m.entries[name]
 	if !exists {
 		return nil, common.ErrServiceNotFound(name)
 	}
 
-	stats := middleware.GetStats()
+	stats := middleware.stats.getStats()
 	return &stats, nil
 }
 
@@ -330,12 +355,12 @@ func (m *Manager) GetAppliedOrder() []string {
 
 // loadConfiguration loads middleware configuration
 func (m *Manager) loadConfiguration() error {
-	if m.config == nil {
+	if m.configManage != nil {
 		return nil
 	}
 
 	var config ManagerConfig
-	if err := m.config.Bind("middleware", &config); err != nil {
+	if err := m.configManage.Bind("middleware", &config); err != nil {
 		// Configuration is optional, so we don't fail if it doesn't exist
 		if m.logger != nil {
 			m.logger.Warn("no middleware configuration found, using defaults")
@@ -343,133 +368,71 @@ func (m *Manager) loadConfiguration() error {
 		return nil
 	}
 
-	// TODO: Use configuration to conditionally enable/disable middleware
-	// This would be implemented when specific middleware types are added
-
+	m.config = config
 	return nil
 }
 
-// validateDependencies validates that all middleware dependencies exist
-func (m *Manager) validateDependencies() error {
-	allMiddleware := make(map[string]bool)
-	for name := range m.middleware {
-		allMiddleware[name] = true
-	}
+// initializeStatefulMiddleware initializes stateful middleware
+func (m *Manager) initializeStatefulMiddleware(ctx context.Context) error {
+	for name, entry := range m.entries {
+		// Check if the original middleware (not the wrapper) is stateful
+		if stateful, ok := entry.middleware.(common.StatefulMiddleware); ok {
+			if err := stateful.Initialize(m.container); err != nil {
+				return common.ErrServiceStartFailed(name, fmt.Errorf("failed to initialize middleware: %w", err))
+			}
 
-	for name, middleware := range m.middleware {
-		for _, dep := range middleware.Dependencies() {
-			// Check if dependency is another middleware
-			if _, exists := allMiddleware[dep]; !exists {
-				// Check if dependency is a service in the container
-				if !m.container.HasNamed(dep) {
-					return common.ErrDependencyNotFound(name, dep)
+			if m.logger != nil {
+				m.logger.Info("stateful middleware initialized", logger.String("middleware", name))
+			}
+		}
+	}
+	return nil
+}
+
+// startStatefulMiddleware starts stateful middleware
+func (m *Manager) startStatefulMiddleware(ctx context.Context) error {
+	for name, entry := range m.entries {
+		// Check if the original middleware (not the wrapper) is stateful
+		if stateful, ok := entry.middleware.(common.StatefulMiddleware); ok {
+			if err := stateful.OnStart(ctx); err != nil {
+				return common.ErrServiceStartFailed(name, fmt.Errorf("failed to start middleware: %w", err))
+			}
+
+			entry.stats.status = "started"
+
+			if m.logger != nil {
+				m.logger.Info("stateful middleware started", logger.String("middleware", name))
+			}
+		}
+	}
+	return nil
+}
+
+// stopStatefulMiddleware stops stateful middleware in reverse order
+func (m *Manager) stopStatefulMiddleware(ctx context.Context) error {
+	// Stop in reverse order of applied
+	for i := len(m.applied) - 1; i >= 0; i-- {
+		name := m.applied[i]
+		if entry, exists := m.entries[name]; exists {
+			if stateful, ok := entry.middleware.(common.StatefulMiddleware); ok {
+				if err := stateful.OnStop(ctx); err != nil {
+					if m.logger != nil {
+						m.logger.Error("failed to stop stateful middleware",
+							logger.String("middleware", name),
+							logger.Error(err),
+						)
+					}
+					// Continue stopping other middleware even if one fails
+				} else {
+					entry.stats.status = "stopped"
+					if m.logger != nil {
+						m.logger.Info("stateful middleware stopped", logger.String("middleware", name))
+					}
 				}
 			}
 		}
 	}
-
 	return nil
-}
-
-// initializeMiddleware initializes all middleware
-func (m *Manager) initializeMiddleware(ctx context.Context) error {
-	// Calculate initialization order based on dependencies
-	initOrder, err := m.calculateInitOrder()
-	if err != nil {
-		return err
-	}
-
-	for _, name := range initOrder {
-		middleware := m.middleware[name]
-		if err := middleware.Initialize(m.container); err != nil {
-			return common.ErrServiceStartFailed(name, fmt.Errorf("failed to initialize middleware: %w", err))
-		}
-
-		if m.logger != nil {
-			m.logger.Info("middleware initialized",
-				logger.String("middleware", name),
-			)
-		}
-	}
-
-	return nil
-}
-
-// startMiddleware starts all middleware
-func (m *Manager) startMiddleware(ctx context.Context) error {
-	// Calculate start order based on dependencies
-	startOrder, err := m.calculateInitOrder()
-	if err != nil {
-		return err
-	}
-
-	for _, name := range startOrder {
-		middleware := m.middleware[name]
-		if err := middleware.OnStart(ctx); err != nil {
-			return common.ErrServiceStartFailed(name, fmt.Errorf("failed to start middleware: %w", err))
-		}
-
-		if m.logger != nil {
-			m.logger.Info("middleware started",
-				logger.String("middleware", name),
-			)
-		}
-	}
-
-	return nil
-}
-
-// calculateInitOrder calculates the initialization order based on dependencies
-func (m *Manager) calculateInitOrder() ([]string, error) {
-	// Build dependency graph
-	graph := make(map[string][]string)
-	for name, middleware := range m.middleware {
-		graph[name] = middleware.Dependencies()
-	}
-
-	// Topological sort using Kahn's algorithm
-	inDegree := make(map[string]int)
-	for name := range graph {
-		inDegree[name] = 0
-	}
-
-	for _, deps := range graph {
-		for _, dep := range deps {
-			if _, exists := inDegree[dep]; exists {
-				inDegree[dep]++
-			}
-		}
-	}
-
-	queue := make([]string, 0)
-	for name, degree := range inDegree {
-		if degree == 0 {
-			queue = append(queue, name)
-		}
-	}
-
-	result := make([]string, 0)
-	for len(queue) > 0 {
-		current := queue[0]
-		queue = queue[1:]
-		result = append(result, current)
-
-		for _, dep := range graph[current] {
-			if degree, exists := inDegree[dep]; exists {
-				inDegree[dep] = degree - 1
-				if inDegree[dep] == 0 {
-					queue = append(queue, dep)
-				}
-			}
-		}
-	}
-
-	// Check for circular dependencies
-	if len(result) != len(graph) {
-		return nil, common.ErrCircularDependency([]string{"middleware dependencies"})
-	}
-
-	return result, nil
 }
 
 // NewService creates a new middleware manager service

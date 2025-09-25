@@ -12,9 +12,10 @@ import (
 	"sync"
 	"time"
 
+	json "github.com/json-iterator/go"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // PluginDownloader handles plugin download and caching
@@ -111,7 +112,7 @@ func (pd *PluginDownloader) Initialize(ctx context.Context) error {
 		pd.logger.Warn("failed to load cache index", logger.Error(err))
 	}
 
-	// Start cleanup timer
+	// OnStart cleanup timer
 	pd.cache.cleanupTimer = time.AfterFunc(time.Hour, pd.cleanupCache)
 
 	pd.initialized = true
@@ -138,7 +139,7 @@ func (pd *PluginDownloader) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop cleanup timer
+	// OnStop cleanup timer
 	if pd.cache.cleanupTimer != nil {
 		pd.cache.cleanupTimer.Stop()
 	}

@@ -82,7 +82,7 @@ func NewFileStorage(config FileStorageConfig, l common.Logger, metrics common.Me
 		return nil, err
 	}
 
-	// Start background sync if configured
+	// OnStart background sync if configured
 	if config.SyncInterval > 0 {
 		go fs.backgroundSync(config.SyncInterval)
 	}

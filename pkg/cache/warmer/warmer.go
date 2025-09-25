@@ -81,7 +81,7 @@ func NewCacheWarmer(cacheManager cachecore.CacheManager, logger common.Logger, m
 		warmer.scheduledWarmer = NewScheduledWarmer(cacheManager, logger, metrics, config.ScheduledConfig)
 	}
 
-	// Start cleanup goroutine
+	// OnStart cleanup goroutine
 	go warmer.cleanupWorker()
 
 	return warmer
@@ -92,7 +92,7 @@ func (w *DefaultCacheWarmer) Start(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// Start scheduled warmer if enabled
+	// OnStart scheduled warmer if enabled
 	if w.scheduledWarmer != nil {
 		if err := w.scheduledWarmer.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start scheduled warmer: %w", err)
@@ -111,7 +111,7 @@ func (w *DefaultCacheWarmer) Stop() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// Stop scheduled warmer
+	// OnStop scheduled warmer
 	if w.scheduledWarmer != nil {
 		if err := w.scheduledWarmer.Stop(); err != nil {
 			if w.logger != nil {
@@ -184,7 +184,7 @@ func (w *DefaultCacheWarmer) WarmCache(ctx context.Context, cacheName string, co
 	w.operations[cacheName] = operation
 	w.mu.Unlock()
 
-	// Start warming in a goroutine
+	// OnStart warming in a goroutine
 	go w.executeWarming(operation, cache)
 
 	return nil
@@ -515,7 +515,7 @@ func (w *DefaultCacheWarmer) executeLazyWarming(ctx context.Context, operation *
 		return
 	}
 
-	// Start lazy warming
+	// OnStart lazy warming
 	lazyOperation, err := w.lazyWarmer.StartLazyWarming(ctx, operation.CacheName, dataSources, operation.Config)
 	if err != nil {
 		w.mu.Lock()

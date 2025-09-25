@@ -192,13 +192,13 @@ func (ca *ConsensusAlerter) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// Start alert processing goroutine
+	// OnStart alert processing goroutine
 	go ca.processAlerts(ctx)
 
-	// Start periodic alert evaluation
+	// OnStart periodic alert evaluation
 	go ca.evaluateAlertsLoop(ctx)
 
-	// Start cleanup goroutine
+	// OnStart cleanup goroutine
 	go ca.cleanupLoop(ctx)
 
 	ca.started = true

@@ -85,7 +85,7 @@ func (hmc *HealthMetricsCollector) Start(ctx context.Context) error {
 
 	hmc.started = true
 
-	// Start collection routine
+	// OnStart collection routine
 	go hmc.collectionLoop(ctx)
 
 	if hmc.logger != nil {
@@ -569,14 +569,14 @@ func (hms *HealthMetricsService) OnStart(ctx context.Context) error {
 		return nil
 	}
 
-	// Start collector
+	// OnStart collector
 	if err := hms.collector.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("health-metrics-collector", err)
 	}
 
-	// Start exporter if configured
+	// OnStart exporter if configured
 	if hms.exporter != nil {
-		// Start export routine
+		// OnStart export routine
 		go hms.exportLoop(ctx)
 	}
 
@@ -593,7 +593,7 @@ func (hms *HealthMetricsService) OnStop(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop collector
+	// OnStop collector
 	if err := hms.collector.Stop(ctx); err != nil {
 		if hms.logger != nil {
 			hms.logger.Error("failed to stop health metrics collector",

@@ -143,7 +143,7 @@ func (m *Manager) OnStart(ctx context.Context) error {
 	// Create migration manager
 	m.migrator = NewMigrationManager(m.config.MigrationsPath, m.logger)
 
-	// Start all connections
+	// OnStart all connections
 	if err := m.startAllConnections(ctx); err != nil {
 		return common.ErrServiceStartFailed(m.Name(), err)
 	}
@@ -186,7 +186,7 @@ func (m *Manager) OnStop(ctx context.Context) error {
 
 	m.logger.Info("stopping database manager")
 
-	// Stop all connections
+	// OnStop all connections
 	var stopErrors []error
 	for name, conn := range m.connections {
 		if err := conn.OnStop(ctx); err != nil {

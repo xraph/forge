@@ -215,7 +215,7 @@ func (es *EnvSource) Watch(ctx context.Context, callback func(map[string]interfa
 	es.watchTicker = time.NewTicker(es.options.WatchInterval)
 	es.watching = true
 
-	// Start watching goroutine
+	// OnStart watching goroutine
 	go es.watchLoop(ctx)
 
 	if es.logger != nil {

@@ -129,7 +129,7 @@ func (hs *HealthService) OnStart(ctx context.Context) error {
 		)
 	}
 
-	// Start the health checker
+	// OnStart the health checker
 	if err := hs.checker.OnStart(ctx); err != nil {
 		return fmt.Errorf("failed to start health checker: %w", err)
 	}
@@ -169,7 +169,7 @@ func (hs *HealthService) OnStop(ctx context.Context) error {
 		hs.logger.Info("stopping health service")
 	}
 
-	// Stop the health checker
+	// OnStop the health checker
 	if err := hs.checker.OnStop(ctx); err != nil {
 		if hs.logger != nil {
 			hs.logger.Error("failed to stop health checker",

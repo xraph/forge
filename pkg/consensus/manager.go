@@ -158,7 +158,7 @@ func (cm *ConsensusManager) OnStart(ctx context.Context) error {
 	}
 	cm.storage = storage
 
-	// Start transport
+	// OnStart transport
 	if err := cm.transport.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("consensus-manager", err)
 	}
@@ -191,7 +191,7 @@ func (cm *ConsensusManager) OnStop(ctx context.Context) error {
 	// Signal shutdown
 	close(cm.shutdownCh)
 
-	// Stop all clusters
+	// OnStop all clusters
 	for _, cluster := range cm.clusters {
 		if err := cluster.Stop(ctx); err != nil {
 			if cm.logger != nil {
@@ -203,7 +203,7 @@ func (cm *ConsensusManager) OnStop(ctx context.Context) error {
 		}
 	}
 
-	// Stop transport
+	// OnStop transport
 	if cm.transport != nil {
 		if err := cm.transport.Stop(ctx); err != nil {
 			if cm.logger != nil {
@@ -212,7 +212,7 @@ func (cm *ConsensusManager) OnStop(ctx context.Context) error {
 		}
 	}
 
-	// Stop storage
+	// OnStop storage
 	if cm.storage != nil {
 		if err := cm.storage.Close(ctx); err != nil {
 			if cm.logger != nil {
@@ -277,7 +277,7 @@ func (cm *ConsensusManager) CreateCluster(ctx context.Context, config ClusterCon
 	// Create cluster
 	cluster := NewCluster(clusterID, config, cm.nodeID, cm.transport, cm.storage, cm.discovery, cm.logger, cm.metrics)
 
-	// Start cluster
+	// OnStart cluster
 	if err := cluster.Start(ctx); err != nil {
 		return nil, common.ErrContainerError("start_cluster", err)
 	}

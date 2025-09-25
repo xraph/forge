@@ -228,21 +228,21 @@ func (s *InferenceScaler) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start metrics collection
+	// OnStart metrics collection
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		s.runMetricsCollection(ctx)
 	}()
 
-	// Start scaling loop
+	// OnStart scaling loop
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		s.runScalingLoop(ctx)
 	}()
 
-	// Start stats collection
+	// OnStart stats collection
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -283,7 +283,7 @@ func (s *InferenceScaler) Stop(ctx context.Context) error {
 	// Wait for routines to finish
 	s.wg.Wait()
 
-	// Stop all workers
+	// OnStop all workers
 	for _, worker := range s.workers {
 		worker.stop(ctx)
 	}

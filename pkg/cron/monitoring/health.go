@@ -223,7 +223,7 @@ func (chc *CronHealthChecker) Start(ctx context.Context) error {
 	chc.running = true
 	chc.stopChan = make(chan struct{})
 
-	// Start background health checking
+	// OnStart background health checking
 	go chc.backgroundHealthCheck()
 
 	if chc.logger != nil {

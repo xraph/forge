@@ -141,7 +141,7 @@ func (w *Watcher) WatchSource(ctx context.Context, source ConfigSource, callback
 	stopChan := make(chan struct{})
 	w.stopChannels[sourceName] = stopChan
 
-	// Start watching in a goroutine
+	// OnStart watching in a goroutine
 	go w.watchSourceLoop(ctx, source, callback, stopChan)
 
 	if w.logger != nil {
@@ -203,7 +203,7 @@ func (w *Watcher) StopAll() error {
 
 	w.stopped = true
 
-	// Stop all sources
+	// OnStop all sources
 	for sourceName := range w.sources {
 		if stopChan, exists := w.stopChannels[sourceName]; exists {
 			close(stopChan)

@@ -189,14 +189,14 @@ func (f *ConsulDiscoveryFactory) Create(config DiscoveryConfig) (Discovery, erro
 		}
 	}
 
-	// Start watch for service changes
+	// OnStart watch for service changes
 	if err := cd.startWatch(); err != nil {
 		if f.logger != nil {
 			f.logger.Warn("failed to start Consul watch", logger.Error(err))
 		}
 	}
 
-	// Start refresh routine
+	// OnStart refresh routine
 	go cd.refreshLoop()
 
 	if f.logger != nil {
@@ -502,7 +502,7 @@ func (cd *ConsulDiscovery) Close(ctx context.Context) error {
 	// Signal stop
 	close(cd.stopCh)
 
-	// Stop watch plan
+	// OnStop watch plan
 	if cd.watchPlan != nil {
 		cd.watchPlan.Stop()
 	}
@@ -681,7 +681,7 @@ func (cd *ConsulDiscovery) startWatch() error {
 
 	cd.watchPlan = watchPlan
 
-	// Start watch in background
+	// OnStart watch in background
 	go func() {
 		if err := watchPlan.Run(cd.config.Address); err != nil {
 			if cd.logger != nil {

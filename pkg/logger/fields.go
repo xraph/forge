@@ -3,6 +3,7 @@ package logger
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/url"
 	"time"
 
@@ -22,7 +23,65 @@ func (f ZapField) Key() string {
 
 // Value returns the field's value
 func (f ZapField) Value() interface{} {
-	return f.zapField.Interface
+	switch f.zapField.Type {
+	case zapcore.StringType:
+		return f.zapField.String
+	case zapcore.Int64Type:
+		return f.zapField.Integer
+	case zapcore.Int32Type:
+		return int32(f.zapField.Integer)
+	case zapcore.Int16Type:
+		return int16(f.zapField.Integer)
+	case zapcore.Int8Type:
+		return int8(f.zapField.Integer)
+	case zapcore.Uint64Type:
+		return uint64(f.zapField.Integer)
+	case zapcore.Uint32Type:
+		return uint32(f.zapField.Integer)
+	case zapcore.Uint16Type:
+		return uint16(f.zapField.Integer)
+	case zapcore.Uint8Type:
+		return uint8(f.zapField.Integer)
+	case zapcore.UintptrType:
+		return uintptr(f.zapField.Integer)
+	case zapcore.Float64Type:
+		return math.Float64frombits(uint64(f.zapField.Integer))
+	case zapcore.Float32Type:
+		return math.Float32frombits(uint32(f.zapField.Integer))
+	case zapcore.BoolType:
+		return f.zapField.Integer == 1
+	case zapcore.TimeType:
+		if f.zapField.Interface != nil {
+			return f.zapField.Interface
+		}
+		return time.Unix(0, f.zapField.Integer)
+	case zapcore.DurationType:
+		return time.Duration(f.zapField.Integer)
+	case zapcore.BinaryType:
+		return f.zapField.Interface
+	case zapcore.ByteStringType:
+		return f.zapField.Interface
+	case zapcore.Complex64Type:
+		return f.zapField.Interface
+	case zapcore.Complex128Type:
+		return f.zapField.Interface
+	case zapcore.ArrayMarshalerType:
+		return f.zapField.Interface
+	case zapcore.ObjectMarshalerType:
+		return f.zapField.Interface
+	case zapcore.ReflectType:
+		return f.zapField.Interface
+	case zapcore.NamespaceType:
+		return f.zapField.Interface
+	case zapcore.StringerType:
+		return f.zapField.Interface
+	case zapcore.ErrorType:
+		return f.zapField.Interface
+	case zapcore.SkipType:
+		return nil
+	default:
+		return f.zapField.Interface
+	}
 }
 
 // ZapField returns the underlying zap.Field

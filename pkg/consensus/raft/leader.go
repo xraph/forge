@@ -87,10 +87,10 @@ func (l *Leader) Start(ctx context.Context) error {
 
 	l.started = true
 
-	// Start heartbeat process
+	// OnStart heartbeat process
 	go l.heartbeatLoop()
 
-	// Start log replication
+	// OnStart log replication
 	go l.replicationLoop()
 
 	if l.logger != nil {
@@ -380,7 +380,7 @@ func (l *Leader) AppendEntry(entry storage.LogEntry) error {
 		return err
 	}
 
-	// Start replication immediately
+	// OnStart replication immediately
 	go l.replicateToFollowers()
 
 	if l.metrics != nil {

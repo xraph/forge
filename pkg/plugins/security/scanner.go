@@ -1,15 +1,12 @@
 package security
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,7 +16,7 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // SecurityScanner provides security scanning capabilities for plugins
@@ -190,13 +187,16 @@ type SecurityWarning struct {
 type WarningType string
 
 const (
-	WarningTypeWeakConfiguration WarningType = "weak_configuration"
-	WarningTypeInsecurePractice  WarningType = "insecure_practice"
-	WarningTypeDeprecatedAPI     WarningType = "deprecated_api"
-	WarningTypeWeakPermissions   WarningType = "weak_permissions"
-	WarningTypeUnencryptedData   WarningType = "unencrypted_data"
-	WarningTypeHardcodedSecrets  WarningType = "hardcoded_secrets"
-	WarningTypeInsecureDefaults  WarningType = "insecure_defaults"
+	WarningTypeWeakConfiguration     WarningType = "weak_configuration"
+	WarningTypeInsecurePractice      WarningType = "insecure_practice"
+	WarningTypeDeprecatedAPI         WarningType = "deprecated_api"
+	WarningTypeWeakPermissions       WarningType = "weak_permissions"
+	WarningTypeUnencryptedData       WarningType = "unencrypted_data"
+	WarningTypeHardcodedSecrets      WarningType = "hardcoded_secrets"
+	WarningTypeInsecureDefaults      WarningType = "insecure_defaults"
+	WarningTypeInformationDisclosure WarningType = "information_disclosure"
+	WarningTypeMaliciousCode         WarningType = "malicious_code"
+	WarningTypeOutdatedDependency    WarningType = "outdated_dependency"
 )
 
 // ScannerInfo provides information about the scanner

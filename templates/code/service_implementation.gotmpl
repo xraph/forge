@@ -1,0 +1,435 @@
+package {{.Package}}
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/xraph/forge/pkg/common"
+	{{- if .Database}}
+	"github.com/xraph/forge/pkg/database"
+	{{- end}}
+	{{- if .Cache}}
+	"github.com/xraph/forge/pkg/cache"
+	{{- end}}
+	{{- if .Events}}
+	"github.com/xraph/forge/pkg/events"
+	{{- end}}
+	{{- if .Metrics}}
+	"github.com/xraph/forge/pkg/metrics"
+	{{- end}}
+)
+
+// {{.Name}}ServiceImpl implements {{.Name}}Service
+type {{.Name}}ServiceImpl struct {
+	logger common.Logger
+	{{- if .Database}}
+	db     database.DatabaseManager
+	{{- end}}
+	{{- if .Cache}}
+	cache  cache.Cache
+	{{- end}}
+	{{- if .Events}}
+	events events.EventBus
+	{{- end}}
+	{{- if .Metrics}}
+	metrics common.Metrics
+	{{- end}}
+
+	// TODO: Add your additional dependencies here
+}
+
+// New{{.Name}}Service creates a new {{.Name | toLower}} service instance
+func New{{.Name}}Service(
+	logger common.Logger{{if .Database}},
+	db database.DatabaseManager{{end}}{{if .Cache}},
+	cache cache.Cache{{end}}{{if .Events}},
+	events events.EventBus{{end}}{{if .Metrics}},
+	metrics common.Metrics{{end}},
+) {{.Name}}Service {
+	return &{{.Name}}ServiceImpl{
+		logger: logger,
+		{{- if .Database}}
+		db:     db,
+		{{- end}}
+		{{- if .Cache}}
+		cache:  cache,
+		{{- end}}
+		{{- if .Events}}
+		events: events,
+		{{- end}}
+		{{- if .Metrics}}
+		metrics: metrics,
+		{{- end}}
+	}
+}
+
+// =============================================================================
+// Service interface implementation
+// =============================================================================
+
+func (s *{{.Name}}ServiceImpl) Name() string {
+	return "{{.Name | toLower}}-service"
+}
+
+func (s *{{.Name}}ServiceImpl) Dependencies() []string {
+	deps := []string{"logger"}
+	{{- if .Database}}
+	deps = append(deps, "database-manager")
+	{{- end}}
+	{{- if .Cache}}
+	deps = append(deps, "cache")
+	{{- end}}
+	{{- if .Events}}
+	deps = append(deps, "event-bus")
+	{{- end}}
+	{{- if .Metrics}}
+	deps = append(deps, "metrics")
+	{{- end}}
+	{{- if .Dependencies}}
+	{{- range .Dependencies}}
+	deps = append(deps, "{{.}}")
+	{{- end}}
+	{{- end}}
+	return deps
+}
+
+func (s *{{.Name}}ServiceImpl) OnStart(ctx context.Context) error {
+	s.logger.Info("starting {{.Name | toLower}} service")
+	{{- if .Metrics}}
+	s.metrics.Counter("{{.Name | toLower}}.service.started").Inc()
+	{{- end}}
+
+	// TODO: Add your service startup logic here
+
+	return nil
+}
+
+func (s *{{.Name}}ServiceImpl) OnStop(ctx context.Context) error {
+	s.logger.Info("stopping {{.Name | toLower}} service")
+	{{- if .Metrics}}
+	s.metrics.Counter("{{.Name | toLower}}.service.stopped").Inc()
+	{{- end}}
+
+	// TODO: Add your service shutdown logic here
+
+	return nil
+}
+
+{{- if .HealthCheck}}
+func (s *{{.Name}}ServiceImpl) OnHealthCheck(ctx context.Context) error {
+	{{- if .Database}}
+	// Check database connectivity
+	if err := s.db.HealthCheck(ctx); err != nil {
+		return fmt.Errorf("database health check failed: %w", err)
+	}
+	{{- end}}
+
+	{{- if .Cache}}
+	// Check cache connectivity
+	if err := s.cache.Ping(ctx); err != nil {
+		return fmt.Errorf("cache health check failed: %w", err)
+	}
+	{{- end}}
+
+	// TODO: Add your custom health checks here
+
+	return nil
+}
+{{- else}}
+func (s *{{.Name}}ServiceImpl) OnHealthCheck(ctx context.Context) error {
+	// TODO: Implement health check logic
+	return nil
+}
+{{- end}}
+
+// =============================================================================
+// Business logic implementation
+// =============================================================================
+
+{{- if .Methods}}
+{{- range .Methods}}
+func (s *{{$.Name}}ServiceImpl) {{.}}(ctx context.Context) error {
+	s.logger.Debug("executing {{.}}")
+	{{- if $.Metrics}}
+	timer := s.metrics.Timer("{{$.Name | toLower}}.{{. | toLower}}.duration").Start()
+	defer timer.Stop()
+	{{- end}}
+
+	// TODO: Implement {{.}} logic
+	return fmt.Errorf("{{.}} not implemented")
+}
+{{- end}}
+{{- else}}
+
+func (s *{{.Name}}ServiceImpl) Get{{.Name}}(ctx context.Context, id string) (*{{.Name}}, error) {
+	s.logger.Debug("getting {{.Name | toLower}}", common.LogField{Key: "id", Value: id})
+	{{- if .Metrics}}
+	timer := s.metrics.Timer("{{.Name | toLower}}.get.duration").Start()
+	defer timer.Stop()
+	{{- end}}
+
+	{{- if .Cache}}
+	// Try cache first
+	cacheKey := fmt.Sprintf("{{.Name | toLower}}:%s", id)
+	if cached, err := s.GetFromCache(ctx, cacheKey); err == nil {
+		s.logger.Debug("{{.Name | toLower}} found in cache", common.LogField{Key: "id", Value: id})
+		{{- if .Metrics}}
+		s.metrics.Counter("{{.Name | toLower}}.cache.hit").Inc()
+		{{- end}}
+		return cached, nil
+	}
+	{{- if .Metrics}}
+	s.metrics.Counter("{{.Name | toLower}}.cache.miss").Inc()
+	{{- end}}
+	{{- end}}
+
+	{{- if .Database}}
+	// Get from database
+	entity, err := s.FindByID(ctx, id)
+	if err != nil {
+		{{- if .Metrics}}
+		s.metrics.Counter("{{.Name | toLower}}.get.errors").Inc()
+		{{- end}}
+		return nil, fmt.Errorf("failed to get {{.Name | toLower}}: %w", err)
+	}
+
+	{{- if .Cache}}
+	// Store in cache for future requests
+	if err := s.SetInCache(ctx, cacheKey, entity, 5*time.Minute); err != nil {
+		s.logger.Warn("failed to cache {{.Name | toLower}}",
+			common.LogField{Key: "id", Value: id},
+			common.LogField{Key: "error", Value: err})
+	}
+	{{- end}}
+
+	return entity, nil
+	{{- else}}
+	// TODO: Implement Get{{.Name}} logic
+	return nil, fmt.Errorf("Get{{.Name}} not implemented")
+	{{- end}}
+}
+
+func (s *{{.Name}}ServiceImpl) Create{{.Name}}(ctx context.Context, data *Create{{.Name}}Request) (*{{.Name}}, error) {
+	s.logger.Debug("creating {{.Name | toLower}}")
+	{{- if .Metrics}}
+	timer := s.metrics.Timer("{{.Name | toLower}}.create.duration").Start()
+	defer timer.Stop()
+	{{- end}}
+
+	// TODO: Validate input data
+
+	entity := &{{.Name}}{
+		ID: generateID(), // TODO: Implement ID generation
+		{{- if .Timestamps}}
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		{{- end}}
+		// TODO: Map from Create{{.Name}}Request to {{.Name}}
+	}
+
+	{{- if .Database}}
+	if err := s.Save(ctx, entity); err != nil {
+		{{- if .Metrics}}
+		s.metrics.Counter("{{.Name | toLower}}.create.errors").Inc()
+		{{- end}}
+		return nil, fmt.Errorf("failed to save {{.Name | toLower}}: %w", err)
+	}
+	{{- end}}
+
+	{{- if .Events}}
+	// Publish creation event
+	if err := s.PublishEvent(ctx, "{{.Name | toLower}}.created", entity); err != nil {
+		s.logger.Warn("failed to publish creation event", common.LogField{Key: "error", Value: err})
+	}
+	{{- end}}
+
+	{{- if .Metrics}}
+	s.metrics.Counter("{{.Name | toLower}}.created").Inc()
+	{{- end}}
+
+	s.logger.Info("{{.Name | toLower}} created", common.LogField{Key: "id", Value: entity.ID})
+	return entity, nil
+}
+
+func (s *{{.Name}}ServiceImpl) Update{{.Name}}(ctx context.Context, id string, data *Update{{.Name}}Request) (*{{.Name}}, error) {
+	s.logger.Debug("updating {{.Name | toLower}}", common.LogField{Key: "id", Value: id})
+	{{- if .Metrics}}
+	timer := s.metrics.Timer("{{.Name | toLower}}.update.duration").Start()
+	defer timer.Stop()
+	{{- end}}
+
+	{{- if .Database}}
+	// Get existing entity
+	entity, err := s.FindByID(ctx, id)
+	if err != nil {
+		{{- if .Metrics}}
+		s.metrics.Counter("{{.Name | toLower}}.update.errors").Inc()
+		{{- end}}
+		return nil, fmt.Errorf("failed to find {{.Name | toLower}} for update: %w", err)
+	}
+
+	// TODO: Update entity fields from Update{{.Name}}Request
+	{{- if .Timestamps}}
+	entity.UpdatedAt = time.Now()
+	{{- end}}
+
+	if err := s.Save(ctx, entity); err != nil {
+		{{- if .Metrics}}
+		s.metrics.Counter("{{.Name | toLower}}.update.errors").Inc()
+		{{- end}}
+		return nil, fmt.Errorf("failed to save updated {{.Name | toLower}}: %w", err)
+	}
+	{{- else}}
+	// TODO: Implement Update{{.Name}} logic
+	entity := &{{.Name}}{ID: id}
+	{{- end}}
+
+	{{- if .Cache}}
+	// Invalidate cache
+	cacheKey := fmt.Sprintf("{{.Name | toLower}}:%s", id)
+	if err := s.InvalidateCache(ctx, cacheKey); err != nil {
+		s.logger.Warn("failed to invalidate cache", common.LogField{Key: "error", Value: err})
+	}
+	{{- end}}
+
+	{{- if .Events}}
+	// Publish update event
+	if err := s.PublishEvent(ctx, "{{.Name | toLower}}.updated", entity); err != nil {
+		s.logger.Warn("failed to publish update event", common.LogField{Key: "error", Value: err})
+	}
+	{{- end}}
+
+	{{- if .Metrics}}
+	s.metrics.Counter("{{.Name | toLower}}.updated").Inc()
+	{{- end}}
+
+	s.logger.Info("{{.Name | toLower}} updated", common.LogField{Key: "id", Value: id})
+	return entity, nil
+}
+
+func (s *{{.Name}}ServiceImpl) Delete{{.Name}}(ctx context.Context, id string) error {
+	s.logger.Debug("deleting {{.Name | toLower}}", common.LogField{Key: "id", Value: id})
+	{{- if .Metrics}}
+	timer := s.metrics.Timer("{{.Name | toLower}}.delete.duration").Start()
+	defer timer.Stop()
+	{{- end}}
+
+	{{- if .Database}}
+	// TODO: Implement database deletion logic
+	// Consider soft delete if configured
+	{{- end}}
+
+	{{- if .Cache}}
+	// Remove from cache
+	cacheKey := fmt.Sprintf("{{.Name | toLower}}:%s", id)
+	if err := s.InvalidateCache(ctx, cacheKey); err != nil {
+		s.logger.Warn("failed to invalidate cache", common.LogField{Key: "error", Value: err})
+	}
+	{{- end}}
+
+	{{- if .Events}}
+	// Publish deletion event
+	if err := s.PublishEvent(ctx, "{{.Name | toLower}}.deleted", map[string]string{"id": id}); err != nil {
+		s.logger.Warn("failed to publish deletion event", common.LogField{Key: "error", Value: err})
+	}
+	{{- end}}
+
+	{{- if .Metrics}}
+	s.metrics.Counter("{{.Name | toLower}}.deleted").Inc()
+	{{- end}}
+
+	s.logger.Info("{{.Name | toLower}} deleted", common.LogField{Key: "id", Value: id})
+	return nil
+}
+
+func (s *{{.Name}}ServiceImpl) List{{.Name}}(ctx context.Context, filters *List{{.Name}}Filters) ([]*{{.Name}}, error) {
+	s.logger.Debug("listing {{.Name | toLower | pluralize}}")
+	{{- if .Metrics}}
+	timer := s.metrics.Timer("{{.Name | toLower}}.list.duration").Start()
+	defer timer.Stop()
+	{{- end}}
+
+	// TODO: Implement listing logic with filters, pagination, sorting
+	{{- if .Database}}
+	// Query database with filters
+	{{- end}}
+
+	{{- if .Metrics}}
+	s.metrics.Counter("{{.Name | toLower}}.listed").Inc()
+	{{- end}}
+
+	return nil, fmt.Errorf("List{{.Name}} not implemented")
+}
+
+{{- end}}
+
+{{- if .Database}}
+
+// =============================================================================
+// Database operations
+// =============================================================================
+
+func (s *{{.Name}}ServiceImpl) FindByID(ctx context.Context, id string) (*{{.Name}}, error) {
+	// TODO: Implement database query to find {{.Name | toLower}} by ID
+	return nil, fmt.Errorf("FindByID not implemented")
+}
+
+func (s *{{.Name}}ServiceImpl) Save(ctx context.Context, entity *{{.Name}}) error {
+	// TODO: Implement database save operation
+	return fmt.Errorf("Save not implemented")
+}
+
+{{- end}}
+
+{{- if .Cache}}
+
+// =============================================================================
+// Cache operations
+// =============================================================================
+
+func (s *{{.Name}}ServiceImpl) GetFromCache(ctx context.Context, key string) (*{{.Name}}, error) {
+	var entity {{.Name}}
+	if err := s.cache.Get(ctx, key, &entity); err != nil {
+		return nil, err
+	}
+	return &entity, nil
+}
+
+func (s *{{.Name}}ServiceImpl) SetInCache(ctx context.Context, key string, entity *{{.Name}}, ttl time.Duration) error {
+	return s.cache.Set(ctx, key, entity, ttl)
+}
+
+func (s *{{.Name}}ServiceImpl) InvalidateCache(ctx context.Context, key string) error {
+	return s.cache.Delete(ctx, key)
+}
+
+{{- end}}
+
+{{- if .Events}}
+
+// =============================================================================
+// Event operations
+// =============================================================================
+
+func (s *{{.Name}}ServiceImpl) PublishEvent(ctx context.Context, eventType string, data interface{}) error {
+	event := events.Event{
+		Type:      eventType,
+		Source:    s.Name(),
+		Data:      data,
+		Timestamp: time.Now(),
+	}
+
+	return s.events.Publish(ctx, event)
+}
+
+{{- end}}
+
+// =============================================================================
+// Helper functions
+// =============================================================================
+
+func generateID() string {
+	// TODO: Implement proper ID generation (UUID, etc.)
+	return fmt.Sprintf("{{.Name | toLower}}_%d", time.Now().UnixNano())
+}

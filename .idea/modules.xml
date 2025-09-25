@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/forge.iml" filepath="$PROJECT_DIR$/.idea/forge.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../forge-router/.idea/forge-router.iml" filepath="$PROJECT_DIR$/../forge-router/.idea/forge-router.iml" />
       <module fileurl="file://$PROJECT_DIR$/../frank-goa/.idea/frank.iml" filepath="$PROJECT_DIR$/../frank-goa/.idea/frank.iml" />
     </modules>
   </component>

@@ -6,5 +6,6 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="module" module-name="frank" />
+    <orderEntry type="module" module-name="forge-router" />
   </component>
 </module>

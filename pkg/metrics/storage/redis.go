@@ -333,10 +333,10 @@ func (rs *RedisStorage) Start(ctx context.Context) error {
 	rs.stats.Connected = true
 	rs.stats.startTime = time.Now()
 
-	// Start cleanup goroutine
+	// OnStart cleanup goroutine
 	go rs.cleanupLoop()
 
-	// Start stats collection goroutine
+	// OnStart stats collection goroutine
 	go rs.statsLoop()
 
 	return nil

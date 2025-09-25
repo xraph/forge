@@ -117,7 +117,7 @@ func NewAuthenticationManager(
 		stopCh:   make(chan struct{}),
 	}
 
-	// Start cache cleanup if caching is enabled
+	// OnStart cache cleanup if caching is enabled
 	if config.ValidationCaching {
 		manager.startCacheCleanup()
 	}

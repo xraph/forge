@@ -95,7 +95,7 @@ func (cs *ConsensusService) OnStart(ctx context.Context) error {
 		)
 	}
 
-	// Start the consensus manager
+	// OnStart the consensus manager
 	if err := cs.manager.OnStart(ctx); err != nil {
 		return common.ErrServiceStartFailed("consensus-service", err)
 	}
@@ -133,7 +133,7 @@ func (cs *ConsensusService) OnStop(ctx context.Context) error {
 		cs.logger.Info("stopping consensus service")
 	}
 
-	// Stop the consensus manager
+	// OnStop the consensus manager
 	if err := cs.manager.OnStop(ctx); err != nil {
 		return common.ErrServiceStopFailed("consensus-service", err)
 	}

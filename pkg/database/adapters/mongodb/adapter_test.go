@@ -103,7 +103,7 @@ func TestMongoAdapterIntegration(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Start MongoDB container
+	// OnStart MongoDB container
 	mongoContainer, err := mongodb.RunContainer(ctx,
 		testcontainers.WithImage("mongo:7"),
 		mongodb.WithUsername("testuser"),
@@ -442,7 +442,7 @@ func TestDatabaseManagerWithMongo(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Start MongoDB container
+	// OnStart MongoDB container
 	mongoContainer, err := mongodb.RunContainer(ctx,
 		testcontainers.WithImage("mongo:7"),
 	)
@@ -500,7 +500,7 @@ func TestDatabaseManagerWithMongo(t *testing.T) {
 	err = manager.SetConfig(dbConfig)
 	require.NoError(t, err)
 
-	// Start manager
+	// OnStart manager
 	err = manager.OnStart(ctx)
 	require.NoError(t, err)
 
@@ -524,7 +524,7 @@ func TestDatabaseManagerWithMongo(t *testing.T) {
 	assert.Equal(t, 1, stats.RegisteredAdapters)
 	assert.True(t, stats.HealthCheckPassed)
 
-	// Stop manager
+	// OnStop manager
 	err = manager.OnStop(ctx)
 	assert.NoError(t, err)
 }

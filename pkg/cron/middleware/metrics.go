@@ -81,7 +81,7 @@ func NewMetricsMiddleware(metrics common.Metrics, logger common.Logger, config *
 
 // Handle handles job execution with metrics collection
 func (mm *MetricsMiddleware) Handle(ctx context.Context, job *cron.Job, next func(ctx context.Context, job *cron.Job) error) error {
-	// Start collecting metrics
+	// OnStart collecting metrics
 	jobMetrics := mm.startMetricsCollection(job)
 
 	// Execute the job

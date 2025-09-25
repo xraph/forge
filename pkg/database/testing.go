@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/pkg/common"
+	config2 "github.com/xraph/forge/pkg/config"
 	"github.com/xraph/forge/pkg/logger"
 )
 
@@ -79,7 +80,7 @@ func (tdm *TestDatabaseManager) SetupTestDatabase(t *testing.T, dbType string, c
 		}
 	}
 
-	// Start container if provided
+	// OnStart container if provided
 	if config.Container != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -106,7 +107,7 @@ func (tdm *TestDatabaseManager) SetupTestDatabase(t *testing.T, dbType string, c
 	// Create test manager if not exists
 	if tdm.manager == nil {
 		metrics := &testMetrics{}
-		configManager := &testConfigManager{}
+		configManager := config2.NewTestConfigManager()
 		tdm.manager = NewManager(tdm.logger, metrics, configManager)
 
 		// Register appropriate adapter
@@ -140,7 +141,7 @@ func (tdm *TestDatabaseManager) SetupTestDatabase(t *testing.T, dbType string, c
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
-	// Start connection
+	// OnStart connection
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -646,20 +647,6 @@ func (tt *testTimer) Reset() {
 
 func (tt *testTimer) Record(duration time.Duration) {}
 func (tt *testTimer) Time() func()                  { return func() {} }
-
-// testConfigManager is a test config manager implementation
-type testConfigManager struct{}
-
-func (tcm *testConfigManager) Get(key string) interface{}                                       { return nil }
-func (tcm *testConfigManager) GetString(key string) string                                      { return "" }
-func (tcm *testConfigManager) GetInt(key string) int                                            { return 0 }
-func (tcm *testConfigManager) GetBool(key string) bool                                          { return false }
-func (tcm *testConfigManager) GetDuration(key string) time.Duration                             { return 0 }
-func (tcm *testConfigManager) Set(key string, value interface{})                                {}
-func (tcm *testConfigManager) Bind(key string, target interface{}) error                        { return nil }
-func (tcm *testConfigManager) Watch(ctx context.Context) error                                  { return nil }
-func (tcm *testConfigManager) WatchWithCallback(key string, callback func(string, interface{})) {}
-func (tcm *testConfigManager) Reload() error                                                    { return nil }
 
 // TestCase represents a database test case
 type TestCase struct {

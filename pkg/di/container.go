@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +19,7 @@ type Container struct {
 	instances             map[reflect.Type]interface{}
 	namedInstances        map[string]interface{}
 	referenceNameMappings map[string]string
+	dependencyGraph       *DependencyGraph
 	lifecycle             *LifecycleManager
 	configurator          *Configurator
 	resolver              *Resolver
@@ -29,6 +31,8 @@ type Container struct {
 	metrics               common.Metrics
 	config                common.ConfigManager
 	errorHandler          common.ErrorHandler
+
+	collisionHandlingStrategy CollisionStrategy
 }
 
 // ServiceRegistration represents a service registration
@@ -62,38 +66,43 @@ type Interceptor interface {
 
 // ContainerConfig contains configuration for the DI container
 type ContainerConfig struct {
-	Logger       common.Logger
-	Metrics      common.Metrics
-	Config       common.ConfigManager
-	ErrorHandler common.ErrorHandler
-	Interceptors []Interceptor
+	Logger                    common.Logger
+	Metrics                   common.Metrics
+	Config                    common.ConfigManager
+	ErrorHandler              common.ErrorHandler
+	Interceptors              []Interceptor
+	CollisionHandlingStrategy CollisionStrategy
 }
+
+type CollisionStrategy string
+
+const (
+	CollisionStrategyFail            CollisionStrategy = "fail"
+	CollisionStrategySkip            CollisionStrategy = "skip"
+	CollisionStrategyUseFullTypeName CollisionStrategy = "full"
+	CollisionStrategyOverwrite       CollisionStrategy = "overwrite"
+)
 
 // NewContainer creates a new DI container
 func NewContainer(config ContainerConfig) common.Container {
 	container := &Container{
-		services:              make(map[reflect.Type]*ServiceRegistration),
-		namedServices:         make(map[string]*ServiceRegistration),
-		instances:             make(map[reflect.Type]interface{}),
-		namedInstances:        make(map[string]interface{}),
-		referenceNameMappings: make(map[string]string),
-		interceptors:          config.Interceptors,
-		logger:                config.Logger,
-		metrics:               config.Metrics,
-		config:                config.Config,
-		errorHandler:          config.ErrorHandler,
+		services:                  make(map[reflect.Type]*ServiceRegistration),
+		namedServices:             make(map[string]*ServiceRegistration),
+		instances:                 make(map[reflect.Type]interface{}),
+		namedInstances:            make(map[string]interface{}),
+		referenceNameMappings:     make(map[string]string),
+		dependencyGraph:           NewDependencyGraph(),
+		interceptors:              config.Interceptors,
+		logger:                    config.Logger,
+		metrics:                   config.Metrics,
+		config:                    config.Config,
+		errorHandler:              config.ErrorHandler,
+		collisionHandlingStrategy: config.CollisionHandlingStrategy,
 	}
 
-	// Initialize lifecycle manager
 	container.lifecycle = NewLifecycleManager(container)
-
-	// Initialize configurator
 	container.configurator = NewConfigurator(container, config.Config)
-
-	// Initialize resolver
 	container.resolver = NewResolver(container)
-
-	// Initialize validator
 	container.validator = NewValidator(container)
 
 	return container
@@ -102,48 +111,22 @@ func NewContainer(config ContainerConfig) common.Container {
 // Register registers a service with the container
 func (c *Container) Register(definition common.ServiceDefinition) error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if c.started {
-		c.mu.Unlock()
 		return common.ErrContainerError("register", fmt.Errorf("cannot register services after container has started"))
 	}
 
-	// Get the service type from the definition
 	var serviceType reflect.Type
 	if definition.Type != nil {
 		serviceType = reflect.TypeOf(definition.Type)
-		// If it's a pointer to an interface, get the interface type
-		if serviceType.Kind() == reflect.Ptr {
+		if serviceType.Kind() == reflect.Ptr && serviceType.Elem().Kind() == reflect.Interface {
 			serviceType = serviceType.Elem()
 		}
 	} else {
-		c.mu.Unlock()
-		return common.ErrContainerError("register", fmt.Errorf("service type cannot be nil"))
+		return common.ErrContainerError("register", fmt.Errorf("service type cannot be nil for registration"))
 	}
 
-	// Check if service already exists
-	if definition.Name != "" {
-		if _, exists := c.namedServices[definition.Name]; exists {
-			c.mu.Unlock()
-			c.logger.Warn("service already registered, skipping",
-				logger.String("name", definition.Name),
-				logger.Error(common.ErrServiceAlreadyExists(definition.Name)))
-
-			return nil
-		}
-	} else {
-		if _, exists := c.services[serviceType]; exists {
-			c.mu.Unlock()
-
-			c.logger.Warn("service already registered, skipping",
-				logger.String("name", serviceType.String()),
-				logger.Error(common.ErrServiceAlreadyExists(serviceType.String())))
-
-			return nil
-		}
-	}
-
-	// Create service registration
 	registration := &ServiceRegistration{
 		Name:         definition.Name,
 		Type:         serviceType,
@@ -156,179 +139,368 @@ func (c *Container) Register(definition common.ServiceDefinition) error {
 		Created:      time.Now(),
 	}
 
-	// NEW: Handle reference names from definition
-	if extDefinition, ok := definition.Extensions["referenceNames"]; ok {
-		if refNames, ok := extDefinition.([]string); ok {
-			registration.ReferenceNames = refNames
-		}
-	}
-
-	// Create factory function
+	// Validate constructor and extract dependencies
 	if definition.Constructor != nil {
-		factory, err := c.createFactory(definition.Constructor)
+		factory, constructorDeps, err := c.createFactoryWithDependencies(definition.Constructor)
 		if err != nil {
-			c.mu.Unlock()
 			return common.ErrContainerError("create_factory", err)
 		}
 		registration.Factory = factory
+		// Merge explicit dependencies with constructor dependencies
+		registration.Dependencies = c.mergeDependencies(registration.Dependencies, constructorDeps)
 	} else if definition.Instance != nil {
 		registration.Instance = definition.Instance
 	}
 
 	// Register service
 	if definition.Name != "" {
+		if _, exists := c.namedServices[definition.Name]; exists {
+			return common.ErrServiceAlreadyExists(definition.Name)
+		}
 		c.namedServices[definition.Name] = registration
+		c.generateSimpleReferenceNames(definition.Name, serviceType)
 	} else {
+		if _, exists := c.services[serviceType]; exists {
+			return common.ErrServiceAlreadyExists(serviceType.String())
+		}
 		c.services[serviceType] = registration
 	}
 
-	// Register reference name mappings
-	actualName := definition.Name
-	if actualName == "" {
-		actualName = serviceType.String()
-	}
-
-	//  Automatically map reflection type name to actual service name if string name is provided
-	if definition.Name != "" {
-		// Add default mapping from type name to actual service name
-		typeName := serviceType.Name()
-		if typeName != "" && typeName != definition.Name {
-			// Check if mapping already exists
-			if existing, exists := c.referenceNameMappings[typeName]; exists && existing != actualName {
-				c.mu.Unlock()
-				return common.ErrContainerError("reference_mapping",
-					fmt.Errorf("type name '%s' already mapped to service '%s', cannot map to '%s'",
-						typeName, existing, actualName))
-			}
-			c.referenceNameMappings[typeName] = actualName
+	// Add to dependency graph for ordering
+	serviceName := c.getServiceName(registration)
+	if err := c.dependencyGraph.AddNode(serviceName, registration.Dependencies); err != nil {
+		// Rollback registration on dependency graph error
+		if definition.Name != "" {
+			delete(c.namedServices, definition.Name)
+			c.cleanupReferenceMappingsForService(definition.Name)
+		} else {
+			delete(c.services, serviceType)
 		}
-
-		// Also add the full type string as a mapping if different from type name
-		typeString := serviceType.String()
-		if typeString != typeName && typeString != definition.Name {
-			if existing, exists := c.referenceNameMappings[typeString]; exists && existing != actualName {
-				c.mu.Unlock()
-				return common.ErrContainerError("reference_mapping",
-					fmt.Errorf("type string '%s' already mapped to service '%s', cannot map to '%s'",
-						typeString, existing, actualName))
-			}
-			c.referenceNameMappings[typeString] = actualName
-		}
-	}
-
-	// Register explicit reference names from definition
-	for _, refName := range registration.ReferenceNames {
-		if existing, exists := c.referenceNameMappings[refName]; exists && existing != actualName {
-			c.mu.Unlock()
-			return common.ErrContainerError("reference_mapping",
-				fmt.Errorf("reference name '%s' already mapped to service '%s', cannot map to '%s'",
-					refName, existing, actualName))
-		}
-		c.referenceNameMappings[refName] = actualName
-	}
-
-	// Record metrics and logging (same as before)
-	if c.metrics != nil {
-		c.metrics.Counter("forge.di.services_registered").Inc()
-		c.metrics.Gauge("forge.di.services_count").Set(float64(len(c.services) + len(c.namedServices)))
+		return common.ErrContainerError("dependency_graph", err)
 	}
 
 	if c.logger != nil {
-		serviceName := definition.Name
-		if serviceName == "" {
-			serviceName = serviceType.String()
-		}
-
-		c.logger.Info("service registered",
-			logger.String("name", serviceName),
-			logger.String("type", serviceType.String()),
-			logger.Bool("singleton", definition.Singleton),
-			logger.String("reference_names", fmt.Sprintf("%v", registration.ReferenceNames)),
-			logger.Int("total_services", len(c.services)+len(c.namedServices)),
+		c.logger.Debug("service registered",
+			logger.String("service_name", serviceName),
+			logger.String("service_type", serviceType.String()),
+			logger.String("dependencies", fmt.Sprintf("%v", registration.Dependencies)),
 		)
-	}
-
-	// Auto-registration logic (same as before)
-	var needsAutoRegistration bool
-	if c.lifecycle != nil {
-		serviceInterface := reflect.TypeOf((*common.Service)(nil)).Elem()
-		needsAutoRegistration = serviceType.Implements(serviceInterface)
-	}
-
-	c.mu.Unlock()
-
-	if needsAutoRegistration {
-		instance, err := c.createInstance(context.Background(), registration)
-		if err != nil {
-			c.mu.Lock()
-			if definition.Name != "" {
-				delete(c.namedServices, definition.Name)
-			} else {
-				delete(c.services, serviceType)
-			}
-			// Clean up all reference mappings for this service
-			c.cleanupReferenceMappingsForService(actualName)
-			c.mu.Unlock()
-			return common.ErrContainerError("create_service_instance", err)
-		}
-
-		if service, ok := instance.(common.Service); ok {
-			if err := c.lifecycle.AddService(service); err != nil {
-				c.mu.Lock()
-				if definition.Name != "" {
-					delete(c.namedServices, definition.Name)
-				} else {
-					delete(c.services, serviceType)
-				}
-				c.cleanupReferenceMappingsForService(actualName)
-				c.mu.Unlock()
-				return common.ErrContainerError("add_service_to_lifecycle", err)
-			}
-
-			if c.logger != nil {
-				c.logger.Info("service automatically added to lifecycle manager",
-					logger.String("name", service.Name()),
-				)
-			}
-		}
 	}
 
 	return nil
 }
 
-// Resolve resolves a service from the container
-func (c *Container) Resolve(serviceType interface{}) (interface{}, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	targetType := reflect.TypeOf(serviceType)
-	if targetType.Kind() == reflect.Ptr {
-		targetType = targetType.Elem()
+// createFactoryWithDependencies creates a factory and extracts constructor dependencies
+func (c *Container) createFactoryWithDependencies(constructor interface{}) (ServiceFactory, []string, error) {
+	constructorType := reflect.TypeOf(constructor)
+	if constructorType.Kind() != reflect.Func {
+		return nil, nil, fmt.Errorf("constructor must be a function")
 	}
 
-	// Strategy 1: Try exact type match in services map (existing behavior)
-	if registration, exists := c.services[targetType]; exists {
-		return c.createInstance(context.Background(), registration)
+	constructorValue := reflect.ValueOf(constructor)
+	var dependencies []string
+
+	// Extract dependencies from constructor parameters
+	numParams := constructorType.NumIn()
+	for i := 0; i < numParams; i++ {
+		paramType := constructorType.In(i)
+
+		// Skip context types as they're handled specially
+		if paramType == reflect.TypeOf((*context.Context)(nil)).Elem() {
+			continue
+		}
+		if paramType == reflect.TypeOf((*common.ForgeContext)(nil)).Elem() {
+			continue
+		}
+
+		// Find service name for this parameter type
+		depName := c.findDependencyName(paramType)
+		if depName != "" {
+			dependencies = append(dependencies, depName)
+		}
 	}
 
-	// Strategy 2: Use the existing enhanced resolver logic
-	ctx := context.Background()
-	instance, err := c.resolver.resolveDependencyWithEnhancedTypeMatching(ctx, targetType)
-	if err == nil {
+	factory := func(ctx context.Context, container common.Container) (interface{}, error) {
+		params := make([]reflect.Value, numParams)
+
+		for i := 0; i < numParams; i++ {
+			paramType := constructorType.In(i)
+
+			// Handle special context types
+			if paramType == reflect.TypeOf((*context.Context)(nil)).Elem() {
+				params[i] = reflect.ValueOf(ctx)
+				continue
+			}
+
+			if paramType == reflect.TypeOf((*common.ForgeContext)(nil)).Elem() {
+				forgeCtx := common.NewForgeContext(ctx, c, c.logger, c.metrics, c.config)
+				params[i] = reflect.ValueOf(forgeCtx)
+				continue
+			}
+
+			// Resolve dependency
+			dependency, err := c.resolveDependency(paramType)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve dependency %s for constructor: %w", paramType.String(), err)
+			}
+
+			params[i] = reflect.ValueOf(dependency)
+		}
+
+		results := constructorValue.Call(params)
+		if len(results) == 0 {
+			return nil, fmt.Errorf("constructor must return at least one value")
+		}
+
+		instance := results[0].Interface()
+		if len(results) > 1 {
+			if err, ok := results[len(results)-1].Interface().(error); ok && err != nil {
+				return nil, err
+			}
+		}
+
 		return instance, nil
 	}
 
-	// If all strategies fail, return the original error
-	return nil, common.ErrServiceNotFound(targetType.String())
+	return factory, dependencies, nil
 }
 
-// Has checks if a service is registered
+// findDependencyName finds the service name for a given type
+func (c *Container) findDependencyName(paramType reflect.Type) string {
+	// First check if there's a named service with this exact type
+	for name, reg := range c.namedServices {
+		if c.typesMatch(reg.Type, paramType) {
+			return name
+		}
+	}
+
+	// Check if there's a service registered by exact type
+	for serviceType := range c.services {
+		if c.typesMatch(serviceType, paramType) {
+			return serviceType.String()
+		}
+	}
+
+	// For interfaces, check if any registered service implements it
+	if paramType.Kind() == reflect.Interface {
+		// Check named services
+		for name, reg := range c.namedServices {
+			if c.implementsInterface(reg.Type, paramType) {
+				return name
+			}
+		}
+
+		// Check type-registered services
+		for serviceType := range c.services {
+			if c.implementsInterface(serviceType, paramType) {
+				return serviceType.String()
+			}
+		}
+	}
+
+	return ""
+}
+
+// typesMatch checks if two types are compatible
+func (c *Container) typesMatch(type1, type2 reflect.Type) bool {
+	// Direct match
+	if type1 == type2 {
+		return true
+	}
+
+	// Interface implementation check
+	if type2.Kind() == reflect.Interface {
+		if type1.Implements(type2) {
+			return true
+		}
+		if reflect.PtrTo(type1).Implements(type2) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// implementsInterface checks if a type implements an interface
+func (c *Container) implementsInterface(implType, interfaceType reflect.Type) bool {
+	if implType.Implements(interfaceType) {
+		return true
+	}
+	if reflect.PtrTo(implType).Implements(interfaceType) {
+		return true
+	}
+	return false
+}
+
+// mergeDependencies combines explicit and inferred dependencies
+func (c *Container) mergeDependencies(explicit, inferred []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+
+	// Add explicit dependencies first
+	for _, dep := range explicit {
+		if !seen[dep] {
+			result = append(result, dep)
+			seen[dep] = true
+		}
+	}
+
+	// Add inferred dependencies
+	for _, dep := range inferred {
+		if !seen[dep] {
+			result = append(result, dep)
+			seen[dep] = true
+		}
+	}
+
+	return result
+}
+
+// getServiceName returns the service name for a registration
+func (c *Container) getServiceName(registration *ServiceRegistration) string {
+	if registration.Name != "" {
+		return registration.Name
+	}
+	return registration.Type.String()
+}
+
+// generateSimpleReferenceNames generates reference names for a service
+func (c *Container) generateSimpleReferenceNames(serviceName string, serviceType reflect.Type) {
+	var referenceNames []string
+
+	if serviceType.Name() != "" {
+		referenceNames = append(referenceNames, serviceType.Name())
+	}
+
+	referenceNames = append(referenceNames, serviceType.String())
+
+	if serviceType.PkgPath() != "" && serviceType.Name() != "" {
+		pathParts := strings.Split(serviceType.PkgPath(), "/")
+		if len(pathParts) > 0 {
+			packageName := pathParts[len(pathParts)-1]
+			packageRef := packageName + "." + serviceType.Name()
+			referenceNames = append(referenceNames, packageRef)
+		}
+	}
+
+	for _, refName := range referenceNames {
+		if refName == serviceName {
+			continue
+		}
+
+		if existing, exists := c.referenceNameMappings[refName]; !exists {
+			c.referenceNameMappings[refName] = serviceName
+		} else if existing != serviceName && c.logger != nil {
+			c.logger.Debug("skipping reference name due to conflict",
+				logger.String("reference_name", refName),
+				logger.String("existing_service", existing),
+				logger.String("new_service", serviceName),
+			)
+		}
+	}
+}
+
+// Resolve resolves a service by its type
+func (c *Container) Resolve(serviceType interface{}) (interface{}, error) {
+	if serviceType == nil {
+		return nil, common.ErrContainerError("resolve", fmt.Errorf("cannot resolve a nil type"))
+	}
+
+	targetType := reflect.TypeOf(serviceType)
+	if targetType.Kind() == reflect.Ptr && targetType.Elem().Kind() == reflect.Interface {
+		targetType = targetType.Elem()
+	}
+
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.resolveDependency(targetType)
+}
+
+// resolveDependency resolves a dependency by type with better error handling
+func (c *Container) resolveDependency(paramType reflect.Type) (interface{}, error) {
+	// Strategy 1: Try exact type match in services map
+	if registration, exists := c.services[paramType]; exists {
+		return c.createInstance(context.Background(), registration)
+	}
+
+	// Strategy 2: Try exact type match in named services
+	for _, registration := range c.namedServices {
+		if registration.Type == paramType {
+			return c.createInstance(context.Background(), registration)
+		}
+	}
+
+	// Strategy 3: Interface matching (only if param is interface)
+	if paramType.Kind() == reflect.Interface {
+		// Check services map for implementations
+		for serviceType, registration := range c.services {
+			if c.implementsInterface(serviceType, paramType) {
+				return c.createInstance(context.Background(), registration)
+			}
+		}
+
+		// Check named services for implementations
+		for _, registration := range c.namedServices {
+			if c.implementsInterface(registration.Type, paramType) {
+				return c.createInstance(context.Background(), registration)
+			}
+		}
+	}
+
+	// Strategy 4: Try reference name resolution as fallback
+	typeName := paramType.Name()
+	if typeName != "" {
+		if actualName, mapped := c.referenceNameMappings[typeName]; mapped {
+			if registration, exists := c.namedServices[actualName]; exists {
+				return c.createInstance(context.Background(), registration)
+			}
+		}
+	}
+
+	// Try the full type string as a reference
+	typeString := paramType.String()
+	if actualName, mapped := c.referenceNameMappings[typeString]; mapped {
+		if registration, exists := c.namedServices[actualName]; exists {
+			return c.createInstance(context.Background(), registration)
+		}
+	}
+
+	return nil, common.ErrServiceNotFound(paramType.String())
+}
+
+// ResolveNamed resolves a service by its name or a registered reference name
+func (c *Container) ResolveNamed(name string) (interface{}, error) {
+	c.mu.RLock()
+	registration, exists := c.namedServices[name]
+	if !exists {
+		if actualName, mapped := c.referenceNameMappings[name]; mapped {
+			if actualRegistration, actualExists := c.namedServices[actualName]; actualExists {
+				registration = actualRegistration
+				exists = true
+			}
+		}
+	}
+	c.mu.RUnlock()
+
+	if !exists {
+		return nil, common.ErrServiceNotFound(name)
+	}
+
+	return c.createInstance(context.Background(), registration)
+}
+
+// Has checks if a service is registered by type
 func (c *Container) Has(serviceType interface{}) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	if serviceType == nil {
+		return false
+	}
+
 	targetType := reflect.TypeOf(serviceType)
-	if targetType.Kind() == reflect.Ptr {
+	if targetType.Kind() == reflect.Ptr && targetType.Elem().Kind() == reflect.Interface {
 		targetType = targetType.Elem()
 	}
 
@@ -345,7 +517,7 @@ func (c *Container) HasNamed(name string) bool {
 	return exists
 }
 
-// Services returns all registered services
+// Services returns all registered service definitions
 func (c *Container) Services() []common.ServiceDefinition {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -381,7 +553,7 @@ func (c *Container) Services() []common.ServiceDefinition {
 	return services
 }
 
-// Start starts all services in dependency order
+// Start validates and starts all services in dependency order
 func (c *Container) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -392,12 +564,21 @@ func (c *Container) Start(ctx context.Context) error {
 
 	startTime := time.Now()
 
-	// Validate dependencies
+	// Validate all dependencies exist
+	if err := c.validateAllDependencies(); err != nil {
+		return common.ErrContainerError("validate_dependencies", err)
+	}
+
+	// Validate for circular dependencies
 	if err := c.validator.ValidateAll(); err != nil {
 		return common.ErrContainerError("validate", err)
 	}
 
-	// Start lifecycle manager
+	// Pre-create instances in dependency order to avoid resolution issues
+	if err := c.initializeServicesInOrder(ctx); err != nil {
+		return common.ErrContainerError("initialize_services", err)
+	}
+
 	if err := c.lifecycle.Start(ctx); err != nil {
 		return common.ErrContainerError("lifecycle_start", err)
 	}
@@ -419,7 +600,108 @@ func (c *Container) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops all services in reverse dependency order
+// validateAllDependencies ensures all declared dependencies exist
+func (c *Container) validateAllDependencies() error {
+	allServices := make(map[string]bool)
+
+	// Collect all service names
+	for _, registration := range c.services {
+		serviceName := c.getServiceName(registration)
+		allServices[serviceName] = true
+	}
+
+	for name := range c.namedServices {
+		allServices[name] = true
+	}
+
+	// Check that all dependencies exist
+	for _, registration := range c.services {
+		serviceName := c.getServiceName(registration)
+		for _, dep := range registration.Dependencies {
+			if !allServices[dep] && !c.isSpecialDependency(dep) {
+				return common.ErrDependencyNotFound(serviceName, dep)
+			}
+		}
+	}
+
+	for _, registration := range c.namedServices {
+		for _, dep := range registration.Dependencies {
+			if !allServices[dep] && !c.isSpecialDependency(dep) {
+				return common.ErrDependencyNotFound(registration.Name, dep)
+			}
+		}
+	}
+
+	return nil
+}
+
+// isSpecialDependency checks if a dependency is a special system dependency
+func (c *Container) isSpecialDependency(dep string) bool {
+	specialDeps := map[string]bool{
+		"context.Context":      true,
+		"common.ForgeContext":  true,
+		"common.Logger":        true,
+		"common.Metrics":       true,
+		"common.ConfigManager": true,
+	}
+	return specialDeps[dep]
+}
+
+// initializeServicesInOrder creates singleton instances in dependency order
+func (c *Container) initializeServicesInOrder(ctx context.Context) error {
+	// Get topological order from dependency graph
+	orderedServices := c.dependencyGraph.GetTopologicalOrder()
+
+	if c.logger != nil {
+		c.logger.Debug("initializing services in order",
+			logger.String("order", fmt.Sprintf("%v", orderedServices)),
+		)
+	}
+
+	for _, serviceName := range orderedServices {
+		var registration *ServiceRegistration
+		var found bool
+
+		// Find the registration
+		if reg, exists := c.namedServices[serviceName]; exists {
+			registration = reg
+			found = true
+		} else {
+			// Try to find by type name
+			for _, reg := range c.services {
+				if c.getServiceName(reg) == serviceName {
+					registration = reg
+					found = true
+					break
+				}
+			}
+		}
+
+		if !found {
+			continue
+		}
+
+		// Pre-create singleton instances
+		if registration.Singleton && registration.Instance == nil {
+			if c.logger != nil {
+				c.logger.Debug("pre-initializing singleton service",
+					logger.String("service", serviceName),
+				)
+			}
+
+			instance, err := c.createInstance(ctx, registration)
+			if err != nil {
+				return fmt.Errorf("failed to initialize service %s: %w", serviceName, err)
+			}
+
+			registration.Instance = instance
+		}
+	}
+
+	return nil
+}
+
+// Stop stops all services
 func (c *Container) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -430,7 +712,6 @@ func (c *Container) Stop(ctx context.Context) error {
 
 	stopTime := time.Now()
 
-	// Stop lifecycle manager
 	if err := c.lifecycle.Stop(ctx); err != nil {
 		if c.logger != nil {
 			c.logger.Error("failed to stop lifecycle manager", logger.Error(err))
@@ -441,11 +722,18 @@ func (c *Container) Stop(ctx context.Context) error {
 	c.instances = make(map[reflect.Type]interface{})
 	c.namedInstances = make(map[string]interface{})
 
+	// Clear singleton instances from registrations
+	for _, registration := range c.services {
+		registration.Instance = nil
+	}
+	for _, registration := range c.namedServices {
+		registration.Instance = nil
+	}
+
 	c.started = false
 
 	if c.logger != nil {
-		c.logger.Info(
-			"container stopped",
+		c.logger.Info("container stopped",
 			logger.Duration("shutdown_time", time.Since(stopTime)),
 		)
 	}
@@ -458,7 +746,7 @@ func (c *Container) Stop(ctx context.Context) error {
 	return nil
 }
 
-// HealthCheck performs health checks on all services
+// HealthCheck performs health checks on all managed services
 func (c *Container) HealthCheck(ctx context.Context) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -470,11 +758,9 @@ func (c *Container) HealthCheck(ctx context.Context) error {
 	return c.lifecycle.HealthCheck(ctx)
 }
 
-// createInstance creates an instance of a service
+// createInstance handles the creation of a single service instance
 func (c *Container) createInstance(ctx context.Context, registration *ServiceRegistration) (interface{}, error) {
-	// Check if singleton instance already exists
 	if registration.Singleton {
-
 		registration.mu.RLock()
 		if registration.Instance != nil {
 			instance := registration.Instance
@@ -483,7 +769,6 @@ func (c *Container) createInstance(ctx context.Context, registration *ServiceReg
 		}
 		registration.mu.RUnlock()
 
-		// Double-check locking pattern
 		registration.mu.Lock()
 		defer registration.mu.Unlock()
 		if registration.Instance != nil {
@@ -491,20 +776,18 @@ func (c *Container) createInstance(ctx context.Context, registration *ServiceReg
 		}
 	}
 
-	// Run before create interceptors
+	// Run interceptors
 	for _, interceptor := range c.interceptors {
 		if err := interceptor.BeforeCreate(ctx, registration.Type); err != nil {
 			return nil, common.ErrContainerError("before_create", err)
 		}
 	}
-
 	for _, interceptor := range registration.Interceptors {
 		if err := interceptor.BeforeCreate(ctx, registration.Type); err != nil {
 			return nil, common.ErrContainerError("before_create", err)
 		}
 	}
 
-	// Create instance
 	var instance interface{}
 	var err error
 
@@ -525,135 +808,43 @@ func (c *Container) createInstance(ctx context.Context, registration *ServiceReg
 		}
 	}
 
-	// Run after create interceptors
+	// Run after-create interceptors
 	for _, interceptor := range c.interceptors {
 		if err := interceptor.AfterCreate(ctx, registration.Type, instance); err != nil {
 			return nil, common.ErrContainerError("after_create", err)
 		}
 	}
-
 	for _, interceptor := range registration.Interceptors {
 		if err := interceptor.AfterCreate(ctx, registration.Type, instance); err != nil {
 			return nil, common.ErrContainerError("after_create", err)
 		}
 	}
 
-	// Store singleton instance
 	if registration.Singleton {
 		registration.Instance = instance
-	}
-
-	// Record metrics
-	if c.metrics != nil {
-		c.metrics.Counter("forge.di.instances_created").Inc()
-		if registration.Singleton {
-			c.metrics.Counter("forge.di.singletons_created").Inc()
-		}
 	}
 
 	return instance, nil
 }
 
-// createFactory creates a factory function from a constructor
-func (c *Container) createFactory(constructor interface{}) (ServiceFactory, error) {
-	constructorType := reflect.TypeOf(constructor)
-	if constructorType.Kind() != reflect.Func {
-		return nil, fmt.Errorf("constructor must be a function")
-	}
+// Utility methods
+func (c *Container) LifecycleManager() common.LifecycleManager { return c.lifecycle }
+func (c *Container) GetConfigurator() *Configurator            { return c.configurator }
+func (c *Container) GetResolver() *Resolver                    { return c.resolver }
+func (c *Container) GetValidator() common.Validator            { return c.validator }
 
-	constructorValue := reflect.ValueOf(constructor)
-
-	return func(ctx context.Context, container common.Container) (interface{}, error) {
-		// Get function parameters
-		numParams := constructorType.NumIn()
-		params := make([]reflect.Value, numParams)
-
-		for i := 0; i < numParams; i++ {
-			paramType := constructorType.In(i)
-
-			// Special handling for context
-			if paramType == reflect.TypeOf((*context.Context)(nil)).Elem() {
-				params[i] = reflect.ValueOf(ctx)
-				continue
-			}
-
-			// Special handling for ForgeContext
-			if paramType == reflect.TypeOf((*common.ForgeContext)(nil)).Elem() {
-				forgeCtx := common.NewForgeContext(ctx, container, c.logger, c.metrics, c.config)
-				params[i] = reflect.ValueOf(forgeCtx)
-				continue
-			}
-
-			// Enhanced dependency resolution with reference name support
-			var dependency interface{}
-			var err error
-
-			// First try the enhanced type matching (includes reference names)
-			dependency, err = c.resolver.resolveDependencyWithEnhancedTypeMatching(ctx, paramType)
-			if err != nil {
-				// If that fails, try resolving by type name as a reference name
-				typeName := paramType.Name()
-				if typeName != "" {
-					dependency, err = c.resolver.resolveDependencyByName(ctx, typeName)
-				}
-			}
-
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve dependency %s: %w", paramType.String(), err)
-			}
-
-			params[i] = reflect.ValueOf(dependency)
-		}
-
-		// Call constructor
-		results := constructorValue.Call(params)
-
-		// Check for errors
-		if len(results) == 0 {
-			return nil, fmt.Errorf("constructor must return at least one value")
-		}
-
-		instance := results[0].Interface()
-
-		// Check if last result is an error
-		if len(results) > 1 {
-			if err, ok := results[len(results)-1].Interface().(error); ok && err != nil {
-				return nil, err
-			}
-		}
-
-		return instance, nil
-	}, nil
+func (c *Container) IsStarted() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.started
 }
 
-// LifecycleManager returns the lifecycle manager
-func (c *Container) LifecycleManager() common.LifecycleManager {
-	return c.lifecycle
-}
-
-// GetConfigurator returns the configurator
-func (c *Container) GetConfigurator() *Configurator {
-	return c.configurator
-}
-
-// GetResolver returns the resolver
-func (c *Container) GetResolver() *Resolver {
-	return c.resolver
-}
-
-// GetValidator returns the validator
-func (c *Container) GetValidator() common.Validator {
-	return c.validator
-}
-
-// AddInterceptor adds an interceptor to the container
 func (c *Container) AddInterceptor(interceptor Interceptor) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.interceptors = append(c.interceptors, interceptor)
 }
 
-// RemoveInterceptor removes an interceptor from the container
 func (c *Container) RemoveInterceptor(interceptor Interceptor) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -665,7 +856,6 @@ func (c *Container) RemoveInterceptor(interceptor Interceptor) {
 	}
 }
 
-// GetInterceptors returns all interceptors
 func (c *Container) GetInterceptors() []Interceptor {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -674,14 +864,6 @@ func (c *Container) GetInterceptors() []Interceptor {
 	return interceptors
 }
 
-// IsStarted returns true if the container has been started
-func (c *Container) IsStarted() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.started
-}
-
-// GetStats returns statistics about the container
 func (c *Container) GetStats() ContainerStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -695,36 +877,32 @@ func (c *Container) GetStats() ContainerStats {
 	}
 }
 
-// NamedServices returns statistics about the container
 func (c *Container) NamedServices() map[string]*ServiceRegistration {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
-	return c.namedServices
+	result := make(map[string]*ServiceRegistration)
+	for k, v := range c.namedServices {
+		result[k] = v
+	}
+	return result
 }
 
-// AddReferenceMapping adds a reference name mapping for an existing service
 func (c *Container) AddReferenceMapping(referenceName, actualServiceName string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.started {
-		return common.ErrContainerError("add_reference_mapping",
-			fmt.Errorf("cannot add reference mappings after container has started"))
+		return common.ErrContainerError("add_reference_mapping", fmt.Errorf("cannot add mappings after start"))
 	}
 
-	// Check if reference name already exists
 	if _, exists := c.referenceNameMappings[referenceName]; exists {
-		return common.ErrContainerError("add_reference_mapping",
-			fmt.Errorf("reference name '%s' already mapped", referenceName))
+		return common.ErrContainerError("add_reference_mapping", fmt.Errorf("reference name '%s' already mapped", referenceName))
 	}
 
-	// Check if actual service exists
 	if _, exists := c.namedServices[actualServiceName]; !exists {
-		// Check if it's a type-based service
 		found := false
-		for _, registration := range c.services {
-			if registration.Type.String() == actualServiceName {
+		for _, reg := range c.services {
+			if reg.Type.String() == actualServiceName {
 				found = true
 				break
 			}
@@ -738,53 +916,44 @@ func (c *Container) AddReferenceMapping(referenceName, actualServiceName string)
 
 	if c.logger != nil {
 		c.logger.Info("reference mapping added",
-			logger.String("reference_name", referenceName),
-			logger.String("actual_service", actualServiceName),
-		)
+			logger.String("reference", referenceName),
+			logger.String("actual", actualServiceName))
 	}
 
 	return nil
 }
 
-// RemoveReferenceMapping removes a reference name mapping
 func (c *Container) RemoveReferenceMapping(referenceName string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.started {
-		return common.ErrContainerError("remove_reference_mapping",
-			fmt.Errorf("cannot remove reference mappings after container has started"))
+		return common.ErrContainerError("remove_reference_mapping", fmt.Errorf("cannot remove mappings after start"))
 	}
 
 	if _, exists := c.referenceNameMappings[referenceName]; !exists {
-		return common.ErrContainerError("remove_reference_mapping",
-			fmt.Errorf("reference name '%s' not found", referenceName))
+		return common.ErrContainerError("remove_reference_mapping", fmt.Errorf("reference name '%s' not found", referenceName))
 	}
 
 	delete(c.referenceNameMappings, referenceName)
 
 	if c.logger != nil {
-		c.logger.Info("reference mapping removed",
-			logger.String("reference_name", referenceName),
-		)
+		c.logger.Info("reference mapping removed", logger.String("reference", referenceName))
 	}
 
 	return nil
 }
 
-// GetReferenceMappings returns all reference name mappings
 func (c *Container) GetReferenceMappings() map[string]string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-
 	mappings := make(map[string]string, len(c.referenceNameMappings))
-	for refName, actualName := range c.referenceNameMappings {
-		mappings[refName] = actualName
+	for k, v := range c.referenceNameMappings {
+		mappings[k] = v
 	}
 	return mappings
 }
 
-// ResolveByReference resolves a service using a reference name
 func (c *Container) ResolveByReference(referenceName string) (interface{}, error) {
 	c.mu.RLock()
 	actualName, exists := c.referenceNameMappings[referenceName]
@@ -797,69 +966,15 @@ func (c *Container) ResolveByReference(referenceName string) (interface{}, error
 	return c.ResolveNamed(actualName)
 }
 
-// ResolveNamed resolves a named service from the container (MODIFIED to support reference names)
-func (c *Container) ResolveNamed(name string) (interface{}, error) {
-	c.mu.RLock()
-
-	// First try direct name resolution
-	registration, exists := c.namedServices[name]
-	if !exists {
-		// Try reference name mapping
-		if actualName, mapped := c.referenceNameMappings[name]; mapped {
-			if actualRegistration, actualExists := c.namedServices[actualName]; actualExists {
-				registration = actualRegistration
-				exists = true
-			}
-		}
-	}
-
-	c.mu.RUnlock()
-
-	if !exists {
-		return nil, common.ErrServiceNotFound(name)
-	}
-
-	return c.createInstance(context.Background(), registration)
-}
-
-// Enhanced dependency resolution with reference name support
-func (r *Resolver) resolveDependencyByName(ctx context.Context, dependencyName string) (interface{}, error) {
-	r.container.mu.RLock()
-	defer r.container.mu.RUnlock()
-
-	// Strategy 1: Try direct named service resolution
-	if registration, exists := r.container.namedServices[dependencyName]; exists {
-		return r.CreateInstance(ctx, registration)
-	}
-
-	// Strategy 2: Try reference name mapping
-	if actualName, mapped := r.container.referenceNameMappings[dependencyName]; mapped {
-		if registration, exists := r.container.namedServices[actualName]; exists {
-			return r.CreateInstance(ctx, registration)
-		}
-	}
-
-	// Strategy 3: Try type-based resolution as fallback
-	for serviceType, registration := range r.container.services {
-		if serviceType.Name() == dependencyName || serviceType.String() == dependencyName {
-			return r.CreateInstance(ctx, registration)
-		}
-	}
-
-	return nil, common.ErrServiceNotFound(dependencyName)
-}
-
 func (c *Container) cleanupReferenceMappingsForService(serviceName string) {
-	// Find and remove all mappings that point to this service
 	toRemove := make([]string, 0)
-	for refName, actualName := range c.referenceNameMappings {
-		if actualName == serviceName {
-			toRemove = append(toRemove, refName)
+	for ref, actual := range c.referenceNameMappings {
+		if actual == serviceName {
+			toRemove = append(toRemove, ref)
 		}
 	}
-
-	for _, refName := range toRemove {
-		delete(c.referenceNameMappings, refName)
+	for _, ref := range toRemove {
+		delete(c.referenceNameMappings, ref)
 	}
 }
 

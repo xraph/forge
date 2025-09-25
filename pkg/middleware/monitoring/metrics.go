@@ -242,10 +242,10 @@ func (mm *MonitoringMiddleware) OnStart(ctx context.Context) error {
 		return err
 	}
 
-	// Start background collection goroutine
+	// OnStart background collection goroutine
 	go mm.startPerformanceCollection(ctx)
 
-	// Start alert monitoring
+	// OnStart alert monitoring
 	go mm.startAlertMonitoring(ctx)
 
 	return nil
@@ -273,13 +273,13 @@ func (mm *MonitoringMiddleware) Handler() func(next http.Handler) http.Handler {
 				return
 			}
 
-			// Start tracing if enabled
+			// OnStart tracing if enabled
 			var span *Span
 			if mm.config.EnableTracing {
 				span = mm.tracer.StartSpan(r)
 			}
 
-			// Start profiling if enabled
+			// OnStart profiling if enabled
 			var profileStart time.Time
 			var memBefore runtime.MemStats
 			if mm.config.EnableProfiling {

@@ -336,7 +336,7 @@ func (c *AIMetricsCollector) Start(ctx context.Context) error {
 	c.collectionTicker = time.NewTicker(c.config.CollectionInterval)
 	c.started = true
 
-	// Start collection goroutine
+	// OnStart collection goroutine
 	go c.collectMetrics(ctx)
 
 	if c.logger != nil {

@@ -114,7 +114,7 @@ func NewFailoverManager(primary cachecore.Cache, replicas []cachecore.Cache, con
 		metrics:         metrics,
 		config:          config,
 		failoverHistory: make([]FailoverEvent, 0),
-		currentPrimary:  0, // Start with original primary
+		currentPrimary:  0, // OnStart with original primary
 		stopChan:        make(chan struct{}),
 	}
 }
@@ -130,7 +130,7 @@ func (fm *FailoverManager) Start(ctx context.Context) error {
 
 	fm.monitoring = true
 
-	// Start health monitoring goroutine
+	// OnStart health monitoring goroutine
 	go fm.monitorHealth()
 
 	if fm.logger != nil {

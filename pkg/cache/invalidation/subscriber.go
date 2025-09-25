@@ -239,7 +239,7 @@ func (ar *AsyncReplication) Start(ctx context.Context) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Start workers
+	// OnStart workers
 	workerCount := ar.config.WorkerCount
 	if workerCount <= 0 {
 		workerCount = 5
@@ -264,15 +264,15 @@ func (ar *AsyncReplication) Start(ctx context.Context) error {
 		go worker.start(ctx)
 	}
 
-	// Start operation distributor
+	// OnStart operation distributor
 	go ar.distributeOperations(ctx)
 
-	// Start health checker
+	// OnStart health checker
 	if ar.config.HealthCheckInterval > 0 {
 		go ar.healthCheckLoop(ctx)
 	}
 
-	// Start metrics collector
+	// OnStart metrics collector
 	go ar.metricsLoop(ctx)
 
 	ar.started = true
@@ -302,7 +302,7 @@ func (ar *AsyncReplication) Stop(ctx context.Context) error {
 	// Signal shutdown
 	close(ar.stopChan)
 
-	// Stop all workers
+	// OnStop all workers
 	for _, worker := range ar.workers {
 		worker.stop()
 	}

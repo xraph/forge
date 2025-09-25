@@ -182,7 +182,7 @@ func (sm *SecretsManagerImpl) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start rotation if enabled
+	// OnStart rotation if enabled
 	if sm.config.RotationEnabled {
 		sm.startRotation()
 	}
@@ -215,7 +215,7 @@ func (sm *SecretsManagerImpl) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop rotation
+	// OnStop rotation
 	if sm.rotationTicker != nil {
 		sm.rotationTicker.Stop()
 	}

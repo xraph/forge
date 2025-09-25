@@ -176,7 +176,7 @@ func (cm *consensusManager) Start(ctx context.Context) error {
 		return fmt.Errorf("consensus manager already started")
 	}
 
-	// Start background processes
+	// OnStart background processes
 	go cm.monitorProposals(ctx)
 	go cm.updateStatistics(ctx)
 
@@ -226,7 +226,7 @@ func (cm *consensusManager) RegisterParticipant(id string, weight float64) error
 		Timestamp:  time.Now(),
 		Metadata:   make(map[string]interface{}),
 		Online:     true,
-		Reputation: 1.0, // Start with perfect reputation
+		Reputation: 1.0, // OnStart with perfect reputation
 	}
 
 	cm.participants[id] = participant

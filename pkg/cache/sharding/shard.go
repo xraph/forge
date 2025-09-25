@@ -150,17 +150,17 @@ func (sm *ShardManager) Start(ctx context.Context) error {
 		return fmt.Errorf("shard manager already started")
 	}
 
-	// Start auto-rebalancing if enabled
+	// OnStart auto-rebalancing if enabled
 	if sm.config.AutoRebalance {
 		go sm.autoRebalanceLoop(ctx)
 	}
 
-	// Start health checking if enabled
+	// OnStart health checking if enabled
 	if sm.config.HealthCheck.Enabled {
 		go sm.healthCheckLoop(ctx)
 	}
 
-	// Start metrics collection if enabled
+	// OnStart metrics collection if enabled
 	if sm.config.Monitoring.Enabled {
 		go sm.metricsLoop(ctx)
 	}

@@ -12,53 +12,97 @@ import (
 
 // TrainingPipeline defines the interface for training pipelines
 type TrainingPipeline interface {
-	// Pipeline lifecycle
+	// Start begins the training pipeline execution using the provided context. Returns an error if the start operation fails.
 	Start(ctx context.Context) error
+
+	// Stop halts the execution of the training pipeline and transitions its status to a stopped or inactive state.
 	Stop(ctx context.Context) error
+
+	// Pause pauses the execution of the training pipeline and transitions its status to a paused state.
 	Pause(ctx context.Context) error
+
+	// Resume resumes a paused training pipeline and transitions its state back to active, enabling its execution to continue.
 	Resume(ctx context.Context) error
 
-	// Pipeline configuration
+	// ID returns the unique identifier of the pipeline.
 	ID() string
+
+	// Name returns the name of the training pipeline.
 	Name() string
+
+	// Status returns the current status of the pipeline as a PipelineStatus.
 	Status() PipelineStatus
+
+	// GetConfig retrieves the current configuration of the training pipeline as a PipelineConfig struct.
 	GetConfig() PipelineConfig
+
+	// UpdateConfig updates the pipeline configuration with the provided PipelineConfig object and returns an error if it fails.
 	UpdateConfig(config PipelineConfig) error
 
-	// Stage management
+	// AddStage adds a new stage to the training pipeline. Returns an error if the operation fails.
 	AddStage(stage PipelineStage) error
+
+	// RemoveStage removes a stage from the training pipeline by its ID and returns an error if the operation fails.
 	RemoveStage(stageID string) error
+
+	// GetStage retrieves a specific pipeline stage by its unique stage ID. Returns the stage and an error if not found.
 	GetStage(stageID string) (PipelineStage, error)
+
+	// GetStages returns all stages defined in the pipeline as a slice of PipelineStage objects.
 	GetStages() []PipelineStage
 
-	// Execution
+	// Execute processes the given pipeline input and returns the output along with an error if execution fails.
 	Execute(ctx context.Context, input PipelineInput) (PipelineOutput, error)
+
+	// GetExecution retrieves a pipeline execution by its unique execution ID. Returns the execution instance or an error.
 	GetExecution(executionID string) (PipelineExecution, error)
+
+	// ListExecutions retrieves all pipeline executions for the current pipeline. Returns a slice of PipelineExecution objects.
 	ListExecutions() []PipelineExecution
 
-	// Monitoring
+	// GetMetrics retrieves the performance metrics of the training pipeline, including execution counts and success rate.
 	GetMetrics() PipelineMetrics
+
+	// GetLogs retrieves a list of log entries associated with the pipeline, including details such as timestamp, level, and message.
 	GetLogs() []PipelineLogEntry
+
+	// GetHealth retrieves the current health status of the training pipeline, including status, details, and timestamps.
 	GetHealth() PipelineHealth
 }
 
 // PipelineManager manages training pipelines
 type PipelineManager interface {
-	// Pipeline management
+	// CreatePipeline initializes a new training pipeline based on the provided configuration and returns it or an error.
 	CreatePipeline(config PipelineConfig) (TrainingPipeline, error)
+
+	// DeletePipeline removes a pipeline identified by the given pipelineID. It returns an error if the operation fails.
 	DeletePipeline(pipelineID string) error
+
+	// GetPipeline retrieves the details of a specific training pipeline by its ID. Returns the pipeline or an error if not found.
 	GetPipeline(pipelineID string) (TrainingPipeline, error)
+
+	// ListPipelines retrieves a list of all available training pipelines managed by the system.
 	ListPipelines() []TrainingPipeline
 
-	// Execution management
+	// ExecutePipeline starts the execution of a specified pipeline using the provided input and returns the execution details.
 	ExecutePipeline(ctx context.Context, pipelineID string, input PipelineInput) (PipelineExecution, error)
+
+	// GetExecution retrieves the details of a specific pipeline execution by its unique execution ID.
 	GetExecution(executionID string) (PipelineExecution, error)
+
+	// CancelExecution cancels an ongoing pipeline execution identified by the provided executionID.
 	CancelExecution(executionID string) error
 
-	// Templates
+	// CreateTemplate creates a new pipeline template based on the provided PipelineTemplate configuration. Returns an error if creation fails.
 	CreateTemplate(template PipelineTemplate) error
+
+	// GetTemplate retrieves a pipeline template by its unique templateID and returns the PipelineTemplate or an error if not found.
 	GetTemplate(templateID string) (PipelineTemplate, error)
+
+	// ListTemplates retrieves all available pipeline templates from the system and returns them as a slice of PipelineTemplate.
 	ListTemplates() []PipelineTemplate
+
+	// CreateFromTemplate creates a new TrainingPipeline based on the specified templateID and configuration parameters.
 	CreateFromTemplate(templateID string, config map[string]interface{}) (TrainingPipeline, error)
 }
 

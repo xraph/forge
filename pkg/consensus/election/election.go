@@ -228,18 +228,18 @@ func (em *ElectionManager) Start(ctx context.Context) error {
 		}
 	}
 
-	// Start transport
+	// OnStart transport
 	if err := em.transport.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("transport", err)
 	}
 
-	// Start timeout manager
+	// OnStart timeout manager
 	em.timeoutManager.Start(ctx)
 
-	// Start event processing
+	// OnStart event processing
 	go em.processEvents(ctx)
 
-	// Start as follower
+	// OnStart as follower
 	em.state = ElectionStateFollower
 	em.started = true
 
@@ -273,10 +273,10 @@ func (em *ElectionManager) Stop(ctx context.Context) error {
 	// Signal stop
 	close(em.stopCh)
 
-	// Stop timeout manager
+	// OnStop timeout manager
 	em.timeoutManager.Stop()
 
-	// Stop transport
+	// OnStop transport
 	if err := em.transport.Stop(ctx); err != nil {
 		if em.logger != nil {
 			em.logger.Error("failed to stop transport", logger.Error(err))
@@ -352,7 +352,7 @@ func (em *ElectionManager) StartElection(ctx context.Context) error {
 	// Reset timeout
 	em.timeoutManager.Reset()
 
-	// Start vote collection
+	// OnStart vote collection
 	if err := em.voteCollector.StartCollection(ctx, em.term); err != nil {
 		return fmt.Errorf("failed to start vote collection: %w", err)
 	}
@@ -703,7 +703,7 @@ func (em *ElectionManager) onElectionTimeout(ctx context.Context, timeout time.D
 			"state":   state,
 		})
 
-		// Start new election
+		// OnStart new election
 		if err := em.StartElection(ctx); err != nil {
 			if em.logger != nil {
 				em.logger.Error("failed to start election on timeout", logger.Error(err))
@@ -755,7 +755,7 @@ func (em *ElectionManager) becomeLeader(ctx context.Context) {
 	em.currentLeader = em.nodeID
 	em.lastElection = time.Now()
 
-	// Stop timeout (leaders don't need election timeouts)
+	// OnStop timeout (leaders don't need election timeouts)
 	em.timeoutManager.Stop()
 
 	// End vote collection
@@ -781,7 +781,7 @@ func (em *ElectionManager) becomeLeader(ctx context.Context) {
 		em.metrics.Counter("forge.consensus.election.leader_elected").Inc()
 	}
 
-	// Start sending heartbeats
+	// OnStart sending heartbeats
 	go em.sendHeartbeats(ctx)
 }
 

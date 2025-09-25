@@ -529,7 +529,7 @@ func (cm *CachingMiddleware) cacheResponse(r *http.Request, capture *ResponseCap
 
 // generateCacheKey generates a cache key for the request
 func (cm *CachingMiddleware) generateCacheKey(r *http.Request) *CacheKey {
-	// Start with base key components
+	// OnStart with base key components
 	keyParts := []string{
 		cm.config.KeyPrefix,
 		r.Method,

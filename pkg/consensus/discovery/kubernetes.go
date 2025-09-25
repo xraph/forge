@@ -171,7 +171,7 @@ func (f *KubernetesDiscoveryFactory) Create(config DiscoveryConfig) (Discovery, 
 		}
 	}
 
-	// Start watch if enabled
+	// OnStart watch if enabled
 	if k8sConfig.EnableWatch {
 		if err := kd.startWatch(); err != nil {
 			if f.logger != nil {
@@ -180,7 +180,7 @@ func (f *KubernetesDiscoveryFactory) Create(config DiscoveryConfig) (Discovery, 
 		}
 	}
 
-	// Start refresh routine
+	// OnStart refresh routine
 	go kd.refreshLoop()
 
 	if f.logger != nil {
@@ -632,7 +632,7 @@ func (kd *KubernetesDiscovery) startWatch() error {
 		watchOptions.FieldSelector = kd.config.FieldSelector
 	}
 
-	// Start watching pods
+	// OnStart watching pods
 	go func() {
 		for {
 			select {
@@ -641,7 +641,7 @@ func (kd *KubernetesDiscovery) startWatch() error {
 			case <-kd.stopCh:
 				return
 			default:
-				// Start watch
+				// OnStart watch
 				watcher, err := kd.client.CoreV1().Pods(kd.config.Namespace).Watch(ctx, watchOptions)
 				if err != nil {
 					if kd.logger != nil {

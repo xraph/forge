@@ -176,7 +176,7 @@ func (hps *HealthPersistenceService) Start(ctx context.Context) error {
 		)
 	}
 
-	// Start cleanup ticker
+	// OnStart cleanup ticker
 	hps.cleanupTicker = time.NewTicker(hps.config.CleanupInterval)
 	go hps.cleanupLoop()
 
@@ -193,7 +193,7 @@ func (hps *HealthPersistenceService) Stop(ctx context.Context) error {
 		hps.logger.Info("stopping health persistence service")
 	}
 
-	// Stop cleanup ticker
+	// OnStop cleanup ticker
 	if hps.cleanupTicker != nil {
 		hps.cleanupTicker.Stop()
 	}

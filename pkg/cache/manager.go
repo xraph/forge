@@ -89,7 +89,7 @@ func (cm *CacheManager) OnStart(ctx context.Context) error {
 	// Initialize cache factory
 	cm.initializeCacheFactory()
 
-	// Start cache backends
+	// OnStart cache backends
 	for name, backend := range cm.caches {
 		if err := backend.Start(ctx); err != nil {
 			cm.logger.Error("failed to start cache backend",
@@ -100,21 +100,21 @@ func (cm *CacheManager) OnStart(ctx context.Context) error {
 		}
 	}
 
-	// Start invalidation manager
+	// OnStart invalidation manager
 	if cm.invalidation != nil {
 		if err := cm.invalidation.Start(ctx); err != nil {
 			return common.ErrServiceStartFailed("invalidation-manager", err)
 		}
 	}
 
-	// Start cache warming
+	// OnStart cache warming
 	if cm.warming != nil {
 		if err := cm.warming.Start(ctx); err != nil {
 			return common.ErrServiceStartFailed(common.CacheWarmer, err)
 		}
 	}
 
-	// Start background tasks
+	// OnStart background tasks
 	go cm.backgroundTasks()
 
 	cm.started = true
@@ -145,21 +145,21 @@ func (cm *CacheManager) OnStop(ctx context.Context) error {
 	// Signal shutdown
 	close(cm.shutdownChannel)
 
-	// Stop cache warming
+	// OnStop cache warming
 	if cm.warming != nil {
 		if err := cm.warming.Stop(ctx); err != nil {
 			cm.logger.Error("failed to stop cache warmer", logger.Error(err))
 		}
 	}
 
-	// Stop invalidation manager
+	// OnStop invalidation manager
 	if cm.invalidation != nil {
 		if err := cm.invalidation.Stop(ctx); err != nil {
 			cm.logger.Error("failed to stop invalidation manager", logger.Error(err))
 		}
 	}
 
-	// Stop cache backends
+	// OnStop cache backends
 	for name, backend := range cm.caches {
 		if err := backend.Stop(ctx); err != nil {
 			cm.logger.Error("failed to stop cache backend",
@@ -271,7 +271,7 @@ func (cm *CacheManager) UnregisterCache(name string) error {
 		return common.ErrServiceNotFound(name)
 	}
 
-	// Stop the backend
+	// OnStop the backend
 	if err := backend.Stop(context.Background()); err != nil {
 		cm.logger.Error("failed to stop cache backend during unregistration",
 			logger.String("name", name),

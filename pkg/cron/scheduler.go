@@ -69,7 +69,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	s.running = true
 	s.paused = false
 
-	// Start background processing
+	// OnStart background processing
 	s.wg.Add(1)
 	go s.processingLoop(ctx)
 

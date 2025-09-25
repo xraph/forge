@@ -13,14 +13,16 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // PluginStore interface for plugin discovery and management
 type PluginStore interface {
 	Initialize(ctx context.Context) error
 	Stop(ctx context.Context) error
-	Search(ctx context.Context, query plugins.PluginQuery) ([]plugins.PluginInfo, error)
+	Validator() *PluginValidator
+	Registry() plugins.PluginRegistry
+	Search(ctx context.Context, query PluginQuery) ([]plugins.PluginInfo, error)
 	Get(ctx context.Context, pluginID string) (*plugins.PluginInfo, error)
 	GetVersions(ctx context.Context, pluginID string) ([]string, error)
 	GetLatestVersion(ctx context.Context, pluginID string) (string, error)
@@ -65,6 +67,24 @@ type StoreConfig struct {
 	RetryBackoff        time.Duration `yaml:"retry_backoff" json:"retry_backoff"`
 }
 
+func DefaultConfig() StoreConfig {
+	return StoreConfig{
+		CacheDirectory:      "plugins/cache",
+		MarketplaceURL:      "https://plugins.forge.dev",
+		RegistryURL:         "https://registry.forge.dev",
+		CacheTimeout:        24 * time.Hour,
+		MaxCacheSize:        10 * 1024 * 1024 * 1024, // 10GB
+		MaxDownloadSize:     1024 * 1024 * 1024,      // 1GB
+		VerifySignatures:    true,
+		EnableMarketplace:   true,
+		EnableLocalRegistry: true,
+		EnableCache:         true,
+		HttpTimeout:         30 * time.Second,
+		MaxRetries:          3,
+		RetryBackoff:        5 * time.Second,
+	}
+}
+
 // PluginStoreStats contains statistics about the plugin store
 type PluginStoreStats struct {
 	TotalPlugins        int           `json:"total_plugins"`
@@ -81,28 +101,13 @@ type PluginStoreStats struct {
 }
 
 // NewPluginStore creates a new plugin store
-func NewPluginStore(logger common.Logger, metrics common.Metrics) PluginStore {
-	config := StoreConfig{
-		CacheDirectory:      "plugins/cache",
-		MarketplaceURL:      "https://plugins.forge.dev",
-		RegistryURL:         "https://registry.forge.dev",
-		CacheTimeout:        24 * time.Hour,
-		MaxCacheSize:        10 * 1024 * 1024 * 1024, // 10GB
-		MaxDownloadSize:     1024 * 1024 * 1024,      // 1GB
-		VerifySignatures:    true,
-		EnableMarketplace:   true,
-		EnableLocalRegistry: true,
-		EnableCache:         true,
-		HttpTimeout:         30 * time.Second,
-		MaxRetries:          3,
-		RetryBackoff:        5 * time.Second,
-	}
-
+func NewPluginStore(config StoreConfig, logger common.Logger, metrics common.Metrics) PluginStore {
 	return &PluginStoreImpl{
-		config:  config,
-		logger:  logger,
-		metrics: metrics,
-		stats:   PluginStoreStats{},
+		config:   config,
+		logger:   logger,
+		metrics:  metrics,
+		stats:    PluginStoreStats{},
+		registry: NewPluginRegistry(config, logger, metrics),
 	}
 }
 
@@ -179,7 +184,7 @@ func (ps *PluginStoreImpl) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop components
+	// OnStop components
 	if ps.cache != nil {
 		if err := ps.cache.Stop(ctx); err != nil {
 			ps.logger.Error("failed to stop cache", logger.Error(err))
@@ -221,8 +226,17 @@ func (ps *PluginStoreImpl) Stop(ctx context.Context) error {
 	return nil
 }
 
+func (ps *PluginStoreImpl) Validator() *PluginValidator {
+	return ps.validator
+}
+
+// Registry returns the plugin registry that implements plugins.PluginRegistry
+func (ps *PluginStoreImpl) Registry() plugins.PluginRegistry {
+	return ps.registry
+}
+
 // Search searches for plugins
-func (ps *PluginStoreImpl) Search(ctx context.Context, query plugins.PluginQuery) ([]plugins.PluginInfo, error) {
+func (ps *PluginStoreImpl) Search(ctx context.Context, query PluginQuery) ([]plugins.PluginInfo, error) {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
 
@@ -245,7 +259,7 @@ func (ps *PluginStoreImpl) Search(ctx context.Context, query plugins.PluginQuery
 
 	// Search in local registry if enabled
 	if ps.config.EnableLocalRegistry && ps.registry != nil {
-		registryResults, err := ps.registry.Search(ctx, query)
+		registryResults, err := ps.registry.SearchMetadata(ctx, query)
 		if err != nil {
 			ps.logger.Warn("registry search failed", logger.Error(err))
 		} else {
@@ -538,7 +552,7 @@ func (ps *PluginStoreImpl) GetStats() PluginStoreStats {
 
 // Helper methods
 
-func (ps *PluginStoreImpl) filterResults(results []plugins.PluginInfo, query plugins.PluginQuery) []plugins.PluginInfo {
+func (ps *PluginStoreImpl) filterResults(results []plugins.PluginInfo, query PluginQuery) []plugins.PluginInfo {
 	var filtered []plugins.PluginInfo
 
 	for _, result := range results {
@@ -585,7 +599,7 @@ func (ps *PluginStoreImpl) filterResults(results []plugins.PluginInfo, query plu
 	return filtered
 }
 
-func (ps *PluginStoreImpl) sortResults(results []plugins.PluginInfo, sortOrder plugins.PluginSortOrder) []plugins.PluginInfo {
+func (ps *PluginStoreImpl) sortResults(results []plugins.PluginInfo, sortOrder PluginSortOrder) []plugins.PluginInfo {
 	// Implement sorting logic based on sort order
 	// For now, return as-is
 	return results

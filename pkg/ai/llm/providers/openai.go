@@ -332,16 +332,16 @@ func (p *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, paylo
 // convertChatRequest converts a chat request to OpenAI format
 func (p *OpenAIProvider) convertChatRequest(request llm.ChatRequest) *openAIRequest {
 	openAIReq := &openAIRequest{
-		Model:            request.Model,
-		MaxTokens:        request.MaxTokens,
-		Temperature:      request.Temperature,
-		TopP:             request.TopP,
-		N:                request.N,
-		Stream:           request.Stream,
-		Stop:             request.Stop,
-		PresencePenalty:  request.PresencePenalty,
-		FrequencyPenalty: request.FrequencyPenalty,
-		User:             request.User,
+		Model:       request.Model,
+		MaxTokens:   request.MaxTokens,
+		Temperature: request.Temperature,
+		TopP:        request.TopP,
+		// N:                request.N,
+		Stream: request.Stream,
+		Stop:   request.Stop,
+		// PresencePenalty:  request.PresencePenalty,
+		// FrequencyPenalty: request.FrequencyPenalty,
+		// User:             request.User,
 	}
 
 	// Convert messages
@@ -427,7 +427,7 @@ func (p *OpenAIProvider) convertCompletionRequest(request llm.CompletionRequest)
 		Stop:             request.Stop,
 		PresencePenalty:  request.PresencePenalty,
 		FrequencyPenalty: request.FrequencyPenalty,
-		User:             request.User,
+		// User:             request.User,
 	}
 }
 

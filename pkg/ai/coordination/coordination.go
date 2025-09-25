@@ -619,7 +619,7 @@ func (ds *DistributedStrategy) Execute(ctx context.Context, plan *CoordinationPl
 	actionCh := make(chan CoordinationAction, len(plan.Actions))
 	resultCh := make(chan error, len(plan.Actions))
 
-	// Start all actions in parallel
+	// OnStart all actions in parallel
 	for _, action := range plan.Actions {
 		actionCh <- action
 	}

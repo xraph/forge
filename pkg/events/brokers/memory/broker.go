@@ -138,7 +138,7 @@ func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event eventsc
 			mb.topics[topic] = topicChan
 			mb.stats.TopicsCount++
 
-			// Start topic processor
+			// OnStart topic processor
 			mb.wg.Add(1)
 			go mb.processTopicEvents(topic, topicChan)
 		}
@@ -222,7 +222,7 @@ func (mb *MemoryBroker) Subscribe(ctx context.Context, topic string, handler eve
 		mb.topics[topic] = topicChan
 		mb.stats.TopicsCount++
 
-		// Start topic processor
+		// OnStart topic processor
 		mb.wg.Add(1)
 		go mb.processTopicEvents(topic, topicChan)
 	}

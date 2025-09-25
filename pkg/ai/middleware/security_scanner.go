@@ -227,7 +227,7 @@ func (s *AISecurityScanner) Initialize(ctx context.Context, config ai.AIMiddlewa
 		}
 	}
 
-	// Start background routines
+	// OnStart background routines
 	go s.performanceMonitoring(ctx)
 	go s.threatAnalysis(ctx)
 	go s.behaviorAnalysis(ctx)

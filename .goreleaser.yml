@@ -1,0 +1,326 @@
+# GoReleaser configuration for Forge CLI
+# Build system for cross-platform releases
+
+project_name: forge
+
+before:
+  hooks:
+    # Clean up any previous builds
+    - go mod tidy
+    - go mod verify
+
+builds:
+  - id: forge-cli
+    main: ./cmd/forge
+    binary: forge
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # Ignore 32-bit architectures for modern CLI
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.buildTime={{.Date}}
+      - -X main.builtBy=goreleaser
+    flags:
+      - -trimpath
+
+archives:
+  - id: forge-archives
+    builds:
+      - forge-cli
+    name_template: >-
+      {{ .ProjectName }}-
+      {{- .Version }}-
+      {{- .Os }}-
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - merge conflict
+      - Merge pull request
+      - Merge remote-tracking branch
+      - Merge branch
+  groups:
+    - title: 'New Features'
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: 'Security Updates'
+      regexp: '^.*?sec(\(.+\))??!?:.+$'
+      order: 1
+    - title: 'Bug Fixes'
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 2
+    - title: 'Performance Improvements'
+      regexp: '^.*?perf(\(.+\))??!?:.+$'
+      order: 3
+    - title: 'Refactoring'
+      regexp: '^.*?refactor(\(.+\))??!?:.+$'
+      order: 4
+    - title: 'Documentation Updates'
+      regexp: '^.*?docs(\(.+\))??!?:.+$'
+      order: 5
+    - title: 'Build System'
+      regexp: '^.*?build(\(.+\))??!?:.+$'
+      order: 6
+    - title: 'Other Changes'
+      order: 999
+
+release:
+  github:
+    owner: xraph
+    name: forge
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## Forge Framework {{ .Tag }} ({{ .Date }})
+    
+    Welcome to this new release of Forge Framework!
+
+  footer: |
+    ## Installation
+    
+    ### Using Go Install
+    ```bash
+    go install github.com/xraph/forge/cmd/forge@{{ .Tag }}
+    ```
+    
+    ### Download Binary
+    Download the appropriate binary for your platform from the assets below.
+    
+    ### Using Package Managers
+    ```bash
+    # Homebrew (macOS/Linux)
+    brew install xraph/tap/forge
+    
+    # Scoop (Windows)
+    scoop bucket add xraph https://github.com/xraph/scoop-bucket
+    scoop install forge
+    ```
+    
+    ## What's Changed
+    Full changelog: https://github.com/xraph/forge/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+# Homebrew tap
+brews:
+  - name: forge
+    ids:
+      - forge-archives
+    tap:
+      owner: xraph
+      name: homebrew-tap
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    folder: Formula
+    homepage: https://github.com/xraph/forge
+    description: "Comprehensive backend framework for Go with enterprise-grade features"
+    license: MIT
+    dependencies:
+      - name: go
+        type: optional
+    install: |
+      bin.install "forge"
+    test: |
+      system "#{bin}/forge", "version"
+
+# Scoop manifest
+scoops:
+  - name: forge
+    ids:
+      - forge-archives
+    bucket:
+      owner: xraph
+      name: scoop-bucket
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    homepage: https://github.com/xraph/forge
+    description: "Comprehensive backend framework for Go with enterprise-grade features"
+    license: MIT
+
+# Docker images
+dockers:
+  - image_templates:
+      - "ghcr.io/xraph/forge:{{ .Version }}-amd64"
+      - "ghcr.io/xraph/forge:latest-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--platform=linux/amd64"
+  - image_templates:
+      - "ghcr.io/xraph/forge:{{ .Version }}-arm64"
+      - "ghcr.io/xraph/forge:latest-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--platform=linux/arm64"
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/xraph/forge:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/xraph/forge:{{ .Version }}-amd64"
+      - "ghcr.io/xraph/forge:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/xraph/forge:latest"
+    image_templates:
+      - "ghcr.io/xraph/forge:latest-amd64"
+      - "ghcr.io/xraph/forge:latest-arm64"
+
+# Snapcraft
+snapcrafts:
+  - name: forge
+    ids:
+      - forge-archives
+    publish: true
+    summary: Comprehensive backend framework for Go
+    description: |
+      Forge is a comprehensive, opinionated backend framework for Go that 
+      provides enterprise-grade features for building scalable, distributed applications.
+    grade: stable
+    confinement: strict
+    license: MIT
+    base: core22
+    apps:
+      forge:
+        command: forge
+        plugs: ["home", "network"]
+
+# AUR packages for Arch Linux
+aurs:
+  - name: forge-bin
+    ids:
+      - forge-archives
+    homepage: https://github.com/xraph/forge
+    description: "Comprehensive backend framework for Go with enterprise-grade features"
+    maintainers:
+      - 'Your Name <your.email@example.com>'
+    license: MIT
+    private_key: '{{ .Env.AUR_KEY }}'
+    git_url: 'ssh://aur@aur.archlinux.org/forge-bin.git'
+    package: |-
+      # bin
+      install -Dm755 "./forge" "${pkgdir}/usr/bin/forge"
+      # license
+      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/forge/LICENSE"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+
+# NFPM packages for Debian/RPM
+nfpms:
+  - file_name_template: '{{ .ConventionalFileName }}'
+    id: forge-packages
+    homepage: https://github.com/xraph/forge
+    description: |-
+      Forge is a comprehensive, opinionated backend framework for Go 
+      that provides enterprise-grade features for building scalable, 
+      distributed applications.
+    maintainer: Your Name <your.email@example.com>
+    license: MIT
+    vendor: Xraph
+    bindir: /usr/bin
+    section: utils
+    contents:
+      - src: ./LICENSE
+        dst: /usr/share/doc/forge/copyright
+        file_info:
+          mode: 0644
+      - src: ./README.md
+        dst: /usr/share/doc/forge/README.md
+        file_info:
+          mode: 0644
+    formats:
+      - apk
+      - deb
+      - rpm
+      - termux.deb
+      - archlinux
+    dependencies:
+      - git
+    recommends:
+      - golang
+    deb:
+      lintian_overrides:
+        - statically-linked-binary
+        - changelog-file-missing-in-native-package
+
+# Publishers
+publishers:
+  - name: fury.io
+    ids:
+      - forge-packages
+    env:
+      - FURY_TOKEN={{ .Env.FURY_TOKEN }}
+    cmd: curl -F package=@{{ .ArtifactPath }} https://{{ .Env.FURY_TOKEN }}@push.fury.io/xraph/
+
+# Announcements
+announces:
+  discord:
+    enabled: true
+    message_template: 'Forge {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+
+  slack:
+    enabled: true
+    message_template: 'Forge {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
+    channel: '#releases'
+
+  twitter:
+    enabled: true
+    message_template: 'Forge {{ .Tag }} is out! 🚀 #golang #framework #backend {{ .ReleaseURL }}'
+
+# Git settings
+git:
+  tag_sort: -version:refname
+
+# Global hooks
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+# Metadata
+metadata:
+  mod_timestamp: '{{ .CommitTimestamp }}'

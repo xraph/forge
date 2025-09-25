@@ -89,10 +89,10 @@ func (wp *WorkerPool) Start(ctx context.Context) error {
 		return common.ErrLifecycleError("start", fmt.Errorf("worker pool already started"))
 	}
 
-	// Start all workers
+	// OnStart all workers
 	for i, worker := range wp.workers {
 		if err := worker.Start(ctx); err != nil {
-			// Stop already started workers
+			// OnStop already started workers
 			for j := 0; j < i; j++ {
 				wp.workers[j].Stop(ctx)
 			}
@@ -132,7 +132,7 @@ func (wp *WorkerPool) Stop(ctx context.Context) error {
 	// Signal stop to all workers
 	close(wp.stopChannel)
 
-	// Stop all workers
+	// OnStop all workers
 	for _, worker := range wp.workers {
 		worker.Stop(ctx)
 	}
@@ -246,7 +246,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	w.startTime = time.Now()
 	w.started = true
 
-	// Start worker loop
+	// OnStart worker loop
 	w.wg.Add(1)
 	go w.workerLoop(ctx)
 

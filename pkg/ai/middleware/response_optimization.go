@@ -273,7 +273,7 @@ func (ro *ResponseOptimization) Initialize(ctx context.Context, config ai.AIMidd
 		return fmt.Errorf("failed to start response optimization agent: %w", err)
 	}
 
-	// Start background optimization tasks
+	// OnStart background optimization tasks
 	go ro.optimizationLoop(ctx)
 	go ro.patternLearningLoop(ctx)
 	go ro.performanceMonitoringLoop(ctx)
@@ -355,7 +355,7 @@ func (ro *ResponseOptimization) getOptimizationDecision(ctx context.Context, req
 	pattern := ro.getPathPattern(req.URL.Path)
 
 	input := ai.AgentInput{
-		Type: "optimize_compression", // Start with compression optimization
+		Type: "optimize_compression", // OnStart with compression optimization
 		Data: map[string]interface{}{
 			"request_features": requestFeatures,
 			"path_pattern":     pattern,

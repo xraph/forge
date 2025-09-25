@@ -742,10 +742,10 @@ func (lb *DefaultLoadBalancer) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// Start health checking
+	// OnStart health checking
 	lb.startHealthChecking()
 
-	// Start load metrics collection
+	// OnStart load metrics collection
 	lb.startLoadMetricsCollection()
 
 	lb.running = true
@@ -770,7 +770,7 @@ func (lb *DefaultLoadBalancer) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop background processes
+	// OnStop background processes
 	close(lb.stopCh)
 	lb.wg.Wait()
 

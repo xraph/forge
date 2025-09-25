@@ -253,7 +253,7 @@ func (fs *FileSource) Watch(ctx context.Context, callback func(map[string]interf
 	fs.watchCallback = callback
 	fs.watching = true
 
-	// Start watching goroutine
+	// OnStart watching goroutine
 	go fs.watchLoop(ctx)
 
 	if fs.logger != nil {

@@ -11,7 +11,7 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // WASMLoader loads WebAssembly plugins
@@ -280,7 +280,7 @@ func (wpw *WASMPluginWrapper) Initialize(ctx context.Context, container common.C
 	return nil
 }
 
-func (wpw *WASMPluginWrapper) Start(ctx context.Context) error {
+func (wpw *WASMPluginWrapper) OnStart(ctx context.Context) error {
 	if wpw.hasFunction("start") {
 		_, err := wpw.runtime.CallFunction(wpw.module.ID, "start")
 		return err
@@ -288,7 +288,7 @@ func (wpw *WASMPluginWrapper) Start(ctx context.Context) error {
 	return nil
 }
 
-func (wpw *WASMPluginWrapper) Stop(ctx context.Context) error {
+func (wpw *WASMPluginWrapper) OnStop(ctx context.Context) error {
 	if wpw.hasFunction("stop") {
 		_, err := wpw.runtime.CallFunction(wpw.module.ID, "stop")
 		return err
@@ -331,12 +331,16 @@ func (wpw *WASMPluginWrapper) GetMetrics() plugins.PluginMetrics {
 	return wpw.metrics
 }
 
-func (wpw *WASMPluginWrapper) Middleware() []common.MiddlewareDefinition {
-	return []common.MiddlewareDefinition{}
+func (wpw *WASMPluginWrapper) Middleware() []any {
+	return []any{}
 }
 
-func (wpw *WASMPluginWrapper) Routes() []common.RouteDefinition {
-	return []common.RouteDefinition{}
+func (wpw *WASMPluginWrapper) Controllers() []common.Controller {
+	return []common.Controller{}
+}
+
+func (wpw *WASMPluginWrapper) ConfigureRoutes(r common.Router) error {
+	return nil
 }
 
 func (wpw *WASMPluginWrapper) Services() []common.ServiceDefinition {

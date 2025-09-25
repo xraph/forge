@@ -207,7 +207,7 @@ func (m *AIHealthMonitor) Start(ctx context.Context) error {
 		return err
 	}
 
-	// Start periodic health checking
+	// OnStart periodic health checking
 	go m.periodicHealthCheck(ctx)
 
 	if m.logger != nil {

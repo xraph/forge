@@ -1,0 +1,646 @@
+package {{.Package}}
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/xraph/forge/pkg/common"
+	{{if .Service}}"github.com/yourproject/internal/services/{{toLower .Service}}"{{end}}
+)
+
+// MockLogger represents a mock logger for testing
+type MockLogger struct {
+	mock.Mock
+}
+
+func (m *MockLogger) Debug(msg string, fields ...common.LogField) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Info(msg string, fields ...common.LogField) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Warn(msg string, fields ...common.LogField) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) Error(msg string, fields ...common.LogField) {
+	m.Called(msg, fields)
+}
+
+func (m *MockLogger) WithContext(ctx context.Context) common.Logger {
+	args := m.Called(ctx)
+	return args.Get(0).(common.Logger)
+}
+
+func (m *MockLogger) With(fields ...common.LogField) common.Logger {
+	args := m.Called(fields)
+	return args.Get(0).(common.Logger)
+}
+
+func (m *MockLogger) WithFields(fields map[string]interface{}) common.Logger {
+	args := m.Called(fields)
+	return args.Get(0).(common.Logger)
+}
+
+{{if .Service}}// Mock{{.Service}}Service represents a mock service for testing
+type Mock{{.Service}}Service struct {
+	mock.Mock
+}
+
+func (m *Mock{{.Service}}Service) Name() string {
+	args := m.Called()
+	return args.String(0)
+}
+
+func (m *Mock{{.Service}}Service) Dependencies() []string {
+	args := m.Called()
+	return args.Get(0).([]string)
+}
+
+func (m *Mock{{.Service}}Service) OnStart(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *Mock{{.Service}}Service) OnStop(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *Mock{{.Service}}Service) OnHealthCheck(ctx context.Context) error {
+	args := m.Called(ctx)
+	return args.Error(0)
+}
+
+func (m *Mock{{.Service}}Service) Create{{.Service}}(ctx context.Context, req *{{toLower .Service}}.Create{{.Service}}Request) (*{{toLower .Service}}.{{.Service}}, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*{{toLower .Service}}.{{.Service}}), args.Error(1)
+}
+
+func (m *Mock{{.Service}}Service) Get{{.Service}}(ctx context.Context, id string) (*{{toLower .Service}}.{{.Service}}, error) {
+	args := m.Called(ctx, id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*{{toLower .Service}}.{{.Service}}), args.Error(1)
+}
+
+func (m *Mock{{.Service}}Service) Update{{.Service}}(ctx context.Context, id string, req *{{toLower .Service}}.Update{{.Service}}Request) (*{{toLower .Service}}.{{.Service}}, error) {
+	args := m.Called(ctx, id, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*{{toLower .Service}}.{{.Service}}), args.Error(1)
+}
+
+func (m *Mock{{.Service}}Service) Delete{{.Service}}(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *Mock{{.Service}}Service) List{{pluralize .Service}}(ctx context.Context, req *{{toLower .Service}}.List{{pluralize .Service}}Request) (*{{toLower .Service}}.{{pluralize .Service}}Response, error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*{{toLower .Service}}.{{pluralize .Service}}Response), args.Error(1)
+}
+
+func (m *Mock{{.Service}}Service) GetByField(ctx context.Context, field, value string) (*{{toLower .Service}}.{{.Service}}, error) {
+	args := m.Called(ctx, field, value)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*{{toLower .Service}}.{{.Service}}), args.Error(1)
+}
+
+func (m *Mock{{.Service}}Service) BatchCreate{{pluralize .Service}}(ctx context.Context, requests []*{{toLower .Service}}.Create{{.Service}}Request) ([]*{{toLower .Service}}.{{.Service}}, error) {
+	args := m.Called(ctx, requests)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*{{toLower .Service}}.{{.Service}}), args.Error(1)
+}
+
+func (m *Mock{{.Service}}Service) Count(ctx context.Context, filter *{{toLower .Service}}.{{.Service}}Filter) (int64, error) {
+	args := m.Called(ctx, filter)
+	return args.Get(0).(int64), args.Error(1)
+}
+
+func (m *Mock{{.Service}}Service) InvalidateCache(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *Mock{{.Service}}Service) WarmCache(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+
+func (m *Mock{{.Service}}Service) PublishCreatedEvent(ctx context.Context, item *{{toLower .Service}}.{{.Service}}) error {
+	args := m.Called(ctx, item)
+	return args.Error(0)
+}
+
+func (m *Mock{{.Service}}Service) PublishUpdatedEvent(ctx context.Context, item *{{toLower .Service}}.{{.Service}}) error {
+	args := m.Called(ctx, item)
+	return args.Error(0)
+}
+
+func (m *Mock{{.Service}}Service) PublishDeletedEvent(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
+}
+{{end}}
+
+// MockContext represents a mock context for testing
+type MockContext struct {
+	mock.Mock
+	request        *http.Request
+	responseWriter *httptest.ResponseRecorder
+	pathParams     map[string]string
+	queryParams    map[string]string
+}
+
+func NewMockContext(method, url string) *MockContext {
+	req := httptest.NewRequest(method, url, nil)
+	recorder := httptest.NewRecorder()
+
+	return &MockContext{
+		request:        req,
+		responseWriter: recorder,
+		pathParams:     make(map[string]string),
+		queryParams:    make(map[string]string),
+	}
+}
+
+func (m *MockContext) Request() *http.Request {
+	return m.request
+}
+
+func (m *MockContext) ResponseWriter() http.ResponseWriter {
+	return m.responseWriter
+}
+
+func (m *MockContext) PathParam(key string) string {
+	return m.pathParams[key]
+}
+
+func (m *MockContext) QueryParam(key string) string {
+	return m.queryParams[key]
+}
+
+func (m *MockContext) SetPathParam(key, value string) {
+	m.pathParams[key] = value
+}
+
+func (m *MockContext) SetQueryParam(key, value string) {
+	m.queryParams[key] = value
+}
+
+func (m *MockContext) BindJSON(target interface{}) error {
+	args := m.Called(target)
+	return args.Error(0)
+}
+
+func (m *MockContext) JSON(status int, data interface{}) error {
+	m.responseWriter.WriteHeader(status)
+	encoder := json.NewEncoder(m.responseWriter)
+	return encoder.Encode(data)
+}
+
+// Test setup helpers
+func setup{{.Name}}ControllerTest(t *testing.T) (
+	*{{.Name}}Controller,
+	*MockLogger,
+	{{if .Service}}*Mock{{.Service}}Service,{{end}}
+) {
+	mockLogger := &MockLogger{}
+	{{if .Service}}mockService := &Mock{{.Service}}Service{}{{end}}
+
+	controller := New{{.Name}}Controller(
+		mockLogger{{if .Service}},
+		mockService{{end}},
+	)
+
+	return controller.(*{{.Name}}Controller), mockLogger{{if .Service}}, mockService{{end}}
+}
+
+func TestNew{{.Name}}Controller(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	assert.NotNil(t, controller)
+	assert.Equal(t, "{{kebabCase .Name}}-controller", controller.Name())
+	{{if .REST}}assert.Equal(t, "/api/v1/{{toLower (pluralize .Service)}}", controller.Prefix())
+	{{else}}assert.Equal(t, "/{{toLower .Name}}", controller.Prefix()){{end}}
+
+	// Verify dependencies
+	deps := controller.Dependencies()
+	{{if .Service}}assert.Contains(t, deps, "{{kebabCase .Service}}-service"){{end}}
+
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+func TestController_Initialize(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	// Setup logger mocks
+	logger.On("Info", mock.AnythingOfType("string"), mock.Anything).Return()
+
+	// Test successful initialization
+	err := controller.Initialize(nil)
+	assert.NoError(t, err)
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+{{if .REST}}
+func TestController_Create{{.Service}}(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	// Create test request
+	reqBody := map[string]interface{}{
+		"name":        "Test {{.Service}}",
+		"description": "Test description",
+		"metadata":    map[string]string{"key": "value"},
+	}
+
+	reqBodyBytes, _ := json.Marshal(reqBody)
+	ctx := NewMockContext("POST", "/api/v1/{{toLower (pluralize .Service)}}")
+	ctx.request.Body = io.NopCloser(bytes.NewBuffer(reqBodyBytes))
+	ctx.request.Header.Set("Content-Type", "application/json")
+
+	{{if .Service}}// Setup service mock
+	expectedReq := &{{toLower .Service}}.Create{{.Service}}Request{
+		Name:        "Test {{.Service}}",
+		Description: "Test description",
+		Metadata:    map[string]string{"key": "value"},
+	}
+
+	expectedResult := &{{toLower .Service}}.{{.Service}}{
+		ID:          "test-id",
+		Name:        "Test {{.Service}}",
+		Description: "Test description",
+		Metadata:    map[string]string{"key": "value"},
+		CreatedAt:   "2023-01-01T00:00:00Z",
+		UpdatedAt:   "2023-01-01T00:00:00Z",
+		Version:     1,
+	}
+
+	service.On("Create{{.Service}}", mock.Anything, mock.MatchedBy(func(req *{{toLower .Service}}.Create{{.Service}}Request) bool {
+		return req.Name == expectedReq.Name && req.Description == expectedReq.Description
+	})).Return(expectedResult, nil){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Setup context mock for JSON binding
+	ctx.On("BindJSON", mock.AnythingOfType("*{{toLower .Service}}.Create{{.Service}}Request")).Run(func(args mock.Arguments) {
+		req := args[0].(*{{toLower .Service}}.Create{{.Service}}Request)
+		req.Name = "Test {{.Service}}"
+		req.Description = "Test description"
+		req.Metadata = map[string]string{"key": "value"}
+	}).Return(nil)
+
+	// Test successful creation
+	err := controller.Create{{.Service}}(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusCreated, ctx.responseWriter.Code)
+
+	// Verify response
+	var response {{toLower .Service}}.{{.Service}}
+	err = json.Unmarshal(ctx.responseWriter.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	{{if .Service}}assert.Equal(t, expectedResult.ID, response.ID)
+	assert.Equal(t, expectedResult.Name, response.Name){{end}}
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+func TestController_Create{{.Service}}_InvalidJSON(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	ctx := NewMockContext("POST", "/api/v1/{{toLower (pluralize .Service)}}")
+	ctx.request.Body = io.NopCloser(bytes.NewBufferString("invalid json"))
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+	logger.On("Warn", mock.AnythingOfType("string"), mock.Anything).Return()
+
+	// Setup context mock for failed JSON binding
+	ctx.On("BindJSON", mock.AnythingOfType("*{{toLower .Service}}.Create{{.Service}}Request")).Return(fmt.Errorf("invalid JSON"))
+
+	// Test invalid JSON
+	err := controller.Create{{.Service}}(ctx)
+	assert.NoError(t, err) // Controller handles error internally
+	assert.Equal(t, http.StatusBadRequest, ctx.responseWriter.Code)
+
+	// Verify error response
+	var errorResponse map[string]string
+	err = json.Unmarshal(ctx.responseWriter.Body.Bytes(), &errorResponse)
+	assert.NoError(t, err)
+	assert.Equal(t, "Invalid request body", errorResponse["error"])
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+func TestController_Get{{.Service}}(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	id := "test-id"
+	ctx := NewMockContext("GET", "/api/v1/{{toLower (pluralize .Service)}}/"+id)
+	ctx.SetPathParam("id", id)
+
+	{{if .Service}}// Setup service mock
+	expectedResult := &{{toLower .Service}}.{{.Service}}{
+		ID:          id,
+		Name:        "Test {{.Service}}",
+		Description: "Test description",
+		Metadata:    map[string]string{"key": "value"},
+		CreatedAt:   "2023-01-01T00:00:00Z",
+		UpdatedAt:   "2023-01-01T00:00:00Z",
+		Version:     1,
+	}
+
+	service.On("Get{{.Service}}", mock.Anything, id).Return(expectedResult, nil){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test successful get
+	err := controller.Get{{.Service}}(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, ctx.responseWriter.Code)
+
+	{{if .Service}}// Verify response
+	var response {{toLower .Service}}.{{.Service}}
+	err = json.Unmarshal(ctx.responseWriter.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, expectedResult.ID, response.ID)
+	assert.Equal(t, expectedResult.Name, response.Name){{end}}
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+func TestController_Get{{.Service}}_NotFound(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	id := "nonexistent-id"
+	ctx := NewMockContext("GET", "/api/v1/{{toLower (pluralize .Service)}}/"+id)
+	ctx.SetPathParam("id", id)
+
+	{{if .Service}}// Setup service mock for not found
+	service.On("Get{{.Service}}", mock.Anything, id).Return(nil, fmt.Errorf("{{toLower .Service}} not found")){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+	logger.On("Error", mock.AnythingOfType("string"), mock.Anything).Return()
+
+	// Test not found
+	err := controller.Get{{.Service}}(ctx)
+	assert.NoError(t, err) // Controller handles error internally
+	assert.Equal(t, http.StatusNotFound, ctx.responseWriter.Code)
+
+	// Verify error response
+	var errorResponse map[string]string
+	err = json.Unmarshal(ctx.responseWriter.Body.Bytes(), &errorResponse)
+	assert.NoError(t, err)
+	assert.Equal(t, "{{.Service}} not found", errorResponse["error"])
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+func TestController_Delete{{.Service}}(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	id := "test-id"
+	ctx := NewMockContext("DELETE", "/api/v1/{{toLower (pluralize .Service)}}/"+id)
+	ctx.SetPathParam("id", id)
+
+	{{if .Service}}// Setup service mock
+	service.On("Delete{{.Service}}", mock.Anything, id).Return(nil){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test successful deletion
+	err := controller.Delete{{.Service}}(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, ctx.responseWriter.Code)
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+func TestController_List{{pluralize .Service}}(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	ctx := NewMockContext("GET", "/api/v1/{{toLower (pluralize .Service)}}?limit=10&offset=0")
+	ctx.SetQueryParam("limit", "10")
+	ctx.SetQueryParam("offset", "0")
+
+	{{if .Service}}// Setup service mock
+	expectedRequest := &{{toLower .Service}}.List{{pluralize .Service}}Request{
+		Limit:   10,
+		Offset:  0,
+		OrderBy: "created_at DESC",
+	}
+
+	expectedResult := &{{toLower .Service}}.{{pluralize .Service}}Response{
+		Items: []*{{toLower .Service}}.{{.Service}}{
+			{
+				ID:          "1",
+				Name:        "{{.Service}} 1",
+				Description: "Description 1",
+				CreatedAt:   "2023-01-01T00:00:00Z",
+				UpdatedAt:   "2023-01-01T00:00:00Z",
+			},
+			{
+				ID:          "2",
+				Name:        "{{.Service}} 2",
+				Description: "Description 2",
+				CreatedAt:   "2023-01-01T00:00:00Z",
+				UpdatedAt:   "2023-01-01T00:00:00Z",
+			},
+		},
+		Total:   2,
+		Limit:   10,
+		Offset:  0,
+		HasMore: false,
+	}
+
+	service.On("List{{pluralize .Service}}", mock.Anything, mock.MatchedBy(func(req *{{toLower .Service}}.List{{pluralize .Service}}Request) bool {
+		return req.Limit == expectedRequest.Limit && req.Offset == expectedRequest.Offset
+	})).Return(expectedResult, nil){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test successful list
+	err := controller.List{{pluralize .Service}}(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, ctx.responseWriter.Code)
+
+	{{if .Service}}// Verify response
+	var response {{toLower .Service}}.{{pluralize .Service}}Response
+	err = json.Unmarshal(ctx.responseWriter.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Len(t, response.Items, 2)
+	assert.Equal(t, expectedResult.Total, response.Total){{end}}
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+{{else}}
+func TestController_Index(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	ctx := NewMockContext("GET", "/{{toLower .Name}}/")
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test index endpoint
+	err := controller.Index(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, ctx.responseWriter.Code)
+
+	// Verify response
+	var response map[string]interface{}
+	err = json.Unmarshal(ctx.responseWriter.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "{{kebabCase .Name}}-controller", response["controller"])
+	assert.Contains(t, response, "message")
+	assert.Contains(t, response, "endpoints")
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+func TestController_Health(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	ctx := NewMockContext("GET", "/{{toLower .Name}}/health")
+	ctx.Set("timestamp", time.Now().Unix())
+
+	{{if .Service}}// Setup service health check mock
+	service.On("OnHealthCheck", mock.Anything).Return(nil){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	// Test health endpoint
+	err := controller.Health(ctx)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, ctx.responseWriter.Code)
+
+	// Verify response
+	var response map[string]interface{}
+	err = json.Unmarshal(ctx.responseWriter.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "healthy", response["status"])
+	assert.Equal(t, "{{kebabCase .Name}}-controller", response["controller"])
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+
+func TestController_Health_ServiceUnhealthy(t *testing.T) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(t)
+
+	ctx := NewMockContext("GET", "/{{toLower .Name}}/health")
+	ctx.Set("timestamp", time.Now().Unix())
+
+	{{if .Service}}// Setup service health check mock to return error
+	service.On("OnHealthCheck", mock.Anything).Return(fmt.Errorf("service unavailable")){{end}}
+
+	// Setup logger mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+	{{if .Service}}logger.On("Error", mock.AnythingOfType("string"), mock.Anything).Return(){{end}}
+
+	// Test unhealthy service
+	err := controller.Health(ctx)
+	assert.NoError(t, err) // Controller handles error internally
+	{{if .Service}}assert.Equal(t, http.StatusServiceUnavailable, ctx.responseWriter.Code)
+
+	// Verify response
+	var response map[string]interface{}
+	err = json.Unmarshal(ctx.responseWriter.Body.Bytes(), &response)
+	assert.NoError(t, err)
+	assert.Equal(t, "unhealthy", response["status"])
+	assert.Contains(t, response, "error"){{else}}assert.Equal(t, http.StatusOK, ctx.responseWriter.Code){{end}}
+
+	// Verify expectations
+	logger.AssertExpectations(t)
+	{{if .Service}}service.AssertExpectations(t){{end}}
+}
+{{end}}
+
+// Benchmark tests
+func BenchmarkController_{{if .REST}}Get{{.Service}}{{else}}Index{{end}}(b *testing.B) {
+	controller, logger{{if .Service}}, service{{end}} := setup{{.Name}}ControllerTest(b)
+
+	// Setup mocks
+	logger.On("Debug", mock.AnythingOfType("string"), mock.Anything).Return().Maybe()
+
+	{{if .REST and .Service}}service.On("Get{{.Service}}", mock.Anything, mock.AnythingOfType("string")).Return(&{{toLower .Service}}.{{.Service}}{
+		ID:   "test-id",
+		Name: "Test {{.Service}}",
+	}, nil).Times(b.N)
+
+	ctx := NewMockContext("GET", "/api/v1/{{toLower (pluralize .Service)}}/test-id")
+	ctx.SetPathParam("id", "test-id")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		controller.Get{{.Service}}(ctx)
+		ctx.responseWriter = httptest.NewRecorder() // Reset for next iteration
+	}
+	{{else}}ctx := NewMockContext("GET", "/{{toLower .Name}}/")
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		controller.Index(ctx)
+		ctx.responseWriter = httptest.NewRecorder() // Reset for next iteration
+	}{{end}}
+}
+
+// Helper method to add missing mock methods for context
+func (m *MockContext) Get(key string) interface{} {
+	args := m.Called(key)
+	return args.Get(0)
+}
+
+func (m *MockContext) Set(key string, value interface{}) {
+	m.Called(key, value)
+}

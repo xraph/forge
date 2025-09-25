@@ -1,0 +1,51 @@
+name: Publish NPM Packages
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Extract version
+        id: extract_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies in core
+        run: cd frontend/core && npm ci
+
+      - name: Build core package
+        run: cd frontend/core && npm run build
+
+      - name: Update package version (core)
+        run: cd frontend/core && npm version ${{ steps.extract_version.outputs.VERSION }} --no-git-tag-version
+
+      - name: Publish core package
+        run: cd frontend/core && npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install dependencies in react
+        run: cd frontend/react && npm ci
+
+      - name: Build react package
+        run: cd frontend/react && npm run build
+
+      - name: Update package version (react)
+        run: cd frontend/react && npm version ${{ steps.extract_version.outputs.VERSION }} --no-git-tag-version
+
+      - name: Publish react package
+        run: cd frontend/react && npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

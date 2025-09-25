@@ -240,7 +240,7 @@ func NewWebSocketConnection(
 		validator:      streamingcore.NewDefaultMessageValidator(),
 	}
 
-	// Start goroutines
+	// OnStart goroutines
 	go conn.readPump()
 	go conn.writePump()
 
@@ -287,7 +287,7 @@ func (c *WebSocketConnection) Close(ctx context.Context) error {
 	c.closeOnce.Do(func() {
 		c.setState(streamingcore.ConnectionStateClosing)
 
-		// Stop ping ticker
+		// OnStop ping ticker
 		if c.pingTicker != nil {
 			c.pingTicker.Stop()
 		}

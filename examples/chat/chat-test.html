@@ -354,7 +354,7 @@
             const text = this.messageInput.value.trim();
             if (!text || !this.isConnected) return;
 
-            // Stop typing when sending message
+            // OnStop typing when sending message
             this.stopTyping();
 
             const message = {
@@ -383,7 +383,7 @@
             const now = Date.now();
             this.lastTypingTime = now;
 
-            // Start typing if not already typing
+            // OnStart typing if not already typing
             if (!this.isTyping) {
                 this.startTyping();
             }
@@ -393,7 +393,7 @@
                 clearTimeout(this.typingTimeout);
             }
 
-            // Stop typing after 3 seconds of inactivity
+            // OnStop typing after 3 seconds of inactivity
             this.typingTimeout = setTimeout(() => {
                 if (Date.now() - this.lastTypingTime >= 2900) {
                     this.stopTyping();

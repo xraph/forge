@@ -205,22 +205,22 @@ func (jd *JobDistributor) Start(ctx context.Context) error {
 		return common.ErrLifecycleError("start", fmt.Errorf("job distributor already started"))
 	}
 
-	// Start node manager
+	// OnStart node manager
 	if err := jd.nodeManager.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("job-distributor", err)
 	}
 
-	// Start load balancer
+	// OnStart load balancer
 	if err := jd.loadBalancer.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("job-distributor", err)
 	}
 
-	// Start rebalancer
+	// OnStart rebalancer
 	if err := jd.rebalancer.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("job-distributor", err)
 	}
 
-	// Start background tasks
+	// OnStart background tasks
 	jd.wg.Add(3)
 	go jd.monitorNodes(ctx)
 	go jd.updateMetrics(ctx)
@@ -261,7 +261,7 @@ func (jd *JobDistributor) Stop(ctx context.Context) error {
 	// Wait for background tasks to finish
 	jd.wg.Wait()
 
-	// Stop components
+	// OnStop components
 	if err := jd.rebalancer.Stop(ctx); err != nil {
 		if jd.logger != nil {
 			jd.logger.Error("failed to stop rebalancer", logger.Error(err))

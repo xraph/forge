@@ -197,7 +197,7 @@ func (tc *TestCluster) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// Start transport
+	// OnStart transport
 	if err := tc.Transport.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start transport: %w", err)
 	}
@@ -240,12 +240,12 @@ func (tc *TestCluster) Stop() error {
 		return nil
 	}
 
-	// Stop all nodes
+	// OnStop all nodes
 	for _, node := range tc.Nodes {
 		tc.stopNode(node)
 	}
 
-	// Stop transport
+	// OnStop transport
 	tc.Transport.Stop(context.Background())
 
 	// Close storage
@@ -282,7 +282,7 @@ func (tc *TestCluster) startNode(ctx context.Context, node *TestNode) error {
 
 	node.RaftNode = raftNode
 
-	// Start Raft node
+	// OnStart Raft node
 	if err := raftNode.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start Raft node: %w", err)
 	}
@@ -416,7 +416,7 @@ func (tc *TestCluster) AddNode(nodeID string) (*TestNode, error) {
 	tc.Nodes[nodeID] = node
 	tc.Transport.AddNode(nodeID, address)
 
-	// Start node if cluster is running
+	// OnStart node if cluster is running
 	if tc.Started {
 		if err := tc.startNode(context.Background(), node); err != nil {
 			delete(tc.Nodes, nodeID)
@@ -437,7 +437,7 @@ func (tc *TestCluster) RemoveNode(nodeID string) error {
 		return fmt.Errorf("node %s not found", nodeID)
 	}
 
-	// Stop node
+	// OnStop node
 	tc.stopNode(node)
 
 	// Remove from transport
@@ -1097,7 +1097,7 @@ func ExampleTestClusterUsage(t *testing.T) {
 		EnableLogging: true,
 	})
 
-	// Start cluster
+	// OnStart cluster
 	if err := cluster.Start(context.Background()); err != nil {
 		t.Fatalf("Failed to start cluster: %v", err)
 	}

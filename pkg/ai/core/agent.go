@@ -194,7 +194,7 @@ func NewBaseAgent(id, name string, agentType AgentType, capabilities []Capabilit
 			Status:    AgentHealthStatusUnknown,
 			CheckedAt: time.Now(),
 		},
-		confidence: 0.5, // Start with neutral confidence
+		confidence: 0.5, // OnStart with neutral confidence
 	}
 }
 

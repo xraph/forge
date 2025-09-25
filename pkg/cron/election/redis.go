@@ -267,7 +267,7 @@ func (rb *RedisBackend) Watch(ctx context.Context, callback func(leaderID string
 	rb.watchCallback = callback
 	rb.watchContext, rb.watchCancel = context.WithCancel(ctx)
 
-	// Start watching in a separate goroutine
+	// OnStart watching in a separate goroutine
 	go rb.watchLoop()
 
 	return nil
@@ -556,7 +556,7 @@ func (rcb *RedisClusterBackend) Watch(ctx context.Context, callback func(leaderI
 	rcb.watchCallback = callback
 	rcb.watchContext, rcb.watchCancel = context.WithCancel(ctx)
 
-	// Start watching in a separate goroutine
+	// OnStart watching in a separate goroutine
 	go rcb.watchLoop()
 
 	return nil

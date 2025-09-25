@@ -1072,7 +1072,7 @@ func (r *PerformanceTestRunner) runTest(workerFn func(int)) PerformanceResult {
 
 	start := time.Now()
 
-	// Start workers
+	// OnStart workers
 	for i := 0; i < r.workers; i++ {
 		wg.Add(1)
 		go func(worker int) {
@@ -1169,12 +1169,12 @@ func NewIntegrationTestEnvironment(useRealImplementations bool) *IntegrationTest
 
 // Setup sets up the integration test environment
 func (e *IntegrationTestEnvironment) Setup() error {
-	// Start registry
+	// OnStart registry
 	if err := e.Registry.Start(); err != nil {
 		return fmt.Errorf("failed to start registry: %w", err)
 	}
 
-	// Start collector
+	// OnStart collector
 	if err := e.Collector.OnStart(e.ctx); err != nil {
 		return fmt.Errorf("failed to start collector: %w", err)
 	}

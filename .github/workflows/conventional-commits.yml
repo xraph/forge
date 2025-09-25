@@ -1,0 +1,273 @@
+name: Conventional Commits Release
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  prepare-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      repository-projects: write
+      id-token: write
+    outputs:
+      should_release: ${{ steps.changelog.outputs.skipped == 'false' }}
+      new_version: ${{ steps.changelog.outputs.version }}
+      new_tag: ${{ steps.changelog.outputs.tag }}
+      changelog: ${{ steps.changelog.outputs.clean_changelog }}
+      release_branch: ${{ steps.release_info.outputs.branch }}
+      existing_pr_number: ${{ steps.check_existing_pr.outputs.pr_number }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Create a version.json file if it doesn't exist
+      - name: Ensure version file exists
+        run: |
+          if [ ! -f .github/version.json ]; then
+            mkdir -p .github
+            echo '{"version": "0.1.0"}' > .github/version.json
+            git config --local user.email "action@github.com"
+            git config --local user.name "GitHub Action"
+            git add .github/version.json
+            git commit -m "chore: initialize version file"
+            git push
+          fi
+
+      # Generate changelog and new version based on conventional commits
+      - name: Generate Changelog
+        id: changelog
+        uses: TriPSs/conventional-changelog-action@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          git-message: 'chore(release): {version}'
+          preset: 'angular'
+          tag-prefix: 'v'
+          output-file: 'CHANGELOG.md'
+          skip-version-file: 'false'
+          skip-on-empty: 'true'
+          version-file: '.github/version.json'
+          skip-commit: 'true'
+          skip-tag: 'true'
+
+      - name: Set release info
+        id: release_info
+        if: steps.changelog.outputs.skipped == 'false'
+        run: |
+          echo "branch=release/v${{ steps.changelog.outputs.version }}" >> $GITHUB_OUTPUT
+          echo "version=${{ steps.changelog.outputs.version }}" >> $GITHUB_OUTPUT
+
+      # Check if a release PR already exists for this version or any release PR
+      - name: Check for existing release PR
+        id: check_existing_pr
+        if: steps.changelog.outputs.skipped == 'false'
+        run: |
+          # Check for existing release PR with this version
+          PR_NUMBER=$(gh pr list --base main --head "release/v${{ steps.changelog.outputs.version }}" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          
+          # If no specific version PR, check for any open release PR
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER=$(gh pr list --base main --label release --state open --json number,headRefName --jq '.[] | select(.headRefName | startswith("release/")) | .number' | head -1 || echo "")
+          fi
+          
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Found existing release PR #$PR_NUMBER"
+            # Get the branch name of existing PR
+            EXISTING_BRANCH=$(gh pr view $PR_NUMBER --json headRefName --jq '.headRefName')
+            echo "existing_branch=$EXISTING_BRANCH" >> $GITHUB_OUTPUT
+          else
+            echo "No existing release PR found"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  create-or-update-release-pr:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      repository-projects: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+      # Update version file and changelog
+      - name: Update version and changelog
+        run: |
+          mkdir -p .github
+          echo '{"version": "${{ needs.prepare-release.outputs.new_version }}"}' > .github/version.json
+          
+          # Generate changelog content
+          cat > CHANGELOG.md << 'EOF'
+          ${{ needs.prepare-release.outputs.changelog }}
+          EOF
+
+      - name: Create or update release branch
+        run: |
+          BRANCH_NAME="${{ needs.prepare-release.outputs.release_branch }}"
+          
+          # Check if branch exists
+          if git show-ref --verify --quiet refs/remotes/origin/$BRANCH_NAME; then
+            echo "Branch $BRANCH_NAME exists, checking out and updating"
+            git checkout $BRANCH_NAME
+            git pull origin $BRANCH_NAME
+          else
+            echo "Creating new branch $BRANCH_NAME"
+            git checkout -b $BRANCH_NAME
+          fi
+          
+          # Add the changes
+          git add .github/version.json CHANGELOG.md
+          
+          # Commit if there are changes
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}"
+            git push origin $BRANCH_NAME
+          else
+            echo "No changes to commit"
+          fi
+
+      - name: Create or update release PR
+        run: |
+          PR_NUMBER="${{ needs.prepare-release.outputs.existing_pr_number }}"
+          
+          # Prepare PR body
+          PR_BODY=$(cat << 'EOF'
+          # Release v${{ needs.prepare-release.outputs.new_version }}
+          
+          This PR prepares a new release based on conventional commits.
+          
+          ## Changes in this release
+          ${{ needs.prepare-release.outputs.changelog }}
+          
+          ## Release Checklist
+          - [x] Version bumped to v${{ needs.prepare-release.outputs.new_version }}
+          - [x] Changelog updated
+          - [ ] All tests passing
+          - [ ] Documentation updated (if needed)
+          - [ ] Breaking changes documented (if any)
+          
+          ## Post-merge actions
+          After merging this PR:
+          1. A new release will be automatically created
+          2. CLI binaries will be built and published
+          3. Docker images will be updated
+          4. Package managers will be notified
+          
+          ---
+          🤖 This PR was automatically generated by the Conventional Commits workflow.
+          
+          **Auto-merge**: This PR will be automatically merged when all checks pass.
+          EOF
+          )
+          
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Updating existing PR #$PR_NUMBER"
+            gh pr edit $PR_NUMBER \
+              --title "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}" \
+              --body "$PR_BODY"
+            echo "Updated PR #$PR_NUMBER"
+          else
+            echo "Creating new release PR"
+            PR_NUMBER=$(gh pr create \
+              --base main \
+              --head "${{ needs.prepare-release.outputs.release_branch }}" \
+              --title "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}" \
+              --body "$PR_BODY" \
+              --label "release,automated" \
+              --reviewer "" \
+              --assignee "" \
+              --draft false \
+              --json number --jq '.number')
+            echo "Created PR #$PR_NUMBER"
+          fi
+          
+          # Enable auto-merge if all checks pass
+          if [ -n "$PR_NUMBER" ]; then
+            gh pr merge $PR_NUMBER --auto --squash --delete-branch
+            echo "Enabled auto-merge for PR #$PR_NUMBER"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Auto-release when release PR is merged
+  auto-release:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Check if this push was from a release PR merge
+      - name: Check if release merge
+        id: check_release
+        run: |
+          # Get the commit message
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Commit message: $COMMIT_MSG"
+          
+          # Check if it's a release commit
+          if echo "$COMMIT_MSG" | grep -q "chore(release): prepare release"; then
+            VERSION=$(echo "$COMMIT_MSG" | sed -n 's/.*prepare release v\([0-9.]*\).*/\1/p')
+            echo "Release version detected: $VERSION"
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+            # Check if tag already exists
+            if git tag -l "v$VERSION" | grep -q "v$VERSION"; then
+              echo "Tag v$VERSION already exists, skipping"
+              echo "should_tag=false" >> $GITHUB_OUTPUT
+            else
+              echo "should_tag=true" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "should_tag=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Create and push tag to trigger release
+      - name: Create and push tag
+        if: steps.check_release.outputs.is_release == 'true' && steps.check_release.outputs.should_tag == 'true'
+        run: |
+          VERSION="${{ steps.check_release.outputs.version }}"
+          
+          # Configure git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Create tag
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+          
+          echo "Created and pushed tag v$VERSION"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

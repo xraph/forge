@@ -270,7 +270,7 @@ func (sm *DefaultStreamingManager) CreateRoom(ctx context.Context, roomID string
 		sm.handleRoomError(r, err)
 	})
 
-	// Start room
+	// OnStart room
 	if err := room.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start room: %w", err)
 	}

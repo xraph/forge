@@ -158,7 +158,7 @@ func (b *RequestBatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("request batcher already started")
 	}
 
-	// Start batch creation workers
+	// OnStart batch creation workers
 	for i := 0; i < b.config.Workers; i++ {
 		b.wg.Add(1)
 		go func(workerID int) {
@@ -167,7 +167,7 @@ func (b *RequestBatcher) Start(ctx context.Context) error {
 		}(i)
 	}
 
-	// Start batch processing workers
+	// OnStart batch processing workers
 	for i := 0; i < b.config.Workers; i++ {
 		b.wg.Add(1)
 		go func(workerID int) {
@@ -176,14 +176,14 @@ func (b *RequestBatcher) Start(ctx context.Context) error {
 		}(i)
 	}
 
-	// Start batch timeout monitor
+	// OnStart batch timeout monitor
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
 		b.runBatchTimeoutMonitor(ctx)
 	}()
 
-	// Start stats collection
+	// OnStart stats collection
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()

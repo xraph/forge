@@ -39,19 +39,19 @@ type IsolationManager interface {
 
 // IsolationConfig contains configuration for process isolation
 type IsolationConfig struct {
-	ProcessID   string                 `json:"process_id"`
-	Command     string                 `json:"command"`
-	Args        []string               `json:"args"`
-	WorkingDir  string                 `json:"working_dir"`
-	Environment map[string]string      `json:"environment"`
-	User        string                 `json:"user"`
-	Group       string                 `json:"group"`
-	Privileges  PrivilegeConfig        `json:"privileges"`
-	Resources   ResourceLimits         `json:"resources"`
-	Namespaces  NamespaceConfig        `json:"namespaces"`
-	Security    SecurityConfig         `json:"security"`
-	Timeout     time.Duration          `json:"timeout"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ProcessID   string                  `json:"process_id"`
+	Command     string                  `json:"command"`
+	Args        []string                `json:"args"`
+	WorkingDir  string                  `json:"working_dir"`
+	Environment map[string]string       `json:"environment"`
+	User        string                  `json:"user"`
+	Group       string                  `json:"group"`
+	Privileges  PrivilegeConfig         `json:"privileges"`
+	Resources   ResourceLimits          `json:"resources"`
+	Namespaces  NamespaceConfig         `json:"namespaces"`
+	Security    IsolationSecurityConfig `json:"security"`
+	Timeout     time.Duration           `json:"timeout"`
+	Metadata    map[string]interface{}  `json:"metadata"`
 }
 
 // PrivilegeConfig defines privilege settings
@@ -134,8 +134,8 @@ type NamespaceConfig struct {
 	Custom  string `json:"custom"`
 }
 
-// SecurityConfig defines security settings
-type SecurityConfig struct {
+// IsolationSecurityConfig defines security settings
+type IsolationSecurityConfig struct {
 	ReadOnlyRootfs bool           `json:"readonly_rootfs"`
 	MaskedPaths    []string       `json:"masked_paths"`
 	ReadOnlyPaths  []string       `json:"readonly_paths"`
@@ -390,7 +390,7 @@ func (im *IsolationManagerImpl) CreateResourceGroup(ctx context.Context, config 
 
 	group := NewResourceGroupImpl(config, im.logger, im.metrics)
 
-	if err := group.(*ResourceGroupImpl).initialize(ctx); err != nil {
+	if err := group.initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize resource group: %w", err)
 	}
 
@@ -658,7 +658,7 @@ func (p *IsolatedProcessImpl) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to configure isolation: %w", err)
 	}
 
-	// Start the process
+	// OnStart the process
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}
@@ -669,7 +669,7 @@ func (p *IsolatedProcessImpl) Start(ctx context.Context) error {
 	p.stats.State = "running"
 	p.stats.StartTime = time.Now()
 
-	// Start monitoring
+	// OnStart monitoring
 	go p.monitor(ctx)
 
 	p.logger.Info("isolated process started",
@@ -816,22 +816,22 @@ func (p *IsolatedProcessImpl) configureLinuxIsolation(cmd *exec.Cmd) error {
 		Setpgid: true,
 	}
 
-	// Configure namespaces
-	if p.config.Namespaces.PID {
-		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWPID
-	}
-	if p.config.Namespaces.Network {
-		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWNET
-	}
-	if p.config.Namespaces.Mount {
-		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWNS
-	}
-	if p.config.Namespaces.UTS {
-		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWUTS
-	}
-	if p.config.Namespaces.IPC {
-		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWIPC
-	}
+	// // Configure namespaces
+	// if p.config.Namespaces.PID {
+	// 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWPID
+	// }
+	// if p.config.Namespaces.Network {
+	// 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWNET
+	// }
+	// if p.config.Namespaces.Mount {
+	// 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWNS
+	// }
+	// if p.config.Namespaces.UTS {
+	// 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWUTS
+	// }
+	// if p.config.Namespaces.IPC {
+	// 	cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWIPC
+	// }
 
 	// Configure user/group
 	if p.config.User != "" {

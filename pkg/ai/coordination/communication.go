@@ -193,15 +193,15 @@ func (cm *communicationManager) Start(ctx context.Context) error {
 		return fmt.Errorf("communication manager already started")
 	}
 
-	// Start message processing workers
+	// OnStart message processing workers
 	for i := 0; i < cm.config.WorkerCount; i++ {
 		go cm.messageWorker(ctx)
 	}
 
-	// Start heartbeat monitor
+	// OnStart heartbeat monitor
 	go cm.heartbeatMonitor(ctx)
 
-	// Start statistics collection
+	// OnStart statistics collection
 	go cm.statisticsCollector(ctx)
 
 	cm.started = true
@@ -226,7 +226,7 @@ func (cm *communicationManager) Stop(ctx context.Context) error {
 		return fmt.Errorf("communication manager not started")
 	}
 
-	// Stop all agent communicators
+	// OnStop all agent communicators
 	for _, agent := range cm.agents {
 		agent.stop()
 	}
@@ -273,7 +273,7 @@ func (cm *communicationManager) RegisterAgent(agentID string) error {
 	cm.stats.AgentStats[agentID] = agent.stats
 	cm.stats.ActiveConnections++
 
-	// Start agent message processing
+	// OnStart agent message processing
 	go agent.processMessages()
 
 	if cm.logger != nil {

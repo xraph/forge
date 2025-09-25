@@ -123,7 +123,7 @@ func (ts *TestServer) Stop() error {
 		return fmt.Errorf("test server not running")
 	}
 
-	// Stop all connections
+	// OnStop all connections
 	for _, conn := range ts.connections {
 		conn.Close()
 	}
@@ -133,7 +133,7 @@ func (ts *TestServer) Stop() error {
 		cleanup()
 	}
 
-	// Stop server
+	// OnStop server
 	ts.server.Close()
 	ts.running = false
 
@@ -312,7 +312,7 @@ func NewTestConnection(protocol string, wsConn *websocket.Conn, logger common.Lo
 		stats:    ConnectionStats{ConnectedAt: time.Now()},
 	}
 
-	// Start reading messages
+	// OnStart reading messages
 	go conn.readMessages()
 
 	return conn
@@ -556,7 +556,7 @@ func (tc *TestClient) Connect(serverURL string) error {
 
 	tc.connection = NewTestConnection("websocket", conn, tc.logger)
 
-	// Start receiving messages
+	// OnStart receiving messages
 	go tc.receiveMessages()
 
 	return nil

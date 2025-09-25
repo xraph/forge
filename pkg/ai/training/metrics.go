@@ -974,7 +974,7 @@ func (me *MetricsEvaluatorImpl) EvaluateRanking(predictions [][]float64, relevan
 
 // EvaluateTimeSeries evaluates time series performance
 func (me *MetricsEvaluatorImpl) EvaluateTimeSeries(predictions, targets []float64, timestamps []time.Time) (TimeSeriesEvaluation, error) {
-	// Start with regression metrics
+	// OnStart with regression metrics
 	regEval, err := me.EvaluateRegression(predictions, targets)
 	if err != nil {
 		return TimeSeriesEvaluation{}, err

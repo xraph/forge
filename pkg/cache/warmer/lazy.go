@@ -262,10 +262,10 @@ func (lw *LazyWarmer) StartLazyWarming(ctx context.Context, cacheName string, da
 		operation.Stats.WorkersActive++
 	}
 
-	// Start the monitoring goroutine
+	// OnStart the monitoring goroutine
 	go lw.monitorOperation(operation)
 
-	// Start cleanup goroutine
+	// OnStart cleanup goroutine
 	go lw.cleanupRoutine(operation)
 
 	lw.operations[cacheName] = operation
@@ -298,7 +298,7 @@ func (lw *LazyWarmer) StopLazyWarming(cacheName string) error {
 	operation.Cancel()
 	operation.Status = LazyWarmingStatusStopped
 
-	// Stop workers
+	// OnStop workers
 	for _, worker := range operation.Workers {
 		close(worker.stopChan)
 	}

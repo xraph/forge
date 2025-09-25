@@ -938,7 +938,7 @@ func ExampleHealthTest(t *testing.T) {
 		WithCriticalCheck("auth-service", health.HealthStatusHealthy).
 		Build()
 
-	// Start the service
+	// OnStart the service
 	suite.Start()
 	defer suite.Cleanup()
 

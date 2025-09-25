@@ -154,7 +154,7 @@ func NewMessageRateLimiter(config RateLimitConfig, logger common.Logger, metrics
 		},
 	}
 
-	// Start cleanup routine
+	// OnStart cleanup routine
 	limiter.startCleanup()
 
 	return limiter

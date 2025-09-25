@@ -619,14 +619,14 @@ func (d *AIDashboard) Start(ctx context.Context) error {
 		Handler: d.router,
 	}
 
-	// Start real-time data streams if enabled
+	// OnStart real-time data streams if enabled
 	if d.config.EnableRealtime {
 		d.startRealtimeStreams(ctx)
 	}
 
 	d.started = true
 
-	// Start server in goroutine
+	// OnStart server in goroutine
 	go func() {
 		if err := d.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			if d.logger != nil {
@@ -660,7 +660,7 @@ func (d *AIDashboard) Stop(ctx context.Context) error {
 		return fmt.Errorf("failed to shutdown dashboard server: %w", err)
 	}
 
-	// Stop real-time streams
+	// OnStop real-time streams
 	if d.realtimeData != nil {
 		d.stopRealtimeStreams(ctx)
 	}
@@ -1223,7 +1223,7 @@ func (d *AIDashboard) generateDashboardHTML() string {
 
 // Real-time streaming methods
 func (d *AIDashboard) startRealtimeStreams(ctx context.Context) {
-	// Start data streams for real-time updates
+	// OnStart data streams for real-time updates
 	streams := []string{"system_metrics", "agent_status", "alerts", "health_status"}
 
 	for _, streamName := range streams {
@@ -1238,7 +1238,7 @@ func (d *AIDashboard) startRealtimeStreams(ctx context.Context) {
 
 		d.dataStreams[streamName] = stream
 
-		// Start stream processor
+		// OnStart stream processor
 		go d.processDataStream(ctx, stream)
 	}
 }

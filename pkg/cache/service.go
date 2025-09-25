@@ -91,7 +91,7 @@ func (cs *CacheService) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed(common.CacheServiceKey, err)
 	}
 
-	// Start cache manager
+	// OnStart cache manager
 	if err := cs.manager.OnStart(ctx); err != nil {
 		return common.ErrServiceStartFailed(common.CacheServiceKey, err)
 	}
@@ -127,7 +127,7 @@ func (cs *CacheService) OnStop(ctx context.Context) error {
 	cs.logger.Info("stopping cache service", logger.String("service", cs.Name()))
 	stopTime := time.Now()
 
-	// Stop cache manager
+	// OnStop cache manager
 	if cs.manager != nil {
 		if err := cs.manager.OnStop(ctx); err != nil {
 			cs.logger.Error("failed to stop cache manager", logger.Error(err))

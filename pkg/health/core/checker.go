@@ -155,7 +155,7 @@ func (hc *HealthChecker) OnStart(ctx context.Context) error {
 		hc.autoDiscoverServices()
 	}
 
-	// Start background routines
+	// OnStart background routines
 	go hc.checkLoop(ctx)
 	go hc.reportLoop(ctx)
 	go hc.resultProcessor(ctx)

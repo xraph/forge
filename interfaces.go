@@ -29,7 +29,7 @@ type Forge interface {
 	EventBus() events.EventBus
 
 	// MiddlewareManager provides access to the middleware.Manager responsible for managing application middleware components.
-	MiddlewareManager() middleware.Manager
+	MiddlewareManager() *middleware.Manager
 
 	// StreamingManager provides access to the application's streaming operations and management functionalities.
 	StreamingManager() streaming.StreamingManager

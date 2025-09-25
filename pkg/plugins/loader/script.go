@@ -12,7 +12,7 @@ import (
 
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/plugins"
+	plugins "github.com/xraph/forge/pkg/plugins/common"
 )
 
 // ScriptLoader loads script-based plugins (Lua, Python, JavaScript, etc.)
@@ -84,6 +84,10 @@ func (sl *ScriptLoader) SupportedExtensions() []string {
 		extensions = append(extensions, interpreter.Extensions()...)
 	}
 	return extensions
+}
+
+func (spw *ScriptPluginWrapper) Controllers() []common.Controller {
+	return []common.Controller{}
 }
 
 // LoadPlugin loads a script plugin
@@ -318,12 +322,12 @@ func (spw *ScriptPluginWrapper) Initialize(ctx context.Context, container common
 	return err
 }
 
-func (spw *ScriptPluginWrapper) Start(ctx context.Context) error {
+func (spw *ScriptPluginWrapper) OnStart(ctx context.Context) error {
 	_, err := spw.interpreter.ExecuteScript(spw.scriptPath, "start")
 	return err
 }
 
-func (spw *ScriptPluginWrapper) Stop(ctx context.Context) error {
+func (spw *ScriptPluginWrapper) OnStop(ctx context.Context) error {
 	_, err := spw.interpreter.ExecuteScript(spw.scriptPath, "stop")
 	return err
 }
@@ -355,12 +359,12 @@ func (spw *ScriptPluginWrapper) GetMetrics() plugins.PluginMetrics {
 	return spw.metrics
 }
 
-func (spw *ScriptPluginWrapper) Middleware() []common.MiddlewareDefinition {
-	return []common.MiddlewareDefinition{}
+func (spw *ScriptPluginWrapper) Middleware() []any {
+	return []any{}
 }
 
-func (spw *ScriptPluginWrapper) Routes() []common.RouteDefinition {
-	return []common.RouteDefinition{}
+func (spw *ScriptPluginWrapper) ConfigureRoutes(r common.Router) error {
+	return nil
 }
 
 func (spw *ScriptPluginWrapper) Services() []common.ServiceDefinition {
