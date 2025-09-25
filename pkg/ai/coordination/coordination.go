@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xraph/forge/pkg/ai"
+	ai "github.com/xraph/forge/pkg/ai/core"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
 )
