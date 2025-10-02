@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	json "github.com/json-iterator/go"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
 )
@@ -647,13 +649,11 @@ func (ms *MemoryStorage) GetMetadata() map[string]string {
 }
 
 func (ms *MemoryStorage) StoreState(ctx context.Context, state *PersistentState) error {
-	// TODO implement me
-	panic("implement me")
+	return nil
 }
 
 func (ms *MemoryStorage) LoadState(ctx context.Context) (*PersistentState, error) {
-	// TODO implement me
-	panic("implement me")
+	return nil, nil
 }
 
 func (ms *MemoryStorage) HealthCheck(ctx context.Context) error {
@@ -702,4 +702,76 @@ func (f *MemoryStorageFactory) ValidateConfig(config StorageConfig) error {
 	}
 
 	return nil
+}
+
+// GetVotedFor retrieves the vote for a term (alias for GetVote for consistency)
+func (ms *MemoryStorage) GetVotedFor(ctx context.Context, term uint64) (string, error) {
+	return ms.GetVote(ctx, term)
+}
+
+// StoreVotedFor stores the vote for a term (alias for StoreVote for consistency)
+func (ms *MemoryStorage) StoreVotedFor(ctx context.Context, term uint64, candidateID string) error {
+	return ms.StoreVote(ctx, term, candidateID)
+}
+
+// StoreElectionRecord stores an election record
+func (ms *MemoryStorage) StoreElectionRecord(ctx context.Context, record ElectionRecord) error {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	// Store election records in metadata with a special key prefix
+	recordKey := fmt.Sprintf("election_record_%d_%d", record.Term, record.StartTime.Unix())
+
+	// Serialize the record
+	recordData, err := json.Marshal(record)
+	if err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to serialize election record: %v", err))
+	}
+
+	ms.metadata[recordKey] = string(recordData)
+
+	if ms.metrics != nil {
+		ms.metrics.Counter("forge.consensus.storage.election_records_stored").Inc()
+	}
+
+	return nil
+}
+
+// GetElectionHistory retrieves election history with a limit
+func (ms *MemoryStorage) GetElectionHistory(ctx context.Context, limit int) ([]ElectionRecord, error) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+
+	var records []ElectionRecord
+
+	// Find all election record keys
+	for key, value := range ms.metadata {
+		if strings.HasPrefix(key, "election_record_") {
+			var record ElectionRecord
+			if err := json.Unmarshal([]byte(value), &record); err != nil {
+				if ms.logger != nil {
+					ms.logger.Warn("failed to unmarshal election record",
+						logger.String("key", key),
+						logger.Error(err))
+				}
+				continue
+			}
+			records = append(records, record)
+		}
+	}
+
+	// Sort by term and start time (most recent first)
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].Term != records[j].Term {
+			return records[i].Term > records[j].Term
+		}
+		return records[i].StartTime.After(records[j].StartTime)
+	})
+
+	// Apply limit
+	if limit > 0 && len(records) > limit {
+		records = records[:limit]
+	}
+
+	return records, nil
 }

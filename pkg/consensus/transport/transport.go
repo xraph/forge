@@ -6,8 +6,6 @@ import (
 	"math/rand"
 	"net"
 	"time"
-
-	"github.com/xraph/forge/pkg/common"
 )
 
 // Transport defines the interface for consensus communication
@@ -141,7 +139,7 @@ type TLSConfig struct {
 // TransportFactory creates transport instances
 type TransportFactory interface {
 	// Create creates a new transport
-	Create(config TransportConfig, logger common.Logger, metrics common.Metrics) (Transport, error)
+	Create(config TransportConfig) (Transport, error)
 
 	// Name returns the factory name
 	Name() string

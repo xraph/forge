@@ -52,7 +52,7 @@ func (rg *RouteGroup) Use(middleware interface{}) error {
 		rg.middleware = append(rg.middleware, entry)
 
 	case common.NamedMiddleware:
-		// Named middleware
+		// Named middleware - DO NOT register globally, just store for route-level application
 		entry := middlewareEntry{
 			name:     m.Name(),
 			priority: m.Priority(),
@@ -223,9 +223,10 @@ func (rg *RouteGroup) RegisterController(controller common.Controller) error {
 func (rg *RouteGroup) RegisterOpinionatedHandler(method, path string, handler interface{}, options ...common.HandlerOption) error {
 	combinedOptions := append(append([]common.HandlerOption{}, rg.options...), options...)
 
-	// Add group middleware if any
+	// Add group middleware as ROUTE-SPECIFIC middleware if any
 	if len(rg.middleware) > 0 {
-		combinedOptions = append(combinedOptions, WithMiddleware(rg.getMiddlewareHandlers()...))
+		middlewareHandlers := rg.getMiddlewareHandlers()
+		combinedOptions = append(combinedOptions, WithMiddleware(middlewareHandlers...))
 	}
 
 	return rg.router.RegisterOpinionatedHandler(method, rg.combinePath(path), handler, combinedOptions...)
@@ -399,8 +400,9 @@ func (rg *RouteGroup) registerHandler(method, path string, handler interface{}, 
 	allOptions := append(append([]common.HandlerOption{}, rg.options...), options...)
 
 	// Add group middleware to options if any
-	if len(rg.middleware) > 0 {
-		allOptions = append(allOptions, WithMiddleware(rg.getMiddlewareHandlers()...))
+	if len(rg.middleware) > 0 { // Create a route-specific middleware option that wraps the handler
+		middlewareHandlers := rg.getMiddlewareHandlers()
+		allOptions = append(allOptions, WithMiddleware(middlewareHandlers...))
 	}
 
 	fullPath := rg.combinePath(path)

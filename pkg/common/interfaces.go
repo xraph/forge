@@ -714,10 +714,80 @@ type LogField = logger.Field
 // CONFIGURATION MANAGEMENT
 // =============================================================================
 
+// SecretsManager manages secrets for configuration
+type SecretsManager interface {
+	// GetSecret retrieves a secret by key
+	GetSecret(ctx context.Context, key string) (string, error)
+
+	// SetSecret stores a secret
+	SetSecret(ctx context.Context, key, value string) error
+
+	// DeleteSecret removes a secret
+	DeleteSecret(ctx context.Context, key string) error
+
+	// ListSecrets returns all secret keys
+	ListSecrets(ctx context.Context) ([]string, error)
+
+	// RotateSecret rotates a secret with a new value
+	RotateSecret(ctx context.Context, key, newValue string) error
+
+	// RegisterProvider registers a secrets provider
+	RegisterProvider(name string, provider SecretProvider) error
+
+	// GetProvider returns a secrets provider by name
+	GetProvider(name string) (SecretProvider, error)
+
+	// RefreshSecrets refreshes all cached secrets
+	RefreshSecrets(ctx context.Context) error
+
+	// Start starts the secrets manager
+	Start(ctx context.Context) error
+
+	// Stop stops the secrets manager
+	Stop(ctx context.Context) error
+
+	// HealthCheck performs a health check
+	HealthCheck(ctx context.Context) error
+}
+
+// SecretProvider defines an interface for different secret backends
+type SecretProvider interface {
+	// Name returns the provider name
+	Name() string
+
+	// GetSecret retrieves a secret
+	GetSecret(ctx context.Context, key string) (string, error)
+
+	// SetSecret stores a secret
+	SetSecret(ctx context.Context, key, value string) error
+
+	// DeleteSecret removes a secret
+	DeleteSecret(ctx context.Context, key string) error
+
+	// ListSecrets returns all secret keys
+	ListSecrets(ctx context.Context) ([]string, error)
+
+	// HealthCheck performs a health check
+	HealthCheck(ctx context.Context) error
+
+	// SupportsRotation returns true if the provider supports secret rotation
+	SupportsRotation() bool
+
+	// SupportsCaching returns true if the provider supports caching
+	SupportsCaching() bool
+
+	// Initialize initializes the provider
+	Initialize(ctx context.Context, config map[string]interface{}) error
+
+	// Close closes the provider
+	Close(ctx context.Context) error
+}
+
 // ConfigManager defines the comprehensive interface for configuration management
 type ConfigManager interface {
 	// Lifecycle
 	Name() string
+	SecretsManager() SecretsManager
 
 	// Loading and management
 	LoadFrom(sources ...ConfigSource) error
@@ -727,64 +797,42 @@ type ConfigManager interface {
 	Validate() error
 	Stop() error
 
-	// Basic getters
+	// Basic getters with optional variadic defaults
 	Get(key string) interface{}
-	GetString(key string) string
-	GetInt(key string) int
-	GetInt8(key string) int8
-	GetInt16(key string) int16
-	GetInt32(key string) int32
-	GetInt64(key string) int64
-	GetUint(key string) uint
-	GetUint8(key string) uint8
-	GetUint16(key string) uint16
-	GetUint32(key string) uint32
-	GetUint64(key string) uint64
-	GetFloat32(key string) float32
-	GetFloat64(key string) float64
-	GetBool(key string) bool
-	GetDuration(key string) time.Duration
-	GetTime(key string) time.Time
-	GetSizeInBytes(key string) uint64
+	GetString(key string, defaultValue ...string) string
+	GetInt(key string, defaultValue ...int) int
+	GetInt8(key string, defaultValue ...int8) int8
+	GetInt16(key string, defaultValue ...int16) int16
+	GetInt32(key string, defaultValue ...int32) int32
+	GetInt64(key string, defaultValue ...int64) int64
+	GetUint(key string, defaultValue ...uint) uint
+	GetUint8(key string, defaultValue ...uint8) uint8
+	GetUint16(key string, defaultValue ...uint16) uint16
+	GetUint32(key string, defaultValue ...uint32) uint32
+	GetUint64(key string, defaultValue ...uint64) uint64
+	GetFloat32(key string, defaultValue ...float32) float32
+	GetFloat64(key string, defaultValue ...float64) float64
+	GetBool(key string, defaultValue ...bool) bool
+	GetDuration(key string, defaultValue ...time.Duration) time.Duration
+	GetTime(key string, defaultValue ...time.Time) time.Time
+	GetSizeInBytes(key string, defaultValue ...uint64) uint64
 
-	// Collection getters
-	GetStringSlice(key string) []string
-	GetIntSlice(key string) []int
-	GetInt64Slice(key string) []int64
-	GetFloat64Slice(key string) []float64
-	GetBoolSlice(key string) []bool
-	GetStringMap(key string) map[string]string
-	GetStringMapString(key string) map[string]string
-	GetStringMapStringSlice(key string) map[string][]string
+	// Collection getters with optional variadic defaults
+	GetStringSlice(key string, defaultValue ...[]string) []string
+	GetIntSlice(key string, defaultValue ...[]int) []int
+	GetInt64Slice(key string, defaultValue ...[]int64) []int64
+	GetFloat64Slice(key string, defaultValue ...[]float64) []float64
+	GetBoolSlice(key string, defaultValue ...[]bool) []bool
+	GetStringMap(key string, defaultValue ...map[string]string) map[string]string
+	GetStringMapString(key string, defaultValue ...map[string]string) map[string]string
+	GetStringMapStringSlice(key string, defaultValue ...map[string][]string) map[string][]string
 
-	// Getters with default values
-	GetWithDefault(key string, val any) interface{}
-	GetStringWithDefault(key string, val string) string
-	GetIntWithDefault(key string, val int) int
-	GetInt8WithDefault(key string, val int8) int8
-	GetInt16WithDefault(key string, val int16) int16
-	GetInt32WithDefault(key string, val int32) int32
-	GetInt64WithDefault(key string, val int64) int64
-	GetUintWithDefault(key string, val uint) uint
-	GetUint8WithDefault(key string, val uint8) uint8
-	GetUint16WithDefault(key string, val uint16) uint16
-	GetUint32WithDefault(key string, val uint32) uint32
-	GetUint64WithDefault(key string, val uint64) uint64
-	GetFloat32WithDefault(key string, val float32) float32
-	GetFloat64WithDefault(key string, val float64) float64
-	GetBoolWithDefault(key string, val bool) bool
-	GetDurationWithDefault(key string, val time.Duration) time.Duration
-	GetTimeWithDefault(key string, val time.Time) time.Time
-	GetSizeInBytesWithDefault(key string, val uint64) uint64
-
-	// Collection getters with defaults
-	GetStringSliceWithDefault(key string, val []string) []string
-	GetIntSliceWithDefault(key string, val []int) []int
-	GetInt64SliceWithDefault(key string, val []int64) []int64
-	GetFloat64SliceWithDefault(key string, val []float64) []float64
-	GetBoolSliceWithDefault(key string, val []bool) []bool
-	GetStringMapWithDefault(key string, val map[string]string) map[string]string
-	GetStringMapStringSliceWithDefault(key string, val map[string][]string) map[string][]string
+	// Advanced getters with functional options
+	GetWithOptions(key string, opts ...GetOption) (interface{}, error)
+	GetStringWithOptions(key string, opts ...GetOption) (string, error)
+	GetIntWithOptions(key string, opts ...GetOption) (int, error)
+	GetBoolWithOptions(key string, opts ...GetOption) (bool, error)
+	GetDurationWithOptions(key string, opts ...GetOption) (time.Duration, error)
 
 	// Configuration modification
 	Set(key string, value interface{})
@@ -818,8 +866,7 @@ type ConfigManager interface {
 	SafeGet(key string, expectedType reflect.Type) (interface{}, error)
 
 	// Compatibility aliases
-	GetBytesSize(key string) uint64
-	GetBytesSizeWithDefault(key string, defaultValue uint64) uint64
+	GetBytesSize(key string, defaultValue ...uint64) uint64
 	InConfig(key string) bool
 	UnmarshalKey(key string, rawVal interface{}) error
 	Unmarshal(rawVal interface{}) error
@@ -831,6 +878,20 @@ type ConfigManager interface {
 	ConfigFileUsed() string
 	WatchConfig() error
 	OnConfigChange(callback func(ConfigChange))
+}
+
+// GetOption defines functional options for advanced get operations
+type GetOption func(*GetOptions)
+
+// GetOptions contains options for advanced get operations
+type GetOptions struct {
+	Default    interface{}
+	Required   bool
+	Validator  func(interface{}) error
+	Transform  func(interface{}) interface{}
+	OnMissing  func(string) interface{}
+	AllowEmpty bool
+	CacheKey   string
 }
 
 // ConfigSource represents a source of configuration data

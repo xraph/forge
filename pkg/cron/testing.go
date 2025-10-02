@@ -10,9 +10,11 @@ import (
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/cron/election"
 	"github.com/xraph/forge/pkg/cron/persistence"
+	"github.com/xraph/forge/pkg/database"
 	"github.com/xraph/forge/pkg/events"
 	"github.com/xraph/forge/pkg/health"
 	"github.com/xraph/forge/pkg/logger"
+	"github.com/xraph/forge/pkg/metrics"
 )
 
 // TestManager provides a test-friendly cron manager implementation
@@ -45,13 +47,10 @@ func NewTestManager(config *TestConfig) (*TestManager, error) {
 	testLogger := logger.NewTestLogger()
 
 	// Create test metrics
-	testMetrics := &TestMetrics{}
+	testMetrics := metrics.NewMockMetricsCollector()
 
 	// Create test event bus
-	testEventBus := &TestEventBus{}
-
-	// Create test health checker
-	testHealthChecker := &TestHealthChecker{}
+	testEventBus := events.NewTestEventStore()
 
 	// Create cron config
 	cronConfig := &CronConfig{
@@ -82,8 +81,16 @@ func NewTestManager(config *TestConfig) (*TestManager, error) {
 		cronConfig.JobCheckInterval = time.Millisecond * 10
 	}
 
+	dbconfig := database.DefaultPostgresConfig()
 	// Create cron manager
-	manager, err := NewCronManager(cronConfig, testLogger, testMetrics, testEventBus, health.NewTestHealthChecker())
+	manager, err := NewCronManager(
+		database.NewMockConnection(context.Background(), &dbconfig),
+		cronConfig,
+		testLogger,
+		testMetrics,
+		testEventBus,
+		health.NewTestHealthChecker(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -355,173 +362,6 @@ func (tjh *TestJobHandler) OnRetry(ctx context.Context, job *Job, execution *Job
 		return tjh.OnRetryFunc(ctx, job, execution, attempt)
 	}
 	return tjh.BaseJobHandler.OnRetry(ctx, job, execution, attempt)
-}
-
-// TestMetrics provides a test metrics implementation
-type TestMetrics struct {
-	counters   map[string]float64
-	gauges     map[string]float64
-	histograms map[string][]float64
-	timers     map[string][]time.Duration
-	mu         sync.RWMutex
-}
-
-// NewTestMetrics creates a new test metrics instance
-func NewTestMetrics() *TestMetrics {
-	return &TestMetrics{
-		counters:   make(map[string]float64),
-		gauges:     make(map[string]float64),
-		histograms: make(map[string][]float64),
-		timers:     make(map[string][]time.Duration),
-	}
-}
-
-// Counter returns a test counter
-func (tm *TestMetrics) Counter(name string, tags ...string) common.Counter {
-	return &TestCounter{
-		name:    name,
-		metrics: tm,
-	}
-}
-
-// Gauge returns a test gauge
-func (tm *TestMetrics) Gauge(name string, tags ...string) common.Gauge {
-	return &TestGauge{
-		name:    name,
-		metrics: tm,
-	}
-}
-
-// Histogram returns a test histogram
-func (tm *TestMetrics) Histogram(name string, tags ...string) common.Histogram {
-	return &TestHistogram{
-		name:    name,
-		metrics: tm,
-	}
-}
-
-// Timer returns a test timer
-func (tm *TestMetrics) Timer(name string, tags ...string) common.Timer {
-	return &TestTimer{
-		name:    name,
-		metrics: tm,
-	}
-}
-
-// GetCounterValue returns the value of a counter
-func (tm *TestMetrics) GetCounterValue(name string) float64 {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	return tm.counters[name]
-}
-
-// GetGaugeValue returns the value of a gauge
-func (tm *TestMetrics) GetGaugeValue(name string) float64 {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	return tm.gauges[name]
-}
-
-// GetHistogramValues returns the values of a histogram
-func (tm *TestMetrics) GetHistogramValues(name string) []float64 {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	values := tm.histograms[name]
-	result := make([]float64, len(values))
-	copy(result, values)
-	return result
-}
-
-// GetTimerValues returns the values of a timer
-func (tm *TestMetrics) GetTimerValues(name string) []time.Duration {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	values := tm.timers[name]
-	result := make([]time.Duration, len(values))
-	copy(result, values)
-	return result
-}
-
-// TestCounter implements core.Counter for testing
-type TestCounter struct {
-	name    string
-	metrics *TestMetrics
-}
-
-// Inc increments the counter
-func (tc *TestCounter) Inc() {
-	tc.Add(1)
-}
-
-// Add adds to the counter
-func (tc *TestCounter) Add(value float64) {
-	tc.metrics.mu.Lock()
-	defer tc.metrics.mu.Unlock()
-	tc.metrics.counters[tc.name] += value
-}
-
-// TestGauge implements core.Gauge for testing
-type TestGauge struct {
-	name    string
-	metrics *TestMetrics
-}
-
-// Set sets the gauge value
-func (tg *TestGauge) Set(value float64) {
-	tg.metrics.mu.Lock()
-	defer tg.metrics.mu.Unlock()
-	tg.metrics.gauges[tg.name] = value
-}
-
-// Inc increments the gauge
-func (tg *TestGauge) Inc() {
-	tg.Add(1)
-}
-
-// Dec decrements the gauge
-func (tg *TestGauge) Dec() {
-	tg.Add(-1)
-}
-
-// Add adds to the gauge
-func (tg *TestGauge) Add(value float64) {
-	tg.metrics.mu.Lock()
-	defer tg.metrics.mu.Unlock()
-	tg.metrics.gauges[tg.name] += value
-}
-
-// TestHistogram implements core.Histogram for testing
-type TestHistogram struct {
-	name    string
-	metrics *TestMetrics
-}
-
-// Observe records an observation
-func (th *TestHistogram) Observe(value float64) {
-	th.metrics.mu.Lock()
-	defer th.metrics.mu.Unlock()
-	th.metrics.histograms[th.name] = append(th.metrics.histograms[th.name], value)
-}
-
-// TestTimer implements core.Timer for testing
-type TestTimer struct {
-	name    string
-	metrics *TestMetrics
-}
-
-// Record records a duration
-func (tt *TestTimer) Record(duration time.Duration) {
-	tt.metrics.mu.Lock()
-	defer tt.metrics.mu.Unlock()
-	tt.metrics.timers[tt.name] = append(tt.metrics.timers[tt.name], duration)
-}
-
-// Time returns a function that records the duration when called
-func (tt *TestTimer) Time() func() {
-	start := time.Now()
-	return func() {
-		tt.Record(time.Since(start))
-	}
 }
 
 // TestEventBus provides a test event bus implementation
@@ -846,15 +686,6 @@ func AssertExecutionCount(manager *TestManager, jobID string, expectedCount int)
 		return fmt.Errorf("job %s has %d executions, expected %d", jobID, count, expectedCount)
 	}
 
-	return nil
-}
-
-// AssertMetricValue asserts that a metric has a specific value
-func AssertMetricValue(metrics *TestMetrics, metricName string, expectedValue float64) error {
-	value := metrics.GetCounterValue(metricName)
-	if value != expectedValue {
-		return fmt.Errorf("metric %s has value %f, expected %f", metricName, value, expectedValue)
-	}
 	return nil
 }
 

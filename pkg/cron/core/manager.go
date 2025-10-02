@@ -48,4 +48,6 @@ type Manager interface {
 
 	// UnregisterHandler removes a previously registered job handler by its job ID.
 	UnregisterHandler(jobID string) error
+
+	IsRunning() bool
 }

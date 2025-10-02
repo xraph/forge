@@ -30,7 +30,7 @@ type RouteEntry struct {
 
 // ForgeRouter implements the common.Router interface
 type ForgeRouter struct {
-	*steel.SteelRouter
+	adapter           RouterAdapter
 	container         common.Container
 	logger            common.Logger
 	metrics           common.Metrics
@@ -48,6 +48,7 @@ type ForgeRouter struct {
 	currentPluginID string            // Current plugin being configured
 	routeToPlugin   map[string]string // routeID -> pluginID
 	routeIDCounter  int64
+	groupPrefix     string
 
 	// Streaming integration
 	streamingIntegration *StreamingIntegration
@@ -106,28 +107,32 @@ type ForgeRouterConfig struct {
 	RouterOptions steel.RouterOptions
 	OpenAPI       *common.OpenAPIConfig
 	AsyncAPI      *common.AsyncAPIConfig
+	Adapter       RouterAdapter
 }
 
 // NewForgeRouter creates a new enhanced router implementing common.Router
 func NewForgeRouter(config ForgeRouterConfig) common.Router {
-	baseRouter := steel.NewRouter()
-
-	// Configure base router options
-	if config.RouterOptions.OpenAPITitle != "" {
-		baseRouter.OpenAPI().SetTitle(config.RouterOptions.OpenAPITitle)
-	}
-	if config.RouterOptions.OpenAPIVersion != "" {
-		baseRouter.OpenAPI().SetVersion(config.RouterOptions.OpenAPIVersion)
-	}
-	if config.RouterOptions.OpenAPIDescription != "" {
-		baseRouter.OpenAPI().SetDescription(config.RouterOptions.OpenAPIDescription)
+	// baseRouter := steel.NewRouter()
+	//
+	// // Configure base router options
+	// if config.RouterOptions.OpenAPITitle != "" {
+	// 	baseRouter.OpenAPI().SetTitle(config.RouterOptions.OpenAPITitle)
+	// }
+	// if config.RouterOptions.OpenAPIVersion != "" {
+	// 	baseRouter.OpenAPI().SetVersion(config.RouterOptions.OpenAPIVersion)
+	// }
+	// if config.RouterOptions.OpenAPIDescription != "" {
+	// 	baseRouter.OpenAPI().SetDescription(config.RouterOptions.OpenAPIDescription)
+	// }
+	if config.Adapter == nil {
+		config.Adapter = NewHttpRouterAdapterWithDefaults(config.Logger, "")
 	}
 
 	router := &ForgeRouter{
-		SteelRouter:         baseRouter,
 		container:           config.Container,
 		logger:              config.Logger,
 		metrics:             config.Metrics,
+		adapter:             config.Adapter,
 		config:              config.Config,
 		healthChecker:       config.HealthChecker,
 		errorHandler:        config.ErrorHandler,
@@ -151,7 +156,7 @@ func NewForgeRouter(config ForgeRouterConfig) common.Router {
 
 	// Initialize OpenAPI generator if config provided
 	if config.OpenAPI != nil {
-		router.initOpenAPI(*config.OpenAPI)
+		// router.initOpenAPI(*config.OpenAPI)
 	}
 
 	// Initialize AsyncAPI generator if config provided
@@ -275,7 +280,7 @@ func (r *ForgeRouter) RegisterController(controller Controller) error {
 		}
 	}
 
-	// IMPORTANT: Release the lock before calling ConfigureRoutes to avoid deadlock
+	// Release the lock before calling ConfigureRoutes to avoid deadlock
 	r.mu.Unlock()
 
 	// Let the controller configure its own routes (without holding the main lock)
@@ -333,6 +338,26 @@ func (r *ForgeRouter) UnregisterController(controllerName string) error {
 // =============================================================================
 // OPINIONATED HANDLER REGISTRATION
 // =============================================================================
+
+func (r *ForgeRouter) combinePathForOpenAPI(prefix, path string) string {
+	if prefix == "" || prefix == "/" {
+		return path
+	}
+
+	// Ensure prefix doesn't end with slash
+	prefix = strings.TrimSuffix(prefix, "/")
+
+	if path == "" || path == "/" {
+		return prefix
+	}
+
+	// Ensure path starts with slash
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	return prefix + path
+}
 
 func (r *ForgeRouter) RegisterOpinionatedHandler(method, path string, handler interface{}, options ...common.HandlerOption) error {
 	r.mu.Lock()
@@ -417,18 +442,23 @@ func (r *ForgeRouter) RegisterOpinionatedHandler(method, path string, handler in
 		responseType = responseType.Elem()
 	}
 
+	openAPIPath := path
+	if r.groupPrefix != "" {
+		openAPIPath = r.combinePathForOpenAPI(r.groupPrefix, path)
+	}
+
 	// Generate OpenAPI documentation BEFORE creating wrappers
 	if r.openAPIGenerator != nil {
 		if r.logger != nil {
 			r.logger.Debug("Attempting to add OpenAPI operation",
 				logger.String("method", method),
-				logger.String("path", path),
+				logger.String("path", openAPIPath),
 				logger.Bool("auto_update", r.openAPIGenerator.autoUpdate),
 			)
 		}
 
 		// Always try to add the operation (don't check autoUpdate here)
-		if err := r.openAPIGenerator.AddOperation(method, path, handler, options...); err != nil {
+		if err := r.openAPIGenerator.AddOperation(method, openAPIPath, handler, options...); err != nil {
 			if r.logger != nil {
 				r.logger.Warn("Failed to generate OpenAPI documentation for opinionated handler",
 					logger.String("method", method),
@@ -477,6 +507,7 @@ func (r *ForgeRouter) RegisterOpinionatedHandler(method, path string, handler in
 		RequestType:  requestType,
 		ResponseType: responseType,
 		Dependencies: serviceNames,
+		Middleware:   make([]any, 0),
 	}
 
 	for _, option := range options {
@@ -486,6 +517,11 @@ func (r *ForgeRouter) RegisterOpinionatedHandler(method, path string, handler in
 	// Copy tags from handler info
 	for k, v := range handlerInfo.Tags {
 		info.Tags[k] = v
+	}
+
+	var routeSpecificMiddleware []common.Middleware
+	if len(handlerInfo.Middleware) > 0 {
+		routeSpecificMiddleware = r.processRouteMiddleware(handlerInfo.Middleware)
 	}
 
 	// Process middleware from options using the robust middleware manager
@@ -504,27 +540,27 @@ func (r *ForgeRouter) RegisterOpinionatedHandler(method, path string, handler in
 	// Create appropriate wrapper handler based on detected pattern
 	var wrapper func(http.ResponseWriter, *http.Request)
 	if handlerPattern == "service-aware" {
-		wrapper = r.createServiceAwareOpinionatedWrapper(handler, serviceTypes, requestType, responseType, info)
+		wrapper = r.createServiceAwareOpinionatedWrapper(handler, serviceTypes, requestType, responseType, info, routeSpecificMiddleware)
 	} else {
-		wrapper = r.createOpinionatedHandlerWrapper(handler, requestType, responseType, info)
+		wrapper = r.createOpinionatedHandlerWrapper(handler, requestType, responseType, info, routeSpecificMiddleware)
 	}
 
 	// Register with base router
 	switch strings.ToUpper(method) {
 	case "GET":
-		r.SteelRouter.GET(path, wrapper)
+		r.adapter.GET(path, wrapper)
 	case "POST":
-		r.SteelRouter.POST(path, wrapper)
+		r.adapter.POST(path, wrapper)
 	case "PUT":
-		r.SteelRouter.PUT(path, wrapper)
+		r.adapter.PUT(path, wrapper)
 	case "DELETE":
-		r.SteelRouter.DELETE(path, wrapper)
+		r.adapter.DELETE(path, wrapper)
 	case "PATCH":
-		r.SteelRouter.PATCH(path, wrapper)
+		r.adapter.PATCH(path, wrapper)
 	case "OPTIONS":
-		r.SteelRouter.OPTIONS(path, wrapper)
+		r.adapter.OPTIONS(path, wrapper)
 	case "HEAD":
-		r.SteelRouter.HEAD(path, wrapper)
+		r.adapter.HEAD(path, wrapper)
 	default:
 		return common.ErrInvalidConfig("method", fmt.Errorf("unsupported HTTP method: %s", method))
 	}
@@ -614,7 +650,7 @@ func (r *ForgeRouter) EnableAsyncAPI(config common.AsyncAPIConfig) {
 		r.streamingIntegration.asyncAPIGen.SetInfo(config.Title, config.Version, config.Description)
 
 		// Add AsyncAPI JSON spec endpoint
-		r.SteelRouter.GET(config.SpecPath, func(w http.ResponseWriter, req *http.Request) {
+		r.adapter.GET(config.SpecPath, func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -644,7 +680,7 @@ func (r *ForgeRouter) EnableAsyncAPI(config common.AsyncAPIConfig) {
 			yamlPath = config.SpecPath + ".yaml"
 		}
 
-		r.SteelRouter.GET(yamlPath, func(w http.ResponseWriter, req *http.Request) {
+		r.adapter.GET(yamlPath, func(w http.ResponseWriter, req *http.Request) {
 			w.Header().Set("Content-Type", "application/x-yaml")
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -750,6 +786,7 @@ func (r *ForgeRouter) createServiceAwareOpinionatedWrapper(
 	serviceTypes []reflect.Type,
 	requestType, responseType reflect.Type,
 	info *OpinionatedHandlerInfo,
+	routeMiddleware []common.Middleware,
 ) func(http.ResponseWriter, *http.Request) {
 	handlerValue := reflect.ValueOf(handler)
 
@@ -757,90 +794,76 @@ func (r *ForgeRouter) createServiceAwareOpinionatedWrapper(
 		startTime := time.Now()
 		handlerKey := fmt.Sprintf("%s %s", info.Method, info.Path)
 
-		// Create Context with route pattern - ENHANCED
+		// Create Context
 		forgeCtx := common.NewForgeContext(req.Context(), r.container, r.logger, r.metrics, r.config)
 		forgeCtx = forgeCtx.WithRequest(req).WithResponseWriter(w)
-
-		// Set the route pattern for path parameter extraction - CRITICAL FIX
 		forgeCtx = forgeCtx.(*common.ForgeContext).SetRoutePattern(info.Path)
 
-		// Try to extract path parameters immediately and store them
-		if pathParams := r.extractPathParametersFromSteelRouter(req, info.Path); len(pathParams) > 0 {
+		if pathParams := r.extractPathParameters(req, info.Path); len(pathParams) > 0 {
 			forgeCtx = forgeCtx.(*common.ForgeContext).SetPathParams(pathParams)
 		}
 
-		// Update call statistics
 		r.updateOpinionatedCallStats(handlerKey, startTime)
 
-		// Resolve all services from container
-		serviceInstances := make([]reflect.Value, len(serviceTypes))
-		for i, serviceType := range serviceTypes {
-			var serviceInstance interface{}
-			var err error
+		// CRITICAL FIX: Apply route-specific middleware in order
+		var finalHandler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, req2 *http.Request) {
+			// Resolve all services from container
+			serviceInstances := make([]reflect.Value, len(serviceTypes))
+			for i, serviceType := range serviceTypes {
+				var serviceInstance interface{}
+				var err error
 
-			if serviceType.Kind() == reflect.Interface {
-				interfacePtr := reflect.Zero(reflect.PtrTo(serviceType)).Interface()
-				serviceInstance, err = r.container.Resolve(interfacePtr)
-			} else {
-				serviceInstance, err = r.container.Resolve(reflect.New(serviceType).Interface())
+				if serviceType.Kind() == reflect.Interface {
+					interfacePtr := reflect.Zero(reflect.PtrTo(serviceType)).Interface()
+					serviceInstance, err = r.container.Resolve(interfacePtr)
+				} else {
+					serviceInstance, err = r.container.Resolve(reflect.New(serviceType).Interface())
+				}
+
+				if err != nil {
+					r.updateOpinionatedErrorStats(handlerKey, err)
+					serviceName := serviceType.Name()
+					if serviceName == "" {
+						serviceName = serviceType.String()
+					}
+					r.writeErrorResponse(w, req2, common.ErrDependencyNotFound(serviceName, serviceType.String()).WithCause(err))
+					return
+				}
+
+				serviceInstances[i] = reflect.ValueOf(serviceInstance)
 			}
 
-			if err != nil {
+			// Create request instance
+			requestInstance := reflect.New(requestType)
+
+			// Bind request parameters
+			if err := r.bindRequestParameters(forgeCtx, requestInstance.Interface(), requestType); err != nil {
 				r.updateOpinionatedErrorStats(handlerKey, err)
-				serviceName := serviceType.Name()
-				if serviceName == "" {
-					serviceName = serviceType.String()
-				}
-				r.writeErrorResponse(w, req, common.ErrDependencyNotFound(serviceName, serviceType.String()).WithCause(err))
+				r.writeErrorResponse(w, req2, common.ErrInvalidConfig("request_binding", err))
 				return
 			}
 
-			serviceInstances[i] = reflect.ValueOf(serviceInstance)
+			// Build call arguments: ctx + services + request
+			callArgs := make([]reflect.Value, 1+len(serviceInstances)+1)
+			callArgs[0] = reflect.ValueOf(forgeCtx)
+			copy(callArgs[1:], serviceInstances)
+			callArgs[len(callArgs)-1] = requestInstance.Elem()
+
+			// Call the handler
+			results := handlerValue.Call(callArgs)
+
+			// Handle results
+			r.handleOpinionatedResponse(w, req2, results, handlerKey, time.Since(startTime))
+		})
+
+		// Apply route-specific middleware in reverse order
+		for i := len(routeMiddleware) - 1; i >= 0; i-- {
+			md := routeMiddleware[i]
+			finalHandler = md(finalHandler)
 		}
 
-		// Create request instance
-		requestInstance := reflect.New(requestType)
-
-		// Enhanced parameter binding using the context's BindPath method
-		if err := r.bindRequestParameters(forgeCtx, requestInstance.Interface(), requestType); err != nil {
-			r.updateOpinionatedErrorStats(handlerKey, err)
-
-			// Enhanced logging for debugging
-			if r.logger != nil {
-				r.logger.Error("Request parameter binding failed",
-					logger.String("method", req.Method),
-					logger.String("path", req.URL.Path),
-					logger.String("route_pattern", info.Path),
-					logger.String("request_type", requestType.Name()),
-					logger.Error(err),
-				)
-			}
-
-			r.writeErrorResponse(w, req, common.ErrInvalidConfig("request_binding", err))
-			return
-		}
-
-		// Log successful binding for debugging
-		if r.logger != nil {
-			r.logger.Debug("Request parameters bound successfully",
-				logger.String("method", req.Method),
-				logger.String("path", req.URL.Path),
-				logger.String("route_pattern", info.Path),
-				logger.String("request_type", requestType.Name()),
-			)
-		}
-
-		// Build call arguments: ctx + services + request
-		callArgs := make([]reflect.Value, 1+len(serviceInstances)+1)
-		callArgs[0] = reflect.ValueOf(forgeCtx)            // Context first
-		copy(callArgs[1:], serviceInstances)               // All services in middle
-		callArgs[len(callArgs)-1] = requestInstance.Elem() // Request last
-
-		// Call the handler with flexible signature: func(ctx, service1, service2, ..., request)
-		results := handlerValue.Call(callArgs)
-
-		// Handle results
-		r.handleOpinionatedResponse(w, req, results, handlerKey, time.Since(startTime))
+		// Execute the middleware chain
+		finalHandler.ServeHTTP(w, req)
 	}
 }
 
@@ -869,32 +892,22 @@ func (r *ForgeRouter) GetOpinionatedHandlerStats() map[string]OpinionatedHandler
 }
 
 // extractPathParametersFromSteelRouter attempts to extract path parameters using Steel router's API
-func (r *ForgeRouter) extractPathParametersFromSteelRouter(req *http.Request, routePattern string) map[string]string {
-	// params := make(map[string]string)
+func (r *ForgeRouter) extractPathParameters(req *http.Request, routePattern string) map[string]string {
+	// Use adapter's parameter extraction
+	params := r.adapter.ExtractParams(req)
 
-	// Try to get parameters from Steel router's request context
-	ctx := req.Context()
-
-	// Steel router might store parameters under various keys
-	steelKeys := []string{"steel-params", "params", "pathParams", "route-params"}
-
-	for _, key := range steelKeys {
-		if value := ctx.Value(key); value != nil {
-			if paramMap, ok := value.(map[string]string); ok {
-				return paramMap
-			}
-		}
+	// Fallback to manual extraction if adapter returns empty
+	if len(params) == 0 {
+		return r.manuallyExtractPathParameters(req.URL.Path, routePattern, r.adapter.ParamFormat())
 	}
 
-	// If Steel router doesn't provide parameters, manually extract them
-	return r.manuallyExtractPathParameters(req.URL.Path, routePattern)
+	return params
 }
 
 // manuallyExtractPathParameters manually extracts path parameters by comparing patterns
-func (r *ForgeRouter) manuallyExtractPathParameters(requestPath, routePattern string) map[string]string {
+func (r *ForgeRouter) manuallyExtractPathParameters(requestPath, routePattern string, paramFormat ParamFormat) map[string]string {
 	params := make(map[string]string)
 
-	// Handle both Steel format (:param) and OpenAPI format ({param})
 	routeParts := strings.Split(strings.Trim(routePattern, "/"), "/")
 	pathParts := strings.Split(strings.Trim(requestPath, "/"), "/")
 
@@ -906,15 +919,22 @@ func (r *ForgeRouter) manuallyExtractPathParameters(requestPath, routePattern st
 		var paramName string
 		var isParam bool
 
-		// Handle Steel router format: :paramName
-		if strings.HasPrefix(routePart, ":") {
-			paramName = routePart[1:]
-			isParam = true
-		}
-		// Handle OpenAPI format: {paramName}
-		if strings.HasPrefix(routePart, "{") && strings.HasSuffix(routePart, "}") {
-			paramName = routePart[1 : len(routePart)-1]
-			isParam = true
+		switch paramFormat {
+		case ParamFormatColon: // Steel, Gin format
+			if strings.HasPrefix(routePart, ":") {
+				paramName = routePart[1:]
+				isParam = true
+			}
+		case ParamFormatBrace: // Chi, Gorilla format
+			if strings.HasPrefix(routePart, "{") && strings.HasSuffix(routePart, "}") {
+				paramName = routePart[1 : len(routePart)-1]
+				isParam = true
+			}
+		case ParamFormatStar: // Some routers use * for wildcards
+			if strings.HasPrefix(routePart, "*") {
+				paramName = routePart[1:]
+				isParam = true
+			}
 		}
 
 		if isParam && i < len(pathParts) {
@@ -926,20 +946,34 @@ func (r *ForgeRouter) manuallyExtractPathParameters(requestPath, routePattern st
 }
 
 func (r *ForgeRouter) Use(middleware any) error {
+	var err error
 	switch m := middleware.(type) {
 	case common.Middleware:
-		// Function middleware - generate a unique name
 		name := fmt.Sprintf("func_middleware_%d", time.Now().UnixNano())
-		return r.middlewareManager.RegisterFunction(name, 50, m)
+		err = r.middlewareManager.RegisterFunction(name, 50, m)
+		if err != nil {
+			return err
+		}
 
+		r.adapter.Use(func(next http.Handler) http.Handler { return m(next) })
+		return err
 	case common.NamedMiddleware:
-		// Named middleware
-		return r.middlewareManager.Register(m)
-
+		err = r.middlewareManager.Register(m)
+		if err != nil {
+			return err
+		}
+		r.adapter.Use(func(next http.Handler) http.Handler {
+			return m.Handler()(next)
+		})
+		return err
 	case common.StatefulMiddleware:
-		// Stateful middleware (which is also NamedMiddleware)
-		return r.middlewareManager.Register(m)
+		err = r.middlewareManager.Register(m)
+		if err != nil {
+			return err
+		}
 
+		r.adapter.Use(func(next http.Handler) http.Handler { return m.Handler()(next) })
+		return err
 	default:
 		return common.ErrInvalidConfig("middleware", fmt.Errorf("unsupported middleware type: %T", middleware))
 	}
@@ -955,7 +989,7 @@ func (r *ForgeRouter) RemoveMiddleware(middlewareName string) error {
 }
 
 func (r *ForgeRouter) UseMiddleware(handler func(http.Handler) http.Handler) {
-	r.SteelRouter.Use(handler)
+	r.adapter.Use(handler)
 }
 
 // Updated router initialization to inject ForgeContext middleware automatically
@@ -1104,11 +1138,11 @@ func (r *ForgeRouter) HealthCheck(ctx context.Context) error {
 // =============================================================================
 
 func (r *ForgeRouter) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	r.SteelRouter.ServeHTTP(w, req)
+	r.adapter.ServeHTTP(w, req)
 }
 
 func (r *ForgeRouter) Handler() http.Handler {
-	return r.SteelRouter
+	return r.adapter
 }
 
 // UnregisterRoute unregisters a route by ID
@@ -1469,19 +1503,19 @@ func (r *ForgeRouter) registerServiceHandler(method, path string, handler interf
 	// Register with base router
 	switch strings.ToUpper(method) {
 	case "GET":
-		r.SteelRouter.GET(path, wrapper)
+		r.adapter.GET(path, wrapper)
 	case "POST":
-		r.SteelRouter.POST(path, wrapper)
+		r.adapter.POST(path, wrapper)
 	case "PUT":
-		r.SteelRouter.PUT(path, wrapper)
+		r.adapter.PUT(path, wrapper)
 	case "DELETE":
-		r.SteelRouter.DELETE(path, wrapper)
+		r.adapter.DELETE(path, wrapper)
 	case "PATCH":
-		r.SteelRouter.PATCH(path, wrapper)
+		r.adapter.PATCH(path, wrapper)
 	case "OPTIONS":
-		r.SteelRouter.OPTIONS(path, wrapper)
+		r.adapter.OPTIONS(path, wrapper)
 	case "HEAD":
-		r.SteelRouter.HEAD(path, wrapper)
+		r.adapter.HEAD(path, wrapper)
 	default:
 		return common.ErrInvalidConfig("method", fmt.Errorf("unsupported HTTP method: %s", method))
 	}
@@ -1520,19 +1554,19 @@ func (r *ForgeRouter) registerControllerRoute(route common.RouteDefinition) erro
 	// Register with base router
 	switch strings.ToUpper(route.Method) {
 	case "GET":
-		r.SteelRouter.GET(route.Pattern, wrapper)
+		r.adapter.GET(route.Pattern, wrapper)
 	case "POST":
-		r.SteelRouter.POST(route.Pattern, wrapper)
+		r.adapter.POST(route.Pattern, wrapper)
 	case "PUT":
-		r.SteelRouter.PUT(route.Pattern, wrapper)
+		r.adapter.PUT(route.Pattern, wrapper)
 	case "DELETE":
-		r.SteelRouter.DELETE(route.Pattern, wrapper)
+		r.adapter.DELETE(route.Pattern, wrapper)
 	case "PATCH":
-		r.SteelRouter.PATCH(route.Pattern, wrapper)
+		r.adapter.PATCH(route.Pattern, wrapper)
 	case "OPTIONS":
-		r.SteelRouter.OPTIONS(route.Pattern, wrapper)
+		r.adapter.OPTIONS(route.Pattern, wrapper)
 	case "HEAD":
-		r.SteelRouter.HEAD(route.Pattern, wrapper)
+		r.adapter.HEAD(route.Pattern, wrapper)
 	default:
 		return common.ErrInvalidConfig("method", fmt.Errorf("unsupported HTTP method: %s", route.Method))
 	}
@@ -1567,7 +1601,7 @@ func (r *ForgeRouter) createServiceHandlerWrapper(
 		forgeCtx = forgeCtx.(*common.ForgeContext).SetRoutePattern(info.Path)
 
 		// Try to extract path parameters immediately and store them
-		if pathParams := r.extractPathParametersFromSteelRouter(req, info.Path); len(pathParams) > 0 {
+		if pathParams := r.extractPathParameters(req, info.Path); len(pathParams) > 0 {
 			forgeCtx = forgeCtx.(*common.ForgeContext).SetPathParams(pathParams)
 		}
 
@@ -1635,10 +1669,34 @@ func (r *ForgeRouter) createServiceHandlerWrapper(
 	}
 }
 
+func (r *ForgeRouter) processRouteMiddleware(middlewareList []any) []common.Middleware {
+	var processed []common.Middleware
+
+	for _, mw := range middlewareList {
+		switch m := mw.(type) {
+		case common.Middleware:
+			processed = append(processed, m)
+		case common.NamedMiddleware:
+			processed = append(processed, m.Handler())
+		case common.StatefulMiddleware:
+			processed = append(processed, m.Handler())
+		default:
+			if r.logger != nil {
+				r.logger.Warn("Unsupported route middleware type, skipping",
+					logger.String("type", fmt.Sprintf("%T", mw)),
+				)
+			}
+		}
+	}
+
+	return processed
+}
+
 func (r *ForgeRouter) createOpinionatedHandlerWrapper(
 	handler interface{},
 	requestType, responseType reflect.Type,
 	info *OpinionatedHandlerInfo,
+	routeMiddleware []common.Middleware,
 ) func(http.ResponseWriter, *http.Request) {
 	handlerValue := reflect.ValueOf(handler)
 
@@ -1646,61 +1704,47 @@ func (r *ForgeRouter) createOpinionatedHandlerWrapper(
 		startTime := time.Now()
 		handlerKey := fmt.Sprintf("%s %s", info.Method, info.Path)
 
-		// Create Context with route pattern - ENHANCED
+		// Create Context
 		forgeCtx := common.NewForgeContext(req.Context(), r.container, r.logger, r.metrics, r.config)
 		forgeCtx = forgeCtx.WithRequest(req).WithResponseWriter(w)
-
-		// Set the route pattern for path parameter extraction - CRITICAL FIX
 		forgeCtx = forgeCtx.(*common.ForgeContext).SetRoutePattern(info.Path)
 
-		// Try to extract path parameters immediately and store them
-		if pathParams := r.extractPathParametersFromSteelRouter(req, info.Path); len(pathParams) > 0 {
+		if pathParams := r.extractPathParameters(req, info.Path); len(pathParams) > 0 {
 			forgeCtx = forgeCtx.(*common.ForgeContext).SetPathParams(pathParams)
 		}
 
-		// Update call statistics
 		r.updateOpinionatedCallStats(handlerKey, startTime)
 
-		// Create request instance
-		requestInstance := reflect.New(requestType)
+		// CRITICAL FIX: Apply route-specific middleware in order
+		var finalHandler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, req2 *http.Request) {
+			// Create request instance
+			requestInstance := reflect.New(requestType)
 
-		// Enhanced parameter binding using the context's BindPath method
-		if err := r.bindRequestParameters(forgeCtx, requestInstance.Interface(), requestType); err != nil {
-			r.updateOpinionatedErrorStats(handlerKey, err)
-
-			// Enhanced logging for debugging
-			if r.logger != nil {
-				r.logger.Error("Request parameter binding failed",
-					logger.String("method", req.Method),
-					logger.String("path", req.URL.Path),
-					logger.String("route_pattern", info.Path),
-					logger.String("request_type", requestType.Name()),
-					logger.Error(err),
-				)
+			// Bind request parameters
+			if err := r.bindRequestParameters(forgeCtx, requestInstance.Interface(), requestType); err != nil {
+				r.updateOpinionatedErrorStats(handlerKey, err)
+				r.writeErrorResponse(w, req2, common.ErrInvalidConfig("request_binding", err))
+				return
 			}
 
-			r.writeErrorResponse(w, req, common.ErrInvalidConfig("request_binding", err))
-			return
-		}
+			// Call the actual handler
+			results := handlerValue.Call([]reflect.Value{
+				reflect.ValueOf(forgeCtx),
+				requestInstance.Elem(),
+			})
 
-		// Log successful binding for debugging
-		if r.logger != nil {
-			r.logger.Debug("Request parameters bound successfully",
-				logger.String("method", req.Method),
-				logger.String("path", req.URL.Path),
-				logger.String("route_pattern", info.Path),
-				logger.String("request_type", requestType.Name()),
-			)
-		}
-
-		// Call the handler with opinionated signature: func(ctx, request)
-		results := handlerValue.Call([]reflect.Value{
-			reflect.ValueOf(forgeCtx),
-			requestInstance.Elem(),
+			// Handle results
+			r.handleOpinionatedResponse(w, req2, results, handlerKey, time.Since(startTime))
 		})
 
-		// Handle results
-		r.handleOpinionatedResponse(w, req, results, handlerKey, time.Since(startTime))
+		// Apply route-specific middleware in reverse order (like middleware chains)
+		for i := len(routeMiddleware) - 1; i >= 0; i-- {
+			md := routeMiddleware[i]
+			finalHandler = md(finalHandler)
+		}
+
+		// Execute the middleware chain
+		finalHandler.ServeHTTP(w, req)
 	}
 }
 
@@ -2169,7 +2213,48 @@ func (r *ForgeRouter) writeErrorResponse(w http.ResponseWriter, req *http.Reques
 
 // Group creates a new route group with empty prefix
 func (r *ForgeRouter) Group(prefix string) common.Router {
-	return NewRouteGroup(r, prefix)
+	// Log for debugging
+	if r.logger != nil {
+		r.logger.Debug("Creating route group",
+			logger.String("prefix", prefix),
+			logger.Bool("adapter_supports_groups", r.adapter.SupportsGroups()),
+		)
+	}
+
+	if !r.adapter.SupportsGroups() {
+		// Fallback to wrapper-based grouping
+		group := NewRouteGroup(r, prefix)
+		if r.logger != nil {
+			r.logger.Debug("Created wrapper-based route group",
+				logger.String("prefix", prefix),
+			)
+		}
+		return group
+	}
+
+	// Use adapter's native grouping
+	subAdapter := r.adapter.Group(prefix)
+	fmt.Println("---- Groupsss subAdapter", prefix)
+	return r.createSubRouter(subAdapter, prefix)
+}
+
+func (r *ForgeRouter) createSubRouter(adapter RouterAdapter, prefix string) common.Router {
+	return &ForgeRouter{
+		adapter:             adapter,
+		container:           r.container,
+		logger:              r.logger,
+		metrics:             r.metrics,
+		config:              r.config,
+		healthChecker:       r.healthChecker,
+		errorHandler:        r.errorHandler,
+		middlewareManager:   r.middlewareManager,
+		openAPIGenerator:    r.openAPIGenerator,
+		serviceHandlers:     make(map[string]*common.RouteHandlerInfo),
+		controllers:         make(map[string]common.Controller),
+		opinionatedHandlers: make(map[string]*OpinionatedHandlerInfo),
+		routeStats:          make(map[string]*common.RouteStats),
+		groupPrefix:         prefix,
+	}
 }
 
 // GroupFunc creates a route group and calls the provided function with it
@@ -2214,19 +2299,19 @@ func (r *ForgeRouter) Mount(pattern string, handler http.Handler) {
 	for _, method := range methods {
 		switch method {
 		case "GET":
-			r.SteelRouter.GET(fullPattern, wrapper)
+			r.adapter.GET(fullPattern, wrapper)
 		case "POST":
-			r.SteelRouter.POST(fullPattern, wrapper)
+			r.adapter.POST(fullPattern, wrapper)
 		case "PUT":
-			r.SteelRouter.PUT(fullPattern, wrapper)
+			r.adapter.PUT(fullPattern, wrapper)
 		case "DELETE":
-			r.SteelRouter.DELETE(fullPattern, wrapper)
+			r.adapter.DELETE(fullPattern, wrapper)
 		case "PATCH":
-			r.SteelRouter.PATCH(fullPattern, wrapper)
+			r.adapter.PATCH(fullPattern, wrapper)
 		case "HEAD":
-			r.SteelRouter.HEAD(fullPattern, wrapper)
+			r.adapter.HEAD(fullPattern, wrapper)
 		case "OPTIONS":
-			r.SteelRouter.OPTIONS(fullPattern, wrapper)
+			r.adapter.OPTIONS(fullPattern, wrapper)
 		}
 	}
 
@@ -2276,8 +2361,9 @@ func (r *ForgeRouter) initOpenAPI(config common.OpenAPIConfig) {
 		)
 	}
 
+	fmt.Println("----Here")
 	// Add OpenAPI spec endpoint
-	r.SteelRouter.GET(config.SpecPath, func(w http.ResponseWriter, req *http.Request) {
+	r.adapter.GET(config.SpecPath, func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
@@ -2310,7 +2396,7 @@ func (r *ForgeRouter) initOpenAPI(config common.OpenAPIConfig) {
 }
 
 func (r *ForgeRouter) addSwaggerUI(uiPath, specPath string) {
-	r.SteelRouter.GET(uiPath, func(w http.ResponseWriter, req *http.Request) {
+	r.adapter.GET(uiPath, func(w http.ResponseWriter, req *http.Request) {
 		html := fmt.Sprintf(`
 <!DOCTYPE html>
 <html>
@@ -2369,7 +2455,7 @@ func (r *ForgeRouter) UpdateAsyncAPISpec(updater func(*common.AsyncAPISpec)) {
 
 // addAsyncAPIUI adds AsyncAPI documentation UI
 func (r *ForgeRouter) addAsyncAPIUI(uiPath, specPath string) {
-	r.SteelRouter.GET(fmt.Sprintf("/docs%s", uiPath), func(w http.ResponseWriter, req *http.Request) {
+	r.adapter.GET(fmt.Sprintf("/docs%s", uiPath), func(w http.ResponseWriter, req *http.Request) {
 		// Get the full URL for the spec
 		scheme := "http"
 		if req.TLS != nil {
@@ -2384,7 +2470,7 @@ func (r *ForgeRouter) addAsyncAPIUI(uiPath, specPath string) {
 		http.Redirect(w, req, studioURL, http.StatusTemporaryRedirect)
 	})
 
-	r.SteelRouter.GET(uiPath, func(w http.ResponseWriter, req *http.Request) {
+	r.adapter.GET(uiPath, func(w http.ResponseWriter, req *http.Request) {
 		html := fmt.Sprintf(`
 <!DOCTYPE html>
 <html>

@@ -185,7 +185,7 @@ func (app *cliApp) createDefaultContainer() common.Container {
 
 // createDefaultLogger creates a default logger
 func (app *cliApp) createDefaultLogger() common.Logger {
-	env := app.config.GetStringWithDefault("environment", "development")
+	env := app.config.GetString("environment", "development")
 	if env == "development" {
 		return output.NewDevelopmentLogger(app.config.Name())
 	} else if env == "cli" {
@@ -232,8 +232,8 @@ func (app *cliApp) createDefaultConfig() common.ConfigManager {
 }
 
 func (app *cliApp) showStartupBanner() {
-	showBanner := app.config.GetBoolWithDefault("enableBanner", true)
-	env := app.config.GetStringWithDefault("environment", "development")
+	showBanner := app.config.GetBool("enableBanner", true)
+	env := app.config.GetString("environment", "development")
 
 	if showBanner {
 		switch env {

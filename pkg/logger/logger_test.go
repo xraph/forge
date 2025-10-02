@@ -248,38 +248,6 @@ func TestStructuredLogging(t *testing.T) {
 	})
 }
 
-// ExampleNoopLogger demonstrates using noop logger in tests
-func ExampleNoopLogger() {
-	// In production code that accepts a logger
-	processData := func(log logger.Logger, data string) error {
-		log.Info("Processing data", logger.String("data", data))
-
-		// Simulate processing
-		if data == "invalid" {
-			log.Error("Invalid data received", logger.String("data", data))
-			return errors.New("invalid data")
-		}
-
-		log.Info("Data processed successfully", logger.String("data", data))
-		return nil
-	}
-
-	// In tests, use noop logger to avoid log output cluttering test results
-	noopLog := logger.NewNoopLogger()
-
-	err := processData(noopLog, "valid_data")
-	if err != nil {
-		panic("Unexpected error")
-	}
-
-	err = processData(noopLog, "invalid")
-	if err == nil {
-		panic("Expected error")
-	}
-
-	// Output: (no output from noop logger)
-}
-
 // BenchmarkFieldCreation compares field creation performance
 func BenchmarkFieldCreation(b *testing.B) {
 	b.Run("BasicFields", func(b *testing.B) {

@@ -27,19 +27,21 @@ type DatabaseStorage struct {
 	config DatabaseStorageConfig
 
 	// Prepared statements for performance
-	stmtInsertEntry    *sql.Stmt
-	stmtGetEntry       *sql.Stmt
-	stmtGetEntries     *sql.Stmt
-	stmtDeleteEntry    *sql.Stmt
-	stmtGetLastIndex   *sql.Stmt
-	stmtGetFirstIndex  *sql.Stmt
-	stmtStoreSnapshot  *sql.Stmt
-	stmtGetSnapshot    *sql.Stmt
-	stmtDeleteSnapshot *sql.Stmt
-	stmtStoreTerm      *sql.Stmt
-	stmtGetTerm        *sql.Stmt
-	stmtStoreVote      *sql.Stmt
-	stmtGetVote        *sql.Stmt
+	stmtInsertEntry         *sql.Stmt
+	stmtGetEntry            *sql.Stmt
+	stmtGetEntries          *sql.Stmt
+	stmtDeleteEntry         *sql.Stmt
+	stmtGetLastIndex        *sql.Stmt
+	stmtGetFirstIndex       *sql.Stmt
+	stmtStoreSnapshot       *sql.Stmt
+	stmtGetSnapshot         *sql.Stmt
+	stmtDeleteSnapshot      *sql.Stmt
+	stmtStoreTerm           *sql.Stmt
+	stmtGetTerm             *sql.Stmt
+	stmtStoreVote           *sql.Stmt
+	stmtGetVote             *sql.Stmt
+	stmtStoreElectionRecord *sql.Stmt
+	stmtGetElectionHistory  *sql.Stmt
 }
 
 // DatabaseStorageConfig contains configuration for database storage
@@ -341,6 +343,11 @@ func (ds *DatabaseStorage) prepareStatements() error {
 	`, ds.config.MetadataTableName))
 	if err != nil {
 		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to prepare get vote statement: %v", err))
+	}
+
+	// Prepare election-related statements
+	if err := ds.preparElectionStatements(); err != nil {
+		return err
 	}
 
 	return nil
@@ -977,6 +984,8 @@ func (ds *DatabaseStorage) Close(ctx context.Context) error {
 		ds.stmtGetTerm,
 		ds.stmtStoreVote,
 		ds.stmtGetVote,
+		ds.stmtStoreElectionRecord,
+		ds.stmtGetElectionHistory,
 	}
 
 	for _, stmt := range statements {
@@ -1134,6 +1143,273 @@ func (f *DatabaseStorageFactory) Version() string {
 func (f *DatabaseStorageFactory) ValidateConfig(config StorageConfig) error {
 	if config.BatchSize < 0 {
 		return NewStorageError(ErrCodeInvalidConfig, "batch_size must be >= 0")
+	}
+
+	return nil
+}
+
+// GetVotedFor retrieves the vote for a term (alias for GetVote for consistency)
+func (ds *DatabaseStorage) GetVotedFor(ctx context.Context, term uint64) (string, error) {
+	return ds.GetVote(ctx, term)
+}
+
+// StoreVotedFor stores the vote for a term (alias for StoreVote for consistency)
+func (ds *DatabaseStorage) StoreVotedFor(ctx context.Context, term uint64, candidateID string) error {
+	return ds.StoreVote(ctx, term, candidateID)
+}
+
+// StoreElectionRecord stores an election record
+func (ds *DatabaseStorage) StoreElectionRecord(ctx context.Context, record ElectionRecord) error {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	db, ok := ds.db.DB().(*sql.DB)
+	if !ok {
+		return NewStorageError(ErrCodeInvalidConfig, "database connection is not *sql.DB")
+	}
+
+	// Create elections table if it doesn't exist
+	createElectionsTable := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s_elections (
+			id SERIAL PRIMARY KEY,
+			term BIGINT NOT NULL,
+			winner VARCHAR(255),
+			start_time TIMESTAMP NOT NULL,
+			end_time TIMESTAMP NOT NULL,
+			duration_ms BIGINT NOT NULL,
+			vote_count INTEGER NOT NULL,
+			participants TEXT NOT NULL,
+			reason VARCHAR(255) NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			INDEX idx_term (term),
+			INDEX idx_start_time (start_time)
+		)
+	`, ds.config.TableName)
+
+	if _, err := db.ExecContext(ctx, createElectionsTable); err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to create elections table: %v", err))
+	}
+
+	// Serialize participants
+	participantsJSON, err := json.Marshal(record.Participants)
+	if err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to serialize participants: %v", err))
+	}
+
+	// Insert election record
+	insertQuery := fmt.Sprintf(`
+		INSERT INTO %s_elections (term, winner, start_time, end_time, duration_ms, vote_count, participants, reason)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, ds.config.TableName)
+
+	err = ds.executeWithRetry(ctx, func() error {
+		_, err := db.ExecContext(ctx, insertQuery,
+			record.Term,
+			record.Winner,
+			record.StartTime,
+			record.EndTime,
+			record.Duration.Milliseconds(),
+			record.VoteCount,
+			string(participantsJSON),
+			record.Reason,
+		)
+		return err
+	})
+
+	if err != nil {
+		ds.stats.ErrorCount++
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to store election record: %v", err))
+	}
+
+	if ds.metrics != nil {
+		ds.metrics.Counter("forge.consensus.storage.election_records_stored").Inc()
+	}
+
+	return nil
+}
+
+// GetElectionHistory retrieves election history with a limit
+func (ds *DatabaseStorage) GetElectionHistory(ctx context.Context, limit int) ([]ElectionRecord, error) {
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+
+	db, ok := ds.db.DB().(*sql.DB)
+	if !ok {
+		return nil, NewStorageError(ErrCodeInvalidConfig, "database connection is not *sql.DB")
+	}
+
+	// Check if elections table exists
+	checkTableQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM information_schema.tables 
+		WHERE table_name = '%s_elections'
+	`, ds.config.TableName)
+
+	var tableCount int
+	if err := db.QueryRowContext(ctx, checkTableQuery).Scan(&tableCount); err != nil {
+		return nil, NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to check elections table: %v", err))
+	}
+
+	if tableCount == 0 {
+		return []ElectionRecord{}, nil
+	}
+
+	// Query election records
+	queryBuilder := fmt.Sprintf(`
+		SELECT term, winner, start_time, end_time, duration_ms, vote_count, participants, reason
+		FROM %s_elections
+		ORDER BY term DESC, start_time DESC
+	`, ds.config.TableName)
+
+	if limit > 0 {
+		queryBuilder += fmt.Sprintf(" LIMIT %d", limit)
+	}
+
+	var records []ElectionRecord
+
+	err := ds.executeWithRetry(ctx, func() error {
+		rows, err := db.QueryContext(ctx, queryBuilder)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+
+		records = make([]ElectionRecord, 0)
+		for rows.Next() {
+			var record ElectionRecord
+			var durationMs int64
+			var participantsJSON string
+
+			err := rows.Scan(
+				&record.Term,
+				&record.Winner,
+				&record.StartTime,
+				&record.EndTime,
+				&durationMs,
+				&record.VoteCount,
+				&participantsJSON,
+				&record.Reason,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Convert duration from milliseconds
+			record.Duration = time.Duration(durationMs) * time.Millisecond
+
+			// Deserialize participants
+			if err := json.Unmarshal([]byte(participantsJSON), &record.Participants); err != nil {
+				if ds.logger != nil {
+					ds.logger.Warn("failed to deserialize participants",
+						logger.Uint64("term", record.Term),
+						logger.Error(err))
+				}
+				record.Participants = []string{} // Set empty slice on error
+			}
+
+			records = append(records, record)
+		}
+
+		return rows.Err()
+	})
+
+	if err != nil {
+		ds.stats.ErrorCount++
+		return nil, NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to get election history: %v", err))
+	}
+
+	return records, nil
+}
+
+// CleanupOldElectionRecords removes old election records to prevent unlimited growth
+func (ds *DatabaseStorage) CleanupOldElectionRecords(ctx context.Context, maxRecords int) error {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	db, ok := ds.db.DB().(*sql.DB)
+	if !ok {
+		return NewStorageError(ErrCodeInvalidConfig, "database connection is not *sql.DB")
+	}
+
+	// Count current records
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s_elections", ds.config.TableName)
+	var currentCount int
+	if err := db.QueryRowContext(ctx, countQuery).Scan(&currentCount); err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to count election records: %v", err))
+	}
+
+	if currentCount <= maxRecords {
+		return nil // Nothing to clean up
+	}
+
+	// Delete oldest records
+	deleteQuery := fmt.Sprintf(`
+		DELETE FROM %s_elections 
+		WHERE id IN (
+			SELECT id FROM %s_elections 
+			ORDER BY term ASC, start_time ASC 
+			LIMIT %d
+		)
+	`, ds.config.TableName, ds.config.TableName, currentCount-maxRecords)
+
+	err := ds.executeWithRetry(ctx, func() error {
+		result, err := db.ExecContext(ctx, deleteQuery)
+		if err != nil {
+			return err
+		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+
+		if ds.logger != nil {
+			ds.logger.Info("cleaned up old election records",
+				logger.Int64("records_deleted", rowsAffected),
+				logger.Int("max_records", maxRecords))
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		ds.stats.ErrorCount++
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to cleanup election records: %v", err))
+	}
+
+	if ds.metrics != nil {
+		ds.metrics.Counter("forge.consensus.storage.election_records_cleaned").Inc()
+	}
+
+	return nil
+}
+
+// UpdatePreparedStatements adds the new prepared statements to the existing prepareStatements method
+func (ds *DatabaseStorage) preparElectionStatements() error {
+	db, ok := ds.db.DB().(*sql.DB)
+	if !ok {
+		return NewStorageError(ErrCodeInvalidConfig, "database connection is not *sql.DB")
+	}
+
+	var err error
+
+	// Store election record
+	ds.stmtStoreElectionRecord, err = db.Prepare(fmt.Sprintf(`
+		INSERT INTO %s_elections (term, winner, start_time, end_time, duration_ms, vote_count, participants, reason)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+	`, ds.config.TableName))
+	if err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to prepare store election record statement: %v", err))
+	}
+
+	// Get election history
+	ds.stmtGetElectionHistory, err = db.Prepare(fmt.Sprintf(`
+		SELECT term, winner, start_time, end_time, duration_ms, vote_count, participants, reason
+		FROM %s_elections
+		ORDER BY term DESC, start_time DESC
+		LIMIT $1
+	`, ds.config.TableName))
+	if err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to prepare get election history statement: %v", err))
 	}
 
 	return nil

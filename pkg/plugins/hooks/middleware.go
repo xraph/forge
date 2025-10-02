@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -625,7 +626,7 @@ func (hm *HookMiddlewareImpl) convertPanicToError(recovered interface{}) error {
 	case error:
 		return v
 	case string:
-		return fmt.Errorf(v)
+		return errors.New(v)
 	default:
 		return fmt.Errorf("panic: %v", v)
 	}

@@ -70,6 +70,8 @@ type ApplicationConfig struct {
 	// Service definitions for DI container
 	ServiceDefinitions []common.ServiceDefinition
 
+	RouterAdapter RouterAdapter
+
 	// Config sources (can include deferred sources)
 	ConfigSources []interface{} // Mix of config.ConfigSource and ConfigSourceCreator
 
@@ -496,6 +498,14 @@ func WithCacheManager(cacheManager *cache.CacheManager) ApplicationOption {
 func WithDefaultCache() ApplicationOption {
 	return func(config *ApplicationConfig) error {
 		config.CacheConfig = cache.DefaultCacheConfig
+		return nil
+	}
+}
+
+// WithRouteAdapter enables cache with default configuration
+func WithRouteAdapter(adapter RouterAdapter) ApplicationOption {
+	return func(config *ApplicationConfig) error {
+		config.RouterAdapter = adapter
 		return nil
 	}
 }

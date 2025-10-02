@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
 	streaming "github.com/xraph/forge/pkg/streaming/core"
@@ -836,4 +837,8 @@ func (rs ReplayStatus) IsActive() bool {
 // String returns the string representation of the replay status
 func (rs ReplayStatus) String() string {
 	return string(rs)
+}
+
+func generateUniqueID(prefix string) string {
+	return fmt.Sprintf("%s-%d-%s", prefix, time.Now().UnixNano(), uuid.New().String())
 }

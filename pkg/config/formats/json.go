@@ -3,6 +3,7 @@ package formats
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -516,7 +517,7 @@ func (p *JSONProcessor) checkDeprecatedFields(data map[string]interface{}) error
 	}
 
 	if len(warnings) > 0 && p.options.Strict {
-		return common.ErrValidationError("deprecated_fields", fmt.Errorf(strings.Join(warnings, "; ")))
+		return common.ErrValidationError("deprecated_fields", errors.New(strings.Join(warnings, "; ")))
 	}
 
 	// In non-strict mode, just log warnings (would need logger passed in)

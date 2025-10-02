@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -739,6 +741,160 @@ func (f *FileStorageFactory) ValidateConfig(config StorageConfig) error {
 
 	if config.MaxEntries < 0 {
 		return NewStorageError(ErrCodeInvalidConfig, "max_entries must be >= 0")
+	}
+
+	return nil
+}
+
+// GetVotedFor retrieves the vote for a term (alias for GetVote for consistency)
+func (fs *FileStorage) GetVotedFor(ctx context.Context, term uint64) (string, error) {
+	return fs.GetVote(ctx, term)
+}
+
+// StoreVotedFor stores the vote for a term (alias for StoreVote for consistency)
+func (fs *FileStorage) StoreVotedFor(ctx context.Context, term uint64, candidateID string) error {
+	return fs.StoreVote(ctx, term, candidateID)
+}
+
+// StoreElectionRecord stores an election record
+func (fs *FileStorage) StoreElectionRecord(ctx context.Context, record ElectionRecord) error {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+
+	// Create elections directory if it doesn't exist
+	electionsPath := filepath.Join(fs.path, "elections")
+	if err := os.MkdirAll(electionsPath, 0755); err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to create elections directory: %v", err))
+	}
+
+	// Create filename based on term and timestamp
+	filename := fmt.Sprintf("election_%d_%d.json", record.Term, record.StartTime.Unix())
+	filePath := filepath.Join(electionsPath, filename)
+
+	// Serialize record
+	recordData, err := json.Marshal(record)
+	if err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to serialize election record: %v", err))
+	}
+
+	// Write to file
+	if err := os.WriteFile(filePath, recordData, 0644); err != nil {
+		return NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to write election record: %v", err))
+	}
+
+	if fs.metrics != nil {
+		fs.metrics.Counter("forge.consensus.storage.election_records_stored").Inc()
+	}
+
+	return nil
+}
+
+// GetElectionHistory retrieves election history with a limit
+func (fs *FileStorage) GetElectionHistory(ctx context.Context, limit int) ([]ElectionRecord, error) {
+	fs.mu.RLock()
+	defer fs.mu.RUnlock()
+
+	electionsPath := filepath.Join(fs.path, "elections")
+
+	// Check if elections directory exists
+	if _, err := os.Stat(electionsPath); os.IsNotExist(err) {
+		return []ElectionRecord{}, nil
+	}
+
+	// Read directory entries
+	entries, err := os.ReadDir(electionsPath)
+	if err != nil {
+		return nil, NewStorageError(ErrCodeIOError, fmt.Sprintf("failed to read elections directory: %v", err))
+	}
+
+	var records []ElectionRecord
+
+	// Process each election file
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "election_") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		filePath := filepath.Join(electionsPath, entry.Name())
+
+		// Read file
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			if fs.logger != nil {
+				fs.logger.Warn("failed to read election record file",
+					logger.String("file", entry.Name()),
+					logger.Error(err))
+			}
+			continue
+		}
+
+		// Unmarshal record
+		var record ElectionRecord
+		if err := json.Unmarshal(data, &record); err != nil {
+			if fs.logger != nil {
+				fs.logger.Warn("failed to unmarshal election record",
+					logger.String("file", entry.Name()),
+					logger.Error(err))
+			}
+			continue
+		}
+
+		records = append(records, record)
+	}
+
+	// Sort by term and start time (most recent first)
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].Term != records[j].Term {
+			return records[i].Term > records[j].Term
+		}
+		return records[i].StartTime.After(records[j].StartTime)
+	})
+
+	// Apply limit
+	if limit > 0 && len(records) > limit {
+		records = records[:limit]
+	}
+
+	return records, nil
+}
+
+// cleanupOldElectionRecords removes old election records to prevent unlimited growth
+func (fs *FileStorage) cleanupOldElectionRecords(maxRecords int) error {
+	electionsPath := filepath.Join(fs.path, "elections")
+
+	entries, err := os.ReadDir(electionsPath)
+	if err != nil {
+		return err
+	}
+
+	var files []os.FileInfo
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), "election_") && strings.HasSuffix(entry.Name(), ".json") {
+			info, err := entry.Info()
+			if err == nil {
+				files = append(files, info)
+			}
+		}
+	}
+
+	if len(files) <= maxRecords {
+		return nil
+	}
+
+	// Sort by modification time (oldest first)
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].ModTime().Before(files[j].ModTime())
+	})
+
+	// Remove oldest files
+	toRemove := len(files) - maxRecords
+	for i := 0; i < toRemove; i++ {
+		filePath := filepath.Join(electionsPath, files[i].Name())
+		if err := os.Remove(filePath); err != nil && fs.logger != nil {
+			fs.logger.Warn("failed to remove old election record",
+				logger.String("file", files[i].Name()),
+				logger.Error(err))
+		}
 	}
 
 	return nil

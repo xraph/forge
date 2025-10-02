@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/xraph/forge/pkg/common"
+	"github.com/xraph/forge/pkg/database"
 	eventscore "github.com/xraph/forge/pkg/events/core"
 )
 
@@ -17,6 +18,7 @@ type CronService struct {
 
 // NewCronService creates a new cron service
 func NewCronService(
+	db database.Connection,
 	logger common.Logger,
 	metrics common.Metrics,
 	eventBus eventscore.EventBus,
@@ -32,7 +34,7 @@ func NewCronService(
 	}
 
 	// Create manager
-	manager, err := NewCronManager(cronConfig, logger, metrics, eventBus, healthChecker)
+	manager, err := NewCronManager(db, cronConfig, logger, metrics, eventBus, healthChecker)
 	if err != nil {
 		return nil, err
 	}
@@ -128,11 +130,12 @@ func NewServiceFactory() *ServiceFactory {
 
 // CreateService creates a cron service
 func (sf *ServiceFactory) CreateService(
+	db database.Connection,
 	logger common.Logger,
 	metrics common.Metrics,
 	eventBus eventscore.EventBus,
 	healthChecker common.HealthChecker,
 	config common.ConfigManager,
 ) (common.Service, error) {
-	return NewCronService(logger, metrics, eventBus, healthChecker, config)
+	return NewCronService(db, logger, metrics, eventBus, healthChecker, config)
 }

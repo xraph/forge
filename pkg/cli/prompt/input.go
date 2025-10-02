@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"regexp"
@@ -239,7 +240,7 @@ func RegexValidator(pattern, message string) ValidationFunc {
 	return func(input string) error {
 		if !regex.MatchString(input) {
 			if message != "" {
-				return fmt.Errorf(message)
+				return errors.New(message)
 			}
 			return fmt.Errorf("input does not match required pattern")
 		}

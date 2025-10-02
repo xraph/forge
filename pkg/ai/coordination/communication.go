@@ -143,7 +143,7 @@ type AgentCommunicator struct {
 }
 
 // NewCommunicationManager creates a new communication manager
-func NewCommunicationManager(protocol CommunicationProtocol, logger common.Logger) CommunicationManager {
+func NewCommunicationManager(protocol CommunicationProtocol, logger common.Logger) *CommunicationManager {
 	return &communicationManager{
 		config: CommunicationConfig{
 			Protocol:          protocol,

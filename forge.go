@@ -645,6 +645,8 @@ func (app *ForgeApplication) initializeRouter(config *ApplicationConfig) error {
 		HealthChecker: app.healthCheck,
 		ErrorHandler:  app.errorHandler,
 		OpenAPI:       config.OpenAPIConfig,
+		AsyncAPI:      config.AsyncAPIConfig,
+		Adapter:       config.RouterAdapter,
 	}
 
 	app.router = router.NewForgeRouter(routerConfig)

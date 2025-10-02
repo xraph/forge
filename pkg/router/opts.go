@@ -68,7 +68,11 @@ func WithConfig(config interface{}) common.HandlerOption {
 // WithMiddleware sets middleware for the handler
 func WithMiddleware(middleware ...any) common.HandlerOption {
 	return func(info *common.RouteHandlerInfo) {
-		info.Middleware = middleware
+		if info.Middleware == nil {
+			info.Middleware = make([]any, 0)
+		}
+		// Add middleware to this specific route's middleware stack
+		info.Middleware = append(info.Middleware, middleware...)
 	}
 }
 

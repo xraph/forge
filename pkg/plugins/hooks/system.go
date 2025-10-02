@@ -102,6 +102,8 @@ func NewHookSystem(logger common.Logger, metrics common.Metrics) HookSystem {
 		logger:       logger,
 		metrics:      metrics,
 		config:       config,
+		hookToPlugin: make(map[string]string),
+		pluginHooks:  make(map[string][]PluginHookInfo),
 		stats: HookSystemStats{
 			HooksByType:    make(map[plugins.HookType]int),
 			EnabledTypes:   make(map[plugins.HookType]bool),

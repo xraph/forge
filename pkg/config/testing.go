@@ -18,9 +18,10 @@ import (
 type TestConfigManager struct {
 	data            map[string]interface{}
 	watchCallbacks  map[string][]func(string, interface{})
-	changeCallbacks []func(common.ConfigChange)
+	changeCallbacks []func(ConfigChange)
 	mu              sync.RWMutex
 	name            string
+	secretsManager  SecretsManager
 }
 
 // NewTestConfigManager creates a new test configuration manager
@@ -28,8 +29,9 @@ func NewTestConfigManager() common.ConfigManager {
 	return &TestConfigManager{
 		data:            make(map[string]interface{}),
 		watchCallbacks:  make(map[string][]func(string, interface{})),
-		changeCallbacks: make([]func(common.ConfigChange), 0),
+		changeCallbacks: make([]func(ConfigChange), 0),
 		name:            "test-config-manager",
+		secretsManager:  NewMockSecretsManager(),
 	}
 }
 
@@ -38,8 +40,9 @@ func NewTestConfigManagerWithData(data map[string]interface{}) common.ConfigMana
 	manager := &TestConfigManager{
 		data:            make(map[string]interface{}),
 		watchCallbacks:  make(map[string][]func(string, interface{})),
-		changeCallbacks: make([]func(common.ConfigChange), 0),
+		changeCallbacks: make([]func(ConfigChange), 0),
 		name:            "test-config-manager",
+		secretsManager:  NewMockSecretsManager(),
 	}
 
 	// Deep copy the provided data
@@ -105,135 +108,249 @@ func (b *TestConfigBuilder) setValue(key string, value interface{}) {
 	}
 }
 
-// Core interface implementation
+// =============================================================================
+// CORE INTERFACE IMPLEMENTATION
+// =============================================================================
+
+// Name returns the manager name
 func (t *TestConfigManager) Name() string {
 	return t.name
 }
 
-func (t *TestConfigManager) LoadFrom(sources ...common.ConfigSource) error {
+// SecretsManager returns the secrets manager
+func (t *TestConfigManager) SecretsManager() SecretsManager {
+	return t.secretsManager
+}
+
+// LoadFrom simulates loading from sources
+func (t *TestConfigManager) LoadFrom(sources ...ConfigSource) error {
 	// Test implementation doesn't need to load from external sources
-	// Instead, it can simulate loading by merging data
 	return nil
 }
 
+// Watch simulates watching for changes
 func (t *TestConfigManager) Watch(ctx context.Context) error {
-	// Test implementation can simulate watching
 	go func() {
 		<-ctx.Done()
-		// Cleanup watch operations
 	}()
 	return nil
 }
 
+// Reload simulates reloading configuration
 func (t *TestConfigManager) Reload() error {
 	return t.ReloadContext(context.Background())
 }
 
+// ReloadContext simulates reload with context
 func (t *TestConfigManager) ReloadContext(ctx context.Context) error {
-	// Simulate reload by notifying watchers
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	t.notifyWatchCallbacks()
-	t.notifyChangeCallbacks(common.ConfigChange{
+	t.notifyChangeCallbacks(ConfigChange{
 		Source:    "test",
-		Type:      common.ChangeTypeReload,
+		Type:      ChangeTypeReload,
 		Timestamp: time.Now(),
 	})
 	return nil
 }
 
+// Validate always validates successfully in tests
 func (t *TestConfigManager) Validate() error {
-	// Test implementation always validates successfully
 	return nil
 }
 
+// Stop stops the manager
 func (t *TestConfigManager) Stop() error {
 	return nil
 }
 
-// Basic getters
+// =============================================================================
+// BASIC GETTERS WITH VARIADIC DEFAULTS
+// =============================================================================
+
+// Get returns a configuration value
 func (t *TestConfigManager) Get(key string) interface{} {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.getValue(key)
 }
 
-func (t *TestConfigManager) GetString(key string) string {
+// GetString returns a string value with optional default
+func (t *TestConfigManager) GetString(key string, defaultValue ...string) string {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return ""
 	}
 	return fmt.Sprintf("%v", value)
 }
 
-func (t *TestConfigManager) GetInt(key string) int {
+// GetInt returns an int value with optional default
+func (t *TestConfigManager) GetInt(key string, defaultValue ...int) int {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 	return t.convertToInt(value)
 }
 
-func (t *TestConfigManager) GetInt8(key string) int8 {
-	return int8(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetInt16(key string) int16 {
-	return int16(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetInt32(key string) int32 {
-	return int32(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetInt64(key string) int64 {
-	return int64(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetUint(key string) uint {
-	return uint(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetUint8(key string) uint8 {
-	return uint8(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetUint16(key string) uint16 {
-	return uint16(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetUint32(key string) uint32 {
-	return uint32(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetUint64(key string) uint64 {
-	return uint64(t.GetInt(key))
-}
-
-func (t *TestConfigManager) GetFloat32(key string) float32 {
-	return float32(t.GetFloat64(key))
-}
-
-func (t *TestConfigManager) GetFloat64(key string) float64 {
+// GetInt8 returns an int8 value with optional default
+func (t *TestConfigManager) GetInt8(key string, defaultValue ...int8) int8 {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return int8(t.convertToInt(value))
+}
+
+// GetInt16 returns an int16 value with optional default
+func (t *TestConfigManager) GetInt16(key string, defaultValue ...int16) int16 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return int16(t.convertToInt(value))
+}
+
+// GetInt32 returns an int32 value with optional default
+func (t *TestConfigManager) GetInt32(key string, defaultValue ...int32) int32 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return int32(t.convertToInt(value))
+}
+
+// GetInt64 returns an int64 value with optional default
+func (t *TestConfigManager) GetInt64(key string, defaultValue ...int64) int64 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return int64(t.convertToInt(value))
+}
+
+// GetUint returns a uint value with optional default
+func (t *TestConfigManager) GetUint(key string, defaultValue ...uint) uint {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return uint(t.convertToInt(value))
+}
+
+// GetUint8 returns a uint8 value with optional default
+func (t *TestConfigManager) GetUint8(key string, defaultValue ...uint8) uint8 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return uint8(t.convertToInt(value))
+}
+
+// GetUint16 returns a uint16 value with optional default
+func (t *TestConfigManager) GetUint16(key string, defaultValue ...uint16) uint16 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return uint16(t.convertToInt(value))
+}
+
+// GetUint32 returns a uint32 value with optional default
+func (t *TestConfigManager) GetUint32(key string, defaultValue ...uint32) uint32 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return uint32(t.convertToInt(value))
+}
+
+// GetUint64 returns a uint64 value with optional default
+func (t *TestConfigManager) GetUint64(key string, defaultValue ...uint64) uint64 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return uint64(t.convertToInt(value))
+}
+
+// GetFloat32 returns a float32 value with optional default
+func (t *TestConfigManager) GetFloat32(key string, defaultValue ...float32) float32 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+	return float32(t.convertToFloat64(value))
+}
+
+// GetFloat64 returns a float64 value with optional default
+func (t *TestConfigManager) GetFloat64(key string, defaultValue ...float64) float64 {
+	value := t.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 	return t.convertToFloat64(value)
 }
 
-func (t *TestConfigManager) GetBool(key string) bool {
+// GetBool returns a bool value with optional default
+func (t *TestConfigManager) GetBool(key string, defaultValue ...bool) bool {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return false
 	}
 	return t.convertToBool(value)
 }
 
-func (t *TestConfigManager) GetDuration(key string) time.Duration {
+// GetDuration returns a duration value with optional default
+func (t *TestConfigManager) GetDuration(key string, defaultValue ...time.Duration) time.Duration {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -249,12 +366,20 @@ func (t *TestConfigManager) GetDuration(key string) time.Duration {
 	case float64:
 		return time.Duration(v) * time.Second
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-func (t *TestConfigManager) GetTime(key string) time.Time {
+// GetTime returns a time value with optional default
+func (t *TestConfigManager) GetTime(key string, defaultValue ...time.Time) time.Time {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return time.Time{}
 	}
 
@@ -268,12 +393,20 @@ func (t *TestConfigManager) GetTime(key string) time.Time {
 	case int64:
 		return time.Unix(v, 0)
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return time.Time{}
 }
 
-func (t *TestConfigManager) GetSizeInBytes(key string) uint64 {
+// GetSizeInBytes returns size in bytes with optional default
+func (t *TestConfigManager) GetSizeInBytes(key string, defaultValue ...uint64) uint64 {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -289,13 +422,24 @@ func (t *TestConfigManager) GetSizeInBytes(key string) uint64 {
 	case string:
 		return t.parseSizeInBytes(v)
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// Collection getters
-func (t *TestConfigManager) GetStringSlice(key string) []string {
+// =============================================================================
+// COLLECTION GETTERS WITH VARIADIC DEFAULTS
+// =============================================================================
+
+// GetStringSlice returns a string slice with optional default
+func (t *TestConfigManager) GetStringSlice(key string, defaultValue ...[]string) []string {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -311,12 +455,20 @@ func (t *TestConfigManager) GetStringSlice(key string) []string {
 	case string:
 		return strings.Split(v, ",")
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-func (t *TestConfigManager) GetIntSlice(key string) []int {
+// GetIntSlice returns an int slice with optional default
+func (t *TestConfigManager) GetIntSlice(key string, defaultValue ...[]int) []int {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -332,12 +484,20 @@ func (t *TestConfigManager) GetIntSlice(key string) []int {
 		}
 		return result
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-func (t *TestConfigManager) GetInt64Slice(key string) []int64 {
+// GetInt64Slice returns an int64 slice with optional default
+func (t *TestConfigManager) GetInt64Slice(key string, defaultValue ...[]int64) []int64 {
 	ints := t.GetIntSlice(key)
 	if ints == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 	result := make([]int64, len(ints))
@@ -347,9 +507,13 @@ func (t *TestConfigManager) GetInt64Slice(key string) []int64 {
 	return result
 }
 
-func (t *TestConfigManager) GetFloat64Slice(key string) []float64 {
+// GetFloat64Slice returns a float64 slice with optional default
+func (t *TestConfigManager) GetFloat64Slice(key string, defaultValue ...[]float64) []float64 {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -363,12 +527,20 @@ func (t *TestConfigManager) GetFloat64Slice(key string) []float64 {
 		}
 		return result
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-func (t *TestConfigManager) GetBoolSlice(key string) []bool {
+// GetBoolSlice returns a bool slice with optional default
+func (t *TestConfigManager) GetBoolSlice(key string, defaultValue ...[]bool) []bool {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -382,12 +554,20 @@ func (t *TestConfigManager) GetBoolSlice(key string) []bool {
 		}
 		return result
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-func (t *TestConfigManager) GetStringMap(key string) map[string]string {
+// GetStringMap returns a string map with optional default
+func (t *TestConfigManager) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -401,16 +581,25 @@ func (t *TestConfigManager) GetStringMap(key string) map[string]string {
 		}
 		return result
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-func (t *TestConfigManager) GetStringMapString(key string) map[string]string {
-	return t.GetStringMap(key)
+// GetStringMapString is an alias for GetStringMap
+func (t *TestConfigManager) GetStringMapString(key string, defaultValue ...map[string]string) map[string]string {
+	return t.GetStringMap(key, defaultValue...)
 }
 
-func (t *TestConfigManager) GetStringMapStringSlice(key string) map[string][]string {
+// GetStringMapStringSlice returns a map of string slices with optional default
+func (t *TestConfigManager) GetStringMapStringSlice(key string, defaultValue ...map[string][]string) map[string][]string {
 	value := t.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -430,220 +619,243 @@ func (t *TestConfigManager) GetStringMapStringSlice(key string) map[string][]str
 		}
 		return result
 	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-// Default value getters
-func (t *TestConfigManager) GetWithDefault(key string, val any) interface{} {
+// =============================================================================
+// ADVANCED GETTERS WITH FUNCTIONAL OPTIONS
+// =============================================================================
+
+// GetWithOptions returns a value with advanced options
+func (t *TestConfigManager) GetWithOptions(key string, opts ...GetOption) (interface{}, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	value := t.Get(key)
+
 	if value == nil {
-		return val
+		if options.Required {
+			return nil, common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			return options.Default, nil
+		}
+		return nil, nil
 	}
-	return value
+
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	if options.Validator != nil {
+		if err := options.Validator(value); err != nil {
+			return nil, common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return value, nil
 }
 
-func (t *TestConfigManager) GetStringWithDefault(key string, val string) string {
+// GetStringWithOptions returns a string with advanced options
+func (t *TestConfigManager) GetStringWithOptions(key string, opts ...GetOption) (string, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	value := t.Get(key)
+
 	if value == nil {
-		return val
+		if options.Required {
+			return "", common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			if defaultStr, ok := options.Default.(string); ok {
+				return defaultStr, nil
+			}
+		}
+		return "", nil
 	}
-	return t.GetString(key)
+
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	result := fmt.Sprintf("%v", value)
+
+	if !options.AllowEmpty && result == "" {
+		if options.Required {
+			return "", common.ErrConfigError(fmt.Sprintf("key '%s' is empty", key), nil)
+		}
+		if options.Default != nil {
+			if defaultStr, ok := options.Default.(string); ok {
+				return defaultStr, nil
+			}
+		}
+	}
+
+	if options.Validator != nil {
+		if err := options.Validator(result); err != nil {
+			return "", common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return result, nil
 }
 
-func (t *TestConfigManager) GetIntWithDefault(key string, val int) int {
+// GetIntWithOptions returns an int with advanced options
+func (t *TestConfigManager) GetIntWithOptions(key string, opts ...GetOption) (int, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	value := t.Get(key)
+
 	if value == nil {
-		return val
+		if options.Required {
+			return 0, common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			if defaultInt, ok := options.Default.(int); ok {
+				return defaultInt, nil
+			}
+		}
+		return 0, nil
 	}
-	return t.GetInt(key)
+
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	result := t.convertToInt(value)
+
+	if options.Validator != nil {
+		if err := options.Validator(result); err != nil {
+			return 0, common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return result, nil
 }
 
-func (t *TestConfigManager) GetInt8WithDefault(key string, val int8) int8 {
+// GetBoolWithOptions returns a bool with advanced options
+func (t *TestConfigManager) GetBoolWithOptions(key string, opts ...GetOption) (bool, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	value := t.Get(key)
+
 	if value == nil {
-		return val
+		if options.Required {
+			return false, common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			if defaultBool, ok := options.Default.(bool); ok {
+				return defaultBool, nil
+			}
+		}
+		return false, nil
 	}
-	return t.GetInt8(key)
+
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	result := t.convertToBool(value)
+
+	if options.Validator != nil {
+		if err := options.Validator(result); err != nil {
+			return false, common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return result, nil
 }
 
-func (t *TestConfigManager) GetInt16WithDefault(key string, val int16) int16 {
+// GetDurationWithOptions returns a duration with advanced options
+func (t *TestConfigManager) GetDurationWithOptions(key string, opts ...GetOption) (time.Duration, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	value := t.Get(key)
+
 	if value == nil {
-		return val
+		if options.Required {
+			return 0, common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			if defaultDur, ok := options.Default.(time.Duration); ok {
+				return defaultDur, nil
+			}
+		}
+		return 0, nil
 	}
-	return t.GetInt16(key)
+
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	var result time.Duration
+	switch v := value.(type) {
+	case time.Duration:
+		result = v
+	case string:
+		var err error
+		result, err = time.ParseDuration(v)
+		if err != nil {
+			if options.Default != nil {
+				if defaultDur, ok := options.Default.(time.Duration); ok {
+					result = defaultDur
+				}
+			} else {
+				return 0, common.ErrConfigError(fmt.Sprintf("failed to parse duration for key '%s'", key), err)
+			}
+		}
+	case int, int64:
+		result = time.Duration(t.convertToInt(v)) * time.Second
+	default:
+		if options.Default != nil {
+			if defaultDur, ok := options.Default.(time.Duration); ok {
+				result = defaultDur
+			}
+		}
+	}
+
+	if options.Validator != nil {
+		if err := options.Validator(result); err != nil {
+			return 0, common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return result, nil
 }
 
-func (t *TestConfigManager) GetInt32WithDefault(key string, val int32) int32 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetInt32(key)
-}
+// =============================================================================
+// CONFIGURATION MODIFICATION
+// =============================================================================
 
-func (t *TestConfigManager) GetInt64WithDefault(key string, val int64) int64 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetInt64(key)
-}
-
-func (t *TestConfigManager) GetUintWithDefault(key string, val uint) uint {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetUint(key)
-}
-
-func (t *TestConfigManager) GetUint8WithDefault(key string, val uint8) uint8 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetUint8(key)
-}
-
-func (t *TestConfigManager) GetUint16WithDefault(key string, val uint16) uint16 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetUint16(key)
-}
-
-func (t *TestConfigManager) GetUint32WithDefault(key string, val uint32) uint32 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetUint32(key)
-}
-
-func (t *TestConfigManager) GetUint64WithDefault(key string, val uint64) uint64 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetUint64(key)
-}
-
-func (t *TestConfigManager) GetFloat32WithDefault(key string, val float32) float32 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetFloat32(key)
-}
-
-func (t *TestConfigManager) GetFloat64WithDefault(key string, val float64) float64 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetFloat64(key)
-}
-
-func (t *TestConfigManager) GetBoolWithDefault(key string, val bool) bool {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetBool(key)
-}
-
-func (t *TestConfigManager) GetDurationWithDefault(key string, val time.Duration) time.Duration {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	return t.GetDuration(key)
-}
-
-func (t *TestConfigManager) GetTimeWithDefault(key string, val time.Time) time.Time {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	result := t.GetTime(key)
-	if result.IsZero() {
-		return val
-	}
-	return result
-}
-
-func (t *TestConfigManager) GetSizeInBytesWithDefault(key string, val uint64) uint64 {
-	value := t.Get(key)
-	if value == nil {
-		return val
-	}
-	result := t.GetSizeInBytes(key)
-	if result == 0 {
-		return val
-	}
-	return result
-}
-
-// Collection getters with defaults
-func (t *TestConfigManager) GetStringSliceWithDefault(key string, val []string) []string {
-	result := t.GetStringSlice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (t *TestConfigManager) GetIntSliceWithDefault(key string, val []int) []int {
-	result := t.GetIntSlice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (t *TestConfigManager) GetInt64SliceWithDefault(key string, val []int64) []int64 {
-	result := t.GetInt64Slice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (t *TestConfigManager) GetFloat64SliceWithDefault(key string, val []float64) []float64 {
-	result := t.GetFloat64Slice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (t *TestConfigManager) GetBoolSliceWithDefault(key string, val []bool) []bool {
-	result := t.GetBoolSlice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (t *TestConfigManager) GetStringMapWithDefault(key string, val map[string]string) map[string]string {
-	result := t.GetStringMap(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (t *TestConfigManager) GetStringMapStringSliceWithDefault(key string, val map[string][]string) map[string][]string {
-	result := t.GetStringMapStringSlice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-// Configuration modification
+// Set sets a configuration value
 func (t *TestConfigManager) Set(key string, value interface{}) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -651,10 +863,9 @@ func (t *TestConfigManager) Set(key string, value interface{}) {
 	oldValue := t.getValue(key)
 	t.setValue(key, value)
 
-	// Notify callbacks
-	change := common.ConfigChange{
+	change := ConfigChange{
 		Source:    "test",
-		Type:      common.ChangeTypeSet,
+		Type:      ChangeTypeSet,
 		Key:       key,
 		OldValue:  oldValue,
 		NewValue:  value,
@@ -663,17 +874,23 @@ func (t *TestConfigManager) Set(key string, value interface{}) {
 	t.notifyChangeCallbacks(change)
 }
 
-// Binding methods - simplified for testing
+// =============================================================================
+// BINDING METHODS
+// =============================================================================
+
+// Bind binds configuration to a struct (simplified for testing)
 func (t *TestConfigManager) Bind(key string, target interface{}) error {
 	return t.BindWithOptions(key, target, common.DefaultBindOptions())
 }
 
+// BindWithDefault binds with a default value
 func (t *TestConfigManager) BindWithDefault(key string, target interface{}, defaultValue interface{}) error {
 	options := common.DefaultBindOptions()
 	options.DefaultValue = defaultValue
 	return t.BindWithOptions(key, target, options)
 }
 
+// BindWithOptions binds with flexible options
 func (t *TestConfigManager) BindWithOptions(key string, target interface{}, options common.BindOptions) error {
 	var data interface{}
 	if key == "" {
@@ -696,7 +913,11 @@ func (t *TestConfigManager) BindWithOptions(key string, target interface{}, opti
 	return t.bindValue(data, target)
 }
 
-// Watch methods
+// =============================================================================
+// WATCH METHODS
+// =============================================================================
+
+// WatchWithCallback registers a callback for key changes
 func (t *TestConfigManager) WatchWithCallback(key string, callback func(string, interface{})) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -707,16 +928,21 @@ func (t *TestConfigManager) WatchWithCallback(key string, callback func(string, 
 	t.watchCallbacks[key] = append(t.watchCallbacks[key], callback)
 }
 
-func (t *TestConfigManager) WatchChanges(callback func(common.ConfigChange)) {
+// WatchChanges registers a callback for all changes
+func (t *TestConfigManager) WatchChanges(callback func(ConfigChange)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	t.changeCallbacks = append(t.changeCallbacks, callback)
 }
 
-// Metadata and introspection
-func (t *TestConfigManager) GetSourceMetadata() map[string]*common.SourceMetadata {
-	return map[string]*common.SourceMetadata{
+// =============================================================================
+// METADATA AND INTROSPECTION
+// =============================================================================
+
+// GetSourceMetadata returns metadata for all sources
+func (t *TestConfigManager) GetSourceMetadata() map[string]*SourceMetadata {
+	return map[string]*SourceMetadata{
 		"test": {
 			Name:         "test",
 			Priority:     1,
@@ -730,12 +956,14 @@ func (t *TestConfigManager) GetSourceMetadata() map[string]*common.SourceMetadat
 	}
 }
 
+// GetKeys returns all configuration keys
 func (t *TestConfigManager) GetKeys() []string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.getAllKeys(t.data, "")
 }
 
+// GetSection returns a configuration section
 func (t *TestConfigManager) GetSection(key string) map[string]interface{} {
 	value := t.Get(key)
 	if value == nil {
@@ -748,10 +976,12 @@ func (t *TestConfigManager) GetSection(key string) map[string]interface{} {
 	return nil
 }
 
+// HasKey checks if a key exists
 func (t *TestConfigManager) HasKey(key string) bool {
 	return t.Get(key) != nil
 }
 
+// IsSet checks if a key is set and not empty
 func (t *TestConfigManager) IsSet(key string) bool {
 	value := t.Get(key)
 	if value == nil {
@@ -770,11 +1000,16 @@ func (t *TestConfigManager) IsSet(key string) bool {
 	}
 }
 
+// Size returns the number of keys
 func (t *TestConfigManager) Size() int {
 	return len(t.GetKeys())
 }
 
-// Structure operations
+// =============================================================================
+// STRUCTURE OPERATIONS
+// =============================================================================
+
+// Sub returns a sub-configuration manager
 func (t *TestConfigManager) Sub(key string) common.ConfigManager {
 	subData := t.GetSection(key)
 	if subData == nil {
@@ -783,6 +1018,7 @@ func (t *TestConfigManager) Sub(key string) common.ConfigManager {
 	return NewTestConfigManagerWithData(subData)
 }
 
+// MergeWith merges another config manager
 func (t *TestConfigManager) MergeWith(other common.ConfigManager) error {
 	otherData := other.GetAllSettings()
 	t.mu.Lock()
@@ -791,32 +1027,39 @@ func (t *TestConfigManager) MergeWith(other common.ConfigManager) error {
 	return nil
 }
 
+// Clone creates a deep copy
 func (t *TestConfigManager) Clone() common.ConfigManager {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return NewTestConfigManagerWithData(t.data)
 }
 
+// GetAllSettings returns all settings
 func (t *TestConfigManager) GetAllSettings() map[string]interface{} {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.deepCopyMap(t.data)
 }
 
-// Utility methods
+// =============================================================================
+// UTILITY METHODS
+// =============================================================================
+
+// Reset clears all configuration
 func (t *TestConfigManager) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.data = make(map[string]interface{})
 	t.watchCallbacks = make(map[string][]func(string, interface{}))
-	t.changeCallbacks = make([]func(common.ConfigChange), 0)
+	t.changeCallbacks = make([]func(ConfigChange), 0)
 }
 
+// ExpandEnvVars expands environment variables (no-op for testing)
 func (t *TestConfigManager) ExpandEnvVars() error {
-	// Test implementation doesn't need to expand env vars
 	return nil
 }
 
+// SafeGet returns a value with type checking
 func (t *TestConfigManager) SafeGet(key string, expectedType reflect.Type) (interface{}, error) {
 	value := t.Get(key)
 	if value == nil {
@@ -831,61 +1074,74 @@ func (t *TestConfigManager) SafeGet(key string, expectedType reflect.Type) (inte
 	return value, nil
 }
 
-// Compatibility aliases
-func (t *TestConfigManager) GetBytesSize(key string) uint64 {
-	return t.GetSizeInBytes(key)
+// =============================================================================
+// COMPATIBILITY ALIASES
+// =============================================================================
+
+// GetBytesSize is an alias for GetSizeInBytes
+func (t *TestConfigManager) GetBytesSize(key string, defaultValue ...uint64) uint64 {
+	return t.GetSizeInBytes(key, defaultValue...)
 }
 
-func (t *TestConfigManager) GetBytesSizeWithDefault(key string, defaultValue uint64) uint64 {
-	return t.GetSizeInBytesWithDefault(key, defaultValue)
-}
-
+// InConfig is an alias for HasKey
 func (t *TestConfigManager) InConfig(key string) bool {
 	return t.HasKey(key)
 }
 
+// UnmarshalKey is an alias for Bind
 func (t *TestConfigManager) UnmarshalKey(key string, rawVal interface{}) error {
 	return t.Bind(key, rawVal)
 }
 
+// Unmarshal unmarshals entire configuration
 func (t *TestConfigManager) Unmarshal(rawVal interface{}) error {
 	return t.Bind("", rawVal)
 }
 
+// AllKeys is an alias for GetKeys
 func (t *TestConfigManager) AllKeys() []string {
 	return t.GetKeys()
 }
 
+// AllSettings is an alias for GetAllSettings
 func (t *TestConfigManager) AllSettings() map[string]interface{} {
 	return t.GetAllSettings()
 }
 
+// ReadInConfig reads configuration
 func (t *TestConfigManager) ReadInConfig() error {
 	return t.ReloadContext(context.Background())
 }
 
+// SetConfigType sets the configuration type (no-op for testing)
 func (t *TestConfigManager) SetConfigType(configType string) {
-	// Test implementation ignores config type
+	// No-op for testing
 }
 
+// SetConfigFile sets the configuration file (no-op for testing)
 func (t *TestConfigManager) SetConfigFile(filePath string) error {
-	// Test implementation ignores file paths
 	return nil
 }
 
+// ConfigFileUsed returns the config file path
 func (t *TestConfigManager) ConfigFileUsed() string {
 	return "test://memory"
 }
 
+// WatchConfig is an alias for Watch
 func (t *TestConfigManager) WatchConfig() error {
 	return t.Watch(context.Background())
 }
 
-func (t *TestConfigManager) OnConfigChange(callback func(common.ConfigChange)) {
+// OnConfigChange is an alias for WatchChanges
+func (t *TestConfigManager) OnConfigChange(callback func(ConfigChange)) {
 	t.WatchChanges(callback)
 }
 
-// Helper methods
+// =============================================================================
+// HELPER METHODS
+// =============================================================================
+
 func (t *TestConfigManager) getValue(key string) interface{} {
 	keys := strings.Split(key, ".")
 	current := interface{}(t.data)
@@ -1025,13 +1281,10 @@ func (t *TestConfigManager) bindValue(value interface{}, target interface{}) err
 		return fmt.Errorf("target must be a pointer to struct")
 	}
 
-	// Simplified binding - convert to JSON and back for easy binding
-	// This is acceptable for test scenarios
 	if mapData, ok := value.(map[string]interface{}); ok {
 		return t.bindMapToStruct(mapData, targetValue.Elem())
 	}
 
-	// Direct assignment for simple types
 	if targetValue.Elem().CanSet() {
 		sourceValue := reflect.ValueOf(value)
 		if sourceValue.Type().ConvertibleTo(targetValue.Elem().Type()) {
@@ -1053,13 +1306,11 @@ func (t *TestConfigManager) bindMapToStruct(mapData map[string]interface{}, stru
 			continue
 		}
 
-		// Get field name from tags
 		fieldName := t.getFieldName(fieldType)
 		if fieldName == "" {
 			continue
 		}
 
-		// Get value from map
 		if mapValue, exists := mapData[fieldName]; exists {
 			if err := t.setFieldValue(field, mapValue); err != nil {
 				return err
@@ -1090,7 +1341,6 @@ func (t *TestConfigManager) setFieldValue(field reflect.Value, value interface{}
 
 	sourceValue := reflect.ValueOf(value)
 
-	// Handle different field types
 	switch field.Kind() {
 	case reflect.String:
 		field.SetString(fmt.Sprintf("%v", value))
@@ -1120,7 +1370,6 @@ func (t *TestConfigManager) setFieldValue(field reflect.Value, value interface{}
 		}
 		return t.setFieldValue(field.Elem(), value)
 	default:
-		// Try direct assignment
 		if sourceValue.Type().ConvertibleTo(field.Type()) {
 			field.Set(sourceValue.Convert(field.Type()))
 		}
@@ -1162,8 +1411,6 @@ func (t *TestConfigManager) getAllKeys(data interface{}, prefix string) []string
 			}
 
 			keys = append(keys, fullKey)
-
-			// Recursively get nested keys
 			nestedKeys := t.getAllKeys(value, fullKey)
 			keys = append(keys, nestedKeys...)
 		}
@@ -1229,10 +1476,35 @@ func (t *TestConfigManager) notifyWatchCallbacks() {
 	}
 }
 
-func (t *TestConfigManager) notifyChangeCallbacks(change common.ConfigChange) {
+func (t *TestConfigManager) notifyChangeCallbacks(change ConfigChange) {
 	for _, callback := range t.changeCallbacks {
 		go callback(change)
 	}
+}
+
+// =============================================================================
+// TEST HELPERS
+// =============================================================================
+
+// SimulateConfigChange simulates a configuration change for testing watchers
+func (t *TestConfigManager) SimulateConfigChange(key string, newValue interface{}) {
+	oldValue := t.Get(key)
+	t.Set(key, newValue)
+
+	change := ConfigChange{
+		Source:    "test-simulation",
+		Type:      ChangeTypeUpdate,
+		Key:       key,
+		OldValue:  oldValue,
+		NewValue:  newValue,
+		Timestamp: time.Now(),
+	}
+
+	go func() {
+		for _, callback := range t.changeCallbacks {
+			callback(change)
+		}
+	}()
 }
 
 // TestConfigAssertions provides assertion helpers for testing configuration
@@ -1271,24 +1543,1128 @@ func (a *TestConfigAssertions) AssertIntEquals(key string, expected int) bool {
 	return actual == expected
 }
 
-// SimulateConfigChange simulates a configuration change for testing watchers
-func (t *TestConfigManager) SimulateConfigChange(key string, newValue interface{}) {
-	oldValue := t.Get(key)
-	t.Set(key, newValue)
+// =============================================================================
+// MOCK SECRETS MANAGER
+// =============================================================================
 
-	// This will trigger the normal change notification process
-	change := common.ConfigChange{
-		Source:    "test-simulation",
-		Type:      common.ChangeTypeUpdate,
+// MockSecretsManager is a comprehensive mock implementation of SecretsManager
+// optimized for testing with call tracking, assertions, and behavior simulation
+type MockSecretsManager struct {
+	secrets   map[string]string
+	providers map[string]SecretProvider
+	started   bool
+	mu        sync.RWMutex
+
+	// Call tracking for test assertions
+	getCalls     []SecretCall
+	setCalls     []SecretCall
+	deleteCalls  []SecretCall
+	listCalls    []ListCall
+	rotateCalls  []RotateCall
+	refreshCalls []RefreshCall
+	startCalls   []LifecycleCall
+	stopCalls    []LifecycleCall
+	healthCalls  []HealthCall
+
+	// Behavior simulation
+	getError          error
+	setError          error
+	deleteError       error
+	listError         error
+	rotateError       error
+	refreshError      error
+	startError        error
+	stopError         error
+	healthError       error
+	latencySimulation time.Duration
+
+	// Metrics
+	totalCalls   int64
+	errorCount   int64
+	lastAccessed time.Time
+}
+
+// SecretCall represents a tracked secret operation call
+type SecretCall struct {
+	Key       string
+	Value     string
+	Timestamp time.Time
+	Error     error
+}
+
+// ListCall represents a tracked list operation
+type ListCall struct {
+	Result    []string
+	Timestamp time.Time
+	Error     error
+}
+
+// RotateCall represents a tracked rotate operation
+type RotateCall struct {
+	Key       string
+	OldValue  string
+	NewValue  string
+	Timestamp time.Time
+	Error     error
+}
+
+// RefreshCall represents a tracked refresh operation
+type RefreshCall struct {
+	Timestamp time.Time
+	Error     error
+}
+
+// LifecycleCall represents a tracked lifecycle operation
+type LifecycleCall struct {
+	Timestamp time.Time
+	Error     error
+}
+
+// HealthCall represents a tracked health check
+type HealthCall struct {
+	Timestamp time.Time
+	Error     error
+	Healthy   bool
+}
+
+// NewMockSecretsManager creates a new mock secrets manager with default settings
+func NewMockSecretsManager() *MockSecretsManager {
+	return &MockSecretsManager{
+		secrets:      make(map[string]string),
+		providers:    make(map[string]SecretProvider),
+		started:      false,
+		getCalls:     make([]SecretCall, 0),
+		setCalls:     make([]SecretCall, 0),
+		deleteCalls:  make([]SecretCall, 0),
+		listCalls:    make([]ListCall, 0),
+		rotateCalls:  make([]RotateCall, 0),
+		refreshCalls: make([]RefreshCall, 0),
+		startCalls:   make([]LifecycleCall, 0),
+		stopCalls:    make([]LifecycleCall, 0),
+		healthCalls:  make([]HealthCall, 0),
+	}
+}
+
+// NewMockSecretsManagerWithSecrets creates a mock with initial secrets
+func NewMockSecretsManagerWithSecrets(secrets map[string]string) *MockSecretsManager {
+	manager := NewMockSecretsManager()
+	manager.secrets = make(map[string]string)
+	for k, v := range secrets {
+		manager.secrets[k] = v
+	}
+	return manager
+}
+
+// =============================================================================
+// CORE INTERFACE IMPLEMENTATION
+// =============================================================================
+
+// GetSecret retrieves a secret by key
+func (m *MockSecretsManager) GetSecret(ctx context.Context, key string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Simulate latency if configured
+	if m.latencySimulation > 0 {
+		time.Sleep(m.latencySimulation)
+	}
+
+	// Return configured error if set
+	if m.getError != nil {
+		m.errorCount++
+		call := SecretCall{
+			Key:       key,
+			Timestamp: time.Now(),
+			Error:     m.getError,
+		}
+		m.getCalls = append(m.getCalls, call)
+		return "", m.getError
+	}
+
+	// Check if started
+	if !m.started {
+		err := fmt.Errorf("secrets manager not started")
+		m.errorCount++
+		call := SecretCall{
+			Key:       key,
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.getCalls = append(m.getCalls, call)
+		return "", err
+	}
+
+	// Get secret
+	value, exists := m.secrets[key]
+	if !exists {
+		err := fmt.Errorf("secret '%s' not found", key)
+		m.errorCount++
+		call := SecretCall{
+			Key:       key,
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.getCalls = append(m.getCalls, call)
+		return "", err
+	}
+
+	// Track successful call
+	call := SecretCall{
+		Key:       key,
+		Value:     value,
+		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	m.getCalls = append(m.getCalls, call)
+
+	return value, nil
+}
+
+// SetSecret stores a secret
+func (m *MockSecretsManager) SetSecret(ctx context.Context, key, value string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Simulate latency if configured
+	if m.latencySimulation > 0 {
+		time.Sleep(m.latencySimulation)
+	}
+
+	// Return configured error if set
+	if m.setError != nil {
+		m.errorCount++
+		call := SecretCall{
+			Key:       key,
+			Value:     value,
+			Timestamp: time.Now(),
+			Error:     m.setError,
+		}
+		m.setCalls = append(m.setCalls, call)
+		return m.setError
+	}
+
+	// Check if started
+	if !m.started {
+		err := fmt.Errorf("secrets manager not started")
+		m.errorCount++
+		call := SecretCall{
+			Key:       key,
+			Value:     value,
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.setCalls = append(m.setCalls, call)
+		return err
+	}
+
+	// Store secret
+	m.secrets[key] = value
+
+	// Track successful call
+	call := SecretCall{
+		Key:       key,
+		Value:     value,
+		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	m.setCalls = append(m.setCalls, call)
+
+	return nil
+}
+
+// DeleteSecret removes a secret
+func (m *MockSecretsManager) DeleteSecret(ctx context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Simulate latency if configured
+	if m.latencySimulation > 0 {
+		time.Sleep(m.latencySimulation)
+	}
+
+	// Return configured error if set
+	if m.deleteError != nil {
+		m.errorCount++
+		call := SecretCall{
+			Key:       key,
+			Timestamp: time.Now(),
+			Error:     m.deleteError,
+		}
+		m.deleteCalls = append(m.deleteCalls, call)
+		return m.deleteError
+	}
+
+	// Check if started
+	if !m.started {
+		err := fmt.Errorf("secrets manager not started")
+		m.errorCount++
+		call := SecretCall{
+			Key:       key,
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.deleteCalls = append(m.deleteCalls, call)
+		return err
+	}
+
+	// Delete secret
+	delete(m.secrets, key)
+
+	// Track successful call
+	call := SecretCall{
+		Key:       key,
+		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	m.deleteCalls = append(m.deleteCalls, call)
+
+	return nil
+}
+
+// ListSecrets returns all secret keys
+func (m *MockSecretsManager) ListSecrets(ctx context.Context) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Simulate latency if configured
+	if m.latencySimulation > 0 {
+		time.Sleep(m.latencySimulation)
+	}
+
+	// Return configured error if set
+	if m.listError != nil {
+		m.errorCount++
+		call := ListCall{
+			Timestamp: time.Now(),
+			Error:     m.listError,
+		}
+		m.listCalls = append(m.listCalls, call)
+		return nil, m.listError
+	}
+
+	// Check if started
+	if !m.started {
+		err := fmt.Errorf("secrets manager not started")
+		m.errorCount++
+		call := ListCall{
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.listCalls = append(m.listCalls, call)
+		return nil, err
+	}
+
+	// List secrets
+	keys := make([]string, 0, len(m.secrets))
+	for k := range m.secrets {
+		keys = append(keys, k)
+	}
+
+	// Track successful call
+	call := ListCall{
+		Result:    keys,
+		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	m.listCalls = append(m.listCalls, call)
+
+	return keys, nil
+}
+
+// RotateSecret rotates a secret with a new value
+func (m *MockSecretsManager) RotateSecret(ctx context.Context, key, newValue string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Simulate latency if configured
+	if m.latencySimulation > 0 {
+		time.Sleep(m.latencySimulation)
+	}
+
+	// Return configured error if set
+	if m.rotateError != nil {
+		m.errorCount++
+		call := RotateCall{
+			Key:       key,
+			NewValue:  newValue,
+			Timestamp: time.Now(),
+			Error:     m.rotateError,
+		}
+		m.rotateCalls = append(m.rotateCalls, call)
+		return m.rotateError
+	}
+
+	// Check if started
+	if !m.started {
+		err := fmt.Errorf("secrets manager not started")
+		m.errorCount++
+		call := RotateCall{
+			Key:       key,
+			NewValue:  newValue,
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.rotateCalls = append(m.rotateCalls, call)
+		return err
+	}
+
+	// Get old value
+	oldValue, exists := m.secrets[key]
+	if !exists {
+		err := fmt.Errorf("secret '%s' not found", key)
+		m.errorCount++
+		call := RotateCall{
+			Key:       key,
+			NewValue:  newValue,
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.rotateCalls = append(m.rotateCalls, call)
+		return err
+	}
+
+	// Rotate secret
+	m.secrets[key] = newValue
+
+	// Track successful call
+	call := RotateCall{
 		Key:       key,
 		OldValue:  oldValue,
 		NewValue:  newValue,
 		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	m.rotateCalls = append(m.rotateCalls, call)
+
+	return nil
+}
+
+// RegisterProvider registers a secrets provider
+func (m *MockSecretsManager) RegisterProvider(name string, provider SecretProvider) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.providers[name] = provider
+	return nil
+}
+
+// GetProvider returns a secrets provider by name
+func (m *MockSecretsManager) GetProvider(name string) (SecretProvider, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	provider, exists := m.providers[name]
+	if !exists {
+		return nil, fmt.Errorf("provider '%s' not found", name)
 	}
 
-	go func() {
-		for _, callback := range t.changeCallbacks {
-			callback(change)
+	return provider, nil
+}
+
+// RefreshSecrets refreshes all cached secrets
+func (m *MockSecretsManager) RefreshSecrets(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Simulate latency if configured
+	if m.latencySimulation > 0 {
+		time.Sleep(m.latencySimulation)
+	}
+
+	// Return configured error if set
+	if m.refreshError != nil {
+		m.errorCount++
+		call := RefreshCall{
+			Timestamp: time.Now(),
+			Error:     m.refreshError,
 		}
-	}()
+		m.refreshCalls = append(m.refreshCalls, call)
+		return m.refreshError
+	}
+
+	// Check if started
+	if !m.started {
+		err := fmt.Errorf("secrets manager not started")
+		m.errorCount++
+		call := RefreshCall{
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.refreshCalls = append(m.refreshCalls, call)
+		return err
+	}
+
+	// Track successful call
+	call := RefreshCall{
+		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	m.refreshCalls = append(m.refreshCalls, call)
+
+	return nil
+}
+
+// Start starts the secrets manager
+func (m *MockSecretsManager) Start(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Return configured error if set
+	if m.startError != nil {
+		m.errorCount++
+		call := LifecycleCall{
+			Timestamp: time.Now(),
+			Error:     m.startError,
+		}
+		m.startCalls = append(m.startCalls, call)
+		return m.startError
+	}
+
+	if m.started {
+		err := fmt.Errorf("secrets manager already started")
+		call := LifecycleCall{
+			Timestamp: time.Now(),
+			Error:     err,
+		}
+		m.startCalls = append(m.startCalls, call)
+		return err
+	}
+
+	m.started = true
+
+	// Track successful call
+	call := LifecycleCall{
+		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	m.startCalls = append(m.startCalls, call)
+
+	return nil
+}
+
+// Stop stops the secrets manager
+func (m *MockSecretsManager) Stop(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Return configured error if set
+	if m.stopError != nil {
+		m.errorCount++
+		call := LifecycleCall{
+			Timestamp: time.Now(),
+			Error:     m.stopError,
+		}
+		m.stopCalls = append(m.stopCalls, call)
+		return m.stopError
+	}
+
+	if !m.started {
+		// Not an error for stop to be called when already stopped
+		call := LifecycleCall{
+			Timestamp: time.Now(),
+			Error:     nil,
+		}
+		m.stopCalls = append(m.stopCalls, call)
+		return nil
+	}
+
+	m.started = false
+
+	// Track successful call
+	call := LifecycleCall{
+		Timestamp: time.Now(),
+		Error:     nil,
+	}
+	m.stopCalls = append(m.stopCalls, call)
+
+	return nil
+}
+
+// HealthCheck performs a health check
+func (m *MockSecretsManager) HealthCheck(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.totalCalls++
+	m.lastAccessed = time.Now()
+
+	// Return configured error if set
+	if m.healthError != nil {
+		m.errorCount++
+		call := HealthCall{
+			Timestamp: time.Now(),
+			Error:     m.healthError,
+			Healthy:   false,
+		}
+		m.healthCalls = append(m.healthCalls, call)
+		return m.healthError
+	}
+
+	if !m.started {
+		err := fmt.Errorf("secrets manager not started")
+		m.errorCount++
+		call := HealthCall{
+			Timestamp: time.Now(),
+			Error:     err,
+			Healthy:   false,
+		}
+		m.healthCalls = append(m.healthCalls, call)
+		return err
+	}
+
+	// Track successful call
+	call := HealthCall{
+		Timestamp: time.Now(),
+		Error:     nil,
+		Healthy:   true,
+	}
+	m.healthCalls = append(m.healthCalls, call)
+
+	return nil
+}
+
+// =============================================================================
+// BEHAVIOR CONFIGURATION
+// =============================================================================
+
+// SetGetError configures GetSecret to return an error
+func (m *MockSecretsManager) SetGetError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.getError = err
+}
+
+// SetSetError configures SetSecret to return an error
+func (m *MockSecretsManager) SetSetError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setError = err
+}
+
+// SetDeleteError configures DeleteSecret to return an error
+func (m *MockSecretsManager) SetDeleteError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deleteError = err
+}
+
+// SetListError configures ListSecrets to return an error
+func (m *MockSecretsManager) SetListError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listError = err
+}
+
+// SetRotateError configures RotateSecret to return an error
+func (m *MockSecretsManager) SetRotateError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.rotateError = err
+}
+
+// SetRefreshError configures RefreshSecrets to return an error
+func (m *MockSecretsManager) SetRefreshError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refreshError = err
+}
+
+// SetStartError configures Start to return an error
+func (m *MockSecretsManager) SetStartError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.startError = err
+}
+
+// SetStopError configures Stop to return an error
+func (m *MockSecretsManager) SetStopError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.stopError = err
+}
+
+// SetHealthError configures HealthCheck to return an error
+func (m *MockSecretsManager) SetHealthError(err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.healthError = err
+}
+
+// SetLatencySimulation configures artificial latency for all operations
+func (m *MockSecretsManager) SetLatencySimulation(latency time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.latencySimulation = latency
+}
+
+// ClearErrors clears all configured errors
+func (m *MockSecretsManager) ClearErrors() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.getError = nil
+	m.setError = nil
+	m.deleteError = nil
+	m.listError = nil
+	m.rotateError = nil
+	m.refreshError = nil
+	m.startError = nil
+	m.stopError = nil
+	m.healthError = nil
+}
+
+// =============================================================================
+// CALL TRACKING & ASSERTIONS
+// =============================================================================
+
+// GetCallCount returns the number of GetSecret calls
+func (m *MockSecretsManager) GetCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.getCalls)
+}
+
+// SetCallCount returns the number of SetSecret calls
+func (m *MockSecretsManager) SetCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.setCalls)
+}
+
+// DeleteCallCount returns the number of DeleteSecret calls
+func (m *MockSecretsManager) DeleteCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.deleteCalls)
+}
+
+// ListCallCount returns the number of ListSecrets calls
+func (m *MockSecretsManager) ListCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.listCalls)
+}
+
+// RotateCallCount returns the number of RotateSecret calls
+func (m *MockSecretsManager) RotateCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.rotateCalls)
+}
+
+// RefreshCallCount returns the number of RefreshSecrets calls
+func (m *MockSecretsManager) RefreshCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.refreshCalls)
+}
+
+// StartCallCount returns the number of Start calls
+func (m *MockSecretsManager) StartCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.startCalls)
+}
+
+// StopCallCount returns the number of Stop calls
+func (m *MockSecretsManager) StopCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.stopCalls)
+}
+
+// HealthCallCount returns the number of HealthCheck calls
+func (m *MockSecretsManager) HealthCallCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.healthCalls)
+}
+
+// TotalCallCount returns the total number of calls
+func (m *MockSecretsManager) TotalCallCount() int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.totalCalls
+}
+
+// ErrorCount returns the total number of errors
+func (m *MockSecretsManager) ErrorCount() int64 {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.errorCount
+}
+
+// GetCalls returns all GetSecret calls
+func (m *MockSecretsManager) GetCalls() []SecretCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]SecretCall, len(m.getCalls))
+	copy(calls, m.getCalls)
+	return calls
+}
+
+// SetCalls returns all SetSecret calls
+func (m *MockSecretsManager) SetCalls() []SecretCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]SecretCall, len(m.setCalls))
+	copy(calls, m.setCalls)
+	return calls
+}
+
+// DeleteCalls returns all DeleteSecret calls
+func (m *MockSecretsManager) DeleteCalls() []SecretCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]SecretCall, len(m.deleteCalls))
+	copy(calls, m.deleteCalls)
+	return calls
+}
+
+// ListCalls returns all ListSecrets calls
+func (m *MockSecretsManager) ListCalls() []ListCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]ListCall, len(m.listCalls))
+	copy(calls, m.listCalls)
+	return calls
+}
+
+// RotateCalls returns all RotateSecret calls
+func (m *MockSecretsManager) RotateCalls() []RotateCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]RotateCall, len(m.rotateCalls))
+	copy(calls, m.rotateCalls)
+	return calls
+}
+
+// RefreshCalls returns all RefreshSecrets calls
+func (m *MockSecretsManager) RefreshCalls() []RefreshCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]RefreshCall, len(m.refreshCalls))
+	copy(calls, m.refreshCalls)
+	return calls
+}
+
+// StartCalls returns all Start calls
+func (m *MockSecretsManager) StartCalls() []LifecycleCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]LifecycleCall, len(m.startCalls))
+	copy(calls, m.startCalls)
+	return calls
+}
+
+// StopCalls returns all Stop calls
+func (m *MockSecretsManager) StopCalls() []LifecycleCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]LifecycleCall, len(m.stopCalls))
+	copy(calls, m.stopCalls)
+	return calls
+}
+
+// HealthCalls returns all HealthCheck calls
+func (m *MockSecretsManager) HealthCalls() []HealthCall {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	calls := make([]HealthCall, len(m.healthCalls))
+	copy(calls, m.healthCalls)
+	return calls
+}
+
+// WasGetCalledWith checks if GetSecret was called with a specific key
+func (m *MockSecretsManager) WasGetCalledWith(key string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, call := range m.getCalls {
+		if call.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// WasSetCalledWith checks if SetSecret was called with a specific key and value
+func (m *MockSecretsManager) WasSetCalledWith(key, value string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, call := range m.setCalls {
+		if call.Key == key && call.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+// WasDeleteCalledWith checks if DeleteSecret was called with a specific key
+func (m *MockSecretsManager) WasDeleteCalledWith(key string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, call := range m.deleteCalls {
+		if call.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// WasRotateCalledWith checks if RotateSecret was called with a specific key
+func (m *MockSecretsManager) WasRotateCalledWith(key string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, call := range m.rotateCalls {
+		if call.Key == key {
+			return true
+		}
+	}
+	return false
+}
+
+// IsStarted returns whether the manager is started
+func (m *MockSecretsManager) IsStarted() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.started
+}
+
+// SecretCount returns the number of secrets stored
+func (m *MockSecretsManager) SecretCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.secrets)
+}
+
+// ProviderCount returns the number of registered providers
+func (m *MockSecretsManager) ProviderCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.providers)
+}
+
+// LastAccessed returns the timestamp of the last operation
+func (m *MockSecretsManager) LastAccessed() time.Time {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.lastAccessed
+}
+
+// =============================================================================
+// RESET & CLEANUP
+// =============================================================================
+
+// Reset resets the mock to its initial state
+func (m *MockSecretsManager) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.secrets = make(map[string]string)
+	m.providers = make(map[string]SecretProvider)
+	m.started = false
+
+	m.getCalls = make([]SecretCall, 0)
+	m.setCalls = make([]SecretCall, 0)
+	m.deleteCalls = make([]SecretCall, 0)
+	m.listCalls = make([]ListCall, 0)
+	m.rotateCalls = make([]RotateCall, 0)
+	m.refreshCalls = make([]RefreshCall, 0)
+	m.startCalls = make([]LifecycleCall, 0)
+	m.stopCalls = make([]LifecycleCall, 0)
+	m.healthCalls = make([]HealthCall, 0)
+
+	m.getError = nil
+	m.setError = nil
+	m.deleteError = nil
+	m.listError = nil
+	m.rotateError = nil
+	m.refreshError = nil
+	m.startError = nil
+	m.stopError = nil
+	m.healthError = nil
+	m.latencySimulation = 0
+
+	m.totalCalls = 0
+	m.errorCount = 0
+	m.lastAccessed = time.Time{}
+}
+
+// ResetCallTracking resets only the call tracking (keeps secrets and state)
+func (m *MockSecretsManager) ResetCallTracking() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.getCalls = make([]SecretCall, 0)
+	m.setCalls = make([]SecretCall, 0)
+	m.deleteCalls = make([]SecretCall, 0)
+	m.listCalls = make([]ListCall, 0)
+	m.rotateCalls = make([]RotateCall, 0)
+	m.refreshCalls = make([]RefreshCall, 0)
+	m.startCalls = make([]LifecycleCall, 0)
+	m.stopCalls = make([]LifecycleCall, 0)
+	m.healthCalls = make([]HealthCall, 0)
+
+	m.totalCalls = 0
+	m.errorCount = 0
+}
+
+// =============================================================================
+// TEST HELPERS
+// =============================================================================
+
+// MockSecretsBuilder provides fluent interface for building test scenarios
+type MockSecretsBuilder struct {
+	manager *MockSecretsManager
+}
+
+// NewMockSecretsBuilder creates a new builder
+func NewMockSecretsBuilder() *MockSecretsBuilder {
+	return &MockSecretsBuilder{
+		manager: NewMockSecretsManager(),
+	}
+}
+
+// WithSecret adds a secret to the mock
+func (b *MockSecretsBuilder) WithSecret(key, value string) *MockSecretsBuilder {
+	b.manager.secrets[key] = value
+	return b
+}
+
+// WithSecrets adds multiple secrets
+func (b *MockSecretsBuilder) WithSecrets(secrets map[string]string) *MockSecretsBuilder {
+	for k, v := range secrets {
+		b.manager.secrets[k] = v
+	}
+	return b
+}
+
+// WithProvider adds a provider
+func (b *MockSecretsBuilder) WithProvider(name string, provider SecretProvider) *MockSecretsBuilder {
+	b.manager.providers[name] = provider
+	return b
+}
+
+// WithGetError configures GetSecret error
+func (b *MockSecretsBuilder) WithGetError(err error) *MockSecretsBuilder {
+	b.manager.getError = err
+	return b
+}
+
+// WithSetError configures SetSecret error
+func (b *MockSecretsBuilder) WithSetError(err error) *MockSecretsBuilder {
+	b.manager.setError = err
+	return b
+}
+
+// WithStarted sets the started state
+func (b *MockSecretsBuilder) WithStarted(started bool) *MockSecretsBuilder {
+	b.manager.started = started
+	return b
+}
+
+// WithLatency configures latency simulation
+func (b *MockSecretsBuilder) WithLatency(latency time.Duration) *MockSecretsBuilder {
+	b.manager.latencySimulation = latency
+	return b
+}
+
+// Build returns the configured mock
+func (b *MockSecretsBuilder) Build() *MockSecretsManager {
+	return b.manager
+}
+
+// =============================================================================
+// STATISTICS & DEBUGGING
+// =============================================================================
+
+// Stats contains statistics about the mock's usage
+type MockStats struct {
+	SecretCount   int
+	ProviderCount int
+	TotalCalls    int64
+	ErrorCount    int64
+	Started       bool
+	LastAccessed  time.Time
+
+	GetCalls     int
+	SetCalls     int
+	DeleteCalls  int
+	ListCalls    int
+	RotateCalls  int
+	RefreshCalls int
+	StartCalls   int
+	StopCalls    int
+	HealthCalls  int
+}
+
+// GetStats returns usage statistics
+func (m *MockSecretsManager) GetStats() MockStats {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return MockStats{
+		SecretCount:   len(m.secrets),
+		ProviderCount: len(m.providers),
+		TotalCalls:    m.totalCalls,
+		ErrorCount:    m.errorCount,
+		Started:       m.started,
+		LastAccessed:  m.lastAccessed,
+		GetCalls:      len(m.getCalls),
+		SetCalls:      len(m.setCalls),
+		DeleteCalls:   len(m.deleteCalls),
+		ListCalls:     len(m.listCalls),
+		RotateCalls:   len(m.rotateCalls),
+		RefreshCalls:  len(m.refreshCalls),
+		StartCalls:    len(m.startCalls),
+		StopCalls:     len(m.stopCalls),
+		HealthCalls:   len(m.healthCalls),
+	}
+}
+
+// PrintStats prints statistics for debugging
+func (m *MockSecretsManager) PrintStats() {
+	stats := m.GetStats()
+	fmt.Printf("=== MockSecretsManager Statistics ===\n")
+	fmt.Printf("Secrets:       %d\n", stats.SecretCount)
+	fmt.Printf("Providers:     %d\n", stats.ProviderCount)
+	fmt.Printf("Started:       %v\n", stats.Started)
+	fmt.Printf("Total Calls:   %d\n", stats.TotalCalls)
+	fmt.Printf("Errors:        %d\n", stats.ErrorCount)
+	fmt.Printf("Get Calls:     %d\n", stats.GetCalls)
+	fmt.Printf("Set Calls:     %d\n", stats.SetCalls)
+	fmt.Printf("Delete Calls:  %d\n", stats.DeleteCalls)
+	fmt.Printf("List Calls:    %d\n", stats.ListCalls)
+	fmt.Printf("Rotate Calls:  %d\n", stats.RotateCalls)
+	fmt.Printf("Refresh Calls: %d\n", stats.RefreshCalls)
+	fmt.Printf("Start Calls:   %d\n", stats.StartCalls)
+	fmt.Printf("Stop Calls:    %d\n", stats.StopCalls)
+	fmt.Printf("Health Calls:  %d\n", stats.HealthCalls)
+	if !stats.LastAccessed.IsZero() {
+		fmt.Printf("Last Accessed: %s\n", stats.LastAccessed.Format(time.RFC3339))
+	}
+	fmt.Printf("=====================================\n")
 }

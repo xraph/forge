@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/mail"
@@ -223,22 +224,22 @@ func (r *RequiredRule) Message() string { return "field is required" }
 
 func (r *RequiredRule) Validate(value interface{}) error {
 	if value == nil {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 
 	v := reflect.ValueOf(value)
 	switch v.Kind() {
 	case reflect.String:
 		if v.String() == "" {
-			return fmt.Errorf(r.Message())
+			return errors.New(r.Message())
 		}
 	case reflect.Slice, reflect.Map, reflect.Array:
 		if v.Len() == 0 {
-			return fmt.Errorf(r.Message())
+			return errors.New(r.Message())
 		}
 	case reflect.Ptr, reflect.Interface:
 		if v.IsNil() {
-			return fmt.Errorf(r.Message())
+			return errors.New(r.Message())
 		}
 	}
 
@@ -256,7 +257,7 @@ func (r *MinLengthRule) Message() string { return fmt.Sprintf("minimum length is
 func (r *MinLengthRule) Validate(value interface{}) error {
 	length := getLength(value)
 	if length < r.Min {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -272,7 +273,7 @@ func (r *MaxLengthRule) Message() string { return fmt.Sprintf("maximum length is
 func (r *MaxLengthRule) Validate(value interface{}) error {
 	length := getLength(value)
 	if length > r.Max {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -288,7 +289,7 @@ func (r *LengthRule) Message() string { return fmt.Sprintf("length must be %d", 
 func (r *LengthRule) Validate(value interface{}) error {
 	length := getLength(value)
 	if length != r.Length {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -307,7 +308,7 @@ func (r *MinRule) Validate(value interface{}) error {
 		return fmt.Errorf("value must be numeric")
 	}
 	if num < r.Min {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -326,7 +327,7 @@ func (r *MaxRule) Validate(value interface{}) error {
 		return fmt.Errorf("value must be numeric")
 	}
 	if num > r.Max {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -347,7 +348,7 @@ func (r *RangeRule) Validate(value interface{}) error {
 		return fmt.Errorf("value must be numeric")
 	}
 	if num < r.Min || num > r.Max {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -366,7 +367,7 @@ func (r *EmailRule) Validate(value interface{}) error {
 
 	_, err := mail.ParseAddress(str)
 	if err != nil {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -385,7 +386,7 @@ func (r *URLRule) Validate(value interface{}) error {
 
 	_, err := url.ParseRequestURI(str)
 	if err != nil {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -403,7 +404,7 @@ func (r *IPRule) Validate(value interface{}) error {
 	}
 
 	if net.ParseIP(str) == nil {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -422,7 +423,7 @@ func (r *IPv4Rule) Validate(value interface{}) error {
 
 	ip := net.ParseIP(str)
 	if ip == nil || ip.To4() == nil {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -441,7 +442,7 @@ func (r *IPv6Rule) Validate(value interface{}) error {
 
 	ip := net.ParseIP(str)
 	if ip == nil || ip.To4() != nil {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -460,7 +461,7 @@ func (r *AlphaRule) Validate(value interface{}) error {
 
 	for _, char := range str {
 		if !unicode.IsLetter(char) {
-			return fmt.Errorf(r.Message())
+			return errors.New(r.Message())
 		}
 	}
 	return nil
@@ -480,7 +481,7 @@ func (r *AlphaNumericRule) Validate(value interface{}) error {
 
 	for _, char := range str {
 		if !unicode.IsLetter(char) && !unicode.IsDigit(char) {
-			return fmt.Errorf(r.Message())
+			return errors.New(r.Message())
 		}
 	}
 	return nil
@@ -500,7 +501,7 @@ func (r *NumericRule) Validate(value interface{}) error {
 
 	for _, char := range str {
 		if !unicode.IsDigit(char) {
-			return fmt.Errorf(r.Message())
+			return errors.New(r.Message())
 		}
 	}
 	return nil
@@ -530,7 +531,7 @@ func (r *RegexRule) Validate(value interface{}) error {
 	}
 
 	if !r.regex.MatchString(str) {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -549,7 +550,7 @@ func (r *InRule) Validate(value interface{}) error {
 			return nil
 		}
 	}
-	return fmt.Errorf(r.Message())
+	return errors.New(r.Message())
 }
 
 // NotInRule validates that value is not in a list of forbidden values
@@ -563,7 +564,7 @@ func (r *NotInRule) Message() string { return "must not be one of the forbidden 
 func (r *NotInRule) Validate(value interface{}) error {
 	for _, forbidden := range r.Values {
 		if reflect.DeepEqual(value, forbidden) {
-			return fmt.Errorf(r.Message())
+			return errors.New(r.Message())
 		}
 	}
 	return nil
@@ -587,7 +588,7 @@ func (r *DateFormatRule) Validate(value interface{}) error {
 
 	_, err := time.Parse(r.Format, str)
 	if err != nil {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -609,7 +610,7 @@ func (r *BeforeRule) Validate(value interface{}) error {
 	}
 
 	if !date.Before(r.Date) {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -631,7 +632,7 @@ func (r *AfterRule) Validate(value interface{}) error {
 	}
 
 	if !date.After(r.Date) {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -651,7 +652,7 @@ func (r *UUIDRule) Validate(value interface{}) error {
 	// Simple UUID validation
 	uuidRegex := regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	if !uuidRegex.MatchString(str) {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -670,7 +671,7 @@ func (r *JSONRule) Validate(value interface{}) error {
 
 	var js interface{}
 	if err := json.Unmarshal([]byte(str), &js); err != nil {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -690,7 +691,7 @@ func (r *PhoneRule) Validate(value interface{}) error {
 	// Simple phone number validation (international format)
 	phoneRegex := regexp.MustCompile(`^\+?[1-9]\d{1,14}$`)
 	if !phoneRegex.MatchString(strings.ReplaceAll(str, " ", "")) {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 	return nil
 }
@@ -713,13 +714,13 @@ func (r *CreditCardRule) Validate(value interface{}) error {
 	// Check if all characters are digits
 	for _, char := range str {
 		if !unicode.IsDigit(char) {
-			return fmt.Errorf(r.Message())
+			return errors.New(r.Message())
 		}
 	}
 
 	// Luhn algorithm
 	if !isValidLuhn(str) {
-		return fmt.Errorf(r.Message())
+		return errors.New(r.Message())
 	}
 
 	return nil

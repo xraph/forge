@@ -147,7 +147,7 @@ func createListCommand() *cli.Command {
 	cmd.WithLong("List items with filtering, sorting, and formatting options").
 		WithExample("basic-cli list --filter active --sort name --format table").
 		WithFlags(
-			cli.StringSliceFlag("items", "i", "Items to list", false).WithDefault([]string{"apple", "banana", "cherry"}),
+			cli.StringSliceFlag("items", "i", []string{}, "Items to list", false).WithDefault([]string{"apple", "banana", "cherry"}),
 			cli.StringFlag("filter", "f", "Filter items", false),
 			cli.StringFlag("sort", "s", "Sort by field", false).WithDefault("name"),
 			cli.StringFlag("format", "", "Output format", false).WithDefault("json"),

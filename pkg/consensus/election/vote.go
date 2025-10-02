@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/pkg/common"
+	"github.com/xraph/forge/pkg/consensus/storage"
 	"github.com/xraph/forge/pkg/logger"
 )
 
@@ -31,7 +32,8 @@ type VoteCollector struct {
 
 	// Vote validation
 	validator VoteValidator
-	storage   VoteStorage
+	storage   storage.Storage
+	config    VoteCollectorConfig
 }
 
 // Vote represents a vote cast by a node
@@ -52,14 +54,6 @@ type VoteValidator interface {
 	VerifyVoteSignature(ctx context.Context, vote *Vote) error
 }
 
-// VoteStorage provides persistent storage for votes
-type VoteStorage interface {
-	StoreVote(ctx context.Context, vote *Vote) error
-	GetVote(ctx context.Context, nodeID string, term uint64) (*Vote, error)
-	GetVotesForTerm(ctx context.Context, term uint64) ([]*Vote, error)
-	DeleteVotesForTerm(ctx context.Context, term uint64) error
-}
-
 // VoteCollectorConfig contains configuration for vote collection
 type VoteCollectorConfig struct {
 	NodeID              string        `json:"node_id"`
@@ -71,7 +65,13 @@ type VoteCollectorConfig struct {
 }
 
 // NewVoteCollector creates a new vote collector
-func NewVoteCollector(config VoteCollectorConfig, validator VoteValidator, storage VoteStorage, l common.Logger, metrics common.Metrics) *VoteCollector {
+func NewVoteCollector(
+	config VoteCollectorConfig,
+	validator VoteValidator,
+	storage storage.Storage,
+	l common.Logger,
+	metrics common.Metrics,
+) *VoteCollector {
 	if config.VoteTimeout <= 0 {
 		config.VoteTimeout = 30 * time.Second
 	}
@@ -92,6 +92,7 @@ func NewVoteCollector(config VoteCollectorConfig, validator VoteValidator, stora
 		votesNeeded:   votesNeeded,
 		validator:     validator,
 		storage:       storage,
+		config:        config,
 	}
 
 	if l != nil {
@@ -169,7 +170,9 @@ func (vc *VoteCollector) recordVote(ctx context.Context, vote *Vote) error {
 	// Check for duplicate votes
 	if existingVote, exists := vc.votes[vote.NodeID]; exists {
 		if existingVote.Term == vote.Term {
-			return fmt.Errorf("duplicate vote from node %s for term %d", vote.NodeID, vote.Term)
+			if !vc.config.AllowDuplicateVotes {
+				return fmt.Errorf("duplicate vote from node %s for term %d", vote.NodeID, vote.Term)
+			}
 		}
 	}
 
@@ -183,9 +186,10 @@ func (vc *VoteCollector) recordVote(ctx context.Context, vote *Vote) error {
 		vc.votesDenied++
 	}
 
-	// Persist vote if storage is available
-	if vc.storage != nil {
-		if err := vc.storage.StoreVote(ctx, vote); err != nil {
+	// Persist vote if storage is available and persistence is enabled
+	if vc.storage != nil && vc.config.PersistVotes {
+		// Store using the storage interface which expects term and candidateID
+		if err := vc.storage.StoreVote(ctx, vote.Term, vote.CandidateID); err != nil {
 			if vc.logger != nil {
 				vc.logger.Warn("failed to persist vote",
 					logger.String("node_id", vote.NodeID),

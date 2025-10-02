@@ -67,7 +67,7 @@ func (tm *DefaultTransportManager) CreateTransport(config TransportConfig) (Tran
 	}
 
 	// Create transport
-	transport, err := factory.Create(config, nil, nil)
+	transport, err := factory.Create(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create transport: %w", err)
 	}

@@ -3,10 +3,12 @@ package common
 import (
 	"errors"
 	"fmt"
+	"net/http"
 	"runtime"
 	"strings"
 	"time"
 
+	json "github.com/json-iterator/go"
 	"github.com/xraph/forge/pkg/logger"
 )
 
@@ -14,6 +16,8 @@ import (
 type ForgeError struct {
 	// Code is a unique error code
 	Code string `json:"code"`
+
+	StatusCode int `json:"-"`
 
 	// Message is a human-readable error message
 	Message string `json:"message"`
@@ -83,6 +87,13 @@ func (e *ForgeError) WithCause(cause error) *ForgeError {
 	return e
 }
 
+// HandleHTTPError sets the underlying cause of the error and returns the updated ForgeError instance.
+func (e *ForgeError) HandleHTTPError(statusCode int, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(e)
+}
+
 // NewForgeError creates a new ForgeError
 func NewForgeError(code, message string, cause error) *ForgeError {
 	return &ForgeError{
@@ -91,6 +102,16 @@ func NewForgeError(code, message string, cause error) *ForgeError {
 		Cause:     cause,
 		Timestamp: time.Now(),
 		Context:   make(map[string]interface{}),
+	}
+}
+
+// HandleHTTPError writes the CustomError as a JSON response.
+func HandleHTTPError(w http.ResponseWriter, r *http.Request, err error) {
+	var customErr *ForgeError
+	if errors.As(err, &customErr) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(customErr.StatusCode)
+		json.NewEncoder(w).Encode(customErr)
 	}
 }
 
@@ -120,9 +141,13 @@ const (
 	ErrCodeTimeoutError         = "TIMEOUT_ERROR"
 	ErrCodeContextCancelled     = "CONTEXT_CANCELLED"
 	ErrCodeInternalError        = "INTERNAL_ERROR"
+	ErrCodeUnAuthorized         = "UNAUTHORIZED"
 )
 
-// Predefined error constructors
+func ErrServiceUnAuthorized(message string, cause error) *ForgeError {
+	return NewForgeError(ErrCodeUnAuthorized, message, cause)
+}
+
 func ErrServiceNotFound(serviceName string) *ForgeError {
 	return NewForgeError(ErrCodeServiceNotFound, fmt.Sprintf("service '%s' not found", serviceName), nil).
 		WithContext("service_name", serviceName)

@@ -800,20 +800,20 @@ func (pm *PluginManagerImpl) createSandboxConfig(plugin Plugin) security.Sandbox
 	config := security.SandboxConfig{
 		PluginID:         plugin.ID(),
 		Isolated:         true,
-		MaxMemory:        pm.configManager.GetInt64WithDefault("plugins.security.max_memory", 1024*1024*1024), // 1GB default
-		MaxCPU:           pm.configManager.GetFloat64WithDefault("plugins.security.max_cpu", 0.5),             // 50% default
-		MaxDiskSpace:     pm.configManager.GetInt64WithDefault("plugins.security.max_disk", 100*1024*1024),    // 100MB default
-		Timeout:          pm.configManager.GetDurationWithDefault("plugins.security.timeout", 30*time.Second),
+		MaxMemory:        pm.configManager.GetInt64("plugins.security.max_memory", 1024*1024*1024), // 1GB default
+		MaxCPU:           pm.configManager.GetFloat64("plugins.security.max_cpu", 0.5),             // 50% default
+		MaxDiskSpace:     pm.configManager.GetInt64("plugins.security.max_disk", 100*1024*1024),    // 100MB default
+		Timeout:          pm.configManager.GetDuration("plugins.security.timeout", 30*time.Second),
 		WorkingDirectory: fmt.Sprintf("/tmp/forge/plugins/%s", plugin.ID()),
 		NetworkAccess: security.NetworkPolicy{
-			Allowed:   pm.configManager.GetBoolWithDefault("plugins.security.network_allowed", true),
-			MaxConns:  pm.configManager.GetIntWithDefault("plugins.security.max_connections", 10),
-			Bandwidth: pm.configManager.GetInt64WithDefault("plugins.security.max_bandwidth", 1024*1024), // 1MB/s
+			Allowed:   pm.configManager.GetBool("plugins.security.network_allowed", true),
+			MaxConns:  pm.configManager.GetInt("plugins.security.max_connections", 10),
+			Bandwidth: pm.configManager.GetInt64("plugins.security.max_bandwidth", 1024*1024), // 1MB/s
 		},
 		FileSystemAccess: security.FileSystemPolicy{
-			ReadOnly:     pm.configManager.GetBoolWithDefault("plugins.security.readonly_fs", false),
-			MaxFileSize:  pm.configManager.GetInt64WithDefault("plugins.security.max_file_size", 10*1024*1024), // 10MB
-			MaxFiles:     pm.configManager.GetIntWithDefault("plugins.security.max_files", 100),
+			ReadOnly:     pm.configManager.GetBool("plugins.security.readonly_fs", false),
+			MaxFileSize:  pm.configManager.GetInt64("plugins.security.max_file_size", 10*1024*1024), // 10MB
+			MaxFiles:     pm.configManager.GetInt("plugins.security.max_files", 100),
 			NoDevAccess:  true,
 			NoProcAccess: true,
 			NoSysAccess:  true,
@@ -860,10 +860,10 @@ func (pm *PluginManagerImpl) createIsolationConfig(plugin Plugin) security.Isola
 		},
 		Resources: security.ResourceLimits{
 			Memory: security.MemoryLimits{
-				Limit: pm.configManager.GetInt64WithDefault("plugins.security.max_memory", 1024*1024*1024),
+				Limit: pm.configManager.GetInt64("plugins.security.max_memory", 1024*1024*1024),
 			},
 			CPU: security.CPULimits{
-				Cores: pm.configManager.GetFloat64WithDefault("plugins.security.max_cpu", 0.5),
+				Cores: pm.configManager.GetFloat64("plugins.security.max_cpu", 0.5),
 			},
 		},
 		Namespaces: security.NamespaceConfig{
@@ -874,7 +874,7 @@ func (pm *PluginManagerImpl) createIsolationConfig(plugin Plugin) security.Isola
 			IPC:     true,
 			User:    true,
 		},
-		Timeout: pm.configManager.GetDurationWithDefault("plugins.security.timeout", 30*time.Second),
+		Timeout: pm.configManager.GetDuration("plugins.security.timeout", 30*time.Second),
 	}
 }
 

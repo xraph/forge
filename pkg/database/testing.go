@@ -10,6 +10,7 @@ import (
 	"github.com/xraph/forge/pkg/common"
 	config2 "github.com/xraph/forge/pkg/config"
 	"github.com/xraph/forge/pkg/logger"
+	"github.com/xraph/forge/pkg/metrics"
 )
 
 // TestContainer represents a test database container
@@ -104,9 +105,10 @@ func (tdm *TestDatabaseManager) SetupTestDatabase(t *testing.T, dbType string, c
 		config.ConnectionConfig.Password = config.Container.Password()
 	}
 
+	metrics := metrics.NewMockMetricsCollector()
+
 	// Create test manager if not exists
 	if tdm.manager == nil {
-		metrics := &testMetrics{}
 		configManager := config2.NewTestConfigManager()
 		tdm.manager = NewManager(tdm.logger, metrics, configManager)
 
@@ -122,7 +124,7 @@ func (tdm *TestDatabaseManager) SetupTestDatabase(t *testing.T, dbType string, c
 	}
 
 	// Create connection factory
-	factory := NewConnectionFactory(tdm.logger, &testMetrics{})
+	factory := NewConnectionFactory(tdm.logger, metrics)
 
 	// Register the same adapter with factory
 	adapter, err := tdm.createTestAdapter(dbType)
@@ -274,7 +276,7 @@ func (tdm *TestDatabaseManager) createDefaultTestConfig(dbType string) (*TestCon
 // createTestAdapter creates a test adapter for the given database type
 func (tdm *TestDatabaseManager) createTestAdapter(dbType string) (DatabaseAdapter, error) {
 	// This would create actual adapters - for now return a mock
-	return &mockAdapter{dbType: dbType}, nil
+	return &MockAdapter{dbType: dbType}, nil
 }
 
 // Database-specific cleanup methods
@@ -381,77 +383,89 @@ func getEnvOrDefault(envVar, defaultValue string) string {
 
 // Mock implementations for testing
 
-// mockAdapter is a mock database adapter for testing
-type mockAdapter struct {
+// MockAdapter is a mock database adapter for testing
+type MockAdapter struct {
 	dbType string
 }
 
-func (ma *mockAdapter) Name() string {
+func (ma *MockAdapter) Name() string {
 	return "mock-" + ma.dbType
 }
 
-func (ma *mockAdapter) SupportedTypes() []string {
+func (ma *MockAdapter) SupportedTypes() []string {
 	return []string{ma.dbType}
 }
 
-func (ma *mockAdapter) Connect(ctx context.Context, config *ConnectionConfig) (Connection, error) {
-	return &mockConnection{
+func (ma *MockAdapter) Connect(ctx context.Context, config *ConnectionConfig) (Connection, error) {
+	return &MockConnection{
 		BaseConnection: NewBaseConnection(
 			"test-connection",
 			ma.dbType,
 			config,
 			logger.NewNoopLogger(),
-			&testMetrics{},
+			metrics.NewMockMetricsCollector(),
 		),
 	}, nil
 }
 
-func (ma *mockAdapter) ValidateConfig(config *ConnectionConfig) error {
+func (ma *MockAdapter) ValidateConfig(config *ConnectionConfig) error {
 	if config.Type != ma.dbType {
 		return fmt.Errorf("invalid type: expected %s, got %s", ma.dbType, config.Type)
 	}
 	return nil
 }
 
-func (ma *mockAdapter) SupportsMigrations() bool {
+func (ma *MockAdapter) SupportsMigrations() bool {
 	return ma.dbType == "postgres" || ma.dbType == "mongodb"
 }
 
-func (ma *mockAdapter) Migrate(ctx context.Context, conn Connection, migrationsPath string) error {
+func (ma *MockAdapter) Migrate(ctx context.Context, conn Connection, migrationsPath string) error {
 	return nil // Mock implementation
 }
 
-func (ma *mockAdapter) HealthCheck(ctx context.Context, conn Connection) error {
+func (ma *MockAdapter) HealthCheck(ctx context.Context, conn Connection) error {
 	return nil // Mock implementation
 }
 
-// mockConnection is a mock database connection for testing
-type mockConnection struct {
+// MockConnection is a mock database connection for testing
+type MockConnection struct {
 	*BaseConnection
 	connected bool
 }
 
-func (mc *mockConnection) Connect(ctx context.Context) error {
+func NewMockConnection(ctx context.Context, config *ConnectionConfig) *MockConnection {
+	return &MockConnection{
+		BaseConnection: NewBaseConnection(
+			"test-connection",
+			"postgres",
+			config,
+			logger.NewNoopLogger(),
+			metrics.NewMockMetricsCollector(),
+		),
+	}
+}
+
+func (mc *MockConnection) Connect(ctx context.Context) error {
 	mc.connected = true
 	mc.SetConnected(true)
 	mc.SetDB(&mockDB{})
 	return nil
 }
 
-func (mc *mockConnection) Close(ctx context.Context) error {
+func (mc *MockConnection) Close(ctx context.Context) error {
 	mc.connected = false
 	mc.SetConnected(false)
 	return nil
 }
 
-func (mc *mockConnection) Ping(ctx context.Context) error {
+func (mc *MockConnection) Ping(ctx context.Context) error {
 	if !mc.connected {
 		return fmt.Errorf("connection not established")
 	}
 	return nil
 }
 
-func (mc *mockConnection) Transaction(ctx context.Context, fn func(tx interface{}) error) error {
+func (mc *MockConnection) Transaction(ctx context.Context, fn func(tx interface{}) error) error {
 	return fn(&mockTransaction{})
 }
 
@@ -460,193 +474,6 @@ type mockDB struct{}
 
 // mockTransaction is a mock transaction for testing
 type mockTransaction struct{}
-
-// testMetrics is a test metrics implementation
-type testMetrics struct{}
-
-func (tm *testMetrics) Counter(name string, tags ...string) common.Counter {
-	return &testCounter{}
-}
-
-func (tm *testMetrics) Gauge(name string, tags ...string) common.Gauge {
-	return &testGauge{}
-}
-
-func (tm *testMetrics) Histogram(name string, tags ...string) common.Histogram {
-	return &testHistogram{}
-}
-
-func (tm *testMetrics) Timer(name string, tags ...string) common.Timer {
-	return &testTimer{}
-}
-
-func (tm *testMetrics) Name() string {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) Dependencies() []string {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) OnStart(ctx context.Context) error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) OnStop(ctx context.Context) error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) OnHealthCheck(ctx context.Context) error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) RegisterCollector(collector common.CustomCollector) error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) UnregisterCollector(name string) error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) GetCollectors() []common.CustomCollector {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) GetMetrics() map[string]interface{} {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) GetMetricsByType(metricType common.MetricType) map[string]interface{} {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) GetMetricsByTag(tagKey, tagValue string) map[string]interface{} {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) Export(format common.ExportFormat) ([]byte, error) {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) ExportToFile(format common.ExportFormat, filename string) error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) Reset() error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) ResetMetric(name string) error {
-	// TODO implement me
-	panic("implement me")
-}
-
-func (tm *testMetrics) GetStats() common.CollectorStats {
-	// TODO implement me
-	panic("implement me")
-}
-
-// testCounter is a test counter implementation
-type testCounter struct{}
-
-func (tc *testCounter) Dec() {
-}
-
-func (tc *testCounter) Get() float64 {
-	return 0
-}
-
-func (tc *testCounter) Reset() {
-}
-
-func (tc *testCounter) Inc()              {}
-func (tc *testCounter) Add(value float64) {}
-
-// testGauge is a test gauge implementation
-type testGauge struct{}
-
-func (tg *testGauge) Get() float64 {
-	return 0
-}
-
-func (tg *testGauge) Reset() {
-}
-
-func (tg *testGauge) Set(value float64) {}
-func (tg *testGauge) Inc()              {}
-func (tg *testGauge) Dec()              {}
-func (tg *testGauge) Add(value float64) {}
-
-// testHistogram is a test histogram implementation
-type testHistogram struct{}
-
-func (th *testHistogram) GetBuckets() map[float64]uint64 {
-	return map[float64]uint64{}
-}
-
-func (th *testHistogram) GetCount() uint64 {
-	return 0
-}
-
-func (th *testHistogram) GetSum() float64 {
-	return 0
-}
-
-func (th *testHistogram) GetMean() float64 {
-	return 0
-}
-
-func (th *testHistogram) GetPercentile(percentile float64) float64 {
-	return 0
-}
-
-func (th *testHistogram) Reset() {
-}
-
-func (th *testHistogram) Observe(value float64) {}
-
-// testTimer is a test timer implementation
-type testTimer struct{}
-
-func (tt *testTimer) GetCount() uint64 {
-	return 0
-}
-
-func (tt *testTimer) GetMean() time.Duration {
-	return 0
-}
-
-func (tt *testTimer) GetPercentile(percentile float64) time.Duration {
-	return 0
-}
-
-func (tt *testTimer) GetMin() time.Duration {
-	return 0
-}
-
-func (tt *testTimer) GetMax() time.Duration {
-	return 0
-}
-
-func (tt *testTimer) Reset() {
-}
-
-func (tt *testTimer) Record(duration time.Duration) {}
-func (tt *testTimer) Time() func()                  { return func() {} }
 
 // TestCase represents a database test case
 type TestCase struct {

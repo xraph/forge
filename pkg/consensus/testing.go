@@ -6,10 +6,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	json "github.com/json-iterator/go"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/consensus/discovery"
 	"github.com/xraph/forge/pkg/consensus/raft"
@@ -17,13 +19,14 @@ import (
 	"github.com/xraph/forge/pkg/consensus/storage"
 	"github.com/xraph/forge/pkg/consensus/transport"
 	"github.com/xraph/forge/pkg/logger"
+	"github.com/xraph/forge/pkg/metrics"
 )
 
 // TestCluster represents a test consensus cluster
 type TestCluster struct {
 	ID           string
 	Nodes        map[string]*TestNode
-	Transport    *MockTransport
+	Transport    transport.Transport
 	Storage      storage.Storage
 	StateMachine statemachine.StateMachine
 	Discovery    discovery.Discovery
@@ -60,62 +63,41 @@ type TestClusterConfig struct {
 	EnableLogging     bool          `yaml:"enable_logging" default:"false"`
 }
 
-// MockTransport implements the transport interface for testing
+// MockTransport implements the transport.Transport interface for testing
 type MockTransport struct {
-	nodes      map[string]*MockNode
-	partitions map[string]map[string]bool // node -> partitioned_nodes
-	latencies  map[string]map[string]time.Duration
-	dropRate   float64
-	messageLog []MockMessage
-	config     transport.TransportConfig
-	mu         sync.RWMutex
-	started    bool
+	nodes        map[string]*MockNode
+	partitions   map[string]map[string]bool
+	latencies    map[string]map[string]time.Duration
+	dropRate     float64
+	messageLog   []transport.Message
+	config       transport.TransportConfig
+	localAddress string
+	receiveChan  chan transport.IncomingMessage
+	mu           sync.RWMutex
+	started      bool
+	messagesSent int64
+	messagesRecv int64
+	bytesSent    int64
+	bytesRecv    int64
+	errorCount   int64
+	startTime    time.Time
 }
 
 // MockNode represents a mock transport node
 type MockNode struct {
 	ID      string
 	Address string
-	Inbox   chan MockMessage
-	Outbox  chan MockMessage
+	Inbox   chan transport.Message
+	Outbox  chan transport.Message
 	Running bool
-}
-
-// MockMessage represents a message in the mock transport
-type MockMessage struct {
-	From      string
-	To        string
-	Type      string
-	Data      []byte
-	Timestamp time.Time
-}
-
-// MockStateMachine implements a mock state machine for testing
-type MockStateMachine struct {
-	state   map[string]interface{}
-	history []storage.LogEntry
-	mu      sync.RWMutex
+	Status  transport.PeerStatus
 }
 
 // MockDiscovery implements mock discovery for testing
 type MockDiscovery struct {
-	nodes   []string
+	nodes   map[string]discovery.NodeInfo
 	started bool
 	mu      sync.RWMutex
-}
-
-// TestLogger implements a test logger
-type TestLogger struct {
-	logs []string
-	mu   sync.RWMutex
-}
-
-// TestMetrics implements test metrics collection
-type TestMetrics struct {
-	counters   map[string]float64
-	gauges     map[string]float64
-	histograms map[string][]float64
-	mu         sync.RWMutex
 }
 
 // NewTestCluster creates a new test cluster
@@ -148,16 +130,16 @@ func NewTestCluster(t *testing.T, config *TestClusterConfig) *TestCluster {
 	// Create metrics
 	var testMetrics common.Metrics
 	if config.EnableMetrics {
-		testMetrics = NewTestMetrics()
+		testMetrics = metrics.NewMockMetricsCollector()
 	}
 
 	// Create transport
-	transport := NewMockTransport()
+	mockTransport := NewMockTransport("127.0.0.1:8090")
 
 	cluster := &TestCluster{
 		ID:        fmt.Sprintf("test-cluster-%d", time.Now().UnixNano()),
 		Nodes:     make(map[string]*TestNode),
-		Transport: transport,
+		Transport: mockTransport,
 		Config:    config,
 		Logger:    testLogger,
 		Metrics:   testMetrics,
@@ -176,7 +158,7 @@ func NewTestCluster(t *testing.T, config *TestClusterConfig) *TestCluster {
 		}
 
 		cluster.Nodes[nodeID] = node
-		transport.AddNode(nodeID, address)
+		mockTransport.AddPeer(nodeID, address)
 	}
 
 	// Cleanup function
@@ -197,7 +179,7 @@ func (tc *TestCluster) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// OnStart transport
+	// Start transport
 	if err := tc.Transport.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start transport: %w", err)
 	}
@@ -240,12 +222,12 @@ func (tc *TestCluster) Stop() error {
 		return nil
 	}
 
-	// OnStop all nodes
+	// Stop all nodes
 	for _, node := range tc.Nodes {
 		tc.stopNode(node)
 	}
 
-	// OnStop transport
+	// Stop transport
 	tc.Transport.Stop(context.Background())
 
 	// Close storage
@@ -282,7 +264,7 @@ func (tc *TestCluster) startNode(ctx context.Context, node *TestNode) error {
 
 	node.RaftNode = raftNode
 
-	// OnStart Raft node
+	// Start Raft node
 	if err := raftNode.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start Raft node: %w", err)
 	}
@@ -310,10 +292,13 @@ func (tc *TestCluster) createStorage() (storage.Storage, error) {
 
 	case "file":
 		config := storage.FileStorageConfig{
-			Path:        filepath.Join(tc.TempDir, "storage"),
-			SyncWrites:  true,
-			MaxFileSize: 1024 * 1024, // 1MB
-			MaxSegments: 10,
+
+			Path:                filepath.Join(tc.TempDir, "storage"),
+			MaxCacheSize:        1000,
+			SyncInterval:        100 * time.Millisecond,
+			CompactionThreshold: 1024 * 1024, // 1MB
+			EnableCompression:   false,
+			EnableChecksum:      true,
 		}
 		return storage.NewFileStorage(config, tc.Logger, tc.Metrics)
 
@@ -341,9 +326,16 @@ func (tc *TestCluster) createStateMachine() (statemachine.StateMachine, error) {
 
 // createDiscovery creates discovery based on configuration
 func (tc *TestCluster) createDiscovery() discovery.Discovery {
-	nodeList := make([]string, 0, len(tc.Nodes))
-	for nodeID := range tc.Nodes {
-		nodeList = append(nodeList, nodeID)
+	nodeList := make([]discovery.NodeInfo, 0, len(tc.Nodes))
+	for _, node := range tc.Nodes {
+		nodeList = append(nodeList, discovery.NodeInfo{
+			ID:      node.ID,
+			Address: node.Address,
+			Status:  discovery.NodeStatusActive,
+			Metadata: map[string]interface{}{
+				"type": "mock",
+			},
+		})
 	}
 
 	return NewMockDiscovery(nodeList)
@@ -414,9 +406,13 @@ func (tc *TestCluster) AddNode(nodeID string) (*TestNode, error) {
 	}
 
 	tc.Nodes[nodeID] = node
-	tc.Transport.AddNode(nodeID, address)
 
-	// OnStart node if cluster is running
+	// Add to transport
+	if mockTransport, ok := tc.Transport.(*MockTransport); ok {
+		mockTransport.AddPeer(nodeID, address)
+	}
+
+	// Start node if cluster is running
 	if tc.Started {
 		if err := tc.startNode(context.Background(), node); err != nil {
 			delete(tc.Nodes, nodeID)
@@ -437,11 +433,11 @@ func (tc *TestCluster) RemoveNode(nodeID string) error {
 		return fmt.Errorf("node %s not found", nodeID)
 	}
 
-	// OnStop node
+	// Stop node
 	tc.stopNode(node)
 
 	// Remove from transport
-	tc.Transport.RemoveNode(nodeID)
+	tc.Transport.RemovePeer(nodeID)
 
 	// Remove from cluster
 	delete(tc.Nodes, nodeID)
@@ -451,22 +447,30 @@ func (tc *TestCluster) RemoveNode(nodeID string) error {
 
 // PartitionNode simulates network partition for a node
 func (tc *TestCluster) PartitionNode(nodeID string, partitionedNodes ...string) {
-	tc.Transport.PartitionNode(nodeID, partitionedNodes...)
+	if mockTransport, ok := tc.Transport.(*MockTransport); ok {
+		mockTransport.PartitionNode(nodeID, partitionedNodes...)
+	}
 }
 
 // HealPartition heals network partitions for a node
 func (tc *TestCluster) HealPartition(nodeID string) {
-	tc.Transport.HealPartition(nodeID)
+	if mockTransport, ok := tc.Transport.(*MockTransport); ok {
+		mockTransport.HealPartition(nodeID)
+	}
 }
 
 // SetLatency sets network latency between nodes
 func (tc *TestCluster) SetLatency(from, to string, latency time.Duration) {
-	tc.Transport.SetLatency(from, to, latency)
+	if mockTransport, ok := tc.Transport.(*MockTransport); ok {
+		mockTransport.SetLatency(from, to, latency)
+	}
 }
 
 // SetDropRate sets the message drop rate
 func (tc *TestCluster) SetDropRate(rate float64) {
-	tc.Transport.SetDropRate(rate)
+	if mockTransport, ok := tc.Transport.(*MockTransport); ok {
+		mockTransport.SetDropRate(rate)
+	}
 }
 
 // ProposeValue proposes a value to the cluster
@@ -498,15 +502,19 @@ func (tc *TestCluster) GetState() interface{} {
 	return tc.StateMachine.GetState()
 }
 
+// ============================================================================
 // MockTransport implementation
+// ============================================================================
 
 // NewMockTransport creates a new mock transport
-func NewMockTransport() *MockTransport {
+func NewMockTransport(address string) *MockTransport {
 	return &MockTransport{
-		nodes:      make(map[string]*MockNode),
-		partitions: make(map[string]map[string]bool),
-		latencies:  make(map[string]map[string]time.Duration),
-		messageLog: make([]MockMessage, 0),
+		nodes:        make(map[string]*MockNode),
+		partitions:   make(map[string]map[string]bool),
+		latencies:    make(map[string]map[string]time.Duration),
+		messageLog:   make([]transport.Message, 0),
+		localAddress: address,
+		receiveChan:  make(chan transport.IncomingMessage, 1000),
 	}
 }
 
@@ -514,6 +522,7 @@ func (mt *MockTransport) Start(ctx context.Context) error {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 	mt.started = true
+	mt.startTime = time.Now()
 	return nil
 }
 
@@ -521,46 +530,18 @@ func (mt *MockTransport) Stop(ctx context.Context) error {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 	mt.started = false
+	close(mt.receiveChan)
 	return nil
 }
 
-func (mt *MockTransport) HealthCheck(ctx context.Context) error {
-	return nil
-}
-
-func (mt *MockTransport) AddNode(nodeID, address string) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
-
-	mt.nodes[nodeID] = &MockNode{
-		ID:      nodeID,
-		Address: address,
-		Inbox:   make(chan MockMessage, 100),
-		Outbox:  make(chan MockMessage, 100),
-		Running: true,
-	}
-}
-
-func (mt *MockTransport) RemoveNode(nodeID string) {
-	mt.mu.Lock()
-	defer mt.mu.Unlock()
-
-	if node, exists := mt.nodes[nodeID]; exists {
-		node.Running = false
-		close(node.Inbox)
-		close(node.Outbox)
-		delete(mt.nodes, nodeID)
-	}
-}
-
-func (mt *MockTransport) SendMessage(from, to string, msgType string, data []byte) error {
+func (mt *MockTransport) Send(ctx context.Context, target string, message transport.Message) error {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
 	// Check if nodes are partitioned
-	if partitions, exists := mt.partitions[from]; exists {
-		if partitions[to] {
-			return fmt.Errorf("nodes %s and %s are partitioned", from, to)
+	if partitions, exists := mt.partitions[message.From]; exists {
+		if partitions[target] {
+			return fmt.Errorf("nodes %s and %s are partitioned", message.From, target)
 		}
 	}
 
@@ -569,36 +550,29 @@ func (mt *MockTransport) SendMessage(from, to string, msgType string, data []byt
 		return nil // Silently drop message
 	}
 
-	toNode, exists := mt.nodes[to]
+	toNode, exists := mt.nodes[target]
 	if !exists || !toNode.Running {
-		return fmt.Errorf("node %s not found or not running", to)
+		mt.errorCount++
+		return transport.NewTransportError(transport.ErrCodePeerNotFound, fmt.Sprintf("node %s not found or not running", target))
 	}
 
-	message := MockMessage{
-		From:      from,
-		To:        to,
-		Type:      msgType,
-		Data:      data,
-		Timestamp: time.Now(),
-	}
+	// Update stats
+	mt.messagesSent++
+	mt.bytesSent += int64(transport.MessageSize(message))
 
 	// Add latency if configured
-	if latencies, exists := mt.latencies[from]; exists {
-		if latency, exists := latencies[to]; exists {
+	if latencies, exists := mt.latencies[message.From]; exists {
+		if latency, exists := latencies[target]; exists {
 			go func() {
 				time.Sleep(latency)
-				select {
-				case toNode.Inbox <- message:
-				default:
-					// Inbox full, drop message
-				}
+				mt.deliverMessage(toNode, message)
 			}()
-		} else {
-			toNode.Inbox <- message
+			return nil
 		}
-	} else {
-		toNode.Inbox <- message
 	}
+
+	// Deliver immediately
+	mt.deliverMessage(toNode, message)
 
 	// Log message
 	mt.messageLog = append(mt.messageLog, message)
@@ -606,21 +580,137 @@ func (mt *MockTransport) SendMessage(from, to string, msgType string, data []byt
 	return nil
 }
 
-func (mt *MockTransport) ReceiveMessage(nodeID string) (string, string, []byte, error) {
-	mt.mu.RLock()
-	node, exists := mt.nodes[nodeID]
-	mt.mu.RUnlock()
-
-	if !exists {
-		return "", "", nil, fmt.Errorf("node %s not found", nodeID)
+func (mt *MockTransport) deliverMessage(node *MockNode, message transport.Message) {
+	incoming := transport.IncomingMessage{
+		Message: message,
+		Peer: transport.PeerInfo{
+			ID:      node.ID,
+			Address: node.Address,
+			Status:  node.Status,
+		},
 	}
 
 	select {
-	case msg := <-node.Inbox:
-		return msg.From, msg.Type, msg.Data, nil
-	case <-time.After(100 * time.Millisecond):
-		return "", "", nil, fmt.Errorf("no message received")
+	case mt.receiveChan <- incoming:
+		mt.mu.Lock()
+		mt.messagesRecv++
+		mt.bytesRecv += int64(transport.MessageSize(message))
+		mt.mu.Unlock()
+	default:
+		// Channel full, drop message
 	}
+}
+
+func (mt *MockTransport) Receive(ctx context.Context) (<-chan transport.IncomingMessage, error) {
+	return mt.receiveChan, nil
+}
+
+func (mt *MockTransport) AddPeer(peerID, address string) error {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	if _, exists := mt.nodes[peerID]; exists {
+		return fmt.Errorf("peer %s already exists", peerID)
+	}
+
+	mt.nodes[peerID] = &MockNode{
+		ID:      peerID,
+		Address: address,
+		Inbox:   make(chan transport.Message, 100),
+		Outbox:  make(chan transport.Message, 100),
+		Running: true,
+		Status:  transport.PeerStatusConnected,
+	}
+
+	return nil
+}
+
+func (mt *MockTransport) RemovePeer(peerID string) error {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
+	if node, exists := mt.nodes[peerID]; exists {
+		node.Running = false
+		close(node.Inbox)
+		close(node.Outbox)
+		delete(mt.nodes, peerID)
+	}
+
+	return nil
+}
+
+func (mt *MockTransport) GetPeers() []transport.PeerInfo {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
+	peers := make([]transport.PeerInfo, 0, len(mt.nodes))
+	for _, node := range mt.nodes {
+		peers = append(peers, transport.PeerInfo{
+			ID:       node.ID,
+			Address:  node.Address,
+			Status:   node.Status,
+			LastSeen: time.Now(),
+		})
+	}
+
+	return peers
+}
+
+func (mt *MockTransport) LocalAddress() string {
+	return mt.localAddress
+}
+
+func (mt *MockTransport) GetAddress(nodeID string) (string, error) {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
+	if node, exists := mt.nodes[nodeID]; exists {
+		return node.Address, nil
+	}
+
+	return "", transport.NewTransportError(transport.ErrCodePeerNotFound, fmt.Sprintf("node %s not found", nodeID))
+}
+
+func (mt *MockTransport) HealthCheck(ctx context.Context) error {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
+	if !mt.started {
+		return fmt.Errorf("transport not started")
+	}
+
+	return nil
+}
+
+func (mt *MockTransport) GetStats() transport.TransportStats {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
+	connectedPeers := 0
+	for _, node := range mt.nodes {
+		if node.Running && node.Status == transport.PeerStatusConnected {
+			connectedPeers++
+		}
+	}
+
+	var uptime time.Duration
+	if !mt.startTime.IsZero() {
+		uptime = time.Since(mt.startTime)
+	}
+
+	return transport.TransportStats{
+		MessagesSent:     mt.messagesSent,
+		MessagesReceived: mt.messagesRecv,
+		BytesSent:        mt.bytesSent,
+		BytesReceived:    mt.bytesRecv,
+		ErrorCount:       mt.errorCount,
+		ConnectedPeers:   connectedPeers,
+		Uptime:           uptime,
+	}
+}
+
+func (mt *MockTransport) Close() error {
+	return mt.Stop(context.Background())
 }
 
 func (mt *MockTransport) shouldDropMessage() bool {
@@ -676,43 +766,70 @@ func (mt *MockTransport) SetDropRate(rate float64) {
 	mt.dropRate = rate
 }
 
-func (mt *MockTransport) GetMessageLog() []MockMessage {
+func (mt *MockTransport) GetMessageLog() []transport.Message {
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
 
-	log := make([]MockMessage, len(mt.messageLog))
+	log := make([]transport.Message, len(mt.messageLog))
 	copy(log, mt.messageLog)
 	return log
 }
 
+// ============================================================================
 // MockStateMachine implementation
+// ============================================================================
 
+// MockStateMachine implements a mock state machine for testing
+type MockStateMachine struct {
+	state        map[string]interface{}
+	history      []storage.LogEntry
+	snapshots    []*storage.Snapshot
+	startTime    time.Time
+	lastApplied  uint64
+	errorCount   int64
+	lastError    error
+	totalLatency time.Duration
+	operCount    int64
+	mu           sync.RWMutex
+}
+
+// NewMockStateMachine creates a new mock state machine
 func NewMockStateMachine() *MockStateMachine {
 	return &MockStateMachine{
-		state:   make(map[string]interface{}),
-		history: make([]storage.LogEntry, 0),
+		state:     make(map[string]interface{}),
+		history:   make([]storage.LogEntry, 0),
+		snapshots: make([]*storage.Snapshot, 0),
+		startTime: time.Now(),
 	}
 }
 
+// Apply applies a log entry to the state machine
 func (msm *MockStateMachine) Apply(ctx context.Context, entry storage.LogEntry) error {
+	start := time.Now()
+
 	msm.mu.Lock()
 	defer msm.mu.Unlock()
 
 	msm.history = append(msm.history, entry)
+	msm.lastApplied = entry.Index
+	msm.operCount++
 
 	// Parse key-value from entry data
 	data := string(entry.Data)
 	if len(data) > 0 {
 		// Simple key:value parsing
-		parts := []string{data, ""}
+		parts := strings.SplitN(data, ":", 2)
 		if len(parts) >= 2 {
 			msm.state[parts[0]] = parts[1]
 		}
 	}
 
+	msm.totalLatency += time.Since(start)
+
 	return nil
 }
 
+// GetState returns the current state of the state machine
 func (msm *MockStateMachine) GetState() interface{} {
 	msm.mu.RLock()
 	defer msm.mu.RUnlock()
@@ -724,47 +841,237 @@ func (msm *MockStateMachine) GetState() interface{} {
 	return state
 }
 
-func (msm *MockStateMachine) CreateSnapshot() (storage.Snapshot, error) {
+// CreateSnapshot creates a snapshot of the current state (returns pointer)
+func (msm *MockStateMachine) CreateSnapshot() (*storage.Snapshot, error) {
 	msm.mu.RLock()
 	defer msm.mu.RUnlock()
 
-	// Simple snapshot of current state
-	return storage.Snapshot{
-		LastIncludedIndex: uint64(len(msm.history)),
-		LastIncludedTerm:  1,
-		Data:              []byte(fmt.Sprintf("%v", msm.state)),
-		Metadata:          map[string]interface{}{"type": "mock"},
-	}, nil
+	// Serialize state to JSON
+	stateJSON, err := json.Marshal(msm.state)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize state: %w", err)
+	}
+
+	snapshot := &storage.Snapshot{
+		Index: msm.lastApplied,
+		Term:  1,
+		Data:  stateJSON,
+		Metadata: map[string]interface{}{
+			"type":      "mock",
+			"timestamp": time.Now(),
+			"size":      len(stateJSON),
+		},
+		Timestamp: time.Now(),
+		Checksum:  storage.CalculateChecksum(stateJSON),
+	}
+
+	// Store snapshot reference
+	msm.snapshots = append(msm.snapshots, snapshot)
+
+	return snapshot, nil
 }
 
-func (msm *MockStateMachine) RestoreSnapshot(snapshot storage.Snapshot) error {
+// RestoreSnapshot restores the state machine from a snapshot (takes pointer)
+func (msm *MockStateMachine) RestoreSnapshot(snapshot *storage.Snapshot) error {
 	msm.mu.Lock()
 	defer msm.mu.Unlock()
 
-	// Simple restore - reset state
-	msm.state = make(map[string]interface{})
+	if snapshot == nil {
+		return fmt.Errorf("snapshot cannot be nil")
+	}
+
+	// Deserialize state from JSON
+	newState := make(map[string]interface{})
+	if len(snapshot.Data) > 0 {
+		if err := json.Unmarshal(snapshot.Data, &newState); err != nil {
+			// If unmarshal fails, try simple string representation
+			msm.state = make(map[string]interface{})
+		} else {
+			msm.state = newState
+		}
+	}
+
 	msm.history = make([]storage.LogEntry, 0)
+	msm.lastApplied = snapshot.Index
 
 	return nil
 }
 
+// Reset resets the state machine to initial state
+func (msm *MockStateMachine) Reset() error {
+	msm.mu.Lock()
+	defer msm.mu.Unlock()
+
+	msm.state = make(map[string]interface{})
+	msm.history = make([]storage.LogEntry, 0)
+	msm.lastApplied = 0
+	msm.errorCount = 0
+	msm.lastError = nil
+	msm.totalLatency = 0
+	msm.operCount = 0
+
+	return nil
+}
+
+// Size returns the approximate size of the state machine in bytes
+func (msm *MockStateMachine) Size() int64 {
+	msm.mu.RLock()
+	defer msm.mu.RUnlock()
+
+	// Approximate size calculation
+	size := int64(0)
+
+	// Size of state map
+	for k, v := range msm.state {
+		size += int64(len(k))
+		if str, ok := v.(string); ok {
+			size += int64(len(str))
+		} else {
+			size += 8 // Approximate for other types
+		}
+	}
+
+	// Size of history
+	for _, entry := range msm.history {
+		size += int64(len(entry.Data))
+	}
+
+	return size
+}
+
+// HealthCheck performs a health check on the state machine
+func (msm *MockStateMachine) HealthCheck(ctx context.Context) error {
+	msm.mu.RLock()
+	defer msm.mu.RUnlock()
+
+	// Check if state is accessible
+	if msm.state == nil {
+		return fmt.Errorf("state is nil")
+	}
+
+	// Check error rate
+	if msm.operCount > 0 {
+		errorRate := float64(msm.errorCount) / float64(msm.operCount)
+		if errorRate > 0.5 {
+			return fmt.Errorf("high error rate: %.2f%%", errorRate*100)
+		}
+	}
+
+	return nil
+}
+
+// GetStats returns statistics about the state machine
 func (msm *MockStateMachine) GetStats() statemachine.StateMachineStats {
 	msm.mu.RLock()
 	defer msm.mu.RUnlock()
 
+	var averageLatency time.Duration
+	var opsPerSec float64
+
+	if msm.operCount > 0 {
+		averageLatency = msm.totalLatency / time.Duration(msm.operCount)
+
+		uptime := time.Since(msm.startTime)
+		if uptime > 0 {
+			opsPerSec = float64(msm.operCount) / uptime.Seconds()
+		}
+	}
+
+	var lastSnapshot time.Time
+	if len(msm.snapshots) > 0 {
+		lastSnapshot = msm.snapshots[len(msm.snapshots)-1].Timestamp
+	}
+
+	var lastErrorStr string
+	if msm.lastError != nil {
+		lastErrorStr = msm.lastError.Error()
+	}
+
 	return statemachine.StateMachineStats{
-		Type:             "mock",
-		EntriesApplied:   int64(len(msm.history)),
-		StateSize:        int64(len(msm.state)),
-		LastAppliedIndex: uint64(len(msm.history)),
-		SnapshotCount:    0,
-		LastSnapshotTime: time.Time{},
+		AppliedEntries:   int64(len(msm.history)),
+		LastApplied:      msm.lastApplied,
+		SnapshotCount:    int64(len(msm.snapshots)),
+		LastSnapshot:     lastSnapshot,
+		StateSize:        msm.Size(),
+		Uptime:           time.Since(msm.startTime),
+		ErrorCount:       msm.errorCount,
+		LastError:        lastErrorStr,
+		OperationsPerSec: opsPerSec,
+		AverageLatency:   averageLatency,
 	}
 }
 
-// MockDiscovery implementation
+// Close closes the state machine and releases resources
+func (msm *MockStateMachine) Close(ctx context.Context) error {
+	msm.mu.Lock()
+	defer msm.mu.Unlock()
 
-func NewMockDiscovery(nodes []string) *MockDiscovery {
+	// Clear all data
+	msm.state = nil
+	msm.history = nil
+	msm.snapshots = nil
+
+	return nil
+}
+
+// Additional helper methods for testing
+
+// GetHistory returns the history of applied entries
+func (msm *MockStateMachine) GetHistory() []storage.LogEntry {
+	msm.mu.RLock()
+	defer msm.mu.RUnlock()
+
+	history := make([]storage.LogEntry, len(msm.history))
+	copy(history, msm.history)
+	return history
+}
+
+// GetSnapshots returns all created snapshots
+func (msm *MockStateMachine) GetSnapshots() []*storage.Snapshot {
+	msm.mu.RLock()
+	defer msm.mu.RUnlock()
+
+	snapshots := make([]*storage.Snapshot, len(msm.snapshots))
+	copy(snapshots, msm.snapshots)
+	return snapshots
+}
+
+// SetError sets an error for testing error scenarios
+func (msm *MockStateMachine) SetError(err error) {
+	msm.mu.Lock()
+	defer msm.mu.Unlock()
+
+	msm.lastError = err
+	msm.errorCount++
+}
+
+// GetValue returns a specific value from the state
+func (msm *MockStateMachine) GetValue(key string) (interface{}, bool) {
+	msm.mu.RLock()
+	defer msm.mu.RUnlock()
+
+	val, exists := msm.state[key]
+	return val, exists
+}
+
+// SetValue sets a specific value in the state (for test setup)
+func (msm *MockStateMachine) SetValue(key string, value interface{}) {
+	msm.mu.Lock()
+	defer msm.mu.Unlock()
+
+	msm.state[key] = value
+}
+
+// ============================================================================
+// MockDiscovery implementation
+// ============================================================================
+
+func NewMockDiscovery(initialNodes []discovery.NodeInfo) *MockDiscovery {
+	nodes := make(map[string]discovery.NodeInfo)
+	for _, node := range initialNodes {
+		nodes[node.ID] = node
+	}
+
 	return &MockDiscovery{
 		nodes: nodes,
 	}
@@ -784,181 +1091,106 @@ func (md *MockDiscovery) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (md *MockDiscovery) DiscoverNodes(ctx context.Context) ([]discovery.NodeInfo, error) {
+func (md *MockDiscovery) GetNodes(ctx context.Context) ([]discovery.NodeInfo, error) {
 	md.mu.RLock()
 	defer md.mu.RUnlock()
 
-	nodes := make([]discovery.NodeInfo, len(md.nodes))
-	for i, nodeID := range md.nodes {
-		nodes[i] = discovery.NodeInfo{
-			ID:      nodeID,
-			Address: fmt.Sprintf("127.0.0.1:%d", 8090+i),
-			Status:  discovery.NodeStatusActive,
-			Metadata: map[string]any{
-				"type": "mock",
-			},
-		}
+	nodes := make([]discovery.NodeInfo, 0, len(md.nodes))
+	for _, node := range md.nodes {
+		nodes = append(nodes, node)
 	}
 
 	return nodes, nil
 }
 
-func (md *MockDiscovery) RegisterNode(ctx context.Context, node discovery.NodeInfo) error {
+func (md *MockDiscovery) GetNode(ctx context.Context, nodeID string) (*discovery.NodeInfo, error) {
+	md.mu.RLock()
+	defer md.mu.RUnlock()
+
+	if node, exists := md.nodes[nodeID]; exists {
+		return &node, nil
+	}
+
+	return nil, discovery.NewDiscoveryError(discovery.ErrCodeNodeNotFound, fmt.Sprintf("node %s not found", nodeID))
+}
+
+func (md *MockDiscovery) Register(ctx context.Context, node discovery.NodeInfo) error {
 	md.mu.Lock()
 	defer md.mu.Unlock()
 
-	// Add node if not exists
-	for _, existing := range md.nodes {
-		if existing == node.ID {
-			return nil
-		}
+	if _, exists := md.nodes[node.ID]; exists {
+		return discovery.NewDiscoveryError(discovery.ErrCodeNodeExists, fmt.Sprintf("node %s already exists", node.ID))
 	}
 
-	md.nodes = append(md.nodes, node.ID)
+	md.nodes[node.ID] = node
 	return nil
 }
 
-func (md *MockDiscovery) DeregisterNode(ctx context.Context, nodeID string) error {
+func (md *MockDiscovery) Unregister(ctx context.Context, nodeID string) error {
 	md.mu.Lock()
 	defer md.mu.Unlock()
 
-	// Remove node
-	for i, existing := range md.nodes {
-		if existing == nodeID {
-			md.nodes = append(md.nodes[:i], md.nodes[i+1:]...)
-			break
-		}
+	if _, exists := md.nodes[nodeID]; !exists {
+		return discovery.NewDiscoveryError(discovery.ErrCodeNodeNotFound, fmt.Sprintf("node %s not found", nodeID))
 	}
 
+	delete(md.nodes, nodeID)
+	return nil
+}
+
+func (md *MockDiscovery) UpdateNode(ctx context.Context, node discovery.NodeInfo) error {
+	md.mu.Lock()
+	defer md.mu.Unlock()
+
+	if _, exists := md.nodes[node.ID]; !exists {
+		return discovery.NewDiscoveryError(discovery.ErrCodeNodeNotFound, fmt.Sprintf("node %s not found", node.ID))
+	}
+
+	md.nodes[node.ID] = node
+	return nil
+}
+
+func (md *MockDiscovery) WatchNodes(ctx context.Context, callback discovery.NodeChangeCallback) error {
+	// Simplified implementation - would need proper watching in production
 	return nil
 }
 
 func (md *MockDiscovery) HealthCheck(ctx context.Context) error {
+	md.mu.RLock()
+	defer md.mu.RUnlock()
+
+	if !md.started {
+		return fmt.Errorf("discovery not started")
+	}
+
 	return nil
 }
 
-// TestMetrics implementation
+func (md *MockDiscovery) GetStats(ctx context.Context) discovery.DiscoveryStats {
+	md.mu.RLock()
+	defer md.mu.RUnlock()
 
-func NewTestMetrics() *TestMetrics {
-	return &TestMetrics{
-		counters:   make(map[string]float64),
-		gauges:     make(map[string]float64),
-		histograms: make(map[string][]float64),
+	activeNodes := 0
+	for _, node := range md.nodes {
+		if node.Status == discovery.NodeStatusActive {
+			activeNodes++
+		}
+	}
+
+	return discovery.DiscoveryStats{
+		TotalNodes:  len(md.nodes),
+		ActiveNodes: activeNodes,
+		LastUpdate:  time.Now(),
 	}
 }
 
-func (tm *TestMetrics) Counter(name string, tags ...string) common.Counter {
-	return &TestCounter{metrics: tm, name: name}
+func (md *MockDiscovery) Close(ctx context.Context) error {
+	return md.Stop(ctx)
 }
 
-func (tm *TestMetrics) Gauge(name string, tags ...string) common.Gauge {
-	return &TestGauge{metrics: tm, name: name}
-}
-
-func (tm *TestMetrics) Histogram(name string, tags ...string) common.Histogram {
-	return &TestHistogram{metrics: tm, name: name}
-}
-
-func (tm *TestMetrics) Timer(name string, tags ...string) common.Timer {
-	return &TestTimer{metrics: tm, name: name}
-}
-
-func (tm *TestMetrics) GetCounterValue(name string) float64 {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	return tm.counters[name]
-}
-
-func (tm *TestMetrics) GetGaugeValue(name string) float64 {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	return tm.gauges[name]
-}
-
-func (tm *TestMetrics) GetHistogramValues(name string) []float64 {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-	return tm.histograms[name]
-}
-
-// Test metric implementations
-
-type TestCounter struct {
-	metrics *TestMetrics
-	name    string
-}
-
-func (tc *TestCounter) Inc() {
-	tc.Add(1)
-}
-
-func (tc *TestCounter) Add(value float64) {
-	tc.metrics.mu.Lock()
-	defer tc.metrics.mu.Unlock()
-	tc.metrics.counters[tc.name] += value
-}
-
-type TestGauge struct {
-	metrics *TestMetrics
-	name    string
-}
-
-func (tg *TestGauge) Set(value float64) {
-	tg.metrics.mu.Lock()
-	defer tg.metrics.mu.Unlock()
-	tg.metrics.gauges[tg.name] = value
-}
-
-func (tg *TestGauge) Inc() {
-	tg.Add(1)
-}
-
-func (tg *TestGauge) Dec() {
-	tg.Add(-1)
-}
-
-func (tg *TestGauge) Add(value float64) {
-	tg.metrics.mu.Lock()
-	defer tg.metrics.mu.Unlock()
-	tg.metrics.gauges[tg.name] += value
-}
-
-type TestHistogram struct {
-	metrics *TestMetrics
-	name    string
-}
-
-func (th *TestHistogram) Observe(value float64) {
-	th.metrics.mu.Lock()
-	defer th.metrics.mu.Unlock()
-	if th.metrics.histograms[th.name] == nil {
-		th.metrics.histograms[th.name] = make([]float64, 0)
-	}
-	th.metrics.histograms[th.name] = append(th.metrics.histograms[th.name], value)
-}
-
-type TestTimer struct {
-	metrics *TestMetrics
-	name    string
-}
-
-func (tt *TestTimer) Record(duration time.Duration) {
-	tt.metrics.mu.Lock()
-	defer tt.metrics.mu.Unlock()
-	if tt.metrics.histograms[tt.name] == nil {
-		tt.metrics.histograms[tt.name] = make([]float64, 0)
-	}
-	tt.metrics.histograms[tt.name] = append(tt.metrics.histograms[tt.name], duration.Seconds())
-}
-
-func (tt *TestTimer) Time() func() {
-	start := time.Now()
-	return func() {
-		tt.Record(time.Since(start))
-	}
-}
-
+// ============================================================================
 // Utility functions for testing
+// ============================================================================
 
 // WaitForCondition waits for a condition to be true within timeout
 func WaitForCondition(t *testing.T, condition func() bool, timeout time.Duration, message string) {
@@ -991,7 +1223,6 @@ func GetFreePort() (int, error) {
 
 // SimulateNetworkPartition simulates a network partition scenario
 func SimulateNetworkPartition(cluster *TestCluster, partition1, partition2 []string) {
-	// Partition nodes between two groups
 	for _, node1 := range partition1 {
 		cluster.PartitionNode(node1, partition2...)
 	}
@@ -1021,19 +1252,11 @@ func VerifyClusterConsistency(t *testing.T, cluster *TestCluster) {
 		t.Fatal("No leader found")
 	}
 
-	leaderState := cluster.GetState()
-
 	followers := cluster.GetFollowers()
 	for _, follower := range followers {
-		// In a real implementation, you'd compare the actual state
-		// For now, we just verify the follower is running
 		if !follower.Started {
 			t.Errorf("Follower %s not started", follower.ID)
 		}
-	}
-
-	if leaderState == nil {
-		t.Log("Leader state is nil - this may be expected in some tests")
 	}
 }
 
@@ -1084,51 +1307,4 @@ func BenchmarkConsensusOperations(b *testing.B, cluster *TestCluster) {
 			i++
 		}
 	})
-}
-
-// Example usage and test helpers
-
-// ExampleTestClusterUsage demonstrates how to use the test cluster
-func ExampleTestClusterUsage(t *testing.T) {
-	// Create test cluster
-	cluster := NewTestCluster(t, &TestClusterConfig{
-		NodeCount:     3,
-		StorageType:   "memory",
-		EnableLogging: true,
-	})
-
-	// OnStart cluster
-	if err := cluster.Start(context.Background()); err != nil {
-		t.Fatalf("Failed to start cluster: %v", err)
-	}
-
-	// Wait for leader election
-	leader, err := cluster.WaitForLeader(5 * time.Second)
-	if err != nil {
-		t.Fatalf("No leader elected: %v", err)
-	}
-
-	t.Logf("Leader elected: %s", leader.ID)
-
-	// Propose some values
-	if err := cluster.ProposeValue("key1", "value1"); err != nil {
-		t.Errorf("Failed to propose value: %v", err)
-	}
-
-	// Simulate network partition
-	nodes := make([]string, 0, len(cluster.Nodes))
-	for nodeID := range cluster.Nodes {
-		nodes = append(nodes, nodeID)
-	}
-
-	partition1 := nodes[:len(nodes)/2]
-	partition2 := nodes[len(nodes)/2:]
-	SimulateNetworkPartition(cluster, partition1, partition2)
-
-	// Wait and heal partition
-	time.Sleep(1 * time.Second)
-	HealNetworkPartition(cluster, nodes)
-
-	// Verify consistency
-	VerifyClusterConsistency(t, cluster)
 }

@@ -4,8 +4,14 @@ import (
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/di"
 	"github.com/xraph/forge/pkg/logger"
+	"github.com/xraph/forge/pkg/router"
 	streamingcore "github.com/xraph/forge/pkg/streaming/core"
 )
+
+type ConfigManager = common.ConfigManager
+
+type RouterAdapter = router.RouterAdapter
+type HttpRouterAdapter = router.HttpRouterAdapter
 
 type DefaultErrorHandler = common.DefaultErrorHandler
 

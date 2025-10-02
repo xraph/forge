@@ -9,83 +9,95 @@ import (
 
 // Storage defines the interface for log storage
 type Storage interface {
-	// StoreEntry stores a log entry
+
+	// StoreEntry saves a log entry to the storage layer, ensuring it persists across system restarts or failures.
 	StoreEntry(ctx context.Context, entry LogEntry) error
 
-	// GetEntry retrieves a log entry by index
+	// GetEntry retrieves the log entry at the specified index from storage or in-memory cache.
 	GetEntry(ctx context.Context, index uint64) (*LogEntry, error)
 
-	// GetEntries retrieves log entries in a range
+	// GetEntries retrieves a slice of log entries between the provided start and end indices from the storage.
 	GetEntries(ctx context.Context, start, end uint64) ([]LogEntry, error)
 
-	// GetLastEntry retrieves the last log entry
+	// GetLastEntry retrieves the most recent log entry from the storage.
+	// Returns the log entry and an error, if any issue occurs during retrieval.
 	GetLastEntry(ctx context.Context) (*LogEntry, error)
 
-	// GetFirstEntry retrieves the first log entry
+	// GetFirstEntry retrieves the first log entry from the storage. Returns an error if no entries are available or access fails.
 	GetFirstEntry(ctx context.Context) (*LogEntry, error)
 
-	// DeleteEntry deletes a log entry
+	// DeleteEntry removes a log entry at the specified index.
+	// It returns an error if the operation fails or the index does not exist.
 	DeleteEntry(ctx context.Context, index uint64) error
 
-	// DeleteEntriesFrom deletes entries from a given index
+	// DeleteEntriesFrom removes all log entries starting from the specified index (inclusive) to the most recent entry.
 	DeleteEntriesFrom(ctx context.Context, index uint64) error
 
-	// DeleteEntriesTo deletes entries up to a given index
+	// DeleteEntriesTo removes all log entries with an index less than or equal to the specified index. Returns an error on failure.
 	DeleteEntriesTo(ctx context.Context, index uint64) error
 
-	// GetLastIndex returns the index of the last log entry
+	// GetLastIndex retrieves the index of the most recently appended log entry in the storage.
+	// Returns the last index as a uint64 and an error if the retrieval operation fails.
 	GetLastIndex(ctx context.Context) (uint64, error)
 
-	// GetFirstIndex returns the index of the first log entry
+	// GetFirstIndex retrieves the index of the first log entry stored in the storage.
+	// Returns the index as a uint64 or an error if the operation fails.
 	GetFirstIndex(ctx context.Context) (uint64, error)
 
-	// StoreSnapshot stores a snapshot
+	// StoreSnapshot stores the given snapshot, which represents a point-in-time state of the system, into persistent storage.
 	StoreSnapshot(ctx context.Context, snapshot Snapshot) error
 
-	// GetSnapshot retrieves a snapshot
+	// GetSnapshot retrieves the most recent snapshot of the state machine from storage.
 	GetSnapshot(ctx context.Context) (*Snapshot, error)
 
-	// DeleteSnapshot deletes a snapshot
+	// DeleteSnapshot deletes the current snapshot from storage. Returns an error if the operation fails.
 	DeleteSnapshot(ctx context.Context) error
 
-	// StoreTerm stores the current term
+	// StoreTerm stores the specified term in the persistent storage and returns an error if the operation fails.
 	StoreTerm(ctx context.Context, term uint64) error
 
-	// GetTerm retrieves the current term
+	// GetTerm retrieves the current term of the node from the storage.
+	// It returns the term as uint64 and an error if the operation fails.
 	GetTerm(ctx context.Context) (uint64, error)
 
-	// StoreVote stores the vote for a term
+	// StoreVote persists the vote for a given term and candidate ID in the storage.
+	// Returns an error if the operation fails.
 	StoreVote(ctx context.Context, term uint64, candidateID string) error
 
-	// GetVote retrieves the vote for a term
+	// GetVote retrieves the candidate ID voted for in the specified term from persistent storage. Returns an error if not found.
 	GetVote(ctx context.Context, term uint64) (string, error)
 
-	// StoreState saves the given persistent state to the underlying storage and returns an error if the operation fails.
+	// GetVotedFor retrieves the candidate ID the node voted for in the specified election term. Returns an error if retrieval fails.
+	GetVotedFor(ctx context.Context, term uint64) (string, error)
+
+	// StoreVotedFor records the candidate ID voted for in a specific term in the persistent storage.
+	StoreVotedFor(ctx context.Context, term uint64, candidateID string) error
+
+	// StoreState persists the given PersistentState data to storage, ensuring it is available for future recovery.
 	StoreState(ctx context.Context, state *PersistentState) error
 
-	// LoadState retrieves the persisted state from storage, including the term, vote, and other metadata.
+	// LoadState retrieves the persisted state of the Raft node from storage for recovery or initialization purposes.
 	LoadState(ctx context.Context) (*PersistentState, error)
 
-	// // StoreConfiguration stores the given cluster configuration in persistent storage.
-	// StoreConfiguration(ctx context.Context, config Configuration) error
-	//
-	// // GetConfiguration retrieves the current cluster configuration from storage.
-	// // It returns a pointer to the Configuration and an error if the operation fails.
-	// GetConfiguration(ctx context.Context) (*Configuration, error)
+	// StoreElectionRecord saves an election record into persistent storage for historical tracking and retrieval purposes.
+	StoreElectionRecord(ctx context.Context, record ElectionRecord) error
 
-	// Sync ensures all data is persisted
+	// GetElectionHistory retrieves historical election records, limited by the provided count. Returns records or an error.
+	GetElectionHistory(ctx context.Context, limit int) ([]ElectionRecord, error)
+
+	// Sync flushes any pending changes to the underlying storage to ensure durability and consistency.
 	Sync(ctx context.Context) error
 
-	// Close closes the storage
+	// Close releases all resources associated with the storage and ensures data is persisted before shutting down.
 	Close(ctx context.Context) error
 
-	// GetStats returns storage statistics
+	// GetStats retrieves storage statistics such as entry count, size, and performance metrics. Returns a StorageStats struct.
 	GetStats() StorageStats
 
-	// Compact compacts the storage
+	// Compact removes all log entries up to and including the specified index to free up storage space.
 	Compact(ctx context.Context, index uint64) error
 
-	// HealthCheck check consensus health
+	// HealthCheck checks the health of the storage and ensures consistency in state or logs.
 	HealthCheck(ctx context.Context) error
 }
 
@@ -201,22 +213,34 @@ type StorageManager interface {
 	Close(ctx context.Context) error
 }
 
-// StorageError represents a storage error
-type StorageError struct {
+// ElectionRecord represents a historical election record
+type ElectionRecord struct {
+	Term         uint64        `json:"term"`
+	Winner       string        `json:"winner"`
+	StartTime    time.Time     `json:"start_time"`
+	EndTime      time.Time     `json:"end_time"`
+	Duration     time.Duration `json:"duration"`
+	VoteCount    int           `json:"vote_count"`
+	Participants []string      `json:"participants"`
+	Reason       string        `json:"reason"`
+}
+
+// Error represents a storage error
+type Error struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Index   uint64 `json:"index,omitempty"`
 	Cause   error  `json:"cause,omitempty"`
 }
 
-func (e *StorageError) Error() string {
+func (e *Error) Error() string {
 	if e.Cause != nil {
 		return e.Message + ": " + e.Cause.Error()
 	}
 	return e.Message
 }
 
-func (e *StorageError) Unwrap() error {
+func (e *Error) Unwrap() error {
 	return e.Cause
 }
 
@@ -234,8 +258,8 @@ const (
 )
 
 // NewStorageError creates a new storage error
-func NewStorageError(code, message string) *StorageError {
-	return &StorageError{
+func NewStorageError(code, message string) *Error {
+	return &Error{
 		Code:    code,
 		Message: message,
 	}

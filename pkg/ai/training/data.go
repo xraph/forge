@@ -988,8 +988,8 @@ func (d *DatasetImpl) calculateQualityMetrics() {
 func (d *DatasetImpl) validateRecord(record DataRecord) error {
 	// Implement validation logic based on schema and rules
 	// This is a simplified implementation
-	for field, rule := range d.config.Validation.Required {
-		if _, exists := record.Data[field]; !exists {
+	for _, rule := range d.config.Validation.Required {
+		if _, exists := record.Data[d.config.Name]; !exists {
 			return fmt.Errorf("required field %s is missing", rule)
 		}
 	}

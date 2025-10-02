@@ -176,6 +176,7 @@ type StoreStats struct {
 	AverageQueryTime  time.Duration `json:"average_query_time"`
 	LastCleanup       time.Time     `json:"last_cleanup"`
 	LastMigration     time.Time     `json:"last_migration"`
+	LastResetTime     time.Time     `json:"last_reset_time"`
 }
 
 // JobLock represents a lock on a job

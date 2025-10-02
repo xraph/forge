@@ -947,5 +947,1051 @@ func (ds *DatabaseStore) Close() error {
 	return ds.db.Close(context.Background())
 }
 
-// Additional methods for ExecutionStore and EventStore interfaces would be implemented here...
-// Following the same pattern as the JobStore methods
+// database.go - Add these missing methods
+
+// =============================================================================
+// MISSING JOBSTORE METHODS
+// =============================================================================
+
+// GetJobStats retrieves statistics for a specific job
+func (ds *DatabaseStore) GetJobStats(ctx context.Context, jobID string) (*cron.JobStats, error) {
+	// First get the job
+	job, err := ds.GetJob(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get execution statistics
+	execStats, err := ds.GetExecutionStats(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &cron.JobStats{
+		JobID:           job.Definition.ID,
+		TotalExecutions: job.RunCount,
+		SuccessfulRuns:  job.SuccessCount,
+		FailedRuns:      job.FailureCount,
+		SuccessRate:     execStats.SuccessRate,
+		FailureRate:     execStats.FailureRate,
+		AverageRunTime:  execStats.AverageExecutionTime,
+		MinRunTime:      execStats.MinExecutionTime,
+		MaxRunTime:      execStats.MaxExecutionTime,
+		LastRunTime:     job.LastRun,
+		NextRunTime:     job.NextRun,
+		CurrentStatus:   job.Status,
+		AssignedNode:    job.AssignedNode,
+		CreatedAt:       job.CreatedAt,
+		UpdatedAt:       job.UpdatedAt,
+	}
+
+	// Get last error from most recent failed execution
+	failedExecs, err := ds.GetExecutionsByStatus(ctx, cron.ExecutionStatusFailed, 1)
+	if err == nil && len(failedExecs) > 0 {
+		stats.LastError = failedExecs[0].Error
+	}
+
+	ds.metrics.QueriesExecuted++
+	return stats, nil
+}
+
+// GetJobsStats retrieves statistics for multiple jobs based on filter
+func (ds *DatabaseStore) GetJobsStats(ctx context.Context, filter *cron.JobFilter) ([]*cron.JobStats, error) {
+	jobs, err := ds.GetJobs(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make([]*cron.JobStats, 0, len(jobs))
+	for _, job := range jobs {
+		jobStats, err := ds.GetJobStats(ctx, job.Definition.ID)
+		if err != nil {
+			// Log error but continue with other jobs
+			if ds.logger != nil {
+				ds.logger.Error("failed to get job stats",
+					logger.String("job_id", job.Definition.ID),
+					logger.Error(err),
+				)
+			}
+			continue
+		}
+		stats = append(stats, jobStats)
+	}
+
+	return stats, nil
+}
+
+// =============================================================================
+// EXECUTIONSTORE METHODS
+// =============================================================================
+
+// CreateExecution creates a new job execution record
+func (ds *DatabaseStore) CreateExecution(ctx context.Context, execution *cron.JobExecution) error {
+	query := fmt.Sprintf(`
+		INSERT INTO %s (
+			id, job_id, node_id, status, start_time, end_time, duration_ms,
+			output, error, attempt, metadata, tags, created_at, updated_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+		)
+	`, ds.config.ExecutionsTable)
+
+	metadataJSON, err := json.Marshal(execution.Metadata)
+	if err != nil {
+		return NewStoreError("create_execution", "failed to marshal metadata", err)
+	}
+
+	tagsJSON, err := json.Marshal(execution.Tags)
+	if err != nil {
+		return NewStoreError("create_execution", "failed to marshal tags", err)
+	}
+
+	var durationMs *int64
+	if execution.Duration > 0 {
+		ms := execution.Duration.Milliseconds()
+		durationMs = &ms
+	}
+
+	// FIX: Use execution.EndTime directly, check if it's zero value for null
+	var endTime interface{}
+	if execution.EndTime.IsZero() {
+		endTime = nil
+	} else {
+		endTime = execution.EndTime
+	}
+
+	_, err = ds.db.DB().(*sql.DB).ExecContext(ctx, query,
+		execution.ID,
+		execution.JobID,
+		execution.NodeID,
+		execution.Status,
+		execution.StartTime,
+		endTime,
+		durationMs,
+		execution.Output,
+		execution.Error,
+		execution.Attempt,
+		metadataJSON,
+		tagsJSON,
+		execution.CreatedAt,
+		execution.UpdatedAt,
+	)
+
+	if err != nil {
+		return NewStoreError("create_execution", "failed to insert execution", err)
+	}
+
+	ds.metrics.ExecutionsCreated++
+	ds.metrics.QueriesExecuted++
+
+	if ds.logger != nil {
+		ds.logger.Info("execution created in database",
+			logger.String("execution_id", execution.ID),
+			logger.String("job_id", execution.JobID),
+		)
+	}
+
+	return nil
+}
+
+// GetExecution retrieves an execution by ID
+func (ds *DatabaseStore) GetExecution(ctx context.Context, executionID string) (*cron.JobExecution, error) {
+	query := fmt.Sprintf(`
+		SELECT id, job_id, node_id, status, start_time, end_time, duration_ms,
+			   output, error, attempt, metadata, tags, created_at, updated_at
+		FROM %s WHERE id = $1
+	`, ds.config.ExecutionsTable)
+
+	row := ds.db.DB().(*sql.DB).QueryRowContext(ctx, query, executionID)
+
+	execution, err := ds.scanExecution(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrExecutionNotFound
+		}
+		return nil, NewStoreError("get_execution", "failed to scan execution", err)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return execution, nil
+}
+
+// GetExecutions retrieves executions based on filter
+func (ds *DatabaseStore) GetExecutions(ctx context.Context, filter *cron.ExecutionFilter) ([]*cron.JobExecution, error) {
+	query, args := ds.buildExecutionQuery(filter)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, NewStoreError("get_executions", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var executions []*cron.JobExecution
+	for rows.Next() {
+		execution, err := ds.scanExecution(rows)
+		if err != nil {
+			return nil, NewStoreError("get_executions", "failed to scan execution", err)
+		}
+		executions = append(executions, execution)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, NewStoreError("get_executions", "row iteration error", err)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return executions, nil
+}
+
+// UpdateExecution updates an existing execution
+
+// UpdateExecution - Fix to handle non-pointer EndTime
+func (ds *DatabaseStore) UpdateExecution(ctx context.Context, execution *cron.JobExecution) error {
+	query := fmt.Sprintf(`
+		UPDATE %s SET
+			status = $2, end_time = $3, duration_ms = $4, output = $5,
+			error = $6, metadata = $7, tags = $8, updated_at = $9
+		WHERE id = $1
+	`, ds.config.ExecutionsTable)
+
+	metadataJSON, err := json.Marshal(execution.Metadata)
+	if err != nil {
+		return NewStoreError("update_execution", "failed to marshal metadata", err)
+	}
+
+	tagsJSON, err := json.Marshal(execution.Tags)
+	if err != nil {
+		return NewStoreError("update_execution", "failed to marshal tags", err)
+	}
+
+	var durationMs *int64
+	if execution.Duration > 0 {
+		ms := execution.Duration.Milliseconds()
+		durationMs = &ms
+	}
+
+	execution.UpdatedAt = time.Now()
+
+	// FIX: Use execution.EndTime directly, check if it's zero value for null
+	var endTime interface{}
+	if execution.EndTime.IsZero() {
+		endTime = nil
+	} else {
+		endTime = execution.EndTime
+	}
+
+	result, err := ds.db.DB().(*sql.DB).ExecContext(ctx, query,
+		execution.ID,
+		execution.Status,
+		endTime,
+		durationMs,
+		execution.Output,
+		execution.Error,
+		metadataJSON,
+		tagsJSON,
+		execution.UpdatedAt,
+	)
+
+	if err != nil {
+		return NewStoreError("update_execution", "failed to update execution", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return NewStoreError("update_execution", "failed to get rows affected", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrExecutionNotFound
+	}
+
+	ds.metrics.ExecutionsUpdated++
+	ds.metrics.QueriesExecuted++
+
+	return nil
+}
+
+// DeleteExecution deletes an execution by ID
+func (ds *DatabaseStore) DeleteExecution(ctx context.Context, executionID string) error {
+	query := fmt.Sprintf("DELETE FROM %s WHERE id = $1", ds.config.ExecutionsTable)
+
+	result, err := ds.db.DB().(*sql.DB).ExecContext(ctx, query, executionID)
+	if err != nil {
+		return NewStoreError("delete_execution", "failed to delete execution", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return NewStoreError("delete_execution", "failed to get rows affected", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrExecutionNotFound
+	}
+
+	ds.metrics.QueriesExecuted++
+	return nil
+}
+
+// GetExecutionsByJob retrieves executions for a specific job
+func (ds *DatabaseStore) GetExecutionsByJob(ctx context.Context, jobID string, limit int) ([]*cron.JobExecution, error) {
+	query := fmt.Sprintf(`
+		SELECT id, job_id, node_id, status, start_time, end_time, duration_ms,
+			   output, error, attempt, metadata, tags, created_at, updated_at
+		FROM %s WHERE job_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, ds.config.ExecutionsTable)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, jobID, limit)
+	if err != nil {
+		return nil, NewStoreError("get_executions_by_job", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var executions []*cron.JobExecution
+	for rows.Next() {
+		execution, err := ds.scanExecution(rows)
+		if err != nil {
+			return nil, NewStoreError("get_executions_by_job", "failed to scan execution", err)
+		}
+		executions = append(executions, execution)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return executions, nil
+}
+
+// GetExecutionsByNode retrieves executions for a specific node
+func (ds *DatabaseStore) GetExecutionsByNode(ctx context.Context, nodeID string, limit int) ([]*cron.JobExecution, error) {
+	query := fmt.Sprintf(`
+		SELECT id, job_id, node_id, status, start_time, end_time, duration_ms,
+			   output, error, attempt, metadata, tags, created_at, updated_at
+		FROM %s WHERE node_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, ds.config.ExecutionsTable)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, nodeID, limit)
+	if err != nil {
+		return nil, NewStoreError("get_executions_by_node", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var executions []*cron.JobExecution
+	for rows.Next() {
+		execution, err := ds.scanExecution(rows)
+		if err != nil {
+			return nil, NewStoreError("get_executions_by_node", "failed to scan execution", err)
+		}
+		executions = append(executions, execution)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return executions, nil
+}
+
+// GetExecutionsByStatus retrieves executions by status
+func (ds *DatabaseStore) GetExecutionsByStatus(ctx context.Context, status cron.ExecutionStatus, limit int) ([]*cron.JobExecution, error) {
+	query := fmt.Sprintf(`
+		SELECT id, job_id, node_id, status, start_time, end_time, duration_ms,
+			   output, error, attempt, metadata, tags, created_at, updated_at
+		FROM %s WHERE status = $1
+		ORDER BY created_at DESC
+		LIMIT $2
+	`, ds.config.ExecutionsTable)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, status, limit)
+	if err != nil {
+		return nil, NewStoreError("get_executions_by_status", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var executions []*cron.JobExecution
+	for rows.Next() {
+		execution, err := ds.scanExecution(rows)
+		if err != nil {
+			return nil, NewStoreError("get_executions_by_status", "failed to scan execution", err)
+		}
+		executions = append(executions, execution)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return executions, nil
+}
+
+// GetRunningExecutions retrieves all running executions
+func (ds *DatabaseStore) GetRunningExecutions(ctx context.Context) ([]*cron.JobExecution, error) {
+	return ds.GetExecutionsByStatus(ctx, cron.ExecutionStatusRunning, 1000)
+}
+
+// GetExecutionStats retrieves statistics for a specific job's executions
+func (ds *DatabaseStore) GetExecutionStats(ctx context.Context, jobID string) (*ExecutionStats, error) {
+	query := fmt.Sprintf(`
+		SELECT 
+			COUNT(*) as total,
+			COUNT(CASE WHEN status = 'success' THEN 1 END) as successful,
+			COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed,
+			COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
+			COUNT(CASE WHEN status = 'timeout' THEN 1 END) as timeout,
+			COALESCE(AVG(duration_ms), 0) as avg_duration,
+			COALESCE(MIN(duration_ms), 0) as min_duration,
+			COALESCE(MAX(duration_ms), 0) as max_duration,
+			MAX(end_time) as last_execution
+		FROM %s WHERE job_id = $1
+	`, ds.config.ExecutionsTable)
+
+	var stats ExecutionStats
+	var avgDurationMs, minDurationMs, maxDurationMs int64
+	var lastExecution sql.NullTime
+
+	err := ds.db.DB().(*sql.DB).QueryRowContext(ctx, query, jobID).Scan(
+		&stats.TotalExecutions,
+		&stats.SuccessfulExecutions,
+		&stats.FailedExecutions,
+		&stats.CancelledExecutions,
+		&stats.TimeoutExecutions,
+		&avgDurationMs,
+		&minDurationMs,
+		&maxDurationMs,
+		&lastExecution,
+	)
+
+	if err != nil {
+		return nil, NewStoreError("get_execution_stats", "failed to get stats", err)
+	}
+
+	stats.AverageExecutionTime = time.Duration(avgDurationMs) * time.Millisecond
+	stats.MinExecutionTime = time.Duration(minDurationMs) * time.Millisecond
+	stats.MaxExecutionTime = time.Duration(maxDurationMs) * time.Millisecond
+
+	if lastExecution.Valid {
+		stats.LastExecutionTime = lastExecution.Time
+	}
+
+	if stats.TotalExecutions > 0 {
+		stats.SuccessRate = float64(stats.SuccessfulExecutions) / float64(stats.TotalExecutions)
+		stats.FailureRate = float64(stats.FailedExecutions) / float64(stats.TotalExecutions)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return &stats, nil
+}
+
+// GetExecutionsStatsForPeriod retrieves execution statistics for a time period
+func (ds *DatabaseStore) GetExecutionsStatsForPeriod(ctx context.Context, start, end time.Time) (*ExecutionStats, error) {
+	query := fmt.Sprintf(`
+		SELECT 
+			COUNT(*) as total,
+			COUNT(CASE WHEN status = 'success' THEN 1 END) as successful,
+			COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed,
+			COUNT(CASE WHEN status = 'cancelled' THEN 1 END) as cancelled,
+			COUNT(CASE WHEN status = 'timeout' THEN 1 END) as timeout,
+			COALESCE(AVG(duration_ms), 0) as avg_duration,
+			COALESCE(MIN(duration_ms), 0) as min_duration,
+			COALESCE(MAX(duration_ms), 0) as max_duration,
+			MAX(end_time) as last_execution
+		FROM %s WHERE created_at BETWEEN $1 AND $2
+	`, ds.config.ExecutionsTable)
+
+	var stats ExecutionStats
+	var avgDurationMs, minDurationMs, maxDurationMs int64
+	var lastExecution sql.NullTime
+
+	err := ds.db.DB().(*sql.DB).QueryRowContext(ctx, query, start, end).Scan(
+		&stats.TotalExecutions,
+		&stats.SuccessfulExecutions,
+		&stats.FailedExecutions,
+		&stats.CancelledExecutions,
+		&stats.TimeoutExecutions,
+		&avgDurationMs,
+		&minDurationMs,
+		&maxDurationMs,
+		&lastExecution,
+	)
+
+	if err != nil {
+		return nil, NewStoreError("get_executions_stats_for_period", "failed to get stats", err)
+	}
+
+	stats.AverageExecutionTime = time.Duration(avgDurationMs) * time.Millisecond
+	stats.MinExecutionTime = time.Duration(minDurationMs) * time.Millisecond
+	stats.MaxExecutionTime = time.Duration(maxDurationMs) * time.Millisecond
+
+	if lastExecution.Valid {
+		stats.LastExecutionTime = lastExecution.Time
+	}
+
+	if stats.TotalExecutions > 0 {
+		stats.SuccessRate = float64(stats.SuccessfulExecutions) / float64(stats.TotalExecutions)
+		stats.FailureRate = float64(stats.FailedExecutions) / float64(stats.TotalExecutions)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return &stats, nil
+}
+
+// CleanupOldExecutions removes old execution records
+func (ds *DatabaseStore) CleanupOldExecutions(ctx context.Context, before time.Time) error {
+	query := fmt.Sprintf("DELETE FROM %s WHERE created_at < $1", ds.config.ExecutionsTable)
+
+	result, err := ds.db.DB().(*sql.DB).ExecContext(ctx, query, before)
+	if err != nil {
+		return NewStoreError("cleanup_old_executions", "failed to cleanup executions", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return NewStoreError("cleanup_old_executions", "failed to get rows affected", err)
+	}
+
+	if ds.logger != nil && rowsAffected > 0 {
+		ds.logger.Info("cleaned up old executions",
+			logger.Int64("rows_deleted", rowsAffected),
+			logger.Time("before", before),
+		)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return nil
+}
+
+// CleanupExecutionsByJob removes execution records for a job, keeping only the last N
+func (ds *DatabaseStore) CleanupExecutionsByJob(ctx context.Context, jobID string, keepLast int) error {
+	query := fmt.Sprintf(`
+		DELETE FROM %s 
+		WHERE job_id = $1 
+		AND id NOT IN (
+			SELECT id FROM %s 
+			WHERE job_id = $1 
+			ORDER BY created_at DESC 
+			LIMIT $2
+		)
+	`, ds.config.ExecutionsTable, ds.config.ExecutionsTable)
+
+	result, err := ds.db.DB().(*sql.DB).ExecContext(ctx, query, jobID, keepLast)
+	if err != nil {
+		return NewStoreError("cleanup_executions_by_job", "failed to cleanup executions", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return NewStoreError("cleanup_executions_by_job", "failed to get rows affected", err)
+	}
+
+	if ds.logger != nil && rowsAffected > 0 {
+		ds.logger.Info("cleaned up job executions",
+			logger.String("job_id", jobID),
+			logger.Int64("rows_deleted", rowsAffected),
+			logger.Int("kept_last", keepLast),
+		)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return nil
+}
+
+// =============================================================================
+// EVENTSTORE METHODS
+// =============================================================================
+
+// CreateEvent creates a new job event
+func (ds *DatabaseStore) CreateEvent(ctx context.Context, event *cron.JobEvent) error {
+	query := fmt.Sprintf(`
+		INSERT INTO %s (type, job_id, node_id, status, timestamp, metadata, error)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, ds.config.EventsTable)
+
+	metadataJSON, err := json.Marshal(event.Metadata)
+	if err != nil {
+		return NewStoreError("create_event", "failed to marshal metadata", err)
+	}
+
+	_, err = ds.db.DB().(*sql.DB).ExecContext(ctx, query,
+		event.Type,
+		event.JobID,
+		event.NodeID,
+		event.Status,
+		event.Timestamp,
+		metadataJSON,
+		event.Error,
+	)
+
+	if err != nil {
+		return NewStoreError("create_event", "failed to insert event", err)
+	}
+
+	ds.metrics.EventsCreated++
+	ds.metrics.QueriesExecuted++
+
+	return nil
+}
+
+// GetEvents retrieves events based on filter
+func (ds *DatabaseStore) GetEvents(ctx context.Context, filter *EventFilter) ([]*cron.JobEvent, error) {
+	query, args := ds.buildEventQuery(filter)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, NewStoreError("get_events", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var events []*cron.JobEvent
+	for rows.Next() {
+		event, err := ds.scanEvent(rows)
+		if err != nil {
+			return nil, NewStoreError("get_events", "failed to scan event", err)
+		}
+		events = append(events, event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, NewStoreError("get_events", "row iteration error", err)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return events, nil
+}
+
+// GetEventsByJob retrieves events for a specific job
+func (ds *DatabaseStore) GetEventsByJob(ctx context.Context, jobID string, limit int) ([]*cron.JobEvent, error) {
+	query := fmt.Sprintf(`
+		SELECT id, type, job_id, node_id, status, timestamp, metadata, error
+		FROM %s WHERE job_id = $1
+		ORDER BY timestamp DESC
+		LIMIT $2
+	`, ds.config.EventsTable)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, jobID, limit)
+	if err != nil {
+		return nil, NewStoreError("get_events_by_job", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var events []*cron.JobEvent
+	for rows.Next() {
+		event, err := ds.scanEvent(rows)
+		if err != nil {
+			return nil, NewStoreError("get_events_by_job", "failed to scan event", err)
+		}
+		events = append(events, event)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return events, nil
+}
+
+// GetEventsByNode retrieves events for a specific node
+func (ds *DatabaseStore) GetEventsByNode(ctx context.Context, nodeID string, limit int) ([]*cron.JobEvent, error) {
+	query := fmt.Sprintf(`
+		SELECT id, type, job_id, node_id, status, timestamp, metadata, error
+		FROM %s WHERE node_id = $1
+		ORDER BY timestamp DESC
+		LIMIT $2
+	`, ds.config.EventsTable)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, nodeID, limit)
+	if err != nil {
+		return nil, NewStoreError("get_events_by_node", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var events []*cron.JobEvent
+	for rows.Next() {
+		event, err := ds.scanEvent(rows)
+		if err != nil {
+			return nil, NewStoreError("get_events_by_node", "failed to scan event", err)
+		}
+		events = append(events, event)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return events, nil
+}
+
+// GetEventsByType retrieves events by type
+func (ds *DatabaseStore) GetEventsByType(ctx context.Context, eventType cron.JobEventType, limit int) ([]*cron.JobEvent, error) {
+	query := fmt.Sprintf(`
+		SELECT id, type, job_id, node_id, status, timestamp, metadata, error
+		FROM %s WHERE type = $1
+		ORDER BY timestamp DESC
+		LIMIT $2
+	`, ds.config.EventsTable)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, eventType, limit)
+	if err != nil {
+		return nil, NewStoreError("get_events_by_type", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var events []*cron.JobEvent
+	for rows.Next() {
+		event, err := ds.scanEvent(rows)
+		if err != nil {
+			return nil, NewStoreError("get_events_by_type", "failed to scan event", err)
+		}
+		events = append(events, event)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return events, nil
+}
+
+// GetEventsForPeriod retrieves events for a time period
+func (ds *DatabaseStore) GetEventsForPeriod(ctx context.Context, start, end time.Time) ([]*cron.JobEvent, error) {
+	query := fmt.Sprintf(`
+		SELECT id, type, job_id, node_id, status, timestamp, metadata, error
+		FROM %s WHERE timestamp BETWEEN $1 AND $2
+		ORDER BY timestamp DESC
+	`, ds.config.EventsTable)
+
+	rows, err := ds.db.DB().(*sql.DB).QueryContext(ctx, query, start, end)
+	if err != nil {
+		return nil, NewStoreError("get_events_for_period", "failed to execute query", err)
+	}
+	defer rows.Close()
+
+	var events []*cron.JobEvent
+	for rows.Next() {
+		event, err := ds.scanEvent(rows)
+		if err != nil {
+			return nil, NewStoreError("get_events_for_period", "failed to scan event", err)
+		}
+		events = append(events, event)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return events, nil
+}
+
+// CleanupOldEvents removes old event records
+func (ds *DatabaseStore) CleanupOldEvents(ctx context.Context, before time.Time) error {
+	query := fmt.Sprintf("DELETE FROM %s WHERE timestamp < $1", ds.config.EventsTable)
+
+	result, err := ds.db.DB().(*sql.DB).ExecContext(ctx, query, before)
+	if err != nil {
+		return NewStoreError("cleanup_old_events", "failed to cleanup events", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return NewStoreError("cleanup_old_events", "failed to get rows affected", err)
+	}
+
+	if ds.logger != nil && rowsAffected > 0 {
+		ds.logger.Info("cleaned up old events",
+			logger.Int64("rows_deleted", rowsAffected),
+			logger.Time("before", before),
+		)
+	}
+
+	ds.metrics.QueriesExecuted++
+	return nil
+}
+
+// =============================================================================
+// HELPER METHODS
+// =============================================================================
+
+// scanExecution scans a database row into a JobExecution struct
+func (ds *DatabaseStore) scanExecution(scanner interface{}) (*cron.JobExecution, error) {
+	var execution cron.JobExecution
+	var metadataJSON, tagsJSON []byte
+	var durationMs sql.NullInt64
+	var endTime sql.NullTime
+	var output, errorStr sql.NullString
+
+	var scanFunc func(dest ...interface{}) error
+	switch s := scanner.(type) {
+	case *sql.Row:
+		scanFunc = s.Scan
+	case *sql.Rows:
+		scanFunc = s.Scan
+	default:
+		return nil, fmt.Errorf("invalid scanner type")
+	}
+
+	err := scanFunc(
+		&execution.ID,
+		&execution.JobID,
+		&execution.NodeID,
+		&execution.Status,
+		&execution.StartTime,
+		&endTime,
+		&durationMs,
+		&output,
+		&errorStr,
+		&execution.Attempt,
+		&metadataJSON,
+		&tagsJSON,
+		&execution.CreatedAt,
+		&execution.UpdatedAt,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// FIX: EndTime is time.Time, not *time.Time
+	if endTime.Valid {
+		execution.EndTime = endTime.Time
+	}
+
+	if durationMs.Valid {
+		execution.Duration = time.Duration(durationMs.Int64) * time.Millisecond
+	}
+
+	if output.Valid {
+		execution.Output = output.String
+	}
+
+	if errorStr.Valid {
+		execution.Error = errorStr.String
+	}
+
+	if err := json.Unmarshal(metadataJSON, &execution.Metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	}
+
+	if err := json.Unmarshal(tagsJSON, &execution.Tags); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal tags: %w", err)
+	}
+
+	return &execution, nil
+}
+
+// scanEvent scans a database row into a JobEvent struct
+func (ds *DatabaseStore) scanEvent(scanner interface{}) (*cron.JobEvent, error) {
+	var event cron.JobEvent
+	var metadataJSON []byte
+	var statusStr sql.NullString // FIX: Store as string, convert to interface{}
+	var errorStr sql.NullString
+
+	var scanFunc func(dest ...interface{}) error
+	switch s := scanner.(type) {
+	case *sql.Row:
+		scanFunc = s.Scan
+	case *sql.Rows:
+		scanFunc = s.Scan
+	default:
+		return nil, fmt.Errorf("invalid scanner type")
+	}
+
+	var id int
+	err := scanFunc(
+		&id,
+		&event.Type,
+		&event.JobID,
+		&event.NodeID,
+		&statusStr,
+		&event.Timestamp,
+		&metadataJSON,
+		&errorStr,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// FIX: Status is interface{} in JobEvent, store the string value
+	if statusStr.Valid {
+		event.Status = statusStr.String
+	}
+
+	if errorStr.Valid {
+		event.Error = errorStr.String
+	}
+
+	if err := json.Unmarshal(metadataJSON, &event.Metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
+	}
+
+	return &event, nil
+}
+
+// buildExecutionQuery builds a query for execution filtering
+func (ds *DatabaseStore) buildExecutionQuery(filter *cron.ExecutionFilter) (string, []interface{}) {
+	baseQuery := fmt.Sprintf(`
+		SELECT id, job_id, node_id, status, start_time, end_time, duration_ms,
+			   output, error, attempt, metadata, tags, created_at, updated_at
+		FROM %s
+	`, ds.config.ExecutionsTable)
+
+	var conditions []string
+	var args []interface{}
+	argIndex := 1
+
+	if filter != nil {
+		if len(filter.JobIDs) > 0 {
+			placeholders := make([]string, len(filter.JobIDs))
+			for i, id := range filter.JobIDs {
+				placeholders[i] = fmt.Sprintf("$%d", argIndex)
+				args = append(args, id)
+				argIndex++
+			}
+			conditions = append(conditions, fmt.Sprintf("job_id IN (%s)", strings.Join(placeholders, ",")))
+		}
+
+		if len(filter.NodeIDs) > 0 {
+			placeholders := make([]string, len(filter.NodeIDs))
+			for i, id := range filter.NodeIDs {
+				placeholders[i] = fmt.Sprintf("$%d", argIndex)
+				args = append(args, id)
+				argIndex++
+			}
+			conditions = append(conditions, fmt.Sprintf("node_id IN (%s)", strings.Join(placeholders, ",")))
+		}
+
+		if len(filter.Statuses) > 0 {
+			placeholders := make([]string, len(filter.Statuses))
+			for i, status := range filter.Statuses {
+				placeholders[i] = fmt.Sprintf("$%d", argIndex)
+				args = append(args, status)
+				argIndex++
+			}
+			conditions = append(conditions, fmt.Sprintf("status IN (%s)", strings.Join(placeholders, ",")))
+		}
+
+		// FIX: Use correct field names from ExecutionFilter
+		if filter.StartedAfter != nil {
+			conditions = append(conditions, fmt.Sprintf("start_time > $%d", argIndex))
+			args = append(args, *filter.StartedAfter)
+			argIndex++
+		}
+
+		if filter.StartedBefore != nil {
+			conditions = append(conditions, fmt.Sprintf("start_time < $%d", argIndex))
+			args = append(args, *filter.StartedBefore)
+			argIndex++
+		}
+
+		if filter.EndedAfter != nil {
+			conditions = append(conditions, fmt.Sprintf("end_time > $%d", argIndex))
+			args = append(args, *filter.EndedAfter)
+			argIndex++
+		}
+
+		if filter.EndedBefore != nil {
+			conditions = append(conditions, fmt.Sprintf("end_time < $%d", argIndex))
+			args = append(args, *filter.EndedBefore)
+			argIndex++
+		}
+	}
+
+	query := baseQuery
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	if filter != nil && filter.SortBy != "" {
+		order := "ASC"
+		if filter.SortOrder == "DESC" {
+			order = "DESC"
+		}
+		query += fmt.Sprintf(" ORDER BY %s %s", filter.SortBy, order)
+	} else {
+		query += " ORDER BY created_at DESC"
+	}
+
+	if filter != nil {
+		if filter.Limit > 0 {
+			query += fmt.Sprintf(" LIMIT $%d", argIndex)
+			args = append(args, filter.Limit)
+			argIndex++
+		}
+
+		if filter.Offset > 0 {
+			query += fmt.Sprintf(" OFFSET $%d", argIndex)
+			args = append(args, filter.Offset)
+		}
+	}
+
+	return query, args
+}
+
+// buildEventQuery builds a query for event filtering
+func (ds *DatabaseStore) buildEventQuery(filter *EventFilter) (string, []interface{}) {
+	baseQuery := fmt.Sprintf(`
+		SELECT id, type, job_id, node_id, status, timestamp, metadata, error
+		FROM %s
+	`, ds.config.EventsTable)
+
+	var conditions []string
+	var args []interface{}
+	argIndex := 1
+
+	if filter != nil {
+		if len(filter.JobIDs) > 0 {
+			placeholders := make([]string, len(filter.JobIDs))
+			for i, id := range filter.JobIDs {
+				placeholders[i] = fmt.Sprintf("$%d", argIndex)
+				args = append(args, id)
+				argIndex++
+			}
+			conditions = append(conditions, fmt.Sprintf("job_id IN (%s)", strings.Join(placeholders, ",")))
+		}
+
+		if len(filter.NodeIDs) > 0 {
+			placeholders := make([]string, len(filter.NodeIDs))
+			for i, id := range filter.NodeIDs {
+				placeholders[i] = fmt.Sprintf("$%d", argIndex)
+				args = append(args, id)
+				argIndex++
+			}
+			conditions = append(conditions, fmt.Sprintf("node_id IN (%s)", strings.Join(placeholders, ",")))
+		}
+
+		if len(filter.Types) > 0 {
+			placeholders := make([]string, len(filter.Types))
+			for i, t := range filter.Types {
+				placeholders[i] = fmt.Sprintf("$%d", argIndex)
+				args = append(args, t)
+				argIndex++
+			}
+			conditions = append(conditions, fmt.Sprintf("type IN (%s)", strings.Join(placeholders, ",")))
+		}
+
+		if filter.StartTime != nil {
+			conditions = append(conditions, fmt.Sprintf("timestamp >= $%d", argIndex))
+			args = append(args, *filter.StartTime)
+			argIndex++
+		}
+
+		if filter.EndTime != nil {
+			conditions = append(conditions, fmt.Sprintf("timestamp <= $%d", argIndex))
+			args = append(args, *filter.EndTime)
+			argIndex++
+		}
+	}
+
+	query := baseQuery
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	if filter != nil && filter.SortBy != "" {
+		order := "ASC"
+		if filter.SortOrder == "DESC" {
+			order = "DESC"
+		}
+		query += fmt.Sprintf(" ORDER BY %s %s", filter.SortBy, order)
+	} else {
+		query += " ORDER BY timestamp DESC"
+	}
+
+	if filter != nil {
+		if filter.Limit > 0 {
+			query += fmt.Sprintf(" LIMIT $%d", argIndex)
+			args = append(args, filter.Limit)
+			argIndex++
+		}
+
+		if filter.Offset > 0 {
+			query += fmt.Sprintf(" OFFSET $%d", argIndex)
+			args = append(args, filter.Offset)
+		}
+	}
+
+	return query, args
+}

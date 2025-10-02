@@ -6,19 +6,22 @@ import (
 	"sync"
 	"time"
 
+	json "github.com/json-iterator/go"
 	"github.com/xraph/forge/pkg/common"
+	"github.com/xraph/forge/pkg/consensus/storage"
+	"github.com/xraph/forge/pkg/consensus/transport"
 	"github.com/xraph/forge/pkg/logger"
 )
 
-// ElectionManager manages the election process
-type ElectionManager struct {
+// Manager manages the election process
+type Manager struct {
 	nodeID         string
 	term           uint64
 	state          ElectionState
 	timeoutManager *TimeoutManager
 	voteCollector  *VoteCollector
-	transport      ElectionTransport
-	storage        VoteStorage
+	transport      transport.Transport
+	storage        storage.Storage
 	validator      VoteValidator
 	logger         common.Logger
 	metrics        common.Metrics
@@ -66,16 +69,6 @@ type ElectionConfig struct {
 	RequireSignatures   bool          `json:"require_signatures"`
 }
 
-// ElectionTransport handles communication between nodes
-type ElectionTransport interface {
-	SendVoteRequest(ctx context.Context, nodeID string, request VoteRequest) (*VoteResponse, error)
-	SendHeartbeat(ctx context.Context, nodeID string, heartbeat HeartbeatMessage) error
-	SendVoteResponse(ctx context.Context, nodeID string, response VoteResponse) error
-	RegisterHandler(handler ElectionMessageHandler) error
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
-}
-
 // ElectionMessageHandler handles incoming election messages
 type ElectionMessageHandler interface {
 	HandleVoteRequest(ctx context.Context, request VoteRequest) (*VoteResponse, error)
@@ -112,16 +105,7 @@ const (
 )
 
 // ElectionRecord represents a historical election record
-type ElectionRecord struct {
-	Term         uint64        `json:"term"`
-	Winner       string        `json:"winner"`
-	StartTime    time.Time     `json:"start_time"`
-	EndTime      time.Time     `json:"end_time"`
-	Duration     time.Duration `json:"duration"`
-	VoteCount    int           `json:"vote_count"`
-	Participants []string      `json:"participants"`
-	Reason       string        `json:"reason"`
-}
+type ElectionRecord = storage.ElectionRecord
 
 // HeartbeatMessage represents a heartbeat message
 type HeartbeatMessage struct {
@@ -140,7 +124,7 @@ type HeartbeatEvent struct {
 }
 
 // NewElectionManager creates a new election manager
-func NewElectionManager(config ElectionConfig, transport ElectionTransport, storage VoteStorage, validator VoteValidator, l common.Logger, metrics common.Metrics) *ElectionManager {
+func NewElectionManager(config ElectionConfig, transport transport.Transport, storage storage.Storage, validator VoteValidator, l common.Logger, metrics common.Metrics) *Manager {
 	// Set defaults
 	if config.ElectionTimeout == 0 {
 		config.ElectionTimeout = 5 * time.Second
@@ -174,7 +158,7 @@ func NewElectionManager(config ElectionConfig, transport ElectionTransport, stor
 	}
 	voteCollector := NewVoteCollector(voteConfig, validator, storage, l, metrics)
 
-	em := &ElectionManager{
+	em := &Manager{
 		nodeID:          config.NodeID,
 		term:            0,
 		state:           ElectionStateFollower,
@@ -197,8 +181,8 @@ func NewElectionManager(config ElectionConfig, transport ElectionTransport, stor
 	// Set up timeout callback
 	timeoutManager.AddCallback(em.onElectionTimeout)
 
-	// Set up transport handler
-	transport.RegisterHandler(em)
+	// // Set up transport handler
+	// transport.RegisterHandler(em)
 
 	if l != nil {
 		l.Info("election manager created",
@@ -213,7 +197,7 @@ func NewElectionManager(config ElectionConfig, transport ElectionTransport, stor
 }
 
 // Start starts the election manager
-func (em *ElectionManager) Start(ctx context.Context) error {
+func (em *Manager) Start(ctx context.Context) error {
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
@@ -262,7 +246,7 @@ func (em *ElectionManager) Start(ctx context.Context) error {
 }
 
 // Stop stops the election manager
-func (em *ElectionManager) Stop(ctx context.Context) error {
+func (em *Manager) Stop(ctx context.Context) error {
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
@@ -299,7 +283,7 @@ func (em *ElectionManager) Stop(ctx context.Context) error {
 }
 
 // GetState returns the current election state
-func (em *ElectionManager) GetState() ElectionState {
+func (em *Manager) GetState() ElectionState {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
 
@@ -307,7 +291,7 @@ func (em *ElectionManager) GetState() ElectionState {
 }
 
 // GetTerm returns the current term
-func (em *ElectionManager) GetTerm() uint64 {
+func (em *Manager) GetTerm() uint64 {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
 
@@ -315,7 +299,7 @@ func (em *ElectionManager) GetTerm() uint64 {
 }
 
 // GetLeader returns the current leader
-func (em *ElectionManager) GetLeader() string {
+func (em *Manager) GetLeader() string {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
 
@@ -323,7 +307,7 @@ func (em *ElectionManager) GetLeader() string {
 }
 
 // IsLeader returns true if this node is the leader
-func (em *ElectionManager) IsLeader() bool {
+func (em *Manager) IsLeader() bool {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
 
@@ -331,7 +315,7 @@ func (em *ElectionManager) IsLeader() bool {
 }
 
 // StartElection starts a new election
-func (em *ElectionManager) StartElection(ctx context.Context) error {
+func (em *Manager) StartElection(ctx context.Context) error {
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
@@ -349,10 +333,23 @@ func (em *ElectionManager) StartElection(ctx context.Context) error {
 	em.votedFor = em.nodeID
 	em.currentLeader = ""
 
+	// Store updated term and vote
+	if err := em.storage.StoreTerm(ctx, em.term); err != nil {
+		if em.logger != nil {
+			em.logger.Warn("failed to store term", logger.Error(err))
+		}
+	}
+
+	if err := em.storage.StoreVote(ctx, em.term, em.nodeID); err != nil {
+		if em.logger != nil {
+			em.logger.Warn("failed to store vote", logger.Error(err))
+		}
+	}
+
 	// Reset timeout
 	em.timeoutManager.Reset()
 
-	// OnStart vote collection
+	// Start vote collection
 	if err := em.voteCollector.StartCollection(ctx, em.term); err != nil {
 		return fmt.Errorf("failed to start vote collection: %w", err)
 	}
@@ -381,7 +378,7 @@ func (em *ElectionManager) StartElection(ctx context.Context) error {
 }
 
 // SendHeartbeat sends a heartbeat to all nodes
-func (em *ElectionManager) SendHeartbeat(ctx context.Context) error {
+func (em *Manager) SendHeartbeat(ctx context.Context) error {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
 
@@ -395,11 +392,40 @@ func (em *ElectionManager) SendHeartbeat(ctx context.Context) error {
 		Timestamp: time.Now(),
 	}
 
+	// Serialize the heartbeat
+	heartbeatData, err := json.Marshal(heartbeat)
+	if err != nil {
+		return fmt.Errorf("failed to serialize heartbeat: %w", err)
+	}
+
 	// Send heartbeat to all nodes
 	for _, nodeID := range em.config.ClusterNodes {
 		if nodeID != em.nodeID {
 			go func(targetNodeID string) {
-				if err := em.transport.SendHeartbeat(ctx, targetNodeID, heartbeat); err != nil {
+				// Get target address
+				address, err := em.transport.GetAddress(targetNodeID)
+				if err != nil {
+					if em.logger != nil {
+						em.logger.Debug("failed to get address for node",
+							logger.String("target_node", targetNodeID),
+							logger.Error(err),
+						)
+					}
+					return
+				}
+
+				// Create message
+				message := transport.Message{
+					Type:      transport.MessageTypeHeartbeat,
+					From:      em.nodeID,
+					To:        targetNodeID,
+					Data:      heartbeatData,
+					Timestamp: time.Now(),
+					ID:        transport.GenerateMessageID(),
+				}
+
+				// Send heartbeat
+				if err := em.transport.Send(ctx, address, message); err != nil {
 					if em.logger != nil {
 						em.logger.Debug("failed to send heartbeat",
 							logger.String("target_node", targetNodeID),
@@ -419,7 +445,7 @@ func (em *ElectionManager) SendHeartbeat(ctx context.Context) error {
 }
 
 // AddCallback adds an election callback
-func (em *ElectionManager) AddCallback(callback ElectionCallback) {
+func (em *Manager) AddCallback(callback ElectionCallback) {
 	em.callbackMu.Lock()
 	defer em.callbackMu.Unlock()
 
@@ -427,7 +453,7 @@ func (em *ElectionManager) AddCallback(callback ElectionCallback) {
 }
 
 // RemoveCallback removes an election callback
-func (em *ElectionManager) RemoveCallback(callback ElectionCallback) {
+func (em *Manager) RemoveCallback(callback ElectionCallback) {
 	em.callbackMu.Lock()
 	defer em.callbackMu.Unlock()
 
@@ -440,7 +466,7 @@ func (em *ElectionManager) RemoveCallback(callback ElectionCallback) {
 }
 
 // GetStats returns election statistics
-func (em *ElectionManager) GetStats() ElectionStats {
+func (em *Manager) GetStats() ElectionStats {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
 
@@ -475,7 +501,7 @@ type ElectionStats struct {
 }
 
 // GetElectionHistory returns the election history
-func (em *ElectionManager) GetElectionHistory() []ElectionRecord {
+func (em *Manager) GetElectionHistory() []ElectionRecord {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
 
@@ -487,7 +513,7 @@ func (em *ElectionManager) GetElectionHistory() []ElectionRecord {
 // ElectionMessageHandler implementation
 
 // HandleVoteRequest handles incoming vote requests
-func (em *ElectionManager) HandleVoteRequest(ctx context.Context, request VoteRequest) (*VoteResponse, error) {
+func (em *Manager) HandleVoteRequest(ctx context.Context, request VoteRequest) (*VoteResponse, error) {
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
@@ -524,6 +550,13 @@ func (em *ElectionManager) HandleVoteRequest(ctx context.Context, request VoteRe
 		em.votedFor = ""
 		em.currentLeader = ""
 
+		// Store updated state
+		if err := em.storage.StoreTerm(ctx, em.term); err != nil {
+			if em.logger != nil {
+				em.logger.Warn("failed to store term", logger.Error(err))
+			}
+		}
+
 		// Reset timeout
 		em.timeoutManager.Reset()
 
@@ -540,6 +573,13 @@ func (em *ElectionManager) HandleVoteRequest(ctx context.Context, request VoteRe
 		em.votedFor = request.CandidateID
 		response.VoteGranted = true
 		response.Term = em.term
+
+		// Store vote
+		if err := em.storage.StoreVote(ctx, em.term, request.CandidateID); err != nil {
+			if em.logger != nil {
+				em.logger.Warn("failed to store vote", logger.Error(err))
+			}
+		}
 
 		// Reset timeout since we granted a vote
 		em.timeoutManager.Reset()
@@ -573,18 +613,6 @@ func (em *ElectionManager) HandleVoteRequest(ctx context.Context, request VoteRe
 		}
 	}
 
-	// Persist vote if storage is available
-	if em.storage != nil && response.VoteGranted {
-		if err := em.storage.StoreVote(ctx, &Vote{
-			NodeID: em.votedFor,
-			Term:   em.term,
-		}); err != nil {
-			if em.logger != nil {
-				em.logger.Warn("failed to persist vote", logger.Error(err))
-			}
-		}
-	}
-
 	if em.metrics != nil {
 		em.metrics.Counter("forge.consensus.election.vote_requests_handled").Inc()
 		if response.VoteGranted {
@@ -598,7 +626,7 @@ func (em *ElectionManager) HandleVoteRequest(ctx context.Context, request VoteRe
 }
 
 // HandleVoteResponse handles incoming vote responses
-func (em *ElectionManager) HandleVoteResponse(ctx context.Context, response VoteResponse) error {
+func (em *Manager) HandleVoteResponse(ctx context.Context, response VoteResponse) error {
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
@@ -611,6 +639,13 @@ func (em *ElectionManager) HandleVoteResponse(ctx context.Context, response Vote
 		em.state = ElectionStateFollower
 		em.votedFor = ""
 		em.currentLeader = ""
+
+		// Store updated state
+		if err := em.storage.StoreTerm(ctx, em.term); err != nil {
+			if em.logger != nil {
+				em.logger.Warn("failed to store term", logger.Error(err))
+			}
+		}
 
 		// Reset timeout
 		em.timeoutManager.Reset()
@@ -641,7 +676,7 @@ func (em *ElectionManager) HandleVoteResponse(ctx context.Context, response Vote
 }
 
 // HandleHeartbeat handles incoming heartbeat messages
-func (em *ElectionManager) HandleHeartbeat(ctx context.Context, heartbeat HeartbeatMessage) error {
+func (em *Manager) HandleHeartbeat(ctx context.Context, heartbeat HeartbeatMessage) error {
 	em.mu.Lock()
 	defer em.mu.Unlock()
 
@@ -654,9 +689,9 @@ func (em *ElectionManager) HandleHeartbeat(ctx context.Context, heartbeat Heartb
 
 	// Validate heartbeat
 	if em.validator != nil {
-		if err := em.validator.ValidateHeartbeat(ctx, heartbeat); err != nil {
-			return err
-		}
+		// if err := em.validator.ValidateHeartbeat(ctx, heartbeat); err != nil {
+		// 	return err
+		// }
 	}
 
 	// Update term if heartbeat term is higher
@@ -664,6 +699,13 @@ func (em *ElectionManager) HandleHeartbeat(ctx context.Context, heartbeat Heartb
 		em.term = heartbeat.Term
 		em.state = ElectionStateFollower
 		em.votedFor = ""
+
+		// Store updated state
+		if err := em.storage.StoreTerm(ctx, em.term); err != nil {
+			if em.logger != nil {
+				em.logger.Warn("failed to store term", logger.Error(err))
+			}
+		}
 	}
 
 	// Set leader if heartbeat is from current term
@@ -691,7 +733,7 @@ func (em *ElectionManager) HandleHeartbeat(ctx context.Context, heartbeat Heartb
 // Internal methods
 
 // onElectionTimeout handles election timeout
-func (em *ElectionManager) onElectionTimeout(ctx context.Context, timeout time.Duration) {
+func (em *Manager) onElectionTimeout(ctx context.Context, timeout time.Duration) {
 	em.mu.RLock()
 	state := em.state
 	em.mu.RUnlock()
@@ -713,7 +755,7 @@ func (em *ElectionManager) onElectionTimeout(ctx context.Context, timeout time.D
 }
 
 // sendVoteRequests sends vote requests to all nodes
-func (em *ElectionManager) sendVoteRequests(ctx context.Context) {
+func (em *Manager) sendVoteRequests(ctx context.Context) {
 	request := VoteRequest{
 		Term:         em.term,
 		CandidateID:  em.nodeID,
@@ -721,11 +763,42 @@ func (em *ElectionManager) sendVoteRequests(ctx context.Context) {
 		LastLogTerm:  0, // TODO: Get from log
 	}
 
+	// Serialize the vote request
+	requestData, err := json.Marshal(request)
+	if err != nil {
+		if em.logger != nil {
+			em.logger.Error("failed to serialize vote request", logger.Error(err))
+		}
+		return
+	}
+
 	for _, nodeID := range em.config.ClusterNodes {
 		if nodeID != em.nodeID {
 			go func(targetNodeID string) {
-				response, err := em.transport.SendVoteRequest(ctx, targetNodeID, request)
+				// Get target address
+				address, err := em.transport.GetAddress(targetNodeID)
 				if err != nil {
+					if em.logger != nil {
+						em.logger.Debug("failed to get address for node",
+							logger.String("target_node", targetNodeID),
+							logger.Error(err),
+						)
+					}
+					return
+				}
+
+				// Create message
+				message := transport.Message{
+					Type:      transport.MessageTypeVoteRequest,
+					From:      em.nodeID,
+					To:        targetNodeID,
+					Data:      requestData,
+					Timestamp: time.Now(),
+					ID:        transport.GenerateMessageID(),
+				}
+
+				// Send vote request
+				if err := em.transport.Send(ctx, address, message); err != nil {
 					if em.logger != nil {
 						em.logger.Debug("failed to send vote request",
 							logger.String("target_node", targetNodeID),
@@ -734,23 +807,13 @@ func (em *ElectionManager) sendVoteRequests(ctx context.Context) {
 					}
 					return
 				}
-
-				// Handle response
-				if err := em.HandleVoteResponse(ctx, *response); err != nil {
-					if em.logger != nil {
-						em.logger.Error("failed to handle vote response",
-							logger.String("target_node", targetNodeID),
-							logger.Error(err),
-						)
-					}
-				}
 			}(nodeID)
 		}
 	}
 }
 
 // becomeLeader transitions to leader state
-func (em *ElectionManager) becomeLeader(ctx context.Context) {
+func (em *Manager) becomeLeader(ctx context.Context) {
 	em.state = ElectionStateLeader
 	em.currentLeader = em.nodeID
 	em.lastElection = time.Now()
@@ -786,7 +849,7 @@ func (em *ElectionManager) becomeLeader(ctx context.Context) {
 }
 
 // becomeFollower transitions to follower state
-func (em *ElectionManager) becomeFollower(ctx context.Context) {
+func (em *Manager) becomeFollower(ctx context.Context) {
 	em.state = ElectionStateFollower
 	em.currentLeader = ""
 
@@ -818,7 +881,7 @@ func (em *ElectionManager) becomeFollower(ctx context.Context) {
 }
 
 // sendHeartbeats sends periodic heartbeats as leader
-func (em *ElectionManager) sendHeartbeats(ctx context.Context) {
+func (em *Manager) sendHeartbeats(ctx context.Context) {
 	ticker := time.NewTicker(em.config.HeartbeatInterval)
 	defer ticker.Stop()
 
@@ -843,7 +906,7 @@ func (em *ElectionManager) sendHeartbeats(ctx context.Context) {
 }
 
 // sendElectionEvent sends an election event
-func (em *ElectionManager) sendElectionEvent(eventType ElectionEventType, data interface{}) {
+func (em *Manager) sendElectionEvent(eventType ElectionEventType, data interface{}) {
 	event := ElectionEvent{
 		Type:      eventType,
 		NodeID:    em.nodeID,
@@ -862,7 +925,7 @@ func (em *ElectionManager) sendElectionEvent(eventType ElectionEventType, data i
 }
 
 // processEvents processes election events
-func (em *ElectionManager) processEvents(ctx context.Context) {
+func (em *Manager) processEvents(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -878,7 +941,7 @@ func (em *ElectionManager) processEvents(ctx context.Context) {
 }
 
 // processElectionEvent processes an election event
-func (em *ElectionManager) processElectionEvent(event ElectionEvent) {
+func (em *Manager) processElectionEvent(event ElectionEvent) {
 	// Call callbacks
 	em.callbackMu.RLock()
 	callbacks := make([]ElectionCallback, len(em.callbacks))
@@ -907,7 +970,7 @@ func (em *ElectionManager) processElectionEvent(event ElectionEvent) {
 }
 
 // processHeartbeatEvent processes a heartbeat event
-func (em *ElectionManager) processHeartbeatEvent(heartbeat HeartbeatEvent) {
+func (em *Manager) processHeartbeatEvent(heartbeat HeartbeatEvent) {
 	// Update metrics
 	if em.metrics != nil {
 		em.metrics.Counter("forge.consensus.election.heartbeats_processed").Inc()
@@ -915,8 +978,8 @@ func (em *ElectionManager) processHeartbeatEvent(heartbeat HeartbeatEvent) {
 }
 
 // recordElection records an election in history
-func (em *ElectionManager) recordElection(ctx context.Context, winner, reason string) {
-	record := ElectionRecord{
+func (em *Manager) recordElection(ctx context.Context, winner, reason string) {
+	record := storage.ElectionRecord{
 		Term:         em.term,
 		Winner:       winner,
 		StartTime:    time.Now().Add(-time.Since(em.lastElection)),
@@ -945,7 +1008,7 @@ func (em *ElectionManager) recordElection(ctx context.Context, winner, reason st
 }
 
 // loadPersistedState loads persisted election state
-func (em *ElectionManager) loadPersistedState(ctx context.Context) error {
+func (em *Manager) loadPersistedState(ctx context.Context) error {
 	if em.storage == nil {
 		return nil
 	}

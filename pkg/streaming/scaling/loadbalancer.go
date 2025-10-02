@@ -16,36 +16,64 @@ import (
 
 // LoadBalancer handles connection load balancing across streaming instances
 type LoadBalancer interface {
-	// Connection routing
+	// SelectInstance selects the most suitable streaming instance based on the provided connection criteria and context.
 	SelectInstance(ctx context.Context, criteria ConnectionCriteria) (*InstanceSelection, error)
+
+	// RouteConnection routes a connection to the most suitable instance based on load, latency, and other criteria.
 	RouteConnection(ctx context.Context, connectionInfo ConnectionInfo) (*InstanceSelection, error)
+
+	// GetInstanceLoad retrieves the current load metrics for a specified instance using its ID.
 	GetInstanceLoad(ctx context.Context, instanceID string) (*InstanceLoad, error)
 
-	// Load balancing strategies
+	// SetStrategy sets the load balancing strategy to be used by the load balancer. It returns an error if the strategy is invalid.
 	SetStrategy(strategy LoadBalanceStrategy) error
+
+	// GetStrategy returns the current load balancing strategy used by the load balancer.
 	GetStrategy() LoadBalanceStrategy
+
+	// GetAvailableStrategies returns a list of all supported load balancing strategies.
 	GetAvailableStrategies() []LoadBalanceStrategy
 
-	// Health and monitoring
+	// UpdateInstanceHealth updates the health metrics for a given instance to adjust its status and balance load accordingly.
 	UpdateInstanceHealth(instanceID string, health InstanceHealthMetrics) error
-	GetHealthyInstances(ctx context.Context) ([]string, error)
+
+	// GetHealthyInstances retrieves a list of instance IDs currently considered healthy based on their health metrics.
+	GetHealthyInstances(ctx context.Context) ([]*InstanceInfo, error)
+
+	// MarkInstanceUnhealthy marks a specified instance as unhealthy with a provided reason and returns an error if the operation fails.
 	MarkInstanceUnhealthy(instanceID string, reason string) error
+
+	// MarkInstanceHealthy marks a given instance as healthy, allowing it to receive new connections and participate in load balancing.
 	MarkInstanceHealthy(instanceID string) error
 
-	// Failover management
+	// HandleInstanceFailure handles the failure of a specific instance and triggers necessary failover or recovery actions.
 	HandleInstanceFailure(ctx context.Context, instanceID string) error
+
+	// GetFailoverTarget determines a suitable failover target for the failed instance identified by failedInstanceID.
 	GetFailoverTarget(ctx context.Context, failedInstanceID string) (string, error)
+
+	// TriggerFailover initiates a failover process from one instance to another, ensuring minimal service disruption.
 	TriggerFailover(ctx context.Context, fromInstance, toInstance string) error
 
-	// Configuration and lifecycle
+	// Start initializes and starts the load balancer, preparing it to handle traffic and monitor instances.
 	Start(ctx context.Context) error
+
+	// Stop gracefully halts the load balancer's operations and releases associated resources.
 	Stop(ctx context.Context) error
+
+	// UpdateConfig updates the load balancer configuration with the provided LoadBalancerConfig. Returns an error if the update fails.
 	UpdateConfig(config LoadBalancerConfig) error
+
+	// GetConfig retrieves the current configuration of the load balancer as a LoadBalancerConfig instance.
 	GetConfig() LoadBalancerConfig
 
-	// Statistics and monitoring
+	// GetLoadStats retrieves statistics about the load balancer, including instance load distribution and performance metrics.
 	GetLoadStats() LoadBalancerStats
+
+	// GetInstanceStats retrieves comprehensive statistics for a specific instance identified by instanceID.
 	GetInstanceStats(instanceID string) (*InstanceStats, error)
+
+	// GetAllInstanceStats retrieves a map of all instances along with their corresponding InstanceStats.
 	GetAllInstanceStats() map[string]*InstanceStats
 }
 
@@ -116,6 +144,7 @@ type InstanceLoad struct {
 
 // InstanceHealthMetrics represents health metrics for an instance
 type InstanceHealthMetrics struct {
+	*InstanceHealth
 	InstanceID          string        `json:"instance_id"`
 	Healthy             bool          `json:"healthy"`
 	ResponseTime        time.Duration `json:"response_time"`
@@ -549,7 +578,7 @@ func (lb *DefaultLoadBalancer) UpdateInstanceHealth(instanceID string, health In
 }
 
 // GetHealthyInstances returns a list of healthy instance IDs
-func (lb *DefaultLoadBalancer) GetHealthyInstances(ctx context.Context) ([]string, error) {
+func (lb *DefaultLoadBalancer) GetHealthyInstances(ctx context.Context) ([]*InstanceInfo, error) {
 	return lb.getHealthyInstancesInternal()
 }
 
@@ -1168,7 +1197,10 @@ func (lb *DefaultLoadBalancer) performHealthChecks() {
 			}
 
 			if health != nil {
-				lb.UpdateInstanceHealth(inst.ID, *health)
+				lb.UpdateInstanceHealth(inst.ID, InstanceHealthMetrics{
+					InstanceHealth: health,
+					InstanceID:     inst.ID,
+				})
 			}
 		}(instance)
 	}
@@ -1526,6 +1558,10 @@ func (hc *InstanceHealthChecker) performHealthCheck() {
 	}
 
 	if health != nil {
-		hc.LoadBalancer.UpdateInstanceHealth(hc.InstanceID, *health)
+		hc.LoadBalancer.UpdateInstanceHealth(hc.InstanceID, InstanceHealthMetrics{
+			InstanceHealth:    health,
+			InstanceID:        hc.InstanceID,
+			ActiveConnections: hc.LoadBalancer.instances[hc.InstanceID].Load.ActiveConnections,
+		})
 	}
 }

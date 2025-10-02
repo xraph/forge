@@ -11,6 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/mongodb"
 	"github.com/xraph/forge/pkg/config"
+	"github.com/xraph/forge/pkg/metrics"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 
@@ -47,7 +48,7 @@ var (
 
 func init() {
 	testLogger = logger.NewNoopLogger()
-	testMetrics = &testMetricsImpl{}
+	testMetrics = metrics.NewMockMetricsCollector()
 }
 
 // TestMongoAdapterBasics tests basic adapter functionality
@@ -457,7 +458,7 @@ func TestDatabaseManagerWithMongo(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create database manager
-	manager := database.NewManager(testLogger, testMetrics, config.NewTestConfig())
+	manager := database.NewManager(testLogger, testMetrics, config.NewTestConfigManager())
 
 	// Register MongoDB adapter
 	adapter := mongoAdapter.NewMongoAdapter(testLogger, testMetrics)
@@ -527,48 +528,6 @@ func TestDatabaseManagerWithMongo(t *testing.T) {
 	// OnStop manager
 	err = manager.OnStop(ctx)
 	assert.NoError(t, err)
-}
-
-// Test utilities
-type testMetricsImpl struct{}
-
-func (tm *testMetricsImpl) Counter(name string, tags ...string) common.Counter {
-	return &testCounter{}
-}
-
-func (tm *testMetricsImpl) Gauge(name string, tags ...string) common.Gauge {
-	return &testGauge{}
-}
-
-func (tm *testMetricsImpl) Histogram(name string, tags ...string) common.Histogram {
-	return &testHistogram{}
-}
-
-func (tm *testMetricsImpl) Timer(name string, tags ...string) common.Timer {
-	return &testTimer{}
-}
-
-type testCounter struct{}
-
-func (tc *testCounter) Inc()              {}
-func (tc *testCounter) Add(value float64) {}
-
-type testGauge struct{}
-
-func (tg *testGauge) Set(value float64) {}
-func (tg *testGauge) Inc()              {}
-func (tg *testGauge) Dec()              {}
-func (tg *testGauge) Add(value float64) {}
-
-type testHistogram struct{}
-
-func (th *testHistogram) Observe(value float64) {}
-
-type testTimer struct{}
-
-func (tt *testTimer) Record(duration time.Duration) {}
-func (tt *testTimer) Time() func() {
-	return func() {}
 }
 
 // Benchmark tests

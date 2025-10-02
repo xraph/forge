@@ -17,6 +17,10 @@ import (
 
 const ManagerKey = common.ConfigKey
 
+// =============================================================================
+// MANAGER IMPLEMENTATION
+// =============================================================================
+
 // Manager implements an enhanced configuration manager that extends common.ConfigManager
 type Manager struct {
 	sources         []ConfigSource
@@ -57,9 +61,9 @@ type ManagerConfig struct {
 type ValidationMode string
 
 const (
-	ValidationModeStrict     ValidationMode = "strict"     // Fail on validation errors
-	ValidationModePermissive ValidationMode = "permissive" // Log validation errors but continue
-	ValidationModeDisabled   ValidationMode = "disabled"   // No validation
+	ValidationModeStrict     ValidationMode = "strict"
+	ValidationModePermissive ValidationMode = "permissive"
+	ValidationModeDisabled   ValidationMode = "disabled"
 )
 
 // NewManager creates a new enhanced configuration manager
@@ -84,7 +88,6 @@ func NewManager(config ManagerConfig) common.ConfigManager {
 		errorHandler:    config.ErrorHandler,
 	}
 
-	// Initialize components
 	manager.registry = NewSourceRegistry(manager.logger)
 	manager.loader = core2.NewLoader(core2.LoaderConfig{
 		Logger:       manager.logger,
@@ -116,161 +119,43 @@ func NewManager(config ManagerConfig) common.ConfigManager {
 }
 
 func (m *Manager) Name() string {
-	return common.ConfigKey
+	return ManagerKey
 }
 
-// LoadFrom loads configuration from multiple sources
-func (m *Manager) LoadFrom(sources ...ConfigSource) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.logger != nil {
-		m.logger.Info("loading configuration from sources",
-			logger.Int("source_count", len(sources)),
-		)
-	}
-
-	// Register sources
-	for _, source := range sources {
-		if err := m.registry.RegisterSource(source); err != nil {
-			return common.ErrConfigError(fmt.Sprintf("failed to register source %s", source.Name()), err)
-		}
-		m.sources = append(m.sources, source)
-	}
-
-	// Load configuration from all sources
-	if err := m.loadAllSources(context.Background()); err != nil {
-		return err
-	}
-
-	// Validate configuration if enabled
-	if err := m.validator.ValidateAll(m.data); err != nil {
-		return common.ErrConfigError("configuration validation failed", err)
-	}
-
-	// Record metrics
-	if m.metrics != nil {
-		m.metrics.Counter("forge.config.sources_loaded").Add(float64(len(sources)))
-		m.metrics.Gauge("forge.config.active_sources").Set(float64(len(m.sources)))
-		m.metrics.Gauge("forge.config.keys_count").Set(float64(len(m.data)))
-	}
-
-	return nil
+func (m *Manager) SecretsManager() SecretsManager {
+	return m.secretsManager
 }
 
-// Watch starts watching for configuration changes
-func (m *Manager) Watch(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.started {
-		return common.ErrLifecycleError("watch", fmt.Errorf("configuration manager already watching"))
-	}
-
-	m.watchCtx, m.watchCancel = context.WithCancel(ctx)
-
-	// OnStart watching all sources
-	for _, source := range m.sources {
-		if source.IsWatchable() {
-			if err := m.watcher.WatchSource(m.watchCtx, source, m.handleConfigChange); err != nil {
-				if m.logger != nil {
-					m.logger.Error("failed to start watching source",
-						logger.String("source", source.Name()),
-						logger.Error(err),
-					)
-				}
-			}
-		}
-	}
-
-	m.started = true
-
-	if m.logger != nil {
-		m.logger.Info("configuration manager started watching")
-	}
-
-	if m.metrics != nil {
-		m.metrics.Counter("forge.config.watch_started").Inc()
-	}
-
-	return nil
-}
-
-// Reload forces a reload of all configuration sources
-func (m *Manager) Reload() error {
-	return m.ReloadContext(context.Background())
-}
-
-// ReloadContext forces a reload of all configuration sources with context
-func (m *Manager) ReloadContext(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.logger != nil {
-		m.logger.Info("reloading configuration from all sources")
-	}
-
-	startTime := time.Now()
-
-	// Reload all sources
-	if err := m.loadAllSources(ctx); err != nil {
-		return err
-	}
-
-	// Validate configuration
-	if err := m.validator.ValidateAll(m.data); err != nil {
-		return common.ErrConfigError("configuration validation failed after reload", err)
-	}
-
-	// Notify all watch callbacks
-	m.notifyWatchCallbacks()
-
-	// Record metrics
-	if m.metrics != nil {
-		m.metrics.Counter("forge.config.reloads").Inc()
-		m.metrics.Histogram("forge.config.reload_duration").Observe(time.Since(startTime).Seconds())
-	}
-
-	return nil
-}
-
-// Validate validates the current configuration
-func (m *Manager) Validate() error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	return m.validator.ValidateAll(m.data)
-}
+// =============================================================================
+// SIMPLE API - VARIADIC DEFAULTS
+// =============================================================================
 
 // Get returns a configuration value
 func (m *Manager) Get(key string) interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	return m.getValue(key)
 }
 
-// GetString returns a configuration value as string
-func (m *Manager) GetString(key string) string {
+// GetString returns a string value with optional default
+func (m *Manager) GetString(key string, defaultValue ...string) string {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return ""
 	}
-
-	switch v := value.(type) {
-	case string:
-		return v
-	case []byte:
-		return string(v)
-	default:
-		return fmt.Sprintf("%v", v)
-	}
+	return m.convertToString(value)
 }
 
-// GetInt returns a configuration value as integer
-func (m *Manager) GetInt(key string) int {
+// GetInt returns an int value with optional default
+func (m *Manager) GetInt(key string, defaultValue ...int) int {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -305,13 +190,19 @@ func (m *Manager) GetInt(key string) int {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetInt8 returns a configuration value as int8
-func (m *Manager) GetInt8(key string) int8 {
+// GetInt8 returns an int8 value with optional default
+func (m *Manager) GetInt8(key string, defaultValue ...int8) int8 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -338,13 +229,19 @@ func (m *Manager) GetInt8(key string) int8 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetInt16 returns a configuration value as int16
-func (m *Manager) GetInt16(key string) int16 {
+// GetInt16 returns an int16 value with optional default
+func (m *Manager) GetInt16(key string, defaultValue ...int16) int16 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -371,13 +268,19 @@ func (m *Manager) GetInt16(key string) int16 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetInt32 returns a configuration value as int32
-func (m *Manager) GetInt32(key string) int32 {
+// GetInt32 returns an int32 value with optional default
+func (m *Manager) GetInt32(key string, defaultValue ...int32) int32 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -404,13 +307,19 @@ func (m *Manager) GetInt32(key string) int32 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetInt64 returns a configuration value as int64
-func (m *Manager) GetInt64(key string) int64 {
+// GetInt64 returns an int64 value with optional default
+func (m *Manager) GetInt64(key string, defaultValue ...int64) int64 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -437,13 +346,19 @@ func (m *Manager) GetInt64(key string) int64 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetUint returns a configuration value as uint
-func (m *Manager) GetUint(key string) uint {
+// GetUint returns a uint value with optional default
+func (m *Manager) GetUint(key string, defaultValue ...uint) uint {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -476,13 +391,19 @@ func (m *Manager) GetUint(key string) uint {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetUint8 returns a configuration value as uint8
-func (m *Manager) GetUint8(key string) uint8 {
+// GetUint8 returns a uint8 value with optional default
+func (m *Manager) GetUint8(key string, defaultValue ...uint8) uint8 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -511,13 +432,19 @@ func (m *Manager) GetUint8(key string) uint8 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetUint16 returns a configuration value as uint16
-func (m *Manager) GetUint16(key string) uint16 {
+// GetUint16 returns a uint16 value with optional default
+func (m *Manager) GetUint16(key string, defaultValue ...uint16) uint16 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -546,13 +473,19 @@ func (m *Manager) GetUint16(key string) uint16 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetUint32 returns a configuration value as uint32
-func (m *Manager) GetUint32(key string) uint32 {
+// GetUint32 returns a uint32 value with optional default
+func (m *Manager) GetUint32(key string, defaultValue ...uint32) uint32 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -581,13 +514,19 @@ func (m *Manager) GetUint32(key string) uint32 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetUint64 returns a configuration value as uint64
-func (m *Manager) GetUint64(key string) uint64 {
+// GetUint64 returns a uint64 value with optional default
+func (m *Manager) GetUint64(key string, defaultValue ...uint64) uint64 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -620,13 +559,19 @@ func (m *Manager) GetUint64(key string) uint64 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetFloat32 returns a configuration value as float32
-func (m *Manager) GetFloat32(key string) float32 {
+// GetFloat32 returns a float32 value with optional default
+func (m *Manager) GetFloat32(key string, defaultValue ...float32) float32 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -649,13 +594,19 @@ func (m *Manager) GetFloat32(key string) float32 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetFloat64 returns a configuration value as float64
-func (m *Manager) GetFloat64(key string) float64 {
+// GetFloat64 returns a float64 value with optional default
+func (m *Manager) GetFloat64(key string, defaultValue ...float64) float64 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -678,13 +629,19 @@ func (m *Manager) GetFloat64(key string) float64 {
 		}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetBool returns a configuration value as boolean
-func (m *Manager) GetBool(key string) bool {
+// GetBool returns a bool value with optional default
+func (m *Manager) GetBool(key string, defaultValue ...bool) bool {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return false
 	}
 
@@ -701,13 +658,19 @@ func (m *Manager) GetBool(key string) bool {
 		return v != 0
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return false
 }
 
-// GetDuration returns a configuration value as duration
-func (m *Manager) GetDuration(key string) time.Duration {
+// GetDuration returns a duration value with optional default
+func (m *Manager) GetDuration(key string, defaultValue ...time.Duration) time.Duration {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return 0
 	}
 
@@ -724,13 +687,19 @@ func (m *Manager) GetDuration(key string) time.Duration {
 		return time.Duration(v) * time.Second
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return 0
 }
 
-// GetTime returns a configuration value as time.Time
-func (m *Manager) GetTime(key string) time.Time {
+// GetTime returns a time value with optional default
+func (m *Manager) GetTime(key string, defaultValue ...time.Time) time.Time {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return time.Time{}
 	}
 
@@ -738,7 +707,6 @@ func (m *Manager) GetTime(key string) time.Time {
 	case time.Time:
 		return v
 	case string:
-		// Try common time formats
 		formats := []string{
 			time.RFC3339,
 			time.RFC3339Nano,
@@ -752,20 +720,57 @@ func (m *Manager) GetTime(key string) time.Time {
 			}
 		}
 	case int64:
-		// Assume Unix timestamp
 		return time.Unix(v, 0)
 	case float64:
-		// Assume Unix timestamp with fractional seconds
 		return time.Unix(int64(v), int64((v-float64(int64(v)))*1e9))
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return time.Time{}
 }
 
-// GetStringSlice returns a configuration value as []string
-func (m *Manager) GetStringSlice(key string) []string {
+// GetSizeInBytes returns size in bytes with optional default
+func (m *Manager) GetSizeInBytes(key string, defaultValue ...uint64) uint64 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
+		return 0
+	}
+
+	switch v := value.(type) {
+	case uint64:
+		return v
+	case uint:
+		return uint64(v)
+	case int:
+		if v >= 0 {
+			return uint64(v)
+		}
+	case int64:
+		if v >= 0 {
+			return uint64(v)
+		}
+	case string:
+		return m.parseSizeInBytes(v)
+	}
+
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
+	return 0
+}
+
+// GetStringSlice returns a string slice with optional default
+func (m *Manager) GetStringSlice(key string, defaultValue ...[]string) []string {
+	value := m.Get(key)
+	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -779,20 +784,30 @@ func (m *Manager) GetStringSlice(key string) []string {
 		}
 		return result
 	case string:
-		// Handle comma-separated values
 		if strings.Contains(v, ",") {
-			return strings.Split(v, ",")
+			parts := strings.Split(v, ",")
+			result := make([]string, len(parts))
+			for i, part := range parts {
+				result[i] = strings.TrimSpace(part)
+			}
+			return result
 		}
 		return []string{v}
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-// GetIntSlice returns a configuration value as []int
-func (m *Manager) GetIntSlice(key string) []int {
+// GetIntSlice returns an int slice with optional default
+func (m *Manager) GetIntSlice(key string, defaultValue ...[]int) []int {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -816,13 +831,19 @@ func (m *Manager) GetIntSlice(key string) []int {
 		return result
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-// GetInt64Slice returns a configuration value as []int64
-func (m *Manager) GetInt64Slice(key string) []int64 {
+// GetInt64Slice returns an int64 slice with optional default
+func (m *Manager) GetInt64Slice(key string, defaultValue ...[]int64) []int64 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -848,13 +869,19 @@ func (m *Manager) GetInt64Slice(key string) []int64 {
 		return result
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-// GetFloat64Slice returns a configuration value as []float64
-func (m *Manager) GetFloat64Slice(key string) []float64 {
+// GetFloat64Slice returns a float64 slice with optional default
+func (m *Manager) GetFloat64Slice(key string, defaultValue ...[]float64) []float64 {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -880,13 +907,19 @@ func (m *Manager) GetFloat64Slice(key string) []float64 {
 		return result
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-// GetBoolSlice returns a configuration value as []bool
-func (m *Manager) GetBoolSlice(key string) []bool {
+// GetBoolSlice returns a bool slice with optional default
+func (m *Manager) GetBoolSlice(key string, defaultValue ...[]bool) []bool {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -910,13 +943,19 @@ func (m *Manager) GetBoolSlice(key string) []bool {
 		return result
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-// GetStringMap returns a configuration value as map[string]string
-func (m *Manager) GetStringMap(key string) map[string]string {
+// GetStringMap returns a string map with optional default
+func (m *Manager) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -937,18 +976,24 @@ func (m *Manager) GetStringMap(key string) map[string]string {
 		return result
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-// GetStringMapString returns a configuration value as map[string]string (alias for GetStringMap)
-func (m *Manager) GetStringMapString(key string) map[string]string {
-	return m.GetStringMap(key)
+// GetStringMapString is an alias for GetStringMap
+func (m *Manager) GetStringMapString(key string, defaultValue ...map[string]string) map[string]string {
+	return m.GetStringMap(key, defaultValue...)
 }
 
-// GetStringMapStringSlice returns a configuration value as map[string][]string
-func (m *Manager) GetStringMapStringSlice(key string) map[string][]string {
+// GetStringMapStringSlice returns a map of string slices with optional default
+func (m *Manager) GetStringMapStringSlice(key string, defaultValue ...map[string][]string) map[string][]string {
 	value := m.Get(key)
 	if value == nil {
+		if len(defaultValue) > 0 {
+			return defaultValue[0]
+		}
 		return nil
 	}
 
@@ -974,312 +1019,395 @@ func (m *Manager) GetStringMapStringSlice(key string) map[string][]string {
 		return result
 	}
 
+	if len(defaultValue) > 0 {
+		return defaultValue[0]
+	}
 	return nil
 }
 
-// GetSizeInBytes returns a configuration value as bytes (supports units like KB, MB, GB)
-func (m *Manager) GetSizeInBytes(key string) uint64 {
+// =============================================================================
+// ADVANCED API - FUNCTIONAL OPTIONS
+// =============================================================================
+
+// GetWithOptions returns a value with advanced options
+func (m *Manager) GetWithOptions(key string, opts ...GetOption) (interface{}, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	value := m.Get(key)
+
+	// Handle missing key
 	if value == nil {
-		return 0
+		if options.Required {
+			return nil, common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			return options.Default, nil
+		} else {
+			return nil, nil
+		}
 	}
 
-	switch v := value.(type) {
-	case uint64:
-		return v
-	case uint:
-		return uint64(v)
-	case int:
-		if v >= 0 {
-			return uint64(v)
-		}
-	case int64:
-		if v >= 0 {
-			return uint64(v)
-		}
-	case string:
-		return m.parseSizeInBytes(v)
+	// Transform
+	if options.Transform != nil {
+		value = options.Transform(value)
 	}
 
-	return 0
+	// Validate
+	if options.Validator != nil {
+		if err := options.Validator(value); err != nil {
+			return nil, common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return value, nil
 }
 
-// parseSizeInBytes parses size strings like "10MB", "1GB", etc.
-func (m *Manager) parseSizeInBytes(s string) uint64 {
-	s = strings.TrimSpace(strings.ToUpper(s))
-	if s == "" {
-		return 0
+// GetStringWithOptions returns a string with advanced options
+func (m *Manager) GetStringWithOptions(key string, opts ...GetOption) (string, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
 	}
 
-	// Define unit multipliers
-	units := map[string]uint64{
-		"B":  1,
-		"KB": 1024,
-		"MB": 1024 * 1024,
-		"GB": 1024 * 1024 * 1024,
-		"TB": 1024 * 1024 * 1024 * 1024,
-		"PB": 1024 * 1024 * 1024 * 1024 * 1024,
-		// Also support SI units
-		"K": 1000,
-		"M": 1000 * 1000,
-		"G": 1000 * 1000 * 1000,
-		"T": 1000 * 1000 * 1000 * 1000,
-		"P": 1000 * 1000 * 1000 * 1000 * 1000,
+	value := m.Get(key)
+
+	// Handle missing key
+	if value == nil {
+		if options.Required {
+			return "", common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			value = options.Default
+		} else {
+			return "", nil
+		}
 	}
 
-	// Try to find a unit suffix
-	for unit, multiplier := range units {
-		if strings.HasSuffix(s, unit) {
-			numberStr := strings.TrimSuffix(s, unit)
-			if number, err := strconv.ParseFloat(numberStr, 64); err == nil {
-				return uint64(number * float64(multiplier))
+	// Transform
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	// Convert to string
+	result := m.convertToString(value)
+
+	// Check empty
+	if !options.AllowEmpty && result == "" {
+		if options.Required {
+			return "", common.ErrConfigError(fmt.Sprintf("key '%s' is empty", key), nil)
+		}
+		if options.Default != nil {
+			if defaultStr, ok := options.Default.(string); ok {
+				result = defaultStr
 			}
 		}
 	}
 
-	// No unit found, try to parse as plain number
-	if number, err := strconv.ParseUint(s, 10, 64); err == nil {
-		return number
+	// Validate
+	if options.Validator != nil {
+		if err := options.Validator(result); err != nil {
+			return "", common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
 	}
 
-	return 0
+	return result, nil
 }
 
-// WithDefault methods for all types
-func (m *Manager) GetWithDefault(key string, val any) interface{} {
-	value := m.Get(key)
-	if value == nil {
-		return val
+// GetIntWithOptions returns an int with advanced options
+func (m *Manager) GetIntWithOptions(key string, opts ...GetOption) (int, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
 	}
-	return value
+
+	value := m.Get(key)
+
+	// Handle missing key
+	if value == nil {
+		if options.Required {
+			return 0, common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			if defaultInt, ok := options.Default.(int); ok {
+				return defaultInt, nil
+			}
+		} else {
+			return 0, nil
+		}
+	}
+
+	// Transform
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	// Convert to int
+	result, err := m.convertToInt(value)
+	if err != nil {
+		if options.Default != nil {
+			if defaultInt, ok := options.Default.(int); ok {
+				result = int64(defaultInt)
+			}
+		} else {
+			return 0, common.ErrConfigError(fmt.Sprintf("failed to convert key '%s' to int", key), err)
+		}
+	}
+
+	// Validate
+	if options.Validator != nil {
+		if err := options.Validator(int(result)); err != nil {
+			return 0, common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return int(result), nil
 }
 
-func (m *Manager) GetStringWithDefault(key string, val string) string {
-	value := m.Get(key)
-	if value == nil {
-		return val
+// GetBoolWithOptions returns a bool with advanced options
+func (m *Manager) GetBoolWithOptions(key string, opts ...GetOption) (bool, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
 	}
-	return m.GetString(key)
+
+	value := m.Get(key)
+
+	// Handle missing key
+	if value == nil {
+		if options.Required {
+			return false, common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			if defaultBool, ok := options.Default.(bool); ok {
+				return defaultBool, nil
+			}
+		} else {
+			return false, nil
+		}
+	}
+
+	// Transform
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	// Convert to bool
+	result, err := m.convertToBool(value)
+	if err != nil {
+		if options.Default != nil {
+			if defaultBool, ok := options.Default.(bool); ok {
+				result = defaultBool
+			}
+		} else {
+			return false, common.ErrConfigError(fmt.Sprintf("failed to convert key '%s' to bool", key), err)
+		}
+	}
+
+	// Validate
+	if options.Validator != nil {
+		if err := options.Validator(result); err != nil {
+			return false, common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return result, nil
 }
 
-func (m *Manager) GetIntWithDefault(key string, val int) int {
-	value := m.Get(key)
-	if value == nil {
-		return val
+// GetDurationWithOptions returns a duration with advanced options
+func (m *Manager) GetDurationWithOptions(key string, opts ...GetOption) (time.Duration, error) {
+	options := &GetOptions{}
+	for _, opt := range opts {
+		opt(options)
 	}
-	return m.GetInt(key)
+
+	value := m.Get(key)
+
+	// Handle missing key
+	if value == nil {
+		if options.Required {
+			return 0, common.ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
+		}
+		if options.OnMissing != nil {
+			value = options.OnMissing(key)
+		} else if options.Default != nil {
+			if defaultDur, ok := options.Default.(time.Duration); ok {
+				return defaultDur, nil
+			}
+		} else {
+			return 0, nil
+		}
+	}
+
+	// Transform
+	if options.Transform != nil {
+		value = options.Transform(value)
+	}
+
+	// Convert to duration
+	var result time.Duration
+	switch v := value.(type) {
+	case time.Duration:
+		result = v
+	case string:
+		var err error
+		result, err = time.ParseDuration(v)
+		if err != nil {
+			if options.Default != nil {
+				if defaultDur, ok := options.Default.(time.Duration); ok {
+					result = defaultDur
+				}
+			} else {
+				return 0, common.ErrConfigError(fmt.Sprintf("failed to parse duration for key '%s'", key), err)
+			}
+		}
+	case int, int64:
+		if intVal, err := m.convertToInt(v); err == nil {
+			result = time.Duration(intVal) * time.Second
+		}
+	default:
+		if options.Default != nil {
+			if defaultDur, ok := options.Default.(time.Duration); ok {
+				result = defaultDur
+			}
+		}
+	}
+
+	// Validate
+	if options.Validator != nil {
+		if err := options.Validator(result); err != nil {
+			return 0, common.ErrConfigError(fmt.Sprintf("validation failed for key '%s'", key), err)
+		}
+	}
+
+	return result, nil
 }
 
-func (m *Manager) GetInt8WithDefault(key string, val int8) int8 {
-	value := m.Get(key)
-	if value == nil {
-		return val
+// =============================================================================
+// LIFECYCLE METHODS (continuing from previous implementation)
+// =============================================================================
+
+// LoadFrom loads configuration from multiple sources
+func (m *Manager) LoadFrom(sources ...ConfigSource) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.logger != nil {
+		m.logger.Info("loading configuration from sources",
+			logger.Int("source_count", len(sources)),
+		)
 	}
-	return m.GetInt8(key)
+
+	for _, source := range sources {
+		if err := m.registry.RegisterSource(source); err != nil {
+			return common.ErrConfigError(fmt.Sprintf("failed to register source %s", source.Name()), err)
+		}
+		m.sources = append(m.sources, source)
+	}
+
+	if err := m.loadAllSources(context.Background()); err != nil {
+		return err
+	}
+
+	if err := m.validator.ValidateAll(m.data); err != nil {
+		return common.ErrConfigError("configuration validation failed", err)
+	}
+
+	if m.metrics != nil {
+		m.metrics.Counter("forge.config.sources_loaded").Add(float64(len(sources)))
+		m.metrics.Gauge("forge.config.active_sources").Set(float64(len(m.sources)))
+		m.metrics.Gauge("forge.config.keys_count").Set(float64(len(m.data)))
+	}
+
+	return nil
 }
 
-func (m *Manager) GetInt16WithDefault(key string, val int16) int16 {
-	value := m.Get(key)
-	if value == nil {
-		return val
+// Watch starts watching for configuration changes
+func (m *Manager) Watch(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.started {
+		return common.ErrLifecycleError("watch", fmt.Errorf("configuration manager already watching"))
 	}
-	return m.GetInt16(key)
+
+	m.watchCtx, m.watchCancel = context.WithCancel(ctx)
+
+	for _, source := range m.sources {
+		if source.IsWatchable() {
+			if err := m.watcher.WatchSource(m.watchCtx, source, m.handleConfigChange); err != nil {
+				if m.logger != nil {
+					m.logger.Error("failed to start watching source",
+						logger.String("source", source.Name()),
+						logger.Error(err),
+					)
+				}
+			}
+		}
+	}
+
+	m.started = true
+
+	if m.logger != nil {
+		m.logger.Info("configuration manager started watching")
+	}
+
+	if m.metrics != nil {
+		m.metrics.Counter("forge.config.watch_started").Inc()
+	}
+
+	return nil
 }
 
-func (m *Manager) GetInt32WithDefault(key string, val int32) int32 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetInt32(key)
+// Reload forces a reload of all configuration sources
+func (m *Manager) Reload() error {
+	return m.ReloadContext(context.Background())
 }
 
-func (m *Manager) GetInt64WithDefault(key string, val int64) int64 {
-	value := m.Get(key)
-	if value == nil {
-		return val
+// ReloadContext forces a reload with context
+func (m *Manager) ReloadContext(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.logger != nil {
+		m.logger.Info("reloading configuration from all sources")
 	}
-	return m.GetInt64(key)
+
+	startTime := time.Now()
+
+	if err := m.loadAllSources(ctx); err != nil {
+		return err
+	}
+
+	if err := m.validator.ValidateAll(m.data); err != nil {
+		return common.ErrConfigError("configuration validation failed after reload", err)
+	}
+
+	m.notifyWatchCallbacks()
+
+	if m.metrics != nil {
+		m.metrics.Counter("forge.config.reloads").Inc()
+		m.metrics.Histogram("forge.config.reload_duration").Observe(time.Since(startTime).Seconds())
+	}
+
+	return nil
 }
 
-func (m *Manager) GetUintWithDefault(key string, val uint) uint {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetUint(key)
-}
-
-func (m *Manager) GetUint8WithDefault(key string, val uint8) uint8 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetUint8(key)
-}
-
-func (m *Manager) GetUint16WithDefault(key string, val uint16) uint16 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetUint16(key)
-}
-
-func (m *Manager) GetUint32WithDefault(key string, val uint32) uint32 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetUint32(key)
-}
-
-func (m *Manager) GetUint64WithDefault(key string, val uint64) uint64 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetUint64(key)
-}
-
-func (m *Manager) GetFloat32WithDefault(key string, val float32) float32 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetFloat32(key)
-}
-
-func (m *Manager) GetFloat64WithDefault(key string, val float64) float64 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetFloat64(key)
-}
-
-func (m *Manager) GetBoolWithDefault(key string, val bool) bool {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetBool(key)
-}
-
-func (m *Manager) GetDurationWithDefault(key string, val time.Duration) time.Duration {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	return m.GetDuration(key)
-}
-
-func (m *Manager) GetTimeWithDefault(key string, val time.Time) time.Time {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetTime(key)
-	if result.IsZero() {
-		return val
-	}
-	return result
-}
-
-func (m *Manager) GetStringSliceWithDefault(key string, val []string) []string {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetStringSlice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (m *Manager) GetIntSliceWithDefault(key string, val []int) []int {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetIntSlice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (m *Manager) GetInt64SliceWithDefault(key string, val []int64) []int64 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetInt64Slice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (m *Manager) GetFloat64SliceWithDefault(key string, val []float64) []float64 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetFloat64Slice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (m *Manager) GetBoolSliceWithDefault(key string, val []bool) []bool {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetBoolSlice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (m *Manager) GetStringMapWithDefault(key string, val map[string]string) map[string]string {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetStringMap(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (m *Manager) GetStringMapStringSliceWithDefault(key string, val map[string][]string) map[string][]string {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetStringMapStringSlice(key)
-	if result == nil {
-		return val
-	}
-	return result
-}
-
-func (m *Manager) GetSizeInBytesWithDefault(key string, val uint64) uint64 {
-	value := m.Get(key)
-	if value == nil {
-		return val
-	}
-	result := m.GetSizeInBytes(key)
-	if result == 0 {
-		return val
-	}
-	return result
+// Validate validates the current configuration
+func (m *Manager) Validate() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.validator.ValidateAll(m.data)
 }
 
 // Set sets a configuration value
@@ -1290,7 +1418,6 @@ func (m *Manager) Set(key string, value interface{}) {
 	oldValue := m.getValue(key)
 	m.setValue(key, value)
 
-	// Notify change callbacks
 	change := ConfigChange{
 		Source:    "manager",
 		Type:      ChangeTypeSet,
@@ -1301,6 +1428,10 @@ func (m *Manager) Set(key string, value interface{}) {
 	}
 	m.notifyChangeCallbacks(change)
 }
+
+// =============================================================================
+// BINDING METHODS
+// =============================================================================
 
 // Bind binds configuration to a struct
 func (m *Manager) Bind(key string, target interface{}) error {
@@ -1321,7 +1452,7 @@ func (m *Manager) Bind(key string, target interface{}) error {
 	return m.bindValue(data, target)
 }
 
-// BindWithDefault binds configuration to a struct with a default value
+// BindWithDefault binds with a default value
 func (m *Manager) BindWithDefault(key string, target interface{}, defaultValue interface{}) error {
 	return m.BindWithOptions(key, target, common.BindOptions{
 		DefaultValue:   defaultValue,
@@ -1332,7 +1463,7 @@ func (m *Manager) BindWithDefault(key string, target interface{}, defaultValue i
 	})
 }
 
-// BindWithOptions binds configuration to a struct with flexible options
+// BindWithOptions binds with flexible options
 func (m *Manager) BindWithOptions(key string, target interface{}, options common.BindOptions) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1344,19 +1475,15 @@ func (m *Manager) BindWithOptions(key string, target interface{}, options common
 		data = m.getValue(key)
 	}
 
-	// Use default value if data is nil and default is provided
 	if data == nil {
 		if options.DefaultValue != nil {
 			data = options.DefaultValue
 		} else if options.UseDefaults {
-			// If no data found and UseDefaults is true, bind with empty data
-			// This allows struct default values to be used
 			data = make(map[string]interface{})
 		} else {
 			if options.ErrorOnMissing {
 				return common.ErrConfigError(fmt.Sprintf("no configuration found for key '%s'", key), nil)
 			}
-			// Create empty map to allow partial binding
 			data = make(map[string]interface{})
 		}
 	}
@@ -1364,7 +1491,11 @@ func (m *Manager) BindWithOptions(key string, target interface{}, options common
 	return m.bindValueWithOptions(data, target, options)
 }
 
-// WatchWithCallback registers a callback for configuration changes
+// =============================================================================
+// WATCH AND CHANGE CALLBACKS
+// =============================================================================
+
+// WatchWithCallback registers a callback for key changes
 func (m *Manager) WatchWithCallback(key string, callback func(string, interface{})) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1375,19 +1506,21 @@ func (m *Manager) WatchWithCallback(key string, callback func(string, interface{
 	m.watchCallbacks[key] = append(m.watchCallbacks[key], callback)
 }
 
-// WatchChanges registers a callback for all configuration changes
+// WatchChanges registers a callback for all changes
 func (m *Manager) WatchChanges(callback func(ConfigChange)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	m.changeCallbacks = append(m.changeCallbacks, callback)
 }
 
-// GetSourceMetadata returns metadata for all configuration sources
+// =============================================================================
+// METADATA AND INTROSPECTION
+// =============================================================================
+
+// GetSourceMetadata returns metadata for all sources
 func (m *Manager) GetSourceMetadata() map[string]*SourceMetadata {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	return m.registry.GetAllMetadata()
 }
 
@@ -1395,39 +1528,34 @@ func (m *Manager) GetSourceMetadata() map[string]*SourceMetadata {
 func (m *Manager) GetKeys() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	return m.getAllKeys(m.data, "")
 }
 
-// GetSection returns a configuration section as a map
+// GetSection returns a configuration section
 func (m *Manager) GetSection(key string) map[string]interface{} {
 	value := m.Get(key)
 	if value == nil {
 		return nil
 	}
-
 	if section, ok := value.(map[string]interface{}); ok {
 		return section
 	}
-
 	return nil
 }
 
-// HasKey checks if a configuration key exists
+// HasKey checks if a key exists
 func (m *Manager) HasKey(key string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	return m.getValue(key) != nil
 }
 
-// IsSet checks if a configuration key is set (not nil and not empty)
+// IsSet checks if a key is set and not empty
 func (m *Manager) IsSet(key string) bool {
 	value := m.Get(key)
 	if value == nil {
 		return false
 	}
-
 	switch v := value.(type) {
 	case string:
 		return v != ""
@@ -1440,7 +1568,18 @@ func (m *Manager) IsSet(key string) bool {
 	}
 }
 
-// Sub returns a new configuration manager for a subsection
+// Size returns the number of keys
+func (m *Manager) Size() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.getAllKeys(m.data, ""))
+}
+
+// =============================================================================
+// STRUCTURE OPERATIONS
+// =============================================================================
+
+// Sub returns a sub-configuration manager
 func (m *Manager) Sub(key string) common.ConfigManager {
 	subData := m.GetSection(key)
 	if subData == nil {
@@ -1456,10 +1595,9 @@ func (m *Manager) Sub(key string) common.ConfigManager {
 		errorHandler:    m.errorHandler,
 	}
 
-	// Initialize components for sub-manager
 	subManager.registry = NewSourceRegistry(subManager.logger)
 	subManager.validator = NewValidator(ValidatorConfig{
-		Mode:         ValidationModePermissive, // Sub-configs are usually more permissive
+		Mode:         ValidationModePermissive,
 		Logger:       subManager.logger,
 		ErrorHandler: subManager.errorHandler,
 	})
@@ -1467,30 +1605,26 @@ func (m *Manager) Sub(key string) common.ConfigManager {
 	return subManager
 }
 
-// MergeWith merges another configuration manager's data into this one
+// MergeWith merges another config manager
 func (m *Manager) MergeWith(other common.ConfigManager) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// If other is also a Manager, we can access its data directly
 	if otherManager, ok := other.(*Manager); ok {
 		otherManager.mu.RLock()
 		defer otherManager.mu.RUnlock()
 		m.mergeData(m.data, otherManager.data)
-	} else {
-		// For other implementations, we need to get all keys
-		return fmt.Errorf("merge not supported for this ConfigManager implementation")
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("merge not supported for this ConfigManager implementation")
 }
 
-// Clone creates a deep copy of the configuration manager
+// Clone creates a deep copy
 func (m *Manager) Clone() common.ConfigManager {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Deep copy the data
 	clonedData := m.deepCopyMap(m.data)
 
 	cloned := &Manager{
@@ -1502,7 +1636,6 @@ func (m *Manager) Clone() common.ConfigManager {
 		errorHandler:    m.errorHandler,
 	}
 
-	// Initialize components
 	cloned.registry = NewSourceRegistry(cloned.logger)
 	cloned.validator = NewValidator(ValidatorConfig{
 		Mode:         ValidationModePermissive,
@@ -1513,120 +1646,18 @@ func (m *Manager) Clone() common.ConfigManager {
 	return cloned
 }
 
-// GetAllSettings returns all configuration as a map
+// GetAllSettings returns all settings
 func (m *Manager) GetAllSettings() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
 	return m.deepCopyMap(m.data)
 }
 
-// Size returns the number of configuration keys
-func (m *Manager) Size() int {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+// =============================================================================
+// UTILITY METHODS
+// =============================================================================
 
-	return len(m.getAllKeys(m.data, ""))
-}
-
-// Utility and compatibility methods
-
-// InConfig checks if a key path exists in configuration (alias for HasKey)
-func (m *Manager) InConfig(key string) bool {
-	return m.HasKey(key)
-}
-
-// UnmarshalKey unmarshals a configuration key to a struct (alias for Bind)
-func (m *Manager) UnmarshalKey(key string, rawVal interface{}) error {
-	return m.Bind(key, rawVal)
-}
-
-// Unmarshal unmarshals the entire configuration to a struct
-func (m *Manager) Unmarshal(rawVal interface{}) error {
-	return m.Bind("", rawVal)
-}
-
-// SafeGet returns a value with type checking and error
-func (m *Manager) SafeGet(key string, expectedType reflect.Type) (interface{}, error) {
-	value := m.Get(key)
-	if value == nil {
-		return nil, fmt.Errorf("key '%s' not found", key)
-	}
-
-	valueType := reflect.TypeOf(value)
-	if valueType != expectedType {
-		return nil, fmt.Errorf("key '%s' expected type %v, got %v", key, expectedType, valueType)
-	}
-
-	return value, nil
-}
-
-// GetBytesSize is an alias for GetSizeInBytes
-func (m *Manager) GetBytesSize(key string) uint64 {
-	return m.GetSizeInBytes(key)
-}
-
-// GetBytesSizeWithDefault is an alias for GetSizeInBytesWithDefault
-func (m *Manager) GetBytesSizeWithDefault(key string, defaultValue uint64) uint64 {
-	return m.GetSizeInBytesWithDefault(key, defaultValue)
-}
-
-// ReadInConfig reads configuration from a file (if file source is available)
-func (m *Manager) ReadInConfig() error {
-	return m.ReloadContext(context.Background())
-}
-
-// SetConfigType sets the type of configuration file (used by loaders)
-func (m *Manager) SetConfigType(configType string) {
-	if m.loader != nil {
-		// m.loader.SetDefaultFormat(configType)
-	}
-}
-
-// SetConfigFile sets the configuration file path (would be used with file sources)
-func (m *Manager) SetConfigFile(filePath string) error {
-	if m.logger != nil {
-		m.logger.Info("configuration file path set",
-			logger.String("file_path", filePath),
-		)
-	}
-	return nil
-}
-
-// AllKeys returns all configuration keys
-func (m *Manager) AllKeys() []string {
-	return m.GetKeys()
-}
-
-// AllSettings returns all configuration settings
-func (m *Manager) AllSettings() map[string]interface{} {
-	return m.GetAllSettings()
-}
-
-// ConfigFileUsed returns the path to the configuration file being used
-func (m *Manager) ConfigFileUsed() string {
-	sources := m.registry.GetSources()
-	for _, source := range sources {
-		if fileSource, ok := source.(interface {
-			FilePath() string
-		}); ok {
-			return fileSource.FilePath()
-		}
-	}
-	return ""
-}
-
-// WatchConfig starts watching for configuration file changes
-func (m *Manager) WatchConfig() error {
-	return m.Watch(context.Background())
-}
-
-// OnConfigChange registers a callback for configuration changes (alias for WatchChanges)
-func (m *Manager) OnConfigChange(callback func(ConfigChange)) {
-	m.WatchChanges(callback)
-}
-
-// Reset clears all configuration data
+// Reset clears all configuration
 func (m *Manager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1645,13 +1676,27 @@ func (m *Manager) Reset() {
 	}
 }
 
-// ExpandEnvVars expands environment variables in string values
+// ExpandEnvVars expands environment variables
 func (m *Manager) ExpandEnvVars() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	m.expandEnvInMap(m.data)
 	return nil
+}
+
+// SafeGet returns a value with type checking
+func (m *Manager) SafeGet(key string, expectedType reflect.Type) (interface{}, error) {
+	value := m.Get(key)
+	if value == nil {
+		return nil, fmt.Errorf("key '%s' not found", key)
+	}
+
+	valueType := reflect.TypeOf(value)
+	if valueType != expectedType {
+		return nil, fmt.Errorf("key '%s' expected type %v, got %v", key, expectedType, valueType)
+	}
+
+	return value, nil
 }
 
 // Stop stops the configuration manager
@@ -1667,7 +1712,6 @@ func (m *Manager) Stop() error {
 		m.watchCancel()
 	}
 
-	// OnStop all sources
 	for _, source := range m.sources {
 		if err := source.StopWatch(); err != nil {
 			if m.logger != nil {
@@ -1692,12 +1736,90 @@ func (m *Manager) Stop() error {
 	return nil
 }
 
-// Internal helper methods
+// =============================================================================
+// COMPATIBILITY ALIASES
+// =============================================================================
+
+// GetBytesSize is an alias for GetSizeInBytes
+func (m *Manager) GetBytesSize(key string, defaultValue ...uint64) uint64 {
+	return m.GetSizeInBytes(key, defaultValue...)
+}
+
+// InConfig is an alias for HasKey
+func (m *Manager) InConfig(key string) bool {
+	return m.HasKey(key)
+}
+
+// UnmarshalKey is an alias for Bind
+func (m *Manager) UnmarshalKey(key string, rawVal interface{}) error {
+	return m.Bind(key, rawVal)
+}
+
+// Unmarshal unmarshals entire configuration
+func (m *Manager) Unmarshal(rawVal interface{}) error {
+	return m.Bind("", rawVal)
+}
+
+// AllKeys is an alias for GetKeys
+func (m *Manager) AllKeys() []string {
+	return m.GetKeys()
+}
+
+// AllSettings is an alias for GetAllSettings
+func (m *Manager) AllSettings() map[string]interface{} {
+	return m.GetAllSettings()
+}
+
+// ReadInConfig reads configuration
+func (m *Manager) ReadInConfig() error {
+	return m.ReloadContext(context.Background())
+}
+
+// SetConfigType sets the configuration type
+func (m *Manager) SetConfigType(configType string) {
+	// Placeholder for loader configuration
+}
+
+// SetConfigFile sets the configuration file
+func (m *Manager) SetConfigFile(filePath string) error {
+	if m.logger != nil {
+		m.logger.Info("configuration file path set",
+			logger.String("file_path", filePath),
+		)
+	}
+	return nil
+}
+
+// ConfigFileUsed returns the config file path
+func (m *Manager) ConfigFileUsed() string {
+	sources := m.registry.GetSources()
+	for _, source := range sources {
+		if fileSource, ok := source.(interface {
+			FilePath() string
+		}); ok {
+			return fileSource.FilePath()
+		}
+	}
+	return ""
+}
+
+// WatchConfig is an alias for Watch
+func (m *Manager) WatchConfig() error {
+	return m.Watch(context.Background())
+}
+
+// OnConfigChange is an alias for WatchChanges
+func (m *Manager) OnConfigChange(callback func(ConfigChange)) {
+	m.WatchChanges(callback)
+}
+
+// =============================================================================
+// INTERNAL HELPER METHODS
+// =============================================================================
 
 func (m *Manager) loadAllSources(ctx context.Context) error {
 	mergedData := make(map[string]interface{})
 
-	// Load from sources in priority order
 	sources := m.registry.GetSources()
 	for _, source := range sources {
 		data, err := m.loader.LoadSource(ctx, source)
@@ -1707,8 +1829,6 @@ func (m *Manager) loadAllSources(ctx context.Context) error {
 			}
 			return common.ErrConfigError(fmt.Sprintf("failed to load source %s", source.Name()), err)
 		}
-
-		// Merge data with priority
 		m.mergeData(mergedData, data)
 	}
 
@@ -1727,7 +1847,6 @@ func (m *Manager) handleConfigChange(source string, data map[string]interface{})
 		)
 	}
 
-	// Update configuration data
 	oldData := make(map[string]interface{})
 	for k, v := range m.data {
 		oldData[k] = v
@@ -1735,7 +1854,6 @@ func (m *Manager) handleConfigChange(source string, data map[string]interface{})
 
 	m.mergeData(m.data, data)
 
-	// Validate if enabled
 	if err := m.validator.ValidateAll(m.data); err != nil {
 		if m.logger != nil {
 			m.logger.Error("configuration validation failed after change",
@@ -1743,14 +1861,12 @@ func (m *Manager) handleConfigChange(source string, data map[string]interface{})
 				logger.Error(err),
 			)
 		}
-		// Revert changes if validation fails in strict mode
 		if m.validator.IsStrictMode() {
 			m.data = oldData
 			return
 		}
 	}
 
-	// Notify callbacks
 	change := ConfigChange{
 		Source:    source,
 		Type:      ChangeTypeUpdate,
@@ -1800,7 +1916,6 @@ func (m *Manager) setValue(key string, value interface{}) {
 			if next, ok := current[k].(map[string]interface{}); ok {
 				current = next
 			} else {
-				// Create new map if type mismatch
 				current[k] = make(map[string]interface{})
 				current = current[k].(map[string]interface{})
 			}
@@ -1811,7 +1926,6 @@ func (m *Manager) setValue(key string, value interface{}) {
 func (m *Manager) mergeData(target, source map[string]interface{}) {
 	for key, value := range source {
 		if existingValue, exists := target[key]; exists {
-			// If both are maps, merge recursively
 			if existingMap, ok := existingValue.(map[string]interface{}); ok {
 				if sourceMap, ok := value.(map[string]interface{}); ok {
 					m.mergeData(existingMap, sourceMap)
@@ -1823,127 +1937,20 @@ func (m *Manager) mergeData(target, source map[string]interface{}) {
 	}
 }
 
-func (m *Manager) bindValue(value interface{}, target interface{}) error {
-	targetValue := reflect.ValueOf(target)
-	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
-		return common.ErrConfigError("target must be a pointer to struct", nil)
+func (m *Manager) convertToString(value interface{}) string {
+	if value == nil {
+		return ""
 	}
-
-	targetStruct := targetValue.Elem()
-	sourceValue := reflect.ValueOf(value)
-
-	if sourceValue.Kind() == reflect.Map {
-		return m.bindMapToStruct(sourceValue, targetStruct)
+	switch v := value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return fmt.Sprintf("%v", v)
 	}
-
-	return common.ErrConfigError("unsupported value type for binding", nil)
 }
 
-func (m *Manager) bindMapToStruct(mapValue reflect.Value, structValue reflect.Value) error {
-	structType := structValue.Type()
-
-	for i := 0; i < structValue.NumField(); i++ {
-		field := structValue.Field(i)
-		fieldType := structType.Field(i)
-
-		if !field.CanSet() {
-			continue
-		}
-
-		// Get field name from tags or use field name
-		fieldName := m.getFieldName(fieldType)
-		if fieldName == "" {
-			continue
-		}
-
-		// Get value from map
-		mapKey := reflect.ValueOf(fieldName)
-		mapVal := mapValue.MapIndex(mapKey)
-
-		if !mapVal.IsValid() {
-			continue
-		}
-
-		// Set field value
-		if err := m.setFieldValue(field, mapVal); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (m *Manager) getFieldName(field reflect.StructField) string {
-	// Check yaml tag first
-	if tag := field.Tag.Get("yaml"); tag != "" && tag != "-" {
-		return strings.Split(tag, ",")[0]
-	}
-	// Check json tag
-	if tag := field.Tag.Get("json"); tag != "" && tag != "-" {
-		return strings.Split(tag, ",")[0]
-	}
-	// Check config tag
-	if tag := field.Tag.Get("config"); tag != "" && tag != "-" {
-		return strings.Split(tag, ",")[0]
-	}
-	// Use field name
-	return field.Name
-}
-
-func (m *Manager) setFieldValue(field reflect.Value, value reflect.Value) error {
-	if !value.IsValid() {
-		return nil
-	}
-
-	valueInterface := value.Interface()
-
-	// Handle different field types
-	switch field.Kind() {
-	case reflect.String:
-		if str, ok := valueInterface.(string); ok {
-			field.SetString(str)
-		} else {
-			field.SetString(fmt.Sprintf("%v", valueInterface))
-		}
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if intVal, err := m.convertToInt(valueInterface); err == nil {
-			field.SetInt(intVal)
-		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if uintVal, err := m.convertToUint(valueInterface); err == nil {
-			field.SetUint(uintVal)
-		}
-	case reflect.Float32, reflect.Float64:
-		if floatVal, err := m.convertToFloat(valueInterface); err == nil {
-			field.SetFloat(floatVal)
-		}
-	case reflect.Bool:
-		if boolVal, err := m.convertToBool(valueInterface); err == nil {
-			field.SetBool(boolVal)
-		}
-	case reflect.Slice:
-		if slice, ok := valueInterface.([]interface{}); ok {
-			return m.setSliceValue(field, slice)
-		}
-	case reflect.Map:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
-			return m.setMapValue(field, mapVal)
-		}
-	case reflect.Struct:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
-			return m.bindMapToStruct(reflect.ValueOf(mapVal), field)
-		}
-	case reflect.Ptr:
-		if field.IsNil() {
-			field.Set(reflect.New(field.Type().Elem()))
-		}
-		return m.setFieldValue(field.Elem(), value)
-	}
-
-	return nil
-}
-
-// Helper methods for type conversion
 func (m *Manager) convertToInt(value interface{}) (int64, error) {
 	switch v := value.(type) {
 	case int:
@@ -2012,6 +2019,150 @@ func (m *Manager) convertToBool(value interface{}) (bool, error) {
 	}
 }
 
+func (m *Manager) parseSizeInBytes(s string) uint64 {
+	s = strings.TrimSpace(strings.ToUpper(s))
+	if s == "" {
+		return 0
+	}
+
+	units := map[string]uint64{
+		"B":  1,
+		"KB": 1024,
+		"MB": 1024 * 1024,
+		"GB": 1024 * 1024 * 1024,
+		"TB": 1024 * 1024 * 1024 * 1024,
+		"PB": 1024 * 1024 * 1024 * 1024 * 1024,
+		"K":  1000,
+		"M":  1000 * 1000,
+		"G":  1000 * 1000 * 1000,
+		"T":  1000 * 1000 * 1000 * 1000,
+		"P":  1000 * 1000 * 1000 * 1000 * 1000,
+	}
+
+	for unit, multiplier := range units {
+		if strings.HasSuffix(s, unit) {
+			numberStr := strings.TrimSuffix(s, unit)
+			if number, err := strconv.ParseFloat(numberStr, 64); err == nil {
+				return uint64(number * float64(multiplier))
+			}
+		}
+	}
+
+	if number, err := strconv.ParseUint(s, 10, 64); err == nil {
+		return number
+	}
+
+	return 0
+}
+
+func (m *Manager) bindValue(value interface{}, target interface{}) error {
+	targetValue := reflect.ValueOf(target)
+	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
+		return common.ErrConfigError("target must be a pointer to struct", nil)
+	}
+
+	targetStruct := targetValue.Elem()
+	sourceValue := reflect.ValueOf(value)
+
+	if sourceValue.Kind() == reflect.Map {
+		return m.bindMapToStruct(sourceValue, targetStruct)
+	}
+
+	return common.ErrConfigError("unsupported value type for binding", nil)
+}
+
+func (m *Manager) bindMapToStruct(mapValue reflect.Value, structValue reflect.Value) error {
+	structType := structValue.Type()
+
+	for i := 0; i < structValue.NumField(); i++ {
+		field := structValue.Field(i)
+		fieldType := structType.Field(i)
+
+		if !field.CanSet() {
+			continue
+		}
+
+		fieldName := m.getFieldName(fieldType)
+		if fieldName == "" {
+			continue
+		}
+
+		mapKey := reflect.ValueOf(fieldName)
+		mapVal := mapValue.MapIndex(mapKey)
+
+		if !mapVal.IsValid() {
+			continue
+		}
+
+		if err := m.setFieldValue(field, mapVal); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Manager) getFieldName(field reflect.StructField) string {
+	if tag := field.Tag.Get("yaml"); tag != "" && tag != "-" {
+		return strings.Split(tag, ",")[0]
+	}
+	if tag := field.Tag.Get("json"); tag != "" && tag != "-" {
+		return strings.Split(tag, ",")[0]
+	}
+	if tag := field.Tag.Get("config"); tag != "" && tag != "-" {
+		return strings.Split(tag, ",")[0]
+	}
+	return field.Name
+}
+
+func (m *Manager) setFieldValue(field reflect.Value, value reflect.Value) error {
+	if !value.IsValid() {
+		return nil
+	}
+
+	valueInterface := value.Interface()
+
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(m.convertToString(valueInterface))
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if intVal, err := m.convertToInt(valueInterface); err == nil {
+			field.SetInt(intVal)
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if uintVal, err := m.convertToUint(valueInterface); err == nil {
+			field.SetUint(uintVal)
+		}
+	case reflect.Float32, reflect.Float64:
+		if floatVal, err := m.convertToFloat(valueInterface); err == nil {
+			field.SetFloat(floatVal)
+		}
+	case reflect.Bool:
+		if boolVal, err := m.convertToBool(valueInterface); err == nil {
+			field.SetBool(boolVal)
+		}
+	case reflect.Slice:
+		if slice, ok := valueInterface.([]interface{}); ok {
+			return m.setSliceValue(field, slice)
+		}
+	case reflect.Map:
+		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+			return m.setMapValue(field, mapVal)
+		}
+	case reflect.Struct:
+		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+			return m.bindMapToStruct(reflect.ValueOf(mapVal), field)
+		}
+	case reflect.Ptr:
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		return m.setFieldValue(field.Elem(), value)
+	}
+
+	return nil
+}
+
 func (m *Manager) setSliceValue(field reflect.Value, slice []interface{}) error {
 	sliceValue := reflect.MakeSlice(field.Type(), len(slice), len(slice))
 	for i, item := range slice {
@@ -2025,12 +2176,612 @@ func (m *Manager) setSliceValue(field reflect.Value, slice []interface{}) error 
 
 func (m *Manager) setMapValue(field reflect.Value, mapData map[string]interface{}) error {
 	mapValue := reflect.MakeMap(field.Type())
+	mapValueType := field.Type().Elem()
+
 	for key, value := range mapData {
 		keyValue := reflect.ValueOf(key)
-		valueValue := reflect.ValueOf(value)
-		mapValue.SetMapIndex(keyValue, valueValue)
+
+		// Convert value to the correct type for the map's value type
+		var convertedValue reflect.Value
+
+		// Check if the map value type is a struct
+		if mapValueType.Kind() == reflect.Struct {
+			// Create a new instance of the struct type
+			structInstance := reflect.New(mapValueType).Elem()
+
+			// If the value is a map[string]interface{}, bind it to the struct
+			if valueMap, ok := value.(map[string]interface{}); ok {
+				if err := m.bindMapToStruct(reflect.ValueOf(valueMap), structInstance); err != nil {
+					return fmt.Errorf("failed to bind map value for key '%s': %w", key, err)
+				}
+				convertedValue = structInstance
+			} else {
+				// Direct assignment if types match
+				convertedValue = reflect.ValueOf(value)
+			}
+		} else if mapValueType.Kind() == reflect.Ptr && mapValueType.Elem().Kind() == reflect.Struct {
+			// Handle pointer to struct
+			structInstance := reflect.New(mapValueType.Elem())
+
+			if valueMap, ok := value.(map[string]interface{}); ok {
+				if err := m.bindMapToStruct(reflect.ValueOf(valueMap), structInstance.Elem()); err != nil {
+					return fmt.Errorf("failed to bind map value for key '%s': %w", key, err)
+				}
+				convertedValue = structInstance
+			} else {
+				convertedValue = reflect.ValueOf(value)
+			}
+		} else {
+			// For primitive types or interfaces, try direct conversion
+			convertedValue = reflect.ValueOf(value)
+
+			// If types don't match, try to convert
+			if convertedValue.Type() != mapValueType {
+				// Try type conversion if possible
+				if convertedValue.Type().ConvertibleTo(mapValueType) {
+					convertedValue = convertedValue.Convert(mapValueType)
+				} else {
+					// If it's still a map[string]interface{} and we need a different type,
+					// we need to recursively bind it
+					if _, ok := value.(map[string]interface{}); ok {
+						newValue := reflect.New(mapValueType).Elem()
+						if err := m.setFieldValue(newValue, convertedValue); err != nil {
+							return fmt.Errorf("failed to convert map value for key '%s': %w", key, err)
+						}
+						convertedValue = newValue
+					}
+				}
+			}
+		}
+
+		mapValue.SetMapIndex(keyValue, convertedValue)
 	}
+
 	field.Set(mapValue)
+	return nil
+}
+
+func (m *Manager) bindValueWithOptions(value interface{}, target interface{}, options common.BindOptions) error {
+	targetValue := reflect.ValueOf(target)
+	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
+		return common.ErrConfigError("target must be a pointer to struct", nil)
+	}
+
+	targetStruct := targetValue.Elem()
+
+	// Apply struct tag defaults (lowest precedence)
+	if err := m.applyStructDefaults(targetStruct); err != nil {
+		return err
+	}
+
+	// Apply passed default value (medium precedence)
+	if options.DefaultValue != nil {
+		if defaultMap, ok := options.DefaultValue.(map[string]interface{}); ok {
+			if options.DeepMerge {
+				value = m.deepMergeValues(defaultMap, value)
+			}
+		}
+	}
+
+	// Apply config file values (highest precedence)
+	sourceValue := reflect.ValueOf(value)
+	if sourceValue.Kind() == reflect.Map {
+		return m.bindMapToStructWithOptions(sourceValue, targetStruct, options)
+	}
+
+	return common.ErrConfigError("unsupported value type for binding", nil)
+}
+
+func (m *Manager) bindMapToStructWithOptions(mapValue reflect.Value, structValue reflect.Value, options common.BindOptions) error {
+	structType := structValue.Type()
+
+	// Track required fields
+	requiredFields := make(map[string]bool)
+	for _, field := range options.Required {
+		requiredFields[field] = false
+	}
+
+	for i := 0; i < structValue.NumField(); i++ {
+		field := structValue.Field(i)
+		fieldType := structType.Field(i)
+
+		if !field.CanSet() {
+			continue
+		}
+
+		// Get field name from tags
+		fieldName := m.getFieldNameWithOptions(fieldType, options)
+		if fieldName == "" {
+			continue
+		}
+
+		// Mark required field as potentially found
+		if _, isRequired := requiredFields[fieldName]; isRequired {
+			requiredFields[fieldName] = true
+		}
+
+		// Get value from config map
+		var mapVal reflect.Value
+		if options.IgnoreCase {
+			mapVal = m.findMapValueIgnoreCase(mapValue, fieldName)
+		} else {
+			mapKey := reflect.ValueOf(fieldName)
+			mapVal = mapValue.MapIndex(mapKey)
+		}
+		// Handle missing values with proper precedence
+		if !mapVal.IsValid() {
+			// Check required fields
+			if _, isRequired := requiredFields[fieldName]; isRequired {
+				if options.ErrorOnMissing {
+					return common.ErrConfigError(fmt.Sprintf("required field '%s' not found", fieldName), nil)
+				}
+			}
+
+			// Field not in config, keep existing value (could be from struct tag default or passed default)
+			if options.UseDefaults {
+				continue
+			}
+
+			continue
+		}
+
+		// Set field value with deep merge support
+		if err := m.setFieldValueWithDeepMerge(field, mapVal, fieldType, options); err != nil {
+			return err
+		}
+	}
+
+	// Validate all required fields were found
+	for fieldName, found := range requiredFields {
+		if !found && options.ErrorOnMissing {
+			return common.ErrConfigError(fmt.Sprintf("required field '%s' not found in configuration", fieldName), nil)
+		}
+	}
+
+	return nil
+}
+
+func (m *Manager) getFieldNameWithOptions(field reflect.StructField, options common.BindOptions) string {
+	tagName := options.TagName
+	if tagName == "" {
+		tagName = "yaml"
+	}
+
+	if tag := field.Tag.Get(tagName); tag != "" && tag != "-" {
+		return strings.Split(tag, ",")[0]
+	}
+
+	if tagName != "yaml" {
+		if tag := field.Tag.Get("yaml"); tag != "" && tag != "-" {
+			return strings.Split(tag, ",")[0]
+		}
+	}
+	if tagName != "json" {
+		if tag := field.Tag.Get("json"); tag != "" && tag != "-" {
+			return strings.Split(tag, ",")[0]
+		}
+	}
+
+	return field.Name
+}
+
+func (m *Manager) findMapValueIgnoreCase(mapValue reflect.Value, fieldName string) reflect.Value {
+	fieldNameLower := strings.ToLower(fieldName)
+
+	for _, key := range mapValue.MapKeys() {
+		if keyStr, ok := key.Interface().(string); ok {
+			if strings.ToLower(keyStr) == fieldNameLower {
+				return mapValue.MapIndex(key)
+			}
+		}
+	}
+
+	return reflect.Value{}
+}
+
+// deepMergeValues deeply merges two values with proper precedence
+// configValue (from file) takes precedence over defaultValue
+func (m *Manager) deepMergeValues(defaultValue, configValue interface{}) interface{} {
+	// If config value is nil, use default
+	if configValue == nil {
+		return defaultValue
+	}
+
+	// If default is nil, use config
+	if defaultValue == nil {
+		return configValue
+	}
+
+	// Both are maps - deep merge
+	defaultMap, defaultIsMap := defaultValue.(map[string]interface{})
+	configMap, configIsMap := configValue.(map[string]interface{})
+
+	if defaultIsMap && configIsMap {
+		merged := make(map[string]interface{})
+
+		// Start with all default keys
+		for k, v := range defaultMap {
+			merged[k] = v
+		}
+
+		// Override/merge with config values
+		for k, configVal := range configMap {
+			if defaultVal, exists := merged[k]; exists {
+				// Recursively merge nested maps
+				merged[k] = m.deepMergeValues(defaultVal, configVal)
+			} else {
+				merged[k] = configVal
+			}
+		}
+
+		return merged
+	}
+
+	// For non-map values, config takes precedence
+	return configValue
+}
+
+// applyStructDefaults applies default values from struct tags
+func (m *Manager) applyStructDefaults(structValue reflect.Value) error {
+	structType := structValue.Type()
+
+	for i := 0; i < structValue.NumField(); i++ {
+		field := structValue.Field(i)
+		fieldType := structType.Field(i)
+
+		if !field.CanSet() {
+			continue
+		}
+
+		// Check for default tag
+		defaultTag := fieldType.Tag.Get("default")
+		if defaultTag == "" || defaultTag == "-" {
+			// Recursively apply defaults to nested structs
+			if field.Kind() == reflect.Struct {
+				if err := m.applyStructDefaults(field); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		// Only apply default if field is zero value
+		if !field.IsZero() {
+			continue
+		}
+		// Parse and set default value based on field type
+		if err := m.setDefaultValue(field, defaultTag, fieldType); err != nil {
+			return common.ErrConfigError(
+				fmt.Sprintf("failed to set default for field '%s'", fieldType.Name),
+				err,
+			)
+		}
+	}
+
+	return nil
+}
+
+// setDefaultValue sets a field value from a default tag string
+func (m *Manager) setDefaultValue(field reflect.Value, defaultTag string, fieldType reflect.StructField) error {
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(defaultTag)
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		// Check if it's a duration
+		if field.Type() == reflect.TypeOf(time.Duration(0)) {
+			if d, err := time.ParseDuration(defaultTag); err == nil {
+				field.SetInt(int64(d))
+			} else {
+				return fmt.Errorf("invalid duration default: %s", defaultTag)
+			}
+		} else {
+			if intVal, err := strconv.ParseInt(defaultTag, 10, 64); err == nil {
+				field.SetInt(intVal)
+			} else {
+				return fmt.Errorf("invalid int default: %s", defaultTag)
+			}
+		}
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if uintVal, err := strconv.ParseUint(defaultTag, 10, 64); err == nil {
+			field.SetUint(uintVal)
+		} else {
+			return fmt.Errorf("invalid uint default: %s", defaultTag)
+		}
+
+	case reflect.Float32, reflect.Float64:
+		if floatVal, err := strconv.ParseFloat(defaultTag, 64); err == nil {
+			field.SetFloat(floatVal)
+		} else {
+			return fmt.Errorf("invalid float default: %s", defaultTag)
+		}
+
+	case reflect.Bool:
+		if boolVal, err := strconv.ParseBool(defaultTag); err == nil {
+			field.SetBool(boolVal)
+		} else {
+			return fmt.Errorf("invalid bool default: %s", defaultTag)
+		}
+
+	case reflect.Slice:
+		// Handle slice defaults (comma-separated)
+		if field.Type().Elem().Kind() == reflect.String {
+			values := strings.Split(defaultTag, ",")
+			slice := reflect.MakeSlice(field.Type(), len(values), len(values))
+			for i, val := range values {
+				slice.Index(i).SetString(strings.TrimSpace(val))
+			}
+			field.Set(slice)
+		} else {
+			return fmt.Errorf("slice defaults only supported for []string")
+		}
+
+	case reflect.Struct:
+		// Handle time.Time
+		if field.Type() == reflect.TypeOf(time.Time{}) {
+			formats := []string{
+				time.RFC3339,
+				time.RFC3339Nano,
+				"2006-01-02 15:04:05",
+				"2006-01-02T15:04:05",
+				"2006-01-02",
+			}
+			for _, format := range formats {
+				if t, err := time.Parse(format, defaultTag); err == nil {
+					field.Set(reflect.ValueOf(t))
+					return nil
+				}
+			}
+			return fmt.Errorf("invalid time default: %s", defaultTag)
+		}
+
+	default:
+		return fmt.Errorf("unsupported default type: %v", field.Kind())
+	}
+
+	return nil
+}
+
+func (m *Manager) setFieldValueWithOptions(field reflect.Value, value reflect.Value, options common.BindOptions) error {
+	if !value.IsValid() {
+		return nil
+	}
+
+	valueInterface := value.Interface()
+
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(m.convertToString(valueInterface))
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if intVal, err := m.convertToInt(valueInterface); err == nil {
+			field.SetInt(intVal)
+		} else if !options.ErrorOnMissing {
+			return nil
+		} else {
+			return err
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if uintVal, err := m.convertToUint(valueInterface); err == nil {
+			field.SetUint(uintVal)
+		} else if !options.ErrorOnMissing {
+			return nil
+		} else {
+			return err
+		}
+	case reflect.Float32, reflect.Float64:
+		if floatVal, err := m.convertToFloat(valueInterface); err == nil {
+			field.SetFloat(floatVal)
+		} else if !options.ErrorOnMissing {
+			return nil
+		} else {
+			return err
+		}
+	case reflect.Bool:
+		if boolVal, err := m.convertToBool(valueInterface); err == nil {
+			field.SetBool(boolVal)
+		} else if !options.ErrorOnMissing {
+			return nil
+		} else {
+			return err
+		}
+	case reflect.Slice:
+		if slice, ok := valueInterface.([]interface{}); ok {
+			return m.setSliceValue(field, slice)
+		}
+	case reflect.Map:
+		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+			return m.setMapValue(field, mapVal)
+		}
+	case reflect.Struct:
+		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+			if options.DeepMerge && !field.IsZero() {
+				return m.mergeStructValue(field, mapVal, options)
+			}
+			return m.bindMapToStructWithOptions(reflect.ValueOf(mapVal), field, options)
+		}
+	case reflect.Ptr:
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		return m.setFieldValueWithOptions(field.Elem(), value, options)
+	}
+
+	return nil
+}
+
+// setFieldValueWithDeepMerge sets field with deep merge support for nested structs
+func (m *Manager) setFieldValueWithDeepMerge(field reflect.Value, value reflect.Value, fieldType reflect.StructField, options common.BindOptions) error {
+	if !value.IsValid() {
+		return nil
+	}
+
+	valueInterface := value.Interface()
+
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(m.convertToString(valueInterface))
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if intVal, err := m.convertToInt(valueInterface); err == nil {
+			field.SetInt(intVal)
+		} else if !options.ErrorOnMissing {
+			return nil
+		} else {
+			return err
+		}
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if uintVal, err := m.convertToUint(valueInterface); err == nil {
+			field.SetUint(uintVal)
+		} else if !options.ErrorOnMissing {
+			return nil
+		} else {
+			return err
+		}
+
+	case reflect.Float32, reflect.Float64:
+		if floatVal, err := m.convertToFloat(valueInterface); err == nil {
+			field.SetFloat(floatVal)
+		} else if !options.ErrorOnMissing {
+			return nil
+		} else {
+			return err
+		}
+
+	case reflect.Bool:
+		if boolVal, err := m.convertToBool(valueInterface); err == nil {
+			field.SetBool(boolVal)
+		} else if !options.ErrorOnMissing {
+			return nil
+		} else {
+			return err
+		}
+
+	case reflect.Slice:
+		if slice, ok := valueInterface.([]interface{}); ok {
+			return m.setSliceValue(field, slice)
+		}
+
+	case reflect.Map:
+		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+			if options.DeepMerge && !field.IsZero() {
+				// Deep merge with existing map
+				return m.mergeMapValue(field, mapVal, options)
+			}
+			return m.setMapValue(field, mapVal)
+		}
+
+	case reflect.Struct:
+		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+			if options.DeepMerge && !field.IsZero() {
+				// Deep merge with existing struct
+				return m.mergeStructValue(field, mapVal, options)
+			}
+			return m.bindMapToStructWithOptions(reflect.ValueOf(mapVal), field, options)
+		}
+
+	case reflect.Ptr:
+		if field.IsNil() {
+			field.Set(reflect.New(field.Type().Elem()))
+		}
+		return m.setFieldValueWithDeepMerge(field.Elem(), value, fieldType, options)
+	}
+
+	return nil
+}
+
+// mergeMapValue deeply merges a map into an existing field
+func (m *Manager) mergeMapValue(field reflect.Value, newData map[string]interface{}, options common.BindOptions) error {
+	if field.IsNil() {
+		return m.setMapValue(field, newData)
+	}
+
+	mapValueType := field.Type().Elem()
+
+	// Create merged map
+	merged := reflect.MakeMap(field.Type())
+
+	// Copy existing values
+	for _, key := range field.MapKeys() {
+		merged.SetMapIndex(key, field.MapIndex(key))
+	}
+
+	// Merge new values
+	for key, value := range newData {
+		keyValue := reflect.ValueOf(key)
+
+		// Convert value to correct type
+		var convertedValue reflect.Value
+
+		if mapValueType.Kind() == reflect.Struct {
+			// Create new struct instance
+			structInstance := reflect.New(mapValueType).Elem()
+
+			if valueMap, ok := value.(map[string]interface{}); ok {
+				// Check if we should deep merge with existing
+				if existingValue := field.MapIndex(keyValue); existingValue.IsValid() && options.DeepMerge {
+					// Deep merge existing struct with new data
+					if err := m.mergeStructValue(existingValue, valueMap, options); err != nil {
+						return err
+					}
+					merged.SetMapIndex(keyValue, existingValue)
+					continue
+				} else {
+					// Bind new struct
+					if err := m.bindMapToStructWithOptions(reflect.ValueOf(valueMap), structInstance, options); err != nil {
+						return fmt.Errorf("failed to bind map value for key '%v': %w", key, err)
+					}
+					convertedValue = structInstance
+				}
+			} else {
+				convertedValue = reflect.ValueOf(value)
+			}
+		} else {
+			convertedValue = reflect.ValueOf(value)
+
+			// Convert if types don't match
+			if convertedValue.Type() != mapValueType {
+				if convertedValue.Type().ConvertibleTo(mapValueType) {
+					convertedValue = convertedValue.Convert(mapValueType)
+				}
+			}
+		}
+
+		merged.SetMapIndex(keyValue, convertedValue)
+	}
+
+	field.Set(merged)
+	return nil
+}
+
+func (m *Manager) mergeStructValue(structField reflect.Value, mapData map[string]interface{}, options common.BindOptions) error {
+	// Extract current struct values to map
+	currentData := make(map[string]interface{})
+	structType := structField.Type()
+
+	for i := 0; i < structField.NumField(); i++ {
+		field := structField.Field(i)
+		fieldType := structType.Field(i)
+
+		if !field.CanInterface() {
+			continue
+		}
+
+		fieldName := m.getFieldNameWithOptions(fieldType, options)
+		if fieldName != "" && !field.IsZero() {
+			currentData[fieldName] = field.Interface()
+		}
+	}
+
+	// Deep merge current with new data (new data takes precedence)
+	mergedData := m.deepMergeValues(currentData, mapData)
+
+	// Bind merged data back to struct
+	if mergedMap, ok := mergedData.(map[string]interface{}); ok {
+		return m.bindMapToStructWithOptions(reflect.ValueOf(mergedMap), structField, options)
+	}
+
 	return nil
 }
 
@@ -2045,8 +2796,6 @@ func (m *Manager) getAllKeys(data interface{}, prefix string) []string {
 			}
 
 			keys = append(keys, fullKey)
-
-			// Recursively get nested keys
 			nestedKeys := m.getAllKeys(value, fullKey)
 			keys = append(keys, nestedKeys...)
 		}
@@ -2116,7 +2865,6 @@ func (m *Manager) expandEnvInSlice(slice []interface{}) {
 }
 
 func (m *Manager) expandEnvInString(s string) string {
-	// Simple implementation - can be enhanced with more sophisticated expansion
 	return os.Expand(s, os.Getenv)
 }
 
@@ -2133,285 +2881,4 @@ func (m *Manager) notifyChangeCallbacks(change ConfigChange) {
 	for _, callback := range m.changeCallbacks {
 		go callback(change)
 	}
-}
-
-// bindValueWithOptions binds a value to target with options
-func (m *Manager) bindValueWithOptions(value interface{}, target interface{}, options common.BindOptions) error {
-	targetValue := reflect.ValueOf(target)
-	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
-		return common.ErrConfigError("target must be a pointer to struct", nil)
-	}
-
-	targetStruct := targetValue.Elem()
-	sourceValue := reflect.ValueOf(value)
-
-	if sourceValue.Kind() == reflect.Map {
-		return m.bindMapToStructWithOptions(sourceValue, targetStruct, options)
-	}
-
-	return common.ErrConfigError("unsupported value type for binding", nil)
-}
-
-// bindMapToStructWithOptions binds a map to struct with options
-func (m *Manager) bindMapToStructWithOptions(mapValue reflect.Value, structValue reflect.Value, options common.BindOptions) error {
-	structType := structValue.Type()
-
-	// Track required fields
-	requiredFields := make(map[string]bool)
-	for _, field := range options.Required {
-		requiredFields[field] = false
-	}
-
-	for i := 0; i < structValue.NumField(); i++ {
-		field := structValue.Field(i)
-		fieldType := structType.Field(i)
-
-		if !field.CanSet() {
-			continue
-		}
-
-		// Get field name from tags or use field name
-		fieldName := m.getFieldNameWithOptions(fieldType, options)
-		if fieldName == "" {
-			continue
-		}
-
-		// Mark required field as found
-		if _, isRequired := requiredFields[fieldName]; isRequired {
-			requiredFields[fieldName] = true
-		}
-
-		// Get value from map with case sensitivity handling
-		var mapVal reflect.Value
-		if options.IgnoreCase {
-			mapVal = m.findMapValueIgnoreCase(mapValue, fieldName)
-		} else {
-			mapKey := reflect.ValueOf(fieldName)
-			mapVal = mapValue.MapIndex(mapKey)
-		}
-
-		if !mapVal.IsValid() {
-			// Handle missing field
-			if options.UseDefaults {
-				// Skip - let struct keep its default value
-				continue
-			}
-			if options.ErrorOnMissing {
-				return common.ErrConfigError(fmt.Sprintf("required field '%s' not found in configuration", fieldName), nil)
-			}
-			continue
-		}
-
-		// Set field value with deep merge support
-		if err := m.setFieldValueWithOptions(field, mapVal, options); err != nil {
-			return err
-		}
-	}
-
-	// Check if all required fields were found
-	for fieldName, found := range requiredFields {
-		if !found {
-			return common.ErrConfigError(fmt.Sprintf("required field '%s' not found in configuration", fieldName), nil)
-		}
-	}
-
-	return nil
-}
-
-// getFieldNameWithOptions gets field name considering options
-func (m *Manager) getFieldNameWithOptions(field reflect.StructField, options common.BindOptions) string {
-	tagName := options.TagName
-	if tagName == "" {
-		tagName = "yaml"
-	}
-
-	// Check specified tag first
-	if tag := field.Tag.Get(tagName); tag != "" && tag != "-" {
-		return strings.Split(tag, ",")[0]
-	}
-
-	// Fallback to other common tags
-	if tagName != "yaml" {
-		if tag := field.Tag.Get("yaml"); tag != "" && tag != "-" {
-			return strings.Split(tag, ",")[0]
-		}
-	}
-	if tagName != "json" {
-		if tag := field.Tag.Get("json"); tag != "" && tag != "-" {
-			return strings.Split(tag, ",")[0]
-		}
-	}
-	if tagName != "config" {
-		if tag := field.Tag.Get("config"); tag != "" && tag != "-" {
-			return strings.Split(tag, ",")[0]
-		}
-	}
-
-	// Use field name
-	return field.Name
-}
-
-// findMapValueIgnoreCase finds a map value ignoring case
-func (m *Manager) findMapValueIgnoreCase(mapValue reflect.Value, fieldName string) reflect.Value {
-	fieldNameLower := strings.ToLower(fieldName)
-
-	for _, key := range mapValue.MapKeys() {
-		if keyStr, ok := key.Interface().(string); ok {
-			if strings.ToLower(keyStr) == fieldNameLower {
-				return mapValue.MapIndex(key)
-			}
-		}
-	}
-
-	return reflect.Value{}
-}
-
-// setFieldValueWithOptions sets field value considering options
-func (m *Manager) setFieldValueWithOptions(field reflect.Value, value reflect.Value, options common.BindOptions) error {
-	if !value.IsValid() {
-		return nil
-	}
-
-	valueInterface := value.Interface()
-
-	// Handle different field types
-	switch field.Kind() {
-	case reflect.String:
-		if str, ok := valueInterface.(string); ok {
-			field.SetString(str)
-		} else {
-			field.SetString(fmt.Sprintf("%v", valueInterface))
-		}
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if intVal, err := m.convertToInt(valueInterface); err == nil {
-			field.SetInt(intVal)
-		} else if !options.ErrorOnMissing {
-			// Keep default value
-			return nil
-		} else {
-			return err
-		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if uintVal, err := m.convertToUint(valueInterface); err == nil {
-			field.SetUint(uintVal)
-		} else if !options.ErrorOnMissing {
-			return nil
-		} else {
-			return err
-		}
-	case reflect.Float32, reflect.Float64:
-		if floatVal, err := m.convertToFloat(valueInterface); err == nil {
-			field.SetFloat(floatVal)
-		} else if !options.ErrorOnMissing {
-			return nil
-		} else {
-			return err
-		}
-	case reflect.Bool:
-		if boolVal, err := m.convertToBool(valueInterface); err == nil {
-			field.SetBool(boolVal)
-		} else if !options.ErrorOnMissing {
-			return nil
-		} else {
-			return err
-		}
-	case reflect.Slice:
-		if slice, ok := valueInterface.([]interface{}); ok {
-			return m.setSliceValueWithOptions(field, slice, options)
-		}
-	case reflect.Map:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
-			return m.setMapValueWithOptions(field, mapVal, options)
-		}
-	case reflect.Struct:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
-			if options.DeepMerge && !field.IsZero() {
-				// For deep merge, we need to merge with existing struct values
-				return m.mergeStructValue(field, mapVal, options)
-			} else {
-				return m.bindMapToStructWithOptions(reflect.ValueOf(mapVal), field, options)
-			}
-		}
-	case reflect.Ptr:
-		if field.IsNil() {
-			field.Set(reflect.New(field.Type().Elem()))
-		}
-		return m.setFieldValueWithOptions(field.Elem(), value, options)
-	}
-
-	return nil
-}
-
-// mergeStructValue merges map data with existing struct values
-func (m *Manager) mergeStructValue(structField reflect.Value, mapData map[string]interface{}, options common.BindOptions) error {
-	// Create a temporary map with current struct values
-	currentData := make(map[string]interface{})
-
-	// Extract current values from struct
-	structType := structField.Type()
-	for i := 0; i < structField.NumField(); i++ {
-		field := structField.Field(i)
-		fieldType := structType.Field(i)
-
-		if !field.CanInterface() {
-			continue
-		}
-
-		fieldName := m.getFieldNameWithOptions(fieldType, options)
-		if fieldName != "" && !field.IsZero() {
-			currentData[fieldName] = field.Interface()
-		}
-	}
-
-	// Merge with new data
-	mergedData := make(map[string]interface{})
-	for k, v := range currentData {
-		mergedData[k] = v
-	}
-	for k, v := range mapData {
-		if existingValue, exists := mergedData[k]; exists {
-			// Deep merge nested maps
-			if existingMap, ok := existingValue.(map[string]interface{}); ok {
-				if newMap, ok := v.(map[string]interface{}); ok {
-					merged := make(map[string]interface{})
-					for mk, mv := range existingMap {
-						merged[mk] = mv
-					}
-					for mk, mv := range newMap {
-						merged[mk] = mv
-					}
-					mergedData[k] = merged
-					continue
-				}
-			}
-		}
-		mergedData[k] = v
-	}
-
-	// Bind merged data to struct
-	return m.bindMapToStructWithOptions(reflect.ValueOf(mergedData), structField, options)
-}
-
-// setSliceValueWithOptions sets slice value with options
-func (m *Manager) setSliceValueWithOptions(field reflect.Value, slice []interface{}, options common.BindOptions) error {
-	sliceValue := reflect.MakeSlice(field.Type(), len(slice), len(slice))
-	for i, item := range slice {
-		if err := m.setFieldValueWithOptions(sliceValue.Index(i), reflect.ValueOf(item), options); err != nil {
-			return err
-		}
-	}
-	field.Set(sliceValue)
-	return nil
-}
-
-// setMapValueWithOptions sets map value with options
-func (m *Manager) setMapValueWithOptions(field reflect.Value, mapData map[string]interface{}, options common.BindOptions) error {
-	mapValue := reflect.MakeMap(field.Type())
-	for key, value := range mapData {
-		keyValue := reflect.ValueOf(key)
-		valueValue := reflect.ValueOf(value)
-		mapValue.SetMapIndex(keyValue, valueValue)
-	}
-	field.Set(mapValue)
-	return nil
 }

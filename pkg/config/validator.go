@@ -1,6 +1,7 @@
 package config
 
 import (
+	errors2 "errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -775,7 +776,7 @@ func (v *Validator) createValidationError(errors []ValidationError) error {
 		messages = append(messages, fmt.Sprintf("%s: %s", err.Key, err.Message))
 	}
 
-	return common.ErrValidationError("configuration", fmt.Errorf(strings.Join(messages, "; ")))
+	return common.ErrValidationError("configuration", errors2.New(strings.Join(messages, "; ")))
 }
 
 func (v *Validator) logValidationIssues(result ValidationResult) {

@@ -646,24 +646,24 @@ func RegisterConsensusMetrics(metricsCollector common.Metrics, consensusManager 
 
 	collector := NewConsensusMetricsCollector(consensusManager, metricsCollector, logger, config)
 
-	// Register custom metric collector
-	if customCollector, ok := metricsCollector.(interface {
-		RegisterCollector(name string, collector func() map[string]interface{}) error
-	}); ok {
-		return collector, customCollector.RegisterCollector("consensus-system", func() map[string]interface{} {
-			summary := collector.GetMetricsSummary()
-			return map[string]interface{}{
-				"total_clusters":   summary.TotalClusters,
-				"total_nodes":      summary.TotalNodes,
-				"active_nodes":     summary.ActiveNodes,
-				"leaders_present":  summary.LeadersPresent,
-				"total_elections":  summary.ElectionMetrics.TotalElections,
-				"total_operations": summary.PerformanceMetrics.TotalOperations,
-				"error_rate":       summary.PerformanceMetrics.ErrorRate,
-				"last_collection":  summary.LastCollection,
-			}
-		})
-	}
+	// // Register custom metric collector
+	// if customCollector, ok := metricsCollector.(interface {
+	// 	RegisterCollector(name string, collector func() map[string]interface{}) error
+	// }); ok {
+	// 	return collector, customCollector.RegisterCollector("consensus-system", func() map[string]interface{} {
+	// 		summary := collector.GetMetricsSummary()
+	// 		return map[string]interface{}{
+	// 			"total_clusters":   summary.TotalClusters,
+	// 			"total_nodes":      summary.TotalNodes,
+	// 			"active_nodes":     summary.ActiveNodes,
+	// 			"leaders_present":  summary.LeadersPresent,
+	// 			"total_elections":  summary.ElectionMetrics.TotalElections,
+	// 			"total_operations": summary.PerformanceMetrics.TotalOperations,
+	// 			"error_rate":       summary.PerformanceMetrics.ErrorRate,
+	// 			"last_collection":  summary.LastCollection,
+	// 		}
+	// 	})
+	// }
 
 	return collector, nil
 }

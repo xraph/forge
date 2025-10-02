@@ -185,7 +185,7 @@ func (b *ServiceHealthCheckBuilder) BuildForAllServices() []health.HealthCheck {
 	for _, service := range services {
 		serviceName := service.Name
 		if serviceName == "" {
-			serviceName = service.Type.String()
+			serviceName = service.ServiceName()
 		}
 
 		checks = append(checks, b.BuildForService(serviceName))

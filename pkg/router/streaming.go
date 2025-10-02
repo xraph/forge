@@ -80,7 +80,7 @@ func (si *StreamingIntegration) RegisterWebSocket(path string, handler interface
 	httpHandler := si.createWebSocketWrapper(handler, info)
 
 	// Register with base router
-	si.router.SteelRouter.GET(path, httpHandler)
+	si.router.adapter.GET(path, httpHandler)
 
 	// Store handler info
 	si.wsHandlers[path] = info
@@ -148,7 +148,7 @@ func (si *StreamingIntegration) RegisterSSE(path string, handler interface{}, op
 	httpHandler := si.createSSEWrapper(handler, info)
 
 	// Register with base router
-	si.router.SteelRouter.GET(path, httpHandler)
+	si.router.adapter.GET(path, httpHandler)
 
 	// Store handler info
 	si.sseHandlers[path] = info

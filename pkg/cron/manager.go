@@ -11,6 +11,7 @@ import (
 	"github.com/xraph/forge/pkg/cron/election"
 	"github.com/xraph/forge/pkg/cron/execution"
 	"github.com/xraph/forge/pkg/cron/persistence"
+	"github.com/xraph/forge/pkg/database"
 	"github.com/xraph/forge/pkg/events"
 	"github.com/xraph/forge/pkg/logger"
 )
@@ -62,7 +63,7 @@ type CronConfig struct {
 }
 
 // NewCronManager creates a new cron manager
-func NewCronManager(config *CronConfig, logger common.Logger, metrics common.Metrics, eventBus events.EventBus, healthChecker common.HealthChecker) (*CronManager, error) {
+func NewCronManager(db database.Connection, config *CronConfig, logger common.Logger, metrics common.Metrics, eventBus events.EventBus, healthChecker common.HealthChecker) (*CronManager, error) {
 	if config == nil {
 		return nil, common.ErrInvalidConfig("config", fmt.Errorf("config cannot be nil"))
 	}
@@ -72,7 +73,7 @@ func NewCronManager(config *CronConfig, logger common.Logger, metrics common.Met
 	}
 
 	// Create store
-	store, err := persistence.NewDatabaseStore(config.StoreConfig)
+	store, err := persistence.NewDatabaseStore(db, config.StoreConfig, logger)
 	if err != nil {
 		return nil, common.ErrServiceStartFailed("cron-manager", err)
 	}
@@ -663,7 +664,7 @@ func (cm *CronManager) emitJobEvent(eventType JobEventType, job *Job, err error)
 	cm.store.CreateEvent(ctx, event)
 
 	// Emit to event bus
-	cm.eventBus.Publish(ctx, common.Event{
+	cm.eventBus.Publish(ctx, &events.Event{
 		Type:        string(eventType),
 		AggregateID: job.Definition.ID,
 		Data:        event,

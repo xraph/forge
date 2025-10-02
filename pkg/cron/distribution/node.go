@@ -791,7 +791,7 @@ func (nm *NodeManager) emitNodeEvent(eventType NodeEventType, nodeID string, det
 
 	if nm.logger != nil {
 		nm.logger.Info("node event",
-			logger.String("event_type", string(eventType)),
+			logger.String("event_type", string(event.Type)),
 			logger.String("node_id", nodeID),
 			logger.Any("details", details),
 		)
