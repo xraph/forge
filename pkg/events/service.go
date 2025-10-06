@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/xraph/forge/pkg/common"
-	"github.com/xraph/forge/pkg/database"
 	"github.com/xraph/forge/pkg/events/brokers/memory"
 	"github.com/xraph/forge/pkg/events/brokers/nats"
 	"github.com/xraph/forge/pkg/events/brokers/redis"
@@ -21,7 +20,7 @@ type EventService struct {
 	name            string
 	bus             EventBus
 	store           EventStore
-	dbManager       database.DatabaseManager
+	dbManager       common.DatabaseManager
 	handlerRegistry *HandlerRegistry
 	config          *EventServiceConfig
 	logger          common.Logger
@@ -93,7 +92,7 @@ func DefaultEventServiceConfig() *EventServiceConfig {
 }
 
 // NewEventService creates a new event service
-func NewEventService(config *EventServiceConfig, dbManager database.DatabaseManager, logger common.Logger, metrics common.Metrics) *EventService {
+func NewEventService(config *EventServiceConfig, dbManager common.DatabaseManager, logger common.Logger, metrics common.Metrics) *EventService {
 	if config == nil {
 		config = DefaultEventServiceConfig()
 	}
@@ -510,7 +509,7 @@ func (es *EventService) Validate() error {
 }
 
 // EventServiceFactory creates an EventService instance for DI
-func EventServiceFactory(l common.Logger, metrics common.Metrics, configManager common.ConfigManager, dbManager database.DatabaseManager) *EventService {
+func EventServiceFactory(l common.Logger, metrics common.Metrics, configManager common.ConfigManager, dbManager common.DatabaseManager) *EventService {
 	config := DefaultEventServiceConfig()
 
 	// Bind configuration from config manager if available

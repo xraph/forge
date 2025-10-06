@@ -10,14 +10,13 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/xraph/forge/pkg/common"
-	"github.com/xraph/forge/pkg/database"
 	eventscore "github.com/xraph/forge/pkg/events/core"
 	"github.com/xraph/forge/pkg/logger"
 )
 
 // PostgresEventStore implements EventStore interface using PostgreSQL
 type PostgresEventStore struct {
-	connection database.Connection
+	connection common.Connection
 	db         *gorm.DB
 	logger     common.Logger
 	metrics    common.Metrics
@@ -63,7 +62,7 @@ func (PostgresSnapshot) TableName() string {
 }
 
 // NewPostgresEventStore creates a new PostgreSQL event store
-func NewPostgresEventStore(config *eventscore.EventStoreConfig, l common.Logger, metrics common.Metrics, dbManager database.DatabaseManager) (eventscore.EventStore, error) {
+func NewPostgresEventStore(config *eventscore.EventStoreConfig, l common.Logger, metrics common.Metrics, dbManager common.DatabaseManager) (eventscore.EventStore, error) {
 	// Get database connection
 	connectionName := "default"
 	if config.ConnectionName != "" {

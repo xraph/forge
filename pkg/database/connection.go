@@ -11,67 +11,13 @@ import (
 )
 
 // Connection defines the interface for database connections
-type Connection interface {
-	common.Service // Integrates with Phase 1 service lifecycle
-
-	// Connection management
-	Name() string
-	Type() string
-	DB() any                           // Returns underlying database connection
-	Connect(ctx context.Context) error // Connect to database
-	Close(ctx context.Context) error   // Close database connection
-	Ping(ctx context.Context) error    // Ping database
-	IsConnected() bool                 // Check if connected
-
-	// Transaction management
-	Transaction(ctx context.Context, fn func(tx interface{}) error) error
-
-	// Configuration
-	Config() *ConnectionConfig // Get connection configuration
-	ConnectionString() string  // Get connection string (sanitized)
-
-	// Health and metrics
-	Stats() ConnectionStats                        // Get connection statistics
-	SetHealthCheckInterval(interval time.Duration) // Set health check interval
-}
+type Connection = common.Connection
 
 // DatabaseAdapter defines the interface for database adapters
-type DatabaseAdapter interface {
-	// Adapter information
-	Name() string
-	SupportedTypes() []string
-
-	// Connection management
-	Connect(ctx context.Context, config *ConnectionConfig) (Connection, error)
-	ValidateConfig(config *ConnectionConfig) error
-
-	// Migration support
-	SupportsMigrations() bool
-	Migrate(ctx context.Context, conn Connection, migrationsPath string) error
-
-	// Health checking
-	HealthCheck(ctx context.Context, conn Connection) error
-}
+type DatabaseAdapter = common.DatabaseAdapter
 
 // ConnectionStats represents connection statistics
-type ConnectionStats struct {
-	Name             string        `json:"name"`
-	Type             string        `json:"type"`
-	Connected        bool          `json:"connected"`
-	ConnectedAt      time.Time     `json:"connected_at"`
-	LastPing         time.Time     `json:"last_ping"`
-	PingDuration     time.Duration `json:"ping_duration"`
-	TransactionCount int64         `json:"transaction_count"`
-	QueryCount       int64         `json:"query_count"`
-	ErrorCount       int64         `json:"error_count"`
-	LastError        string        `json:"last_error,omitempty"`
-	OpenConnections  int           `json:"open_connections"`
-	IdleConnections  int           `json:"idle_connections"`
-	MaxOpenConns     int           `json:"max_open_conns"`
-	MaxIdleConns     int           `json:"max_idle_conns"`
-	ConnMaxLifetime  time.Duration `json:"conn_max_lifetime"`
-	ConnMaxIdleTime  time.Duration `json:"conn_max_idle_time"`
-}
+type ConnectionStats = common.ConnectionStats
 
 // BaseConnection provides common functionality for database connections
 type BaseConnection struct {
@@ -501,11 +447,7 @@ func (cf *ConnectionFactory) ListAdapters() []string {
 }
 
 // AdapterInfo contains information about a database adapter
-type AdapterInfo struct {
-	Name           string   `json:"name"`
-	SupportedTypes []string `json:"supported_types"`
-	Migrations     bool     `json:"supports_migrations"`
-}
+type AdapterInfo = common.AdapterInfo
 
 // GetAdapterInfo returns information about all registered adapters
 func (cf *ConnectionFactory) GetAdapterInfo() []AdapterInfo {

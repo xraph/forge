@@ -828,7 +828,7 @@ func (app *ForgeApplication) enableEventBusFeature(config *events.EventServiceCo
 	return app.container.Register(common.ServiceDefinition{
 		Name: common.EventBusKey,
 		Type: (*events.EventBus)(nil),
-		Constructor: func(logger common.Logger, metrics common.Metrics, dbManager database.DatabaseManager, configMgr common.ConfigManager) (events.EventBus, error) {
+		Constructor: func(logger common.Logger, metrics common.Metrics, dbManager common.DatabaseManager, configMgr common.ConfigManager) (events.EventBus, error) {
 			service := events.NewEventService(config, dbManager, logger, metrics)
 			if err := service.Validate(); err != nil {
 				return nil, err

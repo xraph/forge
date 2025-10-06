@@ -10,14 +10,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/xraph/forge/pkg/common"
-	"github.com/xraph/forge/pkg/database"
 	eventscore "github.com/xraph/forge/pkg/events/core"
 	"github.com/xraph/forge/pkg/logger"
 )
 
 // MongoEventStore implements EventStore interface using MongoDB
 type MongoEventStore struct {
-	connection       database.Connection
+	connection       common.Connection
 	client           *mongo.Client
 	database         *mongo.Database
 	eventsCollection *mongo.Collection
@@ -56,7 +55,7 @@ type MongoSnapshot struct {
 }
 
 // NewMongoEventStore creates a new MongoDB event store
-func NewMongoEventStore(config *eventscore.EventStoreConfig, l common.Logger, metrics common.Metrics, dbManager database.DatabaseManager) (eventscore.EventStore, error) {
+func NewMongoEventStore(config *eventscore.EventStoreConfig, l common.Logger, metrics common.Metrics, dbManager common.DatabaseManager) (eventscore.EventStore, error) {
 	// Get database connection
 	connectionName := "default"
 	if config.ConnectionName != "" {
@@ -69,7 +68,7 @@ func NewMongoEventStore(config *eventscore.EventStoreConfig, l common.Logger, me
 	}
 
 	// Type assert to get MongoDB connection
-	mongoConnection, ok := connection.(database.Connection)
+	mongoConnection, ok := connection.(common.Connection)
 	if !ok {
 		return nil, fmt.Errorf("connection '%s' is not a MongoDB connection", connectionName)
 	}

@@ -6,7 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xraph/forge/pkg/database"
+	"github.com/xraph/forge/pkg/common"
+
+	// "github.com/xraph/forge/pkg/database"
 	"github.com/xraph/forge/pkg/logger"
 	metrics "github.com/xraph/forge/pkg/metrics/core"
 )
@@ -19,7 +21,7 @@ import (
 type DatabaseCollector struct {
 	name               string
 	interval           time.Duration
-	dbManager          database.DatabaseManager
+	dbManager          common.DatabaseManager
 	logger             logger.Logger
 	metrics            map[string]interface{}
 	enabled            bool
@@ -91,12 +93,12 @@ func DefaultDatabaseCollectorConfig() *DatabaseCollectorConfig {
 }
 
 // NewDatabaseCollector creates a new database collector
-func NewDatabaseCollector(dbManager database.DatabaseManager, logger logger.Logger) metrics.CustomCollector {
+func NewDatabaseCollector(dbManager common.DatabaseManager, logger logger.Logger) metrics.CustomCollector {
 	return NewDatabaseCollectorWithConfig(dbManager, DefaultDatabaseCollectorConfig(), logger)
 }
 
 // NewDatabaseCollectorWithConfig creates a new database collector with configuration
-func NewDatabaseCollectorWithConfig(dbManager database.DatabaseManager, config *DatabaseCollectorConfig, logger logger.Logger) metrics.CustomCollector {
+func NewDatabaseCollectorWithConfig(dbManager common.DatabaseManager, config *DatabaseCollectorConfig, logger logger.Logger) metrics.CustomCollector {
 	return &DatabaseCollector{
 		name:            "database",
 		interval:        config.Interval,
@@ -204,7 +206,7 @@ func (dc *DatabaseCollector) collectConnectionStats() error {
 }
 
 // collectConnectionStatsForDB collects connection statistics for a specific database
-func (dc *DatabaseCollector) collectConnectionStatsForDB(dbName string, conn database.Connection) error {
+func (dc *DatabaseCollector) collectConnectionStatsForDB(dbName string, conn common.Connection) error {
 	// Get SQL database handle if available
 	sqlDB, err := dc.getSQLDB(conn)
 	if err != nil {
@@ -228,7 +230,7 @@ func (dc *DatabaseCollector) collectConnectionStatsForDB(dbName string, conn dat
 	dc.connectionStats[dbName] = connectionStats
 
 	// Add metrics to collection
-	prefix := fmt.Sprintf("database.%s.connections", dbName)
+	prefix := fmt.Sprintf("common.%s.connections", dbName)
 	dc.metrics[prefix+".active"] = connectionStats.ActiveConnections
 	dc.metrics[prefix+".idle"] = connectionStats.IdleConnections
 	dc.metrics[prefix+".total"] = connectionStats.TotalConnections
@@ -247,13 +249,13 @@ func (dc *DatabaseCollector) collectConnectionStatsForDB(dbName string, conn dat
 }
 
 // getSQLDB extracts SQL database handle from connection
-func (dc *DatabaseCollector) getSQLDB(conn database.Connection) (*sql.DB, error) {
+func (dc *DatabaseCollector) getSQLDB(conn common.Connection) (*sql.DB, error) {
 	// This is a simplified implementation
 	// In a real implementation, we would need to handle different database types
 	// and extract the underlying *sql.DB handle
 
 	// For now, return a placeholder - this would be implemented based on
-	// the actual database.Connection interface implementation
+	// the actual common.Connection interface implementation
 	return nil, fmt.Errorf("SQL database handle extraction not implemented")
 }
 
@@ -265,7 +267,7 @@ func (dc *DatabaseCollector) getSQLDB(conn database.Connection) (*sql.DB, error)
 func (dc *DatabaseCollector) collectQueryStats() error {
 	// Calculate aggregate query statistics
 	for dbName, stats := range dc.queryStats {
-		prefix := fmt.Sprintf("database.%s.queries", dbName)
+		prefix := fmt.Sprintf("common.%s.queries", dbName)
 
 		dc.metrics[prefix+".count"] = stats.QueryCount
 		dc.metrics[prefix+".total_duration"] = stats.TotalDuration.Seconds()
@@ -371,10 +373,10 @@ func (dc *DatabaseCollector) collectDatabaseSpecificMetrics() error {
 }
 
 // collectDatabaseMetrics collects metrics for a specific database
-func (dc *DatabaseCollector) collectDatabaseMetrics(dbName string, conn database.Connection) error {
+func (dc *DatabaseCollector) collectDatabaseMetrics(dbName string, conn common.Connection) error {
 	// Get database type
 	dbType := conn.Type()
-	prefix := fmt.Sprintf("database.%s", dbName)
+	prefix := fmt.Sprintf("common.%s", dbName)
 
 	// Common metrics
 	dc.metrics[prefix+".type"] = dbType
@@ -398,8 +400,8 @@ func (dc *DatabaseCollector) collectDatabaseMetrics(dbName string, conn database
 }
 
 // collectPostgresMetrics collects PostgreSQL-specific metrics
-func (dc *DatabaseCollector) collectPostgresMetrics(dbName string, conn database.Connection) error {
-	prefix := fmt.Sprintf("database.%s.postgres", dbName)
+func (dc *DatabaseCollector) collectPostgresMetrics(dbName string, conn common.Connection) error {
+	prefix := fmt.Sprintf("common.%s.postgres", dbName)
 
 	// Placeholder for PostgreSQL-specific metrics
 	// In a real implementation, this would query PostgreSQL system tables
@@ -413,8 +415,8 @@ func (dc *DatabaseCollector) collectPostgresMetrics(dbName string, conn database
 }
 
 // collectMySQLMetrics collects MySQL-specific metrics
-func (dc *DatabaseCollector) collectMySQLMetrics(dbName string, conn database.Connection) error {
-	prefix := fmt.Sprintf("database.%s.mysql", dbName)
+func (dc *DatabaseCollector) collectMySQLMetrics(dbName string, conn common.Connection) error {
+	prefix := fmt.Sprintf("common.%s.mysql", dbName)
 
 	// Placeholder for MySQL-specific metrics
 	dc.metrics[prefix+".version"] = "unknown"
@@ -427,8 +429,8 @@ func (dc *DatabaseCollector) collectMySQLMetrics(dbName string, conn database.Co
 }
 
 // collectMongoDBMetrics collects MongoDB-specific metrics
-func (dc *DatabaseCollector) collectMongoDBMetrics(dbName string, conn database.Connection) error {
-	prefix := fmt.Sprintf("database.%s.mongodb", dbName)
+func (dc *DatabaseCollector) collectMongoDBMetrics(dbName string, conn common.Connection) error {
+	prefix := fmt.Sprintf("common.%s.mongodb", dbName)
 
 	// Placeholder for MongoDB-specific metrics
 	dc.metrics[prefix+".version"] = "unknown"
@@ -441,8 +443,8 @@ func (dc *DatabaseCollector) collectMongoDBMetrics(dbName string, conn database.
 }
 
 // collectRedisMetrics collects Redis-specific metrics
-func (dc *DatabaseCollector) collectRedisMetrics(dbName string, conn database.Connection) error {
-	prefix := fmt.Sprintf("database.%s.redis", dbName)
+func (dc *DatabaseCollector) collectRedisMetrics(dbName string, conn common.Connection) error {
+	prefix := fmt.Sprintf("common.%s.redis", dbName)
 
 	// Placeholder for Redis-specific metrics
 	dc.metrics[prefix+".version"] = "unknown"
@@ -455,8 +457,8 @@ func (dc *DatabaseCollector) collectRedisMetrics(dbName string, conn database.Co
 }
 
 // collectGenericMetrics collects generic database metrics
-func (dc *DatabaseCollector) collectGenericMetrics(dbName string, conn database.Connection) error {
-	prefix := fmt.Sprintf("database.%s.generic", dbName)
+func (dc *DatabaseCollector) collectGenericMetrics(dbName string, conn common.Connection) error {
+	prefix := fmt.Sprintf("common.%s.generic", dbName)
 
 	// Basic metrics available for all database types
 	dc.metrics[prefix+".connected"] = dc.isConnected(conn)
@@ -470,7 +472,7 @@ func (dc *DatabaseCollector) collectGenericMetrics(dbName string, conn database.
 // =============================================================================
 
 // getDatabaseStatus returns the database connection status
-func (dc *DatabaseCollector) getDatabaseStatus(conn database.Connection) string {
+func (dc *DatabaseCollector) getDatabaseStatus(conn common.Connection) string {
 	if dc.isConnected(conn) {
 		return "connected"
 	}
@@ -478,22 +480,22 @@ func (dc *DatabaseCollector) getDatabaseStatus(conn database.Connection) string 
 }
 
 // isConnected checks if the database connection is active
-func (dc *DatabaseCollector) isConnected(conn database.Connection) bool {
-	// This would be implemented based on the actual database.Connection interface
+func (dc *DatabaseCollector) isConnected(conn common.Connection) bool {
+	// This would be implemented based on the actual common.Connection interface
 	// For now, we'll assume all connections are active
 	return true
 }
 
 // getLastPingTime returns the last ping time for the database
-func (dc *DatabaseCollector) getLastPingTime(conn database.Connection) time.Time {
-	// This would be implemented based on the actual database.Connection interface
+func (dc *DatabaseCollector) getLastPingTime(conn common.Connection) time.Time {
+	// This would be implemented based on the actual common.Connection interface
 	// For now, return current time
 	return time.Now()
 }
 
 // getLastError returns the last error for the database connection
-func (dc *DatabaseCollector) getLastError(conn database.Connection) string {
-	// This would be implemented based on the actual database.Connection interface
+func (dc *DatabaseCollector) getLastError(conn common.Connection) string {
+	// This would be implemented based on the actual common.Connection interface
 	// For now, return empty string
 	return ""
 }
