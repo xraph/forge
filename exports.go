@@ -21,6 +21,7 @@ type Container = common.Container
 type ContainerConfig = di.ContainerConfig
 type Middleware = common.Middleware
 type Router = common.Router
+type Controller = common.Controller
 type RouteDefinition = common.RouteDefinition
 
 func NewContainer(config ContainerConfig) Container {
@@ -39,6 +40,10 @@ type Plugin = common.Plugin
 type PluginMetrics = common.PluginMetrics
 type Hook = common.Hook
 type ConfigSchema = common.ConfigSchema
+type ConfigProperty = common.ConfigProperty
+type NamedMiddleware = common.NamedMiddleware
+type StatefulMiddleware = common.StatefulMiddleware
+type InstrumentedMiddleware = common.InstrumentedMiddleware
 type CLICommand = common.CLICommand
 type PluginDependency = common.PluginDependency
 type PluginCapability = common.PluginCapability
