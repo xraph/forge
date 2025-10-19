@@ -1,0 +1,820 @@
+---
+title: Authentication
+description: Understanding authentication concepts, flows, and security in AuthSome Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Authentication
+
+Authentication is the process of verifying the identity of users accessing your application. AuthSome Go provides a comprehensive, secure, and flexible authentication system that handles user registration, login, session management, and security policies.
+
+## Core Authentication Concepts
+
+### User Identity
+
+In AuthSome Go, a user represents a unique identity in your system. Each user has:
+
+```go
+type User struct {
+    ID        string    `json:"id" bun:"id,pk"`
+    Email     string    `json:"email" bun:"email,unique,notnull"`
+    Name      string    `json:"name" bun:"name,notnull"`
+    Password  string    `json:"-" bun:"password,notnull"`
+    Verified  bool      `json:"verified" bun:"verified,default:false"`
+    CreatedAt time.Time `json:"createdAt" bun:"created_at,notnull,default:current_timestamp"`
+    UpdatedAt time.Time `json:"updatedAt" bun:"updated_at,notnull,default:current_timestamp"`
+}
+```
+
+<Callout type="info">
+**Security Note**: The password field is never included in JSON responses (notice the `json:"-"` tag) to prevent accidental exposure.
+</Callout>
+
+### Authentication Methods
+
+AuthSome Go supports multiple authentication methods through its plugin system:
+
+<Cards>
+  <Card
+    title="📧 Email & Password"
+    description="Traditional email and password authentication with secure password hashing"
+  />
+  <Card
+    title="👤 Username & Password"
+    description="Username-based authentication for applications that prefer usernames over emails"
+  />
+  <Card
+    title="🔗 Magic Links"
+    description="Passwordless authentication via secure email links"
+  />
+  <Card
+    title="📱 Phone Authentication"
+    description="SMS-based authentication with OTP verification"
+  />
+  <Card
+    title="🔐 Two-Factor Authentication"
+    description="TOTP-based 2FA for enhanced security"
+  />
+  <Card
+    title="🌐 OAuth Providers"
+    description="Social login with Google, GitHub, Facebook, and more"
+  />
+</Cards>
+
+## Authentication Flow
+
+### Registration Flow
+
+The user registration process follows these steps:
+
+<Tabs items={['Standard Flow', 'With Email Verification', 'With Custom Validation']}>
+  <Tab value="Standard Flow">
+    ```mermaid
+    sequenceDiagram
+        participant User
+        participant Frontend
+        participant AuthSome
+        participant Database
+
+        User->>Frontend: Submit registration form
+        Frontend->>AuthSome: POST /auth/sign-up
+        AuthSome->>AuthSome: Validate input
+        AuthSome->>AuthSome: Check password policy
+        AuthSome->>AuthSome: Hash password
+        AuthSome->>Database: Create user record
+        AuthSome->>AuthSome: Create session
+        AuthSome->>Frontend: Set session cookie
+        Frontend->>User: Redirect to dashboard
+    ```
+
+    **Code Example:**
+    ```go
+    // Registration request
+    type SignUpRequest struct {
+        Name     string `json:"name" validate:"required,min=2,max=100"`
+        Email    string `json:"email" validate:"required,email"`
+        Password string `json:"password" validate:"required,min=8"`
+    }
+
+    // Handle registration
+    func (s *AuthService) SignUp(ctx context.Context, req *SignUpRequest) (*User, error) {
+        // Validate password policy
+        if err := s.validatePassword(req.Password); err != nil {
+            return nil, err
+        }
+
+        // Check if user already exists
+        if exists, err := s.userRepo.ExistsByEmail(ctx, req.Email); err != nil {
+            return nil, err
+        } else if exists {
+            return nil, ErrEmailAlreadyExists
+        }
+
+        // Hash password
+        hashedPassword, err := s.hashPassword(req.Password)
+        if err != nil {
+            return nil, err
+        }
+
+        // Create user
+        user := &User{
+            ID:       generateID(),
+            Name:     req.Name,
+            Email:    req.Email,
+            Password: hashedPassword,
+            Verified: false,
+        }
+
+        if err := s.userRepo.Create(ctx, user); err != nil {
+            return nil, err
+        }
+
+        return user, nil
+    }
+    ```
+  </Tab>
+  <Tab value="With Email Verification">
+    ```mermaid
+    sequenceDiagram
+        participant User
+        participant Frontend
+        participant AuthSome
+        participant Database
+        participant EmailService
+
+        User->>Frontend: Submit registration form
+        Frontend->>AuthSome: POST /auth/sign-up
+        AuthSome->>AuthSome: Validate input
+        AuthSome->>Database: Create unverified user
+        AuthSome->>EmailService: Send verification email
+        AuthSome->>Frontend: Show "check email" message
+        
+        User->>User: Check email
+        User->>AuthSome: Click verification link
+        AuthSome->>AuthSome: Verify token
+        AuthSome->>Database: Mark user as verified
+        AuthSome->>AuthSome: Create session
+        AuthSome->>Frontend: Redirect to dashboard
+    ```
+
+    **Configuration:**
+    ```go
+    config := authsome.Config{
+        Email: authsome.EmailConfig{
+            Verification: authsome.EmailVerificationConfig{
+                Required: true,
+                TokenExpiry: "24h",
+                Template: "verification-email.html",
+            },
+        },
+    }
+    ```
+  </Tab>
+  <Tab value="With Custom Validation">
+    ```go
+    // Custom validation hooks
+    func (s *AuthService) SignUp(ctx context.Context, req *SignUpRequest) (*User, error) {
+        // Run pre-registration hooks
+        if err := s.hooks.RunPreSignUp(ctx, req); err != nil {
+            return nil, err
+        }
+
+        // Standard registration logic...
+        user, err := s.createUser(ctx, req)
+        if err != nil {
+            return nil, err
+        }
+
+        // Run post-registration hooks
+        if err := s.hooks.RunPostSignUp(ctx, user); err != nil {
+            // Log error but don't fail registration
+            s.logger.Error("Post-signup hook failed", "error", err)
+        }
+
+        return user, nil
+    }
+
+    // Example custom validation hook
+    func ValidateCompanyEmail(ctx context.Context, req *SignUpRequest) error {
+        allowedDomains := []string{"company.com", "subsidiary.com"}
+        
+        email := strings.ToLower(req.Email)
+        for _, domain := range allowedDomains {
+            if strings.HasSuffix(email, "@"+domain) {
+                return nil
+            }
+        }
+        
+        return errors.New("only company email addresses are allowed")
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Login Flow
+
+The authentication process for existing users:
+
+<Tabs items={['Password Login', 'OAuth Login', 'Magic Link Login']}>
+  <Tab value="Password Login">
+    ```mermaid
+    sequenceDiagram
+        participant User
+        participant Frontend
+        participant AuthSome
+        participant Database
+
+        User->>Frontend: Submit login form
+        Frontend->>AuthSome: POST /auth/sign-in
+        AuthSome->>Database: Find user by email
+        AuthSome->>AuthSome: Verify password
+        AuthSome->>AuthSome: Check account status
+        AuthSome->>AuthSome: Create session
+        AuthSome->>Database: Store session
+        AuthSome->>Frontend: Set session cookie
+        Frontend->>User: Redirect to dashboard
+    ```
+
+    **Code Example:**
+    ```go
+    // Login request
+    type SignInRequest struct {
+        Email    string `json:"email" validate:"required,email"`
+        Password string `json:"password" validate:"required"`
+    }
+
+    // Handle login
+    func (s *AuthService) SignIn(ctx context.Context, req *SignInRequest) (*Session, error) {
+        // Find user by email
+        user, err := s.userRepo.FindByEmail(ctx, req.Email)
+        if err != nil {
+            if errors.Is(err, ErrUserNotFound) {
+                return nil, ErrInvalidCredentials
+            }
+            return nil, err
+        }
+
+        // Verify password
+        if !s.verifyPassword(req.Password, user.Password) {
+            return nil, ErrInvalidCredentials
+        }
+
+        // Check if account is verified (if required)
+        if s.config.RequireEmailVerification && !user.Verified {
+            return nil, ErrAccountNotVerified
+        }
+
+        // Create session
+        session := &Session{
+            ID:        generateSessionID(),
+            UserID:    user.ID,
+            ExpiresAt: time.Now().Add(s.config.SessionDuration),
+            CreatedAt: time.Now(),
+        }
+
+        if err := s.sessionRepo.Create(ctx, session); err != nil {
+            return nil, err
+        }
+
+        return session, nil
+    }
+    ```
+  </Tab>
+  <Tab value="OAuth Login">
+    ```mermaid
+    sequenceDiagram
+        participant User
+        participant Frontend
+        participant AuthSome
+        participant OAuthProvider
+        participant Database
+
+        User->>Frontend: Click "Login with Google"
+        Frontend->>AuthSome: GET /auth/oauth/google
+        AuthSome->>OAuthProvider: Redirect to authorization
+        User->>OAuthProvider: Authorize application
+        OAuthProvider->>AuthSome: Callback with code
+        AuthSome->>OAuthProvider: Exchange code for token
+        AuthSome->>OAuthProvider: Fetch user profile
+        AuthSome->>Database: Find or create user
+        AuthSome->>AuthSome: Create session
+        AuthSome->>Frontend: Set session cookie
+        Frontend->>User: Redirect to dashboard
+    ```
+
+    **Configuration:**
+    ```go
+    import "github.com/xraph/authsome/plugins/oauth"
+
+    config := authsome.Config{
+        Plugins: []authsome.Plugin{
+            oauth.New(oauth.Config{
+                Providers: map[string]oauth.ProviderConfig{
+                    "google": {
+                        ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+                        ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+                        Scopes:       []string{"email", "profile"},
+                        RedirectURL:  "https://yourapp.com/auth/oauth/google/callback",
+                    },
+                },
+            }),
+        },
+    }
+    ```
+  </Tab>
+  <Tab value="Magic Link Login">
+    ```mermaid
+    sequenceDiagram
+        participant User
+        participant Frontend
+        participant AuthSome
+        participant Database
+        participant EmailService
+
+        User->>Frontend: Enter email address
+        Frontend->>AuthSome: POST /auth/magic-link
+        AuthSome->>Database: Find user by email
+        AuthSome->>AuthSome: Generate magic token
+        AuthSome->>Database: Store token
+        AuthSome->>EmailService: Send magic link email
+        AuthSome->>Frontend: Show "check email" message
+        
+        User->>User: Check email
+        User->>AuthSome: Click magic link
+        AuthSome->>AuthSome: Verify token
+        AuthSome->>AuthSome: Create session
+        AuthSome->>Frontend: Set session cookie
+        Frontend->>User: Redirect to dashboard
+    ```
+
+    **Usage:**
+    ```go
+    import "github.com/xraph/authsome/plugins/magiclink"
+
+    config := authsome.Config{
+        Plugins: []authsome.Plugin{
+            magiclink.New(magiclink.Config{
+                TokenExpiry: "15m",
+                EmailTemplate: "magic-link.html",
+                RedirectURL: "/dashboard",
+            }),
+        },
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Password Security
+
+### Password Hashing
+
+AuthSome Go uses industry-standard password hashing algorithms:
+
+<Tabs items={['bcrypt (Default)', 'Argon2', 'Custom Hasher']}>
+  <Tab value="bcrypt (Default)">
+    ```go
+    // Default bcrypt configuration
+    type PasswordConfig struct {
+        Algorithm string `json:"algorithm"` // "bcrypt"
+        Cost      int    `json:"cost"`      // 12 (default)
+    }
+
+    // Password hashing
+    func (s *AuthService) hashPassword(password string) (string, error) {
+        hash, err := bcrypt.GenerateFromPassword([]byte(password), s.config.Password.Cost)
+        if err != nil {
+            return "", fmt.Errorf("failed to hash password: %w", err)
+        }
+        return string(hash), nil
+    }
+
+    // Password verification
+    func (s *AuthService) verifyPassword(password, hash string) bool {
+        err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+        return err == nil
+    }
+    ```
+
+    **Configuration:**
+    ```go
+    config := authsome.Config{
+        Security: authsome.SecurityConfig{
+            Password: authsome.PasswordConfig{
+                Algorithm: "bcrypt",
+                Cost:      12, // Higher = more secure but slower
+            },
+        },
+    }
+    ```
+  </Tab>
+  <Tab value="Argon2">
+    ```go
+    // Argon2 configuration
+    type Argon2Config struct {
+        Memory      uint32 `json:"memory"`      // 64 * 1024 (64MB)
+        Iterations  uint32 `json:"iterations"`  // 3
+        Parallelism uint8  `json:"parallelism"` // 2
+        SaltLength  uint32 `json:"saltLength"`  // 16
+        KeyLength   uint32 `json:"keyLength"`   // 32
+    }
+
+    // Argon2 password hashing
+    func (s *AuthService) hashPasswordArgon2(password string) (string, error) {
+        salt := make([]byte, s.config.Argon2.SaltLength)
+        if _, err := rand.Read(salt); err != nil {
+            return "", err
+        }
+
+        hash := argon2.IDKey(
+            []byte(password),
+            salt,
+            s.config.Argon2.Iterations,
+            s.config.Argon2.Memory,
+            s.config.Argon2.Parallelism,
+            s.config.Argon2.KeyLength,
+        )
+
+        // Encode as base64 with parameters
+        encoded := fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
+            argon2.Version,
+            s.config.Argon2.Memory,
+            s.config.Argon2.Iterations,
+            s.config.Argon2.Parallelism,
+            base64.RawStdEncoding.EncodeToString(salt),
+            base64.RawStdEncoding.EncodeToString(hash),
+        )
+
+        return encoded, nil
+    }
+    ```
+  </Tab>
+  <Tab value="Custom Hasher">
+    ```go
+    // Custom password hasher interface
+    type PasswordHasher interface {
+        Hash(password string) (string, error)
+        Verify(password, hash string) bool
+    }
+
+    // Example custom hasher
+    type CustomHasher struct {
+        pepper string
+    }
+
+    func (h *CustomHasher) Hash(password string) (string, error) {
+        // Add pepper to password
+        peppered := password + h.pepper
+        
+        // Use bcrypt with peppered password
+        hash, err := bcrypt.GenerateFromPassword([]byte(peppered), 12)
+        if err != nil {
+            return "", err
+        }
+        
+        return string(hash), nil
+    }
+
+    func (h *CustomHasher) Verify(password, hash string) bool {
+        peppered := password + h.pepper
+        err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(peppered))
+        return err == nil
+    }
+
+    // Use custom hasher
+    config := authsome.Config{
+        PasswordHasher: &CustomHasher{
+            pepper: os.Getenv("PASSWORD_PEPPER"),
+        },
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Password Policies
+
+Enforce strong password requirements:
+
+```go
+type PasswordPolicyConfig struct {
+    MinLength      int      `json:"minLength"`      // Minimum length (default: 8)
+    MaxLength      int      `json:"maxLength"`      // Maximum length (default: 128)
+    RequireUpper   bool     `json:"requireUpper"`   // Require uppercase letters
+    RequireLower   bool     `json:"requireLower"`   // Require lowercase letters
+    RequireNumbers bool     `json:"requireNumbers"` // Require numbers
+    RequireSymbols bool     `json:"requireSymbols"` // Require symbols
+    ForbiddenWords []string `json:"forbiddenWords"` // Forbidden words/patterns
+    MinEntropy     float64  `json:"minEntropy"`     // Minimum entropy score
+}
+
+// Password validation
+func (s *AuthService) validatePassword(password string) error {
+    policy := s.config.PasswordPolicy
+
+    // Length check
+    if len(password) < policy.MinLength {
+        return fmt.Errorf("password must be at least %d characters", policy.MinLength)
+    }
+    if len(password) > policy.MaxLength {
+        return fmt.Errorf("password must be no more than %d characters", policy.MaxLength)
+    }
+
+    // Character requirements
+    if policy.RequireUpper && !regexp.MustCompile(`[A-Z]`).MatchString(password) {
+        return errors.New("password must contain at least one uppercase letter")
+    }
+    if policy.RequireLower && !regexp.MustCompile(`[a-z]`).MatchString(password) {
+        return errors.New("password must contain at least one lowercase letter")
+    }
+    if policy.RequireNumbers && !regexp.MustCompile(`[0-9]`).MatchString(password) {
+        return errors.New("password must contain at least one number")
+    }
+    if policy.RequireSymbols && !regexp.MustCompile(`[^a-zA-Z0-9]`).MatchString(password) {
+        return errors.New("password must contain at least one symbol")
+    }
+
+    // Forbidden words
+    lowerPassword := strings.ToLower(password)
+    for _, word := range policy.ForbiddenWords {
+        if strings.Contains(lowerPassword, strings.ToLower(word)) {
+            return fmt.Errorf("password cannot contain '%s'", word)
+        }
+    }
+
+    // Entropy check (optional)
+    if policy.MinEntropy > 0 {
+        entropy := calculateEntropy(password)
+        if entropy < policy.MinEntropy {
+            return fmt.Errorf("password is too weak (entropy: %.2f, required: %.2f)", 
+                entropy, policy.MinEntropy)
+        }
+    }
+
+    return nil
+}
+```
+
+## Account Security
+
+### Account Verification
+
+<Callout type="info">
+Email verification ensures users have access to their registered email address and helps prevent spam accounts.
+</Callout>
+
+```go
+// Email verification configuration
+type EmailVerificationConfig struct {
+    Required    bool          `json:"required"`    // Require verification before login
+    TokenExpiry time.Duration `json:"tokenExpiry"` // Verification token expiry
+    Template    string        `json:"template"`    // Email template
+    RedirectURL string        `json:"redirectURL"` // Post-verification redirect
+}
+
+// Send verification email
+func (s *AuthService) SendVerificationEmail(ctx context.Context, userID string) error {
+    user, err := s.userRepo.FindByID(ctx, userID)
+    if err != nil {
+        return err
+    }
+
+    if user.Verified {
+        return errors.New("user is already verified")
+    }
+
+    // Generate verification token
+    token := &VerificationToken{
+        ID:        generateID(),
+        UserID:    user.ID,
+        Token:     generateSecureToken(),
+        Type:      "email_verification",
+        ExpiresAt: time.Now().Add(s.config.EmailVerification.TokenExpiry),
+    }
+
+    if err := s.tokenRepo.Create(ctx, token); err != nil {
+        return err
+    }
+
+    // Send email
+    verificationURL := fmt.Sprintf("%s/auth/verify-email?token=%s", 
+        s.config.BaseURL, token.Token)
+
+    return s.emailService.SendVerificationEmail(user.Email, user.Name, verificationURL)
+}
+
+// Verify email token
+func (s *AuthService) VerifyEmail(ctx context.Context, tokenStr string) error {
+    token, err := s.tokenRepo.FindByToken(ctx, tokenStr)
+    if err != nil {
+        return ErrInvalidToken
+    }
+
+    if token.ExpiresAt.Before(time.Now()) {
+        return ErrTokenExpired
+    }
+
+    // Mark user as verified
+    if err := s.userRepo.MarkAsVerified(ctx, token.UserID); err != nil {
+        return err
+    }
+
+    // Delete used token
+    return s.tokenRepo.Delete(ctx, token.ID)
+}
+```
+
+### Account Lockout
+
+Protect against brute force attacks:
+
+```go
+type AccountLockoutConfig struct {
+    Enabled         bool          `json:"enabled"`         // Enable account lockout
+    MaxAttempts     int           `json:"maxAttempts"`     // Max failed attempts
+    LockoutDuration time.Duration `json:"lockoutDuration"` // Lockout duration
+    ResetOnSuccess  bool          `json:"resetOnSuccess"`  // Reset counter on success
+}
+
+// Track failed login attempts
+func (s *AuthService) recordFailedAttempt(ctx context.Context, email string) error {
+    if !s.config.AccountLockout.Enabled {
+        return nil
+    }
+
+    attempt := &LoginAttempt{
+        Email:     email,
+        Success:   false,
+        Timestamp: time.Now(),
+        IPAddress: getClientIP(ctx),
+    }
+
+    if err := s.attemptRepo.Create(ctx, attempt); err != nil {
+        return err
+    }
+
+    // Check if account should be locked
+    count, err := s.attemptRepo.CountFailedAttempts(ctx, email, time.Hour)
+    if err != nil {
+        return err
+    }
+
+    if count >= s.config.AccountLockout.MaxAttempts {
+        return s.lockAccount(ctx, email)
+    }
+
+    return nil
+}
+
+// Check if account is locked
+func (s *AuthService) isAccountLocked(ctx context.Context, email string) (bool, error) {
+    if !s.config.AccountLockout.Enabled {
+        return false, nil
+    }
+
+    lockout, err := s.lockoutRepo.FindByEmail(ctx, email)
+    if err != nil {
+        if errors.Is(err, ErrNotFound) {
+            return false, nil
+        }
+        return false, err
+    }
+
+    if lockout.ExpiresAt.After(time.Now()) {
+        return true, nil
+    }
+
+    // Lockout expired, remove it
+    s.lockoutRepo.Delete(ctx, lockout.ID)
+    return false, nil
+}
+```
+
+## Security Best Practices
+
+<Cards>
+  <Card
+    title="🔐 Strong Password Policies"
+    description="Enforce minimum length, complexity requirements, and forbidden patterns"
+  />
+  <Card
+    title="🛡️ Rate Limiting"
+    description="Protect against brute force attacks with configurable rate limits"
+  />
+  <Card
+    title="📧 Email Verification"
+    description="Verify user email addresses to prevent spam and ensure deliverability"
+  />
+  <Card
+    title="🔒 Account Lockout"
+    description="Temporarily lock accounts after multiple failed login attempts"
+  />
+  <Card
+    title="🍪 Secure Sessions"
+    description="Use secure, HTTP-only cookies with proper SameSite settings"
+  />
+  <Card
+    title="🔄 Token Rotation"
+    description="Regularly rotate session tokens and invalidate old ones"
+  />
+</Cards>
+
+### Security Checklist
+
+- ✅ Use HTTPS in production
+- ✅ Set secure cookie flags (`Secure`, `HttpOnly`, `SameSite`)
+- ✅ Implement proper password hashing (bcrypt/Argon2)
+- ✅ Enable rate limiting on authentication endpoints
+- ✅ Require email verification for new accounts
+- ✅ Implement account lockout after failed attempts
+- ✅ Use strong session secrets (32+ characters)
+- ✅ Set appropriate session expiration times
+- ✅ Log authentication events for monitoring
+- ✅ Implement CSRF protection
+
+<Callout type="warn">
+**Security Warning**: Never store passwords in plain text, log sensitive information, or expose authentication tokens in URLs or client-side code.
+</Callout>
+
+## Error Handling
+
+AuthSome Go provides comprehensive error handling for authentication scenarios:
+
+```go
+// Common authentication errors
+var (
+    ErrInvalidCredentials   = errors.New("invalid email or password")
+    ErrAccountNotVerified   = errors.New("account not verified")
+    ErrAccountLocked        = errors.New("account temporarily locked")
+    ErrPasswordTooWeak      = errors.New("password does not meet requirements")
+    ErrEmailAlreadyExists   = errors.New("email address already registered")
+    ErrTokenExpired         = errors.New("token has expired")
+    ErrInvalidToken         = errors.New("invalid or malformed token")
+    ErrSessionExpired       = errors.New("session has expired")
+    ErrRateLimitExceeded    = errors.New("too many requests, please try again later")
+)
+
+// Error response structure
+type ErrorResponse struct {
+    Error   string            `json:"error"`
+    Code    string            `json:"code,omitempty"`
+    Details map[string]string `json:"details,omitempty"`
+}
+
+// Handle authentication errors
+func (h *AuthHandler) handleAuthError(c *forge.Context, err error) error {
+    switch {
+    case errors.Is(err, ErrInvalidCredentials):
+        return c.JSON(http.StatusUnauthorized, ErrorResponse{
+            Error: "Invalid email or password",
+            Code:  "INVALID_CREDENTIALS",
+        })
+    case errors.Is(err, ErrAccountNotVerified):
+        return c.JSON(http.StatusForbidden, ErrorResponse{
+            Error: "Please verify your email address before logging in",
+            Code:  "ACCOUNT_NOT_VERIFIED",
+        })
+    case errors.Is(err, ErrAccountLocked):
+        return c.JSON(http.StatusForbidden, ErrorResponse{
+            Error: "Account temporarily locked due to multiple failed attempts",
+            Code:  "ACCOUNT_LOCKED",
+        })
+    case errors.Is(err, ErrRateLimitExceeded):
+        return c.JSON(http.StatusTooManyRequests, ErrorResponse{
+            Error: "Too many requests, please try again later",
+            Code:  "RATE_LIMIT_EXCEEDED",
+        })
+    default:
+        return c.JSON(http.StatusInternalServerError, ErrorResponse{
+            Error: "An unexpected error occurred",
+            Code:  "INTERNAL_ERROR",
+        })
+    }
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Sessions"
+    description="Learn about session management, storage, and security"
+    href="/docs/go/concepts/sessions"
+  />
+  <Card
+    title="Organizations"
+    description="Understand multi-tenancy and organization management"
+    href="/docs/go/concepts/organizations"
+  />
+  <Card
+    title="Security"
+    description="Explore advanced security features and best practices"
+    href="/docs/go/concepts/security"
+  />
+  <Card
+    title="Plugin System"
+    description="Discover available authentication plugins"
+    href="/docs/go/plugins/overview"
+  />
+</Cards>

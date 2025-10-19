@@ -186,7 +186,7 @@ func (gt *GRPCTransport) Start(ctx context.Context) error {
 	// Register consensus service
 	RegisterConsensusServiceServer(gt.server, gt)
 
-	// OnStart server
+	// Start server
 	go func() {
 		if err := gt.server.Serve(listener); err != nil {
 			if gt.logger != nil {
@@ -234,7 +234,7 @@ func (gt *GRPCTransport) Stop(ctx context.Context) error {
 	// Signal stop
 	close(gt.stopCh)
 
-	// OnStop server
+	// Stop server
 	if gt.server != nil {
 		gt.server.GracefulStop()
 	}

@@ -112,7 +112,7 @@ func (m *LLMManager) Stop(ctx context.Context) error {
 		return fmt.Errorf("LLM manager not started")
 	}
 
-	// OnStop all providers
+	// Stop all providers
 	for _, provider := range m.providers {
 		if stoppable, ok := provider.(interface{ Stop(context.Context) error }); ok {
 			if err := stoppable.Stop(ctx); err != nil {

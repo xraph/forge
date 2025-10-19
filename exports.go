@@ -1,6 +1,7 @@
 package forge
 
 import (
+	"github.com/xraph/forge/pkg/ai/core"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/di"
 	"github.com/xraph/forge/pkg/logger"
@@ -48,6 +49,11 @@ type CLICommand = common.CLICommand
 type PluginDependency = common.PluginDependency
 type PluginCapability = common.PluginCapability
 type PluginType = common.PluginType
+
+// AI Middleware Types
+type AIMiddlewareType = core.AIMiddlewareType
+type AIMiddlewareConfig = core.AIMiddlewareConfig
+type AIMiddlewareStats = core.AIMiddlewareStats
 
 const (
 	PluginTypeMiddleware  = common.PluginTypeMiddleware

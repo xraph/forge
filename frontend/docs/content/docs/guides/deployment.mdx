@@ -1,0 +1,1422 @@
+---
+title: Deployment
+description: Deploy AuthSome to production environments
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Deployment
+
+This guide covers deploying AuthSome to various production environments, including cloud platforms, containerization, and infrastructure as code approaches.
+
+## Pre-deployment Checklist
+
+Before deploying AuthSome to production, ensure you have:
+
+- [ ] Configured environment variables
+- [ ] Set up production database
+- [ ] Configured SSL/TLS certificates
+- [ ] Set up monitoring and logging
+- [ ] Configured backup strategies
+- [ ] Tested the application thoroughly
+- [ ] Set up CI/CD pipeline
+- [ ] Configured security settings
+
+## Environment Configuration
+
+### Production Environment Variables
+
+```bash
+# .env.production
+# Application
+APP_ENV=production
+APP_DEBUG=false
+APP_PORT=8080
+APP_HOST=0.0.0.0
+
+# Database
+DB_HOST=your-db-host.com
+DB_PORT=5432
+DB_NAME=authsome
+DB_USER=authsome
+DB_PASSWORD=your_secure_password
+DB_SSL_MODE=require
+
+# Redis (for sessions and caching)
+REDIS_HOST=your-redis-host.com
+REDIS_PORT=6379
+REDIS_PASSWORD=your_redis_password
+REDIS_DB=0
+
+# Security
+JWT_SECRET=your_jwt_secret_key_here
+SESSION_SECRET=your_session_secret_key_here
+ENCRYPTION_KEY=your_encryption_key_here
+
+# CORS
+CORS_ALLOWED_ORIGINS=https://yourdomain.com,https://app.yourdomain.com
+CORS_ALLOWED_METHODS=GET,POST,PUT,DELETE,OPTIONS
+CORS_ALLOWED_HEADERS=Content-Type,Authorization
+
+# Rate limiting
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_REQUESTS=100
+RATE_LIMIT_WINDOW=60s
+
+# Email (using SendGrid as example)
+EMAIL_PROVIDER=sendgrid
+SENDGRID_API_KEY=your_sendgrid_api_key
+EMAIL_FROM=noreply@yourdomain.com
+
+# OAuth providers
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_SECRET=your_github_client_secret
+
+# Monitoring
+SENTRY_DSN=your_sentry_dsn
+LOG_LEVEL=info
+```
+
+### Configuration Management
+
+```go
+// config/production.go - Production configuration
+package config
+
+import (
+    "fmt"
+    "os"
+    "strconv"
+    "time"
+)
+
+// ProductionConfig holds production-specific configuration
+type ProductionConfig struct {
+    App      AppConfig      `yaml:"app"`
+    Database DatabaseConfig `yaml:"database"`
+    Redis    RedisConfig    `yaml:"redis"`
+    Security SecurityConfig `yaml:"security"`
+    Email    EmailConfig    `yaml:"email"`
+    OAuth    OAuthConfig    `yaml:"oauth"`
+    Monitor  MonitorConfig  `yaml:"monitor"`
+}
+
+// LoadProductionConfig loads configuration from environment variables
+func LoadProductionConfig() (*ProductionConfig, error) {
+    config := &ProductionConfig{
+        App: AppConfig{
+            Env:   getEnv("APP_ENV", "production"),
+            Debug: getEnvBool("APP_DEBUG", false),
+            Port:  getEnvInt("APP_PORT", 8080),
+            Host:  getEnv("APP_HOST", "0.0.0.0"),
+        },
+        Database: DatabaseConfig{
+            Host:     getEnv("DB_HOST", "localhost"),
+            Port:     getEnvInt("DB_PORT", 5432),
+            Name:     getEnv("DB_NAME", "authsome"),
+            User:     getEnv("DB_USER", "authsome"),
+            Password: getEnv("DB_PASSWORD", ""),
+            SSLMode:  getEnv("DB_SSL_MODE", "require"),
+        },
+        Redis: RedisConfig{
+            Host:     getEnv("REDIS_HOST", "localhost"),
+            Port:     getEnvInt("REDIS_PORT", 6379),
+            Password: getEnv("REDIS_PASSWORD", ""),
+            DB:       getEnvInt("REDIS_DB", 0),
+        },
+        Security: SecurityConfig{
+            JWTSecret:     getEnv("JWT_SECRET", ""),
+            SessionSecret: getEnv("SESSION_SECRET", ""),
+            EncryptionKey: getEnv("ENCRYPTION_KEY", ""),
+        },
+    }
+
+    // Validate required fields
+    if err := validateProductionConfig(config); err != nil {
+        return nil, fmt.Errorf("invalid production config: %w", err)
+    }
+
+    return config, nil
+}
+
+// validateProductionConfig ensures all required fields are set
+func validateProductionConfig(config *ProductionConfig) error {
+    required := map[string]string{
+        "DB_PASSWORD":      config.Database.Password,
+        "JWT_SECRET":       config.Security.JWTSecret,
+        "SESSION_SECRET":   config.Security.SessionSecret,
+        "ENCRYPTION_KEY":   config.Security.EncryptionKey,
+    }
+
+    for key, value := range required {
+        if value == "" {
+            return fmt.Errorf("required environment variable %s is not set", key)
+        }
+    }
+
+    return nil
+}
+
+// Helper functions
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+    if value := os.Getenv(key); value != "" {
+        if intValue, err := strconv.Atoi(value); err == nil {
+            return intValue
+        }
+    }
+    return defaultValue
+}
+
+func getEnvBool(key string, defaultValue bool) bool {
+    if value := os.Getenv(key); value != "" {
+        if boolValue, err := strconv.ParseBool(value); err == nil {
+            return boolValue
+        }
+    }
+    return defaultValue
+}
+```
+
+## Docker Deployment
+
+### Dockerfile
+
+```dockerfile
+# Dockerfile - Multi-stage build for production
+FROM golang:1.21-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates tzdata
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
+
+# Final stage
+FROM alpine:latest
+
+# Install runtime dependencies
+RUN apk --no-cache add ca-certificates tzdata
+
+# Create non-root user
+RUN addgroup -g 1001 -S authsome && \
+    adduser -u 1001 -S authsome -G authsome
+
+# Set working directory
+WORKDIR /app
+
+# Copy binary from builder stage
+COPY --from=builder /app/main .
+
+# Copy configuration files
+COPY --from=builder /app/config ./config
+
+# Change ownership
+RUN chown -R authsome:authsome /app
+
+# Switch to non-root user
+USER authsome
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Run the application
+CMD ["./main"]
+```
+
+### Docker Compose
+
+```yaml
+# docker-compose.prod.yml - Production Docker Compose
+version: '3.8'
+
+services:
+  authsome:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=production
+      - DB_HOST=postgres
+      - REDIS_HOST=redis
+    env_file:
+      - .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - authsome-network
+    volumes:
+      - ./logs:/app/logs
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: authsome
+      POSTGRES_USER: authsome
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - authsome-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authsome"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    networks:
+      - authsome-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - authsome
+    restart: unless-stopped
+    networks:
+      - authsome-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  authsome-network:
+    driver: bridge
+```
+
+### Nginx Configuration
+
+```nginx
+# nginx.conf - Production Nginx configuration
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream authsome {
+        server authsome:8080;
+    }
+
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=auth:10m rate=5r/s;
+
+    # SSL configuration
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # Security headers
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Redirect HTTP to HTTPS
+    server {
+        listen 80;
+        server_name yourdomain.com;
+        return 301 https://$server_name$request_uri;
+    }
+
+    # HTTPS server
+    server {
+        listen 443 ssl http2;
+        server_name yourdomain.com;
+
+        ssl_certificate /etc/nginx/ssl/cert.pem;
+        ssl_certificate_key /etc/nginx/ssl/key.pem;
+
+        # API endpoints with rate limiting
+        location /api/auth/ {
+            limit_req zone=auth burst=10 nodelay;
+            proxy_pass http://authsome;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location /api/ {
+            limit_req zone=api burst=20 nodelay;
+            proxy_pass http://authsome;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # Health check endpoint
+        location /health {
+            proxy_pass http://authsome;
+            access_log off;
+        }
+
+        # Static files (if any)
+        location /static/ {
+            alias /var/www/static/;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+}
+```
+
+## Cloud Platform Deployments
+
+### AWS Deployment
+
+<Tabs>
+<Tab title="ECS Fargate">
+```yaml
+# aws-ecs-task-definition.json
+{
+  "family": "authsome",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT:role/ecsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "authsome",
+      "image": "your-account.dkr.ecr.region.amazonaws.com/authsome:latest",
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "APP_ENV",
+          "value": "production"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "DB_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:region:account:secret:authsome/db-password"
+        },
+        {
+          "name": "JWT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:region:account:secret:authsome/jwt-secret"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/authsome",
+          "awslogs-region": "us-west-2",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
+    }
+  ]
+}
+```
+</Tab>
+<Tab title="Terraform">
+```hcl
+# terraform/main.tf - AWS infrastructure
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+# VPC and networking
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name = "authsome-vpc"
+  }
+}
+
+resource "aws_subnet" "private" {
+  count             = 2
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.${count.index + 1}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+
+  tags = {
+    Name = "authsome-private-${count.index + 1}"
+  }
+}
+
+resource "aws_subnet" "public" {
+  count                   = 2
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.${count.index + 10}.0/24"
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "authsome-public-${count.index + 1}"
+  }
+}
+
+# RDS PostgreSQL
+resource "aws_db_instance" "postgres" {
+  identifier     = "authsome-postgres"
+  engine         = "postgres"
+  engine_version = "15.4"
+  instance_class = "db.t3.micro"
+  
+  allocated_storage     = 20
+  max_allocated_storage = 100
+  storage_encrypted     = true
+  
+  db_name  = "authsome"
+  username = "authsome"
+  password = var.db_password
+  
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  db_subnet_group_name   = aws_db_subnet_group.main.name
+  
+  backup_retention_period = 7
+  backup_window          = "03:00-04:00"
+  maintenance_window     = "sun:04:00-sun:05:00"
+  
+  skip_final_snapshot = false
+  final_snapshot_identifier = "authsome-final-snapshot"
+  
+  tags = {
+    Name = "authsome-postgres"
+  }
+}
+
+# ElastiCache Redis
+resource "aws_elasticache_subnet_group" "main" {
+  name       = "authsome-cache-subnet"
+  subnet_ids = aws_subnet.private[*].id
+}
+
+resource "aws_elasticache_cluster" "redis" {
+  cluster_id           = "authsome-redis"
+  engine               = "redis"
+  node_type            = "cache.t3.micro"
+  num_cache_nodes      = 1
+  parameter_group_name = "default.redis7"
+  port                 = 6379
+  subnet_group_name    = aws_elasticache_subnet_group.main.name
+  security_group_ids   = [aws_security_group.redis.id]
+  
+  tags = {
+    Name = "authsome-redis"
+  }
+}
+
+# ECS Cluster
+resource "aws_ecs_cluster" "main" {
+  name = "authsome"
+  
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+}
+
+# Application Load Balancer
+resource "aws_lb" "main" {
+  name               = "authsome-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = aws_subnet.public[*].id
+  
+  enable_deletion_protection = false
+  
+  tags = {
+    Name = "authsome-alb"
+  }
+}
+
+# Variables
+variable "aws_region" {
+  description = "AWS region"
+  type        = string
+  default     = "us-west-2"
+}
+
+variable "db_password" {
+  description = "Database password"
+  type        = string
+  sensitive   = true
+}
+
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+```
+</Tab>
+</Tabs>
+
+### Google Cloud Platform
+
+<Tabs>
+<Tab title="Cloud Run">
+```yaml
+# cloudbuild.yaml - Google Cloud Build
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/authsome:$COMMIT_SHA', '.']
+  
+  # Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/authsome:$COMMIT_SHA']
+  
+  # Deploy container image to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'authsome'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/authsome:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars'
+      - 'APP_ENV=production'
+      - '--set-secrets'
+      - 'DB_PASSWORD=db-password:latest,JWT_SECRET=jwt-secret:latest'
+
+images:
+  - 'gcr.io/$PROJECT_ID/authsome:$COMMIT_SHA'
+```
+</Tab>
+<Tab title="GKE">
+```yaml
+# k8s/deployment.yaml - Kubernetes deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authsome
+  labels:
+    app: authsome
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: authsome
+  template:
+    metadata:
+      labels:
+        app: authsome
+    spec:
+      containers:
+      - name: authsome
+        image: gcr.io/PROJECT_ID/authsome:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: APP_ENV
+          value: "production"
+        - name: DB_HOST
+          value: "postgres-service"
+        - name: REDIS_HOST
+          value: "redis-service"
+        envFrom:
+        - secretRef:
+            name: authsome-secrets
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authsome-service
+spec:
+  selector:
+    app: authsome
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: LoadBalancer
+```
+</Tab>
+</Tabs>
+
+### Azure Deployment
+
+```yaml
+# azure-pipelines.yml - Azure DevOps pipeline
+trigger:
+- main
+
+variables:
+  dockerRegistryServiceConnection: 'your-acr-connection'
+  imageRepository: 'authsome'
+  containerRegistry: 'yourregistry.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+stages:
+- stage: Build
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          latest
+
+- stage: Deploy
+  displayName: Deploy stage
+  dependsOn: Build
+  jobs:
+  - deployment: Deploy
+    displayName: Deploy
+    pool:
+      vmImage: 'ubuntu-latest'
+    environment: 'production'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            displayName: 'Azure Web App on Container Deploy'
+            inputs:
+              azureSubscription: 'your-azure-subscription'
+              appName: 'authsome-app'
+              containers: '$(containerRegistry)/$(imageRepository):$(tag)'
+```
+
+## Kubernetes Deployment
+
+### Complete Kubernetes Manifests
+
+```yaml
+# k8s/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: authsome
+
+---
+# k8s/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authsome-config
+  namespace: authsome
+data:
+  APP_ENV: "production"
+  APP_PORT: "8080"
+  DB_HOST: "postgres-service"
+  REDIS_HOST: "redis-service"
+  LOG_LEVEL: "info"
+
+---
+# k8s/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: authsome-secrets
+  namespace: authsome
+type: Opaque
+data:
+  DB_PASSWORD: <base64-encoded-password>
+  JWT_SECRET: <base64-encoded-jwt-secret>
+  SESSION_SECRET: <base64-encoded-session-secret>
+  ENCRYPTION_KEY: <base64-encoded-encryption-key>
+
+---
+# k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authsome
+  namespace: authsome
+  labels:
+    app: authsome
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: authsome
+  template:
+    metadata:
+      labels:
+        app: authsome
+    spec:
+      containers:
+      - name: authsome
+        image: your-registry/authsome:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        envFrom:
+        - configMapRef:
+            name: authsome-config
+        - secretRef:
+            name: authsome-secrets
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      securityContext:
+        fsGroup: 1001
+
+---
+# k8s/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: authsome-service
+  namespace: authsome
+spec:
+  selector:
+    app: authsome
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# k8s/ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: authsome-ingress
+  namespace: authsome
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+  - hosts:
+    - yourdomain.com
+    secretName: authsome-tls
+  rules:
+  - host: yourdomain.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: authsome-service
+            port:
+              number: 80
+
+---
+# k8s/hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: authsome-hpa
+  namespace: authsome
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: authsome
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+## CI/CD Pipeline
+
+### GitHub Actions
+
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: authsome_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+    
+    - name: Run tests
+      run: |
+        go test -v -race -coverprofile=coverage.out ./...
+        go tool cover -html=coverage.out -o coverage.html
+      env:
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: authsome_test
+        DB_USER: postgres
+        DB_PASSWORD: postgres
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG }}
+
+    - name: Deploy to Kubernetes
+      run: |
+        # Update image tag in deployment
+        sed -i "s|your-registry/authsome:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}|g" k8s/deployment.yaml
+        
+        # Apply manifests
+        kubectl apply -f k8s/
+        
+        # Wait for rollout to complete
+        kubectl rollout status deployment/authsome -n authsome --timeout=300s
+
+    - name: Verify deployment
+      run: |
+        kubectl get pods -n authsome
+        kubectl get services -n authsome
+```
+
+## Monitoring and Observability
+
+### Prometheus Monitoring
+
+```yaml
+# monitoring/prometheus.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+    
+    scrape_configs:
+    - job_name: 'authsome'
+      static_configs:
+      - targets: ['authsome-service:80']
+      metrics_path: /metrics
+      scrape_interval: 10s
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:latest
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: config
+          mountPath: /etc/prometheus
+      volumes:
+      - name: config
+        configMap:
+          name: prometheus-config
+```
+
+### Application Metrics
+
+```go
+// metrics/metrics.go - Application metrics
+package metrics
+
+import (
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+var (
+    // HTTP metrics
+    HTTPRequestsTotal = promauto.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "authsome_http_requests_total",
+            Help: "Total number of HTTP requests",
+        },
+        []string{"method", "endpoint", "status"},
+    )
+
+    HTTPRequestDuration = promauto.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "authsome_http_request_duration_seconds",
+            Help:    "HTTP request duration in seconds",
+            Buckets: prometheus.DefBuckets,
+        },
+        []string{"method", "endpoint"},
+    )
+
+    // Authentication metrics
+    AuthAttemptsTotal = promauto.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "authsome_auth_attempts_total",
+            Help: "Total number of authentication attempts",
+        },
+        []string{"method", "status"},
+    )
+
+    ActiveSessions = promauto.NewGauge(
+        prometheus.GaugeOpts{
+            Name: "authsome_active_sessions",
+            Help: "Number of active user sessions",
+        },
+    )
+
+    // Database metrics
+    DatabaseConnections = promauto.NewGaugeVec(
+        prometheus.GaugeOpts{
+            Name: "authsome_database_connections",
+            Help: "Number of database connections",
+        },
+        []string{"state"},
+    )
+
+    DatabaseQueryDuration = promauto.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "authsome_database_query_duration_seconds",
+            Help:    "Database query duration in seconds",
+            Buckets: []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0},
+        },
+        []string{"operation"},
+    )
+)
+
+// UpdateDatabaseMetrics updates database connection metrics
+func UpdateDatabaseMetrics(stats sql.DBStats) {
+    DatabaseConnections.WithLabelValues("open").Set(float64(stats.OpenConnections))
+    DatabaseConnections.WithLabelValues("in_use").Set(float64(stats.InUse))
+    DatabaseConnections.WithLabelValues("idle").Set(float64(stats.Idle))
+}
+```
+
+## Security Hardening
+
+### Security Checklist
+
+<Callout type="warn">
+**Security is Critical**: Follow these security practices for production deployments.
+</Callout>
+
+- [ ] Use HTTPS/TLS everywhere
+- [ ] Implement proper CORS policies
+- [ ] Enable rate limiting
+- [ ] Use strong secrets and rotate them regularly
+- [ ] Implement proper logging and monitoring
+- [ ] Use least privilege access
+- [ ] Keep dependencies updated
+- [ ] Implement proper backup strategies
+- [ ] Use container security scanning
+- [ ] Implement network security policies
+
+### Security Configuration
+
+```go
+// security/config.go - Security configuration
+package security
+
+import (
+    "crypto/rand"
+    "encoding/base64"
+    "fmt"
+    "time"
+)
+
+// SecurityConfig holds security-related configuration
+type SecurityConfig struct {
+    // TLS configuration
+    TLSEnabled  bool   `yaml:"tlsEnabled" env:"TLS_ENABLED"`
+    TLSCertFile string `yaml:"tlsCertFile" env:"TLS_CERT_FILE"`
+    TLSKeyFile  string `yaml:"tlsKeyFile" env:"TLS_KEY_FILE"`
+
+    // CORS configuration
+    CORSAllowedOrigins []string `yaml:"corsAllowedOrigins" env:"CORS_ALLOWED_ORIGINS"`
+    CORSAllowedMethods []string `yaml:"corsAllowedMethods" env:"CORS_ALLOWED_METHODS"`
+    CORSAllowedHeaders []string `yaml:"corsAllowedHeaders" env:"CORS_ALLOWED_HEADERS"`
+
+    // Rate limiting
+    RateLimitEnabled  bool          `yaml:"rateLimitEnabled" env:"RATE_LIMIT_ENABLED"`
+    RateLimitRequests int           `yaml:"rateLimitRequests" env:"RATE_LIMIT_REQUESTS"`
+    RateLimitWindow   time.Duration `yaml:"rateLimitWindow" env:"RATE_LIMIT_WINDOW"`
+
+    // Security headers
+    SecurityHeaders map[string]string `yaml:"securityHeaders"`
+}
+
+// GenerateSecureSecret generates a cryptographically secure secret
+func GenerateSecureSecret(length int) (string, error) {
+    bytes := make([]byte, length)
+    if _, err := rand.Read(bytes); err != nil {
+        return "", fmt.Errorf("failed to generate secure secret: %w", err)
+    }
+    return base64.URLEncoding.EncodeToString(bytes), nil
+}
+
+// DefaultSecurityHeaders returns recommended security headers
+func DefaultSecurityHeaders() map[string]string {
+    return map[string]string{
+        "X-Frame-Options":           "DENY",
+        "X-Content-Type-Options":    "nosniff",
+        "X-XSS-Protection":          "1; mode=block",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "Referrer-Policy":           "strict-origin-when-cross-origin",
+        "Content-Security-Policy":   "default-src 'self'",
+    }
+}
+```
+
+## Troubleshooting
+
+### Common Deployment Issues
+
+1. **Container Won't Start**
+   ```bash
+   # Check container logs
+   docker logs <container-id>
+   
+   # Check Kubernetes pod logs
+   kubectl logs -f deployment/authsome -n authsome
+   ```
+
+2. **Database Connection Issues**
+   ```bash
+   # Test database connectivity
+   kubectl run -it --rm debug --image=postgres:15 --restart=Never -- \
+     psql -h postgres-service -U authsome -d authsome
+   ```
+
+3. **SSL/TLS Certificate Issues**
+   ```bash
+   # Check certificate validity
+   openssl x509 -in cert.pem -text -noout
+   
+   # Test SSL connection
+   openssl s_client -connect yourdomain.com:443
+   ```
+
+### Health Check Endpoints
+
+```go
+// health/handler.go - Health check implementation
+package health
+
+import (
+    "context"
+    "encoding/json"
+    "net/http"
+    "time"
+
+    "github.com/uptrace/bun"
+)
+
+// HealthHandler provides health check endpoints
+type HealthHandler struct {
+    db *bun.DB
+}
+
+// NewHealthHandler creates a new health handler
+func NewHealthHandler(db *bun.DB) *HealthHandler {
+    return &HealthHandler{db: db}
+}
+
+// HealthResponse represents health check response
+type HealthResponse struct {
+    Status    string            `json:"status"`
+    Timestamp time.Time         `json:"timestamp"`
+    Checks    map[string]string `json:"checks"`
+}
+
+// Health performs basic health check
+func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
+    ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+    defer cancel()
+
+    response := &HealthResponse{
+        Status:    "healthy",
+        Timestamp: time.Now(),
+        Checks:    make(map[string]string),
+    }
+
+    // Check database connectivity
+    if err := h.db.PingContext(ctx); err != nil {
+        response.Status = "unhealthy"
+        response.Checks["database"] = "failed: " + err.Error()
+    } else {
+        response.Checks["database"] = "ok"
+    }
+
+    // Set response status
+    statusCode := http.StatusOK
+    if response.Status == "unhealthy" {
+        statusCode = http.StatusServiceUnavailable
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    w.WriteHeader(statusCode)
+    json.NewEncoder(w).Encode(response)
+}
+
+// Ready performs readiness check
+func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
+    // Perform more comprehensive checks for readiness
+    h.Health(w, r)
+}
+```
+
+## Next Steps
+
+- [Testing](/docs/go/guides/testing) - Set up comprehensive testing
+- [Migration](/docs/go/guides/migration) - Migrate from other systems
+- [Database Setup](/docs/go/guides/database-setup) - Optimize your database
+
+---
+
+This guide covered comprehensive deployment strategies for AuthSome. Choose the deployment method that best fits your infrastructure and requirements.

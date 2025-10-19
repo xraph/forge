@@ -174,7 +174,7 @@ func (ht *HTTPTransport) Start(ctx context.Context) error {
 		IdleTimeout:  ht.config.KeepAliveTime,
 	}
 
-	// OnStart server
+	// Start server
 	go func() {
 		var err error
 		if ht.config.EnableTLS && ht.config.TLSConfig != nil {

@@ -1,0 +1,1096 @@
+---
+title: Frontend Integration
+description: Learn how to integrate AuthSome Go with popular frontend frameworks like React, Vue.js, and Next.js
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+import { Step, Steps } from 'fumadocs-ui/components/steps';
+import { Callout } from 'fumadocs-ui/components/callout';
+import { CodeBlock } from 'fumadocs-ui/components/codeblock';
+
+# Frontend Integration
+
+This guide covers integrating AuthSome Go with popular frontend frameworks, providing authentication flow, state management, and API communication patterns.
+
+## Overview
+
+AuthSome Go provides RESTful APIs that work seamlessly with any frontend framework. This guide covers:
+
+- **React**: Complete integration with TypeScript, context, and hooks
+- **Vue.js**: Integration with Pinia store and composables
+- **Next.js**: Server-side rendering with authentication
+- **Mobile**: React Native, Flutter, iOS, and Android examples
+
+## React Integration
+
+<Steps>
+<Step>
+
+### Setup and Dependencies
+
+```bash
+npm install axios react-router-dom
+npm install -D @types/react @types/react-dom typescript
+```
+
+</Step>
+<Step>
+
+### TypeScript Interfaces
+
+```typescript
+// src/types/auth.ts
+export interface User {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+  emailVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  domain?: string;
+  createdAt: string;
+}
+
+export interface Session {
+  id: string;
+  userId: string;
+  deviceId: string;
+  ipAddress: string;
+  userAgent: string;
+  createdAt: string;
+  expiresAt: string;
+  isActive: boolean;
+}
+
+export interface AuthState {
+  user: User | null;
+  organization: Organization | null;
+  session: Session | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+  rememberMe?: boolean;
+}
+
+export interface SignupRequest {
+  email: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+  username?: string;
+}
+```
+
+</Step>
+<Step>
+
+### API Service
+
+```typescript
+// src/services/api.ts
+import axios, { AxiosInstance, AxiosResponse } from 'axios';
+
+class ApiService {
+  private api: AxiosInstance;
+
+  constructor() {
+    this.api = axios.create({
+      baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8080/api',
+      withCredentials: true,
+    });
+
+    // Request interceptor for auth token
+    this.api.interceptors.request.use(
+      (config) => {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    // Response interceptor for error handling
+    this.api.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        if (error.response?.status === 401) {
+          localStorage.removeItem('authToken');
+          window.location.href = '/login';
+        }
+        return Promise.reject(error);
+      }
+    );
+  }
+
+  async login(credentials: LoginRequest): Promise<AuthState> {
+    const response = await this.api.post('/auth/sign-in', credentials);
+    if (response.data.token) {
+      localStorage.setItem('authToken', response.data.token);
+    }
+    return response.data;
+  }
+
+  async signup(userData: SignupRequest): Promise<AuthState> {
+    const response = await this.api.post('/auth/sign-up', userData);
+    if (response.data.token) {
+      localStorage.setItem('authToken', response.data.token);
+    }
+    return response.data;
+  }
+
+  async logout(): Promise<void> {
+    await this.api.post('/auth/logout');
+    localStorage.removeItem('authToken');
+  }
+
+  async getCurrentUser(): Promise<User> {
+    const response = await this.api.get('/auth/me');
+    return response.data;
+  }
+
+  async refreshSession(): Promise<AuthState> {
+    const response = await this.api.post('/auth/refresh');
+    return response.data;
+  }
+}
+
+export const apiService = new ApiService();
+```
+
+</Step>
+<Step>
+
+### Auth Context
+
+```typescript
+// src/contexts/AuthContext.tsx
+import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import { apiService } from '../services/api';
+import { AuthState, User, LoginRequest, SignupRequest } from '../types/auth';
+
+interface AuthContextType extends AuthState {
+  login: (credentials: LoginRequest) => Promise<void>;
+  signup: (userData: SignupRequest) => Promise<void>;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+type AuthAction =
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_USER'; payload: User | null }
+  | { type: 'SET_AUTH_STATE'; payload: Partial<AuthState> }
+  | { type: 'LOGOUT' };
+
+const authReducer = (state: AuthState, action: AuthAction): AuthState => {
+  switch (action.type) {
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+    case 'SET_USER':
+      return {
+        ...state,
+        user: action.payload,
+        isAuthenticated: !!action.payload,
+        isLoading: false,
+      };
+    case 'SET_AUTH_STATE':
+      return { ...state, ...action.payload };
+    case 'LOGOUT':
+      return {
+        user: null,
+        organization: null,
+        session: null,
+        isLoading: false,
+        isAuthenticated: false,
+      };
+    default:
+      return state;
+  }
+};
+
+const initialState: AuthState = {
+  user: null,
+  organization: null,
+  session: null,
+  isLoading: true,
+  isAuthenticated: false,
+};
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [state, dispatch] = useReducer(authReducer, initialState);
+
+  useEffect(() => {
+    const initAuth = async () => {
+      const token = localStorage.getItem('authToken');
+      if (token) {
+        try {
+          const user = await apiService.getCurrentUser();
+          dispatch({ type: 'SET_USER', payload: user });
+        } catch (error) {
+          localStorage.removeItem('authToken');
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
+      } else {
+        dispatch({ type: 'SET_LOADING', payload: false });
+      }
+    };
+
+    initAuth();
+  }, []);
+
+  const login = async (credentials: LoginRequest) => {
+    dispatch({ type: 'SET_LOADING', payload: true });
+    try {
+      const authData = await apiService.login(credentials);
+      dispatch({ type: 'SET_AUTH_STATE', payload: authData });
+    } catch (error) {
+      dispatch({ type: 'SET_LOADING', payload: false });
+      throw error;
+    }
+  };
+
+  const signup = async (userData: SignupRequest) => {
+    dispatch({ type: 'SET_LOADING', payload: true });
+    try {
+      const authData = await apiService.signup(userData);
+      dispatch({ type: 'SET_AUTH_STATE', payload: authData });
+    } catch (error) {
+      dispatch({ type: 'SET_LOADING', payload: false });
+      throw error;
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await apiService.logout();
+    } finally {
+      dispatch({ type: 'LOGOUT' });
+    }
+  };
+
+  const refreshUser = async () => {
+    try {
+      const user = await apiService.getCurrentUser();
+      dispatch({ type: 'SET_USER', payload: user });
+    } catch (error) {
+      console.error('Failed to refresh user:', error);
+    }
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        ...state,
+        login,
+        signup,
+        logout,
+        refreshUser,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+```
+
+</Step>
+<Step>
+
+### Login Component
+
+```typescript
+// src/components/LoginForm.tsx
+import React, { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { useNavigate } from 'react-router-dom';
+
+export const LoginForm: React.FC = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState('');
+  const { login, isLoading } = useAuth();
+  const navigate = useNavigate();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    try {
+      await login({ email, password, rememberMe });
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Login failed');
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="max-w-md mx-auto">
+      <div className="mb-4">
+        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+          Email
+        </label>
+        <input
+          type="email"
+          id="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+        />
+      </div>
+
+      <div className="mb-4">
+        <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+          Password
+        </label>
+        <input
+          type="password"
+          id="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+        />
+      </div>
+
+      <div className="mb-4">
+        <label className="flex items-center">
+          <input
+            type="checkbox"
+            checked={rememberMe}
+            onChange={(e) => setRememberMe(e.target.checked)}
+            className="mr-2"
+          />
+          Remember me
+        </label>
+      </div>
+
+      {error && (
+        <div className="mb-4 text-red-600 text-sm">{error}</div>
+      )}
+
+      <button
+        type="submit"
+        disabled={isLoading}
+        className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+      >
+        {isLoading ? 'Signing in...' : 'Sign In'}
+      </button>
+    </form>
+  );
+};
+```
+
+</Step>
+<Step>
+
+### Protected Route Component
+
+```typescript
+// src/components/ProtectedRoute.tsx
+import React from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  requireAuth?: boolean;
+}
+
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  requireAuth = true,
+}) => {
+  const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
+
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
+
+  if (requireAuth && !isAuthenticated) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  if (!requireAuth && isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return <>{children}</>;
+};
+```
+
+</Step>
+</Steps>
+
+## Vue.js Integration
+
+<Tabs defaultValue="setup">
+<Tab value="setup" title="Setup">
+
+### Dependencies
+
+```bash
+npm install axios pinia
+npm install -D @types/node typescript
+```
+
+### TypeScript Interfaces
+
+```typescript
+// src/types/auth.ts
+export interface User {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  emailVerified: boolean;
+}
+
+export interface AuthState {
+  user: User | null;
+  isLoading: boolean;
+  isAuthenticated: boolean;
+}
+```
+
+</Tab>
+<Tab value="service" title="API Service">
+
+```typescript
+// src/services/api.ts
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8080/api',
+  withCredentials: true,
+});
+
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+export const authApi = {
+  async login(email: string, password: string) {
+    const response = await api.post('/auth/sign-in', { email, password });
+    if (response.data.token) {
+      localStorage.setItem('authToken', response.data.token);
+    }
+    return response.data;
+  },
+
+  async logout() {
+    await api.post('/auth/logout');
+    localStorage.removeItem('authToken');
+  },
+
+  async getCurrentUser() {
+    const response = await api.get('/auth/me');
+    return response.data;
+  },
+};
+```
+
+</Tab>
+<Tab value="store" title="Pinia Store">
+
+```typescript
+// src/stores/auth.ts
+import { defineStore } from 'pinia';
+import { ref, computed } from 'vue';
+import { authApi } from '../services/api';
+import type { User } from '../types/auth';
+
+export const useAuthStore = defineStore('auth', () => {
+  const user = ref<User | null>(null);
+  const isLoading = ref(false);
+
+  const isAuthenticated = computed(() => !!user.value);
+
+  const login = async (email: string, password: string) => {
+    isLoading.value = true;
+    try {
+      const data = await authApi.login(email, password);
+      user.value = data.user;
+    } finally {
+      isLoading.value = false;
+    }
+  };
+
+  const logout = async () => {
+    await authApi.logout();
+    user.value = null;
+  };
+
+  const fetchUser = async () => {
+    const token = localStorage.getItem('authToken');
+    if (!token) return;
+
+    try {
+      const userData = await authApi.getCurrentUser();
+      user.value = userData;
+    } catch (error) {
+      localStorage.removeItem('authToken');
+    }
+  };
+
+  return {
+    user,
+    isLoading,
+    isAuthenticated,
+    login,
+    logout,
+    fetchUser,
+  };
+});
+```
+
+</Tab>
+<Tab value="components" title="Components">
+
+### Login Form
+
+```vue
+<!-- src/components/LoginForm.vue -->
+<template>
+  <form @submit.prevent="handleLogin" class="max-w-md mx-auto">
+    <div class="mb-4">
+      <label for="email" class="block text-sm font-medium text-gray-700">
+        Email
+      </label>
+      <input
+        id="email"
+        v-model="email"
+        type="email"
+        required
+        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+      />
+    </div>
+
+    <div class="mb-4">
+      <label for="password" class="block text-sm font-medium text-gray-700">
+        Password
+      </label>
+      <input
+        id="password"
+        v-model="password"
+        type="password"
+        required
+        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+      />
+    </div>
+
+    <div v-if="error" class="mb-4 text-red-600 text-sm">
+      {{ error }}
+    </div>
+
+    <button
+      type="submit"
+      :disabled="authStore.isLoading"
+      class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+    >
+      {{ authStore.isLoading ? 'Signing in...' : 'Sign In' }}
+    </button>
+  </form>
+</template>
+
+<script setup lang="ts">
+import { ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
+
+const email = ref('');
+const password = ref('');
+const error = ref('');
+const authStore = useAuthStore();
+const router = useRouter();
+
+const handleLogin = async () => {
+  error.value = '';
+  try {
+    await authStore.login(email.value, password.value);
+    router.push('/dashboard');
+  } catch (err: any) {
+    error.value = err.response?.data?.message || 'Login failed';
+  }
+};
+</script>
+```
+
+</Tab>
+</Tabs>
+
+## Next.js Integration
+
+<Tabs defaultValue="setup">
+<Tab value="setup" title="Setup">
+
+### Dependencies
+
+```bash
+npm install axios next-auth
+npm install -D @types/node typescript
+```
+
+### API Service
+
+```typescript
+// lib/api.ts
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api',
+});
+
+export const authApi = {
+  async login(email: string, password: string) {
+    const response = await api.post('/auth/sign-in', { email, password });
+    return response.data;
+  },
+
+  async getCurrentUser(token: string) {
+    const response = await api.get('/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return response.data;
+  },
+};
+```
+
+</Tab>
+<Tab value="context" title="Auth Context">
+
+```typescript
+// contexts/AuthContext.tsx
+'use client';
+
+import { createContext, useContext, useEffect, useState } from 'react';
+import { authApi } from '../lib/api';
+
+interface User {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+  isLoading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      authApi.getCurrentUser(token)
+        .then(setUser)
+        .catch(() => localStorage.removeItem('authToken'))
+        .finally(() => setIsLoading(false));
+    } else {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    const data = await authApi.login(email, password);
+    localStorage.setItem('authToken', data.token);
+    setUser(data.user);
+  };
+
+  const logout = () => {
+    localStorage.removeItem('authToken');
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
+```
+
+</Tab>
+<Tab value="components" title="Components">
+
+### Login Form
+
+```typescript
+// components/LoginForm.tsx
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '../contexts/AuthContext';
+
+export default function LoginForm() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const { login } = useAuth();
+  const router = useRouter();
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    try {
+      await login(email, password);
+      router.push('/dashboard');
+    } catch (err: any) {
+      setError(err.response?.data?.message || 'Login failed');
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="max-w-md mx-auto">
+      <div className="mb-4">
+        <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+          Email
+        </label>
+        <input
+          type="email"
+          id="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+        />
+      </div>
+
+      <div className="mb-4">
+        <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+          Password
+        </label>
+        <input
+          type="password"
+          id="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+        />
+      </div>
+
+      {error && (
+        <div className="mb-4 text-red-600 text-sm">{error}</div>
+      )}
+
+      <button
+        type="submit"
+        className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+      >
+        Sign In
+      </button>
+    </form>
+  );
+}
+```
+
+</Tab>
+</Tabs>
+
+## Mobile Integration
+
+<Tabs defaultValue="react-native">
+<Tab value="react-native" title="React Native">
+
+### Auth Service
+
+```typescript
+// services/AuthService.ts
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+class AuthService {
+  private baseURL = 'http://localhost:8080/api';
+
+  async login(email: string, password: string) {
+    const response = await fetch(`${this.baseURL}/auth/sign-in`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+    if (data.token) {
+      await AsyncStorage.setItem('authToken', data.token);
+    }
+    return data;
+  }
+
+  async logout() {
+    await AsyncStorage.removeItem('authToken');
+  }
+
+  async getToken() {
+    return AsyncStorage.getItem('authToken');
+  }
+}
+
+export const authService = new AuthService();
+```
+
+### Auth Context
+
+```typescript
+// contexts/AuthContext.tsx
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { authService } from '../services/AuthService';
+
+interface AuthContextType {
+  user: any;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  isLoading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
+
+  const checkAuthStatus = async () => {
+    const token = await authService.getToken();
+    if (token) {
+      // Fetch user data
+    }
+    setIsLoading(false);
+  };
+
+  const login = async (email: string, password: string) => {
+    const data = await authService.login(email, password);
+    setUser(data.user);
+  };
+
+  const logout = async () => {
+    await authService.logout();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within AuthProvider');
+  }
+  return context;
+};
+```
+
+### Login Screen
+
+```typescript
+// screens/LoginScreen.tsx
+import React, { useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
+import { useAuth } from '../contexts/AuthContext';
+
+export const LoginScreen: React.FC = () => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const { login } = useAuth();
+
+  const handleLogin = async () => {
+    try {
+      await login(email, password);
+    } catch (error) {
+      Alert.alert('Error', 'Login failed');
+    }
+  };
+
+  return (
+    <View style={{ padding: 20 }}>
+      <Text style={{ fontSize: 24, marginBottom: 20 }}>Login</Text>
+      
+      <TextInput
+        placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+        style={{ borderWidth: 1, padding: 10, marginBottom: 10 }}
+      />
+      
+      <TextInput
+        placeholder="Password"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+        style={{ borderWidth: 1, padding: 10, marginBottom: 20 }}
+      />
+      
+      <TouchableOpacity
+        onPress={handleLogin}
+        style={{ backgroundColor: 'blue', padding: 15, borderRadius: 5 }}
+      >
+        <Text style={{ color: 'white', textAlign: 'center' }}>Login</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+```
+
+</Tab>
+<Tab value="flutter" title="Flutter">
+
+### Auth Service
+
+```dart
+// lib/services/auth_service.dart
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
+class AuthService {
+  static const String baseUrl = 'http://localhost:8080/api';
+  
+  Future<Map<String, dynamic>?> login(String email, String password) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/sign-in'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password}),
+      );
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        await _saveToken(data['token']);
+        return data;
+      }
+      return null;
+    } catch (e) {
+      print('Login error: $e');
+      return null;
+    }
+  }
+  
+  Future<void> logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
+  }
+  
+  Future<void> _saveToken(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_token', token);
+  }
+}
+```
+
+</Tab>
+</Tabs>
+
+## Best Practices
+
+### Authentication Flow
+- **Secure Token Storage**: Use secure storage mechanisms
+- **Token Refresh**: Implement automatic token refresh
+- **Logout Handling**: Clear all user data on logout
+- **Error Handling**: Provide clear error messages
+
+### State Management
+- **Centralized State**: Use context/providers for global auth state
+- **Persistence**: Persist authentication state across app restarts
+- **Loading States**: Show appropriate loading indicators
+- **Error States**: Handle authentication errors gracefully
+
+### Security
+- **HTTPS Only**: Always use HTTPS in production
+- **Token Expiration**: Handle token expiration gracefully
+- **CSRF Protection**: Implement CSRF protection
+- **Input Validation**: Validate all user inputs
+
+## Troubleshooting
+
+### Common Issues
+
+**CORS Errors**
+```javascript
+// Configure CORS in your Go application
+app.Use(cors.New(cors.Config{
+    AllowOrigins: []string{"http://localhost:3000"},
+    AllowMethods: []string{"GET", "POST", "PUT", "DELETE"},
+    AllowHeaders: []string{"Content-Type", "Authorization"},
+    AllowCredentials: true,
+}))
+```
+
+**Token Expiration**
+```javascript
+// Implement token refresh logic
+const refreshToken = async () => {
+  try {
+    const response = await api.post('/auth/refresh');
+    localStorage.setItem('token', response.data.token);
+    return response.data.token;
+  } catch (error) {
+    window.location.href = '/login';
+  }
+};
+```
+
+**State Synchronization**
+```javascript
+// Cross-tab synchronization
+window.addEventListener('storage', (e) => {
+  if (e.key === 'token' && !e.newValue) {
+    setUser(null);
+  }
+});
+```
+
+<Callout type="info">
+For more advanced examples and patterns, check out our [Security Examples](/docs/go/examples/security) and [Testing Examples](/docs/go/examples/testing).
+</Callout>

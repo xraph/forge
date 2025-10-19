@@ -594,31 +594,46 @@ func TestCircularDependencyDetection(t *testing.T) {
 	t.Run("Should detect a direct circular dependency", func(t *testing.T) {
 		container := createTestContainer()
 
-		// Service A depends on B
-		_ = container.Register(common.ServiceDefinition{
+		// Register first service
+		err := container.Register(common.ServiceDefinition{
 			Name:         "service-a",
 			Type:         (*ServiceA)(nil),
 			Constructor:  func(b ServiceB) ServiceA { return struct{}{} },
 			Dependencies: []string{"service-b"},
 		})
+		if err != nil {
+			t.Fatalf("Failed to register service-a: %v", err)
+		}
 
-		// Service B depends on A (creating a cycle)
-		_ = container.Register(common.ServiceDefinition{
+		// Register second service - this should fail due to circular dependency
+		err = container.Register(common.ServiceDefinition{
 			Name:         "service-b",
 			Type:         (*ServiceB)(nil),
 			Constructor:  func(a ServiceA) ServiceB { return struct{}{} },
 			Dependencies: []string{"service-a"},
 		})
-
-		// Validation should fail because of the A -> B -> A cycle.
-		err := container.validator.ValidateAll()
 		if err == nil {
-			t.Fatal("Expected a circular dependency error, but got nil")
+			t.Fatal("Expected circular dependency error during registration, but got nil")
 		}
 
 		var forgeErr *common.ForgeError
-		if !errors.As(err, &forgeErr) || forgeErr.Code != common.ErrCodeCircularDependency {
-			t.Errorf("Expected error of type ErrCircularDependency, got %T: %v", err, err)
+		if !errors.As(err, &forgeErr) {
+			t.Errorf("Expected ForgeError, got %T: %v", err, err)
+		}
+
+		// Check if it's a container error with circular dependency cause
+		if forgeErr.Code != "CONTAINER_ERROR" {
+			t.Errorf("Expected CONTAINER_ERROR, got %s", forgeErr.Code)
+		}
+
+		// Check the cause is a circular dependency
+		if forgeErr.Cause == nil {
+			t.Error("Expected cause to be set")
+		} else {
+			var causeErr *common.ForgeError
+			if !errors.As(forgeErr.Cause, &causeErr) || causeErr.Code != common.ErrCodeCircularDependency {
+				t.Errorf("Expected cause to be ErrCircularDependency, got %T: %v", forgeErr.Cause, forgeErr.Cause)
+			}
 		}
 		t.Logf("Correctly detected error: %v", err)
 	})
@@ -626,32 +641,46 @@ func TestCircularDependencyDetection(t *testing.T) {
 	t.Run("Should detect a longer transitive circular dependency", func(t *testing.T) {
 		container := createTestContainer()
 
-		// A -> B
-		_ = container.Register(common.ServiceDefinition{
+		// Register services in order: A, B, then C (which creates A->B->C->A cycle)
+		err := container.Register(common.ServiceDefinition{
 			Name:         "service-a",
 			Type:         (*ServiceA)(nil),
 			Constructor:  func(b ServiceB) ServiceA { return struct{}{} },
 			Dependencies: []string{"service-b"},
 		})
-		// B -> C
-		_ = container.Register(common.ServiceDefinition{
+		if err != nil {
+			t.Fatalf("Failed to register service-a: %v", err)
+		}
+
+		// B -> C (this should fail because A->B and B->C creates A->B->C, but C will depend on A)
+		err = container.Register(common.ServiceDefinition{
 			Name:         "service-b",
 			Type:         (*ServiceB)(nil),
 			Constructor:  func(c ServiceC) ServiceB { return struct{}{} },
 			Dependencies: []string{"service-c"},
 		})
-		// C -> A (closing the cycle)
-		_ = container.Register(common.ServiceDefinition{
-			Name:         "service-c",
-			Type:         (*ServiceC)(nil),
-			Constructor:  func(a ServiceA) ServiceC { return struct{}{} },
-			Dependencies: []string{"service-a"},
-		})
-
-		// Validation should fail because of the A -> B -> C -> A cycle.
-		err := container.validator.ValidateAll()
 		if err == nil {
-			t.Fatal("Expected a circular dependency error for a transitive cycle, but got nil")
+			t.Fatal("Expected circular dependency error when registering service-b, but got nil")
+		}
+
+		var forgeErr *common.ForgeError
+		if !errors.As(err, &forgeErr) {
+			t.Errorf("Expected ForgeError, got %T: %v", err, err)
+		}
+
+		// Check if it's a container error with circular dependency cause
+		if forgeErr.Code != "CONTAINER_ERROR" {
+			t.Errorf("Expected CONTAINER_ERROR, got %s", forgeErr.Code)
+		}
+
+		// Check the cause is a circular dependency
+		if forgeErr.Cause == nil {
+			t.Error("Expected cause to be set")
+		} else {
+			var causeErr *common.ForgeError
+			if !errors.As(forgeErr.Cause, &causeErr) || causeErr.Code != common.ErrCodeCircularDependency {
+				t.Errorf("Expected cause to be ErrCircularDependency, got %T: %v", forgeErr.Cause, forgeErr.Cause)
+			}
 		}
 		t.Logf("Correctly detected error: %v", err)
 	})

@@ -1,0 +1,983 @@
+---
+title: Database Setup
+description: Configure and optimize your database for AuthSome
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Database Setup
+
+AuthSome uses [Bun ORM](https://bun.uptrace.dev/) to provide database abstraction and supports multiple database engines. This guide covers database setup, optimization, and best practices for production environments.
+
+## Supported Databases
+
+AuthSome supports the following databases:
+
+- **PostgreSQL** (Recommended for production)
+- **MySQL/MariaDB**
+- **SQLite** (Development and testing)
+- **SQL Server**
+
+## PostgreSQL Setup (Recommended)
+
+PostgreSQL is the recommended database for production deployments due to its robustness, performance, and advanced features.
+
+### Installation
+
+<Tabs>
+<Tab value="postgres-docker" title="Docker">
+```bash
+# Run PostgreSQL with Docker
+docker run --name authsome-postgres \
+  -e POSTGRES_DB=authsome \
+  -e POSTGRES_USER=authsome \
+  -e POSTGRES_PASSWORD=your_secure_password \
+  -p 5432:5432 \
+  -d postgres:15
+
+# Or use Docker Compose
+cat > docker-compose.yml << EOF
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: authsome
+      POSTGRES_USER: authsome
+      POSTGRES_PASSWORD: your_secure_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+EOF
+
+docker-compose up -d
+```
+</Tab>
+<Tab value="postgres-macos" title="macOS">
+```bash
+# Install PostgreSQL using Homebrew
+brew install postgresql@15
+
+# Start PostgreSQL service
+brew services start postgresql@15
+
+# Create database and user
+createdb authsome
+createuser -s authsome
+psql -c "ALTER USER authsome PASSWORD 'your_secure_password';"
+```
+</Tab>
+<Tab value="postgres-ubuntu" title="Ubuntu/Debian">
+```bash
+# Install PostgreSQL
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+# Start PostgreSQL service
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# Create database and user
+sudo -u postgres createdb authsome
+sudo -u postgres createuser -s authsome
+sudo -u postgres psql -c "ALTER USER authsome PASSWORD 'your_secure_password';"
+```
+</Tab>
+</Tabs>
+
+### Configuration
+
+```go
+// database.go - PostgreSQL configuration
+package main
+
+import (
+    "database/sql"
+    "fmt"
+    "time"
+
+    "github.com/uptrace/bun"
+    "github.com/uptrace/bun/dialect/pgdialect"
+    "github.com/uptrace/bun/driver/pgdriver"
+    "github.com/uptrace/bun/extra/bundebug"
+)
+
+// PostgreSQLConfig holds PostgreSQL configuration
+type PostgreSQLConfig struct {
+    Host     string `yaml:"host" env:"DB_HOST"`
+    Port     int    `yaml:"port" env:"DB_PORT"`
+    Database string `yaml:"database" env:"DB_NAME"`
+    Username string `yaml:"username" env:"DB_USER"`
+    Password string `yaml:"password" env:"DB_PASSWORD"`
+    SSLMode  string `yaml:"sslMode" env:"DB_SSL_MODE"`
+    
+    // Connection pool settings
+    MaxOpenConns    int           `yaml:"maxOpenConns" env:"DB_MAX_OPEN_CONNS"`
+    MaxIdleConns    int           `yaml:"maxIdleConns" env:"DB_MAX_IDLE_CONNS"`
+    ConnMaxLifetime time.Duration `yaml:"connMaxLifetime" env:"DB_CONN_MAX_LIFETIME"`
+    ConnMaxIdleTime time.Duration `yaml:"connMaxIdleTime" env:"DB_CONN_MAX_IDLE_TIME"`
+}
+
+// NewPostgreSQLDB creates a new PostgreSQL database connection
+func NewPostgreSQLDB(config *PostgreSQLConfig) (*bun.DB, error) {
+    // Build DSN
+    dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+        config.Username,
+        config.Password,
+        config.Host,
+        config.Port,
+        config.Database,
+        config.SSLMode,
+    )
+
+    // Create database connection
+    sqldb := sql.OpenDB(pgdriver.NewConnector(
+        pgdriver.WithDSN(dsn),
+        pgdriver.WithTimeout(30*time.Second),
+    ))
+
+    // Configure connection pool
+    configureConnectionPool(sqldb, config)
+
+    // Create Bun DB instance
+    db := bun.NewDB(sqldb, pgdialect.New())
+
+    // Add query hooks for debugging
+    if config.Debug {
+        db.AddQueryHook(bundebug.NewQueryHook(
+            bundebug.WithVerbose(true),
+            bundebug.FromEnv("BUNDEBUG"),
+        ))
+    }
+
+    // Test connection
+    if err := db.Ping(); err != nil {
+        return nil, fmt.Errorf("failed to connect to PostgreSQL: %w", err)
+    }
+
+    return db, nil
+}
+
+// configureConnectionPool sets up connection pool parameters
+func configureConnectionPool(sqldb *sql.DB, config *PostgreSQLConfig) {
+    // Set defaults if not specified
+    maxOpenConns := config.MaxOpenConns
+    if maxOpenConns == 0 {
+        maxOpenConns = 25
+    }
+
+    maxIdleConns := config.MaxIdleConns
+    if maxIdleConns == 0 {
+        maxIdleConns = 5
+    }
+
+    connMaxLifetime := config.ConnMaxLifetime
+    if connMaxLifetime == 0 {
+        connMaxLifetime = 5 * time.Minute
+    }
+
+    connMaxIdleTime := config.ConnMaxIdleTime
+    if connMaxIdleTime == 0 {
+        connMaxIdleTime = 1 * time.Minute
+    }
+
+    // Apply connection pool settings
+    sqldb.SetMaxOpenConns(maxOpenConns)
+    sqldb.SetMaxIdleConns(maxIdleConns)
+    sqldb.SetConnMaxLifetime(connMaxLifetime)
+    sqldb.SetConnMaxIdleTime(connMaxIdleTime)
+}
+```
+
+### Configuration File
+
+<Tabs>
+<Tab value="config-yaml" title="config.yaml">
+```yaml
+database:
+  driver: "postgres"
+  postgres:
+    host: "localhost"
+    port: 5432
+    database: "authsome"
+    username: "authsome"
+    password: "your_secure_password"
+    sslMode: "prefer"
+    
+    # Connection pool settings
+    maxOpenConns: 25
+    maxIdleConns: 5
+    connMaxLifetime: "5m"
+    connMaxIdleTime: "1m"
+```
+</Tab>
+<Tab value="config-env" title="Environment Variables">
+```bash
+# Database connection
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=authsome
+DB_USER=authsome
+DB_PASSWORD=your_secure_password
+DB_SSL_MODE=prefer
+
+# Connection pool
+DB_MAX_OPEN_CONNS=25
+DB_MAX_IDLE_CONNS=5
+DB_CONN_MAX_LIFETIME=5m
+DB_CONN_MAX_IDLE_TIME=1m
+```
+</Tab>
+</Tabs>
+
+## MySQL/MariaDB Setup
+
+MySQL and MariaDB are also well-supported options for AuthSome.
+
+### Installation
+
+<Tabs>
+<Tab value="mysql-docker" title="Docker">
+```bash
+# MySQL
+docker run --name authsome-mysql \
+  -e MYSQL_DATABASE=authsome \
+  -e MYSQL_USER=authsome \
+  -e MYSQL_PASSWORD=your_secure_password \
+  -e MYSQL_ROOT_PASSWORD=root_password \
+  -p 3306:3306 \
+  -d mysql:8.0
+
+# MariaDB
+docker run --name authsome-mariadb \
+  -e MYSQL_DATABASE=authsome \
+  -e MYSQL_USER=authsome \
+  -e MYSQL_PASSWORD=your_secure_password \
+  -e MYSQL_ROOT_PASSWORD=root_password \
+  -p 3306:3306 \
+  -d mariadb:10.9
+```
+</Tab>
+<Tab value="mysql-macos" title="macOS">
+```bash
+# Install MySQL using Homebrew
+brew install mysql
+
+# Start MySQL service
+brew services start mysql
+
+# Secure installation
+mysql_secure_installation
+
+# Create database and user
+mysql -u root -p << EOF
+CREATE DATABASE authsome;
+CREATE USER 'authsome'@'localhost' IDENTIFIED BY 'your_secure_password';
+GRANT ALL PRIVILEGES ON authsome.* TO 'authsome'@'localhost';
+FLUSH PRIVILEGES;
+EOF
+```
+</Tab>
+</Tabs>
+
+### Configuration
+
+```go
+// mysql.go - MySQL configuration
+package main
+
+import (
+    "database/sql"
+    "fmt"
+
+    "github.com/uptrace/bun"
+    "github.com/uptrace/bun/dialect/mysqldialect"
+    "github.com/uptrace/bun/driver/sqldriver"
+    _ "github.com/go-sql-driver/mysql"
+)
+
+// MySQLConfig holds MySQL configuration
+type MySQLConfig struct {
+    Host     string `yaml:"host" env:"DB_HOST"`
+    Port     int    `yaml:"port" env:"DB_PORT"`
+    Database string `yaml:"database" env:"DB_NAME"`
+    Username string `yaml:"username" env:"DB_USER"`
+    Password string `yaml:"password" env:"DB_PASSWORD"`
+    Charset  string `yaml:"charset" env:"DB_CHARSET"`
+    
+    // Connection pool settings
+    MaxOpenConns    int           `yaml:"maxOpenConns" env:"DB_MAX_OPEN_CONNS"`
+    MaxIdleConns    int           `yaml:"maxIdleConns" env:"DB_MAX_IDLE_CONNS"`
+    ConnMaxLifetime time.Duration `yaml:"connMaxLifetime" env:"DB_CONN_MAX_LIFETIME"`
+}
+
+// NewMySQLDB creates a new MySQL database connection
+func NewMySQLDB(config *MySQLConfig) (*bun.DB, error) {
+    // Set default charset
+    charset := config.Charset
+    if charset == "" {
+        charset = "utf8mb4"
+    }
+
+    // Build DSN
+    dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=true&loc=UTC",
+        config.Username,
+        config.Password,
+        config.Host,
+        config.Port,
+        config.Database,
+        charset,
+    )
+
+    // Create database connection
+    sqldb, err := sql.Open("mysql", dsn)
+    if err != nil {
+        return nil, fmt.Errorf("failed to open MySQL connection: %w", err)
+    }
+
+    // Configure connection pool
+    configureConnectionPool(sqldb, config)
+
+    // Create Bun DB instance
+    db := bun.NewDB(sqldb, mysqldialect.New())
+
+    // Test connection
+    if err := db.Ping(); err != nil {
+        return nil, fmt.Errorf("failed to connect to MySQL: %w", err)
+    }
+
+    return db, nil
+}
+```
+
+## SQLite Setup (Development)
+
+SQLite is perfect for development and testing environments.
+
+```go
+// sqlite.go - SQLite configuration
+package main
+
+import (
+    "database/sql"
+    "fmt"
+    "os"
+    "path/filepath"
+
+    "github.com/uptrace/bun"
+    "github.com/uptrace/bun/dialect/sqlitedialect"
+    "github.com/uptrace/bun/driver/sqliteshim"
+    _ "github.com/mattn/go-sqlite3"
+)
+
+// SQLiteConfig holds SQLite configuration
+type SQLiteConfig struct {
+    Path string `yaml:"path" env:"DB_PATH"`
+}
+
+// NewSQLiteDB creates a new SQLite database connection
+func NewSQLiteDB(config *SQLiteConfig) (*bun.DB, error) {
+    // Set default path
+    dbPath := config.Path
+    if dbPath == "" {
+        dbPath = "./authsome.db"
+    }
+
+    // Ensure directory exists
+    if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+        return nil, fmt.Errorf("failed to create database directory: %w", err)
+    }
+
+    // Create database connection
+    sqldb, err := sql.Open(sqliteshim.ShimName, dbPath)
+    if err != nil {
+        return nil, fmt.Errorf("failed to open SQLite connection: %w", err)
+    }
+
+    // Enable foreign keys
+    if _, err := sqldb.Exec("PRAGMA foreign_keys = ON"); err != nil {
+        return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
+    }
+
+    // Create Bun DB instance
+    db := bun.NewDB(sqldb, sqlitedialect.New())
+
+    return db, nil
+}
+```
+
+## Database Migrations
+
+AuthSome uses Bun's migration system to manage database schema changes.
+
+### Migration Structure
+
+```go
+// migrations/migrations.go - Migration registry
+package migrations
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/uptrace/bun"
+    "github.com/uptrace/bun/migrate"
+)
+
+// Migrations holds all database migrations
+var Migrations = migrate.NewMigrations()
+
+// init registers all migrations
+func init() {
+    // Register migrations in order
+    if err := Migrations.Discover(migrations); err != nil {
+        panic(err)
+    }
+}
+
+// RunMigrations executes pending migrations
+func RunMigrations(ctx context.Context, db *bun.DB) error {
+    migrator := migrate.NewMigrator(db, Migrations)
+    
+    // Initialize migration tables
+    if err := migrator.Init(ctx); err != nil {
+        return fmt.Errorf("failed to initialize migrator: %w", err)
+    }
+
+    // Run pending migrations
+    if err := migrator.Lock(ctx); err != nil {
+        return fmt.Errorf("failed to acquire migration lock: %w", err)
+    }
+    defer migrator.Unlock(ctx)
+
+    group, err := migrator.Migrate(ctx)
+    if err != nil {
+        return fmt.Errorf("failed to run migrations: %w", err)
+    }
+
+    if group.IsZero() {
+        fmt.Println("No new migrations to run")
+    } else {
+        fmt.Printf("Migrated to %s\n", group)
+    }
+
+    return nil
+}
+```
+
+### Example Migration
+
+```go
+// migrations/20240101000001_initial_schema.go
+package migrations
+
+import (
+    "context"
+    "fmt"
+
+    "github.com/uptrace/bun"
+    "github.com/xraph/authsome/schema"
+)
+
+func init() {
+    Migrations.MustRegister(func(ctx context.Context, db *bun.DB) error {
+        fmt.Print("Creating initial schema...")
+
+        // Create users table
+        _, err := db.NewCreateTable().
+            Model((*schema.User)(nil)).
+            IfNotExists().
+            Exec(ctx)
+        if err != nil {
+            return err
+        }
+
+        // Create organizations table
+        _, err = db.NewCreateTable().
+            Model((*schema.Organization)(nil)).
+            IfNotExists().
+            Exec(ctx)
+        if err != nil {
+            return err
+        }
+
+        // Create sessions table
+        _, err = db.NewCreateTable().
+            Model((*schema.Session)(nil)).
+            IfNotExists().
+            Exec(ctx)
+        if err != nil {
+            return err
+        }
+
+        // Create indexes
+        indexes := []string{
+            "CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)",
+            "CREATE INDEX IF NOT EXISTS idx_users_organization_id ON users(organization_id)",
+            "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)",
+            "CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)",
+        }
+
+        for _, index := range indexes {
+            if _, err := db.ExecContext(ctx, index); err != nil {
+                return err
+            }
+        }
+
+        fmt.Println(" OK")
+        return nil
+    }, func(ctx context.Context, db *bun.DB) error {
+        fmt.Print("Dropping initial schema...")
+
+        // Drop tables in reverse order
+        tables := []string{"sessions", "users", "organizations"}
+        for _, table := range tables {
+            _, err := db.NewDropTable().
+                TableExpr(table).
+                IfExists().
+                Exec(ctx)
+            if err != nil {
+                return err
+            }
+        }
+
+        fmt.Println(" OK")
+        return nil
+    })
+}
+```
+
+## Database Optimization
+
+### Indexing Strategy
+
+```sql
+-- Core indexes for AuthSome tables
+
+-- Users table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_organization_id ON users(organization_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_created_at ON users(created_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email_verified ON users(email_verified);
+
+-- Sessions table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_token ON sessions(token);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_ip_address ON sessions(ip_address);
+
+-- Organizations table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_organizations_slug ON organizations(slug);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_organizations_created_at ON organizations(created_at);
+
+-- Audit logs table
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_organization_id ON audit_logs(organization_id);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
+
+-- Composite indexes for common queries
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_org_email ON users(organization_id, email);
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_expires ON sessions(user_id, expires_at);
+```
+
+### Query Optimization
+
+```go
+// optimization.go - Database query optimization
+package main
+
+import (
+    "context"
+    "time"
+
+    "github.com/uptrace/bun"
+    "github.com/xraph/authsome/schema"
+)
+
+// OptimizedUserRepository demonstrates optimized queries
+type OptimizedUserRepository struct {
+    db *bun.DB
+}
+
+// FindActiveUsersByOrganization uses optimized query with proper indexing
+func (r *OptimizedUserRepository) FindActiveUsersByOrganization(
+    ctx context.Context, 
+    orgID string, 
+    limit int, 
+    offset int,
+) ([]*schema.User, error) {
+    var users []*schema.User
+    
+    err := r.db.NewSelect().
+        Model(&users).
+        Where("organization_id = ?", orgID).
+        Where("deleted_at IS NULL").
+        Where("email_verified = true").
+        Order("created_at DESC").
+        Limit(limit).
+        Offset(offset).
+        Scan(ctx)
+    
+    return users, err
+}
+
+// FindUserWithSessions demonstrates efficient joins
+func (r *OptimizedUserRepository) FindUserWithSessions(
+    ctx context.Context, 
+    userID string,
+) (*schema.User, error) {
+    user := &schema.User{}
+    
+    err := r.db.NewSelect().
+        Model(user).
+        Where("user.id = ?", userID).
+        Relation("Sessions", func(q *bun.SelectQuery) *bun.SelectQuery {
+            return q.Where("expires_at > ?", time.Now())
+        }).
+        Scan(ctx)
+    
+    return user, err
+}
+
+// CleanupExpiredSessions removes old sessions efficiently
+func (r *OptimizedUserRepository) CleanupExpiredSessions(ctx context.Context) error {
+    _, err := r.db.NewDelete().
+        Model((*schema.Session)(nil)).
+        Where("expires_at < ?", time.Now()).
+        Exec(ctx)
+    
+    return err
+}
+```
+
+### Connection Pool Tuning
+
+```go
+// pool_tuning.go - Advanced connection pool configuration
+package main
+
+import (
+    "database/sql"
+    "runtime"
+    "time"
+)
+
+// TuneConnectionPool optimizes connection pool based on environment
+func TuneConnectionPool(sqldb *sql.DB, environment string) {
+    switch environment {
+    case "production":
+        // Production settings for high load
+        sqldb.SetMaxOpenConns(50)
+        sqldb.SetMaxIdleConns(10)
+        sqldb.SetConnMaxLifetime(10 * time.Minute)
+        sqldb.SetConnMaxIdleTime(2 * time.Minute)
+        
+    case "staging":
+        // Staging settings for moderate load
+        sqldb.SetMaxOpenConns(25)
+        sqldb.SetMaxIdleConns(5)
+        sqldb.SetConnMaxLifetime(5 * time.Minute)
+        sqldb.SetConnMaxIdleTime(1 * time.Minute)
+        
+    case "development":
+        // Development settings for low load
+        sqldb.SetMaxOpenConns(10)
+        sqldb.SetMaxIdleConns(2)
+        sqldb.SetConnMaxLifetime(2 * time.Minute)
+        sqldb.SetConnMaxIdleTime(30 * time.Second)
+        
+    default:
+        // Auto-tune based on CPU cores
+        cores := runtime.NumCPU()
+        sqldb.SetMaxOpenConns(cores * 4)
+        sqldb.SetMaxIdleConns(cores)
+        sqldb.SetConnMaxLifetime(5 * time.Minute)
+        sqldb.SetConnMaxIdleTime(1 * time.Minute)
+    }
+}
+```
+
+## Monitoring and Maintenance
+
+### Health Checks
+
+```go
+// health.go - Database health monitoring
+package main
+
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "github.com/uptrace/bun"
+)
+
+// DatabaseHealth represents database health status
+type DatabaseHealth struct {
+    Status      string        `json:"status"`
+    Latency     time.Duration `json:"latency"`
+    Connections int           `json:"connections"`
+    Error       string        `json:"error,omitempty"`
+}
+
+// CheckDatabaseHealth performs comprehensive database health check
+func CheckDatabaseHealth(ctx context.Context, db *bun.DB) *DatabaseHealth {
+    start := time.Now()
+    
+    health := &DatabaseHealth{
+        Status: "healthy",
+    }
+
+    // Test basic connectivity
+    if err := db.PingContext(ctx); err != nil {
+        health.Status = "unhealthy"
+        health.Error = fmt.Sprintf("ping failed: %v", err)
+        return health
+    }
+
+    health.Latency = time.Since(start)
+
+    // Check connection pool stats
+    stats := db.DB.Stats()
+    health.Connections = stats.OpenConnections
+
+    // Warn if connection pool is under pressure
+    if stats.OpenConnections > stats.MaxOpenConnections*8/10 {
+        health.Status = "degraded"
+        health.Error = "connection pool near capacity"
+    }
+
+    return health
+}
+
+// DatabaseMetrics provides detailed database metrics
+type DatabaseMetrics struct {
+    OpenConnections     int           `json:"open_connections"`
+    InUseConnections    int           `json:"in_use_connections"`
+    IdleConnections     int           `json:"idle_connections"`
+    WaitCount           int64         `json:"wait_count"`
+    WaitDuration        time.Duration `json:"wait_duration"`
+    MaxIdleClosed       int64         `json:"max_idle_closed"`
+    MaxIdleTimeClosed   int64         `json:"max_idle_time_closed"`
+    MaxLifetimeClosed   int64         `json:"max_lifetime_closed"`
+}
+
+// GetDatabaseMetrics returns detailed database metrics
+func GetDatabaseMetrics(db *bun.DB) *DatabaseMetrics {
+    stats := db.DB.Stats()
+    
+    return &DatabaseMetrics{
+        OpenConnections:     stats.OpenConnections,
+        InUseConnections:    stats.InUse,
+        IdleConnections:     stats.Idle,
+        WaitCount:           stats.WaitCount,
+        WaitDuration:        stats.WaitDuration,
+        MaxIdleClosed:       stats.MaxIdleClosed,
+        MaxIdleTimeClosed:   stats.MaxIdleTimeClosed,
+        MaxLifetimeClosed:   stats.MaxLifetimeClosed,
+    }
+}
+```
+
+### Backup Strategies
+
+<Tabs>
+<Tab value="perf-postgres" title="PostgreSQL">
+```bash
+#!/bin/bash
+# backup_postgres.sh - PostgreSQL backup script
+
+DB_NAME="authsome"
+DB_USER="authsome"
+BACKUP_DIR="/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# Create backup directory
+mkdir -p $BACKUP_DIR
+
+# Full database backup
+pg_dump -h localhost -U $DB_USER -d $DB_NAME \
+  --format=custom \
+  --compress=9 \
+  --file="$BACKUP_DIR/authsome_$DATE.backup"
+
+# Schema-only backup
+pg_dump -h localhost -U $DB_USER -d $DB_NAME \
+  --schema-only \
+  --file="$BACKUP_DIR/authsome_schema_$DATE.sql"
+
+# Cleanup old backups (keep last 7 days)
+find $BACKUP_DIR -name "authsome_*.backup" -mtime +7 -delete
+find $BACKUP_DIR -name "authsome_schema_*.sql" -mtime +7 -delete
+
+echo "Backup completed: authsome_$DATE.backup"
+```
+</Tab>
+<Tab value="perf-mysql" title="MySQL">
+```bash
+#!/bin/bash
+# backup_mysql.sh - MySQL backup script
+
+DB_NAME="authsome"
+DB_USER="authsome"
+DB_PASS="your_password"
+BACKUP_DIR="/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# Create backup directory
+mkdir -p $BACKUP_DIR
+
+# Full database backup
+mysqldump -u $DB_USER -p$DB_PASS \
+  --single-transaction \
+  --routines \
+  --triggers \
+  --compress \
+  $DB_NAME > "$BACKUP_DIR/authsome_$DATE.sql"
+
+# Compress backup
+gzip "$BACKUP_DIR/authsome_$DATE.sql"
+
+# Cleanup old backups (keep last 7 days)
+find $BACKUP_DIR -name "authsome_*.sql.gz" -mtime +7 -delete
+
+echo "Backup completed: authsome_$DATE.sql.gz"
+```
+</Tab>
+</Tabs>
+
+## Security Considerations
+
+<Callout type="warn">
+**Database Security**: Always use strong passwords, enable SSL/TLS, and restrict network access to your database.
+</Callout>
+
+### SSL/TLS Configuration
+
+```yaml
+# PostgreSQL with SSL
+database:
+  postgres:
+    host: "your-db-host.com"
+    port: 5432
+    database: "authsome"
+    username: "authsome"
+    password: "your_secure_password"
+    sslMode: "require"  # or "verify-full" for certificate verification
+
+# MySQL with SSL
+database:
+  mysql:
+    host: "your-db-host.com"
+    port: 3306
+    database: "authsome"
+    username: "authsome"
+    password: "your_secure_password"
+    tls: "true"
+```
+
+### Database User Permissions
+
+```sql
+-- PostgreSQL: Create limited user for application
+CREATE USER authsome_app WITH PASSWORD 'secure_password';
+GRANT CONNECT ON DATABASE authsome TO authsome_app;
+GRANT USAGE ON SCHEMA public TO authsome_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authsome_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authsome_app;
+
+-- MySQL: Create limited user for application
+CREATE USER 'authsome_app'@'%' IDENTIFIED BY 'secure_password';
+GRANT SELECT, INSERT, UPDATE, DELETE ON authsome.* TO 'authsome_app'@'%';
+FLUSH PRIVILEGES;
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Connection Pool Exhaustion**
+   ```go
+   // Monitor connection pool usage
+   stats := db.DB.Stats()
+   if stats.OpenConnections >= stats.MaxOpenConnections {
+       log.Warn("Connection pool exhausted")
+   }
+   ```
+
+2. **Slow Queries**
+   ```go
+   // Enable query logging
+   db.AddQueryHook(bundebug.NewQueryHook(
+       bundebug.WithVerbose(true),
+       bundebug.WithSlowDuration(100*time.Millisecond),
+   ))
+   ```
+
+3. **Migration Failures**
+   ```bash
+   # Check migration status
+   go run cmd/migrate/main.go status
+   
+   # Rollback last migration
+   go run cmd/migrate/main.go rollback
+   ```
+
+### Performance Debugging
+
+```go
+// debug.go - Performance debugging utilities
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/uptrace/bun"
+)
+
+// SlowQueryHook logs slow queries
+type SlowQueryHook struct {
+    threshold time.Duration
+}
+
+func NewSlowQueryHook(threshold time.Duration) *SlowQueryHook {
+    return &SlowQueryHook{threshold: threshold}
+}
+
+func (h *SlowQueryHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) context.Context {
+    return ctx
+}
+
+func (h *SlowQueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
+    if event.Err != nil {
+        log.Printf("Query error: %v", event.Err)
+        return
+    }
+
+    duration := time.Since(event.StartTime)
+    if duration > h.threshold {
+        log.Printf("Slow query (%v): %s", duration, event.Query)
+    }
+}
+```
+
+## Next Steps
+
+- [Deployment](/docs/go/guides/deployment) - Deploy your database to production
+- [Testing](/docs/go/guides/testing) - Test your database integration
+- [Migration](/docs/go/guides/migration) - Migrate from other systems
+
+---
+
+This guide covered comprehensive database setup and optimization for AuthSome. For specific deployment scenarios, check the [Deployment Guide](/docs/go/guides/deployment).

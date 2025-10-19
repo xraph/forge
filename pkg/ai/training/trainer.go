@@ -10,6 +10,21 @@ import (
 	"github.com/xraph/forge/pkg/logger"
 )
 
+// TrainerConfig contains configuration for a trainer
+type TrainerConfig struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Type        string                 `json:"type"`
+	ModelType   string                 `json:"model_type"`
+	Config      map[string]interface{} `json:"config"`
+	Resources   ResourceConfig         `json:"resources"`
+	Environment map[string]string      `json:"environment"`
+	Tags        map[string]string      `json:"tags"`
+	Enabled     bool                   `json:"enabled"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+}
+
 // ModelTrainer defines the interface for model training
 type ModelTrainer interface {
 	// Training lifecycle
@@ -258,12 +273,12 @@ func (t *ModelTrainerImpl) StartTraining(ctx context.Context, request TrainingRe
 	}
 
 	// Create training job
-	job := New(request, t.logger, t.metrics)
+	job := NewTrainingJob(request, t.logger, t.metrics)
 
 	// Store job
 	t.jobs[request.ID] = job
 
-	// OnStart training execution
+	// Start training execution
 	go func() {
 		if err := t.executor.Execute(ctx, job); err != nil {
 			t.logger.Error("training execution failed",
@@ -538,4 +553,116 @@ type ModelStorage interface {
 	ExportModel(ctx context.Context, jobID string, format string) ([]byte, error)
 	DeleteModel(ctx context.Context, modelID string) error
 	ListModels(ctx context.Context) ([]TrainedModel, error)
+}
+
+// NewTrainingJob creates a new training job
+func NewTrainingJob(request TrainingRequest, logger common.Logger, metrics common.Metrics) TrainingJob {
+	return &TrainingJobImpl{
+		request:   request,
+		status:    TrainingStatusPending,
+		createdAt: time.Now(),
+		logger:    logger,
+		metrics:   TrainingMetrics{}, // Initialize empty metrics
+	}
+}
+
+// TrainingJobImpl implements the TrainingJob interface
+type TrainingJobImpl struct {
+	request          TrainingRequest
+	status           TrainingStatus
+	progress         TrainingProgress
+	metrics          TrainingMetrics
+	logs             []TrainingLogEntry
+	createdAt        time.Time
+	startedAt        time.Time
+	completedAt      time.Time
+	logger           common.Logger
+	metricsCollector common.Metrics
+	mu               sync.RWMutex
+}
+
+func (j *TrainingJobImpl) ID() string {
+	return j.request.ID
+}
+
+func (j *TrainingJobImpl) Name() string {
+	return j.request.ModelType
+}
+
+func (j *TrainingJobImpl) Status() TrainingStatus {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.status
+}
+
+func (j *TrainingJobImpl) Progress() TrainingProgress {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.progress
+}
+
+func (j *TrainingJobImpl) CreatedAt() time.Time {
+	return j.createdAt
+}
+
+func (j *TrainingJobImpl) StartedAt() time.Time {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.startedAt
+}
+
+func (j *TrainingJobImpl) CompletedAt() time.Time {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.completedAt
+}
+
+func (j *TrainingJobImpl) Duration() time.Duration {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	if j.startedAt.IsZero() {
+		return 0
+	}
+	if j.completedAt.IsZero() {
+		return time.Since(j.startedAt)
+	}
+	return j.completedAt.Sub(j.startedAt)
+}
+
+func (j *TrainingJobImpl) GetMetrics() TrainingMetrics {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.metrics
+}
+
+func (j *TrainingJobImpl) GetLogs() []TrainingLogEntry {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.logs
+}
+
+func (j *TrainingJobImpl) GetConfig() TrainingConfig {
+	return j.request.TrainingConfig
+}
+
+func (j *TrainingJobImpl) Cancel(ctx context.Context) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.status = TrainingStatusCancelled
+	j.completedAt = time.Now()
+	return nil
+}
+
+func (j *TrainingJobImpl) Pause(ctx context.Context) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.status = TrainingStatusPaused
+	return nil
+}
+
+func (j *TrainingJobImpl) Resume(ctx context.Context) error {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.status = TrainingStatusRunning
+	return nil
 }

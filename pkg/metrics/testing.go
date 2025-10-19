@@ -57,14 +57,14 @@ func (m *MockMetricsCollector) Dependencies() []string {
 	return []string{}
 }
 
-func (m *MockMetricsCollector) OnStart(ctx context.Context) error {
+func (m *MockMetricsCollector) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.started = true
 	return nil
 }
 
-func (m *MockMetricsCollector) OnStop(ctx context.Context) error {
+func (m *MockMetricsCollector) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.started = false
@@ -836,7 +836,7 @@ func NewMetricsTestFixture() *MetricsTestFixture {
 // Cleanup cleans up the test fixture
 func (f *MetricsTestFixture) Cleanup() {
 	f.cancel()
-	f.Collector.OnStop(f.ctx)
+	f.Collector.Stop(f.ctx)
 	f.Registry.Stop()
 }
 
@@ -847,7 +847,7 @@ func (f *MetricsTestFixture) Context() context.Context {
 
 // StartCollector starts the mock collector
 func (f *MetricsTestFixture) StartCollector() error {
-	return f.Collector.OnStart(f.ctx)
+	return f.Collector.Start(f.ctx)
 }
 
 // CreateTestMetrics creates a set of test metrics
@@ -1072,7 +1072,7 @@ func (r *PerformanceTestRunner) runTest(workerFn func(int)) PerformanceResult {
 
 	start := time.Now()
 
-	// OnStart workers
+	// Start workers
 	for i := 0; i < r.workers; i++ {
 		wg.Add(1)
 		go func(worker int) {
@@ -1169,13 +1169,13 @@ func NewIntegrationTestEnvironment(useRealImplementations bool) *IntegrationTest
 
 // Setup sets up the integration test environment
 func (e *IntegrationTestEnvironment) Setup() error {
-	// OnStart registry
+	// Start registry
 	if err := e.Registry.Start(); err != nil {
 		return fmt.Errorf("failed to start registry: %w", err)
 	}
 
-	// OnStart collector
-	if err := e.Collector.OnStart(e.ctx); err != nil {
+	// Start collector
+	if err := e.Collector.Start(e.ctx); err != nil {
 		return fmt.Errorf("failed to start collector: %w", err)
 	}
 
@@ -1185,7 +1185,7 @@ func (e *IntegrationTestEnvironment) Setup() error {
 // Cleanup cleans up the integration test environment
 func (e *IntegrationTestEnvironment) Cleanup() {
 	e.cancel()
-	e.Collector.OnStop(e.ctx)
+	e.Collector.Stop(e.ctx)
 	e.Registry.Stop()
 }
 

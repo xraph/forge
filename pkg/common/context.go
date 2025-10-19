@@ -948,6 +948,96 @@ func (c *ForgeContext) extractPathParametersFromURL(routePattern, requestPath st
 		return params
 	}
 
+	// Check for wildcard patterns (e.g., /dashboard/*, /dashboard/assets/*)
+	hasWildcard := false
+	wildcardIndex := -1
+	for i, part := range routeParts {
+		if part == "*" || strings.HasSuffix(part, "/*") {
+			hasWildcard = true
+			wildcardIndex = i
+			break
+		}
+	}
+
+	// Handle wildcard patterns
+	if hasWildcard {
+		// For wildcard patterns, we only need to match up to the wildcard
+		if len(pathParts) < wildcardIndex {
+			if c.logger != nil {
+				c.logger.Debug("Path too short for wildcard pattern",
+					logger.Int("required_segments", wildcardIndex),
+					logger.Int("path_segments", len(pathParts)),
+					logger.String("route_pattern", routePattern),
+					logger.String("request_path", requestPath),
+				)
+			}
+			return params
+		}
+
+		// Extract parameters up to the wildcard
+		for i := 0; i < wildcardIndex; i++ {
+			routePart := routeParts[i]
+			var paramName string
+			var isParam bool
+
+			// Handle Steel router format: :paramName
+			if strings.HasPrefix(routePart, ":") {
+				paramName = routePart[1:] // Remove the ':' prefix
+				isParam = true
+			}
+			// Handle OpenAPI format: {paramName}
+			if strings.HasPrefix(routePart, "{") && strings.HasSuffix(routePart, "}") {
+				paramName = routePart[1 : len(routePart)-1] // Remove the '{' and '}'
+				isParam = true
+			}
+
+			if isParam && i < len(pathParts) {
+				params[paramName] = pathParts[i]
+				if c.logger != nil {
+					c.logger.Debug("Extracted path parameter",
+						logger.String("param_name", paramName),
+						logger.String("param_value", pathParts[i]),
+						logger.String("format", getParamFormat(routePart)),
+					)
+				}
+			}
+		}
+
+		// For wildcard patterns, capture the remaining path as a single parameter
+		if wildcardIndex < len(routeParts) {
+			wildcardParam := routeParts[wildcardIndex]
+			if wildcardParam == "*" {
+				// Simple wildcard - capture everything after the prefix
+				if wildcardIndex < len(pathParts) {
+					remainingPath := strings.Join(pathParts[wildcardIndex:], "/")
+					params["*"] = remainingPath
+					if c.logger != nil {
+						c.logger.Debug("Extracted wildcard parameter",
+							logger.String("param_name", "*"),
+							logger.String("param_value", remainingPath),
+						)
+					}
+				}
+			} else if strings.HasSuffix(wildcardParam, "/*") {
+				// Named wildcard parameter (e.g., "assets/*")
+				paramName := strings.TrimSuffix(wildcardParam, "/*")
+				if wildcardIndex < len(pathParts) {
+					remainingPath := strings.Join(pathParts[wildcardIndex:], "/")
+					params[paramName] = remainingPath
+					if c.logger != nil {
+						c.logger.Debug("Extracted named wildcard parameter",
+							logger.String("param_name", paramName),
+							logger.String("param_value", remainingPath),
+						)
+					}
+				}
+			}
+		}
+
+		return params
+	}
+
+	// Handle exact segment matching for non-wildcard patterns
 	if len(routeParts) != len(pathParts) {
 		if c.logger != nil {
 			c.logger.Debug("Path segment count mismatch",

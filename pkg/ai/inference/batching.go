@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xraph/forge/pkg/ai/models"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
 )
@@ -158,7 +159,7 @@ func (b *RequestBatcher) Start(ctx context.Context) error {
 		return fmt.Errorf("request batcher already started")
 	}
 
-	// OnStart batch creation workers
+	// Start batch creation workers
 	for i := 0; i < b.config.Workers; i++ {
 		b.wg.Add(1)
 		go func(workerID int) {
@@ -167,7 +168,7 @@ func (b *RequestBatcher) Start(ctx context.Context) error {
 		}(i)
 	}
 
-	// OnStart batch processing workers
+	// Start batch processing workers
 	for i := 0; i < b.config.Workers; i++ {
 		b.wg.Add(1)
 		go func(workerID int) {
@@ -176,14 +177,14 @@ func (b *RequestBatcher) Start(ctx context.Context) error {
 		}(i)
 	}
 
-	// OnStart batch timeout monitor
+	// Start batch timeout monitor
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
 		b.runBatchTimeoutMonitor(ctx)
 	}()
 
-	// OnStart stats collection
+	// Start stats collection
 	b.wg.Add(1)
 	go func() {
 		defer b.wg.Done()
@@ -481,9 +482,21 @@ func (b *RequestBatcher) processBatch(ctx context.Context, batch *RequestBatch) 
 		// This is a simplified implementation
 		// In practice, this would use the actual model inference
 		response := InferenceResponse{
-			ID:         request.ID,
-			ModelID:    request.ModelID,
-			Output:     request.Input, // Echo for now
+			ID:      request.ID,
+			ModelID: request.ModelID,
+			Output: models.ModelOutput{
+				Predictions: []models.Prediction{
+					{
+						Label:      "default",
+						Value:      request.Input.Data,
+						Confidence: 0.95,
+					},
+				},
+				Confidence: 0.95,
+				Metadata:   make(map[string]interface{}),
+				RequestID:  request.ID,
+				Timestamp:  time.Now(),
+			}, // Convert input to output
 			Latency:    time.Since(request.Timestamp),
 			Confidence: 0.95,
 			Timestamp:  time.Now(),

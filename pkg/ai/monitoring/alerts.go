@@ -415,11 +415,11 @@ func (m *AIAlertManager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize default alert rules: %w", err)
 	}
 
-	// OnStart alert checking ticker
+	// Start alert checking ticker
 	m.alertTicker = time.NewTicker(m.config.CheckInterval)
 	m.started = true
 
-	// OnStart alert processing goroutine
+	// Start alert processing goroutine
 	go m.processAlerts(ctx)
 
 	if m.logger != nil {
@@ -999,4 +999,22 @@ func (m *AIAlertManager) cleanupResolvedAlerts() {
 	if len(m.alertHistory) > maxHistorySize {
 		m.alertHistory = m.alertHistory[len(m.alertHistory)-maxHistorySize:]
 	}
+}
+
+// processAnomalyAlerts processes anomaly-based alerts
+func (m *AIAlertManager) processAnomalyAlerts(ctx context.Context) {
+	// Implementation for processing anomaly alerts
+	// This would analyze anomaly detection results and generate alerts
+}
+
+// processPredictiveAlerts processes predictive alerts
+func (m *AIAlertManager) processPredictiveAlerts(ctx context.Context) {
+	// Implementation for processing predictive alerts
+	// This would analyze predictive analytics results and generate alerts
+}
+
+// correlateAlerts correlates related alerts
+func (m *AIAlertManager) correlateAlerts(ctx context.Context) {
+	// Implementation for correlating alerts
+	// This would identify related alerts and group them together
 }

@@ -2,7 +2,6 @@ package {{.Package}}
 
 import (
 	"context"
-	"time"
 
 	"github.com/xraph/forge/pkg/common"
 	{{- if .Services}}
@@ -20,10 +19,6 @@ import (
 // {{.Name}}Plugin implements the common.Plugin interface
 // {{.Description}}
 type {{.Name}}Plugin struct {
-	id          string
-	initialized bool
-	startTime   time.Time
-	metrics     pluginMetrics
 	{{- if .ConfigSchema}}
 	config      *{{.Name}}Config
 	{{- end}}
@@ -45,23 +40,9 @@ type {{.Name}}Config struct {
 }
 {{- end}}
 
-type pluginMetrics struct {
-	callCount      int64
-	routeCount     int64
-	errorCount     int64
-	averageLatency time.Duration
-	lastExecuted   time.Time
-	memoryUsage    int64
-	cpuUsage       float64
-	healthScore    float64
-	uptime         time.Duration
-}
-
 // New{{.Name}}Plugin creates a new {{.Name}} plugin instance
 func New{{.Name}}Plugin() *{{.Name}}Plugin {
 	return &{{.Name}}Plugin{
-		id:      "{{.Name | toLower}}-plugin",
-		metrics: pluginMetrics{},
 		{{- if .HealthCheck}}
 		healthy: false,
 		{{- end}}
@@ -72,10 +53,6 @@ func New{{.Name}}Plugin() *{{.Name}}Plugin {
 // Plugin interface implementation
 // =============================================================================
 
-func (p *{{.Name}}Plugin) ID() string {
-	return p.id
-}
-
 func (p *{{.Name}}Plugin) Name() string {
 	return "{{.Name}}"
 }
@@ -84,59 +61,48 @@ func (p *{{.Name}}Plugin) Version() string {
 	return "{{.Version | default "1.0.0"}}"
 }
 
-func (p *{{.Name}}Plugin) Description() string {
-	return "{{.Description | default "A Forge plugin"}}"
-}
-
-func (p *{{.Name}}Plugin) Author() string {
-	return "{{.Author | default "Unknown"}}"
-}
-
-func (p *{{.Name}}Plugin) License() string {
-	return "{{.License | default "MIT"}}"
-}
-
-func (p *{{.Name}}Plugin) Type() common.PluginType {
-	return common.{{.Type | default "PluginTypeUtility"}}
-}
-
 // =============================================================================
 // Lifecycle methods
 // =============================================================================
 
-func (p *{{.Name}}Plugin) Initialize(ctx context.Context, container common.Container) error {
-	p.logger = container.Logger()
-	p.container = container
-
-	p.logger.Info("initializing {{.Name}} plugin",
-		common.LogField{Key: "plugin_id", Value: p.id},
-		common.LogField{Key: "version", Value: p.Version()})
-
-	// TODO: Add your initialization logic here
-	{{- if .ConfigSchema}}
-	// Load configuration if available
-	if config := p.GetConfig(); config != nil {
-		if pluginConfig, ok := config.(*{{.Name}}Config); ok {
-			p.config = pluginConfig
+func (p *{{.Name}}Plugin) OnStart(ctx common.PluginContext) error {
+	// Access dependencies from PluginContext
+	p.container = ctx.Container()
+	configManager := ctx.ConfigManager()
+	
+	if p.container != nil {
+		if logger, err := p.container.Resolve((*common.Logger)(nil)); err == nil {
+			p.logger = logger.(common.Logger)
 		}
 	}
+
+	if p.logger != nil {
+		p.logger.Info("starting {{.Name}} plugin")
+	}
+
+	// Can use context.Context methods for cancellation, deadlines, etc.
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		// Continue with initialization
+	}
+
+	{{- if .ConfigSchema}}
+	// Load configuration from config manager
+	var config {{.Name}}Config
+	if err := configManager.BindWithDefault("plugins.{{.Name | toLower}}", &config, {{.Name}}Config{
+		Enabled: true,
+		Debug:   false,
+	}); err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+	p.config = &config
 	{{- end}}
 
 	{{- if .HealthCheck}}
 	p.healthy = true
 	{{- end}}
-
-	p.initialized = true
-	return nil
-}
-
-func (p *{{.Name}}Plugin) OnStart(ctx context.Context) error {
-	if !p.initialized {
-		return fmt.Errorf("plugin not initialized")
-	}
-
-	p.startTime = time.Now()
-	p.logger.Info("starting {{.Name}} plugin")
 
 	// TODO: Add your startup logic here
 
@@ -144,85 +110,17 @@ func (p *{{.Name}}Plugin) OnStart(ctx context.Context) error {
 }
 
 func (p *{{.Name}}Plugin) OnStop(ctx context.Context) error {
-	p.logger.Info("stopping {{.Name}} plugin")
+	if p.logger != nil {
+		p.logger.Info("stopping {{.Name}} plugin")
+	}
 
 	// TODO: Add your shutdown logic here
 
-	return nil
-}
-
-func (p *{{.Name}}Plugin) Cleanup(ctx context.Context) error {
-	p.logger.Info("cleaning up {{.Name}} plugin")
-
-	// TODO: Add your cleanup logic here
-
-	p.initialized = false
 	{{- if .HealthCheck}}
 	p.healthy = false
 	{{- end}}
 
 	return nil
-}
-
-// =============================================================================
-// Capabilities and Dependencies
-// =============================================================================
-
-func (p *{{.Name}}Plugin) Capabilities() []common.PluginCapability {
-	capabilities := []common.PluginCapability{
-		{
-			Name:        "{{.Name}}",
-			Version:     p.Version(),
-			Description: "{{.Description | default "Primary plugin capability"}}",
-			Interface:   "{{.Name}}Plugin",
-			Methods:     []string{
-				{{- if .Capabilities}}
-				{{- range .Capabilities}}
-				"{{.}}",
-				{{- end}}
-				{{- else}}
-				"Process",
-				"Configure",
-				{{- end}}
-			},
-			Metadata: map[string]interface{}{
-				"plugin_type": string(p.Type()),
-				"author":      p.Author(),
-				"license":     p.License(),
-			},
-			{{- if .Controllers}}
-			Controllers: []string{
-				{{- range .Controllers}}
-				"{{. | toLower}}-controller",
-				{{- end}}
-			},
-			{{- end}}
-			{{- if .Streaming}}
-			Streaming: []string{"websocket", "sse"},
-			{{- end}}
-		},
-	}
-
-	return capabilities
-}
-
-func (p *{{.Name}}Plugin) Dependencies() []common.PluginDependency {
-	dependencies := []common.PluginDependency{}
-
-	{{- if .Dependencies}}
-	{{- range .Dependencies}}
-	dependencies = append(dependencies, common.PluginDependency{
-		Name:       "{{.}}",
-		Type:       "service",
-		Required:   true,
-		Constraint: ">=1.0.0",
-	})
-	{{- end}}
-	{{- end}}
-
-	// TODO: Add your dependencies here
-
-	return dependencies
 }
 
 // =============================================================================
@@ -243,7 +141,7 @@ func (p *{{.Name}}Plugin) Middleware() []any {
 	return middleware
 }
 
-func (p *{{.Name}}Plugin) ConfigureRoutes(router common.Router) error {
+func (p *{{.Name}}Plugin) Routes(router common.Router) error {
 	{{- if .Routes}}
 	{{- range .Routes}}
 	// router.GET("/{{$.Name | toLower}}/{{. | toLower}}", p.Handle{{. | title}})
@@ -291,119 +189,12 @@ func (p *{{.Name}}Plugin) Controllers() []common.Controller {
 	return controllers
 }
 
-func (p *{{.Name}}Plugin) Commands() []common.CLICommand {
-	commands := []common.CLICommand{}
-
-	{{- if .Commands}}
-	{{- range .Commands}}
-	commands = append(commands, common.CLICommand{
-		Name:        "{{. | toLower}}",
-		Description: "{{. | title}} command for {{$.Name}} plugin",
-		Usage:       "{{. | toLower}} [options]",
-		Handler:     p.handle{{. | title}}Command,
-		Category:    "{{$.Name | toLower}}",
-	})
-	{{- end}}
-	{{- end}}
-
-	// TODO: Add your CLI commands here
-
-	return commands
-}
-
-func (p *{{.Name}}Plugin) Hooks() []common.Hook {
-	hooks := []common.Hook{}
-
-	{{- if .Hooks}}
-	{{- range .Hooks}}
-	// hooks = append(hooks, &{{. | title}}Hook{})
-	{{- end}}
-	{{- end}}
-
-	// TODO: Add your hooks here
-
-	return hooks
-}
-
 // =============================================================================
-// Configuration
-// =============================================================================
-
-func (p *{{.Name}}Plugin) ConfigSchema() common.ConfigSchema {
-	{{- if .ConfigSchema}}
-	return common.ConfigSchema{
-		Version: "1.0.0",
-		Type:    "object",
-		Title:   "{{.Name}} Plugin Configuration",
-		Properties: map[string]common.ConfigProperty{
-			"enabled": {
-				Type:        "boolean",
-				Description: "Enable or disable the {{.Name}} plugin",
-				Default:     true,
-			},
-			"debug": {
-				Type:        "boolean",
-				Description: "Enable debug mode for the {{.Name}} plugin",
-				Default:     false,
-			},
-			// TODO: Add your configuration properties here
-		},
-		Required: []string{"enabled"},
-		Examples: []interface{}{
-			map[string]interface{}{
-				"enabled": true,
-				"debug":   false,
-			},
-		},
-	}
-	{{- else}}
-	return common.ConfigSchema{}
-	{{- end}}
-}
-
-func (p *{{.Name}}Plugin) Configure(config interface{}) error {
-	{{- if .ConfigSchema}}
-	if pluginConfig, ok := config.(*{{.Name}}Config); ok {
-		p.config = pluginConfig
-		p.logger.Info("{{.Name}} plugin configured",
-			common.LogField{Key: "enabled", Value: pluginConfig.Enabled},
-			common.LogField{Key: "debug", Value: pluginConfig.Debug})
-		return nil
-	}
-
-	return fmt.Errorf("invalid configuration type for {{.Name}} plugin")
-	{{- else}}
-	// TODO: Implement configuration logic
-	return nil
-	{{- end}}
-}
-
-func (p *{{.Name}}Plugin) GetConfig() interface{} {
-	{{- if .ConfigSchema}}
-	if p.config != nil {
-		return p.config
-	}
-
-	// Return default configuration
-	return &{{.Name}}Config{
-		Enabled: true,
-		Debug:   false,
-	}
-	{{- else}}
-	return nil
-	{{- end}}
-}
-
-// =============================================================================
-// Health and Metrics
+// Health Check
 // =============================================================================
 
 {{- if .HealthCheck}}
 func (p *{{.Name}}Plugin) HealthCheck(ctx context.Context) error {
-	if !p.initialized {
-		return fmt.Errorf("{{.Name}} plugin not initialized")
-	}
-
 	if !p.healthy {
 		return fmt.Errorf("{{.Name}} plugin is not healthy")
 	}
@@ -414,50 +205,8 @@ func (p *{{.Name}}Plugin) HealthCheck(ctx context.Context) error {
 }
 {{- else}}
 func (p *{{.Name}}Plugin) HealthCheck(ctx context.Context) error {
-	if !p.initialized {
-		return fmt.Errorf("{{.Name}} plugin not initialized")
-	}
+	// TODO: Add your health check logic here
 	return nil
-}
-{{- end}}
-
-{{- if .Metrics}}
-func (p *{{.Name}}Plugin) GetMetrics() common.PluginMetrics {
-	uptime := time.Duration(0)
-	if !p.startTime.IsZero() {
-		uptime = time.Since(p.startTime)
-	}
-
-	return common.PluginMetrics{
-		CallCount:      p.metrics.callCount,
-		RouteCount:     p.metrics.routeCount,
-		ErrorCount:     p.metrics.errorCount,
-		AverageLatency: p.metrics.averageLatency,
-		LastExecuted:   p.metrics.lastExecuted,
-		MemoryUsage:    p.metrics.memoryUsage,
-		CPUUsage:       p.metrics.cpuUsage,
-		HealthScore:    p.metrics.healthScore,
-		Uptime:         uptime,
-	}
-}
-{{- else}}
-func (p *{{.Name}}Plugin) GetMetrics() common.PluginMetrics {
-	uptime := time.Duration(0)
-	if !p.startTime.IsZero() {
-		uptime = time.Since(p.startTime)
-	}
-
-	return common.PluginMetrics{
-		CallCount:      0,
-		RouteCount:     0,
-		ErrorCount:     0,
-		AverageLatency: 0,
-		LastExecuted:   time.Time{},
-		MemoryUsage:    0,
-		CPUUsage:       0,
-		HealthScore:    1.0,
-		Uptime:         uptime,
-	}
 }
 {{- end}}
 
@@ -465,48 +214,11 @@ func (p *{{.Name}}Plugin) GetMetrics() common.PluginMetrics {
 // Plugin-specific methods
 // =============================================================================
 
-{{- if .Commands}}
-{{- range .Commands}}
-func (p *{{$.Name}}Plugin) handle{{. | title}}Command(ctx context.Context, args []string, flags map[string]interface{}) error {
-	p.logger.Info("executing {{. | toLower}} command")
-
-	// TODO: Implement {{. | toLower}} command logic
-
-	return nil
-}
-{{- end}}
-{{- end}}
-
-{{- if .Capabilities}}
-{{- range .Capabilities}}
-func (p *{{$.Name}}Plugin) {{.}}(ctx context.Context, data interface{}) (interface{}, error) {
-	p.logger.Debug("executing {{.}} capability")
-
-	{{- if $.Metrics}}
-	p.metrics.callCount++
-	p.metrics.lastExecuted = time.Now()
-	{{- end}}
-
-	// TODO: Implement {{.}} capability logic
-
-	return nil, fmt.Errorf("{{.}} not implemented")
-}
-{{- end}}
-{{- end}}
-
 // Process is the main processing method for the plugin
 func (p *{{.Name}}Plugin) Process(ctx context.Context, data interface{}) (interface{}, error) {
-	p.logger.Debug("processing data in {{.Name}} plugin")
-
-	{{- if .Metrics}}
-	p.metrics.callCount++
-	start := time.Now()
-	defer func() {
-		duration := time.Since(start)
-		p.metrics.averageLatency = (p.metrics.averageLatency + duration) / 2
-		p.metrics.lastExecuted = time.Now()
-	}()
-	{{- end}}
+	if p.logger != nil {
+		p.logger.Debug("processing data in {{.Name}} plugin")
+	}
 
 	{{- if .ConfigSchema}}
 	// Check if plugin is enabled
@@ -524,10 +236,6 @@ func (p *{{.Name}}Plugin) Process(ctx context.Context, data interface{}) (interf
 // Helper methods
 // =============================================================================
 
-func (p *{{.Name}}Plugin) isInitialized() bool {
-	return p.initialized
-}
-
 {{- if .ConfigSchema}}
 func (p *{{.Name}}Plugin) isEnabled() bool {
 	if p.config == nil {
@@ -544,12 +252,3 @@ func (p *{{.Name}}Plugin) isDebugMode() bool {
 }
 {{- end}}
 
-{{- if .Metrics}}
-func (p *{{.Name}}Plugin) incrementErrorCount() {
-	p.metrics.errorCount++
-}
-
-func (p *{{.Name}}Plugin) updateHealthScore(score float64) {
-	p.metrics.healthScore = score
-}
-{{- end}}

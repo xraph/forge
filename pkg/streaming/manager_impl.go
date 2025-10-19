@@ -129,7 +129,7 @@ func (sm *DefaultStreamingManager) Dependencies() []string {
 }
 
 // OnStart starts the streaming manager
-func (sm *DefaultStreamingManager) OnStart(ctx context.Context) error {
+func (sm *DefaultStreamingManager) Start(ctx context.Context) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -164,7 +164,7 @@ func (sm *DefaultStreamingManager) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the streaming manager
-func (sm *DefaultStreamingManager) OnStop(ctx context.Context) error {
+func (sm *DefaultStreamingManager) Stop(ctx context.Context) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -270,7 +270,7 @@ func (sm *DefaultStreamingManager) CreateRoom(ctx context.Context, roomID string
 		sm.handleRoomError(r, err)
 	})
 
-	// OnStart room
+	// Start room
 	if err := room.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start room: %w", err)
 	}

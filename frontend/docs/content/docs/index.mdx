@@ -1,0 +1,175 @@
+---
+title: Getting Started
+description: Modern, extensible web framework for Go applications with built-in security and observability
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+**Forge** is a modern, extensible web framework for Go applications that provides enterprise-grade features including built-in security, observability, and a powerful plugin system. Designed for high-performance applications with clean architecture and developer experience in mind.
+
+<Callout type="info">
+Forge is actively maintained and production-ready. Check our [GitHub repository](https://github.com/xraph/forge) for the latest updates and contribute to the project.
+</Callout>
+
+## Key Features
+
+<Cards>
+  <Card
+    title="🔐 Built-in Security"
+    description="Comprehensive security features including authentication, authorization, rate limiting, and security middleware"
+    href="/docs/go/concepts/security"
+  />
+  <Card
+    title="📊 Observability"
+    description="Built-in metrics, logging, tracing, and health checks for production monitoring"
+    href="/docs/go/concepts/observability"
+  />
+  <Card
+    title="🔌 Plugin System"
+    description="Extensible plugin architecture with database, deployment, framework, and generator plugins"
+    href="/docs/go/plugins/overview"
+  />
+  <Card
+    title="⚡ High Performance"
+    description="Optimized for high concurrency with connection pooling, caching, and efficient middleware"
+    href="/docs/go/guides/performance"
+  />
+  <Card
+    title="🏗️ Clean Architecture"
+    description="Modular design with dependency injection, service layer, and clear separation of concerns"
+    href="/docs/go/concepts/architecture"
+  />
+  <Card
+    title="🔧 Developer Experience"
+    description="CLI tools, code generation, hot reload, and comprehensive documentation"
+    href="/docs/go/getting-started/installation"
+  />
+</Cards>
+
+## Architecture Overview
+
+Forge follows clean architecture principles with clear separation of concerns:
+
+<Tabs items={['Core Framework', 'Plugin System']}>
+  <Tab value="Core Framework">
+    Essential framework components:
+    - HTTP router with middleware support
+    - Dependency injection container
+    - Configuration management
+    - Built-in security and observability
+    - Service layer architecture
+  </Tab>
+  <Tab value="Plugin System">
+    Extensible plugin architecture:
+    - Database plugins (PostgreSQL, MySQL, SQLite)
+    - Deployment plugins (Docker, Kubernetes)
+    - Framework plugins (Gin, Echo, Fiber)
+    - Generator plugins for code generation
+  </Tab>
+</Tabs>
+
+## Technology Stack
+
+- **Framework**: [Forge](https://github.com/xraph/forge) - Modern Go web framework
+- **Database**: PostgreSQL, MySQL, SQLite support with connection pooling
+- **Caching**: Redis for session caching and rate limiting
+- **Observability**: Built-in metrics, logging, and tracing
+- **Security**: Authentication, authorization, and security middleware
+
+## Quick Start
+
+Get started with Forge in minutes:
+
+<Callout type="tip">
+Make sure you have Go 1.21+ installed and a supported database running.
+</Callout>
+
+```bash
+# Install Forge CLI
+go install github.com/xraph/forge/cmd/forge@latest
+
+# Create a new project
+forge new my-app
+
+# Navigate to your project
+cd my-app
+
+# Install dependencies
+go mod tidy
+
+# Run the application
+forge dev
+```
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create Forge app
+    app := forge.New(forge.Config{
+        Name:    "My App",
+        Version: "1.0.0",
+    })
+    
+    // Add a simple route
+    app.GET("/", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "message": "Hello from Forge!",
+        })
+    })
+    
+    // Add health check
+    app.GET("/health", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "status": "healthy",
+        })
+    })
+    
+    // Start server
+    log.Println("🚀 Server starting on :8080")
+    log.Fatal(app.Listen(":8080"))
+}
+```
+
+## What's Next?
+
+<Cards>
+  <Card
+    title="📚 Getting Started"
+    description="Learn how to install and configure Forge for your project"
+    href="/docs/go/getting-started/installation"
+  />
+  <Card
+    title="💡 Core Concepts"
+    description="Understand Forge's architecture, security, and observability features"
+    href="/docs/go/concepts/architecture"
+  />
+  <Card
+    title="🔌 Explore Plugins"
+    description="Discover available plugins and learn to create custom ones"
+    href="/docs/go/plugins/overview"
+  />
+  <Card
+    title="📖 API Reference"
+    description="Detailed API documentation for all Forge services"
+    href="/docs/go/api/overview"
+  />
+</Cards>
+
+## Community & Support
+
+- **GitHub**: [github.com/xraph/forge](https://github.com/xraph/forge)
+- **Issues**: Report bugs and request features
+- **Discussions**: Ask questions and share ideas
+- **Contributing**: Help improve Forge
+
+<Callout type="warn">
+Forge is actively maintained and production-ready. Check the changelog for any breaking changes between versions.
+</Callout>

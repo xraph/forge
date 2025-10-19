@@ -120,7 +120,7 @@ func (m *Manager) Dependencies() []string {
 }
 
 // OnStart starts the database manager
-func (m *Manager) OnStart(ctx context.Context) error {
+func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -143,7 +143,7 @@ func (m *Manager) OnStart(ctx context.Context) error {
 	// Create migration manager
 	m.migrator = NewMigrationManager(m.config.MigrationsPath, m.logger)
 
-	// OnStart all connections
+	// Start all connections
 	if err := m.startAllConnections(ctx); err != nil {
 		return common.ErrServiceStartFailed(m.Name(), err)
 	}
@@ -176,7 +176,7 @@ func (m *Manager) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the database manager
-func (m *Manager) OnStop(ctx context.Context) error {
+func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -186,10 +186,10 @@ func (m *Manager) OnStop(ctx context.Context) error {
 
 	m.logger.Info("stopping database manager")
 
-	// OnStop all connections
+	// Stop all connections
 	var stopErrors []error
 	for name, conn := range m.connections {
-		if err := conn.OnStop(ctx); err != nil {
+		if err := conn.Stop(ctx); err != nil {
 			m.logger.Error("failed to stop connection",
 				logger.String("connection", name),
 				logger.Error(err),
@@ -330,7 +330,7 @@ func (m *Manager) CloseConnection(name string) error {
 		return fmt.Errorf("connection '%s' not found", name)
 	}
 
-	if err := connection.OnStop(context.Background()); err != nil {
+	if err := connection.Stop(context.Background()); err != nil {
 		return fmt.Errorf("failed to close connection '%s': %w", name, err)
 	}
 
@@ -363,7 +363,7 @@ func (m *Manager) StopAll(ctx context.Context) error {
 
 	var stopErrors []error
 	for name, conn := range m.connections {
-		if err := conn.OnStop(ctx); err != nil {
+		if err := conn.Stop(ctx); err != nil {
 			m.logger.Error("failed to stop connection",
 				logger.String("connection", name),
 				logger.Error(err),
@@ -586,7 +586,7 @@ func (m *Manager) startAllConnections(ctx context.Context) error {
 			continue
 		}
 
-		if err := connection.OnStart(ctx); err != nil {
+		if err := connection.Start(ctx); err != nil {
 			m.logger.Error("failed to start connection",
 				logger.String("connection", name),
 				logger.Error(err),

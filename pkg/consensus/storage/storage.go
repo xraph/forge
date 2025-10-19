@@ -153,6 +153,14 @@ type StorageStats struct {
 	SyncLatency     time.Duration `json:"sync_latency"`
 	ErrorCount      int64         `json:"error_count"`
 	Uptime          time.Duration `json:"uptime"`
+
+	// Additional stats for persistent state operations
+	StoreCount       int64     `json:"store_count"`
+	LastStore        time.Time `json:"last_store"`
+	LoadCount        int64     `json:"load_count"`
+	LastLoad         time.Time `json:"last_load"`
+	HealthCheckCount int64     `json:"health_check_count"`
+	LastHealthCheck  time.Time `json:"last_health_check"`
 }
 
 // PersistentState represents the persistent state of a Raft node

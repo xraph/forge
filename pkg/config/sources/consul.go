@@ -137,6 +137,22 @@ func (cs *ConsulSource) Name() string {
 	return cs.name
 }
 
+// GetName returns the source name (alias for Name)
+func (cs *ConsulSource) GetName() string {
+	return cs.name
+}
+
+// GetType returns the source type
+func (cs *ConsulSource) GetType() string {
+	return "consul"
+}
+
+// IsAvailable checks if the source is available
+func (cs *ConsulSource) IsAvailable(ctx context.Context) bool {
+	// TODO: Implement actual Consul availability check
+	return true
+}
+
 // Priority returns the source priority
 func (cs *ConsulSource) Priority() int {
 	return cs.priority
@@ -224,7 +240,7 @@ func (cs *ConsulSource) Watch(ctx context.Context, callback func(map[string]inte
 	cs.watchStop = make(chan struct{})
 	cs.watching = true
 
-	// OnStart watching goroutine
+	// Start watching goroutine
 	go cs.watchLoop(ctx, callback)
 
 	if cs.logger != nil {
@@ -490,7 +506,7 @@ func (cs *ConsulSource) handleWatchError(err error) {
 		cs.errorHandler.HandleError(nil, common.ErrConfigError(fmt.Sprintf("Consul watch error for prefix %s", cs.prefix), err))
 	}
 
-	// OnStop watching on persistent errors
+	// Stop watching on persistent errors
 	cs.StopWatch()
 }
 

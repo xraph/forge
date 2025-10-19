@@ -1,0 +1,1181 @@
+---
+title: Sessions API
+description: Complete API reference for session management including device tracking, multi-session support, and security controls
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Sessions API
+
+Complete reference for AuthSome Go session management endpoints, covering session lifecycle, device tracking, multi-session support, and advanced security controls.
+
+## Overview
+
+The Sessions API provides comprehensive session management functionality including device tracking, location-based security, session analytics, and multi-device support with granular control over session lifecycle.
+
+### Base URL
+
+```
+GET    /auth/sessions
+GET    /auth/sessions/current
+DELETE /auth/sessions/current
+GET    /auth/sessions/{id}
+DELETE /auth/sessions/{id}
+DELETE /auth/sessions
+POST   /auth/sessions/refresh
+GET    /auth/sessions/devices
+DELETE /auth/sessions/devices/{deviceId}
+POST   /auth/sessions/verify-device
+```
+
+## List Sessions
+
+Get all active sessions for the current user.
+
+### Endpoint
+
+```http
+GET /auth/sessions
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `limit` | integer | Items per page (1-100) | 20 |
+| `status` | string | Filter by status (active, expired, revoked) | active |
+| `deviceType` | string | Filter by device type | - |
+| `location` | string | Filter by location/country | - |
+| `sort` | string | Sort field (createdAt, lastActivity, location) | lastActivity |
+| `order` | string | Sort order (asc, desc) | desc |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": "session_123",
+          "userId": "user_123",
+          "organizationId": "org_123",
+          "status": "active",
+          "createdAt": "2024-01-01T10:00:00Z",
+          "lastActivity": "2024-01-01T14:30:00Z",
+          "expiresAt": "2024-01-08T10:00:00Z",
+          "isCurrent": true,
+          "device": {
+            "id": "device_456",
+            "type": "desktop",
+            "name": "MacBook Pro",
+            "os": "macOS",
+            "osVersion": "14.2",
+            "browser": "Chrome",
+            "browserVersion": "120.0.0.0",
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "fingerprint": "fp_abc123",
+            "trusted": true,
+            "firstSeen": "2024-01-01T10:00:00Z",
+            "lastSeen": "2024-01-01T14:30:00Z"
+          },
+          "location": {
+            "ip": "192.168.1.100",
+            "country": "United States",
+            "countryCode": "US",
+            "region": "California",
+            "city": "San Francisco",
+            "timezone": "America/Los_Angeles",
+            "coordinates": {
+              "latitude": 37.7749,
+              "longitude": -122.4194
+            },
+            "isp": "Comcast Cable",
+            "isVpn": false,
+            "isProxy": false
+          },
+          "security": {
+            "twoFactorVerified": true,
+            "deviceVerified": true,
+            "riskScore": 0.1,
+            "riskFactors": [],
+            "lastSecurityCheck": "2024-01-01T14:30:00Z"
+          },
+          "metadata": {
+            "loginMethod": "email_password",
+            "sessionType": "web",
+            "rememberMe": true,
+            "customData": {}
+          }
+        },
+        {
+          "id": "session_789",
+          "userId": "user_123",
+          "organizationId": "org_123",
+          "status": "active",
+          "createdAt": "2024-01-01T08:00:00Z",
+          "lastActivity": "2024-01-01T12:00:00Z",
+          "expiresAt": "2024-01-08T08:00:00Z",
+          "isCurrent": false,
+          "device": {
+            "id": "device_789",
+            "type": "mobile",
+            "name": "iPhone 15 Pro",
+            "os": "iOS",
+            "osVersion": "17.2",
+            "browser": "Safari",
+            "browserVersion": "17.2",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X)",
+            "fingerprint": "fp_def456",
+            "trusted": true,
+            "firstSeen": "2024-01-01T08:00:00Z",
+            "lastSeen": "2024-01-01T12:00:00Z"
+          },
+          "location": {
+            "ip": "10.0.0.50",
+            "country": "United States",
+            "countryCode": "US",
+            "region": "California",
+            "city": "San Francisco",
+            "timezone": "America/Los_Angeles",
+            "coordinates": {
+              "latitude": 37.7849,
+              "longitude": -122.4094
+            },
+            "isp": "Verizon Wireless",
+            "isVpn": false,
+            "isProxy": false
+          },
+          "security": {
+            "twoFactorVerified": true,
+            "deviceVerified": true,
+            "riskScore": 0.2,
+            "riskFactors": ["new_location"],
+            "lastSecurityCheck": "2024-01-01T12:00:00Z"
+          },
+          "metadata": {
+            "loginMethod": "passkey",
+            "sessionType": "mobile",
+            "rememberMe": false,
+            "customData": {
+              "appVersion": "1.2.0"
+            }
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 20,
+        "total": 2,
+        "totalPages": 1,
+        "hasNext": false,
+        "hasPrev": false
+      },
+      "summary": {
+        "totalSessions": 2,
+        "activeSessions": 2,
+        "trustedDevices": 2,
+        "untrustedDevices": 0,
+        "highRiskSessions": 0
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Current Session
+
+Get details of the current session.
+
+### Endpoint
+
+```http
+GET /auth/sessions/current
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "session": {
+          "id": "session_123",
+          "userId": "user_123",
+          "organizationId": "org_123",
+          "status": "active",
+          "createdAt": "2024-01-01T10:00:00Z",
+          "lastActivity": "2024-01-01T15:00:00Z",
+          "expiresAt": "2024-01-08T10:00:00Z",
+          "isCurrent": true,
+          "device": {
+            "id": "device_456",
+            "type": "desktop",
+            "name": "MacBook Pro",
+            "os": "macOS",
+            "osVersion": "14.2",
+            "browser": "Chrome",
+            "browserVersion": "120.0.0.0",
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "fingerprint": "fp_abc123",
+            "trusted": true,
+            "firstSeen": "2024-01-01T10:00:00Z",
+            "lastSeen": "2024-01-01T15:00:00Z"
+          },
+          "location": {
+            "ip": "192.168.1.100",
+            "country": "United States",
+            "countryCode": "US",
+            "region": "California",
+            "city": "San Francisco",
+            "timezone": "America/Los_Angeles",
+            "coordinates": {
+              "latitude": 37.7749,
+              "longitude": -122.4194
+            },
+            "isp": "Comcast Cable",
+            "isVpn": false,
+            "isProxy": false
+          },
+          "security": {
+            "twoFactorVerified": true,
+            "deviceVerified": true,
+            "riskScore": 0.1,
+            "riskFactors": [],
+            "lastSecurityCheck": "2024-01-01T15:00:00Z",
+            "securityEvents": [
+              {
+                "type": "login",
+                "timestamp": "2024-01-01T10:00:00Z",
+                "details": {
+                  "method": "email_password",
+                  "twoFactorUsed": true
+                }
+              },
+              {
+                "type": "device_verification",
+                "timestamp": "2024-01-01T10:01:00Z",
+                "details": {
+                  "method": "email_code",
+                  "success": true
+                }
+              }
+            ]
+          },
+          "permissions": [
+            "user:read",
+            "user:update",
+            "org:read",
+            "sessions:read",
+            "sessions:manage"
+          ],
+          "metadata": {
+            "loginMethod": "email_password",
+            "sessionType": "web",
+            "rememberMe": true,
+            "customData": {},
+            "flags": {
+              "isFirstSession": false,
+              "requiresPasswordChange": false,
+              "requiresTwoFactorSetup": false
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SESSION_EXPIRED",
+        "message": "Session has expired"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Session by ID
+
+Get details of a specific session.
+
+### Endpoint
+
+```http
+GET /auth/sessions/{id}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Session ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "session": {
+          "id": "session_789",
+          "userId": "user_123",
+          "organizationId": "org_123",
+          "status": "active",
+          "createdAt": "2024-01-01T08:00:00Z",
+          "lastActivity": "2024-01-01T12:00:00Z",
+          "expiresAt": "2024-01-08T08:00:00Z",
+          "isCurrent": false,
+          "device": {
+            "id": "device_789",
+            "type": "mobile",
+            "name": "iPhone 15 Pro",
+            "os": "iOS",
+            "osVersion": "17.2",
+            "browser": "Safari",
+            "browserVersion": "17.2",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X)",
+            "fingerprint": "fp_def456",
+            "trusted": true,
+            "firstSeen": "2024-01-01T08:00:00Z",
+            "lastSeen": "2024-01-01T12:00:00Z"
+          },
+          "location": {
+            "ip": "10.0.0.50",
+            "country": "United States",
+            "countryCode": "US",
+            "region": "California",
+            "city": "San Francisco",
+            "timezone": "America/Los_Angeles",
+            "coordinates": {
+              "latitude": 37.7849,
+              "longitude": -122.4094
+            },
+            "isp": "Verizon Wireless",
+            "isVpn": false,
+            "isProxy": false
+          },
+          "security": {
+            "twoFactorVerified": true,
+            "deviceVerified": true,
+            "riskScore": 0.2,
+            "riskFactors": ["new_location"],
+            "lastSecurityCheck": "2024-01-01T12:00:00Z"
+          },
+          "metadata": {
+            "loginMethod": "passkey",
+            "sessionType": "mobile",
+            "rememberMe": false,
+            "customData": {
+              "appVersion": "1.2.0"
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SESSION_NOT_FOUND",
+        "message": "Session not found"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SESSION_ACCESS_DENIED",
+        "message": "You can only access your own sessions"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Revoke Current Session
+
+Revoke the current session (logout).
+
+### Endpoint
+
+```http
+DELETE /auth/sessions/current
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Session revoked successfully",
+        "sessionId": "session_123",
+        "revokedAt": "2024-01-01T15:30:00Z"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SESSION_EXPIRED",
+        "message": "Session has expired"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Revoke Session by ID
+
+Revoke a specific session.
+
+### Endpoint
+
+```http
+DELETE /auth/sessions/{id}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Session ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Session revoked successfully",
+        "sessionId": "session_789",
+        "revokedAt": "2024-01-01T15:30:00Z"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SESSION_NOT_FOUND",
+        "message": "Session not found"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "CANNOT_REVOKE_CURRENT_SESSION",
+        "message": "Use /auth/sessions/current to revoke the current session"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Revoke All Sessions
+
+Revoke all sessions except the current one.
+
+### Endpoint
+
+```http
+DELETE /auth/sessions
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `excludeCurrent` | boolean | Exclude current session from revocation | true |
+| `deviceType` | string | Only revoke sessions from specific device type | - |
+| `olderThan` | string | Only revoke sessions older than duration (e.g., "7d", "1h") | - |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Sessions revoked successfully",
+        "revokedCount": 3,
+        "revokedSessions": [
+          "session_789",
+          "session_456",
+          "session_321"
+        ],
+        "revokedAt": "2024-01-01T15:30:00Z"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Refresh Session
+
+Refresh the current session to extend its lifetime.
+
+### Endpoint
+
+```http
+POST /auth/sessions/refresh
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "extendBy": 86400,
+      "updateActivity": true
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface RefreshSessionRequest {
+      extendBy?: number; // seconds
+      updateActivity?: boolean;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type RefreshSessionRequest struct {
+        ExtendBy       *int  `json:"extendBy,omitempty"`       // seconds
+        UpdateActivity *bool `json:"updateActivity,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)', 'Error (422)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "session": {
+          "id": "session_123",
+          "userId": "user_123",
+          "organizationId": "org_123",
+          "status": "active",
+          "createdAt": "2024-01-01T10:00:00Z",
+          "lastActivity": "2024-01-01T15:30:00Z",
+          "expiresAt": "2024-01-09T15:30:00Z",
+          "refreshedAt": "2024-01-01T15:30:00Z"
+        },
+        "token": {
+          "accessToken": "new_access_token_here",
+          "refreshToken": "new_refresh_token_here",
+          "expiresIn": 86400,
+          "tokenType": "Bearer"
+        }
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SESSION_EXPIRED",
+        "message": "Session has expired and cannot be refreshed"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_REFRESH_PARAMETERS",
+        "message": "Invalid refresh parameters",
+        "details": {
+          "extendBy": "Must be between 300 and 2592000 seconds"
+        }
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## List Devices
+
+Get all devices associated with the user's account.
+
+### Endpoint
+
+```http
+GET /auth/sessions/devices
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `limit` | integer | Items per page (1-100) | 20 |
+| `trusted` | boolean | Filter by trust status | - |
+| `type` | string | Filter by device type | - |
+| `active` | boolean | Filter by active sessions | - |
+| `sort` | string | Sort field (lastSeen, firstSeen, name) | lastSeen |
+| `order` | string | Sort order (asc, desc) | desc |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "device": {
+            "id": "device_456",
+            "type": "desktop",
+            "name": "MacBook Pro",
+            "os": "macOS",
+            "osVersion": "14.2",
+            "browser": "Chrome",
+            "browserVersion": "120.0.0.0",
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "fingerprint": "fp_abc123",
+            "trusted": true,
+            "firstSeen": "2024-01-01T10:00:00Z",
+            "lastSeen": "2024-01-01T15:30:00Z",
+            "verifiedAt": "2024-01-01T10:01:00Z",
+            "trustScore": 0.95
+          },
+          "sessions": [
+            {
+              "id": "session_123",
+              "status": "active",
+              "createdAt": "2024-01-01T10:00:00Z",
+              "lastActivity": "2024-01-01T15:30:00Z",
+              "expiresAt": "2024-01-09T15:30:00Z",
+              "isCurrent": true
+            }
+          ],
+          "location": {
+            "country": "United States",
+            "region": "California",
+            "city": "San Francisco"
+          },
+          "security": {
+            "riskScore": 0.1,
+            "riskFactors": [],
+            "lastSecurityCheck": "2024-01-01T15:30:00Z"
+          }
+        },
+        {
+          "device": {
+            "id": "device_789",
+            "type": "mobile",
+            "name": "iPhone 15 Pro",
+            "os": "iOS",
+            "osVersion": "17.2",
+            "browser": "Safari",
+            "browserVersion": "17.2",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X)",
+            "fingerprint": "fp_def456",
+            "trusted": true,
+            "firstSeen": "2024-01-01T08:00:00Z",
+            "lastSeen": "2024-01-01T12:00:00Z",
+            "verifiedAt": "2024-01-01T08:01:00Z",
+            "trustScore": 0.90
+          },
+          "sessions": [
+            {
+              "id": "session_789",
+              "status": "active",
+              "createdAt": "2024-01-01T08:00:00Z",
+              "lastActivity": "2024-01-01T12:00:00Z",
+              "expiresAt": "2024-01-08T08:00:00Z",
+              "isCurrent": false
+            }
+          ],
+          "location": {
+            "country": "United States",
+            "region": "California",
+            "city": "San Francisco"
+          },
+          "security": {
+            "riskScore": 0.2,
+            "riskFactors": ["new_location"],
+            "lastSecurityCheck": "2024-01-01T12:00:00Z"
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 20,
+        "total": 2,
+        "totalPages": 1,
+        "hasNext": false,
+        "hasPrev": false
+      },
+      "summary": {
+        "totalDevices": 2,
+        "trustedDevices": 2,
+        "untrustedDevices": 0,
+        "activeDevices": 2,
+        "inactiveDevices": 0
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Remove Device
+
+Remove a device and revoke all its sessions.
+
+### Endpoint
+
+```http
+DELETE /auth/sessions/devices/{deviceId}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `deviceId` | string | Device ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Device removed successfully",
+        "deviceId": "device_789",
+        "revokedSessions": [
+          "session_789"
+        ],
+        "removedAt": "2024-01-01T16:00:00Z"
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "DEVICE_NOT_FOUND",
+        "message": "Device not found"
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "CANNOT_REMOVE_CURRENT_DEVICE",
+        "message": "Cannot remove the device of the current session"
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Verify Device
+
+Verify a device to mark it as trusted.
+
+### Endpoint
+
+```http
+POST /auth/sessions/verify-device
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "deviceId": "device_789",
+      "verificationCode": "123456",
+      "trustDevice": true
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface VerifyDeviceRequest {
+      deviceId: string;
+      verificationCode: string;
+      trustDevice?: boolean;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type VerifyDeviceRequest struct {
+        DeviceID         string `json:"deviceId" validate:"required"`
+        VerificationCode string `json:"verificationCode" validate:"required"`
+        TrustDevice      *bool  `json:"trustDevice,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "device": {
+          "id": "device_789",
+          "type": "mobile",
+          "name": "iPhone 15 Pro",
+          "trusted": true,
+          "verifiedAt": "2024-01-01T16:00:00Z",
+          "trustScore": 0.95
+        },
+        "message": "Device verified successfully"
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_VERIFICATION_CODE",
+        "message": "Invalid or expired verification code"
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "DEVICE_NOT_FOUND",
+        "message": "Device not found"
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Session Security
+
+### Risk Assessment
+
+Sessions are continuously monitored for security risks:
+
+| Risk Factor | Description | Score Impact |
+|-------------|-------------|--------------|
+| `new_device` | Login from unrecognized device | +0.3 |
+| `new_location` | Login from new geographic location | +0.2 |
+| `suspicious_ip` | IP address flagged as suspicious | +0.5 |
+| `vpn_proxy` | Connection through VPN or proxy | +0.1 |
+| `unusual_time` | Login at unusual time for user | +0.1 |
+| `rapid_location_change` | Impossible travel between locations | +0.8 |
+| `multiple_failed_attempts` | Recent failed login attempts | +0.4 |
+
+### Device Trust Levels
+
+| Trust Level | Score Range | Description |
+|-------------|-------------|-------------|
+| `trusted` | 0.8 - 1.0 | Verified and regularly used device |
+| `known` | 0.5 - 0.79 | Recognized but not fully trusted |
+| `unknown` | 0.2 - 0.49 | New or suspicious device |
+| `blocked` | 0.0 - 0.19 | Blocked or compromised device |
+
+### Session Types
+
+| Type | Description | Default Expiry |
+|------|-------------|----------------|
+| `web` | Browser-based session | 24 hours |
+| `mobile` | Mobile app session | 30 days |
+| `api` | API access session | 1 hour |
+| `admin` | Administrative session | 4 hours |
+| `temporary` | Short-lived session | 15 minutes |
+
+## Rate Limiting
+
+Session endpoints have specific rate limits:
+
+| Endpoint | Rate Limit | Window |
+|----------|------------|--------|
+| `GET /auth/sessions` | 100 requests per user | 1 hour |
+| `GET /auth/sessions/current` | 200 requests per user | 1 hour |
+| `DELETE /auth/sessions/{id}` | 20 requests per user | 1 hour |
+| `DELETE /auth/sessions` | 5 requests per user | 1 hour |
+| `POST /auth/sessions/refresh` | 50 requests per user | 1 hour |
+| `GET /auth/sessions/devices` | 50 requests per user | 1 hour |
+| `DELETE /auth/sessions/devices/{deviceId}` | 10 requests per user | 1 hour |
+| `POST /auth/sessions/verify-device` | 10 requests per user | 1 hour |
+
+<Callout type="warning">
+  Excessive session management requests may trigger additional security checks and temporary restrictions.
+</Callout>
+
+## Security Features
+
+### Multi-Session Management
+
+- Concurrent session limits per user
+- Device-based session grouping
+- Automatic cleanup of expired sessions
+- Session conflict resolution
+
+### Device Tracking
+
+- Comprehensive device fingerprinting
+- Browser and OS detection
+- Hardware capability detection
+- Behavioral pattern analysis
+
+### Location Security
+
+- Geographic location tracking
+- Impossible travel detection
+- VPN/Proxy detection
+- Country-based restrictions
+
+### Audit Logging
+
+All session activities are logged:
+
+- Session creation and termination
+- Device verification events
+- Security risk assessments
+- Location changes
+- Permission escalations
+
+## Error Handling
+
+### Common Error Codes
+
+| Code | Description | HTTP Status |
+|------|-------------|-------------|
+| `SESSION_NOT_FOUND` | Session does not exist | 404 |
+| `SESSION_EXPIRED` | Session has expired | 401 |
+| `SESSION_REVOKED` | Session was revoked | 401 |
+| `DEVICE_NOT_FOUND` | Device does not exist | 404 |
+| `DEVICE_BLOCKED` | Device is blocked | 403 |
+| `INVALID_VERIFICATION_CODE` | Verification code invalid | 400 |
+| `TOO_MANY_SESSIONS` | Session limit exceeded | 429 |
+| `SUSPICIOUS_ACTIVITY` | Suspicious activity detected | 423 |
+| `LOCATION_RESTRICTED` | Location not allowed | 403 |
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Security API"
+    description="Two-factor authentication and advanced security features"
+    href="/docs/go/api-reference/security"
+  />
+  <Card
+    title="Webhooks API"
+    description="Event notifications and webhook management"
+    href="/docs/go/api-reference/webhooks"
+  />
+  <Card
+    title="Users API"
+    description="User profile and account management"
+    href="/docs/go/api-reference/users"
+  />
+  <Card
+    title="Organizations API"
+    description="Multi-tenant organization management"
+    href="/docs/go/api-reference/organizations"
+  />
+</Cards>

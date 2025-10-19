@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xraph/forge/pkg/ai/coordination"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
 )
@@ -69,14 +68,15 @@ type Capability struct {
 
 // AgentConfig contains configuration for an AI agent
 type AgentConfig struct {
-	Coordinator     *coordination.MultiAgentCoordinator `json:"-"`
-	Logger          common.Logger                       `json:"-"`
-	Metrics         common.Metrics                      `json:"-"`
-	MaxConcurrency  int                                 `json:"max_concurrency"`
-	Timeout         time.Duration                       `json:"timeout"`
-	LearningEnabled bool                                `json:"learning_enabled"`
-	AutoApply       bool                                `json:"auto_apply"`
-	Metadata        map[string]interface{}              `json:"metadata"`
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	Logger          common.Logger          `json:"-"`
+	Metrics         common.Metrics         `json:"-"`
+	MaxConcurrency  int                    `json:"max_concurrency"`
+	Timeout         time.Duration          `json:"timeout"`
+	LearningEnabled bool                   `json:"learning_enabled"`
+	AutoApply       bool                   `json:"auto_apply"`
+	Metadata        map[string]interface{} `json:"metadata"`
 }
 
 // AgentInput represents input data for an agent
@@ -194,7 +194,7 @@ func NewBaseAgent(id, name string, agentType AgentType, capabilities []Capabilit
 			Status:    AgentHealthStatusUnknown,
 			CheckedAt: time.Now(),
 		},
-		confidence: 0.5, // OnStart with neutral confidence
+		confidence: 0.5, // Start with neutral confidence
 	}
 }
 
@@ -536,4 +536,33 @@ func (a *BaseAgent) SetConfiguration(config AgentConfig) error {
 
 	a.config = config
 	return nil
+}
+
+// AIMiddlewareType defines the type of AI middleware
+type AIMiddlewareType string
+
+const (
+	AIMiddlewareTypeLoadBalance          AIMiddlewareType = "load_balance"
+	AIMiddlewareTypeAnomalyDetection     AIMiddlewareType = "anomaly_detection"
+	AIMiddlewareTypeRateLimit            AIMiddlewareType = "rate_limit"
+	AIMiddlewareTypeResponseOptimization AIMiddlewareType = "response_optimization"
+)
+
+// AIMiddlewareConfig contains configuration for AI middleware
+type AIMiddlewareConfig struct {
+	Enabled    bool                   `json:"enabled"`
+	Parameters map[string]interface{} `json:"parameters"`
+	Timeout    time.Duration          `json:"timeout"`
+	Retries    int                    `json:"retries"`
+	Metadata   map[string]interface{} `json:"metadata"`
+}
+
+// AIMiddlewareStats contains statistics for AI middleware
+type AIMiddlewareStats struct {
+	RequestsProcessed int64                  `json:"requests_processed"`
+	RequestsBlocked   int64                  `json:"requests_blocked"`
+	AverageLatency    time.Duration          `json:"average_latency"`
+	ErrorRate         float64                `json:"error_rate"`
+	LastUpdated       time.Time              `json:"last_updated"`
+	Metadata          map[string]interface{} `json:"metadata"`
 }

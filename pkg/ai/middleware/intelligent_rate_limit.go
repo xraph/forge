@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -188,7 +189,7 @@ func (irl *IntelligentRateLimit) Initialize(ctx context.Context, config ai.AIMid
 		return fmt.Errorf("failed to start rate limit agent: %w", err)
 	}
 
-	// OnStart background monitoring
+	// Start background monitoring
 	go irl.monitorSystemLoad(ctx)
 	go irl.analyzeUserPatterns(ctx)
 	go irl.updateAdaptiveLimits(ctx)
@@ -484,7 +485,8 @@ func (irl *IntelligentRateLimit) handleRateLimitExceeded(resp http.ResponseWrite
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
 
-	if err := common.WriteJSONResponse(resp, response); err != nil {
+	resp.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(resp).Encode(response); err != nil {
 		if irl.logger != nil {
 			irl.logger.Error("failed to write rate limit response", logger.Error(err))
 		}

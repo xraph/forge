@@ -1,0 +1,801 @@
+---
+title: Authentication API
+description: Complete API reference for authentication endpoints including sign up, sign in, sign out, and session management
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Authentication API
+
+Complete reference for AuthSome Go authentication endpoints, covering user registration, login, logout, and session management.
+
+## Overview
+
+The Authentication API provides secure user authentication with support for multiple authentication methods, session management, and security features like rate limiting and device tracking.
+
+### Base URL
+
+```
+POST /auth/signup
+POST /auth/signin
+POST /auth/signout
+GET  /auth/session
+POST /auth/refresh
+```
+
+## Sign Up
+
+Register a new user account with email and password.
+
+### Endpoint
+
+```http
+POST /auth/signup
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "email": "user@example.com",
+      "password": "securePassword123",
+      "name": "John Doe",
+      "username": "johndoe", // Optional
+      "organizationId": "org_123", // Optional
+      "metadata": { // Optional
+        "source": "web",
+        "referrer": "google"
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface SignUpRequest {
+      email: string;
+      password: string;
+      name: string;
+      username?: string;
+      organizationId?: string;
+      metadata?: Record<string, any>;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type SignUpRequest struct {
+        Email          string                 `json:"email" validate:"required,email"`
+        Password       string                 `json:"password" validate:"required,min=8"`
+        Name           string                 `json:"name" validate:"required"`
+        Username       string                 `json:"username,omitempty"`
+        OrganizationID string                 `json:"organizationId,omitempty"`
+        Metadata       map[string]interface{} `json:"metadata,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (201)', 'Error (422)', 'Error (409)']}>
+  <Tab value="Success (201)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "user": {
+          "id": "user_123",
+          "email": "user@example.com",
+          "emailVerified": false,
+          "name": "John Doe",
+          "username": "johndoe",
+          "avatar": null,
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T00:00:00Z",
+          "lastLoginAt": null,
+          "organizationId": "org_123",
+          "metadata": {
+            "source": "web",
+            "referrer": "google"
+          }
+        },
+        "session": {
+          "token": "session_abc123",
+          "refreshToken": "refresh_xyz789",
+          "expiresAt": "2024-01-02T00:00:00Z",
+          "refreshExpiresAt": "2024-01-08T00:00:00Z",
+          "device": {
+            "id": "device_456",
+            "name": "Chrome on macOS",
+            "type": "browser",
+            "trusted": false,
+            "lastActiveAt": "2024-01-01T00:00:00Z"
+          }
+        },
+        "emailVerificationRequired": true
+      },
+      "timestamp": "2024-01-01T00:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation failed",
+        "details": {
+          "fields": {
+            "email": {
+              "code": "INVALID_EMAIL",
+              "message": "Please enter a valid email address"
+            },
+            "password": {
+              "code": "WEAK_PASSWORD",
+              "message": "Password must be at least 8 characters long and contain uppercase, lowercase, number, and special character"
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T00:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (409)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "EMAIL_ALREADY_EXISTS",
+        "message": "An account with this email address already exists",
+        "details": {
+          "field": "email",
+          "value": "user@example.com"
+        }
+      },
+      "timestamp": "2024-01-01T00:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Example Usage
+
+<Tabs items={['JavaScript', 'TypeScript', 'Go', 'cURL']}>
+  <Tab value="JavaScript">
+    ```javascript
+    const response = await fetch('/auth/signup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        email: 'user@example.com',
+        password: 'securePassword123',
+        name: 'John Doe'
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      // Store session token
+      localStorage.setItem('auth_token', result.data.session.token);
+      localStorage.setItem('refresh_token', result.data.session.refreshToken);
+      
+      console.log('User created:', result.data.user);
+      
+      if (result.data.emailVerificationRequired) {
+        // Redirect to email verification page
+        window.location.href = '/verify-email';
+      }
+    } else {
+      console.error('Sign up failed:', result.error);
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    import { AuthSome, SignUpRequest, SignUpResponse } from '@authsome/js-sdk';
+
+    const auth = new AuthSome({ baseUrl: '/auth' });
+
+    try {
+      const result: SignUpResponse = await auth.signUp({
+        email: 'user@example.com',
+        password: 'securePassword123',
+        name: 'John Doe'
+      });
+
+      // Store tokens securely
+      auth.setTokens(result.data.session.token, result.data.session.refreshToken);
+      
+      console.log('User created:', result.data.user);
+      
+      if (result.data.emailVerificationRequired) {
+        // Handle email verification
+        await auth.sendEmailVerification();
+      }
+    } catch (error) {
+      if (error instanceof AuthSomeError) {
+        console.error('Sign up failed:', error.code, error.message);
+        
+        if (error.code === 'VALIDATION_ERROR') {
+          // Handle validation errors
+          Object.entries(error.details.fields).forEach(([field, fieldError]) => {
+            console.error(`${field}: ${fieldError.message}`);
+          });
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    package main
+
+    import (
+        "bytes"
+        "encoding/json"
+        "fmt"
+        "net/http"
+    )
+
+    type SignUpRequest struct {
+        Email    string `json:"email"`
+        Password string `json:"password"`
+        Name     string `json:"name"`
+    }
+
+    func signUp() error {
+        reqBody := SignUpRequest{
+            Email:    "user@example.com",
+            Password: "securePassword123",
+            Name:     "John Doe",
+        }
+
+        jsonBody, err := json.Marshal(reqBody)
+        if err != nil {
+            return fmt.Errorf("failed to marshal request: %w", err)
+        }
+
+        resp, err := http.Post("/auth/signup", "application/json", bytes.NewBuffer(jsonBody))
+        if err != nil {
+            return fmt.Errorf("failed to make request: %w", err)
+        }
+        defer resp.Body.Close()
+
+        var result map[string]interface{}
+        if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+            return fmt.Errorf("failed to decode response: %w", err)
+        }
+
+        if success, ok := result["success"].(bool); ok && success {
+            fmt.Println("User created successfully")
+            
+            // Extract session data
+            if data, ok := result["data"].(map[string]interface{}); ok {
+                if session, ok := data["session"].(map[string]interface{}); ok {
+                    token := session["token"].(string)
+                    refreshToken := session["refreshToken"].(string)
+                    
+                    // Store tokens securely
+                    fmt.Printf("Session token: %s\n", token)
+                    fmt.Printf("Refresh token: %s\n", refreshToken)
+                }
+            }
+        } else {
+            fmt.Printf("Sign up failed: %v\n", result["error"])
+        }
+
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="cURL">
+    ```bash
+    curl -X POST /auth/signup \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "user@example.com",
+        "password": "securePassword123",
+        "name": "John Doe"
+      }'
+    ```
+  </Tab>
+</Tabs>
+
+## Sign In
+
+Authenticate an existing user with email and password.
+
+### Endpoint
+
+```http
+POST /auth/signin
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "email": "user@example.com",
+      "password": "securePassword123",
+      "rememberMe": true, // Optional
+      "deviceName": "iPhone 15 Pro", // Optional
+      "metadata": { // Optional
+        "loginSource": "mobile_app",
+        "ipAddress": "192.168.1.1"
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface SignInRequest {
+      email: string;
+      password: string;
+      rememberMe?: boolean;
+      deviceName?: string;
+      metadata?: Record<string, any>;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type SignInRequest struct {
+        Email      string                 `json:"email" validate:"required,email"`
+        Password   string                 `json:"password" validate:"required"`
+        RememberMe bool                   `json:"rememberMe,omitempty"`
+        DeviceName string                 `json:"deviceName,omitempty"`
+        Metadata   map[string]interface{} `json:"metadata,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)', 'Error (423)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "user": {
+          "id": "user_123",
+          "email": "user@example.com",
+          "emailVerified": true,
+          "name": "John Doe",
+          "username": "johndoe",
+          "avatar": "https://example.com/avatars/user_123.jpg",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T12:00:00Z",
+          "lastLoginAt": "2024-01-01T12:00:00Z",
+          "organizationId": "org_123",
+          "roles": ["user"],
+          "permissions": ["read:profile", "update:profile"]
+        },
+        "session": {
+          "token": "session_abc123",
+          "refreshToken": "refresh_xyz789",
+          "expiresAt": "2024-01-02T00:00:00Z",
+          "refreshExpiresAt": "2024-01-08T00:00:00Z",
+          "device": {
+            "id": "device_456",
+            "name": "iPhone 15 Pro",
+            "type": "mobile",
+            "trusted": true,
+            "lastActiveAt": "2024-01-01T12:00:00Z"
+          }
+        },
+        "twoFactorRequired": false,
+        "organizationMemberships": [
+          {
+            "organizationId": "org_123",
+            "role": "member",
+            "permissions": ["read:org", "create:projects"]
+          }
+        ]
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_CREDENTIALS",
+        "message": "Invalid email or password",
+        "details": {
+          "attemptsRemaining": 4,
+          "lockoutTime": null
+        }
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (423)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "ACCOUNT_LOCKED",
+        "message": "Account is temporarily locked due to too many failed login attempts",
+        "details": {
+          "lockoutExpiresAt": "2024-01-01T12:15:00Z",
+          "lockoutDuration": 900
+        }
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Sign Out
+
+Invalidate the current session and sign out the user.
+
+### Endpoint
+
+```http
+POST /auth/signout
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "allDevices": false, // Optional: sign out from all devices
+      "revokeRefreshTokens": true // Optional: revoke all refresh tokens
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface SignOutRequest {
+      allDevices?: boolean;
+      revokeRefreshTokens?: boolean;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type SignOutRequest struct {
+        AllDevices          bool `json:"allDevices,omitempty"`
+        RevokeRefreshTokens bool `json:"revokeRefreshTokens,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Successfully signed out",
+        "sessionsRevoked": 1,
+        "refreshTokensRevoked": 2
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_SESSION",
+        "message": "Session is invalid or expired"
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Session
+
+Retrieve current session information and user details.
+
+### Endpoint
+
+```http
+GET /auth/session
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "user": {
+          "id": "user_123",
+          "email": "user@example.com",
+          "emailVerified": true,
+          "name": "John Doe",
+          "username": "johndoe",
+          "avatar": "https://example.com/avatars/user_123.jpg",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T12:00:00Z",
+          "lastLoginAt": "2024-01-01T12:00:00Z",
+          "organizationId": "org_123",
+          "roles": ["user"],
+          "permissions": ["read:profile", "update:profile"]
+        },
+        "session": {
+          "id": "session_123",
+          "token": "session_abc123",
+          "expiresAt": "2024-01-02T00:00:00Z",
+          "createdAt": "2024-01-01T12:00:00Z",
+          "lastActiveAt": "2024-01-01T12:30:00Z",
+          "device": {
+            "id": "device_456",
+            "name": "Chrome on macOS",
+            "type": "browser",
+            "trusted": true,
+            "ipAddress": "192.168.1.1",
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)..."
+          }
+        },
+        "organization": {
+          "id": "org_123",
+          "name": "Acme Corp",
+          "slug": "acme-corp",
+          "plan": "pro",
+          "settings": {
+            "twoFactorRequired": false,
+            "passwordPolicy": {
+              "minLength": 8,
+              "requireUppercase": true,
+              "requireNumbers": true,
+              "requireSymbols": true
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T12:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SESSION_EXPIRED",
+        "message": "Session has expired",
+        "details": {
+          "expiredAt": "2024-01-01T12:00:00Z",
+          "canRefresh": true
+        }
+      },
+      "timestamp": "2024-01-01T12:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Refresh Token
+
+Refresh an expired session using a refresh token.
+
+### Endpoint
+
+```http
+POST /auth/refresh
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "refreshToken": "refresh_xyz789"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface RefreshTokenRequest {
+      refreshToken: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type RefreshTokenRequest struct {
+        RefreshToken string `json:"refreshToken" validate:"required"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "session": {
+          "token": "session_new123",
+          "refreshToken": "refresh_new789",
+          "expiresAt": "2024-01-02T12:00:00Z",
+          "refreshExpiresAt": "2024-01-09T12:00:00Z"
+        },
+        "user": {
+          "id": "user_123",
+          "email": "user@example.com",
+          "name": "John Doe"
+        }
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_REFRESH_TOKEN",
+        "message": "Refresh token is invalid or expired",
+        "details": {
+          "expiredAt": "2024-01-01T12:00:00Z",
+          "requiresReauth": true
+        }
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Rate Limiting
+
+Authentication endpoints have specific rate limits:
+
+| Endpoint | Rate Limit | Window |
+|----------|------------|--------|
+| `/auth/signup` | 3 requests per IP | 1 hour |
+| `/auth/signin` | 5 requests per IP | 15 minutes |
+| `/auth/signout` | 10 requests per user | 1 minute |
+| `/auth/session` | 100 requests per user | 1 hour |
+| `/auth/refresh` | 10 requests per token | 1 hour |
+
+<Callout type="warning">
+  Failed authentication attempts count towards rate limits. After 5 failed attempts, the IP address is temporarily blocked for 15 minutes.
+</Callout>
+
+## Security Features
+
+### Password Requirements
+
+Default password policy requires:
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one number
+- At least one special character
+
+### Session Security
+
+- Sessions expire after 24 hours by default
+- Refresh tokens expire after 7 days by default
+- Device tracking for security monitoring
+- Automatic session cleanup for inactive users
+
+### Device Management
+
+- Automatic device detection and naming
+- Device trust levels (trusted/untrusted)
+- Device-based security policies
+- Session management per device
+
+## Error Handling
+
+### Common Error Codes
+
+| Code | Description | HTTP Status |
+|------|-------------|-------------|
+| `VALIDATION_ERROR` | Request validation failed | 422 |
+| `INVALID_CREDENTIALS` | Wrong email/password | 401 |
+| `EMAIL_ALREADY_EXISTS` | Email already registered | 409 |
+| `USERNAME_ALREADY_EXISTS` | Username already taken | 409 |
+| `ACCOUNT_LOCKED` | Account temporarily locked | 423 |
+| `EMAIL_NOT_VERIFIED` | Email verification required | 403 |
+| `SESSION_EXPIRED` | Session has expired | 401 |
+| `INVALID_REFRESH_TOKEN` | Refresh token invalid | 401 |
+| `RATE_LIMIT_EXCEEDED` | Too many requests | 429 |
+
+### Error Response Format
+
+All authentication errors follow this format:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable error message",
+    "details": {
+      // Additional error-specific details
+    }
+  },
+  "timestamp": "2024-01-01T12:00:00Z",
+  "requestId": "req_123456789"
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="User Management API"
+    description="Manage user profiles, preferences, and account settings"
+    href="/docs/go/api-reference/users"
+  />
+  <Card
+    title="Security API"
+    description="Two-factor authentication and security features"
+    href="/docs/go/api-reference/security"
+  />
+  <Card
+    title="Sessions API"
+    description="Advanced session management and device tracking"
+    href="/docs/go/api-reference/sessions"
+  />
+  <Card
+    title="Organizations API"
+    description="Multi-tenant organization management"
+    href="/docs/go/api-reference/organizations"
+  />
+</Cards>

@@ -1,0 +1,364 @@
+---
+title: Installation
+description: Learn how to install and set up Forge Go in your project
+icon: Download
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Installation
+
+Get started with Forge Go by installing it in your Go project. Forge requires Go 1.21 or later and works with popular databases like PostgreSQL, MySQL, and SQLite.
+
+## Prerequisites
+
+<Callout type="info">
+Before installing Forge, ensure you have the following prerequisites installed on your system.
+</Callout>
+
+### System Requirements
+
+- **Go**: Version 1.21 or later
+- **Database**: PostgreSQL 12+, MySQL 8.0+, or SQLite 3.35+
+- **Redis**: Optional, but recommended for session caching and rate limiting
+
+### Verify Go Installation
+
+```bash
+go version
+# Should output: go version go1.21.x or later
+```
+
+## Installation Methods
+
+<Tabs items={['Forge CLI', 'Go Modules', 'From Source', 'Docker']}>
+  <Tab value="Forge CLI">
+    The recommended way to get started with Forge is using the CLI:
+
+    ```bash
+    # Install Forge CLI
+    go install github.com/xraph/forge/cmd/forge@latest
+
+    # Create a new project
+    forge new my-app
+
+    # Navigate to your project
+    cd my-app
+
+    # Install dependencies
+    go mod tidy
+
+    # Run the application
+    forge dev
+    ```
+
+    <Callout type="tip">
+    The Forge CLI creates a complete project structure with examples and best practices already configured.
+    </Callout>
+  </Tab>
+  <Tab value="Go Modules">
+    Install Forge directly in your existing Go project:
+
+    ```bash
+    # Initialize a new Go module (if not already done)
+    go mod init your-app-name
+
+    # Install Forge
+    go get github.com/xraph/forge
+
+    # Install database driver (choose one)
+    go get github.com/lib/pq              # PostgreSQL
+    go get github.com/go-sql-driver/mysql # MySQL
+    go get modernc.org/sqlite             # SQLite
+    ```
+
+    <Callout type="tip">
+    We recommend using PostgreSQL for production environments due to its robust feature set and excellent performance with Forge.
+    </Callout>
+  </Tab>
+  <Tab value="From Source">
+    Install Forge directly from the source repository:
+
+    ```bash
+    # Clone the repository
+    git clone https://github.com/xraph/forge.git
+    cd forge
+
+    # Install dependencies
+    go mod download
+
+    # Build the project
+    go build ./...
+
+    # Run tests to verify installation
+    go test ./...
+    ```
+
+    <Callout type="warn">
+    Installing from source gives you the latest development version, which may include unstable features. Use this method only for development or contributing.
+    </Callout>
+  </Tab>
+  <Tab value="Docker">
+    Use Forge with Docker for containerized deployments:
+
+    ```dockerfile
+    FROM golang:1.21-alpine AS builder
+
+    WORKDIR /app
+    COPY go.mod go.sum ./
+    RUN go mod download
+
+    COPY . .
+    RUN go build -o main .
+
+    FROM alpine:latest
+    RUN apk --no-cache add ca-certificates
+    WORKDIR /root/
+
+    COPY --from=builder /app/main .
+    CMD ["./main"]
+    ```
+
+    ```bash
+    # Build and run with Docker Compose
+    docker-compose up --build
+    ```
+  </Tab>
+</Tabs>
+
+## Database Setup
+
+Forge works with popular databases for data persistence and caching. Choose your preferred database:
+
+<Tabs items={['PostgreSQL', 'MySQL', 'SQLite']}>
+  <Tab value="PostgreSQL">
+    ### Install PostgreSQL
+
+    ```bash
+    # macOS (using Homebrew)
+    brew install postgresql
+    brew services start postgresql
+
+    # Ubuntu/Debian
+    sudo apt update
+    sudo apt install postgresql postgresql-contrib
+
+    # Create database and user
+    sudo -u postgres psql
+    ```
+
+    ```sql
+    CREATE DATABASE forge_db;
+    CREATE USER forge_user WITH PASSWORD 'your_password';
+    GRANT ALL PRIVILEGES ON DATABASE forge_db TO forge_user;
+    \q
+    ```
+
+    ### Connection String
+    ```
+    postgres://forge_user:your_password@localhost:5432/forge_db?sslmode=disable
+    ```
+  </Tab>
+  <Tab value="MySQL">
+    ### Install MySQL
+
+    ```bash
+    # macOS (using Homebrew)
+    brew install mysql
+    brew services start mysql
+
+    # Ubuntu/Debian
+    sudo apt update
+    sudo apt install mysql-server
+
+    # Secure installation
+    sudo mysql_secure_installation
+    ```
+
+    ```sql
+    CREATE DATABASE forge_db;
+    CREATE USER 'forge_user'@'localhost' IDENTIFIED BY 'your_password';
+    GRANT ALL PRIVILEGES ON forge_db.* TO 'forge_user'@'localhost';
+    FLUSH PRIVILEGES;
+    ```
+
+    ### Connection String
+    ```
+    forge_user:your_password@tcp(localhost:3306)/forge_db?parseTime=true
+    ```
+  </Tab>
+  <Tab value="SQLite">
+    ### SQLite Setup
+
+    SQLite is perfect for development and small applications:
+
+    ```bash
+    # SQLite is included with most systems
+    # No additional installation required
+
+    # Create database directory
+    mkdir -p ./data
+    ```
+
+    ### Connection String
+    ```
+    ./data/forge.db
+    ```
+
+    <Callout type="info">
+    SQLite is great for development but consider PostgreSQL or MySQL for production environments with high concurrency requirements.
+    </Callout>
+  </Tab>
+</Tabs>
+
+## Redis Setup (Optional)
+
+Redis is recommended for caching and rate limiting in production:
+
+<Tabs items={['Local Installation', 'Docker', 'Cloud Services']}>
+  <Tab value="Local Installation">
+    ```bash
+    # macOS (using Homebrew)
+    brew install redis
+    brew services start redis
+
+    # Ubuntu/Debian
+    sudo apt update
+    sudo apt install redis-server
+    sudo systemctl start redis-server
+
+    # Verify installation
+    redis-cli ping
+    # Should return: PONG
+    ```
+  </Tab>
+  <Tab value="Docker">
+    ```bash
+    # Run Redis in Docker
+    docker run -d --name redis -p 6379:6379 redis:7-alpine
+
+    # Or use Docker Compose
+    # Add to your docker-compose.yml:
+    ```
+
+    ```yaml
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379:6379"
+        volumes:
+          - redis_data:/data
+
+    volumes:
+      redis_data:
+    ```
+  </Tab>
+  <Tab value="Cloud Services">
+    Popular Redis cloud providers:
+
+    - **Redis Cloud**: [redis.com](https://redis.com)
+    - **AWS ElastiCache**: [aws.amazon.com/elasticache](https://aws.amazon.com/elasticache/)
+    - **Google Cloud Memorystore**: [cloud.google.com/memorystore](https://cloud.google.com/memorystore)
+    - **Azure Cache for Redis**: [azure.microsoft.com/services/cache](https://azure.microsoft.com/en-us/services/cache/)
+  </Tab>
+</Tabs>
+
+## Verify Installation
+
+Create a simple test to verify your Forge installation:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create Forge app
+    app := forge.New(forge.Config{
+        Name:    "Test App",
+        Version: "1.0.0",
+    })
+
+    // Add a test route
+    app.GET("/", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "message": "Forge is working!",
+        })
+    })
+
+    // Add health check
+    app.GET("/health", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "status": "healthy",
+        })
+    })
+
+    fmt.Println("✅ Forge initialized successfully!")
+    fmt.Println("🚀 Ready to start building!")
+    
+    // Start server (optional for verification)
+    // log.Fatal(app.Listen(":8080"))
+}
+```
+
+Run the test:
+
+```bash
+go run main.go
+```
+
+Expected output:
+```
+✅ Forge initialized successfully!
+🚀 Ready to start building!
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Quick Start Guide"
+    description="Build your first web app with Forge"
+    href="/docs/go/getting-started/quick-start"
+  />
+  <Card
+    title="Configuration"
+    description="Learn about Forge configuration options"
+    href="/docs/go/getting-started/configuration"
+  />
+  <Card
+    title="First App"
+    description="Create a complete web application"
+    href="/docs/go/getting-started/first-app"
+  />
+</Cards>
+
+## Troubleshooting
+
+<Callout type="warn">
+**Common Issues**
+
+- **Go version**: Ensure you're using Go 1.21 or later
+- **Database connection**: Verify your database is running and connection string is correct
+- **Firewall**: Make sure database ports are accessible
+- **Dependencies**: Run `go mod tidy` to resolve dependency issues
+</Callout>
+
+### Getting Help
+
+If you encounter issues during installation:
+
+1. Check the [GitHub Issues](https://github.com/xraph/forge/issues)
+2. Review the [troubleshooting guide](/docs/go/guides/troubleshooting)
+3. Join our [community discussions](https://github.com/xraph/forge/discussions)
+
+---
+
+**Installation complete!** You're now ready to start building with Forge Go.

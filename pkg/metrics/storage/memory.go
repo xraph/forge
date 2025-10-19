@@ -226,7 +226,7 @@ func (ms *MemoryStorage) Start(ctx context.Context) error {
 	ms.started = true
 	ms.stats.startTime = time.Now()
 
-	// OnStart cleanup goroutine
+	// Start cleanup goroutine
 	go ms.cleanupLoop()
 
 	return nil

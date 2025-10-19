@@ -474,7 +474,7 @@ func (hcs *HealthCheckService) Dependencies() []string {
 }
 
 // OnStart starts the health check service
-func (hcs *HealthCheckService) OnStart(ctx context.Context) error {
+func (hcs *HealthCheckService) Start(ctx context.Context) error {
 	if hcs.config.Enabled {
 		hcs.checker.StartPeriodicHealthCheck(ctx, hcs.manager, hcs.config.Interval)
 		hcs.logger.Info("database health check service started",
@@ -488,7 +488,7 @@ func (hcs *HealthCheckService) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the health check service
-func (hcs *HealthCheckService) OnStop(ctx context.Context) error {
+func (hcs *HealthCheckService) Stop(ctx context.Context) error {
 	hcs.checker.StopPeriodicHealthCheck()
 	hcs.logger.Info("database health check service stopped")
 	return nil

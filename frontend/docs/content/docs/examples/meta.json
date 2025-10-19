@@ -1,0 +1,11 @@
+{
+  "title": "Examples",
+  "icon": "FileText",
+  "pages": [
+    "index",
+    "basic-setup",
+    "frameworks",
+    "frontend",
+    "multi-tenant"
+  ]
+}

@@ -81,7 +81,7 @@ func (tdm *TestDatabaseManager) SetupTestDatabase(t *testing.T, dbType string, c
 		}
 	}
 
-	// OnStart container if provided
+	// Start container if provided
 	if config.Container != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -143,11 +143,11 @@ func (tdm *TestDatabaseManager) SetupTestDatabase(t *testing.T, dbType string, c
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
-	// OnStart connection
+	// Start connection
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := connection.OnStart(ctx); err != nil {
+	if err := connection.Start(ctx); err != nil {
 		return nil, fmt.Errorf("failed to start connection: %w", err)
 	}
 
@@ -155,7 +155,7 @@ func (tdm *TestDatabaseManager) SetupTestDatabase(t *testing.T, dbType string, c
 	tdm.registerCleanup(func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return connection.OnStop(ctx)
+		return connection.Stop(ctx)
 	})
 
 	// Store configuration

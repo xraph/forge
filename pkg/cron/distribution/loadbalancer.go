@@ -201,7 +201,7 @@ func (lb *LoadBalancer) Start(ctx context.Context) error {
 		return common.ErrLifecycleError("start", fmt.Errorf("load balancer already started"))
 	}
 
-	// OnStart background tasks
+	// Start background tasks
 	lb.wg.Add(2)
 	go lb.updateMetricsLoop(ctx)
 	go lb.healthCheckLoop(ctx)

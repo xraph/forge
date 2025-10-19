@@ -1,0 +1,1444 @@
+---
+title: Framework Integrations
+description: Complete guides for integrating AuthSome Go with popular Go web frameworks including Gin, Echo, Fiber, and Chi.
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs';
+import { Callout } from 'fumadocs-ui/components/callout';
+import { Cards, Card } from 'fumadocs-ui/components/card';
+
+# Framework Integrations
+
+AuthSome Go is built on the Forge framework but can be easily integrated with other popular Go web frameworks. This guide shows you how to integrate AuthSome with Gin, Echo, Fiber, and Chi.
+
+## Overview
+
+While AuthSome is designed to work seamlessly with Forge, you can integrate it with other frameworks using:
+
+- **Adapter Pattern**: Convert between framework-specific contexts
+- **Middleware Bridge**: Translate middleware between frameworks  
+- **Handler Wrapping**: Wrap AuthSome handlers for different frameworks
+- **Session Management**: Share session state across frameworks
+
+## Gin Integration
+
+<Tabs items={['Setup', 'Middleware', 'Handlers', 'Example']}>
+  <Tab value="Setup">
+    ```go
+    package main
+    
+    import (
+        "log"
+        "net/http"
+        
+        "github.com/gin-gonic/gin"
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+        "github.com/xraph/forge/config"
+    )
+    
+    // GinAdapter adapts Forge context to Gin context
+    type GinAdapter struct {
+        auth *authsome.Auth
+    }
+    
+    func NewGinAdapter(auth *authsome.Auth) *GinAdapter {
+        return &GinAdapter{auth: auth}
+    }
+    
+    // ConvertContext converts Gin context to Forge context
+    func (ga *GinAdapter) ConvertContext(c *gin.Context) *forge.Context {
+        // Create a forge context from gin context
+        forgeCtx := &forge.Context{
+            Request:  c.Request,
+            Response: c.Writer,
+            Params:   make(map[string]string),
+            Headers:  c.Request.Header,
+        }
+        
+        // Copy URL parameters
+        for _, param := range c.Params {
+            forgeCtx.Params[param.Key] = param.Value
+        }
+        
+        return forgeCtx
+    }
+    
+    // ConvertHandler converts Forge handler to Gin handler
+    func (ga *GinAdapter) ConvertHandler(handler forge.HandlerFunc) gin.HandlerFunc {
+        return func(c *gin.Context) {
+            forgeCtx := ga.ConvertContext(c)
+            
+            if err := handler(forgeCtx); err != nil {
+                c.JSON(500, gin.H{"error": err.Error()})
+                return
+            }
+            
+            // Copy response data back to Gin
+            if forgeCtx.StatusCode != 0 {
+                c.Status(forgeCtx.StatusCode)
+            }
+        }
+    }
+    
+    func main() {
+        // Initialize AuthSome
+        configManager := config.New()
+        auth, err := authsome.New(
+            authsome.WithConfig(configManager),
+            authsome.WithMode(authsome.StandaloneMode),
+        )
+        if err != nil {
+            log.Fatal("Failed to initialize AuthSome:", err)
+        }
+        
+        // Initialize Gin
+        r := gin.Default()
+        adapter := NewGinAdapter(auth)
+        
+        // Add CORS middleware
+        r.Use(func(c *gin.Context) {
+            c.Header("Access-Control-Allow-Origin", "*")
+            c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+            c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            
+            if c.Request.Method == "OPTIONS" {
+                c.AbortWithStatus(204)
+                return
+            }
+            
+            c.Next()
+        })
+        
+        // Setup routes
+        setupRoutes(r, adapter)
+        
+        log.Println("Server starting on :8080")
+        r.Run(":8080")
+    }
+    ```
+  </Tab>
+  <Tab value="Middleware">
+    ```go
+    // AuthMiddleware provides authentication middleware for Gin
+    func (ga *GinAdapter) AuthMiddleware() gin.HandlerFunc {
+        return func(c *gin.Context) {
+            forgeCtx := ga.ConvertContext(c)
+            
+            // Check authentication
+            user := ga.auth.GetCurrentUser(forgeCtx)
+            if user == nil {
+                c.JSON(401, gin.H{
+                    "error": "Authentication required",
+                })
+                c.Abort()
+                return
+            }
+            
+            // Store user in Gin context
+            c.Set("user", user)
+            c.Set("userId", user.ID)
+            
+            c.Next()
+        }
+    }
+    
+    // OptionalAuthMiddleware provides optional authentication
+    func (ga *GinAdapter) OptionalAuthMiddleware() gin.HandlerFunc {
+        return func(c *gin.Context) {
+            forgeCtx := ga.ConvertContext(c)
+            
+            // Try to get user (don't fail if not authenticated)
+            user := ga.auth.GetCurrentUser(forgeCtx)
+            if user != nil {
+                c.Set("user", user)
+                c.Set("userId", user.ID)
+            }
+            
+            c.Next()
+        }
+    }
+    
+    // OrganizationMiddleware provides organization context
+    func (ga *GinAdapter) OrganizationMiddleware() gin.HandlerFunc {
+        return func(c *gin.Context) {
+            orgID := c.Param("orgId")
+            if orgID == "" {
+                orgID = c.GetHeader("X-Organization-ID")
+            }
+            
+            if orgID == "" {
+                c.JSON(400, gin.H{
+                    "error": "Organization ID required",
+                })
+                c.Abort()
+                return
+            }
+            
+            // Verify organization access
+            userID, exists := c.Get("userId")
+            if !exists {
+                c.JSON(401, gin.H{
+                    "error": "Authentication required",
+                })
+                c.Abort()
+                return
+            }
+            
+            forgeCtx := ga.ConvertContext(c)
+            hasAccess := ga.auth.HasOrganizationAccess(forgeCtx, userID.(string), orgID)
+            if !hasAccess {
+                c.JSON(403, gin.H{
+                    "error": "Access denied to organization",
+                })
+                c.Abort()
+                return
+            }
+            
+            c.Set("organizationId", orgID)
+            c.Next()
+        }
+    }
+    
+    // RateLimitMiddleware provides rate limiting
+    func (ga *GinAdapter) RateLimitMiddleware(limit int, window string) gin.HandlerFunc {
+        return func(c *gin.Context) {
+            forgeCtx := ga.ConvertContext(c)
+            
+            // Check rate limit
+            allowed := ga.auth.CheckRateLimit(forgeCtx, limit, window)
+            if !allowed {
+                c.JSON(429, gin.H{
+                    "error": "Rate limit exceeded",
+                })
+                c.Abort()
+                return
+            }
+            
+            c.Next()
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Handlers">
+    ```go
+    // setupRoutes configures all routes
+    func setupRoutes(r *gin.Engine, adapter *GinAdapter) {
+        // Public routes
+        public := r.Group("/api/auth")
+        {
+            public.POST("/signup", adapter.ConvertHandler(adapter.auth.Handlers.SignUp))
+            public.POST("/signin", adapter.ConvertHandler(adapter.auth.Handlers.SignIn))
+            public.POST("/signout", adapter.ConvertHandler(adapter.auth.Handlers.SignOut))
+            public.POST("/forgot-password", adapter.ConvertHandler(adapter.auth.Handlers.ForgotPassword))
+            public.POST("/reset-password", adapter.ConvertHandler(adapter.auth.Handlers.ResetPassword))
+            public.GET("/verify-email", adapter.ConvertHandler(adapter.auth.Handlers.VerifyEmail))
+        }
+        
+        // Protected routes
+        protected := r.Group("/api")
+        protected.Use(adapter.AuthMiddleware())
+        {
+            // User routes
+            protected.GET("/user", adapter.ConvertHandler(adapter.auth.Handlers.GetCurrentUser))
+            protected.PUT("/user", adapter.ConvertHandler(adapter.auth.Handlers.UpdateUser))
+            protected.DELETE("/user", adapter.ConvertHandler(adapter.auth.Handlers.DeleteUser))
+            protected.POST("/user/change-password", adapter.ConvertHandler(adapter.auth.Handlers.ChangePassword))
+            
+            // Session routes
+            protected.GET("/sessions", adapter.ConvertHandler(adapter.auth.Handlers.ListSessions))
+            protected.DELETE("/sessions/:sessionId", adapter.ConvertHandler(adapter.auth.Handlers.RevokeSession))
+            
+            // Organization routes
+            orgs := protected.Group("/organizations")
+            {
+                orgs.GET("", adapter.ConvertHandler(adapter.auth.Handlers.ListOrganizations))
+                orgs.POST("", adapter.ConvertHandler(adapter.auth.Handlers.CreateOrganization))
+                
+                // Organization-specific routes
+                org := orgs.Group("/:orgId")
+                org.Use(adapter.OrganizationMiddleware())
+                {
+                    org.GET("", adapter.ConvertHandler(adapter.auth.Handlers.GetOrganization))
+                    org.PUT("", adapter.ConvertHandler(adapter.auth.Handlers.UpdateOrganization))
+                    org.DELETE("", adapter.ConvertHandler(adapter.auth.Handlers.DeleteOrganization))
+                    
+                    // Member routes
+                    org.GET("/members", adapter.ConvertHandler(adapter.auth.Handlers.ListMembers))
+                    org.POST("/members/invite", adapter.ConvertHandler(adapter.auth.Handlers.InviteMember))
+                    org.PUT("/members/:userId", adapter.ConvertHandler(adapter.auth.Handlers.UpdateMember))
+                    org.DELETE("/members/:userId", adapter.ConvertHandler(adapter.auth.Handlers.RemoveMember))
+                }
+            }
+        }
+        
+        // Admin routes
+        admin := r.Group("/api/admin")
+        admin.Use(adapter.AuthMiddleware())
+        admin.Use(adapter.RequirePermission("admin:access"))
+        {
+            admin.GET("/users", adapter.ConvertHandler(adapter.auth.Handlers.ListUsers))
+            admin.GET("/users/:userId", adapter.ConvertHandler(adapter.auth.Handlers.GetUser))
+            admin.PUT("/users/:userId", adapter.ConvertHandler(adapter.auth.Handlers.UpdateUserAdmin))
+            admin.DELETE("/users/:userId", adapter.ConvertHandler(adapter.auth.Handlers.DeleteUserAdmin))
+            
+            admin.GET("/audit-logs", adapter.ConvertHandler(adapter.auth.Handlers.GetAuditLogs))
+            admin.GET("/analytics", adapter.ConvertHandler(adapter.auth.Handlers.GetAnalytics))
+        }
+    }
+    
+    // RequirePermission middleware checks for specific permissions
+    func (ga *GinAdapter) RequirePermission(permission string) gin.HandlerFunc {
+        return func(c *gin.Context) {
+            userID, exists := c.Get("userId")
+            if !exists {
+                c.JSON(401, gin.H{"error": "Authentication required"})
+                c.Abort()
+                return
+            }
+            
+            forgeCtx := ga.ConvertContext(c)
+            hasPermission := ga.auth.HasPermission(forgeCtx, userID.(string), permission)
+            if !hasPermission {
+                c.JSON(403, gin.H{"error": "Insufficient permissions"})
+                c.Abort()
+                return
+            }
+            
+            c.Next()
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Example">
+    ```go
+    // Example Gin application with AuthSome integration
+    package main
+    
+    import (
+        "log"
+        "net/http"
+        
+        "github.com/gin-gonic/gin"
+        "github.com/xraph/authsome"
+    )
+    
+    func main() {
+        // Initialize AuthSome
+        auth, err := authsome.New(
+            authsome.WithDatabaseURL("postgres://user:pass@localhost/authsome"),
+            authsome.WithMode(authsome.SaaSMode),
+        )
+        if err != nil {
+            log.Fatal(err)
+        }
+        
+        // Initialize Gin
+        r := gin.Default()
+        adapter := NewGinAdapter(auth)
+        
+        // Custom handlers
+        r.GET("/", func(c *gin.Context) {
+            c.JSON(200, gin.H{
+                "message": "Welcome to AuthSome + Gin",
+                "version": "1.0.0",
+            })
+        })
+        
+        // Protected dashboard
+        r.GET("/dashboard", adapter.AuthMiddleware(), func(c *gin.Context) {
+            user, _ := c.Get("user")
+            c.JSON(200, gin.H{
+                "message": "Welcome to your dashboard",
+                "user":    user,
+            })
+        })
+        
+        // Organization dashboard
+        r.GET("/org/:orgId/dashboard", 
+            adapter.AuthMiddleware(),
+            adapter.OrganizationMiddleware(),
+            func(c *gin.Context) {
+                orgID, _ := c.Get("organizationId")
+                user, _ := c.Get("user")
+                
+                c.JSON(200, gin.H{
+                    "message":        "Organization dashboard",
+                    "organizationId": orgID,
+                    "user":          user,
+                })
+            },
+        )
+        
+        // Setup AuthSome routes
+        setupRoutes(r, adapter)
+        
+        log.Println("Server running on :8080")
+        r.Run(":8080")
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Echo Integration
+
+<Tabs items={['Setup', 'Middleware', 'Handlers', 'Example']}>
+  <Tab value="Setup">
+    ```go
+    package main
+    
+    import (
+        "log"
+        "net/http"
+        
+        "github.com/labstack/echo/v4"
+        "github.com/labstack/echo/v4/middleware"
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+    )
+    
+    // EchoAdapter adapts Forge context to Echo context
+    type EchoAdapter struct {
+        auth *authsome.Auth
+    }
+    
+    func NewEchoAdapter(auth *authsome.Auth) *EchoAdapter {
+        return &EchoAdapter{auth: auth}
+    }
+    
+    // ConvertContext converts Echo context to Forge context
+    func (ea *EchoAdapter) ConvertContext(c echo.Context) *forge.Context {
+        forgeCtx := &forge.Context{
+            Request:  c.Request(),
+            Response: c.Response().Writer,
+            Params:   make(map[string]string),
+            Headers:  c.Request().Header,
+        }
+        
+        // Copy URL parameters
+        for _, name := range c.ParamNames() {
+            forgeCtx.Params[name] = c.Param(name)
+        }
+        
+        return forgeCtx
+    }
+    
+    // ConvertHandler converts Forge handler to Echo handler
+    func (ea *EchoAdapter) ConvertHandler(handler forge.HandlerFunc) echo.HandlerFunc {
+        return func(c echo.Context) error {
+            forgeCtx := ea.ConvertContext(c)
+            
+            if err := handler(forgeCtx); err != nil {
+                return c.JSON(500, map[string]string{"error": err.Error()})
+            }
+            
+            // Handle response
+            if forgeCtx.StatusCode != 0 {
+                return c.NoContent(forgeCtx.StatusCode)
+            }
+            
+            return nil
+        }
+    }
+    
+    func main() {
+        // Initialize AuthSome
+        auth, err := authsome.New(
+            authsome.WithDatabaseURL("postgres://user:pass@localhost/authsome"),
+            authsome.WithMode(authsome.StandaloneMode),
+        )
+        if err != nil {
+            log.Fatal("Failed to initialize AuthSome:", err)
+        }
+        
+        // Initialize Echo
+        e := echo.New()
+        adapter := NewEchoAdapter(auth)
+        
+        // Middleware
+        e.Use(middleware.Logger())
+        e.Use(middleware.Recover())
+        e.Use(middleware.CORS())
+        
+        // Setup routes
+        setupEchoRoutes(e, adapter)
+        
+        log.Println("Server starting on :8080")
+        e.Logger.Fatal(e.Start(":8080"))
+    }
+    ```
+  </Tab>
+  <Tab value="Middleware">
+    ```go
+    // AuthMiddleware provides authentication middleware for Echo
+    func (ea *EchoAdapter) AuthMiddleware() echo.MiddlewareFunc {
+        return func(next echo.HandlerFunc) echo.HandlerFunc {
+            return func(c echo.Context) error {
+                forgeCtx := ea.ConvertContext(c)
+                
+                // Check authentication
+                user := ea.auth.GetCurrentUser(forgeCtx)
+                if user == nil {
+                    return c.JSON(401, map[string]string{
+                        "error": "Authentication required",
+                    })
+                }
+                
+                // Store user in Echo context
+                c.Set("user", user)
+                c.Set("userId", user.ID)
+                
+                return next(c)
+            }
+        }
+    }
+    
+    // OrganizationMiddleware provides organization context for Echo
+    func (ea *EchoAdapter) OrganizationMiddleware() echo.MiddlewareFunc {
+        return func(next echo.HandlerFunc) echo.HandlerFunc {
+            return func(c echo.Context) error {
+                orgID := c.Param("orgId")
+                if orgID == "" {
+                    orgID = c.Request().Header.Get("X-Organization-ID")
+                }
+                
+                if orgID == "" {
+                    return c.JSON(400, map[string]string{
+                        "error": "Organization ID required",
+                    })
+                }
+                
+                // Verify organization access
+                userID := c.Get("userId")
+                if userID == nil {
+                    return c.JSON(401, map[string]string{
+                        "error": "Authentication required",
+                    })
+                }
+                
+                forgeCtx := ea.ConvertContext(c)
+                hasAccess := ea.auth.HasOrganizationAccess(forgeCtx, userID.(string), orgID)
+                if !hasAccess {
+                    return c.JSON(403, map[string]string{
+                        "error": "Access denied to organization",
+                    })
+                }
+                
+                c.Set("organizationId", orgID)
+                return next(c)
+            }
+        }
+    }
+    
+    // RateLimitMiddleware provides rate limiting for Echo
+    func (ea *EchoAdapter) RateLimitMiddleware(limit int, window string) echo.MiddlewareFunc {
+        return func(next echo.HandlerFunc) echo.HandlerFunc {
+            return func(c echo.Context) error {
+                forgeCtx := ea.ConvertContext(c)
+                
+                // Check rate limit
+                allowed := ea.auth.CheckRateLimit(forgeCtx, limit, window)
+                if !allowed {
+                    return c.JSON(429, map[string]string{
+                        "error": "Rate limit exceeded",
+                    })
+                }
+                
+                return next(c)
+            }
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Handlers">
+    ```go
+    // setupEchoRoutes configures all routes for Echo
+    func setupEchoRoutes(e *echo.Echo, adapter *EchoAdapter) {
+        // Public routes
+        auth := e.Group("/api/auth")
+        {
+            auth.POST("/signup", adapter.ConvertHandler(adapter.auth.Handlers.SignUp))
+            auth.POST("/signin", adapter.ConvertHandler(adapter.auth.Handlers.SignIn))
+            auth.POST("/signout", adapter.ConvertHandler(adapter.auth.Handlers.SignOut))
+            auth.POST("/forgot-password", adapter.ConvertHandler(adapter.auth.Handlers.ForgotPassword))
+            auth.POST("/reset-password", adapter.ConvertHandler(adapter.auth.Handlers.ResetPassword))
+            auth.GET("/verify-email", adapter.ConvertHandler(adapter.auth.Handlers.VerifyEmail))
+        }
+        
+        // Protected routes
+        api := e.Group("/api")
+        api.Use(adapter.AuthMiddleware())
+        {
+            // User routes
+            api.GET("/user", adapter.ConvertHandler(adapter.auth.Handlers.GetCurrentUser))
+            api.PUT("/user", adapter.ConvertHandler(adapter.auth.Handlers.UpdateUser))
+            api.DELETE("/user", adapter.ConvertHandler(adapter.auth.Handlers.DeleteUser))
+            api.POST("/user/change-password", adapter.ConvertHandler(adapter.auth.Handlers.ChangePassword))
+            
+            // Session routes
+            api.GET("/sessions", adapter.ConvertHandler(adapter.auth.Handlers.ListSessions))
+            api.DELETE("/sessions/:sessionId", adapter.ConvertHandler(adapter.auth.Handlers.RevokeSession))
+            
+            // Organization routes
+            orgs := api.Group("/organizations")
+            {
+                orgs.GET("", adapter.ConvertHandler(adapter.auth.Handlers.ListOrganizations))
+                orgs.POST("", adapter.ConvertHandler(adapter.auth.Handlers.CreateOrganization))
+                
+                // Organization-specific routes
+                org := orgs.Group("/:orgId")
+                org.Use(adapter.OrganizationMiddleware())
+                {
+                    org.GET("", adapter.ConvertHandler(adapter.auth.Handlers.GetOrganization))
+                    org.PUT("", adapter.ConvertHandler(adapter.auth.Handlers.UpdateOrganization))
+                    org.DELETE("", adapter.ConvertHandler(adapter.auth.Handlers.DeleteOrganization))
+                    
+                    // Member routes
+                    org.GET("/members", adapter.ConvertHandler(adapter.auth.Handlers.ListMembers))
+                    org.POST("/members/invite", adapter.ConvertHandler(adapter.auth.Handlers.InviteMember))
+                    org.PUT("/members/:userId", adapter.ConvertHandler(adapter.auth.Handlers.UpdateMember))
+                    org.DELETE("/members/:userId", adapter.ConvertHandler(adapter.auth.Handlers.RemoveMember))
+                }
+            }
+        }
+    }
+    
+    // Custom Echo handlers
+    func (ea *EchoAdapter) CustomHandlers(e *echo.Echo) {
+        // Health check
+        e.GET("/health", func(c echo.Context) error {
+            return c.JSON(200, map[string]string{
+                "status": "healthy",
+                "service": "authsome-echo",
+            })
+        })
+        
+        // Protected dashboard
+        e.GET("/dashboard", func(c echo.Context) error {
+            user := c.Get("user")
+            return c.JSON(200, map[string]interface{}{
+                "message": "Welcome to your dashboard",
+                "user":    user,
+            })
+        }, ea.AuthMiddleware())
+        
+        // Organization dashboard
+        e.GET("/org/:orgId/dashboard", func(c echo.Context) error {
+            orgID := c.Get("organizationId")
+            user := c.Get("user")
+            
+            return c.JSON(200, map[string]interface{}{
+                "message":        "Organization dashboard",
+                "organizationId": orgID,
+                "user":          user,
+            })
+        }, ea.AuthMiddleware(), ea.OrganizationMiddleware())
+    }
+    ```
+  </Tab>
+  <Tab value="Example">
+    ```go
+    // Complete Echo example with AuthSome
+    package main
+    
+    import (
+        "log"
+        "net/http"
+        
+        "github.com/labstack/echo/v4"
+        "github.com/labstack/echo/v4/middleware"
+        "github.com/xraph/authsome"
+    )
+    
+    func main() {
+        // Initialize AuthSome
+        auth, err := authsome.New(
+            authsome.WithDatabaseURL("postgres://user:pass@localhost/authsome"),
+            authsome.WithMode(authsome.SaaSMode),
+            authsome.WithJWTSecret("your-jwt-secret"),
+        )
+        if err != nil {
+            log.Fatal(err)
+        }
+        
+        // Initialize Echo
+        e := echo.New()
+        adapter := NewEchoAdapter(auth)
+        
+        // Global middleware
+        e.Use(middleware.Logger())
+        e.Use(middleware.Recover())
+        e.Use(middleware.CORS())
+        
+        // Rate limiting
+        e.Use(adapter.RateLimitMiddleware(100, "1m"))
+        
+        // Custom error handler
+        e.HTTPErrorHandler = func(err error, c echo.Context) {
+            code := http.StatusInternalServerError
+            message := "Internal server error"
+            
+            if he, ok := err.(*echo.HTTPError); ok {
+                code = he.Code
+                message = he.Message.(string)
+            }
+            
+            c.JSON(code, map[string]interface{}{
+                "error":   message,
+                "code":    code,
+                "path":    c.Request().URL.Path,
+                "method":  c.Request().Method,
+            })
+        }
+        
+        // Setup routes
+        setupEchoRoutes(e, adapter)
+        adapter.CustomHandlers(e)
+        
+        // Start server
+        log.Println("Server running on :8080")
+        e.Logger.Fatal(e.Start(":8080"))
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Fiber Integration
+
+<Tabs items={['Setup', 'Middleware', 'Handlers', 'Example']}>
+  <Tab value="Setup">
+    ```go
+    package main
+    
+    import (
+        "log"
+        
+        "github.com/gofiber/fiber/v2"
+        "github.com/gofiber/fiber/v2/middleware/cors"
+        "github.com/gofiber/fiber/v2/middleware/logger"
+        "github.com/gofiber/fiber/v2/middleware/recover"
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+    )
+    
+    // FiberAdapter adapts Forge context to Fiber context
+    type FiberAdapter struct {
+        auth *authsome.Auth
+    }
+    
+    func NewFiberAdapter(auth *authsome.Auth) *FiberAdapter {
+        return &FiberAdapter{auth: auth}
+    }
+    
+    // ConvertContext converts Fiber context to Forge context
+    func (fa *FiberAdapter) ConvertContext(c *fiber.Ctx) *forge.Context {
+        forgeCtx := &forge.Context{
+            Request:  c.Context().Request,
+            Response: c.Context().Response,
+            Params:   make(map[string]string),
+            Headers:  make(map[string][]string),
+        }
+        
+        // Copy URL parameters
+        c.AllParams(func(key, val string) {
+            forgeCtx.Params[key] = val
+        })
+        
+        // Copy headers
+        c.Request().Header.VisitAll(func(key, value []byte) {
+            forgeCtx.Headers[string(key)] = []string{string(value)}
+        })
+        
+        return forgeCtx
+    }
+    
+    // ConvertHandler converts Forge handler to Fiber handler
+    func (fa *FiberAdapter) ConvertHandler(handler forge.HandlerFunc) fiber.Handler {
+        return func(c *fiber.Ctx) error {
+            forgeCtx := fa.ConvertContext(c)
+            
+            if err := handler(forgeCtx); err != nil {
+                return c.Status(500).JSON(fiber.Map{
+                    "error": err.Error(),
+                })
+            }
+            
+            // Handle response
+            if forgeCtx.StatusCode != 0 {
+                return c.SendStatus(forgeCtx.StatusCode)
+            }
+            
+            return nil
+        }
+    }
+    
+    func main() {
+        // Initialize AuthSome
+        auth, err := authsome.New(
+            authsome.WithDatabaseURL("postgres://user:pass@localhost/authsome"),
+            authsome.WithMode(authsome.StandaloneMode),
+        )
+        if err != nil {
+            log.Fatal("Failed to initialize AuthSome:", err)
+        }
+        
+        // Initialize Fiber
+        app := fiber.New(fiber.Config{
+            ErrorHandler: func(c *fiber.Ctx, err error) error {
+                code := fiber.StatusInternalServerError
+                message := "Internal Server Error"
+                
+                if e, ok := err.(*fiber.Error); ok {
+                    code = e.Code
+                    message = e.Message
+                }
+                
+                return c.Status(code).JSON(fiber.Map{
+                    "error": message,
+                    "code":  code,
+                })
+            },
+        })
+        
+        adapter := NewFiberAdapter(auth)
+        
+        // Middleware
+        app.Use(logger.New())
+        app.Use(recover.New())
+        app.Use(cors.New())
+        
+        // Setup routes
+        setupFiberRoutes(app, adapter)
+        
+        log.Println("Server starting on :8080")
+        log.Fatal(app.Listen(":8080"))
+    }
+    ```
+  </Tab>
+  <Tab value="Middleware">
+    ```go
+    // AuthMiddleware provides authentication middleware for Fiber
+    func (fa *FiberAdapter) AuthMiddleware() fiber.Handler {
+        return func(c *fiber.Ctx) error {
+            forgeCtx := fa.ConvertContext(c)
+            
+            // Check authentication
+            user := fa.auth.GetCurrentUser(forgeCtx)
+            if user == nil {
+                return c.Status(401).JSON(fiber.Map{
+                    "error": "Authentication required",
+                })
+            }
+            
+            // Store user in Fiber context
+            c.Locals("user", user)
+            c.Locals("userId", user.ID)
+            
+            return c.Next()
+        }
+    }
+    
+    // OrganizationMiddleware provides organization context for Fiber
+    func (fa *FiberAdapter) OrganizationMiddleware() fiber.Handler {
+        return func(c *fiber.Ctx) error {
+            orgID := c.Params("orgId")
+            if orgID == "" {
+                orgID = c.Get("X-Organization-ID")
+            }
+            
+            if orgID == "" {
+                return c.Status(400).JSON(fiber.Map{
+                    "error": "Organization ID required",
+                })
+            }
+            
+            // Verify organization access
+            userID := c.Locals("userId")
+            if userID == nil {
+                return c.Status(401).JSON(fiber.Map{
+                    "error": "Authentication required",
+                })
+            }
+            
+            forgeCtx := fa.ConvertContext(c)
+            hasAccess := fa.auth.HasOrganizationAccess(forgeCtx, userID.(string), orgID)
+            if !hasAccess {
+                return c.Status(403).JSON(fiber.Map{
+                    "error": "Access denied to organization",
+                })
+            }
+            
+            c.Locals("organizationId", orgID)
+            return c.Next()
+        }
+    }
+    
+    // RateLimitMiddleware provides rate limiting for Fiber
+    func (fa *FiberAdapter) RateLimitMiddleware(limit int, window string) fiber.Handler {
+        return func(c *fiber.Ctx) error {
+            forgeCtx := fa.ConvertContext(c)
+            
+            // Check rate limit
+            allowed := fa.auth.CheckRateLimit(forgeCtx, limit, window)
+            if !allowed {
+                return c.Status(429).JSON(fiber.Map{
+                    "error": "Rate limit exceeded",
+                })
+            }
+            
+            return c.Next()
+        }
+    }
+    
+    // RequirePermission middleware for Fiber
+    func (fa *FiberAdapter) RequirePermission(permission string) fiber.Handler {
+        return func(c *fiber.Ctx) error {
+            userID := c.Locals("userId")
+            if userID == nil {
+                return c.Status(401).JSON(fiber.Map{
+                    "error": "Authentication required",
+                })
+            }
+            
+            forgeCtx := fa.ConvertContext(c)
+            hasPermission := fa.auth.HasPermission(forgeCtx, userID.(string), permission)
+            if !hasPermission {
+                return c.Status(403).JSON(fiber.Map{
+                    "error": "Insufficient permissions",
+                })
+            }
+            
+            return c.Next()
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Handlers">
+    ```go
+    // setupFiberRoutes configures all routes for Fiber
+    func setupFiberRoutes(app *fiber.App, adapter *FiberAdapter) {
+        // Public routes
+        auth := app.Group("/api/auth")
+        {
+            auth.Post("/signup", adapter.ConvertHandler(adapter.auth.Handlers.SignUp))
+            auth.Post("/signin", adapter.ConvertHandler(adapter.auth.Handlers.SignIn))
+            auth.Post("/signout", adapter.ConvertHandler(adapter.auth.Handlers.SignOut))
+            auth.Post("/forgot-password", adapter.ConvertHandler(adapter.auth.Handlers.ForgotPassword))
+            auth.Post("/reset-password", adapter.ConvertHandler(adapter.auth.Handlers.ResetPassword))
+            auth.Get("/verify-email", adapter.ConvertHandler(adapter.auth.Handlers.VerifyEmail))
+        }
+        
+        // Protected routes
+        api := app.Group("/api")
+        api.Use(adapter.AuthMiddleware())
+        {
+            // User routes
+            api.Get("/user", adapter.ConvertHandler(adapter.auth.Handlers.GetCurrentUser))
+            api.Put("/user", adapter.ConvertHandler(adapter.auth.Handlers.UpdateUser))
+            api.Delete("/user", adapter.ConvertHandler(adapter.auth.Handlers.DeleteUser))
+            api.Post("/user/change-password", adapter.ConvertHandler(adapter.auth.Handlers.ChangePassword))
+            
+            // Session routes
+            api.Get("/sessions", adapter.ConvertHandler(adapter.auth.Handlers.ListSessions))
+            api.Delete("/sessions/:sessionId", adapter.ConvertHandler(adapter.auth.Handlers.RevokeSession))
+            
+            // Organization routes
+            orgs := api.Group("/organizations")
+            {
+                orgs.Get("/", adapter.ConvertHandler(adapter.auth.Handlers.ListOrganizations))
+                orgs.Post("/", adapter.ConvertHandler(adapter.auth.Handlers.CreateOrganization))
+                
+                // Organization-specific routes
+                org := orgs.Group("/:orgId")
+                org.Use(adapter.OrganizationMiddleware())
+                {
+                    org.Get("/", adapter.ConvertHandler(adapter.auth.Handlers.GetOrganization))
+                    org.Put("/", adapter.ConvertHandler(adapter.auth.Handlers.UpdateOrganization))
+                    org.Delete("/", adapter.ConvertHandler(adapter.auth.Handlers.DeleteOrganization))
+                    
+                    // Member routes
+                    org.Get("/members", adapter.ConvertHandler(adapter.auth.Handlers.ListMembers))
+                    org.Post("/members/invite", adapter.ConvertHandler(adapter.auth.Handlers.InviteMember))
+                    org.Put("/members/:userId", adapter.ConvertHandler(adapter.auth.Handlers.UpdateMember))
+                    org.Delete("/members/:userId", adapter.ConvertHandler(adapter.auth.Handlers.RemoveMember))
+                }
+            }
+        }
+        
+        // Admin routes
+        admin := api.Group("/admin")
+        admin.Use(adapter.RequirePermission("admin:access"))
+        {
+            admin.Get("/users", adapter.ConvertHandler(adapter.auth.Handlers.ListUsers))
+            admin.Get("/users/:userId", adapter.ConvertHandler(adapter.auth.Handlers.GetUser))
+            admin.Put("/users/:userId", adapter.ConvertHandler(adapter.auth.Handlers.UpdateUserAdmin))
+            admin.Delete("/users/:userId", adapter.ConvertHandler(adapter.auth.Handlers.DeleteUserAdmin))
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Example">
+    ```go
+    // Complete Fiber example with AuthSome
+    package main
+    
+    import (
+        "log"
+        
+        "github.com/gofiber/fiber/v2"
+        "github.com/gofiber/fiber/v2/middleware/cors"
+        "github.com/gofiber/fiber/v2/middleware/logger"
+        "github.com/gofiber/fiber/v2/middleware/limiter"
+        "github.com/xraph/authsome"
+    )
+    
+    func main() {
+        // Initialize AuthSome
+        auth, err := authsome.New(
+            authsome.WithDatabaseURL("postgres://user:pass@localhost/authsome"),
+            authsome.WithMode(authsome.SaaSMode),
+        )
+        if err != nil {
+            log.Fatal(err)
+        }
+        
+        // Initialize Fiber
+        app := fiber.New(fiber.Config{
+            AppName: "AuthSome + Fiber",
+        })
+        
+        adapter := NewFiberAdapter(auth)
+        
+        // Global middleware
+        app.Use(logger.New())
+        app.Use(cors.New())
+        app.Use(limiter.New(limiter.Config{
+            Max: 100,
+        }))
+        
+        // Custom routes
+        app.Get("/", func(c *fiber.Ctx) error {
+            return c.JSON(fiber.Map{
+                "message": "Welcome to AuthSome + Fiber",
+                "version": "1.0.0",
+            })
+        })
+        
+        // Protected dashboard
+        app.Get("/dashboard", adapter.AuthMiddleware(), func(c *fiber.Ctx) error {
+            user := c.Locals("user")
+            return c.JSON(fiber.Map{
+                "message": "Welcome to your dashboard",
+                "user":    user,
+            })
+        })
+        
+        // Organization dashboard
+        app.Get("/org/:orgId/dashboard", 
+            adapter.AuthMiddleware(),
+            adapter.OrganizationMiddleware(),
+            func(c *fiber.Ctx) error {
+                orgID := c.Locals("organizationId")
+                user := c.Locals("user")
+                
+                return c.JSON(fiber.Map{
+                    "message":        "Organization dashboard",
+                    "organizationId": orgID,
+                    "user":          user,
+                })
+            },
+        )
+        
+        // Setup AuthSome routes
+        setupFiberRoutes(app, adapter)
+        
+        log.Println("Server running on :8080")
+        log.Fatal(app.Listen(":8080"))
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Chi Integration
+
+<Tabs items={['Setup', 'Middleware', 'Handlers', 'Example']}>
+  <Tab value="Setup">
+    ```go
+    package main
+    
+    import (
+        "log"
+        "net/http"
+        
+        "github.com/go-chi/chi/v5"
+        "github.com/go-chi/chi/v5/middleware"
+        "github.com/go-chi/cors"
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+    )
+    
+    // ChiAdapter adapts Forge context to Chi context
+    type ChiAdapter struct {
+        auth *authsome.Auth
+    }
+    
+    func NewChiAdapter(auth *authsome.Auth) *ChiAdapter {
+        return &ChiAdapter{auth: auth}
+    }
+    
+    // ConvertContext converts Chi context to Forge context
+    func (ca *ChiAdapter) ConvertContext(w http.ResponseWriter, r *http.Request) *forge.Context {
+        forgeCtx := &forge.Context{
+            Request:  r,
+            Response: w,
+            Params:   make(map[string]string),
+            Headers:  r.Header,
+        }
+        
+        // Copy URL parameters from Chi
+        chiCtx := chi.RouteContext(r.Context())
+        for i, key := range chiCtx.URLParams.Keys {
+            if i < len(chiCtx.URLParams.Values) {
+                forgeCtx.Params[key] = chiCtx.URLParams.Values[i]
+            }
+        }
+        
+        return forgeCtx
+    }
+    
+    // ConvertHandler converts Forge handler to Chi handler
+    func (ca *ChiAdapter) ConvertHandler(handler forge.HandlerFunc) http.HandlerFunc {
+        return func(w http.ResponseWriter, r *http.Request) {
+            forgeCtx := ca.ConvertContext(w, r)
+            
+            if err := handler(forgeCtx); err != nil {
+                http.Error(w, err.Error(), http.StatusInternalServerError)
+                return
+            }
+            
+            // Handle response
+            if forgeCtx.StatusCode != 0 {
+                w.WriteHeader(forgeCtx.StatusCode)
+            }
+        }
+    }
+    
+    func main() {
+        // Initialize AuthSome
+        auth, err := authsome.New(
+            authsome.WithDatabaseURL("postgres://user:pass@localhost/authsome"),
+            authsome.WithMode(authsome.StandaloneMode),
+        )
+        if err != nil {
+            log.Fatal("Failed to initialize AuthSome:", err)
+        }
+        
+        // Initialize Chi
+        r := chi.NewRouter()
+        adapter := NewChiAdapter(auth)
+        
+        // Middleware
+        r.Use(middleware.Logger)
+        r.Use(middleware.Recoverer)
+        r.Use(cors.Handler(cors.Options{
+            AllowedOrigins:   []string{"*"},
+            AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+            AllowedHeaders:   []string{"*"},
+            AllowCredentials: true,
+        }))
+        
+        // Setup routes
+        setupChiRoutes(r, adapter)
+        
+        log.Println("Server starting on :8080")
+        log.Fatal(http.ListenAndServe(":8080", r))
+    }
+    ```
+  </Tab>
+  <Tab value="Middleware">
+    ```go
+    // AuthMiddleware provides authentication middleware for Chi
+    func (ca *ChiAdapter) AuthMiddleware() func(http.Handler) http.Handler {
+        return func(next http.Handler) http.Handler {
+            return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+                forgeCtx := ca.ConvertContext(w, r)
+                
+                // Check authentication
+                user := ca.auth.GetCurrentUser(forgeCtx)
+                if user == nil {
+                    w.Header().Set("Content-Type", "application/json")
+                    w.WriteHeader(401)
+                    w.Write([]byte(`{"error": "Authentication required"}`))
+                    return
+                }
+                
+                // Store user in request context
+                ctx := context.WithValue(r.Context(), "user", user)
+                ctx = context.WithValue(ctx, "userId", user.ID)
+                r = r.WithContext(ctx)
+                
+                next.ServeHTTP(w, r)
+            })
+        }
+    }
+    
+    // OrganizationMiddleware provides organization context for Chi
+    func (ca *ChiAdapter) OrganizationMiddleware() func(http.Handler) http.Handler {
+        return func(next http.Handler) http.Handler {
+            return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+                orgID := chi.URLParam(r, "orgId")
+                if orgID == "" {
+                    orgID = r.Header.Get("X-Organization-ID")
+                }
+                
+                if orgID == "" {
+                    w.Header().Set("Content-Type", "application/json")
+                    w.WriteHeader(400)
+                    w.Write([]byte(`{"error": "Organization ID required"}`))
+                    return
+                }
+                
+                // Verify organization access
+                userID := r.Context().Value("userId")
+                if userID == nil {
+                    w.Header().Set("Content-Type", "application/json")
+                    w.WriteHeader(401)
+                    w.Write([]byte(`{"error": "Authentication required"}`))
+                    return
+                }
+                
+                forgeCtx := ca.ConvertContext(w, r)
+                hasAccess := ca.auth.HasOrganizationAccess(forgeCtx, userID.(string), orgID)
+                if !hasAccess {
+                    w.Header().Set("Content-Type", "application/json")
+                    w.WriteHeader(403)
+                    w.Write([]byte(`{"error": "Access denied to organization"}`))
+                    return
+                }
+                
+                ctx := context.WithValue(r.Context(), "organizationId", orgID)
+                r = r.WithContext(ctx)
+                
+                next.ServeHTTP(w, r)
+            })
+        }
+    }
+    
+    // RequirePermission middleware for Chi
+    func (ca *ChiAdapter) RequirePermission(permission string) func(http.Handler) http.Handler {
+        return func(next http.Handler) http.Handler {
+            return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+                userID := r.Context().Value("userId")
+                if userID == nil {
+                    w.Header().Set("Content-Type", "application/json")
+                    w.WriteHeader(401)
+                    w.Write([]byte(`{"error": "Authentication required"}`))
+                    return
+                }
+                
+                forgeCtx := ca.ConvertContext(w, r)
+                hasPermission := ca.auth.HasPermission(forgeCtx, userID.(string), permission)
+                if !hasPermission {
+                    w.Header().Set("Content-Type", "application/json")
+                    w.WriteHeader(403)
+                    w.Write([]byte(`{"error": "Insufficient permissions"}`))
+                    return
+                }
+                
+                next.ServeHTTP(w, r)
+            })
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Handlers">
+    ```go
+    // setupChiRoutes configures all routes for Chi
+    func setupChiRoutes(r chi.Router, adapter *ChiAdapter) {
+        // Public routes
+        r.Route("/api/auth", func(r chi.Router) {
+            r.Post("/signup", adapter.ConvertHandler(adapter.auth.Handlers.SignUp))
+            r.Post("/signin", adapter.ConvertHandler(adapter.auth.Handlers.SignIn))
+            r.Post("/signout", adapter.ConvertHandler(adapter.auth.Handlers.SignOut))
+            r.Post("/forgot-password", adapter.ConvertHandler(adapter.auth.Handlers.ForgotPassword))
+            r.Post("/reset-password", adapter.ConvertHandler(adapter.auth.Handlers.ResetPassword))
+            r.Get("/verify-email", adapter.ConvertHandler(adapter.auth.Handlers.VerifyEmail))
+        })
+        
+        // Protected routes
+        r.Route("/api", func(r chi.Router) {
+            r.Use(adapter.AuthMiddleware())
+            
+            // User routes
+            r.Get("/user", adapter.ConvertHandler(adapter.auth.Handlers.GetCurrentUser))
+            r.Put("/user", adapter.ConvertHandler(adapter.auth.Handlers.UpdateUser))
+            r.Delete("/user", adapter.ConvertHandler(adapter.auth.Handlers.DeleteUser))
+            r.Post("/user/change-password", adapter.ConvertHandler(adapter.auth.Handlers.ChangePassword))
+            
+            // Session routes
+            r.Get("/sessions", adapter.ConvertHandler(adapter.auth.Handlers.ListSessions))
+            r.Delete("/sessions/{sessionId}", adapter.ConvertHandler(adapter.auth.Handlers.RevokeSession))
+            
+            // Organization routes
+            r.Route("/organizations", func(r chi.Router) {
+                r.Get("/", adapter.ConvertHandler(adapter.auth.Handlers.ListOrganizations))
+                r.Post("/", adapter.ConvertHandler(adapter.auth.Handlers.CreateOrganization))
+                
+                // Organization-specific routes
+                r.Route("/{orgId}", func(r chi.Router) {
+                    r.Use(adapter.OrganizationMiddleware())
+                    
+                    r.Get("/", adapter.ConvertHandler(adapter.auth.Handlers.GetOrganization))
+                    r.Put("/", adapter.ConvertHandler(adapter.auth.Handlers.UpdateOrganization))
+                    r.Delete("/", adapter.ConvertHandler(adapter.auth.Handlers.DeleteOrganization))
+                    
+                    // Member routes
+                    r.Get("/members", adapter.ConvertHandler(adapter.auth.Handlers.ListMembers))
+                    r.Post("/members/invite", adapter.ConvertHandler(adapter.auth.Handlers.InviteMember))
+                    r.Put("/members/{userId}", adapter.ConvertHandler(adapter.auth.Handlers.UpdateMember))
+                    r.Delete("/members/{userId}", adapter.ConvertHandler(adapter.auth.Handlers.RemoveMember))
+                })
+            })
+            
+            // Admin routes
+            r.Route("/admin", func(r chi.Router) {
+                r.Use(adapter.RequirePermission("admin:access"))
+                
+                r.Get("/users", adapter.ConvertHandler(adapter.auth.Handlers.ListUsers))
+                r.Get("/users/{userId}", adapter.ConvertHandler(adapter.auth.Handlers.GetUser))
+                r.Put("/users/{userId}", adapter.ConvertHandler(adapter.auth.Handlers.UpdateUserAdmin))
+                r.Delete("/users/{userId}", adapter.ConvertHandler(adapter.auth.Handlers.DeleteUserAdmin))
+            })
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Example">
+    ```go
+    // Complete Chi example with AuthSome
+    package main
+    
+    import (
+        "context"
+        "encoding/json"
+        "log"
+        "net/http"
+        
+        "github.com/go-chi/chi/v5"
+        "github.com/go-chi/chi/v5/middleware"
+        "github.com/xraph/authsome"
+    )
+    
+    func main() {
+        // Initialize AuthSome
+        auth, err := authsome.New(
+            authsome.WithDatabaseURL("postgres://user:pass@localhost/authsome"),
+            authsome.WithMode(authsome.SaaSMode),
+        )
+        if err != nil {
+            log.Fatal(err)
+        }
+        
+        // Initialize Chi
+        r := chi.NewRouter()
+        adapter := NewChiAdapter(auth)
+        
+        // Global middleware
+        r.Use(middleware.Logger)
+        r.Use(middleware.Recoverer)
+        r.Use(middleware.Heartbeat("/ping"))
+        
+        // Custom routes
+        r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+            w.Header().Set("Content-Type", "application/json")
+            json.NewEncoder(w).Encode(map[string]interface{}{
+                "message": "Welcome to AuthSome + Chi",
+                "version": "1.0.0",
+            })
+        })
+        
+        // Protected dashboard
+        r.With(adapter.AuthMiddleware()).Get("/dashboard", func(w http.ResponseWriter, r *http.Request) {
+            user := r.Context().Value("user")
+            w.Header().Set("Content-Type", "application/json")
+            json.NewEncoder(w).Encode(map[string]interface{}{
+                "message": "Welcome to your dashboard",
+                "user":    user,
+            })
+        })
+        
+        // Organization dashboard
+        r.With(adapter.AuthMiddleware(), adapter.OrganizationMiddleware()).
+            Get("/org/{orgId}/dashboard", func(w http.ResponseWriter, r *http.Request) {
+                orgID := r.Context().Value("organizationId")
+                user := r.Context().Value("user")
+                
+                w.Header().Set("Content-Type", "application/json")
+                json.NewEncoder(w).Encode(map[string]interface{}{
+                    "message":        "Organization dashboard",
+                    "organizationId": orgID,
+                    "user":          user,
+                })
+            })
+        
+        // Setup AuthSome routes
+        setupChiRoutes(r, adapter)
+        
+        log.Println("Server running on :8080")
+        log.Fatal(http.ListenAndServe(":8080", r))
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<Cards>
+  <Card title="Frontend Integration" href="/docs/go/examples/frontend">
+    Learn how to integrate with React, Vue.js, and Next.js frontends
+  </Card>
+  <Card title="Advanced Security" href="/docs/go/examples/security">
+    Implement MFA, SSO, and other advanced security features
+  </Card>
+  <Card title="Testing Guide" href="/docs/go/examples/testing">
+    Complete testing strategies for AuthSome integrations
+  </Card>
+  <Card title="API Reference" href="/docs/go/api-reference">
+    Complete API documentation for all endpoints
+  </Card>
+</Cards>
+
+## Best Practices
+
+<Callout type="info">
+  **Framework Integration Tips:**
+  - Always validate context conversion between frameworks
+  - Implement proper error handling for each framework's patterns
+  - Use framework-specific middleware patterns for better performance
+  - Test thoroughly with framework-specific testing tools
+  - Consider using dependency injection for better testability
+</Callout>
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Context Conversion Errors**
+   - Verify parameter mapping between frameworks
+   - Check header and request body handling
+   - Ensure proper error propagation
+
+2. **Middleware Order**
+   - Authentication middleware should come before authorization
+   - CORS middleware should be early in the chain
+   - Rate limiting should be applied appropriately
+
+3. **Session Management**
+   - Ensure session cookies are properly handled
+   - Verify session storage configuration
+   - Check session expiration handling
+
+4. **Performance Issues**
+   - Use connection pooling for database connections
+   - Implement proper caching strategies
+   - Monitor middleware overhead

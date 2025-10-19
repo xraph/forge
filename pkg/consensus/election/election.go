@@ -212,18 +212,18 @@ func (em *Manager) Start(ctx context.Context) error {
 		}
 	}
 
-	// OnStart transport
+	// Start transport
 	if err := em.transport.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("transport", err)
 	}
 
-	// OnStart timeout manager
+	// Start timeout manager
 	em.timeoutManager.Start(ctx)
 
-	// OnStart event processing
+	// Start event processing
 	go em.processEvents(ctx)
 
-	// OnStart as follower
+	// Start as follower
 	em.state = ElectionStateFollower
 	em.started = true
 
@@ -257,10 +257,10 @@ func (em *Manager) Stop(ctx context.Context) error {
 	// Signal stop
 	close(em.stopCh)
 
-	// OnStop timeout manager
+	// Stop timeout manager
 	em.timeoutManager.Stop()
 
-	// OnStop transport
+	// Stop transport
 	if err := em.transport.Stop(ctx); err != nil {
 		if em.logger != nil {
 			em.logger.Error("failed to stop transport", logger.Error(err))
@@ -745,7 +745,7 @@ func (em *Manager) onElectionTimeout(ctx context.Context, timeout time.Duration)
 			"state":   state,
 		})
 
-		// OnStart new election
+		// Start new election
 		if err := em.StartElection(ctx); err != nil {
 			if em.logger != nil {
 				em.logger.Error("failed to start election on timeout", logger.Error(err))
@@ -818,7 +818,7 @@ func (em *Manager) becomeLeader(ctx context.Context) {
 	em.currentLeader = em.nodeID
 	em.lastElection = time.Now()
 
-	// OnStop timeout (leaders don't need election timeouts)
+	// Stop timeout (leaders don't need election timeouts)
 	em.timeoutManager.Stop()
 
 	// End vote collection
@@ -844,7 +844,7 @@ func (em *Manager) becomeLeader(ctx context.Context) {
 		em.metrics.Counter("forge.consensus.election.leader_elected").Inc()
 	}
 
-	// OnStart sending heartbeats
+	// Start sending heartbeats
 	go em.sendHeartbeats(ctx)
 }
 

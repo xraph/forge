@@ -16,14 +16,14 @@ import (
 type SchedulerAgent struct {
 	*ai.BaseAgent
 	cronManager          interface{} // Cron manager from Phase 4
-	resourceThresholds   ResourceThresholds
+	resourceThresholds   SchedulerResourceThresholds
 	optimizationPolicies []OptimizationPolicy
 	schedulingStats      SchedulingStats
 	jobPredictions       map[string]JobPrediction
 }
 
-// ResourceThresholds defines resource utilization thresholds
-type ResourceThresholds struct {
+// SchedulerResourceThresholds defines resource utilization thresholds
+type SchedulerResourceThresholds struct {
 	CPU     float64 `json:"cpu"`
 	Memory  float64 `json:"memory"`
 	Disk    float64 `json:"disk"`
@@ -403,7 +403,7 @@ func NewSchedulerAgent() ai.AIAgent {
 
 	return &SchedulerAgent{
 		BaseAgent: baseAgent,
-		resourceThresholds: ResourceThresholds{
+		resourceThresholds: SchedulerResourceThresholds{
 			CPU:     0.80,
 			Memory:  0.85,
 			Disk:    0.90,
@@ -722,7 +722,7 @@ func (a *SchedulerAgent) predictJobRuntime(job Job, historical HistoricalJobData
 
 // predictResourceUsage predicts job resource usage
 func (a *SchedulerAgent) predictResourceUsage(job Job, historical HistoricalJobData) ResourceUsage {
-	// OnStart with job requirements
+	// Start with job requirements
 	usage := ResourceUsage{
 		CPU:     job.ResourceRequirements.CPU,
 		Memory:  float64(job.ResourceRequirements.Memory),
@@ -2059,12 +2059,12 @@ func (a *SchedulerAgent) UpdateOptimizationPolicy(name string, policy Optimizati
 	return fmt.Errorf("optimization policy %s not found", name)
 }
 
-// GetResourceThresholds returns resource thresholds
-func (a *SchedulerAgent) GetResourceThresholds() ResourceThresholds {
+// GetSchedulerResourceThresholds returns resource thresholds
+func (a *SchedulerAgent) GetSchedulerResourceThresholds() SchedulerResourceThresholds {
 	return a.resourceThresholds
 }
 
-// SetResourceThresholds sets resource thresholds
-func (a *SchedulerAgent) SetResourceThresholds(thresholds ResourceThresholds) {
+// SetSchedulerResourceThresholds sets resource thresholds
+func (a *SchedulerAgent) SetSchedulerResourceThresholds(thresholds SchedulerResourceThresholds) {
 	a.resourceThresholds = thresholds
 }

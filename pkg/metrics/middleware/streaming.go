@@ -143,7 +143,7 @@ func (m *StreamingMetricsMiddleware) Dependencies() []string {
 }
 
 // OnStart is called when the middleware starts
-func (m *StreamingMetricsMiddleware) OnStart(ctx context.Context) error {
+func (m *StreamingMetricsMiddleware) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -173,7 +173,7 @@ func (m *StreamingMetricsMiddleware) OnStart(ctx context.Context) error {
 }
 
 // OnStop is called when the middleware stops
-func (m *StreamingMetricsMiddleware) OnStop(ctx context.Context) error {
+func (m *StreamingMetricsMiddleware) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

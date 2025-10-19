@@ -103,7 +103,7 @@ func (m *HTTPMetricsMiddleware) Dependencies() []string {
 }
 
 // OnStart is called when the middleware starts
-func (m *HTTPMetricsMiddleware) OnStart(ctx context.Context) error {
+func (m *HTTPMetricsMiddleware) Start(ctx context.Context) error {
 	if m.started {
 		return common.ErrServiceAlreadyExists(m.name)
 	}
@@ -127,7 +127,7 @@ func (m *HTTPMetricsMiddleware) OnStart(ctx context.Context) error {
 }
 
 // OnStop is called when the middleware stops
-func (m *HTTPMetricsMiddleware) OnStop(ctx context.Context) error {
+func (m *HTTPMetricsMiddleware) Stop(ctx context.Context) error {
 	if !m.started {
 		return common.ErrServiceNotFound(m.name)
 	}

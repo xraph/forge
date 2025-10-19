@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xraph/forge/pkg/common"
@@ -68,7 +69,7 @@ type DatabaseMetricsCollector struct {
 	lastCollection  time.Time
 }
 
-// QueryStats tracks query statistics
+// QueryStats tracks query statistics with atomic operations for better performance
 type QueryStats struct {
 	ConnectionName  string        `json:"connection_name"`
 	DatabaseType    string        `json:"database_type"`
@@ -76,13 +77,13 @@ type QueryStats struct {
 	TotalQueries    int64         `json:"total_queries"`
 	SuccessCount    int64         `json:"success_count"`
 	ErrorCount      int64         `json:"error_count"`
-	TotalDuration   time.Duration `json:"total_duration"`
+	TotalDuration   int64         `json:"total_duration"` // Stored as nanoseconds for atomic operations
 	AverageDuration time.Duration `json:"average_duration"`
-	MinDuration     time.Duration `json:"min_duration"`
-	MaxDuration     time.Duration `json:"max_duration"`
+	MinDuration     int64         `json:"min_duration"` // Stored as nanoseconds for atomic operations
+	MaxDuration     int64         `json:"max_duration"` // Stored as nanoseconds for atomic operations
 	SlowQueries     int64         `json:"slow_queries"`
-	LastQuery       time.Time     `json:"last_query"`
-	mu              sync.RWMutex
+	LastQuery       int64         `json:"last_query"` // Unix timestamp for atomic operations
+	mu              sync.RWMutex  // Only used for initialization and reading aggregated data
 }
 
 // ConnectionMetrics tracks connection-level metrics
@@ -280,50 +281,65 @@ func (dmc *DatabaseMetricsCollector) RecordPing(connectionName, dbType string, d
 	}
 }
 
-// RecordQuery records a query execution
+// RecordQuery records a query execution with optimized atomic operations
 func (dmc *DatabaseMetricsCollector) RecordQuery(connectionName, dbType, operation string, duration time.Duration, success bool) {
 	key := connectionName + ":" + dbType + ":" + operation
 
-	dmc.mu.Lock()
+	// Get or create stats with minimal locking
+	dmc.mu.RLock()
 	stats, exists := dmc.queryStats[key]
+	dmc.mu.RUnlock()
+
 	if !exists {
-		stats = &QueryStats{
-			ConnectionName: connectionName,
-			DatabaseType:   dbType,
-			Operation:      operation,
-			MinDuration:    time.Hour, // Initialize with high value
+		dmc.mu.Lock()
+		// Double-check pattern to avoid race conditions
+		if stats, exists = dmc.queryStats[key]; !exists {
+			stats = &QueryStats{
+				ConnectionName: connectionName,
+				DatabaseType:   dbType,
+				Operation:      operation,
+				MinDuration:    int64(time.Hour), // Initialize with high value in nanoseconds
+			}
+			dmc.queryStats[key] = stats
 		}
-		dmc.queryStats[key] = stats
-	}
-	dmc.mu.Unlock()
-
-	stats.mu.Lock()
-	stats.TotalQueries++
-	stats.LastQuery = time.Now()
-	stats.TotalDuration += duration
-
-	// Update min/max duration
-	if duration < stats.MinDuration {
-		stats.MinDuration = duration
-	}
-	if duration > stats.MaxDuration {
-		stats.MaxDuration = duration
+		dmc.mu.Unlock()
 	}
 
-	// Update average duration
-	stats.AverageDuration = stats.TotalDuration / time.Duration(stats.TotalQueries)
+	// Use atomic operations for high-frequency updates
+	durationNs := int64(duration)
+	now := time.Now().UnixNano()
 
+	// Atomic increments
+	atomic.AddInt64(&stats.TotalQueries, 1)
+	atomic.StoreInt64(&stats.LastQuery, now)
+	atomic.AddInt64(&stats.TotalDuration, durationNs)
+
+	// Atomic min/max updates using compare-and-swap
+	for {
+		currentMin := atomic.LoadInt64(&stats.MinDuration)
+		if durationNs >= currentMin || atomic.CompareAndSwapInt64(&stats.MinDuration, currentMin, durationNs) {
+			break
+		}
+	}
+
+	for {
+		currentMax := atomic.LoadInt64(&stats.MaxDuration)
+		if durationNs <= currentMax || atomic.CompareAndSwapInt64(&stats.MaxDuration, currentMax, durationNs) {
+			break
+		}
+	}
+
+	// Atomic success/error counts
 	if success {
-		stats.SuccessCount++
+		atomic.AddInt64(&stats.SuccessCount, 1)
 	} else {
-		stats.ErrorCount++
+		atomic.AddInt64(&stats.ErrorCount, 1)
 	}
 
 	// Check for slow query
 	if duration >= dmc.slowQueryThreshold {
-		stats.SlowQueries++
+		atomic.AddInt64(&stats.SlowQueries, 1)
 	}
-	stats.mu.Unlock()
 
 	if dmc.metrics != nil {
 		tags := []string{"connection", connectionName, "type", dbType, "operation", operation}
@@ -399,6 +415,48 @@ func (dmc *DatabaseMetricsCollector) RecordTransaction(connectionName, dbType st
 			logger.Bool("success", success),
 		)
 	}
+}
+
+// Helper methods for reading atomic values safely
+
+// GetQueryStatsSnapshot returns a snapshot of query statistics with proper atomic reads
+func (stats *QueryStats) GetQueryStatsSnapshot() QueryStatsSnapshot {
+	return QueryStatsSnapshot{
+		ConnectionName: stats.ConnectionName,
+		DatabaseType:   stats.DatabaseType,
+		Operation:      stats.Operation,
+		TotalQueries:   atomic.LoadInt64(&stats.TotalQueries),
+		SuccessCount:   atomic.LoadInt64(&stats.SuccessCount),
+		ErrorCount:     atomic.LoadInt64(&stats.ErrorCount),
+		TotalDuration:  time.Duration(atomic.LoadInt64(&stats.TotalDuration)),
+		MinDuration:    time.Duration(atomic.LoadInt64(&stats.MinDuration)),
+		MaxDuration:    time.Duration(atomic.LoadInt64(&stats.MaxDuration)),
+		SlowQueries:    atomic.LoadInt64(&stats.SlowQueries),
+		LastQuery:      time.Unix(0, atomic.LoadInt64(&stats.LastQuery)),
+	}
+}
+
+// QueryStatsSnapshot represents a thread-safe snapshot of query statistics
+type QueryStatsSnapshot struct {
+	ConnectionName string        `json:"connection_name"`
+	DatabaseType   string        `json:"database_type"`
+	Operation      string        `json:"operation"`
+	TotalQueries   int64         `json:"total_queries"`
+	SuccessCount   int64         `json:"success_count"`
+	ErrorCount     int64         `json:"error_count"`
+	TotalDuration  time.Duration `json:"total_duration"`
+	MinDuration    time.Duration `json:"min_duration"`
+	MaxDuration    time.Duration `json:"max_duration"`
+	SlowQueries    int64         `json:"slow_queries"`
+	LastQuery      time.Time     `json:"last_query"`
+}
+
+// GetAverageDuration calculates the average duration from atomic values
+func (snapshot *QueryStatsSnapshot) GetAverageDuration() time.Duration {
+	if snapshot.TotalQueries == 0 {
+		return 0
+	}
+	return snapshot.TotalDuration / time.Duration(snapshot.TotalQueries)
 }
 
 // RecordPoolStats records connection pool statistics
@@ -612,7 +670,20 @@ func (dmc *DatabaseMetricsCollector) GetQueryStats() map[string]*QueryStats {
 	for key, queryStats := range dmc.queryStats {
 		// Return a copy to avoid race conditions
 		queryStats.mu.RLock()
-		statsCopy := *queryStats
+		statsCopy := QueryStats{
+			ConnectionName:  queryStats.ConnectionName,
+			DatabaseType:    queryStats.DatabaseType,
+			Operation:       queryStats.Operation,
+			TotalQueries:    atomic.LoadInt64(&queryStats.TotalQueries),
+			SuccessCount:    atomic.LoadInt64(&queryStats.SuccessCount),
+			ErrorCount:      atomic.LoadInt64(&queryStats.ErrorCount),
+			TotalDuration:   int64(atomic.LoadInt64(&queryStats.TotalDuration)),
+			AverageDuration: time.Duration(atomic.LoadInt64(&queryStats.TotalDuration)) / time.Duration(atomic.LoadInt64(&queryStats.TotalQueries)),
+			MinDuration:     int64(atomic.LoadInt64(&queryStats.MinDuration)),
+			MaxDuration:     int64(atomic.LoadInt64(&queryStats.MaxDuration)),
+			SlowQueries:     atomic.LoadInt64(&queryStats.SlowQueries),
+			LastQuery:       int64(atomic.LoadInt64(&queryStats.LastQuery)),
+		}
 		queryStats.mu.RUnlock()
 		stats[key] = &statsCopy
 	}
@@ -629,7 +700,20 @@ func (dmc *DatabaseMetricsCollector) GetConnectionStats() map[string]*Connection
 	for key, connStats := range dmc.connectionStats {
 		// Return a copy to avoid race conditions
 		connStats.mu.RLock()
-		statsCopy := *connStats
+		statsCopy := ConnectionMetrics{
+			ConnectionName:    connStats.ConnectionName,
+			DatabaseType:      connStats.DatabaseType,
+			CreatedAt:         connStats.CreatedAt,
+			TotalConnections:  connStats.TotalConnections,
+			ActiveConnections: connStats.ActiveConnections,
+			ConnectionErrors:  connStats.ConnectionErrors,
+			TotalPings:        connStats.TotalPings,
+			PingErrors:        connStats.PingErrors,
+			AveragePingTime:   connStats.AveragePingTime,
+			MinDuration:       connStats.MinDuration,
+			LastPing:          connStats.LastPing,
+			LastError:         connStats.LastError,
+		}
 		connStats.mu.RUnlock()
 		stats[key] = &statsCopy
 	}
@@ -646,7 +730,17 @@ func (dmc *DatabaseMetricsCollector) GetMigrationStats() map[string]*MigrationSt
 	for key, migStats := range dmc.migrationStats {
 		// Return a copy to avoid race conditions
 		migStats.mu.RLock()
-		statsCopy := *migStats
+		statsCopy := MigrationStats{
+			ConnectionName:       migStats.ConnectionName,
+			DatabaseType:         migStats.DatabaseType,
+			TotalMigrations:      migStats.TotalMigrations,
+			SuccessfulMigrations: migStats.SuccessfulMigrations,
+			FailedMigrations:     migStats.FailedMigrations,
+			TotalMigrationTime:   migStats.TotalMigrationTime,
+			AverageMigrationTime: migStats.AverageMigrationTime,
+			LastMigration:        migStats.LastMigration,
+			LastMigrationTime:    migStats.LastMigrationTime,
+		}
 		migStats.mu.RUnlock()
 		stats[key] = &statsCopy
 	}

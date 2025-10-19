@@ -253,7 +253,7 @@ func (ew *EagerWarmer) ExecuteWarming(ctx context.Context, cacheName string, dat
 	// Create worker pool
 	operation.WorkerPool = ew.createWorkerPool(cache, operation.Config)
 
-	// OnStart the warming process
+	// Start the warming process
 	go ew.executeEagerWarming(operation, dataSources, config)
 
 	return operation, nil
@@ -280,7 +280,7 @@ func (ew *EagerWarmer) executeEagerWarming(operation *EagerWarmingOperation, dat
 	ctx := operation.Context
 	startTime := time.Now()
 
-	// OnStart worker pool
+	// Start worker pool
 	if err := operation.WorkerPool.Start(ctx); err != nil {
 		operation.Status = EagerWarmingStatusFailed
 		operation.Stats.LastError = fmt.Sprintf("failed to start worker pool: %v", err)
@@ -289,7 +289,7 @@ func (ew *EagerWarmer) executeEagerWarming(operation *EagerWarmingOperation, dat
 
 	defer operation.WorkerPool.Stop()
 
-	// OnStart result collector
+	// Start result collector
 	go ew.collectResults(operation)
 
 	// Process data sources based on warming order

@@ -7,433 +7,200 @@ import (
 	"time"
 
 	"github.com/xraph/forge/pkg/common"
-	"github.com/xraph/forge/pkg/consensus/discovery"
-	"github.com/xraph/forge/pkg/consensus/storage"
-	"github.com/xraph/forge/pkg/consensus/transport"
-	"github.com/xraph/forge/pkg/database"
 	"github.com/xraph/forge/pkg/logger"
 )
 
-// ConsensusManager implements the common.Service interface for managing consensus clusters
-type ConsensusManager struct {
-	clusters   map[string]*ClusterImpl
-	config     *ConsensusConfig
-	logger     common.Logger
-	metrics    common.Metrics
-	nodeID     string
-	discovery  discovery.Discovery
-	transport  transport.Transport
-	storage    storage.Storage
-	database   database.Connection
-	mu         sync.RWMutex
-	started    bool
-	shutdownCh chan struct{}
+// Manager provides centralized consensus capabilities management
+type Manager struct {
+	config    ManagerConfig
+	logger    common.Logger
+	metrics   common.Metrics
+	started   bool
+	mu        sync.RWMutex
+	shutdownC chan struct{}
+	wg        sync.WaitGroup
 }
 
-// ConsensusConfig contains configuration for the consensus system
-type ConsensusConfig struct {
-	NodeID            string                    `yaml:"node_id"`
-	ClusterID         string                    `yaml:"cluster_id"`
-	ElectionTimeout   time.Duration             `yaml:"election_timeout" default:"5s"`
-	HeartbeatInterval time.Duration             `yaml:"heartbeat_interval" default:"1s"`
-	RequestTimeout    time.Duration             `yaml:"request_timeout" default:"3s"`
-	LogCompaction     LogCompactionConfig       `yaml:"log_compaction"`
-	Snapshot          SnapshotConfig            `yaml:"snapshot"`
-	Transport         transport.TransportConfig `yaml:"transport"`
-	Storage           StorageConfig             `yaml:"storage"`
-	Discovery         discovery.DiscoveryConfig `yaml:"discovery"`
+// ManagerConfig contains configuration for the consensus manager
+type ManagerConfig struct {
+	EnableRaft        bool           `yaml:"enable_raft" default:"true"`
+	EnableElection    bool           `yaml:"enable_election" default:"true"`
+	EnableDiscovery   bool           `yaml:"enable_discovery" default:"true"`
+	EnableStorage     bool           `yaml:"enable_storage" default:"true"`
+	EnableTransport   bool           `yaml:"enable_transport" default:"true"`
+	EnableMonitoring  bool           `yaml:"enable_monitoring" default:"true"`
+	ClusterSize       int            `yaml:"cluster_size" default:"3"`
+	ElectionTimeout   time.Duration  `yaml:"election_timeout" default:"5s"`
+	HeartbeatInterval time.Duration  `yaml:"heartbeat_interval" default:"1s"`
+	StoragePath       string         `yaml:"storage_path" default:"./consensus"`
+	TransportPort     int            `yaml:"transport_port" default:"8080"`
+	Logger            common.Logger  `yaml:"-"`
+	Metrics           common.Metrics `yaml:"-"`
 }
 
-type LogCompactionConfig struct {
-	Enabled       bool `yaml:"enabled" default:"true"`
-	RetainEntries int  `yaml:"retain_entries" default:"10000"`
-}
-
-type SnapshotConfig struct {
-	Interval time.Duration `yaml:"interval" default:"1h"`
-	MaxSize  int64         `yaml:"max_size" default:"104857600"` // 100MB
-}
-
-type TLSConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	CertFile string `yaml:"cert_file"`
-	KeyFile  string `yaml:"key_file"`
-	CAFile   string `yaml:"ca_file"`
-}
-
-type StorageConfig struct {
-	Type     string                        `yaml:"type" default:"file"`
-	Memory   storage.MemoryStorageConfig   `yaml:"memory"`
-	File     storage.FileStorageConfig     `yaml:"file"`
-	Database storage.DatabaseStorageConfig `yaml:"database"`
-}
-
-type DiscoveryConfig = discovery.DiscoveryConfig
-
-// ConsensusStats contains statistics about the consensus system
-type ConsensusStats struct {
-	Clusters       int                     `json:"clusters"`
-	ActiveClusters int                     `json:"active_clusters"`
-	TotalNodes     int                     `json:"total_nodes"`
-	ClusterStats   map[string]ClusterStats `json:"cluster_stats"`
-	Uptime         time.Duration           `json:"uptime"`
-	StartTime      time.Time               `json:"start_time"`
-}
-
-// ClusterStats contains statistics about a specific cluster
-type ClusterStats struct {
-	ID           string        `json:"id"`
-	Status       ClusterStatus `json:"status"`
-	LeaderID     string        `json:"leader_id"`
-	Term         uint64        `json:"term"`
-	CommitIndex  uint64        `json:"commit_index"`
-	LastApplied  uint64        `json:"last_applied"`
-	Nodes        int           `json:"nodes"`
-	ActiveNodes  int           `json:"active_nodes"`
-	LastElection time.Time     `json:"last_election"`
-	LogSize      int64         `json:"log_size"`
-	SnapshotSize int64         `json:"snapshot_size"`
-}
-
-// ClusterStatus represents the status of a cluster
-type ClusterStatus string
-
-const (
-	ClusterStatusActive   ClusterStatus = "active"
-	ClusterStatusInactive ClusterStatus = "inactive"
-	ClusterStatusElecting ClusterStatus = "electing"
-	ClusterStatusError    ClusterStatus = "error"
-)
-
-// NewConsensusManager creates a new consensus manager
-func NewConsensusManager(config *ConsensusConfig, logger common.Logger, metrics common.Metrics, db database.Connection) *ConsensusManager {
-	return &ConsensusManager{
-		clusters:   make(map[string]*ClusterImpl),
-		config:     config,
-		logger:     logger,
-		metrics:    metrics,
-		nodeID:     config.NodeID,
-		database:   db,
-		shutdownCh: make(chan struct{}),
-	}
-}
-
-// Name returns the service name
-func (cm *ConsensusManager) Name() string {
-	return "consensus-manager"
-}
-
-// Dependencies returns the service dependencies
-func (cm *ConsensusManager) Dependencies() []string {
-	return []string{"config-manager", "logger", "metrics"}
-}
-
-// OnStart starts the consensus manager
-func (cm *ConsensusManager) OnStart(ctx context.Context) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	if cm.started {
-		return common.ErrLifecycleError("start", fmt.Errorf("consensus manager already started"))
+// NewManager creates a new consensus manager
+func NewManager(config ManagerConfig) (*Manager, error) {
+	if config.Logger == nil {
+		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
 	}
 
-	// Initialize discovery
-	discovery, err := cm.createDiscovery()
-	if err != nil {
-		return common.ErrServiceStartFailed("consensus-manager", err)
-	}
-	cm.discovery = discovery
+	return &Manager{
+		config:    config,
+		logger:    config.Logger,
+		metrics:   config.Metrics,
+		shutdownC: make(chan struct{}),
+	}, nil
+}
 
-	// Initialize transport
-	transport, err := cm.createTransport()
-	if err != nil {
-		return common.ErrServiceStartFailed("consensus-manager", err)
-	}
-	cm.transport = transport
+// Start starts the consensus manager
+func (m *Manager) Start(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	// Initialize storage
-	storage, err := cm.createStorage()
-	if err != nil {
-		return common.ErrServiceStartFailed("consensus-manager", err)
-	}
-	cm.storage = storage
-
-	// OnStart transport
-	if err := cm.transport.Start(ctx); err != nil {
-		return common.ErrServiceStartFailed("consensus-manager", err)
+	if m.started {
+		return fmt.Errorf("consensus manager already started")
 	}
 
-	cm.started = true
+	m.started = true
 
-	if cm.logger != nil {
-		cm.logger.Info("consensus manager started",
-			logger.String("node_id", cm.nodeID),
-			logger.String("cluster_id", cm.config.ClusterID),
+	if m.logger != nil {
+		m.logger.Info("consensus manager started",
+			logger.Bool("raft_enabled", m.config.EnableRaft),
+			logger.Bool("election_enabled", m.config.EnableElection),
+			logger.Bool("discovery_enabled", m.config.EnableDiscovery),
+			logger.Bool("storage_enabled", m.config.EnableStorage),
+			logger.Bool("transport_enabled", m.config.EnableTransport),
+			logger.Int("cluster_size", m.config.ClusterSize),
 		)
 	}
 
-	if cm.metrics != nil {
-		cm.metrics.Counter("forge.consensus.manager_started").Inc()
+	return nil
+}
+
+// Stop stops the consensus manager
+func (m *Manager) Stop(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.started {
+		return nil
+	}
+
+	m.started = false
+	close(m.shutdownC)
+
+	// Wait for all goroutines to finish
+	m.wg.Wait()
+
+	if m.logger != nil {
+		m.logger.Info("consensus manager stopped")
 	}
 
 	return nil
 }
 
-// OnStop stops the consensus manager
-func (cm *ConsensusManager) OnStop(ctx context.Context) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
+// HealthCheck performs health check on the consensus manager
+func (m *Manager) HealthCheck(ctx context.Context) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	if !cm.started {
-		return common.ErrLifecycleError("stop", fmt.Errorf("consensus manager not started"))
+	if !m.started {
+		return fmt.Errorf("consensus manager not started")
 	}
 
-	// Signal shutdown
-	close(cm.shutdownCh)
-
-	// OnStop all clusters
-	for _, cluster := range cm.clusters {
-		if err := cluster.Stop(ctx); err != nil {
-			if cm.logger != nil {
-				cm.logger.Error("failed to stop cluster",
-					logger.String("cluster_id", cluster.ID()),
-					logger.Error(err),
-				)
-			}
-		}
-	}
-
-	// OnStop transport
-	if cm.transport != nil {
-		if err := cm.transport.Stop(ctx); err != nil {
-			if cm.logger != nil {
-				cm.logger.Error("failed to stop transport", logger.Error(err))
-			}
-		}
-	}
-
-	// OnStop storage
-	if cm.storage != nil {
-		if err := cm.storage.Close(ctx); err != nil {
-			if cm.logger != nil {
-				cm.logger.Error("failed to close storage", logger.Error(err))
-			}
-		}
-	}
-
-	cm.started = false
-
-	if cm.logger != nil {
-		cm.logger.Info("consensus manager stopped")
-	}
-
-	if cm.metrics != nil {
-		cm.metrics.Counter("forge.consensus.manager_stopped").Inc()
-	}
+	// Perform basic health checks
+	// In a real implementation, this would check:
+	// - Raft cluster health
+	// - Leader election status
+	// - Service discovery status
+	// - Storage connectivity
+	// - Transport layer health
 
 	return nil
 }
 
-// OnHealthCheck performs health check
-func (cm *ConsensusManager) OnHealthCheck(ctx context.Context) error {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
+// GetStats returns consensus manager statistics
+func (m *Manager) GetStats() map[string]interface{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-	if !cm.started {
-		return common.ErrHealthCheckFailed("consensus-manager", fmt.Errorf("consensus manager not started"))
-	}
-
-	// Check cluster health
-	for id, cluster := range cm.clusters {
-		if err := cluster.HealthCheck(ctx); err != nil {
-			return common.ErrHealthCheckFailed("consensus-manager", fmt.Errorf("cluster %s unhealthy: %w", id, err))
-		}
-	}
-
-	// Check transport health
-	if cm.transport != nil {
-		if err := cm.transport.HealthCheck(ctx); err != nil {
-			return common.ErrHealthCheckFailed("consensus-manager", fmt.Errorf("transport unhealthy: %w", err))
-		}
-	}
-
-	return nil
-}
-
-// CreateCluster creates a new consensus cluster
-func (cm *ConsensusManager) CreateCluster(ctx context.Context, config ClusterConfig) (Cluster, error) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	if !cm.started {
-		return nil, common.ErrLifecycleError("create_cluster", fmt.Errorf("consensus manager not started"))
-	}
-
-	clusterID := config.ID
-	if _, exists := cm.clusters[clusterID]; exists {
-		return nil, common.ErrServiceAlreadyExists(clusterID)
-	}
-
-	// Create cluster
-	cluster := NewCluster(clusterID, config, cm.nodeID, cm.transport, cm.storage, cm.discovery, cm.logger, cm.metrics)
-
-	// OnStart cluster
-	if err := cluster.Start(ctx); err != nil {
-		return nil, common.ErrContainerError("start_cluster", err)
-	}
-
-	cm.clusters[clusterID] = cluster
-
-	if cm.logger != nil {
-		cm.logger.Info("cluster created",
-			logger.String("cluster_id", clusterID),
-			logger.Int("nodes", len(config.Nodes)),
-		)
-	}
-
-	if cm.metrics != nil {
-		cm.metrics.Counter("forge.consensus.clusters_created").Inc()
-		cm.metrics.Gauge("forge.consensus.clusters_active").Set(float64(len(cm.clusters)))
-	}
-
-	return cluster, nil
-}
-
-// JoinCluster joins an existing cluster
-func (cm *ConsensusManager) JoinCluster(ctx context.Context, clusterID string, nodeID string) error {
-	cm.mu.RLock()
-	cluster, exists := cm.clusters[clusterID]
-	cm.mu.RUnlock()
-
-	if !exists {
-		return common.ErrServiceNotFound(clusterID)
-	}
-
-	return cluster.JoinNode(ctx, nodeID)
-}
-
-// LeaveCluster leaves a cluster
-func (cm *ConsensusManager) LeaveCluster(ctx context.Context, clusterID string, nodeID string) error {
-	cm.mu.RLock()
-	cluster, exists := cm.clusters[clusterID]
-	cm.mu.RUnlock()
-
-	if !exists {
-		return common.ErrServiceNotFound(clusterID)
-	}
-
-	return cluster.LeaveNode(ctx, nodeID)
-}
-
-// GetCluster returns a cluster by ID
-func (cm *ConsensusManager) GetCluster(clusterID string) (Cluster, error) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	cluster, exists := cm.clusters[clusterID]
-	if !exists {
-		return nil, common.ErrServiceNotFound(clusterID)
-	}
-
-	return cluster, nil
-}
-
-// GetClusters returns all clusters
-func (cm *ConsensusManager) GetClusters() []Cluster {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	clusters := make([]Cluster, 0, len(cm.clusters))
-	for _, cluster := range cm.clusters {
-		clusters = append(clusters, cluster)
-	}
-
-	return clusters
-}
-
-// GetStats returns consensus statistics
-func (cm *ConsensusManager) GetStats() ConsensusStats {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	stats := ConsensusStats{
-		Clusters:       len(cm.clusters),
-		ActiveClusters: 0,
-		TotalNodes:     0,
-		ClusterStats:   make(map[string]ClusterStats),
-		StartTime:      time.Now(), // This should be stored when started
-	}
-
-	for id, cluster := range cm.clusters {
-		clusterStats := cluster.GetStats()
-		stats.ClusterStats[id] = clusterStats
-		stats.TotalNodes += clusterStats.Nodes
-
-		if clusterStats.Status == ClusterStatusActive {
-			stats.ActiveClusters++
-		}
+	stats := map[string]interface{}{
+		"started":            m.started,
+		"raft_enabled":       m.config.EnableRaft,
+		"election_enabled":   m.config.EnableElection,
+		"discovery_enabled":  m.config.EnableDiscovery,
+		"storage_enabled":    m.config.EnableStorage,
+		"transport_enabled":  m.config.EnableTransport,
+		"monitoring_enabled": m.config.EnableMonitoring,
+		"cluster_size":       m.config.ClusterSize,
+		"election_timeout":   m.config.ElectionTimeout.String(),
+		"heartbeat_interval": m.config.HeartbeatInterval.String(),
+		"storage_path":       m.config.StoragePath,
+		"transport_port":     m.config.TransportPort,
 	}
 
 	return stats
 }
 
-// createDiscovery creates a discovery service based on configuration
-func (cm *ConsensusManager) createDiscovery() (discovery.Discovery, error) {
-	switch cm.config.Discovery.Type {
-	case "static":
-		return discovery.NewStaticDiscoveryFactory(cm.logger, cm.metrics).Create(cm.config.Discovery)
-	case "dns":
-		return discovery.NewDNSDiscoveryFactory(cm.logger, cm.metrics).Create(cm.config.Discovery)
-	case "consul":
-		return discovery.NewConsulDiscoveryFactory(cm.logger, cm.metrics).Create(cm.config.Discovery)
-	case "kubernetes":
-		return discovery.NewKubernetesDiscoveryFactory(cm.logger, cm.metrics).Create(cm.config.Discovery)
-	default:
-		return nil, fmt.Errorf("unsupported discovery type: %s", cm.config.Discovery.Type)
+// IsRaftEnabled returns whether Raft consensus is enabled
+func (m *Manager) IsRaftEnabled() bool {
+	return m.config.EnableRaft
+}
+
+// IsElectionEnabled returns whether leader election is enabled
+func (m *Manager) IsElectionEnabled() bool {
+	return m.config.EnableElection
+}
+
+// IsDiscoveryEnabled returns whether service discovery is enabled
+func (m *Manager) IsDiscoveryEnabled() bool {
+	return m.config.EnableDiscovery
+}
+
+// IsStorageEnabled returns whether persistent storage is enabled
+func (m *Manager) IsStorageEnabled() bool {
+	return m.config.EnableStorage
+}
+
+// IsTransportEnabled returns whether network transport is enabled
+func (m *Manager) IsTransportEnabled() bool {
+	return m.config.EnableTransport
+}
+
+// IsMonitoringEnabled returns whether monitoring is enabled
+func (m *Manager) IsMonitoringEnabled() bool {
+	return m.config.EnableMonitoring
+}
+
+// GetClusterSize returns the configured cluster size
+func (m *Manager) GetClusterSize() int {
+	return m.config.ClusterSize
+}
+
+// GetElectionTimeout returns the election timeout
+func (m *Manager) GetElectionTimeout() time.Duration {
+	return m.config.ElectionTimeout
+}
+
+// GetHeartbeatInterval returns the heartbeat interval
+func (m *Manager) GetHeartbeatInterval() time.Duration {
+	return m.config.HeartbeatInterval
+}
+
+// GetConfig returns the current configuration
+func (m *Manager) GetConfig() ManagerConfig {
+	return m.config
+}
+
+// UpdateConfig updates the configuration
+func (m *Manager) UpdateConfig(config ManagerConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.started {
+		return fmt.Errorf("cannot update config while manager is running")
 	}
-}
 
-// createTransport creates a transport service based on configuration
-func (cm *ConsensusManager) createTransport() (transport.Transport, error) {
-	switch cm.config.Transport.Type {
-	case "grpc":
-		return transport.NewGRPCTransportFactory(cm.logger, cm.metrics).Create(cm.config.Transport)
-	case "http":
-		return transport.NewHTTPTransportFactory(cm.logger, cm.metrics).Create(cm.config.Transport)
-	case "tcp":
-		return transport.NewTCPTransportFactory(cm.logger, cm.metrics).Create(cm.config.Transport)
-	default:
-		return nil, fmt.Errorf("unsupported transport type: %s", cm.config.Transport.Type)
-	}
-}
-
-// createStorage creates a storage service based on configuration
-func (cm *ConsensusManager) createStorage() (storage.Storage, error) {
-	switch cm.config.Storage.Type {
-	case "file":
-		return storage.NewFileStorage(cm.config.Storage.File, cm.logger, cm.metrics)
-	case "database":
-		return storage.NewDatabaseStorage(cm.config.Storage.Database, cm.database, cm.logger, cm.metrics)
-	case "memory":
-		return storage.NewMemoryStorage(cm.config.Storage.Memory, cm.logger, cm.metrics), nil
-	default:
-		return nil, fmt.Errorf("unsupported storage type: %s", cm.config.Storage.Type)
-	}
-}
-
-// IsStarted returns true if the consensus manager is started
-func (cm *ConsensusManager) IsStarted() bool {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-	return cm.started
-}
-
-// GetNodeID returns the node ID
-func (cm *ConsensusManager) GetNodeID() string {
-	return cm.nodeID
-}
-
-// GetConfig returns the consensus configuration
-func (cm *ConsensusManager) GetConfig() *ConsensusConfig {
-	return cm.config
+	m.config = config
+	return nil
 }

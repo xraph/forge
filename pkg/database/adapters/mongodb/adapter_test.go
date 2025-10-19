@@ -104,7 +104,7 @@ func TestMongoAdapterIntegration(t *testing.T) {
 
 	ctx := context.Background()
 
-	// OnStart MongoDB container
+	// Start MongoDB container
 	mongoContainer, err := mongodb.RunContainer(ctx,
 		testcontainers.WithImage("mongo:7"),
 		mongodb.WithUsername("testuser"),
@@ -148,7 +148,7 @@ func TestMongoAdapterIntegration(t *testing.T) {
 	require.NotNil(t, conn)
 
 	// Test connection lifecycle
-	assert.NoError(t, conn.OnStart(ctx))
+	assert.NoError(t, conn.Start(ctx))
 	assert.True(t, conn.IsConnected())
 
 	// Test ping
@@ -174,7 +174,7 @@ func TestMongoAdapterIntegration(t *testing.T) {
 	assert.Greater(t, stats.QueryCount, int64(0))
 
 	// Test connection close
-	assert.NoError(t, conn.OnStop(ctx))
+	assert.NoError(t, conn.Stop(ctx))
 	assert.False(t, conn.IsConnected())
 }
 
@@ -443,7 +443,7 @@ func TestDatabaseManagerWithMongo(t *testing.T) {
 
 	ctx := context.Background()
 
-	// OnStart MongoDB container
+	// Start MongoDB container
 	mongoContainer, err := mongodb.RunContainer(ctx,
 		testcontainers.WithImage("mongo:7"),
 	)
@@ -501,8 +501,8 @@ func TestDatabaseManagerWithMongo(t *testing.T) {
 	err = manager.SetConfig(dbConfig)
 	require.NoError(t, err)
 
-	// OnStart manager
-	err = manager.OnStart(ctx)
+	// Start manager
+	err = manager.Start(ctx)
 	require.NoError(t, err)
 
 	// Test operations
@@ -525,8 +525,8 @@ func TestDatabaseManagerWithMongo(t *testing.T) {
 	assert.Equal(t, 1, stats.RegisteredAdapters)
 	assert.True(t, stats.HealthCheckPassed)
 
-	// OnStop manager
-	err = manager.OnStop(ctx)
+	// Stop manager
+	err = manager.Stop(ctx)
 	assert.NoError(t, err)
 }
 
@@ -569,7 +569,7 @@ func BenchmarkMongoOperations(b *testing.B) {
 	conn, err := adapter.Connect(ctx, config)
 	require.NoError(b, err)
 
-	err = conn.OnStart(ctx)
+	err = conn.Start(ctx)
 	require.NoError(b, err)
 
 	mongoConn := conn.(*mongoAdapter.MongoConnection)
@@ -615,5 +615,5 @@ func BenchmarkMongoOperations(b *testing.B) {
 		}
 	})
 
-	conn.OnStop(ctx)
+	conn.Stop(ctx)
 }

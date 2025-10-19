@@ -11,7 +11,6 @@ import (
 
 	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/clerk/clerk-sdk-go/v2/user"
-	"github.com/rs/xid"
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
 	"github.com/xraph/forge/pkg/router"
@@ -26,13 +25,11 @@ const ClientKey = "forge.plugin.clerkjs.client"
 
 // ClerkPlugin implements the Clerk authentication plugin for Forge
 type ClerkPlugin struct {
-	id             string
 	config         *ClerkConfig
 	configManager  common.ConfigManager
 	client         clerk.Backend
 	userService    UserService
 	webhookHandler *WebhookHandler
-	hooks          []common.Hook
 	middleware     []any
 	initialized    bool
 	mu             sync.RWMutex
@@ -41,15 +38,9 @@ type ClerkPlugin struct {
 // NewClerkPlugin creates a new Clerk plugin instance
 func NewClerkPlugin(configManager common.ConfigManager) *ClerkPlugin {
 	return &ClerkPlugin{
-		id:            xid.New().String(),
 		configManager: configManager,
-		hooks:         make([]common.Hook, 0),
 		middleware:    make([]any, 0),
 	}
-}
-
-func (p *ClerkPlugin) ID() string {
-	return p.id
 }
 
 func (p *ClerkPlugin) Name() string {
@@ -60,84 +51,7 @@ func (p *ClerkPlugin) Version() string {
 	return "1.0.0"
 }
 
-func (p *ClerkPlugin) Description() string {
-	return "Clerk authentication and user management plugin for Forge framework"
-}
-
-func (p *ClerkPlugin) Author() string {
-	return "Forge Framework"
-}
-
-func (p *ClerkPlugin) License() string {
-	return "MIT"
-}
-
-func (p *ClerkPlugin) Type() common.PluginType {
-	return common.PluginTypeAuth
-}
-
-func (p *ClerkPlugin) Capabilities() []common.PluginCapability {
-	return []common.PluginCapability{
-		{
-			Name:        "authentication",
-			Version:     "1.0.0",
-			Description: "JWT token validation and user authentication",
-			Interface:   "AuthenticationProvider",
-			Methods:     []string{"ValidateToken", "GetUser", "RefreshToken"},
-			Metadata: map[string]interface{}{
-				"provider": "clerk",
-				"features": []string{"jwt", "webhooks", "user_management"},
-			},
-		},
-		{
-			Name:        "user_management",
-			Version:     "1.0.0",
-			Description: "User lifecycle management with hooks",
-			Interface:   "UserManager",
-			Methods:     []string{"CreateUser", "UpdateUser", "DeleteUser", "GetUser"},
-			Metadata: map[string]interface{}{
-				"hooks": []string{"user.created", "user.updated", "user.deleted"},
-			},
-		},
-		{
-			Name:        "webhooks",
-			Version:     "1.0.0",
-			Description: "Clerk webhook handling for user events",
-			Interface:   "WebhookHandler",
-			Methods:     []string{"HandleWebhook", "VerifyWebhook"},
-			Metadata: map[string]interface{}{
-				"supported_events": []string{
-					"user.created",
-					"user.updated",
-					"user.deleted",
-					"session.created",
-					"session.ended",
-				},
-			},
-		},
-	}
-}
-
-func (p *ClerkPlugin) Dependencies() []common.PluginDependency {
-	return []common.PluginDependency{
-		{
-			Name:       common.LoggerKey,
-			Version:    ">=1.0.0",
-			Type:       "service",
-			Required:   true,
-			Constraint: ">=1.0.0",
-		},
-		// {
-		// 	Name:       "http-client",
-		// 	Version:    ">=1.0.0",
-		// 	Type:       "service",
-		// 	Required:   false,
-		// 	Constraint: ">=1.0.0",
-		// },
-	}
-}
-
-func (p *ClerkPlugin) Initialize(ctx context.Context, container common.Container) error {
+func (p *ClerkPlugin) Start(ctx common.PluginContext) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -145,8 +59,13 @@ func (p *ClerkPlugin) Initialize(ctx context.Context, container common.Container
 		return nil
 	}
 
+	// Access dependencies from PluginContext
+	container := ctx.Container()
+	configManager := ctx.ConfigManager()
+
+	// Load configuration
 	var conf ClerkConfig
-	err := p.configManager.BindWithDefault("plugins.clerk", &conf, ClerkConfig{
+	err := configManager.BindWithDefault("plugins.clerk", &conf, ClerkConfig{
 		EnableMiddleware: true,
 	})
 	if err != nil {
@@ -160,7 +79,7 @@ func (p *ClerkPlugin) Initialize(ctx context.Context, container common.Container
 	})
 
 	// Initialize user service if provided
-	if p.config.UserServiceName != "" {
+	if p.config.UserServiceName != "" && container != nil {
 		service, err := container.ResolveNamed(p.config.UserServiceName)
 		if err != nil {
 			return fmt.Errorf("failed to resolve user service '%s': %w", p.config.UserServiceName, err)
@@ -177,32 +96,30 @@ func (p *ClerkPlugin) Initialize(ctx context.Context, container common.Container
 	p.webhookHandler = NewWebhookHandler(p.config, p.userService)
 
 	// Initialize middleware
-	p.initializeMiddleware(container)
+	if container != nil {
+		p.initializeMiddleware(container)
+	}
 
-	// Initialize hooks
-	p.initializeHooks()
+	// Start webhook handler
+	if p.webhookHandler != nil {
+		if err := p.webhookHandler.Start(ctx); err != nil {
+			return err
+		}
+	}
 
 	p.initialized = true
 	return nil
 }
 
-func (p *ClerkPlugin) OnStart(ctx context.Context) error {
-	if p.webhookHandler != nil {
-		return p.webhookHandler.Start(ctx)
-	}
-	return nil
-}
-
-func (p *ClerkPlugin) OnStop(ctx context.Context) error {
-	if p.webhookHandler != nil {
-		return p.webhookHandler.Stop(ctx)
-	}
-	return nil
-}
-
-func (p *ClerkPlugin) Cleanup(ctx context.Context) error {
+func (p *ClerkPlugin) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if p.webhookHandler != nil {
+		if err := p.webhookHandler.Stop(ctx); err != nil {
+			return err
+		}
+	}
 
 	p.initialized = false
 	p.client = nil
@@ -213,15 +130,15 @@ func (p *ClerkPlugin) Cleanup(ctx context.Context) error {
 }
 
 func (p *ClerkPlugin) Middleware() []any {
-	if !p.config.EnableGlobalMiddleware {
+	if p.config != nil && !p.config.EnableGlobalMiddleware {
 		return nil
 	}
-	return nil
+	return p.middleware
 }
 
-func (p *ClerkPlugin) ConfigureRoutes(r common.Router) error {
+func (p *ClerkPlugin) Routes(r common.Router) error {
 	// Register webhook endpoint
-	if p.config.WebhookEndpoint != "" {
+	if p.config != nil && p.config.WebhookEndpoint != "" {
 		return r.RegisterOpinionatedHandler("POST", p.config.WebhookEndpoint, p.HandleWebhook,
 			WithClerkWebhook(),
 			router.WithSummary("Clerk webhook handler"),
@@ -261,109 +178,10 @@ func (p *ClerkPlugin) Controllers() []common.Controller {
 	}
 }
 
-func (p *ClerkPlugin) Commands() []common.CLICommand {
-	return []common.CLICommand{
-		{
-			Name:        "clerk:sync",
-			Description: "Synchronize users from Clerk to local database",
-			Usage:       "clerk:sync [options]",
-			Category:    "auth",
-			Flags: []common.CLIFlag{
-				{
-					Name:        "dry-run",
-					ShortName:   "d",
-					Description: "Show what would be synced without making changes",
-					Type:        "bool",
-					Default:     false,
-				},
-				{
-					Name:        "batch-size",
-					ShortName:   "b",
-					Description: "Number of users to process in each batch",
-					Type:        "int",
-					Default:     100,
-				},
-			},
-			Handler: p.HandleSyncCommand,
-		},
-	}
-}
-
-func (p *ClerkPlugin) Hooks() []common.Hook {
-	return p.hooks
-}
-
-func (p *ClerkPlugin) ConfigSchema() common.ConfigSchema {
-	return common.ConfigSchema{
-		Version: "1.0.0",
-		Type:    "object",
-		Title:   "Clerk Authentication Configuration",
-		Properties: map[string]common.ConfigProperty{
-			"secretKey": {
-				Type:        "string",
-				Description: "Clerk secret key for API authentication",
-				Default:     "",
-			},
-			"publishableKey": {
-				Type:        "string",
-				Description: "Clerk publishable key for frontend integration",
-				Default:     "",
-			},
-			"webhookSecret": {
-				Type:        "string",
-				Description: "Secret for webhook signature verification",
-				Default:     "",
-			},
-			"webhookEndpoint": {
-				Type:        "string",
-				Description: "Endpoint path for Clerk webhooks",
-				Default:     "/webhooks/clerk",
-			},
-			"userServiceName": {
-				Type:        "string",
-				Description: "Name of the user service to integrate with",
-				Default:     "",
-			},
-			"autoCreateUsers": {
-				Type:        "boolean",
-				Description: "Automatically create users in local database when they sign up",
-				Default:     true,
-			},
-			"syncUserData": {
-				Type:        "boolean",
-				Description: "Sync user profile data from Clerk",
-				Default:     true,
-			},
-			"enableMiddleware": {
-				Type:        "boolean",
-				Description: "Enable Clerk authentication middleware",
-				Default:     true,
-			},
-		},
-		Required: []string{"secretKey"},
-	}
-}
-
-func (p *ClerkPlugin) Configure(config interface{}) error {
-	clerkConfig, ok := config.(*ClerkConfig)
-	if !ok {
-		return fmt.Errorf("invalid config type, expected *ClerkConfig")
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.config = clerkConfig
-	return nil
-}
-
-func (p *ClerkPlugin) GetConfig() interface{} {
+func (p *ClerkPlugin) HealthCheck(ctx context.Context) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.config
-}
 
-func (p *ClerkPlugin) HealthCheck(ctx context.Context) error {
 	if p.client == nil {
 		return fmt.Errorf("clerk client not initialized")
 	}
@@ -375,21 +193,6 @@ func (p *ClerkPlugin) HealthCheck(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (p *ClerkPlugin) GetMetrics() common.PluginMetrics {
-	// TODO: Implement actual metrics collection
-	return common.PluginMetrics{
-		CallCount:      0,
-		RouteCount:     1, // webhook endpoint
-		ErrorCount:     0,
-		AverageLatency: 0,
-		LastExecuted:   time.Now(),
-		MemoryUsage:    0,
-		CPUUsage:       0,
-		HealthScore:    1.0,
-		Uptime:         time.Since(time.Now()),
-	}
 }
 
 // =============================================================================
@@ -577,34 +380,9 @@ func (p *ClerkPlugin) handleUserCreated(ctx common.Context, event *ClerkWebhookE
 	}
 
 	// Create user
-	user, err := p.userService.CreateUserFromClerk(ctx, clerkUser)
+	_, err = p.userService.CreateUserFromClerk(ctx, clerkUser)
 	if err != nil {
 		return fmt.Errorf("failed to create user: %w", err)
-	}
-
-	// Execute hooks
-	hookData := common.HookData{
-		Type:    "user_created",
-		Context: ctx,
-		Data:    user,
-		Metadata: map[string]interface{}{
-			"source":     "clerk_webhook",
-			"clerk_id":   clerkUser.ID,
-			"event_type": event.Type,
-		},
-		Timestamp: time.Now(),
-	}
-
-	for _, hook := range p.hooks {
-		if hook.Type() == "user_created" {
-			_, err := hook.Execute(ctx, hookData)
-			if err != nil {
-				ctx.Logger().Error("Hook execution failed",
-					logger.String("hook", hook.Name()),
-					logger.Error(err),
-				)
-			}
-		}
 	}
 
 	return nil
@@ -620,34 +398,9 @@ func (p *ClerkPlugin) handleUserUpdated(ctx common.Context, event *ClerkWebhookE
 		return fmt.Errorf("failed to parse user data: %w", err)
 	}
 
-	user, err := p.userService.UpdateUserFromClerk(ctx, clerkUser.ID, clerkUser)
+	_, err = p.userService.UpdateUserFromClerk(ctx, clerkUser.ID, clerkUser)
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
-	}
-
-	// Execute hooks
-	hookData := common.HookData{
-		Type:    "user_updated",
-		Context: ctx,
-		Data:    user,
-		Metadata: map[string]interface{}{
-			"source":     "clerk_webhook",
-			"clerk_id":   clerkUser.ID,
-			"event_type": event.Type,
-		},
-		Timestamp: time.Now(),
-	}
-
-	for _, hook := range p.hooks {
-		if hook.Type() == "user_updated" {
-			_, err := hook.Execute(ctx, hookData)
-			if err != nil {
-				ctx.Logger().Error("Hook execution failed",
-					logger.String("hook", hook.Name()),
-					logger.Error(err),
-				)
-			}
-		}
 	}
 
 	return nil
@@ -668,87 +421,16 @@ func (p *ClerkPlugin) handleUserDeleted(ctx common.Context, event *ClerkWebhookE
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
 
-	// Execute hooks
-	hookData := common.HookData{
-		Type:    "user_deleted",
-		Context: ctx,
-		Data:    map[string]interface{}{"clerk_id": clerkUserID},
-		Metadata: map[string]interface{}{
-			"source":     "clerk_webhook",
-			"clerk_id":   clerkUserID,
-			"event_type": event.Type,
-		},
-		Timestamp: time.Now(),
-	}
-
-	for _, hook := range p.hooks {
-		if hook.Type() == "user_deleted" {
-			_, err := hook.Execute(ctx, hookData)
-			if err != nil {
-				ctx.Logger().Error("Hook execution failed",
-					logger.String("hook", hook.Name()),
-					logger.Error(err),
-				)
-			}
-		}
-	}
-
 	return nil
 }
 
 func (p *ClerkPlugin) handleSessionCreated(ctx common.Context, event *ClerkWebhookEvent) error {
-	// Execute session hooks
-	hookData := common.HookData{
-		Type:    "session_created",
-		Context: ctx,
-		Data:    event.Data,
-		Metadata: map[string]interface{}{
-			"source":     "clerk_webhook",
-			"event_type": event.Type,
-		},
-		Timestamp: time.Now(),
-	}
-
-	for _, hook := range p.hooks {
-		if hook.Type() == "session_created" {
-			_, err := hook.Execute(ctx, hookData)
-			if err != nil {
-				ctx.Logger().Error("Hook execution failed",
-					logger.String("hook", hook.Name()),
-					logger.Error(err),
-				)
-			}
-		}
-	}
-
+	// Session created - no action needed for now
 	return nil
 }
 
 func (p *ClerkPlugin) handleSessionEnded(ctx common.Context, event *ClerkWebhookEvent) error {
-	// Execute session hooks
-	hookData := common.HookData{
-		Type:    "session_ended",
-		Context: ctx,
-		Data:    event.Data,
-		Metadata: map[string]interface{}{
-			"source":     "clerk_webhook",
-			"event_type": event.Type,
-		},
-		Timestamp: time.Now(),
-	}
-
-	for _, hook := range p.hooks {
-		if hook.Type() == "session_ended" {
-			_, err := hook.Execute(ctx, hookData)
-			if err != nil {
-				ctx.Logger().Error("Hook execution failed",
-					logger.String("hook", hook.Name()),
-					logger.Error(err),
-				)
-			}
-		}
-	}
-
+	// Session ended - no action needed for now
 	return nil
 }
 
@@ -765,16 +447,6 @@ func (p *ClerkPlugin) eventDataToClerkUser(data map[string]interface{}) (*clerk.
 	}
 
 	return &clerkUser, nil
-}
-
-func (p *ClerkPlugin) initializeHooks() {
-	p.hooks = []common.Hook{
-		&UserCreatedHook{},
-		&UserUpdatedHook{},
-		&UserDeletedHook{},
-		&SessionCreatedHook{},
-		&SessionEndedHook{},
-	}
 }
 
 // =============================================================================

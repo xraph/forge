@@ -1,0 +1,1416 @@
+---
+title: Testing
+description: Comprehensive testing strategies for AuthSome
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Testing
+
+This guide covers comprehensive testing strategies for AuthSome, including unit tests, integration tests, end-to-end tests, and performance testing. We'll use Go's built-in testing framework along with additional tools for enhanced testing capabilities.
+
+## Testing Philosophy
+
+AuthSome follows a comprehensive testing strategy:
+
+- **Unit Tests**: Test individual functions and methods in isolation
+- **Integration Tests**: Test component interactions and database operations
+- **End-to-End Tests**: Test complete user workflows
+- **Performance Tests**: Test system performance under load
+- **Security Tests**: Test authentication and authorization flows
+
+## Test Structure
+
+### Project Test Organization
+
+```
+authsome/
+├── core/
+│   ├── user/
+│   │   ├── service.go
+│   │   ├── service_test.go
+│   │   └── testdata/
+│   └── session/
+│       ├── service.go
+│       ├── service_test.go
+│       └── testdata/
+├── handlers/
+│   ├── auth_test.go
+│   └── user_test.go
+├── repository/
+│   ├── user_test.go
+│   └── session_test.go
+├── tests/
+│   ├── integration/
+│   │   ├── auth_flow_test.go
+│   │   └── user_management_test.go
+│   ├── e2e/
+│   │   ├── signup_test.go
+│   │   └── login_test.go
+│   └── performance/
+│       ├── load_test.go
+│       └── stress_test.go
+└── testutils/
+    ├── fixtures.go
+    ├── mocks.go
+    └── testdb.go
+```
+
+## Unit Testing
+
+### Service Layer Testing
+
+```go
+// core/user/service_test.go - Unit tests for user service
+package user
+
+import (
+    "context"
+    "testing"
+    "time"
+
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+    "github.com/stretchr/testify/require"
+    "github.com/xraph/authsome/testutils"
+)
+
+// MockUserRepository is a mock implementation of UserRepository
+type MockUserRepository struct {
+    mock.Mock
+}
+
+func (m *MockUserRepository) Create(ctx context.Context, user *User) error {
+    args := m.Called(ctx, user)
+    return args.Error(0)
+}
+
+func (m *MockUserRepository) FindByEmail(ctx context.Context, email string) (*User, error) {
+    args := m.Called(ctx, email)
+    return args.Get(0).(*User), args.Error(1)
+}
+
+func (m *MockUserRepository) FindByID(ctx context.Context, id string) (*User, error) {
+    args := m.Called(ctx, id)
+    return args.Get(0).(*User), args.Error(1)
+}
+
+func (m *MockUserRepository) Update(ctx context.Context, user *User) error {
+    args := m.Called(ctx, user)
+    return args.Error(0)
+}
+
+func (m *MockUserRepository) Delete(ctx context.Context, id string) error {
+    args := m.Called(ctx, id)
+    return args.Error(0)
+}
+
+// TestService_CreateUser tests user creation
+func TestService_CreateUser(t *testing.T) {
+    tests := []struct {
+        name    string
+        request *CreateUserRequest
+        setup   func(*MockUserRepository)
+        wantErr bool
+        errMsg  string
+    }{
+        {
+            name: "successful user creation",
+            request: &CreateUserRequest{
+                Email:    "test@example.com",
+                Password: "password123",
+                Name:     "Test User",
+            },
+            setup: func(repo *MockUserRepository) {
+                repo.On("FindByEmail", mock.Anything, "test@example.com").
+                    Return((*User)(nil), ErrUserNotFound)
+                repo.On("Create", mock.Anything, mock.AnythingOfType("*user.User")).
+                    Return(nil)
+            },
+            wantErr: false,
+        },
+        {
+            name: "email already exists",
+            request: &CreateUserRequest{
+                Email:    "existing@example.com",
+                Password: "password123",
+                Name:     "Test User",
+            },
+            setup: func(repo *MockUserRepository) {
+                existingUser := &User{
+                    ID:    "existing-id",
+                    Email: "existing@example.com",
+                }
+                repo.On("FindByEmail", mock.Anything, "existing@example.com").
+                    Return(existingUser, nil)
+            },
+            wantErr: true,
+            errMsg:  "email already exists",
+        },
+        {
+            name: "invalid email format",
+            request: &CreateUserRequest{
+                Email:    "invalid-email",
+                Password: "password123",
+                Name:     "Test User",
+            },
+            setup:   func(repo *MockUserRepository) {},
+            wantErr: true,
+            errMsg:  "invalid email format",
+        },
+        {
+            name: "weak password",
+            request: &CreateUserRequest{
+                Email:    "test@example.com",
+                Password: "123",
+                Name:     "Test User",
+            },
+            setup:   func(repo *MockUserRepository) {},
+            wantErr: true,
+            errMsg:  "password too weak",
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // Arrange
+            mockRepo := new(MockUserRepository)
+            tt.setup(mockRepo)
+
+            config := Config{
+                PasswordMinLength: 8,
+                RequireEmailVerification: true,
+            }
+            service := &Service{
+                repo:   mockRepo,
+                config: config,
+            }
+
+            // Act
+            user, err := service.CreateUser(context.Background(), tt.request)
+
+            // Assert
+            if tt.wantErr {
+                assert.Error(t, err)
+                assert.Contains(t, err.Error(), tt.errMsg)
+                assert.Nil(t, user)
+            } else {
+                assert.NoError(t, err)
+                assert.NotNil(t, user)
+                assert.Equal(t, tt.request.Email, user.Email)
+                assert.Equal(t, tt.request.Name, user.Name)
+                assert.NotEmpty(t, user.ID)
+                assert.False(t, user.EmailVerified)
+            }
+
+            mockRepo.AssertExpectations(t)
+        })
+    }
+}
+
+// TestService_AuthenticateUser tests user authentication
+func TestService_AuthenticateUser(t *testing.T) {
+    tests := []struct {
+        name     string
+        email    string
+        password string
+        setup    func(*MockUserRepository)
+        wantErr  bool
+        errMsg   string
+    }{
+        {
+            name:     "successful authentication",
+            email:    "test@example.com",
+            password: "password123",
+            setup: func(repo *MockUserRepository) {
+                hashedPassword, _ := testutils.HashPassword("password123")
+                user := &User{
+                    ID:           "user-id",
+                    Email:        "test@example.com",
+                    PasswordHash: hashedPassword,
+                    EmailVerified: true,
+                }
+                repo.On("FindByEmail", mock.Anything, "test@example.com").
+                    Return(user, nil)
+            },
+            wantErr: false,
+        },
+        {
+            name:     "user not found",
+            email:    "nonexistent@example.com",
+            password: "password123",
+            setup: func(repo *MockUserRepository) {
+                repo.On("FindByEmail", mock.Anything, "nonexistent@example.com").
+                    Return((*User)(nil), ErrUserNotFound)
+            },
+            wantErr: true,
+            errMsg:  "invalid credentials",
+        },
+        {
+            name:     "invalid password",
+            email:    "test@example.com",
+            password: "wrongpassword",
+            setup: func(repo *MockUserRepository) {
+                hashedPassword, _ := testutils.HashPassword("password123")
+                user := &User{
+                    ID:           "user-id",
+                    Email:        "test@example.com",
+                    PasswordHash: hashedPassword,
+                    EmailVerified: true,
+                }
+                repo.On("FindByEmail", mock.Anything, "test@example.com").
+                    Return(user, nil)
+            },
+            wantErr: true,
+            errMsg:  "invalid credentials",
+        },
+        {
+            name:     "email not verified",
+            email:    "unverified@example.com",
+            password: "password123",
+            setup: func(repo *MockUserRepository) {
+                hashedPassword, _ := testutils.HashPassword("password123")
+                user := &User{
+                    ID:           "user-id",
+                    Email:        "unverified@example.com",
+                    PasswordHash: hashedPassword,
+                    EmailVerified: false,
+                }
+                repo.On("FindByEmail", mock.Anything, "unverified@example.com").
+                    Return(user, nil)
+            },
+            wantErr: true,
+            errMsg:  "email not verified",
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // Arrange
+            mockRepo := new(MockUserRepository)
+            tt.setup(mockRepo)
+
+            service := &Service{repo: mockRepo}
+
+            // Act
+            user, err := service.AuthenticateUser(context.Background(), tt.email, tt.password)
+
+            // Assert
+            if tt.wantErr {
+                assert.Error(t, err)
+                assert.Contains(t, err.Error(), tt.errMsg)
+                assert.Nil(t, user)
+            } else {
+                assert.NoError(t, err)
+                assert.NotNil(t, user)
+                assert.Equal(t, tt.email, user.Email)
+            }
+
+            mockRepo.AssertExpectations(t)
+        })
+    }
+}
+
+// Benchmark tests
+func BenchmarkService_CreateUser(b *testing.B) {
+    mockRepo := new(MockUserRepository)
+    mockRepo.On("FindByEmail", mock.Anything, mock.AnythingOfType("string")).
+        Return((*User)(nil), ErrUserNotFound)
+    mockRepo.On("Create", mock.Anything, mock.AnythingOfType("*user.User")).
+        Return(nil)
+
+    service := &Service{repo: mockRepo}
+    request := &CreateUserRequest{
+        Email:    "test@example.com",
+        Password: "password123",
+        Name:     "Test User",
+    }
+
+    b.ResetTimer()
+    for i := 0; i < b.N; i++ {
+        _, err := service.CreateUser(context.Background(), request)
+        if err != nil {
+            b.Fatal(err)
+        }
+    }
+}
+```
+
+### Handler Testing
+
+```go
+// handlers/auth_test.go - HTTP handler tests
+package handlers
+
+import (
+    "bytes"
+    "encoding/json"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome/core/user"
+)
+
+// MockUserService is a mock implementation of user.Service
+type MockUserService struct {
+    mock.Mock
+}
+
+func (m *MockUserService) CreateUser(ctx context.Context, req *user.CreateUserRequest) (*user.User, error) {
+    args := m.Called(ctx, req)
+    return args.Get(0).(*user.User), args.Error(1)
+}
+
+func (m *MockUserService) AuthenticateUser(ctx context.Context, email, password string) (*user.User, error) {
+    args := m.Called(ctx, email, password)
+    return args.Get(0).(*user.User), args.Error(1)
+}
+
+// TestAuthHandler_SignUp tests the signup endpoint
+func TestAuthHandler_SignUp(t *testing.T) {
+    tests := []struct {
+        name           string
+        requestBody    interface{}
+        setup          func(*MockUserService)
+        expectedStatus int
+        expectedBody   string
+    }{
+        {
+            name: "successful signup",
+            requestBody: map[string]string{
+                "email":    "test@example.com",
+                "password": "password123",
+                "name":     "Test User",
+            },
+            setup: func(service *MockUserService) {
+                user := &user.User{
+                    ID:    "user-id",
+                    Email: "test@example.com",
+                    Name:  "Test User",
+                }
+                service.On("CreateUser", mock.Anything, mock.AnythingOfType("*user.CreateUserRequest")).
+                    Return(user, nil)
+            },
+            expectedStatus: http.StatusCreated,
+        },
+        {
+            name: "invalid request body",
+            requestBody: map[string]string{
+                "email": "invalid-email",
+            },
+            setup:          func(service *MockUserService) {},
+            expectedStatus: http.StatusBadRequest,
+        },
+        {
+            name: "email already exists",
+            requestBody: map[string]string{
+                "email":    "existing@example.com",
+                "password": "password123",
+                "name":     "Test User",
+            },
+            setup: func(service *MockUserService) {
+                service.On("CreateUser", mock.Anything, mock.AnythingOfType("*user.CreateUserRequest")).
+                    Return((*user.User)(nil), user.ErrEmailAlreadyExists)
+            },
+            expectedStatus: http.StatusConflict,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // Arrange
+            mockService := new(MockUserService)
+            tt.setup(mockService)
+
+            handler := NewAuthHandler(mockService)
+            
+            // Create request
+            body, _ := json.Marshal(tt.requestBody)
+            req := httptest.NewRequest(http.MethodPost, "/auth/signup", bytes.NewBuffer(body))
+            req.Header.Set("Content-Type", "application/json")
+            
+            // Create response recorder
+            w := httptest.NewRecorder()
+            
+            // Create Forge context
+            c := forge.NewContext(w, req)
+
+            // Act
+            err := handler.SignUp(c)
+
+            // Assert
+            assert.NoError(t, err)
+            assert.Equal(t, tt.expectedStatus, w.Code)
+
+            if tt.expectedStatus == http.StatusCreated {
+                var response map[string]interface{}
+                err := json.Unmarshal(w.Body.Bytes(), &response)
+                assert.NoError(t, err)
+                assert.Equal(t, "test@example.com", response["email"])
+                assert.Equal(t, "Test User", response["name"])
+            }
+
+            mockService.AssertExpectations(t)
+        })
+    }
+}
+
+// TestAuthHandler_Login tests the login endpoint
+func TestAuthHandler_Login(t *testing.T) {
+    tests := []struct {
+        name           string
+        requestBody    map[string]string
+        setup          func(*MockUserService)
+        expectedStatus int
+    }{
+        {
+            name: "successful login",
+            requestBody: map[string]string{
+                "email":    "test@example.com",
+                "password": "password123",
+            },
+            setup: func(service *MockUserService) {
+                user := &user.User{
+                    ID:    "user-id",
+                    Email: "test@example.com",
+                    Name:  "Test User",
+                }
+                service.On("AuthenticateUser", mock.Anything, "test@example.com", "password123").
+                    Return(user, nil)
+            },
+            expectedStatus: http.StatusOK,
+        },
+        {
+            name: "invalid credentials",
+            requestBody: map[string]string{
+                "email":    "test@example.com",
+                "password": "wrongpassword",
+            },
+            setup: func(service *MockUserService) {
+                service.On("AuthenticateUser", mock.Anything, "test@example.com", "wrongpassword").
+                    Return((*user.User)(nil), user.ErrInvalidCredentials)
+            },
+            expectedStatus: http.StatusUnauthorized,
+        },
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            // Arrange
+            mockService := new(MockUserService)
+            tt.setup(mockService)
+
+            handler := NewAuthHandler(mockService)
+            
+            // Create request
+            body, _ := json.Marshal(tt.requestBody)
+            req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewBuffer(body))
+            req.Header.Set("Content-Type", "application/json")
+            
+            // Create response recorder
+            w := httptest.NewRecorder()
+            
+            // Create Forge context
+            c := forge.NewContext(w, req)
+
+            // Act
+            err := handler.Login(c)
+
+            // Assert
+            assert.NoError(t, err)
+            assert.Equal(t, tt.expectedStatus, w.Code)
+
+            mockService.AssertExpectations(t)
+        })
+    }
+}
+```
+
+## Integration Testing
+
+### Database Integration Tests
+
+```go
+// tests/integration/user_test.go - Integration tests with real database
+package integration
+
+import (
+    "context"
+    "testing"
+
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+    "github.com/xraph/authsome/core/user"
+    "github.com/xraph/authsome/repository"
+    "github.com/xraph/authsome/testutils"
+)
+
+// TestUserIntegration tests user operations with real database
+func TestUserIntegration(t *testing.T) {
+    // Setup test database
+    db := testutils.SetupTestDB(t)
+    defer testutils.CleanupTestDB(t, db)
+
+    // Create repositories and services
+    userRepo := repository.NewUserRepository(db)
+    userService := user.NewService(userRepo, user.Config{
+        PasswordMinLength: 8,
+        RequireEmailVerification: false,
+    })
+
+    ctx := context.Background()
+
+    t.Run("create and retrieve user", func(t *testing.T) {
+        // Create user
+        createReq := &user.CreateUserRequest{
+            Email:    "integration@example.com",
+            Password: "password123",
+            Name:     "Integration Test User",
+        }
+
+        createdUser, err := userService.CreateUser(ctx, createReq)
+        require.NoError(t, err)
+        assert.NotEmpty(t, createdUser.ID)
+        assert.Equal(t, createReq.Email, createdUser.Email)
+        assert.Equal(t, createReq.Name, createdUser.Name)
+
+        // Retrieve user by ID
+        retrievedUser, err := userService.GetUserByID(ctx, createdUser.ID)
+        require.NoError(t, err)
+        assert.Equal(t, createdUser.ID, retrievedUser.ID)
+        assert.Equal(t, createdUser.Email, retrievedUser.Email)
+
+        // Retrieve user by email
+        retrievedUser, err = userService.GetUserByEmail(ctx, createdUser.Email)
+        require.NoError(t, err)
+        assert.Equal(t, createdUser.ID, retrievedUser.ID)
+    })
+
+    t.Run("authenticate user", func(t *testing.T) {
+        // Create user
+        createReq := &user.CreateUserRequest{
+            Email:    "auth@example.com",
+            Password: "password123",
+            Name:     "Auth Test User",
+        }
+
+        createdUser, err := userService.CreateUser(ctx, createReq)
+        require.NoError(t, err)
+
+        // Authenticate with correct credentials
+        authUser, err := userService.AuthenticateUser(ctx, createReq.Email, createReq.Password)
+        require.NoError(t, err)
+        assert.Equal(t, createdUser.ID, authUser.ID)
+
+        // Authenticate with wrong password
+        _, err = userService.AuthenticateUser(ctx, createReq.Email, "wrongpassword")
+        assert.Error(t, err)
+        assert.Equal(t, user.ErrInvalidCredentials, err)
+    })
+
+    t.Run("update user", func(t *testing.T) {
+        // Create user
+        createReq := &user.CreateUserRequest{
+            Email:    "update@example.com",
+            Password: "password123",
+            Name:     "Update Test User",
+        }
+
+        createdUser, err := userService.CreateUser(ctx, createReq)
+        require.NoError(t, err)
+
+        // Update user
+        updateReq := &user.UpdateUserRequest{
+            ID:   createdUser.ID,
+            Name: "Updated Name",
+        }
+
+        updatedUser, err := userService.UpdateUser(ctx, updateReq)
+        require.NoError(t, err)
+        assert.Equal(t, updateReq.Name, updatedUser.Name)
+        assert.Equal(t, createdUser.Email, updatedUser.Email) // Email should remain unchanged
+    })
+
+    t.Run("delete user", func(t *testing.T) {
+        // Create user
+        createReq := &user.CreateUserRequest{
+            Email:    "delete@example.com",
+            Password: "password123",
+            Name:     "Delete Test User",
+        }
+
+        createdUser, err := userService.CreateUser(ctx, createReq)
+        require.NoError(t, err)
+
+        // Delete user
+        err = userService.DeleteUser(ctx, createdUser.ID)
+        require.NoError(t, err)
+
+        // Verify user is deleted
+        _, err = userService.GetUserByID(ctx, createdUser.ID)
+        assert.Error(t, err)
+        assert.Equal(t, user.ErrUserNotFound, err)
+    })
+}
+
+// TestAuthFlow tests complete authentication flow
+func TestAuthFlow(t *testing.T) {
+    // Setup test database
+    db := testutils.SetupTestDB(t)
+    defer testutils.CleanupTestDB(t, db)
+
+    // Create repositories and services
+    userRepo := repository.NewUserRepository(db)
+    sessionRepo := repository.NewSessionRepository(db)
+    
+    userService := user.NewService(userRepo, user.Config{})
+    sessionService := session.NewService(sessionRepo, session.Config{})
+
+    ctx := context.Background()
+
+    t.Run("complete signup and login flow", func(t *testing.T) {
+        // 1. Sign up
+        createReq := &user.CreateUserRequest{
+            Email:    "flow@example.com",
+            Password: "password123",
+            Name:     "Flow Test User",
+        }
+
+        user, err := userService.CreateUser(ctx, createReq)
+        require.NoError(t, err)
+
+        // 2. Login (authenticate)
+        authUser, err := userService.AuthenticateUser(ctx, createReq.Email, createReq.Password)
+        require.NoError(t, err)
+        assert.Equal(t, user.ID, authUser.ID)
+
+        // 3. Create session
+        sessionReq := &session.CreateSessionRequest{
+            UserID:    authUser.ID,
+            IPAddress: "127.0.0.1",
+            UserAgent: "test-agent",
+        }
+
+        session, err := sessionService.CreateSession(ctx, sessionReq)
+        require.NoError(t, err)
+        assert.NotEmpty(t, session.Token)
+        assert.Equal(t, authUser.ID, session.UserID)
+
+        // 4. Validate session
+        validatedSession, err := sessionService.ValidateSession(ctx, session.Token)
+        require.NoError(t, err)
+        assert.Equal(t, session.ID, validatedSession.ID)
+
+        // 5. Logout (destroy session)
+        err = sessionService.DestroySession(ctx, session.Token)
+        require.NoError(t, err)
+
+        // 6. Verify session is destroyed
+        _, err = sessionService.ValidateSession(ctx, session.Token)
+        assert.Error(t, err)
+    })
+}
+```
+
+### Test Utilities
+
+```go
+// testutils/testdb.go - Test database utilities
+package testutils
+
+import (
+    "context"
+    "database/sql"
+    "fmt"
+    "testing"
+
+    "github.com/uptrace/bun"
+    "github.com/uptrace/bun/dialect/pgdialect"
+    "github.com/uptrace/bun/driver/pgdriver"
+    "github.com/xraph/authsome/migrations"
+    "github.com/xraph/authsome/schema"
+)
+
+// SetupTestDB creates a test database and runs migrations
+func SetupTestDB(t *testing.T) *bun.DB {
+    // Use test database URL or create in-memory SQLite for tests
+    dsn := getTestDSN()
+    
+    sqldb := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
+    db := bun.NewDB(sqldb, pgdialect.New())
+
+    // Run migrations
+    ctx := context.Background()
+    if err := migrations.RunMigrations(ctx, db); err != nil {
+        t.Fatalf("Failed to run migrations: %v", err)
+    }
+
+    return db
+}
+
+// CleanupTestDB cleans up test database
+func CleanupTestDB(t *testing.T, db *bun.DB) {
+    ctx := context.Background()
+    
+    // Clean up test data
+    tables := []string{"sessions", "users", "organizations"}
+    for _, table := range tables {
+        _, err := db.NewTruncateTable().TableExpr(table).Exec(ctx)
+        if err != nil {
+            t.Logf("Failed to truncate table %s: %v", table, err)
+        }
+    }
+
+    if err := db.Close(); err != nil {
+        t.Logf("Failed to close database: %v", err)
+    }
+}
+
+// getTestDSN returns test database DSN
+func getTestDSN() string {
+    // Use environment variable or default test database
+    if dsn := os.Getenv("TEST_DATABASE_URL"); dsn != "" {
+        return dsn
+    }
+    
+    return "postgres://postgres:postgres@localhost:5432/authsome_test?sslmode=disable"
+}
+
+// CreateTestUser creates a test user
+func CreateTestUser(t *testing.T, db *bun.DB, email string) *schema.User {
+    user := &schema.User{
+        ID:           GenerateID(),
+        Email:        email,
+        Name:         "Test User",
+        PasswordHash: HashPassword("password123"),
+        EmailVerified: true,
+        CreatedAt:    time.Now(),
+        UpdatedAt:    time.Now(),
+    }
+
+    _, err := db.NewInsert().Model(user).Exec(context.Background())
+    require.NoError(t, err)
+
+    return user
+}
+
+// HashPassword hashes a password for testing
+func HashPassword(password string) string {
+    // Use bcrypt or your preferred hashing method
+    hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+    return string(hash)
+}
+
+// GenerateID generates a test ID
+func GenerateID() string {
+    return fmt.Sprintf("test_%d", time.Now().UnixNano())
+}
+```
+
+## End-to-End Testing
+
+### E2E Test Setup
+
+```go
+// tests/e2e/setup_test.go - E2E test setup
+package e2e
+
+import (
+    "context"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/testutils"
+    "github.com/xraph/forge"
+)
+
+// TestServer represents a test server instance
+type TestServer struct {
+    Server *httptest.Server
+    Client *http.Client
+    DB     *bun.DB
+}
+
+// SetupTestServer creates a test server for E2E tests
+func SetupTestServer(t *testing.T) *TestServer {
+    // Setup test database
+    db := testutils.SetupTestDB(t)
+
+    // Create Forge app
+    app := forge.New()
+
+    // Configure AuthSome
+    config := authsome.Config{
+        Database: authsome.DatabaseConfig{
+            Driver: "postgres",
+            // ... other config
+        },
+        Security: authsome.SecurityConfig{
+            JWTSecret:     "test-jwt-secret",
+            SessionSecret: "test-session-secret",
+        },
+    }
+
+    // Mount AuthSome
+    auth, err := authsome.New(config)
+    if err != nil {
+        t.Fatalf("Failed to create AuthSome: %v", err)
+    }
+
+    if err := auth.Mount(app); err != nil {
+        t.Fatalf("Failed to mount AuthSome: %v", err)
+    }
+
+    // Create test server
+    server := httptest.NewServer(app)
+
+    return &TestServer{
+        Server: server,
+        Client: server.Client(),
+        DB:     db,
+    }
+}
+
+// Cleanup cleans up test server resources
+func (ts *TestServer) Cleanup(t *testing.T) {
+    ts.Server.Close()
+    testutils.CleanupTestDB(t, ts.DB)
+}
+
+// URL returns the full URL for a given path
+func (ts *TestServer) URL(path string) string {
+    return ts.Server.URL + path
+}
+```
+
+### E2E Authentication Tests
+
+```go
+// tests/e2e/auth_test.go - E2E authentication tests
+package e2e
+
+import (
+    "bytes"
+    "encoding/json"
+    "net/http"
+    "testing"
+
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+)
+
+// TestE2E_SignupAndLogin tests complete signup and login flow
+func TestE2E_SignupAndLogin(t *testing.T) {
+    server := SetupTestServer(t)
+    defer server.Cleanup(t)
+
+    // Test data
+    userData := map[string]string{
+        "email":    "e2e@example.com",
+        "password": "password123",
+        "name":     "E2E Test User",
+    }
+
+    t.Run("signup", func(t *testing.T) {
+        // Prepare request
+        body, _ := json.Marshal(userData)
+        req, err := http.NewRequest(http.MethodPost, server.URL("/auth/signup"), bytes.NewBuffer(body))
+        require.NoError(t, err)
+        req.Header.Set("Content-Type", "application/json")
+
+        // Make request
+        resp, err := server.Client.Do(req)
+        require.NoError(t, err)
+        defer resp.Body.Close()
+
+        // Assert response
+        assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+        var response map[string]interface{}
+        err = json.NewDecoder(resp.Body).Decode(&response)
+        require.NoError(t, err)
+
+        assert.Equal(t, userData["email"], response["email"])
+        assert.Equal(t, userData["name"], response["name"])
+        assert.NotEmpty(t, response["id"])
+    })
+
+    t.Run("login", func(t *testing.T) {
+        // Prepare login request
+        loginData := map[string]string{
+            "email":    userData["email"],
+            "password": userData["password"],
+        }
+
+        body, _ := json.Marshal(loginData)
+        req, err := http.NewRequest(http.MethodPost, server.URL("/auth/login"), bytes.NewBuffer(body))
+        require.NoError(t, err)
+        req.Header.Set("Content-Type", "application/json")
+
+        // Make request
+        resp, err := server.Client.Do(req)
+        require.NoError(t, err)
+        defer resp.Body.Close()
+
+        // Assert response
+        assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+        var response map[string]interface{}
+        err = json.NewDecoder(resp.Body).Decode(&response)
+        require.NoError(t, err)
+
+        assert.Equal(t, userData["email"], response["user"].(map[string]interface{})["email"])
+        assert.NotEmpty(t, response["token"])
+
+        // Store token for subsequent requests
+        token := response["token"].(string)
+
+        t.Run("access protected endpoint", func(t *testing.T) {
+            // Make authenticated request
+            req, err := http.NewRequest(http.MethodGet, server.URL("/auth/me"), nil)
+            require.NoError(t, err)
+            req.Header.Set("Authorization", "Bearer "+token)
+
+            resp, err := server.Client.Do(req)
+            require.NoError(t, err)
+            defer resp.Body.Close()
+
+            assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+            var userResponse map[string]interface{}
+            err = json.NewDecoder(resp.Body).Decode(&userResponse)
+            require.NoError(t, err)
+
+            assert.Equal(t, userData["email"], userResponse["email"])
+        })
+
+        t.Run("logout", func(t *testing.T) {
+            // Make logout request
+            req, err := http.NewRequest(http.MethodPost, server.URL("/auth/logout"), nil)
+            require.NoError(t, err)
+            req.Header.Set("Authorization", "Bearer "+token)
+
+            resp, err := server.Client.Do(req)
+            require.NoError(t, err)
+            defer resp.Body.Close()
+
+            assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+            // Verify token is invalidated
+            req, err = http.NewRequest(http.MethodGet, server.URL("/auth/me"), nil)
+            require.NoError(t, err)
+            req.Header.Set("Authorization", "Bearer "+token)
+
+            resp, err = server.Client.Do(req)
+            require.NoError(t, err)
+            defer resp.Body.Close()
+
+            assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+        })
+    })
+}
+
+// TestE2E_PasswordReset tests password reset flow
+func TestE2E_PasswordReset(t *testing.T) {
+    server := SetupTestServer(t)
+    defer server.Cleanup(t)
+
+    // Create test user first
+    userData := map[string]string{
+        "email":    "reset@example.com",
+        "password": "oldpassword123",
+        "name":     "Reset Test User",
+    }
+
+    // Signup
+    body, _ := json.Marshal(userData)
+    req, _ := http.NewRequest(http.MethodPost, server.URL("/auth/signup"), bytes.NewBuffer(body))
+    req.Header.Set("Content-Type", "application/json")
+    resp, _ := server.Client.Do(req)
+    resp.Body.Close()
+
+    t.Run("request password reset", func(t *testing.T) {
+        resetRequest := map[string]string{
+            "email": userData["email"],
+        }
+
+        body, _ := json.Marshal(resetRequest)
+        req, err := http.NewRequest(http.MethodPost, server.URL("/auth/password-reset"), bytes.NewBuffer(body))
+        require.NoError(t, err)
+        req.Header.Set("Content-Type", "application/json")
+
+        resp, err := server.Client.Do(req)
+        require.NoError(t, err)
+        defer resp.Body.Close()
+
+        assert.Equal(t, http.StatusOK, resp.StatusCode)
+    })
+
+    // Note: In a real E2E test, you would:
+    // 1. Check that a reset email was sent
+    // 2. Extract the reset token from the email
+    // 3. Use the token to reset the password
+    // 4. Verify the new password works
+}
+```
+
+## Performance Testing
+
+### Load Testing
+
+```go
+// tests/performance/load_test.go - Load testing
+package performance
+
+import (
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "sync"
+    "testing"
+    "time"
+
+    "github.com/stretchr/testify/assert"
+)
+
+// LoadTestConfig holds load test configuration
+type LoadTestConfig struct {
+    BaseURL         string
+    ConcurrentUsers int
+    RequestsPerUser int
+    Duration        time.Duration
+}
+
+// LoadTestResult holds load test results
+type LoadTestResult struct {
+    TotalRequests    int
+    SuccessfulReqs   int
+    FailedRequests   int
+    AverageLatency   time.Duration
+    MaxLatency       time.Duration
+    MinLatency       time.Duration
+    RequestsPerSec   float64
+}
+
+// TestLoad_AuthEndpoints tests authentication endpoints under load
+func TestLoad_AuthEndpoints(t *testing.T) {
+    if testing.Short() {
+        t.Skip("Skipping load test in short mode")
+    }
+
+    server := SetupTestServer(t)
+    defer server.Cleanup(t)
+
+    config := LoadTestConfig{
+        BaseURL:         server.URL(""),
+        ConcurrentUsers: 50,
+        RequestsPerUser: 20,
+        Duration:        30 * time.Second,
+    }
+
+    t.Run("signup load test", func(t *testing.T) {
+        result := runSignupLoadTest(t, config)
+        
+        // Assert performance criteria
+        assert.Greater(t, result.RequestsPerSec, 100.0, "Should handle at least 100 requests per second")
+        assert.Less(t, result.AverageLatency, 100*time.Millisecond, "Average latency should be under 100ms")
+        assert.Greater(t, float64(result.SuccessfulReqs)/float64(result.TotalRequests), 0.95, "Success rate should be above 95%")
+    })
+
+    t.Run("login load test", func(t *testing.T) {
+        // Pre-create users for login test
+        createTestUsers(t, server, 100)
+        
+        result := runLoginLoadTest(t, config)
+        
+        // Assert performance criteria
+        assert.Greater(t, result.RequestsPerSec, 150.0, "Should handle at least 150 login requests per second")
+        assert.Less(t, result.AverageLatency, 50*time.Millisecond, "Average latency should be under 50ms")
+    })
+}
+
+// runSignupLoadTest runs signup load test
+func runSignupLoadTest(t *testing.T, config LoadTestConfig) *LoadTestResult {
+    var wg sync.WaitGroup
+    var mu sync.Mutex
+    
+    results := make([]time.Duration, 0)
+    successCount := 0
+    failCount := 0
+    
+    startTime := time.Now()
+    
+    // Launch concurrent users
+    for i := 0; i < config.ConcurrentUsers; i++ {
+        wg.Add(1)
+        go func(userID int) {
+            defer wg.Done()
+            
+            for j := 0; j < config.RequestsPerUser; j++ {
+                // Create unique user data
+                userData := map[string]string{
+                    "email":    fmt.Sprintf("load_user_%d_%d@example.com", userID, j),
+                    "password": "password123",
+                    "name":     fmt.Sprintf("Load User %d-%d", userID, j),
+                }
+                
+                // Make signup request
+                reqStart := time.Now()
+                success := makeSignupRequest(config.BaseURL, userData)
+                latency := time.Since(reqStart)
+                
+                // Record results
+                mu.Lock()
+                results = append(results, latency)
+                if success {
+                    successCount++
+                } else {
+                    failCount++
+                }
+                mu.Unlock()
+            }
+        }(i)
+    }
+    
+    wg.Wait()
+    totalDuration := time.Since(startTime)
+    
+    // Calculate metrics
+    return calculateLoadTestResult(results, successCount, failCount, totalDuration)
+}
+
+// runLoginLoadTest runs login load test
+func runLoginLoadTest(t *testing.T, config LoadTestConfig) *LoadTestResult {
+    // Similar implementation to signup load test
+    // but using existing users for login
+    // ... implementation details
+    return &LoadTestResult{} // Placeholder
+}
+
+// makeSignupRequest makes a signup request
+func makeSignupRequest(baseURL string, userData map[string]string) bool {
+    body, _ := json.Marshal(userData)
+    req, err := http.NewRequest(http.MethodPost, baseURL+"/auth/signup", bytes.NewBuffer(body))
+    if err != nil {
+        return false
+    }
+    req.Header.Set("Content-Type", "application/json")
+    
+    client := &http.Client{Timeout: 10 * time.Second}
+    resp, err := client.Do(req)
+    if err != nil {
+        return false
+    }
+    defer resp.Body.Close()
+    
+    return resp.StatusCode == http.StatusCreated
+}
+
+// calculateLoadTestResult calculates load test metrics
+func calculateLoadTestResult(latencies []time.Duration, successCount, failCount int, totalDuration time.Duration) *LoadTestResult {
+    totalRequests := len(latencies)
+    
+    if totalRequests == 0 {
+        return &LoadTestResult{}
+    }
+    
+    // Calculate average latency
+    var totalLatency time.Duration
+    maxLatency := latencies[0]
+    minLatency := latencies[0]
+    
+    for _, latency := range latencies {
+        totalLatency += latency
+        if latency > maxLatency {
+            maxLatency = latency
+        }
+        if latency < minLatency {
+            minLatency = latency
+        }
+    }
+    
+    avgLatency := totalLatency / time.Duration(totalRequests)
+    requestsPerSec := float64(totalRequests) / totalDuration.Seconds()
+    
+    return &LoadTestResult{
+        TotalRequests:  totalRequests,
+        SuccessfulReqs: successCount,
+        FailedRequests: failCount,
+        AverageLatency: avgLatency,
+        MaxLatency:     maxLatency,
+        MinLatency:     minLatency,
+        RequestsPerSec: requestsPerSec,
+    }
+}
+```
+
+## Test Configuration
+
+### Test Makefile
+
+```makefile
+# Makefile - Test automation
+.PHONY: test test-unit test-integration test-e2e test-load test-coverage test-race
+
+# Run all tests
+test: test-unit test-integration
+
+# Run unit tests
+test-unit:
+	go test -v -short ./...
+
+# Run integration tests
+test-integration:
+	go test -v -tags=integration ./tests/integration/...
+
+# Run end-to-end tests
+test-e2e:
+	go test -v -tags=e2e ./tests/e2e/...
+
+# Run load tests
+test-load:
+	go test -v -tags=load ./tests/performance/...
+
+# Run tests with coverage
+test-coverage:
+	go test -v -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	go tool cover -func=coverage.out
+
+# Run tests with race detection
+test-race:
+	go test -v -race ./...
+
+# Run benchmarks
+test-bench:
+	go test -v -bench=. -benchmem ./...
+
+# Clean test artifacts
+test-clean:
+	rm -f coverage.out coverage.html
+	docker-compose -f docker-compose.test.yml down -v
+
+# Setup test environment
+test-setup:
+	docker-compose -f docker-compose.test.yml up -d
+	sleep 5  # Wait for services to start
+
+# Run all tests in CI
+test-ci: test-setup test-coverage test-race test-integration test-e2e
+```
+
+### Docker Compose for Testing
+
+```yaml
+# docker-compose.test.yml - Test environment
+version: '3.8'
+
+services:
+  postgres-test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: authsome_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    tmpfs:
+      - /data
+```
+
+## Best Practices
+
+### Testing Guidelines
+
+<Callout type="info">
+**Testing Best Practices**: Follow these guidelines for effective testing.
+</Callout>
+
+1. **Test Pyramid**: More unit tests, fewer integration tests, minimal E2E tests
+2. **Test Independence**: Each test should be independent and repeatable
+3. **Clear Test Names**: Use descriptive test names that explain what is being tested
+4. **Arrange-Act-Assert**: Structure tests with clear setup, execution, and verification
+5. **Mock External Dependencies**: Use mocks for external services and databases in unit tests
+6. **Test Edge Cases**: Include tests for error conditions and edge cases
+7. **Performance Testing**: Include performance tests for critical paths
+8. **Test Data Management**: Use factories or fixtures for consistent test data
+
+### Continuous Integration
+
+```yaml
+# .github/workflows/test.yml - CI testing workflow
+name: Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: authsome_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+    
+    - name: Run tests
+      run: make test-ci
+      env:
+        TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/authsome_test?sslmode=disable
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.out
+```
+
+## Next Steps
+
+- [Migration](/docs/go/guides/migration) - Migrate from other authentication systems
+- [Deployment](/docs/go/guides/deployment) - Deploy your tested application
+- [Database Setup](/docs/go/guides/database-setup) - Optimize database for testing
+
+---
+
+This guide covered comprehensive testing strategies for AuthSome. Implement these testing practices to ensure your authentication system is robust and reliable.

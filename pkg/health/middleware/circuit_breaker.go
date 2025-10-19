@@ -165,7 +165,7 @@ func NewCircuitBreakerMiddleware(healthService health.HealthService, config *Cir
 		lastTransition: time.Now(),
 	}
 
-	// OnStart health monitoring goroutine if enabled
+	// Start health monitoring goroutine if enabled
 	if config.EnableHealthBased && healthService != nil {
 		go cbm.healthMonitor()
 	}
@@ -616,7 +616,7 @@ func NewHealthBasedCircuitBreaker(healthService health.HealthService, config *He
 		lastTransition: time.Now(),
 	}
 
-	// OnStart health monitoring
+	// Start health monitoring
 	go hcb.healthMonitor()
 
 	return hcb

@@ -5,9 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -223,7 +221,7 @@ func (ad *AnomalyDetection) Name() string {
 
 // Type returns the middleware type
 func (ad *AnomalyDetection) Type() ai.AIMiddlewareType {
-	return ai.AIMiddlewareTypeAnomalyDetect
+	return ai.AIMiddlewareTypeAnomalyDetection
 }
 
 // Initialize initializes the middleware
@@ -256,7 +254,7 @@ func (ad *AnomalyDetection) Initialize(ctx context.Context, config ai.AIMiddlewa
 	// Initialize baseline metrics
 	ad.initializeBaseline()
 
-	// OnStart background tasks
+	// Start background tasks
 	go ad.baselineUpdateLoop(ctx)
 	go ad.cleanupLoop(ctx)
 	go ad.modelRetrainingLoop(ctx)

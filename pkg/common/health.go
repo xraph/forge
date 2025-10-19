@@ -11,8 +11,8 @@ import (
 type HealthChecker interface {
 	Name() string
 	Dependencies() []string
-	OnStart(ctx context.Context) error
-	OnStop(ctx context.Context) error
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
 	OnHealthCheck(ctx context.Context) error
 	RegisterCheck(name string, check HealthCheck) error
 	UnregisterCheck(name string) error

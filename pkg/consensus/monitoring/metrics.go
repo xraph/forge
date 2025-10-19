@@ -143,11 +143,11 @@ func (cmc *ConsensusMetricsCollector) Start(ctx context.Context) error {
 	// Initialize metrics
 	cmc.initializeMetrics()
 
-	// OnStart collection ticker
+	// Start collection ticker
 	cmc.collectionTicker = time.NewTicker(cmc.config.CollectionInterval)
 	cmc.started = true
 
-	// OnStart collection goroutine
+	// Start collection goroutine
 	go cmc.collectMetricsLoop(ctx)
 
 	if cmc.logger != nil {

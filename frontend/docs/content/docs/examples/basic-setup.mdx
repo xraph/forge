@@ -1,0 +1,1063 @@
+---
+title: Basic Setup
+description: Complete guide to setting up AuthSome Go with the Forge framework
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Basic Setup
+
+This guide walks you through setting up AuthSome Go with the Forge framework from scratch. You'll have a complete authentication system running in under 10 minutes.
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- Go 1.21 or later
+- PostgreSQL database (or SQLite for development)
+- Basic familiarity with Go and web development
+
+## Step 1: Initialize Your Project
+
+Create a new Go project and initialize the module:
+
+```bash
+mkdir my-auth-app
+cd my-auth-app
+go mod init my-auth-app
+```
+
+## Step 2: Install Dependencies
+
+Install AuthSome Go and the Forge framework:
+
+<Tabs items={['Go Modules', 'Manual Installation']}>
+  <Tab value="Go Modules">
+    ```bash
+    # Install core dependencies
+    go get github.com/xraph/authsome
+    go get github.com/xraph/forge
+    
+    # Install database driver
+    go get github.com/lib/pq  # PostgreSQL
+    # OR
+    go get github.com/mattn/go-sqlite3  # SQLite
+    
+    # Install additional utilities
+    go get github.com/joho/godotenv
+    ```
+  </Tab>
+  <Tab value="Manual Installation">
+    ```go
+    // go.mod
+    module my-auth-app
+    
+    go 1.21
+    
+    require (
+        github.com/xraph/authsome v1.0.0
+        github.com/xraph/forge v1.0.0
+        github.com/lib/pq v1.10.9
+        github.com/joho/godotenv v1.5.1
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Step 3: Environment Configuration
+
+Create a `.env` file for your environment variables:
+
+```bash
+# .env
+DATABASE_URL=postgres://username:password@localhost/myapp_dev?sslmode=disable
+SESSION_SECRET=your-super-secret-session-key-change-this-in-production
+PORT=8080
+
+# Optional: Email configuration
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+
+# Optional: OAuth providers
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+```
+
+<Callout type="warning">
+  **Security Note**: Never commit your `.env` file to version control. Add it to your `.gitignore` file.
+</Callout>
+
+## Step 4: Basic Application Structure
+
+Create the main application file:
+
+<Tabs items={['main.go', 'config.go', 'handlers.go']}>
+  <Tab value="main.go">
+    ```go
+    package main
+    
+    import (
+        "log"
+        "os"
+        
+        "github.com/joho/godotenv"
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+    )
+    
+    func main() {
+        // Load environment variables
+        if err := godotenv.Load(); err != nil {
+            log.Println("No .env file found")
+        }
+        
+        // Initialize Forge application
+        app := forge.New(forge.Config{
+            Debug: os.Getenv("DEBUG") == "true",
+        })
+        
+        // Configure AuthSome
+        auth, err := authsome.New(authsome.Options{
+            Mode: authsome.ModeStandalone, // Use ModeSaaS for multi-tenant
+            Database: authsome.DatabaseConfig{
+                URL: os.Getenv("DATABASE_URL"),
+            },
+            Session: authsome.SessionConfig{
+                Secret: os.Getenv("SESSION_SECRET"),
+                MaxAge: 24 * 60 * 60, // 24 hours
+                Secure: os.Getenv("ENV") == "production",
+            },
+            Email: authsome.EmailConfig{
+                Provider: "smtp",
+                SMTP: authsome.SMTPConfig{
+                    Host:     os.Getenv("SMTP_HOST"),
+                    Port:     587,
+                    Username: os.Getenv("SMTP_USERNAME"),
+                    Password: os.Getenv("SMTP_PASSWORD"),
+                },
+            },
+        })
+        if err != nil {
+            log.Fatal("Failed to initialize AuthSome:", err)
+        }
+        
+        // Run database migrations
+        if err := auth.Migrate(); err != nil {
+            log.Fatal("Failed to run migrations:", err)
+        }
+        
+        // Mount AuthSome routes
+        auth.Mount(app, "/auth")
+        
+        // Setup application routes
+        setupRoutes(app, auth)
+        
+        // Start server
+        port := os.Getenv("PORT")
+        if port == "" {
+            port = "8080"
+        }
+        
+        log.Printf("Server starting on port %s", port)
+        log.Fatal(app.Listen(":" + port))
+    }
+    
+    func setupRoutes(app *forge.App, auth *authsome.Auth) {
+        // Public routes
+        app.GET("/", handleHome)
+        app.GET("/health", handleHealth)
+        
+        // Protected routes
+        protected := app.Group("/api", auth.RequireAuth())
+        protected.GET("/profile", handleProfile(auth))
+        protected.GET("/dashboard", handleDashboard(auth))
+        
+        // Admin routes (if using RBAC)
+        admin := app.Group("/admin", auth.RequireAuth(), auth.RequireRole("admin"))
+        admin.GET("/users", handleAdminUsers(auth))
+    }
+    ```
+  </Tab>
+  <Tab value="config.go">
+    ```go
+    package main
+    
+    import (
+        "os"
+        "strconv"
+        
+        "github.com/xraph/authsome"
+    )
+    
+    // AppConfig holds application configuration
+    type AppConfig struct {
+        Port        string
+        Debug       bool
+        Environment string
+        Database    DatabaseConfig
+        Auth        AuthConfig
+    }
+    
+    type DatabaseConfig struct {
+        URL             string
+        MaxConnections  int
+        MaxIdleTime     int
+        ConnectTimeout  int
+    }
+    
+    type AuthConfig struct {
+        SessionSecret   string
+        SessionMaxAge   int
+        CookieSecure    bool
+        EmailProvider   string
+        SMTPHost        string
+        SMTPPort        int
+        SMTPUsername    string
+        SMTPPassword    string
+    }
+    
+    // LoadConfig loads configuration from environment variables
+    func LoadConfig() *AppConfig {
+        return &AppConfig{
+            Port:        getEnv("PORT", "8080"),
+            Debug:       getEnv("DEBUG", "false") == "true",
+            Environment: getEnv("ENV", "development"),
+            Database: DatabaseConfig{
+                URL:             getEnv("DATABASE_URL", "sqlite://app.db"),
+                MaxConnections:  getEnvInt("DB_MAX_CONNECTIONS", 20),
+                MaxIdleTime:     getEnvInt("DB_MAX_IDLE_TIME", 300),
+                ConnectTimeout:  getEnvInt("DB_CONNECT_TIMEOUT", 10),
+            },
+            Auth: AuthConfig{
+                SessionSecret:  getEnv("SESSION_SECRET", "change-this-secret"),
+                SessionMaxAge:  getEnvInt("SESSION_MAX_AGE", 86400),
+                CookieSecure:   getEnv("ENV", "development") == "production",
+                EmailProvider:  getEnv("EMAIL_PROVIDER", "smtp"),
+                SMTPHost:       getEnv("SMTP_HOST", ""),
+                SMTPPort:       getEnvInt("SMTP_PORT", 587),
+                SMTPUsername:   getEnv("SMTP_USERNAME", ""),
+                SMTPPassword:   getEnv("SMTP_PASSWORD", ""),
+            },
+        }
+    }
+    
+    // Helper functions
+    func getEnv(key, defaultValue string) string {
+        if value := os.Getenv(key); value != "" {
+            return value
+        }
+        return defaultValue
+    }
+    
+    func getEnvInt(key string, defaultValue int) int {
+        if value := os.Getenv(key); value != "" {
+            if intValue, err := strconv.Atoi(value); err == nil {
+                return intValue
+            }
+        }
+        return defaultValue
+    }
+    
+    // CreateAuthSomeOptions creates AuthSome options from config
+    func (c *AppConfig) CreateAuthSomeOptions() authsome.Options {
+        return authsome.Options{
+            Mode: authsome.ModeStandalone,
+            Database: authsome.DatabaseConfig{
+                URL:            c.Database.URL,
+                MaxConnections: c.Database.MaxConnections,
+            },
+            Session: authsome.SessionConfig{
+                Secret: c.Auth.SessionSecret,
+                MaxAge: c.Auth.SessionMaxAge,
+                Secure: c.Auth.CookieSecure,
+            },
+            Email: authsome.EmailConfig{
+                Provider: c.Auth.EmailProvider,
+                SMTP: authsome.SMTPConfig{
+                    Host:     c.Auth.SMTPHost,
+                    Port:     c.Auth.SMTPPort,
+                    Username: c.Auth.SMTPUsername,
+                    Password: c.Auth.SMTPPassword,
+                },
+            },
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="handlers.go">
+    ```go
+    package main
+    
+    import (
+        "net/http"
+        
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+    )
+    
+    // handleHome serves the home page
+    func handleHome(c *forge.Context) error {
+        return c.JSON(http.StatusOK, map[string]interface{}{
+            "message": "Welcome to AuthSome Demo",
+            "endpoints": map[string]string{
+                "register":    "POST /auth/register",
+                "login":       "POST /auth/login",
+                "logout":      "POST /auth/logout",
+                "profile":     "GET /api/profile",
+                "dashboard":   "GET /api/dashboard",
+            },
+        })
+    }
+    
+    // handleHealth provides health check endpoint
+    func handleHealth(c *forge.Context) error {
+        return c.JSON(http.StatusOK, map[string]string{
+            "status": "healthy",
+            "service": "authsome-demo",
+        })
+    }
+    
+    // handleProfile returns the current user's profile
+    func handleProfile(auth *authsome.Auth) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            user := auth.GetUser(c)
+            if user == nil {
+                return c.JSON(http.StatusUnauthorized, map[string]string{
+                    "error": "User not found in context",
+                })
+            }
+            
+            return c.JSON(http.StatusOK, map[string]interface{}{
+                "user": user,
+            })
+        }
+    }
+    
+    // handleDashboard provides dashboard data
+    func handleDashboard(auth *authsome.Auth) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            user := auth.GetUser(c)
+            session := auth.GetSession(c)
+            
+            return c.JSON(http.StatusOK, map[string]interface{}{
+                "message": "Welcome to your dashboard",
+                "user": map[string]interface{}{
+                    "id":       user.ID,
+                    "email":    user.Email,
+                    "name":     user.FirstName + " " + user.LastName,
+                    "verified": user.EmailVerified,
+                },
+                "session": map[string]interface{}{
+                    "id":        session.ID,
+                    "createdAt": session.CreatedAt,
+                    "expiresAt": session.ExpiresAt,
+                },
+                "stats": map[string]interface{}{
+                    "loginCount":    user.LoginCount,
+                    "lastLoginAt":   user.LastLoginAt,
+                    "accountAge":    user.CreatedAt,
+                },
+            })
+        }
+    }
+    
+    // handleAdminUsers provides admin user management
+    func handleAdminUsers(auth *authsome.Auth) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            // Get pagination parameters
+            page := c.QueryInt("page", 1)
+            limit := c.QueryInt("limit", 20)
+            
+            // Get users (this would typically use a service)
+            users, err := auth.ListUsers(c.Context(), authsome.ListUsersOptions{
+                Page:  page,
+                Limit: limit,
+            })
+            if err != nil {
+                return c.JSON(http.StatusInternalServerError, map[string]string{
+                    "error": "Failed to fetch users",
+                })
+            }
+            
+            return c.JSON(http.StatusOK, map[string]interface{}{
+                "users": users.Data,
+                "pagination": map[string]interface{}{
+                    "page":       users.Page,
+                    "limit":      users.Limit,
+                    "total":      users.Total,
+                    "totalPages": users.TotalPages,
+                },
+            })
+        }
+    }
+    
+    // Custom middleware example
+    func corsMiddleware() forge.MiddlewareFunc {
+        return func(next forge.HandlerFunc) forge.HandlerFunc {
+            return func(c *forge.Context) error {
+                c.Header("Access-Control-Allow-Origin", "*")
+                c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+                c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+                
+                if c.Method() == "OPTIONS" {
+                    return c.NoContent(http.StatusNoContent)
+                }
+                
+                return next(c)
+            }
+        }
+    }
+    
+    // Error handling middleware
+    func errorMiddleware() forge.MiddlewareFunc {
+        return func(next forge.HandlerFunc) forge.HandlerFunc {
+            return func(c *forge.Context) error {
+                err := next(c)
+                if err == nil {
+                    return nil
+                }
+                
+                // Handle AuthSome specific errors
+                if authErr, ok := err.(*authsome.Error); ok {
+                    return c.JSON(authErr.StatusCode, map[string]interface{}{
+                        "error": map[string]interface{}{
+                            "code":    authErr.Code,
+                            "message": authErr.Message,
+                            "details": authErr.Details,
+                        },
+                    })
+                }
+                
+                // Handle generic errors
+                return c.JSON(http.StatusInternalServerError, map[string]string{
+                    "error": "Internal server error",
+                })
+            }
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Step 5: Database Setup
+
+### PostgreSQL Setup
+
+1. Create a database:
+```sql
+CREATE DATABASE myapp_dev;
+CREATE USER myapp_user WITH PASSWORD 'myapp_password';
+GRANT ALL PRIVILEGES ON DATABASE myapp_dev TO myapp_user;
+```
+
+2. Update your `.env` file:
+```bash
+DATABASE_URL=postgres://myapp_user:myapp_password@localhost/myapp_dev?sslmode=disable
+```
+
+### SQLite Setup (Development)
+
+For development, you can use SQLite:
+
+```bash
+# .env
+DATABASE_URL=sqlite://app.db
+```
+
+<Callout type="info">
+  AuthSome will automatically create the SQLite database file and run migrations when you start the application.
+</Callout>
+
+## Step 6: Run the Application
+
+Start your application:
+
+```bash
+go run .
+```
+
+You should see output similar to:
+
+```
+Server starting on port 8080
+```
+
+## Step 7: Test the Authentication
+
+### Register a New User
+
+```bash
+curl -X POST http://localhost:8080/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "password123",
+    "firstName": "John",
+    "lastName": "Doe"
+  }'
+```
+
+### Login
+
+```bash
+curl -X POST http://localhost:8080/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "password123"
+  }' \
+  -c cookies.txt
+```
+
+### Access Protected Route
+
+```bash
+curl -X GET http://localhost:8080/api/profile \
+  -b cookies.txt
+```
+
+## Step 8: Frontend Integration
+
+Create a simple HTML frontend to test your authentication:
+
+<Tabs items={['index.html', 'app.js', 'styles.css']}>
+  <Tab value="index.html">
+    ```html
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>AuthSome Demo</title>
+        <link rel="stylesheet" href="styles.css">
+    </head>
+    <body>
+        <div class="container">
+            <h1>AuthSome Demo</h1>
+            
+            <!-- Login Form -->
+            <div id="loginForm" class="form-container">
+                <h2>Login</h2>
+                <form id="login">
+                    <input type="email" id="loginEmail" placeholder="Email" required>
+                    <input type="password" id="loginPassword" placeholder="Password" required>
+                    <button type="submit">Login</button>
+                </form>
+                <p>Don't have an account? <a href="#" onclick="showRegister()">Register</a></p>
+            </div>
+            
+            <!-- Register Form -->
+            <div id="registerForm" class="form-container" style="display: none;">
+                <h2>Register</h2>
+                <form id="register">
+                    <input type="text" id="firstName" placeholder="First Name" required>
+                    <input type="text" id="lastName" placeholder="Last Name" required>
+                    <input type="email" id="registerEmail" placeholder="Email" required>
+                    <input type="password" id="registerPassword" placeholder="Password" required>
+                    <button type="submit">Register</button>
+                </form>
+                <p>Already have an account? <a href="#" onclick="showLogin()">Login</a></p>
+            </div>
+            
+            <!-- Dashboard -->
+            <div id="dashboard" class="dashboard" style="display: none;">
+                <h2>Dashboard</h2>
+                <div id="userInfo"></div>
+                <button onclick="logout()">Logout</button>
+            </div>
+            
+            <!-- Messages -->
+            <div id="message" class="message"></div>
+        </div>
+        
+        <script src="app.js"></script>
+    </body>
+    </html>
+    ```
+  </Tab>
+  <Tab value="app.js">
+    ```javascript
+    const API_BASE = 'http://localhost:8080';
+    
+    // DOM elements
+    const loginForm = document.getElementById('loginForm');
+    const registerForm = document.getElementById('registerForm');
+    const dashboard = document.getElementById('dashboard');
+    const messageDiv = document.getElementById('message');
+    
+    // Show/hide forms
+    function showLogin() {
+        loginForm.style.display = 'block';
+        registerForm.style.display = 'none';
+        dashboard.style.display = 'none';
+    }
+    
+    function showRegister() {
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'block';
+        dashboard.style.display = 'none';
+    }
+    
+    function showDashboard() {
+        loginForm.style.display = 'none';
+        registerForm.style.display = 'none';
+        dashboard.style.display = 'block';
+    }
+    
+    // Show message
+    function showMessage(text, type = 'info') {
+        messageDiv.textContent = text;
+        messageDiv.className = `message ${type}`;
+        setTimeout(() => {
+            messageDiv.textContent = '';
+            messageDiv.className = 'message';
+        }, 5000);
+    }
+    
+    // API calls
+    async function apiCall(endpoint, options = {}) {
+        try {
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                },
+                ...options
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error?.message || data.error || 'Request failed');
+            }
+            
+            return data;
+        } catch (error) {
+            throw new Error(error.message);
+        }
+    }
+    
+    // Register
+    document.getElementById('register').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        try {
+            const data = await apiCall('/auth/register', {
+                method: 'POST',
+                body: JSON.stringify({
+                    firstName: document.getElementById('firstName').value,
+                    lastName: document.getElementById('lastName').value,
+                    email: document.getElementById('registerEmail').value,
+                    password: document.getElementById('registerPassword').value
+                })
+            });
+            
+            showMessage('Registration successful! Please check your email to verify your account.', 'success');
+            showLogin();
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    });
+    
+    // Login
+    document.getElementById('login').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        try {
+            const data = await apiCall('/auth/login', {
+                method: 'POST',
+                body: JSON.stringify({
+                    email: document.getElementById('loginEmail').value,
+                    password: document.getElementById('loginPassword').value
+                })
+            });
+            
+            showMessage('Login successful!', 'success');
+            loadDashboard();
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    });
+    
+    // Load dashboard
+    async function loadDashboard() {
+        try {
+            const data = await apiCall('/api/dashboard');
+            
+            document.getElementById('userInfo').innerHTML = `
+                <h3>Welcome, ${data.user.name}!</h3>
+                <p><strong>Email:</strong> ${data.user.email}</p>
+                <p><strong>Verified:</strong> ${data.user.verified ? 'Yes' : 'No'}</p>
+                <p><strong>Login Count:</strong> ${data.stats.loginCount}</p>
+                <p><strong>Last Login:</strong> ${new Date(data.stats.lastLoginAt).toLocaleString()}</p>
+                <p><strong>Member Since:</strong> ${new Date(data.stats.accountAge).toLocaleDateString()}</p>
+            `;
+            
+            showDashboard();
+        } catch (error) {
+            showMessage(error.message, 'error');
+            showLogin();
+        }
+    }
+    
+    // Logout
+    async function logout() {
+        try {
+            await apiCall('/auth/logout', { method: 'POST' });
+            showMessage('Logged out successfully!', 'success');
+            showLogin();
+        } catch (error) {
+            showMessage(error.message, 'error');
+        }
+    }
+    
+    // Check if user is already logged in
+    window.addEventListener('load', async () => {
+        try {
+            await loadDashboard();
+        } catch (error) {
+            showLogin();
+        }
+    });
+    ```
+  </Tab>
+  <Tab value="styles.css">
+    ```css
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+    }
+    
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .container {
+        background: white;
+        padding: 2rem;
+        border-radius: 10px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        width: 100%;
+        max-width: 400px;
+    }
+    
+    h1 {
+        text-align: center;
+        color: #333;
+        margin-bottom: 2rem;
+    }
+    
+    h2 {
+        text-align: center;
+        color: #555;
+        margin-bottom: 1.5rem;
+    }
+    
+    h3 {
+        color: #333;
+        margin-bottom: 1rem;
+    }
+    
+    .form-container {
+        margin-bottom: 1rem;
+    }
+    
+    form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    input {
+        padding: 0.75rem;
+        border: 2px solid #e1e5e9;
+        border-radius: 5px;
+        font-size: 1rem;
+        transition: border-color 0.3s;
+    }
+    
+    input:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    button {
+        padding: 0.75rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        font-size: 1rem;
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+    
+    button:hover {
+        transform: translateY(-2px);
+    }
+    
+    button:active {
+        transform: translateY(0);
+    }
+    
+    a {
+        color: #667eea;
+        text-decoration: none;
+    }
+    
+    a:hover {
+        text-decoration: underline;
+    }
+    
+    p {
+        text-align: center;
+        margin-top: 1rem;
+        color: #666;
+    }
+    
+    .dashboard {
+        text-align: center;
+    }
+    
+    .dashboard p {
+        text-align: left;
+        margin: 0.5rem 0;
+        padding: 0.5rem;
+        background: #f8f9fa;
+        border-radius: 5px;
+    }
+    
+    .message {
+        margin-top: 1rem;
+        padding: 0.75rem;
+        border-radius: 5px;
+        text-align: center;
+        font-weight: 500;
+    }
+    
+    .message.success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+    }
+    
+    .message.error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+    }
+    
+    .message.info {
+        background: #d1ecf1;
+        color: #0c5460;
+        border: 1px solid #bee5eb;
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Step 9: Production Considerations
+
+### Environment Variables
+
+Create a production `.env` file:
+
+```bash
+# Production .env
+ENV=production
+DEBUG=false
+DATABASE_URL=postgres://user:password@prod-db:5432/myapp
+SESSION_SECRET=your-super-secure-production-secret
+PORT=8080
+
+# SSL/TLS
+FORCE_HTTPS=true
+COOKIE_SECURE=true
+
+# Email
+SMTP_HOST=smtp.sendgrid.net
+SMTP_PORT=587
+SMTP_USERNAME=apikey
+SMTP_PASSWORD=your-sendgrid-api-key
+
+# OAuth
+GOOGLE_CLIENT_ID=your-production-google-client-id
+GOOGLE_CLIENT_SECRET=your-production-google-client-secret
+```
+
+### Docker Configuration
+
+<Tabs items={['Dockerfile', 'docker-compose.yml', '.dockerignore']}>
+  <Tab value="Dockerfile">
+    ```dockerfile
+    # Build stage
+    FROM golang:1.21-alpine AS builder
+    
+    WORKDIR /app
+    
+    # Install dependencies
+    COPY go.mod go.sum ./
+    RUN go mod download
+    
+    # Copy source code
+    COPY . .
+    
+    # Build application
+    RUN CGO_ENABLED=0 GOOS=linux go build -o main .
+    
+    # Production stage
+    FROM alpine:latest
+    
+    # Install ca-certificates for HTTPS
+    RUN apk --no-cache add ca-certificates
+    
+    WORKDIR /root/
+    
+    # Copy binary from builder
+    COPY --from=builder /app/main .
+    
+    # Expose port
+    EXPOSE 8080
+    
+    # Run application
+    CMD ["./main"]
+    ```
+  </Tab>
+  <Tab value="docker-compose.yml">
+    ```yaml
+    version: '3.8'
+    
+    services:
+      app:
+        build: .
+        ports:
+          - "8080:8080"
+        environment:
+          - DATABASE_URL=postgres://postgres:password@db:5432/myapp?sslmode=disable
+          - SESSION_SECRET=your-session-secret
+          - ENV=production
+        depends_on:
+          - db
+          - redis
+        restart: unless-stopped
+    
+      db:
+        image: postgres:15-alpine
+        environment:
+          - POSTGRES_DB=myapp
+          - POSTGRES_USER=postgres
+          - POSTGRES_PASSWORD=password
+        volumes:
+          - postgres_data:/var/lib/postgresql/data
+        restart: unless-stopped
+    
+      redis:
+        image: redis:7-alpine
+        restart: unless-stopped
+    
+    volumes:
+      postgres_data:
+    ```
+  </Tab>
+  <Tab value=".dockerignore">
+    ```
+    .env
+    .git
+    .gitignore
+    README.md
+    Dockerfile
+    docker-compose.yml
+    node_modules
+    *.log
+    ```
+  </Tab>
+</Tabs>
+
+### Security Checklist
+
+- [ ] Use strong, unique session secrets
+- [ ] Enable HTTPS in production
+- [ ] Set secure cookie flags
+- [ ] Configure CORS properly
+- [ ] Use environment variables for secrets
+- [ ] Enable rate limiting
+- [ ] Set up proper logging
+- [ ] Configure database connection limits
+- [ ] Use prepared statements (handled by Bun ORM)
+- [ ] Validate all user inputs
+
+## Next Steps
+
+Now that you have AuthSome Go running, explore these advanced features:
+
+<Cards>
+  <Card
+    title="User Authentication"
+    description="Implement advanced user registration and login flows"
+    href="/docs/go/examples/user-auth"
+  />
+  <Card
+    title="Session Management"
+    description="Handle user sessions, remember me, and multi-device support"
+    href="/docs/go/examples/sessions"
+  />
+  <Card
+    title="Organizations"
+    description="Add multi-tenant organization support"
+    href="/docs/go/examples/organizations"
+  />
+  <Card
+    title="Social Login"
+    description="Integrate OAuth providers like Google and GitHub"
+    href="/docs/go/examples/social-login"
+  />
+</Cards>
+
+## Troubleshooting
+
+### Common Issues
+
+**Database Connection Failed**
+```bash
+# Check if PostgreSQL is running
+pg_isready -h localhost -p 5432
+
+# Test connection
+psql -h localhost -U username -d database_name
+```
+
+**Session Secret Error**
+```bash
+# Generate a secure session secret
+openssl rand -base64 32
+```
+
+**Port Already in Use**
+```bash
+# Find process using port 8080
+lsof -i :8080
+
+# Kill process
+kill -9 <PID>
+```
+
+**CORS Issues**
+Add the CORS middleware to your application:
+```go
+app.Use(corsMiddleware())
+```
+
+<Callout type="info">
+  If you encounter any issues, check the [troubleshooting guide](/docs/go/troubleshooting) or open an issue on GitHub.
+</Callout>

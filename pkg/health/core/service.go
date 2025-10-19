@@ -35,10 +35,10 @@ type ServiceLifecycle interface {
 	Dependencies() []string
 
 	// OnStart starts the health service
-	OnStart(ctx context.Context) error
+	Start(ctx context.Context) error
 
 	// OnStop stops the health service
-	OnStop(ctx context.Context) error
+	Stop(ctx context.Context) error
 
 	// OnHealthCheck performs a health check on the service itself
 	OnHealthCheck(ctx context.Context) error

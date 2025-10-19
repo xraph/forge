@@ -1,8 +1,8 @@
 package forge
 
 import (
-	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/xraph/forge/pkg/cache"
@@ -16,7 +16,6 @@ import (
 	"github.com/xraph/forge/pkg/logger"
 	"github.com/xraph/forge/pkg/metrics"
 	"github.com/xraph/forge/pkg/middleware"
-	"github.com/xraph/forge/pkg/plugins"
 	"github.com/xraph/forge/pkg/streaming"
 )
 
@@ -40,7 +39,7 @@ type ApplicationConfig struct {
 	// Cache configurations (NEW)
 	CacheConfig  *cache.CacheConfig
 	CacheService *cache.CacheService
-	CacheManager *cache.CacheManager
+	CacheManager cache.CacheManager
 
 	// Pre-built instances (for cases where user provides ready instances)
 	Logger        common.Logger
@@ -62,10 +61,9 @@ type ApplicationConfig struct {
 	MiddlewareConfig *middleware.ManagerConfig
 
 	// Component collections (to be added after initialization)
-	Services      []common.Service
-	Controllers   []common.Controller
-	Plugins       []common.Plugin
-	PluginSources []PluginSource
+	Services    []common.Service
+	Controllers []common.Controller
+	Plugins     []common.Plugin
 
 	// Service definitions for DI container
 	ServiceDefinitions []common.ServiceDefinition
@@ -80,6 +78,57 @@ type ApplicationConfig struct {
 	EnableMetricsEndpoints bool
 	EnableHealthEndpoints  bool
 	EnableCacheEndpoints   bool
+}
+
+// Validate validates the application configuration
+func (c *ApplicationConfig) Validate() error {
+	var errors []string
+
+	// Validate basic configuration
+	if c.Description == "" {
+		errors = append(errors, "description is required")
+	}
+
+	if c.StopTimeout < 0 {
+		errors = append(errors, "stop timeout must be non-negative")
+	}
+
+	// Validate component configurations (basic validation only)
+	// Note: Individual config types may not have Validate methods yet
+
+	// Validate plugins
+	for i, plugin := range c.Plugins {
+		if plugin == nil {
+			errors = append(errors, fmt.Sprintf("plugin %d: cannot be nil", i))
+		} else if plugin.Name() == "" {
+			errors = append(errors, fmt.Sprintf("plugin %d: name cannot be empty", i))
+		}
+	}
+
+	// Validate controllers
+	for i, controller := range c.Controllers {
+		if controller == nil {
+			errors = append(errors, fmt.Sprintf("controller %d: cannot be nil", i))
+		} else if controller.Name() == "" {
+			errors = append(errors, fmt.Sprintf("controller %d: name cannot be empty", i))
+		}
+	}
+
+	// Validate services
+	for i, service := range c.Services {
+		if service == nil {
+			errors = append(errors, fmt.Sprintf("service %d: cannot be nil", i))
+		} else if service.Name() == "" {
+			errors = append(errors, fmt.Sprintf("service %d: name cannot be empty", i))
+		}
+	}
+
+	// Return combined errors
+	if len(errors) > 0 {
+		return fmt.Errorf("configuration validation failed: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
 }
 
 // NewApplicationConfig creates a new configuration with defaults
@@ -487,7 +536,7 @@ func WithCacheService(cacheService *cache.CacheService) ApplicationOption {
 }
 
 // WithCacheManager stores a pre-built cache manager instance
-func WithCacheManager(cacheManager *cache.CacheManager) ApplicationOption {
+func WithCacheManager(cacheManager cache.CacheManager) ApplicationOption {
 	return func(config *ApplicationConfig) error {
 		config.CacheManager = cacheManager
 		return nil
@@ -716,81 +765,8 @@ func WithCacheEndpoints() ApplicationOption {
 	}
 }
 
-// Helper methods for creating plugin sources
-
-// NewFilePluginSource creates a plugin source from a file
-func NewFilePluginSource(filePath string, config map[string]interface{}) PluginSource {
-	return &FilePluginSource{
-		Path:   filePath,
-		Config: config,
-	}
-}
-
-// NewMarketplacePluginSource creates a plugin source from marketplace
-func NewMarketplacePluginSource(pluginID, version string, config map[string]interface{}) PluginSource {
-	return &MarketplacePluginSource{
-		PluginID: pluginID,
-		Version:  version,
-		Config:   config,
-	}
-}
-
-// NewURLPluginSource creates a plugin source from URL
-func NewURLPluginSource(url, version string, config map[string]interface{}) PluginSource {
-	return &URLPluginSource{
-		URL:     url,
-		Version: version,
-		Config:  config,
-	}
-}
-
-// NewDirectPluginSource creates a plugin source from an existing plugin instance
-func NewDirectPluginSource(plugin plugins.Plugin) PluginSource {
-	return &DirectPluginSource{
-		Plugin: plugin,
-	}
-}
-
 // Application configuration options for plugins
-
-// WithPluginSources adds plugin sources to load during application initialization
-func WithPluginSources(sources ...PluginSource) ApplicationOption {
-	return func(config *ApplicationConfig) error {
-		config.PluginSources = append(config.PluginSources, sources...)
-		return nil
-	}
-}
-
-// WithPluginFromFile adds a file-based plugin during initialization
-func WithPluginFromFile(filePath string, config map[string]interface{}) ApplicationOption {
-	return WithPluginSources(NewFilePluginSource(filePath, config))
-}
-
-// WithPluginFromMarketplace adds a marketplace plugin during initialization
-func WithPluginFromMarketplace(pluginID, version string, config map[string]interface{}) ApplicationOption {
-	return WithPluginSources(NewMarketplacePluginSource(pluginID, version, config))
-}
-
-// Enhanced application initialization to handle plugin sources
-func (app *ForgeApplication) loadPluginSources(config *ApplicationConfig) error {
-	if len(config.PluginSources) == 0 {
-		return nil
-	}
-
-	ctx := context.Background()
-	for i, source := range config.PluginSources {
-		if err := app.AddPluginFromSource(ctx, source); err != nil {
-			app.logger.Warn("failed to load plugin from source",
-				logger.Int("source_index", i),
-				logger.String("source_type", fmt.Sprintf("%T", source)),
-				logger.Error(err),
-			)
-			// Continue loading other plugins instead of failing completely
-		}
-	}
-
-	return nil
-}
+// (Plugin source loading removed - use WithPlugin to add plugins directly)
 
 // =============================================================================
 // CONVENIENCE FUNCTIONS FOR APPLICATION CREATION

@@ -57,7 +57,7 @@ func (im *InvalidationManager) Start(ctx context.Context) error {
 	// Initialize buffer
 	im.buffer = make(chan cachecore.InvalidationEvent, im.bufferSize)
 
-	// OnStart background processors
+	// Start background processors
 	im.wg.Add(1)
 	go im.eventProcessor()
 

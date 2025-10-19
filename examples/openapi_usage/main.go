@@ -98,7 +98,7 @@ func (s *userService) Dependencies() []string {
 	return []string{"logger"} // Declare dependency explicitly
 }
 
-func (s *userService) OnStart(ctx context.Context) error {
+func (s *userService) Start(ctx context.Context) error {
 	s.logger.Info("user service starting")
 
 	// Seed initial data
@@ -116,7 +116,7 @@ func (s *userService) OnStart(ctx context.Context) error {
 	return nil
 }
 
-func (s *userService) OnStop(ctx context.Context) error {
+func (s *userService) Stop(ctx context.Context) error {
 	s.logger.Info("user service stopping")
 	return nil
 }
@@ -333,7 +333,7 @@ func main() {
 	// 	log.Fatal("Failed to register health check handler:", err)
 	// }
 
-	// OnStart HTTP server
+	// Start HTTP server
 	go func() {
 		if err := app.StartServer(":8080"); err != nil {
 			log.Printf("Failed to start HTTP server: %v", err)

@@ -11,8 +11,8 @@ import (
 	"github.com/xraph/forge/pkg/logger"
 )
 
-// CacheManager manages multiple cache backends
-type CacheManager struct {
+// Manager manages multiple cache backends
+type Manager struct {
 	caches           map[string]CacheBackend
 	defaultCache     string
 	factory          CacheFactory
@@ -29,8 +29,8 @@ type CacheManager struct {
 	shutdownComplete chan struct{}
 }
 
-// CacheManagerConfig contains configuration for CacheManager
-type CacheManagerConfig struct {
+// ManagerConfig contains configuration for Manager
+type ManagerConfig struct {
 	DefaultCache  string                        `yaml:"default_cache" json:"default_cache"`
 	Caches        map[string]CacheBackendConfig `yaml:"caches" json:"caches"`
 	Invalidation  InvalidationConfig            `yaml:"invalidation" json:"invalidation"`
@@ -47,9 +47,9 @@ type CacheManagerConfig struct {
 // CacheBackendConfig contains configuration for a cache backend
 type CacheBackendConfig = cachecore.CacheBackendConfig
 
-// NewCacheManager creates a new CacheManager
-func NewCacheManager(config *CacheManagerConfig, logger common.Logger, metrics common.Metrics) *CacheManager {
-	return &CacheManager{
+// NewCacheManager creates a new Manager
+func NewCacheManager(config *ManagerConfig, logger common.Logger, metrics common.Metrics) *Manager {
+	return &Manager{
 		caches:           make(map[string]CacheBackend),
 		factory:          NewCacheFactory(),
 		logger:           logger,
@@ -63,17 +63,17 @@ func NewCacheManager(config *CacheManagerConfig, logger common.Logger, metrics c
 }
 
 // Name returns the service name
-func (cm *CacheManager) Name() string {
+func (cm *Manager) Name() string {
 	return "cache-manager"
 }
 
 // Dependencies returns the service dependencies
-func (cm *CacheManager) Dependencies() []string {
+func (cm *Manager) Dependencies() []string {
 	return []string{"metrics", "logger", "config-manager"}
 }
 
 // OnStart starts the cache manager
-func (cm *CacheManager) OnStart(ctx context.Context) error {
+func (cm *Manager) Start(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -89,7 +89,7 @@ func (cm *CacheManager) OnStart(ctx context.Context) error {
 	// Initialize cache factory
 	cm.initializeCacheFactory()
 
-	// OnStart cache backends
+	// Start cache backends
 	for name, backend := range cm.caches {
 		if err := backend.Start(ctx); err != nil {
 			cm.logger.Error("failed to start cache backend",
@@ -100,21 +100,21 @@ func (cm *CacheManager) OnStart(ctx context.Context) error {
 		}
 	}
 
-	// OnStart invalidation manager
+	// Start invalidation manager
 	if cm.invalidation != nil {
 		if err := cm.invalidation.Start(ctx); err != nil {
 			return common.ErrServiceStartFailed("invalidation-manager", err)
 		}
 	}
 
-	// OnStart cache warming
+	// Start cache warming
 	if cm.warming != nil {
 		if err := cm.warming.Start(ctx); err != nil {
 			return common.ErrServiceStartFailed(common.CacheWarmer, err)
 		}
 	}
 
-	// OnStart background tasks
+	// Start background tasks
 	go cm.backgroundTasks()
 
 	cm.started = true
@@ -132,7 +132,7 @@ func (cm *CacheManager) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the cache manager
-func (cm *CacheManager) OnStop(ctx context.Context) error {
+func (cm *Manager) Stop(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -145,21 +145,21 @@ func (cm *CacheManager) OnStop(ctx context.Context) error {
 	// Signal shutdown
 	close(cm.shutdownChannel)
 
-	// OnStop cache warming
+	// Stop cache warming
 	if cm.warming != nil {
 		if err := cm.warming.Stop(ctx); err != nil {
 			cm.logger.Error("failed to stop cache warmer", logger.Error(err))
 		}
 	}
 
-	// OnStop invalidation manager
+	// Stop invalidation manager
 	if cm.invalidation != nil {
 		if err := cm.invalidation.Stop(ctx); err != nil {
 			cm.logger.Error("failed to stop invalidation manager", logger.Error(err))
 		}
 	}
 
-	// OnStop cache backends
+	// Stop cache backends
 	for name, backend := range cm.caches {
 		if err := backend.Stop(ctx); err != nil {
 			cm.logger.Error("failed to stop cache backend",
@@ -189,7 +189,7 @@ func (cm *CacheManager) OnStop(ctx context.Context) error {
 }
 
 // OnHealthCheck performs health check
-func (cm *CacheManager) OnHealthCheck(ctx context.Context) error {
+func (cm *Manager) OnHealthCheck(ctx context.Context) error {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -228,7 +228,7 @@ func (cm *CacheManager) OnHealthCheck(ctx context.Context) error {
 }
 
 // RegisterCache registers a new cache backend
-func (cm *CacheManager) RegisterCache(name string, backend CacheBackend) error {
+func (cm *Manager) RegisterCache(name string, backend CacheBackend) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -262,7 +262,7 @@ func (cm *CacheManager) RegisterCache(name string, backend CacheBackend) error {
 }
 
 // UnregisterCache unregisters a cache backend
-func (cm *CacheManager) UnregisterCache(name string) error {
+func (cm *Manager) UnregisterCache(name string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -271,7 +271,7 @@ func (cm *CacheManager) UnregisterCache(name string) error {
 		return common.ErrServiceNotFound(name)
 	}
 
-	// OnStop the backend
+	// Stop the backend
 	if err := backend.Stop(context.Background()); err != nil {
 		cm.logger.Error("failed to stop cache backend during unregistration",
 			logger.String("name", name),
@@ -302,7 +302,7 @@ func (cm *CacheManager) UnregisterCache(name string) error {
 }
 
 // GetCache returns a cache by name
-func (cm *CacheManager) GetCache(name string) (Cache, error) {
+func (cm *Manager) GetCache(name string) (Cache, error) {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -319,12 +319,12 @@ func (cm *CacheManager) GetCache(name string) (Cache, error) {
 }
 
 // GetDefaultCache returns the default cache
-func (cm *CacheManager) GetDefaultCache() (Cache, error) {
+func (cm *Manager) GetDefaultCache() (Cache, error) {
 	return cm.GetCache("")
 }
 
 // ListCaches returns all registered caches
-func (cm *CacheManager) ListCaches() []cachecore.Cache {
+func (cm *Manager) ListCaches() []cachecore.Cache {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -337,7 +337,7 @@ func (cm *CacheManager) ListCaches() []cachecore.Cache {
 }
 
 // SetDefaultCache sets the default cache
-func (cm *CacheManager) SetDefaultCache(name string) error {
+func (cm *Manager) SetDefaultCache(name string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -352,7 +352,7 @@ func (cm *CacheManager) SetDefaultCache(name string) error {
 }
 
 // AddObserver adds a cache observer
-func (cm *CacheManager) AddObserver(observer CacheObserver) {
+func (cm *Manager) AddObserver(observer CacheObserver) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -360,7 +360,7 @@ func (cm *CacheManager) AddObserver(observer CacheObserver) {
 }
 
 // RemoveObserver removes a cache observer
-func (cm *CacheManager) RemoveObserver(observer CacheObserver) {
+func (cm *Manager) RemoveObserver(observer CacheObserver) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -373,7 +373,7 @@ func (cm *CacheManager) RemoveObserver(observer CacheObserver) {
 }
 
 // GetStats returns cache statistics
-func (cm *CacheManager) GetStats() map[string]CacheStats {
+func (cm *Manager) GetStats() map[string]CacheStats {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -386,7 +386,7 @@ func (cm *CacheManager) GetStats() map[string]CacheStats {
 }
 
 // GetCombinedStats returns combined statistics for all caches
-func (cm *CacheManager) GetCombinedStats() CacheStats {
+func (cm *Manager) GetCombinedStats() CacheStats {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -418,7 +418,7 @@ func (cm *CacheManager) GetCombinedStats() CacheStats {
 }
 
 // InvalidatePattern invalidates keys matching a pattern across all caches
-func (cm *CacheManager) InvalidatePattern(ctx context.Context, pattern string) error {
+func (cm *Manager) InvalidatePattern(ctx context.Context, pattern string) error {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -442,7 +442,7 @@ func (cm *CacheManager) InvalidatePattern(ctx context.Context, pattern string) e
 }
 
 // InvalidateByTags invalidates keys with specific tags across all caches
-func (cm *CacheManager) InvalidateByTags(ctx context.Context, tags []string) error {
+func (cm *Manager) InvalidateByTags(ctx context.Context, tags []string) error {
 	if cm.invalidation == nil {
 		return fmt.Errorf("invalidation manager not configured")
 	}
@@ -451,7 +451,7 @@ func (cm *CacheManager) InvalidateByTags(ctx context.Context, tags []string) err
 }
 
 // WarmCache warms the cache with predefined data
-func (cm *CacheManager) WarmCache(ctx context.Context, cacheName string, config cachecore.WarmConfig) error {
+func (cm *Manager) WarmCache(ctx context.Context, cacheName string, config cachecore.WarmConfig) error {
 	if cm.warming == nil {
 		return fmt.Errorf("cache warmer not configured")
 	}
@@ -460,22 +460,22 @@ func (cm *CacheManager) WarmCache(ctx context.Context, cacheName string, config 
 }
 
 // GetInvalidationManager returns the invalidation manager
-func (cm *CacheManager) GetInvalidationManager() cachecore.InvalidationManager {
+func (cm *Manager) GetInvalidationManager() cachecore.InvalidationManager {
 	return cm.invalidation
 }
 
 // GetCacheWarmer returns the cache warmer
-func (cm *CacheManager) GetCacheWarmer() cachecore.CacheWarmer {
+func (cm *Manager) GetCacheWarmer() cachecore.CacheWarmer {
 	return cm.warming
 }
 
 // GetFactory returns the cache factory
-func (cm *CacheManager) GetFactory() CacheFactory {
+func (cm *Manager) GetFactory() CacheFactory {
 	return cm.factory
 }
 
 // initializeCacheFactory initializes the cache factory with default backends
-func (cm *CacheManager) initializeCacheFactory() {
+func (cm *Manager) initializeCacheFactory() {
 	// Register default cache backends
 	cm.factory.Register(CacheTypeMemory, func(name string, config interface{}, l common.Logger, metrics common.Metrics) (CacheBackend, error) {
 		return NewMemoryCache(name, config, l, metrics)
@@ -495,7 +495,7 @@ func (cm *CacheManager) initializeCacheFactory() {
 }
 
 // backgroundTasks runs background maintenance tasks
-func (cm *CacheManager) backgroundTasks() {
+func (cm *Manager) backgroundTasks() {
 	defer close(cm.shutdownComplete)
 
 	ticker := time.NewTicker(30 * time.Second)
@@ -513,7 +513,7 @@ func (cm *CacheManager) backgroundTasks() {
 }
 
 // performMaintenance performs periodic maintenance tasks
-func (cm *CacheManager) performMaintenance() {
+func (cm *Manager) performMaintenance() {
 	ctx := context.Background()
 
 	// Collect and report metrics
@@ -529,7 +529,7 @@ func (cm *CacheManager) performMaintenance() {
 }
 
 // collectMetrics collects metrics from all caches
-func (cm *CacheManager) collectMetrics() {
+func (cm *Manager) collectMetrics() {
 	stats := cm.GetCombinedStats()
 
 	cm.metrics.Counter("forge.cache.hits").Add(float64(stats.Hits))
@@ -544,7 +544,7 @@ func (cm *CacheManager) collectMetrics() {
 }
 
 // checkCacheHealth checks the health of all caches
-func (cm *CacheManager) checkCacheHealth(ctx context.Context) {
+func (cm *Manager) checkCacheHealth(ctx context.Context) {
 	for name, healthCheck := range cm.healthChecks {
 		if err := healthCheck(ctx); err != nil {
 			cm.logger.Error("cache health check failed",
@@ -560,14 +560,14 @@ func (cm *CacheManager) checkCacheHealth(ctx context.Context) {
 }
 
 // cleanupExpiredEntries performs cleanup of expired entries
-func (cm *CacheManager) cleanupExpiredEntries(ctx context.Context) {
+func (cm *Manager) cleanupExpiredEntries(ctx context.Context) {
 	// This would be implemented based on specific cache backend capabilities
 	// For now, we'll just log the cleanup attempt
 	cm.logger.Debug("performing cache cleanup")
 }
 
 // notifyObservers notifies all observers of a cache event
-func (cm *CacheManager) notifyObservers(eventType string, ctx context.Context, key string, value interface{}) {
+func (cm *Manager) notifyObservers(eventType string, ctx context.Context, key string, value interface{}) {
 	for _, observer := range cm.observers {
 		switch eventType {
 		case "hit":
@@ -583,19 +583,19 @@ func (cm *CacheManager) notifyObservers(eventType string, ctx context.Context, k
 }
 
 // IsStarted returns true if the cache manager is started
-func (cm *CacheManager) IsStarted() bool {
+func (cm *Manager) IsStarted() bool {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 	return cm.started
 }
 
 // GetConfig returns the cache manager configuration
-func (cm *CacheManager) GetConfig() *CacheConfig {
+func (cm *Manager) GetConfig() *CacheConfig {
 	return cm.config
 }
 
 // UpdateConfig updates the cache manager configuration
-func (cm *CacheManager) UpdateConfig(config *CacheConfig) error {
+func (cm *Manager) UpdateConfig(config *CacheConfig) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 

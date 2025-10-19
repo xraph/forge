@@ -1,0 +1,1244 @@
+---
+title: Sessions
+description: Understanding session management, storage, and security in AuthSome Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Sessions
+
+Sessions are the foundation of user state management in AuthSome Go. They provide a secure way to maintain user authentication across HTTP requests, enabling stateful interactions in your application.
+
+## Session Concepts
+
+### What is a Session?
+
+A session represents an authenticated user's interaction period with your application. Each session contains:
+
+```go
+type Session struct {
+    ID        string    `json:"id" bun:"id,pk"`
+    UserID    string    `json:"userId" bun:"user_id,notnull"`
+    Token     string    `json:"-" bun:"token,unique,notnull"`
+    ExpiresAt time.Time `json:"expiresAt" bun:"expires_at,notnull"`
+    CreatedAt time.Time `json:"createdAt" bun:"created_at,notnull,default:current_timestamp"`
+    UpdatedAt time.Time `json:"updatedAt" bun:"updated_at,notnull,default:current_timestamp"`
+    
+    // Optional metadata
+    IPAddress string `json:"ipAddress,omitempty" bun:"ip_address"`
+    UserAgent string `json:"userAgent,omitempty" bun:"user_agent"`
+    DeviceID  string `json:"deviceId,omitempty" bun:"device_id"`
+    
+    // Relationships
+    User   *User   `json:"user,omitempty" bun:"rel:belongs-to,join:user_id=id"`
+    Device *Device `json:"device,omitempty" bun:"rel:belongs-to,join:device_id=id"`
+}
+```
+
+<Callout type="info">
+**Security Note**: The session token is never included in JSON responses to prevent accidental exposure.
+</Callout>
+
+### Session Lifecycle
+
+<Tabs items={['Creation', 'Validation', 'Renewal', 'Termination']}>
+  <Tab value="Creation">
+    Sessions are created during successful authentication:
+
+    ```mermaid
+    sequenceDiagram
+        participant User
+        participant Frontend
+        participant AuthSome
+        participant Database
+        participant Cache
+
+        User->>Frontend: Login request
+        Frontend->>AuthSome: POST /auth/sign-in
+        AuthSome->>AuthSome: Validate credentials
+        AuthSome->>AuthSome: Generate session token
+        AuthSome->>Database: Store session
+        AuthSome->>Cache: Cache session (optional)
+        AuthSome->>Frontend: Set session cookie
+        Frontend->>User: Authenticated response
+    ```
+
+    **Code Example:**
+    ```go
+    func (s *SessionService) CreateSession(ctx context.Context, userID string, metadata SessionMetadata) (*Session, error) {
+        // Generate secure session token
+        token, err := s.generateSecureToken()
+        if err != nil {
+            return nil, fmt.Errorf("failed to generate token: %w", err)
+        }
+
+        // Create session
+        session := &Session{
+            ID:        generateID(),
+            UserID:    userID,
+            Token:     token,
+            ExpiresAt: time.Now().Add(s.config.SessionDuration),
+            IPAddress: metadata.IPAddress,
+            UserAgent: metadata.UserAgent,
+            DeviceID:  metadata.DeviceID,
+        }
+
+        // Store in database
+        if err := s.repo.Create(ctx, session); err != nil {
+            return nil, fmt.Errorf("failed to create session: %w", err)
+        }
+
+        // Cache session for faster access
+        if s.cache != nil {
+            s.cache.Set(ctx, session.Token, session, s.config.SessionDuration)
+        }
+
+        return session, nil
+    }
+
+    // Generate cryptographically secure token
+    func (s *SessionService) generateSecureToken() (string, error) {
+        bytes := make([]byte, 32) // 256 bits
+        if _, err := rand.Read(bytes); err != nil {
+            return "", err
+        }
+        return base64.URLEncoding.EncodeToString(bytes), nil
+    }
+    ```
+  </Tab>
+  <Tab value="Validation">
+    Session validation occurs on every protected request:
+
+    ```mermaid
+    sequenceDiagram
+        participant Frontend
+        participant AuthSome
+        participant Cache
+        participant Database
+
+        Frontend->>AuthSome: Request with session cookie
+        AuthSome->>Cache: Check session cache
+        alt Cache Hit
+            Cache->>AuthSome: Return cached session
+        else Cache Miss
+            AuthSome->>Database: Query session
+            Database->>AuthSome: Return session
+            AuthSome->>Cache: Cache session
+        end
+        AuthSome->>AuthSome: Validate expiration
+        AuthSome->>Frontend: Continue or reject
+    ```
+
+    **Code Example:**
+    ```go
+    func (s *SessionService) ValidateSession(ctx context.Context, token string) (*Session, error) {
+        // Try cache first
+        if s.cache != nil {
+            if session, found := s.cache.Get(ctx, token); found {
+                if session.ExpiresAt.After(time.Now()) {
+                    return session, nil
+                }
+                // Remove expired session from cache
+                s.cache.Delete(ctx, token)
+            }
+        }
+
+        // Query database
+        session, err := s.repo.FindByToken(ctx, token)
+        if err != nil {
+            if errors.Is(err, ErrSessionNotFound) {
+                return nil, ErrInvalidSession
+            }
+            return nil, err
+        }
+
+        // Check expiration
+        if session.ExpiresAt.Before(time.Now()) {
+            // Clean up expired session
+            s.repo.Delete(ctx, session.ID)
+            return nil, ErrSessionExpired
+        }
+
+        // Cache valid session
+        if s.cache != nil {
+            remaining := time.Until(session.ExpiresAt)
+            s.cache.Set(ctx, token, session, remaining)
+        }
+
+        return session, nil
+    }
+    ```
+  </Tab>
+  <Tab value="Renewal">
+    Sessions can be renewed to extend user sessions:
+
+    ```go
+    func (s *SessionService) RenewSession(ctx context.Context, sessionID string) (*Session, error) {
+        session, err := s.repo.FindByID(ctx, sessionID)
+        if err != nil {
+            return nil, err
+        }
+
+        // Check if session is still valid
+        if session.ExpiresAt.Before(time.Now()) {
+            return nil, ErrSessionExpired
+        }
+
+        // Extend expiration
+        session.ExpiresAt = time.Now().Add(s.config.SessionDuration)
+        session.UpdatedAt = time.Now()
+
+        if err := s.repo.Update(ctx, session); err != nil {
+            return nil, err
+        }
+
+        // Update cache
+        if s.cache != nil {
+            s.cache.Set(ctx, session.Token, session, s.config.SessionDuration)
+        }
+
+        return session, nil
+    }
+
+    // Automatic renewal middleware
+    func (s *SessionService) AutoRenewMiddleware() forge.MiddlewareFunc {
+        return func(next forge.HandlerFunc) forge.HandlerFunc {
+            return func(c *forge.Context) error {
+                session := GetSessionFromContext(c.Context())
+                if session == nil {
+                    return next(c)
+                }
+
+                // Renew if session is more than halfway to expiration
+                halfLife := s.config.SessionDuration / 2
+                if time.Until(session.ExpiresAt) < halfLife {
+                    renewed, err := s.RenewSession(c.Context(), session.ID)
+                    if err == nil {
+                        // Update cookie with new expiration
+                        s.setSessionCookie(c, renewed.Token, renewed.ExpiresAt)
+                        // Update context with renewed session
+                        c.SetContext(WithSession(c.Context(), renewed))
+                    }
+                }
+
+                return next(c)
+            }
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Termination">
+    Sessions can be terminated explicitly or automatically:
+
+    ```go
+    func (s *SessionService) TerminateSession(ctx context.Context, sessionID string) error {
+        session, err := s.repo.FindByID(ctx, sessionID)
+        if err != nil {
+            return err
+        }
+
+        // Remove from database
+        if err := s.repo.Delete(ctx, sessionID); err != nil {
+            return err
+        }
+
+        // Remove from cache
+        if s.cache != nil {
+            s.cache.Delete(ctx, session.Token)
+        }
+
+        return nil
+    }
+
+    // Terminate all user sessions (useful for security incidents)
+    func (s *SessionService) TerminateAllUserSessions(ctx context.Context, userID string) error {
+        sessions, err := s.repo.FindByUserID(ctx, userID)
+        if err != nil {
+            return err
+        }
+
+        for _, session := range sessions {
+            if err := s.TerminateSession(ctx, session.ID); err != nil {
+                // Log error but continue
+                s.logger.Error("Failed to terminate session", "sessionID", session.ID, "error", err)
+            }
+        }
+
+        return nil
+    }
+
+    // Cleanup expired sessions (run as background job)
+    func (s *SessionService) CleanupExpiredSessions(ctx context.Context) error {
+        count, err := s.repo.DeleteExpired(ctx, time.Now())
+        if err != nil {
+            return err
+        }
+
+        s.logger.Info("Cleaned up expired sessions", "count", count)
+        return nil
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Session Storage
+
+AuthSome Go supports multiple session storage backends:
+
+<Tabs items={['Database Only', 'Database + Redis Cache', 'Redis Only', 'Memory (Development)']}>
+  <Tab value="Database Only">
+    Store sessions directly in the database:
+
+    ```go
+    // Configuration
+    config := authsome.Config{
+        Session: authsome.SessionConfig{
+            Storage: authsome.SessionStorageConfig{
+                Type: "database",
+                Database: authsome.DatabaseStorageConfig{
+                    Table: "sessions",
+                },
+            },
+            Duration: "24h",
+            CleanupInterval: "1h",
+        },
+    }
+
+    // Database repository implementation
+    type sessionRepository struct {
+        db *bun.DB
+    }
+
+    func (r *sessionRepository) Create(ctx context.Context, session *Session) error {
+        _, err := r.db.NewInsert().
+            Model(session).
+            Exec(ctx)
+        return err
+    }
+
+    func (r *sessionRepository) FindByToken(ctx context.Context, token string) (*Session, error) {
+        session := new(Session)
+        err := r.db.NewSelect().
+            Model(session).
+            Where("token = ?", token).
+            Scan(ctx)
+        
+        if err != nil {
+            if errors.Is(err, sql.ErrNoRows) {
+                return nil, ErrSessionNotFound
+            }
+            return nil, err
+        }
+        
+        return session, nil
+    }
+
+    func (r *sessionRepository) DeleteExpired(ctx context.Context, before time.Time) (int, error) {
+        result, err := r.db.NewDelete().
+            Model((*Session)(nil)).
+            Where("expires_at < ?", before).
+            Exec(ctx)
+        
+        if err != nil {
+            return 0, err
+        }
+        
+        count, _ := result.RowsAffected()
+        return int(count), nil
+    }
+    ```
+
+    **Pros:**
+    - Simple setup
+    - ACID compliance
+    - No additional infrastructure
+
+    **Cons:**
+    - Slower than cache-based solutions
+    - Database load on every request
+  </Tab>
+  <Tab value="Database + Redis Cache">
+    Use Redis for fast access with database persistence:
+
+    ```go
+    // Configuration
+    config := authsome.Config{
+        Session: authsome.SessionConfig{
+            Storage: authsome.SessionStorageConfig{
+                Type: "hybrid",
+                Database: authsome.DatabaseStorageConfig{
+                    Table: "sessions",
+                },
+                Redis: authsome.RedisStorageConfig{
+                    Address:  "localhost:6379",
+                    Password: "",
+                    DB:       0,
+                    Prefix:   "session:",
+                },
+            },
+            Duration: "24h",
+            CleanupInterval: "1h",
+        },
+    }
+
+    // Hybrid storage implementation
+    type hybridSessionStorage struct {
+        db    *bun.DB
+        redis *redis.Client
+    }
+
+    func (s *hybridSessionStorage) Create(ctx context.Context, session *Session) error {
+        // Store in database for persistence
+        if err := s.createInDatabase(ctx, session); err != nil {
+            return err
+        }
+
+        // Cache in Redis for fast access
+        return s.cacheInRedis(ctx, session)
+    }
+
+    func (s *hybridSessionStorage) FindByToken(ctx context.Context, token string) (*Session, error) {
+        // Try Redis first
+        if session, err := s.getFromRedis(ctx, token); err == nil {
+            return session, nil
+        }
+
+        // Fallback to database
+        session, err := s.getFromDatabase(ctx, token)
+        if err != nil {
+            return nil, err
+        }
+
+        // Cache the result
+        s.cacheInRedis(ctx, session)
+        return session, nil
+    }
+
+    func (s *hybridSessionStorage) cacheInRedis(ctx context.Context, session *Session) error {
+        key := "session:" + session.Token
+        data, err := json.Marshal(session)
+        if err != nil {
+            return err
+        }
+
+        expiration := time.Until(session.ExpiresAt)
+        return s.redis.Set(ctx, key, data, expiration).Err()
+    }
+
+    func (s *hybridSessionStorage) getFromRedis(ctx context.Context, token string) (*Session, error) {
+        key := "session:" + token
+        data, err := s.redis.Get(ctx, key).Result()
+        if err != nil {
+            return nil, err
+        }
+
+        var session Session
+        if err := json.Unmarshal([]byte(data), &session); err != nil {
+            return nil, err
+        }
+
+        return &session, nil
+    }
+    ```
+
+    **Pros:**
+    - Fast session access
+    - Database persistence
+    - Automatic expiration in Redis
+
+    **Cons:**
+    - More complex setup
+    - Requires Redis infrastructure
+  </Tab>
+  <Tab value="Redis Only">
+    Store sessions only in Redis:
+
+    ```go
+    // Configuration
+    config := authsome.Config{
+        Session: authsome.SessionConfig{
+            Storage: authsome.SessionStorageConfig{
+                Type: "redis",
+                Redis: authsome.RedisStorageConfig{
+                    Address:  "localhost:6379",
+                    Password: "",
+                    DB:       0,
+                    Prefix:   "session:",
+                    Cluster: authsome.RedisClusterConfig{
+                        Enabled: true,
+                        Nodes: []string{
+                            "redis-1:6379",
+                            "redis-2:6379",
+                            "redis-3:6379",
+                        },
+                    },
+                },
+            },
+            Duration: "24h",
+        },
+    }
+
+    // Redis-only storage implementation
+    type redisSessionStorage struct {
+        client redis.UniversalClient
+        prefix string
+    }
+
+    func NewRedisSessionStorage(config RedisStorageConfig) *redisSessionStorage {
+        var client redis.UniversalClient
+
+        if config.Cluster.Enabled {
+            client = redis.NewClusterClient(&redis.ClusterOptions{
+                Addrs:    config.Cluster.Nodes,
+                Password: config.Password,
+            })
+        } else {
+            client = redis.NewClient(&redis.Options{
+                Addr:     config.Address,
+                Password: config.Password,
+                DB:       config.DB,
+            })
+        }
+
+        return &redisSessionStorage{
+            client: client,
+            prefix: config.Prefix,
+        }
+    }
+
+    func (s *redisSessionStorage) Create(ctx context.Context, session *Session) error {
+        key := s.prefix + session.Token
+        data, err := json.Marshal(session)
+        if err != nil {
+            return err
+        }
+
+        expiration := time.Until(session.ExpiresAt)
+        return s.client.Set(ctx, key, data, expiration).Err()
+    }
+
+    func (s *redisSessionStorage) FindByToken(ctx context.Context, token string) (*Session, error) {
+        key := s.prefix + token
+        data, err := s.client.Get(ctx, key).Result()
+        if err != nil {
+            if errors.Is(err, redis.Nil) {
+                return nil, ErrSessionNotFound
+            }
+            return nil, err
+        }
+
+        var session Session
+        if err := json.Unmarshal([]byte(data), &session); err != nil {
+            return nil, err
+        }
+
+        return &session, nil
+    }
+    ```
+
+    **Pros:**
+    - Fastest performance
+    - Automatic expiration
+    - Horizontal scaling with Redis Cluster
+
+    **Cons:**
+    - Sessions lost if Redis fails
+    - No persistence across restarts
+  </Tab>
+  <Tab value="Memory (Development)">
+    In-memory storage for development:
+
+    ```go
+    // Configuration
+    config := authsome.Config{
+        Session: authsome.SessionConfig{
+            Storage: authsome.SessionStorageConfig{
+                Type: "memory",
+                Memory: authsome.MemoryStorageConfig{
+                    CleanupInterval: "5m",
+                },
+            },
+            Duration: "24h",
+        },
+    }
+
+    // Memory storage implementation
+    type memorySessionStorage struct {
+        sessions sync.Map
+        mutex    sync.RWMutex
+    }
+
+    func (s *memorySessionStorage) Create(ctx context.Context, session *Session) error {
+        s.sessions.Store(session.Token, session)
+        return nil
+    }
+
+    func (s *memorySessionStorage) FindByToken(ctx context.Context, token string) (*Session, error) {
+        if value, ok := s.sessions.Load(token); ok {
+            session := value.(*Session)
+            if session.ExpiresAt.After(time.Now()) {
+                return session, nil
+            }
+            // Remove expired session
+            s.sessions.Delete(token)
+        }
+        return nil, ErrSessionNotFound
+    }
+
+    func (s *memorySessionStorage) cleanup() {
+        s.sessions.Range(func(key, value interface{}) bool {
+            session := value.(*Session)
+            if session.ExpiresAt.Before(time.Now()) {
+                s.sessions.Delete(key)
+            }
+            return true
+        })
+    }
+
+    // Start cleanup goroutine
+    func (s *memorySessionStorage) StartCleanup(interval time.Duration) {
+        ticker := time.NewTicker(interval)
+        go func() {
+            for range ticker.C {
+                s.cleanup()
+            }
+        }()
+    }
+    ```
+
+    **Pros:**
+    - No external dependencies
+    - Fast for development
+    - Simple setup
+
+    **Cons:**
+    - Not suitable for production
+    - Sessions lost on restart
+    - No horizontal scaling
+  </Tab>
+</Tabs>
+
+## Session Security
+
+### Cookie Configuration
+
+Secure session cookies are critical for security:
+
+```go
+type CookieConfig struct {
+    Name     string        `json:"name"`     // Cookie name (default: "authsome_session")
+    Domain   string        `json:"domain"`   // Cookie domain
+    Path     string        `json:"path"`     // Cookie path (default: "/")
+    MaxAge   time.Duration `json:"maxAge"`   // Cookie max age
+    Secure   bool          `json:"secure"`   // HTTPS only
+    HttpOnly bool          `json:"httpOnly"` // No JavaScript access
+    SameSite string        `json:"sameSite"` // CSRF protection
+}
+
+// Set secure session cookie
+func (s *SessionService) setSessionCookie(c *forge.Context, token string, expiresAt time.Time) {
+    cookie := &http.Cookie{
+        Name:     s.config.Cookie.Name,
+        Value:    token,
+        Domain:   s.config.Cookie.Domain,
+        Path:     s.config.Cookie.Path,
+        Expires:  expiresAt,
+        MaxAge:   int(time.Until(expiresAt).Seconds()),
+        Secure:   s.config.Cookie.Secure,
+        HttpOnly: s.config.Cookie.HttpOnly,
+        SameSite: s.parseSameSite(s.config.Cookie.SameSite),
+    }
+
+    c.SetCookie(cookie)
+}
+
+func (s *SessionService) parseSameSite(sameSite string) http.SameSite {
+    switch strings.ToLower(sameSite) {
+    case "strict":
+        return http.SameSiteStrictMode
+    case "lax":
+        return http.SameSiteLaxMode
+    case "none":
+        return http.SameSiteNoneMode
+    default:
+        return http.SameSiteLaxMode
+    }
+}
+```
+
+<Callout type="warn">
+**Security Warning**: Always set `Secure: true` in production to ensure cookies are only sent over HTTPS. Set `HttpOnly: true` to prevent XSS attacks.
+</Callout>
+
+### Session Hijacking Prevention
+
+Protect against session hijacking:
+
+```go
+type SecurityConfig struct {
+    BindToIP        bool `json:"bindToIP"`        // Bind session to IP address
+    BindToUserAgent bool `json:"bindToUserAgent"` // Bind session to User-Agent
+    RotateOnLogin   bool `json:"rotateOnLogin"`   // Rotate token on login
+    MaxConcurrent   int  `json:"maxConcurrent"`   // Max concurrent sessions
+}
+
+// Validate session security
+func (s *SessionService) validateSessionSecurity(ctx context.Context, session *Session, request *http.Request) error {
+    if s.config.Security.BindToIP {
+        clientIP := getClientIP(request)
+        if session.IPAddress != clientIP {
+            return ErrSessionIPMismatch
+        }
+    }
+
+    if s.config.Security.BindToUserAgent {
+        userAgent := request.UserAgent()
+        if session.UserAgent != userAgent {
+            return ErrSessionUserAgentMismatch
+        }
+    }
+
+    return nil
+}
+
+// Rotate session token
+func (s *SessionService) RotateToken(ctx context.Context, sessionID string) (*Session, error) {
+    session, err := s.repo.FindByID(ctx, sessionID)
+    if err != nil {
+        return nil, err
+    }
+
+    // Generate new token
+    newToken, err := s.generateSecureToken()
+    if err != nil {
+        return nil, err
+    }
+
+    // Remove old token from cache
+    if s.cache != nil {
+        s.cache.Delete(ctx, session.Token)
+    }
+
+    // Update session with new token
+    session.Token = newToken
+    session.UpdatedAt = time.Now()
+
+    if err := s.repo.Update(ctx, session); err != nil {
+        return nil, err
+    }
+
+    // Cache new token
+    if s.cache != nil {
+        remaining := time.Until(session.ExpiresAt)
+        s.cache.Set(ctx, newToken, session, remaining)
+    }
+
+    return session, nil
+}
+
+// Enforce concurrent session limits
+func (s *SessionService) enforceConcurrentLimit(ctx context.Context, userID string) error {
+    if s.config.Security.MaxConcurrent <= 0 {
+        return nil
+    }
+
+    sessions, err := s.repo.FindActiveByUserID(ctx, userID)
+    if err != nil {
+        return err
+    }
+
+    if len(sessions) >= s.config.Security.MaxConcurrent {
+        // Remove oldest sessions
+        sort.Slice(sessions, func(i, j int) bool {
+            return sessions[i].CreatedAt.Before(sessions[j].CreatedAt)
+        })
+
+        toRemove := len(sessions) - s.config.Security.MaxConcurrent + 1
+        for i := 0; i < toRemove; i++ {
+            s.TerminateSession(ctx, sessions[i].ID)
+        }
+    }
+
+    return nil
+}
+```
+
+### Session Monitoring
+
+Monitor session activity for security:
+
+```go
+type SessionActivity struct {
+    ID        string    `json:"id" bun:"id,pk"`
+    SessionID string    `json:"sessionId" bun:"session_id,notnull"`
+    Action    string    `json:"action" bun:"action,notnull"`
+    IPAddress string    `json:"ipAddress" bun:"ip_address"`
+    UserAgent string    `json:"userAgent" bun:"user_agent"`
+    Timestamp time.Time `json:"timestamp" bun:"timestamp,notnull,default:current_timestamp"`
+    
+    // Relationships
+    Session *Session `json:"session,omitempty" bun:"rel:belongs-to,join:session_id=id"`
+}
+
+// Log session activity
+func (s *SessionService) logActivity(ctx context.Context, sessionID, action string, request *http.Request) {
+    activity := &SessionActivity{
+        ID:        generateID(),
+        SessionID: sessionID,
+        Action:    action,
+        IPAddress: getClientIP(request),
+        UserAgent: request.UserAgent(),
+        Timestamp: time.Now(),
+    }
+
+    // Log asynchronously to avoid blocking
+    go func() {
+        if err := s.activityRepo.Create(context.Background(), activity); err != nil {
+            s.logger.Error("Failed to log session activity", "error", err)
+        }
+    }()
+}
+
+// Detect suspicious activity
+func (s *SessionService) detectSuspiciousActivity(ctx context.Context, sessionID string) error {
+    activities, err := s.activityRepo.FindRecentBySession(ctx, sessionID, time.Hour)
+    if err != nil {
+        return err
+    }
+
+    // Check for multiple IP addresses
+    ipAddresses := make(map[string]bool)
+    for _, activity := range activities {
+        ipAddresses[activity.IPAddress] = true
+    }
+
+    if len(ipAddresses) > 3 {
+        s.logger.Warn("Suspicious activity detected: multiple IP addresses", 
+            "sessionID", sessionID, "ipCount", len(ipAddresses))
+        
+        // Optionally terminate session
+        if s.config.Security.TerminateOnSuspiciousActivity {
+            return s.TerminateSession(ctx, sessionID)
+        }
+    }
+
+    return nil
+}
+```
+
+## Multi-Session Support
+
+Support multiple concurrent sessions per user:
+
+<Tabs items={['Single Session', 'Multiple Sessions', 'Device-Based Sessions']}>
+  <Tab value="Single Session">
+    Allow only one active session per user:
+
+    ```go
+    func (s *SessionService) CreateSingleSession(ctx context.Context, userID string, metadata SessionMetadata) (*Session, error) {
+        // Terminate existing sessions
+        if err := s.TerminateAllUserSessions(ctx, userID); err != nil {
+            s.logger.Error("Failed to terminate existing sessions", "error", err)
+        }
+
+        // Create new session
+        return s.CreateSession(ctx, userID, metadata)
+    }
+    ```
+  </Tab>
+  <Tab value="Multiple Sessions">
+    Allow multiple sessions with limits:
+
+    ```go
+    func (s *SessionService) CreateMultiSession(ctx context.Context, userID string, metadata SessionMetadata) (*Session, error) {
+        // Enforce concurrent session limit
+        if err := s.enforceConcurrentLimit(ctx, userID); err != nil {
+            return nil, err
+        }
+
+        // Create new session
+        return s.CreateSession(ctx, userID, metadata)
+    }
+
+    // List user sessions
+    func (s *SessionService) ListUserSessions(ctx context.Context, userID string) ([]*Session, error) {
+        sessions, err := s.repo.FindActiveByUserID(ctx, userID)
+        if err != nil {
+            return nil, err
+        }
+
+        // Add device information
+        for _, session := range sessions {
+            if session.DeviceID != "" {
+                device, err := s.deviceRepo.FindByID(ctx, session.DeviceID)
+                if err == nil {
+                    session.Device = device
+                }
+            }
+        }
+
+        return sessions, nil
+    }
+    ```
+  </Tab>
+  <Tab value="Device-Based Sessions">
+    Manage sessions per device:
+
+    ```go
+    type Device struct {
+        ID          string    `json:"id" bun:"id,pk"`
+        UserID      string    `json:"userId" bun:"user_id,notnull"`
+        Name        string    `json:"name" bun:"name,notnull"`
+        Type        string    `json:"type" bun:"type,notnull"` // mobile, desktop, tablet
+        Platform    string    `json:"platform" bun:"platform"` // ios, android, windows, etc.
+        Fingerprint string    `json:"fingerprint" bun:"fingerprint,unique"`
+        Trusted     bool      `json:"trusted" bun:"trusted,default:false"`
+        LastSeenAt  time.Time `json:"lastSeenAt" bun:"last_seen_at"`
+        CreatedAt   time.Time `json:"createdAt" bun:"created_at,notnull,default:current_timestamp"`
+    }
+
+    func (s *SessionService) CreateDeviceSession(ctx context.Context, userID string, metadata SessionMetadata) (*Session, error) {
+        // Find or create device
+        device, err := s.findOrCreateDevice(ctx, userID, metadata)
+        if err != nil {
+            return nil, err
+        }
+
+        // Check if device is trusted
+        if !device.Trusted && s.config.RequireDeviceVerification {
+            return nil, ErrDeviceNotTrusted
+        }
+
+        // Terminate existing session for this device
+        if err := s.terminateDeviceSession(ctx, device.ID); err != nil {
+            s.logger.Error("Failed to terminate device session", "error", err)
+        }
+
+        // Create new session
+        metadata.DeviceID = device.ID
+        session, err := s.CreateSession(ctx, userID, metadata)
+        if err != nil {
+            return nil, err
+        }
+
+        // Update device last seen
+        device.LastSeenAt = time.Now()
+        s.deviceRepo.Update(ctx, device)
+
+        return session, nil
+    }
+
+    func (s *SessionService) findOrCreateDevice(ctx context.Context, userID string, metadata SessionMetadata) (*Device, error) {
+        fingerprint := s.generateDeviceFingerprint(metadata)
+        
+        // Try to find existing device
+        device, err := s.deviceRepo.FindByFingerprint(ctx, fingerprint)
+        if err == nil {
+            return device, nil
+        }
+
+        // Create new device
+        device = &Device{
+            ID:          generateID(),
+            UserID:      userID,
+            Name:        s.generateDeviceName(metadata),
+            Type:        s.detectDeviceType(metadata.UserAgent),
+            Platform:    s.detectPlatform(metadata.UserAgent),
+            Fingerprint: fingerprint,
+            Trusted:     false,
+            LastSeenAt:  time.Now(),
+        }
+
+        if err := s.deviceRepo.Create(ctx, device); err != nil {
+            return nil, err
+        }
+
+        return device, nil
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Session Middleware
+
+Protect routes with session middleware:
+
+```go
+// Session middleware
+func (s *SessionService) Middleware() forge.MiddlewareFunc {
+    return func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            // Extract session token from cookie
+            cookie, err := c.Cookie(s.config.Cookie.Name)
+            if err != nil {
+                return c.JSON(http.StatusUnauthorized, ErrorResponse{
+                    Error: "Authentication required",
+                    Code:  "MISSING_SESSION",
+                })
+            }
+
+            // Validate session
+            session, err := s.ValidateSession(c.Context(), cookie.Value)
+            if err != nil {
+                // Clear invalid cookie
+                s.clearSessionCookie(c)
+                
+                return c.JSON(http.StatusUnauthorized, ErrorResponse{
+                    Error: "Invalid or expired session",
+                    Code:  "INVALID_SESSION",
+                })
+            }
+
+            // Validate session security
+            if err := s.validateSessionSecurity(c.Context(), session, c.Request()); err != nil {
+                // Terminate compromised session
+                s.TerminateSession(c.Context(), session.ID)
+                s.clearSessionCookie(c)
+                
+                return c.JSON(http.StatusUnauthorized, ErrorResponse{
+                    Error: "Session security validation failed",
+                    Code:  "SESSION_COMPROMISED",
+                })
+            }
+
+            // Load user information
+            user, err := s.userRepo.FindByID(c.Context(), session.UserID)
+            if err != nil {
+                return c.JSON(http.StatusUnauthorized, ErrorResponse{
+                    Error: "User not found",
+                    Code:  "USER_NOT_FOUND",
+                })
+            }
+
+            // Add session and user to context
+            ctx := WithSession(c.Context(), session)
+            ctx = WithUser(ctx, user)
+            c.SetContext(ctx)
+
+            // Log activity
+            s.logActivity(c.Context(), session.ID, "request", c.Request())
+
+            return next(c)
+        }
+    }
+}
+
+// Optional middleware for specific routes
+func (s *SessionService) OptionalMiddleware() forge.MiddlewareFunc {
+    return func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            // Try to get session but don't require it
+            cookie, err := c.Cookie(s.config.Cookie.Name)
+            if err == nil {
+                if session, err := s.ValidateSession(c.Context(), cookie.Value); err == nil {
+                    if user, err := s.userRepo.FindByID(c.Context(), session.UserID); err == nil {
+                        ctx := WithSession(c.Context(), session)
+                        ctx = WithUser(ctx, user)
+                        c.SetContext(ctx)
+                    }
+                }
+            }
+
+            return next(c)
+        }
+    }
+}
+
+// Context helpers
+func WithSession(ctx context.Context, session *Session) context.Context {
+    return context.WithValue(ctx, "session", session)
+}
+
+func GetSessionFromContext(ctx context.Context) *Session {
+    if session, ok := ctx.Value("session").(*Session); ok {
+        return session
+    }
+    return nil
+}
+
+func WithUser(ctx context.Context, user *User) context.Context {
+    return context.WithValue(ctx, "user", user)
+}
+
+func GetUserFromContext(ctx context.Context) *User {
+    if user, ok := ctx.Value("user").(*User); ok {
+        return user
+    }
+    return nil
+}
+```
+
+## Performance Optimization
+
+### Session Caching Strategy
+
+```go
+// Multi-level caching
+type CacheConfig struct {
+    L1Cache CacheLevel `json:"l1Cache"` // In-memory cache
+    L2Cache CacheLevel `json:"l2Cache"` // Redis cache
+    TTL     time.Duration `json:"ttl"`
+}
+
+type CacheLevel struct {
+    Enabled  bool          `json:"enabled"`
+    Size     int           `json:"size"`     // Max entries
+    TTL      time.Duration `json:"ttl"`      // Time to live
+}
+
+// Implement multi-level caching
+type multiLevelCache struct {
+    l1 *sync.Map // In-memory cache
+    l2 redis.UniversalClient // Redis cache
+    config CacheConfig
+}
+
+func (c *multiLevelCache) Get(ctx context.Context, key string) (*Session, bool) {
+    // Try L1 cache first
+    if c.config.L1Cache.Enabled {
+        if value, ok := c.l1.Load(key); ok {
+            if entry, ok := value.(*cacheEntry); ok && entry.ExpiresAt.After(time.Now()) {
+                return entry.Session, true
+            }
+            c.l1.Delete(key)
+        }
+    }
+
+    // Try L2 cache
+    if c.config.L2Cache.Enabled {
+        data, err := c.l2.Get(ctx, key).Result()
+        if err == nil {
+            var session Session
+            if json.Unmarshal([]byte(data), &session) == nil {
+                // Store in L1 cache
+                if c.config.L1Cache.Enabled {
+                    c.setL1(key, &session, c.config.L1Cache.TTL)
+                }
+                return &session, true
+            }
+        }
+    }
+
+    return nil, false
+}
+
+func (c *multiLevelCache) Set(ctx context.Context, key string, session *Session, ttl time.Duration) {
+    // Set in L1 cache
+    if c.config.L1Cache.Enabled {
+        c.setL1(key, session, c.config.L1Cache.TTL)
+    }
+
+    // Set in L2 cache
+    if c.config.L2Cache.Enabled {
+        if data, err := json.Marshal(session); err == nil {
+            c.l2.Set(ctx, key, data, ttl)
+        }
+    }
+}
+
+type cacheEntry struct {
+    Session   *Session
+    ExpiresAt time.Time
+}
+
+func (c *multiLevelCache) setL1(key string, session *Session, ttl time.Duration) {
+    entry := &cacheEntry{
+        Session:   session,
+        ExpiresAt: time.Now().Add(ttl),
+    }
+    c.l1.Store(key, entry)
+}
+```
+
+### Database Optimization
+
+```go
+// Optimize session queries
+func (r *sessionRepository) FindByToken(ctx context.Context, token string) (*Session, error) {
+    session := new(Session)
+    err := r.db.NewSelect().
+        Model(session).
+        Where("token = ? AND expires_at > ?", token, time.Now()).
+        Limit(1).
+        Scan(ctx)
+    
+    if err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            return nil, ErrSessionNotFound
+        }
+        return nil, err
+    }
+    
+    return session, nil
+}
+
+// Batch cleanup expired sessions
+func (r *sessionRepository) CleanupExpired(ctx context.Context, batchSize int) error {
+    for {
+        result, err := r.db.NewDelete().
+            Model((*Session)(nil)).
+            Where("expires_at < ?", time.Now()).
+            Limit(batchSize).
+            Exec(ctx)
+        
+        if err != nil {
+            return err
+        }
+        
+        affected, _ := result.RowsAffected()
+        if affected == 0 {
+            break
+        }
+        
+        // Small delay between batches
+        time.Sleep(100 * time.Millisecond)
+    }
+    
+    return nil
+}
+
+// Database indexes for performance
+func CreateSessionIndexes(db *bun.DB) error {
+    indexes := []string{
+        "CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token)",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_user_expires ON sessions(user_id, expires_at)",
+    }
+    
+    for _, index := range indexes {
+        if _, err := db.Exec(index); err != nil {
+            return err
+        }
+    }
+    
+    return nil
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Organizations"
+    description="Learn about multi-tenancy and organization management"
+    href="/docs/go/concepts/organizations"
+  />
+  <Card
+    title="Security"
+    description="Explore advanced security features and best practices"
+    href="/docs/go/concepts/security"
+  />
+  <Card
+    title="Multi-Session Plugin"
+    description="Advanced multi-session management capabilities"
+    href="/docs/go/plugins/enterprise/multisession"
+  />
+  <Card
+    title="JWT Plugin"
+    description="Stateless authentication with JSON Web Tokens"
+    href="/docs/go/plugins/advanced/jwt"
+  />
+</Cards>

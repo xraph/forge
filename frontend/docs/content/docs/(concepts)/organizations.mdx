@@ -1,0 +1,1233 @@
+---
+title: Organizations
+description: Understanding multi-tenancy, organization management, and configuration overrides in AuthSome Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Organizations
+
+Organizations are the foundation of multi-tenancy in AuthSome Go. They provide complete isolation between different groups of users, allowing you to build SaaS applications or manage multiple teams within a single application instance.
+
+## Organization Concepts
+
+### What is an Organization?
+
+An organization represents a tenant in your multi-tenant application. Each organization has its own:
+
+- **Users and Members**: Isolated user base with role-based access
+- **Configuration Overrides**: Custom authentication settings
+- **Data Isolation**: Separate data boundaries
+- **Branding**: Custom themes, logos, and email templates
+- **Billing**: Separate subscription and usage tracking
+
+```go
+type Organization struct {
+    ID          string                 `json:"id" bun:"id,pk"`
+    Name        string                 `json:"name" bun:"name,notnull"`
+    Slug        string                 `json:"slug" bun:"slug,unique,notnull"`
+    Domain      string                 `json:"domain,omitempty" bun:"domain"`
+    Logo        string                 `json:"logo,omitempty" bun:"logo"`
+    Website     string                 `json:"website,omitempty" bun:"website"`
+    Description string                 `json:"description,omitempty" bun:"description"`
+    Settings    map[string]interface{} `json:"settings" bun:"settings,type:jsonb"`
+    CreatedAt   time.Time              `json:"createdAt" bun:"created_at,notnull,default:current_timestamp"`
+    UpdatedAt   time.Time              `json:"updatedAt" bun:"updated_at,notnull,default:current_timestamp"`
+    
+    // Relationships
+    Members []*Member `json:"members,omitempty" bun:"rel:has-many,join:id=organization_id"`
+    Owner   *User     `json:"owner,omitempty" bun:"rel:belongs-to,join:owner_id=id"`
+}
+```
+
+### Organization Modes
+
+AuthSome Go supports two operational modes:
+
+<Tabs items={['Standalone Mode', 'SaaS Mode']}>
+  <Tab value="Standalone Mode">
+    **Single-tenant mode** for applications that don't need multi-tenancy:
+
+    ```go
+    // Configuration for standalone mode
+    config := authsome.Config{
+        Mode: authsome.ModeStandalone,
+        Organization: authsome.OrganizationConfig{
+            DefaultName: "My Company",
+            DefaultSlug: "default",
+            AutoCreate:  true,
+        },
+    }
+
+    // In standalone mode:
+    // - One default organization is auto-created
+    // - Organization creation APIs are disabled
+    // - All users belong to the default organization
+    // - No organization-scoped configurations
+    ```
+
+    **Features:**
+    - ✅ Simple setup for single-tenant apps
+    - ✅ All AuthSome features available
+    - ✅ No organization management overhead
+    - ❌ No multi-tenancy capabilities
+    - ❌ No organization-scoped configs
+
+    **Use Cases:**
+    - Internal company applications
+    - Single-product SaaS without tenants
+    - Personal projects
+    - MVP development
+  </Tab>
+  <Tab value="SaaS Mode">
+    **Multi-tenant mode** for SaaS applications:
+
+    ```go
+    // Configuration for SaaS mode
+    config := authsome.Config{
+        Mode: authsome.ModeSaaS,
+        Organization: authsome.OrganizationConfig{
+            AllowCreation:     true,
+            RequireInvitation: false,
+            MaxMembers:        100,
+            DefaultRole:       "member",
+        },
+        MultiTenant: authsome.MultiTenantConfig{
+            Isolation: authsome.IsolationStrict,
+            ConfigOverrides: authsome.ConfigOverrideConfig{
+                Enabled: true,
+                AllowedKeys: []string{
+                    "auth.oauth.google",
+                    "auth.email.templates",
+                    "auth.security.passwordPolicy",
+                },
+            },
+        },
+    }
+
+    // In SaaS mode:
+    // - Multiple organizations can be created
+    // - Organization creation APIs are enabled
+    // - Users can belong to multiple organizations
+    // - Organization-scoped configurations supported
+    // - Complete data isolation between orgs
+    ```
+
+    **Features:**
+    - ✅ Full multi-tenancy support
+    - ✅ Organization-scoped configurations
+    - ✅ Data isolation between tenants
+    - ✅ Custom branding per organization
+    - ✅ Role-based access control
+    - ✅ Billing and usage tracking
+
+    **Use Cases:**
+    - SaaS applications
+    - B2B platforms
+    - Team collaboration tools
+    - Enterprise applications
+  </Tab>
+</Tabs>
+
+## Organization Management
+
+### Creating Organizations
+
+<Tabs items={['API Creation', 'Programmatic Creation', 'Invitation-Based']}>
+  <Tab value="API Creation">
+    Create organizations via REST API:
+
+    ```bash
+    # Create organization
+    curl -X POST https://api.yourapp.com/auth/organizations \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -d '{
+        "name": "Acme Corporation",
+        "slug": "acme-corp",
+        "domain": "acme.com",
+        "website": "https://acme.com"
+      }'
+    ```
+
+    **Handler Implementation:**
+    ```go
+    type CreateOrganizationRequest struct {
+        Name        string `json:"name" validate:"required,min=2,max=100"`
+        Slug        string `json:"slug" validate:"required,min=2,max=50,alphanum"`
+        Domain      string `json:"domain,omitempty" validate:"omitempty,fqdn"`
+        Website     string `json:"website,omitempty" validate:"omitempty,url"`
+        Description string `json:"description,omitempty" validate:"max=500"`
+    }
+
+    func (h *OrganizationHandler) CreateOrganization(c *forge.Context) error {
+        var req CreateOrganizationRequest
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, ErrorResponse{Message: "Invalid request"})
+        }
+
+        // Get current user from context
+        user := GetUserFromContext(c.Context())
+        if user == nil {
+            return c.JSON(401, ErrorResponse{Message: "Authentication required"})
+        }
+
+        // Create organization
+        org, err := h.service.CreateOrganization(c.Context(), user.ID, &req)
+        if err != nil {
+            return h.handleError(c, err)
+        }
+
+        return c.JSON(201, org)
+    }
+
+    func (s *OrganizationService) CreateOrganization(ctx context.Context, ownerID string, req *CreateOrganizationRequest) (*Organization, error) {
+        // Validate slug uniqueness
+        if exists, err := s.repo.ExistsBySlug(ctx, req.Slug); err != nil {
+            return nil, err
+        } else if exists {
+            return nil, ErrSlugAlreadyExists
+        }
+
+        // Create organization
+        org := &Organization{
+            ID:          generateID(),
+            Name:        req.Name,
+            Slug:        req.Slug,
+            Domain:      req.Domain,
+            Website:     req.Website,
+            Description: req.Description,
+            Settings:    make(map[string]interface{}),
+        }
+
+        if err := s.repo.Create(ctx, org); err != nil {
+            return nil, err
+        }
+
+        // Add owner as admin member
+        member := &Member{
+            ID:             generateID(),
+            OrganizationID: org.ID,
+            UserID:         ownerID,
+            Role:           "admin",
+            Status:         "active",
+            JoinedAt:       time.Now(),
+        }
+
+        if err := s.memberRepo.Create(ctx, member); err != nil {
+            // Rollback organization creation
+            s.repo.Delete(ctx, org.ID)
+            return nil, err
+        }
+
+        return org, nil
+    }
+    ```
+  </Tab>
+  <Tab value="Programmatic Creation">
+    Create organizations programmatically:
+
+    ```go
+    // Service method for programmatic creation
+    func (s *OrganizationService) CreateOrganizationProgrammatic(ctx context.Context, config OrganizationConfig) (*Organization, error) {
+        org := &Organization{
+            ID:          generateID(),
+            Name:        config.Name,
+            Slug:        config.Slug,
+            Domain:      config.Domain,
+            Settings:    config.Settings,
+        }
+
+        // Validate configuration
+        if err := s.validateOrganizationConfig(org); err != nil {
+            return nil, err
+        }
+
+        // Create organization
+        if err := s.repo.Create(ctx, org); err != nil {
+            return nil, err
+        }
+
+        // Initialize default settings
+        if err := s.initializeDefaultSettings(ctx, org.ID); err != nil {
+            s.logger.Error("Failed to initialize default settings", "orgID", org.ID, "error", err)
+        }
+
+        return org, nil
+    }
+
+    // Example usage in application startup
+    func initializeOrganizations(orgService *OrganizationService) error {
+        organizations := []OrganizationConfig{
+            {
+                Name: "Platform Admin",
+                Slug: "platform",
+                Settings: map[string]interface{}{
+                    "features": map[string]bool{
+                        "userManagement": true,
+                        "billing":        true,
+                        "analytics":      true,
+                    },
+                },
+            },
+            {
+                Name: "Demo Organization",
+                Slug: "demo",
+                Settings: map[string]interface{}{
+                    "features": map[string]bool{
+                        "userManagement": true,
+                        "billing":        false,
+                        "analytics":      false,
+                    },
+                },
+            },
+        }
+
+        for _, config := range organizations {
+            if exists, _ := orgService.ExistsBySlug(context.Background(), config.Slug); !exists {
+                if _, err := orgService.CreateOrganizationProgrammatic(context.Background(), config); err != nil {
+                    return fmt.Errorf("failed to create organization %s: %w", config.Slug, err)
+                }
+            }
+        }
+
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="Invitation-Based">
+    Create organizations through invitations:
+
+    ```go
+    type OrganizationInvitation struct {
+        ID             string    `json:"id" bun:"id,pk"`
+        OrganizationID string    `json:"organizationId" bun:"organization_id,notnull"`
+        Email          string    `json:"email" bun:"email,notnull"`
+        Role           string    `json:"role" bun:"role,notnull"`
+        Token          string    `json:"-" bun:"token,unique,notnull"`
+        InvitedBy      string    `json:"invitedBy" bun:"invited_by,notnull"`
+        ExpiresAt      time.Time `json:"expiresAt" bun:"expires_at,notnull"`
+        CreatedAt      time.Time `json:"createdAt" bun:"created_at,notnull,default:current_timestamp"`
+        
+        // Relationships
+        Organization *Organization `json:"organization,omitempty" bun:"rel:belongs-to,join:organization_id=id"`
+        Inviter      *User         `json:"inviter,omitempty" bun:"rel:belongs-to,join:invited_by=id"`
+    }
+
+    // Send organization invitation
+    func (s *OrganizationService) InviteToOrganization(ctx context.Context, orgID, inviterID, email, role string) (*OrganizationInvitation, error) {
+        // Validate permissions
+        if !s.canInviteMembers(ctx, orgID, inviterID) {
+            return nil, ErrInsufficientPermissions
+        }
+
+        // Check if user is already a member
+        if exists, err := s.memberRepo.ExistsByEmailAndOrg(ctx, email, orgID); err != nil {
+            return nil, err
+        } else if exists {
+            return nil, ErrAlreadyMember
+        }
+
+        // Create invitation
+        invitation := &OrganizationInvitation{
+            ID:             generateID(),
+            OrganizationID: orgID,
+            Email:          email,
+            Role:           role,
+            Token:          generateSecureToken(),
+            InvitedBy:      inviterID,
+            ExpiresAt:      time.Now().Add(7 * 24 * time.Hour), // 7 days
+        }
+
+        if err := s.invitationRepo.Create(ctx, invitation); err != nil {
+            return nil, err
+        }
+
+        // Send invitation email
+        if err := s.sendInvitationEmail(ctx, invitation); err != nil {
+            s.logger.Error("Failed to send invitation email", "error", err)
+        }
+
+        return invitation, nil
+    }
+
+    // Accept organization invitation
+    func (s *OrganizationService) AcceptInvitation(ctx context.Context, token string, userID string) (*Member, error) {
+        // Find invitation
+        invitation, err := s.invitationRepo.FindByToken(ctx, token)
+        if err != nil {
+            return nil, ErrInvalidInvitation
+        }
+
+        // Check expiration
+        if invitation.ExpiresAt.Before(time.Now()) {
+            return nil, ErrInvitationExpired
+        }
+
+        // Get user email
+        user, err := s.userRepo.FindByID(ctx, userID)
+        if err != nil {
+            return nil, err
+        }
+
+        // Verify email matches
+        if user.Email != invitation.Email {
+            return nil, ErrEmailMismatch
+        }
+
+        // Create membership
+        member := &Member{
+            ID:             generateID(),
+            OrganizationID: invitation.OrganizationID,
+            UserID:         userID,
+            Role:           invitation.Role,
+            Status:         "active",
+            JoinedAt:       time.Now(),
+        }
+
+        if err := s.memberRepo.Create(ctx, member); err != nil {
+            return nil, err
+        }
+
+        // Delete invitation
+        s.invitationRepo.Delete(ctx, invitation.ID)
+
+        return member, nil
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Organization Membership
+
+Manage user membership within organizations:
+
+```go
+type Member struct {
+    ID             string    `json:"id" bun:"id,pk"`
+    OrganizationID string    `json:"organizationId" bun:"organization_id,notnull"`
+    UserID         string    `json:"userId" bun:"user_id,notnull"`
+    Role           string    `json:"role" bun:"role,notnull"`
+    Status         string    `json:"status" bun:"status,notnull"` // active, suspended, pending
+    JoinedAt       time.Time `json:"joinedAt" bun:"joined_at,notnull"`
+    UpdatedAt      time.Time `json:"updatedAt" bun:"updated_at,notnull,default:current_timestamp"`
+    
+    // Relationships
+    Organization *Organization `json:"organization,omitempty" bun:"rel:belongs-to,join:organization_id=id"`
+    User         *User         `json:"user,omitempty" bun:"rel:belongs-to,join:user_id=id"`
+}
+
+// Role definitions
+const (
+    RoleOwner  = "owner"  // Full access, can delete organization
+    RoleAdmin  = "admin"  // Full access except organization deletion
+    RoleMember = "member" // Standard access
+    RoleGuest  = "guest"  // Limited read-only access
+)
+
+// Role permissions
+type RolePermissions struct {
+    CanInviteMembers     bool `json:"canInviteMembers"`
+    CanRemoveMembers     bool `json:"canRemoveMembers"`
+    CanUpdateSettings    bool `json:"canUpdateSettings"`
+    CanViewBilling       bool `json:"canViewBilling"`
+    CanManageBilling     bool `json:"canManageBilling"`
+    CanDeleteOrg         bool `json:"canDeleteOrg"`
+}
+
+func GetRolePermissions(role string) RolePermissions {
+    switch role {
+    case RoleOwner:
+        return RolePermissions{
+            CanInviteMembers:  true,
+            CanRemoveMembers:  true,
+            CanUpdateSettings: true,
+            CanViewBilling:    true,
+            CanManageBilling:  true,
+            CanDeleteOrg:      true,
+        }
+    case RoleAdmin:
+        return RolePermissions{
+            CanInviteMembers:  true,
+            CanRemoveMembers:  true,
+            CanUpdateSettings: true,
+            CanViewBilling:    true,
+            CanManageBilling:  false,
+            CanDeleteOrg:      false,
+        }
+    case RoleMember:
+        return RolePermissions{
+            CanInviteMembers:  false,
+            CanRemoveMembers:  false,
+            CanUpdateSettings: false,
+            CanViewBilling:    false,
+            CanManageBilling:  false,
+            CanDeleteOrg:      false,
+        }
+    case RoleGuest:
+        return RolePermissions{
+            CanInviteMembers:  false,
+            CanRemoveMembers:  false,
+            CanUpdateSettings: false,
+            CanViewBilling:    false,
+            CanManageBilling:  false,
+            CanDeleteOrg:      false,
+        }
+    default:
+        return RolePermissions{}
+    }
+}
+
+// Check member permissions
+func (s *OrganizationService) HasPermission(ctx context.Context, userID, orgID string, permission string) (bool, error) {
+    member, err := s.memberRepo.FindByUserAndOrg(ctx, userID, orgID)
+    if err != nil {
+        return false, err
+    }
+
+    permissions := GetRolePermissions(member.Role)
+    
+    switch permission {
+    case "invite_members":
+        return permissions.CanInviteMembers, nil
+    case "remove_members":
+        return permissions.CanRemoveMembers, nil
+    case "update_settings":
+        return permissions.CanUpdateSettings, nil
+    case "view_billing":
+        return permissions.CanViewBilling, nil
+    case "manage_billing":
+        return permissions.CanManageBilling, nil
+    case "delete_org":
+        return permissions.CanDeleteOrg, nil
+    default:
+        return false, nil
+    }
+}
+```
+
+## Configuration Overrides
+
+Organizations can override global authentication settings:
+
+<Tabs items={['OAuth Overrides', 'Email Template Overrides', 'Security Policy Overrides']}>
+  <Tab value="OAuth Overrides">
+    Override OAuth provider settings per organization:
+
+    ```go
+    // Global configuration
+    config := authsome.Config{
+        OAuth: authsome.OAuthConfig{
+            Providers: map[string]authsome.OAuthProvider{
+                "google": {
+                    ClientID:     "global-client-id",
+                    ClientSecret: "global-client-secret",
+                    Scopes:       []string{"email", "profile"},
+                },
+            },
+        },
+    }
+
+    // Organization-specific override
+    orgSettings := map[string]interface{}{
+        "auth": map[string]interface{}{
+            "oauth": map[string]interface{}{
+                "google": map[string]interface{}{
+                    "clientId":     "org-specific-client-id",
+                    "clientSecret": "org-specific-client-secret",
+                    "scopes":       []string{"email", "profile", "openid"},
+                },
+                "github": map[string]interface{}{
+                    "clientId":     "org-github-client-id",
+                    "clientSecret": "org-github-client-secret",
+                    "scopes":       []string{"user:email"},
+                },
+            },
+        },
+    }
+
+    // Configuration resolution
+    func (s *ConfigService) GetOAuthConfig(ctx context.Context, orgID string, provider string) (*OAuthProviderConfig, error) {
+        // Start with global config
+        globalConfig := s.globalConfig.OAuth.Providers[provider]
+        
+        // Get organization overrides
+        org, err := s.orgRepo.FindByID(ctx, orgID)
+        if err != nil {
+            return &globalConfig, nil // Fallback to global
+        }
+
+        // Apply organization overrides
+        if authSettings, ok := org.Settings["auth"].(map[string]interface{}); ok {
+            if oauthSettings, ok := authSettings["oauth"].(map[string]interface{}); ok {
+                if providerSettings, ok := oauthSettings[provider].(map[string]interface{}); ok {
+                    config := globalConfig // Copy global config
+                    
+                    if clientID, ok := providerSettings["clientId"].(string); ok {
+                        config.ClientID = clientID
+                    }
+                    if clientSecret, ok := providerSettings["clientSecret"].(string); ok {
+                        config.ClientSecret = clientSecret
+                    }
+                    if scopes, ok := providerSettings["scopes"].([]string); ok {
+                        config.Scopes = scopes
+                    }
+                    
+                    return &config, nil
+                }
+            }
+        }
+
+        return &globalConfig, nil
+    }
+    ```
+  </Tab>
+  <Tab value="Email Template Overrides">
+    Customize email templates per organization:
+
+    ```go
+    // Organization email template settings
+    orgSettings := map[string]interface{}{
+        "auth": map[string]interface{}{
+            "email": map[string]interface{}{
+                "templates": map[string]interface{}{
+                    "verification": map[string]interface{}{
+                        "subject": "Welcome to {{.OrgName}} - Verify Your Email",
+                        "template": "org-verification-email.html",
+                        "from": "noreply@{{.OrgDomain}}",
+                    },
+                    "passwordReset": map[string]interface{}{
+                        "subject": "Reset Your {{.OrgName}} Password",
+                        "template": "org-password-reset.html",
+                        "from": "support@{{.OrgDomain}}",
+                    },
+                    "invitation": map[string]interface{}{
+                        "subject": "You're invited to join {{.OrgName}}",
+                        "template": "org-invitation.html",
+                        "from": "team@{{.OrgDomain}}",
+                    },
+                },
+                "branding": map[string]interface{}{
+                    "logo": "https://cdn.example.com/org-logo.png",
+                    "primaryColor": "#007bff",
+                    "backgroundColor": "#f8f9fa",
+                },
+            },
+        },
+    }
+
+    // Email template resolution
+    func (s *EmailService) GetTemplate(ctx context.Context, orgID, templateType string) (*EmailTemplate, error) {
+        // Get organization
+        org, err := s.orgRepo.FindByID(ctx, orgID)
+        if err != nil {
+            return s.getGlobalTemplate(templateType), nil
+        }
+
+        // Check for organization-specific template
+        if authSettings, ok := org.Settings["auth"].(map[string]interface{}); ok {
+            if emailSettings, ok := authSettings["email"].(map[string]interface{}); ok {
+                if templates, ok := emailSettings["templates"].(map[string]interface{}); ok {
+                    if template, ok := templates[templateType].(map[string]interface{}); ok {
+                        return s.buildTemplate(template, org), nil
+                    }
+                }
+            }
+        }
+
+        // Fallback to global template with org branding
+        globalTemplate := s.getGlobalTemplate(templateType)
+        return s.applyOrgBranding(globalTemplate, org), nil
+    }
+
+    func (s *EmailService) buildTemplate(config map[string]interface{}, org *Organization) *EmailTemplate {
+        template := &EmailTemplate{
+            Subject:  s.interpolateString(config["subject"].(string), org),
+            Template: config["template"].(string),
+            From:     s.interpolateString(config["from"].(string), org),
+        }
+
+        return template
+    }
+
+    func (s *EmailService) interpolateString(template string, org *Organization) string {
+        replacer := strings.NewReplacer(
+            "{{.OrgName}}", org.Name,
+            "{{.OrgDomain}}", org.Domain,
+            "{{.OrgSlug}}", org.Slug,
+        )
+        return replacer.Replace(template)
+    }
+    ```
+  </Tab>
+  <Tab value="Security Policy Overrides">
+    Override security policies per organization:
+
+    ```go
+    // Organization security policy overrides
+    orgSettings := map[string]interface{}{
+        "auth": map[string]interface{}{
+            "security": map[string]interface{}{
+                "passwordPolicy": map[string]interface{}{
+                    "minLength":      12,
+                    "requireUpper":   true,
+                    "requireLower":   true,
+                    "requireNumbers": true,
+                    "requireSymbols": true,
+                    "forbiddenWords": []string{"company", "password", "123456"},
+                },
+                "sessionPolicy": map[string]interface{}{
+                    "duration":       "8h",
+                    "maxConcurrent":  3,
+                    "bindToIP":       true,
+                    "requireMFA":     true,
+                },
+                "rateLimiting": map[string]interface{}{
+                    "loginAttempts": map[string]interface{}{
+                        "maxAttempts": 3,
+                        "window":      "15m",
+                        "lockout":     "30m",
+                    },
+                },
+            },
+        },
+    }
+
+    // Security policy resolution
+    func (s *SecurityService) GetPasswordPolicy(ctx context.Context, orgID string) (*PasswordPolicy, error) {
+        // Start with global policy
+        policy := s.globalConfig.Security.PasswordPolicy
+
+        // Get organization overrides
+        org, err := s.orgRepo.FindByID(ctx, orgID)
+        if err != nil {
+            return &policy, nil
+        }
+
+        // Apply organization overrides
+        if authSettings, ok := org.Settings["auth"].(map[string]interface{}); ok {
+            if securitySettings, ok := authSettings["security"].(map[string]interface{}); ok {
+                if policySettings, ok := securitySettings["passwordPolicy"].(map[string]interface{}); ok {
+                    if minLength, ok := policySettings["minLength"].(float64); ok {
+                        policy.MinLength = int(minLength)
+                    }
+                    if requireUpper, ok := policySettings["requireUpper"].(bool); ok {
+                        policy.RequireUpper = requireUpper
+                    }
+                    if requireLower, ok := policySettings["requireLower"].(bool); ok {
+                        policy.RequireLower = requireLower
+                    }
+                    if requireNumbers, ok := policySettings["requireNumbers"].(bool); ok {
+                        policy.RequireNumbers = requireNumbers
+                    }
+                    if requireSymbols, ok := policySettings["requireSymbols"].(bool); ok {
+                        policy.RequireSymbols = requireSymbols
+                    }
+                    if forbiddenWords, ok := policySettings["forbiddenWords"].([]interface{}); ok {
+                        words := make([]string, len(forbiddenWords))
+                        for i, word := range forbiddenWords {
+                            words[i] = word.(string)
+                        }
+                        policy.ForbiddenWords = words
+                    }
+                }
+            }
+        }
+
+        return &policy, nil
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Data Isolation
+
+Ensure complete data separation between organizations:
+
+<Tabs items={['Database Isolation', 'API Isolation', 'Storage Isolation']}>
+  <Tab value="Database Isolation">
+    Implement organization-scoped database queries:
+
+    ```go
+    // Organization-scoped repository pattern
+    type OrganizationScopedRepository struct {
+        db    *bun.DB
+        orgID string
+    }
+
+    func NewOrganizationScopedRepository(db *bun.DB, orgID string) *OrganizationScopedRepository {
+        return &OrganizationScopedRepository{
+            db:    db,
+            orgID: orgID,
+        }
+    }
+
+    // All queries automatically include organization filter
+    func (r *OrganizationScopedRepository) FindUsers(ctx context.Context) ([]*User, error) {
+        var users []*User
+        err := r.db.NewSelect().
+            Model(&users).
+            Join("JOIN members m ON m.user_id = users.id").
+            Where("m.organization_id = ?", r.orgID).
+            Where("m.status = ?", "active").
+            Scan(ctx)
+        
+        return users, err
+    }
+
+    func (r *OrganizationScopedRepository) FindUserByID(ctx context.Context, userID string) (*User, error) {
+        user := new(User)
+        err := r.db.NewSelect().
+            Model(user).
+            Join("JOIN members m ON m.user_id = users.id").
+            Where("users.id = ?", userID).
+            Where("m.organization_id = ?", r.orgID).
+            Where("m.status = ?", "active").
+            Scan(ctx)
+        
+        if err != nil {
+            if errors.Is(err, sql.ErrNoRows) {
+                return nil, ErrUserNotFound
+            }
+            return nil, err
+        }
+        
+        return user, nil
+    }
+
+    // Middleware to inject organization context
+    func (s *OrganizationService) ScopeMiddleware() forge.MiddlewareFunc {
+        return func(next forge.HandlerFunc) forge.HandlerFunc {
+            return func(c *forge.Context) error {
+                // Extract organization from subdomain, header, or path
+                orgID, err := s.extractOrganizationID(c)
+                if err != nil {
+                    return c.JSON(400, ErrorResponse{
+                        Message: "Invalid organization",
+                        Code:    "INVALID_ORGANIZATION",
+                    })
+                }
+
+                // Verify user has access to organization
+                user := GetUserFromContext(c.Context())
+                if user != nil {
+                    if !s.userHasAccessToOrg(c.Context(), user.ID, orgID) {
+                        return c.JSON(403, ErrorResponse{
+                            Message: "Access denied to organization",
+                            Code:    "ORGANIZATION_ACCESS_DENIED",
+                        })
+                    }
+                }
+
+                // Add organization to context
+                ctx := WithOrganization(c.Context(), orgID)
+                c.SetContext(ctx)
+
+                return next(c)
+            }
+        }
+    }
+
+    // Extract organization ID from request
+    func (s *OrganizationService) extractOrganizationID(c *forge.Context) (string, error) {
+        // Method 1: Subdomain (e.g., acme.yourapp.com)
+        if orgID := s.extractFromSubdomain(c.Request().Host); orgID != "" {
+            return orgID, nil
+        }
+
+        // Method 2: Header (e.g., X-Organization-ID)
+        if orgID := c.GetHeader("X-Organization-ID"); orgID != "" {
+            return orgID, nil
+        }
+
+        // Method 3: Path parameter (e.g., /orgs/:orgId/...)
+        if orgID := c.Param("orgId"); orgID != "" {
+            return orgID, nil
+        }
+
+        // Method 4: Query parameter (e.g., ?org=acme)
+        if orgSlug := c.Query("org"); orgSlug != "" {
+            org, err := s.repo.FindBySlug(c.Context(), orgSlug)
+            if err != nil {
+                return "", err
+            }
+            return org.ID, nil
+        }
+
+        return "", errors.New("organization not specified")
+    }
+    ```
+  </Tab>
+  <Tab value="API Isolation">
+    Ensure API endpoints respect organization boundaries:
+
+    ```go
+    // Organization-aware handlers
+    type UserHandler struct {
+        service *user.Service
+        orgService *organization.Service
+    }
+
+    func (h *UserHandler) ListUsers(c *forge.Context) error {
+        // Get organization from context
+        orgID := GetOrganizationFromContext(c.Context())
+        if orgID == "" {
+            return c.JSON(400, ErrorResponse{Message: "Organization required"})
+        }
+
+        // Check permissions
+        currentUser := GetUserFromContext(c.Context())
+        if !h.orgService.HasPermission(c.Context(), currentUser.ID, orgID, "view_members") {
+            return c.JSON(403, ErrorResponse{Message: "Insufficient permissions"})
+        }
+
+        // Get organization-scoped users
+        users, err := h.service.ListOrganizationUsers(c.Context(), orgID)
+        if err != nil {
+            return c.JSON(500, ErrorResponse{Message: "Failed to list users"})
+        }
+
+        return c.JSON(200, users)
+    }
+
+    func (h *UserHandler) GetUser(c *forge.Context) error {
+        userID := c.Param("userId")
+        orgID := GetOrganizationFromContext(c.Context())
+
+        // Verify user belongs to organization
+        user, err := h.service.GetOrganizationUser(c.Context(), orgID, userID)
+        if err != nil {
+            if errors.Is(err, ErrUserNotFound) {
+                return c.JSON(404, ErrorResponse{Message: "User not found"})
+            }
+            return c.JSON(500, ErrorResponse{Message: "Failed to get user"})
+        }
+
+        return c.JSON(200, user)
+    }
+
+    // Service methods with organization scoping
+    func (s *UserService) ListOrganizationUsers(ctx context.Context, orgID string) ([]*User, error) {
+        return s.repo.FindByOrganization(ctx, orgID)
+    }
+
+    func (s *UserService) GetOrganizationUser(ctx context.Context, orgID, userID string) (*User, error) {
+        // Verify user belongs to organization
+        member, err := s.memberRepo.FindByUserAndOrg(ctx, userID, orgID)
+        if err != nil {
+            return nil, ErrUserNotFound
+        }
+
+        if member.Status != "active" {
+            return nil, ErrUserNotFound
+        }
+
+        return s.repo.FindByID(ctx, userID)
+    }
+    ```
+  </Tab>
+  <Tab value="Storage Isolation">
+    Isolate file storage and caching per organization:
+
+    ```go
+    // Organization-scoped storage
+    type OrganizationStorage struct {
+        storage storage.Provider
+        orgID   string
+    }
+
+    func NewOrganizationStorage(provider storage.Provider, orgID string) *OrganizationStorage {
+        return &OrganizationStorage{
+            storage: provider,
+            orgID:   orgID,
+        }
+    }
+
+    func (s *OrganizationStorage) Store(ctx context.Context, key string, data []byte) error {
+        // Prefix key with organization ID
+        orgKey := fmt.Sprintf("orgs/%s/%s", s.orgID, key)
+        return s.storage.Store(ctx, orgKey, data)
+    }
+
+    func (s *OrganizationStorage) Retrieve(ctx context.Context, key string) ([]byte, error) {
+        orgKey := fmt.Sprintf("orgs/%s/%s", s.orgID, key)
+        return s.storage.Retrieve(ctx, orgKey)
+    }
+
+    func (s *OrganizationStorage) Delete(ctx context.Context, key string) error {
+        orgKey := fmt.Sprintf("orgs/%s/%s", s.orgID, key)
+        return s.storage.Delete(ctx, orgKey)
+    }
+
+    // Organization-scoped caching
+    type OrganizationCache struct {
+        cache cache.Provider
+        orgID string
+    }
+
+    func NewOrganizationCache(provider cache.Provider, orgID string) *OrganizationCache {
+        return &OrganizationCache{
+            cache: provider,
+            orgID: orgID,
+        }
+    }
+
+    func (c *OrganizationCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+        orgKey := fmt.Sprintf("org:%s:%s", c.orgID, key)
+        return c.cache.Set(ctx, orgKey, value, ttl)
+    }
+
+    func (c *OrganizationCache) Get(ctx context.Context, key string) (interface{}, bool) {
+        orgKey := fmt.Sprintf("org:%s:%s", c.orgID, key)
+        return c.cache.Get(ctx, orgKey)
+    }
+
+    func (c *OrganizationCache) Delete(ctx context.Context, key string) error {
+        orgKey := fmt.Sprintf("org:%s:%s", c.orgID, key)
+        return c.cache.Delete(ctx, orgKey)
+    }
+
+    // Usage in services
+    func (s *UserService) GetUserProfile(ctx context.Context, userID string) (*UserProfile, error) {
+        orgID := GetOrganizationFromContext(ctx)
+        
+        // Use organization-scoped cache
+        cache := NewOrganizationCache(s.cache, orgID)
+        cacheKey := fmt.Sprintf("user:profile:%s", userID)
+        
+        if cached, found := cache.Get(ctx, cacheKey); found {
+            return cached.(*UserProfile), nil
+        }
+
+        // Fetch from database with organization scope
+        profile, err := s.repo.GetUserProfile(ctx, orgID, userID)
+        if err != nil {
+            return nil, err
+        }
+
+        // Cache the result
+        cache.Set(ctx, cacheKey, profile, 15*time.Minute)
+        
+        return profile, nil
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Organization Context
+
+Manage organization context throughout the application:
+
+```go
+// Context keys
+type contextKey string
+
+const (
+    OrganizationContextKey contextKey = "organization"
+    MemberContextKey       contextKey = "member"
+)
+
+// Context helpers
+func WithOrganization(ctx context.Context, orgID string) context.Context {
+    return context.WithValue(ctx, OrganizationContextKey, orgID)
+}
+
+func GetOrganizationFromContext(ctx context.Context) string {
+    if orgID, ok := ctx.Value(OrganizationContextKey).(string); ok {
+        return orgID
+    }
+    return ""
+}
+
+func WithMember(ctx context.Context, member *Member) context.Context {
+    return context.WithValue(ctx, MemberContextKey, member)
+}
+
+func GetMemberFromContext(ctx context.Context) *Member {
+    if member, ok := ctx.Value(MemberContextKey).(*Member); ok {
+        return member
+    }
+    return nil
+}
+
+// Organization-aware service factory
+type ServiceFactory struct {
+    db       *bun.DB
+    cache    cache.Provider
+    storage  storage.Provider
+    config   *Config
+}
+
+func (f *ServiceFactory) ForOrganization(orgID string) *OrganizationServices {
+    return &OrganizationServices{
+        orgID:   orgID,
+        factory: f,
+    }
+}
+
+type OrganizationServices struct {
+    orgID   string
+    factory *ServiceFactory
+}
+
+func (s *OrganizationServices) UserService() *user.Service {
+    repo := user.NewOrganizationScopedRepository(s.factory.db, s.orgID)
+    cache := NewOrganizationCache(s.factory.cache, s.orgID)
+    return user.NewService(repo, cache, s.factory.config.User)
+}
+
+func (s *OrganizationServices) SessionService() *session.Service {
+    repo := session.NewOrganizationScopedRepository(s.factory.db, s.orgID)
+    cache := NewOrganizationCache(s.factory.cache, s.orgID)
+    return session.NewService(repo, cache, s.factory.config.Session)
+}
+
+// Usage in handlers
+func (h *Handler) handleRequest(c *forge.Context) error {
+    orgID := GetOrganizationFromContext(c.Context())
+    services := h.serviceFactory.ForOrganization(orgID)
+    
+    userService := services.UserService()
+    sessionService := services.SessionService()
+    
+    // Use organization-scoped services
+    users, err := userService.ListUsers(c.Context())
+    if err != nil {
+        return err
+    }
+    
+    return c.JSON(200, users)
+}
+```
+
+## Organization Billing
+
+<Callout type="info">
+Organization-based billing enables SaaS pricing models with per-tenant usage tracking and subscription management.
+</Callout>
+
+```go
+type OrganizationBilling struct {
+    ID             string                 `json:"id" bun:"id,pk"`
+    OrganizationID string                 `json:"organizationId" bun:"organization_id,notnull"`
+    Plan           string                 `json:"plan" bun:"plan,notnull"`
+    Status         string                 `json:"status" bun:"status,notnull"`
+    SubscriptionID string                 `json:"subscriptionId,omitempty" bun:"subscription_id"`
+    CustomerID     string                 `json:"customerId,omitempty" bun:"customer_id"`
+    Usage          map[string]interface{} `json:"usage" bun:"usage,type:jsonb"`
+    Limits         map[string]interface{} `json:"limits" bun:"limits,type:jsonb"`
+    CreatedAt      time.Time              `json:"createdAt" bun:"created_at,notnull,default:current_timestamp"`
+    UpdatedAt      time.Time              `json:"updatedAt" bun:"updated_at,notnull,default:current_timestamp"`
+}
+
+// Track usage per organization
+func (s *BillingService) TrackUsage(ctx context.Context, orgID, metric string, amount int) error {
+    billing, err := s.repo.FindByOrganization(ctx, orgID)
+    if err != nil {
+        return err
+    }
+
+    // Update usage
+    if billing.Usage == nil {
+        billing.Usage = make(map[string]interface{})
+    }
+
+    currentUsage, _ := billing.Usage[metric].(float64)
+    billing.Usage[metric] = currentUsage + float64(amount)
+
+    // Check limits
+    if limit, ok := billing.Limits[metric].(float64); ok {
+        if billing.Usage[metric].(float64) > limit {
+            return ErrUsageLimitExceeded
+        }
+    }
+
+    return s.repo.Update(ctx, billing)
+}
+
+// Usage tracking middleware
+func (s *BillingService) UsageTrackingMiddleware() forge.MiddlewareFunc {
+    return func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            orgID := GetOrganizationFromContext(c.Context())
+            if orgID != "" {
+                // Track API request
+                go s.TrackUsage(context.Background(), orgID, "api_requests", 1)
+            }
+
+            return next(c)
+        }
+    }
+}
+```
+
+## Best Practices
+
+<Cards>
+  <Card
+    title="🔒 Always Scope Data"
+    description="Ensure all database queries include organization filters to prevent data leakage"
+  />
+  <Card
+    title="⚡ Cache Organization Config"
+    description="Cache organization-specific configurations to avoid repeated database queries"
+  />
+  <Card
+    title="🎯 Use Context Propagation"
+    description="Pass organization context through the entire request lifecycle"
+  />
+  <Card
+    title="🛡️ Validate Organization Access"
+    description="Always verify users have access to the requested organization"
+  />
+  <Card
+    title="📊 Monitor Cross-Tenant Access"
+    description="Log and monitor attempts to access data across organization boundaries"
+  />
+  <Card
+    title="🔄 Test Isolation"
+    description="Regularly test data isolation to ensure no cross-tenant data leakage"
+  />
+</Cards>
+
+### Security Checklist
+
+- ✅ All database queries include organization filters
+- ✅ API endpoints validate organization access
+- ✅ File storage is organization-scoped
+- ✅ Cache keys include organization prefixes
+- ✅ Configuration overrides are validated
+- ✅ Cross-tenant access attempts are logged
+- ✅ Organization membership is verified on each request
+- ✅ Sensitive operations require appropriate permissions
+
+<Callout type="warn">
+**Security Warning**: Never trust client-provided organization IDs. Always validate organization access through proper authentication and authorization checks.
+</Callout>
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Security"
+    description="Explore advanced security features and best practices"
+    href="/docs/go/concepts/security"
+  />
+  <Card
+    title="RBAC Plugin"
+    description="Role-based access control for fine-grained permissions"
+    href="/docs/go/plugins/advanced/rbac"
+  />
+  <Card
+    title="Audit Plugin"
+    description="Comprehensive audit logging for compliance"
+    href="/docs/go/plugins/advanced/audit"
+  />
+  <Card
+    title="Multi-Tenant Guide"
+    description="Complete guide to building multi-tenant applications"
+    href="/docs/go/guides/multi-tenant"
+  />
+</Cards>

@@ -226,7 +226,7 @@ func NewDefaultRedisScaler(
 		cleanupStop:   make(chan struct{}),
 	}
 
-	// OnStart background processes
+	// Start background processes
 	scaler.startHeartbeat()
 	scaler.startCleanup()
 
@@ -403,7 +403,7 @@ func (r *DefaultRedisScaler) SubscribeToRoom(ctx context.Context, roomID string,
 	// Store handler
 	r.subscriptions[roomID] = handler
 
-	// OnStart message processing if first subscription
+	// Start message processing if first subscription
 	if len(r.subscriptions) == 1 {
 		r.wg.Add(1)
 		go r.processSubscriptions()
@@ -1090,7 +1090,7 @@ func (r *DefaultRedisScaler) extractRoomIDFromChannel(channel string) string {
 
 // Close closes the Redis scaler
 func (r *DefaultRedisScaler) Close() error {
-	// OnStop background processes
+	// Stop background processes
 	close(r.heartbeatStop)
 	close(r.cleanupStop)
 

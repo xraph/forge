@@ -106,7 +106,7 @@ func (cp *CronPlugin) OnStart(ctx context.Context) error {
 	if cp.service == nil {
 		return common.ErrPluginInitFailed("cron-plugin", fmt.Errorf("service not initialized"))
 	}
-	return cp.service.OnStart(ctx)
+	return cp.service.Start(ctx)
 }
 
 // OnStop stops the plugin
@@ -114,7 +114,7 @@ func (cp *CronPlugin) OnStop(ctx context.Context) error {
 	if cp.service == nil {
 		return nil
 	}
-	return cp.service.OnStop(ctx)
+	return cp.service.Stop(ctx)
 }
 
 // Cleanup performs cleanup

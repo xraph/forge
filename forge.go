@@ -1,3 +1,38 @@
+// Package forge provides a comprehensive, production-ready backend framework for Go.
+//
+// Forge is designed for building scalable, maintainable applications with enterprise-grade
+// features including dependency injection, caching, metrics, health checks, and more.
+//
+// Quick Start:
+//
+//	app, err := forge.NewApplication(forge.ApplicationConfig{
+//		Description: "my-app",
+//		Port: 8080,
+//	})
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	app.Router().GET("/", func(w http.ResponseWriter, r *http.Request) {
+//		w.Write([]byte("Hello, Forge!"))
+//	})
+//
+//	if err := app.Start(context.Background()); err != nil {
+//		log.Fatal(err)
+//	}
+//
+// Features:
+//   - Dependency Injection: Powerful DI container with lifecycle management
+//   - HTTP Routing: Multiple router backends (HTTPRouter, BunRouter)
+//   - Caching: Redis, in-memory, and distributed caching
+//   - Metrics: Prometheus metrics collection
+//   - Health Checks: Built-in health monitoring
+//   - Event System: Event-driven architecture
+//   - Plugin System: Extensible plugin architecture
+//   - Configuration: Multi-source configuration management
+//   - Observability: Structured logging and distributed tracing
+//
+// For more information, see the README.md file and examples in the examples/ directory.
 package forge
 
 import (
@@ -29,7 +64,32 @@ import (
 	"github.com/xraph/forge/pkg/streaming"
 )
 
-// ForgeApplication implements the core.Application interface
+// ForgeApplication represents the main application instance.
+//
+// It orchestrates all components of the Forge framework including the DI container,
+// router, services, and lifecycle management. The application follows a clear
+// lifecycle: initialization -> start -> running -> stop.
+//
+// Example:
+//
+//	app := &ForgeApplication{
+//		name: "my-app",
+//		config: ApplicationConfig{
+//			Description: "My Application",
+//			Port: 8080,
+//		},
+//	}
+//
+//	// Configure routes
+//	app.Router().GET("/", handler)
+//
+//	// Start the application
+//	if err := app.Start(ctx); err != nil {
+//		return err
+//	}
+//
+//	// Stop gracefully
+//	defer app.Stop(ctx)
 type ForgeApplication struct {
 	// Basic information
 	name        string
@@ -46,14 +106,14 @@ type ForgeApplication struct {
 	lifecycle      common.LifecycleManager
 	errorHandler   common.ErrorHandler
 	metricsHandler *metrics.MetricsEndpointHandler
-	pluginsManager plugins.PluginManager
+	pluginsManager *plugins.Manager
 
 	// Add streaming manager
 	streamingManager streaming.StreamingManager
 
 	// Cache components
 	cacheService *cache.CacheService
-	cacheManager *cache.CacheManager
+	cacheManager cache.CacheManager
 
 	// HTTP Server
 	server    *http.Server
@@ -77,8 +137,37 @@ type ForgeApplication struct {
 	stopTimeout time.Duration
 }
 
-// NewApplication creates a new Forge application with functional options
-// This version applies configuration first, then initializes components in proper order
+// NewApplication creates a new Forge application instance.
+//
+// It initializes the application with the provided name and version, and applies
+// the given options to configure the application. The application is created in
+// a stopped state and must be explicitly started.
+//
+// Parameters:
+//   - name: The application name (required, cannot be empty)
+//   - version: The application version (required, cannot be empty)
+//   - options: Optional configuration options to customize the application
+//
+// Returns:
+//   - Forge: The application instance
+//   - error: Any error that occurred during initialization
+//
+// Example:
+//
+//	app, err := forge.NewApplication("my-app", "1.0.0",
+//		forge.WithPort(8080),
+//		forge.WithLogger(logger),
+//		forge.WithMetrics(metrics),
+//	)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Configure and start the application
+//	app.Router().GET("/", handler)
+//	if err := app.Start(ctx); err != nil {
+//		log.Fatal(err)
+//	}
 func NewApplication(name, version string, options ...ApplicationOption) (Forge, error) {
 	if name == "" {
 		return nil, common.ErrValidationError("name", fmt.Errorf("application name cannot be empty"))
@@ -299,27 +388,8 @@ func (app *ForgeApplication) registerMetricsDefinition(config *ApplicationConfig
 		})
 	}
 
-	// // Register factory for metrics
-	// return app.container.Register(common.ServiceDefinition{
-	// 	Name: metrics.MetricsKey,
-	// 	Type: (*metrics.MetricsCollector)(nil),
-	// 	Constructor: func(logger common.Logger) (metrics.MetricsCollector, error) {
-	// 		var metricsConfig *metrics.CollectorConfig
-	// 		if config.MetricsConfig != nil {
-	// 			metricsConfig = config.MetricsConfig
-	// 		} else {
-	// 			metricsConfig = metrics.DefaultCollectorConfig()
-	// 			if config.EnableProduction {
-	// 				metricsConfig.EnableSystemMetrics = true
-	// 				metricsConfig.EnableRuntimeMetrics = true
-	// 				metricsConfig.CollectionInterval = 30 * time.Second
-	// 			}
-	// 		}
-	// 		return metrics.NewCollector(metricsConfig, logger), nil
-	// 	},
-	// 	Singleton:    true,
-	// 	Dependencies: []string{common.LoggerKey},
-	// })
+	// Note: Metrics registration is handled by metrics.RegisterMetricsCollector()
+	// See ADR-001 for architectural decision on service registration patterns
 
 	// Use existing registered metrics service to create metrics service registration
 	if app.sharedConfig.metrics == nil {
@@ -348,50 +418,8 @@ func (app *ForgeApplication) registerConfigDefinition(opts *ApplicationConfig) e
 	// Store config sources for deferred loading
 	app.sharedConfig.configSources = opts.ConfigSources
 
-	// // Register factory for config manager
-	// return app.container.Register(common.ServiceDefinition{
-	// 	Name: common.ConfigKey,
-	// 	Type: (*common.ConfigManager)(nil),
-	// 	Constructor: func(logger common.Logger, metrics metrics.MetricsCollector, errorHandler common.ErrorHandler) (common.ConfigManager, error) {
-	// 		var managerConfig config.ManagerConfig
-	// 		if opts.ConfigConfig != nil {
-	// 			managerConfig = *opts.ConfigConfig
-	// 		} else {
-	// 			managerConfig = config.ManagerConfig{
-	// 				CacheEnabled:   true,
-	// 				ReloadOnChange: true,
-	// 				MetricsEnabled: !opts.EnableProduction,
-	// 			}
-	//
-	// 			if opts.EnableProduction {
-	// 				managerConfig.ValidationMode = config.ValidationModeStrict
-	// 				managerConfig.SecretsEnabled = true
-	// 				managerConfig.WatchInterval = 60 * time.Second
-	// 				managerConfig.ErrorRetryCount = 5
-	// 				managerConfig.ErrorRetryDelay = 10 * time.Second
-	// 			}
-	// 		}
-	//
-	// 		// Ensure required dependencies are set
-	// 		managerConfig.Logger = logger
-	// 		managerConfig.Metrics = metrics
-	// 		managerConfig.ErrorHandler = errorHandler
-	//
-	// 		// Store config for shared access
-	// 		app.sharedConfig.config = &managerConfig
-	//
-	// 		configMgr := config.NewManager(managerConfig)
-	//
-	// 		// Load config sources after manager creation
-	// 		if err := app.loadConfigSources(configMgr, opts, logger); err != nil {
-	// 			return nil, fmt.Errorf("failed to load config sources: %w", err)
-	// 		}
-	//
-	// 		return configMgr, nil
-	// 	},
-	// 	Singleton:    true,
-	// 	Dependencies: []string{common.LoggerKey, metrics.MetricsKey, common.ErrorHandlerKey},
-	// })
+	// Note: Config registration is handled by config.RegisterConfigService()
+	// See ADR-001 for architectural decision on service registration patterns
 
 	var managerConfig config.ManagerConfig
 	if opts.ConfigConfig != nil {
@@ -501,25 +529,8 @@ func (app *ForgeApplication) registerLifecycleDefinition(config *ApplicationConf
 
 // Plugin manager registration
 func (app *ForgeApplication) registerPluginDefinition(config *ApplicationConfig) error {
-	// Register factory for lifecycle manager - it's typically provided by the container itself
-	err := plugins.RegisterService(app.container)
-	if err != nil {
-		return err
-	}
-
-	pm, err := app.container.ResolveNamed(common.PluginManagerKey)
-	if err != nil {
-		return err
-	}
-
-	manager, ok := pm.(plugins.PluginManager)
-	if !ok {
-		return fmt.Errorf("resolved plugin manager is not of correct type")
-	}
-
-	app.pluginsManager = manager
-	app.pluginsManager.SetRouter(app.router)
-	app.pluginsManager.SetMiddlewareManager(app.router.(*router.ForgeRouter).MiddlewareManager())
+	// Create simplified plugin manager
+	app.pluginsManager = plugins.NewManager(app, app.router, app.logger)
 	return nil
 }
 
@@ -654,9 +665,7 @@ func (app *ForgeApplication) initializeRouter(config *ApplicationConfig) error {
 	// Enable cache middleware if cache is configured (ADD THIS)
 	if config.CacheConfig != nil && config.CacheConfig.Enabled {
 		if err := app.enableCacheMiddleware(config.CacheConfig); err != nil {
-			if app.logger != nil {
-				app.logger.Warn("failed to enable cache middleware", logger.Error(err))
-			}
+			return fmt.Errorf("failed to enable cache middleware: %w", err)
 		}
 	}
 
@@ -761,32 +770,8 @@ func (app *ForgeApplication) enableFeatures(config *ApplicationConfig) error {
 
 // Register standard services - now using container registration pattern
 func (app *ForgeApplication) registerStandardServices() error {
-	// // Register the container itself
-	// if err := app.container.Register(common.ServiceDefinition{
-	// 	Name:      common.ContainerKey,
-	// 	Type:      (*common.Container)(nil),
-	// 	Instance:  app.container,
-	// 	Singleton: true,
-	// }); err != nil {
-	// 	return err
-	// }
-
-	// // Use existing registered metrics service to create metrics service registration
-	// if app.sharedConfig.metrics == nil {
-	// 	app.sharedConfig.metrics = metrics.DefaultServiceConfig()
-	// 	app.sharedConfig.metrics.AutoRegister = true
-	// 	app.sharedConfig.metrics.CollectorConfig.EnableSystemMetrics = false
-	// 	app.sharedConfig.metrics.CollectorConfig.EnableRuntimeMetrics = false
-	// }
-	//
-	// if err := metrics.RegisterMetricsCollector(app.container, app.sharedConfig.metrics, app.logger); err != nil {
-	// 	return err
-	// }
-
-	// // Register health service
-	// if err := health.RegisterHealthService(app.container); err != nil {
-	// 	return err
-	// }
+	// Note: Standard services are registered using helper functions
+	// See ADR-001 for architectural decision on service registration patterns
 
 	return nil
 }
@@ -902,6 +887,25 @@ func (app *ForgeApplication) Container() common.Container {
 	return app.container
 }
 
+// Router returns the HTTP router instance.
+//
+// The router is used to register HTTP routes, middleware, and handlers.
+// It supports multiple backends including HTTPRouter and BunRouter.
+//
+// Returns:
+//   - common.Router: The router instance
+//
+// Example:
+//
+//	// Register a GET route
+//	app.Router().GET("/api/users", getUserHandler)
+//
+//	// Register a POST route
+//	app.Router().POST("/api/users", createUserHandler)
+//
+//	// Add middleware
+//	app.Router().Use(middleware.CORS())
+//	app.Router().Use(middleware.RateLimit(100))
 func (app *ForgeApplication) Router() common.Router {
 	return app.router
 }
@@ -1179,8 +1183,6 @@ func (app *ForgeApplication) AddPlugin(plugin common.Plugin) error {
 		app.logger.Info("plugin added",
 			logger.String("plugin", pluginName),
 			logger.String("version", plugin.Version()),
-			logger.String("description", plugin.Description()),
-			logger.String("dependencies", fmt.Sprintf("%v", plugin.Dependencies())),
 		)
 	}
 
@@ -1195,12 +1197,12 @@ func (app *ForgeApplication) RemovePlugin(pluginName string) error {
 		return common.ErrLifecycleError("remove_plugin", fmt.Errorf("cannot remove plugin after application has started"))
 	}
 
-	// Unload plugin if it was loaded via plugin manager
+	// Remove plugin from plugin manager
 	if app.pluginsManager != nil {
-		if err := app.pluginsManager.UnloadPlugin(context.Background(), pluginName); err != nil {
+		if err := app.pluginsManager.RemovePlugin(context.Background(), pluginName); err != nil {
 			// Log warning but don't fail - plugin might not have been loaded via manager
 			if app.logger != nil {
-				app.logger.Warn("failed to unload plugin from manager",
+				app.logger.Warn("failed to remove plugin from manager",
 					logger.String("plugin", pluginName),
 					logger.Error(err),
 				)
@@ -1227,6 +1229,33 @@ func (app *ForgeApplication) GetPlugins() []common.Plugin {
 // LIFECYCLE MANAGEMENT
 // =============================================================================
 
+// Start initializes and starts the application.
+//
+// It performs the following operations in order:
+// 1. Validates the application configuration
+// 2. Initializes core components (logger, metrics, config, etc.)
+// 3. Starts the dependency injection container
+// 4. Starts all registered services
+// 5. Starts the HTTP server
+// 6. Sets up graceful shutdown handling
+//
+// The application must be in a stopped state to start successfully.
+// If the application is already running, this method returns an error.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//
+// Returns:
+//   - error: Any error that occurred during startup
+//
+// Example:
+//
+//	ctx := context.Background()
+//	if err := app.Start(ctx); err != nil {
+//		log.Fatalf("Failed to start application: %v", err)
+//	}
+//
+//	// Application is now running and ready to serve requests
 func (app *ForgeApplication) Start(ctx context.Context) error {
 	app.mu.Lock()
 	defer app.mu.Unlock()
@@ -1254,7 +1283,7 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		return err
 	}
 
-	// OnStart container
+	// Start container
 	if app.container != nil {
 		if err := app.container.Start(ctx); err != nil {
 			app.status = common.ApplicationStatusError
@@ -1262,7 +1291,7 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		}
 	}
 
-	// OnStart services through lifecycle manager
+	// Start services through lifecycle manager
 	if app.lifecycle != nil {
 		if err := app.lifecycle.StartServices(ctx); err != nil {
 			app.status = common.ApplicationStatusError
@@ -1270,11 +1299,19 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		}
 	}
 
-	// OnStart router
+	// Start router
 	if app.router != nil {
 		if err := app.router.Start(ctx); err != nil {
 			app.status = common.ApplicationStatusError
 			return err
+		}
+	}
+
+	// Start plugins
+	if app.pluginsManager != nil {
+		if err := app.pluginsManager.StartPlugins(ctx); err != nil {
+			app.status = common.ApplicationStatusError
+			return fmt.Errorf("failed to start plugins: %w", err)
 		}
 	}
 
@@ -1301,6 +1338,32 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop gracefully shuts down the application.
+//
+// It performs the following operations in order:
+// 1. Stops the HTTP server gracefully
+// 2. Stops the router
+// 3. Stops all registered services through the lifecycle manager
+// 4. Stops the dependency injection container
+// 5. Cleans up resources
+//
+// The application must be in a running state to stop successfully.
+// If the application is already stopped, this method returns an error.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeout control
+//
+// Returns:
+//   - error: Any error that occurred during shutdown
+//
+// Example:
+//
+//	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+//	defer cancel()
+//
+//	if err := app.Stop(ctx); err != nil {
+//		log.Printf("Error during shutdown: %v", err)
+//	}
 func (app *ForgeApplication) Stop(ctx context.Context) error {
 	app.mu.Lock()
 	defer app.mu.Unlock()
@@ -1316,40 +1379,47 @@ func (app *ForgeApplication) Stop(ctx context.Context) error {
 		app.logger.Info("stopping application", logger.String("name", app.name))
 	}
 
-	// OnStop HTTP server first
+	// Collect shutdown errors
+	var shutdownErrors []error
+
+	// Stop HTTP server first
 	if app.server != nil {
 		if err := app.stopHTTPServer(ctx); err != nil {
-			if app.logger != nil {
-				app.logger.Warn("failed to stop HTTP server", logger.Error(err))
-			}
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to stop HTTP server: %w", err))
 		}
 	}
 
-	// OnStop router
+	// Stop plugins
+	if app.pluginsManager != nil {
+		if err := app.pluginsManager.StopPlugins(ctx); err != nil {
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to stop plugins: %w", err))
+		}
+	}
+
+	// Stop router
 	if app.router != nil {
 		if err := app.router.Stop(ctx); err != nil {
-			if app.logger != nil {
-				app.logger.Warn("failed to stop router", logger.Error(err))
-			}
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to stop router: %w", err))
 		}
 	}
 
-	// OnStop services through lifecycle manager
+	// Stop services through lifecycle manager
 	if app.lifecycle != nil {
 		if err := app.lifecycle.StopServices(ctx); err != nil {
-			if app.logger != nil {
-				app.logger.Warn("failed to stop services", logger.Error(err))
-			}
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to stop services: %w", err))
 		}
 	}
 
-	// OnStop container
+	// Stop container
 	if app.container != nil {
 		if err := app.container.Stop(ctx); err != nil {
-			if app.logger != nil {
-				app.logger.Warn("failed to stop container", logger.Error(err))
-			}
+			shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to stop container: %w", err))
 		}
+	}
+
+	// Return combined shutdown errors if any occurred
+	if len(shutdownErrors) > 0 {
+		return fmt.Errorf("shutdown completed with errors: %v", shutdownErrors)
 	}
 
 	app.status = common.ApplicationStatusStopped
@@ -1385,7 +1455,7 @@ func (app *ForgeApplication) Run() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// OnStart the application
+	// Start the application
 	if err := app.Start(ctx); err != nil {
 		return err
 	}
@@ -1488,8 +1558,15 @@ func (app *ForgeApplication) stopHTTPServer(ctx context.Context) error {
 	}
 
 	if err := app.server.Shutdown(ctx); err != nil {
-		app.logger.Error("failed to shutdown HTTP server gracefully", logger.Error(err))
-		return app.server.Close()
+		// Log the graceful shutdown failure but continue with force close
+		if app.logger != nil {
+			app.logger.Warn("failed to shutdown HTTP server gracefully, forcing close", logger.Error(err))
+		}
+		// Force close the server and return the original shutdown error
+		if closeErr := app.server.Close(); closeErr != nil {
+			return fmt.Errorf("failed to shutdown HTTP server gracefully: %w, and failed to force close: %v", err, closeErr)
+		}
+		return fmt.Errorf("failed to shutdown HTTP server gracefully: %w", err)
 	}
 
 	app.server = nil
@@ -1713,13 +1790,38 @@ func (app *ForgeApplication) ensureStreamingManager() error {
 }
 
 func (app *ForgeApplication) MetricsCollector() metrics.MetricsCollector {
-	// TODO implement me
-	panic("implement me")
+	if app.metrics == nil {
+		// Return a no-op metrics collector if not initialized
+		// This prevents panics but logs a warning
+		if app.logger != nil {
+			app.logger.Warn("metrics collector not initialized, returning no-op collector")
+		}
+		return metrics.NewMockMetricsCollector()
+	}
+	return app.metrics
 }
 
 func (app *ForgeApplication) HealthService() health.HealthService {
-	// TODO implement me
-	panic("implement me")
+	if app.container == nil {
+		// Return a no-op health service if container not initialized
+		if app.logger != nil {
+			app.logger.Warn("container not initialized, returning no-op health service")
+		}
+		return health.HealthService{} // Return empty health service
+	}
+
+	// Try to resolve health service from container
+	if healthServ, err := app.container.ResolveNamed(common.HealthServiceKey); err == nil {
+		if hs, ok := healthServ.(health.HealthService); ok {
+			return hs
+		}
+	}
+
+	// If health service not found, log warning and return empty service
+	if app.logger != nil {
+		app.logger.Warn("health service not found in container, returning empty health service")
+	}
+	return health.HealthService{}
 }
 
 func (app *ForgeApplication) WebSocket(path string, handler interface{}, options ...common.StreamingHandlerInfo) error {
@@ -2027,7 +2129,7 @@ func (app *ForgeApplication) enableCacheFeature(config *cache.CacheConfig) error
 // =============================================================================
 
 // CacheManager returns the cache manager instance
-func (app *ForgeApplication) CacheManager() *cache.CacheManager {
+func (app *ForgeApplication) CacheManager() cache.CacheManager {
 	app.mu.RLock()
 	defer app.mu.RUnlock()
 	return app.cacheManager

@@ -1,0 +1,1539 @@
+---
+title: Username Authentication Plugin
+description: Enable username-based login alongside email authentication
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+The Username Authentication plugin extends the core Email & Password plugin to support username-based authentication. Users can sign up and sign in using either their email address or a unique username, providing flexibility and improved user experience.
+
+## Features
+
+- **Dual Authentication**: Support both email and username login
+- **Username Validation**: Configurable username rules and restrictions
+- **Unique Constraints**: Ensure username uniqueness across organizations
+- **Case Sensitivity**: Configurable case-sensitive or case-insensitive usernames
+- **Reserved Usernames**: Block system and inappropriate usernames
+- **Username Changes**: Allow or restrict username modifications
+- **Integration**: Seamless integration with existing email authentication
+
+## Installation
+
+The Username Authentication plugin is included in the core AuthSome package:
+
+```go
+import "github.com/xraph/authsome/plugins/username"
+```
+
+<Callout type="info">
+**Dependency**: This plugin requires the Email & Password plugin to be enabled as it extends its functionality.
+</Callout>
+
+## Configuration
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      plugins:
+        # Email & Password plugin must be enabled
+        emailPassword:
+          enabled: true
+          
+        # Username plugin configuration
+        username:
+          enabled: true
+          
+          # Username validation rules
+          validation:
+            minLength: 3
+            maxLength: 30
+            allowedCharacters: "alphanumeric_underscore"  # alphanumeric, alphanumeric_underscore, custom
+            customPattern: ""  # Custom regex pattern if allowedCharacters is "custom"
+            caseSensitive: false
+            
+          # Reserved usernames (system, inappropriate, etc.)
+          reserved:
+            - "admin"
+            - "root"
+            - "system"
+            - "api"
+            - "www"
+            - "mail"
+            - "support"
+            - "help"
+            - "info"
+            - "contact"
+            - "about"
+            - "terms"
+            - "privacy"
+            - "security"
+            - "login"
+            - "signup"
+            - "register"
+            - "auth"
+            - "oauth"
+            - "callback"
+            - "webhook"
+            - "test"
+            - "demo"
+            - "example"
+            
+          # Username modification settings
+          modification:
+            allowChanges: true
+            cooldownPeriod: "30d"  # Time between username changes
+            maxChanges: 3  # Maximum changes per user (0 = unlimited)
+            requireEmailVerification: true
+            
+          # Display settings
+          display:
+            showInProfile: true
+            showInPublicProfile: false  # For user directories/profiles
+            useAsDisplayName: false  # Use username as display name if no full name
+            
+          # Search and discovery
+          search:
+            allowUsernameSearch: true
+            indexForSearch: true
+            
+          # Security settings
+          security:
+            preventEnumeration: true  # Don't reveal if username exists
+            rateLimitChecks: true
+            logUsernameAttempts: true
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # Basic settings
+    AUTH_PLUGINS_USERNAME_ENABLED=true
+
+    # Validation
+    AUTH_PLUGINS_USERNAME_VALIDATION_MIN_LENGTH=3
+    AUTH_PLUGINS_USERNAME_VALIDATION_MAX_LENGTH=30
+    AUTH_PLUGINS_USERNAME_VALIDATION_ALLOWED_CHARACTERS=alphanumeric_underscore
+    AUTH_PLUGINS_USERNAME_VALIDATION_CASE_SENSITIVE=false
+
+    # Modification settings
+    AUTH_PLUGINS_USERNAME_MODIFICATION_ALLOW_CHANGES=true
+    AUTH_PLUGINS_USERNAME_MODIFICATION_COOLDOWN_PERIOD=30d
+    AUTH_PLUGINS_USERNAME_MODIFICATION_MAX_CHANGES=3
+    AUTH_PLUGINS_USERNAME_MODIFICATION_REQUIRE_EMAIL_VERIFICATION=true
+
+    # Display settings
+    AUTH_PLUGINS_USERNAME_DISPLAY_SHOW_IN_PROFILE=true
+    AUTH_PLUGINS_USERNAME_DISPLAY_SHOW_IN_PUBLIC_PROFILE=false
+    AUTH_PLUGINS_USERNAME_DISPLAY_USE_AS_DISPLAY_NAME=false
+
+    # Security
+    AUTH_PLUGINS_USERNAME_SECURITY_PREVENT_ENUMERATION=true
+    AUTH_PLUGINS_USERNAME_SECURITY_RATE_LIMIT_CHECKS=true
+    AUTH_PLUGINS_USERNAME_SECURITY_LOG_USERNAME_ATTEMPTS=true
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    config := &username.Config{
+        Enabled: true,
+        
+        Validation: username.ValidationConfig{
+            MinLength:           3,
+            MaxLength:           30,
+            AllowedCharacters:   "alphanumeric_underscore",
+            CustomPattern:       "",
+            CaseSensitive:       false,
+        },
+        
+        Reserved: []string{
+            "admin", "root", "system", "api", "www",
+            "mail", "support", "help", "info", "contact",
+            "about", "terms", "privacy", "security",
+            "login", "signup", "register", "auth", "oauth",
+            "callback", "webhook", "test", "demo", "example",
+        },
+        
+        Modification: username.ModificationConfig{
+            AllowChanges:              true,
+            CooldownPeriod:           30 * 24 * time.Hour,
+            MaxChanges:               3,
+            RequireEmailVerification: true,
+        },
+        
+        Display: username.DisplayConfig{
+            ShowInProfile:       true,
+            ShowInPublicProfile: false,
+            UseAsDisplayName:    false,
+        },
+        
+        Search: username.SearchConfig{
+            AllowUsernameSearch: true,
+            IndexForSearch:      true,
+        },
+        
+        Security: username.SecurityConfig{
+            PreventEnumeration:   true,
+            RateLimitChecks:     true,
+            LogUsernameAttempts: true,
+        },
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Plugin Registration
+
+Register the Username Authentication plugin with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/emailpassword"
+    "github.com/xraph/authsome/plugins/username"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance with configuration
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register Email & Password plugin (required dependency)
+    emailPasswordPlugin := emailpassword.NewPlugin()
+    auth.RegisterPlugin(emailPasswordPlugin)
+
+    // Register Username plugin
+    usernamePlugin := username.NewPlugin()
+    auth.RegisterPlugin(usernamePlugin)
+
+    // Initialize plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## API Endpoints
+
+The Username Authentication plugin extends existing endpoints and adds new ones:
+
+### Sign Up with Username
+
+```http
+POST /auth/signup
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "username": "johndoe",
+  "password": "securePassword123",
+  "firstName": "John",
+  "lastName": "Doe"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "username": "johndoe",
+    "firstName": "John",
+    "lastName": "Doe",
+    "emailVerified": false,
+    "createdAt": "2024-01-15T10:30:00Z"
+  },
+  "session": {
+    "id": "session_456",
+    "expiresAt": "2024-01-22T10:30:00Z"
+  }
+}
+```
+
+### Sign In with Username or Email
+
+```http
+POST /auth/signin
+Content-Type: application/json
+
+{
+  "identifier": "johndoe",  // Can be username or email
+  "password": "securePassword123"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "username": "johndoe",
+    "firstName": "John",
+    "lastName": "Doe",
+    "emailVerified": true
+  },
+  "session": {
+    "id": "session_789",
+    "expiresAt": "2024-01-22T10:30:00Z"
+  }
+}
+```
+
+### Check Username Availability
+
+```http
+GET /auth/username/check?username=johndoe
+```
+
+**Response:**
+```json
+{
+  "available": false,
+  "suggestions": [
+    "johndoe1",
+    "johndoe2024",
+    "john_doe"
+  ]
+}
+```
+
+### Update Username
+
+```http
+PUT /auth/username
+Authorization: Bearer session_token
+Content-Type: application/json
+
+{
+  "username": "john_doe_new",
+  "password": "currentPassword"  // Required for security
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "username": "john_doe_new",
+  "message": "Username updated successfully",
+  "nextChangeAllowed": "2024-02-15T10:30:00Z"
+}
+```
+
+### Get Username History
+
+```http
+GET /auth/username/history
+Authorization: Bearer session_token
+```
+
+**Response:**
+```json
+{
+  "history": [
+    {
+      "username": "john_doe_new",
+      "changedAt": "2024-01-15T10:30:00Z",
+      "current": true
+    },
+    {
+      "username": "johndoe",
+      "changedAt": "2024-01-01T10:30:00Z",
+      "current": false
+    }
+  ],
+  "changesRemaining": 2,
+  "nextChangeAllowed": "2024-02-15T10:30:00Z"
+}
+```
+
+### Search Users by Username
+
+```http
+GET /auth/users/search?q=john&type=username
+Authorization: Bearer session_token
+```
+
+**Response:**
+```json
+{
+  "users": [
+    {
+      "id": "user_123",
+      "username": "johndoe",
+      "displayName": "John Doe",
+      "avatar": "https://example.com/avatar.jpg"
+    },
+    {
+      "id": "user_456",
+      "username": "johnsmith",
+      "displayName": "John Smith",
+      "avatar": null
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "limit": 10
+}
+```
+
+## Frontend Integration
+
+### JavaScript/TypeScript
+
+```typescript
+interface UsernameCheckResponse {
+  available: boolean;
+  suggestions?: string[];
+  error?: string;
+}
+
+interface UsernameUpdateResponse {
+  success: boolean;
+  username: string;
+  message: string;
+  nextChangeAllowed?: string;
+}
+
+interface UsernameHistory {
+  username: string;
+  changedAt: string;
+  current: boolean;
+}
+
+class UsernameService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = '/auth') {
+    this.baseUrl = baseUrl;
+  }
+
+  async checkAvailability(username: string): Promise<UsernameCheckResponse> {
+    const response = await fetch(`${this.baseUrl}/username/check?username=${encodeURIComponent(username)}`);
+    return response.json();
+  }
+
+  async updateUsername(username: string, password: string): Promise<UsernameUpdateResponse> {
+    const response = await fetch(`${this.baseUrl}/username`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ username, password }),
+    });
+
+    return response.json();
+  }
+
+  async getHistory(): Promise<{ history: UsernameHistory[]; changesRemaining: number; nextChangeAllowed?: string }> {
+    const response = await fetch(`${this.baseUrl}/username/history`);
+    return response.json();
+  }
+
+  async signUp(data: {
+    email: string;
+    username: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+  }): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    });
+
+    return response.json();
+  }
+
+  async signIn(identifier: string, password: string): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/signin`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ identifier, password }),
+    });
+
+    return response.json();
+  }
+
+  async searchUsers(query: string, type: string = 'username'): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/users/search?q=${encodeURIComponent(query)}&type=${type}`);
+    return response.json();
+  }
+
+  // Username validation helpers
+  validateUsername(username: string): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (username.length < 3) {
+      errors.push('Username must be at least 3 characters long');
+    }
+
+    if (username.length > 30) {
+      errors.push('Username must be no more than 30 characters long');
+    }
+
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      errors.push('Username can only contain letters, numbers, and underscores');
+    }
+
+    if (/^[0-9]/.test(username)) {
+      errors.push('Username cannot start with a number');
+    }
+
+    if (/_{2,}/.test(username)) {
+      errors.push('Username cannot contain consecutive underscores');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  }
+
+  generateSuggestions(baseUsername: string): string[] {
+    const suggestions: string[] = [];
+    const currentYear = new Date().getFullYear();
+
+    // Add numbers
+    for (let i = 1; i <= 99; i++) {
+      suggestions.push(`${baseUsername}${i}`);
+    }
+
+    // Add year
+    suggestions.push(`${baseUsername}${currentYear}`);
+
+    // Add underscores
+    suggestions.push(`${baseUsername}_`);
+    suggestions.push(`_${baseUsername}`);
+
+    // Add random combinations
+    const randomNum = Math.floor(Math.random() * 1000);
+    suggestions.push(`${baseUsername}${randomNum}`);
+
+    return suggestions.slice(0, 5); // Return top 5 suggestions
+  }
+}
+
+// Usage examples
+const usernameService = new UsernameService();
+
+// Check username availability with real-time validation
+async function handleUsernameInput(username: string) {
+  // Client-side validation first
+  const validation = usernameService.validateUsername(username);
+  if (!validation.valid) {
+    displayErrors(validation.errors);
+    return;
+  }
+
+  // Check availability on server
+  try {
+    const result = await usernameService.checkAvailability(username);
+    if (result.available) {
+      showSuccess('Username is available!');
+    } else {
+      showError('Username is not available');
+      if (result.suggestions) {
+        showSuggestions(result.suggestions);
+      }
+    }
+  } catch (error) {
+    console.error('Error checking username:', error);
+  }
+}
+
+// Sign up with username
+async function signUpWithUsername() {
+  try {
+    const result = await usernameService.signUp({
+      email: 'user@example.com',
+      username: 'johndoe',
+      password: 'securePassword123',
+      firstName: 'John',
+      lastName: 'Doe',
+    });
+
+    if (result.success) {
+      // Redirect to dashboard or show success
+      window.location.href = '/dashboard';
+    } else {
+      showError(result.error || 'Sign up failed');
+    }
+  } catch (error) {
+    console.error('Sign up error:', error);
+  }
+}
+
+// Sign in with username or email
+async function signInWithIdentifier() {
+  const identifier = document.getElementById('identifier').value;
+  const password = document.getElementById('password').value;
+
+  try {
+    const result = await usernameService.signIn(identifier, password);
+
+    if (result.success) {
+      // Redirect to dashboard
+      window.location.href = '/dashboard';
+    } else {
+      showError(result.error || 'Sign in failed');
+    }
+  } catch (error) {
+    console.error('Sign in error:', error);
+  }
+}
+
+// Update username
+async function updateUsername() {
+  const newUsername = document.getElementById('newUsername').value;
+  const password = document.getElementById('currentPassword').value;
+
+  try {
+    const result = await usernameService.updateUsername(newUsername, password);
+
+    if (result.success) {
+      showSuccess(result.message);
+      // Update UI with new username
+      document.getElementById('currentUsername').textContent = result.username;
+    } else {
+      showError(result.error || 'Username update failed');
+    }
+  } catch (error) {
+    console.error('Username update error:', error);
+  }
+}
+
+function displayErrors(errors: string[]) {
+  const errorContainer = document.getElementById('username-errors');
+  errorContainer.innerHTML = errors.map(error => `<div class="error">${error}</div>`).join('');
+}
+
+function showSuccess(message: string) {
+  // Implementation depends on your UI framework
+  console.log('Success:', message);
+}
+
+function showError(message: string) {
+  // Implementation depends on your UI framework
+  console.error('Error:', message);
+}
+
+function showSuggestions(suggestions: string[]) {
+  const suggestionsContainer = document.getElementById('username-suggestions');
+  suggestionsContainer.innerHTML = `
+    <h4>Suggestions:</h4>
+    ${suggestions.map(suggestion => `
+      <button onclick="selectSuggestion('${suggestion}')">${suggestion}</button>
+    `).join('')}
+  `;
+}
+
+function selectSuggestion(username: string) {
+  document.getElementById('username').value = username;
+  handleUsernameInput(username);
+}
+```
+
+### React Component
+
+```jsx
+import React, { useState, useEffect, useCallback } from 'react';
+import { debounce } from 'lodash';
+
+function UsernameInput({ value, onChange, onValidation }) {
+  const [availability, setAvailability] = useState(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState([]);
+
+  const usernameService = new UsernameService();
+
+  // Debounced availability check
+  const checkAvailability = useCallback(
+    debounce(async (username) => {
+      if (!username || errors.length > 0) return;
+
+      setLoading(true);
+      try {
+        const result = await usernameService.checkAvailability(username);
+        setAvailability(result.available);
+        setSuggestions(result.suggestions || []);
+        onValidation(result.available && errors.length === 0);
+      } catch (error) {
+        console.error('Error checking availability:', error);
+        setAvailability(null);
+      } finally {
+        setLoading(false);
+      }
+    }, 500),
+    [errors, onValidation]
+  );
+
+  // Validate username on change
+  useEffect(() => {
+    const validation = usernameService.validateUsername(value);
+    setErrors(validation.errors);
+    
+    if (validation.valid) {
+      checkAvailability(value);
+    } else {
+      setAvailability(null);
+      setSuggestions([]);
+      onValidation(false);
+    }
+  }, [value, checkAvailability, onValidation]);
+
+  const handleSuggestionClick = (suggestion) => {
+    onChange(suggestion);
+  };
+
+  return (
+    <div className="username-input">
+      <div className="input-container">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Enter username"
+          className={`username-field ${
+            errors.length > 0 ? 'error' : 
+            availability === true ? 'success' : 
+            availability === false ? 'error' : ''
+          }`}
+        />
+        {loading && <div className="loading-spinner">⏳</div>}
+        {availability === true && <div className="success-icon">✅</div>}
+        {availability === false && <div className="error-icon">❌</div>}
+      </div>
+
+      {errors.length > 0 && (
+        <div className="errors">
+          {errors.map((error, index) => (
+            <div key={index} className="error-message">{error}</div>
+          ))}
+        </div>
+      )}
+
+      {availability === false && suggestions.length > 0 && (
+        <div className="suggestions">
+          <h4>Suggestions:</h4>
+          <div className="suggestion-buttons">
+            {suggestions.map((suggestion) => (
+              <button
+                key={suggestion}
+                onClick={() => handleSuggestionClick(suggestion)}
+                className="suggestion-button"
+              >
+                {suggestion}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {availability === true && (
+        <div className="success-message">Username is available!</div>
+      )}
+
+      {availability === false && suggestions.length === 0 && (
+        <div className="error-message">Username is not available</div>
+      )}
+    </div>
+  );
+}
+
+function SignUpForm() {
+  const [formData, setFormData] = useState({
+    email: '',
+    username: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+  });
+  const [usernameValid, setUsernameValid] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const usernameService = new UsernameService();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!usernameValid) {
+      alert('Please choose a valid username');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await usernameService.signUp(formData);
+      
+      if (result.success) {
+        // Redirect or show success
+        window.location.href = '/dashboard';
+      } else {
+        alert(result.error || 'Sign up failed');
+      }
+    } catch (error) {
+      console.error('Sign up error:', error);
+      alert('Sign up failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInputChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="signup-form">
+      <h2>Create Account</h2>
+      
+      <div className="form-group">
+        <label>Email</label>
+        <input
+          type="email"
+          value={formData.email}
+          onChange={(e) => handleInputChange('email', e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="form-group">
+        <label>Username</label>
+        <UsernameInput
+          value={formData.username}
+          onChange={(value) => handleInputChange('username', value)}
+          onValidation={setUsernameValid}
+        />
+      </div>
+
+      <div className="form-group">
+        <label>Password</label>
+        <input
+          type="password"
+          value={formData.password}
+          onChange={(e) => handleInputChange('password', e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="form-row">
+        <div className="form-group">
+          <label>First Name</label>
+          <input
+            type="text"
+            value={formData.firstName}
+            onChange={(e) => handleInputChange('firstName', e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label>Last Name</label>
+          <input
+            type="text"
+            value={formData.lastName}
+            onChange={(e) => handleInputChange('lastName', e.target.value)}
+          />
+        </div>
+      </div>
+
+      <button 
+        type="submit" 
+        disabled={loading || !usernameValid}
+        className="submit-button"
+      >
+        {loading ? 'Creating Account...' : 'Create Account'}
+      </button>
+    </form>
+  );
+}
+
+function SignInForm() {
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const usernameService = new UsernameService();
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    setLoading(true);
+    try {
+      const result = await usernameService.signIn(identifier, password);
+      
+      if (result.success) {
+        window.location.href = '/dashboard';
+      } else {
+        alert(result.error || 'Sign in failed');
+      }
+    } catch (error) {
+      console.error('Sign in error:', error);
+      alert('Sign in failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="signin-form">
+      <h2>Sign In</h2>
+      
+      <div className="form-group">
+        <label>Email or Username</label>
+        <input
+          type="text"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
+          placeholder="Enter your email or username"
+          required
+        />
+      </div>
+
+      <div className="form-group">
+        <label>Password</label>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+      </div>
+
+      <button 
+        type="submit" 
+        disabled={loading}
+        className="submit-button"
+      >
+        {loading ? 'Signing In...' : 'Sign In'}
+      </button>
+    </form>
+  );
+}
+
+function UsernameSettings() {
+  const [currentUsername, setCurrentUsername] = useState('');
+  const [newUsername, setNewUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [history, setHistory] = useState([]);
+  const [changesRemaining, setChangesRemaining] = useState(0);
+  const [nextChangeAllowed, setNextChangeAllowed] = useState(null);
+  const [usernameValid, setUsernameValid] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const usernameService = new UsernameService();
+
+  useEffect(() => {
+    loadUsernameHistory();
+  }, []);
+
+  const loadUsernameHistory = async () => {
+    try {
+      const result = await usernameService.getHistory();
+      setHistory(result.history);
+      setChangesRemaining(result.changesRemaining);
+      setNextChangeAllowed(result.nextChangeAllowed);
+      
+      const current = result.history.find(h => h.current);
+      if (current) {
+        setCurrentUsername(current.username);
+      }
+    } catch (error) {
+      console.error('Error loading username history:', error);
+    }
+  };
+
+  const handleUpdateUsername = async (e) => {
+    e.preventDefault();
+    
+    if (!usernameValid) {
+      alert('Please choose a valid username');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await usernameService.updateUsername(newUsername, password);
+      
+      if (result.success) {
+        alert(result.message);
+        setCurrentUsername(result.username);
+        setNewUsername('');
+        setPassword('');
+        loadUsernameHistory();
+      } else {
+        alert(result.error || 'Username update failed');
+      }
+    } catch (error) {
+      console.error('Username update error:', error);
+      alert('Username update failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canChangeUsername = changesRemaining > 0 && (!nextChangeAllowed || new Date() >= new Date(nextChangeAllowed));
+
+  return (
+    <div className="username-settings">
+      <h2>Username Settings</h2>
+      
+      <div className="current-username">
+        <h3>Current Username</h3>
+        <div className="username-display">@{currentUsername}</div>
+      </div>
+
+      {canChangeUsername ? (
+        <form onSubmit={handleUpdateUsername} className="username-change-form">
+          <h3>Change Username</h3>
+          
+          <div className="form-group">
+            <label>New Username</label>
+            <UsernameInput
+              value={newUsername}
+              onChange={setNewUsername}
+              onValidation={setUsernameValid}
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Current Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="changes-info">
+            <p>Changes remaining: {changesRemaining}</p>
+          </div>
+
+          <button 
+            type="submit" 
+            disabled={loading || !usernameValid || !password}
+            className="submit-button"
+          >
+            {loading ? 'Updating...' : 'Update Username'}
+          </button>
+        </form>
+      ) : (
+        <div className="username-change-disabled">
+          <h3>Username Changes</h3>
+          {changesRemaining === 0 ? (
+            <p>You have used all available username changes.</p>
+          ) : (
+            <p>Next username change allowed: {new Date(nextChangeAllowed).toLocaleDateString()}</p>
+          )}
+        </div>
+      )}
+
+      <div className="username-history">
+        <h3>Username History</h3>
+        <div className="history-list">
+          {history.map((entry, index) => (
+            <div key={index} className={`history-entry ${entry.current ? 'current' : ''}`}>
+              <span className="username">@{entry.username}</span>
+              <span className="date">{new Date(entry.changedAt).toLocaleDateString()}</span>
+              {entry.current && <span className="current-badge">Current</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export { UsernameInput, SignUpForm, SignInForm, UsernameSettings };
+```
+
+## Server-Side Integration
+
+### Custom Username Validation
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "regexp"
+    "strings"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/username"
+)
+
+func main() {
+    auth, _ := authsome.New(config)
+    
+    // Register custom username validator
+    usernamePlugin := username.NewPlugin()
+    
+    // Add custom validation hook
+    auth.RegisterHook("username.validate", func(ctx context.Context, data map[string]interface{}) error {
+        username := data["username"].(string)
+        
+        // Custom business rules
+        if strings.Contains(strings.ToLower(username), "admin") {
+            return fmt.Errorf("username cannot contain 'admin'")
+        }
+        
+        // Check against external service
+        if isInappropriate, err := checkInappropriateContent(username); err != nil {
+            return fmt.Errorf("failed to validate username: %w", err)
+        } else if isInappropriate {
+            return fmt.Errorf("username contains inappropriate content")
+        }
+        
+        // Check against company directory
+        if exists, err := checkCompanyDirectory(username); err != nil {
+            return fmt.Errorf("failed to check company directory: %w", err)
+        } else if exists {
+            return fmt.Errorf("username conflicts with company directory")
+        }
+        
+        return nil
+    })
+    
+    // Register username change hook
+    auth.RegisterHook("username.changed", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        oldUsername := data["old_username"].(string)
+        newUsername := data["new_username"].(string)
+        
+        // Log username change
+        log.Printf("User %s changed username from %s to %s", userID, oldUsername, newUsername)
+        
+        // Update external systems
+        if err := updateExternalSystems(userID, newUsername); err != nil {
+            log.Printf("Failed to update external systems: %v", err)
+        }
+        
+        // Send notification
+        if err := sendUsernameChangeNotification(userID, oldUsername, newUsername); err != nil {
+            log.Printf("Failed to send notification: %v", err)
+        }
+        
+        return nil
+    })
+    
+    auth.RegisterPlugin(usernamePlugin)
+}
+
+func checkInappropriateContent(username string) (bool, error) {
+    // Implement inappropriate content check
+    // This could use external services or local word lists
+    inappropriateWords := []string{"spam", "fake", "bot"}
+    
+    lowerUsername := strings.ToLower(username)
+    for _, word := range inappropriateWords {
+        if strings.Contains(lowerUsername, word) {
+            return true, nil
+        }
+    }
+    
+    return false, nil
+}
+
+func checkCompanyDirectory(username string) (bool, error) {
+    // Check against company LDAP/AD directory
+    // Implementation depends on your directory service
+    return false, nil
+}
+
+func updateExternalSystems(userID, newUsername string) error {
+    // Update username in external systems
+    // e.g., CRM, support systems, analytics
+    return nil
+}
+
+func sendUsernameChangeNotification(userID, oldUsername, newUsername string) error {
+    // Send email notification about username change
+    return nil
+}
+```
+
+### Custom Username Generator
+
+```go
+package main
+
+import (
+    "fmt"
+    "math/rand"
+    "strings"
+    "time"
+    
+    "github.com/xraph/authsome/plugins/username"
+)
+
+type CustomUsernameGenerator struct {
+    service *username.Service
+}
+
+func NewCustomUsernameGenerator(service *username.Service) *CustomUsernameGenerator {
+    return &CustomUsernameGenerator{service: service}
+}
+
+func (g *CustomUsernameGenerator) GenerateSuggestions(baseUsername string, count int) ([]string, error) {
+    suggestions := make([]string, 0, count)
+    
+    // Strategy 1: Add numbers
+    for i := 1; i <= 99 && len(suggestions) < count; i++ {
+        candidate := fmt.Sprintf("%s%d", baseUsername, i)
+        if available, _ := g.service.CheckAvailability(candidate); available {
+            suggestions = append(suggestions, candidate)
+        }
+    }
+    
+    // Strategy 2: Add year
+    if len(suggestions) < count {
+        year := time.Now().Year()
+        candidate := fmt.Sprintf("%s%d", baseUsername, year)
+        if available, _ := g.service.CheckAvailability(candidate); available {
+            suggestions = append(suggestions, candidate)
+        }
+    }
+    
+    // Strategy 3: Add underscores
+    if len(suggestions) < count {
+        candidates := []string{
+            fmt.Sprintf("%s_", baseUsername),
+            fmt.Sprintf("_%s", baseUsername),
+            fmt.Sprintf("%s_user", baseUsername),
+            fmt.Sprintf("user_%s", baseUsername),
+        }
+        
+        for _, candidate := range candidates {
+            if len(suggestions) >= count {
+                break
+            }
+            if available, _ := g.service.CheckAvailability(candidate); available {
+                suggestions = append(suggestions, candidate)
+            }
+        }
+    }
+    
+    // Strategy 4: Abbreviations and variations
+    if len(suggestions) < count {
+        variations := g.generateVariations(baseUsername)
+        for _, variation := range variations {
+            if len(suggestions) >= count {
+                break
+            }
+            if available, _ := g.service.CheckAvailability(variation); available {
+                suggestions = append(suggestions, variation)
+            }
+        }
+    }
+    
+    // Strategy 5: Random suffixes
+    if len(suggestions) < count {
+        rand.Seed(time.Now().UnixNano())
+        for i := 0; i < 20 && len(suggestions) < count; i++ {
+            suffix := rand.Intn(9999)
+            candidate := fmt.Sprintf("%s%04d", baseUsername, suffix)
+            if available, _ := g.service.CheckAvailability(candidate); available {
+                suggestions = append(suggestions, candidate)
+            }
+        }
+    }
+    
+    return suggestions, nil
+}
+
+func (g *CustomUsernameGenerator) generateVariations(username string) []string {
+    variations := []string{}
+    
+    // Remove vowels
+    noVowels := strings.ReplaceAll(username, "a", "")
+    noVowels = strings.ReplaceAll(noVowels, "e", "")
+    noVowels = strings.ReplaceAll(noVowels, "i", "")
+    noVowels = strings.ReplaceAll(noVowels, "o", "")
+    noVowels = strings.ReplaceAll(noVowels, "u", "")
+    if len(noVowels) >= 3 {
+        variations = append(variations, noVowels)
+    }
+    
+    // Abbreviate if long enough
+    if len(username) > 6 {
+        variations = append(variations, username[:6])
+        variations = append(variations, username[:4])
+    }
+    
+    // Add common suffixes
+    suffixes := []string{"x", "z", "pro", "dev", "tech"}
+    for _, suffix := range suffixes {
+        variations = append(variations, username+suffix)
+    }
+    
+    return variations
+}
+
+// Register the custom generator
+func main() {
+    auth, _ := authsome.New(config)
+    usernamePlugin := username.NewPlugin()
+    
+    // Set custom username generator
+    generator := NewCustomUsernameGenerator(usernamePlugin.GetService())
+    usernamePlugin.SetUsernameGenerator(generator)
+    
+    auth.RegisterPlugin(usernamePlugin)
+}
+```
+
+## Username Patterns and Validation
+
+<Tabs items={['Alphanumeric Only', 'Alphanumeric + Underscore', 'Custom Pattern']}>
+  <Tab value="Alphanumeric Only">
+    ```yaml
+    auth:
+      plugins:
+        username:
+          validation:
+            allowedCharacters: "alphanumeric"
+            minLength: 3
+            maxLength: 20
+    ```
+    
+    **Allowed**: `john`, `user123`, `alice2024`
+    **Not Allowed**: `john_doe`, `user-name`, `user.name`
+  </Tab>
+  <Tab value="Alphanumeric + Underscore">
+    ```yaml
+    auth:
+      plugins:
+        username:
+          validation:
+            allowedCharacters: "alphanumeric_underscore"
+            minLength: 3
+            maxLength: 30
+    ```
+    
+    **Allowed**: `john_doe`, `user_123`, `my_username`
+    **Not Allowed**: `user-name`, `user.name`, `user__name` (consecutive underscores)
+  </Tab>
+  <Tab value="Custom Pattern">
+    ```yaml
+    auth:
+      plugins:
+        username:
+          validation:
+            allowedCharacters: "custom"
+            customPattern: "^[a-zA-Z][a-zA-Z0-9._-]{2,29}$"
+            minLength: 3
+            maxLength: 30
+    ```
+    
+    **Pattern Explanation**:
+    - Must start with a letter
+    - Can contain letters, numbers, dots, underscores, hyphens
+    - 3-30 characters total
+    
+    **Allowed**: `john.doe`, `user-name`, `alice_123`
+    **Not Allowed**: `123user`, `.username`, `-username`
+  </Tab>
+</Tabs>
+
+## Security Considerations
+
+<Callout type="warn">
+**Security Best Practices**: Implement rate limiting for username checks, prevent username enumeration attacks, and maintain audit logs for all username-related activities.
+</Callout>
+
+### Username Enumeration Prevention
+
+```go
+// Configure to prevent username enumeration
+config := &username.Config{
+    Security: username.SecurityConfig{
+        PreventEnumeration: true,  // Don't reveal if username exists
+        RateLimitChecks:   true,   // Rate limit availability checks
+        LogUsernameAttempts: true, // Log all username attempts
+    },
+}
+```
+
+### Rate Limiting
+
+```go
+// Implement rate limiting for username operations
+auth.RegisterHook("username.check_rate_limit", func(ctx context.Context, data map[string]interface{}) error {
+    clientIP := data["client_ip"].(string)
+    
+    // Check rate limit (e.g., 10 checks per minute per IP)
+    if exceeded, err := checkRateLimit(clientIP, "username_check", 10, time.Minute); err != nil {
+        return err
+    } else if exceeded {
+        return fmt.Errorf("rate limit exceeded for username checks")
+    }
+    
+    return nil
+})
+```
+
+### Audit Logging
+
+```go
+// Log all username-related events
+auth.RegisterHook("username.audit", func(ctx context.Context, data map[string]interface{}) error {
+    event := data["event"].(string)
+    userID := data["user_id"].(string)
+    details := data["details"].(map[string]interface{})
+    
+    auditLog := AuditLog{
+        Event:     event,
+        UserID:    userID,
+        Details:   details,
+        Timestamp: time.Now(),
+        IPAddress: getClientIP(ctx),
+        UserAgent: getUserAgent(ctx),
+    }
+    
+    return saveAuditLog(auditLog)
+})
+```
+
+## Troubleshooting
+
+<Tabs items={['Validation Issues', 'Availability Issues', 'Update Issues']}>
+  <Tab value="Validation Issues">
+    ### Username Validation Failing
+    
+    **Problem**: Valid usernames being rejected
+    
+    **Solutions**:
+    1. Check validation configuration
+    2. Review custom validation hooks
+    3. Verify regex patterns
+    4. Test with different usernames
+    
+    ```go
+    // Debug validation
+    validation := usernameService.ValidateUsername("test_username")
+    if !validation.Valid {
+        log.Printf("Validation errors: %v", validation.Errors)
+    }
+    ```
+    
+    ### Reserved Username Issues
+    
+    **Problem**: Users can't use desired usernames
+    
+    **Solutions**:
+    1. Review reserved username list
+    2. Consider case sensitivity settings
+    3. Provide clear error messages
+    4. Offer alternative suggestions
+  </Tab>
+  <Tab value="Availability Issues">
+    ### Availability Check Errors
+    
+    **Problem**: Username availability checks failing
+    
+    **Solutions**:
+    1. Check database connectivity
+    2. Verify index on username column
+    3. Review rate limiting settings
+    4. Check for database locks
+    
+    ```go
+    // Debug availability check
+    available, err := usernameService.CheckAvailability("username")
+    if err != nil {
+        log.Printf("Availability check error: %v", err)
+    }
+    ```
+    
+    ### Performance Issues
+    
+    **Problem**: Slow username availability checks
+    
+    **Solutions**:
+    1. Add database indexes
+    2. Implement caching
+    3. Optimize queries
+    4. Use read replicas
+  </Tab>
+  <Tab value="Update Issues">
+    ### Username Update Failing
+    
+    **Problem**: Users can't update usernames
+    
+    **Solutions**:
+    1. Check cooldown period settings
+    2. Verify remaining changes count
+    3. Check password verification
+    4. Review validation rules
+    
+    ```go
+    // Debug username update
+    result, err := usernameService.UpdateUsername("new_username", "password")
+    if err != nil {
+        log.Printf("Update error: %v", err)
+    }
+    ```
+    
+    ### History Not Updating
+    
+    **Problem**: Username history not being recorded
+    
+    **Solutions**:
+    1. Check database schema
+    2. Verify transaction handling
+    3. Review hook implementations
+    4. Check for database constraints
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Anonymous Authentication"
+    description="Support guest user sessions"
+    href="/docs/go/plugins/core/anonymous"
+  />
+  <Card
+    title="Advanced Plugins"
+    description="Explore advanced authentication methods"
+    href="/docs/go/plugins/advanced"
+  />
+  <Card
+    title="User Management"
+    description="Complete user management features"
+    href="/docs/go/guides/user-management"
+  />
+  <Card
+    title="API Reference"
+    description="Complete API documentation"
+    href="/docs/go/api"
+  />
+</Cards>

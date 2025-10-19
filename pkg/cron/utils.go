@@ -221,7 +221,7 @@ func parseField(field string, min, max int) ([]int, error) {
 
 // findNextExecution finds the next execution time for a cron expression
 func findNextExecution(cronExpr *CronExpression, from time.Time) time.Time {
-	// OnStart from the next second
+	// Start from the next second
 	next := from.Add(time.Second).Truncate(time.Second)
 
 	// Try to find next execution within reasonable time (1 year)

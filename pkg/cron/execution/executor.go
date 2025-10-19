@@ -117,22 +117,22 @@ func (e *Executor) Start(ctx context.Context) error {
 		return common.ErrLifecycleError("start", fmt.Errorf("executor already started"))
 	}
 
-	// OnStart worker pool
+	// Start worker pool
 	if err := e.workerPool.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("executor", err)
 	}
 
-	// OnStart retry manager
+	// Start retry manager
 	if err := e.retryManager.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("executor", err)
 	}
 
-	// OnStart timeout manager
+	// Start timeout manager
 	if err := e.timeoutManager.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("executor", err)
 	}
 
-	// OnStart monitoring
+	// Start monitoring
 	e.wg.Add(1)
 	go e.monitorExecutions(ctx)
 
@@ -178,7 +178,7 @@ func (e *Executor) Stop(ctx context.Context) error {
 	// Wait for monitoring to finish
 	e.wg.Wait()
 
-	// OnStop components
+	// Stop components
 	if err := e.timeoutManager.Stop(ctx); err != nil {
 		if e.logger != nil {
 			e.logger.Error("failed to stop timeout manager", logger.Error(err))

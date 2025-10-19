@@ -26,7 +26,7 @@ func NewCacheFactory() CacheFactory {
 }
 
 // Create creates a cache backend instance
-func (f *DefaultCacheFactory) Create(cacheType CacheType, name string, config interface{}, l common.Logger, metrics common.Metrics) (CacheBackend, error) {
+func (f *DefaultCacheFactory) Create(cacheType CacheType, name string, config interface{}, l common.Logger, metrics common.Metrics) (core.CacheBackend, error) {
 	f.mu.RLock()
 	factory, exists := f.factories[cacheType]
 	f.mu.RUnlock()
@@ -77,22 +77,22 @@ func (f *DefaultCacheFactory) IsRegistered(cacheType CacheType) bool {
 }
 
 // NewMemoryCache creates a new memory cache backend
-func NewMemoryCache(name string, config interface{}, l common.Logger, metrics common.Metrics) (CacheBackend, error) {
+func NewMemoryCache(name string, config interface{}, l common.Logger, metrics common.Metrics) (core.CacheBackend, error) {
 	return memory.NewMemoryCache(name, config.(*core.MemoryConfig), l, metrics)
 }
 
 // NewRedisCache creates a new Redis cache backend
-func NewRedisCache(name string, config interface{}, l common.Logger, metrics common.Metrics) (CacheBackend, error) {
+func NewRedisCache(name string, config interface{}, l common.Logger, metrics common.Metrics) (core.CacheBackend, error) {
 	return redis.NewRedisCache(name, config.(*core.RedisConfig), l, metrics)
 }
 
 // NewHybridCache creates a new hybrid cache backend
-func NewHybridCache(name string, config interface{}, l common.Logger, metrics common.Metrics) (CacheBackend, error) {
+func NewHybridCache(name string, config interface{}, l common.Logger, metrics common.Metrics) (core.CacheBackend, error) {
 	return hybrid.NewHybridCache(name, config.(*core.HybridConfig), l, metrics)
 }
 
 // NewDatabaseCache creates a new database cache backend
-func NewDatabaseCache(name string, config interface{}, l common.Logger, metrics common.Metrics) (CacheBackend, error) {
+func NewDatabaseCache(name string, config interface{}, l common.Logger, metrics common.Metrics) (core.CacheBackend, error) {
 	return database.NewDatabaseCache(*(config.(*database.DatabaseCacheConfig)))
 }
 

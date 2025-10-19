@@ -130,6 +130,22 @@ func (es *EnvSource) Name() string {
 	return es.name
 }
 
+// GetName returns the source name (alias for Name)
+func (es *EnvSource) GetName() string {
+	return es.name
+}
+
+// GetType returns the source type
+func (es *EnvSource) GetType() string {
+	return "environment"
+}
+
+// IsAvailable checks if the source is available
+func (es *EnvSource) IsAvailable(ctx context.Context) bool {
+	// Environment variables are always available
+	return true
+}
+
 // Priority returns the source priority
 func (es *EnvSource) Priority() int {
 	return es.priority
@@ -215,7 +231,7 @@ func (es *EnvSource) Watch(ctx context.Context, callback func(map[string]interfa
 	es.watchTicker = time.NewTicker(es.options.WatchInterval)
 	es.watching = true
 
-	// OnStart watching goroutine
+	// Start watching goroutine
 	go es.watchLoop(ctx)
 
 	if es.logger != nil {

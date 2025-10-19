@@ -58,12 +58,12 @@ func (ths *TestHealthService) Dependencies() []string {
 	return []string{}
 }
 
-func (ths *TestHealthService) OnStart(ctx context.Context) error {
+func (ths *TestHealthService) Start(ctx context.Context) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
-	ths.recordMethodCall("OnStart")
+	ths.recordMethodCall("Start")
 
-	if err := ths.errors["OnStart"]; err != nil {
+	if err := ths.errors["Start"]; err != nil {
 		return err
 	}
 
@@ -71,12 +71,12 @@ func (ths *TestHealthService) OnStart(ctx context.Context) error {
 	return nil
 }
 
-func (ths *TestHealthService) OnStop(ctx context.Context) error {
+func (ths *TestHealthService) Stop(ctx context.Context) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
-	ths.recordMethodCall("OnStop")
+	ths.recordMethodCall("Stop")
 
-	if err := ths.errors["OnStop"]; err != nil {
+	if err := ths.errors["Stop"]; err != nil {
 		return err
 	}
 
@@ -477,12 +477,12 @@ func (tm *testMetrics) Dependencies() []string {
 	panic("implement me")
 }
 
-func (tm *testMetrics) OnStart(ctx context.Context) error {
+func (tm *testMetrics) Start(ctx context.Context) error {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (tm *testMetrics) OnStop(ctx context.Context) error {
+func (tm *testMetrics) Stop(ctx context.Context) error {
 	// TODO implement me
 	panic("implement me")
 }
@@ -672,7 +672,7 @@ func (hts *HealthTestSuite) Start() {
 	}
 
 	ctx := context.Background()
-	if err := hts.healthService.OnStart(ctx); err != nil {
+	if err := hts.healthService.Start(ctx); err != nil {
 		hts.t.Fatalf("Failed to start health service: %v", err)
 	}
 
@@ -686,7 +686,7 @@ func (hts *HealthTestSuite) Stop() {
 	}
 
 	ctx := context.Background()
-	if err := hts.healthService.OnStop(ctx); err != nil {
+	if err := hts.healthService.Stop(ctx); err != nil {
 		hts.t.Fatalf("Failed to stop health service: %v", err)
 	}
 
@@ -938,7 +938,7 @@ func ExampleHealthTest(t *testing.T) {
 		WithCriticalCheck("auth-service", health.HealthStatusHealthy).
 		Build()
 
-	// OnStart the service
+	// Start the service
 	suite.Start()
 	defer suite.Cleanup()
 

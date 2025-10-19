@@ -147,7 +147,7 @@ func (f *DNSDiscoveryFactory) Create(config DiscoveryConfig) (Discovery, error) 
 		}
 	}
 
-	// OnStart refresh routine
+	// Start refresh routine
 	go dd.refreshLoop()
 
 	if f.logger != nil {

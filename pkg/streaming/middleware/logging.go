@@ -194,7 +194,7 @@ func NewLoggingMiddleware(
 		stats:   LoggingStats{},
 	}
 
-	// OnStart background flush routine if needed
+	// Start background flush routine if needed
 	if config.AsyncLogging {
 		go middleware.flushRoutine()
 	}

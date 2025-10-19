@@ -474,7 +474,7 @@ func (r *registry) Start() error {
 	r.started = true
 	r.lastCleanup = time.Now()
 
-	// OnStart cleanup goroutine
+	// Start cleanup goroutine
 	go r.cleanupLoop()
 
 	return nil

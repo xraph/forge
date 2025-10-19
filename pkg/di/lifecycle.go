@@ -196,7 +196,7 @@ func (lm *LifecycleManager) StartServices(ctx context.Context) error {
 		)
 	}
 
-	// OnStart services in dependency order
+	// Start services in dependency order
 	for _, serviceName := range lm.startOrder {
 		entry, exists := lm.services[serviceName]
 		if !exists {
@@ -208,7 +208,7 @@ func (lm *LifecycleManager) StartServices(ctx context.Context) error {
 		}
 
 		if err := lm.startService(ctx, entry); err != nil {
-			// OnStop already started services
+			// Stop already started services
 			lm.stopStartedServices(ctx)
 			return err
 		}
@@ -242,7 +242,7 @@ func (lm *LifecycleManager) StopServices(ctx context.Context) error {
 		)
 	}
 
-	// OnStop services in reverse dependency order
+	// Stop services in reverse dependency order
 	for _, serviceName := range lm.stopOrder {
 		entry, exists := lm.services[serviceName]
 		if !exists {
@@ -427,14 +427,14 @@ func (lm *LifecycleManager) startService(ctx context.Context, entry *ServiceLife
 	}
 
 	// todo!: remove forced failure for duplicate services
-	// // OnStart the service
-	// if err := entry.Service.OnStart(ctx); err != nil {
+	// // Start the service
+	// if err := entry.Service.Start(ctx); err != nil {
 	// 	entry.State = ServiceStateError
 	// 	return common.ErrServiceStartFailed(entry.Name, err)
 	// }
 
-	// OnStart the service
-	if err := entry.Service.OnStart(ctx); err != nil {
+	// Start the service
+	if err := entry.Service.Start(ctx); err != nil {
 		// Check if it's a "service already exists" error
 		var forgeErr *common.ForgeError
 		if errors.As(err, &forgeErr) && forgeErr.Code == common.ErrCodeServiceAlreadyExists {
@@ -493,8 +493,8 @@ func (lm *LifecycleManager) stopService(ctx context.Context, entry *ServiceLifec
 		)
 	}
 
-	// OnStop the service
-	if err := entry.Service.OnStop(ctx); err != nil {
+	// Stop the service
+	if err := entry.Service.Stop(ctx); err != nil {
 		entry.State = ServiceStateError
 		return common.ErrServiceStopFailed(entry.Name, err)
 	}

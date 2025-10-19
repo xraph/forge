@@ -226,7 +226,7 @@ func (p *JSONProcessor) removeMultiLineComments(content string) string {
 
 	for i < len(content) {
 		if i < len(content)-1 && content[i] == '/' && content[i+1] == '*' {
-			// OnStart of multi-line comment
+			// Start of multi-line comment
 			i += 2
 			for i < len(content)-1 {
 				if content[i] == '*' && content[i+1] == '/' {

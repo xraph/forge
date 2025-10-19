@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"sort"
@@ -273,7 +272,7 @@ func (ro *ResponseOptimization) Initialize(ctx context.Context, config ai.AIMidd
 		return fmt.Errorf("failed to start response optimization agent: %w", err)
 	}
 
-	// OnStart background optimization tasks
+	// Start background optimization tasks
 	go ro.optimizationLoop(ctx)
 	go ro.patternLearningLoop(ctx)
 	go ro.performanceMonitoringLoop(ctx)
@@ -355,7 +354,7 @@ func (ro *ResponseOptimization) getOptimizationDecision(ctx context.Context, req
 	pattern := ro.getPathPattern(req.URL.Path)
 
 	input := ai.AgentInput{
-		Type: "optimize_compression", // OnStart with compression optimization
+		Type: "optimize_compression", // Start with compression optimization
 		Data: map[string]interface{}{
 			"request_features": requestFeatures,
 			"path_pattern":     pattern,
@@ -388,11 +387,11 @@ func (ro *ResponseOptimization) parseOptimizationDecision(output ai.AgentOutput)
 	}
 
 	if decisionData, ok := output.Data.(map[string]interface{}); ok {
-		decision.ShouldCompress = getBool(decisionData, "should_compress")
-		decision.CompressionLevel = int(getFloat64(decisionData, "compression_level"))
-		decision.ContentFiltering = getBool(decisionData, "content_filtering")
-		decision.PredictedSaving = getFloat64(decisionData, "predicted_saving")
-		decision.OptimizationType = getString(decisionData, "optimization_type")
+		decision.ShouldCompress = getBoolRO(decisionData, "should_compress")
+		decision.CompressionLevel = int(getFloat64RO(decisionData, "compression_level"))
+		decision.ContentFiltering = getBoolRO(decisionData, "content_filtering")
+		decision.PredictedSaving = getFloat64RO(decisionData, "predicted_saving")
+		decision.OptimizationType = getStringRO(decisionData, "optimization_type")
 
 		// Parse cache headers
 		if cacheHeaders, ok := decisionData["cache_headers"].(map[string]interface{}); ok {
@@ -1054,21 +1053,21 @@ func (w *OptimizedResponseWriter) Header() http.Header {
 }
 
 // Helper functions
-func getBool(data map[string]interface{}, key string) bool {
+func getBoolRORO(data map[string]interface{}, key string) bool {
 	if val, ok := data[key].(bool); ok {
 		return val
 	}
 	return false
 }
 
-func getFloat64(data map[string]interface{}, key string) float64 {
+func getFloat64RORO(data map[string]interface{}, key string) float64 {
 	if val, ok := data[key].(float64); ok {
 		return val
 	}
 	return 0.0
 }
 
-func getString(data map[string]interface{}, key string) string {
+func getStringRORO(data map[string]interface{}, key string) string {
 	if val, ok := data[key].(string); ok {
 		return val
 	}
@@ -1101,4 +1100,26 @@ func (ro *ResponseOptimization) GetStats() ai.AIMiddlewareStats {
 			"optimization_accuracy":    ro.stats.OptimizationAccuracy,
 		},
 	}
+}
+
+// Helper functions for data extraction
+func getBoolRO(data map[string]interface{}, key string) bool {
+	if val, ok := data[key].(bool); ok {
+		return val
+	}
+	return false
+}
+
+func getFloat64RO(data map[string]interface{}, key string) float64 {
+	if val, ok := data[key].(float64); ok {
+		return val
+	}
+	return 0.0
+}
+
+func getStringRO(data map[string]interface{}, key string) string {
+	if val, ok := data[key].(string); ok {
+		return val
+	}
+	return ""
 }

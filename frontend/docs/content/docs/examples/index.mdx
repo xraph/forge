@@ -1,0 +1,738 @@
+---
+title: Examples & Integration Guides
+description: Practical examples and step-by-step integration guides for AuthSome Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Examples & Integration Guides
+
+Comprehensive collection of practical examples, integration guides, and real-world use cases for AuthSome Go. Learn how to implement authentication in various scenarios and frameworks.
+
+## Quick Start Examples
+
+Get up and running quickly with these essential examples:
+
+<Cards>
+  <Card
+    title="Basic Setup"
+    description="Complete setup guide with Forge framework integration"
+    href="/docs/go/examples/basic-setup"
+  />
+  <Card
+    title="User Registration & Login"
+    description="Implement user registration and login flows"
+    href="/docs/go/examples/user-auth"
+  />
+  <Card
+    title="Session Management"
+    description="Handle user sessions and authentication state"
+    href="/docs/go/examples/sessions"
+  />
+  <Card
+    title="Multi-tenant Organizations"
+    description="Build multi-tenant applications with organizations"
+    href="/docs/go/examples/organizations"
+  />
+</Cards>
+
+## Framework Integrations
+
+Learn how to integrate AuthSome with popular Go frameworks:
+
+<Cards>
+  <Card
+    title="Gin Integration"
+    description="Use AuthSome with Gin web framework"
+    href="/docs/go/examples/gin-integration"
+  />
+  <Card
+    title="Echo Integration"
+    description="Integrate with Echo framework"
+    href="/docs/go/examples/echo-integration"
+  />
+  <Card
+    title="Fiber Integration"
+    description="Build with Fiber framework"
+    href="/docs/go/examples/fiber-integration"
+  />
+  <Card
+    title="Chi Router Integration"
+    description="Use with Chi router"
+    href="/docs/go/examples/chi-integration"
+  />
+</Cards>
+
+## Frontend Integrations
+
+Connect your frontend applications with AuthSome:
+
+<Cards>
+  <Card
+    title="React Integration"
+    description="Build React apps with AuthSome authentication"
+    href="/docs/go/examples/react-integration"
+  />
+  <Card
+    title="Vue.js Integration"
+    description="Integrate with Vue.js applications"
+    href="/docs/go/examples/vue-integration"
+  />
+  <Card
+    title="Next.js Integration"
+    description="Full-stack Next.js with AuthSome"
+    href="/docs/go/examples/nextjs-integration"
+  />
+  <Card
+    title="Mobile Apps"
+    description="React Native and mobile app integration"
+    href="/docs/go/examples/mobile-integration"
+  />
+</Cards>
+
+## Advanced Use Cases
+
+Explore advanced authentication scenarios:
+
+<Cards>
+  <Card
+    title="Multi-Factor Authentication"
+    description="Implement 2FA with TOTP and backup codes"
+    href="/docs/go/examples/mfa"
+  />
+  <Card
+    title="Social Login"
+    description="OAuth integration with Google, GitHub, and more"
+    href="/docs/go/examples/social-login"
+  />
+  <Card
+    title="Passwordless Authentication"
+    description="Magic links and WebAuthn implementation"
+    href="/docs/go/examples/passwordless"
+  />
+  <Card
+    title="Enterprise SSO"
+    description="SAML and OIDC for enterprise authentication"
+    href="/docs/go/examples/enterprise-sso"
+  />
+</Cards>
+
+## Real-World Applications
+
+Complete application examples:
+
+<Cards>
+  <Card
+    title="SaaS Application"
+    description="Multi-tenant SaaS with organizations and billing"
+    href="/docs/go/examples/saas-app"
+  />
+  <Card
+    title="E-commerce Platform"
+    description="Customer authentication for online stores"
+    href="/docs/go/examples/ecommerce"
+  />
+  <Card
+    title="API Gateway"
+    description="Secure microservices with JWT authentication"
+    href="/docs/go/examples/api-gateway"
+  />
+  <Card
+    title="Admin Dashboard"
+    description="Role-based access control for admin panels"
+    href="/docs/go/examples/admin-dashboard"
+  />
+</Cards>
+
+## Development Tools
+
+Tools and utilities for development:
+
+<Cards>
+  <Card
+    title="Testing Guide"
+    description="Unit and integration testing strategies"
+    href="/docs/go/examples/testing"
+  />
+  <Card
+    title="Docker Setup"
+    description="Containerized deployment with Docker"
+    href="/docs/go/examples/docker"
+  />
+  <Card
+    title="Monitoring & Logging"
+    description="Observability and security monitoring"
+    href="/docs/go/examples/monitoring"
+  />
+  <Card
+    title="Performance Optimization"
+    description="Scaling and performance best practices"
+    href="/docs/go/examples/performance"
+  />
+</Cards>
+
+## Common Patterns
+
+Frequently used authentication patterns:
+
+### Basic Authentication Flow
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "net/http"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Initialize Forge app
+    app := forge.New()
+    
+    // Configure AuthSome
+    auth, err := authsome.New(authsome.Options{
+        Mode: authsome.ModeStandalone,
+        Database: authsome.DatabaseConfig{
+            URL: "postgres://localhost/myapp",
+        },
+        Session: authsome.SessionConfig{
+            Secret: "your-session-secret",
+            MaxAge: 24 * 60 * 60, // 24 hours
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Mount AuthSome to Forge
+    auth.Mount(app, "/auth")
+    
+    // Protected route example
+    app.GET("/dashboard", auth.RequireAuth(), func(c *forge.Context) error {
+        user := auth.GetUser(c)
+        return c.JSON(200, map[string]interface{}{
+            "message": "Welcome to dashboard",
+            "user":    user,
+        })
+    })
+    
+    // Start server
+    log.Println("Server starting on :8080")
+    log.Fatal(app.Listen(":8080"))
+}
+```
+
+### User Registration
+
+```go
+// Register new user
+func registerUser(auth *authsome.Auth) forge.HandlerFunc {
+    return func(c *forge.Context) error {
+        var req struct {
+            Email     string `json:"email" validate:"required,email"`
+            Password  string `json:"password" validate:"required,min=8"`
+            FirstName string `json:"firstName" validate:"required"`
+            LastName  string `json:"lastName" validate:"required"`
+        }
+        
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request body",
+            })
+        }
+        
+        // Create user
+        user, err := auth.CreateUser(c.Context(), authsome.CreateUserRequest{
+            Email:     req.Email,
+            Password:  req.Password,
+            FirstName: req.FirstName,
+            LastName:  req.LastName,
+        })
+        if err != nil {
+            return c.JSON(400, map[string]string{
+                "error": err.Error(),
+            })
+        }
+        
+        // Create session
+        session, err := auth.CreateSession(c.Context(), user.ID, authsome.SessionOptions{
+            RememberMe: false,
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to create session",
+            })
+        }
+        
+        // Set session cookie
+        auth.SetSessionCookie(c, session.Token)
+        
+        return c.JSON(201, map[string]interface{}{
+            "user":    user,
+            "session": session,
+        })
+    }
+}
+```
+
+### Authentication Middleware
+
+```go
+// Custom authentication middleware
+func authMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            // Get session token from cookie or header
+            token := auth.GetSessionToken(c)
+            if token == "" {
+                return c.JSON(401, map[string]string{
+                    "error": "Authentication required",
+                })
+            }
+            
+            // Validate session
+            session, err := auth.ValidateSession(c.Context(), token)
+            if err != nil {
+                return c.JSON(401, map[string]string{
+                    "error": "Invalid session",
+                })
+            }
+            
+            // Get user
+            user, err := auth.GetUserByID(c.Context(), session.UserID)
+            if err != nil {
+                return c.JSON(401, map[string]string{
+                    "error": "User not found",
+                })
+            }
+            
+            // Store in context
+            c.Set("user", user)
+            c.Set("session", session)
+            
+            return next(c)
+        }
+    }
+}
+```
+
+### Organization-based Access Control
+
+```go
+// Organization middleware
+func orgMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            user := c.Get("user").(*authsome.User)
+            orgID := c.Param("orgId")
+            
+            // Check if user is member of organization
+            member, err := auth.GetOrganizationMember(c.Context(), orgID, user.ID)
+            if err != nil {
+                return c.JSON(403, map[string]string{
+                    "error": "Access denied",
+                })
+            }
+            
+            // Store organization context
+            c.Set("organization", member.Organization)
+            c.Set("member", member)
+            
+            return next(c)
+        }
+    }
+}
+
+// Usage
+app.GET("/orgs/:orgId/dashboard", 
+    authMiddleware(auth),
+    orgMiddleware(auth),
+    func(c *forge.Context) error {
+        org := c.Get("organization").(*authsome.Organization)
+        member := c.Get("member").(*authsome.OrganizationMember)
+        
+        return c.JSON(200, map[string]interface{}{
+            "organization": org,
+            "role":         member.Role,
+            "permissions":  member.Permissions,
+        })
+    },
+)
+```
+
+## Configuration Examples
+
+### Environment-based Configuration
+
+```yaml
+# config.yaml
+auth:
+  mode: "saas"
+  database:
+    url: "${DATABASE_URL}"
+    maxConnections: 20
+  session:
+    secret: "${SESSION_SECRET}"
+    maxAge: 86400
+    secure: true
+    sameSite: "strict"
+  email:
+    provider: "smtp"
+    smtp:
+      host: "${SMTP_HOST}"
+      port: 587
+      username: "${SMTP_USERNAME}"
+      password: "${SMTP_PASSWORD}"
+  oauth:
+    google:
+      clientId: "${GOOGLE_CLIENT_ID}"
+      clientSecret: "${GOOGLE_CLIENT_SECRET}"
+    github:
+      clientId: "${GITHUB_CLIENT_ID}"
+      clientSecret: "${GITHUB_CLIENT_SECRET}"
+  security:
+    rateLimit:
+      enabled: true
+      requests: 100
+      window: 3600
+    passwordPolicy:
+      minLength: 8
+      requireUppercase: true
+      requireLowercase: true
+      requireNumbers: true
+      requireSymbols: false
+```
+
+### Programmatic Configuration
+
+```go
+auth, err := authsome.New(authsome.Options{
+    Mode: authsome.ModeSaaS,
+    Database: authsome.DatabaseConfig{
+        URL:            os.Getenv("DATABASE_URL"),
+        MaxConnections: 20,
+    },
+    Session: authsome.SessionConfig{
+        Secret:   os.Getenv("SESSION_SECRET"),
+        MaxAge:   24 * 60 * 60,
+        Secure:   true,
+        SameSite: "strict",
+    },
+    Email: authsome.EmailConfig{
+        Provider: "smtp",
+        SMTP: authsome.SMTPConfig{
+            Host:     os.Getenv("SMTP_HOST"),
+            Port:     587,
+            Username: os.Getenv("SMTP_USERNAME"),
+            Password: os.Getenv("SMTP_PASSWORD"),
+        },
+    },
+    OAuth: authsome.OAuthConfig{
+        Google: authsome.GoogleConfig{
+            ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+            ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+        },
+        GitHub: authsome.GitHubConfig{
+            ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
+            ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
+        },
+    },
+    Security: authsome.SecurityConfig{
+        RateLimit: authsome.RateLimitConfig{
+            Enabled:  true,
+            Requests: 100,
+            Window:   3600,
+        },
+        PasswordPolicy: authsome.PasswordPolicyConfig{
+            MinLength:        8,
+            RequireUppercase: true,
+            RequireLowercase: true,
+            RequireNumbers:   true,
+            RequireSymbols:   false,
+        },
+    },
+})
+```
+
+## Error Handling Patterns
+
+### Centralized Error Handling
+
+```go
+// Custom error types
+type AuthError struct {
+    Code    string `json:"code"`
+    Message string `json:"message"`
+    Details map[string]interface{} `json:"details,omitempty"`
+}
+
+func (e *AuthError) Error() string {
+    return e.Message
+}
+
+// Error handler middleware
+func errorHandler() forge.MiddlewareFunc {
+    return func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(c *forge.Context) error {
+            err := next(c)
+            if err == nil {
+                return nil
+            }
+            
+            // Handle AuthSome errors
+            if authErr, ok := err.(*authsome.Error); ok {
+                return c.JSON(authErr.StatusCode, AuthError{
+                    Code:    authErr.Code,
+                    Message: authErr.Message,
+                    Details: authErr.Details,
+                })
+            }
+            
+            // Handle validation errors
+            if validationErr, ok := err.(*validator.ValidationErrors); ok {
+                details := make(map[string]interface{})
+                for _, fieldErr := range *validationErr {
+                    details[fieldErr.Field()] = fieldErr.Tag()
+                }
+                
+                return c.JSON(400, AuthError{
+                    Code:    "VALIDATION_ERROR",
+                    Message: "Validation failed",
+                    Details: details,
+                })
+            }
+            
+            // Generic error
+            return c.JSON(500, AuthError{
+                Code:    "INTERNAL_ERROR",
+                Message: "Internal server error",
+            })
+        }
+    }
+}
+```
+
+## Testing Examples
+
+### Unit Testing
+
+```go
+package main
+
+import (
+    "context"
+    "testing"
+    
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/require"
+    "github.com/xraph/authsome"
+)
+
+func TestUserRegistration(t *testing.T) {
+    // Setup test database
+    auth := setupTestAuth(t)
+    defer cleanupTestAuth(t, auth)
+    
+    ctx := context.Background()
+    
+    // Test user creation
+    user, err := auth.CreateUser(ctx, authsome.CreateUserRequest{
+        Email:     "test@example.com",
+        Password:  "password123",
+        FirstName: "Test",
+        LastName:  "User",
+    })
+    
+    require.NoError(t, err)
+    assert.Equal(t, "test@example.com", user.Email)
+    assert.Equal(t, "Test", user.FirstName)
+    assert.Equal(t, "User", user.LastName)
+    assert.False(t, user.EmailVerified)
+    
+    // Test duplicate email
+    _, err = auth.CreateUser(ctx, authsome.CreateUserRequest{
+        Email:    "test@example.com",
+        Password: "password123",
+    })
+    
+    assert.Error(t, err)
+    assert.Contains(t, err.Error(), "email already exists")
+}
+
+func setupTestAuth(t *testing.T) *authsome.Auth {
+    auth, err := authsome.New(authsome.Options{
+        Mode: authsome.ModeStandalone,
+        Database: authsome.DatabaseConfig{
+            URL: "sqlite://test.db",
+        },
+        Session: authsome.SessionConfig{
+            Secret: "test-secret",
+        },
+    })
+    require.NoError(t, err)
+    
+    // Run migrations
+    err = auth.Migrate()
+    require.NoError(t, err)
+    
+    return auth
+}
+
+func cleanupTestAuth(t *testing.T, auth *authsome.Auth) {
+    // Clean up test database
+    auth.Close()
+}
+```
+
+### Integration Testing
+
+```go
+func TestAuthenticationFlow(t *testing.T) {
+    app := setupTestApp(t)
+    defer app.Close()
+    
+    // Test registration
+    resp := httptest.NewRecorder()
+    req := httptest.NewRequest("POST", "/auth/register", strings.NewReader(`{
+        "email": "test@example.com",
+        "password": "password123",
+        "firstName": "Test",
+        "lastName": "User"
+    }`))
+    req.Header.Set("Content-Type", "application/json")
+    
+    app.ServeHTTP(resp, req)
+    
+    assert.Equal(t, 201, resp.Code)
+    
+    var registerResp map[string]interface{}
+    err := json.Unmarshal(resp.Body.Bytes(), &registerResp)
+    require.NoError(t, err)
+    
+    // Test login
+    resp = httptest.NewRecorder()
+    req = httptest.NewRequest("POST", "/auth/login", strings.NewReader(`{
+        "email": "test@example.com",
+        "password": "password123"
+    }`))
+    req.Header.Set("Content-Type", "application/json")
+    
+    app.ServeHTTP(resp, req)
+    
+    assert.Equal(t, 200, resp.Code)
+    
+    // Extract session cookie
+    cookies := resp.Result().Cookies()
+    var sessionCookie *http.Cookie
+    for _, cookie := range cookies {
+        if cookie.Name == "authsome_session" {
+            sessionCookie = cookie
+            break
+        }
+    }
+    require.NotNil(t, sessionCookie)
+    
+    // Test protected route
+    resp = httptest.NewRecorder()
+    req = httptest.NewRequest("GET", "/dashboard", nil)
+    req.AddCookie(sessionCookie)
+    
+    app.ServeHTTP(resp, req)
+    
+    assert.Equal(t, 200, resp.Code)
+}
+```
+
+## Performance Optimization
+
+### Database Optimization
+
+```go
+// Connection pooling
+auth, err := authsome.New(authsome.Options{
+    Database: authsome.DatabaseConfig{
+        URL:             os.Getenv("DATABASE_URL"),
+        MaxConnections:  20,
+        MaxIdleTime:     5 * time.Minute,
+        MaxLifetime:     1 * time.Hour,
+        ConnectTimeout:  10 * time.Second,
+    },
+})
+
+// Indexing strategy
+func createIndexes(db *bun.DB) error {
+    indexes := []string{
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_email ON users(email)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_users_username ON users(username)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_token ON sessions(token)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_org_members_user_id ON organization_members(user_id)",
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_org_members_org_id ON organization_members(organization_id)",
+    }
+    
+    for _, index := range indexes {
+        if _, err := db.Exec(index); err != nil {
+            return fmt.Errorf("failed to create index: %w", err)
+        }
+    }
+    
+    return nil
+}
+```
+
+### Caching Strategy
+
+```go
+// Redis session cache
+auth, err := authsome.New(authsome.Options{
+    Session: authsome.SessionConfig{
+        Cache: authsome.CacheConfig{
+            Provider: "redis",
+            Redis: authsome.RedisConfig{
+                URL:        os.Getenv("REDIS_URL"),
+                MaxRetries: 3,
+                PoolSize:   10,
+            },
+        },
+    },
+})
+
+// User cache
+func (s *UserService) GetUserByID(ctx context.Context, id string) (*User, error) {
+    // Try cache first
+    if user, err := s.cache.Get(ctx, "user:"+id); err == nil {
+        return user.(*User), nil
+    }
+    
+    // Fallback to database
+    user, err := s.repo.FindByID(ctx, id)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Cache for 5 minutes
+    s.cache.Set(ctx, "user:"+id, user, 5*time.Minute)
+    
+    return user, nil
+}
+```
+
+## Next Steps
+
+Ready to implement AuthSome in your application? Start with these guides:
+
+1. **[Basic Setup](/docs/go/examples/basic-setup)** - Get AuthSome running in your application
+2. **[User Authentication](/docs/go/examples/user-auth)** - Implement registration and login
+3. **[Session Management](/docs/go/examples/sessions)** - Handle user sessions
+4. **[Organizations](/docs/go/examples/organizations)** - Add multi-tenancy support
+
+<Callout type="info">
+  All examples include complete, runnable code that you can copy and adapt for your use case. Each guide builds on the previous ones, so we recommend following them in order.
+</Callout>

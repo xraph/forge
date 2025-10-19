@@ -138,20 +138,20 @@ func (le *LeaderElector) Start(ctx context.Context) error {
 		)
 	}
 
-	// OnStart backend
+	// Start backend
 	if err := le.backend.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("leader-election", err)
 	}
 
-	// OnStart election process
+	// Start election process
 	le.wg.Add(1)
 	go le.electionLoop(ctx)
 
-	// OnStart heartbeat process
+	// Start heartbeat process
 	le.wg.Add(1)
 	go le.heartbeatLoop(ctx)
 
-	// OnStart watch process
+	// Start watch process
 	le.wg.Add(1)
 	go le.watchLoop(ctx)
 
@@ -196,7 +196,7 @@ func (le *LeaderElector) Stop(ctx context.Context) error {
 	// Wait for goroutines to finish
 	le.wg.Wait()
 
-	// OnStop backend
+	// Stop backend
 	if err := le.backend.Stop(ctx); err != nil {
 		if le.logger != nil {
 			le.logger.Error("failed to stop backend", logger.Error(err))
@@ -312,7 +312,7 @@ func (le *LeaderElector) watchLoop(ctx context.Context) {
 		le.handleLeadershipChange(leaderID)
 	}
 
-	// OnStart watching
+	// Start watching
 	if err := le.backend.Watch(ctx, watchCallback); err != nil {
 		if le.logger != nil {
 			le.logger.Error("failed to start watching", logger.Error(err))

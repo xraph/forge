@@ -1,0 +1,1740 @@
+---
+title: Webhooks API
+description: Complete API reference for webhook management, event notifications, and real-time integrations
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Webhooks API
+
+Complete reference for AuthSome Go webhook endpoints, covering webhook management, event subscriptions, delivery tracking, and real-time event notifications.
+
+## Overview
+
+The Webhooks API enables real-time event notifications to your applications. Subscribe to authentication events, user changes, security alerts, and organization updates to build responsive integrations.
+
+### Base URL
+
+```
+GET    /auth/webhooks
+POST   /auth/webhooks
+GET    /auth/webhooks/{id}
+PUT    /auth/webhooks/{id}
+DELETE /auth/webhooks/{id}
+POST   /auth/webhooks/{id}/test
+GET    /auth/webhooks/{id}/deliveries
+GET    /auth/webhooks/{id}/deliveries/{deliveryId}
+POST   /auth/webhooks/{id}/deliveries/{deliveryId}/redeliver
+GET    /auth/webhooks/events
+POST   /auth/webhooks/verify
+```
+
+## List Webhooks
+
+Get all webhooks for the current organization.
+
+### Endpoint
+
+```http
+GET /auth/webhooks
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `limit` | integer | Items per page (1-100) | 20 |
+| `status` | string | Filter by status (active, inactive, failed) | - |
+| `eventType` | string | Filter by event type | - |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": "webhook_123",
+          "url": "https://api.example.com/webhooks/authsome",
+          "description": "User authentication events",
+          "events": [
+            "user.created",
+            "user.updated",
+            "user.deleted",
+            "session.created",
+            "session.expired"
+          ],
+          "status": "active",
+          "secret": "whsec_abc123...",
+          "headers": {
+            "X-Custom-Header": "value",
+            "Authorization": "Bearer token"
+          },
+          "timeout": 30,
+          "retryPolicy": {
+            "maxRetries": 3,
+            "retryDelay": 1000,
+            "backoffMultiplier": 2
+          },
+          "filters": {
+            "organizationId": "org_456",
+            "userId": null,
+            "conditions": {
+              "user.created": {
+                "emailDomain": ["example.com", "company.com"]
+              }
+            }
+          },
+          "statistics": {
+            "totalDeliveries": 1250,
+            "successfulDeliveries": 1200,
+            "failedDeliveries": 50,
+            "averageResponseTime": 245,
+            "lastDelivery": "2024-01-01T14:30:00Z",
+            "lastSuccess": "2024-01-01T14:30:00Z",
+            "lastFailure": "2024-01-01T12:15:00Z"
+          },
+          "createdAt": "2024-01-01T10:00:00Z",
+          "updatedAt": "2024-01-01T14:00:00Z",
+          "createdBy": "user_789"
+        },
+        {
+          "id": "webhook_124",
+          "url": "https://slack.com/api/webhooks/T123/B456/xyz789",
+          "description": "Security alerts to Slack",
+          "events": [
+            "security.login_failed",
+            "security.suspicious_activity",
+            "security.account_locked",
+            "security.2fa_disabled"
+          ],
+          "status": "active",
+          "secret": "whsec_def456...",
+          "headers": {},
+          "timeout": 15,
+          "retryPolicy": {
+            "maxRetries": 2,
+            "retryDelay": 500,
+            "backoffMultiplier": 1.5
+          },
+          "filters": {
+            "organizationId": "org_456",
+            "userId": null,
+            "conditions": {
+              "security.login_failed": {
+                "severity": ["high", "critical"]
+              }
+            }
+          },
+          "statistics": {
+            "totalDeliveries": 45,
+            "successfulDeliveries": 44,
+            "failedDeliveries": 1,
+            "averageResponseTime": 120,
+            "lastDelivery": "2024-01-01T13:45:00Z",
+            "lastSuccess": "2024-01-01T13:45:00Z",
+            "lastFailure": "2024-01-01T11:20:00Z"
+          },
+          "createdAt": "2024-01-01T09:00:00Z",
+          "updatedAt": "2024-01-01T13:00:00Z",
+          "createdBy": "user_789"
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 20,
+        "total": 2,
+        "totalPages": 1,
+        "hasNext": false,
+        "hasPrev": false
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Create Webhook
+
+Create a new webhook endpoint.
+
+### Endpoint
+
+```http
+POST /auth/webhooks
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+Content-Type: application/json
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "url": "https://api.example.com/webhooks/authsome",
+      "description": "User authentication events",
+      "events": [
+        "user.created",
+        "user.updated",
+        "user.deleted",
+        "session.created",
+        "session.expired"
+      ],
+      "headers": {
+        "X-Custom-Header": "value",
+        "Authorization": "Bearer token"
+      },
+      "timeout": 30,
+      "retryPolicy": {
+        "maxRetries": 3,
+        "retryDelay": 1000,
+        "backoffMultiplier": 2
+      },
+      "filters": {
+        "conditions": {
+          "user.created": {
+            "emailDomain": ["example.com", "company.com"]
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface CreateWebhookRequest {
+      url: string;
+      description?: string;
+      events: string[];
+      headers?: Record<string, string>;
+      timeout?: number;
+      retryPolicy?: {
+        maxRetries: number;
+        retryDelay: number;
+        backoffMultiplier: number;
+      };
+      filters?: {
+        organizationId?: string;
+        userId?: string;
+        conditions?: Record<string, any>;
+      };
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type CreateWebhookRequest struct {
+        URL         string                 `json:"url" validate:"required,url"`
+        Description string                 `json:"description,omitempty"`
+        Events      []string               `json:"events" validate:"required,min=1"`
+        Headers     map[string]string      `json:"headers,omitempty"`
+        Timeout     int                    `json:"timeout,omitempty"`
+        RetryPolicy *WebhookRetryPolicy    `json:"retryPolicy,omitempty"`
+        Filters     *WebhookFilters        `json:"filters,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (201)', 'Error (400)', 'Error (422)']}>
+  <Tab value="Success (201)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "id": "webhook_125",
+        "url": "https://api.example.com/webhooks/authsome",
+        "description": "User authentication events",
+        "events": [
+          "user.created",
+          "user.updated",
+          "user.deleted",
+          "session.created",
+          "session.expired"
+        ],
+        "status": "active",
+        "secret": "whsec_ghi789abc123def456",
+        "headers": {
+          "X-Custom-Header": "value",
+          "Authorization": "Bearer token"
+        },
+        "timeout": 30,
+        "retryPolicy": {
+          "maxRetries": 3,
+          "retryDelay": 1000,
+          "backoffMultiplier": 2
+        },
+        "filters": {
+          "organizationId": "org_456",
+          "userId": null,
+          "conditions": {
+            "user.created": {
+              "emailDomain": ["example.com", "company.com"]
+            }
+          }
+        },
+        "statistics": {
+          "totalDeliveries": 0,
+          "successfulDeliveries": 0,
+          "failedDeliveries": 0,
+          "averageResponseTime": 0,
+          "lastDelivery": null,
+          "lastSuccess": null,
+          "lastFailure": null
+        },
+        "createdAt": "2024-01-01T15:05:00Z",
+        "updatedAt": "2024-01-01T15:05:00Z",
+        "createdBy": "user_789"
+      },
+      "timestamp": "2024-01-01T15:05:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "WEBHOOK_URL_UNREACHABLE",
+        "message": "Webhook URL is not reachable",
+        "details": {
+          "url": "https://api.example.com/webhooks/authsome",
+          "error": "Connection timeout",
+          "statusCode": null
+        }
+      },
+      "timestamp": "2024-01-01T15:05:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation failed",
+        "details": {
+          "fields": {
+            "url": {
+              "code": "INVALID_URL",
+              "message": "Please enter a valid HTTPS URL"
+            },
+            "events": {
+              "code": "INVALID_EVENT_TYPE",
+              "message": "Unknown event type: invalid.event"
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T15:05:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Webhook
+
+Get details of a specific webhook.
+
+### Endpoint
+
+```http
+GET /auth/webhooks/{id}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Webhook ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "id": "webhook_123",
+        "url": "https://api.example.com/webhooks/authsome",
+        "description": "User authentication events",
+        "events": [
+          "user.created",
+          "user.updated",
+          "user.deleted",
+          "session.created",
+          "session.expired"
+        ],
+        "status": "active",
+        "secret": "whsec_abc123...",
+        "headers": {
+          "X-Custom-Header": "value",
+          "Authorization": "Bearer token"
+        },
+        "timeout": 30,
+        "retryPolicy": {
+          "maxRetries": 3,
+          "retryDelay": 1000,
+          "backoffMultiplier": 2
+        },
+        "filters": {
+          "organizationId": "org_456",
+          "userId": null,
+          "conditions": {
+            "user.created": {
+              "emailDomain": ["example.com", "company.com"]
+            }
+          }
+        },
+        "statistics": {
+          "totalDeliveries": 1250,
+          "successfulDeliveries": 1200,
+          "failedDeliveries": 50,
+          "averageResponseTime": 245,
+          "lastDelivery": "2024-01-01T14:30:00Z",
+          "lastSuccess": "2024-01-01T14:30:00Z",
+          "lastFailure": "2024-01-01T12:15:00Z"
+        },
+        "recentDeliveries": [
+          {
+            "id": "delivery_789",
+            "eventType": "user.created",
+            "status": "success",
+            "responseCode": 200,
+            "responseTime": 234,
+            "deliveredAt": "2024-01-01T14:30:00Z",
+            "attempts": 1
+          },
+          {
+            "id": "delivery_788",
+            "eventType": "session.created",
+            "status": "success",
+            "responseCode": 200,
+            "responseTime": 156,
+            "deliveredAt": "2024-01-01T14:25:00Z",
+            "attempts": 1
+          }
+        ],
+        "createdAt": "2024-01-01T10:00:00Z",
+        "updatedAt": "2024-01-01T14:00:00Z",
+        "createdBy": "user_789"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "WEBHOOK_NOT_FOUND",
+        "message": "Webhook not found"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Update Webhook
+
+Update an existing webhook.
+
+### Endpoint
+
+```http
+PUT /auth/webhooks/{id}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Webhook ID |
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "url": "https://api.example.com/webhooks/authsome-v2",
+      "description": "Updated user authentication events",
+      "events": [
+        "user.created",
+        "user.updated",
+        "user.deleted",
+        "session.created",
+        "session.expired",
+        "security.login_failed"
+      ],
+      "headers": {
+        "X-Custom-Header": "updated-value",
+        "X-API-Version": "v2"
+      },
+      "timeout": 45,
+      "status": "active"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface UpdateWebhookRequest {
+      url?: string;
+      description?: string;
+      events?: string[];
+      headers?: Record<string, string>;
+      timeout?: number;
+      status?: 'active' | 'inactive';
+      retryPolicy?: {
+        maxRetries: number;
+        retryDelay: number;
+        backoffMultiplier: number;
+      };
+      filters?: {
+        organizationId?: string;
+        userId?: string;
+        conditions?: Record<string, any>;
+      };
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type UpdateWebhookRequest struct {
+        URL         *string                `json:"url,omitempty" validate:"omitempty,url"`
+        Description *string                `json:"description,omitempty"`
+        Events      []string               `json:"events,omitempty"`
+        Headers     map[string]string      `json:"headers,omitempty"`
+        Timeout     *int                   `json:"timeout,omitempty"`
+        Status      *string                `json:"status,omitempty"`
+        RetryPolicy *WebhookRetryPolicy    `json:"retryPolicy,omitempty"`
+        Filters     *WebhookFilters        `json:"filters,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)', 'Error (422)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "id": "webhook_123",
+        "url": "https://api.example.com/webhooks/authsome-v2",
+        "description": "Updated user authentication events",
+        "events": [
+          "user.created",
+          "user.updated",
+          "user.deleted",
+          "session.created",
+          "session.expired",
+          "security.login_failed"
+        ],
+        "status": "active",
+        "secret": "whsec_abc123...",
+        "headers": {
+          "X-Custom-Header": "updated-value",
+          "X-API-Version": "v2"
+        },
+        "timeout": 45,
+        "retryPolicy": {
+          "maxRetries": 3,
+          "retryDelay": 1000,
+          "backoffMultiplier": 2
+        },
+        "filters": {
+          "organizationId": "org_456",
+          "userId": null,
+          "conditions": {
+            "user.created": {
+              "emailDomain": ["example.com", "company.com"]
+            }
+          }
+        },
+        "statistics": {
+          "totalDeliveries": 1250,
+          "successfulDeliveries": 1200,
+          "failedDeliveries": 50,
+          "averageResponseTime": 245,
+          "lastDelivery": "2024-01-01T14:30:00Z",
+          "lastSuccess": "2024-01-01T14:30:00Z",
+          "lastFailure": "2024-01-01T12:15:00Z"
+        },
+        "createdAt": "2024-01-01T10:00:00Z",
+        "updatedAt": "2024-01-01T15:10:00Z",
+        "createdBy": "user_789"
+      },
+      "timestamp": "2024-01-01T15:10:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "WEBHOOK_NOT_FOUND",
+        "message": "Webhook not found"
+      },
+      "timestamp": "2024-01-01T15:10:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation failed",
+        "details": {
+          "fields": {
+            "timeout": {
+              "code": "INVALID_TIMEOUT",
+              "message": "Timeout must be between 1 and 60 seconds"
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T15:10:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Delete Webhook
+
+Delete a webhook endpoint.
+
+### Endpoint
+
+```http
+DELETE /auth/webhooks/{id}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Webhook ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "deleted": true,
+        "deletedAt": "2024-01-01T15:15:00Z",
+        "webhook": {
+          "id": "webhook_123",
+          "url": "https://api.example.com/webhooks/authsome",
+          "description": "User authentication events"
+        }
+      },
+      "timestamp": "2024-01-01T15:15:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "WEBHOOK_NOT_FOUND",
+        "message": "Webhook not found"
+      },
+      "timestamp": "2024-01-01T15:15:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Test Webhook
+
+Send a test event to a webhook endpoint.
+
+### Endpoint
+
+```http
+POST /auth/webhooks/{id}/test
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+Content-Type: application/json
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Webhook ID |
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "eventType": "user.created",
+      "testData": {
+        "customField": "test value"
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface TestWebhookRequest {
+      eventType?: string;
+      testData?: Record<string, any>;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type TestWebhookRequest struct {
+        EventType string                 `json:"eventType,omitempty"`
+        TestData  map[string]interface{} `json:"testData,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "deliveryId": "delivery_test_123",
+        "eventType": "webhook.test",
+        "status": "success",
+        "responseCode": 200,
+        "responseTime": 234,
+        "responseHeaders": {
+          "content-type": "application/json",
+          "x-response-id": "resp_456"
+        },
+        "responseBody": "{\"received\": true, \"message\": \"Test webhook received successfully\"}",
+        "deliveredAt": "2024-01-01T15:20:00Z",
+        "attempts": 1,
+        "payload": {
+          "id": "evt_test_123",
+          "type": "webhook.test",
+          "data": {
+            "test": true,
+            "webhook": {
+              "id": "webhook_123",
+              "url": "https://api.example.com/webhooks/authsome"
+            },
+            "customField": "test value"
+          },
+          "createdAt": "2024-01-01T15:20:00Z",
+          "organizationId": "org_456"
+        }
+      },
+      "timestamp": "2024-01-01T15:20:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "WEBHOOK_DELIVERY_FAILED",
+        "message": "Failed to deliver test webhook",
+        "details": {
+          "url": "https://api.example.com/webhooks/authsome",
+          "error": "Connection timeout",
+          "statusCode": null,
+          "responseTime": 30000
+        }
+      },
+      "timestamp": "2024-01-01T15:20:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "WEBHOOK_NOT_FOUND",
+        "message": "Webhook not found"
+      },
+      "timestamp": "2024-01-01T15:20:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Webhook Deliveries
+
+Get delivery history for a webhook.
+
+### Endpoint
+
+```http
+GET /auth/webhooks/{id}/deliveries
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Webhook ID |
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `limit` | integer | Items per page (1-100) | 20 |
+| `status` | string | Filter by status (success, failed, pending) | - |
+| `eventType` | string | Filter by event type | - |
+| `startDate` | string | Start date (ISO 8601) | - |
+| `endDate` | string | End date (ISO 8601) | - |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": "delivery_789",
+          "eventId": "evt_456",
+          "eventType": "user.created",
+          "status": "success",
+          "responseCode": 200,
+          "responseTime": 234,
+          "responseHeaders": {
+            "content-type": "application/json",
+            "x-response-id": "resp_789"
+          },
+          "responseBody": "{\"received\": true}",
+          "deliveredAt": "2024-01-01T14:30:00Z",
+          "attempts": 1,
+          "nextRetryAt": null,
+          "payload": {
+            "id": "evt_456",
+            "type": "user.created",
+            "data": {
+              "user": {
+                "id": "user_123",
+                "email": "user@example.com",
+                "createdAt": "2024-01-01T14:30:00Z"
+              }
+            },
+            "createdAt": "2024-01-01T14:30:00Z",
+            "organizationId": "org_456"
+          }
+        },
+        {
+          "id": "delivery_788",
+          "eventId": "evt_455",
+          "eventType": "session.created",
+          "status": "failed",
+          "responseCode": 500,
+          "responseTime": 5000,
+          "responseHeaders": {
+            "content-type": "text/plain"
+          },
+          "responseBody": "Internal Server Error",
+          "deliveredAt": "2024-01-01T14:25:00Z",
+          "attempts": 3,
+          "nextRetryAt": "2024-01-01T14:35:00Z",
+          "error": "HTTP 500: Internal Server Error",
+          "payload": {
+            "id": "evt_455",
+            "type": "session.created",
+            "data": {
+              "session": {
+                "id": "session_123",
+                "userId": "user_123",
+                "createdAt": "2024-01-01T14:25:00Z"
+              }
+            },
+            "createdAt": "2024-01-01T14:25:00Z",
+            "organizationId": "org_456"
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 20,
+        "total": 1250,
+        "totalPages": 63,
+        "hasNext": true,
+        "hasPrev": false
+      },
+      "statistics": {
+        "totalDeliveries": 1250,
+        "successfulDeliveries": 1200,
+        "failedDeliveries": 50,
+        "successRate": 96.0,
+        "averageResponseTime": 245
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "WEBHOOK_NOT_FOUND",
+        "message": "Webhook not found"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Delivery Details
+
+Get detailed information about a specific delivery.
+
+### Endpoint
+
+```http
+GET /auth/webhooks/{id}/deliveries/{deliveryId}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Webhook ID |
+| `deliveryId` | string | Delivery ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "id": "delivery_789",
+        "webhookId": "webhook_123",
+        "eventId": "evt_456",
+        "eventType": "user.created",
+        "status": "success",
+        "responseCode": 200,
+        "responseTime": 234,
+        "responseHeaders": {
+          "content-type": "application/json",
+          "x-response-id": "resp_789",
+          "server": "nginx/1.18.0"
+        },
+        "responseBody": "{\"received\": true, \"processed\": true, \"id\": \"proc_123\"}",
+        "deliveredAt": "2024-01-01T14:30:00Z",
+        "attempts": 1,
+        "nextRetryAt": null,
+        "requestHeaders": {
+          "content-type": "application/json",
+          "user-agent": "AuthSome-Webhooks/1.0",
+          "x-authsome-signature": "sha256=abc123...",
+          "x-authsome-delivery": "delivery_789",
+          "x-authsome-event": "user.created",
+          "x-custom-header": "value"
+        },
+        "payload": {
+          "id": "evt_456",
+          "type": "user.created",
+          "data": {
+            "user": {
+              "id": "user_123",
+              "email": "user@example.com",
+              "username": "johndoe",
+              "firstName": "John",
+              "lastName": "Doe",
+              "emailVerified": false,
+              "createdAt": "2024-01-01T14:30:00Z",
+              "updatedAt": "2024-01-01T14:30:00Z"
+            },
+            "organization": {
+              "id": "org_456",
+              "name": "Example Corp"
+            }
+          },
+          "createdAt": "2024-01-01T14:30:00Z",
+          "organizationId": "org_456"
+        },
+        "retryHistory": [],
+        "webhook": {
+          "id": "webhook_123",
+          "url": "https://api.example.com/webhooks/authsome",
+          "description": "User authentication events"
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "DELIVERY_NOT_FOUND",
+        "message": "Delivery not found"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Redeliver Webhook
+
+Redeliver a failed webhook delivery.
+
+### Endpoint
+
+```http
+POST /auth/webhooks/{id}/deliveries/{deliveryId}/redeliver
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Webhook ID |
+| `deliveryId` | string | Delivery ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "redelivered": true,
+        "newDeliveryId": "delivery_790",
+        "originalDeliveryId": "delivery_788",
+        "status": "success",
+        "responseCode": 200,
+        "responseTime": 189,
+        "deliveredAt": "2024-01-01T15:25:00Z",
+        "message": "Webhook redelivered successfully"
+      },
+      "timestamp": "2024-01-01T15:25:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "DELIVERY_ALREADY_SUCCESSFUL",
+        "message": "Cannot redeliver a successful delivery"
+      },
+      "timestamp": "2024-01-01T15:25:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "DELIVERY_NOT_FOUND",
+        "message": "Delivery not found"
+      },
+      "timestamp": "2024-01-01T15:25:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Available Events
+
+Get list of all available webhook event types.
+
+### Endpoint
+
+```http
+GET /auth/webhooks/events
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "categories": {
+          "user": {
+            "name": "User Events",
+            "description": "User account lifecycle events",
+            "events": [
+              {
+                "type": "user.created",
+                "name": "User Created",
+                "description": "Triggered when a new user account is created",
+                "dataSchema": {
+                  "user": {
+                    "id": "string",
+                    "email": "string",
+                    "username": "string",
+                    "firstName": "string",
+                    "lastName": "string",
+                    "emailVerified": "boolean",
+                    "createdAt": "string",
+                    "updatedAt": "string"
+                  },
+                  "organization": {
+                    "id": "string",
+                    "name": "string"
+                  }
+                }
+              },
+              {
+                "type": "user.updated",
+                "name": "User Updated",
+                "description": "Triggered when user profile is updated",
+                "dataSchema": {
+                  "user": "object",
+                  "changes": "object",
+                  "organization": "object"
+                }
+              },
+              {
+                "type": "user.deleted",
+                "name": "User Deleted",
+                "description": "Triggered when user account is deleted",
+                "dataSchema": {
+                  "user": "object",
+                  "organization": "object"
+                }
+              },
+              {
+                "type": "user.email_verified",
+                "name": "Email Verified",
+                "description": "Triggered when user verifies their email",
+                "dataSchema": {
+                  "user": "object",
+                  "organization": "object"
+                }
+              }
+            ]
+          },
+          "session": {
+            "name": "Session Events",
+            "description": "User session and authentication events",
+            "events": [
+              {
+                "type": "session.created",
+                "name": "Session Created",
+                "description": "Triggered when user signs in",
+                "dataSchema": {
+                  "session": {
+                    "id": "string",
+                    "userId": "string",
+                    "deviceId": "string",
+                    "ipAddress": "string",
+                    "userAgent": "string",
+                    "createdAt": "string"
+                  },
+                  "user": "object",
+                  "organization": "object"
+                }
+              },
+              {
+                "type": "session.expired",
+                "name": "Session Expired",
+                "description": "Triggered when session expires",
+                "dataSchema": {
+                  "session": "object",
+                  "user": "object",
+                  "organization": "object"
+                }
+              },
+              {
+                "type": "session.revoked",
+                "name": "Session Revoked",
+                "description": "Triggered when session is manually revoked",
+                "dataSchema": {
+                  "session": "object",
+                  "user": "object",
+                  "organization": "object"
+                }
+              }
+            ]
+          },
+          "security": {
+            "name": "Security Events",
+            "description": "Security and authentication-related events",
+            "events": [
+              {
+                "type": "security.login_failed",
+                "name": "Login Failed",
+                "description": "Triggered when login attempt fails",
+                "dataSchema": {
+                  "attempt": {
+                    "email": "string",
+                    "reason": "string",
+                    "ipAddress": "string",
+                    "userAgent": "string",
+                    "timestamp": "string"
+                  },
+                  "user": "object",
+                  "organization": "object"
+                }
+              },
+              {
+                "type": "security.suspicious_activity",
+                "name": "Suspicious Activity",
+                "description": "Triggered when suspicious activity is detected",
+                "dataSchema": {
+                  "activity": "object",
+                  "riskScore": "number",
+                  "user": "object",
+                  "organization": "object"
+                }
+              },
+              {
+                "type": "security.2fa_enabled",
+                "name": "2FA Enabled",
+                "description": "Triggered when 2FA is enabled",
+                "dataSchema": {
+                  "method": "string",
+                  "user": "object",
+                  "organization": "object"
+                }
+              },
+              {
+                "type": "security.2fa_disabled",
+                "name": "2FA Disabled",
+                "description": "Triggered when 2FA is disabled",
+                "dataSchema": {
+                  "method": "string",
+                  "user": "object",
+                  "organization": "object"
+                }
+              },
+              {
+                "type": "security.account_locked",
+                "name": "Account Locked",
+                "description": "Triggered when account is locked",
+                "dataSchema": {
+                  "reason": "string",
+                  "lockoutDuration": "number",
+                  "user": "object",
+                  "organization": "object"
+                }
+              }
+            ]
+          },
+          "organization": {
+            "name": "Organization Events",
+            "description": "Organization and membership events",
+            "events": [
+              {
+                "type": "organization.created",
+                "name": "Organization Created",
+                "description": "Triggered when organization is created",
+                "dataSchema": {
+                  "organization": "object",
+                  "creator": "object"
+                }
+              },
+              {
+                "type": "organization.updated",
+                "name": "Organization Updated",
+                "description": "Triggered when organization is updated",
+                "dataSchema": {
+                  "organization": "object",
+                  "changes": "object",
+                  "updatedBy": "object"
+                }
+              },
+              {
+                "type": "organization.member_added",
+                "name": "Member Added",
+                "description": "Triggered when member is added to organization",
+                "dataSchema": {
+                  "member": "object",
+                  "organization": "object",
+                  "invitedBy": "object"
+                }
+              },
+              {
+                "type": "organization.member_removed",
+                "name": "Member Removed",
+                "description": "Triggered when member is removed from organization",
+                "dataSchema": {
+                  "member": "object",
+                  "organization": "object",
+                  "removedBy": "object"
+                }
+              }
+            ]
+          }
+        },
+        "totalEvents": 16
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Verify Webhook Signature
+
+Verify the signature of a webhook payload.
+
+### Endpoint
+
+```http
+POST /auth/webhooks/verify
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+Content-Type: application/json
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "payload": "{\"id\":\"evt_123\",\"type\":\"user.created\",\"data\":{\"user\":{\"id\":\"user_123\"}}}",
+      "signature": "sha256=abc123def456...",
+      "secret": "whsec_abc123..."
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface VerifyWebhookRequest {
+      payload: string;
+      signature: string;
+      secret: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type VerifyWebhookRequest struct {
+        Payload   string `json:"payload" validate:"required"`
+        Signature string `json:"signature" validate:"required"`
+        Secret    string `json:"secret" validate:"required"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "valid": true,
+        "algorithm": "sha256",
+        "verifiedAt": "2024-01-01T15:30:00Z"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_SIGNATURE",
+        "message": "Webhook signature verification failed",
+        "details": {
+          "algorithm": "sha256",
+          "expectedSignature": "sha256=def456...",
+          "providedSignature": "sha256=abc123..."
+        }
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Webhook Payload Format
+
+All webhook payloads follow a consistent structure:
+
+```json
+{
+  "id": "evt_123456789",
+  "type": "user.created",
+  "data": {
+    "user": {
+      "id": "user_123",
+      "email": "user@example.com",
+      "username": "johndoe",
+      "firstName": "John",
+      "lastName": "Doe",
+      "emailVerified": false,
+      "createdAt": "2024-01-01T14:30:00Z",
+      "updatedAt": "2024-01-01T14:30:00Z"
+    },
+    "organization": {
+      "id": "org_456",
+      "name": "Example Corp"
+    }
+  },
+  "createdAt": "2024-01-01T14:30:00Z",
+  "organizationId": "org_456"
+}
+```
+
+### Headers
+
+AuthSome includes these headers with every webhook request:
+
+| Header | Description |
+|--------|-------------|
+| `Content-Type` | Always `application/json` |
+| `User-Agent` | `AuthSome-Webhooks/1.0` |
+| `X-AuthSome-Signature` | HMAC signature for verification |
+| `X-AuthSome-Delivery` | Unique delivery ID |
+| `X-AuthSome-Event` | Event type |
+| `X-AuthSome-Timestamp` | Unix timestamp |
+
+## Signature Verification
+
+### Algorithm
+
+AuthSome uses HMAC-SHA256 to sign webhook payloads:
+
+```
+signature = "sha256=" + HMAC_SHA256(payload, secret)
+```
+
+### Verification Examples
+
+<Tabs items={['JavaScript', 'Python', 'Go', 'PHP']}>
+  <Tab value="JavaScript">
+    ```javascript
+    const crypto = require('crypto');
+
+    function verifyWebhookSignature(payload, signature, secret) {
+      const expectedSignature = 'sha256=' + 
+        crypto.createHmac('sha256', secret)
+              .update(payload, 'utf8')
+              .digest('hex');
+      
+      return crypto.timingSafeEqual(
+        Buffer.from(signature),
+        Buffer.from(expectedSignature)
+      );
+    }
+
+    // Usage
+    const isValid = verifyWebhookSignature(
+      req.body,
+      req.headers['x-authsome-signature'],
+      process.env.WEBHOOK_SECRET
+    );
+    ```
+  </Tab>
+  <Tab value="Python">
+    ```python
+    import hmac
+    import hashlib
+
+    def verify_webhook_signature(payload, signature, secret):
+        expected_signature = 'sha256=' + hmac.new(
+            secret.encode('utf-8'),
+            payload.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return hmac.compare_digest(signature, expected_signature)
+
+    # Usage
+    is_valid = verify_webhook_signature(
+        request.data.decode('utf-8'),
+        request.headers.get('X-AuthSome-Signature'),
+        os.environ['WEBHOOK_SECRET']
+    )
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    package main
+
+    import (
+        "crypto/hmac"
+        "crypto/sha256"
+        "encoding/hex"
+        "fmt"
+    )
+
+    func verifyWebhookSignature(payload, signature, secret string) bool {
+        mac := hmac.New(sha256.New, []byte(secret))
+        mac.Write([]byte(payload))
+        expectedSignature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+        
+        return hmac.Equal([]byte(signature), []byte(expectedSignature))
+    }
+
+    // Usage
+    isValid := verifyWebhookSignature(
+        string(body),
+        r.Header.Get("X-AuthSome-Signature"),
+        os.Getenv("WEBHOOK_SECRET"),
+    )
+    ```
+  </Tab>
+  <Tab value="PHP">
+    ```php
+    <?php
+
+    function verifyWebhookSignature($payload, $signature, $secret) {
+        $expectedSignature = 'sha256=' . hash_hmac('sha256', $payload, $secret);
+        return hash_equals($signature, $expectedSignature);
+    }
+
+    // Usage
+    $isValid = verifyWebhookSignature(
+        file_get_contents('php://input'),
+        $_SERVER['HTTP_X_AUTHSOME_SIGNATURE'],
+        $_ENV['WEBHOOK_SECRET']
+    );
+    ?>
+    ```
+  </Tab>
+</Tabs>
+
+## Rate Limiting
+
+Webhook endpoints have specific rate limits:
+
+| Endpoint | Rate Limit | Window |
+|----------|------------|--------|
+| `GET /auth/webhooks` | 100 requests per organization | 1 hour |
+| `POST /auth/webhooks` | 20 requests per organization | 1 hour |
+| `PUT /auth/webhooks/{id}` | 50 requests per webhook | 1 hour |
+| `DELETE /auth/webhooks/{id}` | 10 requests per webhook | 1 hour |
+| `POST /auth/webhooks/{id}/test` | 20 requests per webhook | 1 hour |
+| `GET /auth/webhooks/{id}/deliveries` | 200 requests per webhook | 1 hour |
+| `POST /auth/webhooks/{id}/deliveries/{deliveryId}/redeliver` | 50 requests per webhook | 1 hour |
+
+<Callout type="info">
+  Webhook deliveries themselves are not rate limited, but failed deliveries follow exponential backoff retry policies.
+</Callout>
+
+## Best Practices
+
+### Webhook Security
+
+- Always verify webhook signatures
+- Use HTTPS endpoints only
+- Implement idempotency using event IDs
+- Set appropriate timeout values (5-30 seconds)
+- Handle retries gracefully
+
+### Error Handling
+
+- Return 2xx status codes for successful processing
+- Return 4xx for permanent failures (no retry)
+- Return 5xx for temporary failures (will retry)
+- Log webhook events for debugging
+
+### Performance
+
+- Process webhooks asynchronously when possible
+- Implement proper error handling and logging
+- Use webhook filters to reduce unnecessary events
+- Monitor delivery success rates
+
+### Reliability
+
+- Implement idempotency checks
+- Handle duplicate deliveries gracefully
+- Set up monitoring and alerting
+- Use backup notification methods for critical events
+
+## Error Handling
+
+### Common Error Codes
+
+| Code | Description | HTTP Status |
+|------|-------------|-------------|
+| `WEBHOOK_NOT_FOUND` | Webhook not found | 404 |
+| `WEBHOOK_URL_UNREACHABLE` | URL not reachable | 400 |
+| `WEBHOOK_DELIVERY_FAILED` | Delivery failed | 400 |
+| `DELIVERY_NOT_FOUND` | Delivery not found | 404 |
+| `DELIVERY_ALREADY_SUCCESSFUL` | Cannot redeliver successful delivery | 400 |
+| `INVALID_SIGNATURE` | Signature verification failed | 400 |
+| `INVALID_EVENT_TYPE` | Unknown event type | 422 |
+| `WEBHOOK_LIMIT_EXCEEDED` | Too many webhooks | 429 |
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Security API"
+    description="Two-factor authentication and security settings"
+    href="/docs/go/api-reference/security"
+  />
+  <Card
+    title="Organizations API"
+    description="Multi-tenant organization management"
+    href="/docs/go/api-reference/organizations"
+  />
+  <Card
+    title="Users API"
+    description="User profile and account management"
+    href="/docs/go/api-reference/users"
+  />
+  <Card
+    title="Authentication API"
+    description="Sign up, sign in, and session management"
+    href="/docs/go/api-reference/authentication"
+  />
+</Cards>

@@ -1,0 +1,16 @@
+{
+  "title": "Core Concepts",
+  "icon": "BookOpen",
+  "defaultOpen": true,
+  "pages": [
+    "middleware",
+    "routing",
+    "context",
+    "plugins",
+    "dependency-injection",
+    "health",
+    "config",
+    "security",
+    "observability"
+  ]
+}

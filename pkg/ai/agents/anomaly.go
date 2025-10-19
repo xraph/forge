@@ -834,7 +834,7 @@ func (sad *StatisticalAnomalyDetector) DetectAnomalies(dataPoints []DataPoint, m
 					anomaly := AnomalyEvent{
 						ID:          fmt.Sprintf("stat_%d", time.Now().UnixNano()),
 						Type:        AnomalyTypeStatistical,
-						Severity:    a.calculateSeverityFromScore(zScore),
+						Severity:    sad.calculateSeverityFromScore(zScore),
 						Score:       zScore / 3.0, // Normalize to 0-1
 						Description: fmt.Sprintf("Statistical anomaly detected: Z-score = %.2f", zScore),
 						DataPoint:   dp,

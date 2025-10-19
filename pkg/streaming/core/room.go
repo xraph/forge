@@ -923,7 +923,7 @@ func (r *DefaultRoom) Close(ctx context.Context) error {
 	r.messageHistory = nil
 	r.moderation = make(map[string]*UserModeration)
 
-	// OnStop presence tracker
+	// Stop presence tracker
 	if localPresence, ok := r.presence.(*LocalPresenceTracker); ok {
 		localPresence.Stop()
 	}

@@ -1,0 +1,2221 @@
+---
+title: Multi-Tenant Organizations
+description: Complete guide to implementing multi-tenant organizations with role-based access control in AuthSome Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Multi-Tenant Organizations
+
+This guide covers implementing a complete multi-tenant system with organizations, role-based access control (RBAC), and organization-scoped configurations using AuthSome Go.
+
+## Overview
+
+AuthSome Go provides enterprise-grade multi-tenancy with:
+
+- **Organizations**: Isolated tenant environments
+- **Role-Based Access Control**: Flexible permission system
+- **Organization-Scoped Configs**: Per-tenant customization
+- **Member Management**: Invite, manage, and remove members
+- **Hierarchical Permissions**: Organization and resource-level access
+- **Audit Trails**: Complete activity logging per organization
+
+## Architecture
+
+<Callout type="info">
+  AuthSome supports both Standalone (single-tenant) and SaaS (multi-tenant) modes.
+</Callout>
+
+```
+Platform Organization (ID: "platform")
+├── Super admin organization
+└── System-wide settings
+
+Customer Organizations (UUID)
+├── Org-specific users and members
+├── Org-specific configuration overrides
+├── Org-specific OAuth settings
+├── Org-specific form schemas
+└── Org-specific RBAC policies
+
+User → Member → Organization (many-to-many relationship)
+```
+
+## Quick Start
+
+<Tabs items={['SaaS Mode Setup', 'Organization Config', 'RBAC Setup']}>
+  <Tab value="SaaS Mode Setup">
+    ```go
+    package main
+    
+    import (
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+    )
+    
+    func main() {
+        app := forge.New()
+        
+        // Initialize AuthSome in SaaS mode
+        auth, err := authsome.New(authsome.Config{
+            Mode:        authsome.ModeSaaS, // Enable multi-tenancy
+            DatabaseURL: "postgres://user:pass@localhost/db",
+            SecretKey:   "your-secret-key",
+            
+            // Organization settings
+            Organizations: authsome.OrganizationConfig{
+                Enabled:              true,
+                AllowSelfRegistration: true,
+                DefaultRole:          "member",
+                MaxMembers:           100,
+                RequireInvitation:    false,
+                
+                // Billing integration
+                BillingEnabled: true,
+                DefaultPlan:    "starter",
+                
+                // Custom domains
+                CustomDomainsEnabled: true,
+                
+                // Organization-scoped configs
+                ScopedConfigs: true,
+            },
+            
+            // RBAC configuration
+            RBAC: authsome.RBACConfig{
+                Enabled: true,
+                DefaultRoles: []authsome.Role{
+                    {
+                        ID:          "owner",
+                        Name:        "Owner",
+                        Description: "Full organization access",
+                        Permissions: []string{"*"},
+                        IsSystem:    true,
+                    },
+                    {
+                        ID:          "admin",
+                        Name:        "Administrator",
+                        Description: "Administrative access",
+                        Permissions: []string{
+                            "org:read", "org:update",
+                            "members:*",
+                            "settings:*",
+                            "billing:read",
+                        },
+                    },
+                    {
+                        ID:          "member",
+                        Name:        "Member",
+                        Description: "Basic member access",
+                        Permissions: []string{
+                            "org:read",
+                            "profile:read", "profile:update",
+                        },
+                    },
+                },
+            },
+        })
+        if err != nil {
+            panic(err)
+        }
+        
+        // Organization middleware
+        app.Use(auth.OrganizationMiddleware())
+        
+        // Mount AuthSome routes
+        auth.Mount(app, "/auth")
+        
+        // Organization-scoped API routes
+        api := app.Group("/api")
+        api.Use(auth.RequireAuth())
+        api.Use(auth.RequireOrganization())
+        
+        // Organization management
+        orgs := api.Group("/organizations")
+        orgs.GET("/", getOrganizations)
+        orgs.POST("/", createOrganization)
+        orgs.GET("/:id", getOrganization)
+        orgs.PUT("/:id", updateOrganization)
+        orgs.DELETE("/:id", deleteOrganization)
+        
+        // Member management
+        members := api.Group("/organizations/:orgId/members")
+        members.GET("/", getMembers)
+        members.POST("/invite", inviteMember)
+        members.PUT("/:userId/role", updateMemberRole)
+        members.DELETE("/:userId", removeMember)
+        
+        // Organization-scoped resources
+        projects := api.Group("/organizations/:orgId/projects")
+        projects.Use(auth.RequirePermission("projects:read"))
+        projects.GET("/", getProjects)
+        projects.POST("/", auth.RequirePermission("projects:create"), createProject)
+        
+        app.Listen(":8080")
+    }
+    ```
+  </Tab>
+  <Tab value="Organization Config">
+    ```yaml
+    # config.yaml
+    auth:
+      mode: "saas" # Enable multi-tenancy
+      
+      organizations:
+        enabled: true
+        allow_self_registration: true
+        default_role: "member"
+        max_members: 100
+        require_invitation: false
+        
+        # Billing integration
+        billing_enabled: true
+        default_plan: "starter"
+        
+        # Custom domains
+        custom_domains_enabled: true
+        
+        # Organization-scoped configurations
+        scoped_configs: true
+        
+      # Default configuration
+      oauth:
+        google:
+          client_id: "default-google-client-id"
+          client_secret: "default-google-secret"
+          
+      email:
+        provider: "smtp"
+        smtp:
+          host: "smtp.gmail.com"
+          port: 587
+          username: "default@example.com"
+          password: "default-password"
+          
+    # Organization-specific overrides
+    orgs:
+      # Organization ID: org_123abc
+      org_123abc:
+        auth:
+          oauth:
+            google:
+              client_id: "org-specific-google-client-id"
+              client_secret: "org-specific-google-secret"
+              
+          email:
+            smtp:
+              username: "org123@example.com"
+              password: "org-specific-password"
+              
+          branding:
+            logo_url: "https://org123.example.com/logo.png"
+            primary_color: "#007bff"
+            company_name: "Acme Corp"
+            
+      # Another organization
+      org_456def:
+        auth:
+          oauth:
+            github:
+              client_id: "org456-github-client-id"
+              client_secret: "org456-github-secret"
+              
+          email:
+            provider: "sendgrid"
+            sendgrid:
+              api_key: "org456-sendgrid-key"
+              from_email: "noreply@org456.com"
+    ```
+  </Tab>
+  <Tab value="RBAC Setup">
+    ```go
+    // Define custom roles and permissions
+    type Permission struct {
+        ID          string   `json:"id"`
+        Name        string   `json:"name"`
+        Description string   `json:"description"`
+        Resource    string   `json:"resource"`
+        Actions     []string `json:"actions"`
+    }
+    
+    type Role struct {
+        ID           string      `json:"id"`
+        Name         string      `json:"name"`
+        Description  string      `json:"description"`
+        Permissions  []string    `json:"permissions"`
+        IsSystem     bool        `json:"isSystem"`
+        OrganizationID string    `json:"organizationId,omitempty"`
+    }
+    
+    // Initialize RBAC system
+    func setupRBAC(auth *authsome.Auth) error {
+        // Define permissions
+        permissions := []Permission{
+            {
+                ID:          "org:read",
+                Name:        "Read Organization",
+                Description: "View organization details",
+                Resource:    "organization",
+                Actions:     []string{"read"},
+            },
+            {
+                ID:          "org:update",
+                Name:        "Update Organization",
+                Description: "Modify organization settings",
+                Resource:    "organization",
+                Actions:     []string{"update"},
+            },
+            {
+                ID:          "members:read",
+                Name:        "Read Members",
+                Description: "View organization members",
+                Resource:    "members",
+                Actions:     []string{"read"},
+            },
+            {
+                ID:          "members:invite",
+                Name:        "Invite Members",
+                Description: "Invite new members to organization",
+                Resource:    "members",
+                Actions:     []string{"create"},
+            },
+            {
+                ID:          "members:manage",
+                Name:        "Manage Members",
+                Description: "Update and remove members",
+                Resource:    "members",
+                Actions:     []string{"update", "delete"},
+            },
+            {
+                ID:          "billing:read",
+                Name:        "Read Billing",
+                Description: "View billing information",
+                Resource:    "billing",
+                Actions:     []string{"read"},
+            },
+            {
+                ID:          "billing:manage",
+                Name:        "Manage Billing",
+                Description: "Manage billing and subscriptions",
+                Resource:    "billing",
+                Actions:     []string{"read", "update"},
+            },
+            {
+                ID:          "projects:read",
+                Name:        "Read Projects",
+                Description: "View projects",
+                Resource:    "projects",
+                Actions:     []string{"read"},
+            },
+            {
+                ID:          "projects:create",
+                Name:        "Create Projects",
+                Description: "Create new projects",
+                Resource:    "projects",
+                Actions:     []string{"create"},
+            },
+            {
+                ID:          "projects:manage",
+                Name:        "Manage Projects",
+                Description: "Full project management",
+                Resource:    "projects",
+                Actions:     []string{"read", "create", "update", "delete"},
+            },
+        }
+        
+        // Register permissions
+        for _, perm := range permissions {
+            if err := auth.RegisterPermission(perm); err != nil {
+                return err
+            }
+        }
+        
+        // Define custom roles
+        customRoles := []Role{
+            {
+                ID:          "project_manager",
+                Name:        "Project Manager",
+                Description: "Manages projects and team members",
+                Permissions: []string{
+                    "org:read",
+                    "members:read", "members:invite",
+                    "projects:manage",
+                },
+            },
+            {
+                ID:          "billing_admin",
+                Name:        "Billing Administrator",
+                Description: "Manages billing and subscriptions",
+                Permissions: []string{
+                    "org:read",
+                    "billing:manage",
+                    "members:read",
+                },
+            },
+            {
+                ID:          "viewer",
+                Name:        "Viewer",
+                Description: "Read-only access",
+                Permissions: []string{
+                    "org:read",
+                    "members:read",
+                    "projects:read",
+                    "billing:read",
+                },
+            },
+        }
+        
+        // Register custom roles
+        for _, role := range customRoles {
+            if err := auth.RegisterRole(role); err != nil {
+                return err
+            }
+        }
+        
+        return nil
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Organization Management
+
+Implement comprehensive organization management:
+
+<Tabs items={['Create Organization', 'Organization Settings', 'Member Management']}>
+  <Tab value="Create Organization">
+    ```go
+    // CreateOrganizationRequest represents organization creation request
+    type CreateOrganizationRequest struct {
+        Name        string                 `json:"name" validate:"required,min=2,max=100"`
+        Slug        string                 `json:"slug" validate:"required,min=2,max=50,alphanum"`
+        Description string                 `json:"description,omitempty" validate:"max=500"`
+        Website     string                 `json:"website,omitempty" validate:"omitempty,url"`
+        Industry    string                 `json:"industry,omitempty"`
+        Size        string                 `json:"size,omitempty"`
+        Plan        string                 `json:"plan,omitempty"`
+        Metadata    map[string]interface{} `json:"metadata,omitempty"`
+    }
+    
+    // CreateOrganization creates a new organization
+    func (h *OrganizationHandler) CreateOrganization(c *forge.Context) error {
+        var req CreateOrganizationRequest
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request format",
+            })
+        }
+        
+        // Validate request
+        if err := h.validator.Validate(&req); err != nil {
+            return c.JSON(400, map[string]interface{}{
+                "error":  "Validation failed",
+                "fields": err,
+            })
+        }
+        
+        user := h.auth.GetCurrentUser(c)
+        if user == nil {
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        // Check if user can create organizations
+        if !h.auth.CanCreateOrganization(user) {
+            return c.JSON(403, map[string]string{
+                "error": "Organization creation not allowed",
+            })
+        }
+        
+        // Check slug availability
+        if exists, err := h.auth.OrganizationSlugExists(c.Context(), req.Slug); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to check slug availability",
+            })
+        } else if exists {
+            return c.JSON(409, map[string]string{
+                "error": "Organization slug already exists",
+            })
+        }
+        
+        // Create organization
+        org := &Organization{
+            ID:          generateID("org"),
+            Name:        req.Name,
+            Slug:        req.Slug,
+            Description: req.Description,
+            Website:     req.Website,
+            Industry:    req.Industry,
+            Size:        req.Size,
+            Plan:        req.Plan,
+            OwnerID:     user.ID,
+            CreatedAt:   time.Now(),
+            UpdatedAt:   time.Now(),
+            IsActive:    true,
+            Metadata:    req.Metadata,
+            Settings: OrganizationSettings{
+                AllowMemberInvites: true,
+                RequireEmailVerification: true,
+                EnableSSO: false,
+                MaxMembers: h.auth.config.Organizations.MaxMembers,
+            },
+        }
+        
+        // Start transaction
+        tx, err := h.auth.db.BeginTx(c.Context(), nil)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to start transaction",
+            })
+        }
+        defer tx.Rollback()
+        
+        // Create organization
+        if err := h.auth.repo.CreateOrganization(c.Context(), org); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to create organization",
+            })
+        }
+        
+        // Add creator as owner
+        membership := &OrganizationMember{
+            ID:             generateID("mem"),
+            OrganizationID: org.ID,
+            UserID:         user.ID,
+            Role:           "owner",
+            Status:         "active",
+            JoinedAt:       time.Now(),
+            InvitedBy:      user.ID,
+        }
+        
+        if err := h.auth.repo.CreateOrganizationMember(c.Context(), membership); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to add organization owner",
+            })
+        }
+        
+        // Initialize organization-specific resources
+        if err := h.initializeOrganizationResources(c.Context(), org); err != nil {
+            h.logger.Error("Failed to initialize organization resources", "error", err)
+            // Don't fail the request, just log the error
+        }
+        
+        // Commit transaction
+        if err := tx.Commit(); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to commit transaction",
+            })
+        }
+        
+        // Log organization creation
+        h.auth.logEvent(c.Context(), EventOrganizationCreated, EventData{
+            UserID:         user.ID,
+            OrganizationID: org.ID,
+            Metadata: map[string]interface{}{
+                "organizationName": org.Name,
+                "organizationSlug": org.Slug,
+            },
+        })
+        
+        // Send welcome email
+        if err := h.sendOrganizationWelcomeEmail(c.Context(), user, org); err != nil {
+            h.logger.Error("Failed to send welcome email", "error", err)
+        }
+        
+        return c.JSON(201, map[string]interface{}{
+            "organization": org,
+            "membership":   membership,
+        })
+    }
+    
+    // initializeOrganizationResources sets up default resources for new organization
+    func (h *OrganizationHandler) initializeOrganizationResources(ctx context.Context, org *Organization) error {
+        // Create default project
+        defaultProject := &Project{
+            ID:             generateID("proj"),
+            OrganizationID: org.ID,
+            Name:           "Default Project",
+            Description:    "Your first project",
+            CreatedBy:      org.OwnerID,
+            CreatedAt:      time.Now(),
+            UpdatedAt:      time.Now(),
+        }
+        
+        if err := h.auth.repo.CreateProject(ctx, defaultProject); err != nil {
+            return fmt.Errorf("failed to create default project: %w", err)
+        }
+        
+        // Set up default webhooks
+        if err := h.setupDefaultWebhooks(ctx, org); err != nil {
+            return fmt.Errorf("failed to setup webhooks: %w", err)
+        }
+        
+        // Initialize billing if enabled
+        if h.auth.config.Organizations.BillingEnabled {
+            if err := h.initializeBilling(ctx, org); err != nil {
+                return fmt.Errorf("failed to initialize billing: %w", err)
+            }
+        }
+        
+        return nil
+    }
+    
+    // Frontend React component for organization creation
+    ```tsx
+    import React, { useState } from 'react';
+    import { authService } from '../services/auth';
+    
+    interface CreateOrganizationForm {
+      name: string;
+      slug: string;
+      description: string;
+      website: string;
+      industry: string;
+      size: string;
+      plan: string;
+    }
+    
+    export const CreateOrganizationModal: React.FC<{
+      isOpen: boolean;
+      onClose: () => void;
+      onSuccess: (org: any) => void;
+    }> = ({ isOpen, onClose, onSuccess }) => {
+      const [form, setForm] = useState<CreateOrganizationForm>({
+        name: '',
+        slug: '',
+        description: '',
+        website: '',
+        industry: '',
+        size: '',
+        plan: 'starter',
+      });
+      const [loading, setLoading] = useState(false);
+      const [errors, setErrors] = useState<Record<string, string>>({});
+      
+      const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setErrors({});
+        
+        try {
+          const response = await authService.createOrganization(form);
+          onSuccess(response.organization);
+          onClose();
+        } catch (error: any) {
+          if (error.response?.data?.fields) {
+            setErrors(error.response.data.fields);
+          } else {
+            setErrors({ general: error.response?.data?.error || 'Failed to create organization' });
+          }
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      const generateSlug = (name: string) => {
+        return name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+      };
+      
+      const handleNameChange = (name: string) => {
+        setForm(prev => ({
+          ...prev,
+          name,
+          slug: prev.slug || generateSlug(name),
+        }));
+      };
+      
+      if (!isOpen) return null;
+      
+      return (
+        <div className="modal-overlay">
+          <div className="modal">
+            <div className="modal-header">
+              <h2>Create Organization</h2>
+              <button onClick={onClose} className="close-button">×</button>
+            </div>
+            
+            <form onSubmit={handleSubmit} className="modal-body">
+              {errors.general && (
+                <div className="error-message">{errors.general}</div>
+              )}
+              
+              <div className="form-group">
+                <label htmlFor="name">Organization Name *</label>
+                <input
+                  id="name"
+                  type="text"
+                  value={form.name}
+                  onChange={(e) => handleNameChange(e.target.value)}
+                  placeholder="Acme Corporation"
+                  required
+                />
+                {errors.name && <span className="error">{errors.name}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="slug">URL Slug *</label>
+                <div className="input-group">
+                  <span className="input-prefix">yourapp.com/</span>
+                  <input
+                    id="slug"
+                    type="text"
+                    value={form.slug}
+                    onChange={(e) => setForm(prev => ({ ...prev, slug: e.target.value }))}
+                    placeholder="acme-corp"
+                    required
+                  />
+                </div>
+                {errors.slug && <span className="error">{errors.slug}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="description">Description</label>
+                <textarea
+                  id="description"
+                  value={form.description}
+                  onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Brief description of your organization"
+                  rows={3}
+                />
+                {errors.description && <span className="error">{errors.description}</span>}
+              </div>
+              
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="industry">Industry</label>
+                  <select
+                    id="industry"
+                    value={form.industry}
+                    onChange={(e) => setForm(prev => ({ ...prev, industry: e.target.value }))}
+                  >
+                    <option value="">Select industry</option>
+                    <option value="technology">Technology</option>
+                    <option value="healthcare">Healthcare</option>
+                    <option value="finance">Finance</option>
+                    <option value="education">Education</option>
+                    <option value="retail">Retail</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                
+                <div className="form-group">
+                  <label htmlFor="size">Company Size</label>
+                  <select
+                    id="size"
+                    value={form.size}
+                    onChange={(e) => setForm(prev => ({ ...prev, size: e.target.value }))}
+                  >
+                    <option value="">Select size</option>
+                    <option value="1-10">1-10 employees</option>
+                    <option value="11-50">11-50 employees</option>
+                    <option value="51-200">51-200 employees</option>
+                    <option value="201-1000">201-1000 employees</option>
+                    <option value="1000+">1000+ employees</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="website">Website</label>
+                <input
+                  id="website"
+                  type="url"
+                  value={form.website}
+                  onChange={(e) => setForm(prev => ({ ...prev, website: e.target.value }))}
+                  placeholder="https://acme.com"
+                />
+                {errors.website && <span className="error">{errors.website}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="plan">Plan</label>
+                <select
+                  id="plan"
+                  value={form.plan}
+                  onChange={(e) => setForm(prev => ({ ...prev, plan: e.target.value }))}
+                >
+                  <option value="starter">Starter (Free)</option>
+                  <option value="professional">Professional ($29/month)</option>
+                  <option value="enterprise">Enterprise ($99/month)</option>
+                </select>
+              </div>
+              
+              <div className="modal-footer">
+                <button type="button" onClick={onClose} className="button-secondary">
+                  Cancel
+                </button>
+                <button type="submit" disabled={loading} className="button-primary">
+                  {loading ? 'Creating...' : 'Create Organization'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    };
+    ```
+  </Tab>
+  <Tab value="Organization Settings">
+    ```go
+    // OrganizationSettings represents organization configuration
+    type OrganizationSettings struct {
+        // Member settings
+        AllowMemberInvites       bool `json:"allowMemberInvites"`
+        RequireEmailVerification bool `json:"requireEmailVerification"`
+        MaxMembers              int  `json:"maxMembers"`
+        
+        // Security settings
+        EnableSSO               bool   `json:"enableSSO"`
+        RequireTwoFactor        bool   `json:"requireTwoFactor"`
+        SessionTimeout          int    `json:"sessionTimeout"` // minutes
+        PasswordPolicy          string `json:"passwordPolicy"`
+        
+        // Branding
+        LogoURL      string `json:"logoUrl"`
+        PrimaryColor string `json:"primaryColor"`
+        CompanyName  string `json:"companyName"`
+        
+        // Features
+        EnabledFeatures []string `json:"enabledFeatures"`
+        
+        // Billing
+        BillingEmail string `json:"billingEmail"`
+        TaxID        string `json:"taxId"`
+        
+        // Custom domains
+        CustomDomain string `json:"customDomain"`
+        
+        // Webhooks
+        WebhookURL    string `json:"webhookUrl"`
+        WebhookSecret string `json:"webhookSecret"`
+        
+        // API settings
+        APIRateLimit int `json:"apiRateLimit"` // requests per minute
+    }
+    
+    // UpdateOrganizationSettings updates organization settings
+    func (h *OrganizationHandler) UpdateOrganizationSettings(c *forge.Context) error {
+        orgID := c.Param("id")
+        if orgID == "" {
+            return c.JSON(400, map[string]string{
+                "error": "Organization ID is required",
+            })
+        }
+        
+        var req OrganizationSettings
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request format",
+            })
+        }
+        
+        // Check permissions
+        if !h.auth.HasOrganizationPermission(c, orgID, "org:update") {
+            return c.JSON(403, map[string]string{
+                "error": "Insufficient permissions",
+            })
+        }
+        
+        // Get organization
+        org, err := h.auth.GetOrganization(c.Context(), orgID)
+        if err != nil {
+            return c.JSON(404, map[string]string{
+                "error": "Organization not found",
+            })
+        }
+        
+        // Validate settings
+        if err := h.validateOrganizationSettings(&req); err != nil {
+            return c.JSON(400, map[string]interface{}{
+                "error":  "Invalid settings",
+                "fields": err,
+            })
+        }
+        
+        // Update settings
+        org.Settings = req
+        org.UpdatedAt = time.Now()
+        
+        if err := h.auth.repo.UpdateOrganization(c.Context(), org); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to update organization",
+            })
+        }
+        
+        // Update organization-scoped configuration
+        if err := h.updateOrganizationConfig(c.Context(), org); err != nil {
+            h.logger.Error("Failed to update organization config", "error", err)
+        }
+        
+        // Log settings update
+        h.auth.logEvent(c.Context(), EventOrganizationSettingsUpdated, EventData{
+            UserID:         h.auth.GetCurrentUser(c).ID,
+            OrganizationID: orgID,
+            Metadata: map[string]interface{}{
+                "updatedFields": getUpdatedFields(org.Settings, req),
+            },
+        })
+        
+        return c.JSON(200, map[string]interface{}{
+            "organization": org,
+        })
+    }
+    
+    // validateOrganizationSettings validates organization settings
+    func (h *OrganizationHandler) validateOrganizationSettings(settings *OrganizationSettings) map[string]string {
+        errors := make(map[string]string)
+        
+        // Validate max members
+        if settings.MaxMembers < 1 || settings.MaxMembers > 10000 {
+            errors["maxMembers"] = "Max members must be between 1 and 10000"
+        }
+        
+        // Validate session timeout
+        if settings.SessionTimeout < 5 || settings.SessionTimeout > 1440 {
+            errors["sessionTimeout"] = "Session timeout must be between 5 and 1440 minutes"
+        }
+        
+        // Validate colors
+        if settings.PrimaryColor != "" && !isValidHexColor(settings.PrimaryColor) {
+            errors["primaryColor"] = "Invalid hex color format"
+        }
+        
+        // Validate URLs
+        if settings.LogoURL != "" && !isValidURL(settings.LogoURL) {
+            errors["logoUrl"] = "Invalid logo URL"
+        }
+        
+        if settings.WebhookURL != "" && !isValidURL(settings.WebhookURL) {
+            errors["webhookUrl"] = "Invalid webhook URL"
+        }
+        
+        // Validate custom domain
+        if settings.CustomDomain != "" && !isValidDomain(settings.CustomDomain) {
+            errors["customDomain"] = "Invalid domain format"
+        }
+        
+        // Validate API rate limit
+        if settings.APIRateLimit < 10 || settings.APIRateLimit > 10000 {
+            errors["apiRateLimit"] = "API rate limit must be between 10 and 10000"
+        }
+        
+        return errors
+    }
+    
+    // updateOrganizationConfig updates organization-scoped configuration
+    func (h *OrganizationHandler) updateOrganizationConfig(ctx context.Context, org *Organization) error {
+        // Build organization-specific config
+        orgConfig := map[string]interface{}{
+            "auth": map[string]interface{}{
+                "session": map[string]interface{}{
+                    "timeout": org.Settings.SessionTimeout * 60, // Convert to seconds
+                },
+                "password": map[string]interface{}{
+                    "policy": org.Settings.PasswordPolicy,
+                },
+                "twoFactor": map[string]interface{}{
+                    "required": org.Settings.RequireTwoFactor,
+                },
+            },
+            "branding": map[string]interface{}{
+                "logoUrl":      org.Settings.LogoURL,
+                "primaryColor": org.Settings.PrimaryColor,
+                "companyName":  org.Settings.CompanyName,
+            },
+            "features": map[string]interface{}{
+                "enabled": org.Settings.EnabledFeatures,
+            },
+            "api": map[string]interface{}{
+                "rateLimit": org.Settings.APIRateLimit,
+            },
+        }
+        
+        // Update configuration in config manager
+        configKey := fmt.Sprintf("orgs.%s", org.ID)
+        return h.auth.configManager.Set(configKey, orgConfig)
+    }
+    
+    // Frontend component for organization settings
+    ```tsx
+    import React, { useState, useEffect } from 'react';
+    import { authService } from '../services/auth';
+    
+    interface OrganizationSettings {
+      allowMemberInvites: boolean;
+      requireEmailVerification: boolean;
+      maxMembers: number;
+      enableSSO: boolean;
+      requireTwoFactor: boolean;
+      sessionTimeout: number;
+      passwordPolicy: string;
+      logoUrl: string;
+      primaryColor: string;
+      companyName: string;
+      enabledFeatures: string[];
+      billingEmail: string;
+      customDomain: string;
+      webhookUrl: string;
+      apiRateLimit: number;
+    }
+    
+    export const OrganizationSettingsPage: React.FC<{ orgId: string }> = ({ orgId }) => {
+      const [settings, setSettings] = useState<OrganizationSettings | null>(null);
+      const [loading, setLoading] = useState(true);
+      const [saving, setSaving] = useState(false);
+      const [errors, setErrors] = useState<Record<string, string>>({});
+      
+      useEffect(() => {
+        loadSettings();
+      }, [orgId]);
+      
+      const loadSettings = async () => {
+        try {
+          const org = await authService.getOrganization(orgId);
+          setSettings(org.settings);
+        } catch (error) {
+          console.error('Failed to load settings:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      const handleSave = async () => {
+        if (!settings) return;
+        
+        setSaving(true);
+        setErrors({});
+        
+        try {
+          await authService.updateOrganizationSettings(orgId, settings);
+          // Show success message
+        } catch (error: any) {
+          if (error.response?.data?.fields) {
+            setErrors(error.response.data.fields);
+          }
+        } finally {
+          setSaving(false);
+        }
+      };
+      
+      const updateSetting = (key: keyof OrganizationSettings, value: any) => {
+        setSettings(prev => prev ? { ...prev, [key]: value } : null);
+      };
+      
+      if (loading) {
+        return <div className="loading">Loading settings...</div>;
+      }
+      
+      if (!settings) {
+        return <div className="error">Failed to load settings</div>;
+      }
+      
+      return (
+        <div className="settings-page">
+          <div className="settings-header">
+            <h1>Organization Settings</h1>
+            <button 
+              onClick={handleSave} 
+              disabled={saving}
+              className="button-primary"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+          
+          <div className="settings-sections">
+            {/* General Settings */}
+            <section className="settings-section">
+              <h2>General</h2>
+              
+              <div className="form-group">
+                <label htmlFor="companyName">Company Name</label>
+                <input
+                  id="companyName"
+                  type="text"
+                  value={settings.companyName}
+                  onChange={(e) => updateSetting('companyName', e.target.value)}
+                />
+                {errors.companyName && <span className="error">{errors.companyName}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="logoUrl">Logo URL</label>
+                <input
+                  id="logoUrl"
+                  type="url"
+                  value={settings.logoUrl}
+                  onChange={(e) => updateSetting('logoUrl', e.target.value)}
+                  placeholder="https://example.com/logo.png"
+                />
+                {errors.logoUrl && <span className="error">{errors.logoUrl}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="primaryColor">Primary Color</label>
+                <input
+                  id="primaryColor"
+                  type="color"
+                  value={settings.primaryColor}
+                  onChange={(e) => updateSetting('primaryColor', e.target.value)}
+                />
+                {errors.primaryColor && <span className="error">{errors.primaryColor}</span>}
+              </div>
+            </section>
+            
+            {/* Member Settings */}
+            <section className="settings-section">
+              <h2>Members</h2>
+              
+              <div className="form-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={settings.allowMemberInvites}
+                    onChange={(e) => updateSetting('allowMemberInvites', e.target.checked)}
+                  />
+                  Allow members to invite others
+                </label>
+              </div>
+              
+              <div className="form-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={settings.requireEmailVerification}
+                    onChange={(e) => updateSetting('requireEmailVerification', e.target.checked)}
+                  />
+                  Require email verification for new members
+                </label>
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="maxMembers">Maximum Members</label>
+                <input
+                  id="maxMembers"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  value={settings.maxMembers}
+                  onChange={(e) => updateSetting('maxMembers', parseInt(e.target.value))}
+                />
+                {errors.maxMembers && <span className="error">{errors.maxMembers}</span>}
+              </div>
+            </section>
+            
+            {/* Security Settings */}
+            <section className="settings-section">
+              <h2>Security</h2>
+              
+              <div className="form-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={settings.requireTwoFactor}
+                    onChange={(e) => updateSetting('requireTwoFactor', e.target.checked)}
+                  />
+                  Require two-factor authentication
+                </label>
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="sessionTimeout">Session Timeout (minutes)</label>
+                <input
+                  id="sessionTimeout"
+                  type="number"
+                  min="5"
+                  max="1440"
+                  value={settings.sessionTimeout}
+                  onChange={(e) => updateSetting('sessionTimeout', parseInt(e.target.value))}
+                />
+                {errors.sessionTimeout && <span className="error">{errors.sessionTimeout}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="passwordPolicy">Password Policy</label>
+                <select
+                  id="passwordPolicy"
+                  value={settings.passwordPolicy}
+                  onChange={(e) => updateSetting('passwordPolicy', e.target.value)}
+                >
+                  <option value="basic">Basic (8+ characters)</option>
+                  <option value="strong">Strong (12+ chars, mixed case, numbers)</option>
+                  <option value="enterprise">Enterprise (16+ chars, symbols required)</option>
+                </select>
+              </div>
+            </section>
+            
+            {/* API Settings */}
+            <section className="settings-section">
+              <h2>API</h2>
+              
+              <div className="form-group">
+                <label htmlFor="apiRateLimit">API Rate Limit (requests per minute)</label>
+                <input
+                  id="apiRateLimit"
+                  type="number"
+                  min="10"
+                  max="10000"
+                  value={settings.apiRateLimit}
+                  onChange={(e) => updateSetting('apiRateLimit', parseInt(e.target.value))}
+                />
+                {errors.apiRateLimit && <span className="error">{errors.apiRateLimit}</span>}
+              </div>
+              
+              <div className="form-group">
+                <label htmlFor="webhookUrl">Webhook URL</label>
+                <input
+                  id="webhookUrl"
+                  type="url"
+                  value={settings.webhookUrl}
+                  onChange={(e) => updateSetting('webhookUrl', e.target.value)}
+                  placeholder="https://api.example.com/webhooks"
+                />
+                {errors.webhookUrl && <span className="error">{errors.webhookUrl}</span>}
+              </div>
+            </section>
+          </div>
+        </div>
+      );
+    };
+    ```
+  </Tab>
+  <Tab value="Member Management">
+    ```go
+    // OrganizationMember represents a member of an organization
+    type OrganizationMember struct {
+        ID             string                 `json:"id"`
+        OrganizationID string                 `json:"organizationId"`
+        UserID         string                 `json:"userId"`
+        Role           string                 `json:"role"`
+        Status         string                 `json:"status"` // pending, active, suspended
+        JoinedAt       time.Time              `json:"joinedAt"`
+        InvitedAt      *time.Time             `json:"invitedAt,omitempty"`
+        InvitedBy      string                 `json:"invitedBy,omitempty"`
+        Metadata       map[string]interface{} `json:"metadata,omitempty"`
+        
+        // Populated fields
+        User         *User         `json:"user,omitempty"`
+        Organization *Organization `json:"organization,omitempty"`
+    }
+    
+    // InviteMemberRequest represents member invitation request
+    type InviteMemberRequest struct {
+        Email    string   `json:"email" validate:"required,email"`
+        Role     string   `json:"role" validate:"required"`
+        Message  string   `json:"message,omitempty"`
+        Metadata map[string]interface{} `json:"metadata,omitempty"`
+    }
+    
+    // InviteMember invites a new member to the organization
+    func (h *OrganizationHandler) InviteMember(c *forge.Context) error {
+        orgID := c.Param("orgId")
+        if orgID == "" {
+            return c.JSON(400, map[string]string{
+                "error": "Organization ID is required",
+            })
+        }
+        
+        var req InviteMemberRequest
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request format",
+            })
+        }
+        
+        // Validate request
+        if err := h.validator.Validate(&req); err != nil {
+            return c.JSON(400, map[string]interface{}{
+                "error":  "Validation failed",
+                "fields": err,
+            })
+        }
+        
+        // Check permissions
+        if !h.auth.HasOrganizationPermission(c, orgID, "members:invite") {
+            return c.JSON(403, map[string]string{
+                "error": "Insufficient permissions to invite members",
+            })
+        }
+        
+        currentUser := h.auth.GetCurrentUser(c)
+        
+        // Get organization
+        org, err := h.auth.GetOrganization(c.Context(), orgID)
+        if err != nil {
+            return c.JSON(404, map[string]string{
+                "error": "Organization not found",
+            })
+        }
+        
+        // Check if organization allows member invites
+        if !org.Settings.AllowMemberInvites {
+            // Check if current user is admin/owner
+            if !h.auth.HasOrganizationPermission(c, orgID, "members:manage") {
+                return c.JSON(403, map[string]string{
+                    "error": "Member invitations are disabled",
+                })
+            }
+        }
+        
+        // Validate role
+        if !h.auth.IsValidRole(req.Role) {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid role",
+            })
+        }
+        
+        // Check if user can assign this role
+        if !h.auth.CanAssignRole(currentUser, orgID, req.Role) {
+            return c.JSON(403, map[string]string{
+                "error": "Cannot assign this role",
+            })
+        }
+        
+        // Check if user is already a member
+        if existingMember, err := h.auth.GetOrganizationMemberByEmail(c.Context(), orgID, req.Email); err == nil {
+            if existingMember.Status == "active" {
+                return c.JSON(409, map[string]string{
+                    "error": "User is already a member",
+                })
+            } else if existingMember.Status == "pending" {
+                return c.JSON(409, map[string]string{
+                    "error": "User already has a pending invitation",
+                })
+            }
+        }
+        
+        // Check member limits
+        memberCount, err := h.auth.GetOrganizationMemberCount(c.Context(), orgID)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to check member count",
+            })
+        }
+        
+        if memberCount >= org.Settings.MaxMembers {
+            return c.JSON(409, map[string]string{
+                "error": "Organization has reached maximum member limit",
+            })
+        }
+        
+        // Check if user exists
+        user, err := h.auth.GetUserByEmail(c.Context(), req.Email)
+        if err != nil && !IsUserNotFoundError(err) {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to check user",
+            })
+        }
+        
+        // Generate invitation token
+        inviteToken, err := h.auth.generateSecureToken(32)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to generate invitation token",
+            })
+        }
+        
+        // Create invitation
+        invitation := &OrganizationInvitation{
+            ID:             generateID("inv"),
+            OrganizationID: orgID,
+            Email:          req.Email,
+            Role:           req.Role,
+            Token:          inviteToken,
+            InvitedBy:      currentUser.ID,
+            InvitedAt:      time.Now(),
+            ExpiresAt:      time.Now().Add(7 * 24 * time.Hour), // 7 days
+            Status:         "pending",
+            Message:        req.Message,
+            Metadata:       req.Metadata,
+        }
+        
+        if user != nil {
+            invitation.UserID = user.ID
+        }
+        
+        // Save invitation
+        if err := h.auth.repo.CreateOrganizationInvitation(c.Context(), invitation); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to create invitation",
+            })
+        }
+        
+        // Send invitation email
+        if err := h.sendInvitationEmail(c.Context(), invitation, org, currentUser); err != nil {
+            h.logger.Error("Failed to send invitation email", "error", err)
+            // Don't fail the request, just log the error
+        }
+        
+        // Log invitation
+        h.auth.logEvent(c.Context(), EventMemberInvited, EventData{
+            UserID:         currentUser.ID,
+            OrganizationID: orgID,
+            Metadata: map[string]interface{}{
+                "invitedEmail": req.Email,
+                "role":         req.Role,
+                "invitationId": invitation.ID,
+            },
+        })
+        
+        return c.JSON(201, map[string]interface{}{
+            "invitation": invitation,
+        })
+    }
+    
+    // UpdateMemberRole updates a member's role
+    func (h *OrganizationHandler) UpdateMemberRole(c *forge.Context) error {
+        orgID := c.Param("orgId")
+        userID := c.Param("userId")
+        
+        var req struct {
+            Role string `json:"role" validate:"required"`
+        }
+        
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request format",
+            })
+        }
+        
+        // Check permissions
+        if !h.auth.HasOrganizationPermission(c, orgID, "members:manage") {
+            return c.JSON(403, map[string]string{
+                "error": "Insufficient permissions",
+            })
+        }
+        
+        currentUser := h.auth.GetCurrentUser(c)
+        
+        // Get member
+        member, err := h.auth.GetOrganizationMember(c.Context(), orgID, userID)
+        if err != nil {
+            return c.JSON(404, map[string]string{
+                "error": "Member not found",
+            })
+        }
+        
+        // Validate role
+        if !h.auth.IsValidRole(req.Role) {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid role",
+            })
+        }
+        
+        // Check if user can assign this role
+        if !h.auth.CanAssignRole(currentUser, orgID, req.Role) {
+            return c.JSON(403, map[string]string{
+                "error": "Cannot assign this role",
+            })
+        }
+        
+        // Prevent removing the last owner
+        if member.Role == "owner" && req.Role != "owner" {
+            ownerCount, err := h.auth.GetOrganizationOwnerCount(c.Context(), orgID)
+            if err != nil {
+                return c.JSON(500, map[string]string{
+                    "error": "Failed to check owner count",
+                })
+            }
+            
+            if ownerCount <= 1 {
+                return c.JSON(409, map[string]string{
+                    "error": "Cannot remove the last owner",
+                })
+            }
+        }
+        
+        // Update role
+        oldRole := member.Role
+        member.Role = req.Role
+        
+        if err := h.auth.repo.UpdateOrganizationMember(c.Context(), member); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to update member role",
+            })
+        }
+        
+        // Log role change
+        h.auth.logEvent(c.Context(), EventMemberRoleUpdated, EventData{
+            UserID:         currentUser.ID,
+            OrganizationID: orgID,
+            Metadata: map[string]interface{}{
+                "targetUserId": userID,
+                "oldRole":      oldRole,
+                "newRole":      req.Role,
+            },
+        })
+        
+        // Send notification to member
+        if err := h.sendRoleChangeNotification(c.Context(), member, oldRole); err != nil {
+            h.logger.Error("Failed to send role change notification", "error", err)
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "member": member,
+        })
+    }
+    
+    // RemoveMember removes a member from the organization
+    func (h *OrganizationHandler) RemoveMember(c *forge.Context) error {
+        orgID := c.Param("orgId")
+        userID := c.Param("userId")
+        
+        // Check permissions
+        if !h.auth.HasOrganizationPermission(c, orgID, "members:manage") {
+            return c.JSON(403, map[string]string{
+                "error": "Insufficient permissions",
+            })
+        }
+        
+        currentUser := h.auth.GetCurrentUser(c)
+        
+        // Get member
+        member, err := h.auth.GetOrganizationMember(c.Context(), orgID, userID)
+        if err != nil {
+            return c.JSON(404, map[string]string{
+                "error": "Member not found",
+            })
+        }
+        
+        // Prevent removing the last owner
+        if member.Role == "owner" {
+            ownerCount, err := h.auth.GetOrganizationOwnerCount(c.Context(), orgID)
+            if err != nil {
+                return c.JSON(500, map[string]string{
+                    "error": "Failed to check owner count",
+                })
+            }
+            
+            if ownerCount <= 1 {
+                return c.JSON(409, map[string]string{
+                    "error": "Cannot remove the last owner",
+                })
+            }
+        }
+        
+        // Remove member
+        if err := h.auth.repo.DeleteOrganizationMember(c.Context(), orgID, userID); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to remove member",
+            })
+        }
+        
+        // Revoke all organization-scoped sessions for this user
+        if err := h.auth.RevokeOrganizationSessions(c.Context(), orgID, userID); err != nil {
+            h.logger.Error("Failed to revoke organization sessions", "error", err)
+        }
+        
+        // Log member removal
+        h.auth.logEvent(c.Context(), EventMemberRemoved, EventData{
+            UserID:         currentUser.ID,
+            OrganizationID: orgID,
+            Metadata: map[string]interface{}{
+                "removedUserId": userID,
+                "removedRole":   member.Role,
+            },
+        })
+        
+        // Send notification to removed member
+        if err := h.sendMemberRemovedNotification(c.Context(), member); err != nil {
+            h.logger.Error("Failed to send member removed notification", "error", err)
+        }
+        
+        return c.JSON(200, map[string]string{
+            "message": "Member removed successfully",
+        })
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Role-Based Access Control (RBAC)
+
+Implement comprehensive RBAC system:
+
+<Callout type="info">
+  AuthSome provides a flexible RBAC system with hierarchical permissions and organization-scoped roles.
+</Callout>
+
+<Tabs items={['Permission System', 'Role Management', 'Access Control']}>
+  <Tab value="Permission System">
+    ```go
+    // Permission represents a specific permission
+    type Permission struct {
+        ID          string   `json:"id"`
+        Name        string   `json:"name"`
+        Description string   `json:"description"`
+        Resource    string   `json:"resource"`
+        Actions     []string `json:"actions"`
+        Scope       string   `json:"scope"` // global, organization, resource
+    }
+    
+    // PermissionChecker handles permission validation
+    type PermissionChecker struct {
+        auth *Auth
+    }
+    
+    // HasPermission checks if user has a specific permission
+    func (pc *PermissionChecker) HasPermission(user *User, permission string, context ...string) bool {
+        // System admin has all permissions
+        if user.IsSystemAdmin {
+            return true
+        }
+        
+        // Parse permission string (e.g., "org:read", "projects:create")
+        parts := strings.Split(permission, ":")
+        if len(parts) != 2 {
+            return false
+        }
+        
+        resource := parts[0]
+        action := parts[1]
+        
+        // Get user's roles and permissions
+        userPermissions := pc.getUserPermissions(user, context...)
+        
+        // Check exact permission match
+        if pc.hasExactPermission(userPermissions, permission) {
+            return true
+        }
+        
+        // Check wildcard permissions
+        if pc.hasWildcardPermission(userPermissions, resource, action) {
+            return true
+        }
+        
+        return false
+    }
+    
+    // HasOrganizationPermission checks organization-scoped permission
+    func (pc *PermissionChecker) HasOrganizationPermission(user *User, orgID, permission string) bool {
+        // Get user's organization membership
+        member, err := pc.auth.repo.GetOrganizationMember(context.Background(), orgID, user.ID)
+        if err != nil {
+            return false
+        }
+        
+        if member.Status != "active" {
+            return false
+        }
+        
+        // Get role permissions
+        role, err := pc.auth.repo.GetRole(context.Background(), member.Role)
+        if err != nil {
+            return false
+        }
+        
+        // Check permissions
+        return pc.checkRolePermissions(role, permission)
+    }
+    
+    // getUserPermissions gets all permissions for a user
+    func (pc *PermissionChecker) getUserPermissions(user *User, context ...string) []string {
+        var permissions []string
+        
+        // Global permissions from user roles
+        for _, roleID := range user.Roles {
+            if role, err := pc.auth.repo.GetRole(context.Background(), roleID); err == nil {
+                permissions = append(permissions, role.Permissions...)
+            }
+        }
+        
+        // Organization-specific permissions
+        if len(context) > 0 {
+            orgID := context[0]
+            if member, err := pc.auth.repo.GetOrganizationMember(context.Background(), orgID, user.ID); err == nil {
+                if role, err := pc.auth.repo.GetRole(context.Background(), member.Role); err == nil {
+                    permissions = append(permissions, role.Permissions...)
+                }
+            }
+        }
+        
+        return permissions
+    }
+    
+    // hasExactPermission checks for exact permission match
+    func (pc *PermissionChecker) hasExactPermission(permissions []string, permission string) bool {
+        for _, p := range permissions {
+            if p == permission {
+                return true
+            }
+        }
+        return false
+    }
+    
+    // hasWildcardPermission checks for wildcard permission match
+    func (pc *PermissionChecker) hasWildcardPermission(permissions []string, resource, action string) bool {
+        wildcards := []string{
+            "*",                    // All permissions
+            resource + ":*",        // All actions on resource
+            "*:" + action,          // Specific action on all resources
+        }
+        
+        for _, wildcard := range wildcards {
+            if pc.hasExactPermission(permissions, wildcard) {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    // checkRolePermissions checks if role has permission
+    func (pc *PermissionChecker) checkRolePermissions(role *Role, permission string) bool {
+        return pc.hasExactPermission(role.Permissions, permission) ||
+               pc.hasWildcardPermission(role.Permissions, strings.Split(permission, ":")[0], strings.Split(permission, ":")[1])
+    }
+    
+    // Middleware for permission checking
+    func (a *Auth) RequirePermission(permission string) forge.MiddlewareFunc {
+        return func(c *forge.Context) error {
+            user := a.GetCurrentUser(c)
+            if user == nil {
+                return c.JSON(401, map[string]string{
+                    "error": "Authentication required",
+                })
+            }
+            
+            if !a.permissionChecker.HasPermission(user, permission) {
+                return c.JSON(403, map[string]string{
+                    "error": "Insufficient permissions",
+                    "required": permission,
+                })
+            }
+            
+            return c.Next()
+        }
+    }
+    
+    // Middleware for organization permission checking
+    func (a *Auth) RequireOrganizationPermission(permission string) forge.MiddlewareFunc {
+        return func(c *forge.Context) error {
+            user := a.GetCurrentUser(c)
+            if user == nil {
+                return c.JSON(401, map[string]string{
+                    "error": "Authentication required",
+                })
+            }
+            
+            orgID := c.Param("orgId")
+            if orgID == "" {
+                // Try to get from context or header
+                orgID = c.Get("organizationId").(string)
+            }
+            
+            if orgID == "" {
+                return c.JSON(400, map[string]string{
+                    "error": "Organization context required",
+                })
+            }
+            
+            if !a.permissionChecker.HasOrganizationPermission(user, orgID, permission) {
+                return c.JSON(403, map[string]string{
+                    "error": "Insufficient organization permissions",
+                    "required": permission,
+                })
+            }
+            
+            return c.Next()
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Role Management">
+    ```go
+    // Role represents a role with permissions
+    type Role struct {
+        ID             string                 `json:"id"`
+        Name           string                 `json:"name"`
+        Description    string                 `json:"description"`
+        Permissions    []string               `json:"permissions"`
+        IsSystem       bool                   `json:"isSystem"`
+        OrganizationID string                 `json:"organizationId,omitempty"`
+        CreatedAt      time.Time              `json:"createdAt"`
+        UpdatedAt      time.Time              `json:"updatedAt"`
+        Metadata       map[string]interface{} `json:"metadata,omitempty"`
+    }
+    
+    // CreateRoleRequest represents role creation request
+    type CreateRoleRequest struct {
+        Name        string   `json:"name" validate:"required,min=2,max=50"`
+        Description string   `json:"description,omitempty" validate:"max=200"`
+        Permissions []string `json:"permissions" validate:"required,min=1"`
+    }
+    
+    // CreateRole creates a new organization role
+    func (h *RoleHandler) CreateRole(c *forge.Context) error {
+        orgID := c.Param("orgId")
+        if orgID == "" {
+            return c.JSON(400, map[string]string{
+                "error": "Organization ID is required",
+            })
+        }
+        
+        var req CreateRoleRequest
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request format",
+            })
+        }
+        
+        // Validate request
+        if err := h.validator.Validate(&req); err != nil {
+            return c.JSON(400, map[string]interface{}{
+                "error":  "Validation failed",
+                "fields": err,
+            })
+        }
+        
+        // Check permissions
+        if !h.auth.HasOrganizationPermission(c, orgID, "roles:create") {
+            return c.JSON(403, map[string]string{
+                "error": "Insufficient permissions",
+            })
+        }
+        
+        // Validate permissions
+        for _, perm := range req.Permissions {
+            if !h.auth.IsValidPermission(perm) {
+                return c.JSON(400, map[string]string{
+                    "error": fmt.Sprintf("Invalid permission: %s", perm),
+                })
+            }
+        }
+        
+        // Create role
+        role := &Role{
+            ID:             generateID("role"),
+            Name:           req.Name,
+            Description:    req.Description,
+            Permissions:    req.Permissions,
+            OrganizationID: orgID,
+            CreatedAt:      time.Now(),
+            UpdatedAt:      time.Now(),
+        }
+        
+        if err := h.auth.repo.CreateRole(c.Context(), role); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to create role",
+            })
+        }
+        
+        return c.JSON(201, map[string]interface{}{
+            "role": role,
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Access Control">
+    ```go
+    // AccessControlMiddleware provides organization-scoped access control
+    func (a *Auth) AccessControlMiddleware() forge.MiddlewareFunc {
+        return func(c *forge.Context) error {
+            user := a.GetCurrentUser(c)
+            if user == nil {
+                return c.Next() // Let other middleware handle auth
+            }
+            
+            // Get organization context
+            orgID := c.Param("orgId")
+            if orgID == "" {
+                orgID = c.Header("X-Organization-ID")
+            }
+            
+            if orgID != "" {
+                // Verify user is member of organization
+                member, err := a.repo.GetOrganizationMember(c.Context(), orgID, user.ID)
+                if err != nil || member.Status != "active" {
+                    return c.JSON(403, map[string]string{
+                        "error": "Access denied to organization",
+                    })
+                }
+                
+                // Set organization context
+                c.Set("organizationId", orgID)
+                c.Set("organizationMember", member)
+                
+                // Load organization-scoped config
+                if err := a.loadOrganizationConfig(c.Context(), orgID); err != nil {
+                    a.logger.Error("Failed to load organization config", "error", err)
+                }
+            }
+            
+            return c.Next()
+        }
+    }
+    
+    // ResourceAccessControl provides resource-level access control
+    type ResourceAccessControl struct {
+        auth *Auth
+    }
+    
+    // CanAccessResource checks if user can access a specific resource
+    func (rac *ResourceAccessControl) CanAccessResource(user *User, resourceType, resourceID, action string, orgID string) bool {
+        // Check organization membership
+        if orgID != "" {
+            if !rac.auth.permissionChecker.HasOrganizationPermission(user, orgID, resourceType+":"+action) {
+                return false
+            }
+        }
+        
+        // Check resource-specific permissions
+        return rac.checkResourcePermissions(user, resourceType, resourceID, action, orgID)
+    }
+    
+    // checkResourcePermissions checks resource-specific access rules
+    func (rac *ResourceAccessControl) checkResourcePermissions(user *User, resourceType, resourceID, action, orgID string) bool {
+        switch resourceType {
+        case "project":
+            return rac.checkProjectAccess(user, resourceID, action, orgID)
+        case "document":
+            return rac.checkDocumentAccess(user, resourceID, action, orgID)
+        case "api_key":
+            return rac.checkAPIKeyAccess(user, resourceID, action, orgID)
+        default:
+            return false
+        }
+    }
+    
+    // checkProjectAccess checks project-specific access
+    func (rac *ResourceAccessControl) checkProjectAccess(user *User, projectID, action, orgID string) bool {
+        project, err := rac.auth.repo.GetProject(context.Background(), projectID)
+        if err != nil {
+            return false
+        }
+        
+        // Project must belong to organization
+        if project.OrganizationID != orgID {
+            return false
+        }
+        
+        // Project owner has full access
+        if project.CreatedBy == user.ID {
+            return true
+        }
+        
+        // Check project-specific roles
+        projectMember, err := rac.auth.repo.GetProjectMember(context.Background(), projectID, user.ID)
+        if err == nil {
+            return rac.checkProjectMemberPermissions(projectMember, action)
+        }
+        
+        return false
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Organization-Scoped Configuration
+
+Implement per-organization configuration overrides:
+
+<Tabs items={['Config Management', 'Dynamic Loading', 'Frontend Integration']}>
+  <Tab value="Config Management">
+    ```go
+    // OrganizationConfigManager handles organization-scoped configurations
+    type OrganizationConfigManager struct {
+        configManager forge.ConfigManager
+        cache         map[string]interface{}
+        mutex         sync.RWMutex
+    }
+    
+    // GetOrganizationConfig gets configuration for specific organization
+    func (ocm *OrganizationConfigManager) GetOrganizationConfig(orgID string, key string) (interface{}, error) {
+        ocm.mutex.RLock()
+        defer ocm.mutex.RUnlock()
+        
+        // Try organization-specific config first
+        orgKey := fmt.Sprintf("orgs.%s.%s", orgID, key)
+        if value, exists := ocm.cache[orgKey]; exists {
+            return value, nil
+        }
+        
+        // Fall back to default config
+        defaultKey := fmt.Sprintf("auth.%s", key)
+        if value, exists := ocm.cache[defaultKey]; exists {
+            return value, nil
+        }
+        
+        return nil, fmt.Errorf("config key not found: %s", key)
+    }
+    
+    // SetOrganizationConfig sets organization-specific configuration
+    func (ocm *OrganizationConfigManager) SetOrganizationConfig(orgID string, key string, value interface{}) error {
+        ocm.mutex.Lock()
+        defer ocm.mutex.Unlock()
+        
+        orgKey := fmt.Sprintf("orgs.%s.%s", orgID, key)
+        ocm.cache[orgKey] = value
+        
+        // Persist to config manager
+        return ocm.configManager.Set(orgKey, value)
+    }
+    
+    // LoadOrganizationConfig loads all config for an organization
+    func (ocm *OrganizationConfigManager) LoadOrganizationConfig(orgID string) error {
+        orgPrefix := fmt.Sprintf("orgs.%s", orgID)
+        
+        // Load from config manager
+        config, err := ocm.configManager.GetSection(orgPrefix)
+        if err != nil {
+            return err
+        }
+        
+        ocm.mutex.Lock()
+        defer ocm.mutex.Unlock()
+        
+        // Update cache
+        for key, value := range config {
+            fullKey := fmt.Sprintf("%s.%s", orgPrefix, key)
+            ocm.cache[fullKey] = value
+        }
+        
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="Dynamic Loading">
+    ```go
+    // loadOrganizationConfig dynamically loads organization configuration
+    func (a *Auth) loadOrganizationConfig(ctx context.Context, orgID string) error {
+        // Load organization settings
+        org, err := a.repo.GetOrganization(ctx, orgID)
+        if err != nil {
+            return fmt.Errorf("failed to get organization: %w", err)
+        }
+        
+        // Apply organization-specific OAuth settings
+        if err := a.applyOAuthConfig(orgID, org.Settings); err != nil {
+            return fmt.Errorf("failed to apply OAuth config: %w", err)
+        }
+        
+        // Apply email settings
+        if err := a.applyEmailConfig(orgID, org.Settings); err != nil {
+            return fmt.Errorf("failed to apply email config: %w", err)
+        }
+        
+        // Apply security settings
+        if err := a.applySecurityConfig(orgID, org.Settings); err != nil {
+            return fmt.Errorf("failed to apply security config: %w", err)
+        }
+        
+        return nil
+    }
+    
+    // applyOAuthConfig applies organization-specific OAuth configuration
+    func (a *Auth) applyOAuthConfig(orgID string, settings OrganizationSettings) error {
+        // Get organization-specific OAuth config
+        oauthConfig, err := a.orgConfigManager.GetOrganizationConfig(orgID, "oauth")
+        if err != nil {
+            return nil // Use default config
+        }
+        
+        // Apply to OAuth providers
+        if googleConfig, ok := oauthConfig.(map[string]interface{})["google"]; ok {
+            if err := a.oauthManager.UpdateProviderConfig("google", orgID, googleConfig); err != nil {
+                return err
+            }
+        }
+        
+        if githubConfig, ok := oauthConfig.(map[string]interface{})["github"]; ok {
+            if err := a.oauthManager.UpdateProviderConfig("github", orgID, githubConfig); err != nil {
+                return err
+            }
+        }
+        
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="Frontend Integration">
+    ```tsx
+    // Organization context provider
+    import React, { createContext, useContext, useState, useEffect } from 'react';
+    import { authService } from '../services/auth';
+    
+    interface Organization {
+      id: string;
+      name: string;
+      slug: string;
+      settings: any;
+      role: string;
+    }
+    
+    interface OrganizationContextType {
+      currentOrg: Organization | null;
+      organizations: Organization[];
+      switchOrganization: (orgId: string) => Promise<void>;
+      loading: boolean;
+    }
+    
+    const OrganizationContext = createContext<OrganizationContextType | null>(null);
+    
+    export const OrganizationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+      const [currentOrg, setCurrentOrg] = useState<Organization | null>(null);
+      const [organizations, setOrganizations] = useState<Organization[]>([]);
+      const [loading, setLoading] = useState(true);
+      
+      useEffect(() => {
+        loadOrganizations();
+      }, []);
+      
+      const loadOrganizations = async () => {
+        try {
+          const orgs = await authService.getOrganizations();
+          setOrganizations(orgs);
+          
+          // Set current organization from localStorage or first org
+          const savedOrgId = localStorage.getItem('currentOrganizationId');
+          const defaultOrg = savedOrgId 
+            ? orgs.find(org => org.id === savedOrgId) || orgs[0]
+            : orgs[0];
+            
+          if (defaultOrg) {
+            setCurrentOrg(defaultOrg);
+            authService.setOrganizationContext(defaultOrg.id);
+          }
+        } catch (error) {
+          console.error('Failed to load organizations:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      const switchOrganization = async (orgId: string) => {
+        const org = organizations.find(o => o.id === orgId);
+        if (org) {
+          setCurrentOrg(org);
+          localStorage.setItem('currentOrganizationId', orgId);
+          authService.setOrganizationContext(orgId);
+          
+          // Reload page to apply organization-specific config
+          window.location.reload();
+        }
+      };
+      
+      return (
+        <OrganizationContext.Provider value={{
+          currentOrg,
+          organizations,
+          switchOrganization,
+          loading,
+        }}>
+          {children}
+        </OrganizationContext.Provider>
+      );
+    };
+    
+    export const useOrganization = () => {
+      const context = useContext(OrganizationContext);
+      if (!context) {
+        throw new Error('useOrganization must be used within OrganizationProvider');
+      }
+      return context;
+    };
+    
+    // Organization switcher component
+    export const OrganizationSwitcher: React.FC = () => {
+      const { currentOrg, organizations, switchOrganization } = useOrganization();
+      const [isOpen, setIsOpen] = useState(false);
+      
+      if (!currentOrg) return null;
+      
+      return (
+        <div className="organization-switcher">
+          <button 
+            onClick={() => setIsOpen(!isOpen)}
+            className="org-button"
+          >
+            <img src={currentOrg.settings.logoUrl} alt={currentOrg.name} />
+            <span>{currentOrg.name}</span>
+            <ChevronDownIcon />
+          </button>
+          
+          {isOpen && (
+            <div className="org-dropdown">
+              {organizations.map(org => (
+                <button
+                  key={org.id}
+                  onClick={() => {
+                    switchOrganization(org.id);
+                    setIsOpen(false);
+                  }}
+                  className={`org-option ${org.id === currentOrg.id ? 'active' : ''}`}
+                >
+                  <img src={org.settings.logoUrl} alt={org.name} />
+                  <div>
+                    <div className="org-name">{org.name}</div>
+                    <div className="org-role">{org.role}</div>
+                  </div>
+                </button>
+              ))}
+              
+              <hr />
+              
+              <button className="create-org-button">
+                <PlusIcon />
+                Create Organization
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    };
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<Cards>
+  <Card title="Framework Integrations" href="/docs/go/examples/frameworks">
+    Learn how to integrate with popular Go frameworks like Gin, Echo, and Fiber
+  </Card>
+  <Card title="Frontend Integration" href="/docs/go/examples/frontend">
+    Complete guides for React, Vue.js, and Next.js integration
+  </Card>
+  <Card title="Advanced Security" href="/docs/go/examples/security">
+    Implement advanced security features like MFA and SSO
+  </Card>
+  <Card title="API Reference" href="/docs/go/api-reference">
+    Complete API documentation for all endpoints
+  </Card>
+</Cards>
+
+## Security Considerations
+
+<Callout type="warning">
+  **Important Security Notes:**
+  - Always validate organization membership before granting access
+  - Use organization-scoped sessions for better security isolation
+  - Implement proper audit logging for all organization activities
+  - Regularly review and rotate organization-specific secrets
+  - Monitor for unusual cross-organization access patterns
+</Callout>
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Organization Context Missing**
+   - Ensure organization middleware is properly configured
+   - Check that organization ID is passed in URL params or headers
+
+2. **Permission Denied Errors**
+   - Verify user has active membership in organization
+   - Check role permissions and RBAC configuration
+
+3. **Configuration Not Loading**
+   - Verify organization-scoped config is properly set
+   - Check config manager initialization
+
+4. **Member Invitation Failures**
+   - Check email service configuration
+   - Verify invitation token generation
+   - Ensure organization member limits

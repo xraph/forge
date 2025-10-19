@@ -24,6 +24,8 @@ type CacheOptions = cachecore.CacheOptions
 // EvictionPolicy defines cache eviction policies
 type EvictionPolicy = cachecore.EvictionPolicy
 
+type CacheManager = cachecore.CacheManager
+
 const (
 	EvictionPolicyLRU    = cachecore.EvictionPolicyLRU
 	EvictionPolicyLFU    = cachecore.EvictionPolicyLFU

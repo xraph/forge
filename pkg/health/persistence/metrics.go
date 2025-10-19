@@ -85,7 +85,7 @@ func (hmc *HealthMetricsCollector) Start(ctx context.Context) error {
 
 	hmc.started = true
 
-	// OnStart collection routine
+	// Start collection routine
 	go hmc.collectionLoop(ctx)
 
 	if hmc.logger != nil {
@@ -561,7 +561,7 @@ func (hms *HealthMetricsService) Dependencies() []string {
 }
 
 // OnStart starts the health metrics service
-func (hms *HealthMetricsService) OnStart(ctx context.Context) error {
+func (hms *HealthMetricsService) Start(ctx context.Context) error {
 	if !hms.config.Enabled {
 		if hms.logger != nil {
 			hms.logger.Info("health metrics service disabled")
@@ -569,14 +569,14 @@ func (hms *HealthMetricsService) OnStart(ctx context.Context) error {
 		return nil
 	}
 
-	// OnStart collector
+	// Start collector
 	if err := hms.collector.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("health-metrics-collector", err)
 	}
 
-	// OnStart exporter if configured
+	// Start exporter if configured
 	if hms.exporter != nil {
-		// OnStart export routine
+		// Start export routine
 		go hms.exportLoop(ctx)
 	}
 
@@ -588,12 +588,12 @@ func (hms *HealthMetricsService) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the health metrics service
-func (hms *HealthMetricsService) OnStop(ctx context.Context) error {
+func (hms *HealthMetricsService) Stop(ctx context.Context) error {
 	if !hms.config.Enabled {
 		return nil
 	}
 
-	// OnStop collector
+	// Stop collector
 	if err := hms.collector.Stop(ctx); err != nil {
 		if hms.logger != nil {
 			hms.logger.Error("failed to stop health metrics collector",

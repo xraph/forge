@@ -1,0 +1,1973 @@
+---
+title: Anonymous Authentication Plugin
+description: Support guest user sessions and anonymous access
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Anonymous Authentication Plugin
+
+The Anonymous Authentication plugin enables guest user sessions, allowing users to interact with your application without creating an account. This is perfect for e-commerce shopping carts, content previews, trial experiences, and gradual user onboarding.
+
+## Features
+
+- **Guest Sessions**: Create temporary anonymous user sessions
+- **Session Persistence**: Maintain anonymous sessions across browser sessions
+- **Account Conversion**: Convert anonymous users to registered accounts
+- **Data Migration**: Transfer anonymous user data to registered accounts
+- **Configurable Expiry**: Set custom expiration times for anonymous sessions
+- **Rate Limiting**: Protect against abuse with configurable limits
+- **Analytics Tracking**: Track anonymous user behavior and conversion rates
+
+## Installation
+
+The Anonymous Authentication plugin is included in the core AuthSome package:
+
+```go
+import "github.com/xraph/authsome/plugins/anonymous"
+```
+
+## Configuration
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      plugins:
+        anonymous:
+          enabled: true
+          
+          # Session settings
+          session:
+            duration: "7d"  # How long anonymous sessions last
+            cookieName: "authsome_anonymous"
+            cookieSecure: true
+            cookieHttpOnly: true
+            cookieSameSite: "lax"
+            
+          # User settings
+          user:
+            prefix: "anon_"  # Prefix for anonymous user IDs
+            generateUsername: true  # Generate readable usernames
+            usernameFormat: "guest_{random}"  # guest_12345, visitor_abc123
+            
+          # Conversion settings
+          conversion:
+            enabled: true
+            preserveData: true  # Keep anonymous user data after conversion
+            mergeStrategy: "prefer_registered"  # prefer_registered, prefer_anonymous, merge_all
+            deleteAfterConversion: false  # Keep anonymous record for analytics
+            
+          # Rate limiting
+          rateLimit:
+            enabled: true
+            maxSessionsPerIP: 10  # Max anonymous sessions per IP per hour
+            maxSessionsPerDevice: 3  # Max sessions per device fingerprint
+            window: "1h"
+            
+          # Data retention
+          retention:
+            cleanupInterval: "24h"  # How often to clean up expired sessions
+            maxAge: "30d"  # Delete anonymous data older than this
+            keepConvertedData: true  # Keep data from converted users
+            
+          # Features
+          features:
+            allowDataExport: true  # Allow anonymous users to export their data
+            allowDataDeletion: true  # Allow anonymous users to delete their data
+            trackBehavior: true  # Track anonymous user behavior
+            enableAnalytics: true  # Enable analytics for anonymous users
+            
+          # Security
+          security:
+            requireFingerprint: true  # Require device fingerprinting
+            validateOrigin: true  # Validate request origin
+            preventSessionHijacking: true
+            logAnonymousActivity: false  # Log anonymous user activity
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # Basic settings
+    AUTH_PLUGINS_ANONYMOUS_ENABLED=true
+
+    # Session settings
+    AUTH_PLUGINS_ANONYMOUS_SESSION_DURATION=7d
+    AUTH_PLUGINS_ANONYMOUS_SESSION_COOKIE_NAME=authsome_anonymous
+    AUTH_PLUGINS_ANONYMOUS_SESSION_COOKIE_SECURE=true
+
+    # User settings
+    AUTH_PLUGINS_ANONYMOUS_USER_PREFIX=anon_
+    AUTH_PLUGINS_ANONYMOUS_USER_GENERATE_USERNAME=true
+    AUTH_PLUGINS_ANONYMOUS_USER_USERNAME_FORMAT=guest_{random}
+
+    # Conversion settings
+    AUTH_PLUGINS_ANONYMOUS_CONVERSION_ENABLED=true
+    AUTH_PLUGINS_ANONYMOUS_CONVERSION_PRESERVE_DATA=true
+    AUTH_PLUGINS_ANONYMOUS_CONVERSION_MERGE_STRATEGY=prefer_registered
+
+    # Rate limiting
+    AUTH_PLUGINS_ANONYMOUS_RATE_LIMIT_ENABLED=true
+    AUTH_PLUGINS_ANONYMOUS_RATE_LIMIT_MAX_SESSIONS_PER_IP=10
+    AUTH_PLUGINS_ANONYMOUS_RATE_LIMIT_MAX_SESSIONS_PER_DEVICE=3
+
+    # Security
+    AUTH_PLUGINS_ANONYMOUS_SECURITY_REQUIRE_FINGERPRINT=true
+    AUTH_PLUGINS_ANONYMOUS_SECURITY_VALIDATE_ORIGIN=true
+    AUTH_PLUGINS_ANONYMOUS_SECURITY_PREVENT_SESSION_HIJACKING=true
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    config := &anonymous.Config{
+        Enabled: true,
+        
+        Session: anonymous.SessionConfig{
+            Duration:       7 * 24 * time.Hour,
+            CookieName:     "authsome_anonymous",
+            CookieSecure:   true,
+            CookieHttpOnly: true,
+            CookieSameSite: "lax",
+        },
+        
+        User: anonymous.UserConfig{
+            Prefix:           "anon_",
+            GenerateUsername: true,
+            UsernameFormat:   "guest_{random}",
+        },
+        
+        Conversion: anonymous.ConversionConfig{
+            Enabled:               true,
+            PreserveData:          true,
+            MergeStrategy:         "prefer_registered",
+            DeleteAfterConversion: false,
+        },
+        
+        RateLimit: anonymous.RateLimitConfig{
+            Enabled:              true,
+            MaxSessionsPerIP:     10,
+            MaxSessionsPerDevice: 3,
+            Window:               time.Hour,
+        },
+        
+        Retention: anonymous.RetentionConfig{
+            CleanupInterval:   24 * time.Hour,
+            MaxAge:           30 * 24 * time.Hour,
+            KeepConvertedData: true,
+        },
+        
+        Features: anonymous.FeaturesConfig{
+            AllowDataExport:   true,
+            AllowDataDeletion: true,
+            TrackBehavior:     true,
+            EnableAnalytics:   true,
+        },
+        
+        Security: anonymous.SecurityConfig{
+            RequireFingerprint:       true,
+            ValidateOrigin:          true,
+            PreventSessionHijacking: true,
+            LogAnonymousActivity:    false,
+        },
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Plugin Registration
+
+Register the Anonymous Authentication plugin with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/anonymous"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance with configuration
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register Anonymous Authentication plugin
+    anonymousPlugin := anonymous.NewPlugin()
+    auth.RegisterPlugin(anonymousPlugin)
+
+    // Initialize plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## API Endpoints
+
+The Anonymous Authentication plugin provides the following endpoints:
+
+### Create Anonymous Session
+
+```http
+POST /auth/anonymous/session
+Content-Type: application/json
+
+{
+  "deviceFingerprint": "abc123def456",
+  "userAgent": "Mozilla/5.0...",
+  "metadata": {
+    "source": "landing_page",
+    "campaign": "summer_sale"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "anon_1234567890",
+    "username": "guest_abc123",
+    "isAnonymous": true,
+    "createdAt": "2024-01-15T10:30:00Z",
+    "expiresAt": "2024-01-22T10:30:00Z"
+  },
+  "session": {
+    "id": "session_456",
+    "expiresAt": "2024-01-22T10:30:00Z",
+    "isAnonymous": true
+  }
+}
+```
+
+### Get Anonymous Session
+
+```http
+GET /auth/anonymous/session
+Cookie: authsome_anonymous=session_token
+```
+
+**Response:**
+```json
+{
+  "user": {
+    "id": "anon_1234567890",
+    "username": "guest_abc123",
+    "isAnonymous": true,
+    "createdAt": "2024-01-15T10:30:00Z",
+    "expiresAt": "2024-01-22T10:30:00Z",
+    "metadata": {
+      "source": "landing_page",
+      "campaign": "summer_sale"
+    }
+  },
+  "session": {
+    "id": "session_456",
+    "expiresAt": "2024-01-22T10:30:00Z",
+    "isAnonymous": true
+  }
+}
+```
+
+### Convert Anonymous User to Registered User
+
+```http
+POST /auth/anonymous/convert
+Cookie: authsome_anonymous=session_token
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "securePassword123",
+  "firstName": "John",
+  "lastName": "Doe",
+  "preserveData": true
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "isAnonymous": false,
+    "createdAt": "2024-01-15T10:30:00Z",
+    "convertedFrom": "anon_1234567890",
+    "convertedAt": "2024-01-15T11:00:00Z"
+  },
+  "session": {
+    "id": "session_789",
+    "expiresAt": "2024-01-22T10:30:00Z",
+    "isAnonymous": false
+  },
+  "migratedData": {
+    "cartItems": 3,
+    "preferences": 5,
+    "activityLogs": 12
+  }
+}
+```
+
+### Link Anonymous Session to Existing User
+
+```http
+POST /auth/anonymous/link
+Cookie: authsome_anonymous=session_token
+Content-Type: application/json
+
+{
+  "email": "existing@example.com",
+  "password": "existingPassword123"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "user_456",
+    "email": "existing@example.com",
+    "isAnonymous": false
+  },
+  "session": {
+    "id": "session_999",
+    "expiresAt": "2024-01-22T10:30:00Z",
+    "isAnonymous": false
+  },
+  "migratedData": {
+    "cartItems": 3,
+    "preferences": 2
+  }
+}
+```
+
+### Export Anonymous User Data
+
+```http
+GET /auth/anonymous/export
+Cookie: authsome_anonymous=session_token
+```
+
+**Response:**
+```json
+{
+  "user": {
+    "id": "anon_1234567890",
+    "username": "guest_abc123",
+    "createdAt": "2024-01-15T10:30:00Z",
+    "metadata": {
+      "source": "landing_page"
+    }
+  },
+  "data": {
+    "cartItems": [
+      {
+        "productId": "prod_123",
+        "quantity": 2,
+        "addedAt": "2024-01-15T10:45:00Z"
+      }
+    ],
+    "preferences": {
+      "theme": "dark",
+      "language": "en"
+    },
+    "activityLogs": [
+      {
+        "action": "page_view",
+        "page": "/products",
+        "timestamp": "2024-01-15T10:30:00Z"
+      }
+    ]
+  }
+}
+```
+
+### Delete Anonymous User Data
+
+```http
+DELETE /auth/anonymous/data
+Cookie: authsome_anonymous=session_token
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Anonymous user data deleted successfully",
+  "deletedAt": "2024-01-15T12:00:00Z"
+}
+```
+
+### Extend Anonymous Session
+
+```http
+POST /auth/anonymous/extend
+Cookie: authsome_anonymous=session_token
+Content-Type: application/json
+
+{
+  "duration": "3d"  // Optional: custom extension duration
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "session": {
+    "id": "session_456",
+    "expiresAt": "2024-01-25T10:30:00Z",
+    "extended": true
+  }
+}
+```
+
+## Frontend Integration
+
+### JavaScript/TypeScript
+
+```typescript
+interface AnonymousUser {
+  id: string;
+  username: string;
+  isAnonymous: boolean;
+  createdAt: string;
+  expiresAt: string;
+  metadata?: Record<string, any>;
+}
+
+interface AnonymousSession {
+  id: string;
+  expiresAt: string;
+  isAnonymous: boolean;
+}
+
+interface ConversionResult {
+  success: boolean;
+  user: any;
+  session: any;
+  migratedData?: Record<string, any>;
+}
+
+class AnonymousAuthService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = '/auth/anonymous') {
+    this.baseUrl = baseUrl;
+  }
+
+  async createSession(metadata?: Record<string, any>): Promise<{ user: AnonymousUser; session: AnonymousSession }> {
+    const deviceFingerprint = await this.generateDeviceFingerprint();
+    
+    const response = await fetch(`${this.baseUrl}/session`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        deviceFingerprint,
+        userAgent: navigator.userAgent,
+        metadata,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create anonymous session');
+    }
+
+    return response.json();
+  }
+
+  async getSession(): Promise<{ user: AnonymousUser; session: AnonymousSession } | null> {
+    const response = await fetch(`${this.baseUrl}/session`, {
+      credentials: 'include',
+    });
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new Error('Failed to get anonymous session');
+    }
+
+    return response.json();
+  }
+
+  async convertToRegistered(userData: {
+    email: string;
+    password: string;
+    firstName?: string;
+    lastName?: string;
+    preserveData?: boolean;
+  }): Promise<ConversionResult> {
+    const response = await fetch(`${this.baseUrl}/convert`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(userData),
+    });
+
+    return response.json();
+  }
+
+  async linkToExistingUser(credentials: {
+    email: string;
+    password: string;
+  }): Promise<ConversionResult> {
+    const response = await fetch(`${this.baseUrl}/link`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(credentials),
+    });
+
+    return response.json();
+  }
+
+  async exportData(): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/export`, {
+      credentials: 'include',
+    });
+
+    return response.json();
+  }
+
+  async deleteData(): Promise<{ success: boolean; message: string }> {
+    const response = await fetch(`${this.baseUrl}/data`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+
+    return response.json();
+  }
+
+  async extendSession(duration?: string): Promise<{ session: AnonymousSession }> {
+    const response = await fetch(`${this.baseUrl}/extend`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({ duration }),
+    });
+
+    return response.json();
+  }
+
+  private async generateDeviceFingerprint(): Promise<string> {
+    // Generate a device fingerprint based on browser characteristics
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillText('Device fingerprint', 2, 2);
+    
+    const fingerprint = [
+      navigator.userAgent,
+      navigator.language,
+      screen.width + 'x' + screen.height,
+      new Date().getTimezoneOffset(),
+      canvas.toDataURL(),
+    ].join('|');
+
+    // Simple hash function
+    let hash = 0;
+    for (let i = 0; i < fingerprint.length; i++) {
+      const char = fingerprint.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+
+    return Math.abs(hash).toString(36);
+  }
+
+  // Helper methods
+  isSessionExpired(session: AnonymousSession): boolean {
+    return new Date() >= new Date(session.expiresAt);
+  }
+
+  getTimeUntilExpiry(session: AnonymousSession): number {
+    return new Date(session.expiresAt).getTime() - new Date().getTime();
+  }
+
+  shouldExtendSession(session: AnonymousSession, threshold: number = 24 * 60 * 60 * 1000): boolean {
+    return this.getTimeUntilExpiry(session) < threshold;
+  }
+}
+
+// Usage examples
+const anonymousAuth = new AnonymousAuthService();
+
+// Initialize anonymous session on page load
+async function initializeAnonymousSession() {
+  try {
+    let session = await anonymousAuth.getSession();
+    
+    if (!session) {
+      // Create new anonymous session
+      session = await anonymousAuth.createSession({
+        source: 'landing_page',
+        referrer: document.referrer,
+        utm_source: new URLSearchParams(window.location.search).get('utm_source'),
+      });
+      
+      console.log('Created anonymous session:', session);
+    } else {
+      console.log('Existing anonymous session:', session);
+      
+      // Check if session should be extended
+      if (anonymousAuth.shouldExtendSession(session.session)) {
+        await anonymousAuth.extendSession();
+        console.log('Extended anonymous session');
+      }
+    }
+    
+    return session;
+  } catch (error) {
+    console.error('Failed to initialize anonymous session:', error);
+    return null;
+  }
+}
+
+// Convert anonymous user to registered user
+async function convertToRegistered(formData: any) {
+  try {
+    const result = await anonymousAuth.convertToRegistered({
+      email: formData.email,
+      password: formData.password,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      preserveData: true,
+    });
+
+    if (result.success) {
+      console.log('Conversion successful:', result);
+      console.log('Migrated data:', result.migratedData);
+      
+      // Redirect to dashboard or show success message
+      window.location.href = '/dashboard';
+    } else {
+      console.error('Conversion failed:', result);
+    }
+  } catch (error) {
+    console.error('Conversion error:', error);
+  }
+}
+
+// Link anonymous session to existing user
+async function linkToExistingUser(credentials: any) {
+  try {
+    const result = await anonymousAuth.linkToExistingUser(credentials);
+
+    if (result.success) {
+      console.log('Link successful:', result);
+      console.log('Migrated data:', result.migratedData);
+      
+      // Redirect to dashboard
+      window.location.href = '/dashboard';
+    } else {
+      console.error('Link failed:', result);
+    }
+  } catch (error) {
+    console.error('Link error:', error);
+  }
+}
+
+// Export anonymous user data
+async function exportAnonymousData() {
+  try {
+    const data = await anonymousAuth.exportData();
+    
+    // Create downloadable file
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'anonymous-user-data.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error('Export failed:', error);
+  }
+}
+
+// Delete anonymous user data
+async function deleteAnonymousData() {
+  if (confirm('Are you sure you want to delete all your anonymous data? This action cannot be undone.')) {
+    try {
+      const result = await anonymousAuth.deleteData();
+      
+      if (result.success) {
+        alert('Your anonymous data has been deleted successfully.');
+        // Optionally redirect or refresh
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Delete failed:', error);
+      alert('Failed to delete anonymous data. Please try again.');
+    }
+  }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', initializeAnonymousSession);
+```
+
+### React Component
+
+```jsx
+import React, { useState, useEffect, useContext, createContext } from 'react';
+
+// Anonymous Auth Context
+const AnonymousAuthContext = createContext(null);
+
+export function AnonymousAuthProvider({ children }) {
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const anonymousAuth = new AnonymousAuthService();
+
+  useEffect(() => {
+    initializeSession();
+  }, []);
+
+  const initializeSession = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      let currentSession = await anonymousAuth.getSession();
+      
+      if (!currentSession) {
+        // Create new anonymous session
+        currentSession = await anonymousAuth.createSession({
+          source: 'react_app',
+          timestamp: new Date().toISOString(),
+        });
+      }
+      
+      setSession(currentSession);
+    } catch (err) {
+      setError(err.message);
+      console.error('Failed to initialize anonymous session:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const convertToRegistered = async (userData) => {
+    try {
+      const result = await anonymousAuth.convertToRegistered(userData);
+      
+      if (result.success) {
+        // Session is now a registered user session
+        setSession({
+          user: result.user,
+          session: result.session,
+        });
+        return result;
+      } else {
+        throw new Error(result.error || 'Conversion failed');
+      }
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const linkToExistingUser = async (credentials) => {
+    try {
+      const result = await anonymousAuth.linkToExistingUser(credentials);
+      
+      if (result.success) {
+        setSession({
+          user: result.user,
+          session: result.session,
+        });
+        return result;
+      } else {
+        throw new Error(result.error || 'Link failed');
+      }
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const extendSession = async () => {
+    try {
+      const result = await anonymousAuth.extendSession();
+      setSession(prev => ({
+        ...prev,
+        session: result.session,
+      }));
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const deleteData = async () => {
+    try {
+      const result = await anonymousAuth.deleteData();
+      if (result.success) {
+        setSession(null);
+        await initializeSession(); // Create new session
+      }
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    }
+  };
+
+  const value = {
+    session,
+    loading,
+    error,
+    isAnonymous: session?.user?.isAnonymous || false,
+    convertToRegistered,
+    linkToExistingUser,
+    extendSession,
+    deleteData,
+    exportData: anonymousAuth.exportData.bind(anonymousAuth),
+    refresh: initializeSession,
+  };
+
+  return (
+    <AnonymousAuthContext.Provider value={value}>
+      {children}
+    </AnonymousAuthContext.Provider>
+  );
+}
+
+export function useAnonymousAuth() {
+  const context = useContext(AnonymousAuthContext);
+  if (!context) {
+    throw new Error('useAnonymousAuth must be used within AnonymousAuthProvider');
+  }
+  return context;
+}
+
+// Anonymous User Banner Component
+function AnonymousUserBanner() {
+  const { session, isAnonymous, convertToRegistered } = useAnonymousAuth();
+  const [showConversion, setShowConversion] = useState(false);
+
+  if (!isAnonymous) return null;
+
+  return (
+    <div className="anonymous-banner">
+      <div className="banner-content">
+        <span>👋 You're browsing as a guest. Create an account to save your progress!</span>
+        <button 
+          onClick={() => setShowConversion(true)}
+          className="convert-button"
+        >
+          Create Account
+        </button>
+      </div>
+      
+      {showConversion && (
+        <ConversionModal 
+          onClose={() => setShowConversion(false)}
+          onConvert={convertToRegistered}
+        />
+      )}
+    </div>
+  );
+}
+
+// Conversion Modal Component
+function ConversionModal({ onClose, onConvert }) {
+  const [formData, setFormData] = useState({
+    email: '',
+    password: '',
+    firstName: '',
+    lastName: '',
+    preserveData: true,
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const result = await onConvert(formData);
+      
+      if (result.success) {
+        alert('Account created successfully! Your data has been preserved.');
+        onClose();
+        // Optionally redirect
+        window.location.href = '/dashboard';
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInputChange = (field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-content">
+        <div className="modal-header">
+          <h2>Create Your Account</h2>
+          <button onClick={onClose} className="close-button">×</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="conversion-form">
+          <div className="form-group">
+            <label>Email</label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={(e) => handleInputChange('email', e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Password</label>
+            <input
+              type="password"
+              value={formData.password}
+              onChange={(e) => handleInputChange('password', e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
+              <label>First Name</label>
+              <input
+                type="text"
+                value={formData.firstName}
+                onChange={(e) => handleInputChange('firstName', e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label>Last Name</label>
+              <input
+                type="text"
+                value={formData.lastName}
+                onChange={(e) => handleInputChange('lastName', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={formData.preserveData}
+                onChange={(e) => handleInputChange('preserveData', e.target.checked)}
+              />
+              Keep my current cart and preferences
+            </label>
+          </div>
+
+          {error && <div className="error-message">{error}</div>}
+
+          <div className="form-actions">
+            <button type="button" onClick={onClose} className="cancel-button">
+              Cancel
+            </button>
+            <button 
+              type="submit" 
+              disabled={loading}
+              className="submit-button"
+            >
+              {loading ? 'Creating Account...' : 'Create Account'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Session Status Component
+function SessionStatus() {
+  const { session, isAnonymous, extendSession } = useAnonymousAuth();
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    if (!session?.session?.expiresAt) return;
+
+    const updateTimeLeft = () => {
+      const now = new Date();
+      const expires = new Date(session.session.expiresAt);
+      const diff = expires.getTime() - now.getTime();
+
+      if (diff <= 0) {
+        setTimeLeft('Expired');
+        return;
+      }
+
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+      if (days > 0) {
+        setTimeLeft(`${days}d ${hours}h`);
+      } else if (hours > 0) {
+        setTimeLeft(`${hours}h ${minutes}m`);
+      } else {
+        setTimeLeft(`${minutes}m`);
+      }
+    };
+
+    updateTimeLeft();
+    const interval = setInterval(updateTimeLeft, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, [session]);
+
+  if (!isAnonymous) return null;
+
+  const handleExtend = async () => {
+    try {
+      await extendSession();
+      alert('Session extended successfully!');
+    } catch (error) {
+      alert('Failed to extend session');
+    }
+  };
+
+  return (
+    <div className="session-status">
+      <div className="status-info">
+        <span>Guest session expires in: {timeLeft}</span>
+        {timeLeft !== 'Expired' && (
+          <button onClick={handleExtend} className="extend-button">
+            Extend
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Privacy Controls Component
+function PrivacyControls() {
+  const { isAnonymous, exportData, deleteData } = useAnonymousAuth();
+  const [loading, setLoading] = useState(false);
+
+  if (!isAnonymous) return null;
+
+  const handleExport = async () => {
+    setLoading(true);
+    try {
+      const data = await exportData();
+      
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'my-data.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      alert('Failed to export data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (confirm('Are you sure you want to delete all your data? This cannot be undone.')) {
+      setLoading(true);
+      try {
+        await deleteData();
+        alert('Your data has been deleted successfully.');
+      } catch (error) {
+        alert('Failed to delete data');
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
+  return (
+    <div className="privacy-controls">
+      <h3>Your Data</h3>
+      <p>As a guest user, you have control over your data:</p>
+      
+      <div className="control-buttons">
+        <button 
+          onClick={handleExport}
+          disabled={loading}
+          className="export-button"
+        >
+          {loading ? 'Exporting...' : 'Export My Data'}
+        </button>
+        
+        <button 
+          onClick={handleDelete}
+          disabled={loading}
+          className="delete-button"
+        >
+          {loading ? 'Deleting...' : 'Delete My Data'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Main App Component
+function App() {
+  return (
+    <AnonymousAuthProvider>
+      <div className="app">
+        <AnonymousUserBanner />
+        <SessionStatus />
+        
+        {/* Your app content */}
+        <main>
+          <h1>Welcome to Our App</h1>
+          {/* App content */}
+        </main>
+        
+        <footer>
+          <PrivacyControls />
+        </footer>
+      </div>
+    </AnonymousAuthProvider>
+  );
+}
+
+export default App;
+```
+
+## Server-Side Integration
+
+### Middleware for Anonymous Users
+
+```go
+package main
+
+import (
+    "net/http"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New()
+    auth, _ := authsome.New(config)
+    
+    // Mount AuthSome
+    auth.Mount(app, "/auth")
+    
+    // Middleware to handle both authenticated and anonymous users
+    app.Use(func(c *forge.Context) error {
+        // Try to get authenticated user first
+        user := auth.GetUser(c)
+        if user != nil {
+            c.Set("user", user)
+            c.Set("isAuthenticated", true)
+            c.Set("isAnonymous", false)
+            return c.Next()
+        }
+        
+        // Try to get anonymous user
+        anonymousUser := auth.GetAnonymousUser(c)
+        if anonymousUser != nil {
+            c.Set("user", anonymousUser)
+            c.Set("isAuthenticated", false)
+            c.Set("isAnonymous", true)
+            return c.Next()
+        }
+        
+        // No user found, create anonymous session for certain routes
+        if shouldCreateAnonymousSession(c.Path()) {
+            session, err := auth.CreateAnonymousSession(c)
+            if err != nil {
+                return c.JSON(http.StatusInternalServerError, map[string]string{
+                    "error": "Failed to create anonymous session",
+                })
+            }
+            
+            c.Set("user", session.User)
+            c.Set("isAuthenticated", false)
+            c.Set("isAnonymous", true)
+        }
+        
+        return c.Next()
+    })
+    
+    // Routes that work with both authenticated and anonymous users
+    app.GET("/cart", func(c *forge.Context) error {
+        user := c.Get("user")
+        isAnonymous := c.Get("isAnonymous").(bool)
+        
+        if isAnonymous {
+            // Handle anonymous cart
+            return handleAnonymousCart(c, user)
+        } else {
+            // Handle authenticated user cart
+            return handleAuthenticatedCart(c, user)
+        }
+    })
+    
+    app.POST("/cart/add", func(c *forge.Context) error {
+        user := c.Get("user")
+        isAnonymous := c.Get("isAnonymous").(bool)
+        
+        var req AddToCartRequest
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(http.StatusBadRequest, map[string]string{
+                "error": "Invalid request",
+            })
+        }
+        
+        if isAnonymous {
+            return addToAnonymousCart(c, user, &req)
+        } else {
+            return addToAuthenticatedCart(c, user, &req)
+        }
+    })
+    
+    // Routes that require authentication (will prompt for conversion)
+    protected := app.Group("/protected")
+    protected.Use(auth.RequireAuthOrPromptConversion())
+    
+    protected.GET("/profile", func(c *forge.Context) error {
+        user := auth.GetUser(c)
+        return c.JSON(http.StatusOK, user)
+    })
+    
+    app.Listen(":8080")
+}
+
+func shouldCreateAnonymousSession(path string) bool {
+    // Create anonymous sessions for certain paths
+    anonymousPaths := []string{
+        "/cart",
+        "/products",
+        "/checkout",
+        "/preferences",
+    }
+    
+    for _, p := range anonymousPaths {
+        if strings.HasPrefix(path, p) {
+            return true
+        }
+    }
+    
+    return false
+}
+
+func handleAnonymousCart(c *forge.Context, user interface{}) error {
+    // Implementation for anonymous cart
+    return c.JSON(http.StatusOK, map[string]interface{}{
+        "cart": getAnonymousCart(user),
+        "isAnonymous": true,
+        "conversionPrompt": "Create an account to save your cart permanently",
+    })
+}
+
+func handleAuthenticatedCart(c *forge.Context, user interface{}) error {
+    // Implementation for authenticated cart
+    return c.JSON(http.StatusOK, map[string]interface{}{
+        "cart": getAuthenticatedCart(user),
+        "isAnonymous": false,
+    })
+}
+
+func addToAnonymousCart(c *forge.Context, user interface{}, req *AddToCartRequest) error {
+    // Add item to anonymous cart
+    // Store in session or temporary storage
+    return c.JSON(http.StatusOK, map[string]string{
+        "message": "Item added to cart",
+    })
+}
+
+func addToAuthenticatedCart(c *forge.Context, user interface{}, req *AddToCartRequest) error {
+    // Add item to authenticated user's cart
+    // Store in database
+    return c.JSON(http.StatusOK, map[string]string{
+        "message": "Item added to cart",
+    })
+}
+```
+
+### Data Migration Hooks
+
+```go
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "log"
+    
+    "github.com/xraph/authsome"
+)
+
+func main() {
+    auth, _ := authsome.New(config)
+    
+    // Hook for anonymous user creation
+    auth.RegisterHook("anonymous.user_created", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        metadata := data["metadata"].(map[string]interface{})
+        
+        log.Printf("Anonymous user created: %s with metadata: %v", userID, metadata)
+        
+        // Initialize anonymous user data structures
+        if err := initializeAnonymousUserData(userID); err != nil {
+            return fmt.Errorf("failed to initialize anonymous user data: %w", err)
+        }
+        
+        return nil
+    })
+    
+    // Hook for conversion to registered user
+    auth.RegisterHook("anonymous.converted", func(ctx context.Context, data map[string]interface{}) error {
+        anonymousUserID := data["anonymous_user_id"].(string)
+        registeredUserID := data["registered_user_id"].(string)
+        preserveData := data["preserve_data"].(bool)
+        
+        log.Printf("Converting anonymous user %s to registered user %s", anonymousUserID, registeredUserID)
+        
+        if preserveData {
+            // Migrate cart data
+            if err := migrateCartData(anonymousUserID, registeredUserID); err != nil {
+                log.Printf("Failed to migrate cart data: %v", err)
+            }
+            
+            // Migrate preferences
+            if err := migratePreferences(anonymousUserID, registeredUserID); err != nil {
+                log.Printf("Failed to migrate preferences: %v", err)
+            }
+            
+            // Migrate activity logs
+            if err := migrateActivityLogs(anonymousUserID, registeredUserID); err != nil {
+                log.Printf("Failed to migrate activity logs: %v", err)
+            }
+            
+            // Migrate wishlist
+            if err := migrateWishlist(anonymousUserID, registeredUserID); err != nil {
+                log.Printf("Failed to migrate wishlist: %v", err)
+            }
+        }
+        
+        // Send welcome email
+        if err := sendWelcomeEmail(registeredUserID); err != nil {
+            log.Printf("Failed to send welcome email: %v", err)
+        }
+        
+        // Update analytics
+        if err := updateConversionAnalytics(anonymousUserID, registeredUserID); err != nil {
+            log.Printf("Failed to update analytics: %v", err)
+        }
+        
+        return nil
+    })
+    
+    // Hook for linking to existing user
+    auth.RegisterHook("anonymous.linked", func(ctx context.Context, data map[string]interface{}) error {
+        anonymousUserID := data["anonymous_user_id"].(string)
+        existingUserID := data["existing_user_id"].(string)
+        mergeStrategy := data["merge_strategy"].(string)
+        
+        log.Printf("Linking anonymous user %s to existing user %s", anonymousUserID, existingUserID)
+        
+        switch mergeStrategy {
+        case "prefer_registered":
+            // Keep existing user data, add anonymous data where missing
+            if err := mergePreferRegistered(anonymousUserID, existingUserID); err != nil {
+                return fmt.Errorf("failed to merge data (prefer registered): %w", err)
+            }
+            
+        case "prefer_anonymous":
+            // Prefer anonymous data over existing data
+            if err := mergePreferAnonymous(anonymousUserID, existingUserID); err != nil {
+                return fmt.Errorf("failed to merge data (prefer anonymous): %w", err)
+            }
+            
+        case "merge_all":
+            // Merge all data intelligently
+            if err := mergeAllData(anonymousUserID, existingUserID); err != nil {
+                return fmt.Errorf("failed to merge all data: %w", err)
+            }
+        }
+        
+        return nil
+    })
+    
+    // Hook for anonymous session expiry
+    auth.RegisterHook("anonymous.session_expired", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        sessionID := data["session_id"].(string)
+        
+        log.Printf("Anonymous session expired: %s for user %s", sessionID, userID)
+        
+        // Clean up temporary data
+        if err := cleanupExpiredAnonymousData(userID); err != nil {
+            log.Printf("Failed to cleanup expired data: %v", err)
+        }
+        
+        return nil
+    })
+    
+    // Hook for data deletion
+    auth.RegisterHook("anonymous.data_deleted", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        
+        log.Printf("Anonymous user data deleted: %s", userID)
+        
+        // Clean up all associated data
+        if err := deleteAllAnonymousData(userID); err != nil {
+            return fmt.Errorf("failed to delete anonymous data: %w", err)
+        }
+        
+        return nil
+    })
+}
+
+func initializeAnonymousUserData(userID string) error {
+    // Initialize cart
+    cart := AnonymousCart{
+        UserID: userID,
+        Items:  []CartItem{},
+    }
+    if err := saveAnonymousCart(&cart); err != nil {
+        return err
+    }
+    
+    // Initialize preferences
+    preferences := AnonymousPreferences{
+        UserID:   userID,
+        Theme:    "light",
+        Language: "en",
+        Currency: "USD",
+    }
+    if err := saveAnonymousPreferences(&preferences); err != nil {
+        return err
+    }
+    
+    return nil
+}
+
+func migrateCartData(anonymousUserID, registeredUserID string) error {
+    // Get anonymous cart
+    anonymousCart, err := getAnonymousCart(anonymousUserID)
+    if err != nil {
+        return err
+    }
+    
+    // Get existing registered cart
+    registeredCart, err := getRegisteredCart(registeredUserID)
+    if err != nil {
+        // Create new cart if doesn't exist
+        registeredCart = &RegisteredCart{
+            UserID: registeredUserID,
+            Items:  []CartItem{},
+        }
+    }
+    
+    // Merge cart items
+    for _, item := range anonymousCart.Items {
+        // Check if item already exists in registered cart
+        existingIndex := -1
+        for i, existingItem := range registeredCart.Items {
+            if existingItem.ProductID == item.ProductID {
+                existingIndex = i
+                break
+            }
+        }
+        
+        if existingIndex >= 0 {
+            // Merge quantities
+            registeredCart.Items[existingIndex].Quantity += item.Quantity
+        } else {
+            // Add new item
+            registeredCart.Items = append(registeredCart.Items, item)
+        }
+    }
+    
+    // Save merged cart
+    return saveRegisteredCart(registeredCart)
+}
+
+func migratePreferences(anonymousUserID, registeredUserID string) error {
+    anonymousPrefs, err := getAnonymousPreferences(anonymousUserID)
+    if err != nil {
+        return err
+    }
+    
+    registeredPrefs, err := getRegisteredPreferences(registeredUserID)
+    if err != nil {
+        // Create new preferences if doesn't exist
+        registeredPrefs = &RegisteredPreferences{
+            UserID: registeredUserID,
+        }
+    }
+    
+    // Merge preferences (prefer registered user's existing preferences)
+    if registeredPrefs.Theme == "" {
+        registeredPrefs.Theme = anonymousPrefs.Theme
+    }
+    if registeredPrefs.Language == "" {
+        registeredPrefs.Language = anonymousPrefs.Language
+    }
+    if registeredPrefs.Currency == "" {
+        registeredPrefs.Currency = anonymousPrefs.Currency
+    }
+    
+    return saveRegisteredPreferences(registeredPrefs)
+}
+
+func migrateActivityLogs(anonymousUserID, registeredUserID string) error {
+    logs, err := getAnonymousActivityLogs(anonymousUserID)
+    if err != nil {
+        return err
+    }
+    
+    // Convert anonymous logs to registered user logs
+    for _, log := range logs {
+        registeredLog := RegisteredActivityLog{
+            UserID:    registeredUserID,
+            Action:    log.Action,
+            Details:   log.Details,
+            Timestamp: log.Timestamp,
+            Metadata: map[string]interface{}{
+                "migrated_from_anonymous": true,
+                "original_anonymous_id":   anonymousUserID,
+            },
+        }
+        
+        if err := saveRegisteredActivityLog(&registeredLog); err != nil {
+            log.Printf("Failed to save activity log: %v", err)
+        }
+    }
+    
+    return nil
+}
+
+func migrateWishlist(anonymousUserID, registeredUserID string) error {
+    anonymousWishlist, err := getAnonymousWishlist(anonymousUserID)
+    if err != nil {
+        return err
+    }
+    
+    registeredWishlist, err := getRegisteredWishlist(registeredUserID)
+    if err != nil {
+        registeredWishlist = &RegisteredWishlist{
+            UserID: registeredUserID,
+            Items:  []WishlistItem{},
+        }
+    }
+    
+    // Merge wishlist items
+    for _, item := range anonymousWishlist.Items {
+        // Check if item already exists
+        exists := false
+        for _, existingItem := range registeredWishlist.Items {
+            if existingItem.ProductID == item.ProductID {
+                exists = true
+                break
+            }
+        }
+        
+        if !exists {
+            registeredWishlist.Items = append(registeredWishlist.Items, item)
+        }
+    }
+    
+    return saveRegisteredWishlist(registeredWishlist)
+}
+
+// Data structures
+type AnonymousCart struct {
+    UserID string     `json:"user_id"`
+    Items  []CartItem `json:"items"`
+}
+
+type RegisteredCart struct {
+    UserID string     `json:"user_id"`
+    Items  []CartItem `json:"items"`
+}
+
+type CartItem struct {
+    ProductID string `json:"product_id"`
+    Quantity  int    `json:"quantity"`
+    AddedAt   string `json:"added_at"`
+}
+
+type AnonymousPreferences struct {
+    UserID   string `json:"user_id"`
+    Theme    string `json:"theme"`
+    Language string `json:"language"`
+    Currency string `json:"currency"`
+}
+
+type RegisteredPreferences struct {
+    UserID   string `json:"user_id"`
+    Theme    string `json:"theme"`
+    Language string `json:"language"`
+    Currency string `json:"currency"`
+}
+
+// Placeholder functions - implement based on your data storage
+func getAnonymousCart(userID string) (*AnonymousCart, error) { return nil, nil }
+func getRegisteredCart(userID string) (*RegisteredCart, error) { return nil, nil }
+func saveRegisteredCart(cart *RegisteredCart) error { return nil }
+func getAnonymousPreferences(userID string) (*AnonymousPreferences, error) { return nil, nil }
+func getRegisteredPreferences(userID string) (*RegisteredPreferences, error) { return nil, nil }
+func saveRegisteredPreferences(prefs *RegisteredPreferences) error { return nil }
+func getAnonymousActivityLogs(userID string) ([]AnonymousActivityLog, error) { return nil, nil }
+func saveRegisteredActivityLog(log *RegisteredActivityLog) error { return nil }
+func getAnonymousWishlist(userID string) (*AnonymousWishlist, error) { return nil, nil }
+func getRegisteredWishlist(userID string) (*RegisteredWishlist, error) { return nil, nil }
+func saveRegisteredWishlist(wishlist *RegisteredWishlist) error { return nil }
+```
+
+## Analytics and Tracking
+
+### Anonymous User Analytics
+
+```go
+package main
+
+import (
+    "context"
+    "time"
+    
+    "github.com/xraph/authsome"
+)
+
+type AnonymousAnalytics struct {
+    service *analytics.Service
+}
+
+func NewAnonymousAnalytics(service *analytics.Service) *AnonymousAnalytics {
+    return &AnonymousAnalytics{service: service}
+}
+
+func (a *AnonymousAnalytics) RegisterHooks(auth *authsome.Auth) {
+    // Track anonymous session creation
+    auth.RegisterHook("anonymous.session_created", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        metadata := data["metadata"].(map[string]interface{})
+        
+        event := analytics.Event{
+            Type:      "anonymous_session_created",
+            UserID:    userID,
+            Timestamp: time.Now(),
+            Properties: map[string]interface{}{
+                "source":     metadata["source"],
+                "referrer":   metadata["referrer"],
+                "user_agent": metadata["user_agent"],
+                "ip_address": metadata["ip_address"],
+            },
+        }
+        
+        return a.service.Track(event)
+    })
+    
+    // Track conversion events
+    auth.RegisterHook("anonymous.converted", func(ctx context.Context, data map[string]interface{}) error {
+        anonymousUserID := data["anonymous_user_id"].(string)
+        registeredUserID := data["registered_user_id"].(string)
+        sessionDuration := data["session_duration"].(time.Duration)
+        
+        event := analytics.Event{
+            Type:      "anonymous_user_converted",
+            UserID:    registeredUserID,
+            Timestamp: time.Now(),
+            Properties: map[string]interface{}{
+                "anonymous_user_id":  anonymousUserID,
+                "session_duration":   sessionDuration.Seconds(),
+                "conversion_funnel":  "anonymous_to_registered",
+                "preserved_data":     data["preserve_data"],
+                "migrated_cart_items": data["migrated_cart_items"],
+            },
+        }
+        
+        return a.service.Track(event)
+    })
+    
+    // Track session extensions
+    auth.RegisterHook("anonymous.session_extended", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        originalExpiry := data["original_expiry"].(time.Time)
+        newExpiry := data["new_expiry"].(time.Time)
+        
+        event := analytics.Event{
+            Type:      "anonymous_session_extended",
+            UserID:    userID,
+            Timestamp: time.Now(),
+            Properties: map[string]interface{}{
+                "original_expiry": originalExpiry,
+                "new_expiry":      newExpiry,
+                "extension_days":  newExpiry.Sub(originalExpiry).Hours() / 24,
+            },
+        }
+        
+        return a.service.Track(event)
+    })
+    
+    // Track data exports
+    auth.RegisterHook("anonymous.data_exported", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        dataSize := data["data_size"].(int64)
+        
+        event := analytics.Event{
+            Type:      "anonymous_data_exported",
+            UserID:    userID,
+            Timestamp: time.Now(),
+            Properties: map[string]interface{}{
+                "data_size_bytes": dataSize,
+                "export_format":   "json",
+            },
+        }
+        
+        return a.service.Track(event)
+    })
+}
+
+// Generate analytics reports
+func (a *AnonymousAnalytics) GenerateConversionReport(startDate, endDate time.Time) (*ConversionReport, error) {
+    // Query analytics data
+    anonymousSessions, err := a.service.CountEvents("anonymous_session_created", startDate, endDate)
+    if err != nil {
+        return nil, err
+    }
+    
+    conversions, err := a.service.CountEvents("anonymous_user_converted", startDate, endDate)
+    if err != nil {
+        return nil, err
+    }
+    
+    conversionRate := float64(conversions) / float64(anonymousSessions) * 100
+    
+    return &ConversionReport{
+        Period:            fmt.Sprintf("%s to %s", startDate.Format("2006-01-02"), endDate.Format("2006-01-02")),
+        AnonymousSessions: anonymousSessions,
+        Conversions:       conversions,
+        ConversionRate:    conversionRate,
+    }, nil
+}
+
+type ConversionReport struct {
+    Period            string  `json:"period"`
+    AnonymousSessions int     `json:"anonymous_sessions"`
+    Conversions       int     `json:"conversions"`
+    ConversionRate    float64 `json:"conversion_rate"`
+}
+```
+
+## Security Considerations
+
+<Callout type="warn">
+**Security Best Practices**: Implement proper rate limiting, device fingerprinting, and session validation to prevent abuse of anonymous sessions.
+</Callout>
+
+### Rate Limiting
+
+```go
+// Implement rate limiting for anonymous session creation
+config := &anonymous.Config{
+    RateLimit: anonymous.RateLimitConfig{
+        Enabled:              true,
+        MaxSessionsPerIP:     10,  // Per hour
+        MaxSessionsPerDevice: 3,   // Per device fingerprint
+        Window:               time.Hour,
+    },
+}
+```
+
+### Device Fingerprinting
+
+```go
+// Enhanced device fingerprinting
+func generateDeviceFingerprint(c *forge.Context) string {
+    components := []string{
+        c.Get("User-Agent"),
+        c.Get("Accept-Language"),
+        c.Get("Accept-Encoding"),
+        c.ClientIP(),
+        // Add more components as needed
+    }
+    
+    fingerprint := strings.Join(components, "|")
+    hash := sha256.Sum256([]byte(fingerprint))
+    return hex.EncodeToString(hash[:])
+}
+```
+
+### Session Validation
+
+```go
+// Validate anonymous sessions
+auth.RegisterHook("anonymous.session_validate", func(ctx context.Context, data map[string]interface{}) error {
+    sessionID := data["session_id"].(string)
+    userAgent := data["user_agent"].(string)
+    ipAddress := data["ip_address"].(string)
+    
+    // Validate session hasn't been hijacked
+    if err := validateSessionIntegrity(sessionID, userAgent, ipAddress); err != nil {
+        return fmt.Errorf("session validation failed: %w", err)
+    }
+    
+    return nil
+})
+```
+
+## Troubleshooting
+
+<Tabs items={['Session Issues', 'Conversion Issues', 'Performance Issues']}>
+  <Tab value="Session Issues">
+    ### Anonymous Sessions Not Creating
+    
+    **Problem**: Anonymous sessions failing to create
+    
+    **Solutions**:
+    1. Check rate limiting configuration
+    2. Verify device fingerprinting
+    3. Check database connectivity
+    4. Review error logs
+    
+    ```go
+    // Debug session creation
+    session, err := anonymousAuth.CreateSession(metadata)
+    if err != nil {
+        log.Printf("Session creation error: %v", err)
+    }
+    ```
+    
+    ### Sessions Expiring Too Quickly
+    
+    **Problem**: Anonymous sessions expiring unexpectedly
+    
+    **Solutions**:
+    1. Check session duration configuration
+    2. Verify cookie settings
+    3. Review cleanup intervals
+    4. Check for session conflicts
+  </Tab>
+  <Tab value="Conversion Issues">
+    ### Data Not Migrating
+    
+    **Problem**: Anonymous user data not transferring during conversion
+    
+    **Solutions**:
+    1. Check migration hooks
+    2. Verify data structures
+    3. Review merge strategies
+    4. Check database transactions
+    
+    ```go
+    // Debug data migration
+    result, err := anonymousAuth.ConvertToRegistered(userData)
+    if err != nil {
+        log.Printf("Conversion error: %v", err)
+        log.Printf("Migrated data: %v", result.MigratedData)
+    }
+    ```
+    
+    ### Conversion Failing
+    
+    **Problem**: Anonymous to registered user conversion failing
+    
+    **Solutions**:
+    1. Check email uniqueness constraints
+    2. Verify password requirements
+    3. Review validation rules
+    4. Check for database conflicts
+  </Tab>
+  <Tab value="Performance Issues">
+    ### Slow Anonymous Operations
+    
+    **Problem**: Anonymous user operations are slow
+    
+    **Solutions**:
+    1. Add database indexes
+    2. Implement caching
+    3. Optimize queries
+    4. Review cleanup processes
+    
+    ### Memory Usage Issues
+    
+    **Problem**: High memory usage with anonymous sessions
+    
+    **Solutions**:
+    1. Reduce session duration
+    2. Implement aggressive cleanup
+    3. Optimize data structures
+    4. Use external storage for large data
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Advanced Plugins"
+    description="Explore advanced authentication methods"
+    href="/docs/go/plugins/advanced"
+  />
+  <Card
+    title="Session Management"
+    description="Deep dive into session handling"
+    href="/docs/go/concepts/sessions"
+  />
+  <Card
+    title="User Management"
+    description="Complete user management features"
+    href="/docs/go/guides/user-management"
+  />
+  <Card
+    title="Analytics Integration"
+    description="Track user behavior and conversions"
+    href="/docs/go/guides/analytics"
+  />
+</Cards>

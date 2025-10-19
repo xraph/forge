@@ -64,12 +64,12 @@ func (cs *CronService) Dependencies() []string {
 }
 
 // OnStart starts the cron service
-func (cs *CronService) OnStart(ctx context.Context) error {
+func (cs *CronService) Start(ctx context.Context) error {
 	if cs.logger != nil {
 		cs.logger.Info("starting cron service")
 	}
 
-	if err := cs.manager.OnStart(ctx); err != nil {
+	if err := cs.manager.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-service", err)
 	}
 
@@ -85,12 +85,12 @@ func (cs *CronService) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the cron service
-func (cs *CronService) OnStop(ctx context.Context) error {
+func (cs *CronService) Stop(ctx context.Context) error {
 	if cs.logger != nil {
 		cs.logger.Info("stopping cron service")
 	}
 
-	if err := cs.manager.OnStop(ctx); err != nil {
+	if err := cs.manager.Stop(ctx); err != nil {
 		return common.ErrServiceStopFailed("cron-service", err)
 	}
 

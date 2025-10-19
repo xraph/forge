@@ -168,14 +168,14 @@ func (hc *HybridCache) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// OnStart all tiers
+	// Start all tiers
 	for i, tier := range hc.tiers {
 		if err := tier.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start tier %d: %w", i, err)
 		}
 	}
 
-	// OnStart background optimizer
+	// Start background optimizer
 	if hc.config.AutoOptimize {
 		go hc.runOptimizer()
 	}
@@ -198,10 +198,10 @@ func (hc *HybridCache) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// OnStop optimizer
+	// Stop optimizer
 	close(hc.stopOptimizer)
 
-	// OnStop all tiers
+	// Stop all tiers
 	for i, tier := range hc.tiers {
 		if err := tier.Stop(ctx); err != nil {
 			if hc.logger != nil {

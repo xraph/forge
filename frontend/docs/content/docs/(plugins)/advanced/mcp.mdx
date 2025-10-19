@@ -1,0 +1,785 @@
+---
+title: MCP Plugin
+description: Model Context Protocol integration for AI-powered development workflows
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+
+# MCP Plugin
+
+The **MCP (Model Context Protocol) Plugin** enables AI-powered development workflows by exposing AuthSome functionality through the Model Context Protocol. This allows AI assistants like Claude, GPT-4, and other LLMs to interact with your authentication system programmatically.
+
+<Callout type="info">
+MCP is a protocol that allows AI models to interact with external tools and services in a structured way. AuthSome's MCP plugin exposes authentication operations as MCP tools.
+</Callout>
+
+## Features
+
+- **🤖 AI-Powered User Management**: Create, update, and manage users through natural language
+- **🔐 Authentication Operations**: Sign in, sign out, verify users via AI commands
+- **👥 Organization Management**: Manage organizations and members programmatically
+- **📊 Analytics & Insights**: Query authentication data and generate reports
+- **🔧 Development Workflows**: Automate testing and development tasks
+- **📝 Documentation Generation**: Auto-generate API documentation and guides
+
+## Installation
+
+```go
+import (
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/mcp"
+)
+
+func main() {
+    // Initialize AuthSome
+    auth := authsome.New(authsome.Options{
+        // Your config
+    })
+
+    // Enable MCP plugin
+    mcpPlugin := mcp.NewPlugin(mcp.Config{
+        Enabled: true,
+        
+        // Authentication for MCP requests
+        SecretKey: "your-secret-key",
+        
+        // Allowed operations
+        AllowedOperations: []string{
+            "user.create",
+            "user.list",
+            "org.create",
+            "session.verify",
+        },
+        
+        // Rate limiting for AI requests
+        RateLimit: mcp.RateLimitConfig{
+            RequestsPerMinute: 60,
+            BurstSize:         10,
+        },
+        
+        // Audit logging
+        AuditLog: true,
+    })
+
+    auth.Use(mcpPlugin)
+}
+```
+
+## Configuration
+
+### Basic Configuration
+
+```yaml
+# authsome.yaml
+plugins:
+  mcp:
+    enabled: true
+    secretKey: ${MCP_SECRET_KEY}
+    endpoint: "/api/mcp"
+    
+    # Security
+    allowedOrigins:
+      - "https://claude.ai"
+      - "https://chat.openai.com"
+    
+    # Operations
+    allowedOperations:
+      - "user.*"
+      - "org.*"
+      - "session.verify"
+    
+    # Rate limiting
+    rateLimit:
+      requestsPerMinute: 60
+      burstSize: 10
+```
+
+### Advanced Configuration
+
+```yaml
+plugins:
+  mcp:
+    enabled: true
+    
+    # Multi-tenant support
+    scopeToOrganization: true
+    
+    # Permission model
+    requirePermissions: true
+    permissions:
+      user.create: ["admin", "user_manager"]
+      user.delete: ["admin"]
+      org.create: ["super_admin"]
+    
+    # Response formatting
+    responseFormat: "json" # or "markdown", "yaml"
+    
+    # Logging
+    auditLog: true
+    logLevel: "info"
+    
+    # Webhook integration
+    webhooks:
+      onOperation: "https://your-app.com/webhooks/mcp"
+      events: ["user.created", "session.verified"]
+```
+
+## Usage with AI Assistants
+
+### Claude Integration
+
+Configure Claude to use AuthSome MCP plugin:
+
+```json
+// claude_desktop_config.json
+{
+  "mcpServers": {
+    "authsome": {
+      "command": "authsome",
+      "args": ["mcp"],
+      "env": {
+        "AUTHSOME_URL": "https://your-app.com",
+        "AUTHSOME_SECRET_KEY": "your-secret-key"
+      }
+    }
+  }
+}
+```
+
+Example Claude conversation:
+```
+You: Create a new user with email john@example.com
+Claude: I'll create a new user for you.
+
+[Calls MCP tool: user.create]
+
+User created successfully:
+- ID: usr_abc123
+- Email: john@example.com
+- Created: 2024-10-17T10:30:00Z
+```
+
+### Cursor AI Integration
+
+Add to your Cursor AI project:
+
+```json
+// .cursorrules
+{
+  "mcp": {
+    "authsome": {
+      "enabled": true,
+      "endpoint": "http://localhost:8080/api/mcp",
+      "secretKey": "${AUTHSOME_SECRET_KEY}"
+    }
+  }
+}
+```
+
+### Custom AI Integration
+
+Use the MCP protocol directly:
+
+```typescript
+// Your AI integration
+import { MCPClient } from '@modelcontextprotocol/sdk'
+
+const client = new MCPClient({
+  serverUrl: 'http://localhost:8080/api/mcp',
+  auth: {
+    type: 'bearer',
+    token: process.env.AUTHSOME_SECRET_KEY
+  }
+})
+
+// List available tools
+const tools = await client.listTools()
+
+// Call a tool
+const result = await client.callTool('user.create', {
+  email: 'john@example.com',
+  name: 'John Doe',
+  password: 'secure-password'
+})
+```
+
+## Available Tools
+
+### User Management
+
+#### user.create
+Create a new user account.
+
+**Parameters:**
+```typescript
+{
+  email: string
+  name?: string
+  password?: string
+  emailVerified?: boolean
+  metadata?: Record<string, any>
+}
+```
+
+**Returns:**
+```typescript
+{
+  user: {
+    id: string
+    email: string
+    name: string
+    createdAt: string
+  }
+}
+```
+
+#### user.list
+List all users with optional filtering.
+
+**Parameters:**
+```typescript
+{
+  limit?: number
+  offset?: number
+  filter?: {
+    emailVerified?: boolean
+    createdAfter?: string
+    organizationId?: string
+  }
+}
+```
+
+#### user.update
+Update user information.
+
+**Parameters:**
+```typescript
+{
+  userId: string
+  updates: {
+    name?: string
+    email?: string
+    metadata?: Record<string, any>
+  }
+}
+```
+
+#### user.delete
+Delete a user account.
+
+**Parameters:**
+```typescript
+{
+  userId: string
+  hardDelete?: boolean  // Default: false (soft delete)
+}
+```
+
+### Authentication
+
+#### session.verify
+Verify a session token.
+
+**Parameters:**
+```typescript
+{
+  token: string
+}
+```
+
+**Returns:**
+```typescript
+{
+  valid: boolean
+  session?: {
+    id: string
+    userId: string
+    expiresAt: string
+  }
+  user?: {
+    id: string
+    email: string
+    name: string
+  }
+}
+```
+
+#### session.create
+Create a new session (sign in user).
+
+**Parameters:**
+```typescript
+{
+  email: string
+  password: string
+  remember?: boolean
+}
+```
+
+#### session.revoke
+Revoke a session (sign out).
+
+**Parameters:**
+```typescript
+{
+  sessionId: string
+}
+```
+
+### Organization Management
+
+#### org.create
+Create a new organization.
+
+**Parameters:**
+```typescript
+{
+  name: string
+  slug: string
+  metadata?: Record<string, any>
+}
+```
+
+#### org.addMember
+Add a user to an organization.
+
+**Parameters:**
+```typescript
+{
+  organizationId: string
+  userId: string
+  role: 'admin' | 'member' | 'owner'
+}
+```
+
+#### org.list
+List all organizations.
+
+**Parameters:**
+```typescript
+{
+  limit?: number
+  offset?: number
+}
+```
+
+### Analytics
+
+#### analytics.users
+Get user statistics.
+
+**Returns:**
+```typescript
+{
+  total: number
+  verified: number
+  unverified: number
+  createdToday: number
+  activeThisWeek: number
+}
+```
+
+#### analytics.sessions
+Get session statistics.
+
+**Returns:**
+```typescript
+{
+  activeSessions: number
+  totalSessions: number
+  averageDuration: number
+}
+```
+
+## Security
+
+### Authentication
+
+All MCP requests require authentication:
+
+```http
+POST /api/mcp
+Authorization: Bearer your-secret-key
+Content-Type: application/json
+
+{
+  "tool": "user.create",
+  "parameters": {
+    "email": "john@example.com"
+  }
+}
+```
+
+### Rate Limiting
+
+Protect against abuse with rate limiting:
+
+```go
+mcp.Config{
+    RateLimit: mcp.RateLimitConfig{
+        RequestsPerMinute: 60,
+        BurstSize:         10,
+        ByIP:              true,
+        ByAPIKey:          true,
+    },
+}
+```
+
+### Permissions
+
+Restrict operations based on permissions:
+
+```go
+mcp.Config{
+    RequirePermissions: true,
+    Permissions: map[string][]string{
+        "user.create":     {"admin", "user_manager"},
+        "user.delete":     {"admin"},
+        "org.create":      {"super_admin"},
+        "analytics.*":     {"admin", "analyst"},
+    },
+}
+```
+
+### Audit Logging
+
+All MCP operations are logged:
+
+```go
+mcp.Config{
+    AuditLog: true,
+    LogFormat: "json",
+    LogFields: []string{
+        "tool",
+        "parameters",
+        "user_id",
+        "ip_address",
+        "timestamp",
+        "duration",
+        "error",
+    },
+}
+```
+
+Log output:
+```json
+{
+  "timestamp": "2024-10-17T10:30:00Z",
+  "tool": "user.create",
+  "parameters": {
+    "email": "john@example.com"
+  },
+  "user_id": "usr_abc123",
+  "ip_address": "192.168.1.100",
+  "duration": 45,
+  "success": true
+}
+```
+
+## Development Workflows
+
+### Automated Testing
+
+Use MCP to automate test data generation:
+
+```typescript
+// test-setup.ts
+import { MCPClient } from '@modelcontextprotocol/sdk'
+
+const mcp = new MCPClient({
+  serverUrl: 'http://localhost:8080/api/mcp',
+  auth: { token: process.env.TEST_SECRET_KEY }
+})
+
+// Generate test users
+async function setupTestData() {
+  for (let i = 0; i < 100; i++) {
+    await mcp.callTool('user.create', {
+      email: `test${i}@example.com`,
+      name: `Test User ${i}`,
+      emailVerified: true
+    })
+  }
+  
+  // Create test organizations
+  await mcp.callTool('org.create', {
+    name: 'Test Organization',
+    slug: 'test-org'
+  })
+}
+```
+
+### AI-Assisted Debugging
+
+Let AI help debug authentication issues:
+
+```
+You: Why can't user john@example.com sign in?
+
+AI: Let me check the user's status.
+[Calls: user.find email=john@example.com]
+
+The user exists but:
+- Email is not verified
+- Account created 2 hours ago
+- No password set (might be OAuth only)
+
+Would you like me to:
+1. Verify their email?
+2. Send a password reset link?
+3. Check their OAuth connections?
+```
+
+### Documentation Generation
+
+Auto-generate API documentation:
+
+```
+You: Document all authentication endpoints
+
+AI: [Analyzes AuthSome schema via MCP]
+
+I'll generate comprehensive API documentation for:
+- POST /auth/signin
+- POST /auth/signup
+- POST /auth/signout
+- GET /auth/session
+...
+
+[Generates markdown documentation]
+```
+
+## Examples
+
+### Complete Integration Example
+
+<Tabs>
+<Tab value="go" title="Go">
+```go
+package main
+
+import (
+    "context"
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/mcp"
+)
+
+func main() {
+    // Initialize AuthSome
+    auth := authsome.New(authsome.Options{
+        Config: "./authsome.yaml",
+    })
+
+    // Configure MCP plugin
+    mcpPlugin := mcp.NewPlugin(mcp.Config{
+        Enabled:   true,
+        SecretKey: getEnv("MCP_SECRET_KEY"),
+        
+        // Allow specific operations
+        AllowedOperations: []string{
+            "user.create",
+            "user.list",
+            "user.update",
+            "session.verify",
+            "analytics.users",
+        },
+        
+        // Rate limiting
+        RateLimit: mcp.RateLimitConfig{
+            RequestsPerMinute: 100,
+            BurstSize:         20,
+        },
+        
+        // Audit
+        AuditLog:  true,
+        LogLevel:  "info",
+        
+        // Webhooks
+        Webhooks: mcp.WebhookConfig{
+            OnOperation: "https://your-app.com/webhooks/mcp",
+            Events:      []string{"user.created", "session.verified"},
+        },
+    })
+
+    auth.Use(mcpPlugin)
+
+    // Start server
+    log.Fatal(auth.Listen(":8080"))
+}
+```
+</Tab>
+
+<Tab value="typescript" title="TypeScript Client">
+```typescript
+import { MCPClient } from '@modelcontextprotocol/sdk'
+
+const mcp = new MCPClient({
+  serverUrl: 'http://localhost:8080/api/mcp',
+  auth: {
+    type: 'bearer',
+    token: process.env.AUTHSOME_SECRET_KEY
+  }
+})
+
+// Create user
+const user = await mcp.callTool('user.create', {
+  email: 'john@example.com',
+  name: 'John Doe',
+  password: 'secure-password'
+})
+
+console.log('User created:', user)
+
+// List users
+const users = await mcp.callTool('user.list', {
+  limit: 10,
+  filter: {
+    emailVerified: true
+  }
+})
+
+console.log('Users:', users)
+
+// Get analytics
+const stats = await mcp.callTool('analytics.users')
+console.log('User stats:', stats)
+```
+</Tab>
+
+<Tab value="python" title="Python Client">
+```python
+from mcp_client import MCPClient
+
+client = MCPClient(
+    server_url='http://localhost:8080/api/mcp',
+    auth_token=os.getenv('AUTHSOME_SECRET_KEY')
+)
+
+# Create user
+user = client.call_tool('user.create', {
+    'email': 'john@example.com',
+    'name': 'John Doe',
+    'password': 'secure-password'
+})
+
+print(f'User created: {user}')
+
+# Verify session
+session = client.call_tool('session.verify', {
+    'token': 'session-token-here'
+})
+
+print(f'Session valid: {session["valid"]}')
+```
+</Tab>
+</Tabs>
+
+## Best Practices
+
+### 1. Secure Your Secret Key
+
+```bash
+# Generate a strong secret key
+openssl rand -hex 32
+
+# Store in environment variable
+export AUTHSOME_MCP_SECRET_KEY=your-generated-key
+```
+
+### 2. Limit Operations
+
+Only enable operations you need:
+
+```go
+AllowedOperations: []string{
+    "user.list",      // Read-only
+    "analytics.*",    // Analytics only
+    // Don't enable user.delete in production
+}
+```
+
+### 3. Monitor Usage
+
+Track MCP usage:
+
+```go
+mcp.Config{
+    Metrics: true,
+    MetricsEndpoint: "/metrics",
+}
+```
+
+### 4. Use Webhooks
+
+Get notified of MCP operations:
+
+```go
+mcp.Config{
+    Webhooks: mcp.WebhookConfig{
+        OnOperation: "https://your-app.com/webhooks/mcp",
+        Events:      []string{"user.created", "user.deleted"},
+        Secret:      "webhook-secret",
+    },
+}
+```
+
+## Troubleshooting
+
+### Authentication Fails
+
+**Problem**: MCP requests return 401 Unauthorized
+
+**Solution**:
+```bash
+# Verify secret key
+echo $AUTHSOME_MCP_SECRET_KEY
+
+# Check configuration
+authsome config validate
+```
+
+### Rate Limit Exceeded
+
+**Problem**: Requests return 429 Too Many Requests
+
+**Solution**:
+```go
+// Increase rate limits
+mcp.Config{
+    RateLimit: mcp.RateLimitConfig{
+        RequestsPerMinute: 200,  // Increase
+        BurstSize:         50,   // Increase
+    },
+}
+```
+
+### Tool Not Found
+
+**Problem**: `tool "user.create" not found`
+
+**Solution**:
+```go
+// Add to allowed operations
+AllowedOperations: []string{
+    "user.create",  // Add this
+},
+```
+
+## Next Steps
+
+<Cards>
+  <Card href="/docs/go/plugins/advanced/webhooks" title="Webhooks" description="Integrate with external services" />
+  <Card href="/docs/go/guides/testing" title="Testing" description="Test your authentication" />
+  <Card href="/docs/go/api" title="API Reference" description="Complete API documentation" />
+</Cards>
+
+## Learn More
+
+- [Model Context Protocol](https://modelcontextprotocol.io)
+- [Claude Desktop Integration](https://claude.ai/docs/mcp)
+- [Custom Tools Guide](/docs/go/advanced/custom-mcp-tools)
+

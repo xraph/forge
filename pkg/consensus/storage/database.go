@@ -11,6 +11,7 @@ import (
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/database"
 	"github.com/xraph/forge/pkg/logger"
+	"gorm.io/gorm"
 )
 
 // DatabaseStorage implements Storage interface using database
@@ -1073,18 +1074,223 @@ func (ds *DatabaseStorage) executeWithRetry(ctx context.Context, fn func() error
 }
 
 func (ds *DatabaseStorage) StoreState(ctx context.Context, state *PersistentState) error {
-	// TODO implement me
-	panic("implement me")
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	if !ds.IsConnected() {
+		return fmt.Errorf("database not connected")
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(ctx, ds.config.QueryTimeout)
+	defer cancel()
+
+	// Serialize state to JSON
+	stateData, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal persistent state: %w", err)
+	}
+
+	// Use transaction for atomicity
+	return ds.db.Transaction(ctx, func(tx interface{}) error {
+		// Use GORM transaction if available
+		if gormTx, ok := tx.(*gorm.DB); ok {
+			// Store in metadata table
+			metadata := map[string]interface{}{
+				"node_id":    state.NodeID,
+				"cluster_id": state.ClusterID,
+				"state_data": string(stateData),
+				"updated_at": state.UpdatedAt,
+			}
+
+			// Upsert operation
+			result := gormTx.Table(ds.config.MetadataTableName).
+				Where("node_id = ? AND cluster_id = ?", state.NodeID, state.ClusterID).
+				Assign(metadata).
+				FirstOrCreate(&metadata)
+
+			if result.Error != nil {
+				return fmt.Errorf("failed to store persistent state: %w", result.Error)
+			}
+
+			// Update stats
+			ds.stats.StoreCount++
+			ds.stats.LastStore = time.Now()
+
+			if ds.metrics != nil {
+				ds.metrics.Counter("forge.consensus.storage.store_operations").Inc()
+			}
+
+			return nil
+		}
+
+		// Fallback to raw SQL if GORM not available
+		query := fmt.Sprintf(`
+			INSERT INTO %s (node_id, cluster_id, state_data, updated_at) 
+			VALUES (?, ?, ?, ?) 
+			ON CONFLICT (node_id, cluster_id) 
+			DO UPDATE SET state_data = EXCLUDED.state_data, updated_at = EXCLUDED.updated_at`,
+			ds.config.MetadataTableName)
+
+		_, err := ds.db.DB().(*sql.DB).ExecContext(ctx, query,
+			state.NodeID, state.ClusterID, string(stateData), state.UpdatedAt)
+		if err != nil {
+			return fmt.Errorf("failed to store persistent state: %w", err)
+		}
+
+		// Update stats
+		ds.stats.StoreCount++
+		ds.stats.LastStore = time.Now()
+
+		if ds.metrics != nil {
+			ds.metrics.Counter("forge.consensus.storage.store_operations").Inc()
+		}
+
+		return nil
+	})
 }
 
 func (ds *DatabaseStorage) LoadState(ctx context.Context) (*PersistentState, error) {
-	// TODO implement me
-	panic("implement me")
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+
+	if !ds.IsConnected() {
+		return nil, fmt.Errorf("database not connected")
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(ctx, ds.config.QueryTimeout)
+	defer cancel()
+
+	var stateData string
+	var nodeID, clusterID string
+	var updatedAt time.Time
+
+	// Use transaction for consistency
+	err := ds.db.Transaction(ctx, func(tx interface{}) error {
+		// Use GORM transaction if available
+		if gormTx, ok := tx.(*gorm.DB); ok {
+			var result struct {
+				NodeID    string    `gorm:"column:node_id"`
+				ClusterID string    `gorm:"column:cluster_id"`
+				StateData string    `gorm:"column:state_data"`
+				UpdatedAt time.Time `gorm:"column:updated_at"`
+			}
+
+			query := gormTx.Table(ds.config.MetadataTableName).
+				Select("node_id, cluster_id, state_data, updated_at").
+				Order("updated_at DESC").
+				Limit(1)
+
+			if err := query.First(&result).Error; err != nil {
+				if err == gorm.ErrRecordNotFound {
+					return fmt.Errorf("no persistent state found")
+				}
+				return fmt.Errorf("failed to load persistent state: %w", err)
+			}
+
+			stateData = result.StateData
+			nodeID = result.NodeID
+			clusterID = result.ClusterID
+			updatedAt = result.UpdatedAt
+
+			return nil
+		}
+
+		// Fallback to raw SQL if GORM not available
+		query := fmt.Sprintf(`
+			SELECT node_id, cluster_id, state_data, updated_at 
+			FROM %s 
+			ORDER BY updated_at DESC 
+			LIMIT 1`,
+			ds.config.MetadataTableName)
+
+		row := ds.db.DB().(*sql.DB).QueryRowContext(ctx, query)
+		err := row.Scan(&nodeID, &clusterID, &stateData, &updatedAt)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("no persistent state found")
+			}
+			return fmt.Errorf("failed to load persistent state: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Deserialize state from JSON
+	var state PersistentState
+	if err := json.Unmarshal([]byte(stateData), &state); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal persistent state: %w", err)
+	}
+
+	// Update stats
+	ds.stats.LoadCount++
+	ds.stats.LastLoad = time.Now()
+
+	if ds.metrics != nil {
+		ds.metrics.Counter("forge.consensus.storage.load_operations").Inc()
+	}
+
+	return &state, nil
 }
 
 func (ds *DatabaseStorage) HealthCheck(ctx context.Context) error {
-	// TODO implement me
-	panic("implement me")
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+
+	// Create context with timeout for health check
+	ctx, cancel := context.WithTimeout(ctx, ds.config.ConnectionTimeout)
+	defer cancel()
+
+	// Check if database is connected
+	if !ds.IsConnected() {
+		return fmt.Errorf("database storage not connected")
+	}
+
+	// Ping the database to verify connectivity
+	if err := ds.db.Ping(ctx); err != nil {
+		return fmt.Errorf("database ping failed: %w", err)
+	}
+
+	// Check if we can perform a simple query
+	ctx, queryCancel := context.WithTimeout(ctx, ds.config.QueryTimeout)
+	defer queryCancel()
+
+	// Test query to verify database is responsive
+	testQuery := fmt.Sprintf("SELECT 1 FROM %s LIMIT 1", ds.config.TableName)
+	row := ds.db.DB().(*sql.DB).QueryRowContext(ctx, testQuery)
+	var result int
+	if err := row.Scan(&result); err != nil {
+		// If the table doesn't exist yet, that's okay for health check
+		if err != sql.ErrNoRows {
+			// Log the error but don't fail health check for missing table
+			if ds.logger != nil {
+				ds.logger.Warn("health check table query failed",
+					logger.String("table", ds.config.TableName),
+					logger.Error(err))
+			}
+		}
+	}
+
+	// Update health check stats
+	ds.stats.HealthCheckCount++
+	ds.stats.LastHealthCheck = time.Now()
+
+	if ds.metrics != nil {
+		ds.metrics.Counter("forge.consensus.storage.health_checks").Inc()
+		ds.metrics.Gauge("forge.consensus.storage.health_status").Set(1) // 1 = healthy
+	}
+
+	return nil
+}
+
+// IsConnected checks if the database connection is active
+func (ds *DatabaseStorage) IsConnected() bool {
+	return ds.db != nil && ds.db.IsConnected()
 }
 
 // isRetryableError checks if an error is retryable

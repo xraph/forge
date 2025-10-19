@@ -139,7 +139,7 @@ func (hc *HealthChecker) Dependencies() []string {
 }
 
 // OnStart starts the health checker service
-func (hc *HealthChecker) OnStart(ctx context.Context) error {
+func (hc *HealthChecker) Start(ctx context.Context) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 
@@ -155,7 +155,7 @@ func (hc *HealthChecker) OnStart(ctx context.Context) error {
 		hc.autoDiscoverServices()
 	}
 
-	// OnStart background routines
+	// Start background routines
 	go hc.checkLoop(ctx)
 	go hc.reportLoop(ctx)
 	go hc.resultProcessor(ctx)
@@ -178,7 +178,7 @@ func (hc *HealthChecker) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the health checker service
-func (hc *HealthChecker) OnStop(ctx context.Context) error {
+func (hc *HealthChecker) Stop(ctx context.Context) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 

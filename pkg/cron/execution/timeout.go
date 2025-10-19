@@ -234,17 +234,17 @@ func (tm *TimeoutManager) Start(ctx context.Context) error {
 		)
 	}
 
-	// OnStart timeout workers
+	// Start timeout workers
 	for i := 0; i < tm.config.WorkerCount; i++ {
 		tm.wg.Add(1)
 		go tm.timeoutWorker(ctx, i)
 	}
 
-	// OnStart timeout checker
+	// Start timeout checker
 	tm.wg.Add(1)
 	go tm.timeoutChecker(ctx)
 
-	// OnStart cleanup worker
+	// Start cleanup worker
 	tm.wg.Add(1)
 	go tm.cleanupWorker(ctx)
 
@@ -388,7 +388,7 @@ func (tm *TimeoutManager) CancelTimeout(executionID string) error {
 		return common.ErrServiceNotFound(executionID)
 	}
 
-	// OnStop timers
+	// Stop timers
 	if timeoutContext.Timer != nil {
 		timeoutContext.Timer.Stop()
 	}
@@ -456,7 +456,7 @@ func (tm *TimeoutManager) CompleteTimeout(executionID string) error {
 
 	elapsed := time.Since(timeoutContext.StartTime)
 
-	// OnStop timers
+	// Stop timers
 	if timeoutContext.Timer != nil {
 		timeoutContext.Timer.Stop()
 	}
@@ -555,7 +555,7 @@ func (tm *TimeoutManager) processTimeout(timeoutContext *TimeoutContext) {
 		timeoutContext.CancelFunc()
 	}
 
-	// OnStart grace period if enabled
+	// Start grace period if enabled
 	if tm.config.EnableGracefulStop && timeoutContext.GracePeriod > 0 {
 		timeoutContext.Status = TimeoutStatusGrace
 		timeoutContext.GraceTimer = time.NewTimer(timeoutContext.GracePeriod)

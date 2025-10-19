@@ -163,7 +163,7 @@ func (r *Runner) setupMetrics() error {
 func (r *Runner) gracefulShutdown(ctx context.Context) error {
 	// Stop the container if it's a service
 	if service, ok := r.app.Container().(common.Service); ok {
-		return service.OnStop(ctx)
+		return service.Stop(ctx)
 	}
 
 	return nil

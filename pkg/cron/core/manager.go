@@ -14,10 +14,10 @@ type Manager interface {
 	Dependencies() []string
 
 	// OnStart initializes the manager or a specific component, allowing it to prepare for operation within the given context.
-	OnStart(ctx context.Context) error
+	Start(ctx context.Context) error
 
 	// OnStop is called to stop the manager gracefully, releasing any resources. Returns an error if the stop process fails.
-	OnStop(ctx context.Context) error
+	Stop(ctx context.Context) error
 
 	// OnHealthCheck performs a health check on the cron manager and returns an error if any issues are detected.
 	OnHealthCheck(ctx context.Context) error

@@ -35,7 +35,7 @@ type Forge interface {
 	StreamingManager() streaming.StreamingManager
 
 	// CacheManager returns the cache manager responsible for managing multiple cache backends and operations.
-	CacheManager() *cache.CacheManager
+	CacheManager() cache.CacheManager
 
 	// CacheService returns the cache service responsible for integrating cache management with the DI container.
 	CacheService() *cache.CacheService

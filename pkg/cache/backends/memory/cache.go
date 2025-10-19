@@ -130,7 +130,7 @@ func NewMemoryCache(name string, config *cachecore.MemoryConfig, l common.Logger
 		cache.stats.shardStats[i] = &ShardStats{ID: i}
 	}
 
-	// OnStart background cleanup if TTL is enabled
+	// Start background cleanup if TTL is enabled
 	if config.EnableTTL {
 		cache.startCleanup()
 	}

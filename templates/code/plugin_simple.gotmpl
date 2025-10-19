@@ -1,0 +1,239 @@
+package {{.Package}}
+
+import (
+	"context"
+
+	"github.com/xraph/forge/pkg/common"
+	{{- if .Services}}
+	{{- range .Services}}
+	"{{$.ProjectName}}/internal/services/{{. | toLower}}"
+	{{- end}}
+	{{- end}}
+	{{- if .Controllers}}
+	{{- range .Controllers}}
+	"{{$.ProjectName}}/internal/controllers/{{. | toLower}}"
+	{{- end}}
+	{{- end}}
+)
+
+// {{.Name}}Plugin implements the common.Plugin interface
+// {{.Description}}
+type {{.Name}}Plugin struct {
+	{{- if .ConfigSchema}}
+	config      *{{.Name}}Config
+	{{- end}}
+
+	// Plugin dependencies
+	logger    common.Logger
+	container common.Container
+	app       common.Application
+	{{- if .HealthCheck}}
+	healthy   bool
+	{{- end}}
+}
+
+{{- if .ConfigSchema}}
+// {{.Name}}Config represents the configuration for {{.Name}} plugin
+type {{.Name}}Config struct {
+	Enabled     bool              `json:"enabled" yaml:"enabled" default:"true"`
+	Debug       bool              `json:"debug" yaml:"debug" default:"false"`
+	// TODO: Add your configuration fields here
+}
+{{- end}}
+
+// New{{.Name}}Plugin creates a new {{.Name}} plugin instance
+func New{{.Name}}Plugin() *{{.Name}}Plugin {
+	return &{{.Name}}Plugin{
+		{{- if .HealthCheck}}
+		healthy: false,
+		{{- end}}
+	}
+}
+
+// =============================================================================
+// Plugin interface implementation
+// =============================================================================
+
+func (p *{{.Name}}Plugin) Name() string {
+	return "{{.Name}}"
+}
+
+func (p *{{.Name}}Plugin) Version() string {
+	return "{{.Version | default "1.0.0"}}"
+}
+
+// =============================================================================
+// Lifecycle methods
+// =============================================================================
+
+func (p *{{.Name}}Plugin) OnStart(ctx context.Context, app common.Application) error {
+	p.app = app
+	p.container = app.Container()
+	
+	if p.container != nil {
+		if logger, err := p.container.Resolve((*common.Logger)(nil)); err == nil {
+			p.logger = logger.(common.Logger)
+		}
+	}
+
+	if p.logger != nil {
+		p.logger.Info("starting {{.Name}} plugin")
+	}
+
+	{{- if .ConfigSchema}}
+	// Load configuration if available
+	// TODO: Load from config manager
+	{{- end}}
+
+	{{- if .HealthCheck}}
+	p.healthy = true
+	{{- end}}
+
+	// TODO: Add your startup logic here
+
+	return nil
+}
+
+func (p *{{.Name}}Plugin) OnStop(ctx context.Context) error {
+	if p.logger != nil {
+		p.logger.Info("stopping {{.Name}} plugin")
+	}
+
+	// TODO: Add your shutdown logic here
+
+	{{- if .HealthCheck}}
+	p.healthy = false
+	{{- end}}
+
+	return nil
+}
+
+// =============================================================================
+// Components
+// =============================================================================
+
+func (p *{{.Name}}Plugin) Middleware() []any {
+	middleware := []any{}
+
+	{{- if .Middleware}}
+	{{- range .Middleware}}
+	// middleware = append(middleware, New{{. | title}}Middleware())
+	{{- end}}
+	{{- end}}
+
+	// TODO: Add your middleware here
+
+	return middleware
+}
+
+func (p *{{.Name}}Plugin) Routes(router common.Router) error {
+	{{- if .Routes}}
+	{{- range .Routes}}
+	// router.GET("/{{$.Name | toLower}}/{{. | toLower}}", p.Handle{{. | title}})
+	{{- end}}
+	{{- end}}
+
+	// TODO: Configure your routes here
+
+	return nil
+}
+
+func (p *{{.Name}}Plugin) Services() []common.ServiceDefinition {
+	services := []common.ServiceDefinition{}
+
+	{{- if .Services}}
+	{{- range .Services}}
+	services = append(services, common.ServiceDefinition{
+		Name: "{{. | toLower}}-service",
+		Type: (*{{. | toLower}}.{{.}}Service)(nil),
+		Constructor: func(logger common.Logger) {{. | toLower}}.{{.}}Service {
+			return {{. | toLower}}.New{{.}}Service(logger)
+		},
+		Singleton:    true,
+		Dependencies: []string{"logger"},
+	})
+	{{- end}}
+	{{- end}}
+
+	// TODO: Add your service definitions here
+
+	return services
+}
+
+func (p *{{.Name}}Plugin) Controllers() []common.Controller {
+	controllers := []common.Controller{}
+
+	{{- if .Controllers}}
+	{{- range .Controllers}}
+	// controllers = append(controllers, {{. | toLower}}.New{{.}}Controller())
+	{{- end}}
+	{{- end}}
+
+	// TODO: Add your controllers here
+
+	return controllers
+}
+
+// =============================================================================
+// Health Check
+// =============================================================================
+
+{{- if .HealthCheck}}
+func (p *{{.Name}}Plugin) HealthCheck(ctx context.Context) error {
+	if !p.healthy {
+		return fmt.Errorf("{{.Name}} plugin is not healthy")
+	}
+
+	// TODO: Add your health check logic here
+
+	return nil
+}
+{{- else}}
+func (p *{{.Name}}Plugin) HealthCheck(ctx context.Context) error {
+	// TODO: Add your health check logic here
+	return nil
+}
+{{- end}}
+
+// =============================================================================
+// Plugin-specific methods
+// =============================================================================
+
+// Process is the main processing method for the plugin
+func (p *{{.Name}}Plugin) Process(ctx context.Context, data interface{}) (interface{}, error) {
+	if p.logger != nil {
+		p.logger.Debug("processing data in {{.Name}} plugin")
+	}
+
+	{{- if .ConfigSchema}}
+	// Check if plugin is enabled
+	if p.config != nil && !p.config.Enabled {
+		return data, nil // Pass through without processing
+	}
+	{{- end}}
+
+	// TODO: Implement your main plugin processing logic here
+
+	return data, nil
+}
+
+// =============================================================================
+// Helper methods
+// =============================================================================
+
+{{- if .ConfigSchema}}
+func (p *{{.Name}}Plugin) isEnabled() bool {
+	if p.config == nil {
+		return true // Default to enabled
+	}
+	return p.config.Enabled
+}
+
+func (p *{{.Name}}Plugin) isDebugMode() bool {
+	if p.config == nil {
+		return false
+	}
+	return p.config.Debug
+}
+{{- end}}
+

@@ -57,15 +57,6 @@ type ManagerConfig struct {
 	ErrorHandler    common.ErrorHandler `yaml:"-" json:"-"`
 }
 
-// ValidationMode defines how validation should be performed
-type ValidationMode string
-
-const (
-	ValidationModeStrict     ValidationMode = "strict"
-	ValidationModePermissive ValidationMode = "permissive"
-	ValidationModeDisabled   ValidationMode = "disabled"
-)
-
 // NewManager creates a new enhanced configuration manager
 func NewManager(config ManagerConfig) common.ConfigManager {
 	if config.WatchInterval == 0 {

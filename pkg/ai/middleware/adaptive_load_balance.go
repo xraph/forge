@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"sort"
 	"sync"
 	"time"
 
@@ -105,7 +104,7 @@ type AdaptiveLoadBalance struct {
 }
 
 // NewAdaptiveLoadBalance creates a new adaptive load balancing middleware
-func NewAdaptiveLoadBalance(config AdaptiveLoadBalanceConfig, backends []string, logger common.Logger, metrics common.Metrics) (*AdaptiveLoadBalance, error) {
+func NewAdaptiveLoadBalance(config AdaptiveLoadBalanceConfig, backends []string, logger logger.Logger, metrics common.Metrics) (*AdaptiveLoadBalance, error) {
 	// Create load balancing agent
 	capabilities := []ai.Capability{
 		{
@@ -166,11 +165,7 @@ func NewAdaptiveLoadBalance(config AdaptiveLoadBalanceConfig, backends []string,
 			backend.mu.Unlock()
 
 			if logger != nil {
-				logger.Error("backend proxy error",
-					logger.String("backend_id", backend.ID),
-					logger.String("url", backend.URL.String()),
-					logger.Error(err),
-				)
+				logger.Error("backend proxy error: " + err.Error())
 			}
 
 			w.WriteHeader(http.StatusBadGateway)
@@ -239,7 +234,7 @@ func (alb *AdaptiveLoadBalance) Initialize(ctx context.Context, config ai.AIMidd
 		}
 	}
 
-	// OnStart background tasks
+	// Start background tasks
 	if alb.config.HealthCheckEnabled {
 		go alb.healthCheckLoop(ctx)
 	}

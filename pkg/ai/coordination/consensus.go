@@ -57,6 +57,7 @@ type ConsensusProposal struct {
 	Priority  int                    `json:"priority"`
 	Metadata  map[string]interface{} `json:"metadata"`
 	Status    ProposalStatus         `json:"status"`
+	Votes     []Vote                 `json:"votes"`
 }
 
 // ProposalStatus represents the status of a consensus proposal
@@ -67,9 +68,21 @@ const (
 	ProposalStatusActive    ProposalStatus = "active"
 	ProposalStatusAccepted  ProposalStatus = "accepted"
 	ProposalStatusRejected  ProposalStatus = "rejected"
+	ProposalStatusFailed    ProposalStatus = "failed"
 	ProposalStatusTimeout   ProposalStatus = "timeout"
 	ProposalStatusCancelled ProposalStatus = "cancelled"
 )
+
+// Vote represents a vote in the consensus process
+type Vote struct {
+	ParticipantID string                 `json:"participant_id"`
+	Decision      interface{}            `json:"decision"`
+	Vote          bool                   `json:"vote"`
+	Timestamp     time.Time              `json:"timestamp"`
+	Confidence    float64                `json:"confidence"`
+	Signature     string                 `json:"signature,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata"`
+}
 
 // ConsensusResult represents the result of a consensus process
 type ConsensusResult struct {
@@ -82,6 +95,11 @@ type ConsensusResult struct {
 	Duration      time.Duration                    `json:"duration"`
 	Confidence    float64                          `json:"confidence"`
 	Unanimity     bool                             `json:"unanimity"`
+	Accepted      bool                             `json:"accepted"`
+	VoteCount     int                              `json:"vote_count"`
+	YesVotes      int                              `json:"yes_votes"`
+	NoVotes       int                              `json:"no_votes"`
+	Timestamp     time.Time                        `json:"timestamp"`
 	QuorumReached bool                             `json:"quorum_reached"`
 	VoteBreakdown map[string]int                   `json:"vote_breakdown"`
 	Metadata      map[string]interface{}           `json:"metadata"`
@@ -133,8 +151,8 @@ type ConsensusManager struct {
 }
 
 // NewConsensusManager creates a new consensus manager
-func NewConsensusManager(timeout time.Duration, logger common.Logger) ConsensusManager {
-	return &consensusManager{
+func NewConsensusManager(timeout time.Duration, logger common.Logger) *ConsensusManager {
+	return &ConsensusManager{
 		config: ConsensusConfig{
 			Algorithm:       ConsensusAlgorithmMajority,
 			Timeout:         timeout,
@@ -176,7 +194,7 @@ func (cm *consensusManager) Start(ctx context.Context) error {
 		return fmt.Errorf("consensus manager already started")
 	}
 
-	// OnStart background processes
+	// Start background processes
 	go cm.monitorProposals(ctx)
 	go cm.updateStatistics(ctx)
 
@@ -226,7 +244,7 @@ func (cm *consensusManager) RegisterParticipant(id string, weight float64) error
 		Timestamp:  time.Now(),
 		Metadata:   make(map[string]interface{}),
 		Online:     true,
-		Reputation: 1.0, // OnStart with perfect reputation
+		Reputation: 1.0, // Start with perfect reputation
 	}
 
 	cm.participants[id] = participant
@@ -808,4 +826,219 @@ func (cm *consensusManager) SetParticipantOnlineStatus(participantID string, onl
 	}
 
 	return nil
+}
+
+// Start starts the consensus manager
+func (cm *ConsensusManager) Start(ctx context.Context) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if cm.started {
+		return fmt.Errorf("consensus manager already started")
+	}
+
+	// Start background processes
+	go cm.healthMonitor(ctx)
+	go cm.statisticsCollector(ctx)
+
+	cm.started = true
+
+	if cm.logger != nil {
+		cm.logger.Info("consensus manager started",
+			logger.String("algorithm", string(cm.config.Algorithm)),
+			logger.Duration("timeout", cm.config.Timeout),
+			logger.Int("min_participants", cm.config.MinParticipants),
+		)
+	}
+
+	return nil
+}
+
+// Stop stops the consensus manager
+func (cm *ConsensusManager) Stop(ctx context.Context) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if !cm.started {
+		return fmt.Errorf("consensus manager not started")
+	}
+
+	// Cancel all pending proposals
+	for _, proposal := range cm.proposals {
+		if proposal.Status == ProposalStatusPending {
+			proposal.Status = ProposalStatusCancelled
+		}
+	}
+
+	cm.started = false
+
+	if cm.logger != nil {
+		cm.logger.Info("consensus manager stopped")
+	}
+
+	return nil
+}
+
+// ReachConsensus attempts to reach consensus on a decision
+func (cm *ConsensusManager) ReachConsensus(ctx context.Context, decision *CoordinationDecision) error {
+	if decision == nil {
+		return fmt.Errorf("decision cannot be nil")
+	}
+
+	// Create a new proposal
+	proposal := &ConsensusProposal{
+		ID:        generateProposalID(),
+		Type:      "decision",
+		Content:   decision,
+		Proposer:  "system",
+		Timestamp: time.Now(),
+		Status:    ProposalStatusPending,
+		Metadata:  make(map[string]interface{}),
+	}
+
+	// Add proposal to tracking
+	cm.mu.Lock()
+	cm.proposals[proposal.ID] = proposal
+	cm.mu.Unlock()
+
+	// Start consensus process
+	return cm.processConsensus(ctx, proposal)
+}
+
+// processConsensus processes a consensus proposal
+func (cm *ConsensusManager) processConsensus(ctx context.Context, proposal *ConsensusProposal) error {
+	// Get active participants
+	cm.mu.RLock()
+	participants := make([]string, 0)
+	for participantID, participant := range cm.participants {
+		if participant.Online {
+			participants = append(participants, participantID)
+		}
+	}
+	cm.mu.RUnlock()
+
+	// Check if we have enough participants
+	if len(participants) < cm.config.MinParticipants {
+		proposal.Status = ProposalStatusFailed
+		return fmt.Errorf("insufficient participants for consensus: %d < %d", len(participants), cm.config.MinParticipants)
+	}
+
+	// Add participants to proposal metadata
+	proposal.Metadata["participants"] = participants
+
+	// Start voting process
+	ctx, cancel := context.WithTimeout(ctx, cm.config.Timeout)
+	defer cancel()
+
+	// Send decision to all participants
+	for _, participantID := range participants {
+		// In a real implementation, this would send the decision to the participant
+		// For now, we'll simulate the voting process
+		vote := &Vote{
+			ParticipantID: participantID,
+			Decision:      proposal.Content,
+			Vote:          true, // Simplified - always vote yes
+			Timestamp:     time.Now(),
+			Confidence:    1.0,
+		}
+		// Store votes in proposal
+		proposal.Votes = append(proposal.Votes, *vote)
+	}
+
+	// Count votes
+	yesVotes := 0
+	totalVotes := len(proposal.Votes)
+
+	for _, vote := range proposal.Votes {
+		if vote.Vote {
+			yesVotes++
+		}
+	}
+
+	// Determine consensus result
+	if yesVotes >= cm.config.QuorumSize {
+		proposal.Status = ProposalStatusAccepted
+
+		// Create consensus result
+		result := &ConsensusResult{
+			ProposalID:    proposal.ID,
+			Decision:      proposal.Content,
+			Accepted:      true,
+			VoteCount:     totalVotes,
+			YesVotes:      yesVotes,
+			NoVotes:       totalVotes - yesVotes,
+			Timestamp:     time.Now(),
+			QuorumReached: true,
+			VoteBreakdown: make(map[string]int),
+			Metadata:      make(map[string]interface{}),
+		}
+
+		cm.mu.Lock()
+		cm.results[proposal.ID] = result
+		cm.mu.Unlock()
+
+		return nil
+	} else {
+		proposal.Status = ProposalStatusRejected
+		return fmt.Errorf("consensus not reached: %d/%d votes", yesVotes, totalVotes)
+	}
+}
+
+// generateProposalID generates a unique proposal ID
+func generateProposalID() string {
+	return fmt.Sprintf("proposal-%d", time.Now().UnixNano())
+}
+
+// healthMonitor monitors consensus health
+func (cm *ConsensusManager) healthMonitor(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cm.checkHealth()
+		}
+	}
+}
+
+// statisticsCollector collects consensus statistics
+func (cm *ConsensusManager) statisticsCollector(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cm.updateStatistics()
+		}
+	}
+}
+
+// checkHealth checks consensus health
+func (cm *ConsensusManager) checkHealth() {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	// Check participant health
+	for participantID, participant := range cm.participants {
+		if !participant.Online {
+			// Handle offline participant
+			if cm.logger != nil {
+				cm.logger.Warn("participant offline", logger.String("participant_id", participantID))
+			}
+		}
+	}
+}
+
+// updateStatistics updates consensus statistics
+func (cm *ConsensusManager) updateStatistics() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cm.stats.LastUpdated = time.Now()
 }

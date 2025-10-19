@@ -343,7 +343,7 @@ func main() {
 		log.Fatal("Failed to register live data SSE:", err)
 	}
 
-	// OnStart HTTP server
+	// Start HTTP server
 	go func() {
 		if err := app.StartServer(":8080"); err != nil {
 			log.Printf("Failed to start HTTP server: %v", err)

@@ -116,7 +116,7 @@ func (hs *HealthService) Dependencies() []string {
 }
 
 // OnStart starts the health service
-func (hs *HealthService) OnStart(ctx context.Context) error {
+func (hs *HealthService) Start(ctx context.Context) error {
 	if hs.logger != nil {
 		hs.logger.Info("starting health service",
 			logger.Bool("auto_register", hs.serviceConfig.AutoRegister),
@@ -129,8 +129,8 @@ func (hs *HealthService) OnStart(ctx context.Context) error {
 		)
 	}
 
-	// OnStart the health checker
-	if err := hs.checker.OnStart(ctx); err != nil {
+	// Start the health checker
+	if err := hs.checker.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start health checker: %w", err)
 	}
 
@@ -164,13 +164,13 @@ func (hs *HealthService) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the health service
-func (hs *HealthService) OnStop(ctx context.Context) error {
+func (hs *HealthService) Stop(ctx context.Context) error {
 	if hs.logger != nil {
 		hs.logger.Info("stopping health service")
 	}
 
-	// OnStop the health checker
-	if err := hs.checker.OnStop(ctx); err != nil {
+	// Stop the health checker
+	if err := hs.checker.Stop(ctx); err != nil {
 		if hs.logger != nil {
 			hs.logger.Error("failed to stop health checker",
 				logger.Error(err),

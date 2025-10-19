@@ -173,7 +173,7 @@ func (bc *BaseConnection) SetHealthCheckInterval(interval time.Duration) {
 }
 
 // OnStart starts the connection service
-func (bc *BaseConnection) OnStart(ctx context.Context) error {
+func (bc *BaseConnection) Start(ctx context.Context) error {
 	bc.logger.Info("starting database connection",
 		logger.String("name", bc.name),
 		logger.String("type", bc.dbType),
@@ -187,7 +187,7 @@ func (bc *BaseConnection) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed(bc.name, err)
 	}
 
-	// OnStart health check routine
+	// Start health check routine
 	if err := bc.startHealthCheck(); err != nil {
 		return common.ErrServiceStartFailed(bc.name, err)
 	}
@@ -206,13 +206,13 @@ func (bc *BaseConnection) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the connection service
-func (bc *BaseConnection) OnStop(ctx context.Context) error {
+func (bc *BaseConnection) Stop(ctx context.Context) error {
 	bc.logger.Info("stopping database connection",
 		logger.String("name", bc.name),
 		logger.String("type", bc.dbType),
 	)
 
-	// OnStop health check
+	// Stop health check
 	bc.stopHealthCheck()
 
 	// Close database connection

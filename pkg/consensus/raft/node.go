@@ -206,12 +206,12 @@ func (n *Node) Start(ctx context.Context) error {
 		return fmt.Errorf("node already started")
 	}
 
-	// OnStart RPC layer
+	// Start RPC layer
 	if err := n.rpc.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start RPC layer: %w", err)
 	}
 
-	// OnStart state machine
+	// Start state machine
 	if err := n.stateMachine.Apply(ctx, storage.LogEntry{
 		Type:      storage.EntryTypeNoOp,
 		Data:      []byte("start"),
@@ -220,7 +220,7 @@ func (n *Node) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start state machine: %w", err)
 	}
 
-	// OnStart background routines
+	// Start background routines
 	go n.applyLogEntries()
 	go n.runElectionTimer()
 	go n.periodicTasks()
@@ -256,7 +256,7 @@ func (n *Node) Stop(ctx context.Context) error {
 	// Signal stop
 	close(n.stopCh)
 
-	// OnStop timers
+	// Stop timers
 	if n.electionTimer != nil {
 		n.electionTimer.Stop()
 	}
@@ -264,7 +264,7 @@ func (n *Node) Stop(ctx context.Context) error {
 		n.heartbeatTimer.Stop()
 	}
 
-	// OnStop RPC layer
+	// Stop RPC layer
 	if err := n.rpc.Stop(ctx); err != nil {
 		if n.logger != nil {
 			n.logger.Error("failed to stop RPC layer", logger.Error(err))
@@ -883,7 +883,7 @@ func (n *Node) becomeLeader() {
 		n.metrics.Counter("forge.consensus.raft.leader_elections_won").Inc()
 	}
 
-	// OnStart sending heartbeats
+	// Start sending heartbeats
 	go n.sendHeartbeats()
 }
 

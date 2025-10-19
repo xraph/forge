@@ -3,14 +3,13 @@ package agents
 import (
 	"context"
 	"fmt"
-	"net"
 	"reflect"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/xraph/forge/pkg/ai"
-	"github.com/xraph/forge/pkg/common"
+	"github.com/xraph/forge/pkg/ai/core"
 	"github.com/xraph/forge/pkg/logger"
 )
 
@@ -2465,8 +2464,20 @@ func (a *SecurityAgent) calculateMitigationPriority(severity string) int {
 }
 
 // GetStats returns security agent statistics
-func (a *SecurityAgent) GetStats() SecurityStats {
-	return a.securityStats
+func (a *SecurityAgent) GetStats() core.AgentStats {
+	errorRate := 0.0
+	if a.securityStats.TotalThreats > 0 {
+		errorRate = float64(a.securityStats.FalsePositives) / float64(a.securityStats.TotalThreats)
+	}
+	return core.AgentStats{
+		TotalProcessed: a.securityStats.TotalThreats,
+		TotalErrors:    a.securityStats.FalsePositives,
+		ErrorRate:      errorRate,
+		AverageLatency: 0, // Security agent doesn't track latency in the same way
+		LastProcessed:  a.securityStats.LastUpdate,
+		IsActive:       true,
+		Confidence:     a.securityStats.SecurityScore,
+	}
 }
 
 // GetThreatDatabase returns the threat database

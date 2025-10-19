@@ -232,7 +232,7 @@ func (r *DefaultMessageReplayer) ReplayMessages(ctx context.Context, request *Re
 	r.activeReplays[requestID] = activeReplay
 	r.replaysMu.Unlock()
 
-	// OnStart replay in background
+	// Start replay in background
 	go r.executeReplay(replayCtx, activeReplay)
 
 	// Update statistics

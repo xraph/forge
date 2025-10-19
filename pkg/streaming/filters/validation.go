@@ -234,7 +234,7 @@ func (mv *MessageValidator) validateBasic(ctx context.Context, message *streamin
 
 // validateStrict performs strict validation
 func (mv *MessageValidator) validateStrict(ctx context.Context, message *streaming.Message, filterContext *FilterContext) *ValidationResult {
-	// OnStart with basic validation
+	// Start with basic validation
 	result := mv.validateBasic(ctx, message, filterContext)
 
 	// Additional strict validations
@@ -270,7 +270,7 @@ func (mv *MessageValidator) validateStrict(ctx context.Context, message *streami
 
 // validateCustom performs custom rule-based validation
 func (mv *MessageValidator) validateCustom(ctx context.Context, message *streaming.Message, filterContext *FilterContext) *ValidationResult {
-	// OnStart with strict validation
+	// Start with strict validation
 	result := mv.validateStrict(ctx, message, filterContext)
 
 	mv.mu.RLock()

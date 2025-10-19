@@ -251,7 +251,7 @@ func (c *DefaultStreamingCoordinator) Start(ctx context.Context) error {
 		}
 	}
 
-	// OnStart background processes
+	// Start background processes
 	c.startBackgroundProcesses()
 
 	c.running = true
@@ -277,7 +277,7 @@ func (c *DefaultStreamingCoordinator) Stop(ctx context.Context) error {
 		return nil
 	}
 
-	// OnStop background processes
+	// Stop background processes
 	c.stopBackgroundProcesses()
 
 	// Unregister this instance

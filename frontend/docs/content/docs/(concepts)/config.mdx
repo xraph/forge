@@ -1,0 +1,537 @@
+---
+title: Configuration Management
+description: Learn how to manage configuration in Forge Go applications
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Configuration Management
+
+Forge Go provides a powerful configuration management system that supports multiple sources, formats, and advanced features like validation, secrets management, and hot reloading.
+
+## Basic Usage
+
+### Creating a Config Manager
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/pkg/config"
+)
+
+func main() {
+    // Create config manager
+    configManager := config.NewManager(config.ManagerConfig{
+        DefaultSources: []config.SourceConfig{
+            {
+                Type: "file",
+                Path: "config.yaml",
+            },
+            {
+                Type: "env",
+                Prefix: "APP_",
+            },
+        },
+        WatchInterval: 30 * time.Second,
+    })
+
+    // Initialize config
+    if err := configManager.Initialize(); err != nil {
+        log.Fatal(err)
+    }
+
+    app := forge.New(forge.Config{
+        Name: "My App",
+    })
+
+    // Use config in your application
+    app.Use(config.Middleware(configManager))
+
+    log.Fatal(app.Listen(":8080"))
+}
+```
+
+### Basic Configuration Access
+
+```go
+// Get configuration values
+port := configManager.GetString("server.port", "8080")
+host := configManager.GetString("server.host", "localhost")
+debug := configManager.GetBool("debug", false)
+
+// Get nested configuration
+databaseURL := configManager.GetString("database.url")
+maxConnections := configManager.GetInt("database.max_connections", 100)
+```
+
+## Configuration Sources
+
+### File Sources
+
+```go
+// YAML configuration file
+configManager.AddSource(config.NewFileSource(config.FileSourceConfig{
+    Path:     "config.yaml",
+    Format:   "yaml",
+    Required: true,
+}))
+
+// JSON configuration file
+configManager.AddSource(config.NewFileSource(config.FileSourceConfig{
+    Path:     "config.json",
+    Format:   "json",
+    Required: false,
+}))
+
+// TOML configuration file
+configManager.AddSource(config.NewFileSource(config.FileSourceConfig{
+    Path:     "config.toml",
+    Format:   "toml",
+    Required: false,
+}))
+```
+
+### Environment Variables
+
+```go
+// Environment variables with prefix
+configManager.AddSource(config.NewEnvSource(config.EnvSourceConfig{
+    Prefix:    "APP_",
+    Separator: "_",
+    Lowercase: true,
+}))
+
+// This maps:
+// APP_SERVER_PORT -> server.port
+// APP_DATABASE_URL -> database.url
+// APP_DEBUG -> debug
+```
+
+### Multiple Sources
+
+```go
+// Add multiple sources with priority
+configManager.AddSource(config.NewFileSource(config.FileSourceConfig{
+    Path: "config.yaml",
+    Priority: 1, // Highest priority
+}))
+
+configManager.AddSource(config.NewEnvSource(config.EnvSourceConfig{
+    Prefix: "APP_",
+    Priority: 2, // Lower priority
+}))
+
+configManager.AddSource(config.NewFileSource(config.FileSourceConfig{
+    Path: "config.default.yaml",
+    Priority: 3, // Lowest priority
+}))
+```
+
+## Configuration Formats
+
+### YAML Configuration
+
+```yaml
+# config.yaml
+server:
+  host: localhost
+  port: 8080
+  timeout: 30s
+
+database:
+  url: postgres://user:pass@localhost/db
+  max_connections: 100
+  timeout: 10s
+
+logging:
+  level: info
+  format: json
+
+features:
+  enable_metrics: true
+  enable_tracing: false
+```
+
+### JSON Configuration
+
+```json
+{
+  "server": {
+    "host": "localhost",
+    "port": 8080,
+    "timeout": "30s"
+  },
+  "database": {
+    "url": "postgres://user:pass@localhost/db",
+    "max_connections": 100,
+    "timeout": "10s"
+  },
+  "logging": {
+    "level": "info",
+    "format": "json"
+  }
+}
+```
+
+### TOML Configuration
+
+```toml
+[server]
+host = "localhost"
+port = 8080
+timeout = "30s"
+
+[database]
+url = "postgres://user:pass@localhost/db"
+max_connections = 100
+timeout = "10s"
+
+[logging]
+level = "info"
+format = "json"
+```
+
+## Configuration Types
+
+### Basic Types
+
+```go
+// String values
+host := configManager.GetString("server.host", "localhost")
+port := configManager.GetString("server.port", "8080")
+
+// Numeric values
+maxConnections := configManager.GetInt("database.max_connections", 100)
+timeout := configManager.GetDuration("server.timeout", 30*time.Second)
+
+// Boolean values
+debug := configManager.GetBool("debug", false)
+enableMetrics := configManager.GetBool("features.enable_metrics", true)
+
+// Float values
+threshold := configManager.GetFloat64("monitoring.threshold", 0.8)
+```
+
+### Complex Types
+
+```go
+// String slices
+allowedHosts := configManager.GetStringSlice("server.allowed_hosts", []string{"localhost"})
+
+// Integer slices
+ports := configManager.GetIntSlice("server.ports", []int{8080, 8081})
+
+// String maps
+headers := configManager.GetStringMap("server.headers", map[string]string{})
+
+// Interface maps
+settings := configManager.GetStringMapString("app.settings", map[string]string{})
+```
+
+### Struct Binding
+
+```go
+type ServerConfig struct {
+    Host    string        `yaml:"host" json:"host"`
+    Port    int           `yaml:"port" json:"port"`
+    Timeout time.Duration `yaml:"timeout" json:"timeout"`
+}
+
+type DatabaseConfig struct {
+    URL            string `yaml:"url" json:"url"`
+    MaxConnections int    `yaml:"max_connections" json:"max_connections"`
+    Timeout        string `yaml:"timeout" json:"timeout"`
+}
+
+type Config struct {
+    Server   ServerConfig   `yaml:"server" json:"server"`
+    Database DatabaseConfig `yaml:"database" json:"database"`
+    Debug    bool           `yaml:"debug" json:"debug"`
+}
+
+// Bind configuration to struct
+var cfg Config
+if err := configManager.Bind(&cfg); err != nil {
+    log.Fatal(err)
+}
+
+// Use configuration
+fmt.Printf("Server: %s:%d\n", cfg.Server.Host, cfg.Server.Port)
+```
+
+## Configuration Validation
+
+### Basic Validation
+
+```go
+// Validate required keys
+requiredKeys := []string{
+    "server.host",
+    "server.port",
+    "database.url",
+}
+
+if err := configManager.ValidateRequired(requiredKeys); err != nil {
+    log.Fatal("Missing required configuration:", err)
+}
+```
+
+### Custom Validation
+
+```go
+// Custom validation function
+validator := func(key string, value interface{}) error {
+    switch key {
+    case "server.port":
+        port, ok := value.(int)
+        if !ok {
+            return fmt.Errorf("server.port must be an integer")
+        }
+        if port < 1 || port > 65535 {
+            return fmt.Errorf("server.port must be between 1 and 65535")
+        }
+    case "database.url":
+        url, ok := value.(string)
+        if !ok {
+            return fmt.Errorf("database.url must be a string")
+        }
+        if !strings.HasPrefix(url, "postgres://") {
+            return fmt.Errorf("database.url must be a valid PostgreSQL URL")
+        }
+    }
+    return nil
+}
+
+configManager.SetValidator(validator)
+```
+
+### Schema Validation
+
+```go
+// Define configuration schema
+schema := config.Schema{
+    "server": {
+        "host": config.StringSchema{Required: true},
+        "port": config.IntSchema{Required: true, Min: 1, Max: 65535},
+        "timeout": config.DurationSchema{Required: false, Default: "30s"},
+    },
+    "database": {
+        "url": config.StringSchema{Required: true, Pattern: "^postgres://.*"},
+        "max_connections": config.IntSchema{Required: false, Min: 1, Max: 1000, Default: 100},
+    },
+}
+
+// Validate against schema
+if err := configManager.ValidateSchema(schema); err != nil {
+    log.Fatal("Configuration validation failed:", err)
+}
+```
+
+## Secrets Management
+
+### Basic Secrets
+
+```go
+// Enable secrets management
+configManager.EnableSecrets(config.SecretsConfig{
+    Provider: "file",
+    Path:     "secrets.yaml",
+})
+
+// Use secrets in configuration
+databaseURL := configManager.GetSecret("database.url")
+apiKey := configManager.GetSecret("api.key")
+```
+
+### Environment Secrets
+
+```go
+// Use environment variables for secrets
+configManager.EnableSecrets(config.SecretsConfig{
+    Provider: "env",
+    Prefix:   "SECRET_",
+})
+
+// This maps:
+// SECRET_DATABASE_URL -> database.url
+// SECRET_API_KEY -> api.key
+```
+
+### External Secret Providers
+
+```go
+// Use external secret providers
+configManager.EnableSecrets(config.SecretsConfig{
+    Provider: "vault",
+    VaultConfig: config.VaultConfig{
+        Address: "https://vault.example.com",
+        Token:   "your-vault-token",
+        Path:    "secret/myapp",
+    },
+})
+```
+
+## Configuration Watching
+
+### Hot Reload
+
+```go
+// Enable configuration watching
+configManager.EnableWatching(config.WatchConfig{
+    Interval: 30 * time.Second,
+    Callbacks: []config.WatchCallback{
+        func(key string, oldValue, newValue interface{}) {
+            log.Printf("Configuration changed: %s = %v -> %v", key, oldValue, newValue)
+        },
+    },
+})
+
+// Watch specific keys
+configManager.Watch("server.port", func(oldValue, newValue interface{}) {
+    log.Printf("Server port changed from %v to %v", oldValue, newValue)
+    // Restart server with new port
+})
+```
+
+### Configuration Change Handlers
+
+```go
+// Add change handler
+configManager.OnChange("database.url", func(oldValue, newValue interface{}) {
+    log.Printf("Database URL changed, reconnecting...")
+    // Reconnect to database
+    reconnectDatabase(newValue.(string))
+})
+
+// Add global change handler
+configManager.OnAnyChange(func(key string, oldValue, newValue interface{}) {
+    log.Printf("Configuration changed: %s", key)
+    // Update application state
+})
+```
+
+## Configuration Sources
+
+### Consul Integration
+
+```go
+// Consul configuration source
+consulSource := config.NewConsulSource(config.ConsulSourceConfig{
+    Address: "consul.example.com:8500",
+    Path:    "myapp/config",
+    Token:   "your-consul-token",
+})
+
+configManager.AddSource(consulSource)
+```
+
+### Kubernetes ConfigMap
+
+```go
+// Kubernetes ConfigMap source
+k8sSource := config.NewK8sSource(config.K8sSourceConfig{
+    Namespace: "default",
+    Name:      "myapp-config",
+    Key:       "config.yaml",
+})
+
+configManager.AddSource(k8sSource)
+```
+
+## Configuration Testing
+
+### Test Configuration
+
+```go
+// Create test configuration
+testConfig := config.NewTestConfig()
+testConfig.Set("server.host", "localhost")
+testConfig.Set("server.port", 8080)
+testConfig.Set("database.url", "postgres://test:test@localhost/test")
+
+// Use in tests
+func TestApplication(t *testing.T) {
+    app := createApplication(testConfig)
+    // Test with test configuration
+}
+```
+
+### Mock Configuration
+
+```go
+// Mock configuration for testing
+mockConfig := config.NewMockConfig()
+mockConfig.OnGet("server.host").Return("localhost")
+mockConfig.OnGet("server.port").Return(8080)
+mockConfig.OnGet("database.url").Return("postgres://test:test@localhost/test")
+
+// Use mock in tests
+func TestWithMockConfig(t *testing.T) {
+    app := createApplication(mockConfig)
+    // Test with mock configuration
+}
+```
+
+## Configuration Middleware
+
+### Basic Middleware
+
+```go
+// Add configuration middleware
+app.Use(config.Middleware(configManager))
+```
+
+### Custom Middleware
+
+```go
+// Custom configuration middleware
+func configMiddleware(configManager *config.Manager) forge.HandlerFunc {
+    return func(c *forge.Context) error {
+        // Inject configuration into context
+        c.Set("config", configManager)
+        
+        // Add configuration to response headers
+        c.Response.Header().Set("X-Config-Version", configManager.GetString("version", "unknown"))
+        
+        return c.Next()
+    }
+}
+```
+
+## Best Practices
+
+<Cards>
+  <Card
+    title="Environment Separation"
+    description="Use different configuration files for different environments"
+  />
+  <Card
+    title="Sensitive Data"
+    description="Use secrets management for sensitive configuration"
+  />
+  <Card
+    title="Validation"
+    description="Validate configuration at startup"
+  />
+  <Card
+    title="Defaults"
+    description="Provide sensible defaults for optional configuration"
+  />
+  <Card
+    title="Documentation"
+    description="Document all configuration options"
+  />
+  <Card
+    title="Testing"
+    description="Test configuration loading and validation"
+  />
+</Cards>
+
+<Callout type="tip">
+**Pro Tip**: Start with file-based configuration and gradually add more advanced features like secrets management and hot reloading as your application grows.
+</Callout>

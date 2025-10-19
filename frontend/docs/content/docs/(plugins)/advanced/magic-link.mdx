@@ -1,0 +1,1665 @@
+---
+title: Magic Link Authentication
+description: Passwordless authentication via secure email links
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Magic Link Authentication Plugin
+
+The Magic Link plugin provides passwordless authentication through secure, time-limited email links. Users receive a unique link via email that automatically logs them in when clicked, eliminating the need for passwords.
+
+## Features
+
+- **Passwordless Authentication**: No passwords required, just email verification
+- **Secure Token Generation**: Cryptographically secure, time-limited tokens
+- **Customizable Expiry**: Configurable link expiration times
+- **Email Templates**: Customizable email templates with organization branding
+- **Rate Limiting**: Protection against email spam and abuse
+- **One-Time Use**: Links are invalidated after use for security
+- **Deep Linking**: Support for redirect URLs after authentication
+- **Mobile Friendly**: Works seamlessly across devices and email clients
+- **Audit Logging**: Complete audit trail of magic link usage
+- **Fallback Support**: Integration with other authentication methods
+
+## Installation
+
+Install the Magic Link plugin:
+
+```bash
+go get github.com/xraph/authsome/plugins/magiclink
+```
+
+## Configuration
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      plugins:
+        magicLink:
+          enabled: true
+          
+          # Link Configuration
+          linkExpiry: "15m"                      # Link expiration time
+          tokenLength: 32                        # Token length in bytes
+          baseUrl: "https://example.com"         # Base URL for links
+          redirectPath: "/auth/magic-link/verify" # Verification endpoint
+          
+          # Email Configuration
+          email:
+            enabled: true
+            from: "noreply@example.com"
+            fromName: "Example App"
+            subject: "Sign in to Example App"
+            
+            # Template Configuration
+            template:
+              type: "html"                       # html, text, or both
+              path: "templates/magic-link.html"  # Custom template path
+              
+            # Email Provider (uses AuthSome's email provider)
+            provider: "default"                  # default, smtp, sendgrid, etc.
+          
+          # Security Settings
+          security:
+            requireHTTPS: true                   # Require HTTPS for links
+            validateOrigin: true                 # Validate request origin
+            allowedDomains:                      # Allowed email domains
+              - "example.com"
+              - "company.com"
+            blockedDomains:                      # Blocked email domains
+              - "tempmail.com"
+              - "10minutemail.com"
+          
+          # Rate Limiting
+          rateLimit:
+            enabled: true
+            maxAttempts: 3                       # Max requests per window
+            window: "5m"                         # Rate limit window
+            blockDuration: "15m"                 # Block duration after limit
+            
+          # Redirect Configuration
+          redirect:
+            successUrl: "/dashboard"             # Success redirect URL
+            errorUrl: "/auth/error"              # Error redirect URL
+            allowCustomRedirect: true           # Allow custom redirect URLs
+            allowedRedirectDomains:              # Allowed redirect domains
+              - "example.com"
+              - "app.example.com"
+          
+          # Registration Settings
+          registration:
+            enabled: true                        # Allow new user registration
+            requireEmailVerification: false     # Email is verified by magic link
+            defaultRole: "user"                  # Default role for new users
+            
+          # Integration Settings
+          integration:
+            allowFallback: true                  # Allow fallback to other auth methods
+            fallbackMethods:                     # Available fallback methods
+              - "email-password"
+              - "oauth"
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # Basic Configuration
+    AUTH_PLUGINS_MAGIC_LINK_ENABLED=true
+    AUTH_PLUGINS_MAGIC_LINK_LINK_EXPIRY=15m
+    AUTH_PLUGINS_MAGIC_LINK_TOKEN_LENGTH=32
+    AUTH_PLUGINS_MAGIC_LINK_BASE_URL=https://example.com
+    AUTH_PLUGINS_MAGIC_LINK_REDIRECT_PATH=/auth/magic-link/verify
+
+    # Email Configuration
+    AUTH_PLUGINS_MAGIC_LINK_EMAIL_ENABLED=true
+    AUTH_PLUGINS_MAGIC_LINK_EMAIL_FROM=noreply@example.com
+    AUTH_PLUGINS_MAGIC_LINK_EMAIL_FROM_NAME="Example App"
+    AUTH_PLUGINS_MAGIC_LINK_EMAIL_SUBJECT="Sign in to Example App"
+    AUTH_PLUGINS_MAGIC_LINK_EMAIL_TEMPLATE_TYPE=html
+    AUTH_PLUGINS_MAGIC_LINK_EMAIL_TEMPLATE_PATH=templates/magic-link.html
+
+    # Security Settings
+    AUTH_PLUGINS_MAGIC_LINK_SECURITY_REQUIRE_HTTPS=true
+    AUTH_PLUGINS_MAGIC_LINK_SECURITY_VALIDATE_ORIGIN=true
+    AUTH_PLUGINS_MAGIC_LINK_SECURITY_ALLOWED_DOMAINS="example.com,company.com"
+    AUTH_PLUGINS_MAGIC_LINK_SECURITY_BLOCKED_DOMAINS="tempmail.com,10minutemail.com"
+
+    # Rate Limiting
+    AUTH_PLUGINS_MAGIC_LINK_RATE_LIMIT_ENABLED=true
+    AUTH_PLUGINS_MAGIC_LINK_RATE_LIMIT_MAX_ATTEMPTS=3
+    AUTH_PLUGINS_MAGIC_LINK_RATE_LIMIT_WINDOW=5m
+    AUTH_PLUGINS_MAGIC_LINK_RATE_LIMIT_BLOCK_DURATION=15m
+
+    # Redirect Configuration
+    AUTH_PLUGINS_MAGIC_LINK_REDIRECT_SUCCESS_URL=/dashboard
+    AUTH_PLUGINS_MAGIC_LINK_REDIRECT_ERROR_URL=/auth/error
+    AUTH_PLUGINS_MAGIC_LINK_REDIRECT_ALLOW_CUSTOM=true
+    AUTH_PLUGINS_MAGIC_LINK_REDIRECT_ALLOWED_DOMAINS="example.com,app.example.com"
+
+    # Registration Settings
+    AUTH_PLUGINS_MAGIC_LINK_REGISTRATION_ENABLED=true
+    AUTH_PLUGINS_MAGIC_LINK_REGISTRATION_REQUIRE_EMAIL_VERIFICATION=false
+    AUTH_PLUGINS_MAGIC_LINK_REGISTRATION_DEFAULT_ROLE=user
+
+    # Integration Settings
+    AUTH_PLUGINS_MAGIC_LINK_INTEGRATION_ALLOW_FALLBACK=true
+    AUTH_PLUGINS_MAGIC_LINK_INTEGRATION_FALLBACK_METHODS="email-password,oauth"
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    package main
+
+    import (
+        "time"
+        
+        "github.com/xraph/authsome"
+        "github.com/xraph/authsome/plugins/magiclink"
+    )
+
+    func setupMagicLinkPlugin(auth *authsome.Auth) error {
+        config := &magiclink.Config{
+            Enabled: true,
+            
+            // Link Configuration
+            LinkExpiry:   15 * time.Minute,
+            TokenLength:  32,
+            BaseURL:      "https://example.com",
+            RedirectPath: "/auth/magic-link/verify",
+            
+            // Email Configuration
+            Email: magiclink.EmailConfig{
+                Enabled:  true,
+                From:     "noreply@example.com",
+                FromName: "Example App",
+                Subject:  "Sign in to Example App",
+                Template: magiclink.TemplateConfig{
+                    Type: "html",
+                    Path: "templates/magic-link.html",
+                },
+                Provider: "default",
+            },
+            
+            // Security Settings
+            Security: magiclink.SecurityConfig{
+                RequireHTTPS:    true,
+                ValidateOrigin:  true,
+                AllowedDomains:  []string{"example.com", "company.com"},
+                BlockedDomains:  []string{"tempmail.com", "10minutemail.com"},
+            },
+            
+            // Rate Limiting
+            RateLimit: magiclink.RateLimitConfig{
+                Enabled:       true,
+                MaxAttempts:   3,
+                Window:        5 * time.Minute,
+                BlockDuration: 15 * time.Minute,
+            },
+            
+            // Redirect Configuration
+            Redirect: magiclink.RedirectConfig{
+                SuccessURL:             "/dashboard",
+                ErrorURL:               "/auth/error",
+                AllowCustomRedirect:    true,
+                AllowedRedirectDomains: []string{"example.com", "app.example.com"},
+            },
+            
+            // Registration Settings
+            Registration: magiclink.RegistrationConfig{
+                Enabled:                    true,
+                RequireEmailVerification:   false,
+                DefaultRole:                "user",
+            },
+            
+            // Integration Settings
+            Integration: magiclink.IntegrationConfig{
+                AllowFallback:   true,
+                FallbackMethods: []string{"email-password", "oauth"},
+            },
+        }
+
+        plugin := magiclink.NewPlugin(config)
+        return auth.RegisterPlugin(plugin)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Plugin Registration
+
+Register the Magic Link plugin with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/magiclink"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register Magic Link plugin
+    magicLinkPlugin := magiclink.NewPlugin()
+    auth.RegisterPlugin(magicLinkPlugin)
+
+    // Initialize plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## API Endpoints
+
+The Magic Link plugin provides the following endpoints:
+
+### Send Magic Link
+
+#### Request Magic Link
+
+```http
+POST /auth/magic-link/send
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "redirectUrl": "/dashboard",
+  "name": "John Doe"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Magic link sent to your email",
+  "email": "user@example.com",
+  "expiresAt": "2024-01-01T00:15:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z"
+}
+```
+
+#### Verify Magic Link
+
+```http
+GET /auth/magic-link/verify?token=<magic-link-token>&redirect=/dashboard
+```
+
+**Success Response (Redirect):**
+```http
+HTTP/1.1 302 Found
+Location: /dashboard
+Set-Cookie: auth_session=<session-token>; HttpOnly; Secure; SameSite=Lax
+```
+
+**Error Response:**
+```json
+{
+  "success": false,
+  "error": "invalid_token",
+  "message": "Magic link is invalid or expired",
+  "redirectUrl": "/auth/error"
+}
+```
+
+### Magic Link Status
+
+#### Check Link Status
+
+```http
+GET /auth/magic-link/status?email=user@example.com
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "hasPendingLink": true,
+  "expiresAt": "2024-01-01T00:15:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 2
+}
+```
+
+### Resend Magic Link
+
+#### Resend Link
+
+```http
+POST /auth/magic-link/resend
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Magic link resent to your email",
+  "expiresAt": "2024-01-01T00:15:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z"
+}
+```
+
+### Cancel Magic Link
+
+#### Cancel Pending Link
+
+```http
+POST /auth/magic-link/cancel
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Magic link cancelled"
+}
+```
+
+## Frontend Integration
+
+### JavaScript/TypeScript Implementation
+
+```typescript
+interface MagicLinkResponse {
+  success: boolean;
+  message: string;
+  email?: string;
+  expiresAt?: string;
+  canResendAt?: string;
+  attemptsRemaining?: number;
+  error?: string;
+  redirectUrl?: string;
+}
+
+interface MagicLinkStatus {
+  hasPendingLink: boolean;
+  expiresAt?: string;
+  canResendAt?: string;
+  attemptsRemaining: number;
+}
+
+class MagicLinkService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = '/auth/magic-link') {
+    this.baseUrl = baseUrl;
+  }
+
+  // Send magic link to email
+  async sendMagicLink(
+    email: string, 
+    redirectUrl?: string, 
+    name?: string
+  ): Promise<MagicLinkResponse> {
+    const response = await fetch(`${this.baseUrl}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        email, 
+        redirectUrl, 
+        name 
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to send magic link');
+    }
+
+    return result;
+  }
+
+  // Check magic link status
+  async getStatus(email: string): Promise<MagicLinkStatus> {
+    const response = await fetch(
+      `${this.baseUrl}/status?email=${encodeURIComponent(email)}`
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to get status');
+    }
+
+    return result;
+  }
+
+  // Resend magic link
+  async resendMagicLink(email: string): Promise<MagicLinkResponse> {
+    const response = await fetch(`${this.baseUrl}/resend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to resend magic link');
+    }
+
+    return result;
+  }
+
+  // Cancel pending magic link
+  async cancelMagicLink(email: string): Promise<MagicLinkResponse> {
+    const response = await fetch(`${this.baseUrl}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Failed to cancel magic link');
+    }
+
+    return result;
+  }
+
+  // Verify magic link token (usually called from URL parameters)
+  async verifyMagicLink(token: string, redirectUrl?: string): Promise<void> {
+    const params = new URLSearchParams({ token });
+    if (redirectUrl) {
+      params.append('redirect', redirectUrl);
+    }
+
+    // This will redirect on success or return error JSON
+    window.location.href = `${this.baseUrl}/verify?${params.toString()}`;
+  }
+
+  // Extract token from current URL (for verification pages)
+  extractTokenFromURL(): string | null {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('token');
+  }
+
+  // Extract redirect URL from current URL
+  extractRedirectFromURL(): string | null {
+    const urlParams = new URLSearchParams(window.location.search);
+    return urlParams.get('redirect');
+  }
+
+  // Check if user can resend magic link
+  canResend(canResendAt: string): boolean {
+    return new Date() >= new Date(canResendAt);
+  }
+
+  // Get time remaining until resend is allowed
+  getResendCountdown(canResendAt: string): number {
+    const now = new Date().getTime();
+    const resendTime = new Date(canResendAt).getTime();
+    return Math.max(0, resendTime - now);
+  }
+
+  // Format countdown time
+  formatCountdown(milliseconds: number): string {
+    const seconds = Math.ceil(milliseconds / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+
+    if (minutes > 0) {
+      return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    return `${remainingSeconds}s`;
+  }
+
+  // Validate email format
+  isValidEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+
+  // Handle magic link authentication flow
+  async authenticateWithMagicLink(email: string, redirectUrl?: string): Promise<void> {
+    // Validate email
+    if (!this.isValidEmail(email)) {
+      throw new Error('Please enter a valid email address');
+    }
+
+    // Check current status
+    const status = await this.getStatus(email);
+
+    if (status.hasPendingLink && status.attemptsRemaining === 0) {
+      throw new Error('Too many attempts. Please try again later.');
+    }
+
+    // Send magic link
+    await this.sendMagicLink(email, redirectUrl);
+  }
+
+  // Poll for authentication completion (for same-device flows)
+  async pollForAuthentication(
+    email: string, 
+    onAuthenticated: () => void,
+    onError: (error: Error) => void,
+    pollInterval: number = 2000,
+    maxPolls: number = 150 // 5 minutes with 2-second intervals
+  ): Promise<void> {
+    let pollCount = 0;
+
+    const poll = async () => {
+      try {
+        // Check if user is now authenticated
+        const authResponse = await fetch('/auth/session', {
+          credentials: 'include',
+        });
+
+        if (authResponse.ok) {
+          const session = await authResponse.json();
+          if (session.user) {
+            onAuthenticated();
+            return;
+          }
+        }
+
+        pollCount++;
+        if (pollCount >= maxPolls) {
+          onError(new Error('Authentication timeout'));
+          return;
+        }
+
+        setTimeout(poll, pollInterval);
+      } catch (error) {
+        onError(error as Error);
+      }
+    };
+
+    poll();
+  }
+}
+
+// Usage examples
+const magicLinkService = new MagicLinkService();
+
+// Send magic link
+async function sendMagicLink(email: string) {
+  try {
+    const result = await magicLinkService.sendMagicLink(
+      email, 
+      '/dashboard', 
+      'John Doe'
+    );
+    console.log('Magic link sent:', result);
+    return result;
+  } catch (error) {
+    console.error('Failed to send magic link:', error);
+    throw error;
+  }
+}
+
+// Check status and handle resend
+async function handleMagicLinkStatus(email: string) {
+  try {
+    const status = await magicLinkService.getStatus(email);
+    
+    if (status.hasPendingLink) {
+      console.log('Magic link already sent, expires at:', status.expiresAt);
+      
+      if (status.canResendAt && magicLinkService.canResend(status.canResendAt)) {
+        console.log('Can resend now');
+      } else if (status.canResendAt) {
+        const countdown = magicLinkService.getResendCountdown(status.canResendAt);
+        console.log('Can resend in:', magicLinkService.formatCountdown(countdown));
+      }
+    }
+    
+    return status;
+  } catch (error) {
+    console.error('Failed to get status:', error);
+    throw error;
+  }
+}
+
+// Verify magic link from URL
+async function verifyFromURL() {
+  const token = magicLinkService.extractTokenFromURL();
+  const redirectUrl = magicLinkService.extractRedirectFromURL();
+  
+  if (token) {
+    try {
+      await magicLinkService.verifyMagicLink(token, redirectUrl || '/dashboard');
+    } catch (error) {
+      console.error('Magic link verification failed:', error);
+    }
+  }
+}
+
+// Complete authentication flow with polling
+async function authenticateWithPolling(email: string) {
+  try {
+    await magicLinkService.authenticateWithMagicLink(email, '/dashboard');
+    
+    // Start polling for authentication
+    await magicLinkService.pollForAuthentication(
+      email,
+      () => {
+        console.log('Authentication successful!');
+        window.location.href = '/dashboard';
+      },
+      (error) => {
+        console.error('Authentication failed:', error);
+      }
+    );
+  } catch (error) {
+    console.error('Failed to start authentication:', error);
+  }
+}
+```
+
+### React Component Example
+
+```jsx
+import React, { useState, useEffect, useCallback } from 'react';
+
+const MagicLinkAuth = () => {
+  const [magicLinkService] = useState(() => new MagicLinkService());
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [linkSent, setLinkSent] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [countdown, setCountdown] = useState(0);
+
+  // Update countdown timer
+  useEffect(() => {
+    if (status?.canResendAt && !magicLinkService.canResend(status.canResendAt)) {
+      const interval = setInterval(() => {
+        const remaining = magicLinkService.getResendCountdown(status.canResendAt);
+        setCountdown(remaining);
+        
+        if (remaining <= 0) {
+          clearInterval(interval);
+          setCountdown(0);
+        }
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [status, magicLinkService]);
+
+  // Check status when email changes
+  useEffect(() => {
+    if (email && magicLinkService.isValidEmail(email)) {
+      checkStatus();
+    }
+  }, [email]);
+
+  const checkStatus = useCallback(async () => {
+    try {
+      const currentStatus = await magicLinkService.getStatus(email);
+      setStatus(currentStatus);
+      setLinkSent(currentStatus.hasPendingLink);
+    } catch (error) {
+      // Status check failed, probably no pending link
+      setStatus(null);
+      setLinkSent(false);
+    }
+  }, [email, magicLinkService]);
+
+  const handleSendMagicLink = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (!magicLinkService.isValidEmail(email)) {
+        throw new Error('Please enter a valid email address');
+      }
+
+      const result = await magicLinkService.sendMagicLink(email, '/dashboard');
+      setLinkSent(true);
+      await checkStatus();
+      
+      // Start polling for authentication
+      startPolling();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await magicLinkService.resendMagicLink(email);
+      await checkStatus();
+      startPolling();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      await magicLinkService.cancelMagicLink(email);
+      setLinkSent(false);
+      setStatus(null);
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+
+  const startPolling = () => {
+    magicLinkService.pollForAuthentication(
+      email,
+      () => {
+        // Authentication successful
+        window.location.href = '/dashboard';
+      },
+      (error) => {
+        setError('Authentication timeout. Please try again.');
+      }
+    );
+  };
+
+  const canResend = status?.canResendAt ? 
+    magicLinkService.canResend(status.canResendAt) : false;
+
+  return (
+    <div className="magic-link-auth">
+      <h2>Sign in with Magic Link</h2>
+      <p>Enter your email address and we'll send you a secure link to sign in.</p>
+
+      {error && (
+        <div className="error">
+          {error}
+          <button onClick={() => setError(null)}>×</button>
+        </div>
+      )}
+
+      {!linkSent ? (
+        <form onSubmit={handleSendMagicLink} className="magic-link-form">
+          <div className="form-group">
+            <label htmlFor="email">Email Address</label>
+            <input
+              type="email"
+              id="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter your email"
+              required
+              disabled={loading}
+            />
+          </div>
+
+          <button type="submit" disabled={loading || !email}>
+            {loading ? 'Sending...' : 'Send Magic Link'}
+          </button>
+        </form>
+      ) : (
+        <div className="magic-link-sent">
+          <div className="success-message">
+            <h3>✉️ Magic Link Sent!</h3>
+            <p>
+              We've sent a secure link to <strong>{email}</strong>. 
+              Click the link in your email to sign in.
+            </p>
+          </div>
+
+          <div className="status-info">
+            {status?.expiresAt && (
+              <p className="expiry-info">
+                Link expires at {new Date(status.expiresAt).toLocaleTimeString()}
+              </p>
+            )}
+
+            {status?.attemptsRemaining !== undefined && (
+              <p className="attempts-info">
+                {status.attemptsRemaining} attempts remaining
+              </p>
+            )}
+          </div>
+
+          <div className="actions">
+            {canResend ? (
+              <button onClick={handleResend} disabled={loading}>
+                {loading ? 'Resending...' : 'Resend Magic Link'}
+              </button>
+            ) : countdown > 0 ? (
+              <button disabled>
+                Resend in {magicLinkService.formatCountdown(countdown)}
+              </button>
+            ) : null}
+
+            <button onClick={handleCancel} className="cancel-button">
+              Cancel
+            </button>
+
+            <button 
+              onClick={() => setLinkSent(false)} 
+              className="change-email-button"
+            >
+              Change Email
+            </button>
+          </div>
+
+          <div className="help-text">
+            <p>
+              <strong>Didn't receive the email?</strong>
+            </p>
+            <ul>
+              <li>Check your spam/junk folder</li>
+              <li>Make sure {email} is correct</li>
+              <li>Wait a few minutes for delivery</li>
+              <li>Try resending the link</li>
+            </ul>
+          </div>
+
+          <div className="polling-indicator">
+            <div className="spinner"></div>
+            <p>Waiting for you to click the magic link...</p>
+          </div>
+        </div>
+      )}
+
+      <div className="alternative-auth">
+        <p>
+          Prefer a different method? 
+          <a href="/auth/signin">Sign in with password</a>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// Magic Link Verification Component (for the verification page)
+const MagicLinkVerification = () => {
+  const [magicLinkService] = useState(() => new MagicLinkService());
+  const [verifying, setVerifying] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const verifyLink = async () => {
+      const token = magicLinkService.extractTokenFromURL();
+      const redirectUrl = magicLinkService.extractRedirectFromURL();
+
+      if (!token) {
+        setError('Invalid magic link');
+        setVerifying(false);
+        return;
+      }
+
+      try {
+        // The verification will redirect on success
+        await magicLinkService.verifyMagicLink(token, redirectUrl);
+      } catch (error) {
+        setError(error.message);
+        setVerifying(false);
+      }
+    };
+
+    verifyLink();
+  }, [magicLinkService]);
+
+  if (verifying) {
+    return (
+      <div className="magic-link-verification">
+        <div className="spinner"></div>
+        <h2>Verifying Magic Link...</h2>
+        <p>Please wait while we sign you in.</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="magic-link-verification">
+        <div className="error-state">
+          <h2>❌ Verification Failed</h2>
+          <p>{error}</p>
+          <div className="actions">
+            <a href="/auth/magic-link" className="button">
+              Request New Magic Link
+            </a>
+            <a href="/auth/signin" className="button secondary">
+              Sign In with Password
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
+
+export { MagicLinkAuth, MagicLinkVerification };
+```
+
+## Email Templates
+
+### HTML Email Template
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in to {{.AppName}}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .logo {
+            max-width: 150px;
+            height: auto;
+        }
+        .content {
+            padding: 30px 0;
+        }
+        .magic-link-button {
+            display: inline-block;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 20px 0;
+        }
+        .magic-link-button:hover {
+            background-color: #0056b3;
+        }
+        .alternative-link {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+        .footer {
+            border-top: 1px solid #eee;
+            padding: 20px 0;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }
+        .security-notice {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        {{if .LogoURL}}
+        <img src="{{.LogoURL}}" alt="{{.AppName}}" class="logo">
+        {{else}}
+        <h1>{{.AppName}}</h1>
+        {{end}}
+    </div>
+
+    <div class="content">
+        <h2>Sign in to {{.AppName}}</h2>
+        
+        {{if .UserName}}
+        <p>Hello {{.UserName}},</p>
+        {{else}}
+        <p>Hello,</p>
+        {{end}}
+
+        <p>
+            Click the button below to securely sign in to your {{.AppName}} account. 
+            This link will expire in {{.ExpiryMinutes}} minutes.
+        </p>
+
+        <div style="text-align: center;">
+            <a href="{{.MagicLink}}" class="magic-link-button">
+                Sign In to {{.AppName}}
+            </a>
+        </div>
+
+        <div class="alternative-link">
+            <strong>Button not working?</strong><br>
+            Copy and paste this link into your browser:<br>
+            <a href="{{.MagicLink}}">{{.MagicLink}}</a>
+        </div>
+
+        <div class="security-notice">
+            <strong>🔒 Security Notice:</strong><br>
+            This link can only be used once and will expire in {{.ExpiryMinutes}} minutes. 
+            If you didn't request this email, you can safely ignore it.
+        </div>
+
+        {{if .RedirectURL}}
+        <p>After signing in, you'll be redirected to: {{.RedirectURL}}</p>
+        {{end}}
+    </div>
+
+    <div class="footer">
+        <p>
+            This email was sent to {{.Email}} because you requested a magic link 
+            to sign in to {{.AppName}}.
+        </p>
+        <p>
+            If you have any questions, please contact our support team at 
+            <a href="mailto:{{.SupportEmail}}">{{.SupportEmail}}</a>
+        </p>
+        <p>
+            {{.AppName}} • {{.CompanyAddress}}
+        </p>
+    </div>
+</body>
+</html>
+```
+
+### Text Email Template
+
+```text
+Sign in to {{.AppName}}
+
+{{if .UserName}}Hello {{.UserName}},{{else}}Hello,{{end}}
+
+Click the link below to securely sign in to your {{.AppName}} account:
+
+{{.MagicLink}}
+
+This link will expire in {{.ExpiryMinutes}} minutes and can only be used once.
+
+{{if .RedirectURL}}After signing in, you'll be redirected to: {{.RedirectURL}}{{end}}
+
+Security Notice:
+If you didn't request this email, you can safely ignore it. This link can only be used once and will expire automatically.
+
+---
+
+This email was sent to {{.Email}} because you requested a magic link to sign in to {{.AppName}}.
+
+If you have any questions, please contact our support team at {{.SupportEmail}}
+
+{{.AppName}}
+{{.CompanyAddress}}
+```
+
+## Server-Side Integration
+
+### Custom Hooks and Validation
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "strings"
+    "time"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/magiclink"
+)
+
+func setupMagicLinkHooks(auth *authsome.Auth) {
+    // Hook to validate email before sending magic link
+    auth.RegisterHook("magiclink.before_send", func(ctx context.Context, data map[string]interface{}) error {
+        email := data["email"].(string)
+        
+        // Validate email domain
+        if !isAllowedEmailDomain(email) {
+            return fmt.Errorf("email domain not allowed")
+        }
+        
+        // Check for disposable email addresses
+        if isDisposableEmail(email) {
+            return fmt.Errorf("disposable email addresses are not allowed")
+        }
+        
+        // Rate limiting check
+        if err := checkEmailRateLimit(ctx, email); err != nil {
+            return err
+        }
+        
+        return nil
+    })
+
+    // Hook to customize magic link URL
+    auth.RegisterHook("magiclink.before_create_link", func(ctx context.Context, data map[string]interface{}) error {
+        token := data["token"].(string)
+        redirectURL := data["redirectUrl"].(string)
+        
+        // Validate redirect URL
+        if redirectURL != "" && !isAllowedRedirectURL(redirectURL) {
+            return fmt.Errorf("redirect URL not allowed")
+        }
+        
+        // Add custom parameters to the magic link
+        baseURL := data["baseUrl"].(string)
+        customLink := fmt.Sprintf("%s/auth/magic-link/verify?token=%s", baseURL, token)
+        
+        if redirectURL != "" {
+            customLink += "&redirect=" + url.QueryEscape(redirectURL)
+        }
+        
+        // Add tracking parameters
+        customLink += "&utm_source=magic_link&utm_medium=email"
+        
+        data["magicLink"] = customLink
+        return nil
+    })
+
+    // Hook to customize email template data
+    auth.RegisterHook("magiclink.before_send_email", func(ctx context.Context, data map[string]interface{}) error {
+        templateData := data["templateData"].(map[string]interface{})
+        
+        // Add custom template variables
+        templateData["AppName"] = "My Awesome App"
+        templateData["SupportEmail"] = "support@example.com"
+        templateData["CompanyAddress"] = "123 Main St, City, State 12345"
+        templateData["LogoURL"] = "https://example.com/logo.png"
+        
+        // Calculate expiry in minutes for template
+        expiresAt := data["expiresAt"].(time.Time)
+        expiryMinutes := int(time.Until(expiresAt).Minutes())
+        templateData["ExpiryMinutes"] = expiryMinutes
+        
+        // Add user-specific data if available
+        if user, ok := data["user"].(map[string]interface{}); ok {
+            templateData["UserName"] = user["name"]
+        }
+        
+        return nil
+    })
+
+    // Hook to log magic link events
+    auth.RegisterHook("magiclink.after_send", func(ctx context.Context, data map[string]interface{}) error {
+        email := data["email"].(string)
+        expiresAt := data["expiresAt"].(time.Time)
+        
+        // Log magic link sent event
+        auth.LogAuditEvent(ctx, authsome.AuditEvent{
+            Type: "magic_link_sent",
+            Data: map[string]interface{}{
+                "email":     email,
+                "expiresAt": expiresAt,
+                "userAgent": data["userAgent"],
+                "ipAddress": data["ipAddress"],
+            },
+        })
+        
+        return nil
+    })
+
+    // Hook to handle successful verification
+    auth.RegisterHook("magiclink.after_verify", func(ctx context.Context, data map[string]interface{}) error {
+        user := data["user"].(map[string]interface{})
+        token := data["token"].(string)
+        
+        // Log successful verification
+        auth.LogAuditEvent(ctx, authsome.AuditEvent{
+            Type:   "magic_link_verified",
+            UserID: user["id"].(string),
+            Data: map[string]interface{}{
+                "token":     token,
+                "userAgent": data["userAgent"],
+                "ipAddress": data["ipAddress"],
+            },
+        })
+        
+        // Update user's last login
+        auth.UpdateUserLastLogin(ctx, user["id"].(string))
+        
+        return nil
+    })
+
+    // Hook to handle failed verification
+    auth.RegisterHook("magiclink.verification_failed", func(ctx context.Context, data map[string]interface{}) error {
+        token := data["token"].(string)
+        reason := data["reason"].(string)
+        
+        // Log failed verification
+        auth.LogAuditEvent(ctx, authsome.AuditEvent{
+            Type: "magic_link_verification_failed",
+            Data: map[string]interface{}{
+                "token":     token,
+                "reason":    reason,
+                "userAgent": data["userAgent"],
+                "ipAddress": data["ipAddress"],
+            },
+        })
+        
+        return nil
+    })
+}
+
+func isAllowedEmailDomain(email string) bool {
+    allowedDomains := []string{"company.com", "partner.com"}
+    
+    for _, domain := range allowedDomains {
+        if strings.HasSuffix(email, "@"+domain) {
+            return true
+        }
+    }
+    
+    return false
+}
+
+func isDisposableEmail(email string) bool {
+    disposableDomains := []string{
+        "10minutemail.com",
+        "tempmail.com",
+        "guerrillamail.com",
+        "mailinator.com",
+    }
+    
+    for _, domain := range disposableDomains {
+        if strings.HasSuffix(email, "@"+domain) {
+            return true
+        }
+    }
+    
+    return false
+}
+
+func isAllowedRedirectURL(redirectURL string) bool {
+    allowedDomains := []string{
+        "example.com",
+        "app.example.com",
+        "admin.example.com",
+    }
+    
+    u, err := url.Parse(redirectURL)
+    if err != nil {
+        return false
+    }
+    
+    for _, domain := range allowedDomains {
+        if u.Hostname() == domain {
+            return true
+        }
+    }
+    
+    return false
+}
+
+func checkEmailRateLimit(ctx context.Context, email string) error {
+    // Implement email-specific rate limiting
+    // This could use Redis or in-memory storage
+    return nil
+}
+```
+
+### Custom Middleware
+
+```go
+package main
+
+import (
+    "net/http"
+    "strings"
+    "time"
+    
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+)
+
+// Middleware for magic link specific handling
+func MagicLinkMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        // Check if this is a magic link request
+        if strings.HasPrefix(c.Path(), "/auth/magic-link/") {
+            // Add magic link specific headers
+            c.Response().Header().Set("X-Auth-Method", "magic-link")
+            
+            // Handle verification requests specially
+            if c.Path() == "/auth/magic-link/verify" {
+                // Add no-cache headers for verification
+                c.Response().Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+                c.Response().Header().Set("Pragma", "no-cache")
+                c.Response().Header().Set("Expires", "0")
+            }
+            
+            // Add security headers
+            c.Response().Header().Set("X-Frame-Options", "DENY")
+            c.Response().Header().Set("X-Content-Type-Options", "nosniff")
+        }
+        
+        return c.Next()
+    }
+}
+
+// Middleware to track magic link usage
+func MagicLinkTrackingMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        if c.Path() == "/auth/magic-link/verify" {
+            token := c.Query("token")
+            if token != "" {
+                // Track magic link click
+                auth.LogAuditEvent(c.Context(), authsome.AuditEvent{
+                    Type: "magic_link_clicked",
+                    Data: map[string]interface{}{
+                        "token":     token,
+                        "userAgent": c.Get("User-Agent"),
+                        "ipAddress": c.RealIP(),
+                        "referer":   c.Get("Referer"),
+                        "timestamp": time.Now(),
+                    },
+                })
+            }
+        }
+        
+        return c.Next()
+    }
+}
+
+// Middleware to handle magic link redirects
+func MagicLinkRedirectMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        // Only apply to verification endpoint
+        if c.Path() != "/auth/magic-link/verify" {
+            return c.Next()
+        }
+        
+        // Get redirect URL from query parameters
+        redirectURL := c.Query("redirect")
+        
+        // Validate redirect URL
+        if redirectURL != "" && !isAllowedRedirectURL(redirectURL) {
+            return c.JSON(http.StatusBadRequest, map[string]string{
+                "error": "Invalid redirect URL",
+            })
+        }
+        
+        // Store redirect URL in context for later use
+        c.Set("redirectURL", redirectURL)
+        
+        return c.Next()
+    }
+}
+```
+
+## Security Considerations
+
+<Callout type="warn">
+**Security Best Practices**: Magic links require careful security configuration to prevent abuse and ensure user safety.
+</Callout>
+
+### Token Security
+
+```go
+// Secure token generation configuration
+config := &magiclink.Config{
+    TokenLength: 32,  // Use at least 32 bytes for tokens
+    
+    // Use cryptographically secure random generation
+    TokenGenerator: func() (string, error) {
+        bytes := make([]byte, 32)
+        if _, err := rand.Read(bytes); err != nil {
+            return "", err
+        }
+        return base64.URLEncoding.EncodeToString(bytes), nil
+    },
+    
+    // Short expiry times for security
+    LinkExpiry: 15 * time.Minute,
+    
+    // One-time use tokens
+    SingleUse: true,
+}
+```
+
+### Rate Limiting and Abuse Prevention
+
+```go
+// Comprehensive rate limiting
+config := &magiclink.Config{
+    RateLimit: magiclink.RateLimitConfig{
+        Enabled: true,
+        
+        // Per-email limits
+        EmailLimits: magiclink.RateLimitRule{
+            MaxAttempts:   3,
+            Window:        5 * time.Minute,
+            BlockDuration: 15 * time.Minute,
+        },
+        
+        // Per-IP limits
+        IPLimits: magiclink.RateLimitRule{
+            MaxAttempts:   10,
+            Window:        time.Hour,
+            BlockDuration: time.Hour,
+        },
+        
+        // Global limits
+        GlobalLimits: magiclink.RateLimitRule{
+            MaxAttempts:   100,
+            Window:        time.Hour,
+            BlockDuration: time.Hour,
+        },
+    },
+    
+    // Block disposable email addresses
+    BlockDisposableEmails: true,
+    
+    // Require email verification for new accounts
+    RequireEmailVerification: true,
+}
+```
+
+### HTTPS and Origin Validation
+
+```go
+// Enforce HTTPS and validate origins
+config := &magiclink.Config{
+    Security: magiclink.SecurityConfig{
+        RequireHTTPS:   true,
+        ValidateOrigin: true,
+        
+        AllowedOrigins: []string{
+            "https://example.com",
+            "https://app.example.com",
+        },
+        
+        // Validate redirect URLs
+        AllowedRedirectDomains: []string{
+            "example.com",
+            "app.example.com",
+        },
+        
+        // Block known malicious domains
+        BlockedDomains: []string{
+            "malicious-site.com",
+            "phishing-domain.com",
+        },
+    },
+}
+```
+
+## Performance Optimization
+
+### Database Indexing
+
+```sql
+-- Optimize magic link token queries
+CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_token 
+ON magic_link_tokens(token);
+
+CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_email 
+ON magic_link_tokens(email);
+
+CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_expires_at 
+ON magic_link_tokens(expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_used 
+ON magic_link_tokens(used);
+
+-- Optimize rate limiting queries
+CREATE INDEX IF NOT EXISTS idx_magic_link_rate_limits_email_window 
+ON magic_link_rate_limits(email, window_start);
+
+CREATE INDEX IF NOT EXISTS idx_magic_link_rate_limits_ip_window 
+ON magic_link_rate_limits(ip_address, window_start);
+
+-- Optimize audit log queries
+CREATE INDEX IF NOT EXISTS idx_magic_link_audit_email_created_at 
+ON magic_link_audit_logs(email, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_magic_link_audit_event_type_created_at 
+ON magic_link_audit_logs(event_type, created_at);
+```
+
+### Caching Strategy
+
+```go
+// Configure caching for magic link operations
+config := &magiclink.Config{
+    Cache: magiclink.CacheConfig{
+        Enabled: true,
+        
+        // Token caching
+        TokenExpiry:  15 * time.Minute,
+        TokenPrefix:  "magiclink:token:",
+        
+        // Rate limit caching
+        RateLimitExpiry: time.Hour,
+        RateLimitPrefix: "magiclink:ratelimit:",
+        
+        // Email status caching
+        StatusExpiry: 5 * time.Minute,
+        StatusPrefix: "magiclink:status:",
+        
+        // Cleanup settings
+        CleanupInterval:  time.Hour,
+        CleanupBatchSize: 1000,
+    },
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<Callout type="info">
+**Email Delivery**: Ensure your email provider is properly configured and has good deliverability.
+</Callout>
+
+#### Email Not Received
+
+```go
+// Debug email delivery issues
+func debugEmailDelivery(email string, token string) {
+    log.Printf("Magic link debug info:")
+    log.Printf("  Email: %s", email)
+    log.Printf("  Token: %s", token)
+    log.Printf("  Email provider: %s", config.Email.Provider)
+    log.Printf("  From address: %s", config.Email.From)
+    
+    // Check email provider status
+    if err := checkEmailProviderStatus(); err != nil {
+        log.Printf("  Email provider error: %v", err)
+    }
+    
+    // Check rate limiting
+    if rateLimited, err := checkRateLimit(email); err != nil {
+        log.Printf("  Rate limit check error: %v", err)
+    } else if rateLimited {
+        log.Printf("  Email is rate limited")
+    }
+}
+```
+
+#### Token Validation Issues
+
+```go
+// Debug token validation
+func debugTokenValidation(token string) error {
+    // Check token format
+    if len(token) != expectedTokenLength {
+        return fmt.Errorf("invalid token length: %d, expected: %d", 
+            len(token), expectedTokenLength)
+    }
+    
+    // Check token in database
+    magicLink, err := getMagicLinkByToken(token)
+    if err != nil {
+        return fmt.Errorf("token not found in database: %w", err)
+    }
+    
+    // Check expiry
+    if time.Now().After(magicLink.ExpiresAt) {
+        return fmt.Errorf("token expired at %v", magicLink.ExpiresAt)
+    }
+    
+    // Check if already used
+    if magicLink.Used {
+        return fmt.Errorf("token already used at %v", magicLink.UsedAt)
+    }
+    
+    return nil
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Phone Authentication"
+    description="Set up SMS-based authentication and verification"
+    href="/docs/go/plugins/advanced/phone"
+  />
+  <Card
+    title="Email OTP"
+    description="Implement one-time password authentication via email"
+    href="/docs/go/plugins/advanced/email-otp"
+  />
+  <Card
+    title="Multi-Factor Authentication"
+    description="Combine magic links with other authentication methods"
+    href="/docs/go/guides/multi-factor-auth"
+  />
+  <Card
+    title="Enterprise Plugins"
+    description="Explore enterprise-grade authentication features"
+    href="/docs/go/plugins/enterprise"
+  />
+</Cards>

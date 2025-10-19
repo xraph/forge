@@ -1,0 +1,1049 @@
+---
+title: Users API
+description: Complete API reference for user management including profiles, preferences, password management, and account settings
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Users API
+
+Complete reference for AuthSome Go user management endpoints, covering user profiles, preferences, password management, and account settings.
+
+## Overview
+
+The Users API provides comprehensive user management functionality including profile management, password operations, email verification, account preferences, and user search capabilities.
+
+### Base URL
+
+```
+GET    /auth/user
+PUT    /auth/user
+DELETE /auth/user
+POST   /auth/user/change-password
+POST   /auth/user/change-email
+POST   /auth/user/verify-email
+GET    /auth/users
+GET    /auth/users/{id}
+```
+
+## Get Current User
+
+Retrieve the current authenticated user's profile information.
+
+### Endpoint
+
+```http
+GET /auth/user
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "user": {
+          "id": "user_123",
+          "email": "user@example.com",
+          "emailVerified": true,
+          "name": "John Doe",
+          "username": "johndoe",
+          "avatar": "https://example.com/avatars/user_123.jpg",
+          "bio": "Software engineer passionate about authentication",
+          "location": "San Francisco, CA",
+          "website": "https://johndoe.com",
+          "timezone": "America/Los_Angeles",
+          "locale": "en-US",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T12:00:00Z",
+          "lastLoginAt": "2024-01-01T12:00:00Z",
+          "organizationId": "org_123",
+          "roles": ["user", "developer"],
+          "permissions": ["read:profile", "update:profile", "create:projects"],
+          "metadata": {
+            "source": "web",
+            "referrer": "google",
+            "preferences": {
+              "theme": "dark",
+              "notifications": {
+                "email": true,
+                "push": false,
+                "sms": true
+              }
+            }
+          },
+          "twoFactorEnabled": true,
+          "emailNotifications": true,
+          "marketingEmails": false
+        }
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T12:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Example Usage
+
+<Tabs items={['JavaScript', 'TypeScript', 'Go', 'cURL']}>
+  <Tab value="JavaScript">
+    ```javascript
+    const response = await fetch('/auth/user', {
+      headers: {
+        'Authorization': `Bearer ${sessionToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      const user = result.data.user;
+      console.log('Current user:', user);
+      
+      // Update UI with user information
+      document.getElementById('user-name').textContent = user.name;
+      document.getElementById('user-email').textContent = user.email;
+      
+      if (user.avatar) {
+        document.getElementById('user-avatar').src = user.avatar;
+      }
+    } else {
+      console.error('Failed to get user:', result.error);
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    import { AuthSome, User } from '@authsome/js-sdk';
+
+    const auth = new AuthSome({ baseUrl: '/auth' });
+
+    try {
+      const user: User = await auth.getCurrentUser();
+      
+      console.log('Current user:', user);
+      
+      // Type-safe access to user properties
+      if (user.twoFactorEnabled) {
+        console.log('2FA is enabled for this user');
+      }
+      
+      // Access user preferences
+      const theme = user.metadata?.preferences?.theme || 'light';
+      console.log('User theme preference:', theme);
+      
+    } catch (error) {
+      if (error instanceof AuthSomeError) {
+        console.error('Failed to get user:', error.code, error.message);
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    package main
+
+    import (
+        "fmt"
+        "net/http"
+        "encoding/json"
+    )
+
+    func getCurrentUser(sessionToken string) error {
+        req, err := http.NewRequest("GET", "/auth/user", nil)
+        if err != nil {
+            return fmt.Errorf("failed to create request: %w", err)
+        }
+
+        req.Header.Set("Authorization", "Bearer "+sessionToken)
+        req.Header.Set("Content-Type", "application/json")
+
+        client := &http.Client{}
+        resp, err := client.Do(req)
+        if err != nil {
+            return fmt.Errorf("failed to make request: %w", err)
+        }
+        defer resp.Body.Close()
+
+        var result map[string]interface{}
+        if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+            return fmt.Errorf("failed to decode response: %w", err)
+        }
+
+        if success, ok := result["success"].(bool); ok && success {
+            if data, ok := result["data"].(map[string]interface{}); ok {
+                if user, ok := data["user"].(map[string]interface{}); ok {
+                    fmt.Printf("Current user: %s (%s)\n", user["name"], user["email"])
+                    fmt.Printf("2FA enabled: %v\n", user["twoFactorEnabled"])
+                }
+            }
+        } else {
+            fmt.Printf("Failed to get user: %v\n", result["error"])
+        }
+
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="cURL">
+    ```bash
+    curl -X GET /auth/user \
+      -H "Authorization: Bearer <session_token>" \
+      -H "Content-Type: application/json"
+    ```
+  </Tab>
+</Tabs>
+
+## Update User Profile
+
+Update the current user's profile information.
+
+### Endpoint
+
+```http
+PUT /auth/user
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "name": "John Smith",
+      "username": "johnsmith",
+      "bio": "Senior software engineer with 10+ years experience",
+      "location": "New York, NY",
+      "website": "https://johnsmith.dev",
+      "timezone": "America/New_York",
+      "locale": "en-US",
+      "avatar": "https://example.com/new-avatar.jpg",
+      "metadata": {
+        "preferences": {
+          "theme": "light",
+          "notifications": {
+            "email": true,
+            "push": true,
+            "sms": false
+          }
+        }
+      },
+      "emailNotifications": false,
+      "marketingEmails": true
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface UpdateUserRequest {
+      name?: string;
+      username?: string;
+      bio?: string;
+      location?: string;
+      website?: string;
+      timezone?: string;
+      locale?: string;
+      avatar?: string;
+      metadata?: Record<string, any>;
+      emailNotifications?: boolean;
+      marketingEmails?: boolean;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type UpdateUserRequest struct {
+        Name               *string                `json:"name,omitempty"`
+        Username           *string                `json:"username,omitempty"`
+        Bio                *string                `json:"bio,omitempty"`
+        Location           *string                `json:"location,omitempty"`
+        Website            *string                `json:"website,omitempty"`
+        Timezone           *string                `json:"timezone,omitempty"`
+        Locale             *string                `json:"locale,omitempty"`
+        Avatar             *string                `json:"avatar,omitempty"`
+        Metadata           map[string]interface{} `json:"metadata,omitempty"`
+        EmailNotifications *bool                  `json:"emailNotifications,omitempty"`
+        MarketingEmails    *bool                  `json:"marketingEmails,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (422)', 'Error (409)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "user": {
+          "id": "user_123",
+          "email": "user@example.com",
+          "emailVerified": true,
+          "name": "John Smith",
+          "username": "johnsmith",
+          "bio": "Senior software engineer with 10+ years experience",
+          "location": "New York, NY",
+          "website": "https://johnsmith.dev",
+          "timezone": "America/New_York",
+          "locale": "en-US",
+          "avatar": "https://example.com/new-avatar.jpg",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T13:00:00Z",
+          "lastLoginAt": "2024-01-01T12:00:00Z",
+          "organizationId": "org_123",
+          "roles": ["user", "developer"],
+          "permissions": ["read:profile", "update:profile", "create:projects"],
+          "metadata": {
+            "preferences": {
+              "theme": "light",
+              "notifications": {
+                "email": true,
+                "push": true,
+                "sms": false
+              }
+            }
+          },
+          "twoFactorEnabled": true,
+          "emailNotifications": false,
+          "marketingEmails": true
+        }
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation failed",
+        "details": {
+          "fields": {
+            "username": {
+              "code": "INVALID_USERNAME",
+              "message": "Username must be 3-30 characters and contain only letters, numbers, and underscores"
+            },
+            "website": {
+              "code": "INVALID_URL",
+              "message": "Please enter a valid URL"
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (409)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "USERNAME_ALREADY_EXISTS",
+        "message": "Username is already taken",
+        "details": {
+          "field": "username",
+          "value": "johnsmith"
+        }
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Change Password
+
+Change the current user's password.
+
+### Endpoint
+
+```http
+POST /auth/user/change-password
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "currentPassword": "oldPassword123",
+      "newPassword": "newSecurePassword456",
+      "revokeOtherSessions": true
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface ChangePasswordRequest {
+      currentPassword: string;
+      newPassword: string;
+      revokeOtherSessions?: boolean;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type ChangePasswordRequest struct {
+        CurrentPassword      string `json:"currentPassword" validate:"required"`
+        NewPassword          string `json:"newPassword" validate:"required,min=8"`
+        RevokeOtherSessions  bool   `json:"revokeOtherSessions,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)', 'Error (422)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Password changed successfully",
+        "sessionsRevoked": 3,
+        "passwordChangedAt": "2024-01-01T13:00:00Z"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_CURRENT_PASSWORD",
+        "message": "Current password is incorrect"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "WEAK_PASSWORD",
+        "message": "New password does not meet security requirements",
+        "details": {
+          "requirements": {
+            "minLength": 8,
+            "requireUppercase": true,
+            "requireLowercase": true,
+            "requireNumbers": true,
+            "requireSymbols": true
+          },
+          "violations": ["requireSymbols"]
+        }
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Change Email
+
+Change the current user's email address.
+
+### Endpoint
+
+```http
+POST /auth/user/change-email
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "newEmail": "newemail@example.com",
+      "password": "currentPassword123"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface ChangeEmailRequest {
+      newEmail: string;
+      password: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type ChangeEmailRequest struct {
+        NewEmail string `json:"newEmail" validate:"required,email"`
+        Password string `json:"password" validate:"required"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)', 'Error (409)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Email change initiated. Please verify your new email address.",
+        "verificationRequired": true,
+        "verificationSentTo": "newemail@example.com",
+        "verificationExpiresAt": "2024-01-01T14:00:00Z"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_PASSWORD",
+        "message": "Password is incorrect"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (409)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "EMAIL_ALREADY_EXISTS",
+        "message": "An account with this email address already exists"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Verify Email
+
+Verify email address using verification token.
+
+### Endpoint
+
+```http
+POST /auth/user/verify-email
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "token": "email_verification_token_here"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface VerifyEmailRequest {
+      token: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type VerifyEmailRequest struct {
+        Token string `json:"token" validate:"required"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (410)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Email verified successfully",
+        "emailVerified": true,
+        "verifiedAt": "2024-01-01T13:30:00Z"
+      },
+      "timestamp": "2024-01-01T13:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_VERIFICATION_TOKEN",
+        "message": "Verification token is invalid"
+      },
+      "timestamp": "2024-01-01T13:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (410)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "VERIFICATION_TOKEN_EXPIRED",
+        "message": "Verification token has expired",
+        "details": {
+          "expiredAt": "2024-01-01T14:00:00Z",
+          "canResend": true
+        }
+      },
+      "timestamp": "2024-01-01T13:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Delete Account
+
+Permanently delete the current user's account.
+
+### Endpoint
+
+```http
+DELETE /auth/user
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "password": "currentPassword123",
+      "confirmation": "DELETE",
+      "reason": "No longer need the service"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface DeleteAccountRequest {
+      password: string;
+      confirmation: "DELETE";
+      reason?: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type DeleteAccountRequest struct {
+        Password     string `json:"password" validate:"required"`
+        Confirmation string `json:"confirmation" validate:"required,eq=DELETE"`
+        Reason       string `json:"reason,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)', 'Error (422)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Account deleted successfully",
+        "deletedAt": "2024-01-01T13:45:00Z",
+        "dataRetentionPeriod": "30 days"
+      },
+      "timestamp": "2024-01-01T13:45:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_PASSWORD",
+        "message": "Password is incorrect"
+      },
+      "timestamp": "2024-01-01T13:45:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_CONFIRMATION",
+        "message": "Please type 'DELETE' to confirm account deletion"
+      },
+      "timestamp": "2024-01-01T13:45:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## List Users (Admin)
+
+List users in the organization (requires admin permissions).
+
+### Endpoint
+
+```http
+GET /auth/users
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `limit` | integer | Items per page (1-100) | 20 |
+| `search` | string | Search by name, email, or username | - |
+| `role` | string | Filter by role | - |
+| `status` | string | Filter by status (active, inactive, suspended) | active |
+| `sort` | string | Sort field (name, email, createdAt, lastLoginAt) | createdAt |
+| `order` | string | Sort order (asc, desc) | desc |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": "user_123",
+          "email": "user1@example.com",
+          "emailVerified": true,
+          "name": "John Doe",
+          "username": "johndoe",
+          "avatar": "https://example.com/avatars/user_123.jpg",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "lastLoginAt": "2024-01-01T12:00:00Z",
+          "roles": ["user"],
+          "status": "active",
+          "twoFactorEnabled": true
+        },
+        {
+          "id": "user_456",
+          "email": "user2@example.com",
+          "emailVerified": false,
+          "name": "Jane Smith",
+          "username": "janesmith",
+          "avatar": null,
+          "createdAt": "2024-01-02T00:00:00Z",
+          "lastLoginAt": null,
+          "roles": ["user", "moderator"],
+          "status": "active",
+          "twoFactorEnabled": false
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 20,
+        "total": 150,
+        "totalPages": 8,
+        "hasNext": true,
+        "hasPrev": false
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INSUFFICIENT_PERMISSIONS",
+        "message": "You don't have permission to list users"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get User by ID (Admin)
+
+Get a specific user by ID (requires admin permissions).
+
+### Endpoint
+
+```http
+GET /auth/users/{id}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | User ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "user": {
+          "id": "user_123",
+          "email": "user@example.com",
+          "emailVerified": true,
+          "name": "John Doe",
+          "username": "johndoe",
+          "avatar": "https://example.com/avatars/user_123.jpg",
+          "bio": "Software engineer",
+          "location": "San Francisco, CA",
+          "website": "https://johndoe.com",
+          "timezone": "America/Los_Angeles",
+          "locale": "en-US",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T12:00:00Z",
+          "lastLoginAt": "2024-01-01T12:00:00Z",
+          "organizationId": "org_123",
+          "roles": ["user", "developer"],
+          "permissions": ["read:profile", "update:profile", "create:projects"],
+          "status": "active",
+          "twoFactorEnabled": true,
+          "emailNotifications": true,
+          "marketingEmails": false,
+          "loginCount": 42,
+          "lastLoginIP": "192.168.1.1",
+          "lastLoginDevice": "Chrome on macOS"
+        }
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "USER_NOT_FOUND",
+        "message": "User not found"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INSUFFICIENT_PERMISSIONS",
+        "message": "You don't have permission to view this user"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Rate Limiting
+
+User management endpoints have specific rate limits:
+
+| Endpoint | Rate Limit | Window |
+|----------|------------|--------|
+| `GET /auth/user` | 100 requests per user | 1 hour |
+| `PUT /auth/user` | 10 requests per user | 1 hour |
+| `POST /auth/user/change-password` | 3 requests per user | 1 hour |
+| `POST /auth/user/change-email` | 3 requests per user | 1 hour |
+| `POST /auth/user/verify-email` | 5 requests per IP | 1 hour |
+| `DELETE /auth/user` | 1 request per user | 24 hours |
+| `GET /auth/users` | 100 requests per user | 1 hour |
+
+<Callout type="warning">
+  Password change attempts are limited to prevent brute force attacks. After 3 failed attempts, the user must wait 1 hour before trying again.
+</Callout>
+
+## Validation Rules
+
+### Username Validation
+
+- Length: 3-30 characters
+- Characters: Letters, numbers, underscores, hyphens
+- Case: Case-insensitive uniqueness
+- Reserved: Cannot use reserved words (admin, api, www, etc.)
+
+### Password Validation
+
+- Minimum length: 8 characters
+- Must contain: uppercase, lowercase, number, special character
+- Cannot contain: common passwords, user's email/name
+- History: Cannot reuse last 5 passwords
+
+### Email Validation
+
+- Valid email format
+- Domain validation
+- Disposable email detection (configurable)
+- Uniqueness across the organization
+
+## Security Features
+
+### Profile Security
+
+- Email verification required for email changes
+- Password confirmation for sensitive operations
+- Audit logging for all profile changes
+- Rate limiting on sensitive endpoints
+
+### Data Privacy
+
+- Personal data encryption at rest
+- GDPR compliance features
+- Data export capabilities
+- Right to be forgotten (account deletion)
+
+### Account Protection
+
+- Account lockout after failed attempts
+- Suspicious activity detection
+- Device-based security policies
+- Session management and revocation
+
+## Error Handling
+
+### Common Error Codes
+
+| Code | Description | HTTP Status |
+|------|-------------|-------------|
+| `VALIDATION_ERROR` | Request validation failed | 422 |
+| `USER_NOT_FOUND` | User does not exist | 404 |
+| `USERNAME_ALREADY_EXISTS` | Username is taken | 409 |
+| `EMAIL_ALREADY_EXISTS` | Email is already registered | 409 |
+| `INVALID_CURRENT_PASSWORD` | Current password incorrect | 401 |
+| `WEAK_PASSWORD` | Password doesn't meet requirements | 422 |
+| `INSUFFICIENT_PERMISSIONS` | User lacks required permissions | 403 |
+| `ACCOUNT_SUSPENDED` | Account is suspended | 423 |
+| `RATE_LIMIT_EXCEEDED` | Too many requests | 429 |
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Security API"
+    description="Two-factor authentication and security features"
+    href="/docs/go/api-reference/security"
+  />
+  <Card
+    title="Sessions API"
+    description="Advanced session management and device tracking"
+    href="/docs/go/api-reference/sessions"
+  />
+  <Card
+    title="Organizations API"
+    description="Multi-tenant organization management"
+    href="/docs/go/api-reference/organizations"
+  />
+  <Card
+    title="Webhooks API"
+    description="Event notifications and webhook management"
+    href="/docs/go/api-reference/webhooks"
+  />
+</Cards>

@@ -134,6 +134,22 @@ func (fs *FileSource) Name() string {
 	return fs.name
 }
 
+// GetName returns the source name (alias for Name)
+func (fs *FileSource) GetName() string {
+	return fs.name
+}
+
+// GetType returns the source type
+func (fs *FileSource) GetType() string {
+	return "file"
+}
+
+// IsAvailable checks if the source is available
+func (fs *FileSource) IsAvailable(ctx context.Context) bool {
+	_, err := os.Stat(fs.path)
+	return err == nil
+}
+
 // Priority returns the source priority
 func (fs *FileSource) Priority() int {
 	return fs.priority
@@ -253,7 +269,7 @@ func (fs *FileSource) Watch(ctx context.Context, callback func(map[string]interf
 	fs.watchCallback = callback
 	fs.watching = true
 
-	// OnStart watching goroutine
+	// Start watching goroutine
 	go fs.watchLoop(ctx)
 
 	if fs.logger != nil {

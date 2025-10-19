@@ -105,7 +105,7 @@ func (f *StaticDiscoveryFactory) Create(config DiscoveryConfig) (Discovery, erro
 	// Update stats
 	sd.updateStats()
 
-	// OnStart refresh routine if enabled
+	// Start refresh routine if enabled
 	if staticConfig.RefreshInterval > 0 {
 		go sd.refreshLoop()
 	}

@@ -274,10 +274,10 @@ func (cam *CacheAlertManager) Start(ctx context.Context) error {
 	// Register default alert rules
 	cam.registerDefaultRules()
 
-	// OnStart evaluation loop
+	// Start evaluation loop
 	go cam.evaluationLoop(ctx)
 
-	// OnStart cleanup loop
+	// Start cleanup loop
 	go cam.cleanupLoop(ctx)
 
 	if cam.logger != nil {

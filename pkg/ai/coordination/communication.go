@@ -85,17 +85,18 @@ type CommunicationConfig struct {
 
 // CommunicationStats contains statistics about agent communication
 type CommunicationStats struct {
-	TotalMessagesSent     int64                     `json:"total_messages_sent"`
-	TotalMessagesReceived int64                     `json:"total_messages_received"`
-	MessagesInQueue       int64                     `json:"messages_in_queue"`
-	MessagesByType        map[MessageType]int64     `json:"messages_by_type"`
-	MessagesByPriority    map[MessagePriority]int64 `json:"messages_by_priority"`
-	AverageLatency        time.Duration             `json:"average_latency"`
-	FailedMessages        int64                     `json:"failed_messages"`
-	Retransmissions       int64                     `json:"retransmissions"`
-	ActiveConnections     int                       `json:"active_connections"`
-	AgentStats            map[string]AgentCommStats `json:"agent_stats"`
-	LastUpdated           time.Time                 `json:"last_updated"`
+	TotalMessagesSent      int64                     `json:"total_messages_sent"`
+	TotalMessagesReceived  int64                     `json:"total_messages_received"`
+	TotalMessagesProcessed int64                     `json:"total_messages_processed"`
+	MessagesInQueue        int64                     `json:"messages_in_queue"`
+	MessagesByType         map[MessageType]int64     `json:"messages_by_type"`
+	MessagesByPriority     map[MessagePriority]int64 `json:"messages_by_priority"`
+	AverageLatency         time.Duration             `json:"average_latency"`
+	FailedMessages         int64                     `json:"failed_messages"`
+	Retransmissions        int64                     `json:"retransmissions"`
+	ActiveConnections      int                       `json:"active_connections"`
+	AgentStats             map[string]AgentCommStats `json:"agent_stats"`
+	LastUpdated            time.Time                 `json:"last_updated"`
 }
 
 // AgentCommStats contains communication statistics for a specific agent
@@ -144,7 +145,7 @@ type AgentCommunicator struct {
 
 // NewCommunicationManager creates a new communication manager
 func NewCommunicationManager(protocol CommunicationProtocol, logger common.Logger) *CommunicationManager {
-	return &communicationManager{
+	return &CommunicationManager{
 		config: CommunicationConfig{
 			Protocol:          protocol,
 			MaxRetries:        3,
@@ -170,22 +171,8 @@ func NewCommunicationManager(protocol CommunicationProtocol, logger common.Logge
 	}
 }
 
-// communicationManager is the concrete implementation
-type communicationManager struct {
-	config        CommunicationConfig
-	protocol      CommunicationProtocol
-	agents        map[string]*AgentCommunicator
-	messageQueue  chan *QueuedMessage
-	handlers      map[MessageType]MessageHandler
-	subscriptions map[string][]string
-	stats         CommunicationStats
-	logger        common.Logger
-	started       bool
-	mu            sync.RWMutex
-}
-
 // Start starts the communication manager
-func (cm *communicationManager) Start(ctx context.Context) error {
+func (cm *CommunicationManager) Start(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -193,15 +180,15 @@ func (cm *communicationManager) Start(ctx context.Context) error {
 		return fmt.Errorf("communication manager already started")
 	}
 
-	// OnStart message processing workers
+	// Start message processing workers
 	for i := 0; i < cm.config.WorkerCount; i++ {
 		go cm.messageWorker(ctx)
 	}
 
-	// OnStart heartbeat monitor
+	// Start heartbeat monitor
 	go cm.heartbeatMonitor(ctx)
 
-	// OnStart statistics collection
+	// Start statistics collection
 	go cm.statisticsCollector(ctx)
 
 	cm.started = true
@@ -218,7 +205,7 @@ func (cm *communicationManager) Start(ctx context.Context) error {
 }
 
 // Stop stops the communication manager
-func (cm *communicationManager) Stop(ctx context.Context) error {
+func (cm *CommunicationManager) Stop(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -226,7 +213,7 @@ func (cm *communicationManager) Stop(ctx context.Context) error {
 		return fmt.Errorf("communication manager not started")
 	}
 
-	// OnStop all agent communicators
+	// Stop all agent communicators
 	for _, agent := range cm.agents {
 		agent.stop()
 	}
@@ -244,7 +231,7 @@ func (cm *communicationManager) Stop(ctx context.Context) error {
 }
 
 // RegisterAgent registers an agent for communication
-func (cm *communicationManager) RegisterAgent(agentID string) error {
+func (cm *CommunicationManager) RegisterAgent(agentID string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -273,7 +260,7 @@ func (cm *communicationManager) RegisterAgent(agentID string) error {
 	cm.stats.AgentStats[agentID] = agent.stats
 	cm.stats.ActiveConnections++
 
-	// OnStart agent message processing
+	// Start agent message processing
 	go agent.processMessages()
 
 	if cm.logger != nil {
@@ -286,7 +273,7 @@ func (cm *communicationManager) RegisterAgent(agentID string) error {
 }
 
 // UnregisterAgent unregisters an agent from communication
-func (cm *communicationManager) UnregisterAgent(agentID string) error {
+func (cm *CommunicationManager) UnregisterAgent(agentID string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -311,7 +298,7 @@ func (cm *communicationManager) UnregisterAgent(agentID string) error {
 }
 
 // SendMessage sends a message from one agent to another
-func (cm *communicationManager) SendMessage(ctx context.Context, message *AgentMessage) error {
+func (cm *CommunicationManager) SendMessage(ctx context.Context, message *AgentMessage) error {
 	if !cm.started {
 		return fmt.Errorf("communication manager not started")
 	}
@@ -368,7 +355,7 @@ func (cm *communicationManager) SendMessage(ctx context.Context, message *AgentM
 }
 
 // BroadcastMessage broadcasts a message to all registered agents
-func (cm *communicationManager) BroadcastMessage(ctx context.Context, message *AgentMessage) error {
+func (cm *CommunicationManager) BroadcastMessage(ctx context.Context, message *AgentMessage) error {
 	if !cm.started {
 		return fmt.Errorf("communication manager not started")
 	}
@@ -404,7 +391,7 @@ func (cm *communicationManager) BroadcastMessage(ctx context.Context, message *A
 }
 
 // SubscribeToMessages subscribes an agent to specific message types
-func (cm *communicationManager) SubscribeToMessages(agentID string, messageTypes []string) error {
+func (cm *CommunicationManager) SubscribeToMessages(agentID string, messageTypes []string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -429,7 +416,7 @@ func (cm *communicationManager) SubscribeToMessages(agentID string, messageTypes
 }
 
 // RegisterMessageHandler registers a global message handler
-func (cm *communicationManager) RegisterMessageHandler(messageType MessageType, handler MessageHandler) error {
+func (cm *CommunicationManager) RegisterMessageHandler(messageType MessageType, handler MessageHandler) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -445,7 +432,7 @@ func (cm *communicationManager) RegisterMessageHandler(messageType MessageType, 
 }
 
 // GetStats returns communication statistics
-func (cm *communicationManager) GetStats() CommunicationStats {
+func (cm *CommunicationManager) GetStats() CommunicationStats {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
@@ -458,7 +445,7 @@ func (cm *communicationManager) GetStats() CommunicationStats {
 
 // Message processing workers
 
-func (cm *communicationManager) messageWorker(ctx context.Context) {
+func (cm *CommunicationManager) messageWorker(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -472,7 +459,7 @@ func (cm *communicationManager) messageWorker(ctx context.Context) {
 	}
 }
 
-func (cm *communicationManager) processQueuedMessage(ctx context.Context, queuedMsg *QueuedMessage) {
+func (cm *CommunicationManager) processQueuedMessage(ctx context.Context, queuedMsg *QueuedMessage) {
 	message := queuedMsg.Message
 
 	// Check if message has expired
@@ -540,7 +527,7 @@ func (cm *communicationManager) processQueuedMessage(ctx context.Context, queued
 	}
 }
 
-func (cm *communicationManager) heartbeatMonitor(ctx context.Context) {
+func (cm *CommunicationManager) heartbeatMonitor(ctx context.Context) {
 	ticker := time.NewTicker(cm.config.HeartbeatInterval)
 	defer ticker.Stop()
 
@@ -554,7 +541,7 @@ func (cm *communicationManager) heartbeatMonitor(ctx context.Context) {
 	}
 }
 
-func (cm *communicationManager) checkAgentHealth() {
+func (cm *CommunicationManager) checkAgentHealth() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -580,7 +567,7 @@ func (cm *communicationManager) checkAgentHealth() {
 	}
 }
 
-func (cm *communicationManager) statisticsCollector(ctx context.Context) {
+func (cm *CommunicationManager) statisticsCollector(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -594,7 +581,7 @@ func (cm *communicationManager) statisticsCollector(ctx context.Context) {
 	}
 }
 
-func (cm *communicationManager) updateStatistics() {
+func (cm *CommunicationManager) updateStatistics() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -622,7 +609,7 @@ func (cm *communicationManager) updateStatistics() {
 
 // Helper methods
 
-func (cm *communicationManager) validateMessage(message *AgentMessage) error {
+func (cm *CommunicationManager) validateMessage(message *AgentMessage) error {
 	if message == nil {
 		return fmt.Errorf("message is nil")
 	}
@@ -646,7 +633,7 @@ func (cm *communicationManager) validateMessage(message *AgentMessage) error {
 	return nil
 }
 
-func (cm *communicationManager) generateMessageID() string {
+func (cm *CommunicationManager) generateMessageID() string {
 	return fmt.Sprintf("msg-%d", time.Now().UnixNano())
 }
 

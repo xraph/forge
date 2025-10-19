@@ -3,9 +3,11 @@ package core
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/xraph/forge/pkg/common"
+	"github.com/xraph/forge/pkg/logger"
 )
 
 // CacheManager defines the interface for cache management operations
@@ -13,8 +15,8 @@ type CacheManager interface {
 	// Service lifecycle methods
 	Name() string
 	Dependencies() []string
-	OnStart(ctx context.Context) error
-	OnStop(ctx context.Context) error
+	Start(ctx context.Context) error
+	Stop(ctx context.Context) error
 	OnHealthCheck(ctx context.Context) error
 	IsStarted() bool
 
@@ -145,6 +147,18 @@ type CacheStats struct {
 	Uptime      time.Duration          `json:"uptime"`
 	Shards      map[string]int64       `json:"shards,omitempty"`
 	Custom      map[string]interface{} `json:"custom,omitempty"`
+
+	TotalRequests  int64         `json:"total_requests"`
+	HitRequests    int64         `json:"hit_requests"`
+	MissRequests   int64         `json:"miss_requests"`
+	SetRequests    int64         `json:"set_requests"`
+	DeleteRequests int64         `json:"delete_requests"`
+	ClearRequests  int64         `json:"clear_requests"`
+	ErrorRequests  int64         `json:"error_requests"`
+	TotalSize      int64         `json:"total_size"`
+	LastMiss       time.Time     `json:"last_miss"`
+	HitRate        float64       `json:"hit_rate"`
+	AverageLatency time.Duration `json:"average_latency"`
 }
 
 // CacheCallback defines callback functions for cache events
@@ -354,4 +368,423 @@ func ValidateTTL(ttl time.Duration) error {
 		return NewCacheError("INVALID_TTL", "TTL too long", "", "validate", nil)
 	}
 	return nil
+}
+
+// DefaultCacheManager is a concrete implementation of CacheManager
+type DefaultCacheManager struct {
+	config              *CacheConfig
+	logger              common.Logger
+	metrics             common.Metrics
+	caches              map[string]CacheBackend
+	defaultCache        string
+	started             bool
+	mu                  sync.RWMutex
+	observers           []CacheObserver
+	invalidationManager InvalidationManager
+	cacheWarmer         CacheWarmer
+	factory             CacheFactory
+}
+
+// NewDefaultCacheManager creates a new default cache manager
+func NewDefaultCacheManager(config *CacheConfig, logger common.Logger, metrics common.Metrics) *DefaultCacheManager {
+	return &DefaultCacheManager{
+		config:    config,
+		logger:    logger,
+		metrics:   metrics,
+		caches:    make(map[string]CacheBackend),
+		observers: make([]CacheObserver, 0),
+	}
+}
+
+// Name returns the service name
+func (m *DefaultCacheManager) Name() string {
+	return "cache-manager"
+}
+
+// Dependencies returns the service dependencies
+func (m *DefaultCacheManager) Dependencies() []string {
+	return []string{}
+}
+
+// OnStart starts the cache manager
+func (m *DefaultCacheManager) Start(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.started {
+		return nil
+	}
+
+	// Initialize components
+	m.invalidationManager = NewDefaultInvalidationManager(m.logger, m.metrics)
+	m.cacheWarmer = NewDefaultCacheWarmer(m.logger, m.metrics)
+	m.factory = NewDefaultCacheFactory()
+
+	// Start invalidation manager
+	if err := m.invalidationManager.Start(ctx); err != nil {
+		return err
+	}
+
+	// Start cache warmer
+	if err := m.cacheWarmer.Start(ctx); err != nil {
+		return err
+	}
+
+	m.started = true
+	return nil
+}
+
+// OnStop stops the cache manager
+func (m *DefaultCacheManager) Stop(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.started {
+		return nil
+	}
+
+	// Stop all caches
+	for name, cache := range m.caches {
+		if err := cache.Stop(ctx); err != nil {
+			m.logger.Error("failed to stop cache", logger.String("cache", name), logger.String("error", err.Error()))
+		}
+	}
+
+	// Stop invalidation manager
+	if m.invalidationManager != nil {
+		if err := m.invalidationManager.Stop(ctx); err != nil {
+			m.logger.Error("failed to stop invalidation manager", logger.String("error", err.Error()))
+		}
+	}
+
+	// Stop cache warmer
+	if m.cacheWarmer != nil {
+		if err := m.cacheWarmer.Stop(ctx); err != nil {
+			m.logger.Error("failed to stop cache warmer", logger.String("error", err.Error()))
+		}
+	}
+
+	m.started = false
+	return nil
+}
+
+// OnHealthCheck performs a health check
+func (m *DefaultCacheManager) OnHealthCheck(ctx context.Context) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if !m.started {
+		return fmt.Errorf("cache manager not started")
+	}
+
+	// Check if we have at least one cache
+	if len(m.caches) == 0 {
+		return fmt.Errorf("no caches available")
+	}
+
+	return nil
+}
+
+// IsStarted returns whether the manager is started
+func (m *DefaultCacheManager) IsStarted() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.started
+}
+
+// RegisterCache registers a cache backend
+func (m *DefaultCacheManager) RegisterCache(name string, backend CacheBackend) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.started {
+		return fmt.Errorf("cannot register cache after manager is started")
+	}
+
+	m.caches[name] = backend
+	return nil
+}
+
+// UnregisterCache unregisters a cache backend
+func (m *DefaultCacheManager) UnregisterCache(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.started {
+		return fmt.Errorf("cannot unregister cache after manager is started")
+	}
+
+	delete(m.caches, name)
+	return nil
+}
+
+// GetCache returns a cache by name
+func (m *DefaultCacheManager) GetCache(name string) (Cache, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	cache, exists := m.caches[name]
+	if !exists {
+		return nil, fmt.Errorf("cache %s not found", name)
+	}
+
+	return cache, nil
+}
+
+// GetDefaultCache returns the default cache
+func (m *DefaultCacheManager) GetDefaultCache() (Cache, error) {
+	if m.defaultCache == "" {
+		return nil, fmt.Errorf("no default cache set")
+	}
+
+	return m.GetCache(m.defaultCache)
+}
+
+// ListCaches returns all registered caches
+func (m *DefaultCacheManager) ListCaches() []Cache {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	caches := make([]Cache, 0, len(m.caches))
+	for _, cache := range m.caches {
+		caches = append(caches, cache)
+	}
+
+	return caches
+}
+
+// SetDefaultCache sets the default cache
+func (m *DefaultCacheManager) SetDefaultCache(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.caches[name]; !exists {
+		return fmt.Errorf("cache %s not found", name)
+	}
+
+	m.defaultCache = name
+	return nil
+}
+
+// AddObserver adds a cache observer
+func (m *DefaultCacheManager) AddObserver(observer CacheObserver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.observers = append(m.observers, observer)
+}
+
+// RemoveObserver removes a cache observer
+func (m *DefaultCacheManager) RemoveObserver(observer CacheObserver) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for i, obs := range m.observers {
+		if obs == observer {
+			m.observers = append(m.observers[:i], m.observers[i+1:]...)
+			break
+		}
+	}
+}
+
+// GetStats returns statistics for all caches
+func (m *DefaultCacheManager) GetStats() map[string]CacheStats {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	stats := make(map[string]CacheStats)
+	for name, cache := range m.caches {
+		stats[name] = CacheStats{
+			Name:   cache.Name(),
+			Type:   string(cache.Type()),
+			Hits:   0, // Placeholder - would need to track this
+			Misses: 0, // Placeholder - would need to track this
+		}
+	}
+
+	return stats
+}
+
+// GetCombinedStats returns combined statistics
+func (m *DefaultCacheManager) GetCombinedStats() CacheStats {
+	stats := m.GetStats()
+
+	var combined CacheStats
+	for _, stat := range stats {
+		combined.Hits += stat.Hits
+		combined.Misses += stat.Misses
+		combined.Sets += stat.Sets
+		combined.Deletes += stat.Deletes
+		combined.Errors += stat.Errors
+		combined.Size += stat.Size
+		combined.Memory += stat.Memory
+		combined.Connections += stat.Connections
+	}
+
+	// Calculate hit ratio
+	totalRequests := combined.Hits + combined.Misses
+	if totalRequests > 0 {
+		combined.HitRatio = float64(combined.Hits) / float64(totalRequests)
+	}
+
+	return combined
+}
+
+// InvalidatePattern invalidates caches by pattern
+func (m *DefaultCacheManager) InvalidatePattern(ctx context.Context, pattern string) error {
+	if m.invalidationManager == nil {
+		return fmt.Errorf("invalidation manager not initialized")
+	}
+
+	// Invalidate all caches with the pattern
+	for name := range m.caches {
+		if err := m.invalidationManager.InvalidatePattern(ctx, name, pattern); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// InvalidateByTags invalidates caches by tags
+func (m *DefaultCacheManager) InvalidateByTags(ctx context.Context, tags []string) error {
+	if m.invalidationManager == nil {
+		return fmt.Errorf("invalidation manager not initialized")
+	}
+
+	// Invalidate all caches with the tags
+	for name := range m.caches {
+		if err := m.invalidationManager.InvalidateByTags(ctx, name, tags); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WarmCache warms a cache
+func (m *DefaultCacheManager) WarmCache(ctx context.Context, cacheName string, config WarmConfig) error {
+	if m.cacheWarmer == nil {
+		return fmt.Errorf("cache warmer not initialized")
+	}
+
+	return m.cacheWarmer.WarmCache(ctx, cacheName, config)
+}
+
+// GetInvalidationManager returns the invalidation manager
+func (m *DefaultCacheManager) GetInvalidationManager() InvalidationManager {
+	return m.invalidationManager
+}
+
+// GetCacheWarmer returns the cache warmer
+func (m *DefaultCacheManager) GetCacheWarmer() CacheWarmer {
+	return m.cacheWarmer
+}
+
+// GetFactory returns the cache factory
+func (m *DefaultCacheManager) GetFactory() CacheFactory {
+	return m.factory
+}
+
+// GetConfig returns the cache configuration
+func (m *DefaultCacheManager) GetConfig() *CacheConfig {
+	return m.config
+}
+
+// UpdateConfig updates the cache configuration
+func (m *DefaultCacheManager) UpdateConfig(config *CacheConfig) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.started {
+		return fmt.Errorf("cannot update config after manager is started")
+	}
+
+	m.config = config
+	return nil
+}
+
+// Placeholder implementations for missing components
+
+// DefaultInvalidationManager is a placeholder implementation
+type DefaultInvalidationManager struct {
+	logger  common.Logger
+	metrics common.Metrics
+}
+
+func NewDefaultInvalidationManager(logger common.Logger, metrics common.Metrics) *DefaultInvalidationManager {
+	return &DefaultInvalidationManager{logger: logger, metrics: metrics}
+}
+
+func (m *DefaultInvalidationManager) Start(ctx context.Context) error       { return nil }
+func (m *DefaultInvalidationManager) Stop(ctx context.Context) error        { return nil }
+func (m *DefaultInvalidationManager) HealthCheck(ctx context.Context) error { return nil }
+func (m *DefaultInvalidationManager) RegisterPublisher(name string, publisher InvalidationPublisher) error {
+	return nil
+}
+func (m *DefaultInvalidationManager) RegisterSubscriber(name string, subscriber InvalidationSubscriber) error {
+	return nil
+}
+func (m *DefaultInvalidationManager) RegisterCallback(callback InvalidationCallback) {}
+func (m *DefaultInvalidationManager) AddPattern(pattern InvalidationPattern)         {}
+func (m *DefaultInvalidationManager) InvalidateKey(ctx context.Context, cacheName, key string) error {
+	return nil
+}
+func (m *DefaultInvalidationManager) InvalidatePattern(ctx context.Context, cacheName, pattern string) error {
+	return nil
+}
+func (m *DefaultInvalidationManager) InvalidateTag(ctx context.Context, cacheName, tag string) error {
+	return nil
+}
+func (m *DefaultInvalidationManager) InvalidateByTags(ctx context.Context, cacheName string, tags []string) error {
+	return nil
+}
+func (m *DefaultInvalidationManager) InvalidateAll(ctx context.Context, cacheName string) error {
+	return nil
+}
+func (m *DefaultInvalidationManager) GetStats() InvalidationStats { return InvalidationStats{} }
+
+// DefaultCacheWarmer is a placeholder implementation
+type DefaultCacheWarmer struct {
+	logger  common.Logger
+	metrics common.Metrics
+}
+
+func NewDefaultCacheWarmer(logger common.Logger, metrics common.Metrics) *DefaultCacheWarmer {
+	return &DefaultCacheWarmer{logger: logger, metrics: metrics}
+}
+
+func (w *DefaultCacheWarmer) Start(ctx context.Context) error { return nil }
+func (w *DefaultCacheWarmer) Stop(ctx context.Context) error  { return nil }
+func (w *DefaultCacheWarmer) WarmCache(ctx context.Context, cacheName string, config WarmConfig) error {
+	return nil
+}
+func (w *DefaultCacheWarmer) GetWarmStats(cacheName string) (WarmStats, error) {
+	return WarmStats{}, nil
+}
+func (w *DefaultCacheWarmer) ScheduleWarming(cacheName string, config WarmConfig) error { return nil }
+func (w *DefaultCacheWarmer) CancelWarming(cacheName string) error                      { return nil }
+func (w *DefaultCacheWarmer) GetStats() WarmStats                                       { return WarmStats{} }
+func (w *DefaultCacheWarmer) GetActiveWarmings() []WarmingOperation                     { return []WarmingOperation{} }
+func (w *DefaultCacheWarmer) GetDataSources() []DataSource                              { return []DataSource{} }
+func (w *DefaultCacheWarmer) RegisterDataSource(source DataSource) error                { return nil }
+func (w *DefaultCacheWarmer) UnregisterDataSource(name string) error                    { return nil }
+
+// Placeholder types are defined in warmer.go
+
+// DefaultCacheFactory is a placeholder implementation
+type DefaultCacheFactory struct{}
+
+func NewDefaultCacheFactory() *DefaultCacheFactory {
+	return &DefaultCacheFactory{}
+}
+
+func (f *DefaultCacheFactory) Create(cacheType CacheType, name string, config interface{}, l common.Logger, metrics common.Metrics) (CacheBackend, error) {
+	return nil, fmt.Errorf("cache factory not implemented")
+}
+
+func (f *DefaultCacheFactory) List() []CacheType {
+	return []CacheType{}
+}
+
+func (f *DefaultCacheFactory) Register(cacheType CacheType, factory CacheConstructor) {
+	// Placeholder implementation
 }

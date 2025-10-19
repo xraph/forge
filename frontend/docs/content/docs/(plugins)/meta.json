@@ -1,0 +1,11 @@
+{
+  "title": "Plugins & Extensions",
+  "icon": "Puzzle", 
+  "defaultOpen": true,
+  "pages": [
+    "index",
+    "core",
+    "advanced",
+    "enterprise"
+  ]
+}

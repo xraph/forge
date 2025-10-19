@@ -1,0 +1,847 @@
+---
+title: Forge Integration
+description: Deep dive into integrating AuthSome with the Forge framework
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Forge Integration
+
+AuthSome is designed to work seamlessly with the [Forge framework](https://github.com/xraph/forge). This guide provides a comprehensive overview of how to integrate AuthSome into your Forge applications.
+
+## Overview
+
+The Forge framework provides a robust foundation for building web applications in Go. AuthSome leverages Forge's:
+
+- **Routing System**: Clean and efficient HTTP routing
+- **Middleware Pipeline**: Extensible middleware architecture
+- **Configuration Management**: Structured configuration with environment support
+- **Context Handling**: Request-scoped context management
+- **Error Handling**: Consistent error handling patterns
+
+## Architecture Integration
+
+### Application Structure
+
+```go
+// main.go - Application entry point
+package main
+
+import (
+    "context"
+    "log"
+    "os"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/twofa"
+    "github.com/xraph/authsome/plugins/username"
+)
+
+func main() {
+    // Initialize Forge application
+    app := forge.New(&forge.Config{
+        Name:    "MyApp",
+        Version: "1.0.0",
+        Debug:   os.Getenv("DEBUG") == "true",
+    })
+
+    // Initialize AuthSome
+    auth, err := authsome.New(
+        authsome.WithForgeApp(app),
+        authsome.WithMode(authsome.ModeSaaS),
+        authsome.WithPlugins(
+            username.NewPlugin(),
+            twofa.NewPlugin(),
+        ),
+    )
+    if err != nil {
+        log.Fatal("Failed to initialize AuthSome:", err)
+    }
+
+    // Mount AuthSome to Forge
+    if err := auth.Mount(app, "/auth"); err != nil {
+        log.Fatal("Failed to mount AuthSome:", err)
+    }
+
+    // Add your application routes
+    setupAppRoutes(app, auth)
+
+    // Start the server
+    if err := app.Listen(":8080"); err != nil {
+        log.Fatal("Server failed:", err)
+    }
+}
+```
+
+### Configuration Integration
+
+AuthSome integrates with Forge's configuration system:
+
+<Tabs>
+<Tab title="config.yaml">
+```yaml
+# Forge application config
+app:
+  name: "MyApp"
+  debug: false
+  port: 8080
+
+# Database configuration
+database:
+  driver: "postgres"
+  dsn: "postgres://user:pass@localhost/myapp?sslmode=disable"
+
+# AuthSome configuration
+auth:
+  mode: "saas"
+  session:
+    cookieName: "session"
+    maxAge: 86400
+    secure: true
+    httpOnly: true
+  
+  # Rate limiting
+  rateLimit:
+    enabled: true
+    requests: 100
+    window: "1m"
+  
+  # Email configuration
+  email:
+    provider: "smtp"
+    smtp:
+      host: "smtp.gmail.com"
+      port: 587
+      username: "your-email@gmail.com"
+      password: "your-app-password"
+  
+  # Plugin configurations
+  plugins:
+    username:
+      enabled: true
+      minLength: 3
+      maxLength: 30
+    
+    twofa:
+      enabled: true
+      issuer: "MyApp"
+      digits: 6
+```
+</Tab>
+<Tab title="config.go">
+```go
+// config.go - Configuration structure
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+)
+
+// AppConfig represents the application configuration
+type AppConfig struct {
+    App      AppSettings      `yaml:"app"`
+    Database DatabaseConfig  `yaml:"database"`
+    Auth     authsome.Config `yaml:"auth"`
+}
+
+// AppSettings contains general app settings
+type AppSettings struct {
+    Name  string `yaml:"name"`
+    Debug bool   `yaml:"debug"`
+    Port  int    `yaml:"port"`
+}
+
+// DatabaseConfig contains database settings
+type DatabaseConfig struct {
+    Driver string `yaml:"driver"`
+    DSN    string `yaml:"dsn"`
+}
+
+// LoadConfig loads configuration from file and environment
+func LoadConfig() (*AppConfig, error) {
+    var config AppConfig
+    
+    // Load from config file
+    if err := forge.LoadConfig("config.yaml", &config); err != nil {
+        return nil, err
+    }
+    
+    // Override with environment variables
+    forge.BindEnv(&config)
+    
+    return &config, nil
+}
+```
+</Tab>
+</Tabs>
+
+## Middleware Integration
+
+### Authentication Middleware
+
+AuthSome provides middleware that integrates with Forge's middleware pipeline:
+
+```go
+// middleware.go - Authentication middleware setup
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+)
+
+// setupMiddleware configures application middleware
+func setupMiddleware(app *forge.App, auth *authsome.Auth) {
+    // Global middleware
+    app.Use(forge.Logger())
+    app.Use(forge.Recovery())
+    app.Use(forge.CORS(&forge.CORSConfig{
+        AllowOrigins: []string{"http://localhost:3000"},
+        AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+        AllowHeaders: []string{"Content-Type", "Authorization"},
+    }))
+
+    // AuthSome session middleware
+    app.Use(auth.SessionMiddleware())
+
+    // Rate limiting middleware
+    app.Use(auth.RateLimitMiddleware())
+}
+
+// setupProtectedRoutes sets up routes that require authentication
+func setupProtectedRoutes(app *forge.App, auth *authsome.Auth) {
+    // Protected route group
+    protected := app.Group("/api")
+    protected.Use(auth.RequireAuth())
+
+    // User profile routes
+    protected.GET("/profile", getUserProfile)
+    protected.PUT("/profile", updateUserProfile)
+    
+    // Organization routes
+    protected.GET("/organizations", getOrganizations)
+    protected.POST("/organizations", createOrganization)
+}
+
+// setupAdminRoutes sets up admin-only routes
+func setupAdminRoutes(app *forge.App, auth *authsome.Auth) {
+    // Admin route group
+    admin := app.Group("/admin")
+    admin.Use(auth.RequireAuth())
+    admin.Use(auth.RequireRole("admin"))
+
+    // Admin routes
+    admin.GET("/users", listUsers)
+    admin.DELETE("/users/:id", deleteUser)
+    admin.GET("/audit", getAuditLogs)
+}
+```
+
+### Custom Middleware
+
+You can create custom middleware that works with AuthSome:
+
+```go
+// custom_middleware.go - Custom middleware examples
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+)
+
+// OrganizationMiddleware ensures user belongs to organization
+func OrganizationMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        // Get current user from context
+        user := auth.GetUser(c)
+        if user == nil {
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+
+        // Get organization ID from URL parameter
+        orgID := c.Param("orgId")
+        if orgID == "" {
+            return c.JSON(400, map[string]string{
+                "error": "Organization ID required",
+            })
+        }
+
+        // Check if user belongs to organization
+        isMember, err := auth.IsOrganizationMember(c.Context(), user.ID, orgID)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to check organization membership",
+            })
+        }
+
+        if !isMember {
+            return c.JSON(403, map[string]string{
+                "error": "Access denied to organization",
+            })
+        }
+
+        // Store organization ID in context
+        c.Set("organizationId", orgID)
+        return c.Next()
+    }
+}
+
+// AuditMiddleware logs all requests for audit purposes
+func AuditMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        // Get user information
+        user := auth.GetUser(c)
+        
+        // Log the request
+        err := auth.LogAuditEvent(c.Context(), &authsome.AuditEvent{
+            UserID:       getUserID(user),
+            Action:       c.Method() + " " + c.Path(),
+            Resource:     c.Path(),
+            IPAddress:    c.RealIP(),
+            UserAgent:    c.Request().UserAgent(),
+            Timestamp:    time.Now(),
+        })
+        
+        if err != nil {
+            // Log error but don't fail the request
+            log.Printf("Failed to log audit event: %v", err)
+        }
+
+        return c.Next()
+    }
+}
+
+// getUserID safely extracts user ID
+func getUserID(user *authsome.User) string {
+    if user == nil {
+        return ""
+    }
+    return user.ID
+}
+```
+
+## Route Integration
+
+### Mounting AuthSome Routes
+
+AuthSome provides a clean way to mount its routes to your Forge application:
+
+```go
+// routes.go - Route setup
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+)
+
+// setupAppRoutes configures all application routes
+func setupAppRoutes(app *forge.App, auth *authsome.Auth) {
+    // Mount AuthSome routes at /auth
+    if err := auth.Mount(app, "/auth"); err != nil {
+        log.Fatal("Failed to mount AuthSome routes:", err)
+    }
+
+    // Public routes
+    setupPublicRoutes(app)
+    
+    // Protected routes
+    setupProtectedRoutes(app, auth)
+    
+    // Admin routes
+    setupAdminRoutes(app, auth)
+    
+    // Organization-scoped routes
+    setupOrganizationRoutes(app, auth)
+}
+
+// setupPublicRoutes sets up public routes
+func setupPublicRoutes(app *forge.App) {
+    app.GET("/", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "message": "Welcome to MyApp",
+            "version": "1.0.0",
+        })
+    })
+
+    app.GET("/health", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "status": "healthy",
+        })
+    })
+}
+
+// setupOrganizationRoutes sets up organization-scoped routes
+func setupOrganizationRoutes(app *forge.App, auth *authsome.Auth) {
+    // Organization-scoped API
+    orgAPI := app.Group("/api/orgs/:orgId")
+    orgAPI.Use(auth.RequireAuth())
+    orgAPI.Use(OrganizationMiddleware(auth))
+
+    // Organization resources
+    orgAPI.GET("/dashboard", getOrganizationDashboard)
+    orgAPI.GET("/members", getOrganizationMembers)
+    orgAPI.POST("/members", inviteOrganizationMember)
+    orgAPI.DELETE("/members/:userId", removeOrganizationMember)
+    
+    // Organization settings
+    orgAPI.GET("/settings", getOrganizationSettings)
+    orgAPI.PUT("/settings", updateOrganizationSettings)
+}
+```
+
+### Custom Route Handlers
+
+Create handlers that work seamlessly with AuthSome:
+
+```go
+// handlers.go - Custom route handlers
+package main
+
+import (
+    "net/http"
+    
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+)
+
+// getUserProfile returns the current user's profile
+func getUserProfile(c *forge.Context) error {
+    // AuthSome automatically injects user into context
+    user := authsome.GetUser(c)
+    if user == nil {
+        return c.JSON(401, map[string]string{
+            "error": "Authentication required",
+        })
+    }
+
+    return c.JSON(200, map[string]interface{}{
+        "id":       user.ID,
+        "email":    user.Email,
+        "name":     user.Name,
+        "verified": user.EmailVerified,
+        "createdAt": user.CreatedAt,
+    })
+}
+
+// updateUserProfile updates the current user's profile
+func updateUserProfile(c *forge.Context) error {
+    user := authsome.GetUser(c)
+    if user == nil {
+        return c.JSON(401, map[string]string{
+            "error": "Authentication required",
+        })
+    }
+
+    var req struct {
+        Name string `json:"name" validate:"required,min=2,max=100"`
+    }
+
+    if err := c.BindJSON(&req); err != nil {
+        return c.JSON(400, map[string]string{
+            "error": "Invalid request body",
+        })
+    }
+
+    // Update user profile
+    user.Name = req.Name
+    if err := authsome.UpdateUser(c.Context(), user); err != nil {
+        return c.JSON(500, map[string]string{
+            "error": "Failed to update profile",
+        })
+    }
+
+    return c.JSON(200, map[string]interface{}{
+        "message": "Profile updated successfully",
+        "user":    user,
+    })
+}
+
+// getOrganizationDashboard returns organization dashboard data
+func getOrganizationDashboard(c *forge.Context) error {
+    orgID := c.Get("organizationId").(string)
+    user := authsome.GetUser(c)
+
+    // Get organization data
+    org, err := authsome.GetOrganization(c.Context(), orgID)
+    if err != nil {
+        return c.JSON(500, map[string]string{
+            "error": "Failed to get organization",
+        })
+    }
+
+    // Get user's role in organization
+    role, err := authsome.GetUserRole(c.Context(), user.ID, orgID)
+    if err != nil {
+        return c.JSON(500, map[string]string{
+            "error": "Failed to get user role",
+        })
+    }
+
+    return c.JSON(200, map[string]interface{}{
+        "organization": org,
+        "userRole":     role,
+        "permissions":  role.Permissions,
+    })
+}
+```
+
+## Error Handling Integration
+
+AuthSome integrates with Forge's error handling system:
+
+```go
+// error_handling.go - Error handling integration
+package main
+
+import (
+    "errors"
+    "net/http"
+    
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+)
+
+// setupErrorHandling configures error handling
+func setupErrorHandling(app *forge.App) {
+    app.HTTPErrorHandler = customErrorHandler
+}
+
+// customErrorHandler handles errors consistently
+func customErrorHandler(err error, c *forge.Context) {
+    var code int
+    var message string
+
+    // Handle AuthSome specific errors
+    switch {
+    case errors.Is(err, authsome.ErrUserNotFound):
+        code = http.StatusNotFound
+        message = "User not found"
+    case errors.Is(err, authsome.ErrInvalidCredentials):
+        code = http.StatusUnauthorized
+        message = "Invalid credentials"
+    case errors.Is(err, authsome.ErrEmailAlreadyExists):
+        code = http.StatusConflict
+        message = "Email already exists"
+    case errors.Is(err, authsome.ErrInvalidToken):
+        code = http.StatusUnauthorized
+        message = "Invalid or expired token"
+    case errors.Is(err, authsome.ErrRateLimitExceeded):
+        code = http.StatusTooManyRequests
+        message = "Rate limit exceeded"
+    default:
+        // Handle Forge errors
+        if he, ok := err.(*forge.HTTPError); ok {
+            code = he.Code
+            message = he.Message
+        } else {
+            code = http.StatusInternalServerError
+            message = "Internal server error"
+        }
+    }
+
+    // Log error for debugging
+    if code >= 500 {
+        log.Printf("Server error: %v", err)
+    }
+
+    // Send error response
+    c.JSON(code, map[string]interface{}{
+        "error":   message,
+        "code":    code,
+        "path":    c.Path(),
+        "method":  c.Method(),
+    })
+}
+```
+
+## Database Integration
+
+AuthSome works with Forge's database patterns:
+
+```go
+// database.go - Database integration
+package main
+
+import (
+    "database/sql"
+    
+    "github.com/uptrace/bun"
+    "github.com/uptrace/bun/dialect/pgdialect"
+    "github.com/uptrace/bun/driver/pgdriver"
+    "github.com/xraph/authsome"
+)
+
+// setupDatabase initializes database connection
+func setupDatabase(config *AppConfig) (*bun.DB, error) {
+    // Create database connection
+    sqldb := sql.OpenDB(pgdriver.NewConnector(
+        pgdriver.WithDSN(config.Database.DSN),
+    ))
+
+    // Create Bun DB instance
+    db := bun.NewDB(sqldb, pgdialect.New())
+
+    // Enable query logging in debug mode
+    if config.App.Debug {
+        db.AddQueryHook(bundebug.NewQueryHook(
+            bundebug.WithVerbose(true),
+        ))
+    }
+
+    // Test connection
+    if err := db.Ping(); err != nil {
+        return nil, fmt.Errorf("failed to connect to database: %w", err)
+    }
+
+    return db, nil
+}
+
+// initializeAuthSome initializes AuthSome with database
+func initializeAuthSome(app *forge.App, db *bun.DB, config *AppConfig) (*authsome.Auth, error) {
+    auth, err := authsome.New(
+        authsome.WithForgeApp(app),
+        authsome.WithDatabase(db),
+        authsome.WithConfig(&config.Auth),
+        authsome.WithPlugins(
+            // Add your plugins here
+        ),
+    )
+    if err != nil {
+        return nil, fmt.Errorf("failed to initialize AuthSome: %w", err)
+    }
+
+    // Run migrations
+    if err := auth.Migrate(context.Background()); err != nil {
+        return nil, fmt.Errorf("failed to run migrations: %w", err)
+    }
+
+    return auth, nil
+}
+```
+
+## Testing Integration
+
+AuthSome provides testing utilities that work with Forge:
+
+```go
+// integration_test.go - Integration testing
+package main
+
+import (
+    "testing"
+    "net/http/httptest"
+    
+    "github.com/stretchr/testify/assert"
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/testing"
+)
+
+func TestAuthIntegration(t *testing.T) {
+    // Create test app
+    app := forge.New(&forge.Config{
+        Name: "TestApp",
+        Debug: true,
+    })
+
+    // Create test AuthSome instance
+    auth := authsome.NewTest(t)
+    
+    // Mount AuthSome
+    err := auth.Mount(app, "/auth")
+    assert.NoError(t, err)
+
+    // Setup test routes
+    setupAppRoutes(app, auth)
+
+    // Test authentication flow
+    t.Run("SignUp", func(t *testing.T) {
+        req := httptest.NewRequest("POST", "/auth/signup", strings.NewReader(`{
+            "email": "test@example.com",
+            "password": "password123"
+        }`))
+        req.Header.Set("Content-Type", "application/json")
+        
+        rec := httptest.NewRecorder()
+        app.ServeHTTP(rec, req)
+        
+        assert.Equal(t, 201, rec.Code)
+    })
+
+    t.Run("Login", func(t *testing.T) {
+        req := httptest.NewRequest("POST", "/auth/login", strings.NewReader(`{
+            "email": "test@example.com",
+            "password": "password123"
+        }`))
+        req.Header.Set("Content-Type", "application/json")
+        
+        rec := httptest.NewRecorder()
+        app.ServeHTTP(rec, req)
+        
+        assert.Equal(t, 200, rec.Code)
+    })
+}
+```
+
+## Performance Optimization
+
+### Caching Integration
+
+```go
+// caching.go - Caching integration
+package main
+
+import (
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/storage"
+)
+
+// setupCaching configures caching for AuthSome
+func setupCaching(auth *authsome.Auth, config *AppConfig) error {
+    // Redis cache for sessions
+    redisCache, err := storage.NewRedis(&storage.RedisConfig{
+        Addr:     config.Redis.Addr,
+        Password: config.Redis.Password,
+        DB:       config.Redis.DB,
+    })
+    if err != nil {
+        return err
+    }
+
+    // Configure session caching
+    auth.SetSessionStorage(redisCache)
+    
+    // Configure rate limiting storage
+    auth.SetRateLimitStorage(redisCache)
+
+    return nil
+}
+```
+
+### Connection Pooling
+
+```go
+// pooling.go - Database connection pooling
+package main
+
+import (
+    "time"
+    "github.com/uptrace/bun"
+)
+
+// configureConnectionPool optimizes database connections
+func configureConnectionPool(db *bun.DB, config *AppConfig) {
+    sqldb := db.DB
+    
+    // Set maximum number of open connections
+    sqldb.SetMaxOpenConns(25)
+    
+    // Set maximum number of idle connections
+    sqldb.SetMaxIdleConns(5)
+    
+    // Set maximum lifetime of connections
+    sqldb.SetConnMaxLifetime(5 * time.Minute)
+    
+    // Set maximum idle time for connections
+    sqldb.SetConnMaxIdleTime(1 * time.Minute)
+}
+```
+
+## Best Practices
+
+<Callout type="info">
+**Configuration Management**: Use Forge's configuration system to manage AuthSome settings across different environments.
+</Callout>
+
+<Callout type="warn">
+**Security**: Always use HTTPS in production and configure secure session cookies.
+</Callout>
+
+<Callout type="tip">
+**Performance**: Enable caching and connection pooling for production deployments.
+</Callout>
+
+### Environment-Specific Configuration
+
+```yaml
+# config/development.yaml
+auth:
+  session:
+    secure: false
+    domain: "localhost"
+  debug: true
+
+# config/production.yaml
+auth:
+  session:
+    secure: true
+    domain: "yourdomain.com"
+  debug: false
+  rateLimit:
+    enabled: true
+```
+
+### Monitoring Integration
+
+```go
+// monitoring.go - Monitoring and metrics
+package main
+
+import (
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/xraph/authsome"
+)
+
+// setupMonitoring configures monitoring for AuthSome
+func setupMonitoring(auth *authsome.Auth) {
+    // Register AuthSome metrics
+    prometheus.MustRegister(auth.GetMetrics()...)
+    
+    // Add custom metrics
+    authRequests := prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "auth_requests_total",
+            Help: "Total number of authentication requests",
+        },
+        []string{"method", "status"},
+    )
+    prometheus.MustRegister(authRequests)
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Route Conflicts**: Ensure AuthSome routes don't conflict with your application routes
+2. **Middleware Order**: Place AuthSome middleware in the correct order
+3. **Configuration**: Verify all required configuration values are set
+4. **Database**: Ensure database migrations have been run
+
+### Debug Mode
+
+Enable debug mode for detailed logging:
+
+```go
+auth, err := authsome.New(
+    authsome.WithDebug(true),
+    // other options...
+)
+```
+
+## Next Steps
+
+- [Database Setup](/docs/go/guides/database-setup) - Configure your database
+- [Deployment](/docs/go/guides/deployment) - Deploy to production
+- [Testing](/docs/go/guides/testing) - Test your integration
+
+---
+
+This guide covered the essential aspects of integrating AuthSome with the Forge framework. For more specific use cases, check out our [Examples](/docs/go/examples) section.

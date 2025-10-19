@@ -104,10 +104,10 @@ func (c *Candidate) Start(ctx context.Context) error {
 	c.started = true
 	c.electionStart = time.Now()
 
-	// OnStart election timer
+	// Start election timer
 	c.electionTimer = time.NewTimer(c.electionTimeout)
 
-	// OnStart election process
+	// Start election process
 	go c.conductElection()
 
 	if c.logger != nil {

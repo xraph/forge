@@ -1,0 +1,13 @@
+{
+  "title": "API Reference",
+  "icon": "Code",
+  "pages": [
+    "index",
+    "authentication",
+    "users",
+    "organizations",
+    "sessions",
+    "security",
+    "webhooks"
+  ]
+}

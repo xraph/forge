@@ -105,7 +105,7 @@ func (mda *MiddlewareDefinitionAdapter) Initialize(container common.Container) e
 }
 
 // OnStart starts the adapter middleware
-func (mda *MiddlewareDefinitionAdapter) OnStart(ctx context.Context) error {
+func (mda *MiddlewareDefinitionAdapter) Start(ctx context.Context) error {
 	if err := mda.BaseServiceMiddleware.OnStart(ctx); err != nil {
 		return err
 	}

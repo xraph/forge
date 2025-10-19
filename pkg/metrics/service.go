@@ -101,7 +101,7 @@ func (s *Service) Dependencies() []string {
 }
 
 // OnStart starts the metrics service
-func (s *Service) OnStart(ctx context.Context) error {
+func (s *Service) Start(ctx context.Context) error {
 	if s.started {
 		return common.ErrServiceAlreadyExists(s.name)
 	}
@@ -109,8 +109,8 @@ func (s *Service) OnStart(ctx context.Context) error {
 	s.started = true
 	s.startTime = time.Now()
 
-	// OnStart the metrics collector
-	if err := s.collector.OnStart(ctx); err != nil {
+	// Start the metrics collector
+	if err := s.collector.Start(ctx); err != nil {
 		s.started = false
 		return common.ErrServiceStartFailed(s.name, err)
 	}
@@ -123,7 +123,7 @@ func (s *Service) OnStart(ctx context.Context) error {
 		}
 	}
 
-	// OnStart exporters
+	// Start exporters
 	if err := s.startExporters(ctx); err != nil {
 		s.logger.Error("failed to start exporters", logger.Error(err))
 		// Don't fail startup for this
@@ -142,20 +142,20 @@ func (s *Service) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the metrics service
-func (s *Service) OnStop(ctx context.Context) error {
+func (s *Service) Stop(ctx context.Context) error {
 	if !s.started {
 		return common.ErrServiceNotFound(s.name)
 	}
 
 	s.started = false
 
-	// OnStop exporters
+	// Stop exporters
 	if err := s.stopExporters(ctx); err != nil {
 		s.logger.Error("failed to stop exporters", logger.Error(err))
 	}
 
-	// OnStop the metrics collector
-	if err := s.collector.OnStop(ctx); err != nil {
+	// Stop the metrics collector
+	if err := s.collector.Stop(ctx); err != nil {
 		s.logger.Error("failed to stop metrics collector", logger.Error(err))
 	}
 
@@ -332,7 +332,7 @@ func (s *Service) startExporter(ctx context.Context, name string, config Exporte
 		)
 	}
 
-	// OnStart exporter goroutine
+	// Start exporter goroutine
 	go s.exporterLoop(ctx, name, config)
 
 	return nil

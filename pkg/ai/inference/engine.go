@@ -30,6 +30,7 @@ type InferenceEngine struct {
 	cache     *InferenceCache
 	scaler    *InferenceScaler
 	workers   []*InferenceWorker
+	pool      *ObjectPool // Object pool for performance optimization
 	stats     InferenceStats
 	health    InferenceHealth
 	started   bool
@@ -167,6 +168,7 @@ func NewInferenceEngine(config InferenceConfig) (*InferenceEngine, error) {
 	engine := &InferenceEngine{
 		config:    config,
 		models:    make(map[string]models.Model),
+		pool:      NewObjectPool(1000, 5*time.Minute), // Initialize object pool
 		stats:     InferenceStats{},
 		health:    InferenceHealth{Status: InferenceHealthStatusUnknown},
 		logger:    config.Logger,
@@ -264,33 +266,33 @@ func (e *InferenceEngine) Start(ctx context.Context) error {
 		return fmt.Errorf("inference engine already started")
 	}
 
-	// OnStart pipeline
+	// Start pipeline
 	if err := e.pipeline.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start inference pipeline: %w", err)
 	}
 
-	// OnStart batcher if enabled
+	// Start batcher if enabled
 	if e.batcher != nil {
 		if err := e.batcher.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start request batcher: %w", err)
 		}
 	}
 
-	// OnStart cache if enabled
+	// Start cache if enabled
 	if e.cache != nil {
 		if err := e.cache.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start inference cache: %w", err)
 		}
 	}
 
-	// OnStart scaler if enabled
+	// Start scaler if enabled
 	if e.scaler != nil {
 		if err := e.scaler.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start inference scaler: %w", err)
 		}
 	}
 
-	// OnStart workers
+	// Start workers
 	e.workers = make([]*InferenceWorker, e.config.Workers)
 	for i := 0; i < e.config.Workers; i++ {
 		worker := NewInferenceWorker(InferenceWorkerConfig{
@@ -309,7 +311,7 @@ func (e *InferenceEngine) Start(ctx context.Context) error {
 		}(worker)
 	}
 
-	// OnStart stats collection
+	// Start stats collection
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
@@ -349,7 +351,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 	// Wait for workers to finish
 	e.wg.Wait()
 
-	// OnStop scaler
+	// Stop scaler
 	if e.scaler != nil {
 		if err := e.scaler.Stop(ctx); err != nil {
 			if e.logger != nil {
@@ -358,7 +360,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 		}
 	}
 
-	// OnStop cache
+	// Stop cache
 	if e.cache != nil {
 		if err := e.cache.Stop(ctx); err != nil {
 			if e.logger != nil {
@@ -367,7 +369,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 		}
 	}
 
-	// OnStop batcher
+	// Stop batcher
 	if e.batcher != nil {
 		if err := e.batcher.Stop(ctx); err != nil {
 			if e.logger != nil {
@@ -376,7 +378,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 		}
 	}
 
-	// OnStop pipeline
+	// Stop pipeline
 	if err := e.pipeline.Stop(ctx); err != nil {
 		if e.logger != nil {
 			e.logger.Error("failed to stop inference pipeline", logger.Error(err))
@@ -493,12 +495,16 @@ func (e *InferenceEngine) Infer(ctx context.Context, request InferenceRequest) (
 			e.metrics.Counter("forge.ai.inference_requests_error").Inc()
 		}
 
-		return InferenceResponse{
-			ID:        request.ID,
-			ModelID:   request.ModelID,
-			Error:     err,
-			Timestamp: time.Now(),
-		}, err
+		// Use object pool for response
+		response := e.pool.GetResponse()
+		response.ID = request.ID
+		response.ModelID = request.ModelID
+		response.Error = err
+		response.Timestamp = time.Now()
+
+		// Return response and put it back to pool after use
+		defer e.pool.PutResponse(response)
+		return *response, err
 	}
 
 	// Update cache if enabled
@@ -662,4 +668,14 @@ func (e *InferenceEngine) collectStats() {
 	}
 
 	e.stats.LastUpdated = time.Now()
+}
+
+// GetPoolStats returns object pool statistics
+func (e *InferenceEngine) GetPoolStats() PoolStats {
+	return e.pool.GetStats()
+}
+
+// ResetPoolStats resets object pool statistics
+func (e *InferenceEngine) ResetPoolStats() {
+	e.pool.ResetStats()
 }

@@ -1,0 +1,1307 @@
+---
+title: Migration
+description: Migrate from other authentication systems to AuthSome
+---
+
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Migration
+
+This guide covers migrating from other authentication systems to AuthSome. We'll provide strategies, tools, and step-by-step instructions for common migration scenarios.
+
+## Migration Overview
+
+### Supported Migration Sources
+
+AuthSome provides migration tools and strategies for:
+
+- **Firebase Auth** - Google's authentication service
+- **Auth0** - Identity platform as a service
+- **AWS Cognito** - Amazon's user identity service
+- **Supabase Auth** - Open source Firebase alternative
+- **Custom JWT Systems** - Self-built authentication
+- **Legacy Database Systems** - Existing user databases
+- **Clerk** - Modern authentication platform
+- **NextAuth.js** - Authentication for Next.js
+
+### Migration Strategy
+
+<Callout type="info">
+**Migration Approach**: Plan your migration carefully to minimize downtime and user disruption.
+</Callout>
+
+1. **Assessment Phase**: Analyze current system and data
+2. **Planning Phase**: Design migration strategy and timeline
+3. **Preparation Phase**: Set up AuthSome and migration tools
+4. **Migration Phase**: Execute data and user migration
+5. **Validation Phase**: Test and verify migrated system
+6. **Cutover Phase**: Switch to AuthSome in production
+7. **Cleanup Phase**: Decommission old system
+
+## Pre-Migration Assessment
+
+### Data Inventory
+
+```bash
+# Create migration assessment script
+cat > migration-assessment.sh << 'EOF'
+#!/bin/bash
+
+echo "=== AuthSome Migration Assessment ==="
+echo "Date: $(date)"
+echo ""
+
+echo "1. Current Authentication System:"
+echo "   - Provider: [Firebase/Auth0/Cognito/Custom]"
+echo "   - Version: [Version number]"
+echo "   - Integration: [SDK/API/Custom]"
+echo ""
+
+echo "2. User Data Analysis:"
+echo "   - Total Users: [Count]"
+echo "   - Active Users (30 days): [Count]"
+echo "   - User Attributes: [List fields]"
+echo "   - Authentication Methods: [Email/Social/Phone/etc.]"
+echo ""
+
+echo "3. Application Integration:"
+echo "   - Frontend Framework: [React/Vue/Angular/etc.]"
+echo "   - Backend Framework: [Express/Django/Rails/etc.]"
+echo "   - Database: [PostgreSQL/MySQL/MongoDB/etc.]"
+echo "   - Session Management: [JWT/Cookies/Redis/etc.]"
+echo ""
+
+echo "4. Security Features:"
+echo "   - MFA Enabled: [Yes/No]"
+echo "   - Social Logins: [Google/Facebook/GitHub/etc.]"
+echo "   - Password Policies: [Requirements]"
+echo "   - Rate Limiting: [Yes/No]"
+echo ""
+
+echo "5. Compliance Requirements:"
+echo "   - GDPR: [Yes/No]"
+echo "   - CCPA: [Yes/No]"
+echo "   - SOC2: [Yes/No]"
+echo "   - HIPAA: [Yes/No]"
+EOF
+
+chmod +x migration-assessment.sh
+./migration-assessment.sh
+```
+
+### Migration Checklist
+
+```markdown
+## Pre-Migration Checklist
+
+### Technical Assessment
+- [ ] Document current authentication flow
+- [ ] Inventory user data and attributes
+- [ ] Identify custom authentication logic
+- [ ] Map current permissions/roles
+- [ ] Document API integrations
+- [ ] Assess session management approach
+
+### Business Requirements
+- [ ] Define migration timeline
+- [ ] Identify critical user journeys
+- [ ] Plan communication strategy
+- [ ] Define rollback procedures
+- [ ] Establish success metrics
+- [ ] Plan user notification strategy
+
+### Infrastructure
+- [ ] Set up AuthSome environment
+- [ ] Configure database connections
+- [ ] Set up monitoring and logging
+- [ ] Prepare backup systems
+- [ ] Test disaster recovery procedures
+```
+
+## Firebase Auth Migration
+
+### Data Export from Firebase
+
+```javascript
+// firebase-export.js - Export users from Firebase
+const admin = require('firebase-admin');
+const fs = require('fs');
+
+// Initialize Firebase Admin SDK
+const serviceAccount = require('./path/to/serviceAccountKey.json');
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+async function exportUsers() {
+  const users = [];
+  let nextPageToken;
+
+  try {
+    do {
+      const listUsersResult = await admin.auth().listUsers(1000, nextPageToken);
+      
+      listUsersResult.users.forEach((userRecord) => {
+        const user = {
+          uid: userRecord.uid,
+          email: userRecord.email,
+          emailVerified: userRecord.emailVerified,
+          displayName: userRecord.displayName,
+          photoURL: userRecord.photoURL,
+          phoneNumber: userRecord.phoneNumber,
+          disabled: userRecord.disabled,
+          metadata: {
+            creationTime: userRecord.metadata.creationTime,
+            lastSignInTime: userRecord.metadata.lastSignInTime,
+            lastRefreshTime: userRecord.metadata.lastRefreshTime
+          },
+          customClaims: userRecord.customClaims,
+          providerData: userRecord.providerData.map(provider => ({
+            uid: provider.uid,
+            email: provider.email,
+            displayName: provider.displayName,
+            photoURL: provider.photoURL,
+            providerId: provider.providerId
+          }))
+        };
+        users.push(user);
+      });
+
+      nextPageToken = listUsersResult.pageToken;
+    } while (nextPageToken);
+
+    // Save to JSON file
+    fs.writeFileSync('firebase-users-export.json', JSON.stringify(users, null, 2));
+    console.log(`Exported ${users.length} users to firebase-users-export.json`);
+
+  } catch (error) {
+    console.error('Error exporting users:', error);
+  }
+}
+
+exportUsers();
+```
+
+### Firebase to AuthSome Migration Script
+
+```go
+// cmd/migrate/firebase.go - Firebase migration tool
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "io/ioutil"
+    "log"
+    "time"
+
+    "github.com/xraph/authsome/core/user"
+    "github.com/xraph/authsome/repository"
+    "github.com/uptrace/bun"
+)
+
+// FirebaseUser represents exported Firebase user data
+type FirebaseUser struct {
+    UID           string `json:"uid"`
+    Email         string `json:"email"`
+    EmailVerified bool   `json:"emailVerified"`
+    DisplayName   string `json:"displayName"`
+    PhotoURL      string `json:"photoURL"`
+    PhoneNumber   string `json:"phoneNumber"`
+    Disabled      bool   `json:"disabled"`
+    Metadata      struct {
+        CreationTime     string `json:"creationTime"`
+        LastSignInTime   string `json:"lastSignInTime"`
+        LastRefreshTime  string `json:"lastRefreshTime"`
+    } `json:"metadata"`
+    CustomClaims  map[string]interface{} `json:"customClaims"`
+    ProviderData  []FirebaseProvider     `json:"providerData"`
+}
+
+// FirebaseProvider represents Firebase provider data
+type FirebaseProvider struct {
+    UID         string `json:"uid"`
+    Email       string `json:"email"`
+    DisplayName string `json:"displayName"`
+    PhotoURL    string `json:"photoURL"`
+    ProviderID  string `json:"providerId"`
+}
+
+// MigrationStats tracks migration progress
+type MigrationStats struct {
+    TotalUsers     int
+    MigratedUsers  int
+    SkippedUsers   int
+    FailedUsers    int
+    Errors         []string
+}
+
+// FirebaseMigrator handles Firebase to AuthSome migration
+type FirebaseMigrator struct {
+    userRepo repository.UserRepository
+    db       *bun.DB
+    stats    *MigrationStats
+}
+
+// NewFirebaseMigrator creates a new Firebase migrator
+func NewFirebaseMigrator(db *bun.DB) *FirebaseMigrator {
+    return &FirebaseMigrator{
+        userRepo: repository.NewUserRepository(db),
+        db:       db,
+        stats:    &MigrationStats{},
+    }
+}
+
+// MigrateFromFile migrates users from Firebase export file
+func (m *FirebaseMigrator) MigrateFromFile(filename string) error {
+    // Read Firebase export file
+    data, err := ioutil.ReadFile(filename)
+    if err != nil {
+        return fmt.Errorf("failed to read file: %w", err)
+    }
+
+    var firebaseUsers []FirebaseUser
+    if err := json.Unmarshal(data, &firebaseUsers); err != nil {
+        return fmt.Errorf("failed to parse JSON: %w", err)
+    }
+
+    m.stats.TotalUsers = len(firebaseUsers)
+    log.Printf("Starting migration of %d users from Firebase", m.stats.TotalUsers)
+
+    ctx := context.Background()
+
+    // Start database transaction
+    tx, err := m.db.BeginTx(ctx, nil)
+    if err != nil {
+        return fmt.Errorf("failed to start transaction: %w", err)
+    }
+    defer tx.Rollback()
+
+    // Migrate users in batches
+    batchSize := 100
+    for i := 0; i < len(firebaseUsers); i += batchSize {
+        end := i + batchSize
+        if end > len(firebaseUsers) {
+            end = len(firebaseUsers)
+        }
+
+        batch := firebaseUsers[i:end]
+        if err := m.migrateBatch(ctx, tx, batch); err != nil {
+            log.Printf("Failed to migrate batch %d-%d: %v", i, end, err)
+            continue
+        }
+
+        log.Printf("Migrated batch %d-%d (%d/%d users)", i, end, end, len(firebaseUsers))
+    }
+
+    // Commit transaction
+    if err := tx.Commit(); err != nil {
+        return fmt.Errorf("failed to commit transaction: %w", err)
+    }
+
+    m.printStats()
+    return nil
+}
+
+// migrateBatch migrates a batch of Firebase users
+func (m *FirebaseMigrator) migrateBatch(ctx context.Context, tx bun.Tx, firebaseUsers []FirebaseUser) error {
+    for _, fbUser := range firebaseUsers {
+        if err := m.migrateUser(ctx, tx, fbUser); err != nil {
+            m.stats.FailedUsers++
+            m.stats.Errors = append(m.stats.Errors, fmt.Sprintf("User %s: %v", fbUser.UID, err))
+            continue
+        }
+        m.stats.MigratedUsers++
+    }
+    return nil
+}
+
+// migrateUser migrates a single Firebase user
+func (m *FirebaseMigrator) migrateUser(ctx context.Context, tx bun.Tx, fbUser FirebaseUser) error {
+    // Skip disabled users
+    if fbUser.Disabled {
+        m.stats.SkippedUsers++
+        return nil
+    }
+
+    // Skip users without email
+    if fbUser.Email == "" {
+        m.stats.SkippedUsers++
+        return nil
+    }
+
+    // Parse creation time
+    createdAt, err := time.Parse(time.RFC3339, fbUser.Metadata.CreationTime)
+    if err != nil {
+        createdAt = time.Now()
+    }
+
+    // Parse last sign in time
+    var lastSignInAt *time.Time
+    if fbUser.Metadata.LastSignInTime != "" {
+        if t, err := time.Parse(time.RFC3339, fbUser.Metadata.LastSignInTime); err == nil {
+            lastSignInAt = &t
+        }
+    }
+
+    // Create AuthSome user
+    authUser := &user.User{
+        ID:            generateUserID(), // Generate new ID or use Firebase UID
+        Email:         fbUser.Email,
+        Name:          fbUser.DisplayName,
+        EmailVerified: fbUser.EmailVerified,
+        PhoneNumber:   fbUser.PhoneNumber,
+        AvatarURL:     fbUser.PhotoURL,
+        CreatedAt:     createdAt,
+        UpdatedAt:     time.Now(),
+        LastSignInAt:  lastSignInAt,
+        Metadata: map[string]interface{}{
+            "firebase_uid":        fbUser.UID,
+            "migration_date":      time.Now(),
+            "firebase_custom_claims": fbUser.CustomClaims,
+        },
+    }
+
+    // Insert user
+    _, err = tx.NewInsert().Model(authUser).Exec(ctx)
+    if err != nil {
+        return fmt.Errorf("failed to insert user: %w", err)
+    }
+
+    // Migrate social providers
+    for _, provider := range fbUser.ProviderData {
+        if err := m.migrateSocialProvider(ctx, tx, authUser.ID, provider); err != nil {
+            log.Printf("Failed to migrate provider %s for user %s: %v", provider.ProviderID, authUser.ID, err)
+        }
+    }
+
+    return nil
+}
+
+// migrateSocialProvider migrates social provider data
+func (m *FirebaseMigrator) migrateSocialProvider(ctx context.Context, tx bun.Tx, userID string, provider FirebaseProvider) error {
+    // Map Firebase provider IDs to AuthSome provider IDs
+    providerMap := map[string]string{
+        "google.com":    "google",
+        "facebook.com":  "facebook",
+        "twitter.com":   "twitter",
+        "github.com":    "github",
+        "apple.com":     "apple",
+    }
+
+    authProvider, exists := providerMap[provider.ProviderID]
+    if !exists {
+        return fmt.Errorf("unsupported provider: %s", provider.ProviderID)
+    }
+
+    // Create social account record
+    socialAccount := map[string]interface{}{
+        "user_id":      userID,
+        "provider":     authProvider,
+        "provider_id":  provider.UID,
+        "email":        provider.Email,
+        "name":         provider.DisplayName,
+        "avatar_url":   provider.PhotoURL,
+        "created_at":   time.Now(),
+        "updated_at":   time.Now(),
+    }
+
+    _, err := tx.NewInsert().
+        TableExpr("social_accounts").
+        Value("user_id", "?", socialAccount["user_id"]).
+        Value("provider", "?", socialAccount["provider"]).
+        Value("provider_id", "?", socialAccount["provider_id"]).
+        Value("email", "?", socialAccount["email"]).
+        Value("name", "?", socialAccount["name"]).
+        Value("avatar_url", "?", socialAccount["avatar_url"]).
+        Value("created_at", "?", socialAccount["created_at"]).
+        Value("updated_at", "?", socialAccount["updated_at"]).
+        Exec(ctx)
+
+    return err
+}
+
+// printStats prints migration statistics
+func (m *FirebaseMigrator) printStats() {
+    log.Printf("\n=== Migration Complete ===")
+    log.Printf("Total Users: %d", m.stats.TotalUsers)
+    log.Printf("Migrated: %d", m.stats.MigratedUsers)
+    log.Printf("Skipped: %d", m.stats.SkippedUsers)
+    log.Printf("Failed: %d", m.stats.FailedUsers)
+    
+    if len(m.stats.Errors) > 0 {
+        log.Printf("\nErrors:")
+        for _, err := range m.stats.Errors {
+            log.Printf("  - %s", err)
+        }
+    }
+}
+
+// generateUserID generates a new user ID
+func generateUserID() string {
+    // Implement your ID generation logic
+    return fmt.Sprintf("user_%d", time.Now().UnixNano())
+}
+
+func main() {
+    // Initialize database connection
+    db := initDatabase()
+    defer db.Close()
+
+    // Create migrator
+    migrator := NewFirebaseMigrator(db)
+
+    // Run migration
+    if err := migrator.MigrateFromFile("firebase-users-export.json"); err != nil {
+        log.Fatalf("Migration failed: %v", err)
+    }
+
+    log.Println("Migration completed successfully!")
+}
+```
+
+## Auth0 Migration
+
+### Auth0 Data Export
+
+```javascript
+// auth0-export.js - Export users from Auth0
+const ManagementClient = require('auth0').ManagementClient;
+const fs = require('fs');
+
+const management = new ManagementClient({
+  domain: 'your-domain.auth0.com',
+  clientId: 'your-client-id',
+  clientSecret: 'your-client-secret',
+  scope: 'read:users read:user_idp_tokens'
+});
+
+async function exportUsers() {
+  let users = [];
+  let page = 0;
+  const perPage = 100;
+
+  try {
+    while (true) {
+      const result = await management.getUsers({
+        page: page,
+        per_page: perPage,
+        include_totals: true
+      });
+
+      users = users.concat(result.users);
+      
+      if (result.users.length < perPage) {
+        break;
+      }
+      
+      page++;
+      console.log(`Exported ${users.length} users...`);
+    }
+
+    // Save to JSON file
+    fs.writeFileSync('auth0-users-export.json', JSON.stringify(users, null, 2));
+    console.log(`Exported ${users.length} users to auth0-users-export.json`);
+
+  } catch (error) {
+    console.error('Error exporting users:', error);
+  }
+}
+
+exportUsers();
+```
+
+### Auth0 Migration Script
+
+```go
+// cmd/migrate/auth0.go - Auth0 migration tool
+package main
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "io/ioutil"
+    "log"
+    "strings"
+    "time"
+
+    "github.com/xraph/authsome/core/user"
+    "github.com/xraph/authsome/repository"
+)
+
+// Auth0User represents exported Auth0 user data
+type Auth0User struct {
+    UserID        string                 `json:"user_id"`
+    Email         string                 `json:"email"`
+    EmailVerified bool                   `json:"email_verified"`
+    Name          string                 `json:"name"`
+    Nickname      string                 `json:"nickname"`
+    Picture       string                 `json:"picture"`
+    PhoneNumber   string                 `json:"phone_number"`
+    PhoneVerified bool                   `json:"phone_verified"`
+    Blocked       bool                   `json:"blocked"`
+    CreatedAt     string                 `json:"created_at"`
+    UpdatedAt     string                 `json:"updated_at"`
+    LastLogin     string                 `json:"last_login"`
+    UserMetadata  map[string]interface{} `json:"user_metadata"`
+    AppMetadata   map[string]interface{} `json:"app_metadata"`
+    Identities    []Auth0Identity        `json:"identities"`
+}
+
+// Auth0Identity represents Auth0 identity data
+type Auth0Identity struct {
+    Provider     string `json:"provider"`
+    UserID       string `json:"user_id"`
+    Connection   string `json:"connection"`
+    IsSocial     bool   `json:"isSocial"`
+    AccessToken  string `json:"access_token"`
+    RefreshToken string `json:"refresh_token"`
+}
+
+// Auth0Migrator handles Auth0 to AuthSome migration
+type Auth0Migrator struct {
+    userRepo repository.UserRepository
+    stats    *MigrationStats
+}
+
+// NewAuth0Migrator creates a new Auth0 migrator
+func NewAuth0Migrator(userRepo repository.UserRepository) *Auth0Migrator {
+    return &Auth0Migrator{
+        userRepo: userRepo,
+        stats:    &MigrationStats{},
+    }
+}
+
+// MigrateFromFile migrates users from Auth0 export file
+func (m *Auth0Migrator) MigrateFromFile(filename string) error {
+    // Read Auth0 export file
+    data, err := ioutil.ReadFile(filename)
+    if err != nil {
+        return fmt.Errorf("failed to read file: %w", err)
+    }
+
+    var auth0Users []Auth0User
+    if err := json.Unmarshal(data, &auth0Users); err != nil {
+        return fmt.Errorf("failed to parse JSON: %w", err)
+    }
+
+    m.stats.TotalUsers = len(auth0Users)
+    log.Printf("Starting migration of %d users from Auth0", m.stats.TotalUsers)
+
+    ctx := context.Background()
+
+    // Migrate users
+    for i, auth0User := range auth0Users {
+        if err := m.migrateUser(ctx, auth0User); err != nil {
+            m.stats.FailedUsers++
+            m.stats.Errors = append(m.stats.Errors, fmt.Sprintf("User %s: %v", auth0User.UserID, err))
+            continue
+        }
+        
+        m.stats.MigratedUsers++
+        
+        if (i+1)%100 == 0 {
+            log.Printf("Migrated %d/%d users", i+1, len(auth0Users))
+        }
+    }
+
+    m.printStats()
+    return nil
+}
+
+// migrateUser migrates a single Auth0 user
+func (m *Auth0Migrator) migrateUser(ctx context.Context, auth0User Auth0User) error {
+    // Skip blocked users
+    if auth0User.Blocked {
+        m.stats.SkippedUsers++
+        return nil
+    }
+
+    // Parse timestamps
+    createdAt, _ := time.Parse(time.RFC3339, auth0User.CreatedAt)
+    updatedAt, _ := time.Parse(time.RFC3339, auth0User.UpdatedAt)
+    
+    var lastSignInAt *time.Time
+    if auth0User.LastLogin != "" {
+        if t, err := time.Parse(time.RFC3339, auth0User.LastLogin); err == nil {
+            lastSignInAt = &t
+        }
+    }
+
+    // Extract primary identity
+    primaryIdentity := m.getPrimaryIdentity(auth0User.Identities)
+    
+    // Create AuthSome user
+    authUser := &user.User{
+        ID:            generateUserID(),
+        Email:         auth0User.Email,
+        Name:          auth0User.Name,
+        EmailVerified: auth0User.EmailVerified,
+        PhoneNumber:   auth0User.PhoneNumber,
+        AvatarURL:     auth0User.Picture,
+        CreatedAt:     createdAt,
+        UpdatedAt:     updatedAt,
+        LastSignInAt:  lastSignInAt,
+        Metadata: map[string]interface{}{
+            "auth0_user_id":    auth0User.UserID,
+            "migration_date":   time.Now(),
+            "user_metadata":    auth0User.UserMetadata,
+            "app_metadata":     auth0User.AppMetadata,
+            "primary_provider": primaryIdentity.Provider,
+        },
+    }
+
+    // Create user
+    if err := m.userRepo.Create(ctx, authUser); err != nil {
+        return fmt.Errorf("failed to create user: %w", err)
+    }
+
+    return nil
+}
+
+// getPrimaryIdentity gets the primary identity from Auth0 identities
+func (m *Auth0Migrator) getPrimaryIdentity(identities []Auth0Identity) Auth0Identity {
+    // Find the primary identity (usually the first non-social one)
+    for _, identity := range identities {
+        if !identity.IsSocial {
+            return identity
+        }
+    }
+    
+    // If no non-social identity, return the first one
+    if len(identities) > 0 {
+        return identities[0]
+    }
+    
+    return Auth0Identity{}
+}
+```
+
+## AWS Cognito Migration
+
+### Cognito User Export
+
+```python
+# cognito-export.py - Export users from AWS Cognito
+import boto3
+import json
+import time
+
+def export_cognito_users(user_pool_id, region='us-east-1'):
+    client = boto3.client('cognito-idp', region_name=region)
+    users = []
+    pagination_token = None
+    
+    try:
+        while True:
+            if pagination_token:
+                response = client.list_users(
+                    UserPoolId=user_pool_id,
+                    PaginationToken=pagination_token,
+                    Limit=60  # Max limit for Cognito
+                )
+            else:
+                response = client.list_users(
+                    UserPoolId=user_pool_id,
+                    Limit=60
+                )
+            
+            users.extend(response['Users'])
+            
+            if 'PaginationToken' not in response:
+                break
+                
+            pagination_token = response['PaginationToken']
+            print(f"Exported {len(users)} users...")
+            
+            # Rate limiting to avoid throttling
+            time.sleep(0.1)
+        
+        # Save to JSON file
+        with open('cognito-users-export.json', 'w') as f:
+            json.dump(users, f, indent=2, default=str)
+        
+        print(f"Exported {len(users)} users to cognito-users-export.json")
+        
+    except Exception as e:
+        print(f"Error exporting users: {e}")
+
+if __name__ == "__main__":
+    # Replace with your User Pool ID
+    USER_POOL_ID = "us-east-1_XXXXXXXXX"
+    export_cognito_users(USER_POOL_ID)
+```
+
+## Custom JWT Migration
+
+### JWT Token Migration
+
+```go
+// cmd/migrate/jwt.go - Custom JWT system migration
+package main
+
+import (
+    "context"
+    "database/sql"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/golang-jwt/jwt/v5"
+    "github.com/xraph/authsome/core/user"
+    "github.com/xraph/authsome/repository"
+)
+
+// LegacyUser represents user from legacy system
+type LegacyUser struct {
+    ID            int       `db:"id"`
+    Email         string    `db:"email"`
+    PasswordHash  string    `db:"password_hash"`
+    FirstName     string    `db:"first_name"`
+    LastName      string    `db:"last_name"`
+    EmailVerified bool      `db:"email_verified"`
+    CreatedAt     time.Time `db:"created_at"`
+    UpdatedAt     time.Time `db:"updated_at"`
+    LastLoginAt   *time.Time `db:"last_login_at"`
+}
+
+// JWTMigrator handles custom JWT system migration
+type JWTMigrator struct {
+    legacyDB *sql.DB
+    userRepo repository.UserRepository
+    stats    *MigrationStats
+}
+
+// NewJWTMigrator creates a new JWT migrator
+func NewJWTMigrator(legacyDB *sql.DB, userRepo repository.UserRepository) *JWTMigrator {
+    return &JWTMigrator{
+        legacyDB: legacyDB,
+        userRepo: userRepo,
+        stats:    &MigrationStats{},
+    }
+}
+
+// MigrateUsers migrates users from legacy JWT system
+func (m *JWTMigrator) MigrateUsers() error {
+    ctx := context.Background()
+
+    // Query legacy users
+    query := `
+        SELECT id, email, password_hash, first_name, last_name, 
+               email_verified, created_at, updated_at, last_login_at
+        FROM users 
+        WHERE deleted_at IS NULL
+        ORDER BY id
+    `
+
+    rows, err := m.legacyDB.QueryContext(ctx, query)
+    if err != nil {
+        return fmt.Errorf("failed to query legacy users: %w", err)
+    }
+    defer rows.Close()
+
+    var legacyUsers []LegacyUser
+    for rows.Next() {
+        var user LegacyUser
+        err := rows.Scan(
+            &user.ID, &user.Email, &user.PasswordHash,
+            &user.FirstName, &user.LastName, &user.EmailVerified,
+            &user.CreatedAt, &user.UpdatedAt, &user.LastLoginAt,
+        )
+        if err != nil {
+            log.Printf("Failed to scan user: %v", err)
+            continue
+        }
+        legacyUsers = append(legacyUsers, user)
+    }
+
+    m.stats.TotalUsers = len(legacyUsers)
+    log.Printf("Starting migration of %d users from legacy JWT system", m.stats.TotalUsers)
+
+    // Migrate users
+    for i, legacyUser := range legacyUsers {
+        if err := m.migrateUser(ctx, legacyUser); err != nil {
+            m.stats.FailedUsers++
+            m.stats.Errors = append(m.stats.Errors, fmt.Sprintf("User %d: %v", legacyUser.ID, err))
+            continue
+        }
+        
+        m.stats.MigratedUsers++
+        
+        if (i+1)%100 == 0 {
+            log.Printf("Migrated %d/%d users", i+1, len(legacyUsers))
+        }
+    }
+
+    m.printStats()
+    return nil
+}
+
+// migrateUser migrates a single legacy user
+func (m *JWTMigrator) migrateUser(ctx context.Context, legacyUser LegacyUser) error {
+    // Create AuthSome user
+    authUser := &user.User{
+        ID:            generateUserID(),
+        Email:         legacyUser.Email,
+        Name:          fmt.Sprintf("%s %s", legacyUser.FirstName, legacyUser.LastName),
+        PasswordHash:  legacyUser.PasswordHash, // Keep existing hash if compatible
+        EmailVerified: legacyUser.EmailVerified,
+        CreatedAt:     legacyUser.CreatedAt,
+        UpdatedAt:     legacyUser.UpdatedAt,
+        LastSignInAt:  legacyUser.LastLoginAt,
+        Metadata: map[string]interface{}{
+            "legacy_user_id": legacyUser.ID,
+            "migration_date": time.Now(),
+            "first_name":     legacyUser.FirstName,
+            "last_name":      legacyUser.LastName,
+        },
+    }
+
+    // Create user
+    if err := m.userRepo.Create(ctx, authUser); err != nil {
+        return fmt.Errorf("failed to create user: %w", err)
+    }
+
+    return nil
+}
+
+// MigrateActiveSessions migrates active JWT sessions
+func (m *JWTMigrator) MigrateActiveSessions(jwtSecret string) error {
+    // This would involve:
+    // 1. Identifying active JWT tokens
+    // 2. Validating them with the old secret
+    // 3. Creating equivalent sessions in AuthSome
+    // 4. Providing a token exchange endpoint for clients
+    
+    log.Println("Session migration would be implemented based on your JWT structure")
+    return nil
+}
+```
+
+## Migration Tools and Utilities
+
+### Migration CLI Tool
+
+```go
+// cmd/migrate/main.go - Migration CLI tool
+package main
+
+import (
+    "flag"
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/xraph/authsome/internal/config"
+    "github.com/xraph/authsome/repository"
+)
+
+func main() {
+    var (
+        source     = flag.String("source", "", "Migration source (firebase, auth0, cognito, jwt)")
+        file       = flag.String("file", "", "Export file path")
+        dryRun     = flag.Bool("dry-run", false, "Perform dry run without making changes")
+        batchSize  = flag.Int("batch-size", 100, "Batch size for migration")
+        configFile = flag.String("config", "config.yaml", "Configuration file path")
+    )
+    flag.Parse()
+
+    if *source == "" {
+        fmt.Println("Usage: migrate -source <firebase|auth0|cognito|jwt> -file <export-file>")
+        os.Exit(1)
+    }
+
+    // Load configuration
+    cfg, err := config.Load(*configFile)
+    if err != nil {
+        log.Fatalf("Failed to load config: %v", err)
+    }
+
+    // Initialize database
+    db, err := initDatabase(cfg.Database)
+    if err != nil {
+        log.Fatalf("Failed to initialize database: %v", err)
+    }
+    defer db.Close()
+
+    // Create repositories
+    userRepo := repository.NewUserRepository(db)
+
+    // Run migration based on source
+    switch *source {
+    case "firebase":
+        migrator := NewFirebaseMigrator(db)
+        if err := migrator.MigrateFromFile(*file); err != nil {
+            log.Fatalf("Firebase migration failed: %v", err)
+        }
+    case "auth0":
+        migrator := NewAuth0Migrator(userRepo)
+        if err := migrator.MigrateFromFile(*file); err != nil {
+            log.Fatalf("Auth0 migration failed: %v", err)
+        }
+    case "cognito":
+        migrator := NewCognitoMigrator(userRepo)
+        if err := migrator.MigrateFromFile(*file); err != nil {
+            log.Fatalf("Cognito migration failed: %v", err)
+        }
+    case "jwt":
+        // JWT migration requires legacy database connection
+        legacyDB, err := initLegacyDatabase(cfg.LegacyDatabase)
+        if err != nil {
+            log.Fatalf("Failed to connect to legacy database: %v", err)
+        }
+        defer legacyDB.Close()
+
+        migrator := NewJWTMigrator(legacyDB, userRepo)
+        if err := migrator.MigrateUsers(); err != nil {
+            log.Fatalf("JWT migration failed: %v", err)
+        }
+    default:
+        log.Fatalf("Unsupported migration source: %s", *source)
+    }
+
+    log.Println("Migration completed successfully!")
+}
+```
+
+### Migration Validation
+
+```go
+// cmd/validate/main.go - Migration validation tool
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/xraph/authsome/repository"
+)
+
+// ValidationResult represents validation results
+type ValidationResult struct {
+    TotalUsers        int
+    ValidUsers        int
+    InvalidUsers      int
+    DuplicateEmails   int
+    MissingData       int
+    ValidationErrors  []string
+}
+
+// MigrationValidator validates migrated data
+type MigrationValidator struct {
+    userRepo repository.UserRepository
+    result   *ValidationResult
+}
+
+// NewMigrationValidator creates a new migration validator
+func NewMigrationValidator(userRepo repository.UserRepository) *MigrationValidator {
+    return &MigrationValidator{
+        userRepo: userRepo,
+        result:   &ValidationResult{},
+    }
+}
+
+// ValidateMigration validates the migrated data
+func (v *MigrationValidator) ValidateMigration() error {
+    ctx := context.Background()
+
+    log.Println("Starting migration validation...")
+
+    // Validate user data integrity
+    if err := v.validateUserData(ctx); err != nil {
+        return fmt.Errorf("user data validation failed: %w", err)
+    }
+
+    // Check for duplicate emails
+    if err := v.checkDuplicateEmails(ctx); err != nil {
+        return fmt.Errorf("duplicate email check failed: %w", err)
+    }
+
+    // Validate email formats
+    if err := v.validateEmailFormats(ctx); err != nil {
+        return fmt.Errorf("email format validation failed: %w", err)
+    }
+
+    // Print validation results
+    v.printResults()
+
+    return nil
+}
+
+// validateUserData validates basic user data integrity
+func (v *MigrationValidator) validateUserData(ctx context.Context) error {
+    // Implementation for validating user data
+    // Check for required fields, data consistency, etc.
+    return nil
+}
+
+// checkDuplicateEmails checks for duplicate email addresses
+func (v *MigrationValidator) checkDuplicateEmails(ctx context.Context) error {
+    // Implementation for checking duplicate emails
+    return nil
+}
+
+// validateEmailFormats validates email address formats
+func (v *MigrationValidator) validateEmailFormats(ctx context.Context) error {
+    // Implementation for validating email formats
+    return nil
+}
+
+// printResults prints validation results
+func (v *MigrationValidator) printResults() {
+    log.Printf("\n=== Migration Validation Results ===")
+    log.Printf("Total Users: %d", v.result.TotalUsers)
+    log.Printf("Valid Users: %d", v.result.ValidUsers)
+    log.Printf("Invalid Users: %d", v.result.InvalidUsers)
+    log.Printf("Duplicate Emails: %d", v.result.DuplicateEmails)
+    log.Printf("Missing Data: %d", v.result.MissingData)
+    
+    if len(v.result.ValidationErrors) > 0 {
+        log.Printf("\nValidation Errors:")
+        for _, err := range v.result.ValidationErrors {
+            log.Printf("  - %s", err)
+        }
+    }
+}
+```
+
+## Post-Migration Tasks
+
+### User Communication
+
+```go
+// internal/notification/migration.go - Migration notifications
+package notification
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/xraph/authsome/core/user"
+    "github.com/xraph/authsome/providers/email"
+)
+
+// MigrationNotifier handles migration-related notifications
+type MigrationNotifier struct {
+    emailProvider email.Provider
+    userRepo      user.Repository
+}
+
+// NewMigrationNotifier creates a new migration notifier
+func NewMigrationNotifier(emailProvider email.Provider, userRepo user.Repository) *MigrationNotifier {
+    return &MigrationNotifier{
+        emailProvider: emailProvider,
+        userRepo:      userRepo,
+    }
+}
+
+// NotifyMigrationComplete sends migration completion emails
+func (n *MigrationNotifier) NotifyMigrationComplete(ctx context.Context) error {
+    // Get all migrated users
+    users, err := n.userRepo.FindMigratedUsers(ctx)
+    if err != nil {
+        return fmt.Errorf("failed to get migrated users: %w", err)
+    }
+
+    log.Printf("Sending migration notifications to %d users", len(users))
+
+    for _, user := range users {
+        if err := n.sendMigrationEmail(ctx, user); err != nil {
+            log.Printf("Failed to send migration email to %s: %v", user.Email, err)
+            continue
+        }
+    }
+
+    return nil
+}
+
+// sendMigrationEmail sends migration notification email
+func (n *MigrationNotifier) sendMigrationEmail(ctx context.Context, user *user.User) error {
+    template := email.Template{
+        Subject: "Your account has been migrated to our new system",
+        HTML: `
+            <h2>Account Migration Complete</h2>
+            <p>Hello {{.Name}},</p>
+            <p>We've successfully migrated your account to our new authentication system.</p>
+            <p>Your login credentials remain the same:</p>
+            <ul>
+                <li>Email: {{.Email}}</li>
+                <li>Password: (unchanged)</li>
+            </ul>
+            <p>If you experience any issues logging in, please contact our support team.</p>
+            <p>Thank you for your patience during this transition.</p>
+        `,
+        Data: map[string]interface{}{
+            "Name":  user.Name,
+            "Email": user.Email,
+        },
+    }
+
+    return n.emailProvider.SendEmail(ctx, user.Email, template)
+}
+```
+
+### Rollback Strategy
+
+```go
+// cmd/rollback/main.go - Migration rollback tool
+package main
+
+import (
+    "context"
+    "flag"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/xraph/authsome/repository"
+)
+
+// RollbackManager handles migration rollbacks
+type RollbackManager struct {
+    userRepo repository.UserRepository
+}
+
+// NewRollbackManager creates a new rollback manager
+func NewRollbackManager(userRepo repository.UserRepository) *RollbackManager {
+    return &RollbackManager{
+        userRepo: userRepo,
+    }
+}
+
+// RollbackMigration rolls back migration by date
+func (r *RollbackManager) RollbackMigration(ctx context.Context, migrationDate time.Time) error {
+    log.Printf("Rolling back migration from %s", migrationDate.Format(time.RFC3339))
+
+    // Find users migrated on or after the specified date
+    users, err := r.userRepo.FindUsersByMigrationDate(ctx, migrationDate)
+    if err != nil {
+        return fmt.Errorf("failed to find migrated users: %w", err)
+    }
+
+    log.Printf("Found %d users to rollback", len(users))
+
+    // Delete migrated users
+    for _, user := range users {
+        if err := r.userRepo.Delete(ctx, user.ID); err != nil {
+            log.Printf("Failed to delete user %s: %v", user.ID, err)
+            continue
+        }
+    }
+
+    log.Printf("Rollback completed for %d users", len(users))
+    return nil
+}
+
+func main() {
+    var (
+        migrationDate = flag.String("date", "", "Migration date to rollback (RFC3339 format)")
+        confirm       = flag.Bool("confirm", false, "Confirm rollback operation")
+    )
+    flag.Parse()
+
+    if *migrationDate == "" || !*confirm {
+        fmt.Println("Usage: rollback -date <RFC3339-date> -confirm")
+        fmt.Println("Example: rollback -date 2024-01-15T10:00:00Z -confirm")
+        return
+    }
+
+    date, err := time.Parse(time.RFC3339, *migrationDate)
+    if err != nil {
+        log.Fatalf("Invalid date format: %v", err)
+    }
+
+    // Initialize database and repositories
+    db := initDatabase()
+    defer db.Close()
+
+    userRepo := repository.NewUserRepository(db)
+    rollbackManager := NewRollbackManager(userRepo)
+
+    // Perform rollback
+    if err := rollbackManager.RollbackMigration(context.Background(), date); err != nil {
+        log.Fatalf("Rollback failed: %v", err)
+    }
+
+    log.Println("Rollback completed successfully!")
+}
+```
+
+## Best Practices
+
+### Migration Checklist
+
+<Callout type="warning">
+**Critical Steps**: Follow this checklist to ensure a successful migration.
+</Callout>
+
+```markdown
+## Migration Best Practices
+
+### Pre-Migration
+- [ ] Backup all existing user data
+- [ ] Test migration process in staging environment
+- [ ] Prepare rollback procedures
+- [ ] Set up monitoring and alerting
+- [ ] Plan communication strategy
+- [ ] Schedule maintenance window
+
+### During Migration
+- [ ] Monitor migration progress
+- [ ] Validate data integrity in real-time
+- [ ] Keep stakeholders informed
+- [ ] Be prepared to pause/rollback if issues arise
+- [ ] Document any issues encountered
+
+### Post-Migration
+- [ ] Validate all migrated data
+- [ ] Test authentication flows
+- [ ] Monitor system performance
+- [ ] Send user notifications
+- [ ] Update documentation
+- [ ] Plan legacy system decommission
+```
+
+### Performance Optimization
+
+```go
+// Migration performance tips
+func optimizeMigration() {
+    // 1. Use batch processing
+    batchSize := 1000
+    
+    // 2. Use database transactions
+    tx, _ := db.BeginTx(ctx, nil)
+    defer tx.Rollback()
+    
+    // 3. Use prepared statements
+    stmt, _ := tx.PrepareContext(ctx, "INSERT INTO users ...")
+    defer stmt.Close()
+    
+    // 4. Disable foreign key checks temporarily
+    _, _ = tx.ExecContext(ctx, "SET foreign_key_checks = 0")
+    
+    // 5. Use bulk inserts
+    _, _ = tx.ExecContext(ctx, "INSERT INTO users VALUES ...")
+    
+    // 6. Re-enable foreign key checks
+    _, _ = tx.ExecContext(ctx, "SET foreign_key_checks = 1")
+    
+    tx.Commit()
+}
+```
+
+## Next Steps
+
+- [Testing](/docs/go/guides/testing) - Test your migrated authentication system
+- [Deployment](/docs/go/guides/deployment) - Deploy AuthSome to production
+- [Database Setup](/docs/go/guides/database-setup) - Optimize database performance
+
+---
+
+This guide provided comprehensive migration strategies for moving from various authentication systems to AuthSome. Follow the specific migration path for your current system and use the provided tools and best practices for a successful transition.

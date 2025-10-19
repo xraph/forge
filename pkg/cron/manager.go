@@ -136,7 +136,7 @@ func (cm *CronManager) Dependencies() []string {
 }
 
 // OnStart starts the cron manager
-func (cm *CronManager) OnStart(ctx context.Context) error {
+func (cm *CronManager) Start(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -148,22 +148,22 @@ func (cm *CronManager) OnStart(ctx context.Context) error {
 		cm.logger.Info("starting cron manager", logger.String("node_id", cm.nodeID))
 	}
 
-	// OnStart store
+	// Start store
 	if err := cm.store.HealthCheck(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
 
-	// OnStart executor
+	// Start executor
 	if err := cm.executor.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
 
-	// OnStart leader election
+	// Start leader election
 	if err := cm.leaderElector.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
 
-	// OnStart scheduler
+	// Start scheduler
 	if err := cm.scheduler.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
@@ -173,7 +173,7 @@ func (cm *CronManager) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed("cron-manager", err)
 	}
 
-	// OnStart background tasks
+	// Start background tasks
 	cm.wg.Add(1)
 	go cm.mainLoop(ctx)
 
@@ -191,7 +191,7 @@ func (cm *CronManager) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the cron manager
-func (cm *CronManager) OnStop(ctx context.Context) error {
+func (cm *CronManager) Stop(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -209,29 +209,29 @@ func (cm *CronManager) OnStop(ctx context.Context) error {
 	// Wait for background tasks to finish
 	cm.wg.Wait()
 
-	// OnStop components
+	// Collect shutdown errors
+	var shutdownErrors []error
+
+	// Stop components
 	if err := cm.scheduler.Stop(ctx); err != nil {
-		if cm.logger != nil {
-			cm.logger.Error("failed to stop scheduler", logger.Error(err))
-		}
+		shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to stop scheduler: %w", err))
 	}
 
 	if err := cm.executor.Stop(ctx); err != nil {
-		if cm.logger != nil {
-			cm.logger.Error("failed to stop executor", logger.Error(err))
-		}
+		shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to stop executor: %w", err))
 	}
 
 	if err := cm.leaderElector.Stop(ctx); err != nil {
-		if cm.logger != nil {
-			cm.logger.Error("failed to stop leader elector", logger.Error(err))
-		}
+		shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to stop leader elector: %w", err))
 	}
 
 	if err := cm.store.Close(); err != nil {
-		if cm.logger != nil {
-			cm.logger.Error("failed to close store", logger.Error(err))
-		}
+		shutdownErrors = append(shutdownErrors, fmt.Errorf("failed to close store: %w", err))
+	}
+
+	// Return combined shutdown errors if any occurred
+	if len(shutdownErrors) > 0 {
+		return fmt.Errorf("cron manager shutdown completed with errors: %v", shutdownErrors)
 	}
 
 	cm.started = false

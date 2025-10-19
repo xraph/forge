@@ -1,0 +1,1117 @@
+---
+title: Organizations API
+description: Complete API reference for multi-tenant organization management including creation, membership, roles, and settings
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Organizations API
+
+Complete reference for AuthSome Go organization management endpoints, covering multi-tenant organization creation, membership management, role-based access control, and organization settings.
+
+## Overview
+
+The Organizations API provides comprehensive multi-tenant functionality allowing users to create and manage organizations, invite members, assign roles, and configure organization-specific settings.
+
+### Base URL
+
+```
+GET    /auth/organizations
+POST   /auth/organizations
+GET    /auth/organizations/{id}
+PUT    /auth/organizations/{id}
+DELETE /auth/organizations/{id}
+GET    /auth/organizations/{id}/members
+POST   /auth/organizations/{id}/members
+PUT    /auth/organizations/{id}/members/{userId}
+DELETE /auth/organizations/{id}/members/{userId}
+```
+
+## List Organizations
+
+Get all organizations the current user is a member of.
+
+### Endpoint
+
+```http
+GET /auth/organizations
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `limit` | integer | Items per page (1-100) | 20 |
+| `role` | string | Filter by user's role in organization | - |
+| `status` | string | Filter by organization status | active |
+| `sort` | string | Sort field (name, createdAt, memberCount) | createdAt |
+| `order` | string | Sort order (asc, desc) | desc |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": "org_123",
+          "name": "Acme Corporation",
+          "slug": "acme-corp",
+          "description": "Leading software development company",
+          "website": "https://acme-corp.com",
+          "logo": "https://example.com/logos/acme.png",
+          "plan": "enterprise",
+          "status": "active",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T12:00:00Z",
+          "memberCount": 150,
+          "maxMembers": 500,
+          "userRole": "admin",
+          "userPermissions": [
+            "org:read",
+            "org:update",
+            "org:delete",
+            "members:read",
+            "members:invite",
+            "members:remove"
+          ],
+          "settings": {
+            "allowPublicSignup": false,
+            "requireEmailVerification": true,
+            "twoFactorRequired": true,
+            "sessionTimeout": 86400,
+            "passwordPolicy": {
+              "minLength": 12,
+              "requireUppercase": true,
+              "requireNumbers": true,
+              "requireSymbols": true
+            }
+          }
+        },
+        {
+          "id": "org_456",
+          "name": "Startup Inc",
+          "slug": "startup-inc",
+          "description": "Innovative tech startup",
+          "website": "https://startup-inc.com",
+          "logo": null,
+          "plan": "pro",
+          "status": "active",
+          "createdAt": "2024-01-02T00:00:00Z",
+          "updatedAt": "2024-01-02T08:00:00Z",
+          "memberCount": 25,
+          "maxMembers": 100,
+          "userRole": "member",
+          "userPermissions": [
+            "org:read",
+            "members:read"
+          ],
+          "settings": {
+            "allowPublicSignup": true,
+            "requireEmailVerification": true,
+            "twoFactorRequired": false,
+            "sessionTimeout": 43200
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 20,
+        "total": 2,
+        "totalPages": 1,
+        "hasNext": false,
+        "hasPrev": false
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T13:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Create Organization
+
+Create a new organization (SaaS mode only).
+
+### Endpoint
+
+```http
+POST /auth/organizations
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "name": "New Company",
+      "slug": "new-company",
+      "description": "A new innovative company",
+      "website": "https://new-company.com",
+      "logo": "https://example.com/logos/new-company.png",
+      "plan": "pro",
+      "settings": {
+        "allowPublicSignup": false,
+        "requireEmailVerification": true,
+        "twoFactorRequired": false,
+        "sessionTimeout": 86400,
+        "passwordPolicy": {
+          "minLength": 8,
+          "requireUppercase": true,
+          "requireNumbers": true,
+          "requireSymbols": false
+        }
+      },
+      "metadata": {
+        "industry": "technology",
+        "size": "startup"
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface CreateOrganizationRequest {
+      name: string;
+      slug: string;
+      description?: string;
+      website?: string;
+      logo?: string;
+      plan?: string;
+      settings?: OrganizationSettings;
+      metadata?: Record<string, any>;
+    }
+
+    interface OrganizationSettings {
+      allowPublicSignup?: boolean;
+      requireEmailVerification?: boolean;
+      twoFactorRequired?: boolean;
+      sessionTimeout?: number;
+      passwordPolicy?: PasswordPolicy;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type CreateOrganizationRequest struct {
+        Name        string                 `json:"name" validate:"required,min=2,max=100"`
+        Slug        string                 `json:"slug" validate:"required,min=2,max=50,alphanum"`
+        Description string                 `json:"description,omitempty"`
+        Website     string                 `json:"website,omitempty" validate:"omitempty,url"`
+        Logo        string                 `json:"logo,omitempty" validate:"omitempty,url"`
+        Plan        string                 `json:"plan,omitempty"`
+        Settings    *OrganizationSettings  `json:"settings,omitempty"`
+        Metadata    map[string]interface{} `json:"metadata,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (201)', 'Error (422)', 'Error (409)']}>
+  <Tab value="Success (201)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "organization": {
+          "id": "org_789",
+          "name": "New Company",
+          "slug": "new-company",
+          "description": "A new innovative company",
+          "website": "https://new-company.com",
+          "logo": "https://example.com/logos/new-company.png",
+          "plan": "pro",
+          "status": "active",
+          "createdAt": "2024-01-01T14:00:00Z",
+          "updatedAt": "2024-01-01T14:00:00Z",
+          "memberCount": 1,
+          "maxMembers": 100,
+          "ownerId": "user_123",
+          "settings": {
+            "allowPublicSignup": false,
+            "requireEmailVerification": true,
+            "twoFactorRequired": false,
+            "sessionTimeout": 86400,
+            "passwordPolicy": {
+              "minLength": 8,
+              "requireUppercase": true,
+              "requireNumbers": true,
+              "requireSymbols": false
+            }
+          },
+          "metadata": {
+            "industry": "technology",
+            "size": "startup"
+          }
+        },
+        "membership": {
+          "userId": "user_123",
+          "organizationId": "org_789",
+          "role": "owner",
+          "permissions": [
+            "org:read",
+            "org:update",
+            "org:delete",
+            "members:read",
+            "members:invite",
+            "members:remove",
+            "members:update_roles",
+            "settings:read",
+            "settings:update"
+          ],
+          "joinedAt": "2024-01-01T14:00:00Z"
+        }
+      },
+      "timestamp": "2024-01-01T14:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation failed",
+        "details": {
+          "fields": {
+            "slug": {
+              "code": "INVALID_SLUG",
+              "message": "Slug must contain only letters, numbers, and hyphens"
+            },
+            "website": {
+              "code": "INVALID_URL",
+              "message": "Please enter a valid URL"
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T14:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (409)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "ORGANIZATION_SLUG_EXISTS",
+        "message": "An organization with this slug already exists",
+        "details": {
+          "field": "slug",
+          "value": "new-company"
+        }
+      },
+      "timestamp": "2024-01-01T14:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Organization
+
+Get details of a specific organization.
+
+### Endpoint
+
+```http
+GET /auth/organizations/{id}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Path Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `id` | string | Organization ID |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "organization": {
+          "id": "org_123",
+          "name": "Acme Corporation",
+          "slug": "acme-corp",
+          "description": "Leading software development company",
+          "website": "https://acme-corp.com",
+          "logo": "https://example.com/logos/acme.png",
+          "plan": "enterprise",
+          "status": "active",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T12:00:00Z",
+          "memberCount": 150,
+          "maxMembers": 500,
+          "ownerId": "user_456",
+          "settings": {
+            "allowPublicSignup": false,
+            "requireEmailVerification": true,
+            "twoFactorRequired": true,
+            "sessionTimeout": 86400,
+            "passwordPolicy": {
+              "minLength": 12,
+              "requireUppercase": true,
+              "requireNumbers": true,
+              "requireSymbols": true
+            },
+            "allowedDomains": ["acme-corp.com"],
+            "ssoEnabled": true,
+            "auditLogRetention": 365
+          },
+          "metadata": {
+            "industry": "technology",
+            "size": "enterprise",
+            "founded": "2020"
+          }
+        },
+        "userMembership": {
+          "userId": "user_123",
+          "organizationId": "org_123",
+          "role": "admin",
+          "permissions": [
+            "org:read",
+            "org:update",
+            "members:read",
+            "members:invite",
+            "members:remove",
+            "settings:read",
+            "settings:update"
+          ],
+          "joinedAt": "2024-01-01T00:00:00Z",
+          "invitedBy": "user_456"
+        }
+      },
+      "timestamp": "2024-01-01T14:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "ORGANIZATION_NOT_FOUND",
+        "message": "Organization not found"
+      },
+      "timestamp": "2024-01-01T14:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INSUFFICIENT_PERMISSIONS",
+        "message": "You don't have permission to view this organization"
+      },
+      "timestamp": "2024-01-01T14:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Update Organization
+
+Update organization details (requires admin permissions).
+
+### Endpoint
+
+```http
+PUT /auth/organizations/{id}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "name": "Acme Corporation Ltd",
+      "description": "Leading software development company worldwide",
+      "website": "https://acme-corp.com",
+      "logo": "https://example.com/logos/acme-new.png",
+      "settings": {
+        "allowPublicSignup": true,
+        "requireEmailVerification": true,
+        "twoFactorRequired": true,
+        "sessionTimeout": 43200,
+        "passwordPolicy": {
+          "minLength": 10,
+          "requireUppercase": true,
+          "requireNumbers": true,
+          "requireSymbols": true
+        },
+        "allowedDomains": ["acme-corp.com", "acme.com"]
+      },
+      "metadata": {
+        "industry": "technology",
+        "size": "enterprise",
+        "founded": "2020",
+        "headquarters": "San Francisco, CA"
+      }
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface UpdateOrganizationRequest {
+      name?: string;
+      description?: string;
+      website?: string;
+      logo?: string;
+      settings?: Partial<OrganizationSettings>;
+      metadata?: Record<string, any>;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type UpdateOrganizationRequest struct {
+        Name        *string                `json:"name,omitempty"`
+        Description *string                `json:"description,omitempty"`
+        Website     *string                `json:"website,omitempty" validate:"omitempty,url"`
+        Logo        *string                `json:"logo,omitempty" validate:"omitempty,url"`
+        Settings    *OrganizationSettings  `json:"settings,omitempty"`
+        Metadata    map[string]interface{} `json:"metadata,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (403)', 'Error (422)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "organization": {
+          "id": "org_123",
+          "name": "Acme Corporation Ltd",
+          "slug": "acme-corp",
+          "description": "Leading software development company worldwide",
+          "website": "https://acme-corp.com",
+          "logo": "https://example.com/logos/acme-new.png",
+          "plan": "enterprise",
+          "status": "active",
+          "createdAt": "2024-01-01T00:00:00Z",
+          "updatedAt": "2024-01-01T15:00:00Z",
+          "memberCount": 150,
+          "maxMembers": 500,
+          "ownerId": "user_456",
+          "settings": {
+            "allowPublicSignup": true,
+            "requireEmailVerification": true,
+            "twoFactorRequired": true,
+            "sessionTimeout": 43200,
+            "passwordPolicy": {
+              "minLength": 10,
+              "requireUppercase": true,
+              "requireNumbers": true,
+              "requireSymbols": true
+            },
+            "allowedDomains": ["acme-corp.com", "acme.com"]
+          },
+          "metadata": {
+            "industry": "technology",
+            "size": "enterprise",
+            "founded": "2020",
+            "headquarters": "San Francisco, CA"
+          }
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INSUFFICIENT_PERMISSIONS",
+        "message": "You don't have permission to update this organization"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation failed",
+        "details": {
+          "fields": {
+            "website": {
+              "code": "INVALID_URL",
+              "message": "Please enter a valid URL"
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## List Organization Members
+
+Get all members of an organization.
+
+### Endpoint
+
+```http
+GET /auth/organizations/{id}/members
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `limit` | integer | Items per page (1-100) | 20 |
+| `role` | string | Filter by role | - |
+| `status` | string | Filter by status (active, pending, suspended) | active |
+| `search` | string | Search by name or email | - |
+| `sort` | string | Sort field (name, email, joinedAt, role) | joinedAt |
+| `order` | string | Sort order (asc, desc) | desc |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "user": {
+            "id": "user_123",
+            "email": "admin@acme-corp.com",
+            "emailVerified": true,
+            "name": "John Admin",
+            "username": "johnadmin",
+            "avatar": "https://example.com/avatars/user_123.jpg",
+            "lastLoginAt": "2024-01-01T12:00:00Z"
+          },
+          "membership": {
+            "userId": "user_123",
+            "organizationId": "org_123",
+            "role": "admin",
+            "status": "active",
+            "permissions": [
+              "org:read",
+              "org:update",
+              "members:read",
+              "members:invite",
+              "members:remove",
+              "settings:read",
+              "settings:update"
+            ],
+            "joinedAt": "2024-01-01T00:00:00Z",
+            "invitedBy": "user_456",
+            "invitedAt": "2023-12-31T23:00:00Z"
+          }
+        },
+        {
+          "user": {
+            "id": "user_789",
+            "email": "member@acme-corp.com",
+            "emailVerified": true,
+            "name": "Jane Member",
+            "username": "janemember",
+            "avatar": null,
+            "lastLoginAt": "2024-01-01T10:00:00Z"
+          },
+          "membership": {
+            "userId": "user_789",
+            "organizationId": "org_123",
+            "role": "member",
+            "status": "active",
+            "permissions": [
+              "org:read",
+              "members:read"
+            ],
+            "joinedAt": "2024-01-01T08:00:00Z",
+            "invitedBy": "user_123",
+            "invitedAt": "2024-01-01T07:00:00Z"
+          }
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 20,
+        "total": 150,
+        "totalPages": 8,
+        "hasNext": true,
+        "hasPrev": false
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INSUFFICIENT_PERMISSIONS",
+        "message": "You don't have permission to view organization members"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Invite Member
+
+Invite a new member to the organization.
+
+### Endpoint
+
+```http
+POST /auth/organizations/{id}/members
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "email": "newmember@example.com",
+      "role": "member",
+      "message": "Welcome to our organization!",
+      "expiresIn": 604800
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface InviteMemberRequest {
+      email: string;
+      role: string;
+      message?: string;
+      expiresIn?: number; // seconds
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type InviteMemberRequest struct {
+        Email     string `json:"email" validate:"required,email"`
+        Role      string `json:"role" validate:"required"`
+        Message   string `json:"message,omitempty"`
+        ExpiresIn int    `json:"expiresIn,omitempty"` // seconds
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (201)', 'Error (409)', 'Error (403)']}>
+  <Tab value="Success (201)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "invitation": {
+          "id": "invite_123",
+          "organizationId": "org_123",
+          "email": "newmember@example.com",
+          "role": "member",
+          "status": "pending",
+          "message": "Welcome to our organization!",
+          "invitedBy": "user_123",
+          "invitedAt": "2024-01-01T15:30:00Z",
+          "expiresAt": "2024-01-08T15:30:00Z",
+          "token": "invite_token_abc123"
+        }
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (409)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "USER_ALREADY_MEMBER",
+        "message": "User is already a member of this organization"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INSUFFICIENT_PERMISSIONS",
+        "message": "You don't have permission to invite members"
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Update Member Role
+
+Update a member's role in the organization.
+
+### Endpoint
+
+```http
+PUT /auth/organizations/{id}/members/{userId}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "role": "admin"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface UpdateMemberRequest {
+      role: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type UpdateMemberRequest struct {
+        Role string `json:"role" validate:"required"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "membership": {
+          "userId": "user_789",
+          "organizationId": "org_123",
+          "role": "admin",
+          "status": "active",
+          "permissions": [
+            "org:read",
+            "org:update",
+            "members:read",
+            "members:invite",
+            "members:remove",
+            "settings:read",
+            "settings:update"
+          ],
+          "joinedAt": "2024-01-01T08:00:00Z",
+          "updatedAt": "2024-01-01T16:00:00Z",
+          "updatedBy": "user_123"
+        }
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "MEMBER_NOT_FOUND",
+        "message": "Member not found in this organization"
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INSUFFICIENT_PERMISSIONS",
+        "message": "You don't have permission to update member roles"
+      },
+      "timestamp": "2024-01-01T16:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Remove Member
+
+Remove a member from the organization.
+
+### Endpoint
+
+```http
+DELETE /auth/organizations/{id}/members/{userId}
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "message": "Member removed successfully",
+        "removedAt": "2024-01-01T16:30:00Z"
+      },
+      "timestamp": "2024-01-01T16:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "MEMBER_NOT_FOUND",
+        "message": "Member not found in this organization"
+      },
+      "timestamp": "2024-01-01T16:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INSUFFICIENT_PERMISSIONS",
+        "message": "You don't have permission to remove members"
+      },
+      "timestamp": "2024-01-01T16:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Organization Roles
+
+AuthSome Go supports hierarchical role-based access control:
+
+### Default Roles
+
+| Role | Description | Permissions |
+|------|-------------|-------------|
+| `owner` | Organization owner | All permissions |
+| `admin` | Administrator | All except ownership transfer |
+| `moderator` | Content moderator | Member management, content moderation |
+| `member` | Regular member | Basic organization access |
+| `guest` | Limited access | Read-only access |
+
+### Permission System
+
+Permissions follow the format `resource:action`:
+
+| Permission | Description |
+|------------|-------------|
+| `org:read` | View organization details |
+| `org:update` | Update organization settings |
+| `org:delete` | Delete organization |
+| `members:read` | View member list |
+| `members:invite` | Invite new members |
+| `members:remove` | Remove members |
+| `members:update_roles` | Update member roles |
+| `settings:read` | View organization settings |
+| `settings:update` | Update organization settings |
+| `billing:read` | View billing information |
+| `billing:update` | Update billing settings |
+
+## Rate Limiting
+
+Organization endpoints have specific rate limits:
+
+| Endpoint | Rate Limit | Window |
+|----------|------------|--------|
+| `GET /auth/organizations` | 100 requests per user | 1 hour |
+| `POST /auth/organizations` | 5 requests per user | 1 hour |
+| `PUT /auth/organizations/{id}` | 10 requests per user | 1 hour |
+| `GET /auth/organizations/{id}/members` | 100 requests per user | 1 hour |
+| `POST /auth/organizations/{id}/members` | 20 requests per user | 1 hour |
+| `PUT /auth/organizations/{id}/members/{userId}` | 10 requests per user | 1 hour |
+| `DELETE /auth/organizations/{id}/members/{userId}` | 10 requests per user | 1 hour |
+
+<Callout type="info">
+  Organization creation is limited to prevent abuse. Users can create up to 5 organizations per day in SaaS mode.
+</Callout>
+
+## Security Features
+
+### Access Control
+
+- Role-based permissions
+- Hierarchical role inheritance
+- Custom permission assignment
+- Audit logging for all actions
+
+### Organization Security
+
+- Domain-based access control
+- SSO integration support
+- Two-factor authentication enforcement
+- Session timeout policies
+
+### Data Isolation
+
+- Complete tenant isolation
+- Organization-scoped data
+- Separate configuration per organization
+- Independent user namespaces
+
+## Error Handling
+
+### Common Error Codes
+
+| Code | Description | HTTP Status |
+|------|-------------|-------------|
+| `ORGANIZATION_NOT_FOUND` | Organization does not exist | 404 |
+| `ORGANIZATION_SLUG_EXISTS` | Slug already taken | 409 |
+| `MEMBER_NOT_FOUND` | Member not found | 404 |
+| `USER_ALREADY_MEMBER` | User already in organization | 409 |
+| `INSUFFICIENT_PERMISSIONS` | Lacks required permissions | 403 |
+| `INVALID_ROLE` | Role does not exist | 422 |
+| `CANNOT_REMOVE_OWNER` | Cannot remove organization owner | 422 |
+| `MAX_MEMBERS_EXCEEDED` | Organization at member limit | 422 |
+| `ORGANIZATION_SUSPENDED` | Organization is suspended | 423 |
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Security API"
+    description="Two-factor authentication and security features"
+    href="/docs/go/api-reference/security"
+  />
+  <Card
+    title="Sessions API"
+    description="Advanced session management and device tracking"
+    href="/docs/go/api-reference/sessions"
+  />
+  <Card
+    title="Webhooks API"
+    description="Event notifications and webhook management"
+    href="/docs/go/api-reference/webhooks"
+  />
+  <Card
+    title="Authentication API"
+    description="Sign up, sign in, and session management"
+    href="/docs/go/api-reference/authentication"
+  />
+</Cards>

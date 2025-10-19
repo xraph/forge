@@ -83,12 +83,28 @@ type Model interface {
 	GetMetrics() ModelMetrics
 	GetHealth() ModelHealth
 	GetConfig() ModelConfig
+	GetInfo() ModelInfo
 	GetMetadata() map[string]interface{}
 
 	// Model validation
 	ValidateInput(input ModelInput) error
 	GetInputSchema() InputSchema
 	GetOutputSchema() OutputSchema
+}
+
+// ModelInfo contains information about a model
+type ModelInfo struct {
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Version     string                 `json:"version"`
+	Type        ModelType              `json:"type"`
+	Framework   MLFramework            `json:"framework"`
+	Description string                 `json:"description"`
+	Author      string                 `json:"author"`
+	CreatedAt   time.Time              `json:"created_at"`
+	UpdatedAt   time.Time              `json:"updated_at"`
+	Tags        []string               `json:"tags"`
+	Metadata    map[string]interface{} `json:"metadata"`
 }
 
 // ModelConfig contains configuration for a model

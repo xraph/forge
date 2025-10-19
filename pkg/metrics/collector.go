@@ -117,7 +117,7 @@ func (c *collector) Dependencies() []string {
 }
 
 // OnStart starts the metrics collector service
-func (c *collector) OnStart(ctx context.Context) error {
+func (c *collector) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -135,7 +135,7 @@ func (c *collector) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed(c.name, err)
 	}
 
-	// OnStart collection goroutine
+	// Start collection goroutine
 	go c.collectionLoop(ctx)
 
 	if c.logger != nil {
@@ -152,7 +152,7 @@ func (c *collector) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the metrics collector service
-func (c *collector) OnStop(ctx context.Context) error {
+func (c *collector) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -162,7 +162,7 @@ func (c *collector) OnStop(ctx context.Context) error {
 
 	c.started = false
 
-	// OnStop all custom collectors
+	// Stop all custom collectors
 	for _, col := range c.customCollectors {
 		col.Reset()
 	}

@@ -1,0 +1,1546 @@
+---
+title: Session Management
+description: Complete guide to managing user sessions, device tracking, and security with AuthSome Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Session Management
+
+This guide covers implementing comprehensive session management including device tracking, session security, concurrent sessions, and session analytics with AuthSome Go.
+
+## Overview
+
+AuthSome Go provides advanced session management with:
+
+- **Secure Sessions**: HTTP-only, secure cookies with CSRF protection
+- **Device Tracking**: Monitor and manage user devices
+- **Concurrent Sessions**: Control multiple active sessions
+- **Session Analytics**: Track usage patterns and security events
+- **Auto-Expiration**: Configurable session timeouts
+- **Session Revocation**: Instant logout and security controls
+
+## Quick Start
+
+<Tabs items={['Basic Setup', 'Configuration', 'Middleware']}>
+  <Tab value="Basic Setup">
+    ```go
+    package main
+    
+    import (
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+    )
+    
+    func main() {
+        app := forge.New()
+        
+        // Initialize AuthSome with session config
+        auth, err := authsome.New(authsome.Config{
+            DatabaseURL: "postgres://user:pass@localhost/db",
+            SecretKey:   "your-secret-key",
+            Session: authsome.SessionConfig{
+                CookieName:   "authsome_session",
+                MaxAge:       86400, // 24 hours
+                Secure:       true,
+                HTTPOnly:     true,
+                SameSite:     "lax",
+                Domain:       ".yourapp.com",
+                Path:         "/",
+                MaxSessions:  5, // Max concurrent sessions per user
+            },
+            Redis: authsome.RedisConfig{
+                URL: "redis://localhost:6379",
+                DB:  0,
+            },
+        })
+        if err != nil {
+            panic(err)
+        }
+        
+        // Setup session middleware
+        app.Use(auth.SessionMiddleware())
+        
+        // Mount AuthSome routes
+        auth.Mount(app, "/auth")
+        
+        // Protected routes
+        protected := app.Group("/api", auth.RequireAuth())
+        protected.GET("/profile", getProfile)
+        protected.GET("/sessions", getSessions)
+        protected.DELETE("/sessions/:id", revokeSession)
+        
+        app.Listen(":8080")
+    }
+    ```
+  </Tab>
+  <Tab value="Configuration">
+    ```yaml
+    # config.yaml
+    auth:
+      session:
+        # Cookie configuration
+        cookie_name: "authsome_session"
+        max_age: 86400 # 24 hours in seconds
+        secure: true # HTTPS only
+        http_only: true # No JavaScript access
+        same_site: "lax" # CSRF protection
+        domain: ".yourapp.com" # Allow subdomains
+        path: "/" # Cookie path
+        
+        # Session limits
+        max_sessions_per_user: 5
+        max_session_duration: 2592000 # 30 days
+        idle_timeout: 3600 # 1 hour of inactivity
+        
+        # Remember me settings
+        remember_me_duration: 2592000 # 30 days
+        extend_on_activity: true
+        
+        # Security settings
+        rotate_on_login: true
+        invalidate_on_password_change: true
+        require_fresh_auth_for_sensitive: true
+        fresh_auth_timeout: 900 # 15 minutes
+        
+      # Redis for distributed sessions
+      redis:
+        url: "redis://localhost:6379"
+        db: 0
+        pool_size: 10
+        max_retries: 3
+        
+      # Device tracking
+      device_tracking:
+        enabled: true
+        max_devices_per_user: 10
+        trust_duration: 2592000 # 30 days
+        notify_new_device: true
+        require_verification_new_device: false
+    ```
+  </Tab>
+  <Tab value="Middleware">
+    ```go
+    // Session middleware implementation
+    func (a *Auth) SessionMiddleware() forge.MiddlewareFunc {
+        return func(c *forge.Context) error {
+            // Extract session token from cookie
+            token := a.getSessionToken(c)
+            if token == "" {
+                return c.Next()
+            }
+            
+            // Validate and load session
+            session, err := a.validateSession(c.Context(), token)
+            if err != nil {
+                // Clear invalid session cookie
+                a.clearSessionCookie(c)
+                return c.Next()
+            }
+            
+            // Check session expiration
+            if session.IsExpired() {
+                a.revokeSession(c.Context(), session.ID)
+                a.clearSessionCookie(c)
+                return c.Next()
+            }
+            
+            // Update last activity
+            if err := a.updateSessionActivity(c.Context(), session.ID); err != nil {
+                c.Logger().Error("Failed to update session activity", "error", err)
+            }
+            
+            // Store session in context
+            c.Set("session", session)
+            c.Set("user", session.User)
+            
+            return c.Next()
+        }
+    }
+    
+    // Require authentication middleware
+    func (a *Auth) RequireAuth() forge.MiddlewareFunc {
+        return func(c *forge.Context) error {
+            session := a.GetSession(c)
+            if session == nil {
+                return c.JSON(401, map[string]string{
+                    "error": "Authentication required",
+                })
+            }
+            
+            return c.Next()
+        }
+    }
+    
+    // Require fresh authentication for sensitive operations
+    func (a *Auth) RequireFreshAuth() forge.MiddlewareFunc {
+        return func(c *forge.Context) error {
+            session := a.GetSession(c)
+            if session == nil {
+                return c.JSON(401, map[string]string{
+                    "error": "Authentication required",
+                })
+            }
+            
+            if session.RequiresFreshAuth() {
+                return c.JSON(403, map[string]string{
+                    "error": "Fresh authentication required",
+                    "code":  "FRESH_AUTH_REQUIRED",
+                })
+            }
+            
+            return c.Next()
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Session Creation and Management
+
+Implement secure session creation with device tracking:
+
+<Callout type="info">
+  Sessions are automatically created during login and can be configured for different security levels.
+</Callout>
+
+<Tabs items={['Session Creation', 'Device Tracking', 'Session Validation']}>
+  <Tab value="Session Creation">
+    ```go
+    // CreateSessionOptions defines session creation parameters
+    type CreateSessionOptions struct {
+        UserID     string
+        RememberMe bool
+        DeviceInfo DeviceInfo
+        ClientInfo ClientInfo
+        Metadata   map[string]interface{}
+    }
+    
+    // DeviceInfo represents device information
+    type DeviceInfo struct {
+        ID          string `json:"id"`
+        Name        string `json:"name"`
+        Type        string `json:"type"` // mobile, desktop, tablet
+        OS          string `json:"os"`
+        Browser     string `json:"browser"`
+        Fingerprint string `json:"fingerprint"`
+    }
+    
+    // ClientInfo represents client connection info
+    type ClientInfo struct {
+        IP        string `json:"ip"`
+        UserAgent string `json:"userAgent"`
+        Location  string `json:"location,omitempty"`
+    }
+    
+    // CreateSession creates a new user session
+    func (a *Auth) CreateSession(ctx context.Context, opts CreateSessionOptions) (*Session, error) {
+        // Generate secure session token
+        token, err := a.generateSecureToken(32)
+        if err != nil {
+            return nil, fmt.Errorf("failed to generate session token: %w", err)
+        }
+        
+        // Calculate expiration
+        var expiresAt time.Time
+        if opts.RememberMe {
+            expiresAt = time.Now().Add(a.config.Session.RememberMeDuration)
+        } else {
+            expiresAt = time.Now().Add(a.config.Session.MaxAge)
+        }
+        
+        // Create session
+        session := &Session{
+            ID:        generateID("sess"),
+            UserID:    opts.UserID,
+            Token:     token,
+            DeviceID:  opts.DeviceInfo.ID,
+            IP:        opts.ClientInfo.IP,
+            UserAgent: opts.ClientInfo.UserAgent,
+            Location:  opts.ClientInfo.Location,
+            CreatedAt: time.Now(),
+            UpdatedAt: time.Now(),
+            ExpiresAt: expiresAt,
+            IsActive:  true,
+            Metadata:  opts.Metadata,
+        }
+        
+        // Check session limits
+        if err := a.enforceSessionLimits(ctx, opts.UserID); err != nil {
+            return nil, fmt.Errorf("session limit exceeded: %w", err)
+        }
+        
+        // Store session in database
+        if err := a.repo.CreateSession(ctx, session); err != nil {
+            return nil, fmt.Errorf("failed to create session: %w", err)
+        }
+        
+        // Cache session in Redis
+        if err := a.cacheSession(ctx, session); err != nil {
+            a.logger.Error("Failed to cache session", "error", err)
+        }
+        
+        // Track device
+        if err := a.trackDevice(ctx, opts.UserID, opts.DeviceInfo, opts.ClientInfo); err != nil {
+            a.logger.Error("Failed to track device", "error", err)
+        }
+        
+        // Log session creation
+        a.logEvent(ctx, EventSessionCreated, EventData{
+            UserID:    opts.UserID,
+            SessionID: session.ID,
+            IP:        opts.ClientInfo.IP,
+            UserAgent: opts.ClientInfo.UserAgent,
+            Metadata: map[string]interface{}{
+                "deviceID":   opts.DeviceInfo.ID,
+                "rememberMe": opts.RememberMe,
+            },
+        })
+        
+        return session, nil
+    }
+    
+    // enforceSessionLimits ensures user doesn't exceed max sessions
+    func (a *Auth) enforceSessionLimits(ctx context.Context, userID string) error {
+        sessions, err := a.repo.GetUserSessions(ctx, userID)
+        if err != nil {
+            return err
+        }
+        
+        activeSessions := 0
+        var oldestSession *Session
+        
+        for _, session := range sessions {
+            if session.IsActive && !session.IsExpired() {
+                activeSessions++
+                if oldestSession == nil || session.CreatedAt.Before(oldestSession.CreatedAt) {
+                    oldestSession = session
+                }
+            }
+        }
+        
+        // If at limit, revoke oldest session
+        if activeSessions >= a.config.Session.MaxSessionsPerUser {
+            if oldestSession != nil {
+                if err := a.revokeSession(ctx, oldestSession.ID); err != nil {
+                    return fmt.Errorf("failed to revoke oldest session: %w", err)
+                }
+            }
+        }
+        
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="Device Tracking">
+    ```go
+    // Device represents a user device
+    type Device struct {
+        ID          string                 `json:"id"`
+        UserID      string                 `json:"userId"`
+        Name        string                 `json:"name"`
+        Type        string                 `json:"type"`
+        OS          string                 `json:"os"`
+        Browser     string                 `json:"browser"`
+        Fingerprint string                 `json:"fingerprint"`
+        Location    string                 `json:"location"`
+        IsTrusted   bool                   `json:"isTrusted"`
+        LastUsed    time.Time              `json:"lastUsed"`
+        CreatedAt   time.Time              `json:"createdAt"`
+        Metadata    map[string]interface{} `json:"metadata"`
+    }
+    
+    // trackDevice tracks and manages user devices
+    func (a *Auth) trackDevice(ctx context.Context, userID string, deviceInfo DeviceInfo, clientInfo ClientInfo) error {
+        // Check if device exists
+        device, err := a.repo.GetDevice(ctx, deviceInfo.ID)
+        if err != nil && !IsDeviceNotFoundError(err) {
+            return err
+        }
+        
+        isNewDevice := device == nil
+        
+        if isNewDevice {
+            // Create new device
+            device = &Device{
+                ID:          deviceInfo.ID,
+                UserID:      userID,
+                Name:        deviceInfo.Name,
+                Type:        deviceInfo.Type,
+                OS:          deviceInfo.OS,
+                Browser:     deviceInfo.Browser,
+                Fingerprint: deviceInfo.Fingerprint,
+                Location:    clientInfo.Location,
+                IsTrusted:   false, // New devices start untrusted
+                LastUsed:    time.Now(),
+                CreatedAt:   time.Now(),
+                Metadata: map[string]interface{}{
+                    "firstIP":        clientInfo.IP,
+                    "firstUserAgent": clientInfo.UserAgent,
+                },
+            }
+            
+            // Check device limits
+            if err := a.enforceDeviceLimits(ctx, userID); err != nil {
+                return err
+            }
+            
+            // Store device
+            if err := a.repo.CreateDevice(ctx, device); err != nil {
+                return fmt.Errorf("failed to create device: %w", err)
+            }
+            
+            // Send new device notification
+            if a.config.DeviceTracking.NotifyNewDevice {
+                if err := a.sendNewDeviceNotification(ctx, userID, device); err != nil {
+                    a.logger.Error("Failed to send new device notification", "error", err)
+                }
+            }
+            
+            // Log new device
+            a.logEvent(ctx, EventNewDevice, EventData{
+                UserID: userID,
+                IP:     clientInfo.IP,
+                Metadata: map[string]interface{}{
+                    "deviceID":   device.ID,
+                    "deviceName": device.Name,
+                    "deviceType": device.Type,
+                },
+            })
+        } else {
+            // Update existing device
+            device.LastUsed = time.Now()
+            device.Location = clientInfo.Location
+            
+            if err := a.repo.UpdateDevice(ctx, device); err != nil {
+                return fmt.Errorf("failed to update device: %w", err)
+            }
+        }
+        
+        return nil
+    }
+    
+    // enforceDeviceLimits ensures user doesn't exceed max devices
+    func (a *Auth) enforceDeviceLimits(ctx context.Context, userID string) error {
+        devices, err := a.repo.GetUserDevices(ctx, userID)
+        if err != nil {
+            return err
+        }
+        
+        if len(devices) >= a.config.DeviceTracking.MaxDevicesPerUser {
+            // Find oldest untrusted device to remove
+            var oldestDevice *Device
+            for _, device := range devices {
+                if !device.IsTrusted {
+                    if oldestDevice == nil || device.LastUsed.Before(oldestDevice.LastUsed) {
+                        oldestDevice = device
+                    }
+                }
+            }
+            
+            if oldestDevice != nil {
+                // Revoke all sessions for this device
+                if err := a.revokeDeviceSessions(ctx, oldestDevice.ID); err != nil {
+                    return err
+                }
+                
+                // Remove device
+                if err := a.repo.DeleteDevice(ctx, oldestDevice.ID); err != nil {
+                    return err
+                }
+            }
+        }
+        
+        return nil
+    }
+    
+    // TrustDevice marks a device as trusted
+    func (a *Auth) TrustDevice(ctx context.Context, userID, deviceID string) error {
+        device, err := a.repo.GetDevice(ctx, deviceID)
+        if err != nil {
+            return err
+        }
+        
+        if device.UserID != userID {
+            return ErrUnauthorized
+        }
+        
+        device.IsTrusted = true
+        if err := a.repo.UpdateDevice(ctx, device); err != nil {
+            return err
+        }
+        
+        a.logEvent(ctx, EventDeviceTrusted, EventData{
+            UserID: userID,
+            Metadata: map[string]interface{}{
+                "deviceID": deviceID,
+            },
+        })
+        
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="Session Validation">
+    ```go
+    // validateSession validates and loads a session
+    func (a *Auth) validateSession(ctx context.Context, token string) (*Session, error) {
+        // Try to get from cache first
+        session, err := a.getCachedSession(ctx, token)
+        if err == nil && session != nil {
+            return session, nil
+        }
+        
+        // Get from database
+        session, err = a.repo.GetSessionByToken(ctx, token)
+        if err != nil {
+            return nil, err
+        }
+        
+        // Check if session is active
+        if !session.IsActive {
+            return nil, ErrSessionInactive
+        }
+        
+        // Check expiration
+        if session.IsExpired() {
+            // Auto-revoke expired session
+            a.revokeSession(ctx, session.ID)
+            return nil, ErrSessionExpired
+        }
+        
+        // Check idle timeout
+        if session.IsIdleExpired(a.config.Session.IdleTimeout) {
+            a.revokeSession(ctx, session.ID)
+            return nil, ErrSessionIdleExpired
+        }
+        
+        // Load user data
+        user, err := a.repo.GetUser(ctx, session.UserID)
+        if err != nil {
+            return nil, err
+        }
+        session.User = user
+        
+        // Cache session
+        if err := a.cacheSession(ctx, session); err != nil {
+            a.logger.Error("Failed to cache session", "error", err)
+        }
+        
+        return session, nil
+    }
+    
+    // Session methods
+    func (s *Session) IsExpired() bool {
+        return time.Now().After(s.ExpiresAt)
+    }
+    
+    func (s *Session) IsIdleExpired(idleTimeout time.Duration) bool {
+        return time.Now().Sub(s.UpdatedAt) > idleTimeout
+    }
+    
+    func (s *Session) RequiresFreshAuth() bool {
+        if s.FreshAuthAt == nil {
+            return true
+        }
+        return time.Now().Sub(*s.FreshAuthAt) > 15*time.Minute
+    }
+    
+    func (s *Session) MarkFreshAuth() {
+        now := time.Now()
+        s.FreshAuthAt = &now
+    }
+    
+    // updateSessionActivity updates session last activity
+    func (a *Auth) updateSessionActivity(ctx context.Context, sessionID string) error {
+        now := time.Now()
+        
+        // Update in database (batch updates for performance)
+        if err := a.repo.UpdateSessionActivity(ctx, sessionID, now); err != nil {
+            return err
+        }
+        
+        // Update in cache
+        if err := a.updateCachedSessionActivity(ctx, sessionID, now); err != nil {
+            a.logger.Error("Failed to update cached session activity", "error", err)
+        }
+        
+        return nil
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Session Management API
+
+Implement comprehensive session management endpoints:
+
+<Tabs items={['List Sessions', 'Revoke Sessions', 'Session Details']}>
+  <Tab value="List Sessions">
+    ```go
+    // GetUserSessions returns all active sessions for a user
+    func (h *AuthHandler) GetUserSessions(c *forge.Context) error {
+        user := h.auth.GetCurrentUser(c)
+        if user == nil {
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        sessions, err := h.auth.GetUserSessions(c.Context(), user.ID)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to get sessions",
+            })
+        }
+        
+        // Get current session for comparison
+        currentSession := h.auth.GetSession(c)
+        
+        // Format sessions for response
+        var sessionList []map[string]interface{}
+        for _, session := range sessions {
+            if !session.IsActive || session.IsExpired() {
+                continue
+            }
+            
+            sessionData := map[string]interface{}{
+                "id":        session.ID,
+                "deviceId":  session.DeviceID,
+                "ip":        session.IP,
+                "location":  session.Location,
+                "userAgent": session.UserAgent,
+                "createdAt": session.CreatedAt,
+                "lastUsed":  session.UpdatedAt,
+                "expiresAt": session.ExpiresAt,
+                "isCurrent": currentSession != nil && session.ID == currentSession.ID,
+            }
+            
+            // Add device info if available
+            if device, err := h.auth.GetDevice(c.Context(), session.DeviceID); err == nil {
+                sessionData["device"] = map[string]interface{}{
+                    "name":      device.Name,
+                    "type":      device.Type,
+                    "os":        device.OS,
+                    "browser":   device.Browser,
+                    "isTrusted": device.IsTrusted,
+                }
+            }
+            
+            sessionList = append(sessionList, sessionData)
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "sessions": sessionList,
+            "total":    len(sessionList),
+        })
+    }
+    
+    // Frontend component for session list
+    ```tsx
+    import React, { useState, useEffect } from 'react';
+    import { authService } from '../services/auth';
+    
+    interface Session {
+      id: string;
+      deviceId: string;
+      ip: string;
+      location: string;
+      userAgent: string;
+      createdAt: string;
+      lastUsed: string;
+      expiresAt: string;
+      isCurrent: boolean;
+      device?: {
+        name: string;
+        type: string;
+        os: string;
+        browser: string;
+        isTrusted: boolean;
+      };
+    }
+    
+    export const SessionManager: React.FC = () => {
+      const [sessions, setSessions] = useState<Session[]>([]);
+      const [loading, setLoading] = useState(true);
+      const [revoking, setRevoking] = useState<string | null>(null);
+      
+      useEffect(() => {
+        loadSessions();
+      }, []);
+      
+      const loadSessions = async () => {
+        try {
+          const response = await authService.getSessions();
+          setSessions(response.sessions);
+        } catch (error) {
+          console.error('Failed to load sessions:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      const revokeSession = async (sessionId: string) => {
+        setRevoking(sessionId);
+        try {
+          await authService.revokeSession(sessionId);
+          setSessions(sessions.filter(s => s.id !== sessionId));
+        } catch (error) {
+          console.error('Failed to revoke session:', error);
+        } finally {
+          setRevoking(null);
+        }
+      };
+      
+      const revokeAllOtherSessions = async () => {
+        try {
+          await authService.revokeAllOtherSessions();
+          setSessions(sessions.filter(s => s.isCurrent));
+        } catch (error) {
+          console.error('Failed to revoke sessions:', error);
+        }
+      };
+      
+      const getDeviceIcon = (type: string) => {
+        switch (type) {
+          case 'mobile': return '📱';
+          case 'tablet': return '📱';
+          case 'desktop': return '💻';
+          default: return '🖥️';
+        }
+      };
+      
+      const formatLastUsed = (date: string) => {
+        const now = new Date();
+        const lastUsed = new Date(date);
+        const diffMs = now.getTime() - lastUsed.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins} minutes ago`;
+        if (diffMins < 1440) return `${Math.floor(diffMins / 60)} hours ago`;
+        return `${Math.floor(diffMins / 1440)} days ago`;
+      };
+      
+      if (loading) {
+        return <div className="loading">Loading sessions...</div>;
+      }
+      
+      return (
+        <div className="session-manager">
+          <div className="session-header">
+            <h2>Active Sessions</h2>
+            <button 
+              onClick={revokeAllOtherSessions}
+              className="revoke-all-button"
+            >
+              Sign out all other sessions
+            </button>
+          </div>
+          
+          <div className="session-list">
+            {sessions.map(session => (
+              <div key={session.id} className={`session-item ${session.isCurrent ? 'current' : ''}`}>
+                <div className="session-info">
+                  <div className="device-info">
+                    <span className="device-icon">
+                      {getDeviceIcon(session.device?.type || 'desktop')}
+                    </span>
+                    <div className="device-details">
+                      <div className="device-name">
+                        {session.device?.name || 'Unknown Device'}
+                        {session.isCurrent && <span className="current-badge">Current</span>}
+                        {session.device?.isTrusted && <span className="trusted-badge">Trusted</span>}
+                      </div>
+                      <div className="device-meta">
+                        {session.device?.os} • {session.device?.browser}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="session-details">
+                    <div className="location">📍 {session.location || session.ip}</div>
+                    <div className="last-used">🕒 {formatLastUsed(session.lastUsed)}</div>
+                  </div>
+                </div>
+                
+                {!session.isCurrent && (
+                  <button
+                    onClick={() => revokeSession(session.id)}
+                    disabled={revoking === session.id}
+                    className="revoke-button"
+                  >
+                    {revoking === session.id ? 'Revoking...' : 'Sign out'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          
+          {sessions.length === 0 && (
+            <div className="no-sessions">
+              No active sessions found.
+            </div>
+          )}
+        </div>
+      );
+    };
+    ```
+  </Tab>
+  <Tab value="Revoke Sessions">
+    ```go
+    // RevokeSession revokes a specific session
+    func (h *AuthHandler) RevokeSession(c *forge.Context) error {
+        sessionID := c.Param("id")
+        if sessionID == "" {
+            return c.JSON(400, map[string]string{
+                "error": "Session ID is required",
+            })
+        }
+        
+        user := h.auth.GetCurrentUser(c)
+        if user == nil {
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        // Get session to verify ownership
+        session, err := h.auth.GetSession(c.Context(), sessionID)
+        if err != nil {
+            return c.JSON(404, map[string]string{
+                "error": "Session not found",
+            })
+        }
+        
+        // Verify user owns this session
+        if session.UserID != user.ID {
+            return c.JSON(403, map[string]string{
+                "error": "Access denied",
+            })
+        }
+        
+        // Revoke session
+        if err := h.auth.RevokeSession(c.Context(), sessionID); err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to revoke session",
+            })
+        }
+        
+        return c.JSON(200, map[string]string{
+            "message": "Session revoked successfully",
+        })
+    }
+    
+    // RevokeAllOtherSessions revokes all sessions except current
+    func (h *AuthHandler) RevokeAllOtherSessions(c *forge.Context) error {
+        user := h.auth.GetCurrentUser(c)
+        currentSession := h.auth.GetSession(c)
+        
+        if user == nil || currentSession == nil {
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        // Get all user sessions
+        sessions, err := h.auth.GetUserSessions(c.Context(), user.ID)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to get sessions",
+            })
+        }
+        
+        // Revoke all except current
+        revokedCount := 0
+        for _, session := range sessions {
+            if session.ID != currentSession.ID && session.IsActive {
+                if err := h.auth.RevokeSession(c.Context(), session.ID); err != nil {
+                    h.logger.Error("Failed to revoke session", "sessionID", session.ID, "error", err)
+                    continue
+                }
+                revokedCount++
+            }
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "message": "Sessions revoked successfully",
+            "revoked": revokedCount,
+        })
+    }
+    
+    // RevokeAllUserSessions revokes all sessions for a user (admin only)
+    func (h *AuthHandler) RevokeAllUserSessions(c *forge.Context) error {
+        userID := c.Param("userId")
+        if userID == "" {
+            return c.JSON(400, map[string]string{
+                "error": "User ID is required",
+            })
+        }
+        
+        // Check admin permissions
+        currentUser := h.auth.GetCurrentUser(c)
+        if !h.auth.HasPermission(currentUser, "admin:sessions:revoke") {
+            return c.JSON(403, map[string]string{
+                "error": "Insufficient permissions",
+            })
+        }
+        
+        // Revoke all sessions for user
+        revokedCount, err := h.auth.RevokeAllUserSessions(c.Context(), userID)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to revoke sessions",
+            })
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "message": "All user sessions revoked",
+            "revoked": revokedCount,
+        })
+    }
+    
+    // RevokeSession implementation
+    func (a *Auth) RevokeSession(ctx context.Context, sessionID string) error {
+        // Get session
+        session, err := a.repo.GetSession(ctx, sessionID)
+        if err != nil {
+            return err
+        }
+        
+        // Mark as inactive
+        session.IsActive = false
+        session.RevokedAt = time.Now()
+        
+        // Update in database
+        if err := a.repo.UpdateSession(ctx, session); err != nil {
+            return err
+        }
+        
+        // Remove from cache
+        if err := a.removeCachedSession(ctx, session.Token); err != nil {
+            a.logger.Error("Failed to remove cached session", "error", err)
+        }
+        
+        // Log revocation
+        a.logEvent(ctx, EventSessionRevoked, EventData{
+            UserID:    session.UserID,
+            SessionID: sessionID,
+            Metadata: map[string]interface{}{
+                "deviceID": session.DeviceID,
+                "ip":       session.IP,
+            },
+        })
+        
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="Session Details">
+    ```go
+    // GetSessionDetails returns detailed information about a session
+    func (h *AuthHandler) GetSessionDetails(c *forge.Context) error {
+        sessionID := c.Param("id")
+        if sessionID == "" {
+            return c.JSON(400, map[string]string{
+                "error": "Session ID is required",
+            })
+        }
+        
+        user := h.auth.GetCurrentUser(c)
+        if user == nil {
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        // Get session
+        session, err := h.auth.GetSessionWithDetails(c.Context(), sessionID)
+        if err != nil {
+            return c.JSON(404, map[string]string{
+                "error": "Session not found",
+            })
+        }
+        
+        // Verify ownership
+        if session.UserID != user.ID {
+            return c.JSON(403, map[string]string{
+                "error": "Access denied",
+            })
+        }
+        
+        // Get device information
+        device, err := h.auth.GetDevice(c.Context(), session.DeviceID)
+        if err != nil {
+            device = nil // Device info not available
+        }
+        
+        // Get session activities
+        activities, err := h.auth.GetSessionActivities(c.Context(), sessionID)
+        if err != nil {
+            activities = []SessionActivity{} // No activities available
+        }
+        
+        response := map[string]interface{}{
+            "session": map[string]interface{}{
+                "id":        session.ID,
+                "createdAt": session.CreatedAt,
+                "updatedAt": session.UpdatedAt,
+                "expiresAt": session.ExpiresAt,
+                "ip":        session.IP,
+                "userAgent": session.UserAgent,
+                "location":  session.Location,
+                "isActive":  session.IsActive,
+                "metadata":  session.Metadata,
+            },
+            "device":     device,
+            "activities": activities,
+        }
+        
+        return c.JSON(200, response)
+    }
+    
+    // SessionActivity represents session activity log
+    type SessionActivity struct {
+        ID        string                 `json:"id"`
+        SessionID string                 `json:"sessionId"`
+        Type      string                 `json:"type"` // login, activity, logout, etc.
+        IP        string                 `json:"ip"`
+        UserAgent string                 `json:"userAgent"`
+        Location  string                 `json:"location"`
+        Timestamp time.Time              `json:"timestamp"`
+        Metadata  map[string]interface{} `json:"metadata"`
+    }
+    
+    // GetSessionActivities returns activity log for a session
+    func (a *Auth) GetSessionActivities(ctx context.Context, sessionID string) ([]SessionActivity, error) {
+        return a.repo.GetSessionActivities(ctx, sessionID)
+    }
+    
+    // LogSessionActivity logs session activity
+    func (a *Auth) LogSessionActivity(ctx context.Context, sessionID, activityType string, metadata map[string]interface{}) error {
+        activity := &SessionActivity{
+            ID:        generateID("act"),
+            SessionID: sessionID,
+            Type:      activityType,
+            Timestamp: time.Now(),
+            Metadata:  metadata,
+        }
+        
+        return a.repo.CreateSessionActivity(ctx, activity)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Session Security Features
+
+Implement advanced security features for session management:
+
+<Callout type="warning">
+  Always implement proper session security measures including rotation, validation, and monitoring.
+</Callout>
+
+<Tabs items={['Session Rotation', 'Security Monitoring', 'Concurrent Sessions']}>
+  <Tab value="Session Rotation">
+    ```go
+    // RotateSession creates a new session token while preserving session data
+    func (a *Auth) RotateSession(ctx context.Context, sessionID string) (*Session, error) {
+        // Get current session
+        session, err := a.repo.GetSession(ctx, sessionID)
+        if err != nil {
+            return nil, err
+        }
+        
+        // Generate new token
+        newToken, err := a.generateSecureToken(32)
+        if err != nil {
+            return nil, fmt.Errorf("failed to generate new token: %w", err)
+        }
+        
+        // Store old token for grace period
+        oldToken := session.Token
+        
+        // Update session with new token
+        session.Token = newToken
+        session.UpdatedAt = time.Now()
+        session.RotatedAt = time.Now()
+        
+        // Update in database
+        if err := a.repo.UpdateSession(ctx, session); err != nil {
+            return nil, err
+        }
+        
+        // Cache new session
+        if err := a.cacheSession(ctx, session); err != nil {
+            a.logger.Error("Failed to cache rotated session", "error", err)
+        }
+        
+        // Keep old token valid for grace period (30 seconds)
+        if err := a.cacheSessionWithTTL(ctx, oldToken, session, 30*time.Second); err != nil {
+            a.logger.Error("Failed to cache old token for grace period", "error", err)
+        }
+        
+        // Log rotation
+        a.logEvent(ctx, EventSessionRotated, EventData{
+            UserID:    session.UserID,
+            SessionID: sessionID,
+            Metadata: map[string]interface{}{
+                "oldToken": oldToken[:8] + "...", // Log partial token for debugging
+            },
+        })
+        
+        return session, nil
+    }
+    
+    // Auto-rotate sessions on sensitive operations
+    func (a *Auth) RequireSessionRotation() forge.MiddlewareFunc {
+        return func(c *forge.Context) error {
+            session := a.GetSession(c)
+            if session == nil {
+                return c.JSON(401, map[string]string{
+                    "error": "Authentication required",
+                })
+            }
+            
+            // Check if rotation is needed
+            if a.shouldRotateSession(session) {
+                newSession, err := a.RotateSession(c.Context(), session.ID)
+                if err != nil {
+                    a.logger.Error("Failed to rotate session", "error", err)
+                    return c.Next()
+                }
+                
+                // Update cookie with new token
+                a.SetSessionCookie(c, newSession.Token)
+                
+                // Update context with new session
+                c.Set("session", newSession)
+            }
+            
+            return c.Next()
+        }
+    }
+    
+    // shouldRotateSession determines if session should be rotated
+    func (a *Auth) shouldRotateSession(session *Session) bool {
+        // Rotate if session is old
+        if time.Since(session.RotatedAt) > a.config.Session.RotationInterval {
+            return true
+        }
+        
+        // Rotate if IP changed (potential session hijacking)
+        if session.LastIP != session.IP {
+            return true
+        }
+        
+        // Rotate on privilege escalation
+        if session.RequiresRotation {
+            return true
+        }
+        
+        return false
+    }
+    ```
+  </Tab>
+  <Tab value="Security Monitoring">
+    ```go
+    // SessionSecurityMonitor monitors sessions for suspicious activity
+    type SessionSecurityMonitor struct {
+        auth   *Auth
+        logger *slog.Logger
+    }
+    
+    // MonitorSession checks session for security issues
+    func (m *SessionSecurityMonitor) MonitorSession(ctx context.Context, session *Session, clientInfo ClientInfo) error {
+        var alerts []SecurityAlert
+        
+        // Check for IP changes
+        if session.IP != clientInfo.IP {
+            alerts = append(alerts, SecurityAlert{
+                Type:        "ip_change",
+                Severity:    "medium",
+                Description: fmt.Sprintf("IP changed from %s to %s", session.IP, clientInfo.IP),
+                Metadata: map[string]interface{}{
+                    "oldIP": session.IP,
+                    "newIP": clientInfo.IP,
+                },
+            })
+        }
+        
+        // Check for user agent changes
+        if session.UserAgent != clientInfo.UserAgent {
+            alerts = append(alerts, SecurityAlert{
+                Type:        "user_agent_change",
+                Severity:    "low",
+                Description: "User agent changed",
+                Metadata: map[string]interface{}{
+                    "oldUserAgent": session.UserAgent,
+                    "newUserAgent": clientInfo.UserAgent,
+                },
+            })
+        }
+        
+        // Check for unusual activity patterns
+        if err := m.checkActivityPatterns(ctx, session); err != nil {
+            alerts = append(alerts, SecurityAlert{
+                Type:        "unusual_activity",
+                Severity:    "high",
+                Description: "Unusual activity pattern detected",
+                Metadata: map[string]interface{}{
+                    "details": err.Error(),
+                },
+            })
+        }
+        
+        // Check for concurrent sessions from different locations
+        if err := m.checkConcurrentSessions(ctx, session.UserID, clientInfo); err != nil {
+            alerts = append(alerts, SecurityAlert{
+                Type:        "concurrent_sessions",
+                Severity:    "medium",
+                Description: "Concurrent sessions from different locations",
+                Metadata: map[string]interface{}{
+                    "details": err.Error(),
+                },
+            })
+        }
+        
+        // Process alerts
+        for _, alert := range alerts {
+            if err := m.processSecurityAlert(ctx, session, alert); err != nil {
+                m.logger.Error("Failed to process security alert", "error", err)
+            }
+        }
+        
+        return nil
+    }
+    
+    // SecurityAlert represents a security concern
+    type SecurityAlert struct {
+        Type        string                 `json:"type"`
+        Severity    string                 `json:"severity"`
+        Description string                 `json:"description"`
+        Metadata    map[string]interface{} `json:"metadata"`
+    }
+    
+    // processSecurityAlert handles security alerts
+    func (m *SessionSecurityMonitor) processSecurityAlert(ctx context.Context, session *Session, alert SecurityAlert) error {
+        // Log alert
+        m.auth.logEvent(ctx, EventSecurityAlert, EventData{
+            UserID:    session.UserID,
+            SessionID: session.ID,
+            Metadata: map[string]interface{}{
+                "alertType":    alert.Type,
+                "severity":     alert.Severity,
+                "description":  alert.Description,
+                "alertData":    alert.Metadata,
+            },
+        })
+        
+        // Take action based on severity
+        switch alert.Severity {
+        case "high":
+            // Revoke session immediately
+            if err := m.auth.RevokeSession(ctx, session.ID); err != nil {
+                return err
+            }
+            
+            // Send security notification
+            if err := m.auth.SendSecurityAlert(ctx, session.UserID, alert); err != nil {
+                m.logger.Error("Failed to send security alert", "error", err)
+            }
+            
+        case "medium":
+            // Require fresh authentication
+            session.RequiresFreshAuth = true
+            if err := m.auth.repo.UpdateSession(ctx, session); err != nil {
+                return err
+            }
+            
+            // Send notification
+            if err := m.auth.SendSecurityNotification(ctx, session.UserID, alert); err != nil {
+                m.logger.Error("Failed to send security notification", "error", err)
+            }
+            
+        case "low":
+            // Just log for now
+            m.logger.Info("Low severity security alert", 
+                "userID", session.UserID,
+                "type", alert.Type,
+                "description", alert.Description)
+        }
+        
+        return nil
+    }
+    
+    // checkActivityPatterns analyzes user activity patterns
+    func (m *SessionSecurityMonitor) checkActivityPatterns(ctx context.Context, session *Session) error {
+        // Get recent activities
+        activities, err := m.auth.GetRecentUserActivities(ctx, session.UserID, 24*time.Hour)
+        if err != nil {
+            return nil // Don't fail on monitoring errors
+        }
+        
+        // Check for rapid successive logins
+        loginCount := 0
+        for _, activity := range activities {
+            if activity.Type == "login" && time.Since(activity.Timestamp) < time.Hour {
+                loginCount++
+            }
+        }
+        
+        if loginCount > 10 {
+            return fmt.Errorf("too many logins in the last hour: %d", loginCount)
+        }
+        
+        // Check for impossible travel
+        if err := m.checkImpossibleTravel(activities); err != nil {
+            return err
+        }
+        
+        return nil
+    }
+    
+    // checkImpossibleTravel detects impossible travel between locations
+    func (m *SessionSecurityMonitor) checkImpossibleTravel(activities []UserActivity) error {
+        if len(activities) < 2 {
+            return nil
+        }
+        
+        for i := 1; i < len(activities); i++ {
+            prev := activities[i-1]
+            curr := activities[i]
+            
+            // Calculate time and distance between activities
+            timeDiff := curr.Timestamp.Sub(prev.Timestamp)
+            distance := m.calculateDistance(prev.Location, curr.Location)
+            
+            // Check if travel is physically possible (assuming max speed of 1000 km/h)
+            maxPossibleDistance := timeDiff.Hours() * 1000
+            
+            if distance > maxPossibleDistance {
+                return fmt.Errorf("impossible travel detected: %.2f km in %.2f hours", distance, timeDiff.Hours())
+            }
+        }
+        
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="Concurrent Sessions">
+    ```go
+    // ConcurrentSessionManager manages multiple active sessions
+    type ConcurrentSessionManager struct {
+        auth   *Auth
+        config ConcurrentSessionConfig
+    }
+    
+    type ConcurrentSessionConfig struct {
+        MaxSessions        int           `json:"maxSessions"`
+        MaxSessionsPerIP   int           `json:"maxSessionsPerIP"`
+        MaxSessionsPerDevice int         `json:"maxSessionsPerDevice"`
+        ConflictResolution string        `json:"conflictResolution"` // "revoke_oldest", "revoke_all", "deny_new"
+    }
+    
+    // HandleConcurrentSession manages concurrent session limits
+    func (m *ConcurrentSessionManager) HandleConcurrentSession(ctx context.Context, userID string, newSession *Session) error {
+        // Get all active sessions for user
+        sessions, err := m.auth.repo.GetUserSessions(ctx, userID)
+        if err != nil {
+            return err
+        }
+        
+        activeSessions := make([]*Session, 0)
+        for _, session := range sessions {
+            if session.IsActive && !session.IsExpired() {
+                activeSessions = append(activeSessions, session)
+            }
+        }
+        
+        // Check total session limit
+        if len(activeSessions) >= m.config.MaxSessions {
+            if err := m.resolveSessionConflict(ctx, activeSessions, newSession); err != nil {
+                return err
+            }
+        }
+        
+        // Check sessions per IP limit
+        if err := m.checkIPLimit(ctx, activeSessions, newSession); err != nil {
+            return err
+        }
+        
+        // Check sessions per device limit
+        if err := m.checkDeviceLimit(ctx, activeSessions, newSession); err != nil {
+            return err
+        }
+        
+        return nil
+    }
+    
+    // resolveSessionConflict handles session limit conflicts
+    func (m *ConcurrentSessionManager) resolveSessionConflict(ctx context.Context, activeSessions []*Session, newSession *Session) error {
+        switch m.config.ConflictResolution {
+        case "revoke_oldest":
+            // Find oldest session
+            var oldestSession *Session
+            for _, session := range activeSessions {
+                if oldestSession == nil || session.CreatedAt.Before(oldestSession.CreatedAt) {
+                    oldestSession = session
+                }
+            }
+            
+            if oldestSession != nil {
+                if err := m.auth.RevokeSession(ctx, oldestSession.ID); err != nil {
+                    return err
+                }
+                
+                // Send notification about revoked session
+                m.auth.SendSessionRevokedNotification(ctx, newSession.UserID, oldestSession)
+            }
+            
+        case "revoke_all":
+            // Revoke all existing sessions
+            for _, session := range activeSessions {
+                if err := m.auth.RevokeSession(ctx, session.ID); err != nil {
+                    m.auth.logger.Error("Failed to revoke session", "sessionID", session.ID, "error", err)
+                }
+            }
+            
+            // Send notification about all revoked sessions
+            m.auth.SendAllSessionsRevokedNotification(ctx, newSession.UserID)
+            
+        case "deny_new":
+            return ErrTooManySessions
+            
+        default:
+            return fmt.Errorf("unknown conflict resolution strategy: %s", m.config.ConflictResolution)
+        }
+        
+        return nil
+    }
+    
+    // checkIPLimit enforces sessions per IP limit
+    func (m *ConcurrentSessionManager) checkIPLimit(ctx context.Context, activeSessions []*Session, newSession *Session) error {
+        ipCount := 0
+        for _, session := range activeSessions {
+            if session.IP == newSession.IP {
+                ipCount++
+            }
+        }
+        
+        if ipCount >= m.config.MaxSessionsPerIP {
+            return ErrTooManySessionsPerIP
+        }
+        
+        return nil
+    }
+    
+    // checkDeviceLimit enforces sessions per device limit
+    func (m *ConcurrentSessionManager) checkDeviceLimit(ctx context.Context, activeSessions []*Session, newSession *Session) error {
+        deviceCount := 0
+        for _, session := range activeSessions {
+            if session.DeviceID == newSession.DeviceID {
+                deviceCount++
+            }
+        }
+        
+        if deviceCount >= m.config.MaxSessionsPerDevice {
+            return ErrTooManySessionsPerDevice
+        }
+        
+        return nil
+    }
+    
+    // GetConcurrentSessionStats returns statistics about concurrent sessions
+    func (m *ConcurrentSessionManager) GetConcurrentSessionStats(ctx context.Context, userID string) (*ConcurrentSessionStats, error) {
+        sessions, err := m.auth.repo.GetUserSessions(ctx, userID)
+        if err != nil {
+            return nil, err
+        }
+        
+        stats := &ConcurrentSessionStats{
+            TotalSessions:   len(sessions),
+            ActiveSessions:  0,
+            UniqueIPs:       make(map[string]int),
+            UniqueDevices:   make(map[string]int),
+            SessionsByType:  make(map[string]int),
+        }
+        
+        for _, session := range sessions {
+            if session.IsActive && !session.IsExpired() {
+                stats.ActiveSessions++
+                stats.UniqueIPs[session.IP]++
+                stats.UniqueDevices[session.DeviceID]++
+                
+                // Categorize session type
+                if session.RememberMe {
+                    stats.SessionsByType["remember_me"]++
+                } else {
+                    stats.SessionsByType["regular"]++
+                }
+            }
+        }
+        
+        return stats, nil
+    }
+    
+    type ConcurrentSessionStats struct {
+        TotalSessions   int            `json:"totalSessions"`
+        ActiveSessions  int            `json:"activeSessions"`
+        UniqueIPs       map[string]int `json:"uniqueIPs"`
+        UniqueDevices   map[string]int `json:"uniqueDevices"`
+        SessionsByType  map[string]int `json:"sessionsByType"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Multi-Factor Authentication"
+    description="Implement advanced MFA with TOTP, SMS, and backup codes"
+    href="/docs/go/examples/multi-factor-auth"
+  />
+  <Card
+    title="Social Authentication"
+    description="Add OAuth login with Google, GitHub, and other providers"
+    href="/docs/go/examples/social-auth"
+  />
+  <Card
+    title="Password Security"
+    description="Advanced password policies, breach detection, and security"
+    href="/docs/go/examples/password-security"
+  />
+  <Card
+    title="Audit & Logging"
+    description="Comprehensive audit trails and security monitoring"
+    href="/docs/go/examples/audit-logging"
+  />
+</Cards>
+
+## Security Best Practices
+
+<Callout type="warning">
+  Always implement proper session security measures in production environments.
+</Callout>
+
+- **Secure Cookies**: Use HTTP-only, secure, and SameSite cookies
+- **Session Rotation**: Rotate tokens on sensitive operations
+- **Activity Monitoring**: Track and alert on suspicious activity
+- **Device Tracking**: Monitor and manage user devices
+- **Concurrent Limits**: Prevent session abuse with limits
+- **Auto-Expiration**: Implement proper session timeouts
+
+## Troubleshooting
+
+Common session management issues and solutions:
+
+- **Sessions not persisting**: Check cookie configuration and domain settings
+- **Memory leaks**: Implement proper session cleanup and expiration
+- **Performance issues**: Use Redis caching and optimize database queries
+- **Security alerts**: Review monitoring rules and alert thresholds
+- **Device tracking errors**: Verify device fingerprinting implementation

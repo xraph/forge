@@ -8,10 +8,28 @@ import (
 	"sync"
 	"time"
 
-	ai "github.com/xraph/forge/pkg/ai/core"
+	// Removed direct import to break circular dependency
 	"github.com/xraph/forge/pkg/common"
 	"github.com/xraph/forge/pkg/logger"
 )
+
+// AIAgent interface to break circular dependency
+type AIAgent interface {
+	ID() string
+	Name() string
+	Type() string
+	Capabilities() []Capability
+	Process(ctx context.Context, input interface{}) (interface{}, error)
+	GetStats() interface{}
+	GetHealth() interface{}
+}
+
+// Capability represents a capability that an agent can perform
+type Capability struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Metadata    map[string]interface{} `json:"metadata"`
+}
 
 // CoordinationStrategy defines different coordination strategies
 type CoordinationStrategy string
@@ -30,30 +48,30 @@ const (
 type CoordinationObjective string
 
 const (
-	CoordinationObjectiveOptimization  CoordinationObjective = "optimization"   // Performance optimization
-	CoordinationObjectiveLoadBalance   CoordinationObjective = "load_balance"   // Load balancing
-	CoordinationObjectiveResourceAlloc  CoordinationObjective = "resource_alloc" // Resource allocation
+	CoordinationObjectiveOptimization   CoordinationObjective = "optimization"    // Performance optimization
+	CoordinationObjectiveLoadBalance    CoordinationObjective = "load_balance"    // Load balancing
+	CoordinationObjectiveResourceAlloc  CoordinationObjective = "resource_alloc"  // Resource allocation
 	CoordinationObjectiveThreatResponse CoordinationObjective = "threat_response" // Security threat response
-	CoordinationObjectiveFailover       CoordinationObjective = "failover"       // Failover coordination
-	CoordinationObjectiveScaling        CoordinationObjective = "scaling"        // Auto-scaling
-	CoordinationObjectiveHealthManage   CoordinationObjective = "health_manage"  // Health management
+	CoordinationObjectiveFailover       CoordinationObjective = "failover"        // Failover coordination
+	CoordinationObjectiveScaling        CoordinationObjective = "scaling"         // Auto-scaling
+	CoordinationObjectiveHealthManage   CoordinationObjective = "health_manage"   // Health management
 )
 
 // CoordinationPlan represents a coordination plan
 type CoordinationPlan struct {
-	ID          string                 `json:"id"`
-	Objective   CoordinationObjective  `json:"objective"`
-	Strategy    CoordinationStrategy   `json:"strategy"`
-	Participants []string              `json:"participants"`
-	Actions     []CoordinationAction   `json:"actions"`
-	Timeline    []CoordinationPhase    `json:"timeline"`
-	Constraints []CoordinationConstraint `json:"constraints"`
-	Success     SuccessMetrics         `json:"success_metrics"`
-	Status      PlanStatus             `json:"status"`
-	CreatedAt   time.Time              `json:"created_at"`
-	StartedAt   time.Time              `json:"started_at"`
-	CompletedAt time.Time              `json:"completed_at"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID           string                   `json:"id"`
+	Objective    CoordinationObjective    `json:"objective"`
+	Strategy     CoordinationStrategy     `json:"strategy"`
+	Participants []string                 `json:"participants"`
+	Actions      []CoordinationAction     `json:"actions"`
+	Timeline     []CoordinationPhase      `json:"timeline"`
+	Constraints  []CoordinationConstraint `json:"constraints"`
+	Success      SuccessMetrics           `json:"success_metrics"`
+	Status       PlanStatus               `json:"status"`
+	CreatedAt    time.Time                `json:"created_at"`
+	StartedAt    time.Time                `json:"started_at"`
+	CompletedAt  time.Time                `json:"completed_at"`
+	Metadata     map[string]interface{}   `json:"metadata"`
 }
 
 // CoordinationAction represents an action within a coordination plan
@@ -97,53 +115,56 @@ type CoordinationConstraint struct {
 
 // SuccessMetrics defines success criteria for coordination
 type SuccessMetrics struct {
-	TargetLatency     time.Duration `json:"target_latency"`
-	MinSuccessRate    float64       `json:"min_success_rate"`
-	MaxResourceUsage  float64       `json:"max_resource_usage"`
-	RequiredConsensus float64       `json:"required_consensus"`
+	TargetLatency     time.Duration          `json:"target_latency"`
+	MinSuccessRate    float64                `json:"min_success_rate"`
+	MaxResourceUsage  float64                `json:"max_resource_usage"`
+	RequiredConsensus float64                `json:"required_consensus"`
 	CustomMetrics     map[string]interface{} `json:"custom_metrics"`
 }
 
 // Enum types for statuses
 type PlanStatus string
+
 const (
-	PlanStatusDraft      PlanStatus = "draft"
-	PlanStatusApproved   PlanStatus = "approved"
-	PlanStatusExecuting  PlanStatus = "executing"
-	PlanStatusCompleted  PlanStatus = "completed"
-	PlanStatusFailed     PlanStatus = "failed"
-	PlanStatusCancelled  PlanStatus = "cancelled"
+	PlanStatusDraft     PlanStatus = "draft"
+	PlanStatusApproved  PlanStatus = "approved"
+	PlanStatusExecuting PlanStatus = "executing"
+	PlanStatusCompleted PlanStatus = "completed"
+	PlanStatusFailed    PlanStatus = "failed"
+	PlanStatusCancelled PlanStatus = "cancelled"
 )
 
 type ActionStatus string
+
 const (
-	ActionStatusPending    ActionStatus = "pending"
-	ActionStatusExecuting  ActionStatus = "executing"
-	ActionStatusCompleted  ActionStatus = "completed"
-	ActionStatusFailed     ActionStatus = "failed"
-	ActionStatusSkipped    ActionStatus = "skipped"
+	ActionStatusPending   ActionStatus = "pending"
+	ActionStatusExecuting ActionStatus = "executing"
+	ActionStatusCompleted ActionStatus = "completed"
+	ActionStatusFailed    ActionStatus = "failed"
+	ActionStatusSkipped   ActionStatus = "skipped"
 )
 
 type PhaseStatus string
+
 const (
-	PhaseStatusPending    PhaseStatus = "pending"
-	PhaseStatusExecuting  PhaseStatus = "executing"
-	PhaseStatusCompleted  PhaseStatus = "completed"
-	PhaseStatusFailed     PhaseStatus = "failed"
+	PhaseStatusPending   PhaseStatus = "pending"
+	PhaseStatusExecuting PhaseStatus = "executing"
+	PhaseStatusCompleted PhaseStatus = "completed"
+	PhaseStatusFailed    PhaseStatus = "failed"
 )
 
 // CoordinationExecutor executes coordination plans using different strategies
 type CoordinationExecutor struct {
-	strategy      CoordinationStrategy
-	communicator  CommunicationManager
-	consensus     ConsensusManager
-	agents        map[string]ai.AIAgent
-	activePlans   map[string]*CoordinationPlan
-	planHistory   []*CoordinationPlan
-	strategies map[CoordinationStrategy]StrategyHandler
-	logger     common.Logger
-	metrics    common.Metrics
-	mu         sync.RWMutex
+	strategy     CoordinationStrategy
+	communicator CommunicationManager
+	consensus    ConsensusManager
+	agents       map[string]AIAgent
+	activePlans  map[string]*CoordinationPlan
+	planHistory  []*CoordinationPlan
+	strategies   map[CoordinationStrategy]StrategyHandler
+	logger       common.Logger
+	metrics      common.Metrics
+	mu           sync.RWMutex
 }
 
 // StrategyHandler defines the interface for coordination strategy implementations
@@ -157,10 +178,10 @@ type StrategyHandler interface {
 
 // ResourceRequirements represents the resources needed for coordination
 type ResourceRequirements struct {
-	CPUCores    float64 `json:"cpu_cores"`
-	MemoryMB    int64   `json:"memory_mb"`
-	NetworkMBps float64 `json:"network_mbps"`
-	Agents      int     `json:"agents"`
+	CPUCores    float64       `json:"cpu_cores"`
+	MemoryMB    int64         `json:"memory_mb"`
+	NetworkMBps float64       `json:"network_mbps"`
+	Agents      int           `json:"agents"`
 	Duration    time.Duration `json:"duration"`
 }
 
@@ -176,7 +197,7 @@ func NewCoordinationExecutor(
 		strategy:     strategy,
 		communicator: communicator,
 		consensus:    consensus,
-		agents:       make(map[string]ai.AIAgent),
+		agents:       make(map[string]AIAgent),
 		activePlans:  make(map[string]*CoordinationPlan),
 		planHistory:  make([]*CoordinationPlan, 0),
 		strategies:   make(map[CoordinationStrategy]StrategyHandler),
@@ -202,7 +223,7 @@ func (ce *CoordinationExecutor) registerStrategies() {
 }
 
 // RegisterAgent registers an agent for coordination
-func (ce *CoordinationExecutor) RegisterAgent(agent ai.AIAgent) error {
+func (ce *CoordinationExecutor) RegisterAgent(agent AIAgent) error {
 	ce.mu.Lock()
 	defer ce.mu.Unlock()
 
@@ -221,17 +242,17 @@ func (ce *CoordinationExecutor) RegisterAgent(agent ai.AIAgent) error {
 // CreatePlan creates a new coordination plan
 func (ce *CoordinationExecutor) CreatePlan(objective CoordinationObjective, participants []string) (*CoordinationPlan, error) {
 	plan := &CoordinationPlan{
-		ID:          ce.generatePlanID(),
-		Objective:   objective,
-		Strategy:    ce.strategy,
+		ID:           ce.generatePlanID(),
+		Objective:    objective,
+		Strategy:     ce.strategy,
 		Participants: participants,
-		Actions:     make([]CoordinationAction, 0),
-		Timeline:    make([]CoordinationPhase, 0),
-		Constraints: make([]CoordinationConstraint, 0),
-		Success:     SuccessMetrics{},
-		Status:      PlanStatusDraft,
-		CreatedAt:   time.Now(),
-		Metadata:    make(map[string]interface{}),
+		Actions:      make([]CoordinationAction, 0),
+		Timeline:     make([]CoordinationPhase, 0),
+		Constraints:  make([]CoordinationConstraint, 0),
+		Success:      SuccessMetrics{},
+		Status:       PlanStatusDraft,
+		CreatedAt:    time.Now(),
+		Metadata:     make(map[string]interface{}),
 	}
 
 	// Generate plan based on objective and strategy
@@ -378,14 +399,14 @@ func (ce *CoordinationExecutor) generateOptimizationPlan(plan *CoordinationPlan)
 			Agent:       participant,
 			Description: "Analyze and optimize assigned components",
 			Parameters: map[string]interface{}{
-				"scope":          "assigned_components",
-				"max_changes":    5,
-				"safe_mode":      true,
+				"scope":       "assigned_components",
+				"max_changes": 5,
+				"safe_mode":   true,
 			},
-			Priority:   5,
-			Timeout:    5 * time.Minute,
-			Retries:    2,
-			Status:     ActionStatusPending,
+			Priority: 5,
+			Timeout:  5 * time.Minute,
+			Retries:  2,
+			Status:   ActionStatusPending,
 		}
 		plan.Actions = append(plan.Actions, action)
 	}
@@ -409,13 +430,13 @@ func (ce *CoordinationExecutor) generateLoadBalancePlan(plan *CoordinationPlan) 
 			Agent:       participant,
 			Description: "Participate in load balancing coordination",
 			Parameters: map[string]interface{}{
-				"strategy":       "weighted_round_robin",
-				"health_check":   true,
-				"gradual_shift":  true,
+				"strategy":      "weighted_round_robin",
+				"health_check":  true,
+				"gradual_shift": true,
 			},
-			Priority:   7,
-			Timeout:    3 * time.Minute,
-			Status:     ActionStatusPending,
+			Priority: 7,
+			Timeout:  3 * time.Minute,
+			Status:   ActionStatusPending,
 		}
 		plan.Actions = append(plan.Actions, action)
 	}
@@ -442,9 +463,9 @@ func (ce *CoordinationExecutor) generateResourceAllocationPlan(plan *Coordinatio
 				"priority":       "medium",
 				"flexible":       true,
 			},
-			Priority:   6,
-			Timeout:    4 * time.Minute,
-			Status:     ActionStatusPending,
+			Priority: 6,
+			Timeout:  4 * time.Minute,
+			Status:   ActionStatusPending,
 		}
 		plan.Actions = append(plan.Actions, action)
 	}
@@ -465,9 +486,9 @@ func (ce *CoordinationExecutor) generateThreatResponsePlan(plan *CoordinationPla
 				"isolate":       true,
 				"alert_level":   "high",
 			},
-			Priority:   10,
-			Timeout:    1 * time.Minute,
-			Status:     ActionStatusPending,
+			Priority: 10,
+			Timeout:  1 * time.Minute,
+			Status:   ActionStatusPending,
 		}
 		plan.Actions = append(plan.Actions, action)
 	}
@@ -494,9 +515,9 @@ func (ce *CoordinationExecutor) generateFailoverPlan(plan *CoordinationPlan) err
 				"data_sync":       true,
 				"health_check":    true,
 			},
-			Priority:   9,
-			Timeout:    2 * time.Minute,
-			Status:     ActionStatusPending,
+			Priority: 9,
+			Timeout:  2 * time.Minute,
+			Status:   ActionStatusPending,
 		}
 		plan.Actions = append(plan.Actions, action)
 	}
@@ -517,9 +538,9 @@ func (ce *CoordinationExecutor) generateScalingPlan(plan *CoordinationPlan) erro
 				"max_instances":   10,
 				"gradual":         true,
 			},
-			Priority:   7,
-			Timeout:    3 * time.Minute,
-			Status:     ActionStatusPending,
+			Priority: 7,
+			Timeout:  3 * time.Minute,
+			Status:   ActionStatusPending,
 		}
 		plan.Actions = append(plan.Actions, action)
 	}
@@ -540,9 +561,9 @@ func (ce *CoordinationExecutor) generateHealthManagementPlan(plan *CoordinationP
 				"auto_recovery":    true,
 				"escalation":       true,
 			},
-			Priority:   6,
-			Timeout:    4 * time.Minute,
-			Status:     ActionStatusPending,
+			Priority: 6,
+			Timeout:  4 * time.Minute,
+			Status:   ActionStatusPending,
 		}
 		plan.Actions = append(plan.Actions, action)
 	}
@@ -619,7 +640,7 @@ func (ds *DistributedStrategy) Execute(ctx context.Context, plan *CoordinationPl
 	actionCh := make(chan CoordinationAction, len(plan.Actions))
 	resultCh := make(chan error, len(plan.Actions))
 
-	// OnStart all actions in parallel
+	// Start all actions in parallel
 	for _, action := range plan.Actions {
 		actionCh <- action
 	}
@@ -687,8 +708,8 @@ func (cs *ConsensusStrategy) Name() string {
 func (cs *ConsensusStrategy) Execute(ctx context.Context, plan *CoordinationPlan, executor *CoordinationExecutor) error {
 	// Use consensus for coordinating actions
 	decision := &CoordinationDecision{
-		Type:        "execute_plan",
-		Description: "Execute coordination plan through consensus",
+		Type:         "execute_plan",
+		Description:  "Execute coordination plan through consensus",
 		Participants: plan.Participants,
 		Metadata: map[string]interface{}{
 			"plan_id":   plan.ID,
@@ -927,4 +948,43 @@ func (hs *HybridStrategy) EstimateDuration(plan *CoordinationPlan) time.Duration
 func (hs *HybridStrategy) CalculateResourceRequirements(plan *CoordinationPlan) ResourceRequirements {
 	return ResourceRequirements{
 		CPUCores:    float64(len(plan.Actions)) * 0.22,
-		MemoryMB:    int64(len(plan
+		MemoryMB:    int64(len(plan.Actions)) * 22,
+		NetworkMBps: float64(len(plan.Actions)) * 2.2,
+		Agents:      len(plan.Participants),
+		Duration:    hs.EstimateDuration(plan),
+	}
+}
+
+// executeAction executes a single coordination action
+func (ce *CoordinationExecutor) executeAction(ctx context.Context, action *CoordinationAction) error {
+	// Find the agent for this action
+	agent, exists := ce.agents[action.Agent]
+	if !exists {
+		return fmt.Errorf("agent %s not found", action.Agent)
+	}
+
+	// Execute the action through the agent
+	action.Status = ActionStatusExecuting
+	action.StartedAt = time.Now()
+
+	// Create input for the agent
+	input := map[string]interface{}{
+		"action_type": action.Type,
+		"parameters":  action.Parameters,
+		"timeout":     action.Timeout,
+	}
+
+	// Process through agent
+	_, err := agent.Process(ctx, input)
+	if err != nil {
+		action.Status = ActionStatusFailed
+		action.Error = err.Error()
+		action.CompletedAt = time.Now()
+		return err
+	}
+
+	action.Status = ActionStatusCompleted
+	action.CompletedAt = time.Now()
+
+	return nil
+}

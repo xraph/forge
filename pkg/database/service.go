@@ -31,13 +31,13 @@ func (ds *DatabaseService) Dependencies() []string {
 }
 
 // OnStart starts the database service
-func (ds *DatabaseService) OnStart(ctx context.Context) error {
-	return ds.manager.OnStart(ctx)
+func (ds *DatabaseService) Start(ctx context.Context) error {
+	return ds.manager.Start(ctx)
 }
 
 // OnStop stops the database service
-func (ds *DatabaseService) OnStop(ctx context.Context) error {
-	return ds.manager.OnStop(ctx)
+func (ds *DatabaseService) Stop(ctx context.Context) error {
+	return ds.manager.Stop(ctx)
 }
 
 // OnHealthCheck performs a health check

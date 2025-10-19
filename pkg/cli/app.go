@@ -449,10 +449,10 @@ func (app *cliApp) Execute() error {
 
 	// Start container if it's a service
 	if service, ok := app.container.(common.Service); ok {
-		if err := service.OnStart(context.Background()); err != nil {
+		if err := service.Start(context.Background()); err != nil {
 			return err
 		}
-		defer service.OnStop(context.Background())
+		defer service.Stop(context.Background())
 	}
 
 	start := time.Now()

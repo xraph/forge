@@ -255,17 +255,17 @@ func (nc *NodeCoordinator) Start(ctx context.Context) error {
 		)
 	}
 
-	// OnStart transport
+	// Start transport
 	if err := nc.transport.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("coordinator", err)
 	}
 
-	// OnStart discovery
+	// Start discovery
 	if err := nc.discovery.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("coordinator", err)
 	}
 
-	// OnStart health checker
+	// Start health checker
 	if nc.healthChecker != nil {
 		if err := nc.healthChecker.Start(ctx); err != nil {
 			return common.ErrServiceStartFailed("coordinator", err)
@@ -281,7 +281,7 @@ func (nc *NodeCoordinator) Start(ctx context.Context) error {
 	nc.localNode.Status = NodeStatusActive
 	nc.nodes[nc.nodeID] = nc.localNode
 
-	// OnStart background tasks
+	// Start background tasks
 	nc.wg.Add(3)
 	go nc.heartbeatLoop(ctx)
 	go nc.discoveryLoop(ctx)
@@ -334,19 +334,19 @@ func (nc *NodeCoordinator) Stop(ctx context.Context) error {
 	// Unregister local node
 	nc.discovery.UnregisterNode(ctx, nc.nodeID)
 
-	// OnStop health checker
+	// Stop health checker
 	if nc.healthChecker != nil {
 		nc.healthChecker.Stop(ctx)
 	}
 
-	// OnStop discovery
+	// Stop discovery
 	if err := nc.discovery.Stop(ctx); err != nil {
 		if nc.logger != nil {
 			nc.logger.Error("failed to stop discovery", logger.Error(err))
 		}
 	}
 
-	// OnStop transport
+	// Stop transport
 	if err := nc.transport.Stop(ctx); err != nil {
 		if nc.logger != nil {
 			nc.logger.Error("failed to stop transport", logger.Error(err))

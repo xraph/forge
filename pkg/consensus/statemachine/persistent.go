@@ -103,7 +103,7 @@ func (f *PersistentStateMachineFactory) Create(config StateMachineConfig) (State
 		}
 	}
 
-	// OnStart auto sync if enabled
+	// Start auto sync if enabled
 	if autoSync {
 		go psm.autoSyncLoop()
 	}
@@ -206,7 +206,7 @@ func (psm *PersistentStateMachine) Reset() error {
 
 // Close closes the state machine and stops auto sync
 func (psm *PersistentStateMachine) Close(ctx context.Context) error {
-	// OnStop auto sync
+	// Stop auto sync
 	psm.autoSync = false
 
 	// Perform final sync

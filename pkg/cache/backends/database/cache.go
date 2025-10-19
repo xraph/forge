@@ -163,7 +163,7 @@ func NewDatabaseCache(config DatabaseCacheConfig) (*DatabaseCache, error) {
 		stopCleanup: make(chan struct{}),
 	}
 
-	// OnStart cleanup goroutine if enabled
+	// Start cleanup goroutine if enabled
 	if cache.enableCleanup {
 		go cache.cleanupWorker()
 	}
@@ -542,7 +542,7 @@ func (d *DatabaseCache) Size(ctx context.Context) (int64, error) {
 
 // Close closes the cache and cleans up resources
 func (d *DatabaseCache) Close() error {
-	// OnStop cleanup worker
+	// Stop cleanup worker
 	if d.cleanupRunning {
 		close(d.stopCleanup)
 	}

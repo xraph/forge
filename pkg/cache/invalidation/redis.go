@@ -126,7 +126,7 @@ func (ri *RedisInvalidation) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// OnStart pub/sub listener
+	// Start pub/sub listener
 	ri.wg.Add(1)
 	go ri.pubsubListener(ctx)
 

@@ -1,0 +1,11 @@
+{
+  "title": "Core Plugins",
+  "icon": "Wrench",
+  "pages": [
+    "index",
+    "email-password",
+    "two-factor",
+    "username",
+    "anonymous"
+  ]
+}

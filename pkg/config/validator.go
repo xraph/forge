@@ -14,6 +14,16 @@ import (
 	"github.com/xraph/forge/pkg/logger"
 )
 
+// ValidationMode defines the validation mode
+type ValidationMode string
+
+const (
+	ValidationModeStrict     ValidationMode = "strict"
+	ValidationModeLoose      ValidationMode = "loose"
+	ValidationModePermissive ValidationMode = "permissive"
+	ValidationModeDisabled   ValidationMode = "disabled"
+)
+
 // Validator handles configuration validation
 type Validator struct {
 	mode         ValidationMode

@@ -42,22 +42,22 @@ type SecurityThreat struct {
 
 // SecurityScannerConfig contains configuration for the AI security scanner
 type SecurityScannerConfig struct {
-	Enabled                bool                    `yaml:"enabled" default:"true"`
-	BlockThreshold         SecurityThreatLevel     `yaml:"block_threshold" default:"high"`
-	ScanHeaders            bool                    `yaml:"scan_headers" default:"true"`
-	ScanBody               bool                    `yaml:"scan_body" default:"true"`
-	ScanParams             bool                    `yaml:"scan_params" default:"true"`
-	MaxBodySize            int64                   `yaml:"max_body_size" default:"10485760"` // 10MB
-	Timeout                time.Duration           `yaml:"timeout" default:"5s"`
-	EnableMLDetection      bool                    `yaml:"enable_ml_detection" default:"true"`
-	EnableRuleBasedDetection bool                  `yaml:"enable_rule_based_detection" default:"true"`
-	EnableBehavioralAnalysis bool                  `yaml:"enable_behavioral_analysis" default:"true"`
-	LogLevel               string                  `yaml:"log_level" default:"info"`
-	AlertWebhook           string                  `yaml:"alert_webhook"`
-	WhitelistIPs           []string                `yaml:"whitelist_ips"`
-	BlacklistIPs           []string                `yaml:"blacklist_ips"`
-	CustomRules            []SecurityRule          `yaml:"custom_rules"`
-	MLModelPath            string                  `yaml:"ml_model_path"`
+	Enabled                  bool                `yaml:"enabled" default:"true"`
+	BlockThreshold           SecurityThreatLevel `yaml:"block_threshold" default:"high"`
+	ScanHeaders              bool                `yaml:"scan_headers" default:"true"`
+	ScanBody                 bool                `yaml:"scan_body" default:"true"`
+	ScanParams               bool                `yaml:"scan_params" default:"true"`
+	MaxBodySize              int64               `yaml:"max_body_size" default:"10485760"` // 10MB
+	Timeout                  time.Duration       `yaml:"timeout" default:"5s"`
+	EnableMLDetection        bool                `yaml:"enable_ml_detection" default:"true"`
+	EnableRuleBasedDetection bool                `yaml:"enable_rule_based_detection" default:"true"`
+	EnableBehavioralAnalysis bool                `yaml:"enable_behavioral_analysis" default:"true"`
+	LogLevel                 string              `yaml:"log_level" default:"info"`
+	AlertWebhook             string              `yaml:"alert_webhook"`
+	WhitelistIPs             []string            `yaml:"whitelist_ips"`
+	BlacklistIPs             []string            `yaml:"blacklist_ips"`
+	CustomRules              []SecurityRule      `yaml:"custom_rules"`
+	MLModelPath              string              `yaml:"ml_model_path"`
 }
 
 // SecurityRule represents a custom security rule
@@ -76,12 +76,12 @@ type SecurityRule struct {
 type SecurityRuleTarget string
 
 const (
-	SecurityRuleTargetURL     SecurityRuleTarget = "url"
-	SecurityRuleTargetHeader  SecurityRuleTarget = "header"
-	SecurityRuleTargetBody    SecurityRuleTarget = "body"
-	SecurityRuleTargetParam   SecurityRuleTarget = "param"
-	SecurityRuleTargetCookie  SecurityRuleTarget = "cookie"
-	SecurityRuleTargetAll     SecurityRuleTarget = "all"
+	SecurityRuleTargetURL    SecurityRuleTarget = "url"
+	SecurityRuleTargetHeader SecurityRuleTarget = "header"
+	SecurityRuleTargetBody   SecurityRuleTarget = "body"
+	SecurityRuleTargetParam  SecurityRuleTarget = "param"
+	SecurityRuleTargetCookie SecurityRuleTarget = "cookie"
+	SecurityRuleTargetAll    SecurityRuleTarget = "all"
 )
 
 // SecurityRuleAction defines what action to take
@@ -95,64 +95,64 @@ const (
 
 // SecurityScannerStats contains statistics about the security scanner
 type SecurityScannerStats struct {
-	RequestsScanned   int64                              `json:"requests_scanned"`
-	ThreatsDetected   int64                              `json:"threats_detected"`
-	RequestsBlocked   int64                              `json:"requests_blocked"`
-	ThreatsByLevel    map[SecurityThreatLevel]int64      `json:"threats_by_level"`
-	ThreatsByType     map[string]int64                   `json:"threats_by_type"`
-	AverageScanTime   time.Duration                      `json:"average_scan_time"`
-	FalsePositives    int64                              `json:"false_positives"`
-	TruePositives     int64                              `json:"true_positives"`
-	MLAccuracy        float64                            `json:"ml_accuracy"`
-	LastScan          time.Time                          `json:"last_scan"`
-	TopThreats        []ThreatSummary                    `json:"top_threats"`
-	Performance       SecurityScannerPerformanceStats   `json:"performance"`
+	RequestsScanned int64                           `json:"requests_scanned"`
+	ThreatsDetected int64                           `json:"threats_detected"`
+	RequestsBlocked int64                           `json:"requests_blocked"`
+	ThreatsByLevel  map[SecurityThreatLevel]int64   `json:"threats_by_level"`
+	ThreatsByType   map[string]int64                `json:"threats_by_type"`
+	AverageScanTime time.Duration                   `json:"average_scan_time"`
+	FalsePositives  int64                           `json:"false_positives"`
+	TruePositives   int64                           `json:"true_positives"`
+	MLAccuracy      float64                         `json:"ml_accuracy"`
+	LastScan        time.Time                       `json:"last_scan"`
+	TopThreats      []ThreatSummary                 `json:"top_threats"`
+	Performance     SecurityScannerPerformanceStats `json:"performance"`
 }
 
 // ThreatSummary provides a summary of threat types
 type ThreatSummary struct {
-	Type        string    `json:"type"`
-	Count       int64     `json:"count"`
-	LastSeen    time.Time `json:"last_seen"`
-	Severity    SecurityThreatLevel `json:"severity"`
+	Type     string              `json:"type"`
+	Count    int64               `json:"count"`
+	LastSeen time.Time           `json:"last_seen"`
+	Severity SecurityThreatLevel `json:"severity"`
 }
 
 // SecurityScannerPerformanceStats tracks scanner performance
 type SecurityScannerPerformanceStats struct {
-	MinScanTime    time.Duration `json:"min_scan_time"`
-	MaxScanTime    time.Duration `json:"max_scan_time"`
-	TotalScanTime  time.Duration `json:"total_scan_time"`
-	CacheHits      int64         `json:"cache_hits"`
-	CacheMisses    int64         `json:"cache_misses"`
-	CPUUsage       float64       `json:"cpu_usage"`
-	MemoryUsage    int64         `json:"memory_usage"`
+	MinScanTime   time.Duration `json:"min_scan_time"`
+	MaxScanTime   time.Duration `json:"max_scan_time"`
+	TotalScanTime time.Duration `json:"total_scan_time"`
+	CacheHits     int64         `json:"cache_hits"`
+	CacheMisses   int64         `json:"cache_misses"`
+	CPUUsage      float64       `json:"cpu_usage"`
+	MemoryUsage   int64         `json:"memory_usage"`
 }
 
 // AISecurityScanner implements AI-powered security scanning middleware
 type AISecurityScanner struct {
-	config         SecurityScannerConfig
-	agent   ai.AIAgent
-	logger  common.Logger
-	metrics common.Metrics
-	stats   SecurityScannerStats
-	threatCache    map[string]*SecurityThreat
-	rulePatterns   map[string]*regexp.Regexp
+	config          SecurityScannerConfig
+	agent           ai.AIAgent
+	logger          common.Logger
+	metrics         common.Metrics
+	stats           SecurityScannerStats
+	threatCache     map[string]*SecurityThreat
+	rulePatterns    map[string]*regexp.Regexp
 	behaviorTracker map[string]*BehaviorProfile
-	mu             sync.RWMutex
-	started        bool
+	mu              sync.RWMutex
+	started         bool
 }
 
 // BehaviorProfile tracks behavioral patterns for IPs
 type BehaviorProfile struct {
-	IP              string                    `json:"ip"`
-	RequestCount    int64                     `json:"request_count"`
-	ThreatCount     int64                     `json:"threat_count"`
-	FirstSeen       time.Time                 `json:"first_seen"`
-	LastSeen        time.Time                 `json:"last_seen"`
-	RequestPatterns map[string]int64          `json:"request_patterns"`
-	Anomalies       []BehaviorAnomaly         `json:"anomalies"`
-	RiskScore       float64                   `json:"risk_score"`
-	IsBot           bool                      `json:"is_bot"`
+	IP              string            `json:"ip"`
+	RequestCount    int64             `json:"request_count"`
+	ThreatCount     int64             `json:"threat_count"`
+	FirstSeen       time.Time         `json:"first_seen"`
+	LastSeen        time.Time         `json:"last_seen"`
+	RequestPatterns map[string]int64  `json:"request_patterns"`
+	Anomalies       []BehaviorAnomaly `json:"anomalies"`
+	RiskScore       float64           `json:"risk_score"`
+	IsBot           bool              `json:"is_bot"`
 }
 
 // BehaviorAnomaly represents a behavioral anomaly
@@ -227,7 +227,7 @@ func (s *AISecurityScanner) Initialize(ctx context.Context, config ai.AIMiddlewa
 		}
 	}
 
-	// OnStart background routines
+	// Start background routines
 	go s.performanceMonitoring(ctx)
 	go s.threatAnalysis(ctx)
 	go s.behaviorAnalysis(ctx)
@@ -376,8 +376,8 @@ func (s *AISecurityScanner) performRuleBasedScanning(request *http.Request) []*S
 		`(?i)(alert\s*\(|document\.cookie|window\.location)`:               SecurityThreatLevelMedium,
 
 		// Command Injection
-		`(?i)(;.*cat\s+|;.*ls\s+|;.*pwd|;.*whoami|\|\s*nc\s+)`: SecurityThreatLevelCritical,
-		`(?i)(\$\(.*\)|`.*`|\|\s*curl\s+|\|\s*wget\s+)`:       SecurityThreatLevelCritical,
+		`(?i)(;.*cat\s+|;.*ls\s+|;.*pwd|;.*whoami|\|\s*nc\s+)`:              SecurityThreatLevelCritical,
+		`(?i)(\$\(.*\)|` + "`" + `.*` + "`" + `|\|\s*curl\s+|\|\s*wget\s+)`: SecurityThreatLevelCritical,
 
 		// Path Traversal
 		`(\.\.\/|\.\.\\\|%2e%2e%2f|%2e%2e%5c)`: SecurityThreatLevelHigh,
@@ -557,7 +557,7 @@ func (s *AISecurityScanner) performBehavioralAnalysis(request *http.Request) []*
 			Confidence:  0.8,
 			Timestamp:   time.Now(),
 			Metadata: map[string]interface{}{
-				"threat_ratio": float64(profile.ThreatCount) / float64(profile.RequestCount),
+				"threat_ratio":  float64(profile.ThreatCount) / float64(profile.RequestCount),
 				"total_threats": profile.ThreatCount,
 			},
 		})
@@ -675,10 +675,10 @@ func (s *AISecurityScanner) blockRequest(response http.ResponseWriter, request *
 		"error": "Security threat detected",
 		"code":  "SECURITY_THREAT_DETECTED",
 		"details": map[string]interface{}{
-			"threats":     len(threats),
-			"client_ip":   s.getClientIP(request),
-			"timestamp":   time.Now().Format(time.RFC3339),
-			"request_id":  request.Header.Get("X-Request-ID"),
+			"threats":    len(threats),
+			"client_ip":  s.getClientIP(request),
+			"timestamp":  time.Now().Format(time.RFC3339),
+			"request_id": request.Header.Get("X-Request-ID"),
 		},
 	}
 
@@ -752,12 +752,12 @@ func (s *AISecurityScanner) isWhitelisted(ip string) bool {
 
 func (s *AISecurityScanner) identifyThreatType(pattern string) string {
 	typeMap := map[string]string{
-		`(?i)(union\s+select|drop\s+table)`:           "sql_injection",
-		`(?i)(<script[^>]*>|javascript:)`:             "xss",
-		`(?i)(;.*cat\s+|;.*ls\s+)`:                   "command_injection",
-		`(\.\.\/|\.\.\\\)`:                           "path_traversal",
-		`(?i)(\*\)\(\w+=\*)`:                         "ldap_injection",
-		`(?i)(<!ENTITY|SYSTEM\s+["'])`:               "xxe",
+		`(?i)(union\s+select|drop\s+table)`: "sql_injection",
+		`(?i)(<script[^>]*>|javascript:)`:   "xss",
+		`(?i)(;.*cat\s+|;.*ls\s+)`:          "command_injection",
+		`(\.\.\/|\.\.\\\)`:                  "path_traversal",
+		`(?i)(\*\)\(\w+=\*)`:                "ldap_injection",
+		`(?i)(<!ENTITY|SYSTEM\s+["'])`:      "xxe",
 	}
 
 	for patternRegex, threatType := range typeMap {
@@ -860,7 +860,7 @@ func (s *AISecurityScanner) sendAlert(ctx context.Context, threat *SecurityThrea
 	}
 
 	alertData := map[string]interface{}{
-		"threat":     threat,
+		"threat": threat,
 		"request": map[string]interface{}{
 			"method":     request.Method,
 			"url":        request.URL.String(),
@@ -872,7 +872,7 @@ func (s *AISecurityScanner) sendAlert(ctx context.Context, threat *SecurityThrea
 
 	// Send webhook alert (simplified implementation)
 	go func() {
-		if data, err := json.Marshal(alertData); err == nil {
+		if _, err := json.Marshal(alertData); err == nil {
 			// Implementation would send HTTP POST to webhook URL
 			// http.Post(s.config.AlertWebhook, "application/json", bytes.NewBuffer(data))
 			if s.logger != nil {
@@ -996,16 +996,16 @@ func (s *AISecurityScanner) GetStats() ai.AIMiddlewareStats {
 	defer s.mu.RUnlock()
 
 	return ai.AIMiddlewareStats{
-		Name:           s.Name(),
-		Type:           string(s.Type()),
+		Name:              s.Name(),
+		Type:              string(s.Type()),
 		RequestsProcessed: s.stats.RequestsScanned,
-		AverageLatency: s.stats.AverageScanTime,
-		ErrorRate:      0.0, // Security scanner doesn't have traditional "errors"
+		AverageLatency:    s.stats.AverageScanTime,
+		ErrorRate:         0.0, // Security scanner doesn't have traditional "errors"
 		Metadata: map[string]interface{}{
-			"threats_detected": s.stats.ThreatsDetected,
-			"requests_blocked": s.stats.RequestsBlocked,
-			"threats_by_level": s.stats.ThreatsByLevel,
-			"threats_by_type":  s.stats.ThreatsByType,
+			"threats_detected":  s.stats.ThreatsDetected,
+			"requests_blocked":  s.stats.RequestsBlocked,
+			"threats_by_level":  s.stats.ThreatsByLevel,
+			"threats_by_type":   s.stats.ThreatsByType,
 			"behavior_profiles": len(s.behaviorTracker),
 		},
 		LastUpdated: time.Now(),

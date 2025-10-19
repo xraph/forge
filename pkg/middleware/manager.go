@@ -52,7 +52,7 @@ func (m *Manager) Dependencies() []string {
 }
 
 // OnStart starts the middleware manager
-func (m *Manager) OnStart(ctx context.Context) error {
+func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -86,7 +86,7 @@ func (m *Manager) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the middleware manager
-func (m *Manager) OnStop(ctx context.Context) error {
+func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

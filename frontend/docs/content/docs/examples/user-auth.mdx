@@ -1,0 +1,652 @@
+---
+title: User Authentication
+description: Complete guide to implementing user registration, login, and authentication flows with AuthSome Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# User Authentication
+
+This guide covers implementing comprehensive user authentication flows including registration, login, email verification, password reset, and account management with AuthSome Go.
+
+## Overview
+
+AuthSome Go provides a complete authentication system with:
+
+- **User Registration**: Email/password with validation
+- **Email Verification**: Secure email confirmation flow
+- **User Login**: Multiple authentication methods
+- **Password Reset**: Secure password recovery
+- **Account Management**: Profile updates and security
+- **Session Management**: Secure session handling
+
+## Quick Start
+
+<Tabs items={['Basic Setup', 'Configuration', 'Routes']}>
+  <Tab value="Basic Setup">
+    ```go
+    package main
+    
+    import (
+        "github.com/xraph/authsome"
+        "github.com/xraph/forge"
+    )
+    
+    func main() {
+        app := forge.New()
+        
+        // Initialize AuthSome
+        auth, err := authsome.New(authsome.Config{
+            DatabaseURL: "postgres://user:pass@localhost/db",
+            SecretKey:   "your-secret-key",
+            EmailProvider: authsome.EmailConfig{
+                Provider: "smtp",
+                SMTP: authsome.SMTPConfig{
+                    Host:     "smtp.gmail.com",
+                    Port:     587,
+                    Username: "your-email@gmail.com",
+                    Password: "your-app-password",
+                },
+            },
+        })
+        if err != nil {
+            panic(err)
+        }
+        
+        // Mount AuthSome routes
+        auth.Mount(app, "/auth")
+        
+        app.Listen(":8080")
+    }
+    ```
+  </Tab>
+  <Tab value="Configuration">
+    ```yaml
+    # config.yaml
+    auth:
+      database_url: "postgres://user:pass@localhost/authsome"
+      secret_key: "your-256-bit-secret-key"
+      
+      # Session configuration
+      session:
+        cookie_name: "authsome_session"
+        max_age: 86400 # 24 hours
+        secure: true
+        http_only: true
+        same_site: "lax"
+        
+      # Email configuration
+      email:
+        provider: "smtp"
+        from_name: "Your App"
+        from_email: "noreply@yourapp.com"
+        smtp:
+          host: "smtp.gmail.com"
+          port: 587
+          username: "your-email@gmail.com"
+          password: "your-app-password"
+          
+      # Security settings
+      security:
+        password_min_length: 8
+        require_email_verification: true
+        max_login_attempts: 5
+        lockout_duration: "15m"
+        
+      # Rate limiting
+      rate_limit:
+        login_attempts: 5
+        password_reset: 3
+        email_verification: 3
+    ```
+  </Tab>
+  <Tab value="Routes">
+    ```go
+    // Register authentication routes
+    func setupAuthRoutes(app *forge.App, auth *authsome.Auth) {
+        authGroup := app.Group("/auth")
+        
+        // Public routes
+        authGroup.POST("/register", auth.Register)
+        authGroup.POST("/login", auth.Login)
+        authGroup.POST("/logout", auth.Logout)
+        authGroup.POST("/forgot-password", auth.ForgotPassword)
+        authGroup.POST("/reset-password", auth.ResetPassword)
+        authGroup.POST("/verify-email", auth.VerifyEmail)
+        authGroup.POST("/resend-verification", auth.ResendVerification)
+        
+        // Protected routes
+        protected := authGroup.Group("", auth.RequireAuth())
+        protected.GET("/me", auth.GetCurrentUser)
+        protected.PUT("/me", auth.UpdateProfile)
+        protected.POST("/change-password", auth.ChangePassword)
+        protected.POST("/change-email", auth.ChangeEmail)
+        protected.DELETE("/account", auth.DeleteAccount)
+        
+        // Session management
+        protected.GET("/sessions", auth.GetSessions)
+        protected.DELETE("/sessions/:id", auth.RevokeSession)
+        protected.DELETE("/sessions", auth.RevokeAllSessions)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## User Registration
+
+Implement secure user registration with email verification:
+
+<Callout type="info">
+  Registration includes email validation, password strength checking, and automatic email verification flow.
+</Callout>
+
+<Tabs items={['Frontend Form', 'API Handler', 'Validation']}>
+  <Tab value="Frontend Form">
+    ```tsx
+    import React, { useState } from 'react';
+    import { authService } from '../services/auth';
+    
+    export const RegisterForm: React.FC = () => {
+      const [formData, setFormData] = useState({
+        email: '',
+        password: '',
+        confirmPassword: '',
+        firstName: '',
+        lastName: '',
+        acceptTerms: false,
+      });
+      
+      const [errors, setErrors] = useState<Record<string, string>>({});
+      const [loading, setLoading] = useState(false);
+      const [success, setSuccess] = useState(false);
+      
+      const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        
+        if (!validateForm()) return;
+        
+        setLoading(true);
+        try {
+          await authService.register(formData);
+          setSuccess(true);
+        } catch (error: any) {
+          setErrors({ submit: error.message });
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      const validateForm = (): boolean => {
+        const newErrors: Record<string, string> = {};
+        
+        if (!formData.email) {
+          newErrors.email = 'Email is required';
+        } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+          newErrors.email = 'Email is invalid';
+        }
+        
+        if (!formData.password) {
+          newErrors.password = 'Password is required';
+        } else if (formData.password.length < 8) {
+          newErrors.password = 'Password must be at least 8 characters';
+        }
+        
+        if (formData.password !== formData.confirmPassword) {
+          newErrors.confirmPassword = 'Passwords do not match';
+        }
+        
+        if (!formData.acceptTerms) {
+          newErrors.acceptTerms = 'You must accept the terms';
+        }
+        
+        setErrors(newErrors);
+        return Object.keys(newErrors).length === 0;
+      };
+      
+      if (success) {
+        return (
+          <div className="success-message">
+            <h2>Registration Successful!</h2>
+            <p>Please check your email to verify your account.</p>
+          </div>
+        );
+      }
+      
+      return (
+        <form onSubmit={handleSubmit} className="register-form">
+          <h2>Create Account</h2>
+          
+          {errors.submit && (
+            <div className="error-message">{errors.submit}</div>
+          )}
+          
+          <div className="form-group">
+            <input
+              type="email"
+              placeholder="Email"
+              value={formData.email}
+              onChange={(e) => setFormData({...formData, email: e.target.value})}
+              className={errors.email ? 'error' : ''}
+            />
+            {errors.email && <span className="error">{errors.email}</span>}
+          </div>
+          
+          <div className="form-group">
+            <input
+              type="password"
+              placeholder="Password"
+              value={formData.password}
+              onChange={(e) => setFormData({...formData, password: e.target.value})}
+              className={errors.password ? 'error' : ''}
+            />
+            {errors.password && <span className="error">{errors.password}</span>}
+          </div>
+          
+          <button type="submit" disabled={loading}>
+            {loading ? 'Creating Account...' : 'Create Account'}
+          </button>
+        </form>
+      );
+    };
+    ```
+  </Tab>
+  <Tab value="API Handler">
+    ```go
+    func (h *AuthHandler) Register(c *forge.Context) error {
+        var req struct {
+            Email       string `json:"email" validate:"required,email"`
+            Password    string `json:"password" validate:"required,min=8"`
+            FirstName   string `json:"firstName" validate:"required"`
+            LastName    string `json:"lastName" validate:"required"`
+            AcceptTerms bool   `json:"acceptTerms" validate:"required"`
+        }
+        
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request format",
+            })
+        }
+        
+        // Validate terms acceptance
+        if !req.AcceptTerms {
+            return c.JSON(400, map[string]string{
+                "error": "You must accept the terms of service",
+            })
+        }
+        
+        // Create user
+        user, err := h.auth.CreateUser(c.Context(), authsome.CreateUserOptions{
+            Email:     req.Email,
+            Password:  req.Password,
+            FirstName: req.FirstName,
+            LastName:  req.LastName,
+            RequireVerification: true,
+        })
+        if err != nil {
+            if authsome.IsEmailExistsError(err) {
+                return c.JSON(409, map[string]string{
+                    "error": "Email address is already registered",
+                })
+            }
+            return c.JSON(500, map[string]string{
+                "error": "Failed to create account",
+            })
+        }
+        
+        // Send verification email
+        if err := h.auth.SendVerificationEmail(c.Context(), user.ID); err != nil {
+            c.Logger().Error("Failed to send verification email", "error", err)
+        }
+        
+        return c.JSON(201, map[string]interface{}{
+            "user": user,
+            "message": "Account created. Please verify your email.",
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Validation">
+    ```go
+    // Password validation rules
+    func validatePassword(password string) error {
+        if len(password) < 8 {
+            return errors.New("password must be at least 8 characters")
+        }
+        
+        var (
+            hasUpper   = false
+            hasLower   = false
+            hasNumber  = false
+            hasSpecial = false
+        )
+        
+        for _, char := range password {
+            switch {
+            case 'A' <= char && char <= 'Z':
+                hasUpper = true
+            case 'a' <= char && char <= 'z':
+                hasLower = true
+            case '0' <= char && char <= '9':
+                hasNumber = true
+            case strings.ContainsRune("!@#$%^&*", char):
+                hasSpecial = true
+            }
+        }
+        
+        if !hasUpper || !hasLower || !hasNumber {
+            return errors.New("password must contain uppercase, lowercase, and number")
+        }
+        
+        return nil
+    }
+    
+    // Email validation
+    func validateEmail(email string) error {
+        email = strings.ToLower(strings.TrimSpace(email))
+        
+        if !strings.Contains(email, "@") {
+            return errors.New("invalid email format")
+        }
+        
+        // Additional email validation logic
+        return nil
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## User Login
+
+Implement secure login with multiple authentication methods:
+
+<Tabs items={['Login Form', 'API Handler', 'Two-Factor Auth']}>
+  <Tab value="Login Form">
+    ```tsx
+    export const LoginForm: React.FC = () => {
+      const [formData, setFormData] = useState({
+        email: '',
+        password: '',
+        rememberMe: false,
+        twoFACode: '',
+      });
+      
+      const [requiresTwoFA, setRequiresTwoFA] = useState(false);
+      const [loading, setLoading] = useState(false);
+      const [errors, setErrors] = useState<Record<string, string>>({});
+      
+      const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        
+        try {
+          const response = await authService.login(formData);
+          
+          if (response.requiresTwoFA) {
+            setRequiresTwoFA(true);
+            return;
+          }
+          
+          // Login successful
+          window.location.href = '/dashboard';
+          
+        } catch (error: any) {
+          setErrors({ submit: error.message });
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      return (
+        <form onSubmit={handleSubmit} className="login-form">
+          <h2>Sign In</h2>
+          
+          {!requiresTwoFA ? (
+            <>
+              <input
+                type="email"
+                placeholder="Email"
+                value={formData.email}
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
+                required
+              />
+              
+              <input
+                type="password"
+                placeholder="Password"
+                value={formData.password}
+                onChange={(e) => setFormData({...formData, password: e.target.value})}
+                required
+              />
+              
+              <label>
+                <input
+                  type="checkbox"
+                  checked={formData.rememberMe}
+                  onChange={(e) => setFormData({...formData, rememberMe: e.target.checked})}
+                />
+                Remember me
+              </label>
+            </>
+          ) : (
+            <div className="two-fa-section">
+              <h3>Two-Factor Authentication</h3>
+              <input
+                type="text"
+                placeholder="Enter 6-digit code"
+                value={formData.twoFACode}
+                onChange={(e) => setFormData({...formData, twoFACode: e.target.value})}
+                maxLength={6}
+                required
+              />
+            </div>
+          )}
+          
+          <button type="submit" disabled={loading}>
+            {loading ? 'Signing In...' : 'Sign In'}
+          </button>
+          
+          <div className="form-links">
+            <a href="/forgot-password">Forgot Password?</a>
+            <a href="/register">Create Account</a>
+          </div>
+        </form>
+      );
+    };
+    ```
+  </Tab>
+  <Tab value="API Handler">
+    ```go
+    func (h *AuthHandler) Login(c *forge.Context) error {
+        var req struct {
+            Email      string `json:"email"`
+            Password   string `json:"password" validate:"required"`
+            RememberMe bool   `json:"rememberMe"`
+            TwoFACode  string `json:"twoFACode"`
+        }
+        
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request format",
+            })
+        }
+        
+        // Rate limiting
+        if err := h.auth.CheckRateLimit(c.Context(), "login", req.Email, 5, 15*time.Minute); err != nil {
+            return c.JSON(429, map[string]string{
+                "error": "Too many login attempts",
+            })
+        }
+        
+        // Authenticate user
+        result, err := h.auth.Authenticate(c.Context(), authsome.AuthenticateOptions{
+            Email:     req.Email,
+            Password:  req.Password,
+            TwoFACode: req.TwoFACode,
+            ClientInfo: authsome.ClientInfo{
+                IP:        c.ClientIP(),
+                UserAgent: c.GetHeader("User-Agent"),
+            },
+        })
+        if err != nil {
+            if authsome.IsTwoFARequiredError(err) {
+                return c.JSON(200, map[string]interface{}{
+                    "requiresTwoFA": true,
+                    "message": "Two-factor authentication required",
+                })
+            }
+            
+            return c.JSON(401, map[string]string{
+                "error": "Invalid credentials",
+            })
+        }
+        
+        // Create session
+        session, err := h.auth.CreateSession(c.Context(), authsome.CreateSessionOptions{
+            UserID:     result.User.ID,
+            RememberMe: req.RememberMe,
+            ClientInfo: authsome.ClientInfo{
+                IP:        c.ClientIP(),
+                UserAgent: c.GetHeader("User-Agent"),
+            },
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to create session",
+            })
+        }
+        
+        // Set session cookie
+        h.auth.SetSessionCookie(c, session.Token)
+        
+        return c.JSON(200, map[string]interface{}{
+            "user":    result.User,
+            "session": session,
+            "message": "Login successful",
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Two-Factor Auth">
+    ```go
+    // Setup 2FA for user
+    func (h *AuthHandler) Setup2FA(c *forge.Context) error {
+        user := h.auth.GetCurrentUser(c)
+        if user == nil {
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        // Generate 2FA secret
+        secret, qrCode, err := h.auth.Generate2FASecret(c.Context(), user.ID)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to generate 2FA secret",
+            })
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "secret": secret,
+            "qrCode": qrCode,
+            "backupCodes": []string{}, // Generated after verification
+        })
+    }
+    
+    // Verify and enable 2FA
+    func (h *AuthHandler) Verify2FA(c *forge.Context) error {
+        var req struct {
+            Code string `json:"code" validate:"required"`
+        }
+        
+        if err := c.BindJSON(&req); err != nil {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid request format",
+            })
+        }
+        
+        user := h.auth.GetCurrentUser(c)
+        if user == nil {
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        // Verify 2FA code
+        valid, err := h.auth.Verify2FACode(c.Context(), user.ID, req.Code)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to verify 2FA code",
+            })
+        }
+        
+        if !valid {
+            return c.JSON(400, map[string]string{
+                "error": "Invalid 2FA code",
+            })
+        }
+        
+        // Enable 2FA for user
+        backupCodes, err := h.auth.Enable2FA(c.Context(), user.ID)
+        if err != nil {
+            return c.JSON(500, map[string]string{
+                "error": "Failed to enable 2FA",
+            })
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "message": "2FA enabled successfully",
+            "backupCodes": backupCodes,
+        })
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Session Management"
+    description="Learn how to manage user sessions, device tracking, and security"
+    href="/docs/go/examples/session-management"
+  />
+  <Card
+    title="Multi-Factor Authentication"
+    description="Implement advanced MFA with TOTP, SMS, and backup codes"
+    href="/docs/go/examples/multi-factor-auth"
+  />
+  <Card
+    title="Social Authentication"
+    description="Add OAuth login with Google, GitHub, and other providers"
+    href="/docs/go/examples/social-auth"
+  />
+  <Card
+    title="Password Security"
+    description="Advanced password policies, breach detection, and security"
+    href="/docs/go/examples/password-security"
+  />
+</Cards>
+
+## Security Considerations
+
+<Callout type="warning">
+  Always implement proper rate limiting, CSRF protection, and secure session management in production.
+</Callout>
+
+- **Rate Limiting**: Protect against brute force attacks
+- **Email Verification**: Prevent fake account creation
+- **Password Strength**: Enforce strong password policies
+- **Session Security**: Use secure, HTTP-only cookies
+- **Device Tracking**: Monitor and alert on new devices
+- **Audit Logging**: Track all authentication events
+
+## Troubleshooting
+
+Common issues and solutions:
+
+- **Email not sending**: Check SMTP configuration and credentials
+- **Session not persisting**: Verify cookie settings and domain
+- **2FA codes invalid**: Check time synchronization
+- **Rate limiting too strict**: Adjust limits in configuration

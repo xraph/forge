@@ -242,16 +242,16 @@ func (rb *RaftBackend) Start(ctx context.Context) error {
 	rb.votedFor = rb.persistence.GetVotedFor()
 	rb.log = rb.persistence.GetLog()
 
-	// OnStart transport
+	// Start transport
 	if err := rb.transport.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed("raft-backend", err)
 	}
 
-	// OnStart main loop
+	// Start main loop
 	rb.wg.Add(1)
 	go rb.mainLoop(ctx)
 
-	// OnStart election timer
+	// Start election timer
 	rb.electionTimer = time.NewTimer(rb.electionTimeout)
 	rb.wg.Add(1)
 	go rb.electionTimerLoop(ctx)
@@ -285,7 +285,7 @@ func (rb *RaftBackend) Stop(ctx context.Context) error {
 	// Signal stop
 	close(rb.stopChannel)
 
-	// OnStop timers
+	// Stop timers
 	if rb.electionTimer != nil {
 		rb.electionTimer.Stop()
 	}
@@ -296,7 +296,7 @@ func (rb *RaftBackend) Stop(ctx context.Context) error {
 	// Wait for goroutines to finish
 	rb.wg.Wait()
 
-	// OnStop transport
+	// Stop transport
 	if err := rb.transport.Stop(ctx); err != nil {
 		if rb.logger != nil {
 			rb.logger.Error("failed to stop transport", logger.Error(err))
@@ -477,7 +477,7 @@ func (rb *RaftBackend) becomeFollower(term uint64) {
 	rb.votedFor = ""
 	rb.leaderID = ""
 
-	// OnStop heartbeat timer if running
+	// Stop heartbeat timer if running
 	if rb.heartbeatTimer != nil {
 		rb.heartbeatTimer.Stop()
 		rb.heartbeatTimer = nil
@@ -515,7 +515,7 @@ func (rb *RaftBackend) becomeCandidate() {
 	rb.votedFor = rb.nodeID
 	rb.voteCount = 1 // Vote for self
 
-	// OnStop heartbeat timer if running
+	// Stop heartbeat timer if running
 	if rb.heartbeatTimer != nil {
 		rb.heartbeatTimer.Stop()
 		rb.heartbeatTimer = nil
@@ -541,7 +541,7 @@ func (rb *RaftBackend) becomeCandidate() {
 		rb.metrics.Counter("forge.cron.raft_became_candidate").Inc()
 	}
 
-	// OnStart election
+	// Start election
 	go rb.startElection()
 }
 
@@ -551,7 +551,7 @@ func (rb *RaftBackend) becomeLeader() {
 	rb.state = StateLeader
 	rb.leaderID = rb.nodeID
 
-	// OnStop election timer
+	// Stop election timer
 	rb.electionTimer.Stop()
 
 	// Initialize leader state
@@ -562,7 +562,7 @@ func (rb *RaftBackend) becomeLeader() {
 	}
 	rb.peersMu.RUnlock()
 
-	// OnStart heartbeat timer
+	// Start heartbeat timer
 	rb.heartbeatTimer = time.NewTimer(rb.config.HeartbeatInterval)
 	rb.wg.Add(1)
 	go rb.heartbeatLoop()

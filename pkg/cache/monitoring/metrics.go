@@ -223,7 +223,7 @@ func (cmc *CacheMetricsCollector) Start(ctx context.Context) error {
 	// Register metrics
 	cmc.registerMetrics()
 
-	// OnStart collection goroutines
+	// Start collection goroutines
 	go cmc.collectionLoop(ctx)
 	go cmc.aggregationLoop(ctx)
 

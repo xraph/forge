@@ -1,0 +1,418 @@
+---
+title: Security
+description: Security features and best practices in Forge Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Security
+
+Forge Go provides built-in security features and middleware to help you build secure web applications. This guide covers authentication, authorization, input validation, and security best practices.
+
+## Built-in Security Middleware
+
+Forge includes several security middleware out of the box:
+
+<Cards>
+  <Card
+    title="CORS"
+    description="Cross-Origin Resource Sharing protection"
+  />
+  <Card
+    title="Rate Limiting"
+    description="Protect against abuse and DDoS attacks"
+  />
+  <Card
+    title="Request ID"
+    description="Track requests for security monitoring"
+  />
+  <Card
+    title="Security Headers"
+    description="Add security headers to responses"
+  />
+</Cards>
+
+## CORS Protection
+
+    ```go
+package main
+
+import (
+    "log"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New(forge.Config{
+        Name: "My App",
+    })
+
+    // Add CORS middleware
+    app.Use(forge.CORS())
+
+    // Your routes
+    app.GET("/", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "message": "Hello from Forge!",
+        })
+    })
+
+    log.Fatal(app.Listen(":8080"))
+}
+```
+
+### Custom CORS Configuration
+
+    ```go
+// Custom CORS configuration
+app.Use(forge.CORS(forge.CORSConfig{
+    AllowedOrigins: []string{
+        "https://yourdomain.com",
+        "https://app.yourdomain.com",
+    },
+    AllowedMethods: []string{
+        "GET", "POST", "PUT", "DELETE", "OPTIONS",
+    },
+    AllowedHeaders: []string{
+        "Content-Type", "Authorization", "X-Requested-With",
+    },
+    AllowCredentials: true,
+    MaxAge: 86400, // 24 hours
+}))
+```
+
+## Rate Limiting
+
+    ```go
+package main
+
+import (
+    "log"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New(forge.Config{
+        Name: "My App",
+    })
+
+    // Add rate limiting middleware
+    app.Use(forge.RateLimit())
+
+    // Your routes
+    app.GET("/", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "message": "Hello from Forge!",
+        })
+    })
+
+    log.Fatal(app.Listen(":8080"))
+}
+```
+
+### Custom Rate Limiting
+
+```go
+// Custom rate limiting configuration
+app.Use(forge.RateLimit(forge.RateLimitConfig{
+    Max:     100,  // Maximum requests
+    Window:  "1m", // Time window
+    Storage: "memory", // Storage backend
+}))
+```
+
+## Authentication Middleware
+
+### Basic Authentication
+
+    ```go
+func BasicAuth() forge.HandlerFunc {
+            return func(c *forge.Context) error {
+        // Get Authorization header
+        auth := c.Request.Header.Get("Authorization")
+        if auth == "" {
+            c.Response.Header().Set("WWW-Authenticate", "Basic realm=Restricted")
+            return c.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+
+        // Decode and validate credentials
+        if !validateCredentials(auth) {
+            return c.JSON(401, map[string]string{
+                "error": "Invalid credentials",
+            })
+        }
+
+        return c.Next()
+    }
+}
+
+func validateCredentials(auth string) bool {
+    // Implement your authentication logic
+    return true
+}
+```
+
+### JWT Authentication
+
+    ```go
+import (
+    "github.com/golang-jwt/jwt/v5"
+)
+
+func JWTAuth() forge.HandlerFunc {
+    return func(c *forge.Context) error {
+        // Get token from header
+        token := c.Request.Header.Get("Authorization")
+        if token == "" {
+            return c.JSON(401, map[string]string{
+                "error": "Token required",
+            })
+        }
+
+        // Remove "Bearer " prefix
+        if len(token) > 7 && token[:7] == "Bearer " {
+            token = token[7:]
+        }
+
+        // Validate token
+        claims, err := validateJWT(token)
+        if err != nil {
+            return c.JSON(401, map[string]string{
+                "error": "Invalid token",
+            })
+        }
+
+        // Store user info in context
+        c.Set("user", claims)
+        return c.Next()
+    }
+}
+
+func validateJWT(tokenString string) (jwt.MapClaims, error) {
+    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+        return []byte("your-secret-key"), nil
+    })
+
+                if err != nil {
+                    return nil, err
+                }
+
+    if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+        return claims, nil
+    }
+
+    return nil, fmt.Errorf("invalid token")
+}
+```
+
+## Input Validation
+
+### JSON Validation
+
+```go
+import (
+    "github.com/go-playground/validator/v10"
+)
+
+type User struct {
+    Name     string `json:"name" validate:"required,min=2,max=50"`
+    Email    string `json:"email" validate:"required,email"`
+    Age      int    `json:"age" validate:"min=18,max=120"`
+    Password string `json:"password" validate:"required,min=8"`
+}
+
+func createUserHandler(c *forge.Context) error {
+    var user User
+    
+    // Bind JSON
+    if err := c.BindJSON(&user); err != nil {
+        return c.JSON(400, map[string]string{
+            "error": "Invalid JSON",
+        })
+    }
+
+    // Validate
+    validate := validator.New()
+    if err := validate.Struct(user); err != nil {
+        return c.JSON(400, map[string]interface{}{
+            "error": "Validation failed",
+            "details": err.Error(),
+        })
+    }
+
+    // Process user
+    return c.JSON(201, map[string]string{
+        "message": "User created successfully",
+        })
+    }
+    ```
+
+### Form Validation
+
+```go
+func validateForm(c *forge.Context) error {
+    // Get form values
+    name := c.FormValue("name")
+    email := c.FormValue("email")
+    
+    // Validate required fields
+    if name == "" {
+        return c.JSON(400, map[string]string{
+            "error": "Name is required",
+        })
+    }
+    
+    if email == "" {
+        return c.JSON(400, map[string]string{
+            "error": "Email is required",
+        })
+    }
+    
+    // Validate email format
+    if !isValidEmail(email) {
+        return c.JSON(400, map[string]string{
+            "error": "Invalid email format",
+        })
+    }
+    
+    return c.Next()
+}
+
+func isValidEmail(email string) bool {
+    // Simple email validation
+    return strings.Contains(email, "@") && strings.Contains(email, ".")
+}
+```
+
+## Security Headers
+
+### Custom Security Headers
+
+```go
+func SecurityHeaders() forge.HandlerFunc {
+    return func(c *forge.Context) error {
+        // Set security headers
+        c.Response.Header().Set("X-Content-Type-Options", "nosniff")
+        c.Response.Header().Set("X-Frame-Options", "DENY")
+        c.Response.Header().Set("X-XSS-Protection", "1; mode=block")
+        c.Response.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+        c.Response.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+        c.Response.Header().Set("Content-Security-Policy", "default-src 'self'")
+        
+        return c.Next()
+    }
+}
+```
+
+## HTTPS Redirect
+
+```go
+func HTTPSRedirect() forge.HandlerFunc {
+    return func(c *forge.Context) error {
+        // Check if request is over HTTPS
+        if c.Request.TLS == nil {
+            // Redirect to HTTPS
+            httpsURL := "https://" + c.Request.Host + c.Request.URL.Path
+            return c.Redirect(301, httpsURL)
+        }
+        
+        return c.Next()
+    }
+}
+```
+
+## SQL Injection Prevention
+
+```go
+import (
+    "database/sql"
+    "github.com/jmoiron/sqlx"
+)
+
+func getUserHandler(c *forge.Context) error {
+    id := c.Param("id")
+    
+    // Use parameterized queries
+    var user User
+    err := db.Get(&user, "SELECT * FROM users WHERE id = $1", id)
+    if err != nil {
+        if err == sql.ErrNoRows {
+            return c.JSON(404, map[string]string{
+                "error": "User not found",
+            })
+        }
+        return c.JSON(500, map[string]string{
+            "error": "Database error",
+        })
+    }
+    
+    return c.JSON(200, user)
+}
+```
+
+## Password Hashing
+
+```go
+import (
+    "golang.org/x/crypto/bcrypt"
+)
+
+func hashPassword(password string) (string, error) {
+    bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+    return string(bytes), err
+}
+
+func checkPassword(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+    return err == nil
+}
+```
+
+## Session Security
+
+```go
+func SecureSession() forge.HandlerFunc {
+        return func(c *forge.Context) error {
+        // Set secure session cookie
+        c.Response.Header().Set("Set-Cookie", "session=value; HttpOnly; Secure; SameSite=Strict")
+        return c.Next()
+    }
+}
+```
+
+## Best Practices
+
+<Cards>
+  <Card
+    title="Input Validation"
+    description="Always validate and sanitize user input"
+  />
+  <Card
+    title="HTTPS Only"
+    description="Use HTTPS in production and redirect HTTP to HTTPS"
+  />
+  <Card
+    title="Security Headers"
+    description="Set appropriate security headers on all responses"
+  />
+  <Card
+    title="Rate Limiting"
+    description="Implement rate limiting to prevent abuse"
+  />
+  <Card
+    title="Parameterized Queries"
+    description="Use parameterized queries to prevent SQL injection"
+  />
+  <Card
+    title="Password Hashing"
+    description="Use strong password hashing algorithms like bcrypt"
+  />
+</Cards>
+
+<Callout type="warn">
+**Security Warning**: Always validate user input, use HTTPS in production, and keep your dependencies updated to patch security vulnerabilities.
+</Callout>

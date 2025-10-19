@@ -87,7 +87,7 @@ func (cs *ConsensusService) Dependencies() []string {
 }
 
 // OnStart starts the consensus service
-func (cs *ConsensusService) OnStart(ctx context.Context) error {
+func (cs *ConsensusService) Start(ctx context.Context) error {
 	if cs.logger != nil {
 		cs.logger.Info("starting consensus service",
 			logger.String("node_id", cs.config.NodeID),
@@ -95,7 +95,7 @@ func (cs *ConsensusService) OnStart(ctx context.Context) error {
 		)
 	}
 
-	// OnStart the consensus manager
+	// Start the consensus manager
 	if err := cs.manager.OnStart(ctx); err != nil {
 		return common.ErrServiceStartFailed("consensus-service", err)
 	}
@@ -128,12 +128,12 @@ func (cs *ConsensusService) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the consensus service
-func (cs *ConsensusService) OnStop(ctx context.Context) error {
+func (cs *ConsensusService) Stop(ctx context.Context) error {
 	if cs.logger != nil {
 		cs.logger.Info("stopping consensus service")
 	}
 
-	// OnStop the consensus manager
+	// Stop the consensus manager
 	if err := cs.manager.OnStop(ctx); err != nil {
 		return common.ErrServiceStopFailed("consensus-service", err)
 	}

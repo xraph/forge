@@ -1,0 +1,1521 @@
+---
+title: Security API
+description: Complete API reference for two-factor authentication, security settings, and advanced protection features
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Security API
+
+Complete reference for AuthSome Go security endpoints, covering two-factor authentication, backup codes, security settings, audit logs, and advanced protection features.
+
+## Overview
+
+The Security API provides comprehensive security management functionality including TOTP/SMS 2FA, backup codes, security audit logs, device management, and advanced threat protection.
+
+### Base URL
+
+```
+GET    /auth/security/2fa
+POST   /auth/security/2fa/setup
+POST   /auth/security/2fa/verify
+DELETE /auth/security/2fa
+GET    /auth/security/backup-codes
+POST   /auth/security/backup-codes/generate
+POST   /auth/security/backup-codes/verify
+GET    /auth/security/audit-log
+GET    /auth/security/settings
+PUT    /auth/security/settings
+POST   /auth/security/verify-password
+POST   /auth/security/check-breach
+```
+
+## Get 2FA Status
+
+Get the current two-factor authentication status and available methods.
+
+### Endpoint
+
+```http
+GET /auth/security/2fa
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "enabled": true,
+        "methods": [
+          {
+            "type": "totp",
+            "enabled": true,
+            "verified": true,
+            "setupAt": "2024-01-01T10:00:00Z",
+            "lastUsed": "2024-01-01T14:00:00Z",
+            "metadata": {
+              "appName": "Google Authenticator",
+              "deviceCount": 2
+            }
+          },
+          {
+            "type": "sms",
+            "enabled": true,
+            "verified": true,
+            "setupAt": "2024-01-01T10:05:00Z",
+            "lastUsed": "2024-01-01T12:00:00Z",
+            "metadata": {
+              "phoneNumber": "+1***-***-1234",
+              "carrier": "Verizon"
+            }
+          },
+          {
+            "type": "email",
+            "enabled": false,
+            "verified": false,
+            "setupAt": null,
+            "lastUsed": null,
+            "metadata": {}
+          }
+        ],
+        "backupCodes": {
+          "enabled": true,
+          "remaining": 8,
+          "generatedAt": "2024-01-01T10:00:00Z",
+          "lastUsed": "2024-01-01T11:00:00Z"
+        },
+        "settings": {
+          "required": false,
+          "gracePeriod": 86400,
+          "allowBackupCodes": true,
+          "allowMultipleMethods": true,
+          "rememberDevice": true,
+          "deviceTrustDuration": 2592000
+        },
+        "statistics": {
+          "totalVerifications": 45,
+          "successfulVerifications": 44,
+          "failedVerifications": 1,
+          "lastFailedAt": "2024-01-01T09:00:00Z"
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Setup 2FA
+
+Setup a new two-factor authentication method.
+
+### Endpoint
+
+```http
+POST /auth/security/2fa/setup
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['TOTP Setup', 'SMS Setup', 'Email Setup']}>
+  <Tab value="TOTP Setup">
+    ```json
+    {
+      "method": "totp",
+      "password": "current_password"
+    }
+    ```
+  </Tab>
+  <Tab value="SMS Setup">
+    ```json
+    {
+      "method": "sms",
+      "phoneNumber": "+1234567890",
+      "password": "current_password"
+    }
+    ```
+  </Tab>
+  <Tab value="Email Setup">
+    ```json
+    {
+      "method": "email",
+      "email": "security@example.com",
+      "password": "current_password"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['TOTP Response', 'SMS Response', 'Email Response', 'Error (422)']}>
+  <Tab value="TOTP Response">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "method": "totp",
+        "secret": "JBSWY3DPEHPK3PXP",
+        "qrCode": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+        "qrCodeUrl": "otpauth://totp/AuthSome:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=AuthSome",
+        "backupCodes": [
+          "12345678",
+          "87654321",
+          "11223344",
+          "44332211",
+          "55667788",
+          "88776655",
+          "99001122",
+          "22110099",
+          "33445566",
+          "66554433"
+        ],
+        "setupToken": "setup_token_abc123",
+        "expiresAt": "2024-01-01T15:15:00Z",
+        "instructions": {
+          "steps": [
+            "Install an authenticator app (Google Authenticator, Authy, etc.)",
+            "Scan the QR code or enter the secret manually",
+            "Enter the 6-digit code from your app to verify setup"
+          ],
+          "apps": [
+            {
+              "name": "Google Authenticator",
+              "ios": "https://apps.apple.com/app/google-authenticator/id388497605",
+              "android": "https://play.google.com/store/apps/details?id=com.google.android.apps.authenticator2"
+            },
+            {
+              "name": "Authy",
+              "ios": "https://apps.apple.com/app/authy/id494168017",
+              "android": "https://play.google.com/store/apps/details?id=com.authy.authy"
+            }
+          ]
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="SMS Response">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "method": "sms",
+        "phoneNumber": "+1***-***-7890",
+        "setupToken": "setup_token_def456",
+        "expiresAt": "2024-01-01T15:15:00Z",
+        "codeSent": true,
+        "codeLength": 6,
+        "resendAfter": 60,
+        "instructions": {
+          "message": "A 6-digit verification code has been sent to your phone number. Enter the code to complete setup."
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Email Response">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "method": "email",
+        "email": "sec***@example.com",
+        "setupToken": "setup_token_ghi789",
+        "expiresAt": "2024-01-01T15:15:00Z",
+        "codeSent": true,
+        "codeLength": 8,
+        "resendAfter": 60,
+        "instructions": {
+          "message": "An 8-digit verification code has been sent to your email address. Enter the code to complete setup."
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "VALIDATION_ERROR",
+        "message": "Validation failed",
+        "details": {
+          "fields": {
+            "phoneNumber": {
+              "code": "INVALID_PHONE_NUMBER",
+              "message": "Please enter a valid phone number"
+            },
+            "password": {
+              "code": "INCORRECT_PASSWORD",
+              "message": "Current password is incorrect"
+            }
+          }
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Verify 2FA Setup
+
+Verify and complete the two-factor authentication setup.
+
+### Endpoint
+
+```http
+POST /auth/security/2fa/verify
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "setupToken": "setup_token_abc123",
+      "code": "123456",
+      "deviceName": "iPhone 15 Pro"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface Verify2FASetupRequest {
+      setupToken: string;
+      code: string;
+      deviceName?: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type Verify2FASetupRequest struct {
+        SetupToken string `json:"setupToken" validate:"required"`
+        Code       string `json:"code" validate:"required"`
+        DeviceName string `json:"deviceName,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (422)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "method": "totp",
+        "enabled": true,
+        "verified": true,
+        "setupAt": "2024-01-01T15:05:00Z",
+        "backupCodes": [
+          "12345678",
+          "87654321",
+          "11223344",
+          "44332211",
+          "55667788",
+          "88776655",
+          "99001122",
+          "22110099",
+          "33445566",
+          "66554433"
+        ],
+        "message": "Two-factor authentication has been successfully enabled",
+        "recommendations": [
+          "Save your backup codes in a secure location",
+          "Test your 2FA method before relying on it",
+          "Consider enabling multiple 2FA methods for redundancy"
+        ]
+      },
+      "timestamp": "2024-01-01T15:05:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_2FA_CODE",
+        "message": "Invalid or expired verification code",
+        "details": {
+          "attemptsRemaining": 2,
+          "lockoutAfter": 5,
+          "canResend": true,
+          "resendAfter": 30
+        }
+      },
+      "timestamp": "2024-01-01T15:05:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SETUP_TOKEN_EXPIRED",
+        "message": "Setup token has expired. Please start the setup process again."
+      },
+      "timestamp": "2024-01-01T15:05:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Disable 2FA
+
+Disable a specific two-factor authentication method.
+
+### Endpoint
+
+```http
+DELETE /auth/security/2fa
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "method": "totp",
+      "password": "current_password",
+      "code": "123456"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface Disable2FARequest {
+      method: string;
+      password: string;
+      code?: string;
+      backupCode?: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type Disable2FARequest struct {
+        Method     string `json:"method" validate:"required"`
+        Password   string `json:"password" validate:"required"`
+        Code       string `json:"code,omitempty"`
+        BackupCode string `json:"backupCode,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "method": "totp",
+        "disabled": true,
+        "disabledAt": "2024-01-01T15:10:00Z",
+        "remainingMethods": [
+          {
+            "type": "sms",
+            "enabled": true
+          }
+        ],
+        "message": "TOTP two-factor authentication has been disabled",
+        "warnings": [
+          "Your account security has been reduced",
+          "Consider keeping at least one 2FA method enabled"
+        ]
+      },
+      "timestamp": "2024-01-01T15:10:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_2FA_CODE",
+        "message": "Invalid verification code"
+      },
+      "timestamp": "2024-01-01T15:10:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "2FA_REQUIRED_BY_ORGANIZATION",
+        "message": "Two-factor authentication is required by your organization and cannot be disabled"
+      },
+      "timestamp": "2024-01-01T15:10:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Backup Codes
+
+Get the current backup codes status and remaining codes.
+
+### Endpoint
+
+```http
+GET /auth/security/backup-codes
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "enabled": true,
+        "total": 10,
+        "remaining": 8,
+        "used": 2,
+        "generatedAt": "2024-01-01T10:00:00Z",
+        "lastUsed": "2024-01-01T11:00:00Z",
+        "usageHistory": [
+          {
+            "code": "12345678",
+            "usedAt": "2024-01-01T11:00:00Z",
+            "ipAddress": "192.168.1.100",
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+          },
+          {
+            "code": "87654321",
+            "usedAt": "2024-01-01T09:30:00Z",
+            "ipAddress": "192.168.1.100",
+            "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X)"
+          }
+        ],
+        "recommendations": [
+          "Store backup codes in a secure location",
+          "Generate new codes when you have fewer than 3 remaining",
+          "Never share backup codes with anyone"
+        ]
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "BACKUP_CODES_NOT_FOUND",
+        "message": "No backup codes found. Enable 2FA first to generate backup codes."
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Generate Backup Codes
+
+Generate new backup codes (invalidates existing ones).
+
+### Endpoint
+
+```http
+POST /auth/security/backup-codes/generate
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "password": "current_password",
+      "code": "123456"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface GenerateBackupCodesRequest {
+      password: string;
+      code?: string;
+      backupCode?: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type GenerateBackupCodesRequest struct {
+        Password   string `json:"password" validate:"required"`
+        Code       string `json:"code,omitempty"`
+        BackupCode string `json:"backupCode,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (403)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "backupCodes": [
+          "98765432",
+          "23456789",
+          "34567890",
+          "45678901",
+          "56789012",
+          "67890123",
+          "78901234",
+          "89012345",
+          "90123456",
+          "01234567"
+        ],
+        "total": 10,
+        "generatedAt": "2024-01-01T15:15:00Z",
+        "previousCodes": {
+          "invalidated": true,
+          "invalidatedAt": "2024-01-01T15:15:00Z",
+          "count": 8
+        },
+        "message": "New backup codes generated successfully",
+        "warnings": [
+          "Previous backup codes have been invalidated",
+          "Save these codes in a secure location immediately",
+          "Each code can only be used once"
+        ]
+      },
+      "timestamp": "2024-01-01T15:15:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_2FA_CODE",
+        "message": "Invalid verification code"
+      },
+      "timestamp": "2024-01-01T15:15:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "2FA_NOT_ENABLED",
+        "message": "Two-factor authentication must be enabled to generate backup codes"
+      },
+      "timestamp": "2024-01-01T15:15:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Verify Backup Code
+
+Verify a backup code for authentication.
+
+### Endpoint
+
+```http
+POST /auth/security/backup-codes/verify
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "backupCode": "98765432",
+      "sessionId": "session_123"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface VerifyBackupCodeRequest {
+      backupCode: string;
+      sessionId?: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type VerifyBackupCodeRequest struct {
+        BackupCode string `json:"backupCode" validate:"required"`
+        SessionID  string `json:"sessionId,omitempty"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (404)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "verified": true,
+        "codeUsed": "98765432",
+        "usedAt": "2024-01-01T15:20:00Z",
+        "remaining": 9,
+        "message": "Backup code verified successfully",
+        "warnings": [
+          "This backup code has been consumed and cannot be used again",
+          "You have 9 backup codes remaining"
+        ]
+      },
+      "timestamp": "2024-01-01T15:20:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_BACKUP_CODE",
+        "message": "Invalid or already used backup code"
+      },
+      "timestamp": "2024-01-01T15:20:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (404)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "NO_BACKUP_CODES",
+        "message": "No backup codes available"
+      },
+      "timestamp": "2024-01-01T15:20:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Audit Log
+
+Get security audit log for the current user.
+
+### Endpoint
+
+```http
+GET /auth/security/audit-log
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Query Parameters
+
+| Parameter | Type | Description | Default |
+|-----------|------|-------------|---------|
+| `page` | integer | Page number (1-based) | 1 |
+| `limit` | integer | Items per page (1-100) | 20 |
+| `eventType` | string | Filter by event type | - |
+| `severity` | string | Filter by severity (low, medium, high, critical) | - |
+| `startDate` | string | Start date (ISO 8601) | - |
+| `endDate` | string | End date (ISO 8601) | - |
+| `ipAddress` | string | Filter by IP address | - |
+| `deviceId` | string | Filter by device ID | - |
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": [
+        {
+          "id": "audit_123",
+          "eventType": "login_success",
+          "severity": "low",
+          "timestamp": "2024-01-01T15:00:00Z",
+          "userId": "user_123",
+          "sessionId": "session_123",
+          "deviceId": "device_456",
+          "ipAddress": "192.168.1.100",
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          "location": {
+            "country": "United States",
+            "region": "California",
+            "city": "San Francisco"
+          },
+          "details": {
+            "method": "email_password",
+            "twoFactorUsed": true,
+            "twoFactorMethod": "totp",
+            "rememberMe": true,
+            "newDevice": false
+          },
+          "riskScore": 0.1,
+          "riskFactors": []
+        },
+        {
+          "id": "audit_124",
+          "eventType": "2fa_setup",
+          "severity": "medium",
+          "timestamp": "2024-01-01T10:00:00Z",
+          "userId": "user_123",
+          "sessionId": "session_123",
+          "deviceId": "device_456",
+          "ipAddress": "192.168.1.100",
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+          "location": {
+            "country": "United States",
+            "region": "California",
+            "city": "San Francisco"
+          },
+          "details": {
+            "method": "totp",
+            "previousMethods": [],
+            "backupCodesGenerated": true
+          },
+          "riskScore": 0.0,
+          "riskFactors": []
+        },
+        {
+          "id": "audit_125",
+          "eventType": "login_failed",
+          "severity": "high",
+          "timestamp": "2024-01-01T09:00:00Z",
+          "userId": "user_123",
+          "sessionId": null,
+          "deviceId": "device_789",
+          "ipAddress": "203.0.113.1",
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "location": {
+            "country": "Unknown",
+            "region": "Unknown",
+            "city": "Unknown"
+          },
+          "details": {
+            "reason": "invalid_password",
+            "attempts": 3,
+            "lockoutTriggered": false,
+            "suspiciousActivity": true
+          },
+          "riskScore": 0.8,
+          "riskFactors": [
+            "new_device",
+            "suspicious_ip",
+            "multiple_failed_attempts"
+          ]
+        }
+      ],
+      "pagination": {
+        "page": 1,
+        "limit": 20,
+        "total": 156,
+        "totalPages": 8,
+        "hasNext": true,
+        "hasPrev": false
+      },
+      "summary": {
+        "totalEvents": 156,
+        "eventTypes": {
+          "login_success": 120,
+          "login_failed": 15,
+          "2fa_setup": 3,
+          "2fa_verification": 18
+        },
+        "severityDistribution": {
+          "low": 120,
+          "medium": 21,
+          "high": 15,
+          "critical": 0
+        },
+        "riskTrends": {
+          "averageRiskScore": 0.15,
+          "highRiskEvents": 15,
+          "suspiciousIPs": 3
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Get Security Settings
+
+Get current security settings and policies.
+
+### Endpoint
+
+```http
+GET /auth/security/settings
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (401)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "passwordPolicy": {
+          "minLength": 8,
+          "maxLength": 128,
+          "requireUppercase": true,
+          "requireLowercase": true,
+          "requireNumbers": true,
+          "requireSymbols": true,
+          "preventCommonPasswords": true,
+          "preventPersonalInfo": true,
+          "historyCount": 5,
+          "maxAge": 7776000
+        },
+        "sessionSecurity": {
+          "maxConcurrentSessions": 5,
+          "sessionTimeout": 86400,
+          "idleTimeout": 3600,
+          "rememberMeEnabled": true,
+          "rememberMeDuration": 2592000,
+          "deviceTrustEnabled": true,
+          "deviceTrustDuration": 2592000
+        },
+        "twoFactorAuth": {
+          "required": false,
+          "gracePeriod": 86400,
+          "allowedMethods": ["totp", "sms", "email"],
+          "backupCodesEnabled": true,
+          "rememberDeviceEnabled": true,
+          "rememberDeviceDuration": 2592000
+        },
+        "loginSecurity": {
+          "maxFailedAttempts": 5,
+          "lockoutDuration": 900,
+          "progressiveLockout": true,
+          "captchaAfterFailures": 3,
+          "notifyOnSuspiciousActivity": true,
+          "allowedCountries": [],
+          "blockedCountries": [],
+          "vpnBlocked": false
+        },
+        "notifications": {
+          "loginFromNewDevice": true,
+          "loginFromNewLocation": true,
+          "passwordChanged": true,
+          "twoFactorChanged": true,
+          "suspiciousActivity": true,
+          "accountLocked": true,
+          "methods": ["email", "sms"]
+        },
+        "privacy": {
+          "auditLogRetention": 365,
+          "sessionLogRetention": 90,
+          "ipLoggingEnabled": true,
+          "deviceFingerprintingEnabled": true,
+          "locationTrackingEnabled": true
+        },
+        "organizationPolicies": {
+          "enforced": true,
+          "canOverride": false,
+          "policies": [
+            "password_complexity",
+            "two_factor_required",
+            "session_timeout"
+          ]
+        }
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (401)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "UNAUTHORIZED",
+        "message": "Authentication required"
+      },
+      "timestamp": "2024-01-01T15:00:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Update Security Settings
+
+Update user security settings (where allowed by organization policy).
+
+### Endpoint
+
+```http
+PUT /auth/security/settings
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "sessionSecurity": {
+        "rememberMeEnabled": false,
+        "maxConcurrentSessions": 3
+      },
+      "notifications": {
+        "loginFromNewDevice": true,
+        "loginFromNewLocation": true,
+        "suspiciousActivity": true,
+        "methods": ["email"]
+      },
+      "privacy": {
+        "locationTrackingEnabled": false
+      },
+      "password": "current_password"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface UpdateSecuritySettingsRequest {
+      sessionSecurity?: Partial<SessionSecuritySettings>;
+      notifications?: Partial<NotificationSettings>;
+      privacy?: Partial<PrivacySettings>;
+      password: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type UpdateSecuritySettingsRequest struct {
+        SessionSecurity *SessionSecuritySettings `json:"sessionSecurity,omitempty"`
+        Notifications   *NotificationSettings    `json:"notifications,omitempty"`
+        Privacy         *PrivacySettings         `json:"privacy,omitempty"`
+        Password        string                   `json:"password" validate:"required"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (403)', 'Error (422)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "updated": true,
+        "updatedAt": "2024-01-01T15:30:00Z",
+        "changes": [
+          {
+            "setting": "sessionSecurity.rememberMeEnabled",
+            "oldValue": true,
+            "newValue": false
+          },
+          {
+            "setting": "sessionSecurity.maxConcurrentSessions",
+            "oldValue": 5,
+            "newValue": 3
+          },
+          {
+            "setting": "notifications.methods",
+            "oldValue": ["email", "sms"],
+            "newValue": ["email"]
+          },
+          {
+            "setting": "privacy.locationTrackingEnabled",
+            "oldValue": true,
+            "newValue": false
+          }
+        ],
+        "warnings": [
+          "Disabling location tracking may reduce security monitoring effectiveness",
+          "Reducing concurrent sessions will log out excess sessions"
+        ]
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (403)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "SETTING_LOCKED_BY_ORGANIZATION",
+        "message": "This setting is locked by your organization policy",
+        "details": {
+          "lockedSettings": [
+            "sessionSecurity.maxConcurrentSessions",
+            "twoFactorAuth.required"
+          ]
+        }
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (422)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INVALID_SETTING_VALUE",
+        "message": "Invalid setting value",
+        "details": {
+          "setting": "sessionSecurity.maxConcurrentSessions",
+          "value": 3,
+          "constraint": "Must be between 1 and 10"
+        }
+      },
+      "timestamp": "2024-01-01T15:30:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Verify Password
+
+Verify the current password for sensitive operations.
+
+### Endpoint
+
+```http
+POST /auth/security/verify-password
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "password": "current_password"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface VerifyPasswordRequest {
+      password: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type VerifyPasswordRequest struct {
+        Password string `json:"password" validate:"required"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (400)', 'Error (429)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "verified": true,
+        "verifiedAt": "2024-01-01T15:35:00Z",
+        "validFor": 300,
+        "token": "password_verification_token_abc123"
+      },
+      "timestamp": "2024-01-01T15:35:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (400)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "INCORRECT_PASSWORD",
+        "message": "Incorrect password",
+        "details": {
+          "attemptsRemaining": 2,
+          "lockoutAfter": 5
+        }
+      },
+      "timestamp": "2024-01-01T15:35:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (429)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "TOO_MANY_PASSWORD_ATTEMPTS",
+        "message": "Too many password verification attempts",
+        "details": {
+          "lockoutDuration": 900,
+          "retryAfter": "2024-01-01T15:50:00Z"
+        }
+      },
+      "timestamp": "2024-01-01T15:35:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Check Password Breach
+
+Check if a password has been compromised in known data breaches.
+
+### Endpoint
+
+```http
+POST /auth/security/check-breach
+```
+
+### Headers
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Request Body
+
+<Tabs items={['JSON', 'TypeScript', 'Go']}>
+  <Tab value="JSON">
+    ```json
+    {
+      "password": "password_to_check"
+    }
+    ```
+  </Tab>
+  <Tab value="TypeScript">
+    ```typescript
+    interface CheckPasswordBreachRequest {
+      password: string;
+    }
+    ```
+  </Tab>
+  <Tab value="Go">
+    ```go
+    type CheckPasswordBreachRequest struct {
+        Password string `json:"password" validate:"required"`
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Response
+
+<Tabs items={['Success (200)', 'Error (429)']}>
+  <Tab value="Success (200)">
+    ```json
+    {
+      "success": true,
+      "data": {
+        "breached": true,
+        "occurrences": 23174,
+        "severity": "high",
+        "recommendation": "This password has been found in data breaches and should not be used",
+        "alternatives": [
+          "Use a unique password that hasn't been compromised",
+          "Consider using a password manager to generate strong passwords",
+          "Enable two-factor authentication for additional security"
+        ],
+        "checkedAt": "2024-01-01T15:40:00Z"
+      },
+      "timestamp": "2024-01-01T15:40:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+  <Tab value="Error (429)">
+    ```json
+    {
+      "success": false,
+      "error": {
+        "code": "RATE_LIMIT_EXCEEDED",
+        "message": "Too many breach check requests",
+        "details": {
+          "limit": 10,
+          "window": 3600,
+          "retryAfter": 300
+        }
+      },
+      "timestamp": "2024-01-01T15:40:00Z",
+      "requestId": "req_123456789"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Security Event Types
+
+### Authentication Events
+
+| Event Type | Description | Severity |
+|------------|-------------|----------|
+| `login_success` | Successful login | Low |
+| `login_failed` | Failed login attempt | Medium/High |
+| `logout` | User logout | Low |
+| `session_expired` | Session expiration | Low |
+| `session_revoked` | Manual session revocation | Medium |
+
+### Two-Factor Authentication Events
+
+| Event Type | Description | Severity |
+|------------|-------------|----------|
+| `2fa_setup` | 2FA method setup | Medium |
+| `2fa_verification` | 2FA verification | Low |
+| `2fa_disabled` | 2FA method disabled | High |
+| `backup_code_used` | Backup code usage | Medium |
+| `backup_codes_generated` | New backup codes generated | Medium |
+
+### Security Events
+
+| Event Type | Description | Severity |
+|------------|-------------|----------|
+| `password_changed` | Password change | Medium |
+| `email_changed` | Email address change | High |
+| `device_verified` | Device verification | Medium |
+| `suspicious_activity` | Suspicious activity detected | High |
+| `account_locked` | Account lockout | Critical |
+
+## Rate Limiting
+
+Security endpoints have specific rate limits:
+
+| Endpoint | Rate Limit | Window |
+|----------|------------|--------|
+| `GET /auth/security/2fa` | 100 requests per user | 1 hour |
+| `POST /auth/security/2fa/setup` | 5 requests per user | 1 hour |
+| `POST /auth/security/2fa/verify` | 10 requests per user | 15 minutes |
+| `DELETE /auth/security/2fa` | 3 requests per user | 1 hour |
+| `POST /auth/security/backup-codes/generate` | 3 requests per user | 1 hour |
+| `POST /auth/security/backup-codes/verify` | 20 requests per user | 15 minutes |
+| `GET /auth/security/audit-log` | 50 requests per user | 1 hour |
+| `PUT /auth/security/settings` | 10 requests per user | 1 hour |
+| `POST /auth/security/verify-password` | 20 requests per user | 15 minutes |
+| `POST /auth/security/check-breach` | 10 requests per user | 1 hour |
+
+<Callout type="warning">
+  Excessive security-related requests may trigger additional monitoring and temporary restrictions.
+</Callout>
+
+## Security Best Practices
+
+### Two-Factor Authentication
+
+- Always enable at least one 2FA method
+- Use TOTP apps over SMS when possible
+- Keep backup codes secure and accessible
+- Regularly review and update 2FA settings
+
+### Password Security
+
+- Use unique, complex passwords
+- Check passwords against breach databases
+- Enable password change notifications
+- Follow organization password policies
+
+### Session Management
+
+- Limit concurrent sessions
+- Enable device verification
+- Monitor session activity regularly
+- Use appropriate session timeouts
+
+### Audit Monitoring
+
+- Regularly review audit logs
+- Set up notifications for suspicious activity
+- Monitor failed login attempts
+- Track device and location changes
+
+## Error Handling
+
+### Common Error Codes
+
+| Code | Description | HTTP Status |
+|------|-------------|-------------|
+| `2FA_NOT_ENABLED` | 2FA not enabled | 403 |
+| `2FA_ALREADY_ENABLED` | 2FA method already enabled | 409 |
+| `INVALID_2FA_CODE` | Invalid 2FA code | 400 |
+| `BACKUP_CODES_NOT_FOUND` | No backup codes available | 404 |
+| `INVALID_BACKUP_CODE` | Invalid backup code | 400 |
+| `SETUP_TOKEN_EXPIRED` | Setup token expired | 422 |
+| `INCORRECT_PASSWORD` | Password verification failed | 400 |
+| `TOO_MANY_PASSWORD_ATTEMPTS` | Password attempt limit exceeded | 429 |
+| `SETTING_LOCKED_BY_ORGANIZATION` | Setting locked by policy | 403 |
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Webhooks API"
+    description="Event notifications and webhook management"
+    href="/docs/go/api-reference/webhooks"
+  />
+  <Card
+    title="Sessions API"
+    description="Advanced session management and device tracking"
+    href="/docs/go/api-reference/sessions"
+  />
+  <Card
+    title="Users API"
+    description="User profile and account management"
+    href="/docs/go/api-reference/users"
+  />
+  <Card
+    title="Authentication API"
+    description="Sign up, sign in, and session management"
+    href="/docs/go/api-reference/authentication"
+  />
+</Cards>

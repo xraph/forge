@@ -1,0 +1,503 @@
+---
+title: Health Checks
+description: Learn how to implement comprehensive health checking in Forge Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Health Checks
+
+Forge Go provides a comprehensive health checking system that helps you monitor your application's health, dependencies, and performance metrics.
+
+## Basic Usage
+
+### Creating a Health Service
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/pkg/health"
+)
+
+func main() {
+    app := forge.New(forge.Config{
+        Name: "My App",
+    })
+
+    // Create health service
+    healthService := health.NewHealthService(health.HealthServiceConfig{
+        EnableMetrics: true,
+        EnableLogging: true,
+    })
+
+    // Add health middleware
+    app.Use(health.Middleware(healthService))
+
+    // Add health endpoints
+    app.GET("/health", healthService.Handler())
+    app.GET("/health/ready", healthService.ReadyHandler())
+    app.GET("/health/live", healthService.LiveHandler())
+
+    log.Fatal(app.Listen(":8080"))
+}
+```
+
+### Basic Health Check
+
+```go
+// Simple health check
+func basicHealthCheck() health.HealthCheck {
+    return health.NewHealthCheck("basic", func(ctx context.Context) health.Result {
+        return health.Result{
+            Status:  health.StatusHealthy,
+            Message: "Application is running",
+        }
+    })
+}
+
+// Register health check
+healthService.AddCheck(basicHealthCheck())
+```
+
+## Built-in Health Checks
+
+### Database Health Check
+
+```go
+import (
+    "github.com/xraph/forge/pkg/health/checks"
+)
+
+// Database health check
+func setupDatabaseHealthCheck(db *sql.DB) {
+    dbCheck := checks.NewDatabaseCheck("database", db, checks.DatabaseConfig{
+        Query:     "SELECT 1",
+        Timeout:   5 * time.Second,
+        Threshold: 100 * time.Millisecond,
+    })
+    
+    healthService.AddCheck(dbCheck)
+}
+```
+
+### Memory Health Check
+
+```go
+// Memory usage check
+func setupMemoryHealthCheck() {
+    memoryCheck := checks.NewMemoryCheck("memory", checks.MemoryConfig{
+        WarningThreshold:  80, // 80% memory usage
+        CriticalThreshold: 95, // 95% memory usage
+    })
+    
+    healthService.AddCheck(memoryCheck)
+}
+```
+
+### CPU Health Check
+
+```go
+// CPU usage check
+func setupCPUHealthCheck() {
+    cpuCheck := checks.NewCPUCheck("cpu", checks.CPUConfig{
+        WarningThreshold:  70, // 70% CPU usage
+        CriticalThreshold: 90, // 90% CPU usage
+        SampleDuration:   10 * time.Second,
+    })
+    
+    healthService.AddCheck(cpuCheck)
+}
+```
+
+### Disk Health Check
+
+```go
+// Disk space check
+func setupDiskHealthCheck() {
+    diskCheck := checks.NewDiskCheck("disk", checks.DiskConfig{
+        Path:              "/",
+        WarningThreshold:  80, // 80% disk usage
+        CriticalThreshold: 95, // 95% disk usage
+    })
+    
+    healthService.AddCheck(diskCheck)
+}
+```
+
+## Custom Health Checks
+
+### Simple Custom Check
+
+```go
+// Custom health check
+func customHealthCheck() health.HealthCheck {
+    return health.NewHealthCheck("custom", func(ctx context.Context) health.Result {
+        // Perform custom health logic
+        if someCondition {
+            return health.Result{
+                Status:  health.StatusHealthy,
+                Message: "Custom check passed",
+            }
+        }
+        
+        return health.Result{
+            Status:  health.StatusUnhealthy,
+            Message: "Custom check failed",
+        }
+    })
+}
+```
+
+### Advanced Custom Check
+
+```go
+// Advanced custom health check with metrics
+func advancedHealthCheck() health.HealthCheck {
+    return health.NewHealthCheck("advanced", func(ctx context.Context) health.Result {
+        start := time.Now()
+        
+        // Perform health check logic
+        err := performHealthCheck(ctx)
+        
+        duration := time.Since(start)
+        
+        result := health.Result{
+            Duration: duration,
+            Timestamp: time.Now(),
+        }
+        
+        if err != nil {
+            result.Status = health.StatusUnhealthy
+            result.Message = err.Error()
+            result.Details = map[string]interface{}{
+                "error": err.Error(),
+                "duration": duration.String(),
+            }
+        } else {
+            result.Status = health.StatusHealthy
+            result.Message = "Advanced check passed"
+            result.Details = map[string]interface{}{
+                "duration": duration.String(),
+                "metrics": map[string]interface{}{
+                    "response_time": duration.Milliseconds(),
+                },
+            }
+        }
+        
+        return result
+    })
+}
+```
+
+## Health Check Configuration
+
+### Check Configuration
+
+```go
+// Configure health check
+healthService.ConfigureCheck("database", health.CheckConfig{
+    Interval:     30 * time.Second,
+    Timeout:      10 * time.Second,
+    Retries:      3,
+    CriticalOnly: false,
+})
+```
+
+### Service Configuration
+
+```go
+// Configure health service
+healthService.Configure(health.HealthServiceConfig{
+    EnableMetrics:    true,
+    EnableLogging:    true,
+    LogLevel:         "info",
+    MetricsInterval:  60 * time.Second,
+    AlertingEnabled:  true,
+    AlertThreshold:   5, // Alert after 5 consecutive failures
+})
+```
+
+## Health Endpoints
+
+### Standard Endpoints
+
+```go
+// Basic health endpoint
+app.GET("/health", healthService.Handler())
+
+// Readiness probe
+app.GET("/health/ready", healthService.ReadyHandler())
+
+// Liveness probe
+app.GET("/health/live", healthService.LiveHandler())
+
+// Detailed health information
+app.GET("/health/detailed", healthService.DetailedHandler())
+```
+
+### Custom Endpoints
+
+```go
+// Custom health endpoint
+app.GET("/health/custom", func(c *forge.Context) error {
+    // Get specific health check
+    result, err := healthService.GetCheckResult("database")
+    if err != nil {
+        return c.JSON(500, map[string]string{
+            "error": "Health check not found",
+        })
+    }
+    
+    return c.JSON(200, result)
+})
+```
+
+## Health Status Levels
+
+### Status Types
+
+```go
+// Health status levels
+const (
+    StatusHealthy   = "healthy"   // All checks passing
+    StatusDegraded  = "degraded"  // Some checks failing but service functional
+    StatusUnhealthy = "unhealthy" // Critical checks failing
+    StatusUnknown   = "unknown"   // Unable to determine status
+)
+```
+
+### Status Aggregation
+
+```go
+// Check overall health status
+if healthService.IsHealthy() {
+    // All checks are passing
+}
+
+if healthService.IsDegraded() {
+    // Some checks are failing but service is functional
+}
+
+// Get detailed status
+status := healthService.GetStatus()
+switch status {
+case health.StatusHealthy:
+    // Handle healthy state
+case health.StatusDegraded:
+    // Handle degraded state
+case health.StatusUnhealthy:
+    // Handle unhealthy state
+}
+```
+
+## Health Metrics
+
+### Built-in Metrics
+
+```go
+// Health metrics are automatically collected
+// - health_checks_total: Total number of health checks
+// - health_checks_duration_seconds: Duration of health checks
+// - health_status: Current health status (0=unhealthy, 1=degraded, 2=healthy)
+```
+
+### Custom Metrics
+
+```go
+// Add custom metrics to health check
+func customHealthCheckWithMetrics() health.HealthCheck {
+    return health.NewHealthCheck("custom", func(ctx context.Context) health.Result {
+        // Increment custom metric
+        metrics.Counter("custom_health_checks_total").Inc()
+        
+        start := time.Now()
+        // Perform check
+        err := performCheck()
+        duration := time.Since(start)
+        
+        // Record duration metric
+        metrics.Histogram("custom_health_check_duration_seconds").
+            Observe(duration.Seconds())
+        
+        if err != nil {
+            metrics.Counter("custom_health_check_failures_total").Inc()
+            return health.Result{
+                Status:  health.StatusUnhealthy,
+                Message: err.Error(),
+            }
+        }
+        
+        return health.Result{
+            Status:  health.StatusHealthy,
+            Message: "Custom check passed",
+        }
+    })
+}
+```
+
+## Health Alerting
+
+### Email Alerts
+
+```go
+import (
+    "github.com/xraph/forge/pkg/health/alerting"
+)
+
+// Configure email alerting
+emailNotifier := alerting.NewEmailNotifier(alerting.EmailConfig{
+    SMTPHost:     "smtp.gmail.com",
+    SMTPPort:     587,
+    Username:     "alerts@yourcompany.com",
+    Password:     "your-password",
+    From:         "alerts@yourcompany.com",
+    To:           []string{"admin@yourcompany.com"},
+    Subject:      "Health Check Alert",
+})
+
+healthService.AddNotifier(emailNotifier)
+```
+
+### Slack Alerts
+
+```go
+// Configure Slack alerting
+slackNotifier := alerting.NewSlackNotifier(alerting.SlackConfig{
+    WebhookURL: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK",
+    Channel:    "#alerts",
+    Username:   "Health Monitor",
+    IconEmoji:  ":warning:",
+})
+
+healthService.AddNotifier(slackNotifier)
+```
+
+### Webhook Alerts
+
+```go
+// Configure webhook alerting
+webhookNotifier := alerting.NewWebhookNotifier(alerting.WebhookConfig{
+    URL:     "https://your-monitoring-system.com/webhook",
+    Method:  "POST",
+    Headers: map[string]string{
+        "Authorization": "Bearer your-token",
+        "Content-Type":  "application/json",
+    },
+})
+
+healthService.AddNotifier(webhookNotifier)
+```
+
+## Health Check Middleware
+
+### Basic Middleware
+
+```go
+// Add health check middleware
+app.Use(health.Middleware(healthService))
+```
+
+### Custom Middleware
+
+```go
+// Custom health check middleware
+func customHealthMiddleware(healthService *health.HealthService) forge.HandlerFunc {
+    return func(c *forge.Context) error {
+        // Check if request is for health endpoint
+        if c.Request.URL.Path == "/health" {
+            return c.Next()
+        }
+        
+        // Check if service is healthy
+        if !healthService.IsHealthy() {
+            return c.JSON(503, map[string]string{
+                "error": "Service unavailable",
+            })
+        }
+        
+        return c.Next()
+    }
+}
+```
+
+## Health Check Testing
+
+### Test Health Checks
+
+```go
+import (
+    "github.com/xraph/forge/pkg/health/testing"
+)
+
+func TestHealthChecks(t *testing.T) {
+    // Create test health service
+    healthService := health.NewHealthService(health.HealthServiceConfig{
+        EnableTesting: true,
+    })
+    
+    // Add test health check
+    healthService.AddCheck(testing.NewTestHealthCheck("test", func(ctx context.Context) health.Result {
+        return health.Result{
+            Status:  health.StatusHealthy,
+            Message: "Test check passed",
+        }
+    }))
+    
+    // Test health check
+    result := healthService.GetCheckResult("test")
+    assert.Equal(t, health.StatusHealthy, result.Status)
+}
+```
+
+### Mock Health Checks
+
+```go
+// Mock health check for testing
+func mockHealthCheck() health.HealthCheck {
+    return health.NewHealthCheck("mock", func(ctx context.Context) health.Result {
+        // Return mock result
+        return health.Result{
+            Status:  health.StatusHealthy,
+            Message: "Mock check passed",
+        }
+    })
+}
+```
+
+## Best Practices
+
+<Cards>
+  <Card
+    title="Check Dependencies"
+    description="Include all critical dependencies in health checks"
+  />
+  <Card
+    title="Appropriate Timeouts"
+    description="Set reasonable timeouts for health checks"
+  />
+  <Card
+    title="Status Levels"
+    description="Use appropriate status levels (healthy, degraded, unhealthy)"
+  />
+  <Card
+    title="Monitoring"
+    description="Monitor health check metrics and set up alerting"
+  />
+  <Card
+    title="Testing"
+    description="Test health checks thoroughly in different scenarios"
+  />
+  <Card
+    title="Documentation"
+    description="Document what each health check validates"
+  />
+</Cards>
+
+<Callout type="tip">
+**Pro Tip**: Start with basic health checks for critical dependencies and gradually add more comprehensive monitoring as your application grows.
+</Callout>

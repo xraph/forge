@@ -1,0 +1,265 @@
+---
+title: Overview
+description: Extend Forge Go with powerful plugins for various use cases
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+Forge Go features a powerful plugin system that allows you to extend application functionality with various features and integrations. Plugins are organized into three categories based on complexity and use cases.
+
+## Plugin Categories
+
+<Cards>
+  <Card
+    title="🔧 Core Plugins"
+    description="Essential plugins for most applications"
+    href="/docs/go/plugins/core"
+  />
+  <Card
+    title="⚡ Advanced Plugins"
+    description="Advanced features for complex applications"
+    href="/docs/go/plugins/advanced"
+  />
+  <Card
+    title="🏢 Enterprise Plugins"
+    description="Enterprise-grade features for large-scale applications"
+    href="/docs/go/plugins/enterprise"
+  />
+</Cards>
+
+## Core Plugins
+
+Essential plugins that most applications will need:
+
+<Cards>
+  <Card
+    title="Database"
+    description="Database integration with connection pooling and migrations"
+  />
+  <Card
+    title="Observability"
+    description="Logging, metrics, and tracing capabilities"
+  />
+  <Card
+    title="Security"
+    description="Authentication, authorization, and security middleware"
+  />
+  <Card
+    title="Caching"
+    description="Redis and in-memory caching support"
+  />
+</Cards>
+
+## Advanced Plugins
+
+Advanced features for complex applications:
+
+<Cards>
+  <Card
+    title="Message Queue"
+    description="Message queue integration for async processing"
+  />
+  <Card
+    title="File Storage"
+    description="File upload and storage management"
+  />
+  <Card
+    title="Email"
+    description="Email sending and template management"
+  />
+  <Card
+    title="WebSocket"
+    description="Real-time communication support"
+  />
+</Cards>
+
+## Enterprise Plugins
+
+Enterprise-grade features for large-scale applications:
+
+<Cards>
+  <Card
+    title="Multi-tenancy"
+    description="Multi-tenant application support"
+  />
+  <Card
+    title="Audit Logging"
+    description="Comprehensive audit trail and compliance"
+  />
+  <Card
+    title="API Gateway"
+    description="API management and gateway functionality"
+  />
+  <Card
+    title="Monitoring"
+    description="Advanced monitoring and alerting"
+  />
+</Cards>
+
+## Using Plugins
+
+### Basic Usage
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/plugins/database"
+    "github.com/xraph/forge/plugins/observability"
+)
+
+func main() {
+    app := forge.New(forge.Config{
+        Name: "My App",
+    })
+
+    // Add database plugin
+    dbPlugin := database.New(database.Config{
+        URL: "postgres://user:pass@localhost/db?sslmode=disable",
+    })
+    app.Use(dbPlugin)
+
+    // Add observability plugin
+    obsPlugin := observability.New(observability.Config{
+        Metrics: true,
+        Tracing: true,
+    })
+    app.Use(obsPlugin)
+
+    // Your routes
+    app.GET("/", func(c *forge.Context) error {
+        return c.JSON(200, map[string]string{
+            "message": "Hello from Forge!",
+        })
+    })
+
+    log.Fatal(app.Listen(":8080"))
+}
+```
+
+### Plugin Configuration
+
+```go
+// Configure plugins with options
+dbPlugin := database.New(database.Config{
+    URL:             "postgres://user:pass@localhost/db?sslmode=disable",
+    MaxOpenConns:    25,
+    MaxIdleConns:    5,
+    ConnMaxLifetime: time.Hour,
+})
+
+obsPlugin := observability.New(observability.Config{
+    Metrics: true,
+    Tracing: true,
+    Logging: true,
+    LogLevel: "info",
+    LogFormat: "json",
+})
+```
+
+## Creating Custom Plugins
+
+### Basic Plugin Structure
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+)
+
+// MyPlugin represents a custom plugin
+type MyPlugin struct {
+    config Config
+}
+
+// Config holds the plugin configuration
+type Config struct {
+    Option1 string
+    Option2 int
+    Option3 bool
+}
+
+// New creates a new instance of the plugin
+func New(config Config) *MyPlugin {
+    return &MyPlugin{
+        config: config,
+    }
+}
+
+// Install implements the forge.Plugin interface
+func (p *MyPlugin) Install(app *forge.App) error {
+    // Add middleware
+    app.Use(p.middleware())
+    
+    // Add routes
+    app.GET("/plugin/status", p.statusHandler)
+    
+    return nil
+}
+
+// middleware returns the plugin middleware
+func (p *MyPlugin) middleware() forge.HandlerFunc {
+    return func(c *forge.Context) error {
+        // Plugin logic here
+        c.Set("plugin", "MyPlugin")
+        return c.Next()
+    }
+}
+
+// statusHandler handles the plugin status endpoint
+func (p *MyPlugin) statusHandler(c *forge.Context) error {
+    return c.JSON(200, map[string]interface{}{
+        "plugin": "MyPlugin",
+        "config": p.config,
+    })
+}
+```
+
+## Plugin Lifecycle
+
+```go
+// Plugin lifecycle methods
+type Plugin interface {
+    // Install is called when the plugin is installed
+    Install(app *forge.App) error
+    
+    // Uninstall is called when the plugin is removed
+    Uninstall(app *forge.App) error
+    
+    // Name returns the plugin name
+    Name() string
+    
+    // Version returns the plugin version
+    Version() string
+}
+```
+
+## Best Practices
+
+<Cards>
+  <Card
+    title="Single Responsibility"
+    description="Each plugin should have a single, well-defined purpose"
+  />
+  <Card
+    title="Configuration"
+    description="Make plugins configurable through configuration files"
+  />
+  <Card
+    title="Error Handling"
+    description="Handle errors gracefully and provide meaningful error messages"
+  />
+  <Card
+    title="Documentation"
+    description="Document plugin usage and configuration options"
+  />
+</Cards>
+
+<Callout type="tip">
+**Pro Tip**: Start with core plugins and add advanced plugins as your application grows. Use the built-in plugins as examples for your custom plugins.
+</Callout>

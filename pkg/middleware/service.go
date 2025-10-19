@@ -193,7 +193,7 @@ func (bsm *BaseServiceMiddleware) OnStart(ctx context.Context) error {
 }
 
 // OnStop is called when the middleware service stops
-func (bsm *BaseServiceMiddleware) OnStop(ctx context.Context) error {
+func (bsm *BaseServiceMiddleware) Stop(ctx context.Context) error {
 	bsm.started = false
 	bsm.stats.Status = "stopped"
 

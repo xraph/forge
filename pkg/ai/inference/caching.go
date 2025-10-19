@@ -154,14 +154,14 @@ func (c *InferenceCache) Start(ctx context.Context) error {
 		}
 	}
 
-	// OnStart cleanup routine
+	// Start cleanup routine
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
 		c.runCleanupRoutine(ctx)
 	}()
 
-	// OnStart persistence routine if enabled
+	// Start persistence routine if enabled
 	if c.config.EnablePersistence {
 		c.wg.Add(1)
 		go func() {
@@ -170,7 +170,7 @@ func (c *InferenceCache) Start(ctx context.Context) error {
 		}()
 	}
 
-	// OnStart stats collection
+	// Start stats collection
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()

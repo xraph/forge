@@ -58,6 +58,11 @@ type ForgeRouter struct {
 	controllers         map[string]common.Controller
 	opinionatedHandlers map[string]*OpinionatedHandlerInfo
 
+	// Performance optimization: Service caching
+	serviceCache   map[string]interface{} // Cache resolved services by type
+	serviceCacheMu sync.RWMutex
+	cacheEnabled   bool
+
 	// Statistics
 	routeStats map[string]*common.RouteStats
 	mu         sync.RWMutex
@@ -139,6 +144,8 @@ func NewForgeRouter(config ForgeRouterConfig) common.Router {
 		serviceHandlers:     make(map[string]*common.RouteHandlerInfo),
 		controllers:         make(map[string]common.Controller),
 		opinionatedHandlers: make(map[string]*OpinionatedHandlerInfo),
+		serviceCache:        make(map[string]interface{}),
+		cacheEnabled:        true, // Enable service caching by default
 		routeStats:          make(map[string]*common.RouteStats),
 		pluginRoutes:        make(map[string][]string),
 		routeToPlugin:       make(map[string]string),
@@ -154,22 +161,79 @@ func NewForgeRouter(config ForgeRouterConfig) common.Router {
 		config.Config,
 	)
 
-	// Initialize OpenAPI generator if config provided
-	if config.OpenAPI != nil {
-		// router.initOpenAPI(*config.OpenAPI)
-	}
+	// Initialize streaming integration (will be set when streaming is enabled)
+	router.streamingIntegration = nil
 
-	// Initialize AsyncAPI generator if config provided
-	if config.AsyncAPI != nil {
-		router.EnableAsyncAPI(*config.AsyncAPI)
-	}
-
-	// Initialize ForgeContext middleware automatically
-	if err := router.initializeMiddleware(); err != nil {
-		// Handle error appropriately
-	}
+	// Initialize OpenAPI generator (will be set when OpenAPI is enabled)
+	router.openAPIGenerator = nil
 
 	return router
+}
+
+// Service caching methods for performance optimization
+
+// getCachedService retrieves a service from cache or resolves it from container
+func (r *ForgeRouter) getCachedService(serviceType reflect.Type) (interface{}, error) {
+	if !r.cacheEnabled {
+		// Fallback to direct resolution if caching is disabled
+		return r.resolveService(serviceType)
+	}
+
+	// Create cache key from service type
+	cacheKey := r.getServiceCacheKey(serviceType)
+
+	// Try to get from cache first (read lock)
+	r.serviceCacheMu.RLock()
+	if cached, exists := r.serviceCache[cacheKey]; exists {
+		r.serviceCacheMu.RUnlock()
+		return cached, nil
+	}
+	r.serviceCacheMu.RUnlock()
+
+	// Resolve service from container
+	service, err := r.resolveService(serviceType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache the resolved service (write lock)
+	r.serviceCacheMu.Lock()
+	r.serviceCache[cacheKey] = service
+	r.serviceCacheMu.Unlock()
+
+	return service, nil
+}
+
+// resolveService resolves a service from the container without caching
+func (r *ForgeRouter) resolveService(serviceType reflect.Type) (interface{}, error) {
+	if serviceType.Kind() == reflect.Interface {
+		interfacePtr := reflect.Zero(reflect.PtrTo(serviceType)).Interface()
+		return r.container.Resolve(interfacePtr)
+	}
+	return r.container.Resolve(reflect.New(serviceType).Interface())
+}
+
+// getServiceCacheKey creates a unique cache key for a service type
+func (r *ForgeRouter) getServiceCacheKey(serviceType reflect.Type) string {
+	return serviceType.String()
+}
+
+// clearServiceCache clears the service cache
+func (r *ForgeRouter) clearServiceCache() {
+	r.serviceCacheMu.Lock()
+	defer r.serviceCacheMu.Unlock()
+	r.serviceCache = make(map[string]interface{})
+}
+
+// setCacheEnabled enables or disables service caching
+func (r *ForgeRouter) setCacheEnabled(enabled bool) {
+	r.serviceCacheMu.Lock()
+	defer r.serviceCacheMu.Unlock()
+	r.cacheEnabled = enabled
+	if !enabled {
+		// Clear cache when disabling
+		r.serviceCache = make(map[string]interface{})
+	}
 }
 
 // SetCurrentPlugin sets the current plugin context for route registration
@@ -807,19 +871,10 @@ func (r *ForgeRouter) createServiceAwareOpinionatedWrapper(
 
 		// CRITICAL FIX: Apply route-specific middleware in order
 		var finalHandler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, req2 *http.Request) {
-			// Resolve all services from container
+			// Resolve all services from container using cached resolution
 			serviceInstances := make([]reflect.Value, len(serviceTypes))
 			for i, serviceType := range serviceTypes {
-				var serviceInstance interface{}
-				var err error
-
-				if serviceType.Kind() == reflect.Interface {
-					interfacePtr := reflect.Zero(reflect.PtrTo(serviceType)).Interface()
-					serviceInstance, err = r.container.Resolve(interfacePtr)
-				} else {
-					serviceInstance, err = r.container.Resolve(reflect.New(serviceType).Interface())
-				}
-
+				serviceInstance, err := r.getCachedService(serviceType)
 				if err != nil {
 					r.updateOpinionatedErrorStats(handlerKey, err)
 					serviceName := serviceType.Name()
@@ -911,6 +966,76 @@ func (r *ForgeRouter) manuallyExtractPathParameters(requestPath, routePattern st
 	routeParts := strings.Split(strings.Trim(routePattern, "/"), "/")
 	pathParts := strings.Split(strings.Trim(requestPath, "/"), "/")
 
+	// Check for wildcard patterns (e.g., /dashboard/*, /dashboard/assets/*)
+	hasWildcard := false
+	wildcardIndex := -1
+	for i, part := range routeParts {
+		if part == "*" || strings.HasSuffix(part, "/*") {
+			hasWildcard = true
+			wildcardIndex = i
+			break
+		}
+	}
+
+	// Handle wildcard patterns
+	if hasWildcard {
+		// For wildcard patterns, we only need to match up to the wildcard
+		if len(pathParts) < wildcardIndex {
+			return params
+		}
+
+		// Extract parameters up to the wildcard
+		for i := 0; i < wildcardIndex; i++ {
+			routePart := routeParts[i]
+			var paramName string
+			var isParam bool
+
+			switch paramFormat {
+			case ParamFormatColon: // Steel, Gin format
+				if strings.HasPrefix(routePart, ":") {
+					paramName = routePart[1:]
+					isParam = true
+				}
+			case ParamFormatBrace: // Chi, Gorilla format
+				if strings.HasPrefix(routePart, "{") && strings.HasSuffix(routePart, "}") {
+					paramName = routePart[1 : len(routePart)-1]
+					isParam = true
+				}
+			case ParamFormatStar: // Some routers use * for wildcards
+				if strings.HasPrefix(routePart, "*") {
+					paramName = routePart[1:]
+					isParam = true
+				}
+			}
+
+			if isParam && i < len(pathParts) {
+				params[paramName] = pathParts[i]
+			}
+		}
+
+		// For wildcard patterns, capture the remaining path as a single parameter
+		if wildcardIndex < len(routeParts) {
+			wildcardParam := routeParts[wildcardIndex]
+			if wildcardParam == "*" {
+				// Simple wildcard - capture everything after the prefix
+				if wildcardIndex < len(pathParts) {
+					remainingPath := strings.Join(pathParts[wildcardIndex:], "/")
+					params["*"] = remainingPath
+				}
+			} else if strings.HasSuffix(wildcardParam, "/*") {
+				// Named wildcard parameter (e.g., "assets/*")
+				paramName := strings.TrimSuffix(wildcardParam, "/*")
+				if wildcardIndex < len(pathParts) {
+					remainingPath := strings.Join(pathParts[wildcardIndex:], "/")
+					params[paramName] = remainingPath
+				}
+			}
+		}
+
+		return params
+	}
+
+	// Handle exact segment matching for non-wildcard patterns
 	if len(routeParts) != len(pathParts) {
 		return params
 	}
@@ -1062,8 +1187,8 @@ func (r *ForgeRouter) Start(ctx context.Context) error {
 		}
 	}
 
-	// OnStart the robust middleware manager
-	if err := r.middlewareManager.OnStart(ctx); err != nil {
+	// Start the robust middleware manager
+	if err := r.middlewareManager.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start middleware manager: %w", err)
 	}
 
@@ -1100,8 +1225,8 @@ func (r *ForgeRouter) Stop(ctx context.Context) error {
 		return common.ErrLifecycleError("stop", fmt.Errorf("router not started"))
 	}
 
-	// OnStop the robust middleware manager
-	if err := r.middlewareManager.OnStop(ctx); err != nil {
+	// Stop the robust middleware manager
+	if err := r.middlewareManager.Stop(ctx); err != nil {
 		if r.logger != nil {
 			r.logger.Error("failed to stop middleware manager", logger.Error(err))
 		}

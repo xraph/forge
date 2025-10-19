@@ -122,7 +122,7 @@ func (m *DatabaseMetricsMiddleware) Dependencies() []string {
 }
 
 // OnStart is called when the middleware starts
-func (m *DatabaseMetricsMiddleware) OnStart(ctx context.Context) error {
+func (m *DatabaseMetricsMiddleware) Start(ctx context.Context) error {
 	if m.started {
 		return common.ErrServiceAlreadyExists(m.name)
 	}
@@ -147,7 +147,7 @@ func (m *DatabaseMetricsMiddleware) OnStart(ctx context.Context) error {
 }
 
 // OnStop is called when the middleware stops
-func (m *DatabaseMetricsMiddleware) OnStop(ctx context.Context) error {
+func (m *DatabaseMetricsMiddleware) Stop(ctx context.Context) error {
 	if !m.started {
 		return common.ErrServiceNotFound(m.name)
 	}

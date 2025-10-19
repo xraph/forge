@@ -1,0 +1,678 @@
+---
+title: Enterprise Plugins
+description: Enterprise-grade authentication solutions for AuthSome Go
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Enterprise Plugins
+
+Enterprise plugins provide advanced authentication solutions designed for large-scale applications, enterprise environments, and complex security requirements. These plugins offer features like Single Sign-On (SSO), OpenID Connect (OIDC), SAML, multi-session management, and advanced security controls.
+
+## Available Enterprise Plugins
+
+<Cards>
+  <Card
+    title="Multi-Tenancy"
+    description="Enterprise multi-tenant organization management with advanced features"
+    href="/docs/go/plugins/enterprise/multitenancy"
+  />
+  <Card
+    title="Single Sign-On (SSO)"
+    description="Enterprise SSO with SAML 2.0 and OpenID Connect support"
+    href="/docs/go/plugins/enterprise/sso"
+  />
+  <Card
+    title="OpenID Connect (OIDC)"
+    description="Standards-based identity layer on top of OAuth 2.0"
+    href="/docs/go/plugins/enterprise/oidc"
+  />
+  <Card
+    title="SAML Authentication"
+    description="Security Assertion Markup Language authentication"
+    href="/docs/go/plugins/enterprise/saml"
+  />
+  <Card
+    title="Multi-Session Management"
+    description="Advanced session management across multiple devices and applications"
+    href="/docs/go/plugins/enterprise/multi-session"
+  />
+  <Card
+    title="Active Directory (AD)"
+    description="Integration with Microsoft Active Directory and LDAP"
+    href="/docs/go/plugins/enterprise/active-directory"
+  />
+  <Card
+    title="Enterprise Security"
+    description="Advanced security features including device trust and conditional access"
+    href="/docs/go/plugins/enterprise/security"
+  />
+</Cards>
+
+## Enterprise Features
+
+### Security & Compliance
+- **SAML 2.0 & OIDC**: Industry-standard protocols for secure authentication
+- **Device Trust**: Advanced device fingerprinting and trust management
+- **Conditional Access**: Policy-based access control with risk assessment
+- **Audit & Compliance**: Comprehensive logging for regulatory compliance
+- **Zero Trust Architecture**: Never trust, always verify security model
+- **Certificate-Based Authentication**: PKI and certificate-based security
+
+### Integration & Management
+- **Directory Integration**: Active Directory, LDAP, and cloud directories
+- **Identity Provider Federation**: Support for multiple identity providers
+- **Centralized Management**: Single point of control for all authentication
+- **API-First Design**: Programmatic management and configuration
+- **Webhook Integration**: Real-time event notifications and integrations
+- **Custom Attribute Mapping**: Flexible user attribute synchronization
+
+### Scalability & Performance
+- **Multi-Tenant Architecture**: Isolated authentication per organization
+- **High Availability**: Distributed architecture with failover support
+- **Session Federation**: Share sessions across multiple applications
+- **Caching & Performance**: Advanced caching for enterprise-scale performance
+- **Load Balancing**: Distribute authentication load across multiple instances
+- **Geographic Distribution**: Multi-region deployment support
+
+## Quick Setup
+
+### YAML Configuration
+
+```yaml
+auth:
+  plugins:
+    # Enterprise SSO
+    sso:
+      enabled: true
+      providers:
+        - name: "corporate-saml"
+          type: "saml"
+          entityId: "https://auth.company.com"
+          ssoUrl: "https://idp.company.com/sso"
+          certificate: "${SAML_CERTIFICATE}"
+          
+        - name: "azure-oidc"
+          type: "oidc"
+          issuer: "https://login.microsoftonline.com/tenant-id/v2.0"
+          clientId: "${AZURE_CLIENT_ID}"
+          clientSecret: "${AZURE_CLIENT_SECRET}"
+          
+    # Multi-session management
+    multiSession:
+      enabled: true
+      maxSessionsPerUser: 5
+      sessionSharing: true
+      crossDomainSessions: true
+      
+    # Enterprise security
+    enterpriseSecurity:
+      enabled: true
+      deviceTrust: true
+      conditionalAccess: true
+      riskAssessment: true
+      
+    # Active Directory integration
+    activeDirectory:
+      enabled: true
+      server: "ldap://ad.company.com:389"
+      baseDN: "DC=company,DC=com"
+      bindDN: "${AD_BIND_DN}"
+      bindPassword: "${AD_BIND_PASSWORD}"
+```
+
+### Environment Variables
+
+```bash
+# Enterprise SSO
+AUTH_PLUGINS_SSO_ENABLED=true
+SAML_CERTIFICATE="-----BEGIN CERTIFICATE-----..."
+AZURE_CLIENT_ID=your_azure_client_id
+AZURE_CLIENT_SECRET=your_azure_client_secret
+
+# Multi-session
+AUTH_PLUGINS_MULTI_SESSION_ENABLED=true
+AUTH_PLUGINS_MULTI_SESSION_MAX_SESSIONS_PER_USER=5
+AUTH_PLUGINS_MULTI_SESSION_SESSION_SHARING=true
+
+# Enterprise Security
+AUTH_PLUGINS_ENTERPRISE_SECURITY_ENABLED=true
+AUTH_PLUGINS_ENTERPRISE_SECURITY_DEVICE_TRUST=true
+AUTH_PLUGINS_ENTERPRISE_SECURITY_CONDITIONAL_ACCESS=true
+
+# Active Directory
+AUTH_PLUGINS_ACTIVE_DIRECTORY_ENABLED=true
+AUTH_PLUGINS_ACTIVE_DIRECTORY_SERVER=ldap://ad.company.com:389
+AUTH_PLUGINS_ACTIVE_DIRECTORY_BASE_DN=DC=company,DC=com
+AD_BIND_DN=CN=service,OU=Users,DC=company,DC=com
+AD_BIND_PASSWORD=your_service_password
+```
+
+### Programmatic Configuration
+
+```go
+package main
+
+import (
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/sso"
+    "github.com/xraph/authsome/plugins/multi-session"
+    "github.com/xraph/authsome/plugins/enterprise-security"
+    "github.com/xraph/authsome/plugins/active-directory"
+)
+
+func setupEnterprisePlugins(auth *authsome.Auth) error {
+    // Configure SSO plugin
+    ssoConfig := &sso.Config{
+        Enabled: true,
+        Providers: []sso.Provider{
+            {
+                Name:        "corporate-saml",
+                Type:        "saml",
+                EntityID:    "https://auth.company.com",
+                SSOURL:      "https://idp.company.com/sso",
+                Certificate: os.Getenv("SAML_CERTIFICATE"),
+            },
+            {
+                Name:         "azure-oidc",
+                Type:         "oidc",
+                Issuer:       "https://login.microsoftonline.com/tenant-id/v2.0",
+                ClientID:     os.Getenv("AZURE_CLIENT_ID"),
+                ClientSecret: os.Getenv("AZURE_CLIENT_SECRET"),
+            },
+        },
+    }
+    
+    // Configure multi-session plugin
+    multiSessionConfig := &multisession.Config{
+        Enabled:             true,
+        MaxSessionsPerUser:  5,
+        SessionSharing:      true,
+        CrossDomainSessions: true,
+    }
+    
+    // Configure enterprise security plugin
+    enterpriseSecurityConfig := &enterprisesecurity.Config{
+        Enabled:           true,
+        DeviceTrust:       true,
+        ConditionalAccess: true,
+        RiskAssessment:    true,
+    }
+    
+    // Configure Active Directory plugin
+    adConfig := &activedirectory.Config{
+        Enabled:      true,
+        Server:       "ldap://ad.company.com:389",
+        BaseDN:       "DC=company,DC=com",
+        BindDN:       os.Getenv("AD_BIND_DN"),
+        BindPassword: os.Getenv("AD_BIND_PASSWORD"),
+    }
+    
+    // Register plugins
+    auth.RegisterPlugin(sso.NewPlugin(ssoConfig))
+    auth.RegisterPlugin(multisession.NewPlugin(multiSessionConfig))
+    auth.RegisterPlugin(enterprisesecurity.NewPlugin(enterpriseSecurityConfig))
+    auth.RegisterPlugin(activedirectory.NewPlugin(adConfig))
+    
+    return nil
+}
+```
+
+## Plugin Registration
+
+Register enterprise plugins with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/sso"
+    "github.com/xraph/authsome/plugins/multi-session"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register enterprise plugins
+    ssoPlugin := sso.NewPlugin()
+    multiSessionPlugin := multisession.NewPlugin()
+    
+    auth.RegisterPlugin(ssoPlugin)
+    auth.RegisterPlugin(multiSessionPlugin)
+
+    // Initialize plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Enterprise authentication server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## Common API Patterns
+
+### SSO Authentication Flow
+
+```http
+# Initiate SSO authentication
+GET /auth/sso/providers
+GET /auth/sso/login/{provider}
+
+# Handle SSO callback
+POST /auth/sso/callback/{provider}
+
+# Get SSO user info
+GET /auth/sso/user
+```
+
+### Multi-Session Management
+
+```http
+# List user sessions
+GET /auth/sessions
+
+# Terminate specific session
+DELETE /auth/sessions/{sessionId}
+
+# Terminate all sessions
+DELETE /auth/sessions/all
+
+# Session sharing
+POST /auth/sessions/share
+```
+
+### Enterprise Security
+
+```http
+# Device trust management
+GET /auth/devices
+POST /auth/devices/trust
+DELETE /auth/devices/{deviceId}
+
+# Conditional access policies
+GET /auth/policies
+POST /auth/policies/evaluate
+```
+
+## Frontend Integration
+
+### TypeScript SDK
+
+```typescript
+import { AuthSomeEnterprise } from '@authsome/enterprise-sdk';
+
+const auth = new AuthSomeEnterprise({
+  baseUrl: 'https://auth.company.com',
+  clientId: 'your-client-id',
+  redirectUri: 'https://app.company.com/callback'
+});
+
+// SSO authentication
+async function authenticateWithSSO(provider: string) {
+  try {
+    const result = await auth.sso.authenticate(provider);
+    console.log('SSO authentication successful:', result);
+    return result;
+  } catch (error) {
+    console.error('SSO authentication failed:', error);
+    throw error;
+  }
+}
+
+// Multi-session management
+async function manageUserSessions() {
+  try {
+    const sessions = await auth.sessions.list();
+    console.log('Active sessions:', sessions);
+    
+    // Terminate specific session
+    await auth.sessions.terminate(sessionId);
+    
+    // Share session across domains
+    await auth.sessions.share({
+      domains: ['app1.company.com', 'app2.company.com']
+    });
+    
+    return sessions;
+  } catch (error) {
+    console.error('Session management failed:', error);
+    throw error;
+  }
+}
+
+// Device trust management
+async function manageDeviceTrust() {
+  try {
+    const devices = await auth.devices.list();
+    console.log('Trusted devices:', devices);
+    
+    // Trust current device
+    await auth.devices.trust({
+      name: 'Work Laptop',
+      fingerprint: await auth.devices.getFingerprint()
+    });
+    
+    return devices;
+  } catch (error) {
+    console.error('Device trust management failed:', error);
+    throw error;
+  }
+}
+```
+
+### React Enterprise Hook
+
+```jsx
+import { useAuthSomeEnterprise } from '@authsome/react-enterprise';
+
+const EnterpriseAuth = () => {
+  const {
+    user,
+    sessions,
+    devices,
+    isLoading,
+    error,
+    ssoProviders,
+    authenticateWithSSO,
+    manageSessions,
+    manageDevices,
+    evaluatePolicy
+  } = useAuthSomeEnterprise();
+
+  const handleSSOLogin = async (provider) => {
+    try {
+      await authenticateWithSSO(provider);
+    } catch (error) {
+      console.error('SSO login failed:', error);
+    }
+  };
+
+  const handleSessionManagement = async () => {
+    try {
+      await manageSessions({
+        action: 'terminate_others',
+        keepCurrent: true
+      });
+    } catch (error) {
+      console.error('Session management failed:', error);
+    }
+  };
+
+  if (isLoading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error.message}</div>;
+
+  return (
+    <div className="enterprise-auth">
+      <h2>Enterprise Authentication</h2>
+      
+      {/* SSO Providers */}
+      <div className="sso-providers">
+        <h3>Single Sign-On</h3>
+        {ssoProviders.map(provider => (
+          <button
+            key={provider.id}
+            onClick={() => handleSSOLogin(provider.id)}
+            className="sso-button"
+          >
+            Sign in with {provider.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Session Management */}
+      {user && (
+        <div className="session-management">
+          <h3>Active Sessions ({sessions.length})</h3>
+          <button onClick={handleSessionManagement}>
+            Terminate Other Sessions
+          </button>
+          
+          <ul>
+            {sessions.map(session => (
+              <li key={session.id}>
+                {session.device} - {session.location}
+                <button onClick={() => terminateSession(session.id)}>
+                  Terminate
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Device Trust */}
+      {user && (
+        <div className="device-trust">
+          <h3>Trusted Devices ({devices.length})</h3>
+          <ul>
+            {devices.map(device => (
+              <li key={device.id}>
+                {device.name} - {device.lastSeen}
+                <button onClick={() => removeDevice(device.id)}>
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+## Server-Side Integration
+
+### Custom Middleware
+
+```go
+// Enterprise authentication middleware
+func EnterpriseAuthMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        // Check session validity
+        session, err := auth.GetSession(c)
+        if err != nil {
+            return c.JSON(401, map[string]string{"error": "unauthorized"})
+        }
+
+        // Evaluate conditional access policies
+        if auth.HasPlugin("enterprise-security") {
+            policyResult, err := auth.EvaluateConditionalAccess(c, session)
+            if err != nil {
+                return c.JSON(500, map[string]string{"error": "policy evaluation failed"})
+            }
+            
+            if !policyResult.Allowed {
+                return c.JSON(403, map[string]string{
+                    "error": "access denied",
+                    "reason": policyResult.Reason,
+                })
+            }
+        }
+
+        // Check device trust
+        if auth.HasPlugin("enterprise-security") {
+            deviceTrusted, err := auth.IsDeviceTrusted(c, session)
+            if err != nil {
+                return c.JSON(500, map[string]string{"error": "device trust check failed"})
+            }
+            
+            if !deviceTrusted {
+                return c.JSON(403, map[string]string{
+                    "error": "untrusted device",
+                    "action": "device_verification_required",
+                })
+            }
+        }
+
+        // Set user context
+        c.Set("user", session.User)
+        c.Set("session", session)
+        
+        return c.Next()
+    }
+}
+```
+
+### Custom Hooks
+
+```go
+// Register custom enterprise hooks
+func registerEnterpriseHooks(auth *authsome.Auth) {
+    // SSO user provisioning hook
+    auth.RegisterHook("sso.user.created", func(ctx context.Context, event *authsome.Event) error {
+        user := event.Data.(*authsome.User)
+        
+        // Provision user in enterprise systems
+        if err := provisionUserInActiveDirectory(user); err != nil {
+            return fmt.Errorf("AD provisioning failed: %w", err)
+        }
+        
+        // Assign default enterprise roles
+        if err := assignEnterpriseRoles(user); err != nil {
+            return fmt.Errorf("role assignment failed: %w", err)
+        }
+        
+        // Send welcome notification
+        if err := sendEnterpriseWelcomeEmail(user); err != nil {
+            log.Printf("Welcome email failed: %v", err)
+        }
+        
+        return nil
+    })
+
+    // Session sharing hook
+    auth.RegisterHook("session.shared", func(ctx context.Context, event *authsome.Event) error {
+        sessionData := event.Data.(*authsome.SessionShareData)
+        
+        // Log session sharing for audit
+        auditLog := &authsome.AuditEvent{
+            Type:      "session_shared",
+            UserID:    sessionData.UserID,
+            SessionID: sessionData.SessionID,
+            Metadata: map[string]interface{}{
+                "shared_domains": sessionData.Domains,
+                "shared_at":      time.Now(),
+            },
+        }
+        
+        return auth.LogAuditEvent(ctx, auditLog)
+    })
+
+    // Device trust evaluation hook
+    auth.RegisterHook("device.trust.evaluated", func(ctx context.Context, event *authsome.Event) error {
+        trustData := event.Data.(*authsome.DeviceTrustData)
+        
+        // Custom device trust logic
+        if trustData.RiskScore > 0.8 {
+            // High risk device - require additional verification
+            return auth.RequireAdditionalVerification(ctx, trustData.UserID, "high_risk_device")
+        }
+        
+        return nil
+    })
+}
+```
+
+## Security Considerations
+
+<Callout type="warn">
+**Enterprise Security**: Implement comprehensive security policies and regular security audits for enterprise deployments.
+</Callout>
+
+### Security Best Practices
+
+- **Certificate Management**: Properly manage and rotate certificates for SAML and OIDC
+- **Network Security**: Use VPNs, firewalls, and network segmentation
+- **Access Policies**: Implement least-privilege access and regular access reviews
+- **Audit Logging**: Comprehensive logging for compliance and security monitoring
+- **Incident Response**: Prepare incident response procedures for security events
+- **Regular Updates**: Keep all components updated with security patches
+
+### Compliance Features
+
+- **SOC 2 Type II**: Security controls and audit trails
+- **GDPR Compliance**: Data protection and privacy controls
+- **HIPAA Compliance**: Healthcare data protection features
+- **PCI DSS**: Payment card industry security standards
+- **ISO 27001**: Information security management standards
+
+## Performance Optimization
+
+### Enterprise-Scale Performance
+
+```go
+// Configure enterprise performance settings
+config := &authsome.Config{
+    Performance: authsome.PerformanceConfig{
+        // Connection pooling
+        Database: authsome.DatabaseConfig{
+            MaxOpenConns:    100,
+            MaxIdleConns:    25,
+            ConnMaxLifetime: 5 * time.Minute,
+        },
+        
+        // Caching
+        Cache: authsome.CacheConfig{
+            Enabled:     true,
+            Provider:    "redis-cluster",
+            TTL:         30 * time.Minute,
+            MaxMemory:   "2gb",
+        },
+        
+        // Session management
+        Sessions: authsome.SessionConfig{
+            CacheEnabled:    true,
+            CacheTTL:        time.Hour,
+            CleanupInterval: 10 * time.Minute,
+        },
+        
+        // Rate limiting
+        RateLimit: authsome.RateLimitConfig{
+            Enabled:     true,
+            Provider:    "redis-cluster",
+            DefaultRate: "1000/hour",
+        },
+    },
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="SSO Configuration"
+    description="Set up Single Sign-On with SAML and OIDC"
+    href="/docs/go/plugins/enterprise/sso"
+  />
+  <Card
+    title="Multi-Session Management"
+    description="Advanced session management across applications"
+    href="/docs/go/plugins/enterprise/multi-session"
+  />
+  <Card
+    title="Enterprise Security"
+    description="Advanced security features and compliance"
+    href="/docs/go/plugins/enterprise/security"
+  />
+  <Card
+    title="Active Directory Integration"
+    description="Integrate with Microsoft Active Directory"
+    href="/docs/go/plugins/enterprise/active-directory"
+  />
+</Cards>

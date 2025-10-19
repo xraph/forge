@@ -118,7 +118,7 @@ func (es *EventService) Dependencies() []string {
 }
 
 // OnStart implements common.Service
-func (es *EventService) OnStart(ctx context.Context) error {
+func (es *EventService) Start(ctx context.Context) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
 
@@ -142,7 +142,7 @@ func (es *EventService) OnStart(ctx context.Context) error {
 		return common.ErrServiceStartFailed(es.name, fmt.Errorf("failed to initialize event bus: %w", err))
 	}
 
-	// OnStart metrics collection if enabled
+	// Start metrics collection if enabled
 	if es.config.Metrics.Enabled && es.metrics != nil {
 		go es.startMetricsCollection(ctx)
 	}
@@ -163,7 +163,7 @@ func (es *EventService) OnStart(ctx context.Context) error {
 }
 
 // OnStop implements common.Service
-func (es *EventService) OnStop(ctx context.Context) error {
+func (es *EventService) Stop(ctx context.Context) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
 
@@ -177,9 +177,9 @@ func (es *EventService) OnStop(ctx context.Context) error {
 		)
 	}
 
-	// OnStop event bus
+	// Stop event bus
 	if es.bus != nil {
-		if err := es.bus.OnStop(ctx); err != nil {
+		if err := es.bus.Stop(ctx); err != nil {
 			if es.logger != nil {
 				es.logger.Error("failed to stop event bus",
 					logger.Error(err),
@@ -308,8 +308,8 @@ func (es *EventService) initializeEventBus(ctx context.Context) error {
 		}
 	}
 
-	// OnStart event bus
-	if err := bus.OnStart(ctx); err != nil {
+	// Start event bus
+	if err := bus.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start event bus: %w", err)
 	}
 

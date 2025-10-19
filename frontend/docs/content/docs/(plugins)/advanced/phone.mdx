@@ -1,0 +1,1929 @@
+---
+title: Phone Authentication
+description: SMS-based authentication and verification
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Phone Authentication Plugin
+
+The Phone Authentication plugin provides SMS-based authentication and verification. Users can sign up and sign in using their phone numbers, with verification codes sent via SMS for secure authentication.
+
+## Features
+
+- **SMS Authentication**: Sign up and sign in with phone numbers
+- **OTP Verification**: Secure one-time password verification via SMS
+- **International Support**: Support for international phone number formats
+- **Multiple SMS Providers**: Integration with Twilio, AWS SNS, and custom providers
+- **Rate Limiting**: Protection against SMS spam and abuse
+- **Phone Number Validation**: Format validation and carrier verification
+- **Backup Codes**: Alternative authentication when SMS is unavailable
+- **Number Portability**: Handle phone number changes and transfers
+- **Audit Logging**: Complete audit trail of phone authentication events
+- **Fallback Support**: Integration with other authentication methods
+
+## Installation
+
+Install the Phone Authentication plugin:
+
+```bash
+go get github.com/xraph/authsome/plugins/phone
+```
+
+## Configuration
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      plugins:
+        phone:
+          enabled: true
+          
+          # Phone Number Configuration
+          phoneNumber:
+            format: "E164"                         # E164, NATIONAL, INTERNATIONAL
+            defaultCountry: "US"                   # Default country code
+            allowedCountries:                      # Allowed country codes
+              - "US"
+              - "CA"
+              - "GB"
+              - "AU"
+            blockedCountries:                      # Blocked country codes
+              - "XX"
+            requireVerification: true              # Require phone verification
+            
+          # OTP Configuration
+          otp:
+            length: 6                              # OTP code length
+            expiry: "5m"                           # OTP expiration time
+            numericOnly: true                      # Use only numeric codes
+            caseInsensitive: false                 # Case sensitivity for alphanumeric
+            maxAttempts: 3                         # Max verification attempts
+            
+          # SMS Configuration
+          sms:
+            provider: "twilio"                     # twilio, aws-sns, custom
+            from: "+1234567890"                    # SMS sender number
+            
+            # Twilio Configuration
+            twilio:
+              accountSid: "${TWILIO_ACCOUNT_SID}"
+              authToken: "${TWILIO_AUTH_TOKEN}"
+              messagingServiceSid: "${TWILIO_MESSAGING_SERVICE_SID}"
+              
+            # AWS SNS Configuration
+            awsSns:
+              region: "us-east-1"
+              accessKeyId: "${AWS_ACCESS_KEY_ID}"
+              secretAccessKey: "${AWS_SECRET_ACCESS_KEY}"
+              senderName: "AuthSome"
+              
+            # Custom Provider Configuration
+            custom:
+              endpoint: "https://api.example.com/sms"
+              apiKey: "${CUSTOM_SMS_API_KEY}"
+              headers:
+                "Content-Type": "application/json"
+                "Authorization": "Bearer ${CUSTOM_SMS_API_KEY}"
+          
+          # Message Templates
+          messages:
+            verification:
+              template: "Your verification code is: {{.Code}}. Valid for {{.ExpiryMinutes}} minutes."
+              maxLength: 160                       # SMS character limit
+              
+            signin:
+              template: "Your sign-in code is: {{.Code}}. Valid for {{.ExpiryMinutes}} minutes."
+              maxLength: 160
+              
+            welcome:
+              template: "Welcome to {{.AppName}}! Your account has been created successfully."
+              enabled: true
+              
+          # Security Settings
+          security:
+            requireCarrierVerification: false      # Verify phone carrier
+            blockVoip: true                        # Block VoIP numbers
+            blockLandlines: false                  # Block landline numbers
+            allowTestNumbers: false                # Allow test numbers in production
+            
+          # Rate Limiting
+          rateLimit:
+            enabled: true
+            
+            # Per-phone number limits
+            phoneNumber:
+              maxAttempts: 3                       # Max OTP requests per window
+              window: "5m"                         # Rate limit window
+              blockDuration: "15m"                 # Block duration after limit
+              
+            # Per-IP limits
+            ipAddress:
+              maxAttempts: 10                      # Max requests per IP per window
+              window: "1h"                         # Rate limit window
+              blockDuration: "1h"                  # Block duration after limit
+              
+          # Registration Settings
+          registration:
+            enabled: true                          # Allow new user registration
+            requireEmailBackup: false              # Require email as backup
+            defaultRole: "user"                    # Default role for new users
+            autoVerify: false                      # Auto-verify on successful OTP
+            
+          # Backup Codes
+          backupCodes:
+            enabled: true                          # Enable backup codes
+            count: 8                               # Number of backup codes
+            length: 8                              # Backup code length
+            regenerateOnUse: true                  # Regenerate codes when used
+            
+          # Integration Settings
+          integration:
+            allowFallback: true                    # Allow fallback to other auth methods
+            fallbackMethods:                       # Available fallback methods
+              - "email-password"
+              - "magic-link"
+            requirePhoneForMFA: false              # Require phone for MFA
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # Basic Configuration
+    AUTH_PLUGINS_PHONE_ENABLED=true
+    AUTH_PLUGINS_PHONE_PHONE_NUMBER_FORMAT=E164
+    AUTH_PLUGINS_PHONE_PHONE_NUMBER_DEFAULT_COUNTRY=US
+    AUTH_PLUGINS_PHONE_PHONE_NUMBER_ALLOWED_COUNTRIES="US,CA,GB,AU"
+    AUTH_PLUGINS_PHONE_PHONE_NUMBER_BLOCKED_COUNTRIES="XX"
+    AUTH_PLUGINS_PHONE_PHONE_NUMBER_REQUIRE_VERIFICATION=true
+
+    # OTP Configuration
+    AUTH_PLUGINS_PHONE_OTP_LENGTH=6
+    AUTH_PLUGINS_PHONE_OTP_EXPIRY=5m
+    AUTH_PLUGINS_PHONE_OTP_NUMERIC_ONLY=true
+    AUTH_PLUGINS_PHONE_OTP_CASE_INSENSITIVE=false
+    AUTH_PLUGINS_PHONE_OTP_MAX_ATTEMPTS=3
+
+    # SMS Configuration
+    AUTH_PLUGINS_PHONE_SMS_PROVIDER=twilio
+    AUTH_PLUGINS_PHONE_SMS_FROM="+1234567890"
+
+    # Twilio Configuration
+    TWILIO_ACCOUNT_SID=your_account_sid
+    TWILIO_AUTH_TOKEN=your_auth_token
+    TWILIO_MESSAGING_SERVICE_SID=your_messaging_service_sid
+
+    # AWS SNS Configuration
+    AWS_ACCESS_KEY_ID=your_access_key
+    AWS_SECRET_ACCESS_KEY=your_secret_key
+    AUTH_PLUGINS_PHONE_SMS_AWS_SNS_REGION=us-east-1
+    AUTH_PLUGINS_PHONE_SMS_AWS_SNS_SENDER_NAME=AuthSome
+
+    # Custom Provider Configuration
+    AUTH_PLUGINS_PHONE_SMS_CUSTOM_ENDPOINT=https://api.example.com/sms
+    CUSTOM_SMS_API_KEY=your_api_key
+
+    # Message Templates
+    AUTH_PLUGINS_PHONE_MESSAGES_VERIFICATION_TEMPLATE="Your verification code is: {{.Code}}. Valid for {{.ExpiryMinutes}} minutes."
+    AUTH_PLUGINS_PHONE_MESSAGES_SIGNIN_TEMPLATE="Your sign-in code is: {{.Code}}. Valid for {{.ExpiryMinutes}} minutes."
+    AUTH_PLUGINS_PHONE_MESSAGES_WELCOME_TEMPLATE="Welcome to {{.AppName}}! Your account has been created successfully."
+    AUTH_PLUGINS_PHONE_MESSAGES_WELCOME_ENABLED=true
+
+    # Security Settings
+    AUTH_PLUGINS_PHONE_SECURITY_REQUIRE_CARRIER_VERIFICATION=false
+    AUTH_PLUGINS_PHONE_SECURITY_BLOCK_VOIP=true
+    AUTH_PLUGINS_PHONE_SECURITY_BLOCK_LANDLINES=false
+    AUTH_PLUGINS_PHONE_SECURITY_ALLOW_TEST_NUMBERS=false
+
+    # Rate Limiting
+    AUTH_PLUGINS_PHONE_RATE_LIMIT_ENABLED=true
+    AUTH_PLUGINS_PHONE_RATE_LIMIT_PHONE_NUMBER_MAX_ATTEMPTS=3
+    AUTH_PLUGINS_PHONE_RATE_LIMIT_PHONE_NUMBER_WINDOW=5m
+    AUTH_PLUGINS_PHONE_RATE_LIMIT_PHONE_NUMBER_BLOCK_DURATION=15m
+    AUTH_PLUGINS_PHONE_RATE_LIMIT_IP_ADDRESS_MAX_ATTEMPTS=10
+    AUTH_PLUGINS_PHONE_RATE_LIMIT_IP_ADDRESS_WINDOW=1h
+    AUTH_PLUGINS_PHONE_RATE_LIMIT_IP_ADDRESS_BLOCK_DURATION=1h
+
+    # Registration Settings
+    AUTH_PLUGINS_PHONE_REGISTRATION_ENABLED=true
+    AUTH_PLUGINS_PHONE_REGISTRATION_REQUIRE_EMAIL_BACKUP=false
+    AUTH_PLUGINS_PHONE_REGISTRATION_DEFAULT_ROLE=user
+    AUTH_PLUGINS_PHONE_REGISTRATION_AUTO_VERIFY=false
+
+    # Backup Codes
+    AUTH_PLUGINS_PHONE_BACKUP_CODES_ENABLED=true
+    AUTH_PLUGINS_PHONE_BACKUP_CODES_COUNT=8
+    AUTH_PLUGINS_PHONE_BACKUP_CODES_LENGTH=8
+    AUTH_PLUGINS_PHONE_BACKUP_CODES_REGENERATE_ON_USE=true
+
+    # Integration Settings
+    AUTH_PLUGINS_PHONE_INTEGRATION_ALLOW_FALLBACK=true
+    AUTH_PLUGINS_PHONE_INTEGRATION_FALLBACK_METHODS="email-password,magic-link"
+    AUTH_PLUGINS_PHONE_INTEGRATION_REQUIRE_PHONE_FOR_MFA=false
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    package main
+
+    import (
+        "time"
+        
+        "github.com/xraph/authsome"
+        "github.com/xraph/authsome/plugins/phone"
+    )
+
+    func setupPhonePlugin(auth *authsome.Auth) error {
+        config := &phone.Config{
+            Enabled: true,
+            
+            // Phone Number Configuration
+            PhoneNumber: phone.PhoneNumberConfig{
+                Format:              "E164",
+                DefaultCountry:      "US",
+                AllowedCountries:    []string{"US", "CA", "GB", "AU"},
+                BlockedCountries:    []string{"XX"},
+                RequireVerification: true,
+            },
+            
+            // OTP Configuration
+            OTP: phone.OTPConfig{
+                Length:          6,
+                Expiry:          5 * time.Minute,
+                NumericOnly:     true,
+                CaseInsensitive: false,
+                MaxAttempts:     3,
+            },
+            
+            // SMS Configuration
+            SMS: phone.SMSConfig{
+                Provider: "twilio",
+                From:     "+1234567890",
+                
+                Twilio: phone.TwilioConfig{
+                    AccountSID:          os.Getenv("TWILIO_ACCOUNT_SID"),
+                    AuthToken:           os.Getenv("TWILIO_AUTH_TOKEN"),
+                    MessagingServiceSID: os.Getenv("TWILIO_MESSAGING_SERVICE_SID"),
+                },
+                
+                AWSSNS: phone.AWSSNSConfig{
+                    Region:          "us-east-1",
+                    AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+                    SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+                    SenderName:      "AuthSome",
+                },
+                
+                Custom: phone.CustomSMSConfig{
+                    Endpoint: "https://api.example.com/sms",
+                    APIKey:   os.Getenv("CUSTOM_SMS_API_KEY"),
+                    Headers: map[string]string{
+                        "Content-Type":  "application/json",
+                        "Authorization": "Bearer " + os.Getenv("CUSTOM_SMS_API_KEY"),
+                    },
+                },
+            },
+            
+            // Message Templates
+            Messages: phone.MessagesConfig{
+                Verification: phone.MessageTemplate{
+                    Template:  "Your verification code is: {{.Code}}. Valid for {{.ExpiryMinutes}} minutes.",
+                    MaxLength: 160,
+                },
+                SignIn: phone.MessageTemplate{
+                    Template:  "Your sign-in code is: {{.Code}}. Valid for {{.ExpiryMinutes}} minutes.",
+                    MaxLength: 160,
+                },
+                Welcome: phone.MessageTemplate{
+                    Template: "Welcome to {{.AppName}}! Your account has been created successfully.",
+                    Enabled:  true,
+                },
+            },
+            
+            // Security Settings
+            Security: phone.SecurityConfig{
+                RequireCarrierVerification: false,
+                BlockVoIP:                  true,
+                BlockLandlines:             false,
+                AllowTestNumbers:           false,
+            },
+            
+            // Rate Limiting
+            RateLimit: phone.RateLimitConfig{
+                Enabled: true,
+                PhoneNumber: phone.RateLimitRule{
+                    MaxAttempts:   3,
+                    Window:        5 * time.Minute,
+                    BlockDuration: 15 * time.Minute,
+                },
+                IPAddress: phone.RateLimitRule{
+                    MaxAttempts:   10,
+                    Window:        time.Hour,
+                    BlockDuration: time.Hour,
+                },
+            },
+            
+            // Registration Settings
+            Registration: phone.RegistrationConfig{
+                Enabled:            true,
+                RequireEmailBackup: false,
+                DefaultRole:        "user",
+                AutoVerify:         false,
+            },
+            
+            // Backup Codes
+            BackupCodes: phone.BackupCodesConfig{
+                Enabled:          true,
+                Count:            8,
+                Length:           8,
+                RegenerateOnUse:  true,
+            },
+            
+            // Integration Settings
+            Integration: phone.IntegrationConfig{
+                AllowFallback:       true,
+                FallbackMethods:     []string{"email-password", "magic-link"},
+                RequirePhoneForMFA:  false,
+            },
+        }
+
+        plugin := phone.NewPlugin(config)
+        return auth.RegisterPlugin(plugin)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Plugin Registration
+
+Register the Phone Authentication plugin with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/phone"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register Phone plugin
+    phonePlugin := phone.NewPlugin()
+    auth.RegisterPlugin(phonePlugin)
+
+    // Initialize plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## API Endpoints
+
+The Phone Authentication plugin provides the following endpoints:
+
+### Phone Registration
+
+#### Register with Phone Number
+
+```http
+POST /auth/phone/register
+Content-Type: application/json
+
+{
+  "phoneNumber": "+1234567890",
+  "name": "John Doe",
+  "email": "john@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Verification code sent to your phone",
+  "phoneNumber": "+1234567890",
+  "expiresAt": "2024-01-01T00:05:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 3
+}
+```
+
+#### Verify Registration OTP
+
+```http
+POST /auth/phone/register/verify
+Content-Type: application/json
+
+{
+  "phoneNumber": "+1234567890",
+  "code": "123456"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Phone number verified successfully",
+  "user": {
+    "id": "user_123",
+    "phoneNumber": "+1234567890",
+    "phoneVerified": true,
+    "name": "John Doe",
+    "email": "john@example.com",
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  "session": {
+    "token": "session_token_here",
+    "expiresAt": "2024-01-01T24:00:00Z"
+  },
+  "backupCodes": [
+    "12345678",
+    "87654321",
+    "11223344",
+    "44332211",
+    "55667788",
+    "88776655",
+    "99001122",
+    "22110099"
+  ]
+}
+```
+
+### Phone Sign In
+
+#### Sign In with Phone Number
+
+```http
+POST /auth/phone/signin
+Content-Type: application/json
+
+{
+  "phoneNumber": "+1234567890"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Verification code sent to your phone",
+  "phoneNumber": "+1234567890",
+  "expiresAt": "2024-01-01T00:05:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 3
+}
+```
+
+#### Verify Sign In OTP
+
+```http
+POST /auth/phone/signin/verify
+Content-Type: application/json
+
+{
+  "phoneNumber": "+1234567890",
+  "code": "123456"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Sign in successful",
+  "user": {
+    "id": "user_123",
+    "phoneNumber": "+1234567890",
+    "phoneVerified": true,
+    "name": "John Doe",
+    "lastLoginAt": "2024-01-01T00:00:00Z"
+  },
+  "session": {
+    "token": "session_token_here",
+    "expiresAt": "2024-01-01T24:00:00Z"
+  }
+}
+```
+
+### OTP Management
+
+#### Resend OTP
+
+```http
+POST /auth/phone/otp/resend
+Content-Type: application/json
+
+{
+  "phoneNumber": "+1234567890",
+  "type": "signin"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Verification code resent",
+  "expiresAt": "2024-01-01T00:05:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 2
+}
+```
+
+#### Check OTP Status
+
+```http
+GET /auth/phone/otp/status?phoneNumber=%2B1234567890&type=signin
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "hasPendingOTP": true,
+  "expiresAt": "2024-01-01T00:05:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 2,
+  "type": "signin"
+}
+```
+
+### Phone Number Management
+
+#### Update Phone Number
+
+```http
+POST /auth/phone/update
+Content-Type: application/json
+Authorization: Bearer <session_token>
+
+{
+  "newPhoneNumber": "+1987654321"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Verification code sent to new phone number",
+  "newPhoneNumber": "+1987654321",
+  "expiresAt": "2024-01-01T00:05:00Z"
+}
+```
+
+#### Verify Phone Number Update
+
+```http
+POST /auth/phone/update/verify
+Content-Type: application/json
+Authorization: Bearer <session_token>
+
+{
+  "newPhoneNumber": "+1987654321",
+  "code": "123456"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Phone number updated successfully",
+  "user": {
+    "id": "user_123",
+    "phoneNumber": "+1987654321",
+    "phoneVerified": true,
+    "updatedAt": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+### Backup Codes
+
+#### Generate Backup Codes
+
+```http
+POST /auth/phone/backup-codes/generate
+Content-Type: application/json
+Authorization: Bearer <session_token>
+
+{}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Backup codes generated",
+  "backupCodes": [
+    "12345678",
+    "87654321",
+    "11223344",
+    "44332211",
+    "55667788",
+    "88776655",
+    "99001122",
+    "22110099"
+  ],
+  "generatedAt": "2024-01-01T00:00:00Z"
+}
+```
+
+#### Use Backup Code
+
+```http
+POST /auth/phone/backup-codes/use
+Content-Type: application/json
+
+{
+  "phoneNumber": "+1234567890",
+  "backupCode": "12345678"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Backup code verified successfully",
+  "user": {
+    "id": "user_123",
+    "phoneNumber": "+1234567890",
+    "name": "John Doe"
+  },
+  "session": {
+    "token": "session_token_here",
+    "expiresAt": "2024-01-01T24:00:00Z"
+  },
+  "backupCodesRemaining": 7
+}
+```
+
+## Frontend Integration
+
+### JavaScript/TypeScript Implementation
+
+```typescript
+interface PhoneAuthResponse {
+  success: boolean;
+  message: string;
+  phoneNumber?: string;
+  expiresAt?: string;
+  canResendAt?: string;
+  attemptsRemaining?: number;
+  user?: User;
+  session?: Session;
+  backupCodes?: string[];
+  error?: string;
+}
+
+interface OTPStatus {
+  hasPendingOTP: boolean;
+  expiresAt?: string;
+  canResendAt?: string;
+  attemptsRemaining: number;
+  type: 'signin' | 'register' | 'update';
+}
+
+interface User {
+  id: string;
+  phoneNumber: string;
+  phoneVerified: boolean;
+  name?: string;
+  email?: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+interface Session {
+  token: string;
+  expiresAt: string;
+}
+
+class PhoneAuthService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = '/auth/phone') {
+    this.baseUrl = baseUrl;
+  }
+
+  // Register with phone number
+  async register(
+    phoneNumber: string, 
+    name?: string, 
+    email?: string
+  ): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        phoneNumber, 
+        name, 
+        email 
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Registration failed');
+    }
+
+    return result;
+  }
+
+  // Verify registration OTP
+  async verifyRegistration(
+    phoneNumber: string, 
+    code: string
+  ): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/register/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber, code }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Verification failed');
+    }
+
+    // Store session token if provided
+    if (result.session?.token) {
+      this.setSessionToken(result.session.token);
+    }
+
+    return result;
+  }
+
+  // Sign in with phone number
+  async signIn(phoneNumber: string): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/signin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Sign in failed');
+    }
+
+    return result;
+  }
+
+  // Verify sign in OTP
+  async verifySignIn(
+    phoneNumber: string, 
+    code: string
+  ): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/signin/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber, code }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Verification failed');
+    }
+
+    // Store session token if provided
+    if (result.session?.token) {
+      this.setSessionToken(result.session.token);
+    }
+
+    return result;
+  }
+
+  // Resend OTP
+  async resendOTP(
+    phoneNumber: string, 
+    type: 'signin' | 'register' | 'update'
+  ): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/otp/resend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber, type }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Resend failed');
+    }
+
+    return result;
+  }
+
+  // Check OTP status
+  async getOTPStatus(
+    phoneNumber: string, 
+    type: 'signin' | 'register' | 'update'
+  ): Promise<OTPStatus> {
+    const params = new URLSearchParams({
+      phoneNumber,
+      type,
+    });
+
+    const response = await fetch(`${this.baseUrl}/otp/status?${params}`);
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Status check failed');
+    }
+
+    return result;
+  }
+
+  // Update phone number
+  async updatePhoneNumber(newPhoneNumber: string): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/update`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.getSessionToken()}`,
+      },
+      body: JSON.stringify({ newPhoneNumber }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Update failed');
+    }
+
+    return result;
+  }
+
+  // Verify phone number update
+  async verifyPhoneUpdate(
+    newPhoneNumber: string, 
+    code: string
+  ): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/update/verify`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.getSessionToken()}`,
+      },
+      body: JSON.stringify({ newPhoneNumber, code }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Update verification failed');
+    }
+
+    return result;
+  }
+
+  // Generate backup codes
+  async generateBackupCodes(): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/backup-codes/generate`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.getSessionToken()}`,
+      },
+      body: JSON.stringify({}),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Backup code generation failed');
+    }
+
+    return result;
+  }
+
+  // Use backup code
+  async useBackupCode(
+    phoneNumber: string, 
+    backupCode: string
+  ): Promise<PhoneAuthResponse> {
+    const response = await fetch(`${this.baseUrl}/backup-codes/use`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phoneNumber, backupCode }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Backup code verification failed');
+    }
+
+    // Store session token if provided
+    if (result.session?.token) {
+      this.setSessionToken(result.session.token);
+    }
+
+    return result;
+  }
+
+  // Utility methods
+  formatPhoneNumber(phoneNumber: string, format: 'E164' | 'NATIONAL' | 'INTERNATIONAL' = 'E164'): string {
+    // Basic phone number formatting
+    // In a real implementation, use a library like libphonenumber-js
+    const cleaned = phoneNumber.replace(/\D/g, '');
+    
+    if (format === 'E164') {
+      return cleaned.startsWith('1') ? `+${cleaned}` : `+1${cleaned}`;
+    }
+    
+    if (format === 'NATIONAL') {
+      const withoutCountry = cleaned.startsWith('1') ? cleaned.slice(1) : cleaned;
+      return `(${withoutCountry.slice(0, 3)}) ${withoutCountry.slice(3, 6)}-${withoutCountry.slice(6)}`;
+    }
+    
+    if (format === 'INTERNATIONAL') {
+      const countryCode = cleaned.startsWith('1') ? '1' : '1';
+      const number = cleaned.startsWith('1') ? cleaned.slice(1) : cleaned;
+      return `+${countryCode} ${number.slice(0, 3)} ${number.slice(3, 6)} ${number.slice(6)}`;
+    }
+    
+    return phoneNumber;
+  }
+
+  isValidPhoneNumber(phoneNumber: string): boolean {
+    // Basic validation - in production, use libphonenumber-js
+    const cleaned = phoneNumber.replace(/\D/g, '');
+    return cleaned.length >= 10 && cleaned.length <= 15;
+  }
+
+  canResend(canResendAt: string): boolean {
+    return new Date() >= new Date(canResendAt);
+  }
+
+  getResendCountdown(canResendAt: string): number {
+    const now = new Date().getTime();
+    const resendTime = new Date(canResendAt).getTime();
+    return Math.max(0, resendTime - now);
+  }
+
+  formatCountdown(milliseconds: number): string {
+    const seconds = Math.ceil(milliseconds / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+
+    if (minutes > 0) {
+      return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    return `${remainingSeconds}s`;
+  }
+
+  // Session management
+  private setSessionToken(token: string): void {
+    localStorage.setItem('auth_session_token', token);
+  }
+
+  private getSessionToken(): string | null {
+    return localStorage.getItem('auth_session_token');
+  }
+
+  clearSession(): void {
+    localStorage.removeItem('auth_session_token');
+  }
+
+  // Complete authentication flow
+  async authenticateWithPhone(phoneNumber: string): Promise<void> {
+    // Validate phone number
+    if (!this.isValidPhoneNumber(phoneNumber)) {
+      throw new Error('Please enter a valid phone number');
+    }
+
+    // Format phone number
+    const formattedPhone = this.formatPhoneNumber(phoneNumber);
+
+    // Check current status
+    try {
+      const status = await this.getOTPStatus(formattedPhone, 'signin');
+      
+      if (status.hasPendingOTP && status.attemptsRemaining === 0) {
+        throw new Error('Too many attempts. Please try again later.');
+      }
+    } catch (error) {
+      // Status check failed, probably no pending OTP
+    }
+
+    // Send OTP
+    await this.signIn(formattedPhone);
+  }
+
+  // Complete registration flow
+  async registerWithPhone(
+    phoneNumber: string, 
+    name?: string, 
+    email?: string
+  ): Promise<void> {
+    // Validate phone number
+    if (!this.isValidPhoneNumber(phoneNumber)) {
+      throw new Error('Please enter a valid phone number');
+    }
+
+    // Format phone number
+    const formattedPhone = this.formatPhoneNumber(phoneNumber);
+
+    // Send registration OTP
+    await this.register(formattedPhone, name, email);
+  }
+}
+
+// Usage examples
+const phoneAuthService = new PhoneAuthService();
+
+// Register with phone
+async function registerWithPhone(phoneNumber: string, name: string) {
+  try {
+    const result = await phoneAuthService.register(phoneNumber, name);
+    console.log('Registration OTP sent:', result);
+    return result;
+  } catch (error) {
+    console.error('Registration failed:', error);
+    throw error;
+  }
+}
+
+// Sign in with phone
+async function signInWithPhone(phoneNumber: string) {
+  try {
+    const result = await phoneAuthService.signIn(phoneNumber);
+    console.log('Sign in OTP sent:', result);
+    return result;
+  } catch (error) {
+    console.error('Sign in failed:', error);
+    throw error;
+  }
+}
+
+// Verify OTP
+async function verifyOTP(phoneNumber: string, code: string, type: 'signin' | 'register') {
+  try {
+    let result;
+    if (type === 'register') {
+      result = await phoneAuthService.verifyRegistration(phoneNumber, code);
+    } else {
+      result = await phoneAuthService.verifySignIn(phoneNumber, code);
+    }
+    
+    console.log('OTP verified:', result);
+    return result;
+  } catch (error) {
+    console.error('OTP verification failed:', error);
+    throw error;
+  }
+}
+
+// Handle backup code authentication
+async function authenticateWithBackupCode(phoneNumber: string, backupCode: string) {
+  try {
+    const result = await phoneAuthService.useBackupCode(phoneNumber, backupCode);
+    console.log('Backup code verified:', result);
+    return result;
+  } catch (error) {
+    console.error('Backup code verification failed:', error);
+    throw error;
+  }
+}
+```
+
+### React Component Example
+
+```jsx
+import React, { useState, useEffect, useCallback } from 'react';
+
+const PhoneAuth = ({ mode = 'signin' }) => {
+  const [phoneAuthService] = useState(() => new PhoneAuthService());
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [step, setStep] = useState('phone'); // 'phone', 'verify', 'backup'
+  const [otpSent, setOtpSent] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [countdown, setCountdown] = useState(0);
+  const [backupCode, setBackupCode] = useState('');
+  const [showBackupOption, setShowBackupOption] = useState(false);
+
+  // Update countdown timer
+  useEffect(() => {
+    if (status?.canResendAt && !phoneAuthService.canResend(status.canResendAt)) {
+      const interval = setInterval(() => {
+        const remaining = phoneAuthService.getResendCountdown(status.canResendAt);
+        setCountdown(remaining);
+        
+        if (remaining <= 0) {
+          clearInterval(interval);
+          setCountdown(0);
+        }
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [status, phoneAuthService]);
+
+  // Check OTP status when phone number changes
+  useEffect(() => {
+    if (phoneNumber && phoneAuthService.isValidPhoneNumber(phoneNumber) && otpSent) {
+      checkOTPStatus();
+    }
+  }, [phoneNumber, otpSent]);
+
+  const checkOTPStatus = useCallback(async () => {
+    try {
+      const formattedPhone = phoneAuthService.formatPhoneNumber(phoneNumber);
+      const currentStatus = await phoneAuthService.getOTPStatus(formattedPhone, mode);
+      setStatus(currentStatus);
+    } catch (error) {
+      // Status check failed, probably no pending OTP
+      setStatus(null);
+    }
+  }, [phoneNumber, mode, phoneAuthService]);
+
+  const handleSendOTP = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (!phoneAuthService.isValidPhoneNumber(phoneNumber)) {
+        throw new Error('Please enter a valid phone number');
+      }
+
+      const formattedPhone = phoneAuthService.formatPhoneNumber(phoneNumber);
+
+      let result;
+      if (mode === 'register') {
+        result = await phoneAuthService.register(formattedPhone, name, email);
+      } else {
+        result = await phoneAuthService.signIn(formattedPhone);
+      }
+
+      setOtpSent(true);
+      setStep('verify');
+      await checkOTPStatus();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOTP = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const formattedPhone = phoneAuthService.formatPhoneNumber(phoneNumber);
+
+      let result;
+      if (mode === 'register') {
+        result = await phoneAuthService.verifyRegistration(formattedPhone, code);
+      } else {
+        result = await phoneAuthService.verifySignIn(formattedPhone, code);
+      }
+
+      // Handle successful authentication
+      if (result.user) {
+        console.log('Authentication successful:', result);
+        
+        // Show backup codes for new registrations
+        if (mode === 'register' && result.backupCodes) {
+          setBackupCodes(result.backupCodes);
+          setStep('backup-codes');
+        } else {
+          // Redirect to dashboard or handle success
+          window.location.href = '/dashboard';
+        }
+      }
+    } catch (error) {
+      setError(error.message);
+      
+      // Show backup code option after failed attempts
+      if (error.message.includes('invalid') || error.message.includes('expired')) {
+        setShowBackupOption(true);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const formattedPhone = phoneAuthService.formatPhoneNumber(phoneNumber);
+      await phoneAuthService.resendOTP(formattedPhone, mode);
+      await checkOTPStatus();
+      setCode('');
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackupCode = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const formattedPhone = phoneAuthService.formatPhoneNumber(phoneNumber);
+      const result = await phoneAuthService.useBackupCode(formattedPhone, backupCode);
+      
+      console.log('Backup code authentication successful:', result);
+      window.location.href = '/dashboard';
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canResend = status?.canResendAt ? 
+    phoneAuthService.canResend(status.canResendAt) : false;
+
+  const formatPhoneDisplay = (phone) => {
+    return phoneAuthService.formatPhoneNumber(phone, 'NATIONAL');
+  };
+
+  if (step === 'phone') {
+    return (
+      <div className="phone-auth">
+        <h2>{mode === 'register' ? 'Create Account' : 'Sign In'} with Phone</h2>
+        <p>
+          {mode === 'register' 
+            ? 'Enter your phone number to create a new account'
+            : 'Enter your phone number to sign in'
+          }
+        </p>
+
+        {error && (
+          <div className="error">
+            {error}
+            <button onClick={() => setError(null)}>×</button>
+          </div>
+        )}
+
+        <form onSubmit={handleSendOTP} className="phone-form">
+          {mode === 'register' && (
+            <>
+              <div className="form-group">
+                <label htmlFor="name">Full Name</label>
+                <input
+                  type="text"
+                  id="name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Enter your full name"
+                  required
+                  disabled={loading}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="email">Email (Optional)</label>
+                <input
+                  type="email"
+                  id="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="Enter your email"
+                  disabled={loading}
+                />
+              </div>
+            </>
+          )}
+
+          <div className="form-group">
+            <label htmlFor="phoneNumber">Phone Number</label>
+            <input
+              type="tel"
+              id="phoneNumber"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              placeholder="+1 (555) 123-4567"
+              required
+              disabled={loading}
+            />
+            <small>We'll send you a verification code via SMS</small>
+          </div>
+
+          <button type="submit" disabled={loading || !phoneNumber}>
+            {loading ? 'Sending...' : 'Send Verification Code'}
+          </button>
+        </form>
+
+        <div className="alternative-auth">
+          <p>
+            {mode === 'register' ? 'Already have an account?' : 'Need an account?'}
+            <a href={mode === 'register' ? '/auth/signin' : '/auth/register'}>
+              {mode === 'register' ? 'Sign In' : 'Sign Up'}
+            </a>
+          </p>
+          <p>
+            <a href="/auth/signin">Sign in with email instead</a>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'verify') {
+    return (
+      <div className="phone-auth">
+        <h2>Enter Verification Code</h2>
+        <p>
+          We sent a 6-digit code to <strong>{formatPhoneDisplay(phoneNumber)}</strong>
+        </p>
+
+        {error && (
+          <div className="error">
+            {error}
+            <button onClick={() => setError(null)}>×</button>
+          </div>
+        )}
+
+        <form onSubmit={handleVerifyOTP} className="verification-form">
+          <div className="form-group">
+            <label htmlFor="code">Verification Code</label>
+            <input
+              type="text"
+              id="code"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="123456"
+              maxLength="6"
+              required
+              disabled={loading}
+              autoComplete="one-time-code"
+              className="code-input"
+            />
+          </div>
+
+          <button type="submit" disabled={loading || code.length !== 6}>
+            {loading ? 'Verifying...' : 'Verify Code'}
+          </button>
+        </form>
+
+        <div className="verification-actions">
+          {status?.expiresAt && (
+            <p className="expiry-info">
+              Code expires at {new Date(status.expiresAt).toLocaleTimeString()}
+            </p>
+          )}
+
+          {status?.attemptsRemaining !== undefined && (
+            <p className="attempts-info">
+              {status.attemptsRemaining} attempts remaining
+            </p>
+          )}
+
+          {canResend ? (
+            <button onClick={handleResendOTP} disabled={loading} className="resend-button">
+              {loading ? 'Resending...' : 'Resend Code'}
+            </button>
+          ) : countdown > 0 ? (
+            <button disabled className="resend-button">
+              Resend in {phoneAuthService.formatCountdown(countdown)}
+            </button>
+          ) : null}
+
+          <button 
+            onClick={() => {
+              setStep('phone');
+              setOtpSent(false);
+              setCode('');
+              setError(null);
+            }} 
+            className="change-phone-button"
+          >
+            Change Phone Number
+          </button>
+
+          {showBackupOption && (
+            <button 
+              onClick={() => setStep('backup')} 
+              className="backup-button"
+            >
+              Use Backup Code Instead
+            </button>
+          )}
+        </div>
+
+        <div className="help-text">
+          <p><strong>Didn't receive the code?</strong></p>
+          <ul>
+            <li>Check that your phone can receive SMS messages</li>
+            <li>Make sure {formatPhoneDisplay(phoneNumber)} is correct</li>
+            <li>Wait a few minutes for delivery</li>
+            <li>Try resending the code</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'backup') {
+    return (
+      <div className="phone-auth">
+        <h2>Use Backup Code</h2>
+        <p>
+          Enter one of your backup codes to sign in to your account.
+        </p>
+
+        {error && (
+          <div className="error">
+            {error}
+            <button onClick={() => setError(null)}>×</button>
+          </div>
+        )}
+
+        <form onSubmit={handleBackupCode} className="backup-form">
+          <div className="form-group">
+            <label htmlFor="backupCode">Backup Code</label>
+            <input
+              type="text"
+              id="backupCode"
+              value={backupCode}
+              onChange={(e) => setBackupCode(e.target.value.replace(/\s/g, ''))}
+              placeholder="12345678"
+              required
+              disabled={loading}
+              className="backup-code-input"
+            />
+            <small>Enter the 8-digit backup code</small>
+          </div>
+
+          <button type="submit" disabled={loading || backupCode.length !== 8}>
+            {loading ? 'Verifying...' : 'Verify Backup Code'}
+          </button>
+        </form>
+
+        <div className="backup-actions">
+          <button 
+            onClick={() => {
+              setStep('verify');
+              setBackupCode('');
+              setError(null);
+              setShowBackupOption(false);
+            }} 
+            className="back-button"
+          >
+            Back to Verification Code
+          </button>
+        </div>
+
+        <div className="help-text">
+          <p>
+            <strong>Don't have your backup codes?</strong><br/>
+            Contact support to recover your account.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
+
+// Backup codes display component
+const BackupCodesDisplay = ({ backupCodes, onContinue }) => {
+  const [downloaded, setDownloaded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const downloadBackupCodes = () => {
+    const content = `AuthSome Backup Codes\n\nGenerated: ${new Date().toLocaleString()}\n\n${backupCodes.join('\n')}\n\nKeep these codes safe and secure. Each code can only be used once.`;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'authsome-backup-codes.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+    setDownloaded(true);
+  };
+
+  const copyBackupCodes = async () => {
+    try {
+      await navigator.clipboard.writeText(backupCodes.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error('Failed to copy backup codes:', error);
+    }
+  };
+
+  return (
+    <div className="backup-codes-display">
+      <h2>🔐 Save Your Backup Codes</h2>
+      <p>
+        These backup codes can be used to access your account if you lose access to your phone. 
+        <strong> Save them in a secure location.</strong>
+      </p>
+
+      <div className="backup-codes-grid">
+        {backupCodes.map((code, index) => (
+          <div key={index} className="backup-code">
+            {code}
+          </div>
+        ))}
+      </div>
+
+      <div className="backup-codes-actions">
+        <button onClick={downloadBackupCodes} className="download-button">
+          📥 Download Codes
+        </button>
+        <button onClick={copyBackupCodes} className="copy-button">
+          {copied ? '✅ Copied!' : '📋 Copy Codes'}
+        </button>
+      </div>
+
+      <div className="backup-codes-warning">
+        <p>⚠️ <strong>Important:</strong></p>
+        <ul>
+          <li>Each backup code can only be used once</li>
+          <li>Store them in a secure password manager</li>
+          <li>Don't share them with anyone</li>
+          <li>You can generate new codes anytime in your account settings</li>
+        </ul>
+      </div>
+
+      <button 
+        onClick={onContinue} 
+        disabled={!downloaded}
+        className="continue-button"
+      >
+        {downloaded ? 'Continue to Dashboard' : 'Download codes to continue'}
+      </button>
+    </div>
+  );
+};
+
+export { PhoneAuth, BackupCodesDisplay };
+```
+
+## SMS Provider Configuration
+
+### Twilio Configuration
+
+```go
+// Twilio SMS provider configuration
+config := &phone.Config{
+    SMS: phone.SMSConfig{
+        Provider: "twilio",
+        From:     "+1234567890", // Your Twilio phone number
+        
+        Twilio: phone.TwilioConfig{
+            AccountSID:          os.Getenv("TWILIO_ACCOUNT_SID"),
+            AuthToken:           os.Getenv("TWILIO_AUTH_TOKEN"),
+            MessagingServiceSID: os.Getenv("TWILIO_MESSAGING_SERVICE_SID"), // Optional
+        },
+    },
+}
+```
+
+### AWS SNS Configuration
+
+```go
+// AWS SNS provider configuration
+config := &phone.Config{
+    SMS: phone.SMSConfig{
+        Provider: "aws-sns",
+        
+        AWSSNS: phone.AWSSNSConfig{
+            Region:          "us-east-1",
+            AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+            SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+            SenderName:      "AuthSome", // Sender ID for supported regions
+        },
+    },
+}
+```
+
+### Custom SMS Provider
+
+```go
+// Custom SMS provider implementation
+type CustomSMSProvider struct {
+    apiKey   string
+    endpoint string
+    client   *http.Client
+}
+
+func (p *CustomSMSProvider) SendSMS(to, message string) error {
+    payload := map[string]interface{}{
+        "to":      to,
+        "message": message,
+        "from":    "AuthSome",
+    }
+    
+    jsonData, err := json.Marshal(payload)
+    if err != nil {
+        return err
+    }
+    
+    req, err := http.NewRequest("POST", p.endpoint, bytes.NewBuffer(jsonData))
+    if err != nil {
+        return err
+    }
+    
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("Authorization", "Bearer "+p.apiKey)
+    
+    resp, err := p.client.Do(req)
+    if err != nil {
+        return err
+    }
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        return fmt.Errorf("SMS sending failed with status: %d", resp.StatusCode)
+    }
+    
+    return nil
+}
+
+// Register custom provider
+config := &phone.Config{
+    SMS: phone.SMSConfig{
+        Provider: "custom",
+        Custom: phone.CustomSMSConfig{
+            Endpoint: "https://api.example.com/sms",
+            APIKey:   os.Getenv("CUSTOM_SMS_API_KEY"),
+            Headers: map[string]string{
+                "Content-Type":  "application/json",
+                "Authorization": "Bearer " + os.Getenv("CUSTOM_SMS_API_KEY"),
+            },
+        },
+    },
+}
+```
+
+## Security Considerations
+
+<Callout type="warn">
+**Security Best Practices**: Phone authentication requires careful security configuration to prevent SIM swapping and other attacks.
+</Callout>
+
+### Rate Limiting and Abuse Prevention
+
+```go
+// Comprehensive rate limiting configuration
+config := &phone.Config{
+    RateLimit: phone.RateLimitConfig{
+        Enabled: true,
+        
+        // Per-phone number limits
+        PhoneNumber: phone.RateLimitRule{
+            MaxAttempts:   3,
+            Window:        5 * time.Minute,
+            BlockDuration: 15 * time.Minute,
+        },
+        
+        // Per-IP address limits
+        IPAddress: phone.RateLimitRule{
+            MaxAttempts:   10,
+            Window:        time.Hour,
+            BlockDuration: time.Hour,
+        },
+        
+        // Global limits
+        Global: phone.RateLimitRule{
+            MaxAttempts:   100,
+            Window:        time.Hour,
+            BlockDuration: time.Hour,
+        },
+    },
+    
+    // Additional security measures
+    Security: phone.SecurityConfig{
+        BlockVoIP:                  true,  // Block VoIP numbers
+        BlockLandlines:             false, // Allow landlines
+        RequireCarrierVerification: true,  // Verify carrier information
+        AllowTestNumbers:           false, // Block test numbers in production
+    },
+}
+```
+
+### Phone Number Validation
+
+```go
+// Advanced phone number validation
+func validatePhoneNumber(phoneNumber string) error {
+    // Parse and validate phone number format
+    num, err := phonenumbers.Parse(phoneNumber, "")
+    if err != nil {
+        return fmt.Errorf("invalid phone number format: %w", err)
+    }
+    
+    // Check if number is valid
+    if !phonenumbers.IsValidNumber(num) {
+        return fmt.Errorf("invalid phone number")
+    }
+    
+    // Check number type
+    numberType := phonenumbers.GetNumberType(num)
+    switch numberType {
+    case phonenumbers.MOBILE, phonenumbers.FIXED_LINE_OR_MOBILE:
+        // Allow mobile numbers
+    case phonenumbers.VOIP:
+        if config.Security.BlockVoIP {
+            return fmt.Errorf("VoIP numbers are not allowed")
+        }
+    case phonenumbers.FIXED_LINE:
+        if config.Security.BlockLandlines {
+            return fmt.Errorf("landline numbers are not allowed")
+        }
+    default:
+        return fmt.Errorf("unsupported phone number type")
+    }
+    
+    // Check carrier information if required
+    if config.Security.RequireCarrierVerification {
+        if err := verifyCarrier(phoneNumber); err != nil {
+            return fmt.Errorf("carrier verification failed: %w", err)
+        }
+    }
+    
+    return nil
+}
+```
+
+## Performance Optimization
+
+### Database Indexing
+
+```sql
+-- Optimize phone authentication queries
+CREATE INDEX IF NOT EXISTS idx_phone_auth_phone_number 
+ON phone_auth(phone_number);
+
+CREATE INDEX IF NOT EXISTS idx_phone_auth_otp_token 
+ON phone_auth_otps(token);
+
+CREATE INDEX IF NOT EXISTS idx_phone_auth_otp_phone_expires 
+ON phone_auth_otps(phone_number, expires_at);
+
+CREATE INDEX IF NOT EXISTS idx_phone_auth_backup_codes_user_code 
+ON phone_auth_backup_codes(user_id, code);
+
+-- Optimize rate limiting queries
+CREATE INDEX IF NOT EXISTS idx_phone_rate_limits_phone_window 
+ON phone_rate_limits(phone_number, window_start);
+
+CREATE INDEX IF NOT EXISTS idx_phone_rate_limits_ip_window 
+ON phone_rate_limits(ip_address, window_start);
+```
+
+### Caching Strategy
+
+```go
+// Configure caching for phone authentication
+config := &phone.Config{
+    Cache: phone.CacheConfig{
+        Enabled: true,
+        
+        // OTP caching
+        OTPExpiry:  5 * time.Minute,
+        OTPPrefix:  "phone:otp:",
+        
+        // Rate limit caching
+        RateLimitExpiry: time.Hour,
+        RateLimitPrefix: "phone:ratelimit:",
+        
+        // Phone validation caching
+        ValidationExpiry: 24 * time.Hour,
+        ValidationPrefix: "phone:validation:",
+        
+        // Cleanup settings
+        CleanupInterval:  time.Hour,
+        CleanupBatchSize: 1000,
+    },
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<Callout type="info">
+**SMS Delivery**: Ensure your SMS provider is properly configured and has good deliverability rates.
+</Callout>
+
+#### SMS Not Received
+
+```go
+// Debug SMS delivery issues
+func debugSMSDelivery(phoneNumber, code string) {
+    log.Printf("SMS debug info:")
+    log.Printf("  Phone: %s", phoneNumber)
+    log.Printf("  Code: %s", code)
+    log.Printf("  Provider: %s", config.SMS.Provider)
+    log.Printf("  From: %s", config.SMS.From)
+    
+    // Check SMS provider status
+    if err := checkSMSProviderStatus(); err != nil {
+        log.Printf("  SMS provider error: %v", err)
+    }
+    
+    // Check rate limiting
+    if rateLimited, err := checkPhoneRateLimit(phoneNumber); err != nil {
+        log.Printf("  Rate limit check error: %v", err)
+    } else if rateLimited {
+        log.Printf("  Phone number is rate limited")
+    }
+    
+    // Validate phone number
+    if err := validatePhoneNumber(phoneNumber); err != nil {
+        log.Printf("  Phone validation error: %v", err)
+    }
+}
+```
+
+#### OTP Validation Issues
+
+```go
+// Debug OTP validation
+func debugOTPValidation(phoneNumber, code string) error {
+    // Check OTP format
+    if len(code) != config.OTP.Length {
+        return fmt.Errorf("invalid OTP length: %d, expected: %d", 
+            len(code), config.OTP.Length)
+    }
+    
+    // Check OTP in database
+    otp, err := getOTPByPhone(phoneNumber)
+    if err != nil {
+        return fmt.Errorf("OTP not found for phone: %w", err)
+    }
+    
+    // Check expiry
+    if time.Now().After(otp.ExpiresAt) {
+        return fmt.Errorf("OTP expired at %v", otp.ExpiresAt)
+    }
+    
+    // Check attempts
+    if otp.Attempts >= config.OTP.MaxAttempts {
+        return fmt.Errorf("maximum OTP attempts exceeded")
+    }
+    
+    // Check code match
+    if otp.Code != code {
+        return fmt.Errorf("OTP code mismatch")
+    }
+    
+    return nil
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Email OTP"
+    description="Set up one-time password authentication via email"
+    href="/docs/go/plugins/advanced/email-otp"
+  />
+  <Card
+    title="Multi-Factor Authentication"
+    description="Combine phone authentication with other methods"
+    href="/docs/go/guides/multi-factor-auth"
+  />
+  <Card
+    title="Enterprise Plugins"
+    description="Explore enterprise-grade authentication solutions"
+    href="/docs/go/plugins/enterprise"
+  />
+</Cards>

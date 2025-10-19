@@ -265,7 +265,7 @@ func (rb *Rebalancer) Start(ctx context.Context) error {
 		return common.ErrLifecycleError("start", fmt.Errorf("rebalancer already started"))
 	}
 
-	// OnStart background tasks
+	// Start background tasks
 	rb.wg.Add(2)
 	go rb.analyticsLoop(ctx)
 	go rb.thresholdMonitorLoop(ctx)

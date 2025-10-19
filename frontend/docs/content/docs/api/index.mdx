@@ -1,0 +1,518 @@
+---
+title: API Reference
+description: Complete API reference for AuthSome Go authentication framework
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# API Reference
+
+Complete API reference for AuthSome Go, covering all authentication endpoints, request/response formats, error handling, and integration patterns.
+
+## API Overview
+
+AuthSome Go provides a comprehensive REST API for authentication and user management. All endpoints follow RESTful conventions and return JSON responses.
+
+### Base URL
+
+```
+https://your-domain.com/auth
+```
+
+### Authentication
+
+Most endpoints require authentication via session tokens or API keys:
+
+```http
+Authorization: Bearer <session_token>
+```
+
+### Content Type
+
+All requests should use JSON content type:
+
+```http
+Content-Type: application/json
+```
+
+## API Categories
+
+<Cards>
+  <Card
+    title="Authentication"
+    description="Sign up, sign in, sign out, and session management"
+    href="/docs/go/api-reference/authentication"
+  />
+  <Card
+    title="User Management"
+    description="User profiles, preferences, and account management"
+    href="/docs/go/api-reference/users"
+  />
+  <Card
+    title="Organizations"
+    description="Multi-tenant organization management and membership"
+    href="/docs/go/api-reference/organizations"
+  />
+  <Card
+    title="Sessions"
+    description="Session management, device tracking, and security"
+    href="/docs/go/api-reference/sessions"
+  />
+  <Card
+    title="Security"
+    description="Two-factor authentication, device management, and audit logs"
+    href="/docs/go/api-reference/security"
+  />
+  <Card
+    title="Webhooks"
+    description="Event notifications and webhook management"
+    href="/docs/go/api-reference/webhooks"
+  />
+</Cards>
+
+## Quick Start
+
+### Basic Authentication Flow
+
+```typescript
+// 1. Sign up a new user
+const signUpResponse = await fetch('/auth/signup', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: 'user@example.com',
+    password: 'securePassword123',
+    name: 'John Doe'
+  })
+});
+
+const { user, session } = await signUpResponse.json();
+
+// 2. Store session token
+localStorage.setItem('auth_token', session.token);
+
+// 3. Make authenticated requests
+const userResponse = await fetch('/auth/user', {
+  headers: {
+    'Authorization': `Bearer ${session.token}`,
+    'Content-Type': 'application/json'
+  }
+});
+
+const currentUser = await userResponse.json();
+```
+
+### Error Handling
+
+All API endpoints return consistent error responses:
+
+```json
+{
+  "error": {
+    "code": "INVALID_CREDENTIALS",
+    "message": "Invalid email or password",
+    "details": {
+      "field": "password",
+      "reason": "incorrect"
+    }
+  },
+  "success": false,
+  "timestamp": "2024-01-01T00:00:00Z",
+  "requestId": "req_123456789"
+}
+```
+
+## Common Response Formats
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    // Response data
+  },
+  "timestamp": "2024-01-01T00:00:00Z",
+  "requestId": "req_123456789"
+}
+```
+
+### Error Response
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human-readable error message",
+    "details": {
+      // Additional error details
+    }
+  },
+  "timestamp": "2024-01-01T00:00:00Z",
+  "requestId": "req_123456789"
+}
+```
+
+### Pagination Response
+
+```json
+{
+  "success": true,
+  "data": [
+    // Array of items
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 150,
+    "totalPages": 8,
+    "hasNext": true,
+    "hasPrev": false
+  },
+  "timestamp": "2024-01-01T00:00:00Z",
+  "requestId": "req_123456789"
+}
+```
+
+## HTTP Status Codes
+
+AuthSome Go uses standard HTTP status codes:
+
+| Status Code | Description | Usage |
+|-------------|-------------|-------|
+| `200` | OK | Successful GET, PUT, PATCH requests |
+| `201` | Created | Successful POST requests that create resources |
+| `204` | No Content | Successful DELETE requests |
+| `400` | Bad Request | Invalid request format or parameters |
+| `401` | Unauthorized | Missing or invalid authentication |
+| `403` | Forbidden | Insufficient permissions |
+| `404` | Not Found | Resource not found |
+| `409` | Conflict | Resource already exists or conflict |
+| `422` | Unprocessable Entity | Validation errors |
+| `429` | Too Many Requests | Rate limit exceeded |
+| `500` | Internal Server Error | Server error |
+| `503` | Service Unavailable | Service temporarily unavailable |
+
+## Error Codes
+
+### Authentication Errors
+
+| Code | Description |
+|------|-------------|
+| `INVALID_CREDENTIALS` | Invalid email/password combination |
+| `ACCOUNT_LOCKED` | Account is temporarily locked |
+| `EMAIL_NOT_VERIFIED` | Email address not verified |
+| `SESSION_EXPIRED` | Session token has expired |
+| `INVALID_TOKEN` | Invalid or malformed token |
+| `INSUFFICIENT_PERMISSIONS` | User lacks required permissions |
+
+### Validation Errors
+
+| Code | Description |
+|------|-------------|
+| `VALIDATION_ERROR` | General validation error |
+| `INVALID_EMAIL` | Invalid email format |
+| `WEAK_PASSWORD` | Password doesn't meet requirements |
+| `REQUIRED_FIELD` | Required field is missing |
+| `INVALID_FORMAT` | Field format is invalid |
+| `VALUE_TOO_LONG` | Field value exceeds maximum length |
+| `VALUE_TOO_SHORT` | Field value below minimum length |
+
+### Resource Errors
+
+| Code | Description |
+|------|-------------|
+| `USER_NOT_FOUND` | User does not exist |
+| `ORGANIZATION_NOT_FOUND` | Organization does not exist |
+| `SESSION_NOT_FOUND` | Session does not exist |
+| `RESOURCE_NOT_FOUND` | Generic resource not found |
+| `DUPLICATE_EMAIL` | Email address already exists |
+| `DUPLICATE_USERNAME` | Username already exists |
+
+### Rate Limiting
+
+| Code | Description |
+|------|-------------|
+| `RATE_LIMIT_EXCEEDED` | Too many requests |
+| `IP_RATE_LIMIT_EXCEEDED` | IP-based rate limit exceeded |
+| `USER_RATE_LIMIT_EXCEEDED` | User-based rate limit exceeded |
+
+## Rate Limiting
+
+AuthSome Go implements multiple layers of rate limiting:
+
+### Global Rate Limits
+
+- **Anonymous requests**: 100 requests per hour per IP
+- **Authenticated requests**: 1000 requests per hour per user
+- **Authentication attempts**: 5 attempts per 15 minutes per IP
+
+### Endpoint-Specific Limits
+
+- **Sign up**: 3 attempts per hour per IP
+- **Sign in**: 5 attempts per 15 minutes per IP
+- **Password reset**: 3 attempts per hour per email
+- **Email verification**: 5 attempts per hour per email
+
+### Rate Limit Headers
+
+Rate limit information is included in response headers:
+
+```http
+X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 999
+X-RateLimit-Reset: 1640995200
+X-RateLimit-Window: 3600
+```
+
+## Request/Response Examples
+
+### Successful Authentication
+
+**Request:**
+```http
+POST /auth/signin
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "securePassword123"
+}
+```
+
+**Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+Set-Cookie: auth_session=abc123; HttpOnly; Secure; SameSite=Strict
+
+{
+  "success": true,
+  "data": {
+    "user": {
+      "id": "user_123",
+      "email": "user@example.com",
+      "emailVerified": true,
+      "name": "John Doe",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "lastLoginAt": "2024-01-01T12:00:00Z"
+    },
+    "session": {
+      "token": "session_token_here",
+      "expiresAt": "2024-01-02T00:00:00Z",
+      "device": {
+        "id": "device_123",
+        "name": "Chrome on macOS",
+        "trusted": true
+      }
+    }
+  },
+  "timestamp": "2024-01-01T12:00:00Z",
+  "requestId": "req_123456789"
+}
+```
+
+### Validation Error
+
+**Request:**
+```http
+POST /auth/signup
+Content-Type: application/json
+
+{
+  "email": "invalid-email",
+  "password": "123"
+}
+```
+
+**Response:**
+```http
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/json
+
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Validation failed",
+    "details": {
+      "fields": {
+        "email": {
+          "code": "INVALID_EMAIL",
+          "message": "Please enter a valid email address"
+        },
+        "password": {
+          "code": "WEAK_PASSWORD",
+          "message": "Password must be at least 8 characters long"
+        },
+        "name": {
+          "code": "REQUIRED_FIELD",
+          "message": "Name is required"
+        }
+      }
+    }
+  },
+  "timestamp": "2024-01-01T12:00:00Z",
+  "requestId": "req_123456789"
+}
+```
+
+## SDK Integration
+
+### JavaScript/TypeScript SDK
+
+```typescript
+import { AuthSome } from '@authsome/js-sdk';
+
+const auth = new AuthSome({
+  baseUrl: 'https://your-domain.com/auth',
+  apiKey: 'your-api-key' // Optional for public endpoints
+});
+
+// Type-safe API calls
+try {
+  const user = await auth.users.signUp({
+    email: 'user@example.com',
+    password: 'securePassword123',
+    name: 'John Doe'
+  });
+  
+  console.log('User created:', user);
+} catch (error) {
+  if (error instanceof AuthSomeError) {
+    console.error('Auth error:', error.code, error.message);
+    console.error('Details:', error.details);
+  }
+}
+```
+
+### Go SDK
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    
+    "github.com/xraph/authsome-go-sdk"
+)
+
+func main() {
+    client := authsome.NewClient(&authsome.Config{
+        BaseURL: "https://your-domain.com/auth",
+        APIKey:  "your-api-key", // Optional for public endpoints
+    })
+
+    // Type-safe API calls
+    user, err := client.Users.SignUp(context.Background(), &authsome.SignUpRequest{
+        Email:    "user@example.com",
+        Password: "securePassword123",
+        Name:     "John Doe",
+    })
+    if err != nil {
+        if authErr, ok := err.(*authsome.Error); ok {
+            log.Printf("Auth error: %s - %s", authErr.Code, authErr.Message)
+            log.Printf("Details: %+v", authErr.Details)
+        } else {
+            log.Printf("Unexpected error: %v", err)
+        }
+        return
+    }
+
+    log.Printf("User created: %+v", user)
+}
+```
+
+## Testing
+
+### Test Environment
+
+AuthSome Go provides a test mode for development and testing:
+
+```bash
+# Set test mode
+export AUTH_MODE=test
+export AUTH_TEST_SKIP_EMAIL_VERIFICATION=true
+export AUTH_TEST_DISABLE_RATE_LIMITING=true
+```
+
+### Mock Responses
+
+Use mock responses for testing:
+
+```typescript
+// Mock successful authentication
+const mockAuth = {
+  success: true,
+  data: {
+    user: {
+      id: 'user_test_123',
+      email: 'test@example.com',
+      emailVerified: true,
+      name: 'Test User'
+    },
+    session: {
+      token: 'test_session_token',
+      expiresAt: '2024-12-31T23:59:59Z'
+    }
+  }
+};
+
+// Mock error response
+const mockError = {
+  success: false,
+  error: {
+    code: 'INVALID_CREDENTIALS',
+    message: 'Invalid email or password'
+  }
+};
+```
+
+## Webhooks
+
+AuthSome Go supports webhooks for real-time event notifications:
+
+```json
+{
+  "id": "webhook_123",
+  "event": "user.created",
+  "data": {
+    "user": {
+      "id": "user_123",
+      "email": "user@example.com",
+      "name": "John Doe"
+    }
+  },
+  "timestamp": "2024-01-01T00:00:00Z",
+  "signature": "sha256=abc123..."
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Authentication API"
+    description="Sign up, sign in, and session management endpoints"
+    href="/docs/go/api-reference/authentication"
+  />
+  <Card
+    title="User Management API"
+    description="User profiles, preferences, and account management"
+    href="/docs/go/api-reference/users"
+  />
+  <Card
+    title="Organizations API"
+    description="Multi-tenant organization management"
+    href="/docs/go/api-reference/organizations"
+  />
+  <Card
+    title="Security API"
+    description="Two-factor authentication and security features"
+    href="/docs/go/api-reference/security"
+  />
+</Cards>

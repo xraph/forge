@@ -19,7 +19,7 @@ type PredictorAgent struct {
 	predictionModels map[string]*PredictionModel
 	forecaster       *Forecaster
 	anomalyDetector  *AnomalyDetector
-	trendAnalyzer    *TrendAnalyzer
+	trendAnalyzer    *PredictorTrendAnalyzer
 	predictor        *Predictor
 	predictionStats  PredictionStats
 	modelRegistry    *ModelRegistry
@@ -39,8 +39,8 @@ type PredictionModel struct {
 	Algorithm       string                 `json:"algorithm"`
 	Features        []string               `json:"features"`
 	Target          string                 `json:"target"`
-	TrainingData    []DataPoint            `json:"training_data"`
-	ValidationData  []DataPoint            `json:"validation_data"`
+	TrainingData    []PredictorDataPoint   `json:"training_data"`
+	ValidationData  []PredictorDataPoint   `json:"validation_data"`
 	Parameters      map[string]interface{} `json:"parameters"`
 	Metrics         ModelMetrics           `json:"metrics"`
 	LastTrained     time.Time              `json:"last_trained"`
@@ -66,8 +66,8 @@ const (
 	ModelTypeOptimization     ModelType = "optimization"
 )
 
-// DataPoint represents a data point for training/prediction
-type DataPoint struct {
+// PredictorDataPoint represents a data point for training/prediction
+type PredictorDataPoint struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Features  map[string]interface{} `json:"features"`
 	Target    interface{}            `json:"target"`
@@ -182,7 +182,7 @@ type AnomalyModel struct {
 	Name              string                 `json:"name"`
 	Algorithm         string                 `json:"algorithm"`
 	Threshold         float64                `json:"threshold"`
-	WindowData        []DataPoint            `json:"window_data"`
+	WindowData        []PredictorDataPoint   `json:"window_data"`
 	Baseline          BaselineInfo           `json:"baseline"`
 	Parameters        map[string]interface{} `json:"parameters"`
 	Accuracy          float64                `json:"accuracy"`
@@ -203,8 +203,8 @@ type BaselineInfo struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// TrendAnalyzer analyzes trends in data
-type TrendAnalyzer struct {
+// PredictorTrendAnalyzer analyzes trends in data
+type PredictorTrendAnalyzer struct {
 	WindowSize       time.Duration          `json:"window_size"`
 	MinTrendStrength float64                `json:"min_trend_strength"`
 	Algorithms       []string               `json:"algorithms"`
@@ -629,7 +629,7 @@ func NewPredictorAgent() ai.AIAgent {
 			Algorithms:      []string{"isolation_forest", "statistical", "lstm"},
 			Enabled:         true,
 		},
-		trendAnalyzer: &TrendAnalyzer{
+		trendAnalyzer: &PredictorTrendAnalyzer{
 			WindowSize:       24 * time.Hour,
 			MinTrendStrength: 0.5,
 			Algorithms:       []string{"linear_regression", "mann_kendall", "seasonal_decompose"},
@@ -991,14 +991,14 @@ func (a *PredictorAgent) initializeDataProcessors() {
 }
 
 // processData processes input data for predictions
-func (a *PredictorAgent) processData(input PredictionInput) ([]DataPoint, error) {
+func (a *PredictorAgent) processData(input PredictionInput) ([]PredictorDataPoint, error) {
 	// Convert input data to data points
-	dataPoints := []DataPoint{}
+	dataPoints := []PredictorDataPoint{}
 
 	// Simple conversion for demonstration
 	if data, ok := input.Data.([]interface{}); ok {
 		for i, item := range data {
-			point := DataPoint{
+			point := PredictorDataPoint{
 				Timestamp: time.Now().Add(-time.Duration(len(data)-i) * time.Hour),
 				Features:  make(map[string]interface{}),
 				Weight:    1.0,
@@ -1053,7 +1053,7 @@ func (a *PredictorAgent) processData(input PredictionInput) ([]DataPoint, error)
 }
 
 // generatePredictions generates predictions from processed data
-func (a *PredictorAgent) generatePredictions(data []DataPoint) ([]Prediction, error) {
+func (a *PredictorAgent) generatePredictions(data []PredictorDataPoint) ([]Prediction, error) {
 	predictions := []Prediction{}
 
 	// Generate predictions using available models
@@ -1072,7 +1072,7 @@ func (a *PredictorAgent) generatePredictions(data []DataPoint) ([]Prediction, er
 }
 
 // generatePredictionWithModel generates a prediction using a specific model
-func (a *PredictorAgent) generatePredictionWithModel(data []DataPoint, model *PredictionModel) (Prediction, error) {
+func (a *PredictorAgent) generatePredictionWithModel(data []PredictorDataPoint, model *PredictionModel) (Prediction, error) {
 	// Simple prediction algorithm for demonstration
 	if len(data) == 0 {
 		return Prediction{}, fmt.Errorf("no data provided")
@@ -1135,7 +1135,7 @@ func (a *PredictorAgent) generatePredictionWithModel(data []DataPoint, model *Pr
 }
 
 // detectAnomalies detects anomalies in the data
-func (a *PredictorAgent) detectAnomalies(data []DataPoint) ([]Anomaly, error) {
+func (a *PredictorAgent) detectAnomalies(data []PredictorDataPoint) ([]Anomaly, error) {
 	anomalies := []Anomaly{}
 
 	if !a.anomalyDetector.Enabled {
@@ -1196,7 +1196,7 @@ func (a *PredictorAgent) detectAnomalies(data []DataPoint) ([]Anomaly, error) {
 }
 
 // generateForecasts generates forecasts from the data
-func (a *PredictorAgent) generateForecasts(data []DataPoint) ([]Forecast, error) {
+func (a *PredictorAgent) generateForecasts(data []PredictorDataPoint) ([]Forecast, error) {
 	forecasts := []Forecast{}
 
 	if !a.forecaster.Enabled {
@@ -1276,7 +1276,7 @@ func (a *PredictorAgent) generateForecasts(data []DataPoint) ([]Forecast, error)
 }
 
 // analyzeTrends analyzes trends in the data
-func (a *PredictorAgent) analyzeTrends(data []DataPoint) ([]Trend, error) {
+func (a *PredictorAgent) analyzeTrends(data []PredictorDataPoint) ([]Trend, error) {
 	trends := []Trend{}
 
 	if !a.trendAnalyzer.Enabled {
@@ -1462,22 +1462,22 @@ func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anoma
 
 // Helper functions
 
-func (a *PredictorAgent) applyPreprocessor(data []DataPoint, preprocessor *Preprocessor) []DataPoint {
+func (a *PredictorAgent) applyPreprocessor(data []PredictorDataPoint, preprocessor *Preprocessor) []PredictorDataPoint {
 	// Simple preprocessing for demonstration
 	return data
 }
 
-func (a *PredictorAgent) applyNormalizer(data []DataPoint, normalizer *Normalizer) []DataPoint {
+func (a *PredictorAgent) applyNormalizer(data []PredictorDataPoint, normalizer *Normalizer) []PredictorDataPoint {
 	// Simple normalization for demonstration
 	return data
 }
 
-func (a *PredictorAgent) applyFeatureExtractor(data []DataPoint, extractor *FeatureExtractor) []DataPoint {
+func (a *PredictorAgent) applyFeatureExtractor(data []PredictorDataPoint, extractor *FeatureExtractor) []PredictorDataPoint {
 	// Simple feature extraction for demonstration
 	return data
 }
 
-func (a *PredictorAgent) validateData(data []DataPoint, validator *DataValidator) error {
+func (a *PredictorAgent) validateData(data []PredictorDataPoint, validator *DataValidator) error {
 	// Simple validation for demonstration
 	return nil
 }

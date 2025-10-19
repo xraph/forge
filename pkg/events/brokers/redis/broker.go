@@ -179,7 +179,7 @@ func (rb *RedisBroker) Connect(ctx context.Context, config interface{}) error {
 		rb.metrics.Gauge("forge.events.redis.connected").Set(1)
 	}
 
-	// OnStart pool stats collection
+	// Start pool stats collection
 	go rb.collectPoolStats(ctx)
 
 	return nil
@@ -331,7 +331,7 @@ func (rb *RedisBroker) subscribeToPubSub(ctx context.Context, topic string) (*Re
 		broker:  rb,
 	}
 
-	// OnStart message processing goroutine
+	// Start message processing goroutine
 	rb.wg.Add(1)
 	go func() {
 		defer rb.wg.Done()
@@ -357,7 +357,7 @@ func (rb *RedisBroker) subscribeToStream(ctx context.Context, stream string) (*R
 		broker:  rb,
 	}
 
-	// OnStart stream processing goroutine
+	// Start stream processing goroutine
 	rb.wg.Add(1)
 	go func() {
 		defer rb.wg.Done()

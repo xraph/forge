@@ -5,9 +5,85 @@ import (
 	"time"
 )
 
-// Plugin defines the interface for building extensible, pluggable components in an application.
-// It includes lifecycle methods, type identification, capabilities, dependencies, extensions, configuration, health checks, and metrics management.
+// PluginContext extends context.Context and provides plugin dependencies
+type PluginContext interface {
+	context.Context
+
+	// Container returns the dependency injection container
+	Container() Container
+
+	// Router returns the HTTP router
+	Router() Router
+
+	// ConfigManager returns the configuration manager
+	ConfigManager() ConfigManager
+}
+
+// pluginContext is the concrete implementation of PluginContext
+type pluginContext struct {
+	context.Context
+	container     Container
+	router        Router
+	configManager ConfigManager
+}
+
+// NewPluginContext creates a new PluginContext
+func NewPluginContext(ctx context.Context, container Container, router Router, configManager ConfigManager) PluginContext {
+	return &pluginContext{
+		Context:       ctx,
+		container:     container,
+		router:        router,
+		configManager: configManager,
+	}
+}
+
+func (pc *pluginContext) Container() Container {
+	return pc.container
+}
+
+func (pc *pluginContext) Router() Router {
+	return pc.router
+}
+
+func (pc *pluginContext) ConfigManager() ConfigManager {
+	return pc.configManager
+}
+
+// Plugin defines a simplified interface for framework plugins
 type Plugin interface {
+
+	// Name returns the name of the plugin as a string.
+	Name() string
+
+	// Version returns the version of the plugin as a string.
+	Version() string
+
+	// Start is invoked when the plugin is being started. It initializes the plugin using the provided PluginContext.
+	Start(ctx PluginContext) error
+
+	// Stop is invoked to stop the plugin. It performs cleanup tasks and releases resources before the plugin shuts down.
+	Stop(ctx context.Context) error
+
+	// Middleware returns a slice of middleware components to be registered with the router.
+	Middleware() []any
+
+	// Routes registers the HTTP routes for the plugin using the provided Router instance and returns an error if it fails.
+	Routes(r Router) error
+
+	// Services returns a list of services defined by the plugin for registration into the application container.
+	Services() []ServiceDefinition
+
+	// Controllers returns a list of HTTP controllers associated with the plugin.
+	Controllers() []Controller
+
+	// HealthCheck verifies the operational status of a plugin and returns an error if issues are detected.
+	HealthCheck(ctx context.Context) error
+}
+
+// PluginEngine defines the interface for building extensible, pluggable components in an application.
+// It includes lifecycle methods, type identification, capabilities, dependencies, extensions, configuration, health checks, and metrics management.
+// This is the complex plugin interface used by the pluginengine package.
+type PluginEngine interface {
 	// ID returns the unique identifier as a string. It is typically used to retrieve or represent the object's identity.
 	ID() string
 

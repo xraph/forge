@@ -1,0 +1,13 @@
+{
+  "title": "Guides & Examples",
+  "icon": "Map",
+  "pages": [
+    "index",
+    "database-setup",
+    "deployment",
+    "testing",
+    "migration",
+    "forge-integration",
+    "multi-orm"
+  ]
+}

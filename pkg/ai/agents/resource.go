@@ -489,16 +489,16 @@ type ResourceTrend struct {
 
 // ResourceInput represents resource monitoring input
 type ResourceInput struct {
-	SystemMetrics         SystemMetrics          `json:"system_metrics"`
-	ApplicationMetrics    ApplicationMetrics     `json:"application_metrics"`
-	InfrastructureMetrics InfrastructureMetrics  `json:"infrastructure_metrics"`
-	PerformanceMetrics    PerformanceMetrics     `json:"performance_metrics"`
-	CostMetrics           CostMetrics            `json:"cost_metrics"`
-	ServiceMetrics        ServiceMetrics         `json:"service_metrics"`
-	UserMetrics           UserMetrics            `json:"user_metrics"`
-	TimeWindow            TimeWindow             `json:"time_window"`
-	Context               ResourceContext        `json:"context"`
-	Metadata              map[string]interface{} `json:"metadata"`
+	SystemMetrics              SystemMetrics              `json:"system_metrics"`
+	ApplicationMetrics         ApplicationMetrics         `json:"application_metrics"`
+	InfrastructureMetrics      InfrastructureMetrics      `json:"infrastructure_metrics"`
+	ResourcePerformanceMetrics ResourcePerformanceMetrics `json:"performance_metrics"`
+	CostMetrics                CostMetrics                `json:"cost_metrics"`
+	ServiceMetrics             ServiceMetrics             `json:"service_metrics"`
+	UserMetrics                UserMetrics                `json:"user_metrics"`
+	TimeWindow                 TimeWindow                 `json:"time_window"`
+	Context                    ResourceContext            `json:"context"`
+	Metadata                   map[string]interface{}     `json:"metadata"`
 }
 
 // SystemMetrics contains system-level metrics
@@ -592,8 +592,8 @@ type InfrastructureMetrics struct {
 	Metadata       map[string]interface{} `json:"metadata"`
 }
 
-// PerformanceMetrics contains performance metrics
-type PerformanceMetrics struct {
+// ResourcePerformanceMetrics contains performance metrics
+type ResourcePerformanceMetrics struct {
 	AverageResponseTime time.Duration          `json:"average_response_time"`
 	P95ResponseTime     time.Duration          `json:"p95_response_time"`
 	P99ResponseTime     time.Duration          `json:"p99_response_time"`
@@ -705,7 +705,7 @@ type ResourceOutput struct {
 	ResourceAlerts              []ResourceAlert              `json:"resource_alerts"`
 	PerformanceAnalysis         PerformanceAnalysis          `json:"performance_analysis"`
 	CostAnalysis                CostAnalysis                 `json:"cost_analysis"`
-	Predictions                 []ResourcePrediction         `json:"predictions"`
+	Predictions                 []ResourceResourcePrediction `json:"predictions"`
 	Actions                     []ResourceActionItem         `json:"actions"`
 	Summary                     ResourceSummary              `json:"summary"`
 	Metadata                    map[string]interface{}       `json:"metadata"`
@@ -825,15 +825,15 @@ type CapacityInfo struct {
 }
 
 type ResourceForecast struct {
-	Horizon     time.Duration          `json:"horizon"`
-	Predictions []ResourcePrediction   `json:"predictions"`
-	Confidence  float64                `json:"confidence"`
-	Accuracy    float64                `json:"accuracy"`
-	LastUpdated time.Time              `json:"last_updated"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Horizon     time.Duration                `json:"horizon"`
+	Predictions []ResourceResourcePrediction `json:"predictions"`
+	Confidence  float64                      `json:"confidence"`
+	Accuracy    float64                      `json:"accuracy"`
+	LastUpdated time.Time                    `json:"last_updated"`
+	Metadata    map[string]interface{}       `json:"metadata"`
 }
 
-type ResourcePrediction struct {
+type ResourceResourcePrediction struct {
 	Timestamp  time.Time              `json:"timestamp"`
 	Resource   string                 `json:"resource"`
 	Metric     string                 `json:"metric"`
@@ -860,9 +860,9 @@ type ScalingImpact struct {
 }
 
 type PerformanceAnalysis struct {
-	CurrentPerformance PerformanceMetrics          `json:"current_performance"`
-	TargetPerformance  PerformanceMetrics          `json:"target_performance"`
-	PerformanceGap     PerformanceMetrics          `json:"performance_gap"`
+	CurrentPerformance ResourcePerformanceMetrics  `json:"current_performance"`
+	TargetPerformance  ResourcePerformanceMetrics  `json:"target_performance"`
+	PerformanceGap     ResourcePerformanceMetrics  `json:"performance_gap"`
 	Trends             []PerformanceTrend          `json:"trends"`
 	Bottlenecks        []PerformanceBottleneck     `json:"bottlenecks"`
 	Recommendations    []PerformanceRecommendation `json:"recommendations"`
@@ -1206,7 +1206,7 @@ func (a *ResourceAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Ag
 	costAnalysis := a.analyzeCosts(resourceInput, resourceAnalysis)
 
 	// Generate predictions
-	predictions := a.generateResourcePredictions(resourceInput, resourceAnalysis)
+	predictions := a.generateResourceResourcePredictions(resourceInput, resourceAnalysis)
 
 	// Create actions
 	actions := a.createResourceActions(optimizationRecommendations, scalingRecommendations, resourceAlerts)
@@ -1623,12 +1623,12 @@ func (a *ResourceAgent) calculateCapacity(input ResourceInput) ResourceCapacity 
 
 // generateResourceForecast generates resource forecasts
 func (a *ResourceAgent) generateResourceForecast(input ResourceInput, trends []ResourceTrend) ResourceForecast {
-	predictions := []ResourcePrediction{}
+	predictions := []ResourceResourcePrediction{}
 
 	for _, trend := range trends {
 		// Generate predictions for next 24 hours
 		for i := 1; i <= 24; i++ {
-			prediction := ResourcePrediction{
+			prediction := ResourceResourcePrediction{
 				Timestamp:  time.Now().Add(time.Duration(i) * time.Hour),
 				Resource:   trend.Resource,
 				Metric:     "usage",
@@ -1784,14 +1784,14 @@ func (a *ResourceAgent) generateResourceAlerts(input ResourceInput, analysis Res
 
 // analyzePerformance analyzes performance metrics
 func (a *ResourceAgent) analyzePerformance(input ResourceInput, analysis ResourceAnalysis) PerformanceAnalysis {
-	currentPerformance := PerformanceMetrics{
-		AverageResponseTime: input.PerformanceMetrics.AverageResponseTime,
-		P95ResponseTime:     input.PerformanceMetrics.P95ResponseTime,
-		P99ResponseTime:     input.PerformanceMetrics.P99ResponseTime,
-		Throughput:          input.PerformanceMetrics.Throughput,
-		ErrorRate:           input.PerformanceMetrics.ErrorRate,
-		SLA:                 input.PerformanceMetrics.SLA,
-		Availability:        input.PerformanceMetrics.Availability,
+	currentPerformance := ResourcePerformanceMetrics{
+		AverageResponseTime: input.ResourcePerformanceMetrics.AverageResponseTime,
+		P95ResponseTime:     input.ResourcePerformanceMetrics.P95ResponseTime,
+		P99ResponseTime:     input.ResourcePerformanceMetrics.P99ResponseTime,
+		Throughput:          input.ResourcePerformanceMetrics.Throughput,
+		ErrorRate:           input.ResourcePerformanceMetrics.ErrorRate,
+		SLA:                 input.ResourcePerformanceMetrics.SLA,
+		Availability:        input.ResourcePerformanceMetrics.Availability,
 		Timestamp:           time.Now(),
 	}
 
@@ -1808,7 +1808,7 @@ func (a *ResourceAgent) analyzePerformance(input ResourceInput, analysis Resourc
 }
 
 // calculatePerformanceScore calculates performance score
-func (a *ResourceAgent) calculatePerformanceScore(metrics PerformanceMetrics) float64 {
+func (a *ResourceAgent) calculatePerformanceScore(metrics ResourcePerformanceMetrics) float64 {
 	// Simple scoring algorithm
 	score := 100.0
 
@@ -1861,9 +1861,9 @@ func (a *ResourceAgent) analyzeCosts(input ResourceInput, analysis ResourceAnaly
 	}
 }
 
-// generateResourcePredictions generates resource predictions
-func (a *ResourceAgent) generateResourcePredictions(input ResourceInput, analysis ResourceAnalysis) []ResourcePrediction {
-	predictions := []ResourcePrediction{}
+// generateResourceResourcePredictions generates resource predictions
+func (a *ResourceAgent) generateResourceResourcePredictions(input ResourceInput, analysis ResourceAnalysis) []ResourceResourcePrediction {
+	predictions := []ResourceResourcePrediction{}
 
 	// Generate predictions based on forecast
 	for _, prediction := range analysis.Forecast.Predictions {

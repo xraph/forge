@@ -1,0 +1,772 @@
+---
+title: Multi-Tenancy Plugin
+description: Enterprise multi-tenant organization management with advanced features
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Multi-Tenancy Plugin
+
+The Multi-Tenancy plugin provides comprehensive organization management capabilities, enabling your application to support multiple isolated tenants with their own users, configurations, and data. This enterprise-grade solution includes organization management, member roles, team structures, and service decorators that make core AuthSome services multi-tenant aware.
+
+## Features
+
+- **Organization Management**: Create, update, and manage tenant organizations
+- **Member Management**: Add, remove, and manage organization members with roles
+- **Team Management**: Create teams within organizations with member assignments
+- **Invitation System**: Secure invitation workflow for adding new members
+- **Service Decorators**: Multi-tenant aware versions of core AuthSome services
+- **Role-Based Access**: Support for owner, admin, and member roles
+- **Flexible Configuration**: Per-organization configuration overrides
+- **Audit Trail**: Complete tracking of organization activities
+
+## Installation
+
+The Multi-Tenancy plugin is included in the AuthSome enterprise package:
+
+```go
+import "github.com/xraph/authsome/plugins/multitenancy"
+```
+
+## Configuration
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      multitenancy:
+        # Platform organization settings
+        platformOrganizationId: "platform"
+        defaultOrganizationName: "Default Organization"
+        
+        # Organization creation settings
+        enableOrganizationCreation: true
+        
+        # Limits
+        maxMembersPerOrganization: 100
+        maxTeamsPerOrganization: 10
+        
+        # Invitation settings
+        requireInvitation: false
+        invitationExpiryHours: 72
+    ```
+  </Tab>
+  
+  <Tab value="Environment Variables">
+    ```bash
+    # Platform organization settings
+    AUTH_MULTITENANCY_PLATFORM_ORGANIZATION_ID=platform
+    AUTH_MULTITENANCY_DEFAULT_ORGANIZATION_NAME="Default Organization"
+    
+    # Organization creation settings
+    AUTH_MULTITENANCY_ENABLE_ORGANIZATION_CREATION=true
+    
+    # Limits
+    AUTH_MULTITENANCY_MAX_MEMBERS_PER_ORGANIZATION=100
+    AUTH_MULTITENANCY_MAX_TEAMS_PER_ORGANIZATION=10
+    
+    # Invitation settings
+    AUTH_MULTITENANCY_REQUIRE_INVITATION=false
+    AUTH_MULTITENANCY_INVITATION_EXPIRY_HOURS=72
+    ```
+  </Tab>
+  
+  <Tab value="Programmatic">
+    ```go
+    config := multitenancy.Config{
+        PlatformOrganizationID:     "platform",
+        DefaultOrganizationName:    "Default Organization",
+        EnableOrganizationCreation: true,
+        MaxMembersPerOrganization:  100,
+        MaxTeamsPerOrganization:    10,
+        RequireInvitation:          false,
+        InvitationExpiryHours:      72,
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `platformOrganizationId` | string | `"platform"` | ID of the platform organization |
+| `defaultOrganizationName` | string | `"Default Organization"` | Name for the default organization in standalone mode |
+| `enableOrganizationCreation` | bool | `true` | Allow users to create new organizations |
+| `maxMembersPerOrganization` | int | `100` | Maximum members per organization |
+| `maxTeamsPerOrganization` | int | `10` | Maximum teams per organization |
+| `requireInvitation` | bool | `false` | Require invitation to join organizations |
+| `invitationExpiryHours` | int | `72` | Hours until invitations expire |
+
+## Usage
+
+### Basic Setup
+
+```go
+package main
+
+import (
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/multitenancy"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create Forge app
+    app := forge.New()
+    
+    // Initialize AuthSome
+    auth := authsome.New(authsome.Config{
+        // ... other config
+    })
+    
+    // Add multitenancy plugin
+    multitenancyPlugin := multitenancy.NewPlugin()
+    auth.Use(multitenancyPlugin)
+    
+    // Mount to Forge
+    auth.Mount(app, "/auth")
+    
+    app.Listen(":8080")
+}
+```
+
+### Organization Management
+
+<Tabs items={['Create Organization', 'Get Organization', 'Update Organization', 'List Organizations']}>
+  <Tab value="Create Organization">
+    ```go
+    // Create a new organization
+    org, err := orgService.CreateOrganization(ctx, &organization.CreateOrganizationRequest{
+        Name: "Acme Corp",
+        Slug: "acme-corp",
+        Metadata: map[string]interface{}{
+            "industry": "technology",
+            "size": "startup",
+        },
+    })
+    if err != nil {
+        return err
+    }
+    
+    fmt.Printf("Created organization: %s (ID: %s)\n", org.Name, org.ID)
+    ```
+  </Tab>
+  
+  <Tab value="Get Organization">
+    ```go
+    // Get organization by ID
+    org, err := orgService.GetOrganization(ctx, "org_123")
+    if err != nil {
+        return err
+    }
+    
+    // Get organization by slug
+    org, err = orgService.GetOrganizationBySlug(ctx, "acme-corp")
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+  
+  <Tab value="Update Organization">
+    ```go
+    // Update organization
+    updatedOrg, err := orgService.UpdateOrganization(ctx, "org_123", &organization.UpdateOrganizationRequest{
+        Name: stringPtr("Acme Corporation"),
+        Logo: stringPtr("https://example.com/logo.png"),
+        Metadata: map[string]interface{}{
+            "industry": "technology",
+            "size": "growth",
+        },
+    })
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+  
+  <Tab value="List Organizations">
+    ```go
+    // List organizations with pagination
+    orgs, err := orgService.ListOrganizations(ctx, &organization.ListOrganizationsRequest{
+        Limit:  10,
+        Offset: 0,
+    })
+    if err != nil {
+        return err
+    }
+    
+    for _, org := range orgs.Organizations {
+        fmt.Printf("Organization: %s (%s)\n", org.Name, org.ID)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Member Management
+
+<Tabs items={['Add Member', 'Update Member Role', 'Remove Member', 'List Members']}>
+  <Tab value="Add Member">
+    ```go
+    // Add a member to an organization
+    member, err := orgService.AddMember(ctx, "org_123", "user_456", organization.RoleMember)
+    if err != nil {
+        return err
+    }
+    
+    fmt.Printf("Added member: %s with role: %s\n", member.UserID, member.Role)
+    ```
+  </Tab>
+  
+  <Tab value="Update Member Role">
+    ```go
+    // Update member role
+    updatedMember, err := orgService.UpdateMember(ctx, "org_123", "user_456", &organization.UpdateMemberRequest{
+        Role: stringPtr(organization.RoleAdmin),
+    })
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+  
+  <Tab value="Remove Member">
+    ```go
+    // Remove member from organization
+    err := orgService.RemoveMember(ctx, "org_123", "user_456")
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+  
+  <Tab value="List Members">
+    ```go
+    // List organization members
+    members, err := orgService.ListMembers(ctx, "org_123", &organization.ListMembersRequest{
+        Limit:  10,
+        Offset: 0,
+    })
+    if err != nil {
+        return err
+    }
+    
+    for _, member := range members.Members {
+        fmt.Printf("Member: %s (Role: %s)\n", member.UserID, member.Role)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Team Management
+
+<Tabs items={['Create Team', 'Add Team Member', 'List Teams', 'Team Members']}>
+  <Tab value="Create Team">
+    ```go
+    // Create a team within an organization
+    team, err := orgService.CreateTeam(ctx, "org_123", &organization.CreateTeamRequest{
+        Name:        "Engineering",
+        Description: stringPtr("Software engineering team"),
+        Metadata: map[string]interface{}{
+            "department": "engineering",
+        },
+    })
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+  
+  <Tab value="Add Team Member">
+    ```go
+    // Add member to team
+    err := orgService.AddTeamMember(ctx, "team_789", "member_456", "member")
+    if err != nil {
+        return err
+    }
+    
+    // Add team lead
+    err = orgService.AddTeamMember(ctx, "team_789", "member_123", "lead")
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+  
+  <Tab value="List Teams">
+    ```go
+    // List teams in organization
+    teams, err := orgService.ListTeams(ctx, "org_123", &organization.ListTeamsRequest{
+        Limit:  10,
+        Offset: 0,
+    })
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+  
+  <Tab value="Team Members">
+    ```go
+    // List team members
+    members, err := orgService.ListTeamMembers(ctx, "team_789", &organization.ListTeamMembersRequest{
+        Limit:  10,
+        Offset: 0,
+    })
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Invitation System
+
+<Tabs items={['Send Invitation', 'Accept Invitation', 'List Invitations']}>
+  <Tab value="Send Invitation">
+    ```go
+    // Send invitation to join organization
+    invitation, err := orgService.InviteMember(ctx, "org_123", &organization.InviteMemberRequest{
+        Email: "newuser@example.com",
+        Role:  organization.RoleMember,
+        Message: stringPtr("Welcome to our organization!"),
+    })
+    if err != nil {
+        return err
+    }
+    
+    fmt.Printf("Invitation sent: %s\n", invitation.Token)
+    ```
+  </Tab>
+  
+  <Tab value="Accept Invitation">
+    ```go
+    // Accept invitation
+    member, err := orgService.AcceptInvitation(ctx, "invitation_token_here")
+    if err != nil {
+        return err
+    }
+    
+    fmt.Printf("Invitation accepted, member added: %s\n", member.UserID)
+    ```
+  </Tab>
+  
+  <Tab value="List Invitations">
+    ```go
+    // List pending invitations
+    invitations, err := orgService.ListInvitations(ctx, "org_123", &organization.ListInvitationsRequest{
+        Status: stringPtr("pending"),
+        Limit:  10,
+        Offset: 0,
+    })
+    if err != nil {
+        return err
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Service Decorators
+
+The multitenancy plugin provides decorators that wrap core AuthSome services to make them multi-tenant aware:
+
+### Multi-Tenant User Service
+
+```go
+// The user service decorator automatically adds users to organizations
+// when they sign up and filters users by organization context
+
+// Example: Creating a user automatically adds them to the current organization
+user, err := userService.Create(ctx, &user.CreateUserRequest{
+    Email:    "user@example.com",
+    Password: "securepassword",
+})
+// User is automatically added as a member of the organization from context
+```
+
+### Multi-Tenant Auth Service
+
+```go
+// The auth service decorator ensures authentication happens within
+// organization context and verifies organization membership
+
+// Example: Sign in verifies user belongs to the organization
+response, err := authService.SignIn(ctx, &auth.SignInRequest{
+    Email:    "user@example.com",
+    Password: "securepassword",
+})
+// Only succeeds if user is a member of the organization in context
+```
+
+### Multi-Tenant Session Service
+
+```go
+// The session service decorator includes organization context in sessions
+// and ensures sessions are scoped to organizations
+
+// Sessions automatically include organization information
+session, err := sessionService.Create(ctx, userID)
+// Session includes organization context for multi-tenant operations
+```
+
+## API Endpoints
+
+The multitenancy plugin registers the following HTTP endpoints:
+
+### Organization Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/organizations` | Create new organization |
+| `GET` | `/organizations` | List organizations |
+| `GET` | `/organizations/{id}` | Get organization by ID |
+| `PUT` | `/organizations/{id}` | Update organization |
+| `DELETE` | `/organizations/{id}` | Delete organization |
+
+### Member Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/organizations/{id}/members` | List organization members |
+| `POST` | `/organizations/{id}/members` | Add member to organization |
+| `PUT` | `/organizations/{id}/members/{userId}` | Update member role |
+| `DELETE` | `/organizations/{id}/members/{userId}` | Remove member |
+
+### Team Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/organizations/{id}/teams` | List organization teams |
+| `POST` | `/organizations/{id}/teams` | Create team |
+| `GET` | `/organizations/{id}/teams/{teamId}` | Get team details |
+| `PUT` | `/organizations/{id}/teams/{teamId}` | Update team |
+| `DELETE` | `/organizations/{id}/teams/{teamId}` | Delete team |
+| `POST` | `/organizations/{id}/teams/{teamId}/members` | Add team member |
+| `DELETE` | `/organizations/{id}/teams/{teamId}/members/{userId}` | Remove team member |
+
+### Invitation Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/organizations/{id}/invitations` | Send invitation |
+| `GET` | `/organizations/{id}/invitations` | List invitations |
+| `POST` | `/invitations/{token}/accept` | Accept invitation |
+| `DELETE` | `/invitations/{token}` | Cancel invitation |
+
+## Database Schema
+
+The multitenancy plugin creates the following database tables:
+
+### Organizations Table
+
+```sql
+CREATE TABLE organizations (
+    id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    slug VARCHAR UNIQUE NOT NULL,
+    logo VARCHAR,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Members Table
+
+```sql
+CREATE TABLE members (
+    id VARCHAR PRIMARY KEY,
+    organization_id VARCHAR NOT NULL REFERENCES organizations(id),
+    user_id VARCHAR NOT NULL,
+    role VARCHAR NOT NULL DEFAULT 'member',
+    status VARCHAR NOT NULL DEFAULT 'active',
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(organization_id, user_id)
+);
+```
+
+### Teams Table
+
+```sql
+CREATE TABLE teams (
+    id VARCHAR PRIMARY KEY,
+    organization_id VARCHAR NOT NULL REFERENCES organizations(id),
+    name VARCHAR NOT NULL,
+    description TEXT,
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Team Members Table
+
+```sql
+CREATE TABLE team_members (
+    team_id VARCHAR NOT NULL REFERENCES teams(id),
+    member_id VARCHAR NOT NULL REFERENCES members(id),
+    role VARCHAR NOT NULL DEFAULT 'member',
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (team_id, member_id)
+);
+```
+
+### Invitations Table
+
+```sql
+CREATE TABLE invitations (
+    id VARCHAR PRIMARY KEY,
+    organization_id VARCHAR NOT NULL REFERENCES organizations(id),
+    email VARCHAR NOT NULL,
+    role VARCHAR NOT NULL DEFAULT 'member',
+    token VARCHAR UNIQUE NOT NULL,
+    status VARCHAR NOT NULL DEFAULT 'pending',
+    message TEXT,
+    invited_by VARCHAR,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+## Roles and Permissions
+
+The multitenancy plugin supports three built-in roles:
+
+### Owner
+- Full organization management
+- Add/remove members and admins
+- Delete organization
+- Manage billing and settings
+
+### Admin
+- Manage members (except owners)
+- Create and manage teams
+- Update organization settings
+- Send invitations
+
+### Member
+- View organization information
+- Participate in teams
+- Basic organization access
+
+## Best Practices
+
+<Callout type="info">
+**Organization Context**: Always ensure organization context is properly set in your middleware to enable multi-tenant functionality.
+</Callout>
+
+### Setting Organization Context
+
+```go
+// Middleware to set organization context
+func OrganizationMiddleware(orgService *organization.Service) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        // Extract organization from subdomain, header, or path
+        orgSlug := extractOrgSlug(c)
+        
+        org, err := orgService.GetOrganizationBySlug(c.Context(), orgSlug)
+        if err != nil {
+            return c.JSON(404, map[string]string{"error": "Organization not found"})
+        }
+        
+        // Set organization context
+        ctx := context.WithValue(c.Context(), interfaces.OrganizationContextKey, org.ID)
+        c.SetContext(ctx)
+        
+        return c.Next()
+    }
+}
+```
+
+### Error Handling
+
+```go
+// Handle common multitenancy errors
+switch {
+case errors.Is(err, organization.ErrOrganizationNotFound):
+    return c.JSON(404, map[string]string{"error": "Organization not found"})
+case errors.Is(err, organization.ErrMemberNotFound):
+    return c.JSON(404, map[string]string{"error": "Member not found"})
+case errors.Is(err, organization.ErrInsufficientPermissions):
+    return c.JSON(403, map[string]string{"error": "Insufficient permissions"})
+case errors.Is(err, organization.ErrMaxMembersExceeded):
+    return c.JSON(400, map[string]string{"error": "Maximum members exceeded"})
+}
+```
+
+## Security Considerations
+
+<Callout type="warning">
+**Data Isolation**: Ensure proper organization context is always set to prevent data leakage between tenants.
+</Callout>
+
+- **Organization Isolation**: All data access must be scoped to the current organization
+- **Permission Checks**: Verify user permissions before allowing organization operations
+- **Invitation Security**: Use cryptographically secure tokens for invitations
+- **Rate Limiting**: Implement rate limiting on organization creation and invitations
+- **Audit Logging**: Log all organization management activities
+
+## Troubleshooting
+
+### Common Issues
+
+**Organization context not found**
+```
+Error: organization context not found
+```
+Solution: Ensure organization middleware is properly configured and organization context is set.
+
+**Member already exists**
+```
+Error: member already exists in organization
+```
+Solution: Check if user is already a member before adding them to the organization.
+
+**Maximum members exceeded**
+```
+Error: maximum members per organization exceeded
+```
+Solution: Increase the `maxMembersPerOrganization` limit or remove inactive members.
+
+### Debug Mode
+
+Enable debug logging to troubleshoot multitenancy issues:
+
+```yaml
+auth:
+  multitenancy:
+    debug: true
+```
+
+## Migration Guide
+
+### From Single-Tenant to Multi-Tenant
+
+1. **Enable the plugin** in your configuration
+2. **Run migrations** to create organization tables
+3. **Create default organization** for existing users
+4. **Update middleware** to set organization context
+5. **Test thoroughly** to ensure data isolation
+
+### Existing Data Migration
+
+```go
+// Example migration script to move existing users to default organization
+func migrateToMultiTenant(db *bun.DB, orgService *organization.Service) error {
+    // Create default organization
+    defaultOrg, err := orgService.CreateOrganization(ctx, &organization.CreateOrganizationRequest{
+        Name: "Default Organization",
+        Slug: "default",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Add all existing users to default organization
+    var users []User
+    err = db.NewSelect().Model(&users).Scan(ctx)
+    if err != nil {
+        return err
+    }
+    
+    for _, user := range users {
+        _, err = orgService.AddMember(ctx, defaultOrg.ID, user.ID, organization.RoleMember)
+        if err != nil {
+            return err
+        }
+    }
+    
+    return nil
+}
+```
+
+## Examples
+
+### Complete Multi-Tenant Application
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/multitenancy"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New()
+    
+    // Initialize AuthSome with multitenancy
+    auth := authsome.New(authsome.Config{
+        Database: authsome.DatabaseConfig{
+            Driver: "postgres",
+            URL:    "postgres://user:pass@localhost/authsome",
+        },
+    })
+    
+    // Add multitenancy plugin
+    multitenancyPlugin := multitenancy.NewPlugin()
+    auth.Use(multitenancyPlugin)
+    
+    // Organization context middleware
+    app.Use(func(c *forge.Context) error {
+        // Extract organization from subdomain
+        host := c.Request().Host
+        orgSlug := extractSubdomain(host)
+        
+        if orgSlug != "" {
+            orgService := auth.GetOrganizationService()
+            org, err := orgService.GetOrganizationBySlug(c.Context(), orgSlug)
+            if err != nil {
+                return c.JSON(404, map[string]string{"error": "Organization not found"})
+            }
+            
+            ctx := context.WithValue(c.Context(), "organization_id", org.ID)
+            c.SetContext(ctx)
+        }
+        
+        return c.Next()
+    })
+    
+    // Mount AuthSome
+    auth.Mount(app, "/auth")
+    
+    // Custom organization routes
+    app.GET("/api/current-org", getCurrentOrganization)
+    app.POST("/api/switch-org", switchOrganization)
+    
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+
+func extractSubdomain(host string) string {
+    // Extract subdomain from host
+    // e.g., "acme.myapp.com" -> "acme"
+    // Implementation depends on your domain structure
+    return ""
+}
+
+func getCurrentOrganization(c *forge.Context) error {
+    orgID := c.Context().Value("organization_id").(string)
+    // Return current organization info
+    return c.JSON(200, map[string]string{"organization_id": orgID})
+}
+
+func switchOrganization(c *forge.Context) error {
+    // Handle organization switching logic
+    return c.JSON(200, map[string]string{"status": "switched"})
+}
+```
+
+## Related Documentation
+
+- [Organization Management Guide](/docs/go/guides/organizations)
+- [Multi-Tenant Architecture](/docs/go/concepts/multi-tenancy)
+- [Service Decorators](/docs/go/concepts/service-decorators)
+- [Enterprise Security](/docs/go/plugins/enterprise/security)

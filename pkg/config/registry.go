@@ -90,7 +90,7 @@ func (sr *SourceRegistryImpl) UnregisterSource(name string) error {
 		return common.ErrServiceNotFound(name)
 	}
 
-	// OnStop watching if the source is being watched
+	// Stop watching if the source is being watched
 	if source.IsWatchable() {
 		if err := source.StopWatch(); err != nil {
 			if sr.logger != nil {
@@ -365,7 +365,7 @@ func (sr *SourceRegistryImpl) Clear() error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
-	// OnStop watching for all sources
+	// Stop watching for all sources
 	for name, source := range sr.sources {
 		if source.IsWatchable() {
 			if err := source.StopWatch(); err != nil {

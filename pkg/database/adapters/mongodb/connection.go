@@ -158,7 +158,7 @@ func (mc *MongoConnection) Transaction(ctx context.Context, fn func(tx interface
 	start := time.Now()
 	mc.IncrementTransactionCount()
 
-	// OnStart a session for the transaction
+	// Start a session for the transaction
 	sess, err := mc.client.StartSession()
 	if err != nil {
 		mc.IncrementErrorCount()

@@ -12,7 +12,7 @@ import (
 
 // CacheService integrates cache management with the DI container
 type CacheService struct {
-	manager       *CacheManager
+	manager       cachecore.CacheManager
 	config        *CacheConfig
 	container     common.Container
 	logger        common.Logger
@@ -48,7 +48,7 @@ func (cs *CacheService) Dependencies() []string {
 }
 
 // OnStart starts the cache service
-func (cs *CacheService) OnStart(ctx context.Context) error {
+func (cs *CacheService) Start(ctx context.Context) error {
 	if cs.started {
 		return common.ErrServiceAlreadyStarted(common.CacheServiceKey, nil)
 	}
@@ -67,32 +67,15 @@ func (cs *CacheService) OnStart(ctx context.Context) error {
 	}
 
 	// Create cache manager
-	managerConfig := &CacheManagerConfig{
-		DefaultCache: cs.config.DefaultCache,
-		Caches:       make(map[string]CacheBackendConfig),
-	}
-
-	// Convert backend configs
-	for name, backend := range cs.config.Backends {
-		managerConfig.Caches[name] = CacheBackendConfig{
-			Type:      backend.Type,
-			Enabled:   backend.Enabled,
-			Config:    backend.Config,
-			Priority:  backend.Priority,
-			Tags:      backend.Tags,
-			Namespace: backend.Namespace,
-		}
-	}
-
-	cs.manager = NewCacheManager(managerConfig, cs.logger, cs.metrics)
+	cs.manager = cachecore.NewDefaultCacheManager(cs.config, cs.logger, cs.metrics)
 
 	// Configure cache backends
 	if err := cs.configureCacheBackends(); err != nil {
 		return common.ErrServiceStartFailed(common.CacheServiceKey, err)
 	}
 
-	// OnStart cache manager
-	if err := cs.manager.OnStart(ctx); err != nil {
+	// Start cache manager
+	if err := cs.manager.Start(ctx); err != nil {
 		return common.ErrServiceStartFailed(common.CacheServiceKey, err)
 	}
 
@@ -119,7 +102,7 @@ func (cs *CacheService) OnStart(ctx context.Context) error {
 }
 
 // OnStop stops the cache service
-func (cs *CacheService) OnStop(ctx context.Context) error {
+func (cs *CacheService) Stop(ctx context.Context) error {
 	if !cs.started {
 		return common.ErrServiceNotStarted(common.CacheServiceKey, nil)
 	}
@@ -127,9 +110,9 @@ func (cs *CacheService) OnStop(ctx context.Context) error {
 	cs.logger.Info("stopping cache service", logger.String("service", cs.Name()))
 	stopTime := time.Now()
 
-	// OnStop cache manager
+	// Stop cache manager
 	if cs.manager != nil {
-		if err := cs.manager.OnStop(ctx); err != nil {
+		if err := cs.manager.Stop(ctx); err != nil {
 			cs.logger.Error("failed to stop cache manager", logger.Error(err))
 		}
 	}
@@ -166,7 +149,7 @@ func (cs *CacheService) OnHealthCheck(ctx context.Context) error {
 }
 
 // GetManager returns the cache manager
-func (cs *CacheService) GetManager() *CacheManager {
+func (cs *CacheService) GetManager() cachecore.CacheManager {
 	return cs.manager
 }
 
@@ -204,7 +187,22 @@ func (cs *CacheService) GetStats() map[string]CacheStats {
 		return make(map[string]CacheStats)
 	}
 
-	return cs.manager.GetStats()
+	coreStats := cs.manager.GetStats()
+	stats := make(map[string]CacheStats)
+	for name, stat := range coreStats {
+		stats[name] = CacheStats{
+			TotalRequests:  stat.Hits + stat.Misses,
+			HitRequests:    stat.Hits,
+			MissRequests:   stat.Misses,
+			SetRequests:    stat.Sets,
+			DeleteRequests: stat.Deletes,
+			ErrorRequests:  stat.Errors,
+			TotalSize:      stat.Size,
+			LastAccess:     stat.LastAccess,
+			HitRate:        stat.HitRatio,
+		}
+	}
+	return stats
 }
 
 // GetCombinedStats returns combined statistics
@@ -213,7 +211,18 @@ func (cs *CacheService) GetCombinedStats() CacheStats {
 		return CacheStats{}
 	}
 
-	return cs.manager.GetCombinedStats()
+	coreStat := cs.manager.GetCombinedStats()
+	return CacheStats{
+		TotalRequests:  coreStat.Hits + coreStat.Misses,
+		HitRequests:    coreStat.Hits,
+		MissRequests:   coreStat.Misses,
+		SetRequests:    coreStat.Sets,
+		DeleteRequests: coreStat.Deletes,
+		ErrorRequests:  coreStat.Errors,
+		TotalSize:      coreStat.Size,
+		LastAccess:     coreStat.LastAccess,
+		HitRate:        coreStat.HitRatio,
+	}
 }
 
 // loadConfiguration loads the cache configuration
@@ -313,7 +322,7 @@ func (cs *CacheService) registerWithContainer() error {
 	// Register cache manager
 	if err := cs.container.Register(common.ServiceDefinition{
 		Name:         "cache-manager",
-		Type:         (*CacheManager)(nil),
+		Type:         (*cachecore.CacheManager)(nil),
 		Instance:     cs.manager,
 		Singleton:    true,
 		Dependencies: []string{common.CacheServiceKey},

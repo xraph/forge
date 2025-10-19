@@ -64,7 +64,7 @@ func NewLongPollingHandler(logger common.Logger, metrics common.Metrics) streami
 		connections: make(map[string]*LongPollingConnection),
 	}
 
-	// OnStart cleanup routine
+	// Start cleanup routine
 	go handler.cleanupRoutine()
 
 	return handler
@@ -410,7 +410,7 @@ func NewLongPollingConnection(
 		pollingConfig:  pollingConfig,
 	}
 
-	// OnStart message handler
+	// Start message handler
 	go conn.messageHandler()
 
 	// Mark as connected

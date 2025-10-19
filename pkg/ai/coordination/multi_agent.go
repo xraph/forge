@@ -11,16 +11,7 @@ import (
 	"github.com/xraph/forge/pkg/logger"
 )
 
-// CoordinationStrategy defines different coordination strategies
-type CoordinationStrategy string
-
-const (
-	CoordinationStrategyHierarchical CoordinationStrategy = "hierarchical" // Top-down coordination
-	CoordinationStrategyDistributed  CoordinationStrategy = "distributed"  // Peer-to-peer coordination
-	CoordinationStrategyConsensus    CoordinationStrategy = "consensus"    // Consensus-based coordination
-	CoordinationStrategyMarket       CoordinationStrategy = "market"       // Market-based coordination
-	CoordinationStrategySwarm        CoordinationStrategy = "swarm"        // Swarm intelligence
-)
+// Removed duplicate declarations - they're defined in coordination.go
 
 // MultiAgentCoordinatorConfig contains configuration for multi-agent coordination
 type MultiAgentCoordinatorConfig struct {
@@ -46,15 +37,7 @@ const (
 	ConflictResolutionArbitration  ConflictResolutionPolicy = "arbitration"
 )
 
-// CommunicationProtocol defines how agents communicate
-type CommunicationProtocol string
-
-const (
-	CommunicationProtocolDirect      CommunicationProtocol = "direct"      // Direct method calls
-	CommunicationProtocolMessage     CommunicationProtocol = "message"     // Message passing
-	CommunicationProtocolEventBus    CommunicationProtocol = "event_bus"   // Event-based communication
-	CommunicationProtocolDistributed CommunicationProtocol = "distributed" // Distributed messaging
-)
+// Removed duplicate CommunicationProtocol - defined in communication.go
 
 // AgentRole defines the role of an agent in the coordination
 type AgentRole string
@@ -151,8 +134,8 @@ type MultiAgentCoordinator struct {
 	decisions    map[string]*CoordinationDecision
 	leader       string
 	strategy     CoordinationStrategy
-	communicator CommunicationManager
-	consensus    ConsensusManager
+	communicator *CommunicationManager
+	consensus    *ConsensusManager
 	logger       common.Logger
 	metrics      common.Metrics
 	started      bool
@@ -204,17 +187,17 @@ func (mac *MultiAgentCoordinator) Start(ctx context.Context) error {
 		return fmt.Errorf("multi-agent coordinator already started")
 	}
 
-	// OnStart communication manager
+	// Start communication manager
 	if err := mac.communicator.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start communication manager: %w", err)
 	}
 
-	// OnStart consensus manager
+	// Start consensus manager
 	if err := mac.consensus.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start consensus manager: %w", err)
 	}
 
-	// OnStart coordination routines
+	// Start coordination routines
 	go mac.coordinationLoop(ctx)
 	go mac.healthMonitoring(ctx)
 	go mac.loadBalancing(ctx)
@@ -245,7 +228,7 @@ func (mac *MultiAgentCoordinator) Stop(ctx context.Context) error {
 		return fmt.Errorf("multi-agent coordinator not started")
 	}
 
-	// OnStop all agents
+	// Stop all agents
 	for _, agent := range mac.agents {
 		if err := agent.Agent.Stop(ctx); err != nil {
 			if mac.logger != nil {
@@ -257,14 +240,14 @@ func (mac *MultiAgentCoordinator) Stop(ctx context.Context) error {
 		}
 	}
 
-	// OnStop consensus manager
+	// Stop consensus manager
 	if err := mac.consensus.Stop(ctx); err != nil {
 		if mac.logger != nil {
 			mac.logger.Error("failed to stop consensus manager", logger.Error(err))
 		}
 	}
 
-	// OnStop communication manager
+	// Stop communication manager
 	if err := mac.communicator.Stop(ctx); err != nil {
 		if mac.logger != nil {
 			mac.logger.Error("failed to stop communication manager", logger.Error(err))
@@ -361,7 +344,7 @@ func (mac *MultiAgentCoordinator) UnregisterAgent(agentID string) error {
 		return fmt.Errorf("agent %s not found", agentID)
 	}
 
-	// OnStop the agent
+	// Stop the agent
 	if err := agent.Agent.Stop(context.Background()); err != nil {
 		if mac.logger != nil {
 			mac.logger.Error("failed to stop agent during unregistration",
@@ -875,7 +858,7 @@ func (mac *MultiAgentCoordinator) consensusDecision(ctx context.Context, decisio
 func (mac *MultiAgentCoordinator) hierarchicalDecision(ctx context.Context, decision *CoordinationDecision) error {
 	// Leader makes the decision
 	if mac.leader != "" {
-		if leader, exists := mac.agents[mac.leader]; exists {
+		if _, exists := mac.agents[mac.leader]; exists {
 			// Simple implementation - leader decides
 			decision.Result = "approved_by_leader"
 			decision.Confidence = 0.9

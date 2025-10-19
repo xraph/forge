@@ -1,0 +1,1302 @@
+---
+title: Two-Factor Authentication Plugin
+description: TOTP, SMS, and backup codes for enhanced security
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+The Two-Factor Authentication (2FA) plugin adds an extra layer of security to your application by requiring users to provide a second form of authentication in addition to their password. It supports TOTP (Time-based One-Time Password), SMS codes, and backup codes.
+
+## Features
+
+- **TOTP Support**: Compatible with Google Authenticator, Authy, and other TOTP apps
+- **SMS Authentication**: Send verification codes via SMS
+- **Backup Codes**: Recovery codes for when primary 2FA method is unavailable
+- **Multiple Methods**: Users can enable multiple 2FA methods
+- **QR Code Generation**: Easy setup with QR codes for TOTP apps
+- **Rate Limiting**: Protection against brute force attacks
+- **Audit Logging**: Complete 2FA event tracking
+
+## Installation
+
+The Two-Factor Authentication plugin is included in the core AuthSome package:
+
+```go
+import "github.com/xraph/authsome/plugins/twofactor"
+```
+
+## Configuration
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      plugins:
+        twoFactor:
+          enabled: true
+          
+          # General settings
+          issuer: "MyApp"
+          accountName: "{email}"  # Template for account name
+          
+          # Supported methods
+          methods: ["totp", "sms"]
+          defaultMethod: "totp"
+          
+          # TOTP settings
+          totp:
+            enabled: true
+            secretLength: 32
+            period: 30
+            digits: 6
+            algorithm: "SHA1"  # SHA1, SHA256, SHA512
+            window: 1  # Allow codes from previous/next period
+            
+          # SMS settings
+          sms:
+            enabled: true
+            codeLength: 6
+            expiry: "5m"
+            provider: "twilio"  # twilio, aws-sns, custom
+            rateLimit:
+              maxAttempts: 3
+              window: "1h"
+              
+          # Backup codes
+          backupCodes:
+            enabled: true
+            count: 10
+            length: 8
+            regenerateThreshold: 3  # Regenerate when <= 3 codes left
+            
+          # Security settings
+          security:
+            maxVerificationAttempts: 5
+            verificationWindow: "5m"
+            requireForRoles: ["admin", "moderator"]
+            gracePeriod: "7d"  # Time to set up 2FA after requirement
+            
+          # Recovery settings
+          recovery:
+            enabled: true
+            adminCanDisable: true
+            supportEmail: "support@myapp.com"
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # Basic settings
+    AUTH_PLUGINS_TWO_FACTOR_ENABLED=true
+    AUTH_PLUGINS_TWO_FACTOR_ISSUER=MyApp
+    AUTH_PLUGINS_TWO_FACTOR_METHODS=totp,sms
+
+    # TOTP settings
+    AUTH_PLUGINS_TWO_FACTOR_TOTP_ENABLED=true
+    AUTH_PLUGINS_TWO_FACTOR_TOTP_SECRET_LENGTH=32
+    AUTH_PLUGINS_TWO_FACTOR_TOTP_PERIOD=30
+    AUTH_PLUGINS_TWO_FACTOR_TOTP_DIGITS=6
+
+    # SMS settings
+    AUTH_PLUGINS_TWO_FACTOR_SMS_ENABLED=true
+    AUTH_PLUGINS_TWO_FACTOR_SMS_CODE_LENGTH=6
+    AUTH_PLUGINS_TWO_FACTOR_SMS_EXPIRY=5m
+    AUTH_PLUGINS_TWO_FACTOR_SMS_PROVIDER=twilio
+
+    # Backup codes
+    AUTH_PLUGINS_TWO_FACTOR_BACKUP_CODES_ENABLED=true
+    AUTH_PLUGINS_TWO_FACTOR_BACKUP_CODES_COUNT=10
+    AUTH_PLUGINS_TWO_FACTOR_BACKUP_CODES_LENGTH=8
+
+    # Security
+    AUTH_PLUGINS_TWO_FACTOR_SECURITY_MAX_VERIFICATION_ATTEMPTS=5
+    AUTH_PLUGINS_TWO_FACTOR_SECURITY_REQUIRE_FOR_ROLES=admin,moderator
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    config := &twofactor.Config{
+        Enabled: true,
+        Issuer:  "MyApp",
+        AccountName: "{email}",
+        Methods: []string{"totp", "sms"},
+        DefaultMethod: "totp",
+        
+        TOTP: twofactor.TOTPConfig{
+            Enabled:      true,
+            SecretLength: 32,
+            Period:       30,
+            Digits:       6,
+            Algorithm:    "SHA1",
+            Window:       1,
+        },
+        
+        SMS: twofactor.SMSConfig{
+            Enabled:    true,
+            CodeLength: 6,
+            Expiry:     5 * time.Minute,
+            Provider:   "twilio",
+            RateLimit: twofactor.RateLimit{
+                MaxAttempts: 3,
+                Window:      time.Hour,
+            },
+        },
+        
+        BackupCodes: twofactor.BackupCodesConfig{
+            Enabled:              true,
+            Count:                10,
+            Length:               8,
+            RegenerateThreshold:  3,
+        },
+        
+        Security: twofactor.SecurityConfig{
+            MaxVerificationAttempts: 5,
+            VerificationWindow:      5 * time.Minute,
+            RequireForRoles:         []string{"admin", "moderator"},
+            GracePeriod:            7 * 24 * time.Hour,
+        },
+        
+        Recovery: twofactor.RecoveryConfig{
+            Enabled:        true,
+            AdminCanDisable: true,
+            SupportEmail:   "support@myapp.com",
+        },
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Plugin Registration
+
+Register the Two-Factor Authentication plugin with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/twofactor"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance with configuration
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register Two-Factor Authentication plugin
+    twoFactorPlugin := twofactor.NewPlugin()
+    auth.RegisterPlugin(twoFactorPlugin)
+
+    // Initialize plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## API Endpoints
+
+The Two-Factor Authentication plugin provides the following endpoints:
+
+### Setup TOTP
+
+```http
+POST /auth/2fa/totp/setup
+Authorization: Bearer session_token
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "secret": "JBSWY3DPEHPK3PXP",
+  "qrCode": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...",
+  "backupCodes": [
+    "12345678",
+    "87654321",
+    "11223344"
+  ],
+  "setupUrl": "otpauth://totp/MyApp:user@example.com?secret=JBSWY3DPEHPK3PXP&issuer=MyApp"
+}
+```
+
+### Verify TOTP Setup
+
+```http
+POST /auth/2fa/totp/verify-setup
+Authorization: Bearer session_token
+Content-Type: application/json
+
+{
+  "code": "123456"
+}
+```
+
+### Setup SMS
+
+```http
+POST /auth/2fa/sms/setup
+Authorization: Bearer session_token
+Content-Type: application/json
+
+{
+  "phoneNumber": "+1234567890"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "SMS verification code sent to +1234567890",
+  "maskedNumber": "+123****7890"
+}
+```
+
+### Verify SMS Setup
+
+```http
+POST /auth/2fa/sms/verify-setup
+Authorization: Bearer session_token
+Content-Type: application/json
+
+{
+  "code": "123456"
+}
+```
+
+### Verify 2FA During Login
+
+```http
+POST /auth/2fa/verify
+Content-Type: application/json
+
+{
+  "sessionId": "temp_session_id",
+  "code": "123456",
+  "method": "totp"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "twoFactorEnabled": true
+  },
+  "session": {
+    "id": "session_456",
+    "expiresAt": "2024-01-22T10:30:00Z"
+  }
+}
+```
+
+### Use Backup Code
+
+```http
+POST /auth/2fa/backup-code
+Content-Type: application/json
+
+{
+  "sessionId": "temp_session_id",
+  "backupCode": "12345678"
+}
+```
+
+### Get 2FA Status
+
+```http
+GET /auth/2fa/status
+Authorization: Bearer session_token
+```
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "methods": [
+    {
+      "type": "totp",
+      "enabled": true,
+      "setupAt": "2024-01-15T10:30:00Z"
+    },
+    {
+      "type": "sms",
+      "enabled": true,
+      "phoneNumber": "+123****7890",
+      "setupAt": "2024-01-15T11:00:00Z"
+    }
+  ],
+  "backupCodesRemaining": 8,
+  "lastUsed": "2024-01-20T09:15:00Z"
+}
+```
+
+### Disable 2FA
+
+```http
+POST /auth/2fa/disable
+Authorization: Bearer session_token
+Content-Type: application/json
+
+{
+  "password": "current_password",
+  "method": "totp"  // Optional: disable specific method
+}
+```
+
+### Generate New Backup Codes
+
+```http
+POST /auth/2fa/backup-codes/regenerate
+Authorization: Bearer session_token
+Content-Type: application/json
+
+{
+  "password": "current_password"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "backupCodes": [
+    "87654321",
+    "11223344",
+    "55667788"
+  ],
+  "message": "New backup codes generated. Previous codes are now invalid."
+}
+```
+
+## Frontend Integration
+
+### JavaScript/TypeScript
+
+```typescript
+interface TwoFactorSetup {
+  secret: string;
+  qrCode: string;
+  backupCodes: string[];
+  setupUrl: string;
+}
+
+interface TwoFactorStatus {
+  enabled: boolean;
+  methods: Array<{
+    type: string;
+    enabled: boolean;
+    phoneNumber?: string;
+    setupAt: string;
+  }>;
+  backupCodesRemaining: number;
+  lastUsed?: string;
+}
+
+class TwoFactorService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = '/auth/2fa') {
+    this.baseUrl = baseUrl;
+  }
+
+  async setupTOTP(): Promise<TwoFactorSetup> {
+    const response = await fetch(`${this.baseUrl}/totp/setup`, {
+      method: 'POST',
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to setup TOTP');
+    }
+
+    return response.json();
+  }
+
+  async verifyTOTPSetup(code: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${this.baseUrl}/totp/verify-setup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ code }),
+    });
+
+    return response.json();
+  }
+
+  async setupSMS(phoneNumber: string): Promise<{ success: boolean; maskedNumber: string }> {
+    const response = await fetch(`${this.baseUrl}/sms/setup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ phoneNumber }),
+    });
+
+    return response.json();
+  }
+
+  async verifySMSSetup(code: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${this.baseUrl}/sms/verify-setup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ code }),
+    });
+
+    return response.json();
+  }
+
+  async verify2FA(sessionId: string, code: string, method: string = 'totp'): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/verify`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sessionId, code, method }),
+    });
+
+    return response.json();
+  }
+
+  async useBackupCode(sessionId: string, backupCode: string): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/backup-code`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ sessionId, backupCode }),
+    });
+
+    return response.json();
+  }
+
+  async getStatus(): Promise<TwoFactorStatus> {
+    const response = await fetch(`${this.baseUrl}/status`);
+    return response.json();
+  }
+
+  async disable2FA(password: string, method?: string): Promise<{ success: boolean }> {
+    const response = await fetch(`${this.baseUrl}/disable`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ password, method }),
+    });
+
+    return response.json();
+  }
+
+  async regenerateBackupCodes(password: string): Promise<{ backupCodes: string[] }> {
+    const response = await fetch(`${this.baseUrl}/backup-codes/regenerate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ password }),
+    });
+
+    return response.json();
+  }
+}
+
+// Usage
+const twoFactor = new TwoFactorService();
+
+// Setup TOTP
+async function setupTOTP() {
+  try {
+    const setup = await twoFactor.setupTOTP();
+    
+    // Display QR code to user
+    document.getElementById('qr-code').src = setup.qrCode;
+    
+    // Show backup codes
+    displayBackupCodes(setup.backupCodes);
+    
+    // Wait for user to scan and enter code
+    const code = await getUserInput('Enter the 6-digit code from your authenticator app:');
+    
+    const result = await twoFactor.verifyTOTPSetup(code);
+    if (result.success) {
+      alert('TOTP setup successful!');
+    }
+  } catch (error) {
+    console.error('TOTP setup failed:', error);
+  }
+}
+
+// Setup SMS
+async function setupSMS() {
+  try {
+    const phoneNumber = await getUserInput('Enter your phone number:');
+    
+    const setup = await twoFactor.setupSMS(phoneNumber);
+    alert(`SMS sent to ${setup.maskedNumber}`);
+    
+    const code = await getUserInput('Enter the 6-digit code from SMS:');
+    
+    const result = await twoFactor.verifySMSSetup(code);
+    if (result.success) {
+      alert('SMS 2FA setup successful!');
+    }
+  } catch (error) {
+    console.error('SMS setup failed:', error);
+  }
+}
+
+// 2FA verification during login
+async function handle2FALogin(sessionId: string) {
+  try {
+    const method = await getUserChoice(['totp', 'sms', 'backup']);
+    
+    if (method === 'backup') {
+      const backupCode = await getUserInput('Enter backup code:');
+      const result = await twoFactor.useBackupCode(sessionId, backupCode);
+      
+      if (result.success) {
+        // Login successful
+        window.location.href = '/dashboard';
+      }
+    } else {
+      const code = await getUserInput('Enter 6-digit code:');
+      const result = await twoFactor.verify2FA(sessionId, code, method);
+      
+      if (result.success) {
+        // Login successful
+        window.location.href = '/dashboard';
+      }
+    }
+  } catch (error) {
+    console.error('2FA verification failed:', error);
+  }
+}
+
+function displayBackupCodes(codes: string[]) {
+  const container = document.getElementById('backup-codes');
+  container.innerHTML = `
+    <h3>Backup Codes</h3>
+    <p>Save these codes in a safe place. Each code can only be used once.</p>
+    <ul>
+      ${codes.map(code => `<li><code>${code}</code></li>`).join('')}
+    </ul>
+  `;
+}
+
+async function getUserInput(prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    const input = window.prompt(prompt);
+    resolve(input || '');
+  });
+}
+
+async function getUserChoice(options: string[]): Promise<string> {
+  // Implementation depends on your UI framework
+  return options[0];
+}
+```
+
+### React Component
+
+```jsx
+import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode.react';
+
+function TwoFactorSetup() {
+  const [step, setStep] = useState('choose'); // choose, totp-setup, sms-setup, verify
+  const [totpSetup, setTotpSetup] = useState(null);
+  const [smsSetup, setSmsSetup] = useState(null);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const twoFactor = new TwoFactorService();
+
+  const handleTOTPSetup = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      const setup = await twoFactor.setupTOTP();
+      setTotpSetup(setup);
+      setStep('totp-setup');
+    } catch (err) {
+      setError('Failed to setup TOTP');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSMSSetup = async () => {
+    const phoneNumber = prompt('Enter your phone number:');
+    if (!phoneNumber) return;
+
+    setLoading(true);
+    setError('');
+    
+    try {
+      const setup = await twoFactor.setupSMS(phoneNumber);
+      setSmsSetup(setup);
+      setStep('sms-setup');
+    } catch (err) {
+      setError('Failed to setup SMS');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifySetup = async () => {
+    if (!verificationCode) return;
+
+    setLoading(true);
+    setError('');
+    
+    try {
+      let result;
+      if (step === 'totp-setup') {
+        result = await twoFactor.verifyTOTPSetup(verificationCode);
+      } else {
+        result = await twoFactor.verifySMSSetup(verificationCode);
+      }
+
+      if (result.success) {
+        alert('2FA setup successful!');
+        setStep('choose');
+        setVerificationCode('');
+      } else {
+        setError('Invalid verification code');
+      }
+    } catch (err) {
+      setError('Verification failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (step === 'choose') {
+    return (
+      <div className="two-factor-setup">
+        <h2>Setup Two-Factor Authentication</h2>
+        <p>Choose a method to secure your account:</p>
+        
+        <div className="methods">
+          <button 
+            onClick={handleTOTPSetup}
+            disabled={loading}
+            className="method-button"
+          >
+            📱 Authenticator App (TOTP)
+            <small>Use Google Authenticator, Authy, or similar apps</small>
+          </button>
+          
+          <button 
+            onClick={handleSMSSetup}
+            disabled={loading}
+            className="method-button"
+          >
+            📱 SMS Verification
+            <small>Receive codes via text message</small>
+          </button>
+        </div>
+        
+        {error && <div className="error">{error}</div>}
+      </div>
+    );
+  }
+
+  if (step === 'totp-setup') {
+    return (
+      <div className="totp-setup">
+        <h2>Setup Authenticator App</h2>
+        
+        <div className="setup-steps">
+          <div className="step">
+            <h3>1. Scan QR Code</h3>
+            <div className="qr-code">
+              <QRCode value={totpSetup.setupUrl} size={200} />
+            </div>
+            <p>Or manually enter this secret: <code>{totpSetup.secret}</code></p>
+          </div>
+          
+          <div className="step">
+            <h3>2. Enter Verification Code</h3>
+            <input
+              type="text"
+              value={verificationCode}
+              onChange={(e) => setVerificationCode(e.target.value)}
+              placeholder="Enter 6-digit code"
+              maxLength={6}
+            />
+            <button 
+              onClick={handleVerifySetup}
+              disabled={loading || verificationCode.length !== 6}
+            >
+              {loading ? 'Verifying...' : 'Verify & Enable'}
+            </button>
+          </div>
+          
+          <div className="step">
+            <h3>3. Save Backup Codes</h3>
+            <div className="backup-codes">
+              {totpSetup.backupCodes.map((code, index) => (
+                <code key={index}>{code}</code>
+              ))}
+            </div>
+            <p>Save these codes in a safe place. Each can only be used once.</p>
+          </div>
+        </div>
+        
+        {error && <div className="error">{error}</div>}
+        
+        <button onClick={() => setStep('choose')} className="back-button">
+          ← Back
+        </button>
+      </div>
+    );
+  }
+
+  if (step === 'sms-setup') {
+    return (
+      <div className="sms-setup">
+        <h2>Setup SMS Verification</h2>
+        
+        <div className="setup-steps">
+          <div className="step">
+            <h3>Verification Code Sent</h3>
+            <p>We sent a 6-digit code to {smsSetup.maskedNumber}</p>
+            
+            <input
+              type="text"
+              value={verificationCode}
+              onChange={(e) => setVerificationCode(e.target.value)}
+              placeholder="Enter 6-digit code"
+              maxLength={6}
+            />
+            <button 
+              onClick={handleVerifySetup}
+              disabled={loading || verificationCode.length !== 6}
+            >
+              {loading ? 'Verifying...' : 'Verify & Enable'}
+            </button>
+          </div>
+        </div>
+        
+        {error && <div className="error">{error}</div>}
+        
+        <button onClick={() => setStep('choose')} className="back-button">
+          ← Back
+        </button>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function TwoFactorLogin({ sessionId, onSuccess }) {
+  const [method, setMethod] = useState('totp');
+  const [code, setCode] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const twoFactor = new TwoFactorService();
+
+  const handleVerify = async () => {
+    if (!code) return;
+
+    setLoading(true);
+    setError('');
+    
+    try {
+      let result;
+      if (method === 'backup') {
+        result = await twoFactor.useBackupCode(sessionId, code);
+      } else {
+        result = await twoFactor.verify2FA(sessionId, code, method);
+      }
+
+      if (result.success) {
+        onSuccess(result);
+      } else {
+        setError(result.error || 'Verification failed');
+      }
+    } catch (err) {
+      setError('Verification failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="two-factor-login">
+      <h2>Two-Factor Authentication</h2>
+      <p>Please enter your verification code to continue.</p>
+      
+      <div className="method-selector">
+        <label>
+          <input
+            type="radio"
+            value="totp"
+            checked={method === 'totp'}
+            onChange={(e) => setMethod(e.target.value)}
+          />
+          Authenticator App
+        </label>
+        <label>
+          <input
+            type="radio"
+            value="sms"
+            checked={method === 'sms'}
+            onChange={(e) => setMethod(e.target.value)}
+          />
+          SMS Code
+        </label>
+        <label>
+          <input
+            type="radio"
+            value="backup"
+            checked={method === 'backup'}
+            onChange={(e) => setMethod(e.target.value)}
+          />
+          Backup Code
+        </label>
+      </div>
+      
+      <div className="verification-input">
+        <input
+          type="text"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder={method === 'backup' ? 'Enter backup code' : 'Enter 6-digit code'}
+          maxLength={method === 'backup' ? 8 : 6}
+        />
+        <button 
+          onClick={handleVerify}
+          disabled={loading || !code}
+        >
+          {loading ? 'Verifying...' : 'Verify'}
+        </button>
+      </div>
+      
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+
+export { TwoFactorSetup, TwoFactorLogin };
+```
+
+## Server-Side Integration
+
+### Middleware for 2FA Requirement
+
+```go
+package main
+
+import (
+    "net/http"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New()
+    auth, _ := authsome.New(config)
+    
+    // Mount AuthSome
+    auth.Mount(app, "/auth")
+    
+    // Admin routes requiring 2FA
+    admin := app.Group("/admin")
+    admin.Use(auth.RequireAuth())
+    admin.Use(auth.Require2FA()) // Require 2FA for admin routes
+    
+    admin.GET("/users", func(c *forge.Context) error {
+        // Only accessible with 2FA
+        return c.JSON(http.StatusOK, map[string]string{
+            "message": "Admin panel accessed with 2FA",
+        })
+    })
+    
+    // Optional 2FA for sensitive operations
+    api := app.Group("/api")
+    api.Use(auth.RequireAuth())
+    
+    api.POST("/transfer-money", func(c *forge.Context) error {
+        user := auth.GetUser(c)
+        
+        // Check if user has 2FA enabled for sensitive operations
+        if !user.TwoFactorEnabled {
+            return c.JSON(http.StatusForbidden, map[string]string{
+                "error": "2FA required for money transfers",
+            })
+        }
+        
+        // Verify 2FA for this specific operation
+        if !auth.Verify2FAForOperation(c, "money_transfer") {
+            return c.JSON(http.StatusForbidden, map[string]string{
+                "error": "2FA verification required",
+            })
+        }
+        
+        // Process money transfer
+        return c.JSON(http.StatusOK, map[string]string{
+            "message": "Transfer completed",
+        })
+    })
+    
+    app.Listen(":8080")
+}
+```
+
+### Custom 2FA Hooks
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/xraph/authsome"
+)
+
+func main() {
+    auth, _ := authsome.New(config)
+    
+    // Hook for when 2FA is enabled
+    auth.RegisterHook("twofactor.enabled", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        method := data["method"].(string)
+        
+        log.Printf("User %s enabled 2FA method: %s", userID, method)
+        
+        // Send notification email
+        // Update user security score
+        // Log security event
+        
+        return nil
+    })
+    
+    // Hook for failed 2FA attempts
+    auth.RegisterHook("twofactor.verification_failed", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        method := data["method"].(string)
+        attempts := data["attempts"].(int)
+        
+        log.Printf("Failed 2FA attempt for user %s (method: %s, attempts: %d)", userID, method, attempts)
+        
+        // Implement security measures
+        if attempts >= 5 {
+            // Lock account or send alert
+            return fmt.Errorf("too many failed 2FA attempts")
+        }
+        
+        return nil
+    })
+    
+    // Hook for backup code usage
+    auth.RegisterHook("twofactor.backup_code_used", func(ctx context.Context, data map[string]interface{}) error {
+        userID := data["user_id"].(string)
+        remaining := data["remaining_codes"].(int)
+        
+        log.Printf("User %s used backup code, %d remaining", userID, remaining)
+        
+        // Send warning if running low
+        if remaining <= 3 {
+            // Send email notification to generate new codes
+        }
+        
+        return nil
+    })
+}
+```
+
+## SMS Provider Configuration
+
+<Tabs items={['Twilio', 'AWS SNS', 'Custom Provider']}>
+  <Tab value="Twilio">
+    ```yaml
+    auth:
+      plugins:
+        twoFactor:
+          sms:
+            provider: "twilio"
+            twilio:
+              accountSid: "${TWILIO_ACCOUNT_SID}"
+              authToken: "${TWILIO_AUTH_TOKEN}"
+              fromNumber: "+1234567890"
+              serviceSid: "${TWILIO_VERIFY_SERVICE_SID}"  # Optional: for Verify API
+    ```
+
+    ```go
+    // Custom Twilio configuration
+    config := &twofactor.SMSConfig{
+        Provider: "twilio",
+        Twilio: twofactor.TwilioConfig{
+            AccountSID:  os.Getenv("TWILIO_ACCOUNT_SID"),
+            AuthToken:   os.Getenv("TWILIO_AUTH_TOKEN"),
+            FromNumber:  "+1234567890",
+            ServiceSID:  os.Getenv("TWILIO_VERIFY_SERVICE_SID"),
+        },
+    }
+    ```
+  </Tab>
+  <Tab value="AWS SNS">
+    ```yaml
+    auth:
+      plugins:
+        twoFactor:
+          sms:
+            provider: "aws-sns"
+            awsSNS:
+              region: "us-east-1"
+              accessKeyId: "${AWS_ACCESS_KEY_ID}"
+              secretAccessKey: "${AWS_SECRET_ACCESS_KEY}"
+              senderName: "MyApp"
+    ```
+
+    ```go
+    // Custom AWS SNS configuration
+    config := &twofactor.SMSConfig{
+        Provider: "aws-sns",
+        AWSSNS: twofactor.AWSSNSConfig{
+            Region:          "us-east-1",
+            AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+            SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+            SenderName:      "MyApp",
+        },
+    }
+    ```
+  </Tab>
+  <Tab value="Custom Provider">
+    ```go
+    // Implement custom SMS provider
+    type CustomSMSProvider struct {
+        apiKey string
+        baseURL string
+    }
+
+    func (p *CustomSMSProvider) SendSMS(phoneNumber, message string) error {
+        // Implement your SMS sending logic
+        return nil
+    }
+
+    // Register custom provider
+    func main() {
+        auth, _ := authsome.New(config)
+        
+        customProvider := &CustomSMSProvider{
+            apiKey:  os.Getenv("CUSTOM_SMS_API_KEY"),
+            baseURL: "https://api.customsms.com",
+        }
+        
+        // Register the custom provider
+        twoFactorPlugin := twofactor.NewPlugin()
+        twoFactorPlugin.RegisterSMSProvider("custom", customProvider)
+        
+        auth.RegisterPlugin(twoFactorPlugin)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Security Best Practices
+
+<Callout type="warn">
+**Security Recommendations**: Always use HTTPS, implement proper rate limiting, securely store TOTP secrets, and provide clear backup recovery options for users.
+</Callout>
+
+### TOTP Security
+
+1. **Secret Generation**: Use cryptographically secure random generation
+2. **Secret Storage**: Encrypt TOTP secrets in database
+3. **Time Synchronization**: Ensure server time is accurate
+4. **Window Tolerance**: Allow small time drift (±30 seconds)
+
+### SMS Security
+
+1. **Rate Limiting**: Limit SMS requests per phone number
+2. **Code Expiry**: Short expiration times (5 minutes)
+3. **Provider Security**: Use reputable SMS providers
+4. **Phone Verification**: Verify phone number ownership
+
+### Backup Code Security
+
+1. **Secure Generation**: Use cryptographically secure random codes
+2. **One-Time Use**: Invalidate codes after use
+3. **Secure Storage**: Hash backup codes in database
+4. **Limited Quantity**: Provide reasonable number of codes (8-12)
+
+### General Security
+
+1. **Rate Limiting**: Limit verification attempts
+2. **Audit Logging**: Log all 2FA events
+3. **Recovery Process**: Secure account recovery procedures
+4. **User Education**: Provide clear setup instructions
+
+## Troubleshooting
+
+<Tabs items={['TOTP Issues', 'SMS Issues', 'Backup Code Issues']}>
+  <Tab value="TOTP Issues">
+    ### Time Synchronization Problems
+    
+    **Problem**: TOTP codes not working
+    
+    **Solutions**:
+    1. Check server time synchronization
+    2. Increase time window tolerance
+    3. Verify user's device time
+    4. Check TOTP algorithm settings
+    
+    ### QR Code Not Scanning
+    
+    **Problem**: Authenticator apps can't scan QR code
+    
+    **Solutions**:
+    1. Verify QR code generation
+    2. Check setupUrl format
+    3. Provide manual secret entry option
+    4. Test with multiple authenticator apps
+    
+    ### Secret Storage Issues
+    
+    **Problem**: TOTP secrets not persisting
+    
+    **Solutions**:
+    ```go
+    // Ensure proper secret encryption
+    encryptedSecret, err := encrypt(secret)
+    if err != nil {
+        return fmt.Errorf("failed to encrypt TOTP secret: %w", err)
+    }
+    
+    // Store encrypted secret
+    user.TOTPSecret = encryptedSecret
+    ```
+  </Tab>
+  <Tab value="SMS Issues">
+    ### SMS Not Delivered
+    
+    **Problem**: Users not receiving SMS codes
+    
+    **Solutions**:
+    1. Check SMS provider configuration
+    2. Verify phone number format
+    3. Check provider account balance
+    4. Review delivery reports
+    
+    ### Rate Limiting Issues
+    
+    **Problem**: SMS requests being blocked
+    
+    **Solutions**:
+    ```go
+    // Implement proper rate limiting
+    config := &twofactor.SMSConfig{
+        RateLimit: twofactor.RateLimit{
+            MaxAttempts: 3,
+            Window:      time.Hour,
+            PerPhone:    true,
+        },
+    }
+    ```
+    
+    ### Provider Errors
+    
+    **Problem**: SMS provider API errors
+    
+    **Solutions**:
+    1. Check API credentials
+    2. Verify account status
+    3. Review error responses
+    4. Implement retry logic
+  </Tab>
+  <Tab value="Backup Code Issues">
+    ### Codes Not Working
+    
+    **Problem**: Backup codes failing validation
+    
+    **Solutions**:
+    1. Check code hashing algorithm
+    2. Verify database storage
+    3. Ensure case-insensitive comparison
+    4. Check for code expiration
+    
+    ### Code Generation Problems
+    
+    **Problem**: Backup codes not generating
+    
+    **Solutions**:
+    ```go
+    // Ensure proper code generation
+    func generateBackupCodes(count, length int) ([]string, error) {
+        codes := make([]string, count)
+        for i := 0; i < count; i++ {
+            code, err := generateSecureCode(length)
+            if err != nil {
+                return nil, err
+            }
+            codes[i] = code
+        }
+        return codes, nil
+    }
+    ```
+    
+    ### Storage Issues
+    
+    **Problem**: Backup codes not persisting
+    
+    **Solutions**:
+    1. Check database schema
+    2. Verify code hashing
+    3. Ensure proper transactions
+    4. Test code retrieval
+  </Tab>
+</Tabs>
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Username Authentication"
+    description="Enable username-based login alongside email"
+    href="/docs/go/plugins/core/username"
+  />
+  <Card
+    title="Anonymous Authentication"
+    description="Support guest user sessions"
+    href="/docs/go/plugins/core/anonymous"
+  />
+  <Card
+    title="Advanced Plugins"
+    description="Explore advanced authentication methods"
+    href="/docs/go/plugins/advanced"
+  />
+  <Card
+    title="Security Best Practices"
+    description="Comprehensive security guidelines"
+    href="/docs/go/concepts/security"
+  />
+</Cards>

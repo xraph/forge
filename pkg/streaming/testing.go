@@ -123,7 +123,7 @@ func (ts *TestServer) Stop() error {
 		return fmt.Errorf("test server not running")
 	}
 
-	// OnStop all connections
+	// Stop all connections
 	for _, conn := range ts.connections {
 		conn.Close()
 	}
@@ -133,7 +133,7 @@ func (ts *TestServer) Stop() error {
 		cleanup()
 	}
 
-	// OnStop server
+	// Stop server
 	ts.server.Close()
 	ts.running = false
 
@@ -312,7 +312,7 @@ func NewTestConnection(protocol string, wsConn *websocket.Conn, logger common.Lo
 		stats:    ConnectionStats{ConnectedAt: time.Now()},
 	}
 
-	// OnStart reading messages
+	// Start reading messages
 	go conn.readMessages()
 
 	return conn
@@ -556,7 +556,7 @@ func (tc *TestClient) Connect(serverURL string) error {
 
 	tc.connection = NewTestConnection("websocket", conn, tc.logger)
 
-	// OnStart receiving messages
+	// Start receiving messages
 	go tc.receiveMessages()
 
 	return nil
@@ -900,12 +900,12 @@ func (tm *testMetrics) Dependencies() []string {
 	panic("implement me")
 }
 
-func (tm *testMetrics) OnStart(ctx context.Context) error {
+func (tm *testMetrics) Start(ctx context.Context) error {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (tm *testMetrics) OnStop(ctx context.Context) error {
+func (tm *testMetrics) Stop(ctx context.Context) error {
 	// TODO implement me
 	panic("implement me")
 }

@@ -263,7 +263,7 @@ func (fm *DefaultMessageFilterManager) ApplyFilters(ctx context.Context, message
 			if fm.metrics != nil {
 				fm.metrics.Counter("streaming.messages.blocked", "filter", filter.Name()).Inc()
 			}
-			return result // OnStop processing on block
+			return result // Stop processing on block
 
 		case FilterActionModify:
 			if filterResult.FilteredMessage != nil {
@@ -301,7 +301,7 @@ func (fm *DefaultMessageFilterManager) ApplyFilters(ctx context.Context, message
 			if fm.metrics != nil {
 				fm.metrics.Counter("streaming.messages.quarantined", "filter", filter.Name()).Inc()
 			}
-			return result // OnStop processing on quarantine
+			return result // Stop processing on quarantine
 
 		case FilterActionAllow:
 			// Continue processing

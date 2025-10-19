@@ -1,0 +1,1573 @@
+---
+title: Passkey Authentication
+description: WebAuthn-based passwordless authentication with biometrics and hardware keys
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Passkey Authentication Plugin
+
+The Passkey plugin provides WebAuthn-based passwordless authentication, enabling users to authenticate using biometrics (fingerprint, face recognition), hardware security keys, or platform authenticators.
+
+## Features
+
+- **WebAuthn Standard**: Full compliance with W3C WebAuthn specification
+- **Biometric Authentication**: Support for fingerprint, face recognition, and other biometric methods
+- **Hardware Security Keys**: Compatible with FIDO2/WebAuthn security keys
+- **Platform Authenticators**: Support for built-in authenticators (Touch ID, Windows Hello, etc.)
+- **Resident Keys**: Discoverable credentials for usernameless authentication
+- **Attestation Support**: Verify authenticator attestation for enhanced security
+- **Multi-Device Support**: Register multiple authenticators per user
+- **Backup Credentials**: Fallback authentication methods
+- **Rate Limiting**: Protection against brute force attacks
+- **Audit Logging**: Complete audit trail of authentication events
+
+## Installation
+
+Install the Passkey plugin:
+
+```bash
+go get github.com/xraph/authsome/plugins/passkey
+```
+
+## Configuration
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      plugins:
+        passkey:
+          enabled: true
+          
+          # Relying Party Configuration
+          rpId: "example.com"                    # Your domain
+          rpName: "Example Application"          # Display name
+          rpOrigin: "https://example.com"        # Origin URL (HTTPS required)
+          
+          # Authentication Settings
+          userVerification: "preferred"          # required, preferred, discouraged
+          attestation: "none"                    # none, indirect, direct
+          timeout: "60s"                         # Authentication timeout
+          
+          # Authenticator Selection
+          authenticatorSelection:
+            requireResidentKey: false            # Require discoverable credentials
+            userVerification: "preferred"       # User verification requirement
+            authenticatorAttachment: ""         # platform, cross-platform, or empty
+          
+          # Security Settings
+          allowedCredentialTypes:
+            - "public-key"
+          allowedAlgorithms:
+            - -7   # ES256
+            - -35  # ES384
+            - -36  # ES512
+            - -257 # RS256
+            - -258 # RS384
+            - -259 # RS512
+            - -37  # PS256
+            - -38  # PS384
+            - -39  # PS512
+          
+          # Rate Limiting
+          rateLimit:
+            enabled: true
+            maxAttempts: 5
+            window: "5m"
+            blockDuration: "15m"
+          
+          # Cache Settings
+          cache:
+            challengeExpiry: "5m"
+            credentialExpiry: "24h"
+            cleanupInterval: "1h"
+          
+          # Backup Authentication
+          allowBackupAuth: true
+          backupMethods:
+            - "email-password"
+            - "magic-link"
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # Basic Configuration
+    AUTH_PLUGINS_PASSKEY_ENABLED=true
+    AUTH_PLUGINS_PASSKEY_RP_ID=example.com
+    AUTH_PLUGINS_PASSKEY_RP_NAME="Example Application"
+    AUTH_PLUGINS_PASSKEY_RP_ORIGIN=https://example.com
+
+    # Authentication Settings
+    AUTH_PLUGINS_PASSKEY_USER_VERIFICATION=preferred
+    AUTH_PLUGINS_PASSKEY_ATTESTATION=none
+    AUTH_PLUGINS_PASSKEY_TIMEOUT=60s
+
+    # Authenticator Selection
+    AUTH_PLUGINS_PASSKEY_REQUIRE_RESIDENT_KEY=false
+    AUTH_PLUGINS_PASSKEY_AUTHENTICATOR_ATTACHMENT=""
+
+    # Rate Limiting
+    AUTH_PLUGINS_PASSKEY_RATE_LIMIT_ENABLED=true
+    AUTH_PLUGINS_PASSKEY_RATE_LIMIT_MAX_ATTEMPTS=5
+    AUTH_PLUGINS_PASSKEY_RATE_LIMIT_WINDOW=5m
+    AUTH_PLUGINS_PASSKEY_RATE_LIMIT_BLOCK_DURATION=15m
+
+    # Cache Settings
+    AUTH_PLUGINS_PASSKEY_CACHE_CHALLENGE_EXPIRY=5m
+    AUTH_PLUGINS_PASSKEY_CACHE_CREDENTIAL_EXPIRY=24h
+    AUTH_PLUGINS_PASSKEY_CACHE_CLEANUP_INTERVAL=1h
+
+    # Backup Authentication
+    AUTH_PLUGINS_PASSKEY_ALLOW_BACKUP_AUTH=true
+    AUTH_PLUGINS_PASSKEY_BACKUP_METHODS="email-password,magic-link"
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    package main
+
+    import (
+        "time"
+        
+        "github.com/xraph/authsome"
+        "github.com/xraph/authsome/plugins/passkey"
+    )
+
+    func setupPasskeyPlugin(auth *authsome.Auth) error {
+        config := &passkey.Config{
+            Enabled: true,
+            
+            // Relying Party Configuration
+            RPID:     "example.com",
+            RPName:   "Example Application",
+            RPOrigin: "https://example.com",
+            
+            // Authentication Settings
+            UserVerification: "preferred",
+            Attestation:      "none",
+            Timeout:          60 * time.Second,
+            
+            // Authenticator Selection
+            AuthenticatorSelection: passkey.AuthenticatorSelection{
+                RequireResidentKey:      false,
+                UserVerification:        "preferred",
+                AuthenticatorAttachment: "",
+            },
+            
+            // Security Settings
+            AllowedCredentialTypes: []string{"public-key"},
+            AllowedAlgorithms: []int{
+                -7,   // ES256
+                -35,  // ES384
+                -36,  // ES512
+                -257, // RS256
+                -258, // RS384
+                -259, // RS512
+                -37,  // PS256
+                -38,  // PS384
+                -39,  // PS512
+            },
+            
+            // Rate Limiting
+            RateLimit: passkey.RateLimitConfig{
+                Enabled:       true,
+                MaxAttempts:   5,
+                Window:        5 * time.Minute,
+                BlockDuration: 15 * time.Minute,
+            },
+            
+            // Cache Settings
+            Cache: passkey.CacheConfig{
+                ChallengeExpiry:   5 * time.Minute,
+                CredentialExpiry:  24 * time.Hour,
+                CleanupInterval:   time.Hour,
+            },
+            
+            // Backup Authentication
+            AllowBackupAuth: true,
+            BackupMethods:   []string{"email-password", "magic-link"},
+        }
+
+        plugin := passkey.NewPlugin(config)
+        return auth.RegisterPlugin(plugin)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Plugin Registration
+
+Register the Passkey plugin with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/passkey"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register Passkey plugin
+    passkeyPlugin := passkey.NewPlugin()
+    auth.RegisterPlugin(passkeyPlugin)
+
+    // Initialize plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## API Endpoints
+
+The Passkey plugin provides the following endpoints:
+
+### Registration Flow
+
+#### 1. Initiate Registration
+
+```http
+POST /auth/passkey/register/initiate
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "name": "John Doe",
+  "displayName": "John Doe"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "challenge": {
+    "challenge": "base64-encoded-challenge",
+    "rp": {
+      "id": "example.com",
+      "name": "Example Application"
+    },
+    "user": {
+      "id": "base64-encoded-user-id",
+      "name": "user@example.com",
+      "displayName": "John Doe"
+    },
+    "pubKeyCredParams": [
+      {"type": "public-key", "alg": -7},
+      {"type": "public-key", "alg": -257}
+    ],
+    "authenticatorSelection": {
+      "requireResidentKey": false,
+      "userVerification": "preferred"
+    },
+    "timeout": 60000,
+    "attestation": "none"
+  },
+  "token": "registration-token"
+}
+```
+
+#### 2. Complete Registration
+
+```http
+POST /auth/passkey/register/complete
+Content-Type: application/json
+
+{
+  "token": "registration-token",
+  "credential": {
+    "id": "credential-id",
+    "rawId": "base64-encoded-raw-id",
+    "response": {
+      "attestationObject": "base64-encoded-attestation",
+      "clientDataJSON": "base64-encoded-client-data"
+    },
+    "type": "public-key"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "user-id",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "emailVerified": true,
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  "session": {
+    "id": "session-id",
+    "expiresAt": "2024-01-01T01:00:00Z"
+  },
+  "credential": {
+    "id": "credential-id",
+    "name": "Platform Authenticator",
+    "createdAt": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+### Authentication Flow
+
+#### 1. Initiate Authentication
+
+```http
+POST /auth/passkey/authenticate/initiate
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "challenge": {
+    "challenge": "base64-encoded-challenge",
+    "timeout": 60000,
+    "rpId": "example.com",
+    "allowCredentials": [
+      {
+        "type": "public-key",
+        "id": "base64-encoded-credential-id"
+      }
+    ],
+    "userVerification": "preferred"
+  },
+  "token": "authentication-token"
+}
+```
+
+#### 2. Complete Authentication
+
+```http
+POST /auth/passkey/authenticate/complete
+Content-Type: application/json
+
+{
+  "token": "authentication-token",
+  "credential": {
+    "id": "credential-id",
+    "rawId": "base64-encoded-raw-id",
+    "response": {
+      "authenticatorData": "base64-encoded-authenticator-data",
+      "clientDataJSON": "base64-encoded-client-data",
+      "signature": "base64-encoded-signature",
+      "userHandle": "base64-encoded-user-handle"
+    },
+    "type": "public-key"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "user": {
+    "id": "user-id",
+    "email": "user@example.com",
+    "name": "John Doe"
+  },
+  "session": {
+    "id": "session-id",
+    "expiresAt": "2024-01-01T01:00:00Z"
+  }
+}
+```
+
+### Credential Management
+
+#### List User Credentials
+
+```http
+GET /auth/passkey/credentials
+Authorization: Bearer <session-token>
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "credentials": [
+    {
+      "id": "credential-id-1",
+      "name": "iPhone Touch ID",
+      "type": "platform",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "lastUsed": "2024-01-02T00:00:00Z",
+      "counter": 42
+    },
+    {
+      "id": "credential-id-2",
+      "name": "YubiKey 5",
+      "type": "cross-platform",
+      "createdAt": "2024-01-01T00:00:00Z",
+      "lastUsed": "2024-01-01T12:00:00Z",
+      "counter": 15
+    }
+  ]
+}
+```
+
+#### Add New Credential
+
+```http
+POST /auth/passkey/credentials/add
+Authorization: Bearer <session-token>
+Content-Type: application/json
+
+{
+  "name": "New Security Key"
+}
+```
+
+#### Update Credential Name
+
+```http
+PUT /auth/passkey/credentials/{credentialId}
+Authorization: Bearer <session-token>
+Content-Type: application/json
+
+{
+  "name": "Updated Credential Name"
+}
+```
+
+#### Delete Credential
+
+```http
+DELETE /auth/passkey/credentials/{credentialId}
+Authorization: Bearer <session-token>
+```
+
+### Usernameless Authentication
+
+#### Initiate Usernameless Authentication
+
+```http
+POST /auth/passkey/authenticate/usernameless
+Content-Type: application/json
+
+{}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "challenge": {
+    "challenge": "base64-encoded-challenge",
+    "timeout": 60000,
+    "rpId": "example.com",
+    "userVerification": "required"
+  },
+  "token": "authentication-token"
+}
+```
+
+## Frontend Integration
+
+### JavaScript/TypeScript Implementation
+
+```typescript
+interface PasskeyCredential {
+  id: string;
+  rawId: ArrayBuffer;
+  response: AuthenticatorAttestationResponse | AuthenticatorAssertionResponse;
+  type: string;
+}
+
+class PasskeyService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = '/auth/passkey') {
+    this.baseUrl = baseUrl;
+  }
+
+  // Check WebAuthn support
+  isSupported(): boolean {
+    return !!(navigator.credentials && window.PublicKeyCredential);
+  }
+
+  // Register new passkey
+  async register(email: string, name: string, displayName?: string): Promise<any> {
+    if (!this.isSupported()) {
+      throw new Error('WebAuthn is not supported in this browser');
+    }
+
+    // Step 1: Initiate registration
+    const initiateResponse = await fetch(`${this.baseUrl}/register/initiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, name, displayName: displayName || name }),
+    });
+
+    if (!initiateResponse.ok) {
+      const error = await initiateResponse.json();
+      throw new Error(error.message || 'Failed to initiate registration');
+    }
+
+    const { challenge, token } = await initiateResponse.json();
+
+    // Step 2: Create credential
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        ...challenge,
+        challenge: this.base64ToArrayBuffer(challenge.challenge),
+        user: {
+          ...challenge.user,
+          id: this.base64ToArrayBuffer(challenge.user.id),
+        },
+      },
+    }) as PublicKeyCredential;
+
+    if (!credential) {
+      throw new Error('Failed to create credential');
+    }
+
+    // Step 3: Complete registration
+    const completeResponse = await fetch(`${this.baseUrl}/register/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        credential: this.credentialToJSON(credential),
+      }),
+    });
+
+    if (!completeResponse.ok) {
+      const error = await completeResponse.json();
+      throw new Error(error.message || 'Failed to complete registration');
+    }
+
+    return completeResponse.json();
+  }
+
+  // Authenticate with passkey
+  async authenticate(email?: string): Promise<any> {
+    if (!this.isSupported()) {
+      throw new Error('WebAuthn is not supported in this browser');
+    }
+
+    const endpoint = email ? '/authenticate/initiate' : '/authenticate/usernameless';
+    const body = email ? { email } : {};
+
+    // Step 1: Initiate authentication
+    const initiateResponse = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!initiateResponse.ok) {
+      const error = await initiateResponse.json();
+      throw new Error(error.message || 'Failed to initiate authentication');
+    }
+
+    const { challenge, token } = await initiateResponse.json();
+
+    // Step 2: Get credential
+    const credential = await navigator.credentials.get({
+      publicKey: {
+        ...challenge,
+        challenge: this.base64ToArrayBuffer(challenge.challenge),
+        allowCredentials: challenge.allowCredentials?.map((cred: any) => ({
+          ...cred,
+          id: this.base64ToArrayBuffer(cred.id),
+        })),
+      },
+    }) as PublicKeyCredential;
+
+    if (!credential) {
+      throw new Error('Failed to get credential');
+    }
+
+    // Step 3: Complete authentication
+    const completeResponse = await fetch(`${this.baseUrl}/authenticate/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token,
+        credential: this.credentialToJSON(credential),
+      }),
+    });
+
+    if (!completeResponse.ok) {
+      const error = await completeResponse.json();
+      throw new Error(error.message || 'Failed to complete authentication');
+    }
+
+    return completeResponse.json();
+  }
+
+  // Get user credentials
+  async getCredentials(): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/credentials`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to get credentials');
+    }
+
+    return response.json();
+  }
+
+  // Add new credential to existing account
+  async addCredential(name: string): Promise<any> {
+    // Step 1: Initiate credential addition
+    const initiateResponse = await fetch(`${this.baseUrl}/credentials/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ name }),
+    });
+
+    if (!initiateResponse.ok) {
+      const error = await initiateResponse.json();
+      throw new Error(error.message || 'Failed to initiate credential addition');
+    }
+
+    const { challenge, token } = await initiateResponse.json();
+
+    // Step 2: Create credential
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        ...challenge,
+        challenge: this.base64ToArrayBuffer(challenge.challenge),
+        user: {
+          ...challenge.user,
+          id: this.base64ToArrayBuffer(challenge.user.id),
+        },
+      },
+    }) as PublicKeyCredential;
+
+    if (!credential) {
+      throw new Error('Failed to create credential');
+    }
+
+    // Step 3: Complete credential addition
+    const completeResponse = await fetch(`${this.baseUrl}/credentials/add/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        token,
+        credential: this.credentialToJSON(credential),
+      }),
+    });
+
+    if (!completeResponse.ok) {
+      const error = await completeResponse.json();
+      throw new Error(error.message || 'Failed to complete credential addition');
+    }
+
+    return completeResponse.json();
+  }
+
+  // Delete credential
+  async deleteCredential(credentialId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/credentials/${credentialId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to delete credential');
+    }
+  }
+
+  // Update credential name
+  async updateCredential(credentialId: string, name: string): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/credentials/${credentialId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ name }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to update credential');
+    }
+
+    return response.json();
+  }
+
+  // Utility methods
+  private base64ToArrayBuffer(base64: string): ArrayBuffer {
+    const binaryString = atob(base64.replace(/-/g, '+').replace(/_/g, '/'));
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
+  private arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  }
+
+  private credentialToJSON(credential: PublicKeyCredential): any {
+    const response = credential.response;
+    
+    if (response instanceof AuthenticatorAttestationResponse) {
+      return {
+        id: credential.id,
+        rawId: this.arrayBufferToBase64(credential.rawId),
+        response: {
+          attestationObject: this.arrayBufferToBase64(response.attestationObject),
+          clientDataJSON: this.arrayBufferToBase64(response.clientDataJSON),
+        },
+        type: credential.type,
+      };
+    } else if (response instanceof AuthenticatorAssertionResponse) {
+      return {
+        id: credential.id,
+        rawId: this.arrayBufferToBase64(credential.rawId),
+        response: {
+          authenticatorData: this.arrayBufferToBase64(response.authenticatorData),
+          clientDataJSON: this.arrayBufferToBase64(response.clientDataJSON),
+          signature: this.arrayBufferToBase64(response.signature),
+          userHandle: response.userHandle ? 
+            this.arrayBufferToBase64(response.userHandle) : null,
+        },
+        type: credential.type,
+      };
+    }
+    
+    throw new Error('Unknown credential response type');
+  }
+}
+
+// Usage examples
+const passkeyService = new PasskeyService();
+
+// Check support
+if (!passkeyService.isSupported()) {
+  console.error('WebAuthn is not supported');
+}
+
+// Register new user with passkey
+async function registerWithPasskey(email: string, name: string) {
+  try {
+    const result = await passkeyService.register(email, name);
+    console.log('Registration successful:', result);
+    return result;
+  } catch (error) {
+    console.error('Registration failed:', error);
+    throw error;
+  }
+}
+
+// Authenticate with passkey
+async function authenticateWithPasskey(email?: string) {
+  try {
+    const result = await passkeyService.authenticate(email);
+    console.log('Authentication successful:', result);
+    return result;
+  } catch (error) {
+    console.error('Authentication failed:', error);
+    throw error;
+  }
+}
+
+// Manage credentials
+async function manageCredentials() {
+  try {
+    const credentials = await passkeyService.getCredentials();
+    console.log('User credentials:', credentials);
+    
+    // Add new credential
+    await passkeyService.addCredential('New Security Key');
+    
+    // Update credential name
+    await passkeyService.updateCredential('credential-id', 'Updated Name');
+    
+    // Delete credential
+    await passkeyService.deleteCredential('credential-id');
+  } catch (error) {
+    console.error('Credential management failed:', error);
+  }
+}
+```
+
+### React Component Example
+
+```jsx
+import React, { useState, useEffect } from 'react';
+
+const PasskeyAuth = () => {
+  const [passkeyService] = useState(() => new PasskeyService());
+  const [isSupported, setIsSupported] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [credentials, setCredentials] = useState([]);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    setIsSupported(passkeyService.isSupported());
+    loadCredentials();
+  }, []);
+
+  const loadCredentials = async () => {
+    try {
+      const result = await passkeyService.getCredentials();
+      setCredentials(result.credentials || []);
+    } catch (error) {
+      // User not authenticated or no credentials
+      setCredentials([]);
+    }
+  };
+
+  const handleRegister = async (email, name) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await passkeyService.register(email, name);
+      setUser(result.user);
+      await loadCredentials();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAuthenticate = async (email) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await passkeyService.authenticate(email);
+      setUser(result.user);
+      await loadCredentials();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUsernamelessAuth = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await passkeyService.authenticate();
+      setUser(result.user);
+      await loadCredentials();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddCredential = async (name) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await passkeyService.addCredential(name);
+      await loadCredentials();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteCredential = async (credentialId) => {
+    try {
+      await passkeyService.deleteCredential(credentialId);
+      await loadCredentials();
+    } catch (error) {
+      setError(error.message);
+    }
+  };
+
+  if (!isSupported) {
+    return (
+      <div className="passkey-auth">
+        <div className="error">
+          WebAuthn is not supported in this browser. Please use a modern browser 
+          that supports passkeys.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="passkey-auth">
+      <h2>Passkey Authentication</h2>
+
+      {error && (
+        <div className="error">
+          {error}
+          <button onClick={() => setError(null)}>×</button>
+        </div>
+      )}
+
+      {!user ? (
+        <div className="auth-forms">
+          <div className="register-form">
+            <h3>Register with Passkey</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              handleRegister(formData.get('email'), formData.get('name'));
+            }}>
+              <input
+                type="email"
+                name="email"
+                placeholder="Email"
+                required
+                disabled={loading}
+              />
+              <input
+                type="text"
+                name="name"
+                placeholder="Full Name"
+                required
+                disabled={loading}
+              />
+              <button type="submit" disabled={loading}>
+                {loading ? 'Creating...' : 'Register with Passkey'}
+              </button>
+            </form>
+          </div>
+
+          <div className="login-form">
+            <h3>Sign In with Passkey</h3>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              const formData = new FormData(e.target);
+              handleAuthenticate(formData.get('email'));
+            }}>
+              <input
+                type="email"
+                name="email"
+                placeholder="Email (optional)"
+                disabled={loading}
+              />
+              <button type="submit" disabled={loading}>
+                {loading ? 'Signing in...' : 'Sign In with Passkey'}
+              </button>
+            </form>
+
+            <div className="usernameless-auth">
+              <button onClick={handleUsernamelessAuth} disabled={loading}>
+                {loading ? 'Signing in...' : 'Sign In without Username'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="user-dashboard">
+          <h3>Welcome, {user.name}!</h3>
+          
+          <div className="credentials-section">
+            <h4>Your Passkeys</h4>
+            
+            {credentials.length === 0 ? (
+              <p>No passkeys registered.</p>
+            ) : (
+              <div className="credentials-list">
+                {credentials.map((credential) => (
+                  <div key={credential.id} className="credential-item">
+                    <div className="credential-info">
+                      <strong>{credential.name}</strong>
+                      <span className="credential-type">
+                        {credential.type === 'platform' ? '📱' : '🔑'} 
+                        {credential.type}
+                      </span>
+                      <span className="credential-date">
+                        Created: {new Date(credential.createdAt).toLocaleDateString()}
+                      </span>
+                      {credential.lastUsed && (
+                        <span className="credential-last-used">
+                          Last used: {new Date(credential.lastUsed).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleDeleteCredential(credential.id)}
+                      className="delete-credential"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="add-credential">
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const formData = new FormData(e.target);
+                handleAddCredential(formData.get('name'));
+                e.target.reset();
+              }}>
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="Credential name (e.g., 'iPhone Touch ID')"
+                  required
+                  disabled={loading}
+                />
+                <button type="submit" disabled={loading}>
+                  {loading ? 'Adding...' : 'Add New Passkey'}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <button onClick={() => setUser(null)}>Sign Out</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default PasskeyAuth;
+```
+
+## Server-Side Integration
+
+### Custom Validation Hooks
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/passkey"
+)
+
+func setupPasskeyHooks(auth *authsome.Auth) {
+    // Hook to validate user before passkey registration
+    auth.RegisterHook("passkey.before_register", func(ctx context.Context, data map[string]interface{}) error {
+        email := data["email"].(string)
+        
+        // Check if user already exists
+        existingUser, err := auth.GetUserByEmail(ctx, email)
+        if err == nil && existingUser != nil {
+            return fmt.Errorf("user with email %s already exists", email)
+        }
+        
+        // Validate email domain
+        if !isAllowedEmailDomain(email) {
+            return fmt.Errorf("email domain not allowed")
+        }
+        
+        return nil
+    })
+
+    // Hook to customize credential naming
+    auth.RegisterHook("passkey.before_credential_create", func(ctx context.Context, data map[string]interface{}) error {
+        credential := data["credential"].(map[string]interface{})
+        userAgent := data["userAgent"].(string)
+        
+        // Auto-generate credential name based on user agent
+        if name, ok := credential["name"].(string); !ok || name == "" {
+            credential["name"] = generateCredentialName(userAgent)
+        }
+        
+        return nil
+    })
+
+    // Hook to log authentication events
+    auth.RegisterHook("passkey.after_authenticate", func(ctx context.Context, data map[string]interface{}) error {
+        user := data["user"].(map[string]interface{})
+        credential := data["credential"].(map[string]interface{})
+        
+        // Log successful authentication
+        auth.LogAuditEvent(ctx, authsome.AuditEvent{
+            Type:   "passkey_authentication",
+            UserID: user["id"].(string),
+            Data: map[string]interface{}{
+                "credentialId": credential["id"],
+                "userAgent":    data["userAgent"],
+                "ipAddress":    data["ipAddress"],
+            },
+        })
+        
+        return nil
+    })
+
+    // Hook to handle failed authentication attempts
+    auth.RegisterHook("passkey.authentication_failed", func(ctx context.Context, data map[string]interface{}) error {
+        email := data["email"].(string)
+        reason := data["reason"].(string)
+        
+        // Log failed attempt
+        auth.LogAuditEvent(ctx, authsome.AuditEvent{
+            Type: "passkey_authentication_failed",
+            Data: map[string]interface{}{
+                "email":     email,
+                "reason":    reason,
+                "userAgent": data["userAgent"],
+                "ipAddress": data["ipAddress"],
+            },
+        })
+        
+        // Implement rate limiting
+        return auth.CheckRateLimit(ctx, "passkey_auth_failed", email)
+    })
+}
+
+func isAllowedEmailDomain(email string) bool {
+    allowedDomains := []string{"company.com", "partner.com"}
+    
+    for _, domain := range allowedDomains {
+        if strings.HasSuffix(email, "@"+domain) {
+            return true
+        }
+    }
+    
+    return false
+}
+
+func generateCredentialName(userAgent string) string {
+    // Simple user agent parsing for credential naming
+    if strings.Contains(userAgent, "iPhone") {
+        return "iPhone Touch ID"
+    } else if strings.Contains(userAgent, "iPad") {
+        return "iPad Touch ID"
+    } else if strings.Contains(userAgent, "Mac") {
+        return "Mac Touch ID"
+    } else if strings.Contains(userAgent, "Windows") {
+        return "Windows Hello"
+    } else if strings.Contains(userAgent, "Android") {
+        return "Android Biometric"
+    }
+    
+    return "Security Key"
+}
+```
+
+### Custom Middleware
+
+```go
+package main
+
+import (
+    "net/http"
+    "strings"
+    
+    "github.com/xraph/forge"
+    "github.com/xraph/authsome"
+)
+
+// Middleware to handle passkey-specific authentication
+func PasskeyAuthMiddleware(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        // Check if this is a passkey authentication request
+        if strings.HasPrefix(c.Path(), "/auth/passkey/") {
+            // Add passkey-specific headers
+            c.Response().Header().Set("X-Auth-Method", "passkey")
+            
+            // Validate WebAuthn requirements
+            if !isWebAuthnCompatible(c.Get("User-Agent")) {
+                return c.JSON(http.StatusBadRequest, map[string]string{
+                    "error": "WebAuthn not supported in this browser",
+                })
+            }
+            
+            // Add security headers for WebAuthn
+            c.Response().Header().Set("X-Frame-Options", "DENY")
+            c.Response().Header().Set("X-Content-Type-Options", "nosniff")
+        }
+        
+        return c.Next()
+    }
+}
+
+// Middleware to require passkey authentication for sensitive operations
+func RequirePasskeyAuth(auth *authsome.Auth) forge.MiddlewareFunc {
+    return func(c *forge.Context) error {
+        user := auth.GetUser(c)
+        if user == nil {
+            return c.JSON(http.StatusUnauthorized, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        // Check if user authenticated with passkey
+        session := auth.GetSession(c)
+        if session.AuthMethod != "passkey" {
+            return c.JSON(http.StatusForbidden, map[string]string{
+                "error": "Passkey authentication required for this operation",
+                "authMethod": session.AuthMethod,
+            })
+        }
+        
+        // Check if passkey authentication is recent (within last 5 minutes)
+        if time.Since(session.AuthenticatedAt) > 5*time.Minute {
+            return c.JSON(http.StatusForbidden, map[string]string{
+                "error": "Recent passkey authentication required",
+                "lastAuth": session.AuthenticatedAt.Format(time.RFC3339),
+            })
+        }
+        
+        return c.Next()
+    }
+}
+
+func isWebAuthnCompatible(userAgent string) bool {
+    // Basic check for WebAuthn support
+    incompatibleBrowsers := []string{
+        "MSIE",
+        "Trident",
+        "Edge/12",
+        "Edge/13",
+        "Edge/14",
+        "Edge/15",
+        "Edge/16",
+        "Edge/17",
+    }
+    
+    for _, browser := range incompatibleBrowsers {
+        if strings.Contains(userAgent, browser) {
+            return false
+        }
+    }
+    
+    return true
+}
+```
+
+## Security Considerations
+
+<Callout type="warn">
+**Security Best Practices**: Passkey authentication requires careful security configuration, especially for production environments.
+</Callout>
+
+### HTTPS Requirement
+
+```go
+// Enforce HTTPS for WebAuthn
+config := &passkey.Config{
+    RPID:     "example.com",
+    RPOrigin: "https://example.com",  // Must be HTTPS
+    
+    // Additional security settings
+    RequireHTTPS: true,
+    
+    // Validate origin strictly
+    ValidateOrigin: true,
+    AllowedOrigins: []string{
+        "https://example.com",
+        "https://www.example.com",
+        "https://app.example.com",
+    },
+}
+```
+
+### Attestation Verification
+
+```go
+// Configure attestation verification for enhanced security
+config := &passkey.Config{
+    Attestation: "direct",  // Verify authenticator attestation
+    
+    // Trusted attestation roots
+    AttestationRoots: []string{
+        "path/to/fido-alliance-root.pem",
+        "path/to/vendor-specific-root.pem",
+    },
+    
+    // Require specific authenticator types
+    AllowedAuthenticators: []string{
+        "yubikey",
+        "platform",  // Touch ID, Windows Hello, etc.
+    },
+    
+    // Block known compromised authenticators
+    BlockedAuthenticators: []string{
+        "compromised-authenticator-aaguid",
+    },
+}
+```
+
+### Rate Limiting and Abuse Prevention
+
+```go
+// Comprehensive rate limiting configuration
+config := &passkey.Config{
+    RateLimit: passkey.RateLimitConfig{
+        Enabled: true,
+        
+        // Registration limits
+        RegistrationLimits: passkey.RateLimitRule{
+            MaxAttempts:   3,
+            Window:        time.Hour,
+            BlockDuration: 24 * time.Hour,
+        },
+        
+        // Authentication limits
+        AuthenticationLimits: passkey.RateLimitRule{
+            MaxAttempts:   10,
+            Window:        time.Hour,
+            BlockDuration: time.Hour,
+        },
+        
+        // Credential management limits
+        CredentialLimits: passkey.RateLimitRule{
+            MaxAttempts:   5,
+            Window:        time.Hour,
+            BlockDuration: time.Hour,
+        },
+        
+        // Per-IP limits
+        IPLimits: passkey.RateLimitRule{
+            MaxAttempts:   50,
+            Window:        time.Hour,
+            BlockDuration: time.Hour,
+        },
+    },
+    
+    // Maximum credentials per user
+    MaxCredentialsPerUser: 10,
+    
+    // Require user verification for sensitive operations
+    RequireUserVerification: true,
+}
+```
+
+## Performance Optimization
+
+### Database Indexing
+
+```sql
+-- Optimize passkey credential queries
+CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user_id 
+ON passkey_credentials(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_passkey_credentials_credential_id 
+ON passkey_credentials(credential_id);
+
+CREATE INDEX IF NOT EXISTS idx_passkey_credentials_public_key_hash 
+ON passkey_credentials(public_key_hash);
+
+-- Optimize challenge storage
+CREATE INDEX IF NOT EXISTS idx_passkey_challenges_token 
+ON passkey_challenges(token);
+
+CREATE INDEX IF NOT EXISTS idx_passkey_challenges_expires_at 
+ON passkey_challenges(expires_at);
+
+-- Optimize audit logs
+CREATE INDEX IF NOT EXISTS idx_passkey_audit_user_id_created_at 
+ON passkey_audit_logs(user_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_passkey_audit_event_type_created_at 
+ON passkey_audit_logs(event_type, created_at);
+```
+
+### Caching Strategy
+
+```go
+// Configure Redis caching for passkey operations
+config := &passkey.Config{
+    Cache: passkey.CacheConfig{
+        Enabled: true,
+        
+        // Challenge caching
+        ChallengeExpiry:   5 * time.Minute,
+        ChallengePrefix:   "passkey:challenge:",
+        
+        // Credential caching
+        CredentialExpiry:  24 * time.Hour,
+        CredentialPrefix:  "passkey:credential:",
+        
+        // User credential list caching
+        UserCredentialsExpiry: time.Hour,
+        UserCredentialsPrefix: "passkey:user_creds:",
+        
+        // Rate limit caching
+        RateLimitExpiry: time.Hour,
+        RateLimitPrefix: "passkey:ratelimit:",
+        
+        // Cleanup settings
+        CleanupInterval: time.Hour,
+        CleanupBatchSize: 1000,
+    },
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<Callout type="info">
+**Browser Compatibility**: Ensure your users are using browsers that support WebAuthn.
+</Callout>
+
+#### WebAuthn Not Supported
+
+```javascript
+// Check WebAuthn support and provide fallback
+function checkWebAuthnSupport() {
+  if (!window.PublicKeyCredential) {
+    return {
+      supported: false,
+      reason: 'WebAuthn not supported',
+      fallback: 'Use email/password authentication'
+    };
+  }
+  
+  if (!navigator.credentials) {
+    return {
+      supported: false,
+      reason: 'Credentials API not available',
+      fallback: 'Update your browser'
+    };
+  }
+  
+  return { supported: true };
+}
+
+// Provide user-friendly error messages
+function handleWebAuthnError(error) {
+  const errorMessages = {
+    'NotSupportedError': 'Your browser doesn\'t support passkeys. Please use a modern browser.',
+    'SecurityError': 'Security error. Make sure you\'re on a secure (HTTPS) connection.',
+    'NotAllowedError': 'Authentication was cancelled or timed out. Please try again.',
+    'InvalidStateError': 'This passkey is already registered or invalid.',
+    'ConstraintError': 'The authenticator doesn\'t meet the requirements.',
+    'UnknownError': 'An unknown error occurred. Please try again.',
+  };
+  
+  return errorMessages[error.name] || errorMessages['UnknownError'];
+}
+```
+
+#### HTTPS Configuration Issues
+
+```go
+// Validate HTTPS configuration
+func validateHTTPSConfig(config *passkey.Config) error {
+    if !strings.HasPrefix(config.RPOrigin, "https://") {
+        return fmt.Errorf("passkey authentication requires HTTPS origin")
+    }
+    
+    if config.RPID != extractDomain(config.RPOrigin) {
+        return fmt.Errorf("RP ID must match the origin domain")
+    }
+    
+    return nil
+}
+
+func extractDomain(origin string) string {
+    u, err := url.Parse(origin)
+    if err != nil {
+        return ""
+    }
+    return u.Hostname()
+}
+```
+
+#### Debugging Authentication Failures
+
+```go
+// Enable debug logging for passkey operations
+config := &passkey.Config{
+    Debug: true,
+    Logger: passkey.LoggerConfig{
+        Level: "debug",
+        Format: "json",
+        Fields: []string{
+            "timestamp",
+            "level",
+            "message",
+            "user_id",
+            "credential_id",
+            "error",
+            "user_agent",
+            "ip_address",
+        },
+    },
+}
+
+// Custom error handler for detailed debugging
+func handlePasskeyError(err error, context map[string]interface{}) {
+    switch e := err.(type) {
+    case *passkey.ValidationError:
+        log.Printf("Passkey validation error: %s, field: %s, context: %+v", 
+            e.Message, e.Field, context)
+    case *passkey.AuthenticationError:
+        log.Printf("Passkey authentication error: %s, reason: %s, context: %+v", 
+            e.Message, e.Reason, context)
+    case *passkey.RegistrationError:
+        log.Printf("Passkey registration error: %s, step: %s, context: %+v", 
+            e.Message, e.Step, context)
+    default:
+        log.Printf("Unknown passkey error: %s, context: %+v", err.Error(), context)
+    }
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Magic Link Authentication"
+    description="Implement passwordless authentication via email links"
+    href="/docs/go/plugins/advanced/magic-link"
+  />
+  <Card
+    title="Phone Authentication"
+    description="Set up SMS-based authentication and verification"
+    href="/docs/go/plugins/advanced/phone"
+  />
+  <Card
+    title="Multi-Factor Authentication"
+    description="Combine passkeys with other authentication methods"
+    href="/docs/go/guides/multi-factor-auth"
+  />
+  <Card
+    title="Enterprise Plugins"
+    description="Explore enterprise-grade authentication features"
+    href="/docs/go/plugins/enterprise"
+  />
+</Cards>

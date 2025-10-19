@@ -1,0 +1,1553 @@
+---
+title: Email OTP
+description: One-time password authentication via email
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Email OTP Plugin
+
+The Email OTP plugin provides one-time password authentication via email. Users can sign up and sign in using their email addresses, with verification codes sent via email for secure authentication.
+
+## Features
+
+- **Email-Based OTP**: Send one-time passwords via email
+- **Secure Code Generation**: Cryptographically secure random codes
+- **Customizable Templates**: Rich HTML and plain text email templates
+- **Multiple Email Providers**: Support for SMTP, SendGrid, AWS SES, and custom providers
+- **Rate Limiting**: Protection against email spam and abuse
+- **Email Validation**: Format validation and domain verification
+- **Backup Authentication**: Integration with other authentication methods
+- **Internationalization**: Multi-language email templates
+- **Audit Logging**: Complete audit trail of email authentication events
+- **Fallback Support**: Graceful degradation when email is unavailable
+
+## Installation
+
+Install the Email OTP plugin:
+
+```bash
+go get github.com/xraph/authsome/plugins/email-otp
+```
+
+## Configuration
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      plugins:
+        emailOtp:
+          enabled: true
+          
+          # Email Configuration
+          email:
+            provider: "smtp"                       # smtp, sendgrid, aws-ses, custom
+            from: "noreply@example.com"            # Sender email address
+            fromName: "AuthSome"                   # Sender display name
+            replyTo: "support@example.com"         # Reply-to address
+            
+            # SMTP Configuration
+            smtp:
+              host: "smtp.gmail.com"
+              port: 587
+              username: "${SMTP_USERNAME}"
+              password: "${SMTP_PASSWORD}"
+              encryption: "tls"                    # tls, ssl, none
+              
+            # SendGrid Configuration
+            sendgrid:
+              apiKey: "${SENDGRID_API_KEY}"
+              
+            # AWS SES Configuration
+            awsSes:
+              region: "us-east-1"
+              accessKeyId: "${AWS_ACCESS_KEY_ID}"
+              secretAccessKey: "${AWS_SECRET_ACCESS_KEY}"
+              
+            # Custom Provider Configuration
+            custom:
+              endpoint: "https://api.example.com/email"
+              apiKey: "${CUSTOM_EMAIL_API_KEY}"
+              headers:
+                "Content-Type": "application/json"
+                "Authorization": "Bearer ${CUSTOM_EMAIL_API_KEY}"
+          
+          # OTP Configuration
+          otp:
+            length: 6                              # OTP code length
+            expiry: "10m"                          # OTP expiration time
+            numericOnly: true                      # Use only numeric codes
+            caseInsensitive: false                 # Case sensitivity for alphanumeric
+            maxAttempts: 3                         # Max verification attempts
+            
+          # Email Templates
+          templates:
+            verification:
+              subject: "Verify your email - {{.AppName}}"
+              htmlTemplate: |
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <meta charset="utf-8">
+                  <title>Email Verification</title>
+                </head>
+                <body>
+                  <h1>Verify Your Email</h1>
+                  <p>Hello {{.Name}},</p>
+                  <p>Your verification code is: <strong>{{.Code}}</strong></p>
+                  <p>This code will expire in {{.ExpiryMinutes}} minutes.</p>
+                  <p>If you didn't request this, please ignore this email.</p>
+                </body>
+                </html>
+              textTemplate: |
+                Verify Your Email
+                
+                Hello {{.Name}},
+                
+                Your verification code is: {{.Code}}
+                
+                This code will expire in {{.ExpiryMinutes}} minutes.
+                
+                If you didn't request this, please ignore this email.
+                
+            signin:
+              subject: "Sign in to {{.AppName}}"
+              htmlTemplate: |
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <meta charset="utf-8">
+                  <title>Sign In</title>
+                </head>
+                <body>
+                  <h1>Sign In to {{.AppName}}</h1>
+                  <p>Hello {{.Name}},</p>
+                  <p>Your sign-in code is: <strong>{{.Code}}</strong></p>
+                  <p>This code will expire in {{.ExpiryMinutes}} minutes.</p>
+                  <p>If you didn't request this, please secure your account.</p>
+                </body>
+                </html>
+              textTemplate: |
+                Sign In to {{.AppName}}
+                
+                Hello {{.Name}},
+                
+                Your sign-in code is: {{.Code}}
+                
+                This code will expire in {{.ExpiryMinutes}} minutes.
+                
+                If you didn't request this, please secure your account.
+                
+            welcome:
+              subject: "Welcome to {{.AppName}}"
+              htmlTemplate: |
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <meta charset="utf-8">
+                  <title>Welcome</title>
+                </head>
+                <body>
+                  <h1>Welcome to {{.AppName}}!</h1>
+                  <p>Hello {{.Name}},</p>
+                  <p>Your account has been created successfully.</p>
+                  <p>You can now access all features of {{.AppName}}.</p>
+                </body>
+                </html>
+              textTemplate: |
+                Welcome to {{.AppName}}!
+                
+                Hello {{.Name}},
+                
+                Your account has been created successfully.
+                
+                You can now access all features of {{.AppName}}.
+              enabled: true
+              
+          # Security Settings
+          security:
+            requireDomainVerification: false       # Verify email domain
+            blockedDomains:                        # Blocked email domains
+              - "tempmail.com"
+              - "10minutemail.com"
+            allowedDomains: []                     # Allowed domains (empty = all)
+            requireMxRecord: true                  # Verify MX record exists
+            
+          # Rate Limiting
+          rateLimit:
+            enabled: true
+            
+            # Per-email limits
+            email:
+              maxAttempts: 3                       # Max OTP requests per window
+              window: "5m"                         # Rate limit window
+              blockDuration: "15m"                 # Block duration after limit
+              
+            # Per-IP limits
+            ipAddress:
+              maxAttempts: 10                      # Max requests per IP per window
+              window: "1h"                         # Rate limit window
+              blockDuration: "1h"                  # Block duration after limit
+              
+          # Registration Settings
+          registration:
+            enabled: true                          # Allow new user registration
+            requireEmailVerification: true        # Require email verification
+            defaultRole: "user"                    # Default role for new users
+            autoVerify: false                      # Auto-verify on successful OTP
+            
+          # Integration Settings
+          integration:
+            allowFallback: true                    # Allow fallback to other auth methods
+            fallbackMethods:                       # Available fallback methods
+              - "email-password"
+              - "magic-link"
+            requireEmailForMFA: false              # Require email for MFA
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # Basic Configuration
+    AUTH_PLUGINS_EMAIL_OTP_ENABLED=true
+
+    # Email Configuration
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_PROVIDER=smtp
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_FROM=noreply@example.com
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_FROM_NAME=AuthSome
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_REPLY_TO=support@example.com
+
+    # SMTP Configuration
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_SMTP_HOST=smtp.gmail.com
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_SMTP_PORT=587
+    SMTP_USERNAME=your_smtp_username
+    SMTP_PASSWORD=your_smtp_password
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_SMTP_ENCRYPTION=tls
+
+    # SendGrid Configuration
+    SENDGRID_API_KEY=your_sendgrid_api_key
+
+    # AWS SES Configuration
+    AWS_ACCESS_KEY_ID=your_access_key
+    AWS_SECRET_ACCESS_KEY=your_secret_key
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_AWS_SES_REGION=us-east-1
+
+    # Custom Provider Configuration
+    AUTH_PLUGINS_EMAIL_OTP_EMAIL_CUSTOM_ENDPOINT=https://api.example.com/email
+    CUSTOM_EMAIL_API_KEY=your_api_key
+
+    # OTP Configuration
+    AUTH_PLUGINS_EMAIL_OTP_OTP_LENGTH=6
+    AUTH_PLUGINS_EMAIL_OTP_OTP_EXPIRY=10m
+    AUTH_PLUGINS_EMAIL_OTP_OTP_NUMERIC_ONLY=true
+    AUTH_PLUGINS_EMAIL_OTP_OTP_CASE_INSENSITIVE=false
+    AUTH_PLUGINS_EMAIL_OTP_OTP_MAX_ATTEMPTS=3
+
+    # Security Settings
+    AUTH_PLUGINS_EMAIL_OTP_SECURITY_REQUIRE_DOMAIN_VERIFICATION=false
+    AUTH_PLUGINS_EMAIL_OTP_SECURITY_BLOCKED_DOMAINS="tempmail.com,10minutemail.com"
+    AUTH_PLUGINS_EMAIL_OTP_SECURITY_ALLOWED_DOMAINS=""
+    AUTH_PLUGINS_EMAIL_OTP_SECURITY_REQUIRE_MX_RECORD=true
+
+    # Rate Limiting
+    AUTH_PLUGINS_EMAIL_OTP_RATE_LIMIT_ENABLED=true
+    AUTH_PLUGINS_EMAIL_OTP_RATE_LIMIT_EMAIL_MAX_ATTEMPTS=3
+    AUTH_PLUGINS_EMAIL_OTP_RATE_LIMIT_EMAIL_WINDOW=5m
+    AUTH_PLUGINS_EMAIL_OTP_RATE_LIMIT_EMAIL_BLOCK_DURATION=15m
+    AUTH_PLUGINS_EMAIL_OTP_RATE_LIMIT_IP_ADDRESS_MAX_ATTEMPTS=10
+    AUTH_PLUGINS_EMAIL_OTP_RATE_LIMIT_IP_ADDRESS_WINDOW=1h
+    AUTH_PLUGINS_EMAIL_OTP_RATE_LIMIT_IP_ADDRESS_BLOCK_DURATION=1h
+
+    # Registration Settings
+    AUTH_PLUGINS_EMAIL_OTP_REGISTRATION_ENABLED=true
+    AUTH_PLUGINS_EMAIL_OTP_REGISTRATION_REQUIRE_EMAIL_VERIFICATION=true
+    AUTH_PLUGINS_EMAIL_OTP_REGISTRATION_DEFAULT_ROLE=user
+    AUTH_PLUGINS_EMAIL_OTP_REGISTRATION_AUTO_VERIFY=false
+
+    # Integration Settings
+    AUTH_PLUGINS_EMAIL_OTP_INTEGRATION_ALLOW_FALLBACK=true
+    AUTH_PLUGINS_EMAIL_OTP_INTEGRATION_FALLBACK_METHODS="email-password,magic-link"
+    AUTH_PLUGINS_EMAIL_OTP_INTEGRATION_REQUIRE_EMAIL_FOR_MFA=false
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    package main
+
+    import (
+        "time"
+        
+        "github.com/xraph/authsome"
+        "github.com/xraph/authsome/plugins/email-otp"
+    )
+
+    func setupEmailOTPPlugin(auth *authsome.Auth) error {
+        config := &emailotp.Config{
+            Enabled: true,
+            
+            // Email Configuration
+            Email: emailotp.EmailConfig{
+                Provider: "smtp",
+                From:     "noreply@example.com",
+                FromName: "AuthSome",
+                ReplyTo:  "support@example.com",
+                
+                SMTP: emailotp.SMTPConfig{
+                    Host:       "smtp.gmail.com",
+                    Port:       587,
+                    Username:   os.Getenv("SMTP_USERNAME"),
+                    Password:   os.Getenv("SMTP_PASSWORD"),
+                    Encryption: "tls",
+                },
+                
+                SendGrid: emailotp.SendGridConfig{
+                    APIKey: os.Getenv("SENDGRID_API_KEY"),
+                },
+                
+                AWSSES: emailotp.AWSSESConfig{
+                    Region:          "us-east-1",
+                    AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+                    SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+                },
+                
+                Custom: emailotp.CustomEmailConfig{
+                    Endpoint: "https://api.example.com/email",
+                    APIKey:   os.Getenv("CUSTOM_EMAIL_API_KEY"),
+                    Headers: map[string]string{
+                        "Content-Type":  "application/json",
+                        "Authorization": "Bearer " + os.Getenv("CUSTOM_EMAIL_API_KEY"),
+                    },
+                },
+            },
+            
+            // OTP Configuration
+            OTP: emailotp.OTPConfig{
+                Length:          6,
+                Expiry:          10 * time.Minute,
+                NumericOnly:     true,
+                CaseInsensitive: false,
+                MaxAttempts:     3,
+            },
+            
+            // Email Templates
+            Templates: emailotp.TemplatesConfig{
+                Verification: emailotp.EmailTemplate{
+                    Subject: "Verify your email - {{.AppName}}",
+                    HTMLTemplate: `
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="utf-8">
+                            <title>Email Verification</title>
+                        </head>
+                        <body>
+                            <h1>Verify Your Email</h1>
+                            <p>Hello {{.Name}},</p>
+                            <p>Your verification code is: <strong>{{.Code}}</strong></p>
+                            <p>This code will expire in {{.ExpiryMinutes}} minutes.</p>
+                            <p>If you didn't request this, please ignore this email.</p>
+                        </body>
+                        </html>
+                    `,
+                    TextTemplate: `
+                        Verify Your Email
+                        
+                        Hello {{.Name}},
+                        
+                        Your verification code is: {{.Code}}
+                        
+                        This code will expire in {{.ExpiryMinutes}} minutes.
+                        
+                        If you didn't request this, please ignore this email.
+                    `,
+                },
+                SignIn: emailotp.EmailTemplate{
+                    Subject: "Sign in to {{.AppName}}",
+                    HTMLTemplate: `
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="utf-8">
+                            <title>Sign In</title>
+                        </head>
+                        <body>
+                            <h1>Sign In to {{.AppName}}</h1>
+                            <p>Hello {{.Name}},</p>
+                            <p>Your sign-in code is: <strong>{{.Code}}</strong></p>
+                            <p>This code will expire in {{.ExpiryMinutes}} minutes.</p>
+                            <p>If you didn't request this, please secure your account.</p>
+                        </body>
+                        </html>
+                    `,
+                    TextTemplate: `
+                        Sign In to {{.AppName}}
+                        
+                        Hello {{.Name}},
+                        
+                        Your sign-in code is: {{.Code}}
+                        
+                        This code will expire in {{.ExpiryMinutes}} minutes.
+                        
+                        If you didn't request this, please secure your account.
+                    `,
+                },
+                Welcome: emailotp.EmailTemplate{
+                    Subject: "Welcome to {{.AppName}}",
+                    HTMLTemplate: `
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="utf-8">
+                            <title>Welcome</title>
+                        </head>
+                        <body>
+                            <h1>Welcome to {{.AppName}}!</h1>
+                            <p>Hello {{.Name}},</p>
+                            <p>Your account has been created successfully.</p>
+                            <p>You can now access all features of {{.AppName}}.</p>
+                        </body>
+                        </html>
+                    `,
+                    TextTemplate: `
+                        Welcome to {{.AppName}}!
+                        
+                        Hello {{.Name}},
+                        
+                        Your account has been created successfully.
+                        
+                        You can now access all features of {{.AppName}}.
+                    `,
+                    Enabled: true,
+                },
+            },
+            
+            // Security Settings
+            Security: emailotp.SecurityConfig{
+                RequireDomainVerification: false,
+                BlockedDomains:           []string{"tempmail.com", "10minutemail.com"},
+                AllowedDomains:           []string{}, // Empty = all allowed
+                RequireMXRecord:          true,
+            },
+            
+            // Rate Limiting
+            RateLimit: emailotp.RateLimitConfig{
+                Enabled: true,
+                Email: emailotp.RateLimitRule{
+                    MaxAttempts:   3,
+                    Window:        5 * time.Minute,
+                    BlockDuration: 15 * time.Minute,
+                },
+                IPAddress: emailotp.RateLimitRule{
+                    MaxAttempts:   10,
+                    Window:        time.Hour,
+                    BlockDuration: time.Hour,
+                },
+            },
+            
+            // Registration Settings
+            Registration: emailotp.RegistrationConfig{
+                Enabled:                   true,
+                RequireEmailVerification:  true,
+                DefaultRole:               "user",
+                AutoVerify:                false,
+            },
+            
+            // Integration Settings
+            Integration: emailotp.IntegrationConfig{
+                AllowFallback:      true,
+                FallbackMethods:    []string{"email-password", "magic-link"},
+                RequireEmailForMFA: false,
+            },
+        }
+
+        plugin := emailotp.NewPlugin(config)
+        return auth.RegisterPlugin(plugin)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Plugin Registration
+
+Register the Email OTP plugin with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/email-otp"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register Email OTP plugin
+    emailOTPPlugin := emailotp.NewPlugin()
+    auth.RegisterPlugin(emailOTPPlugin)
+
+    // Initialize plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## API Endpoints
+
+The Email OTP plugin provides the following endpoints:
+
+### Email Registration
+
+#### Register with Email
+
+```http
+POST /auth/email-otp/register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "name": "John Doe"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Verification code sent to your email",
+  "email": "user@example.com",
+  "expiresAt": "2024-01-01T00:10:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 3
+}
+```
+
+#### Verify Registration OTP
+
+```http
+POST /auth/email-otp/register/verify
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "code": "123456"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Email verified successfully",
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "emailVerified": true,
+    "name": "John Doe",
+    "createdAt": "2024-01-01T00:00:00Z"
+  },
+  "session": {
+    "token": "session_token_here",
+    "expiresAt": "2024-01-01T24:00:00Z"
+  }
+}
+```
+
+### Email Sign In
+
+#### Sign In with Email
+
+```http
+POST /auth/email-otp/signin
+Content-Type: application/json
+
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Verification code sent to your email",
+  "email": "user@example.com",
+  "expiresAt": "2024-01-01T00:10:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 3
+}
+```
+
+#### Verify Sign In OTP
+
+```http
+POST /auth/email-otp/signin/verify
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "code": "123456"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Sign in successful",
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "emailVerified": true,
+    "name": "John Doe",
+    "lastLoginAt": "2024-01-01T00:00:00Z"
+  },
+  "session": {
+    "token": "session_token_here",
+    "expiresAt": "2024-01-01T24:00:00Z"
+  }
+}
+```
+
+### OTP Management
+
+#### Resend OTP
+
+```http
+POST /auth/email-otp/otp/resend
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "type": "signin"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Verification code resent",
+  "expiresAt": "2024-01-01T00:10:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 2
+}
+```
+
+#### Check OTP Status
+
+```http
+GET /auth/email-otp/otp/status?email=user%40example.com&type=signin
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "hasPendingOTP": true,
+  "expiresAt": "2024-01-01T00:10:00Z",
+  "canResendAt": "2024-01-01T00:01:00Z",
+  "attemptsRemaining": 2,
+  "type": "signin"
+}
+```
+
+### Email Management
+
+#### Update Email Address
+
+```http
+POST /auth/email-otp/update
+Content-Type: application/json
+Authorization: Bearer <session_token>
+
+{
+  "newEmail": "newemail@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Verification code sent to new email address",
+  "newEmail": "newemail@example.com",
+  "expiresAt": "2024-01-01T00:10:00Z"
+}
+```
+
+#### Verify Email Update
+
+```http
+POST /auth/email-otp/update/verify
+Content-Type: application/json
+Authorization: Bearer <session_token>
+
+{
+  "newEmail": "newemail@example.com",
+  "code": "123456"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Email address updated successfully",
+  "user": {
+    "id": "user_123",
+    "email": "newemail@example.com",
+    "emailVerified": true,
+    "updatedAt": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+## Frontend Integration
+
+### JavaScript/TypeScript Implementation
+
+```typescript
+interface EmailOTPResponse {
+  success: boolean;
+  message: string;
+  email?: string;
+  expiresAt?: string;
+  canResendAt?: string;
+  attemptsRemaining?: number;
+  user?: User;
+  session?: Session;
+  error?: string;
+}
+
+interface OTPStatus {
+  hasPendingOTP: boolean;
+  expiresAt?: string;
+  canResendAt?: string;
+  attemptsRemaining: number;
+  type: 'signin' | 'register' | 'update';
+}
+
+interface User {
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  name?: string;
+  createdAt: string;
+  lastLoginAt?: string;
+}
+
+interface Session {
+  token: string;
+  expiresAt: string;
+}
+
+class EmailOTPService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = '/auth/email-otp') {
+    this.baseUrl = baseUrl;
+  }
+
+  // Register with email
+  async register(email: string, name?: string): Promise<EmailOTPResponse> {
+    const response = await fetch(`${this.baseUrl}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, name }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Registration failed');
+    }
+
+    return result;
+  }
+
+  // Verify registration OTP
+  async verifyRegistration(email: string, code: string): Promise<EmailOTPResponse> {
+    const response = await fetch(`${this.baseUrl}/register/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Verification failed');
+    }
+
+    // Store session token if provided
+    if (result.session?.token) {
+      this.setSessionToken(result.session.token);
+    }
+
+    return result;
+  }
+
+  // Sign in with email
+  async signIn(email: string): Promise<EmailOTPResponse> {
+    const response = await fetch(`${this.baseUrl}/signin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Sign in failed');
+    }
+
+    return result;
+  }
+
+  // Verify sign in OTP
+  async verifySignIn(email: string, code: string): Promise<EmailOTPResponse> {
+    const response = await fetch(`${this.baseUrl}/signin/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, code }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Verification failed');
+    }
+
+    // Store session token if provided
+    if (result.session?.token) {
+      this.setSessionToken(result.session.token);
+    }
+
+    return result;
+  }
+
+  // Resend OTP
+  async resendOTP(email: string, type: 'signin' | 'register' | 'update'): Promise<EmailOTPResponse> {
+    const response = await fetch(`${this.baseUrl}/otp/resend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, type }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Resend failed');
+    }
+
+    return result;
+  }
+
+  // Check OTP status
+  async getOTPStatus(email: string, type: 'signin' | 'register' | 'update'): Promise<OTPStatus> {
+    const params = new URLSearchParams({ email, type });
+    const response = await fetch(`${this.baseUrl}/otp/status?${params}`);
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Status check failed');
+    }
+
+    return result;
+  }
+
+  // Update email address
+  async updateEmail(newEmail: string): Promise<EmailOTPResponse> {
+    const response = await fetch(`${this.baseUrl}/update`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.getSessionToken()}`,
+      },
+      body: JSON.stringify({ newEmail }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Update failed');
+    }
+
+    return result;
+  }
+
+  // Verify email update
+  async verifyEmailUpdate(newEmail: string, code: string): Promise<EmailOTPResponse> {
+    const response = await fetch(`${this.baseUrl}/update/verify`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.getSessionToken()}`,
+      },
+      body: JSON.stringify({ newEmail, code }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.message || 'Update verification failed');
+    }
+
+    return result;
+  }
+
+  // Utility methods
+  isValidEmail(email: string): boolean {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  }
+
+  canResend(canResendAt: string): boolean {
+    return new Date() >= new Date(canResendAt);
+  }
+
+  getResendCountdown(canResendAt: string): number {
+    const now = new Date().getTime();
+    const resendTime = new Date(canResendAt).getTime();
+    return Math.max(0, resendTime - now);
+  }
+
+  formatCountdown(milliseconds: number): string {
+    const seconds = Math.ceil(milliseconds / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+
+    if (minutes > 0) {
+      return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+    return `${remainingSeconds}s`;
+  }
+
+  // Session management
+  private setSessionToken(token: string): void {
+    localStorage.setItem('auth_session_token', token);
+  }
+
+  private getSessionToken(): string | null {
+    return localStorage.getItem('auth_session_token');
+  }
+
+  clearSession(): void {
+    localStorage.removeItem('auth_session_token');
+  }
+
+  // Complete authentication flow
+  async authenticateWithEmail(email: string): Promise<void> {
+    // Validate email
+    if (!this.isValidEmail(email)) {
+      throw new Error('Please enter a valid email address');
+    }
+
+    // Check current status
+    try {
+      const status = await this.getOTPStatus(email, 'signin');
+      
+      if (status.hasPendingOTP && status.attemptsRemaining === 0) {
+        throw new Error('Too many attempts. Please try again later.');
+      }
+    } catch (error) {
+      // Status check failed, probably no pending OTP
+    }
+
+    // Send OTP
+    await this.signIn(email);
+  }
+
+  // Complete registration flow
+  async registerWithEmail(email: string, name?: string): Promise<void> {
+    // Validate email
+    if (!this.isValidEmail(email)) {
+      throw new Error('Please enter a valid email address');
+    }
+
+    // Send registration OTP
+    await this.register(email, name);
+  }
+}
+
+// Usage examples
+const emailOTPService = new EmailOTPService();
+
+// Register with email
+async function registerWithEmail(email: string, name: string) {
+  try {
+    const result = await emailOTPService.register(email, name);
+    console.log('Registration OTP sent:', result);
+    return result;
+  } catch (error) {
+    console.error('Registration failed:', error);
+    throw error;
+  }
+}
+
+// Sign in with email
+async function signInWithEmail(email: string) {
+  try {
+    const result = await emailOTPService.signIn(email);
+    console.log('Sign in OTP sent:', result);
+    return result;
+  } catch (error) {
+    console.error('Sign in failed:', error);
+    throw error;
+  }
+}
+
+// Verify OTP
+async function verifyOTP(email: string, code: string, type: 'signin' | 'register') {
+  try {
+    let result;
+    if (type === 'register') {
+      result = await emailOTPService.verifyRegistration(email, code);
+    } else {
+      result = await emailOTPService.verifySignIn(email, code);
+    }
+    
+    console.log('OTP verified:', result);
+    return result;
+  } catch (error) {
+    console.error('OTP verification failed:', error);
+    throw error;
+  }
+}
+```
+
+### React Component Example
+
+```jsx
+import React, { useState, useEffect, useCallback } from 'react';
+
+const EmailOTPAuth = ({ mode = 'signin' }) => {
+  const [emailOTPService] = useState(() => new EmailOTPService());
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [step, setStep] = useState('email'); // 'email', 'verify'
+  const [otpSent, setOtpSent] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [countdown, setCountdown] = useState(0);
+
+  // Update countdown timer
+  useEffect(() => {
+    if (status?.canResendAt && !emailOTPService.canResend(status.canResendAt)) {
+      const interval = setInterval(() => {
+        const remaining = emailOTPService.getResendCountdown(status.canResendAt);
+        setCountdown(remaining);
+        
+        if (remaining <= 0) {
+          clearInterval(interval);
+          setCountdown(0);
+        }
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [status, emailOTPService]);
+
+  // Check OTP status when email changes
+  useEffect(() => {
+    if (email && emailOTPService.isValidEmail(email) && otpSent) {
+      checkOTPStatus();
+    }
+  }, [email, otpSent]);
+
+  const checkOTPStatus = useCallback(async () => {
+    try {
+      const currentStatus = await emailOTPService.getOTPStatus(email, mode);
+      setStatus(currentStatus);
+    } catch (error) {
+      // Status check failed, probably no pending OTP
+      setStatus(null);
+    }
+  }, [email, mode, emailOTPService]);
+
+  const handleSendOTP = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (!emailOTPService.isValidEmail(email)) {
+        throw new Error('Please enter a valid email address');
+      }
+
+      let result;
+      if (mode === 'register') {
+        result = await emailOTPService.register(email, name);
+      } else {
+        result = await emailOTPService.signIn(email);
+      }
+
+      setOtpSent(true);
+      setStep('verify');
+      await checkOTPStatus();
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOTP = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      let result;
+      if (mode === 'register') {
+        result = await emailOTPService.verifyRegistration(email, code);
+      } else {
+        result = await emailOTPService.verifySignIn(email, code);
+      }
+
+      // Handle successful authentication
+      if (result.user) {
+        console.log('Authentication successful:', result);
+        // Redirect to dashboard or handle success
+        window.location.href = '/dashboard';
+      }
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendOTP = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await emailOTPService.resendOTP(email, mode);
+      await checkOTPStatus();
+      setCode('');
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const canResend = status?.canResendAt ? 
+    emailOTPService.canResend(status.canResendAt) : false;
+
+  if (step === 'email') {
+    return (
+      <div className="email-otp-auth">
+        <h2>{mode === 'register' ? 'Create Account' : 'Sign In'} with Email</h2>
+        <p>
+          {mode === 'register' 
+            ? 'Enter your email address to create a new account'
+            : 'Enter your email address to sign in'
+          }
+        </p>
+
+        {error && (
+          <div className="error">
+            {error}
+            <button onClick={() => setError(null)}>×</button>
+          </div>
+        )}
+
+        <form onSubmit={handleSendOTP} className="email-form">
+          {mode === 'register' && (
+            <div className="form-group">
+              <label htmlFor="name">Full Name</label>
+              <input
+                type="text"
+                id="name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Enter your full name"
+                required
+                disabled={loading}
+              />
+            </div>
+          )}
+
+          <div className="form-group">
+            <label htmlFor="email">Email Address</label>
+            <input
+              type="email"
+              id="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="user@example.com"
+              required
+              disabled={loading}
+            />
+            <small>We'll send you a verification code via email</small>
+          </div>
+
+          <button type="submit" disabled={loading || !email}>
+            {loading ? 'Sending...' : 'Send Verification Code'}
+          </button>
+        </form>
+
+        <div className="alternative-auth">
+          <p>
+            {mode === 'register' ? 'Already have an account?' : 'Need an account?'}
+            <a href={mode === 'register' ? '/auth/signin' : '/auth/register'}>
+              {mode === 'register' ? 'Sign In' : 'Sign Up'}
+            </a>
+          </p>
+          <p>
+            <a href="/auth/signin">Sign in with password instead</a>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === 'verify') {
+    return (
+      <div className="email-otp-auth">
+        <h2>Check Your Email</h2>
+        <p>
+          We sent a 6-digit code to <strong>{email}</strong>
+        </p>
+
+        {error && (
+          <div className="error">
+            {error}
+            <button onClick={() => setError(null)}>×</button>
+          </div>
+        )}
+
+        <form onSubmit={handleVerifyOTP} className="verification-form">
+          <div className="form-group">
+            <label htmlFor="code">Verification Code</label>
+            <input
+              type="text"
+              id="code"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              placeholder="123456"
+              maxLength="6"
+              required
+              disabled={loading}
+              autoComplete="one-time-code"
+              className="code-input"
+            />
+          </div>
+
+          <button type="submit" disabled={loading || code.length !== 6}>
+            {loading ? 'Verifying...' : 'Verify Code'}
+          </button>
+        </form>
+
+        <div className="verification-actions">
+          {status?.expiresAt && (
+            <p className="expiry-info">
+              Code expires at {new Date(status.expiresAt).toLocaleTimeString()}
+            </p>
+          )}
+
+          {status?.attemptsRemaining !== undefined && (
+            <p className="attempts-info">
+              {status.attemptsRemaining} attempts remaining
+            </p>
+          )}
+
+          {canResend ? (
+            <button onClick={handleResendOTP} disabled={loading} className="resend-button">
+              {loading ? 'Resending...' : 'Resend Code'}
+            </button>
+          ) : countdown > 0 ? (
+            <button disabled className="resend-button">
+              Resend in {emailOTPService.formatCountdown(countdown)}
+            </button>
+          ) : null}
+
+          <button 
+            onClick={() => {
+              setStep('email');
+              setOtpSent(false);
+              setCode('');
+              setError(null);
+            }} 
+            className="change-email-button"
+          >
+            Change Email Address
+          </button>
+        </div>
+
+        <div className="help-text">
+          <p><strong>Didn't receive the code?</strong></p>
+          <ul>
+            <li>Check your spam/junk folder</li>
+            <li>Make sure {email} is correct</li>
+            <li>Wait a few minutes for delivery</li>
+            <li>Try resending the code</li>
+          </ul>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+};
+
+export { EmailOTPAuth };
+```
+
+## Email Provider Configuration
+
+### SMTP Configuration
+
+```go
+// SMTP email provider configuration
+config := &emailotp.Config{
+    Email: emailotp.EmailConfig{
+        Provider: "smtp",
+        From:     "noreply@example.com",
+        FromName: "AuthSome",
+        ReplyTo:  "support@example.com",
+        
+        SMTP: emailotp.SMTPConfig{
+            Host:       "smtp.gmail.com",
+            Port:       587,
+            Username:   os.Getenv("SMTP_USERNAME"),
+            Password:   os.Getenv("SMTP_PASSWORD"),
+            Encryption: "tls", // tls, ssl, none
+        },
+    },
+}
+```
+
+### SendGrid Configuration
+
+```go
+// SendGrid email provider configuration
+config := &emailotp.Config{
+    Email: emailotp.EmailConfig{
+        Provider: "sendgrid",
+        From:     "noreply@example.com",
+        FromName: "AuthSome",
+        
+        SendGrid: emailotp.SendGridConfig{
+            APIKey: os.Getenv("SENDGRID_API_KEY"),
+        },
+    },
+}
+```
+
+### AWS SES Configuration
+
+```go
+// AWS SES email provider configuration
+config := &emailotp.Config{
+    Email: emailotp.EmailConfig{
+        Provider: "aws-ses",
+        From:     "noreply@example.com",
+        FromName: "AuthSome",
+        
+        AWSSES: emailotp.AWSSESConfig{
+            Region:          "us-east-1",
+            AccessKeyID:     os.Getenv("AWS_ACCESS_KEY_ID"),
+            SecretAccessKey: os.Getenv("AWS_SECRET_ACCESS_KEY"),
+        },
+    },
+}
+```
+
+## Security Considerations
+
+<Callout type="warn">
+**Email Security**: Implement proper email validation and domain verification to prevent abuse.
+</Callout>
+
+### Email Validation and Domain Security
+
+```go
+// Comprehensive email validation
+func validateEmail(email string) error {
+    // Basic format validation
+    if !isValidEmailFormat(email) {
+        return fmt.Errorf("invalid email format")
+    }
+    
+    // Extract domain
+    parts := strings.Split(email, "@")
+    if len(parts) != 2 {
+        return fmt.Errorf("invalid email format")
+    }
+    domain := parts[1]
+    
+    // Check blocked domains
+    for _, blocked := range config.Security.BlockedDomains {
+        if strings.EqualFold(domain, blocked) {
+            return fmt.Errorf("email domain is not allowed")
+        }
+    }
+    
+    // Check allowed domains (if specified)
+    if len(config.Security.AllowedDomains) > 0 {
+        allowed := false
+        for _, allowedDomain := range config.Security.AllowedDomains {
+            if strings.EqualFold(domain, allowedDomain) {
+                allowed = true
+                break
+            }
+        }
+        if !allowed {
+            return fmt.Errorf("email domain is not allowed")
+        }
+    }
+    
+    // Check MX record if required
+    if config.Security.RequireMXRecord {
+        if err := verifyMXRecord(domain); err != nil {
+            return fmt.Errorf("email domain verification failed: %w", err)
+        }
+    }
+    
+    return nil
+}
+
+func verifyMXRecord(domain string) error {
+    mxRecords, err := net.LookupMX(domain)
+    if err != nil {
+        return fmt.Errorf("MX lookup failed: %w", err)
+    }
+    
+    if len(mxRecords) == 0 {
+        return fmt.Errorf("no MX records found for domain")
+    }
+    
+    return nil
+}
+```
+
+## Performance Optimization
+
+### Database Indexing
+
+```sql
+-- Optimize email OTP queries
+CREATE INDEX IF NOT EXISTS idx_email_otp_email 
+ON email_otps(email);
+
+CREATE INDEX IF NOT EXISTS idx_email_otp_token 
+ON email_otps(token);
+
+CREATE INDEX IF NOT EXISTS idx_email_otp_email_expires 
+ON email_otps(email, expires_at);
+
+-- Optimize rate limiting queries
+CREATE INDEX IF NOT EXISTS idx_email_rate_limits_email_window 
+ON email_rate_limits(email, window_start);
+
+CREATE INDEX IF NOT EXISTS idx_email_rate_limits_ip_window 
+ON email_rate_limits(ip_address, window_start);
+```
+
+### Caching Strategy
+
+```go
+// Configure caching for email OTP
+config := &emailotp.Config{
+    Cache: emailotp.CacheConfig{
+        Enabled: true,
+        
+        // OTP caching
+        OTPExpiry:  10 * time.Minute,
+        OTPPrefix:  "email:otp:",
+        
+        // Rate limit caching
+        RateLimitExpiry: time.Hour,
+        RateLimitPrefix: "email:ratelimit:",
+        
+        // Email validation caching
+        ValidationExpiry: 24 * time.Hour,
+        ValidationPrefix: "email:validation:",
+        
+        // Cleanup settings
+        CleanupInterval:  time.Hour,
+        CleanupBatchSize: 1000,
+    },
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+<Callout type="info">
+**Email Delivery**: Ensure your email provider is properly configured and has good deliverability rates.
+</Callout>
+
+#### Email Not Received
+
+```go
+// Debug email delivery issues
+func debugEmailDelivery(email, code string) {
+    log.Printf("Email debug info:")
+    log.Printf("  Email: %s", email)
+    log.Printf("  Code: %s", code)
+    log.Printf("  Provider: %s", config.Email.Provider)
+    log.Printf("  From: %s", config.Email.From)
+    
+    // Check email provider status
+    if err := checkEmailProviderStatus(); err != nil {
+        log.Printf("  Email provider error: %v", err)
+    }
+    
+    // Check rate limiting
+    if rateLimited, err := checkEmailRateLimit(email); err != nil {
+        log.Printf("  Rate limit check error: %v", err)
+    } else if rateLimited {
+        log.Printf("  Email address is rate limited")
+    }
+    
+    // Validate email
+    if err := validateEmail(email); err != nil {
+        log.Printf("  Email validation error: %v", err)
+    }
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Enterprise Plugins"
+    description="Explore enterprise-grade authentication solutions"
+    href="/docs/go/plugins/enterprise"
+  />
+  <Card
+    title="Multi-Factor Authentication"
+    description="Combine email OTP with other authentication methods"
+    href="/docs/go/guides/multi-factor-auth"
+  />
+  <Card
+    title="Email Templates"
+    description="Customize email templates and branding"
+    href="/docs/go/guides/email-templates"
+  />
+</Cards>

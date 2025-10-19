@@ -16,10 +16,10 @@ type StreamingService interface {
 	Dependencies() []string
 
 	// OnStart starts the streaming service.
-	OnStart(ctx context.Context) error
+	Start(ctx context.Context) error
 
 	// OnStop stops the streaming service.
-	OnStop(ctx context.Context) error
+	Stop(ctx context.Context) error
 
 	// OnHealthCheck performs a health check on the streaming service.
 	OnHealthCheck(ctx context.Context) error
@@ -107,13 +107,13 @@ func (s *DefaultStreamingService) Dependencies() []string {
 }
 
 // OnStart starts the streaming service
-func (s *DefaultStreamingService) OnStart(ctx context.Context) error {
-	return s.manager.OnStart(ctx)
+func (s *DefaultStreamingService) Start(ctx context.Context) error {
+	return s.manager.Start(ctx)
 }
 
 // OnStop stops the streaming service
-func (s *DefaultStreamingService) OnStop(ctx context.Context) error {
-	return s.manager.OnStop(ctx)
+func (s *DefaultStreamingService) Stop(ctx context.Context) error {
+	return s.manager.Stop(ctx)
 }
 
 // OnHealthCheck performs health check

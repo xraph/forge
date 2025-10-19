@@ -1,0 +1,744 @@
+---
+title: Advanced Plugins
+description: Advanced authentication methods and features for enhanced security and user experience
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+
+# Advanced Plugins
+
+Advanced plugins provide sophisticated authentication methods and enhanced security features for modern applications. These plugins offer passwordless authentication, advanced verification methods, and improved user experience.
+
+## Available Advanced Plugins
+
+<Cards>
+  <Card
+    title="Passkey Authentication"
+    description="WebAuthn-based passwordless authentication with biometrics and hardware keys"
+    href="/docs/go/plugins/advanced/passkey"
+  />
+  <Card
+    title="Magic Link Authentication"
+    description="Passwordless authentication via secure email links"
+    href="/docs/go/plugins/advanced/magic-link"
+  />
+  <Card
+    title="Phone Authentication"
+    description="SMS-based authentication and phone number verification"
+    href="/docs/go/plugins/advanced/phone"
+  />
+  <Card
+    title="Email OTP"
+    description="One-time password authentication via email"
+    href="/docs/go/plugins/advanced/email-otp"
+  />
+</Cards>
+
+## Plugin Categories
+
+### Passwordless Authentication
+- **Passkey**: Modern WebAuthn-based authentication
+- **Magic Link**: Email-based passwordless login
+- **Email OTP**: One-time password via email
+
+### Phone-Based Authentication
+- **Phone**: SMS verification and authentication
+- **Phone OTP**: SMS-based one-time passwords
+
+## Quick Setup
+
+<Tabs items={['YAML Configuration', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML Configuration">
+    ```yaml
+    auth:
+      plugins:
+        # Passkey authentication
+        passkey:
+          enabled: true
+          rpId: "example.com"
+          rpName: "Example App"
+          
+        # Magic link authentication
+        magicLink:
+          enabled: true
+          linkExpiry: "15m"
+          
+        # Phone authentication
+        phone:
+          enabled: true
+          provider: "twilio"
+          
+        # Email OTP
+        emailOtp:
+          enabled: true
+          codeLength: 6
+          expiry: "10m"
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # Passkey
+    AUTH_PLUGINS_PASSKEY_ENABLED=true
+    AUTH_PLUGINS_PASSKEY_RP_ID=example.com
+    AUTH_PLUGINS_PASSKEY_RP_NAME="Example App"
+
+    # Magic Link
+    AUTH_PLUGINS_MAGIC_LINK_ENABLED=true
+    AUTH_PLUGINS_MAGIC_LINK_LINK_EXPIRY=15m
+
+    # Phone
+    AUTH_PLUGINS_PHONE_ENABLED=true
+    AUTH_PLUGINS_PHONE_PROVIDER=twilio
+
+    # Email OTP
+    AUTH_PLUGINS_EMAIL_OTP_ENABLED=true
+    AUTH_PLUGINS_EMAIL_OTP_CODE_LENGTH=6
+    AUTH_PLUGINS_EMAIL_OTP_EXPIRY=10m
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    import (
+        "github.com/xraph/authsome"
+        "github.com/xraph/authsome/plugins/passkey"
+        "github.com/xraph/authsome/plugins/magiclink"
+        "github.com/xraph/authsome/plugins/phone"
+        "github.com/xraph/authsome/plugins/emailotp"
+    )
+
+    func setupAdvancedPlugins(auth *authsome.Auth) error {
+        // Register Passkey plugin
+        passkeyPlugin := passkey.NewPlugin(&passkey.Config{
+            Enabled: true,
+            RPID:    "example.com",
+            RPName:  "Example App",
+        })
+        auth.RegisterPlugin(passkeyPlugin)
+
+        // Register Magic Link plugin
+        magicLinkPlugin := magiclink.NewPlugin(&magiclink.Config{
+            Enabled:    true,
+            LinkExpiry: 15 * time.Minute,
+        })
+        auth.RegisterPlugin(magicLinkPlugin)
+
+        // Register Phone plugin
+        phonePlugin := phone.NewPlugin(&phone.Config{
+            Enabled:  true,
+            Provider: "twilio",
+        })
+        auth.RegisterPlugin(phonePlugin)
+
+        // Register Email OTP plugin
+        emailOtpPlugin := emailotp.NewPlugin(&emailotp.Config{
+            Enabled:    true,
+            CodeLength: 6,
+            Expiry:     10 * time.Minute,
+        })
+        auth.RegisterPlugin(emailOtpPlugin)
+
+        return auth.InitializePlugins()
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Plugin Registration
+
+Register multiple advanced plugins with your AuthSome instance:
+
+```go
+package main
+
+import (
+    "log"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/authsome/plugins/passkey"
+    "github.com/xraph/authsome/plugins/magiclink"
+    "github.com/xraph/authsome/plugins/phone"
+    "github.com/xraph/authsome/plugins/emailotp"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create AuthSome instance
+    auth, err := authsome.New(config)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Register advanced plugins
+    plugins := []authsome.Plugin{
+        passkey.NewPlugin(),
+        magiclink.NewPlugin(),
+        phone.NewPlugin(),
+        emailotp.NewPlugin(),
+    }
+
+    for _, plugin := range plugins {
+        auth.RegisterPlugin(plugin)
+    }
+
+    // Initialize all plugins
+    if err := auth.InitializePlugins(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Create Forge app and mount AuthSome
+    app := forge.New()
+    auth.Mount(app, "/auth")
+
+    log.Println("Server starting on :8080")
+    app.Listen(":8080")
+}
+```
+
+## Common API Patterns
+
+Advanced plugins follow consistent API patterns for easy integration:
+
+### Authentication Flow
+
+```http
+# 1. Initiate authentication
+POST /auth/{plugin}/initiate
+Content-Type: application/json
+
+{
+  "identifier": "user@example.com"
+}
+
+# 2. Complete authentication
+POST /auth/{plugin}/authenticate
+Content-Type: application/json
+
+{
+  "token": "verification_token",
+  "credential": "authentication_credential"
+}
+```
+
+### Registration Flow
+
+```http
+# 1. Initiate registration
+POST /auth/{plugin}/register/initiate
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "name": "John Doe"
+}
+
+# 2. Complete registration
+POST /auth/{plugin}/register/complete
+Content-Type: application/json
+
+{
+  "token": "registration_token",
+  "credential": "registration_credential"
+}
+```
+
+## Frontend Integration Examples
+
+### JavaScript/TypeScript
+
+```typescript
+interface AuthPlugin {
+  initiate(identifier: string): Promise<InitiateResponse>;
+  authenticate(token: string, credential: any): Promise<AuthResponse>;
+  register(userData: any): Promise<RegisterResponse>;
+}
+
+class AdvancedAuthService {
+  private baseUrl: string;
+
+  constructor(baseUrl: string = '/auth') {
+    this.baseUrl = baseUrl;
+  }
+
+  // Generic method for plugin authentication
+  async authenticateWithPlugin(
+    pluginName: string, 
+    identifier: string, 
+    credential?: any
+  ): Promise<AuthResponse> {
+    // Step 1: Initiate authentication
+    const initiateResponse = await fetch(`${this.baseUrl}/${pluginName}/initiate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier }),
+    });
+
+    if (!initiateResponse.ok) {
+      throw new Error(`Failed to initiate ${pluginName} authentication`);
+    }
+
+    const { token, challenge } = await initiateResponse.json();
+
+    // Step 2: Handle plugin-specific credential generation
+    let finalCredential = credential;
+    
+    if (pluginName === 'passkey' && challenge) {
+      finalCredential = await this.handlePasskeyChallenge(challenge);
+    } else if (pluginName === 'magic-link') {
+      // Magic link doesn't require immediate credential
+      return { success: true, message: 'Check your email for the magic link' };
+    }
+
+    // Step 3: Complete authentication
+    const authResponse = await fetch(`${this.baseUrl}/${pluginName}/authenticate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, credential: finalCredential }),
+    });
+
+    return authResponse.json();
+  }
+
+  // Passkey-specific credential handling
+  private async handlePasskeyChallenge(challenge: any): Promise<any> {
+    if (!navigator.credentials) {
+      throw new Error('WebAuthn not supported');
+    }
+
+    const credential = await navigator.credentials.get({
+      publicKey: challenge,
+    });
+
+    return {
+      id: credential.id,
+      rawId: Array.from(new Uint8Array(credential.rawId)),
+      response: {
+        authenticatorData: Array.from(new Uint8Array(credential.response.authenticatorData)),
+        clientDataJSON: Array.from(new Uint8Array(credential.response.clientDataJSON)),
+        signature: Array.from(new Uint8Array(credential.response.signature)),
+        userHandle: credential.response.userHandle ? 
+          Array.from(new Uint8Array(credential.response.userHandle)) : null,
+      },
+      type: credential.type,
+    };
+  }
+
+  // Multi-factor authentication with advanced plugins
+  async setupMFA(methods: string[]): Promise<MFASetupResponse> {
+    const setupPromises = methods.map(method => 
+      this.setupMFAMethod(method)
+    );
+
+    const results = await Promise.allSettled(setupPromises);
+    
+    return {
+      success: results.every(r => r.status === 'fulfilled'),
+      methods: results.map((result, index) => ({
+        method: methods[index],
+        success: result.status === 'fulfilled',
+        error: result.status === 'rejected' ? result.reason : null,
+      })),
+    };
+  }
+
+  private async setupMFAMethod(method: string): Promise<any> {
+    const response = await fetch(`${this.baseUrl}/${method}/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+
+    return response.json();
+  }
+}
+
+// Usage examples
+const authService = new AdvancedAuthService();
+
+// Passkey authentication
+async function authenticateWithPasskey(email: string) {
+  try {
+    const result = await authService.authenticateWithPlugin('passkey', email);
+    console.log('Passkey authentication result:', result);
+  } catch (error) {
+    console.error('Passkey authentication failed:', error);
+  }
+}
+
+// Magic link authentication
+async function authenticateWithMagicLink(email: string) {
+  try {
+    const result = await authService.authenticateWithPlugin('magic-link', email);
+    console.log('Magic link sent:', result);
+  } catch (error) {
+    console.error('Magic link failed:', error);
+  }
+}
+
+// Phone authentication
+async function authenticateWithPhone(phoneNumber: string, code?: string) {
+  try {
+    const result = await authService.authenticateWithPlugin('phone', phoneNumber, code);
+    console.log('Phone authentication result:', result);
+  } catch (error) {
+    console.error('Phone authentication failed:', error);
+  }
+}
+
+// Setup multi-factor authentication
+async function setupMultiFactorAuth() {
+  try {
+    const result = await authService.setupMFA(['passkey', 'phone']);
+    console.log('MFA setup result:', result);
+  } catch (error) {
+    console.error('MFA setup failed:', error);
+  }
+}
+```
+
+### React Hook
+
+```jsx
+import { useState, useCallback } from 'react';
+
+export function useAdvancedAuth() {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const authService = new AdvancedAuthService();
+
+  const authenticateWithPlugin = useCallback(async (plugin, identifier, credential) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await authService.authenticateWithPlugin(plugin, identifier, credential);
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const setupMFA = useCallback(async (methods) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const result = await authService.setupMFA(methods);
+      return result;
+    } catch (err) {
+      setError(err.message);
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return {
+    loading,
+    error,
+    authenticateWithPlugin,
+    setupMFA,
+    clearError: () => setError(null),
+  };
+}
+
+// Usage in component
+function AdvancedAuthComponent() {
+  const { loading, error, authenticateWithPlugin, setupMFA } = useAdvancedAuth();
+  const [selectedMethod, setSelectedMethod] = useState('passkey');
+
+  const handleAuthenticate = async () => {
+    try {
+      const result = await authenticateWithPlugin(selectedMethod, 'user@example.com');
+      console.log('Authentication successful:', result);
+    } catch (error) {
+      console.error('Authentication failed:', error);
+    }
+  };
+
+  const handleSetupMFA = async () => {
+    try {
+      const result = await setupMFA(['passkey', 'phone']);
+      console.log('MFA setup successful:', result);
+    } catch (error) {
+      console.error('MFA setup failed:', error);
+    }
+  };
+
+  return (
+    <div className="advanced-auth">
+      <h2>Advanced Authentication</h2>
+      
+      <div className="method-selector">
+        <label>
+          <input
+            type="radio"
+            value="passkey"
+            checked={selectedMethod === 'passkey'}
+            onChange={(e) => setSelectedMethod(e.target.value)}
+          />
+          Passkey
+        </label>
+        <label>
+          <input
+            type="radio"
+            value="magic-link"
+            checked={selectedMethod === 'magic-link'}
+            onChange={(e) => setSelectedMethod(e.target.value)}
+          />
+          Magic Link
+        </label>
+        <label>
+          <input
+            type="radio"
+            value="phone"
+            checked={selectedMethod === 'phone'}
+            onChange={(e) => setSelectedMethod(e.target.value)}
+          />
+          Phone
+        </label>
+      </div>
+
+      <button onClick={handleAuthenticate} disabled={loading}>
+        {loading ? 'Authenticating...' : `Authenticate with ${selectedMethod}`}
+      </button>
+
+      <button onClick={handleSetupMFA} disabled={loading}>
+        {loading ? 'Setting up...' : 'Setup Multi-Factor Auth'}
+      </button>
+
+      {error && <div className="error">{error}</div>}
+    </div>
+  );
+}
+```
+
+## Server-Side Integration
+
+### Middleware for Advanced Authentication
+
+```go
+package main
+
+import (
+    "net/http"
+    "strings"
+    
+    "github.com/xraph/authsome"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New()
+    auth, _ := authsome.New(config)
+    
+    // Mount AuthSome with advanced plugins
+    auth.Mount(app, "/auth")
+    
+    // Middleware to handle multiple authentication methods
+    app.Use(func(c *forge.Context) error {
+        // Check for traditional session authentication
+        if user := auth.GetUser(c); user != nil {
+            c.Set("user", user)
+            c.Set("authMethod", "session")
+            return c.Next()
+        }
+        
+        // Check for JWT bearer token
+        if token := extractBearerToken(c); token != "" {
+            if user, err := auth.ValidateJWT(token); err == nil {
+                c.Set("user", user)
+                c.Set("authMethod", "jwt")
+                return c.Next()
+            }
+        }
+        
+        // Check for API key authentication
+        if apiKey := c.Get("X-API-Key"); apiKey != "" {
+            if user, err := auth.ValidateAPIKey(apiKey); err == nil {
+                c.Set("user", user)
+                c.Set("authMethod", "apikey")
+                return c.Next()
+            }
+        }
+        
+        return c.Next()
+    })
+    
+    // Routes that support multiple auth methods
+    app.GET("/profile", func(c *forge.Context) error {
+        user := c.Get("user")
+        if user == nil {
+            return c.JSON(http.StatusUnauthorized, map[string]string{
+                "error": "Authentication required",
+                "supportedMethods": "session, jwt, apikey, passkey, magic-link, phone",
+            })
+        }
+        
+        authMethod := c.Get("authMethod").(string)
+        return c.JSON(http.StatusOK, map[string]interface{}{
+            "user": user,
+            "authMethod": authMethod,
+        })
+    })
+    
+    // Route for authentication method preferences
+    app.GET("/auth/methods", func(c *forge.Context) error {
+        user := auth.GetUser(c)
+        if user == nil {
+            return c.JSON(http.StatusUnauthorized, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        
+        methods, err := auth.GetUserAuthMethods(user.ID)
+        if err != nil {
+            return c.JSON(http.StatusInternalServerError, map[string]string{
+                "error": "Failed to get auth methods",
+            })
+        }
+        
+        return c.JSON(http.StatusOK, map[string]interface{}{
+            "enabledMethods": methods,
+            "availableMethods": []string{"passkey", "magic-link", "phone", "email-otp"},
+        })
+    })
+    
+    app.Listen(":8080")
+}
+
+func extractBearerToken(c *forge.Context) string {
+    auth := c.Get("Authorization")
+    if auth == "" {
+        return ""
+    }
+    
+    parts := strings.SplitN(auth, " ", 2)
+    if len(parts) != 2 || parts[0] != "Bearer" {
+        return ""
+    }
+    
+    return parts[1]
+}
+```
+
+## Security Considerations
+
+<Callout type="warn">
+**Security Best Practices**: Advanced plugins require careful security configuration, especially for passwordless authentication methods.
+</Callout>
+
+### WebAuthn Security (Passkey)
+
+```go
+// Secure WebAuthn configuration
+config := &passkey.Config{
+    RPID:     "example.com",  // Must match your domain
+    RPName:   "Example App",
+    RPOrigin: "https://example.com",  // Must use HTTPS in production
+    
+    // Require user verification for sensitive operations
+    UserVerification: "required",
+    
+    // Attestation preferences
+    Attestation: "direct",  // or "indirect", "none"
+    
+    // Timeout settings
+    Timeout: 60 * time.Second,
+    
+    // Authenticator selection
+    AuthenticatorSelection: passkey.AuthenticatorSelection{
+        RequireResidentKey: true,
+        UserVerification:   "required",
+    },
+}
+```
+
+### Rate Limiting for Advanced Methods
+
+```go
+// Configure rate limiting for each plugin
+config := &authsome.Config{
+    RateLimit: authsome.RateLimitConfig{
+        Enabled: true,
+        Rules: map[string]authsome.RateLimitRule{
+            "passkey":    {Requests: 5, Window: time.Minute},
+            "magic-link": {Requests: 3, Window: time.Minute},
+            "phone":      {Requests: 3, Window: time.Minute},
+            "email-otp":  {Requests: 5, Window: time.Minute},
+        },
+    },
+}
+```
+
+## Performance Optimization
+
+### Caching Strategies
+
+```go
+// Cache WebAuthn challenges and credentials
+config := &passkey.Config{
+    Cache: passkey.CacheConfig{
+        ChallengeExpiry:   5 * time.Minute,
+        CredentialExpiry:  24 * time.Hour,
+        CleanupInterval:   time.Hour,
+    },
+}
+
+// Cache magic link tokens
+config := &magiclink.Config{
+    Cache: magiclink.CacheConfig{
+        TokenExpiry:     15 * time.Minute,
+        CleanupInterval: time.Hour,
+    },
+}
+```
+
+### Database Optimization
+
+```go
+// Optimize database queries for advanced plugins
+func optimizeAdvancedPluginQueries(db *bun.DB) {
+    // Index for passkey credentials
+    db.Exec("CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user_id ON passkey_credentials(user_id)")
+    db.Exec("CREATE INDEX IF NOT EXISTS idx_passkey_credentials_credential_id ON passkey_credentials(credential_id)")
+    
+    // Index for magic link tokens
+    db.Exec("CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_token ON magic_link_tokens(token)")
+    db.Exec("CREATE INDEX IF NOT EXISTS idx_magic_link_tokens_expires_at ON magic_link_tokens(expires_at)")
+    
+    // Index for phone verifications
+    db.Exec("CREATE INDEX IF NOT EXISTS idx_phone_verifications_phone ON phone_verifications(phone_number)")
+    db.Exec("CREATE INDEX IF NOT EXISTS idx_phone_verifications_code ON phone_verifications(verification_code)")
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="Passkey Authentication"
+    description="Implement WebAuthn-based passwordless authentication"
+    href="/docs/go/plugins/advanced/passkey"
+  />
+  <Card
+    title="Magic Link Authentication"
+    description="Set up secure email-based passwordless login"
+    href="/docs/go/plugins/advanced/magic-link"
+  />
+  <Card
+    title="Phone Authentication"
+    description="Configure SMS-based authentication and verification"
+    href="/docs/go/plugins/advanced/phone"
+  />
+  <Card
+    title="Enterprise Plugins"
+    description="Explore enterprise-grade authentication features"
+    href="/docs/go/plugins/enterprise"
+  />
+</Cards>

@@ -1112,12 +1112,12 @@ func (tm *testMetrics) Dependencies() []string {
 	panic("implement me")
 }
 
-func (tm *testMetrics) OnStart(ctx context.Context) error {
+func (tm *testMetrics) Start(ctx context.Context) error {
 	// TODO implement me
 	panic("implement me")
 }
 
-func (tm *testMetrics) OnStop(ctx context.Context) error {
+func (tm *testMetrics) Stop(ctx context.Context) error {
 	// TODO implement me
 	panic("implement me")
 }

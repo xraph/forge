@@ -144,6 +144,22 @@ func (ks *K8sSource) Name() string {
 	return ks.name
 }
 
+// GetName returns the source name (alias for Name)
+func (ks *K8sSource) GetName() string {
+	return ks.name
+}
+
+// GetType returns the source type
+func (ks *K8sSource) GetType() string {
+	return "kubernetes"
+}
+
+// IsAvailable checks if the source is available
+func (ks *K8sSource) IsAvailable(ctx context.Context) bool {
+	// TODO: Implement actual Kubernetes availability check
+	return true
+}
+
 // Priority returns the source priority
 func (ks *K8sSource) Priority() int {
 	return ks.priority
@@ -197,7 +213,7 @@ func (ks *K8sSource) Watch(ctx context.Context, callback func(map[string]interfa
 	ks.watchStop = make(chan struct{})
 	ks.watching = true
 
-	// OnStart watching goroutines
+	// Start watching goroutines
 	go ks.watchConfigMaps(ctx, callback)
 	go ks.watchSecrets(ctx, callback)
 
@@ -714,7 +730,7 @@ func (ks *K8sSource) handleWatchError(err error) {
 		ks.errorHandler.HandleError(nil, common.ErrConfigError(fmt.Sprintf("Kubernetes watch error for namespace %s", ks.namespace), err))
 	}
 
-	// OnStop watching on persistent errors
+	// Stop watching on persistent errors
 	ks.StopWatch()
 }
 
