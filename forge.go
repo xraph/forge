@@ -1264,7 +1264,6 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		return common.ErrLifecycleError("start", fmt.Errorf("application already started or in invalid state: %s", app.status))
 	}
 
-	app.status = common.ApplicationStatusStarting
 	app.startTime = time.Now()
 
 	if app.logger != nil {
@@ -1283,7 +1282,19 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		return err
 	}
 
-	// Start container
+	// Start plugins BEFORE container starts to allow service and controller registration
+	// Keep status as NotStarted during plugin initialization
+	if app.pluginsManager != nil {
+		if err := app.pluginsManager.StartPlugins(ctx); err != nil {
+			app.status = common.ApplicationStatusError
+			return fmt.Errorf("failed to start plugins: %w", err)
+		}
+	}
+
+	// Now set status to Starting after plugins have registered their components
+	app.status = common.ApplicationStatusStarting
+
+	// Start container - this locks service registration
 	if app.container != nil {
 		if err := app.container.Start(ctx); err != nil {
 			app.status = common.ApplicationStatusError
@@ -1304,14 +1315,6 @@ func (app *ForgeApplication) Start(ctx context.Context) error {
 		if err := app.router.Start(ctx); err != nil {
 			app.status = common.ApplicationStatusError
 			return err
-		}
-	}
-
-	// Start plugins
-	if app.pluginsManager != nil {
-		if err := app.pluginsManager.StartPlugins(ctx); err != nil {
-			app.status = common.ApplicationStatusError
-			return fmt.Errorf("failed to start plugins: %w", err)
 		}
 	}
 

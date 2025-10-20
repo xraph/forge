@@ -39,6 +39,7 @@ type Service = common.Service
 type ServiceDefinition = common.ServiceDefinition
 type Plugin = common.Plugin
 type PluginMetrics = common.PluginMetrics
+type PluginContext = common.PluginContext
 type Hook = common.Hook
 type ConfigSchema = common.ConfigSchema
 type ConfigProperty = common.ConfigProperty

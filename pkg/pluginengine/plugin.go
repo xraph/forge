@@ -9,34 +9,34 @@ import (
 )
 
 // Plugin defines the interface for framework plugins
-type PluginEngine = common2.PluginEngineEngine
+type PluginEngine = common2.PluginEngine
 
 // PluginType defines the type of plugin
-type PluginType = common2.PluginEngineType
+type PluginType = common2.PluginType
 
 const (
-	PluginTypeMiddleware  = common2.PluginEngineTypeMiddleware
-	PluginTypeDatabase    = common2.PluginEngineTypeDatabase
-	PluginTypeAuth        = common2.PluginEngineTypeAuth
-	PluginTypeCache       = common2.PluginEngineTypeCache
-	PluginTypeStorage     = common2.PluginEngineTypeStorage
-	PluginTypeMessaging   = common2.PluginEngineTypeMessaging
-	PluginTypeMonitoring  = common2.PluginEngineTypeMonitoring
-	PluginTypeAI          = common2.PluginEngineTypeAI
-	PluginTypeSecurity    = common2.PluginEngineTypeSecurity
-	PluginTypeIntegration = common2.PluginEngineTypeIntegration
-	PluginTypeUtility     = common2.PluginEngineTypeUtility
-	PluginTypeExtension   = common2.PluginEngineTypeExtension
+	PluginTypeMiddleware  = common2.PluginTypeMiddleware
+	PluginTypeDatabase    = common2.PluginTypeDatabase
+	PluginTypeAuth        = common2.PluginTypeAuth
+	PluginTypeCache       = common2.PluginTypeCache
+	PluginTypeStorage     = common2.PluginTypeStorage
+	PluginTypeMessaging   = common2.PluginTypeMessaging
+	PluginTypeMonitoring  = common2.PluginTypeMonitoring
+	PluginTypeAI          = common2.PluginTypeAI
+	PluginTypeSecurity    = common2.PluginTypeSecurity
+	PluginTypeIntegration = common2.PluginTypeIntegration
+	PluginTypeUtility     = common2.PluginTypeUtility
+	PluginTypeExtension   = common2.PluginTypeExtension
 )
 
 // PluginCapability describes what a plugin can do
-type PluginCapability = common2.PluginEngineCapability
+type PluginCapability = common2.PluginCapability
 
 // PluginDependency describes a plugin dependency
-type PluginDependency = common2.PluginEngineDependency
+type PluginDependency = common2.PluginDependency
 
 // PluginMetrics contains plugin performance metrics
-type PluginMetrics = common2.PluginEngineMetrics
+type PluginMetrics = common2.PluginMetrics
 
 // CLICommand represents a CLI command provided by a plugin
 type CLICommand = common2.CLICommand
@@ -247,28 +247,28 @@ func (p *BasePlugin) UpdateMetrics(callCount, errorCount int64, latency time.Dur
 }
 
 // PluginInfo contains metadata about a plugin
-type PluginInfo = common2.PluginEngineInfo
+type PluginInfo = common2.PluginInfo
 
 // PluginPackage represents a plugin package
-type PluginPackage = common2.PluginEnginePackage
+type PluginPackage = common2.PluginPackage
 
 // PluginStats contains plugin statistics
-type PluginStats = common2.PluginEngineStats
+type PluginStats = common2.PluginStats
 
 // PluginState represents the state of a plugin
-type PluginState = common2.PluginEngineState
+type PluginState = common2.PluginState
 
 const (
-	PluginStateUnloaded    = common2.PluginEngineStateUnloaded
-	PluginStateLoaded      = common2.PluginEngineStateLoaded
-	PluginStateInitialized = common2.PluginEngineStateInitialized
-	PluginStateStarted     = common2.PluginEngineStateStarted
-	PluginStateStopped     = common2.PluginEngineStateStopped
-	PluginStateError       = common2.PluginEngineStateError
+	PluginStateUnloaded    = common2.PluginStateUnloaded
+	PluginStateLoaded      = common2.PluginStateLoaded
+	PluginStateInitialized = common2.PluginStateInitialized
+	PluginStateStarted     = common2.PluginStateStarted
+	PluginStateStopped     = common2.PluginStateStopped
+	PluginStateError       = common2.PluginStateError
 )
 
 // PluginOperation represents an operation that can be performed on a plugin
-type PluginOperation = common2.PluginEngineOperation
+type PluginOperation = common2.PluginOperation
 
 // OperationType defines the type of operation
 type OperationType = common2.OperationType
@@ -284,7 +284,8 @@ const (
 )
 
 // PluginRegistry defines the interface for plugin registry
-type PluginRegistry = common2.PluginEngineRegistry
+type PluginRegistry = common2.PluginRegistry
+type Plugin = common.PluginEngine
 
 // RegistryStats contains plugin registry statistics
 type RegistryStats = common2.RegistryStats

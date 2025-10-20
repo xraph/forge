@@ -174,30 +174,8 @@ func (m *Manager) startPlugin(ctx context.Context, plugin common.Plugin) error {
 	// Create PluginContext with container, router, and config manager
 	pluginCtx := common.NewPluginContext(ctx, m.app.Container(), m.router, m.app.Config())
 
-	// Start the plugin with PluginContext
-	if err := plugin.Start(pluginCtx); err != nil {
-		return fmt.Errorf("Start failed: %w", err)
-	}
-
-	// Register routes
-	if m.router != nil {
-		if err := plugin.Routes(m.router); err != nil {
-			return fmt.Errorf("route registration failed: %w", err)
-		}
-	}
-
-	// Register middleware
-	middleware := plugin.Middleware()
-	if m.router != nil && len(middleware) > 0 {
-		for _, mw := range middleware {
-			if mwFunc, ok := mw.(func(http.Handler) http.Handler); ok {
-				// Register middleware
-				m.router.UseMiddleware(mwFunc)
-			}
-		}
-	}
-
-	// Register services
+	// Step 1: Register services FIRST (before anything else)
+	// Controllers, routes, and middleware may depend on these services
 	services := plugin.Services()
 	if m.app != nil && m.app.Container() != nil {
 		for _, svc := range services {
@@ -213,18 +191,95 @@ func (m *Manager) startPlugin(ctx context.Context, plugin common.Plugin) error {
 		}
 	}
 
-	// Register controllers
+	// Step 2: Start the plugin with PluginContext
+	// Plugin can now register additional services if needed
+	if err := plugin.Start(pluginCtx); err != nil {
+		return fmt.Errorf("start failed: %w", err)
+	}
+
+	// Step 3: Register controllers
+	// Register controllers directly with router without initializing them yet
+	// Controllers will be initialized later after container starts
 	controllers := plugin.Controllers()
-	if m.app != nil {
+	if m.router != nil && len(controllers) > 0 {
+		// Set plugin context in router if supported
+		if setter, ok := m.router.(interface{ SetCurrentPlugin(string) }); ok {
+			setter.SetCurrentPlugin(name)
+			defer func() {
+				if clearer, ok := m.router.(interface{ ClearCurrentPlugin() }); ok {
+					clearer.ClearCurrentPlugin()
+				}
+			}()
+		}
+
+		// Register each controller with router
 		for _, ctrl := range controllers {
-			if err := m.app.AddController(ctrl); err != nil {
+			if m.logger != nil {
+				m.logger.Debug("registering controller from plugin",
+					logger.String("plugin", name),
+					logger.String("controller", ctrl.Name()),
+				)
+			}
+
+			// Initialize controller with container first
+			// Note: This happens before container.Start(), so services cannot be resolved yet
+			// Controllers should defer service resolution to their handler methods or
+			// implement a lazy initialization pattern
+			if err := ctrl.Initialize(m.app.Container()); err != nil {
 				if m.logger != nil {
-					m.logger.Warn("failed to register controller from plugin",
+					m.logger.Error("failed to initialize controller from plugin",
 						logger.String("plugin", name),
 						logger.String("controller", ctrl.Name()),
 						logger.Error(err),
 					)
 				}
+				return fmt.Errorf("failed to initialize controller %s: %w", ctrl.Name(), err)
+			}
+
+			// Register controller with router
+			if err := m.router.RegisterController(ctrl); err != nil {
+				if m.logger != nil {
+					m.logger.Error("failed to register controller from plugin",
+						logger.String("plugin", name),
+						logger.String("controller", ctrl.Name()),
+						logger.Error(err),
+					)
+				}
+				return fmt.Errorf("failed to register controller %s: %w", ctrl.Name(), err)
+			}
+
+			if m.logger != nil {
+				m.logger.Debug("controller registered successfully",
+					logger.String("plugin", name),
+					logger.String("controller", ctrl.Name()),
+				)
+			}
+		}
+
+		if m.logger != nil {
+			m.logger.Info("plugin controllers registered",
+				logger.String("plugin", name),
+				logger.Int("count", len(controllers)),
+			)
+		}
+	}
+
+	// Step 4: Register routes
+	// Routes can reference controllers and services
+	if m.router != nil {
+		if err := plugin.Routes(m.router); err != nil {
+			return fmt.Errorf("route registration failed: %w", err)
+		}
+	}
+
+	// Step 5: Register middleware
+	// Middleware is applied last
+	middleware := plugin.Middleware()
+	if m.router != nil && len(middleware) > 0 {
+		for _, mw := range middleware {
+			if mwFunc, ok := mw.(func(http.Handler) http.Handler); ok {
+				// Register middleware
+				m.router.UseMiddleware(mwFunc)
 			}
 		}
 	}
