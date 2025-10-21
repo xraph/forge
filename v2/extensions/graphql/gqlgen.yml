@@ -1,0 +1,39 @@
+schema:
+  - schema/*.graphql
+
+exec:
+  filename: generated/generated.go
+  package: generated
+
+model:
+  filename: generated/models.go
+  package: generated
+
+resolver:
+  layout: follow-schema
+  dir: .
+  package: graphql
+  filename_template: "{name}.resolvers.go"
+  omit_template_comment: true
+
+# Skip introspection bindings - use gqlgen's defaults
+skip_validation: false
+
+# Models configuration - use time.Time for Time scalar
+models:
+  Time:
+    model:
+      - time.Time
+  Upload:
+    model:
+      - github.com/99designs/gqlgen/graphql.Upload
+
+federation:
+  filename: generated/federation.go
+  package: generated
+  version: 2
+
+directives:
+  auth:
+    skip_runtime: false
+

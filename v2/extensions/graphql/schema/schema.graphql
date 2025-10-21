@@ -1,0 +1,11 @@
+directive @auth(requires: String) on FIELD_DEFINITION
+
+type Query {
+  hello(name: String!): String!
+  version: String!
+}
+
+type Mutation {
+  echo(message: String!): String!
+}
+

@@ -1,5 +1,84 @@
-arch.md
-*.db
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
+# Test binaries
+*.test
+*.test.exe
+*_test
+test
+tests
+test-*
+
+# Go build artifacts
+*.o
+*.a
+*.out
+
+# Architecture file
+arch.md
+
+# Databases
+*.db
+*.db-shm
+*.db-wal
+
+# IDE
 .idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Project specific
 project/
+v2/design/
+*.txt
+
+# Coverage reports
+*.out
+coverage.out
+coverage.txt
+coverage.html
+*.coverprofile
+*.cover
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# Output of the go coverage tool
+*.cov
+
+# Binaries
+bin/
+dist/
+
+# Documentation artifacts
+*_COMPLETE.md
+*_PROGRESS.md
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Generated code (optional - uncomment if needed)
+# **/generated/
+# *.pb.go
+# *.gen.go
