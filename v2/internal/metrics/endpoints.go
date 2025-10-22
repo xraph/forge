@@ -8,9 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xraph/forge/pkg/common"
-	"github.com/xraph/forge/pkg/logger"
-	"github.com/xraph/forge/pkg/router"
+	"github.com/xraph/forge/v2/internal/logger"
 	"github.com/xraph/forge/v2/internal/metrics/internal"
 	"github.com/xraph/forge/v2/internal/shared"
 )
@@ -73,7 +71,7 @@ func NewMetricsEndpointHandler(collector shared.Metrics, config *EndpointConfig,
 // =============================================================================
 
 // RegisterEndpoints registers metrics endpoints with the router
-func (h *MetricsEndpointHandler) RegisterEndpoints(r common.Router) error {
+func (h *MetricsEndpointHandler) RegisterEndpoints(r shared.Router) error {
 	if !h.config.Enabled {
 		return nil
 	}
@@ -81,29 +79,17 @@ func (h *MetricsEndpointHandler) RegisterEndpoints(r common.Router) error {
 	group := r.Group(h.config.PrefixPath)
 
 	// Register metrics endpoint
-	if err := group.RegisterOpinionatedHandler("GET", h.config.MetricsPath, h.handleMetrics,
-		router.WithOpenAPITags("metrics"),
-		router.WithSummary("Get metrics"),
-		router.WithDescription("Returns application metrics in various formats"),
-	); err != nil {
+	if err := group.GET(h.config.MetricsPath, h.handleMetrics); err != nil {
 		return fmt.Errorf("failed to register metrics endpoint: %w", err)
 	}
 
 	// Register health endpoint
-	if err := group.RegisterOpinionatedHandler("GET", h.config.HealthPath, h.handleHealth,
-		router.WithOpenAPITags("metrics"),
-		router.WithSummary("Get metrics health"),
-		router.WithDescription("Returns health status of the metrics system"),
-	); err != nil {
+	if err := group.GET(h.config.HealthPath, h.handleHealth); err != nil {
 		return fmt.Errorf("failed to register health endpoint: %w", err)
 	}
 
 	// Register stats endpoint
-	if err := group.RegisterOpinionatedHandler("GET", h.config.StatsPath, h.handleStats,
-		router.WithOpenAPITags("metrics"),
-		router.WithSummary("Get metrics statistics"),
-		router.WithDescription("Returns statistics about the metrics collector"),
-	); err != nil {
+	if err := group.GET(h.config.StatsPath, h.handleStats); err != nil {
 		return fmt.Errorf("failed to register stats endpoint: %w", err)
 	}
 
@@ -126,49 +112,29 @@ func (h *MetricsEndpointHandler) RegisterEndpoints(r common.Router) error {
 }
 
 // registerAdditionalEndpoints registers additional metrics endpoints
-func (h *MetricsEndpointHandler) registerAdditionalEndpoints(r common.Router) error {
+func (h *MetricsEndpointHandler) registerAdditionalEndpoints(r shared.Router) error {
 	// Metrics by type endpoint
-	if err := r.RegisterOpinionatedHandler("GET", "/type/:type", h.handleMetricsByType,
-		router.WithOpenAPITags("metrics"),
-		router.WithSummary("Get metrics by type"),
-		router.WithDescription("Returns metrics filtered by type (counter, gauge, histogram, timer)"),
-	); err != nil {
+	if err := r.GET("/type/:type", h.handleMetricsByType); err != nil {
 		return err
 	}
 
 	// Metrics by name pattern endpoint
-	if err := r.RegisterOpinionatedHandler("GET", "/name/:pattern", h.handleMetricsByName,
-		router.WithOpenAPITags("metrics"),
-		router.WithSummary("Get metrics by name pattern"),
-		router.WithDescription("Returns metrics filtered by name pattern"),
-	); err != nil {
+	if err := r.GET("/name/:pattern", h.handleMetricsByName); err != nil {
 		return err
 	}
 
 	// Metrics by tag endpoint
-	if err := r.RegisterOpinionatedHandler("GET", "/tag/:key/:value", h.handleMetricsByTag,
-		router.WithOpenAPITags("metrics"),
-		router.WithSummary("Get metrics by tag"),
-		router.WithDescription("Returns metrics filtered by tag key and value"),
-	); err != nil {
+	if err := r.GET("/tag/:key/:value", h.handleMetricsByTag); err != nil {
 		return err
 	}
 
-	// // Reset metrics endpoint
-	// if err := r.POST("/reset", h.handleReset,
-	// 	router.WithOpenAPITags("metrics"),
-	// 	router.WithSummary("Reset metrics"),
-	// 	router.WithDescription("Resets all metrics to their initial state"),
-	// ); err != nil {
-	// 	return err
-	// }
+	// Reset metrics endpoint
+	if err := r.POST("/reset", h.handleReset); err != nil {
+		return err
+	}
 
 	// Export metrics endpoint
-	if err := r.RegisterOpinionatedHandler("GET", "/export/:format", h.handleExport,
-		router.WithOpenAPITags("metrics"),
-		router.WithSummary("Export metrics"),
-		router.WithDescription("Exports metrics in specified format (prometheus, json, influx, statsd)"),
-	); err != nil {
+	if err := r.GET("/export/:format", h.handleExport); err != nil {
 		return err
 	}
 
@@ -179,32 +145,8 @@ func (h *MetricsEndpointHandler) registerAdditionalEndpoints(r common.Router) er
 // HANDLER METHODS
 // =============================================================================
 
-type MetricsByTypeRequest struct {
-	Type string `json:"type" validate:"required" path:"type"`
-}
-
-type MetricsResponse struct {
-	Body map[string]interface{} `json:"body"`
-}
-
-type ExportMetricsRequest struct {
-	Format string `json:"format" validate:"required" path:"format"`
-}
-
-type ExportMetricsResponse struct {
-	Body []byte `json:"body"`
-}
-
-type GetMetricsInput struct {
-	Format string `json:"format" query:"format"`
-}
-
-type GetMetricsResponse struct {
-	Body map[string]any `json:"body"`
-}
-
 // handleMetrics handles the main metrics endpoint
-func (h *MetricsEndpointHandler) handleMetrics(ctx common.Context, req GetMetricsInput) (*GetMetricsResponse, error) {
+func (h *MetricsEndpointHandler) handleMetrics(ctx shared.Context) error {
 	// Apply CORS if enabled
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
@@ -213,57 +155,51 @@ func (h *MetricsEndpointHandler) handleMetrics(ctx common.Context, req GetMetric
 	// Check authentication if required
 	if h.config.RequireAuth {
 		if err := h.checkAuth(ctx); err != nil {
-			return nil, h.writeError(ctx, http.StatusUnauthorized, "authentication required", err)
+			return h.writeError(ctx, http.StatusUnauthorized, "authentication required", err)
 		}
 	}
 
 	// Get format from query parameter
-	format := h.getFormatFromQuery(req.Format)
+	format := h.getFormatFromQuery(ctx.Query("format"))
 
 	// Check cache
 	if h.cache.enabled {
 		if cached, found := h.cache.get("metrics", format); found {
-			return nil, h.writeResponse(ctx, cached, format)
+			return h.writeResponse(ctx, cached, format)
 		}
 	}
 
 	// Get metrics
 	metrics := h.collector.GetMetrics()
 
-	// // Export in requested format
-	// data, err := h.exportMetrics(metrics, format)
-	// if err != nil {
-	// 	return nil, h.writeError(ctx, http.StatusInternalServerError, "failed to export metrics", err)
-	// }
+	// Export in requested format
+	data, err := h.exportMetrics(metrics, format)
+	if err != nil {
+		return h.writeError(ctx, http.StatusInternalServerError, "failed to export metrics", err)
+	}
 
 	// Cache the result
-	// if h.cache.enabled {
-	// 	h.cache.set("metrics", format, data)
-	// }
+	if h.cache.enabled {
+		h.cache.set("metrics", format, data)
+	}
 
-	return &GetMetricsResponse{
-		Body: metrics,
-	}, nil
-}
-
-type MetricsHealthResponse struct {
-	Body map[string]interface{} `json:"body"`
+	return h.writeResponse(ctx, data, format)
 }
 
 // handleHealth handles the health endpoint
-func (h *MetricsEndpointHandler) handleHealth(ctx common.Context, req interface{}) (*MetricsHealthResponse, error) {
+func (h *MetricsEndpointHandler) handleHealth(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
 	}
 
 	// Check collector health
-	if err := h.collector.Health(ctx); err != nil {
+	if err := h.collector.Health(ctx.Context()); err != nil {
 		response := map[string]interface{}{
 			"status":    "unhealthy",
 			"error":     err.Error(),
 			"timestamp": time.Now().UTC(),
 		}
-		return nil, ctx.JSON(http.StatusServiceUnavailable, response)
+		return ctx.JSON(http.StatusServiceUnavailable, response)
 	}
 
 	// Get collector stats
@@ -280,36 +216,28 @@ func (h *MetricsEndpointHandler) handleHealth(ctx common.Context, req interface{
 		"last_collection":   stats.LastCollectionTime,
 	}
 
-	return &MetricsHealthResponse{
-		Body: response,
-	}, nil
-}
-
-type MetricsStatsResponse struct {
-	Body internal.CollectorStats `json:"body"`
+	return ctx.JSON(http.StatusOK, response)
 }
 
 // handleStats handles the stats endpoint
-func (h *MetricsEndpointHandler) handleStats(ctx common.Context, req interface{}) (*MetricsStatsResponse, error) {
+func (h *MetricsEndpointHandler) handleStats(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
 	}
 
 	stats := h.collector.GetStats()
-	return &MetricsStatsResponse{
-		Body: stats,
-	}, nil
+	return ctx.JSON(http.StatusOK, stats)
 }
 
 // handleMetricsByType handles metrics filtering by type
-func (h *MetricsEndpointHandler) handleMetricsByType(ctx common.Context, req *MetricsByTypeRequest) (*MetricsResponse, error) {
+func (h *MetricsEndpointHandler) handleMetricsByType(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
 	}
 
-	typeParam := req.Type
+	typeParam := ctx.Param("type")
 	if typeParam == "" {
-		return nil, h.writeError(ctx, http.StatusBadRequest, "type parameter is required", nil)
+		return h.writeError(ctx, http.StatusBadRequest, "type parameter is required", nil)
 	}
 
 	// Parse metric type
@@ -324,28 +252,22 @@ func (h *MetricsEndpointHandler) handleMetricsByType(ctx common.Context, req *Me
 	case "timer":
 		metricType = internal.MetricTypeTimer
 	default:
-		return nil, h.writeError(ctx, http.StatusBadRequest, "invalid metric type", nil)
+		return h.writeError(ctx, http.StatusBadRequest, "invalid metric type", nil)
 	}
 
 	metrics := h.collector.GetMetricsByType(metricType)
-
-	return &MetricsResponse{
-		Body: metrics,
-	}, nil
-}
-
-type MetricsByNameRequest struct {
-	Pattern string `json:"pattern" validate:"required" path:"pattern"`
+	return ctx.JSON(http.StatusOK, metrics)
 }
 
 // handleMetricsByName handles metrics filtering by name pattern
-func (h *MetricsEndpointHandler) handleMetricsByName(ctx common.Context, req *MetricsByNameRequest) (*MetricsResponse, error) {
+func (h *MetricsEndpointHandler) handleMetricsByName(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
 	}
 
-	if req.Pattern == "" {
-		return nil, h.writeError(ctx, http.StatusBadRequest, "pattern parameter is required", nil)
+	pattern := ctx.Param("pattern")
+	if pattern == "" {
+		return h.writeError(ctx, http.StatusBadRequest, "pattern parameter is required", nil)
 	}
 
 	// This would typically use the registry's GetMetricsByNamePattern method
@@ -355,43 +277,33 @@ func (h *MetricsEndpointHandler) handleMetricsByName(ctx common.Context, req *Me
 	// Filter by pattern (simple implementation)
 	filtered := make(map[string]interface{})
 	for name, value := range metrics {
-		if h.matchesPattern(name, req.Pattern) {
+		if h.matchesPattern(name, pattern) {
 			filtered[name] = value
 		}
 	}
 
-	return &MetricsResponse{
-		Body: filtered,
-	}, nil
-}
-
-type MetricsByTagRequest struct {
-	Key   string `json:"key" validate:"required" path:"key"`
-	Value string `json:"value" validate:"required" path:"value"`
+	return ctx.JSON(http.StatusOK, filtered)
 }
 
 // handleMetricsByTag handles metrics filtering by tag
-func (h *MetricsEndpointHandler) handleMetricsByTag(ctx common.Context, req MetricsByTagRequest) (*MetricsResponse, error) {
+func (h *MetricsEndpointHandler) handleMetricsByTag(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
 	}
 
-	tagKey := req.Key
-	tagValue := req.Value
+	tagKey := ctx.Param("key")
+	tagValue := ctx.Param("value")
 
 	if tagKey == "" || tagValue == "" {
-		return nil, h.writeError(ctx, http.StatusBadRequest, "both key and value parameters are required", nil)
+		return h.writeError(ctx, http.StatusBadRequest, "both key and value parameters are required", nil)
 	}
 
 	metrics := h.collector.GetMetricsByTag(tagKey, tagValue)
-
-	return &MetricsResponse{
-		Body: metrics,
-	}, nil
+	return ctx.JSON(http.StatusOK, metrics)
 }
 
 // handleReset handles metrics reset
-func (h *MetricsEndpointHandler) handleReset(ctx common.Context) error {
+func (h *MetricsEndpointHandler) handleReset(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
 	}
@@ -421,14 +333,14 @@ func (h *MetricsEndpointHandler) handleReset(ctx common.Context) error {
 }
 
 // handleExport handles metrics export
-func (h *MetricsEndpointHandler) handleExport(ctx common.Context, req *ExportMetricsRequest) (*ExportMetricsResponse, error) {
+func (h *MetricsEndpointHandler) handleExport(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
 	}
 
-	formatParam := req.Format
+	formatParam := ctx.Param("format")
 	if formatParam == "" {
-		return nil, h.writeError(ctx, http.StatusBadRequest, "format parameter is required", nil)
+		return h.writeError(ctx, http.StatusBadRequest, "format parameter is required", nil)
 	}
 
 	// Parse export format
@@ -443,18 +355,16 @@ func (h *MetricsEndpointHandler) handleExport(ctx common.Context, req *ExportMet
 	case "statsd":
 		format = internal.ExportFormatStatsD
 	default:
-		return nil, h.writeError(ctx, http.StatusBadRequest, "invalid export format", nil)
+		return h.writeError(ctx, http.StatusBadRequest, "invalid export format", nil)
 	}
 
 	// Export metrics
 	data, err := h.collector.Export(format)
 	if err != nil {
-		return nil, h.writeError(ctx, http.StatusInternalServerError, "failed to export metrics", err)
+		return h.writeError(ctx, http.StatusInternalServerError, "failed to export metrics", err)
 	}
 
-	return &ExportMetricsResponse{
-		Body: data,
-	}, nil
+	return h.writeResponse(ctx, data, strings.ToLower(formatParam))
 }
 
 // =============================================================================
@@ -462,15 +372,15 @@ func (h *MetricsEndpointHandler) handleExport(ctx common.Context, req *ExportMet
 // =============================================================================
 
 // applyCORS applies CORS headers
-func (h *MetricsEndpointHandler) applyCORS(ctx common.Context) {
-	ctx.Header("Access-Control-Allow-Origin", "*")
-	ctx.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-	ctx.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-	ctx.Header("Access-Control-Max-Age", "86400")
+func (h *MetricsEndpointHandler) applyCORS(ctx shared.Context) {
+	ctx.SetHeader("Access-Control-Allow-Origin", "*")
+	ctx.SetHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	ctx.SetHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	ctx.SetHeader("Access-Control-Max-Age", "86400")
 }
 
 // checkAuth checks authentication
-func (h *MetricsEndpointHandler) checkAuth(ctx common.Context) error {
+func (h *MetricsEndpointHandler) checkAuth(ctx shared.Context) error {
 	// This is a placeholder implementation
 	// In a real implementation, this would check JWT tokens, API keys, etc.
 
@@ -513,33 +423,33 @@ func (h *MetricsEndpointHandler) exportMetrics(metrics map[string]interface{}, f
 }
 
 // writeResponse writes the response with appropriate headers
-func (h *MetricsEndpointHandler) writeResponse(ctx common.Context, data []byte, format string) error {
+func (h *MetricsEndpointHandler) writeResponse(ctx shared.Context, data []byte, format string) error {
 	// Set content type based on format
 	switch format {
 	case "prometheus":
-		ctx.Header("Content-Type", "text/plain; version=0.0.4")
+		ctx.SetHeader("Content-Type", "text/plain; version=0.0.4")
 	case "json":
-		ctx.Header("Content-Type", "application/json")
+		ctx.SetHeader("Content-Type", "application/json")
 	case "influx":
-		ctx.Header("Content-Type", "text/plain")
+		ctx.SetHeader("Content-Type", "text/plain")
 	case "statsd":
-		ctx.Header("Content-Type", "text/plain")
+		ctx.SetHeader("Content-Type", "text/plain")
 	default:
-		ctx.Header("Content-Type", "application/json")
+		ctx.SetHeader("Content-Type", "application/json")
 	}
 
 	// Set cache headers
 	if h.cache.enabled {
-		ctx.Header("Cache-Control", fmt.Sprintf("max-age=%d", int(h.config.CacheDuration.Seconds())))
+		ctx.SetHeader("Cache-Control", fmt.Sprintf("max-age=%d", int(h.config.CacheDuration.Seconds())))
 	}
 
-	ctx.ResponseWriter().WriteHeader(http.StatusOK)
-	_, err := ctx.ResponseWriter().Write(data)
+	ctx.Response().WriteHeader(http.StatusOK)
+	_, err := ctx.Response().Write(data)
 	return err
 }
 
 // writeError writes an error response
-func (h *MetricsEndpointHandler) writeError(ctx common.Context, status int, message string, err error) error {
+func (h *MetricsEndpointHandler) writeError(ctx shared.Context, status int, message string, err error) error {
 	response := map[string]interface{}{
 		"error":     message,
 		"timestamp": time.Now().UTC(),
@@ -551,7 +461,7 @@ func (h *MetricsEndpointHandler) writeError(ctx common.Context, status int, mess
 
 	if h.logger != nil {
 		h.logger.Error("metrics endpoint error",
-			logger.String("path", ctx.Path()),
+			// logger.String("path", ctx.Path()),
 			logger.Int("status", status),
 			logger.String("message", message),
 			logger.Error(err),
@@ -625,7 +535,7 @@ func (c *endpointCache) clear() {
 // =============================================================================
 
 // RegisterMetricsEndpoints registers metrics endpoints with a router
-func RegisterMetricsEndpoints(router common.Router, collector internal.Metrics, config *EndpointConfig, logger logger.Logger) error {
+func RegisterMetricsEndpoints(router shared.Router, collector internal.Metrics, config *EndpointConfig, logger logger.Logger) error {
 	handler := NewMetricsEndpointHandler(collector, config, logger)
 	return handler.RegisterEndpoints(router)
 }

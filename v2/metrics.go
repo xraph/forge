@@ -33,3 +33,8 @@ func DefaultMetricsConfig() MetricsConfig {
 func NewNoOpMetrics() Metrics {
 	return metrics.NewNoOpMetrics()
 }
+
+// NewMetrics creates a new metrics instance
+func NewMetrics(config *metrics.CollectorConfig, logger Logger) Metrics {
+	return metrics.New(config, logger)
+}

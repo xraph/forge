@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/v2/internal/config"
+	"github.com/xraph/forge/v2/internal/di"
 	healthinternal "github.com/xraph/forge/v2/internal/health"
 	"github.com/xraph/forge/v2/internal/logger"
 	metricsinternal "github.com/xraph/forge/v2/internal/metrics"
@@ -513,7 +514,7 @@ func (a *app) handleInfo(ctx Context) error {
 // startExtensions starts all extensions in dependency order
 func (a *app) startExtensions(ctx context.Context) error {
 	// Build dependency graph
-	graph := newDependencyGraph()
+	graph := di.NewDependencyGraph()
 	for _, ext := range a.extensions {
 		graph.AddNode(ext.Name(), ext.Dependencies())
 	}

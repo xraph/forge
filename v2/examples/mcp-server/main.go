@@ -1,12 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/xraph/forge/v2"
 	"github.com/xraph/forge/v2/extensions/mcp"
@@ -47,13 +43,97 @@ type CreateUserRequest struct {
 func main() {
 	// Create a new Forge application with MCP extension
 	app := forge.NewApp(forge.AppConfig{
-		Name:    "mcp-demo",
-		Version: "1.0.0",
+		Name:        "mcp-demo",
+		Version:     "1.0.0",
+		HTTPAddress: ":8087",
+		RouterOptions: []forge.RouterOption{
+			forge.WithOpenAPI(forge.OpenAPIConfig{
+				Title:       "MCP API",
+				Description: "A comprehensive REST API for user management operations with full OpenAPI 3.1.0 specification",
+				Version:     "1.0.0",
+
+				// Server configuration
+				Servers: []forge.OpenAPIServer{
+					{
+						URL:         "http://localhost:8080",
+						Description: "Development server",
+					},
+					{
+						URL:         "https://api.example.com",
+						Description: "Production server",
+					},
+				},
+
+				// Security schemes
+				Security: map[string]forge.SecurityScheme{
+					"bearerAuth": {
+						Type:         "http",
+						Scheme:       "bearer",
+						BearerFormat: "JWT",
+						Description:  "JWT Bearer token authentication",
+					},
+					"apiKey": {
+						Type:        "apiKey",
+						In:          "header",
+						Name:        "X-API-Key",
+						Description: "API key for accessing the API",
+					},
+				},
+
+				// // Global tags for grouping operations
+				// Tags: []forge.OpenAPITag{
+				// 	{
+				// 		Name:        "users",
+				// 		Description: "User management operations",
+				// 		ExternalDocs: &forge.ExternalDocs{
+				// 			Description: "Learn more about users",
+				// 			URL:         "https://docs.example.com/users",
+				// 		},
+				// 	},
+				// 	{
+				// 		Name:        "health",
+				// 		Description: "Health check operations",
+				// 	},
+				// 	{
+				// 		Name:        "admin",
+				// 		Description: "Administrative operations",
+				// 	},
+				// },
+
+				// External documentation
+				ExternalDocs: &forge.ExternalDocs{
+					Description: "API Documentation",
+					URL:         "https://docs.example.com",
+				},
+
+				// Contact information
+				Contact: &forge.Contact{
+					Name:  "API Support",
+					Email: "support@example.com",
+					URL:   "https://support.example.com",
+				},
+
+				// License
+				License: &forge.License{
+					Name: "Apache 2.0",
+					URL:  "https://www.apache.org/licenses/LICENSE-2.0.html",
+				},
+
+				// UI settings
+				UIPath:      "/swagger",
+				SpecPath:    "/openapi.json",
+				UIEnabled:   true,
+				SpecEnabled: true,
+				PrettyJSON:  true,
+			}),
+		},
 		Extensions: []forge.Extension{
 			// MCP extension - exposes routes as MCP tools
 			mcp.NewExtension(mcp.WithConfig(mcp.Config{
-				BasePath:         "/_/mcp",
-				AutoExposeRoutes: true,
+				Enabled:           true,
+				MaxToolNameLength: 90,
+				BasePath:          "/_/mcp",
+				AutoExposeRoutes:  true,
 				ExcludePatterns: []string{
 					"/_/*",
 					"/internal/*",
@@ -150,15 +230,6 @@ func main() {
 		return ctx.JSON(http.StatusNoContent, nil)
 	})
 
-	// Start the application
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	if err := app.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to start application: %v\n", err)
-		os.Exit(1)
-	}
-
 	fmt.Println("✅ MCP Server started successfully!")
 	fmt.Println("")
 	fmt.Println("🔧 API Endpoints:")
@@ -194,12 +265,7 @@ func main() {
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop the server")
 
-	// Wait for interrupt signal
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-	<-sigCh
-
-	fmt.Println("\n🛑 Shutting down gracefully...")
-	app.Stop(ctx)
-	fmt.Println("✅ Server stopped")
+	if err := app.Run(); err != nil {
+		app.Logger().Fatal("app failed", forge.F("error", err))
+	}
 }

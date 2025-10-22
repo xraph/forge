@@ -1,6 +1,7 @@
 package forge
 
 import (
+	"github.com/xraph/forge/v2/internal/di"
 	"github.com/xraph/forge/v2/internal/shared"
 )
 
@@ -19,5 +20,5 @@ type ServiceInfo = shared.ServiceInfo
 
 // NewContainer creates a new DI container
 func NewContainer() Container {
-	return newContainer()
+	return di.NewContainer()
 }

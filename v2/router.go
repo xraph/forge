@@ -1,11 +1,10 @@
 package forge
 
 import (
-	"context"
-	"net/http"
 	"time"
 
 	"github.com/xraph/forge/v2/internal/errors"
+	"github.com/xraph/forge/v2/internal/router"
 	"github.com/xraph/forge/v2/internal/shared"
 )
 
@@ -22,141 +21,40 @@ var (
 )
 
 // Router provides HTTP routing with multiple backend support
-type Router interface {
-	// HTTP Methods - register routes
-	GET(path string, handler any, opts ...RouteOption) error
-	POST(path string, handler any, opts ...RouteOption) error
-	PUT(path string, handler any, opts ...RouteOption) error
-	DELETE(path string, handler any, opts ...RouteOption) error
-	PATCH(path string, handler any, opts ...RouteOption) error
-	OPTIONS(path string, handler any, opts ...RouteOption) error
-	HEAD(path string, handler any, opts ...RouteOption) error
-
-	// Grouping - organize routes
-	Group(prefix string, opts ...GroupOption) Router
-
-	// Middleware - wrap handlers
-	Use(middleware ...Middleware)
-
-	// Controller registration
-	RegisterController(controller Controller) error
-
-	// Lifecycle
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
-
-	// HTTP serving
-	ServeHTTP(w http.ResponseWriter, r *http.Request)
-	Handler() http.Handler
-
-	// Inspection
-	Routes() []RouteInfo
-	RouteByName(name string) (RouteInfo, bool)
-	RoutesByTag(tag string) []RouteInfo
-	RoutesByMetadata(key string, value any) []RouteInfo
-
-	// OpenAPI
-	OpenAPISpec() *OpenAPISpec
-
-	// Streaming
-	WebSocket(path string, handler WebSocketHandler, opts ...RouteOption) error
-	EventStream(path string, handler SSEHandler, opts ...RouteOption) error
-}
+type Router = router.Router
 
 // RouteOption configures a route
-type RouteOption interface {
-	Apply(*RouteConfig)
-}
+type RouteOption = router.RouteOption
 
 // GroupOption configures a route group
-type GroupOption interface {
-	Apply(*GroupConfig)
-}
+type GroupOption = router.GroupOption
 
 // Middleware wraps HTTP handlers
-type Middleware func(http.Handler) http.Handler
+type Middleware = router.Middleware
 
 // RouteConfig holds route configuration
-type RouteConfig struct {
-	Name        string
-	Summary     string
-	Description string
-	Tags        []string
-	Middleware  []Middleware
-	Timeout     time.Duration
-	Metadata    map[string]any
-	Extensions  map[string]Extension
-
-	// OpenAPI metadata
-	OperationID string
-	Deprecated  bool
-}
+type RouteConfig = router.RouteConfig
 
 // GroupConfig holds route group configuration
-type GroupConfig struct {
-	Middleware []Middleware
-	Tags       []string
-	Metadata   map[string]any
-}
+type GroupConfig = router.GroupConfig
 
 // RouteInfo provides route information for inspection
-type RouteInfo struct {
-	Name        string
-	Method      string
-	Path        string
-	Pattern     string
-	Handler     any
-	Middleware  []Middleware
-	Tags        []string
-	Metadata    map[string]any
-	Extensions  map[string]Extension
-	Summary     string
-	Description string
-}
+type RouteInfo = router.RouteInfo
 
 // RouteExtension represents a route-level extension (e.g., OpenAPI, custom validation)
 // Note: This is different from app-level Extension which manages app components
-type RouteExtension interface {
-	Name() string
-	Validate() error
-}
+type RouteExtension = router.RouteExtension
 
 // NewRouter creates a new router with options
 func NewRouter(opts ...RouterOption) Router {
-	return newRouter(opts...)
+	return router.NewRouter(opts...)
 }
 
 // RouterOption configures the router
-type RouterOption interface {
-	Apply(*routerConfig)
-}
-
-// routerConfig holds router configuration
-type routerConfig struct {
-	adapter       RouterAdapter
-	container     Container
-	logger        Logger
-	errorHandler  ErrorHandler
-	recovery      bool
-	openAPIConfig *OpenAPIConfig
-	metricsConfig *MetricsConfig
-	healthConfig  *HealthConfig
-}
+type RouterOption = router.RouterOption
 
 // RouterAdapter wraps a routing backend
-type RouterAdapter interface {
-	// Handle registers a route
-	Handle(method, path string, handler http.Handler)
-
-	// Mount registers a sub-handler
-	Mount(path string, handler http.Handler)
-
-	// ServeHTTP dispatches requests
-	ServeHTTP(w http.ResponseWriter, r *http.Request)
-
-	// Close cleans up resources
-	Close() error
-}
+type RouterAdapter = router.RouterAdapter
 
 // ErrorHandler handles errors from handlers
 type ErrorHandler = shared.ErrorHandler
@@ -168,75 +66,75 @@ func NewDefaultErrorHandler(l Logger) ErrorHandler {
 
 // Route option constructors
 func WithName(name string) RouteOption {
-	return &nameOpt{name}
+	return router.WithName(name)
 }
 
 func WithSummary(summary string) RouteOption {
-	return &summaryOpt{summary}
+	return router.WithSummary(summary)
 }
 
 func WithDescription(desc string) RouteOption {
-	return &descriptionOpt{desc}
+	return router.WithDescription(desc)
 }
 
 func WithTags(tags ...string) RouteOption {
-	return &tagsOpt{tags}
+	return router.WithTags(tags...)
 }
 
 func WithMiddleware(mw ...Middleware) RouteOption {
-	return &middlewareOpt{mw}
+	return router.WithMiddleware(mw...)
 }
 
 func WithTimeout(d time.Duration) RouteOption {
-	return &timeoutOpt{d}
+	return router.WithTimeout(d)
 }
 
 func WithMetadata(key string, value any) RouteOption {
-	return &metadataOpt{key, value}
+	return router.WithMetadata(key, value)
 }
 
 func WithExtension(name string, ext Extension) RouteOption {
-	return &extensionOpt{name, ext}
+	return router.WithExtension(name, ext)
 }
 
 func WithOperationID(id string) RouteOption {
-	return &operationIDOpt{id}
+	return router.WithOperationID(id)
 }
 
 func WithDeprecated() RouteOption {
-	return &deprecatedOpt{}
+	return router.WithDeprecated()
 }
 
 // Group option constructors
 func WithGroupMiddleware(mw ...Middleware) GroupOption {
-	return &groupMiddlewareOpt{mw}
+	return router.WithGroupMiddleware(mw...)
 }
 
 func WithGroupTags(tags ...string) GroupOption {
-	return &groupTagsOpt{tags}
+	return router.WithGroupTags(tags...)
 }
 
 func WithGroupMetadata(key string, value any) GroupOption {
-	return &groupMetadataOpt{key, value}
+	return router.WithGroupMetadata(key, value)
 }
 
 // Router option constructors
 func WithAdapter(adapter RouterAdapter) RouterOption {
-	return &adapterOpt{adapter}
+	return router.WithAdapter(adapter)
 }
 
 func WithContainer(container Container) RouterOption {
-	return &containerOpt{container}
+	return router.WithContainer(container)
 }
 
 func WithLogger(logger Logger) RouterOption {
-	return &loggerOpt{logger}
+	return router.WithLogger(logger)
 }
 
 func WithErrorHandler(handler ErrorHandler) RouterOption {
-	return &errorHandlerOpt{handler}
+	return router.WithErrorHandler(handler)
 }
 
 func WithRecovery() RouterOption {
-	return &recoveryOpt{}
+	return router.WithRecovery()
 }

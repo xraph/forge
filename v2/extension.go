@@ -1,6 +1,10 @@
 package forge
 
-import "context"
+import (
+	"context"
+
+	"github.com/xraph/forge/v2/internal/shared"
+)
 
 // Extension represents an official Forge extension that can be registered with an App.
 // Extensions have full access to the framework and are first-party, trusted components.
@@ -67,10 +71,4 @@ type HotReloadableExtension interface {
 }
 
 // ExtensionInfo contains information about a registered extension
-type ExtensionInfo struct {
-	Name         string   `json:"name"`
-	Version      string   `json:"version"`
-	Description  string   `json:"description"`
-	Dependencies []string `json:"dependencies"`
-	Status       string   `json:"status"` // "registered", "started", "stopped", "error"
-}
+type ExtensionInfo = shared.ExtensionInfo

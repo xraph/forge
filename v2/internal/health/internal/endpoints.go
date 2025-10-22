@@ -325,7 +325,7 @@ func (hem *HealthEndpointManager) serviceHealthHandler(ctx shared.Context, input
 		return nil, fmt.Errorf("service name is required")
 	}
 
-	result := hem.healthService.CheckOne(ctx, serviceName)
+	result := hem.healthService.CheckOne(ctx.Context(), serviceName)
 
 	return &ServiceHealthOutput{
 		Body: result,

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	metrics2 "github.com/xraph/forge/v2/internal/metrics"
 )
 
 // Mock extension for testing
@@ -88,7 +89,7 @@ func TestBaseExtension(t *testing.T) {
 	t.Run("LoggerAndMetrics", func(t *testing.T) {
 		ext := NewBaseExtension("test", "1.0.0", "Test")
 		logger := NewNoopLogger()
-		metrics := NewMetrics("test")
+		metrics := metrics2.NewNoOpMetrics()
 
 		ext.SetLogger(logger)
 		ext.SetMetrics(metrics)
@@ -387,7 +388,7 @@ func TestExtensionHealthChecks(t *testing.T) {
 		result := healthMgr.Check(ctx)
 
 		// Check that at least one check failed
-		assert.Contains(t, result.Status, "unhealthy")
+		assert.Contains(t, result.Overall, "unhealthy")
 
 		_ = app.Stop(ctx)
 	})

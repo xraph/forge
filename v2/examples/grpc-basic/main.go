@@ -37,7 +37,7 @@ func main() {
 		grpc.WithReflection(true),
 		grpc.WithHealthCheck(true),
 		grpc.WithMetrics(true),
-		grpc.WithLogging(true),
+		// grpc.WithLogging(true),
 	)
 
 	if err := app.RegisterExtension(grpcExt); err != nil {
@@ -86,5 +86,3 @@ func main() {
 		log.Printf("Error during shutdown: %v", err)
 	}
 }
-
-

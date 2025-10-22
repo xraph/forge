@@ -41,3 +41,8 @@ func DefaultHealthConfig() HealthConfig {
 func NewNoOpHealthManager() HealthManager {
 	return health.NewNoOpHealthManager()
 }
+
+// NewHealthManager creates a new health manager
+func NewHealthManager(config *health.HealthConfig, logger Logger, metrics shared.Metrics, container shared.Container) HealthManager {
+	return health.New(config, logger, metrics, container)
+}

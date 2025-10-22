@@ -1,7 +1,7 @@
 package main
 
 import (
-	forge "github.com/xraph/forge/v2"
+	"github.com/xraph/forge/v2"
 )
 
 // This is a minimal Forge v2 application example
@@ -12,6 +12,7 @@ func main() {
 		Version:     "1.0.0",
 		Description: "A minimal Forge v2 application",
 		Environment: "development",
+		HTTPAddress: ":8086",
 	})
 
 	// Register routes
