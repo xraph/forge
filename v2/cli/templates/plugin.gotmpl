@@ -1,0 +1,118 @@
+const PluginTemplate = `package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/xraph/forge/pkg/cli"
+	"github.com/xraph/forge/pkg/core"
+	"github.com/xraph/forge/pkg/logger"
+)
+
+// {{.PluginName}}Plugin implements CLI plugin functionality
+type {{.PluginName}}Plugin struct {
+	*cli.BasePlugin
+	{{range .Fields}}
+	{{.Name}} {{.Type}} ` + "`" + `{{.Tags}}` + "`" + `
+	{{end}}
+}
+
+// NewPlugin creates a new instance of the plugin (required export)
+func NewPlugin() cli.CLIPlugin {
+	plugin := &{{.PluginName}}Plugin{
+		BasePlugin: cli.NewBasePlugin(
+			"{{.PluginID}}",
+			"{{.Description}}",
+			"{{.Version}}",
+		),
+	}
+
+	plugin.setupCommands()
+	{{if .Middleware}}plugin.setupMiddleware(){{end}}
+
+	return plugin
+}
+
+// setupCommands configures the plugin commands
+func (p *{{.PluginName}}Plugin) setupCommands() {
+	{{range .Commands}}
+	// {{.Name}} command
+	{{.Name}}Cmd := cli.NewCommand("{{.Use}}", "{{.Description}}").
+		WithLong("{{.LongDescription}}").
+		{{if .Flags}}WithFlags({{range .Flags}}
+			cli.{{.Type}}Flag("{{.Name}}", "{{.Shorthand}}", "{{.Usage}}", {{.Required}}),{{end}}
+		).{{end}}
+		{{if .Services}}WithService({{range .Services}}
+			(*{{.Type}})(nil),{{end}}
+		).{{end}}
+
+	{{.Name}}Cmd.Run = func(ctx cli.CLIContext, args []string) error {
+		return p.{{.HandlerName}}(ctx, args)
+	}
+
+	p.AddCommand({{.Name}}Cmd)
+	{{end}}
+}
+
+{{if .Middleware}}// setupMiddleware configures the plugin middleware
+func (p *{{.PluginName}}Plugin) setupMiddleware() {
+	{{range .Middleware}}
+	p.AddMiddleware({{.Implementation}})
+	{{end}}
+}{{end}}
+
+// Initialize initializes the plugin with the application
+func (p *{{.PluginName}}Plugin) Initialize(app cli.CLIApp) error {
+	if err := p.BasePlugin.Initialize(app); err != nil {
+		return err
+	}
+
+	{{.InitializeImplementation}}
+
+	return nil
+}
+
+// Cleanup cleans up plugin resources
+func (p *{{.PluginName}}Plugin) Cleanup() error {
+	{{.CleanupImplementation}}
+	return p.BasePlugin.Cleanup()
+}
+
+{{range .Commands}}
+// {{.HandlerName}} handles the {{.Name}} command
+func (p *{{.PluginName}}Plugin) {{.HandlerName}}(ctx cli.CLIContext, args []string) error {
+	{{if .Services}}// Resolve services{{range .Services}}
+	var {{.Name}} {{.Type}}
+	if err := ctx.Resolve(&{{.Name}}); err != nil {
+		return fmt.Errorf("failed to resolve {{.Name}}: %w", err)
+	}{{end}}{{end}}
+
+	{{if .Flags}}// Get flag values{{range .Flags}}
+	{{.VariableName}}, err := ctx.Get{{.GetterType}}Flag("{{.Name}}")
+	if err != nil {
+		return fmt.Errorf("failed to get {{.Name}} flag: %w", err)
+	}{{end}}{{end}}
+
+	// Log command execution
+	ctx.Info("executing {{.Name}} command from {{$.PluginName}} plugin",
+		logger.StringSlice("args", args),
+		{{range .Flags}}logger.{{.LogType}}("{{.Name}}", {{.VariableName}}),
+		{{end}}
+	)
+
+	{{.Implementation}}
+
+	return nil
+}
+{{end}}
+
+{{if .CustomMethods}}{{range .CustomMethods}}
+// {{.Name}} {{.Description}}
+func (p *{{.PluginName}}Plugin) {{.Name}}({{.Parameters}}) {{.ReturnType}} {
+	{{.Implementation}}
+}
+{{end}}{{end}}
+
+// Compile-time check to ensure plugin implements the interface
+var _ cli.CLIPlugin = (*{{.PluginName}}Plugin)(nil)
+`

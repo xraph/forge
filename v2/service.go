@@ -1,27 +1,18 @@
 package forge
 
-import "context"
+import (
+	"github.com/xraph/forge/v2/internal/shared"
+)
 
 // Service is the standard interface for managed services
 // Container auto-detects and calls these methods
-type Service interface {
-	Name() string
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
-}
+type Service = shared.Service
 
 // HealthChecker is optional for services that provide health checks
-type HealthChecker interface {
-	Health(ctx context.Context) error
-}
+type HealthChecker = shared.HealthChecker
 
 // Configurable is optional for services that need configuration
-type Configurable interface {
-	Configure(config any) error
-}
+type Configurable = shared.Configurable
 
 // Disposable is optional for scoped services that need cleanup
-type Disposable interface {
-	Dispose() error
-}
-
+type Disposable = shared.Disposable

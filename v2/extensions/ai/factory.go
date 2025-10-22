@@ -113,18 +113,6 @@ func (f *AgentFactory) CreateAgent(template AgentTemplate, config map[string]int
 
 // CreateAgentFromDefinition creates an agent from an AgentDefinition
 func (f *AgentFactory) CreateAgentFromDefinition(def *AgentDefinition) (internal.AIAgent, error) {
-	template := AgentTemplate{
-		Type:         def.Type,
-		Name:         def.Name,
-		SystemPrompt: def.SystemPrompt,
-		Model:        def.Model,
-		Provider:     def.Provider,
-		Temperature:  def.Temperature,
-		MaxTokens:    def.MaxTokens,
-		Tools:        def.Tools,
-		Config:       def.Config,
-	}
-
 	agent := &LLMAgent{
 		id:           def.ID,
 		name:         def.Name,
@@ -326,4 +314,3 @@ func (a *LLMAgent) GetHealth() internal.AgentHealth {
 		LastHealthy: now,
 	}
 }
-

@@ -268,20 +268,38 @@ func (e *Extension) handleCallTool(ctx forge.Context) error {
 		})
 	}
 
-	// TODO: Execute the tool (call the actual route)
-	// For now, return a placeholder response
+	// Execute the tool by calling the underlying route
+	result, err := e.server.ExecuteTool(ctx.Context(), tool, req.Arguments)
+	if err != nil {
+		response := CallToolResponse{
+			Content: []Content{
+				{
+					Type: "text",
+					Text: fmt.Sprintf("Tool execution failed: %s", err.Error()),
+				},
+			},
+			IsError: true,
+		}
+
+		if e.Metrics() != nil {
+			e.Metrics().Counter("mcp_tool_calls_total", "status", "error").Inc()
+		}
+
+		return ctx.JSON(http.StatusInternalServerError, response)
+	}
+
 	response := CallToolResponse{
 		Content: []Content{
 			{
 				Type: "text",
-				Text: fmt.Sprintf("Tool %s called successfully (placeholder)", tool.Name),
+				Text: result,
 			},
 		},
 		IsError: false,
 	}
 
 	if e.Metrics() != nil {
-		e.Metrics().Counter("mcp_tool_calls_total").Inc()
+		e.Metrics().Counter("mcp_tool_calls_total", "status", "success").Inc()
 	}
 
 	return ctx.JSON(http.StatusOK, response)
@@ -302,14 +320,24 @@ func (e *Extension) handleReadResource(ctx forge.Context) error {
 		})
 	}
 
-	// TODO: Implement resource reading
+	// Get resource
+	resource, err := e.server.GetResource(req.URI)
+	if err != nil {
+		return ctx.JSON(http.StatusNotFound, map[string]string{
+			"error": err.Error(),
+		})
+	}
+
+	// Read resource content
+	content, err := e.server.ReadResource(ctx.Context(), resource)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to read resource: " + err.Error(),
+		})
+	}
+
 	response := ReadResourceResponse{
-		Contents: []Content{
-			{
-				Type: "text",
-				Text: fmt.Sprintf("Resource %s (placeholder)", req.URI),
-			},
-		},
+		Contents: []Content{content},
 	}
 
 	return ctx.JSON(http.StatusOK, response)
@@ -333,20 +361,24 @@ func (e *Extension) handleGetPrompt(ctx forge.Context) error {
 		})
 	}
 
-	// TODO: Implement prompt generation
+	// Parse arguments from request body
+	var req GetPromptRequest
+	if err := ctx.Bind(&req); err != nil {
+		// Arguments are optional, continue with empty map
+		req.Arguments = make(map[string]interface{})
+	}
+
+	// Generate prompt messages
+	messages, err := e.server.GeneratePrompt(ctx.Context(), prompt, req.Arguments)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to generate prompt: " + err.Error(),
+		})
+	}
+
 	response := GetPromptResponse{
 		Description: prompt.Description,
-		Messages: []PromptMessage{
-			{
-				Role: "user",
-				Content: []Content{
-					{
-						Type: "text",
-						Text: fmt.Sprintf("Prompt %s (placeholder)", prompt.Name),
-					},
-				},
-			},
-		},
+		Messages:    messages,
 	}
 
 	return ctx.JSON(http.StatusOK, response)

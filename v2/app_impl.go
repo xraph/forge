@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/xraph/forge/v2/internal/config"
+	healthinternal "github.com/xraph/forge/v2/internal/health"
 	"github.com/xraph/forge/v2/internal/logger"
+	metricsinternal "github.com/xraph/forge/v2/internal/metrics"
 	"github.com/xraph/forge/v2/internal/shared"
 )
 
@@ -89,26 +91,55 @@ func newApp(config AppConfig) *app {
 		errorHandler = shared.NewDefaultErrorHandler(logger)
 	}
 
-	// Create metrics
+	// Create config manager if not provided (needed for metrics/health initialization)
+	configManager := config.ConfigManager
+	// Will initialize later once metrics is available
+
+	// Create metrics with full config support
 	var metrics Metrics
-	if config.MetricsConfig.Enabled {
-		metrics = NewMetrics(config.MetricsConfig.Namespace)
-	} else {
-		metrics = NewMetrics("")
+	metricsConfig := &config.MetricsConfig
+
+	// Try to load from ConfigManager first
+	if configManager != nil {
+		var runtimeConfig shared.MetricsConfig
+		if err := configManager.Bind("metrics", &runtimeConfig); err == nil {
+			// Merge: runtime values override defaults, programmatic values override runtime
+			if runtimeConfig.Enabled {
+				metricsConfig = mergeMetricsConfig(&runtimeConfig, &config.MetricsConfig)
+			}
+		}
 	}
 
-	// Create config manager if not provided
-	configManager := config.ConfigManager
+	if metricsConfig.Enabled {
+		metrics = metricsinternal.New(metricsConfig, logger)
+	} else {
+		metrics = metricsinternal.NewNoOpMetrics()
+	}
+
+	// Initialize config manager if not provided
 	if configManager == nil {
 		configManager = NewDefaultConfigManager(logger, metrics, errorHandler)
 	}
 
-	// Create health manager
+	// Create health manager with full config support
 	var healthManager HealthManager
-	if config.HealthConfig.Enabled {
-		healthManager = NewHealthManager(config.HealthConfig.HealthCheckTimeout)
+	healthConfig := &config.HealthConfig
+
+	// Try to load from ConfigManager first
+	if configManager != nil {
+		var runtimeConfig shared.HealthConfig
+		if err := configManager.Bind("health", &runtimeConfig); err == nil {
+			if runtimeConfig.Enabled {
+				healthConfig = mergeHealthConfig(&runtimeConfig, &config.HealthConfig)
+			}
+		}
+	}
+
+	if healthConfig.Enabled {
+		// Pass nil container, will be set after container creation in Start()
+		healthManager = healthinternal.New(healthConfig, logger, metrics, nil)
 	} else {
-		healthManager = NewHealthManager(0)
+		healthManager = healthinternal.NewNoOpHealthManager()
 	}
 
 	// Create router with options including observability
@@ -300,6 +331,16 @@ func (a *app) Start(ctx context.Context) error {
 	// 2. Start DI container (starts all registered services)
 	if err := a.container.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
+	}
+
+	// 2.5 Set container reference for health manager
+	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
+		healthMgr.SetContainer(a.container)
+	}
+
+	// 2.6 Reload configs from ConfigManager (hot-reload support)
+	if err := a.reloadConfigsFromManager(); err != nil {
+		a.logger.Warn("failed to reload configs from ConfigManager", F("error", err))
 	}
 
 	// 3. Start extensions in dependency order
@@ -539,15 +580,15 @@ func (a *app) registerExtensionHealthChecks() {
 		extRef := ext // Capture for closure
 
 		checkName := "extension:" + extName
-		a.healthManager.Register(checkName, func(ctx context.Context) HealthResult {
+		a.healthManager.RegisterFn(checkName, func(ctx context.Context) *HealthResult {
 			if err := extRef.Health(ctx); err != nil {
-				return HealthResult{
+				return &HealthResult{
 					Status:  HealthStatusUnhealthy,
 					Message: fmt.Sprintf("%s extension unhealthy", extName),
 					Details: map[string]any{"error": err.Error()},
 				}
 			}
-			return HealthResult{
+			return &HealthResult{
 				Status:  HealthStatusHealthy,
 				Message: fmt.Sprintf("%s extension healthy", extName),
 			}
@@ -595,3 +636,181 @@ func (c *defaultConfigManager) Bind(key string, target interface{}) error {
 }
 
 // ConfigManager is now properly exported from config.go
+
+// =============================================================================
+// CONFIG MERGE HELPERS
+// =============================================================================
+
+// mergeMetricsConfig merges runtime and programmatic configs
+// Programmatic non-zero values take precedence over runtime values
+func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.MetricsConfig {
+	result := *runtime // Start with runtime
+
+	// Override with programmatic non-zero values
+	if programmatic.Namespace != "" {
+		result.Namespace = programmatic.Namespace
+	}
+	if programmatic.MetricsPath != "" {
+		result.MetricsPath = programmatic.MetricsPath
+	}
+	if programmatic.CollectionInterval > 0 {
+		result.CollectionInterval = programmatic.CollectionInterval
+	}
+	if programmatic.MaxMetrics > 0 {
+		result.MaxMetrics = programmatic.MaxMetrics
+	}
+	if programmatic.BufferSize > 0 {
+		result.BufferSize = programmatic.BufferSize
+	}
+
+	// Boolean fields (prefer programmatic if set explicitly in config)
+	// For booleans, we can't distinguish zero value from explicit false,
+	// so runtime takes precedence unless we have explicit true
+	if programmatic.EnableSystemMetrics {
+		result.EnableSystemMetrics = true
+	}
+	if programmatic.EnableRuntimeMetrics {
+		result.EnableRuntimeMetrics = true
+	}
+	if programmatic.EnableHTTPMetrics {
+		result.EnableHTTPMetrics = true
+	}
+
+	// Merge maps (programmatic values override)
+	if len(programmatic.DefaultTags) > 0 {
+		if result.DefaultTags == nil {
+			result.DefaultTags = make(map[string]string)
+		}
+		for k, v := range programmatic.DefaultTags {
+			result.DefaultTags[k] = v
+		}
+	}
+
+	if len(programmatic.Exporters) > 0 {
+		if result.Exporters == nil {
+			result.Exporters = make(map[string]shared.MetricsExporterConfig[map[string]interface{}])
+		}
+		for k, v := range programmatic.Exporters {
+			result.Exporters[k] = v
+		}
+	}
+
+	return &result
+}
+
+// mergeHealthConfig merges runtime and programmatic configs
+// Programmatic non-zero values take precedence over runtime values
+func mergeHealthConfig(runtime, programmatic *shared.HealthConfig) *shared.HealthConfig {
+	result := *runtime // Start with runtime
+
+	// Override with programmatic non-zero values
+	if programmatic.CheckInterval > 0 {
+		result.CheckInterval = programmatic.CheckInterval
+	}
+	if programmatic.ReportInterval > 0 {
+		result.ReportInterval = programmatic.ReportInterval
+	}
+	if programmatic.DefaultTimeout > 0 {
+		result.DefaultTimeout = programmatic.DefaultTimeout
+	}
+	if programmatic.MaxConcurrentChecks > 0 {
+		result.MaxConcurrentChecks = programmatic.MaxConcurrentChecks
+	}
+	if programmatic.DegradedThreshold > 0 {
+		result.DegradedThreshold = programmatic.DegradedThreshold
+	}
+	if programmatic.UnhealthyThreshold > 0 {
+		result.UnhealthyThreshold = programmatic.UnhealthyThreshold
+	}
+	if programmatic.HistorySize > 0 {
+		result.HistorySize = programmatic.HistorySize
+	}
+	if programmatic.EndpointPrefix != "" {
+		result.EndpointPrefix = programmatic.EndpointPrefix
+	}
+	if programmatic.Version != "" {
+		result.Version = programmatic.Version
+	}
+	if programmatic.Environment != "" {
+		result.Environment = programmatic.Environment
+	}
+
+	// Boolean fields (prefer programmatic if explicitly set)
+	if programmatic.EnableAutoDiscovery {
+		result.EnableAutoDiscovery = true
+	}
+	if programmatic.EnablePersistence {
+		result.EnablePersistence = true
+	}
+	if programmatic.EnableAlerting {
+		result.EnableAlerting = true
+	}
+	if programmatic.EnableSmartAggregation {
+		result.EnableSmartAggregation = true
+	}
+	if programmatic.EnablePrediction {
+		result.EnablePrediction = true
+	}
+	if programmatic.EnableEndpoints {
+		result.EnableEndpoints = true
+	}
+	if programmatic.AutoRegister {
+		result.AutoRegister = true
+	}
+	if programmatic.ExposeEndpoints {
+		result.ExposeEndpoints = true
+	}
+	if programmatic.EnableMetrics {
+		result.EnableMetrics = true
+	}
+
+	// Slices (programmatic overrides)
+	if len(programmatic.CriticalServices) > 0 {
+		result.CriticalServices = programmatic.CriticalServices
+	}
+
+	// Maps (merge)
+	if len(programmatic.Tags) > 0 {
+		if result.Tags == nil {
+			result.Tags = make(map[string]string)
+		}
+		for k, v := range programmatic.Tags {
+			result.Tags[k] = v
+		}
+	}
+
+	return &result
+}
+
+// reloadConfigsFromManager reloads metrics and health configs from ConfigManager
+func (a *app) reloadConfigsFromManager() error {
+	if a.configManager == nil {
+		return nil
+	}
+
+	// Reload metrics config
+	var metricsConfig shared.MetricsConfig
+	if err := a.configManager.Bind("metrics", &metricsConfig); err == nil {
+		if metricsConfig.Enabled {
+			if err := a.metrics.Reload(&metricsConfig); err != nil {
+				a.logger.Warn("failed to reload metrics config", F("error", err))
+			} else {
+				a.logger.Debug("metrics config reloaded from ConfigManager")
+			}
+		}
+	}
+
+	// Reload health config
+	var healthConfig shared.HealthConfig
+	if err := a.configManager.Bind("health", &healthConfig); err == nil {
+		if healthConfig.Enabled {
+			if err := a.healthManager.Reload(&healthConfig); err != nil {
+				a.logger.Warn("failed to reload health config", F("error", err))
+			} else {
+				a.logger.Debug("health config reloaded from ConfigManager")
+			}
+		}
+	}
+
+	return nil
+}

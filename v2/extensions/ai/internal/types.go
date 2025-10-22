@@ -17,8 +17,8 @@ type AI interface {
 	OnHealthCheck(ctx context.Context) error
 
 	// Configuration
-	GetConfig() ManagerConfig
-	UpdateConfig(config ManagerConfig) error
+	GetConfig() AIConfig
+	UpdateConfig(config AIConfig) error
 
 	// Status and statistics
 	GetStats() map[string]interface{}

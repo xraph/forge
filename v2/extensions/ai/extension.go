@@ -83,8 +83,25 @@ func (e *Extension) Register(app forge.App) error {
 	// Convert to internal config
 	internalConfig := e.config.ToInternal(e.logger, e.metrics)
 
-	// Create AI manager
-	aiManager, err := NewManager(internalConfig)
+	// Get optional agent store from DI
+	var store AgentStore
+	if s, err := app.Container().Resolve("agentStore"); err == nil {
+		if as, ok := s.(AgentStore); ok {
+			store = as
+			if e.logger != nil {
+				e.logger.Info("agent store configured", forge.F("store_type", fmt.Sprintf("%T", as)))
+			}
+		}
+	}
+
+	// Create agent factory (LLM manager will be set later when LLM subsystem initializes)
+	agentFactory := NewAgentFactory(nil, e.logger)
+
+	// Create AI manager with store and factory
+	aiManager, err := NewManager(internalConfig,
+		WithStore(store),
+		WithFactory(agentFactory),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to create AI manager: %w", err)
 	}
@@ -106,12 +123,20 @@ func (e *Extension) Register(app forge.App) error {
 		return fmt.Errorf("failed to register AI manager: %w", err)
 	}
 
+	// Register agent factory for direct access
+	if err := app.Container().Register("agentFactory", func(c forge.Container) (any, error) {
+		return agentFactory, nil
+	}); err != nil {
+		return fmt.Errorf("failed to register agent factory: %w", err)
+	}
+
 	if e.logger != nil {
 		e.logger.Info("AI extension registered",
 			forge.F("llm_enabled", e.config.EnableLLM),
 			forge.F("agents_enabled", e.config.EnableAgents),
 			forge.F("inference_enabled", e.config.EnableInference),
 			forge.F("coordination_enabled", e.config.EnableCoordination),
+			forge.F("storage_enabled", store != nil),
 		)
 	}
 

@@ -13,16 +13,16 @@ import (
 
 // managerImpl provides centralized AI capabilities management
 type managerImpl struct {
-	config       internal.AIConfig
-	logger       forge.Logger
-	metrics      forge.Metrics
-	started      bool
-	mu           sync.RWMutex
-	shutdownC    chan struct{}
-	wg           sync.WaitGroup
+	config    internal.AIConfig
+	logger    forge.Logger
+	metrics   forge.Metrics
+	started   bool
+	mu        sync.RWMutex
+	shutdownC chan struct{}
+	wg        sync.WaitGroup
 	// Agent management
-	agents       map[string]internal.AIAgent
-	agentsMu     sync.RWMutex
+	agents   map[string]internal.AIAgent
+	agentsMu sync.RWMutex
 	// Storage and factory
 	store        AgentStore    // Optional persistent store
 	agentFactory *AgentFactory // For dynamic creation

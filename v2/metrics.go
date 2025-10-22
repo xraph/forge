@@ -1,6 +1,7 @@
 package forge
 
 import (
+	"github.com/xraph/forge/v2/internal/metrics"
 	"github.com/xraph/forge/v2/internal/shared"
 )
 
@@ -17,11 +18,7 @@ type Gauge = shared.Gauge
 type Histogram = shared.Histogram
 
 // MetricsConfig configures metrics collection
-type MetricsConfig struct {
-	Enabled     bool
-	MetricsPath string
-	Namespace   string
-}
+type MetricsConfig = shared.MetricsConfig
 
 // DefaultMetricsConfig returns default metrics configuration
 func DefaultMetricsConfig() MetricsConfig {
@@ -30,4 +27,9 @@ func DefaultMetricsConfig() MetricsConfig {
 		MetricsPath: "/_/metrics",
 		Namespace:   "forge",
 	}
+}
+
+// NewNoOpMetrics creates a no-op metrics collector
+func NewNoOpMetrics() Metrics {
+	return metrics.NewNoOpMetrics()
 }

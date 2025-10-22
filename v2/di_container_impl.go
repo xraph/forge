@@ -60,11 +60,11 @@ func (c *containerImpl) Register(name string, factory Factory, opts ...RegisterO
 	reg := &serviceRegistration{
 		name:         name,
 		factory:      factory,
-		singleton:    merged.lifecycle == "singleton",
-		scoped:       merged.lifecycle == "scoped",
-		dependencies: merged.dependencies,
-		groups:       merged.groups,
-		metadata:     merged.metadata,
+		singleton:    merged.Lifecycle == "singleton",
+		scoped:       merged.Lifecycle == "scoped",
+		dependencies: merged.Dependencies,
+		groups:       merged.Groups,
+		metadata:     merged.Metadata,
 	}
 
 	// Add to services map

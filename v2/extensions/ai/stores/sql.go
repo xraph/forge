@@ -247,4 +247,3 @@ func (s *SQLAgentStore) CreateTable(ctx context.Context) error {
 
 	return nil
 }
-

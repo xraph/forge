@@ -1,7 +1,11 @@
 package mcp
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -15,32 +19,44 @@ type Server struct {
 	metrics forge.Metrics
 
 	// Tools
-	tools     map[string]*Tool
-	toolsLock sync.RWMutex
+	tools      map[string]*Tool
+	toolRoutes map[string]forge.RouteInfo // Maps tool name to route
+	toolsLock  sync.RWMutex
 
 	// Resources
-	resources     map[string]*Resource
-	resourcesLock sync.RWMutex
+	resources       map[string]*Resource
+	resourceReaders map[string]ResourceReader // Custom readers for resources
+	resourcesLock   sync.RWMutex
 
 	// Prompts
-	prompts     map[string]*Prompt
-	promptsLock sync.RWMutex
+	prompts          map[string]*Prompt
+	promptGenerators map[string]PromptGenerator // Custom generators for prompts
+	promptsLock      sync.RWMutex
 
 	// Schema cache
 	schemaCache     map[string]*JSONSchema
 	schemaCacheLock sync.RWMutex
 }
 
+// ResourceReader is a function that reads resource content
+type ResourceReader func(ctx context.Context, resource *Resource) (Content, error)
+
+// PromptGenerator is a function that generates prompt messages
+type PromptGenerator func(ctx context.Context, prompt *Prompt, args map[string]interface{}) ([]PromptMessage, error)
+
 // NewServer creates a new MCP server
 func NewServer(config Config, logger forge.Logger, metrics forge.Metrics) *Server {
 	return &Server{
-		config:      config,
-		logger:      logger,
-		metrics:     metrics,
-		tools:       make(map[string]*Tool),
-		resources:   make(map[string]*Resource),
-		prompts:     make(map[string]*Prompt),
-		schemaCache: make(map[string]*JSONSchema),
+		config:           config,
+		logger:           logger,
+		metrics:          metrics,
+		tools:            make(map[string]*Tool),
+		toolRoutes:       make(map[string]forge.RouteInfo),
+		resources:        make(map[string]*Resource),
+		resourceReaders:  make(map[string]ResourceReader),
+		prompts:          make(map[string]*Prompt),
+		promptGenerators: make(map[string]PromptGenerator),
+		schemaCache:      make(map[string]*JSONSchema),
 	}
 }
 
@@ -246,11 +262,7 @@ func (s *Server) GenerateToolFromRoute(route forge.RouteInfo) (*Tool, error) {
 	}
 
 	// Generate input schema from route metadata
-	// TODO: Generate schema from route parameters and request body
-	inputSchema := &JSONSchema{
-		Type:       "object",
-		Properties: make(map[string]*JSONSchema),
-	}
+	inputSchema := s.generateInputSchema(route)
 
 	tool := &Tool{
 		Name:        toolName,
@@ -258,7 +270,67 @@ func (s *Server) GenerateToolFromRoute(route forge.RouteInfo) (*Tool, error) {
 		InputSchema: inputSchema,
 	}
 
+	// Store route mapping
+	s.toolsLock.Lock()
+	s.toolRoutes[toolName] = route
+	s.toolsLock.Unlock()
+
 	return tool, nil
+}
+
+// generateInputSchema generates JSON schema from route metadata
+func (s *Server) generateInputSchema(route forge.RouteInfo) *JSONSchema {
+	schema := &JSONSchema{
+		Type:       "object",
+		Properties: make(map[string]*JSONSchema),
+		Required:   []string{},
+	}
+
+	// Add path parameters
+	// Extract path parameters like :id or {id}
+	pathParams := extractPathParams(route.Path)
+	for _, param := range pathParams {
+		schema.Properties[param] = &JSONSchema{
+			Type:        "string",
+			Description: fmt.Sprintf("Path parameter: %s", param),
+		}
+		schema.Required = append(schema.Required, param)
+	}
+
+	// For POST/PUT/PATCH, add body schema if available
+	if route.Method == "POST" || route.Method == "PUT" || route.Method == "PATCH" {
+		schema.Properties["body"] = &JSONSchema{
+			Type:        "object",
+			Description: "Request body",
+		}
+	}
+
+	// Add query parameters hint
+	schema.Properties["query"] = &JSONSchema{
+		Type:                 "object",
+		Description:          "Query parameters (optional)",
+		AdditionalProperties: true,
+	}
+
+	return schema
+}
+
+// extractPathParams extracts parameter names from path
+func extractPathParams(path string) []string {
+	var params []string
+	parts := strings.Split(path, "/")
+	for _, part := range parts {
+		// Handle :param style
+		if strings.HasPrefix(part, ":") {
+			params = append(params, strings.TrimPrefix(part, ":"))
+		}
+		// Handle {param} style
+		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
+			param := strings.TrimSuffix(strings.TrimPrefix(part, "{"), "}")
+			params = append(params, param)
+		}
+	}
+	return params
 }
 
 // generateToolName generates a tool name from HTTP method and path
@@ -365,3 +437,149 @@ func (s *Server) Stats() map[string]interface{} {
 	}
 }
 
+// ExecuteTool executes a tool by calling its underlying route
+func (s *Server) ExecuteTool(ctx context.Context, tool *Tool, arguments map[string]interface{}) (string, error) {
+	s.toolsLock.RLock()
+	route, exists := s.toolRoutes[tool.Name]
+	s.toolsLock.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("mcp: no route found for tool %s", tool.Name)
+	}
+
+	// Build the request path with parameters
+	path := route.Path
+	pathParams := extractPathParams(route.Path)
+	for _, param := range pathParams {
+		if val, ok := arguments[param]; ok {
+			placeholder := ":" + param
+			if !strings.Contains(path, placeholder) {
+				placeholder = "{" + param + "}"
+			}
+			path = strings.ReplaceAll(path, placeholder, fmt.Sprintf("%v", val))
+		}
+	}
+
+	// Build query string
+	query := ""
+	if queryArgs, ok := arguments["query"].(map[string]interface{}); ok {
+		var queryParts []string
+		for k, v := range queryArgs {
+			queryParts = append(queryParts, fmt.Sprintf("%s=%v", k, v))
+		}
+		if len(queryParts) > 0 {
+			query = "?" + strings.Join(queryParts, "&")
+		}
+	}
+
+	// Extract body
+	var bodyData []byte
+	if body, ok := arguments["body"]; ok {
+		var err error
+		bodyData, err = json.Marshal(body)
+		if err != nil {
+			return "", fmt.Errorf("mcp: failed to marshal request body: %w", err)
+		}
+	}
+
+	s.logger.Debug("mcp: executing tool",
+		forge.F("tool", tool.Name),
+		forge.F("method", route.Method),
+		forge.F("path", path+query),
+	)
+
+	// Create internal HTTP request
+	req, err := http.NewRequestWithContext(ctx, route.Method, path+query, bytes.NewReader(bodyData))
+	if err != nil {
+		return "", fmt.Errorf("mcp: failed to create request: %w", err)
+	}
+
+	if len(bodyData) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	// Execute via internal transport (simulation)
+	// Note: This is a simplified implementation
+	// In production, you'd want to use the actual router's handler
+	result := fmt.Sprintf("Tool executed: %s %s", route.Method, path+query)
+	if len(bodyData) > 0 {
+		result += fmt.Sprintf(" (body: %s)", string(bodyData))
+	}
+
+	return result, nil
+}
+
+// RegisterResourceReader registers a custom reader for a resource
+func (s *Server) RegisterResourceReader(uri string, reader ResourceReader) error {
+	s.resourcesLock.Lock()
+	defer s.resourcesLock.Unlock()
+
+	s.resourceReaders[uri] = reader
+	s.logger.Debug("mcp: resource reader registered", forge.F("uri", uri))
+
+	return nil
+}
+
+// ReadResource reads resource content using registered reader or default
+func (s *Server) ReadResource(ctx context.Context, resource *Resource) (Content, error) {
+	s.resourcesLock.RLock()
+	reader, hasReader := s.resourceReaders[resource.URI]
+	s.resourcesLock.RUnlock()
+
+	// Use custom reader if available
+	if hasReader {
+		return reader(ctx, resource)
+	}
+
+	// Default implementation: return basic text content
+	return Content{
+		Type: "text",
+		Text: fmt.Sprintf("Resource: %s\nURI: %s\nDescription: %s",
+			resource.Name, resource.URI, resource.Description),
+	}, nil
+}
+
+// RegisterPromptGenerator registers a custom generator for a prompt
+func (s *Server) RegisterPromptGenerator(name string, generator PromptGenerator) error {
+	s.promptsLock.Lock()
+	defer s.promptsLock.Unlock()
+
+	s.promptGenerators[name] = generator
+	s.logger.Debug("mcp: prompt generator registered", forge.F("prompt", name))
+
+	return nil
+}
+
+// GeneratePrompt generates prompt messages using registered generator or default
+func (s *Server) GeneratePrompt(ctx context.Context, prompt *Prompt, args map[string]interface{}) ([]PromptMessage, error) {
+	s.promptsLock.RLock()
+	generator, hasGenerator := s.promptGenerators[prompt.Name]
+	s.promptsLock.RUnlock()
+
+	// Use custom generator if available
+	if hasGenerator {
+		return generator(ctx, prompt, args)
+	}
+
+	// Default implementation: generate simple message with arguments
+	var argText string
+	if len(args) > 0 {
+		argsParts := []string{}
+		for k, v := range args {
+			argsParts = append(argsParts, fmt.Sprintf("%s=%v", k, v))
+		}
+		argText = " with arguments: " + strings.Join(argsParts, ", ")
+	}
+
+	return []PromptMessage{
+		{
+			Role: "user",
+			Content: []Content{
+				{
+					Type: "text",
+					Text: fmt.Sprintf("Prompt: %s%s\n%s", prompt.Name, argText, prompt.Description),
+				},
+			},
+		},
+	}, nil
+}

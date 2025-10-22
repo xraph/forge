@@ -1,0 +1,328 @@
+package templates
+
+const SubcommandTemplate = `package cmd
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/xraph/forge/pkg/cli"
+	"github.com/xraph/forge/pkg/core"
+	"github.com/xraph/forge/pkg/logger"
+)
+
+// {{.ParentCommand}}Commands contains all subcommands for {{.ParentCommand}}
+type {{.ParentCommand}}Commands struct {
+	{{range .Fields}}
+	{{.Name}} {{.Type}} ` + "`" + `{{.Tags}}` + "`" + `
+	{{end}}
+}
+
+// New{{.ParentCommand}}Commands creates the {{.ParentCommand}} command group
+func New{{.ParentCommand}}Commands() *cli.Command {
+	var commands {{.ParentCommand}}Commands
+
+	cmd := cli.NewCommand("{{.ParentCommandUse}}", "{{.ParentDescription}}").
+		WithLong("{{.ParentLongDescription}}").
+		{{if .ParentExample}}WithExample(` + "`" + `{{.ParentExample}}` + "`" + `).{{end}}
+		{{if .ParentServices}}WithService({{range .ParentServices}}
+			(*{{.Type}})(nil),{{end}}
+		).{{end}}
+		{{if .ParentMiddleware}}WithMiddleware({{range .ParentMiddleware}}
+			{{.Name}},{{end}}
+		).{{end}}
+		WithConfig(&cli.CommandConfig{
+			RequireAuth:   {{.ParentRequireAuth}},
+			OutputFormats: []string{{"json", "yaml", "table"}},
+			Timeout:       {{.ParentTimeout}},
+		})
+
+	// Add all subcommands
+	{{range .Subcommands}}
+	cmd.WithSubcommands(commands.new{{.Name}}Command()){{end}}
+
+	{{if .ParentPreRun}}cmd.PreRun = commands.preRun{{end}}
+	{{if .ParentPostRun}}cmd.PostRun = commands.postRun{{end}}
+
+	return cmd
+}
+
+{{if .ParentPreRun}}// preRun runs before any subcommand execution
+func (c *{{.ParentCommand}}Commands) preRun(ctx cli.CLIContext, args []string) error {
+	ctx.Debug("pre-run for {{.ParentCommand}} command group")
+	{{.ParentPreRunImplementation}}
+	return nil
+}{{end}}
+
+{{if .ParentPostRun}}// postRun runs after any subcommand execution
+func (c *{{.ParentCommand}}Commands) postRun(ctx cli.CLIContext, args []string) error {
+	ctx.Debug("post-run for {{.ParentCommand}} command group")
+	{{.ParentPostRunImplementation}}
+	return nil
+}{{end}}
+
+{{range .Subcommands}}
+// new{{.Name}}Command creates the {{.Name}} subcommand
+func (c *{{.ParentCommand}}Commands) new{{.Name}}Command() *cli.Command {
+	cmd := cli.NewCommand("{{.Use}}", "{{.Description}}").
+		WithLong("{{.LongDescription}}").
+		{{if .Example}}WithExample(` + "`" + `{{.Example}}` + "`" + `).{{end}}
+		{{if .Flags}}WithFlags({{range .Flags}}
+			cli.{{.Type}}Flag("{{.Name}}", "{{.Shorthand}}", "{{.Usage}}", {{.Required}}),{{end}}
+		).{{end}}
+		{{if .Services}}WithService({{range .Services}}
+			(*{{.Type}})(nil),{{end}}
+		).{{end}}
+		{{if .Middleware}}WithMiddleware({{range .Middleware}}
+			{{.Name}},{{end}}
+		).{{end}}
+		WithConfig(&cli.CommandConfig{
+			RequireAuth:   {{.RequireAuth}},
+			OutputFormats: []string{{"json", "yaml", "table"}},
+			Timeout:       {{.Timeout}},
+		})
+
+	cmd.Run = c.{{.HandlerName}}
+	{{if .PreRun}}cmd.PreRun = c.{{.PreRunHandlerName}}{{end}}
+	{{if .PostRun}}cmd.PostRun = c.{{.PostRunHandlerName}}{{end}}
+
+	return cmd
+}
+
+// {{.HandlerName}} handles the {{.Name}} subcommand
+func (c *{{.ParentCommand}}Commands) {{.HandlerName}}(ctx cli.CLIContext, args []string) error {
+	{{if .Services}}// Resolve services{{range .Services}}
+	var {{.Name}} {{.Type}}
+	if err := ctx.Resolve(&{{.Name}}); err != nil {
+		return fmt.Errorf("failed to resolve {{.Name}}: %w", err)
+	}{{end}}{{end}}
+
+	{{if .Flags}}// Get flag values{{range .Flags}}
+	{{.VariableName}}, err := ctx.Get{{.GetterType}}Flag("{{.Name}}")
+	if err != nil {
+		return fmt.Errorf("failed to get {{.Name}} flag: %w", err)
+	}{{end}}{{end}}
+
+	// Log command execution
+	ctx.Info("executing {{.Name}} subcommand",
+		logger.StringSlice("args", args),
+		{{range .Flags}}logger.{{.LogType}}("{{.Name}}", {{.VariableName}}),
+		{{end}}
+	)
+
+	// TODO: Implement {{.Name}} subcommand logic
+	{{.Implementation}}
+
+	ctx.Success("{{.Name}} subcommand completed successfully")
+	return nil
+}
+
+{{if .PreRun}}// {{.PreRunHandlerName}} runs before the {{.Name}} subcommand
+func (c *{{.ParentCommand}}Commands) {{.PreRunHandlerName}}(ctx cli.CLIContext, args []string) error {
+	ctx.Debug("pre-run for {{.Name}} subcommand")
+	{{.PreRunImplementation}}
+	return nil
+}{{end}}
+
+{{if .PostRun}}// {{.PostRunHandlerName}} runs after the {{.Name}} subcommand
+func (c *{{.ParentCommand}}Commands) {{.PostRunHandlerName}}(ctx cli.CLIContext, args []string) error {
+	ctx.Debug("post-run for {{.Name}} subcommand")
+	{{.PostRunImplementation}}
+	return nil
+}{{end}}
+
+{{if .CustomMethods}}{{range .CustomMethods}}
+// {{.Name}} {{.Description}}
+func (c *{{.ParentCommand}}Commands) {{.Name}}({{.Parameters}}) {{.ReturnType}} {
+	{{.Implementation}}
+}
+{{end}}{{end}}
+{{end}}
+
+{{if .GroupValidation}}// validate validates the command group configuration
+func (c *{{.ParentCommand}}Commands) validate(ctx cli.CLIContext) error {
+	{{.GroupValidationImplementation}}
+	return nil
+}{{end}}
+
+{{if .GroupInitialization}}// initialize performs group-level initialization
+func (c *{{.ParentCommand}}Commands) initialize(ctx cli.CLIContext) error {
+	{{.GroupInitializationImplementation}}
+	return nil
+}{{end}}
+
+{{if .SharedMethods}}{{range .SharedMethods}}
+// {{.Name}} {{.Description}} - shared across all subcommands
+func (c *{{.ParentCommand}}Commands) {{.Name}}({{.Parameters}}) {{.ReturnType}} {
+	{{.Implementation}}
+}
+{{end}}{{end}}
+`
+
+// SubcommandGroupTemplate for creating command groups with shared functionality
+const SubcommandGroupTemplate = `package cmd
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/xraph/forge/pkg/cli"
+	"github.com/xraph/forge/pkg/core"
+	"github.com/xraph/forge/pkg/logger"
+)
+
+// {{.GroupName}}CommandGroup manages {{.GroupName}} related commands
+type {{.GroupName}}CommandGroup struct {
+	{{range .SharedFields}}
+	{{.Name}} {{.Type}} ` + "`" + `{{.Tags}}` + "`" + `
+	{{end}}
+}
+
+// New{{.GroupName}}CommandGroup creates a new command group
+func New{{.GroupName}}CommandGroup() *{{.GroupName}}CommandGroup {
+	return &{{.GroupName}}CommandGroup{}
+}
+
+// BuildCommands builds all commands in this group
+func (g *{{.GroupName}}CommandGroup) BuildCommands() []*cli.Command {
+	var commands []*cli.Command
+
+	{{range .Commands}}
+	// {{.Name}} command
+	{{.Name}}Cmd := cli.NewCommand("{{.Use}}", "{{.Description}}").
+		WithLong("{{.LongDescription}}").
+		{{if .Example}}WithExample(` + "`" + `{{.Example}}` + "`" + `).{{end}}
+		{{if .Flags}}WithFlags({{range .Flags}}
+			cli.{{.Type}}Flag("{{.Name}}", "{{.Shorthand}}", "{{.Usage}}", {{.Required}}),{{end}}
+		).{{end}}
+		{{if .Services}}WithService({{range .Services}}
+			(*{{.Type}})(nil),{{end}}
+		).{{end}}
+
+	{{.Name}}Cmd.Run = func(ctx cli.CLIContext, args []string) error {
+		return g.{{.HandlerName}}(ctx, args)
+	}
+
+	commands = append(commands, {{.Name}}Cmd)
+	{{end}}
+
+	return commands
+}
+
+// CreateRootCommand creates the root command for this group
+func (g *{{.GroupName}}CommandGroup) CreateRootCommand() *cli.Command {
+	rootCmd := cli.NewCommand("{{.RootCommandUse}}", "{{.RootDescription}}").
+		WithLong("{{.RootLongDescription}}")
+
+	// Add all subcommands
+	subcommands := g.BuildCommands()
+	rootCmd.WithSubcommands(subcommands...)
+
+	return rootCmd
+}
+
+{{range .Commands}}
+// {{.HandlerName}} handles the {{.Name}} command
+func (g *{{.GroupName}}CommandGroup) {{.HandlerName}}(ctx cli.CLIContext, args []string) error {
+	ctx.Info("executing {{.Name}} command in {{$.GroupName}} group",
+		logger.StringSlice("args", args),
+	)
+
+	{{.Implementation}}
+
+	return nil
+}
+{{end}}
+
+{{if .GroupHelpers}}{{range .GroupHelpers}}
+// {{.Name}} {{.Description}}
+func (g *{{.GroupName}}CommandGroup) {{.Name}}({{.Parameters}}) {{.ReturnType}} {
+	{{.Implementation}}
+}
+{{end}}{{end}}
+`
+
+// NestedSubcommandTemplate for deeply nested command structures
+const NestedSubcommandTemplate = `package cmd
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/xraph/forge/pkg/cli"
+	"github.com/xraph/forge/pkg/core"
+	"github.com/xraph/forge/pkg/logger"
+)
+
+// {{.RootCommand}}Commands manages the complete {{.RootCommand}} command tree
+type {{.RootCommand}}Commands struct {
+	{{range .Fields}}
+	{{.Name}} {{.Type}} ` + "`" + `{{.Tags}}` + "`" + `
+	{{end}}
+}
+
+// New{{.RootCommand}}Commands creates the complete command tree
+func New{{.RootCommand}}Commands() *cli.Command {
+	var commands {{.RootCommand}}Commands
+
+	// Root command
+	rootCmd := cli.NewCommand("{{.RootCommandUse}}", "{{.RootDescription}}").
+		WithLong("{{.RootLongDescription}}")
+
+	{{range .CommandGroups}}
+	// {{.Name}} command group
+	{{.Name}}Group := rootCmd.WithSubcommands(
+		{{range .Subcommands}}commands.new{{.ParentName}}{{.Name}}Command(),
+		{{end}}
+	)
+	{{end}}
+
+	return rootCmd
+}
+
+{{range .CommandGroups}}{{range .Subcommands}}
+// new{{.ParentName}}{{.Name}}Command creates the {{.ParentName}} {{.Name}} command
+func (c *{{.RootCommand}}Commands) new{{.ParentName}}{{.Name}}Command() *cli.Command {
+	cmd := cli.NewCommand("{{.Use}}", "{{.Description}}").
+		WithLong("{{.LongDescription}}")
+
+	{{if .HasSubcommands}}
+	// Add nested subcommands
+	{{range .NestedSubcommands}}
+	cmd.WithSubcommands(c.new{{.ParentName}}{{.Name}}{{.SubName}}Command()){{end}}
+	{{else}}
+	// Leaf command - add execution logic
+	cmd.Run = func(ctx cli.CLIContext, args []string) error {
+		return c.handle{{.ParentName}}{{.Name}}(ctx, args)
+	}
+	{{end}}
+
+	return cmd
+}
+
+{{if .HasSubcommands}}{{range .NestedSubcommands}}
+// new{{.ParentName}}{{.Name}}{{.SubName}}Command creates nested subcommand
+func (c *{{.RootCommand}}Commands) new{{.ParentName}}{{.Name}}{{.SubName}}Command() *cli.Command {
+	return cli.NewCommand("{{.Use}}", "{{.Description}}").
+		WithLong("{{.LongDescription}}").
+		WithRun(func(ctx cli.CLIContext, args []string) error {
+			return c.handle{{.ParentName}}{{.Name}}{{.SubName}}(ctx, args)
+		})
+}
+
+// handle{{.ParentName}}{{.Name}}{{.SubName}} handles the nested subcommand
+func (c *{{.RootCommand}}Commands) handle{{.ParentName}}{{.Name}}{{.SubName}}(ctx cli.CLIContext, args []string) error {
+	ctx.Info("executing {{.ParentName}} {{.Name}} {{.SubName}} command")
+	{{.Implementation}}
+	return nil
+}
+{{end}}{{else}}
+// handle{{.ParentName}}{{.Name}} handles the {{.ParentName}} {{.Name}} command
+func (c *{{.RootCommand}}Commands) handle{{.ParentName}}{{.Name}}(ctx cli.CLIContext, args []string) error {
+	ctx.Info("executing {{.ParentName}} {{.Name}} command")
+	{{.Implementation}}
+	return nil
+}
+{{end}}
+{{end}}{{end}}
+`

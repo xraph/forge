@@ -1,4 +1,24 @@
 package shared
 
-// ConfigKey is the service key for configuration manager
+const MetricsKey = "forge.metrics.service"
+const MetricsCollectorKey = MetricsKey
 const ConfigKey = "forge.config.manager"
+const LoggerKey = "forge.logger"
+const ContainerKey = "forge.container"
+const ErrorHandlerKey = "forge.error.handler"
+const HealthCheckerKey = "forge.health.checker"
+const LifecycleManagerKey = "forge.lifecycle.manager"
+const HealthServiceKey = "forge.health.service"
+const DatabaseManagerKey = "forge.database.manager"
+const DatabaseRedisClientKey = "forge.database.redis.client"
+const DatabaseKey = "forge.database"
+const DatabaseConnectionKey = "forge.database.connection"
+const EventBusKey = "forge.event.bus"
+const StreamingServiceKey = "forge.stream.service"
+const StreamManagerKey = "forge.stream.manager"
+const MiddlewareManagerKey = "forge.middleware.manager"
+const CacheWarmer = "forge.cache.warmer"
+const CacheKey = "forge.cache"
+const CacheManagerKey = "forge.cache.manager"
+const CacheServiceKey = "forge.cache.service"
+const PluginManagerKey = "forge.plugin.manager"

@@ -367,8 +367,8 @@ func TestAppWithHealth(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Register a health check
-	app.HealthManager().Register("test", func(ctx context.Context) HealthResult {
-		return HealthResult{
+	app.HealthManager().RegisterFn("test", func(ctx context.Context) *HealthResult {
+		return &HealthResult{
 			Status:  HealthStatusHealthy,
 			Message: "test is healthy",
 		}

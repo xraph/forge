@@ -26,6 +26,8 @@ type GRPC interface {
 	// Server info
 	GetServer() *grpc.Server
 	IsRunning() bool
+	GetStats() ServerStats
+	GetServices() []ServiceInfo
 
 	// Health
 	Ping(ctx context.Context) error

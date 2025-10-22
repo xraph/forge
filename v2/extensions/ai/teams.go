@@ -11,11 +11,11 @@ import (
 
 // AgentTeam represents a group of agents working together
 type AgentTeam struct {
-	id      string
-	name    string
-	agents  []internal.AIAgent
-	logger  forge.Logger
-	mu      sync.RWMutex
+	id     string
+	name   string
+	agents []internal.AIAgent
+	logger forge.Logger
+	mu     sync.RWMutex
 }
 
 // NewAgentTeam creates a new agent team
@@ -314,4 +314,3 @@ type AgentMessage struct {
 	Type    string
 	Content interface{}
 }
-

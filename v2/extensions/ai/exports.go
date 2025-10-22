@@ -60,6 +60,9 @@ type (
 	AIMiddlewareStats  = internal.AIMiddlewareStats
 )
 
+// Note: Storage, Factory, and Team types are already defined in the ai package
+// and don't need to be re-exported here. They are already public types.
+
 // Agent type constants
 const (
 	AgentTypeOptimization     = internal.AgentTypeOptimization

@@ -1,0 +1,132 @@
+const MiddlewareTemplate = `package middleware
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/xraph/forge/pkg/cli"
+	"github.com/xraph/forge/pkg/core"
+	"github.com/xraph/forge/pkg/logger"
+)
+
+// {{.MiddlewareName}}Middleware provides {{.Description}} functionality
+type {{.MiddlewareName}}Middleware struct {
+	*cli.BaseMiddleware
+	{{range .Dependencies}}{{.Name}} {{.Type}}
+	{{end}}
+	config {{.MiddlewareName}}Config
+}
+
+// {{.MiddlewareName}}Config contains {{.MiddlewareName}} middleware configuration
+type {{.MiddlewareName}}Config struct {
+	{{range .ConfigFields}}
+	{{.Name}} {{.Type}} ` + "`" + `yaml:"{{.YamlName}}" json:"{{.JsonName}}"` + "`" + `
+	{{end}}
+}
+
+// New{{.MiddlewareName}}Middleware creates a new {{.MiddlewareName}} middleware
+func New{{.MiddlewareName}}Middleware({{range .Dependencies}}{{.Name}} {{.Type}}, {{end}}) cli.CLIMiddleware {
+	return New{{.MiddlewareName}}MiddlewareWithConfig({{range .Dependencies}}{{.Name}}, {{end}}Default{{.MiddlewareName}}Config())
+}
+
+// New{{.MiddlewareName}}MiddlewareWithConfig creates {{.MiddlewareName}} middleware with custom config
+func New{{.MiddlewareName}}MiddlewareWithConfig({{range .Dependencies}}{{.Name}} {{.Type}}, {{end}}config {{.MiddlewareName}}Config) cli.CLIMiddleware {
+	return &{{.MiddlewareName}}Middleware{
+		BaseMiddleware: cli.NewBaseMiddleware("{{.MiddlewareID}}", {{.Priority}}),
+		{{range .Dependencies}}{{.Name}}: {{.Name}},
+		{{end}}config: config,
+	}
+}
+
+// Execute executes the {{.MiddlewareName}} middleware
+func (m *{{.MiddlewareName}}Middleware) Execute(ctx cli.CLIContext, next func() error) error {
+	{{if .PreExecution}}// Pre-execution logic
+	{{.PreExecutionImplementation}}{{end}}
+
+	{{if .Timing}}start := time.Now(){{end}}
+
+	{{if .ErrorHandling}}// Execute with error handling
+	err := m.executeWithErrorHandling(ctx, next)
+	{{else}}// Execute next middleware/handler
+	err := next(){{end}}
+
+	{{if .Timing}}duration := time.Since(start){{end}}
+
+	{{if .PostExecution}}// Post-execution logic
+	{{.PostExecutionImplementation}}{{end}}
+
+	{{if .Logging}}// Log execution
+	m.logExecution(ctx, err{{if .Timing}}, duration{{end}}){{end}}
+
+	return err
+}
+
+{{if .ErrorHandling}}// executeWithErrorHandling wraps execution with error handling
+func (m *{{.MiddlewareName}}Middleware) executeWithErrorHandling(ctx cli.CLIContext, next func() error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("{{.MiddlewareName}} middleware panic: %v", r)
+			m.handlePanic(ctx, r)
+		}
+	}()
+
+	{{.ErrorHandlingImplementation}}
+	return next()
+}
+
+// handlePanic handles panics in the middleware
+func (m *{{.MiddlewareName}}Middleware) handlePanic(ctx cli.CLIContext, recovered interface{}) {
+	{{.PanicHandlingImplementation}}
+}{{end}}
+
+{{if .Logging}}// logExecution logs middleware execution
+func (m *{{.MiddlewareName}}Middleware) logExecution(ctx cli.CLIContext{{if .Timing}}, duration time.Duration{{end}}, err error) {
+	fields := []core.LogField{
+		logger.String("middleware", "{{.MiddlewareID}}"),
+		logger.String("command", ctx.Command().Name()),
+		{{if .Timing}}logger.Duration("duration", duration),{{end}}
+	}
+
+	if err != nil {
+		fields = append(fields, logger.Error(err))
+		{{range .Dependencies}}{{if .HasLogger}}m.{{.Name}}.Error("{{.MiddlewareName}} middleware error", fields...){{end}}{{end}}
+	} else {
+		{{range .Dependencies}}{{if .HasLogger}}m.{{.Name}}.Debug("{{.MiddlewareName}} middleware completed", fields...){{end}}{{end}}
+	}
+}{{end}}
+
+{{if .Validation}}// validate validates middleware configuration and context
+func (m *{{.MiddlewareName}}Middleware) validate(ctx cli.CLIContext) error {
+	{{.ValidationImplementation}}
+	return nil
+}{{end}}
+
+{{if .CustomMethods}}{{range .CustomMethods}}
+// {{.Name}} {{.Description}}
+func (m *{{.MiddlewareName}}Middleware) {{.Name}}({{.Parameters}}) {{.ReturnType}} {
+	{{.Implementation}}
+}
+{{end}}{{end}}
+
+// Default{{.MiddlewareName}}Config returns default {{.MiddlewareName}} configuration
+func Default{{.MiddlewareName}}Config() {{.MiddlewareName}}Config {
+	return {{.MiddlewareName}}Config{
+		{{range .ConfigFields}}
+		{{.Name}}: {{.DefaultValue}},
+		{{end}}
+	}
+}
+
+{{if .HasVariants}}{{range .Variants}}
+// {{.Name}}{{$.MiddlewareName}}Config returns {{.Description}} configuration
+func {{.Name}}{{$.MiddlewareName}}Config() {{$.MiddlewareName}}Config {
+	config := Default{{$.MiddlewareName}}Config()
+	{{range .Overrides}}config.{{.Field}} = {{.Value}}
+	{{end}}
+	return config
+}
+{{end}}{{end}}
+
+// Compile-time check to ensure middleware implements the interface
+var _ cli.CLIMiddleware = (*{{.MiddlewareName}}Middleware)(nil)
+`

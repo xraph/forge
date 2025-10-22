@@ -77,8 +77,8 @@ func newRouter(opts ...RouterOption) *router {
 	// Setup OpenAPI if configured
 	r.setupOpenAPI()
 
-	// Setup observability
-	r.setupObservability()
+	// // Setup observability
+	// r.setupObservability()
 
 	return r
 }
