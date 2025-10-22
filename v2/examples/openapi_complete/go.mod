@@ -1,11 +1,10 @@
-module github.com/xraph/forge/v2/extensions/grpc
+module github.com/xraph/forge/v2/examples/openapi_complete
 
-go 1.25.0
+go 1.24.0
 
-require (
-	github.com/xraph/forge/v2 v2.0.0-00010101000000-000000000000
-	google.golang.org/grpc v1.76.0
-)
+replace github.com/xraph/forge/v2 => ../..
+
+require github.com/xraph/forge/v2 v2.0.0
 
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect
@@ -59,7 +58,6 @@ require (
 	golang.org/x/term v0.34.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250825161204-c5933d9347a5 // indirect
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
@@ -75,5 +73,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
-
-replace github.com/xraph/forge/v2 => ../..

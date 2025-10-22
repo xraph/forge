@@ -335,3 +335,54 @@ func TestGRPCServer_MessageSizeLimits(t *testing.T) {
 		t.Errorf("expected MaxRecvMsgSize 100, got %d", impl.config.MaxRecvMsgSize)
 	}
 }
+
+// TestGRPCServer_NoDeadlockOnStartWithInterceptors verifies that starting the server
+// with metrics, logging, and custom interceptors enabled doesn't cause a deadlock.
+// This is a regression test for the deadlock bug where Start() held a write lock
+// while calling buildServerOptions() which tried to acquire a read lock.
+func TestGRPCServer_NoDeadlockOnStartWithInterceptors(t *testing.T) {
+	config := DefaultConfig()
+	config.Address = "127.0.0.1:0"
+	config.EnableMetrics = true
+	config.EnableLogging = true
+	config.EnableTracing = true
+
+	logger := forge.NewNoopLogger()
+	metrics := forge.NewNoOpMetrics()
+	server := NewGRPCServer(config, logger, metrics)
+
+	// Add custom interceptors before starting
+	server.AddUnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		return handler(ctx, req)
+	})
+	server.AddStreamInterceptor(func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		return handler(srv, ss)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// This should complete without deadlock
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- server.Start(ctx, config.Address)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("failed to start server: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("start operation deadlocked - timeout exceeded")
+	}
+
+	defer server.Stop(context.Background())
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify server started correctly
+	if !server.IsRunning() {
+		t.Error("expected server to be running")
+	}
+}

@@ -2,15 +2,15 @@ package orpc
 
 import "errors"
 
-// Package-level errors
+// Package-level errors for internal use
 var (
-	ErrMethodExists      = errors.New("orpc: method already exists")
-	ErrMethodNotFound    = errors.New("orpc: method not found")
-	ErrInvalidMethodName = errors.New("orpc: invalid method name")
-	ErrDisabled          = errors.New("orpc: extension is disabled")
-	ErrBatchDisabled     = errors.New("orpc: batch requests are disabled")
-	ErrBatchTooLarge     = errors.New("orpc: batch size exceeds limit")
-	ErrRequestTooLarge   = errors.New("orpc: request size exceeds limit")
+	ErrMethodExists        = errors.New("orpc: method already exists")
+	ErrMethodNotFoundError = errors.New("orpc: method not found")
+	ErrInvalidMethodName   = errors.New("orpc: invalid method name")
+	ErrDisabled            = errors.New("orpc: extension is disabled")
+	ErrBatchDisabled       = errors.New("orpc: batch requests are disabled")
+	ErrBatchTooLarge       = errors.New("orpc: batch size exceeds limit")
+	ErrRequestTooLarge     = errors.New("orpc: request size exceeds limit")
 )
 
 // GetErrorMessage returns the standard message for a JSON-RPC error code
@@ -32,4 +32,3 @@ func GetErrorMessage(code int) string {
 		return "Unknown error"
 	}
 }
-

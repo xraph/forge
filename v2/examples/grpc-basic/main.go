@@ -33,7 +33,7 @@ func main() {
 
 	// Register gRPC extension
 	grpcExt := grpc.NewExtension(
-		grpc.WithAddress(":50051"),
+		grpc.WithAddress(":50052"),
 		grpc.WithReflection(true),
 		grpc.WithHealthCheck(true),
 		grpc.WithMetrics(true),

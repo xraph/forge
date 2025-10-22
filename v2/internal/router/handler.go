@@ -185,6 +185,57 @@ func convertContextHandler(info *handlerInfo, container di.Container, errorHandl
 	})
 }
 
+// shouldBindRequestBody determines if we should try to bind a request body
+// based on HTTP method and struct field tags
+func shouldBindRequestBody(method string, requestType reflect.Type) bool {
+	// Methods that typically don't have a body
+	noBodyMethods := map[string]bool{
+		"GET":     true,
+		"HEAD":    true,
+		"DELETE":  true,
+		"OPTIONS": true,
+	}
+
+	// Check if struct has any body fields (json or body tags)
+	hasBodyFields := false
+	for i := 0; i < requestType.NumField(); i++ {
+		field := requestType.Field(i)
+
+		// Skip unexported fields
+		if !field.IsExported() {
+			continue
+		}
+
+		// Check for body or json tags (but not path, query, or header tags)
+		if field.Tag.Get("path") == "" &&
+			field.Tag.Get("query") == "" &&
+			field.Tag.Get("header") == "" {
+			// Has json or body tag, or no special tags (default to body)
+			if field.Tag.Get("json") != "" && field.Tag.Get("json") != "-" {
+				hasBodyFields = true
+				break
+			}
+			if field.Tag.Get("body") != "" && field.Tag.Get("body") != "-" {
+				hasBodyFields = true
+				break
+			}
+		}
+	}
+
+	// If method typically has no body and struct has no body fields, skip binding
+	if noBodyMethods[method] && !hasBodyFields {
+		return false
+	}
+
+	// If struct has no body fields at all (only path/query/header), skip binding
+	if !hasBodyFields {
+		return false
+	}
+
+	// Otherwise, try to bind
+	return true
+}
+
 // convertOpinionatedHandler converts func(ctx, req) (resp, error) to http.Handler
 func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -194,10 +245,17 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 		// Create request instance
 		req := reflect.New(info.requestType)
 
-		// Bind request body
-		if err := ctx.Bind(req.Interface()); err != nil {
-			handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
-			return
+		// Only bind request body if the struct has body fields or if method expects a body
+		// For unified schemas, check if struct has json/body tagged fields
+		// For GET/DELETE/HEAD requests without body fields, skip binding
+		shouldBind := shouldBindRequestBody(r.Method, info.requestType)
+
+		if shouldBind {
+			// Bind request body
+			if err := ctx.Bind(req.Interface()); err != nil {
+				handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
+				return
+			}
 		}
 
 		// Call handler
@@ -272,10 +330,15 @@ func convertCombinedHandler(info *handlerInfo, container di.Container, errorHand
 		// Create request instance
 		req := reflect.New(info.requestType)
 
-		// Bind request body
-		if err := ctx.Bind(req.Interface()); err != nil {
-			handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
-			return
+		// Only bind request body if the struct has body fields
+		shouldBind := shouldBindRequestBody(r.Method, info.requestType)
+
+		if shouldBind {
+			// Bind request body
+			if err := ctx.Bind(req.Interface()); err != nil {
+				handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
+				return
+			}
 		}
 
 		// Call handler

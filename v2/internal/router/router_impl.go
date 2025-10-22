@@ -18,7 +18,7 @@ type router struct {
 	errorHandler ErrorHandler
 	recovery     bool
 
-	routes      []*route
+	routes      *[]*route // Pointer to shared slice for groups
 	middleware  []Middleware
 	prefix      string
 	groupConfig *GroupConfig
@@ -59,13 +59,14 @@ func newRouter(opts ...RouterOption) *router {
 		opt.Apply(cfg)
 	}
 
+	routes := make([]*route, 0)
 	r := &router{
 		adapter:       cfg.adapter,
 		container:     cfg.container,
 		logger:        cfg.logger,
 		errorHandler:  cfg.errorHandler,
 		recovery:      cfg.recovery,
-		routes:        make([]*route, 0),
+		routes:        &routes, // Pointer to slice for sharing with groups
 		middleware:    make([]Middleware, 0),
 		openAPIConfig: cfg.openAPIConfig,
 		metricsConfig: cfg.metricsConfig,
@@ -134,7 +135,7 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 		logger:       r.logger,
 		errorHandler: r.errorHandler,
 		recovery:     r.recovery,
-		routes:       r.routes, // Share routes slice
+		routes:       r.routes, // Share routes pointer (all groups use same slice)
 		middleware:   append([]Middleware{}, r.middleware...),
 		prefix:       r.prefix + prefix,
 		groupConfig:  cfg,
@@ -201,8 +202,9 @@ func (r *router) Routes() []RouteInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	infos := make([]RouteInfo, len(r.routes))
-	for i, route := range r.routes {
+	routes := *r.routes // Dereference pointer
+	infos := make([]RouteInfo, len(routes))
+	for i, route := range routes {
 		infos[i] = RouteInfo{
 			Name:        route.config.Name,
 			Method:      route.method,
@@ -225,7 +227,7 @@ func (r *router) RouteByName(name string) (RouteInfo, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	for _, route := range r.routes {
+	for _, route := range *r.routes {
 		if route.config.Name == name {
 			return RouteInfo{
 				Name:        route.config.Name,
@@ -251,7 +253,7 @@ func (r *router) RoutesByTag(tag string) []RouteInfo {
 	defer r.mu.RUnlock()
 
 	var infos []RouteInfo
-	for _, route := range r.routes {
+	for _, route := range *r.routes {
 		for _, t := range route.config.Tags {
 			if t == tag {
 				infos = append(infos, RouteInfo{
@@ -280,7 +282,7 @@ func (r *router) RoutesByMetadata(key string, value any) []RouteInfo {
 	defer r.mu.RUnlock()
 
 	var infos []RouteInfo
-	for _, route := range r.routes {
+	for _, route := range *r.routes {
 		if v, ok := route.config.Metadata[key]; ok && v == value {
 			infos = append(infos, RouteInfo{
 				Name:        route.config.Name,
@@ -331,10 +333,32 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 
 	fullPath := r.prefix + path
 
+	// Detect handler pattern to extract type information for OpenAPI
+	handlerInfo, err := detectHandlerPattern(handler)
+	if err != nil {
+		return fmt.Errorf("failed to detect handler pattern: %w", err)
+	}
+
 	// Convert handler to http.Handler
 	converted, err := convertHandler(handler, r.container, r.errorHandler)
 	if err != nil {
 		return fmt.Errorf("failed to convert handler: %w", err)
+	}
+
+	// Store handler type info in metadata for OpenAPI generation
+	if cfg.Metadata == nil {
+		cfg.Metadata = make(map[string]any)
+	}
+
+	// Only store if not already manually specified
+	if handlerInfo != nil {
+		if _, hasRequestSchema := cfg.Metadata["openapi.requestSchema"]; !hasRequestSchema && handlerInfo.requestType != nil {
+			cfg.Metadata["openapi.requestType"] = handlerInfo.requestType
+		}
+		if _, hasResponseSchema := cfg.Metadata["openapi.responseSchema"]; !hasResponseSchema && handlerInfo.responseType != nil {
+			cfg.Metadata["openapi.responseType"] = handlerInfo.responseType
+		}
+		cfg.Metadata["openapi.handlerPattern"] = handlerInfo.pattern
 	}
 
 	// Create route
@@ -347,7 +371,8 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 		middleware: combinedMiddleware,
 	}
 
-	r.routes = append(r.routes, rt)
+	// Append to shared routes slice (dereference, append, update)
+	*r.routes = append(*r.routes, rt)
 
 	// Register with adapter
 	if r.adapter != nil {

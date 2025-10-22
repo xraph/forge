@@ -9,7 +9,7 @@ import (
 	"syscall"
 
 	"github.com/xraph/forge/v2"
-	"github.com/xraph/forge/v2/extensions/grpc"
+	grpcext "github.com/xraph/forge/v2/extensions/grpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/examples/helloworld/helloworld"
@@ -79,15 +79,15 @@ func main() {
 	})
 
 	// Configure gRPC with advanced settings
-	grpcExt := grpc.NewExtension(
-		grpc.WithAddress(":50051"),
-		grpc.WithReflection(true),
-		grpc.WithHealthCheck(true),
-		grpc.WithMetrics(true),
-		grpc.WithLogging(true),
-		grpc.WithMaxRecvMsgSize(8*1024*1024), // 8MB
-		grpc.WithMaxSendMsgSize(8*1024*1024), // 8MB
-		grpc.WithMaxConcurrentStreams(100),
+	grpcExt := grpcext.NewExtension(
+		grpcext.WithAddress(":50051"),
+		grpcext.WithReflection(true),
+		grpcext.WithHealthCheck(true),
+		grpcext.WithMetrics(true),
+		// grpcext.WithLogging(true),
+		// grpcext.WithMaxRecvMsgSize(8*1024*1024), // 8MB
+		// grpcext.WithMaxSendMsgSize(8*1024*1024), // 8MB
+		grpcext.WithMaxConcurrentStreams(100),
 		// Uncomment to enable TLS:
 		// grpc.WithTLS("server.crt", "server.key", ""),
 		// Uncomment for mTLS:
@@ -106,7 +106,7 @@ func main() {
 	}
 
 	// Get dependencies from DI container
-	grpcServer, err := forge.Resolve[grpc.GRPC](app.Container(), "grpc")
+	grpcServer, err := forge.Resolve[grpcext.GRPC](app.Container(), "grpc")
 	if err != nil {
 		log.Fatalf("Failed to resolve gRPC: %v", err)
 	}
@@ -188,5 +188,3 @@ func main() {
 		log.Printf("Error during shutdown: %v", err)
 	}
 }
-
-

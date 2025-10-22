@@ -19,7 +19,7 @@ func TestNewOpenAPIGenerator(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	assert.NotNil(t, gen)
 	assert.Equal(t, "Test API", gen.config.Title)
 	assert.Equal(t, "3.1.0", gen.config.OpenAPIVersion)   // Default
@@ -39,7 +39,7 @@ func TestNewOpenAPIGenerator_WithDefaults(t *testing.T) {
 		SpecPath:       "/spec.json",
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	assert.NotNil(t, gen)
 	assert.Equal(t, "3.0.0", gen.config.OpenAPIVersion)
 	assert.Equal(t, "/docs", gen.config.UIPath)
@@ -74,7 +74,7 @@ func TestOpenAPIGenerator_Generate(t *testing.T) {
 		},
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	spec := gen.Generate()
 
 	require.NotNil(t, spec)
@@ -105,7 +105,7 @@ func TestOpenAPIGenerator_ProcessRoute(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	spec := gen.Generate()
 
 	require.NotNil(t, spec.Paths["/users"])
@@ -142,7 +142,7 @@ func TestOpenAPIGenerator_SetOperation(t *testing.T) {
 			container := di.NewContainer()
 			router := NewRouter(WithContainer(container))
 			config := OpenAPIConfig{Title: "Test", Version: "1.0.0"}
-			gen := newOpenAPIGenerator(config, router)
+			gen := newOpenAPIGenerator(config, router, nil)
 
 			gen.setOperation(pathItem, tt.method, operation)
 			assert.NotNil(t, tt.check(pathItem))
@@ -164,7 +164,7 @@ func TestOpenAPIGenerator_DefaultResponse(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	spec := gen.Generate()
 
 	require.NotNil(t, spec.Paths["/test"])
@@ -188,7 +188,7 @@ func TestOpenAPIGenerator_SpecHandler(t *testing.T) {
 		PrettyJSON: false,
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	handler := gen.specHandler()
 
 	// Create test request
@@ -217,7 +217,7 @@ func TestOpenAPIGenerator_UIHandler(t *testing.T) {
 		Version: "1.0.0",
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	handler := gen.uiHandler()
 
 	// Create test request
@@ -250,7 +250,7 @@ func TestOpenAPIGenerator_SwaggerHTML(t *testing.T) {
 		SpecPath: "/api/spec.json",
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	html := gen.generateSwaggerHTML()
 
 	assert.Contains(t, html, "<!DOCTYPE html>")
@@ -340,7 +340,7 @@ func TestOpenAPIGenerator_RegisterEndpoints_SpecOnly(t *testing.T) {
 		SpecPath:    "/api-spec.json",
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	gen.RegisterEndpoints()
 
 	routes := router.Routes()
@@ -371,7 +371,7 @@ func TestOpenAPIGenerator_RegisterEndpoints_UIOnly(t *testing.T) {
 		UIPath:      "/docs",
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	gen.RegisterEndpoints()
 
 	routes := router.Routes()
@@ -440,7 +440,7 @@ func TestOpenAPIGenerator_CompleteSpec(t *testing.T) {
 		},
 	}
 
-	gen := newOpenAPIGenerator(config, router)
+	gen := newOpenAPIGenerator(config, router, nil)
 	spec := gen.Generate()
 
 	// Verify complete spec structure

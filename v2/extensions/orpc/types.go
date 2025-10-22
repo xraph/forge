@@ -124,21 +124,21 @@ type PropertySchema struct {
 
 // OpenRPCDocument represents an OpenRPC document
 type OpenRPCDocument struct {
-	OpenRPC    string                 `json:"openrpc"`
-	Info       *OpenRPCInfo           `json:"info"`
-	Methods    []*OpenRPCMethod       `json:"methods"`
-	Components *OpenRPCComponents     `json:"components,omitempty"`
-	Servers    []*OpenRPCServer       `json:"servers,omitempty"`
+	OpenRPC    string             `json:"openrpc"`
+	Info       *OpenRPCInfo       `json:"info"`
+	Methods    []*OpenRPCMethod   `json:"methods"`
+	Components *OpenRPCComponents `json:"components,omitempty"`
+	Servers    []*OpenRPCServer   `json:"servers,omitempty"`
 }
 
 // OpenRPCInfo contains API metadata
 type OpenRPCInfo struct {
-	Title          string                 `json:"title"`
-	Version        string                 `json:"version"`
-	Description    string                 `json:"description,omitempty"`
-	TermsOfService string                 `json:"termsOfService,omitempty"`
-	Contact        *OpenRPCContact        `json:"contact,omitempty"`
-	License        *OpenRPCLicense        `json:"license,omitempty"`
+	Title          string          `json:"title"`
+	Version        string          `json:"version"`
+	Description    string          `json:"description,omitempty"`
+	TermsOfService string          `json:"termsOfService,omitempty"`
+	Contact        *OpenRPCContact `json:"contact,omitempty"`
+	License        *OpenRPCLicense `json:"license,omitempty"`
 }
 
 // OpenRPCContact contains contact information
@@ -156,14 +156,14 @@ type OpenRPCLicense struct {
 
 // OpenRPCMethod represents a method in OpenRPC schema
 type OpenRPCMethod struct {
-	Name        string                 `json:"name"`
-	Summary     string                 `json:"summary,omitempty"`
-	Description string                 `json:"description,omitempty"`
-	Tags        []*OpenRPCTag          `json:"tags,omitempty"`
-	Params      []*OpenRPCParam        `json:"params,omitempty"`
-	Result      *OpenRPCResult         `json:"result,omitempty"`
-	Deprecated  bool                   `json:"deprecated,omitempty"`
-	Errors      []*OpenRPCError        `json:"errors,omitempty"`
+	Name        string          `json:"name"`
+	Summary     string          `json:"summary,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Tags        []*OpenRPCTag   `json:"tags,omitempty"`
+	Params      []*OpenRPCParam `json:"params,omitempty"`
+	Result      *OpenRPCResult  `json:"result,omitempty"`
+	Deprecated  bool            `json:"deprecated,omitempty"`
+	Errors      []*OpenRPCError `json:"errors,omitempty"`
 }
 
 // OpenRPCParam represents a parameter in OpenRPC schema
@@ -207,12 +207,12 @@ type OpenRPCServer struct {
 
 // ServerStats contains server statistics
 type ServerStats struct {
-	TotalMethods    int64
-	TotalRequests   int64
-	TotalErrors     int64
-	TotalBatchReqs  int64
-	ActiveRequests  int64
-	AverageLatency  float64
+	TotalMethods   int64
+	TotalRequests  int64
+	TotalErrors    int64
+	TotalBatchReqs int64
+	ActiveRequests int64
+	AverageLatency float64
 }
 
 // String returns a string representation of the error
@@ -222,4 +222,3 @@ func (e *Error) Error() string {
 	}
 	return fmt.Sprintf("JSON-RPC error %d: %s", e.Code, e.Message)
 }
-

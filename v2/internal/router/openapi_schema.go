@@ -109,7 +109,10 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) *Schema {
 		schema.Properties[jsonName] = fieldSchema
 
 		// Determine if field is required
-		if !omitempty && field.Type.Kind() != reflect.Ptr {
+		// Check for required tag first, then fall back to omitempty logic
+		if requiredTag := field.Tag.Get("required"); requiredTag == "true" {
+			required = append(required, jsonName)
+		} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 			required = append(required, jsonName)
 		}
 	}
@@ -136,14 +139,33 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 		schema.Description = desc
 	}
 
+	// Title
+	if title := field.Tag.Get("title"); title != "" {
+		schema.Title = title
+	}
+
 	// Example
 	if example := field.Tag.Get("example"); example != "" {
 		schema.Example = parseExample(example, schema.Type)
 	}
 
-	// Format
+	// Default value
+	if defaultVal := field.Tag.Get("default"); defaultVal != "" {
+		schema.Default = parseExample(defaultVal, schema.Type)
+	}
+
+	// Format (including binary for file uploads)
 	if format := field.Tag.Get("format"); format != "" {
 		schema.Format = format
+		// Special handling for binary format (file uploads)
+		if format == "binary" || format == "byte" {
+			schema.Type = "string"
+		}
+	}
+
+	// Const value (for discriminator types)
+	if constVal := field.Tag.Get("const"); constVal != "" {
+		schema.Enum = []interface{}{constVal}
 	}
 
 	// Pattern
@@ -288,16 +310,12 @@ func GetTypeName(t reflect.Type) string {
 		t = t.Elem()
 	}
 
-	// For named types, use package path + name
-	if t.PkgPath() != "" && t.Name() != "" {
-		// Simplify package path (remove github.com/org/repo prefix)
-		pkgPath := t.PkgPath()
-		parts := strings.Split(pkgPath, "/")
-		if len(parts) > 0 {
-			return parts[len(parts)-1] + "." + t.Name()
-		}
+	// For named types, use just the type name (without package prefix)
+	// This makes OpenAPI component names cleaner (e.g., "User" instead of "main.User")
+	if t.Name() != "" {
 		return t.Name()
 	}
 
-	return t.Name()
+	// Fallback for anonymous types
+	return "Object"
 }

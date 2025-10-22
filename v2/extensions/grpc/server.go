@@ -53,15 +53,25 @@ func (s *grpcServer) RegisterService(desc *grpc.ServiceDesc, impl interface{}) e
 }
 
 func (s *grpcServer) Start(ctx context.Context, addr string) error {
+	// Check if already running
+	s.mu.RLock()
+	if s.running {
+		s.mu.RUnlock()
+		return ErrAlreadyStarted
+	}
+	s.mu.RUnlock()
+
+	// Build server options from config (without holding lock to avoid deadlock)
+	opts := s.buildServerOptions()
+
+	// Now acquire write lock for modifications
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Double-check running status after acquiring write lock
 	if s.running {
 		return ErrAlreadyStarted
 	}
-
-	// Build server options from config
-	opts := s.buildServerOptions()
 
 	// Create server with options
 	s.server = grpc.NewServer(opts...)

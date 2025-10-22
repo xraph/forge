@@ -13,8 +13,9 @@ import (
 func main() {
 	// Create Forge application
 	app := forge.NewApp(forge.AppConfig{
-		Name:    "mcp-advanced-example",
-		Version: "1.0.0",
+		Name:        "mcp-advanced-example",
+		Version:     "1.0.0",
+		HTTPAddress: ":8080",
 	})
 
 	// Register API routes
@@ -69,7 +70,7 @@ func main() {
 	printUsageInfo()
 
 	// Run HTTP server
-	if err := app.Run(ctx, ":8080"); err != nil {
+	if err := app.Run(); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 		os.Exit(1)
 	}

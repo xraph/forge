@@ -146,16 +146,17 @@ type PathItem struct {
 
 // Operation describes a single API operation on a path
 type Operation struct {
-	Tags         []string              `json:"tags,omitempty"`
-	Summary      string                `json:"summary,omitempty"`
-	Description  string                `json:"description,omitempty"`
-	OperationID  string                `json:"operationId,omitempty"`
-	Parameters   []Parameter           `json:"parameters,omitempty"`
-	RequestBody  *RequestBody          `json:"requestBody,omitempty"`
-	Responses    map[string]*Response  `json:"responses"`
-	Deprecated   bool                  `json:"deprecated,omitempty"`
-	Security     []SecurityRequirement `json:"security,omitempty"`
-	ExternalDocs *ExternalDocs         `json:"externalDocs,omitempty"`
+	Tags         []string                        `json:"tags,omitempty"`
+	Summary      string                          `json:"summary,omitempty"`
+	Description  string                          `json:"description,omitempty"`
+	OperationID  string                          `json:"operationId,omitempty"`
+	Parameters   []Parameter                     `json:"parameters,omitempty"`
+	RequestBody  *RequestBody                    `json:"requestBody,omitempty"`
+	Responses    map[string]*Response            `json:"responses"`
+	Callbacks    map[string]map[string]*PathItem `json:"callbacks,omitempty"`
+	Deprecated   bool                            `json:"deprecated,omitempty"`
+	Security     []SecurityRequirement           `json:"security,omitempty"`
+	ExternalDocs *ExternalDocs                   `json:"externalDocs,omitempty"`
 }
 
 // Parameter describes a single operation parameter
