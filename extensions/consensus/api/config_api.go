@@ -26,7 +26,7 @@ func (ca *ConfigAPI) GetConfig(ctx forge.Context) error {
 
 // GetRaftConfig returns Raft-specific configuration
 func (ca *ConfigAPI) GetRaftConfig(ctx forge.Context) error {
-	raftConfig := ca.config.RaftConfig
+	raftConfig := ca.config.Raft
 
 	return ctx.JSON(200, raftConfig)
 }
@@ -34,8 +34,8 @@ func (ca *ConfigAPI) GetRaftConfig(ctx forge.Context) error {
 // GetTransportConfig returns transport configuration
 func (ca *ConfigAPI) GetTransportConfig(ctx forge.Context) error {
 	transportConfig := map[string]interface{}{
-		"type":    ca.config.TransportType,
-		"address": ca.config.BindAddress,
+		"type":    ca.config.Transport.Type,
+		"address": ca.config.BindAddr,
 		"port":    ca.config.BindPort,
 	}
 
@@ -45,8 +45,8 @@ func (ca *ConfigAPI) GetTransportConfig(ctx forge.Context) error {
 // GetStorageConfig returns storage configuration
 func (ca *ConfigAPI) GetStorageConfig(ctx forge.Context) error {
 	storageConfig := map[string]interface{}{
-		"type": ca.config.StorageType,
-		"path": ca.config.DataDir,
+		"type": ca.config.Storage.Type,
+		"path": ca.config.Storage.Path,
 	}
 
 	return ctx.JSON(200, storageConfig)
@@ -55,8 +55,8 @@ func (ca *ConfigAPI) GetStorageConfig(ctx forge.Context) error {
 // GetDiscoveryConfig returns discovery configuration
 func (ca *ConfigAPI) GetDiscoveryConfig(ctx forge.Context) error {
 	discoveryConfig := map[string]interface{}{
-		"type":  ca.config.DiscoveryType,
-		"peers": ca.config.InitialPeers,
+		"type":  ca.config.Discovery.Type,
+		"peers": ca.config.Peers,
 	}
 
 	return ctx.JSON(200, discoveryConfig)
@@ -65,8 +65,8 @@ func (ca *ConfigAPI) GetDiscoveryConfig(ctx forge.Context) error {
 // GetObservabilityConfig returns observability configuration
 func (ca *ConfigAPI) GetObservabilityConfig(ctx forge.Context) error {
 	observabilityConfig := map[string]interface{}{
-		"metrics_enabled": ca.config.MetricsEnabled,
-		"tracing_enabled": ca.config.TracingEnabled,
+		"metrics_enabled": ca.config.Observability.Metrics.Enabled,
+		"tracing_enabled": ca.config.Observability.Tracing.Enabled,
 	}
 
 	return ctx.JSON(200, observabilityConfig)

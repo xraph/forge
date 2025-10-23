@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	eventscore "github.com/xraph/forge/extensions/events/core"
 	"github.com/xraph/forge/internal/logger"
-	eventscore "github.com/xraph/forge/pkg/events/core"
 )
 
 // EventSchemaValidator validates events against registered schemas

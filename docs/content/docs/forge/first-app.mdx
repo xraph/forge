@@ -1,0 +1,784 @@
+---
+title: First Application
+description: Build your first complete Forge application with real-world features
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps } from 'fumadocs-ui/components/steps'
+
+# First Application
+
+This guide will walk you through building a complete Forge application with real-world features including user management, authentication, database integration, and API documentation.
+
+## Project Overview
+
+We'll build a **User Management API** with the following features:
+
+- User CRUD operations
+- JWT authentication
+- PostgreSQL database
+- OpenAPI documentation
+- Health checks and metrics
+- Input validation
+- Error handling
+
+## Step 1: Project Setup
+
+<Steps>
+  <Steps.Step>
+    Create a new project directory:
+
+    ```bash
+    mkdir user-management-api
+    cd user-management-api
+    go mod init user-management-api
+    ```
+  </Steps.Step>
+
+  <Steps.Step>
+    Add Forge and required dependencies:
+
+    ```bash
+    go get github.com/xraph/forge
+    go get github.com/xraph/forge/extensions/auth
+    go get github.com/xraph/forge/extensions/database
+    go get github.com/lib/pq
+    ```
+  </Steps.Step>
+
+  <Steps.Step>
+    Create the project structure:
+
+    ```bash
+    mkdir -p {config,internal/{handlers,services,models,middleware},migrations}
+    ```
+  </Steps.Step>
+</Steps>
+
+## Step 2: Configuration Setup
+
+Create `config/development.yaml`:
+
+```yaml
+app:
+  name: "user-management-api"
+  version: "1.0.0"
+  environment: "development"
+
+server:
+  address: ":8080"
+  timeout: "30s"
+
+database:
+  driver: "postgres"
+  host: "localhost"
+  port: 5432
+  name: "user_management"
+  user: "postgres"
+  password: "password"
+  ssl_mode: "disable"
+
+auth:
+  jwt:
+    secret: "your-secret-key"
+    expires_in: 3600
+
+logging:
+  level: "info"
+  format: "json"
+
+metrics:
+  enabled: true
+  path: "/_/metrics"
+
+health:
+  enabled: true
+  path: "/_/health"
+```
+
+## Step 3: Database Models
+
+Create `internal/models/user.go`:
+
+```go
+package models
+
+import (
+    "time"
+    "github.com/google/uuid"
+)
+
+type User struct {
+    ID        uuid.UUID `json:"id" db:"id"`
+    Email     string    `json:"email" db:"email"`
+    Name      string    `json:"name" db:"name"`
+    Password  string    `json:"-" db:"password"`
+    CreatedAt time.Time `json:"created_at" db:"created_at"`
+    UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+type CreateUserRequest struct {
+    Email    string `json:"email" validate:"required,email"`
+    Name     string `json:"name" validate:"required,min=2,max=50"`
+    Password string `json:"password" validate:"required,min=8"`
+}
+
+type UpdateUserRequest struct {
+    Name     string `json:"name" validate:"omitempty,min=2,max=50"`
+    Password string `json:"password" validate:"omitempty,min=8"`
+}
+
+type UserResponse struct {
+    ID        uuid.UUID `json:"id"`
+    Email     string    `json:"email"`
+    Name      string    `json:"name"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+
+type LoginRequest struct {
+    Email    string `json:"email" validate:"required,email"`
+    Password string `json:"password" validate:"required"`
+}
+
+type LoginResponse struct {
+    Token string       `json:"token"`
+    User  UserResponse `json:"user"`
+}
+```
+
+## Step 4: Database Service
+
+Create `internal/services/user_service.go`:
+
+```go
+package services
+
+import (
+    "context"
+    "database/sql"
+    "errors"
+    "time"
+    
+    "github.com/google/uuid"
+    "golang.org/x/crypto/bcrypt"
+    "user-management-api/internal/models"
+)
+
+type UserService struct {
+    db *sql.DB
+}
+
+func NewUserService(db *sql.DB) *UserService {
+    return &UserService{db: db}
+}
+
+func (s *UserService) CreateUser(ctx context.Context, req models.CreateUserRequest) (*models.User, error) {
+    // Hash password
+    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Create user
+    user := &models.User{
+        ID:        uuid.New(),
+        Email:     req.Email,
+        Name:      req.Name,
+        Password:  string(hashedPassword),
+        CreatedAt: time.Now(),
+        UpdatedAt: time.Now(),
+    }
+    
+    query := `
+        INSERT INTO users (id, email, name, password, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6)
+    `
+    
+    _, err = s.db.ExecContext(ctx, query, user.ID, user.Email, user.Name, user.Password, user.CreatedAt, user.UpdatedAt)
+    if err != nil {
+        return nil, err
+    }
+    
+    return user, nil
+}
+
+func (s *UserService) GetUser(ctx context.Context, id uuid.UUID) (*models.User, error) {
+    var user models.User
+    query := `SELECT id, email, name, password, created_at, updated_at FROM users WHERE id = $1`
+    
+    err := s.db.QueryRowContext(ctx, query, id).Scan(
+        &user.ID, &user.Email, &user.Name, &user.Password, &user.CreatedAt, &user.UpdatedAt,
+    )
+    if err != nil {
+        if err == sql.ErrNoRows {
+            return nil, errors.New("user not found")
+        }
+        return nil, err
+    }
+    
+    return &user, nil
+}
+
+func (s *UserService) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+    var user models.User
+    query := `SELECT id, email, name, password, created_at, updated_at FROM users WHERE email = $1`
+    
+    err := s.db.QueryRowContext(ctx, query, email).Scan(
+        &user.ID, &user.Email, &user.Name, &user.Password, &user.CreatedAt, &user.UpdatedAt,
+    )
+    if err != nil {
+        if err == sql.ErrNoRows {
+            return nil, errors.New("user not found")
+        }
+        return nil, err
+    }
+    
+    return &user, nil
+}
+
+func (s *UserService) UpdateUser(ctx context.Context, id uuid.UUID, req models.UpdateUserRequest) (*models.User, error) {
+    user, err := s.GetUser(ctx, id)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Update fields
+    if req.Name != "" {
+        user.Name = req.Name
+    }
+    if req.Password != "" {
+        hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+        if err != nil {
+            return nil, err
+        }
+        user.Password = string(hashedPassword)
+    }
+    user.UpdatedAt = time.Now()
+    
+    query := `UPDATE users SET name = $1, password = $2, updated_at = $3 WHERE id = $4`
+    _, err = s.db.ExecContext(ctx, query, user.Name, user.Password, user.UpdatedAt, user.ID)
+    if err != nil {
+        return nil, err
+    }
+    
+    return user, nil
+}
+
+func (s *UserService) DeleteUser(ctx context.Context, id uuid.UUID) error {
+    query := `DELETE FROM users WHERE id = $1`
+    result, err := s.db.ExecContext(ctx, query, id)
+    if err != nil {
+        return err
+    }
+    
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+    
+    if rowsAffected == 0 {
+        return errors.New("user not found")
+    }
+    
+    return nil
+}
+
+func (s *UserService) ValidatePassword(user *models.User, password string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
+    return err == nil
+}
+```
+
+## Step 5: HTTP Handlers
+
+Create `internal/handlers/user_handler.go`:
+
+```go
+package handlers
+
+import (
+    "net/http"
+    "strconv"
+    
+    "github.com/google/uuid"
+    "github.com/xraph/forge"
+    "user-management-api/internal/models"
+    "user-management-api/internal/services"
+)
+
+type UserHandler struct {
+    userService *services.UserService
+    authService *services.AuthService
+}
+
+func NewUserHandler(userService *services.UserService, authService *services.AuthService) *UserHandler {
+    return &UserHandler{
+        userService: userService,
+        authService: authService,
+    }
+}
+
+func (h *UserHandler) CreateUser(ctx forge.Context) error {
+    var req models.CreateUserRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid JSON")
+    }
+    
+    user, err := h.userService.CreateUser(ctx.Request().Context(), req)
+    if err != nil {
+        return forge.InternalError("failed to create user")
+    }
+    
+    response := models.UserResponse{
+        ID:        user.ID,
+        Email:     user.Email,
+        Name:      user.Name,
+        CreatedAt: user.CreatedAt,
+        UpdatedAt: user.UpdatedAt,
+    }
+    
+    return ctx.JSON(http.StatusCreated, response)
+}
+
+func (h *UserHandler) GetUser(ctx forge.Context) error {
+    idStr := ctx.Param("id")
+    id, err := uuid.Parse(idStr)
+    if err != nil {
+        return forge.BadRequest("invalid user ID")
+    }
+    
+    user, err := h.userService.GetUser(ctx.Request().Context(), id)
+    if err != nil {
+        if err.Error() == "user not found" {
+            return forge.NotFound("user not found")
+        }
+        return forge.InternalError("failed to get user")
+    }
+    
+    response := models.UserResponse{
+        ID:        user.ID,
+        Email:     user.Email,
+        Name:      user.Name,
+        CreatedAt: user.CreatedAt,
+        UpdatedAt: user.UpdatedAt,
+    }
+    
+    return ctx.JSON(http.StatusOK, response)
+}
+
+func (h *UserHandler) UpdateUser(ctx forge.Context) error {
+    idStr := ctx.Param("id")
+    id, err := uuid.Parse(idStr)
+    if err != nil {
+        return forge.BadRequest("invalid user ID")
+    }
+    
+    var req models.UpdateUserRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid JSON")
+    }
+    
+    user, err := h.userService.UpdateUser(ctx.Request().Context(), id, req)
+    if err != nil {
+        if err.Error() == "user not found" {
+            return forge.NotFound("user not found")
+        }
+        return forge.InternalError("failed to update user")
+    }
+    
+    response := models.UserResponse{
+        ID:        user.ID,
+        Email:     user.Email,
+        Name:      user.Name,
+        CreatedAt: user.CreatedAt,
+        UpdatedAt: user.UpdatedAt,
+    }
+    
+    return ctx.JSON(http.StatusOK, response)
+}
+
+func (h *UserHandler) DeleteUser(ctx forge.Context) error {
+    idStr := ctx.Param("id")
+    id, err := uuid.Parse(idStr)
+    if err != nil {
+        return forge.BadRequest("invalid user ID")
+    }
+    
+    err = h.userService.DeleteUser(ctx.Request().Context(), id)
+    if err != nil {
+        if err.Error() == "user not found" {
+            return forge.NotFound("user not found")
+        }
+        return forge.InternalError("failed to delete user")
+    }
+    
+    return ctx.NoContent(http.StatusNoContent)
+}
+
+func (h *UserHandler) Login(ctx forge.Context) error {
+    var req models.LoginRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid JSON")
+    }
+    
+    user, err := h.userService.GetUserByEmail(ctx.Request().Context(), req.Email)
+    if err != nil {
+        return forge.Unauthorized("invalid credentials")
+    }
+    
+    if !h.userService.ValidatePassword(user, req.Password) {
+        return forge.Unauthorized("invalid credentials")
+    }
+    
+    token, err := h.authService.GenerateToken(user.ID.String())
+    if err != nil {
+        return forge.InternalError("failed to generate token")
+    }
+    
+    response := models.LoginResponse{
+        Token: token,
+        User: models.UserResponse{
+            ID:        user.ID,
+            Email:     user.Email,
+            Name:      user.Name,
+            CreatedAt: user.CreatedAt,
+            UpdatedAt: user.UpdatedAt,
+        },
+    }
+    
+    return ctx.JSON(http.StatusOK, response)
+}
+```
+
+## Step 6: Authentication Service
+
+Create `internal/services/auth_service.go`:
+
+```go
+package services
+
+import (
+    "errors"
+    "time"
+    
+    "github.com/golang-jwt/jwt/v5"
+)
+
+type AuthService struct {
+    secret string
+}
+
+func NewAuthService(secret string) *AuthService {
+    return &AuthService{secret: secret}
+}
+
+func (s *AuthService) GenerateToken(userID string) (string, error) {
+    claims := jwt.MapClaims{
+        "user_id": userID,
+        "exp":     time.Now().Add(time.Hour).Unix(),
+        "iat":     time.Now().Unix(),
+    }
+    
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString([]byte(s.secret))
+}
+
+func (s *AuthService) ValidateToken(tokenString string) (string, error) {
+    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+            return nil, errors.New("unexpected signing method")
+        }
+        return []byte(s.secret), nil
+    })
+    
+    if err != nil {
+        return "", err
+    }
+    
+    if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+        userID, ok := claims["user_id"].(string)
+        if !ok {
+            return "", errors.New("invalid token claims")
+        }
+        return userID, nil
+    }
+    
+    return "", errors.New("invalid token")
+}
+```
+
+## Step 7: Authentication Middleware
+
+Create `internal/middleware/auth_middleware.go`:
+
+```go
+package middleware
+
+import (
+    "strings"
+    
+    "github.com/xraph/forge"
+    "user-management-api/internal/services"
+)
+
+func AuthMiddleware(authService *services.AuthService) forge.Middleware {
+    return func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(ctx forge.Context) error {
+            authHeader := ctx.Header("Authorization")
+            if authHeader == "" {
+                return forge.Unauthorized("missing authorization header")
+            }
+            
+            if !strings.HasPrefix(authHeader, "Bearer ") {
+                return forge.Unauthorized("invalid authorization header format")
+            }
+            
+            token := strings.TrimPrefix(authHeader, "Bearer ")
+            userID, err := authService.ValidateToken(token)
+            if err != nil {
+                return forge.Unauthorized("invalid token")
+            }
+            
+            ctx.Set("user_id", userID)
+            return next(ctx)
+        }
+    }
+}
+```
+
+## Step 8: Database Migration
+
+Create `migrations/001_create_users_table.sql`:
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+```
+
+## Step 9: Main Application
+
+Create `main.go`:
+
+```go
+package main
+
+import (
+    "database/sql"
+    "log"
+    
+    _ "github.com/lib/pq"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/auth"
+    "github.com/xraph/forge/extensions/database"
+    "user-management-api/internal/handlers"
+    "user-management-api/internal/middleware"
+    "user-management-api/internal/services"
+)
+
+func main() {
+    // Create application
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "user-management-api",
+        Version:     "1.0.0",
+        Environment: "development",
+    })
+    
+    // Load configuration
+    config := forge.NewConfigManager()
+    config.AddSource(forge.NewFileSource("config/development.yaml"))
+    config.AddSource(forge.NewEnvSource())
+    
+    // Register extensions
+    app.RegisterExtension(database.NewExtension(database.WithDriver("postgres")))
+    app.RegisterExtension(auth.NewExtension(auth.WithJWTProvider(auth.JWTConfig{
+        Secret: config.GetString("auth.jwt.secret"),
+    })))
+    
+    // Get database connection
+    db := forge.Must[*sql.DB](app.Container(), "database")
+    
+    // Run migration
+    if err := runMigration(db); err != nil {
+        log.Fatal("Migration failed:", err)
+    }
+    
+    // Register services
+    userService := services.NewUserService(db)
+    authService := services.NewAuthService(config.GetString("auth.jwt.secret"))
+    
+    app.RegisterService("userService", func(container forge.Container) (interface{}, error) {
+        return userService, nil
+    })
+    
+    app.RegisterService("authService", func(container forge.Container) (interface{}, error) {
+        return authService, nil
+    })
+    
+    // Create handlers
+    userHandler := handlers.NewUserHandler(userService, authService)
+    
+    // Register routes
+    api := app.Router().Group("/api/v1")
+    
+    // Public routes
+    api.POST("/auth/login", userHandler.Login,
+        forge.WithRequestSchema(handlers.LoginRequest{}),
+        forge.WithResponseSchema(200, "Login successful", handlers.LoginResponse{}),
+        forge.WithValidation(true),
+    )
+    
+    api.POST("/users", userHandler.CreateUser,
+        forge.WithRequestSchema(handlers.CreateUserRequest{}),
+        forge.WithResponseSchema(201, "User created", handlers.UserResponse{}),
+        forge.WithValidation(true),
+    )
+    
+    // Protected routes
+    protected := api.Group("", forge.WithGroupMiddleware(middleware.AuthMiddleware(authService)))
+    
+    protected.GET("/users/:id", userHandler.GetUser,
+        forge.WithResponseSchema(200, "User details", handlers.UserResponse{}),
+        forge.WithResponseSchema(404, "User not found", forge.ErrorResponse{}),
+    )
+    
+    protected.PUT("/users/:id", userHandler.UpdateUser,
+        forge.WithRequestSchema(handlers.UpdateUserRequest{}),
+        forge.WithResponseSchema(200, "User updated", handlers.UserResponse{}),
+        forge.WithValidation(true),
+    )
+    
+    protected.DELETE("/users/:id", userHandler.DeleteUser,
+        forge.WithResponseSchema(204, "User deleted", nil),
+        forge.WithResponseSchema(404, "User not found", forge.ErrorResponse{}),
+    )
+    
+    // Run application
+    if err := app.Run(); err != nil {
+        app.Logger().Fatal("app failed", forge.F("error", err))
+    }
+}
+
+func runMigration(db *sql.DB) error {
+    migrationSQL := `
+        CREATE TABLE IF NOT EXISTS users (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            email VARCHAR(255) UNIQUE NOT NULL,
+            name VARCHAR(255) NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+    `
+    
+    _, err := db.Exec(migrationSQL)
+    return err
+}
+```
+
+## Step 10: Testing the Application
+
+### Start the Application
+
+```bash
+# Start PostgreSQL (using Docker)
+docker run --name postgres -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
+
+# Create database
+createdb -h localhost -U postgres user_management
+
+# Run the application
+go run main.go
+```
+
+### Test the API
+
+```bash
+# Create a user
+curl -X POST http://localhost:8080/api/v1/users \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "name": "John Doe",
+    "password": "password123"
+  }'
+
+# Login
+curl -X POST http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "password123"
+  }'
+
+# Get user (replace TOKEN with actual token)
+curl -X GET http://localhost:8080/api/v1/users/USER_ID \
+  -H "Authorization: Bearer TOKEN"
+
+# Update user
+curl -X PUT http://localhost:8080/api/v1/users/USER_ID \
+  -H "Authorization: Bearer TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Smith"
+  }'
+
+# Delete user
+curl -X DELETE http://localhost:8080/api/v1/users/USER_ID \
+  -H "Authorization: Bearer TOKEN"
+```
+
+### Check Built-in Endpoints
+
+```bash
+# Health check
+curl http://localhost:8080/_/health
+
+# Metrics
+curl http://localhost:8080/_/metrics
+
+# Application info
+curl http://localhost:8080/_/info
+
+# OpenAPI documentation
+curl http://localhost:8080/_/openapi.json
+```
+
+## What You've Built
+
+Congratulations! You've built a complete Forge application with:
+
+✅ **User Management**: Full CRUD operations for users  
+✅ **Authentication**: JWT-based authentication  
+✅ **Database Integration**: PostgreSQL with migrations  
+✅ **API Documentation**: OpenAPI/Swagger documentation  
+✅ **Input Validation**: Request validation with error handling  
+✅ **Health Checks**: Built-in health monitoring  
+✅ **Metrics**: Prometheus-compatible metrics  
+✅ **Structured Logging**: JSON-formatted logs  
+✅ **Error Handling**: Proper HTTP error responses  
+✅ **Security**: Password hashing and token validation  
+
+## Next Steps
+
+Now that you have a working application, consider:
+
+1. **Testing**: Add unit and integration tests
+2. **Deployment**: Deploy to production environment
+3. **Monitoring**: Set up monitoring and alerting
+4. **Documentation**: Add more API documentation
+5. **Features**: Add more features like user roles, permissions, etc.
+
+<Callout type="success">
+You've successfully built your first complete Forge application! This demonstrates the power and flexibility of the Forge framework for building production-ready applications.
+</Callout>

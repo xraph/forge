@@ -1,0 +1,352 @@
+---
+title: Quick Start
+description: Build your first Forge application in 5 minutes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps } from 'fumadocs-ui/components/steps'
+
+# Quick Start
+
+This guide will help you build your first Forge application in just a few minutes.
+
+## Prerequisites
+
+- Go 1.21+ installed
+- Basic knowledge of Go
+- 5 minutes of your time
+
+## Step 1: Create a New Project
+
+<Steps>
+  <Steps.Step>
+    Create a new directory and initialize a Go module:
+
+```bash
+    mkdir my-first-forge-app
+    cd my-first-forge-app
+    go mod init my-first-forge-app
+    ```
+  </Steps.Step>
+
+  <Steps.Step>
+    Add Forge as a dependency:
+
+    ```bash
+go get github.com/xraph/forge
+```
+  </Steps.Step>
+</Steps>
+
+## Step 2: Create Your First Application
+
+Create a `main.go` file with the following content:
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Create a new Forge application
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "my-first-app",
+        Version:     "1.0.0",
+        Environment: "development",
+    })
+
+    // Register a simple route
+    app.Router().GET("/", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{
+            "message": "Hello, Forge!",
+            "app":     app.Name(),
+        })
+    })
+
+    // Add a health check endpoint
+    app.Router().GET("/health", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{
+            "status": "healthy",
+        })
+    })
+
+    // Run the application
+    if err := app.Run(); err != nil {
+        app.Logger().Fatal("app failed", forge.F("error", err))
+    }
+}
+```
+
+## Step 3: Run Your Application
+
+```bash
+go run main.go
+```
+
+You should see output similar to:
+
+```
+[INFO] Starting application: my-first-app
+[INFO] Server listening on :8080
+[INFO] Health checks enabled at /_/health
+[INFO] Metrics available at /_/metrics
+[INFO] Application info at /_/info
+```
+
+## Step 4: Test Your Application
+
+Open your browser or use curl to test the endpoints:
+
+    ```bash
+# Test the main endpoint
+curl http://localhost:8080/
+
+# Test the health endpoint
+curl http://localhost:8080/health
+
+# Test the built-in info endpoint
+curl http://localhost:8080/_/info
+
+# Test the built-in health endpoint
+curl http://localhost:8080/_/health
+
+# Test the metrics endpoint
+curl http://localhost:8080/_/metrics
+```
+
+Expected responses:
+
+    ```json
+// GET /
+{
+  "message": "Hello, Forge!",
+  "app": "my-first-app"
+}
+
+// GET /health
+    {
+      "status": "healthy"
+    }
+
+// GET /_/info
+{
+  "name": "my-first-app",
+  "version": "1.0.0",
+  "environment": "development",
+  "start_time": "2024-01-01T00:00:00Z",
+  "uptime": "1m30s",
+  "go_version": "go1.21.0",
+  "services": [],
+  "routes": 2
+}
+```
+
+<Callout type="success">
+Congratulations! You've successfully created and run your first Forge application. The application includes built-in observability endpoints and health checks.
+</Callout>
+
+## Step 5: Add More Features
+
+Let's enhance your application with more features:
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "my-first-app",
+        Version:     "1.0.0",
+        Environment: "development",
+    })
+
+    // Create a route group for API endpoints
+    api := app.Router().Group("/api/v1")
+
+    // Add middleware to the API group
+    api.Use(func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(ctx forge.Context) error {
+            ctx.SetHeader("X-API-Version", "v1")
+            return next(ctx)
+        }
+    })
+
+    // Register API routes
+    api.GET("/users", func(ctx forge.Context) error {
+        users := []map[string]string{
+            {"id": "1", "name": "Alice"},
+            {"id": "2", "name": "Bob"},
+        }
+        return ctx.JSON(200, map[string]interface{}{
+            "users": users,
+            "count": len(users),
+        })
+    })
+
+    api.GET("/users/:id", func(ctx forge.Context) error {
+        id := ctx.Param("id")
+        return ctx.JSON(200, map[string]string{
+            "id":   id,
+            "name": "User " + id,
+        })
+    })
+
+    // Register a service
+    app.RegisterService("userService", func(container forge.Container) (interface{}, error) {
+        return &UserService{}, nil
+    })
+
+    // Run the application
+    if err := app.Run(); err != nil {
+        app.Logger().Fatal("app failed", forge.F("error", err))
+    }
+}
+
+// UserService example
+type UserService struct{}
+
+func (s *UserService) GetUser(id string) map[string]string {
+    return map[string]string{
+        "id":   id,
+        "name": "User " + id,
+    }
+}
+```
+
+## Step 6: Add Configuration
+
+Create a configuration file `config.yaml`:
+
+```yaml
+app:
+  name: "my-first-app"
+  version: "1.0.0"
+  environment: "development"
+
+server:
+  address: ":8080"
+  timeout: "30s"
+
+logging:
+  level: "info"
+  format: "json"
+
+metrics:
+  enabled: true
+  path: "/_/metrics"
+
+health:
+  enabled: true
+  path: "/_/health"
+```
+
+Update your `main.go` to use configuration:
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+)
+
+func main() {
+    // Load configuration
+    config := forge.NewConfigManager()
+    config.AddSource(forge.NewFileSource("config.yaml"))
+
+    app := forge.NewApp(forge.AppConfig{
+        Name:         config.GetString("app.name", "my-first-app"),
+        Version:      config.GetString("app.version", "1.0.0"),
+        Environment:  config.GetString("app.environment", "development"),
+        ConfigManager: config,
+    })
+
+    // ... rest of your application code
+}
+```
+
+## What You've Learned
+
+In this quick start, you've learned:
+
+1. **Application Creation**: How to create a new Forge application
+2. **Route Registration**: How to register HTTP routes and handlers
+3. **Route Groups**: How to organize routes with middleware
+4. **Service Registration**: How to register services with dependency injection
+5. **Configuration**: How to use configuration management
+6. **Built-in Features**: Health checks, metrics, and observability
+
+## Next Steps
+
+Now that you have a working Forge application:
+
+1. **[Core Concepts](/docs/forge/concepts/architecture)** - Learn about Forge's architecture
+2. **[Router Guide](/docs/forge/concepts/routing)** - Master HTTP routing
+3. **[Dependency Injection](/docs/forge/concepts/dependency-injection)** - Understand the DI system
+4. **[Extensions](/docs/forge/concepts/extensions)** - Explore available extensions
+5. **[CLI Tools](/docs/forge/cli)** - Use the command-line interface
+
+## Common Patterns
+
+Here are some common patterns you'll use in Forge applications:
+
+### Error Handling
+
+```go
+app.Router().GET("/users/:id", func(ctx forge.Context) error {
+    id := ctx.Param("id")
+    if id == "" {
+        return forge.BadRequest("user ID is required")
+    }
+    
+    // Your logic here
+    return ctx.JSON(200, map[string]string{"id": id})
+})
+```
+
+### Middleware
+
+```go
+// Logging middleware
+app.Router().Use(func(next forge.HandlerFunc) forge.HandlerFunc {
+    return func(ctx forge.Context) error {
+        start := time.Now()
+        err := next(ctx)
+        duration := time.Since(start)
+        
+        app.Logger().Info("request completed",
+            forge.F("method", ctx.Method()),
+            forge.F("path", ctx.Path()),
+            forge.F("duration", duration),
+            forge.F("error", err),
+        )
+        
+        return err
+    }
+})
+```
+
+### Service Injection
+
+```go
+// Register a service
+app.RegisterService("userService", func(container forge.Container) (interface{}, error) {
+    return &UserService{}, nil
+})
+
+// Use the service in a handler
+app.Router().GET("/users", func(ctx forge.Context) error {
+    userService := forge.Must[UserService](app.Container(), "userService")
+    users := userService.GetAllUsers()
+    return ctx.JSON(200, users)
+})
+```
+
+<Callout type="tip">
+For more examples and patterns, check out the [examples directory](https://github.com/xraph/forge/tree/main/examples) in the Forge repository.
+</Callout>

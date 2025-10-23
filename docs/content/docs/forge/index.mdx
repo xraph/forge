@@ -1,0 +1,201 @@
+---
+title: Forge Framework
+description: Modern, extensible Go web framework with enterprise-grade features, dependency injection, and powerful extension system
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+**Forge** is a modern, enterprise-grade web framework for Go applications that provides a comprehensive foundation for building scalable, maintainable, and observable web services. Built with clean architecture principles, dependency injection, and a powerful extension system.
+
+<Callout type="info">
+Forge is production-ready and actively maintained. Check our [GitHub repository](https://github.com/xraph/forge) for the latest updates and contribute to the project.
+</Callout>
+
+## Key Features
+
+<Cards>
+  <Card
+    title="🏗️ Clean Architecture"
+    description="Built on clean architecture principles with dependency injection, service layer, and clear separation of concerns"
+    href="/docs/forge/concepts/architecture"
+  />
+  <Card
+    title="🔌 Extension System"
+    description="Powerful extension system with 20+ built-in extensions for AI, databases, messaging, and more"
+    href="/docs/forge/concepts/extensions"
+  />
+  <Card
+    title="📊 Built-in Observability"
+    description="Comprehensive metrics, logging, health checks, and distributed tracing out of the box"
+    href="/docs/forge/concepts/observability"
+  />
+  <Card
+    title="🔐 Enterprise Security"
+    description="Authentication, authorization, rate limiting, and security middleware with multiple provider support"
+    href="/docs/forge/concepts/security"
+  />
+  <Card
+    title="⚡ High Performance"
+    description="Optimized for high concurrency with connection pooling, caching, and efficient middleware"
+    href="/docs/forge/guides/performance"
+  />
+  <Card
+    title="🔧 Developer Experience"
+    description="Rich CLI tools, code generation, hot reload, and comprehensive documentation"
+    href="/docs/forge/cli"
+  />
+</Cards>
+
+## Architecture Overview
+
+Forge follows a layered architecture with clear separation of concerns:
+
+<Tabs items={['Core Framework', 'Extension System', 'Dependency Injection']}>
+  <Tab value="Core Framework">
+    **Core Components:**
+    - **App**: Application lifecycle management and coordination
+    - **Router**: HTTP routing with multiple backend support (BunRouter, Chi, etc.)
+    - **Container**: Dependency injection with lifecycle management
+    - **Config**: Configuration management with multiple sources
+    - **Logger**: Structured logging with multiple outputs
+    - **Metrics**: Prometheus-compatible metrics collection
+    - **Health**: Health check system with auto-discovery
+  </Tab>
+  <Tab value="Extension System">
+    **Built-in Extensions:**
+    - **AI**: LLM integration, agents, and inference
+    - **Auth**: Authentication and authorization
+    - **Cache**: Redis, Memcached, and in-memory caching
+    - **Database**: SQL (PostgreSQL, MySQL, SQLite) and NoSQL (MongoDB)
+    - **Events**: Event-driven architecture with event sourcing
+    - **GraphQL**: GraphQL server with federation support
+    - **gRPC**: gRPC server with interceptors
+    - **Kafka**: Apache Kafka integration
+    - **MQTT**: MQTT broker integration
+    - **Storage**: File storage with multiple backends
+    - **WebRTC**: Real-time communication
+    - And more...
+  </Tab>
+  <Tab value="Dependency Injection">
+    **DI Features:**
+    - **Singleton**: Single instance per container
+    - **Scoped**: Instance per scope (e.g., HTTP request)
+    - **Transient**: New instance every time
+    - **Factory**: Custom factory functions
+    - **Lifecycle**: Automatic Start/Stop management
+    - **Health**: Automatic health check registration
+  </Tab>
+</Tabs>
+
+## Technology Stack
+
+- **Framework**: Go 1.21+ with modern language features
+- **Router**: Multiple backends (BunRouter, Chi, Gin, Echo)
+- **Database**: PostgreSQL, MySQL, SQLite, MongoDB with connection pooling
+- **Caching**: Redis, Memcached, in-memory with TTL support
+- **Messaging**: NATS, Kafka, RabbitMQ, MQTT
+- **Observability**: Prometheus metrics, structured logging, OpenTelemetry tracing
+- **Security**: OAuth2, SAML, JWT, API keys with multiple providers
+
+## Quick Start
+
+Get started with Forge in minutes:
+
+<Callout type="tip">
+Make sure you have Go 1.21+ installed. No external dependencies required for basic usage.
+</Callout>
+
+```bash
+# Create a new Go module
+mkdir my-forge-app && cd my-forge-app
+go mod init my-forge-app
+
+# Add Forge dependency
+go get github.com/xraph/forge
+
+# Create main.go
+cat > main.go << 'EOF'
+package main
+
+import "github.com/xraph/forge"
+
+func main() {
+    // Create app with default configuration
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "my-app",
+        Version:     "1.0.0",
+        Environment: "development",
+    })
+
+    // Register a simple route
+    app.Router().GET("/", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{
+            "message": "Hello, Forge!",
+            "app":     app.Name(),
+        })
+    })
+
+    // Run the application
+    if err := app.Run(); err != nil {
+        app.Logger().Fatal("app failed", forge.F("error", err))
+    }
+}
+EOF
+
+# Run your application
+go run main.go
+```
+
+Your application will be available at `http://localhost:8080` with built-in endpoints:
+- `/` - Your custom endpoint
+- `/_/info` - Application information
+- `/_/health` - Health checks
+- `/_/metrics` - Prometheus metrics
+
+## What's New
+
+**Major Features:**
+- **Simplified API**: Cleaner, more intuitive API design
+- **Better Performance**: Optimized for high concurrency and low latency
+- **Enhanced DI**: More powerful dependency injection with lifecycle management
+- **Rich Extensions**: 20+ built-in extensions for common use cases
+- **Better Testing**: Comprehensive testing utilities and mocks
+- **Improved Docs**: Complete documentation with examples and best practices
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="📖 Installation"
+    description="Set up your development environment and install Forge"
+    href="/docs/forge/installation"
+  />
+  <Card
+    title="🚀 Quick Start"
+    description="Build your first Forge application in 5 minutes"
+    href="/docs/forge/quick-start"
+  />
+  <Card
+    title="🏗️ Architecture"
+    description="Understand Forge's architecture and design principles"
+    href="/docs/forge/concepts/architecture"
+  />
+  <Card
+    title="🔌 Extensions"
+    description="Explore the powerful extension system and available extensions"
+    href="/docs/forge/concepts/extensions"
+  />
+</Cards>
+
+## Community & Support
+
+- **GitHub**: [xraph/forge](https://github.com/xraph/forge) - Source code and issues
+- **Documentation**: Comprehensive guides and API reference
+- **Examples**: Real-world examples and use cases
+- **Contributing**: We welcome contributions and feedback
+
+---
+
+Ready to build something amazing? Let's [get started](/docs/forge/installation)!

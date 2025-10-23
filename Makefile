@@ -41,8 +41,8 @@ TEST_FLAGS := -v -race -timeout=5m
 COVERAGE_FLAGS := -coverprofile=$(COVERAGE_DIR)/coverage.out -covermode=atomic
 BENCH_FLAGS := -bench=. -benchmem -benchtime=5s
 
-# Directories to test/lint (excluding vendor and generated)
-TEST_DIRS := ./...
+# Directories to test/lint (excluding vendor, generated, and bk/)
+TEST_DIRS := $(shell go list ./... 2>/dev/null | grep -v '/bk/')
 LINT_DIRS := ./...
 
 # Tools

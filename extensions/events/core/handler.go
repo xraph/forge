@@ -9,7 +9,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/forge/pkg/common"
+	"github.com/xraph/forge/internal/shared"
 )
 
 // EventHandler defines the interface for handling events
@@ -560,8 +560,8 @@ type ReflectionEventHandler struct {
 	name    string
 	target  interface{}
 	methods map[string]reflect.Method
-	logger  common.Logger
-	metrics common.Metrics
+	logger  logger.Logger
+	metrics shared.Metrics
 }
 
 // NewReflectionEventHandler creates a new reflection-based event handler

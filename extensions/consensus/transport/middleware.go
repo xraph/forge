@@ -90,10 +90,9 @@ func RateLimitMiddleware(maxRate int, window time.Duration, logger forge.Logger)
 					forge.F("max_rate", maxRate),
 					forge.F("window", window),
 				)
-				return internal.ErrRateLimitExceeded.WithContext(map[string]interface{}{
-					"peer":     peerID,
-					"max_rate": maxRate,
-				})
+				return internal.ErrRateLimitExceeded.
+					WithContext("peer", peerID).
+					WithContext("max_rate", maxRate)
 			}
 
 			limiter.tokens--
@@ -109,14 +108,15 @@ func CompressionMiddleware(minSize int, logger forge.Logger) TransportMiddleware
 	return func(next TransportHandler) TransportHandler {
 		return func(ctx context.Context, msg *internal.Message) error {
 			// Check if message size exceeds threshold
-			if len(msg.Data) >= minSize {
-				// Compression logic would go here
-				// For now, just log
-				logger.Debug("message eligible for compression",
-					forge.F("size", len(msg.Data)),
-					forge.F("threshold", minSize),
-				)
-			}
+			// Note: Message.Payload is interface{}, need to serialize to get size
+			// For now, skip size check as we'd need to marshal the payload
+			_ = minSize // placeholder to avoid unused variable error
+
+			// Compression logic would go here
+			// For now, just log
+			logger.Debug("message processing",
+				forge.F("type", msg.Type),
+			)
 
 			return next(ctx, msg)
 		}
@@ -132,9 +132,8 @@ func AuthenticationMiddleware(verifyFunc func(string) bool, logger forge.Logger)
 				logger.Warn("authentication failed",
 					forge.F("peer", msg.From),
 				)
-				return internal.ErrAuthenticationFailed.WithContext(map[string]interface{}{
-					"peer": msg.From,
-				})
+				return internal.ErrAuthenticationFailed.
+					WithContext("peer", msg.From)
 			}
 
 			return next(ctx, msg)
@@ -252,7 +251,6 @@ func LoggingMiddleware(logger forge.Logger) TransportMiddleware {
 				forge.F("type", msg.Type),
 				forge.F("from", msg.From),
 				forge.F("to", msg.To),
-				forge.F("size", len(msg.Data)),
 			)
 
 			err := next(ctx, msg)
@@ -386,9 +384,10 @@ func DeduplicationMiddleware(window time.Duration, logger forge.Logger) Transpor
 
 	return func(next TransportHandler) TransportHandler {
 		return func(ctx context.Context, msg *internal.Message) error {
+			// Use timestamp as message ID since Index field doesn't exist
 			key := msgKey{
 				from: msg.From,
-				id:   fmt.Sprintf("%d", msg.Index),
+				id:   fmt.Sprintf("%d", msg.Timestamp),
 			}
 
 			seenMu.Lock()

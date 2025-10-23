@@ -1,0 +1,13 @@
+{
+  "title": "CLI Interface",
+  "description": "Command-line interface for Forge development and deployment",
+  "pages": [
+    "cli",
+    "cli-dev",
+    "cli-generate",
+    "cli-database",
+    "cli-build-deploy",
+    "cli-extensions",
+    "cli-system"
+  ]
+}

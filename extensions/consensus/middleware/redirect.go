@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/consensus/cluster"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/extensions/consensus/internal/cluster"
 )
 
 // RedirectMiddleware redirects requests to the leader
@@ -41,15 +41,15 @@ func (rm *RedirectMiddleware) Handle() func(forge.Context) error {
 		}
 
 		// Get leader info
-		leader := rm.manager.GetNode(leaderID)
-		if leader == nil {
+		leader, err := rm.manager.GetNode(leaderID)
+		if err != nil || leader == nil {
 			return ctx.JSON(503, map[string]string{
 				"error": "leader information unavailable",
 			})
 		}
 
 		// Construct leader URL
-		leaderURL := fmt.Sprintf("http://%s:%d%s", leader.Address, leader.Port, ctx.Path())
+		leaderURL := fmt.Sprintf("http://%s:%d%s", leader.Address, leader.Port, ctx.Request().URL.Path)
 
 		// Return redirect response
 		return ctx.JSON(307, map[string]interface{}{
@@ -78,15 +78,15 @@ func (rm *RedirectMiddleware) HandleWithAutoRedirect() func(forge.Context) error
 		}
 
 		// Get leader info
-		leader := rm.manager.GetNode(leaderID)
-		if leader == nil {
+		leader, err := rm.manager.GetNode(leaderID)
+		if err != nil || leader == nil {
 			return ctx.JSON(503, map[string]string{
 				"error": "leader information unavailable",
 			})
 		}
 
 		// Construct leader URL
-		leaderURL := fmt.Sprintf("http://%s:%d%s", leader.Address, leader.Port, ctx.Path())
+		leaderURL := fmt.Sprintf("http://%s:%d%s", leader.Address, leader.Port, ctx.Request().URL.Path)
 
 		// Return HTTP redirect
 		return ctx.Redirect(307, leaderURL)
@@ -110,8 +110,8 @@ func (rm *RedirectMiddleware) HandleWithForward() func(forge.Context) error {
 		}
 
 		// Get leader info
-		leader := rm.manager.GetNode(leaderID)
-		if leader == nil {
+		leader, err := rm.manager.GetNode(leaderID)
+		if err != nil || leader == nil {
 			return ctx.JSON(503, map[string]string{
 				"error": "leader information unavailable",
 			})
@@ -119,7 +119,7 @@ func (rm *RedirectMiddleware) HandleWithForward() func(forge.Context) error {
 
 		// TODO: Implement actual request forwarding
 		// For now, return redirect info
-		leaderURL := fmt.Sprintf("http://%s:%d%s", leader.Address, leader.Port, ctx.Path())
+		leaderURL := fmt.Sprintf("http://%s:%d%s", leader.Address, leader.Port, ctx.Request().URL.Path)
 
 		rm.logger.Debug("forwarding request to leader",
 			forge.F("leader_id", leaderID),

@@ -7,7 +7,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/extensions/consensus/internal/observability"
+	"github.com/xraph/forge/extensions/consensus/observability"
 )
 
 // API provides admin endpoints for consensus management

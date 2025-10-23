@@ -1,0 +1,9 @@
+{
+  "title": "Highlights",
+  "description": "Understanding Forge's core concepts and architecture",
+  "pages": [
+    "openapi",
+    "multipart-forms",
+    "asyncapi"
+  ]
+}

@@ -94,7 +94,7 @@ func (cm *ConsistencyMiddleware) enforceLinearizable(ctx forge.Context) error {
 	// 3. Apply up to read index
 
 	cm.logger.Debug("linearizable read enforced",
-		forge.F("path", ctx.Path()),
+		forge.F("path", ctx.Request().URL.Path),
 	)
 
 	return nil
@@ -106,8 +106,9 @@ func (cm *ConsistencyMiddleware) enforceBounded(ctx forge.Context) error {
 	maxStaleness := cm.getMaxStaleness(ctx)
 
 	// Check commit index staleness
-	commitIndex := cm.raftNode.GetCommitIndex()
-	lastApplied := cm.raftNode.GetLastApplied()
+	stats := cm.raftNode.GetStats()
+	commitIndex := stats.CommitIndex
+	lastApplied := stats.LastApplied
 
 	// If we're caught up, allow
 	if lastApplied >= commitIndex {
@@ -142,13 +143,14 @@ func (cm *ConsistencyMiddleware) enforceBounded(ctx forge.Context) error {
 func (cm *ConsistencyMiddleware) enforceEventual(ctx forge.Context) error {
 	// Eventual consistency allows reads from any node
 	cm.logger.Debug("eventual consistency read allowed",
-		forge.F("path", ctx.Path()),
+		forge.F("path", ctx.Request().URL.Path),
 		forge.F("is_leader", cm.raftNode.IsLeader()),
 	)
 
 	// Add staleness info to response headers
-	commitIndex := cm.raftNode.GetCommitIndex()
-	lastApplied := cm.raftNode.GetLastApplied()
+	stats := cm.raftNode.GetStats()
+	commitIndex := stats.CommitIndex
+	lastApplied := stats.LastApplied
 
 	ctx.SetHeader("X-Consistency-Level", "eventual")
 	ctx.SetHeader("X-Commit-Index", strconv.FormatUint(commitIndex, 10))

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/pkg/logger"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // LLMManager manages Large Language Model providers and operations

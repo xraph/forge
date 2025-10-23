@@ -1,0 +1,537 @@
+---
+title: Extensions
+description: Explore Forge's powerful extension system and available extensions
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Extensions
+
+Forge's extension system provides a powerful way to add functionality to your application. Extensions are first-party, trusted components that integrate seamlessly with the framework and provide enterprise-grade features.
+
+## Extension System Overview
+
+Extensions in Forge are:
+
+- **First-party**: Built and maintained by the Forge team
+- **Trusted**: Full access to framework internals
+- **Integrated**: Seamless integration with DI, health checks, and observability
+- **Production-ready**: Battle-tested in production environments
+
+## Extension Interface
+
+All extensions implement the `Extension` interface:
+
+```go
+type Extension interface {
+    // Basic information
+    Name() string
+    Version() string
+    Description() string
+    
+    // Lifecycle management
+    Register(app App) error
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+    Health(ctx context.Context) error
+    
+    // Dependencies
+    Dependencies() []string
+}
+```
+
+## Available Extensions
+
+<Tabs items={['Core Extensions', 'AI Extensions', 'Infrastructure Extensions', 'Communication Extensions']}>
+  <Tab value="Core Extensions">
+    ### Core Extensions
+
+    **Auth Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/auth"
+    
+    app.RegisterExtension(auth.NewExtension(auth.WithJWTProvider(jwtConfig)))
+    ```
+
+    **Cache Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/cache"
+    
+    app.RegisterExtension(cache.NewExtension(cache.WithDriver("redis")))
+    ```
+
+    **Database Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/database"
+    
+    app.RegisterExtension(database.NewExtension(database.WithDriver("postgres")))
+    ```
+
+    **Storage Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/storage"
+    
+    app.RegisterExtension(storage.NewExtension(storage.WithDriver("s3")))
+    ```
+  </Tab>
+
+  <Tab value="AI Extensions">
+    ### AI Extensions
+
+    **AI Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/ai"
+    
+    app.RegisterExtension(ai.NewExtension(ai.WithLLMProvider("openai")))
+    ```
+
+    **MCP Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/mcp"
+    
+    app.RegisterExtension(mcp.NewExtension(mcp.WithServer("localhost:8080")))
+    ```
+  </Tab>
+
+  <Tab value="Infrastructure Extensions">
+    ### Infrastructure Extensions
+
+    **Events Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/events"
+    
+    app.RegisterExtension(events.NewExtension(events.WithBroker("kafka")))
+    ```
+
+    **Queue Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/queue"
+    
+    app.RegisterExtension(queue.NewExtension(queue.WithDriver("redis")))
+    ```
+
+    **Search Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/search"
+    
+    app.RegisterExtension(search.NewExtension(search.WithDriver("elasticsearch")))
+    ```
+
+    **Consensus Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/consensus"
+    
+    app.RegisterExtension(consensus.NewExtension(consensus.WithRaft()))
+    ```
+  </Tab>
+
+  <Tab value="Communication Extensions">
+    ### Communication Extensions
+
+    **GraphQL Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/graphql"
+    
+    app.RegisterExtension(graphql.NewExtension(graphql.WithEndpoint("/graphql")))
+    ```
+
+    **gRPC Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/grpc"
+    
+    app.RegisterExtension(grpc.NewExtension(grpc.WithAddress(":50051")))
+    ```
+
+    **WebRTC Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/webrtc"
+    
+    app.RegisterExtension(webrtc.NewExtension(webrtc.WithSignalingServer()))
+    ```
+
+    **Streaming Extension**
+    ```go
+    import "github.com/xraph/forge/extensions/streaming"
+    
+    app.RegisterExtension(streaming.NewExtension(streaming.WithHLS()))
+    ```
+  </Tab>
+</Tabs>
+
+## Extension Lifecycle
+
+### 1. Registration Phase
+
+```go
+func (ext *MyExtension) Register(app App) error {
+    // Register services with DI container
+    app.RegisterService("myService", func(container Container) (interface{}, error) {
+        return &MyService{}, nil
+    })
+    
+    // Register health checks
+    app.HealthManager().Register("myExtension", ext.healthCheck)
+    
+    // Register routes
+    app.Router().GET("/my-endpoint", ext.handleRequest)
+    
+    return nil
+}
+```
+
+### 2. Startup Phase
+
+```go
+func (ext *MyExtension) Start(ctx context.Context) error {
+    // Initialize resources
+    if err := ext.initialize(); err != nil {
+        return err
+    }
+    
+    // Start background services
+    go ext.startBackgroundService(ctx)
+    
+    return nil
+}
+```
+
+### 3. Health Check Phase
+
+```go
+func (ext *MyExtension) Health(ctx context.Context) error {
+    // Check extension health
+    if err := ext.checkHealth(); err != nil {
+        return err
+    }
+    
+    return nil
+}
+```
+
+### 4. Shutdown Phase
+
+```go
+func (ext *MyExtension) Stop(ctx context.Context) error {
+    // Stop background services
+    ext.stopBackgroundService()
+    
+    // Cleanup resources
+    if err := ext.cleanup(); err != nil {
+        return err
+    }
+    
+    return nil
+}
+```
+
+## Extension Configuration
+
+### Configuration Sources
+
+Extensions can be configured through multiple sources:
+
+```go
+// Programmatic configuration
+app.RegisterExtension(auth.NewExtension(
+    auth.WithJWTProvider(jwtConfig),
+    auth.WithAPIKeyProvider(apiKeyConfig),
+))
+
+// Configuration file
+app.RegisterExtension(auth.NewExtension())
+
+// Environment variables
+app.RegisterExtension(auth.NewExtension())
+```
+
+### Configuration File
+
+```yaml
+# config.yaml
+extensions:
+  auth:
+    providers:
+      jwt:
+        secret: ${JWT_SECRET}
+        expires_in: 3600
+      api_key:
+        header: X-API-Key
+        keys:
+          - ${API_KEY_1}
+          - ${API_KEY_2}
+  
+  database:
+    driver: postgres
+    host: ${DB_HOST}
+    port: ${DB_PORT}
+    name: ${DB_NAME}
+    user: ${DB_USER}
+    password: ${DB_PASSWORD}
+  
+  cache:
+    driver: redis
+    host: ${REDIS_HOST}
+    port: ${REDIS_PORT}
+    password: ${REDIS_PASSWORD}
+```
+
+## Extension Development
+
+### Creating a Custom Extension
+
+```go
+package myextension
+
+import (
+    "context"
+    "github.com/xraph/forge"
+)
+
+type MyExtension struct {
+    config *Config
+    service *MyService
+}
+
+func NewExtension(opts ...Option) forge.Extension {
+    config := &Config{}
+    for _, opt := range opts {
+        opt(config)
+    }
+    
+    return &MyExtension{
+        config: config,
+    }
+}
+
+func (ext *MyExtension) Name() string {
+    return "my-extension"
+}
+
+func (ext *MyExtension) Version() string {
+    return "1.0.0"
+}
+
+func (ext *MyExtension) Description() string {
+    return "My custom extension"
+}
+
+func (ext *MyExtension) Register(app forge.App) error {
+    // Register services
+    app.RegisterService("myService", func(container forge.Container) (interface{}, error) {
+        return &MyService{config: ext.config}, nil
+    })
+    
+    return nil
+}
+
+func (ext *MyExtension) Start(ctx context.Context) error {
+    // Start the extension
+    return nil
+}
+
+func (ext *MyExtension) Stop(ctx context.Context) error {
+    // Stop the extension
+    return nil
+}
+
+func (ext *MyExtension) Health(ctx context.Context) error {
+    // Check health
+    return nil
+}
+
+func (ext *MyExtension) Dependencies() []string {
+    return []string{"database", "cache"}
+}
+```
+
+### Extension Options
+
+```go
+type Option func(*Config)
+
+func WithDriver(driver string) Option {
+    return func(c *Config) {
+        c.Driver = driver
+    }
+}
+
+func WithHost(host string) Option {
+    return func(c *Config) {
+        c.Host = host
+    }
+}
+
+func WithPort(port int) Option {
+    return func(c *Config) {
+        c.Port = port
+    }
+}
+```
+
+## Extension Testing
+
+### Unit Testing
+
+```go
+func TestMyExtension(t *testing.T) {
+    app := forge.NewTestApp(forge.TestAppConfig{
+        Name: "test-app",
+    })
+    
+    // Register extension
+    ext := NewExtension(WithDriver("test"))
+    err := app.RegisterExtension(ext)
+    require.NoError(t, err)
+    
+    // Test extension
+    err = ext.Start(context.Background())
+    require.NoError(t, err)
+    
+    // Test health
+    err = ext.Health(context.Background())
+    require.NoError(t, err)
+    
+    // Test stop
+    err = ext.Stop(context.Background())
+    require.NoError(t, err)
+}
+```
+
+### Integration Testing
+
+```go
+func TestMyExtensionIntegration(t *testing.T) {
+    app := forge.NewTestApp(forge.TestAppConfig{
+        Name: "test-app",
+    })
+    
+    // Register extension
+    ext := NewExtension(WithDriver("test"))
+    err := app.RegisterExtension(ext)
+    require.NoError(t, err)
+    
+    // Start application
+    go func() {
+        app.Run()
+    }()
+    defer app.Stop(context.Background())
+    
+    // Test extension endpoints
+    resp, err := http.Get("http://localhost:8080/my-endpoint")
+    require.NoError(t, err)
+    defer resp.Body.Close()
+    
+    assert.Equal(t, 200, resp.StatusCode)
+}
+```
+
+## Extension Best Practices
+
+### Design Principles
+
+1. **Single Responsibility**: Each extension should have a single, well-defined purpose
+2. **Interface-Based**: Use interfaces for better testability
+3. **Configuration**: Support multiple configuration sources
+4. **Error Handling**: Handle errors gracefully
+5. **Observability**: Include metrics, logging, and health checks
+6. **Testing**: Write comprehensive tests
+7. **Documentation**: Document extension usage and configuration
+
+### Performance Considerations
+
+1. **Lazy Loading**: Initialize resources only when needed
+2. **Connection Pooling**: Use connection pooling for external services
+3. **Caching**: Implement appropriate caching strategies
+4. **Resource Management**: Properly manage resources and cleanup
+5. **Concurrency**: Design for concurrent access
+
+### Security Considerations
+
+1. **Input Validation**: Validate all inputs
+2. **Authentication**: Integrate with authentication system
+3. **Authorization**: Implement proper authorization
+4. **Secrets Management**: Handle secrets securely
+5. **Audit Logging**: Log security-relevant events
+
+## Extension Registry
+
+### Built-in Extensions
+
+| Extension | Description | Status |
+|-----------|-------------|---------|
+| auth | Authentication and authorization | ✅ Complete |
+| cache | Caching with multiple backends | ✅ Complete |
+| database | Database access and ORM | ✅ Complete |
+| storage | File storage with multiple backends | ✅ Complete |
+| ai | AI and LLM integration | ✅ Complete |
+| mcp | Model Context Protocol | ✅ Complete |
+| events | Event-driven architecture | ✅ Complete |
+| queue | Message queuing | ✅ Complete |
+| search | Full-text search | ✅ Complete |
+| consensus | Distributed consensus | ✅ Complete |
+| graphql | GraphQL server | ✅ Complete |
+| grpc | gRPC services | ✅ Complete |
+| webrtc | WebRTC communication | ✅ Complete |
+| streaming | Media streaming | ✅ Complete |
+| hls | HTTP Live Streaming | ✅ Complete |
+| kafka | Apache Kafka integration | ✅ Complete |
+| mqtt | MQTT broker | ✅ Complete |
+| orpc | OpenRPC support | ✅ Complete |
+| dashboard | Web dashboard | ✅ Complete |
+
+### Extension Status
+
+- ✅ **Complete**: Production-ready with full functionality
+- 🔄 **In Progress**: Under active development
+- 📋 **Planned**: Planned for future releases
+
+## Getting Started with Extensions
+
+### Quick Start
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/auth"
+    "github.com/xraph/forge/extensions/database"
+    "github.com/xraph/forge/extensions/cache"
+)
+
+func main() {
+    app := forge.NewApp(forge.DefaultAppConfig())
+    
+    // Register extensions
+    app.RegisterExtension(auth.NewExtension())
+    app.RegisterExtension(database.NewExtension())
+    app.RegisterExtension(cache.NewExtension())
+    
+    // Run application
+    app.Run()
+}
+```
+
+### Configuration
+
+```yaml
+# config.yaml
+extensions:
+  auth:
+    providers:
+      jwt:
+        secret: ${JWT_SECRET}
+  
+  database:
+    driver: postgres
+    url: ${DATABASE_URL}
+  
+  cache:
+    driver: redis
+    url: ${REDIS_URL}
+```
+
+<Callout type="info">
+For more information about specific extensions, see the individual extension documentation pages.
+</Callout>

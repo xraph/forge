@@ -1,0 +1,519 @@
+---
+title: Extension Commands
+description: Manage Forge extensions and their configurations
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Extension Commands
+
+The `forge extension` command provides tools for managing Forge extensions, including listing available extensions, viewing extension information, and managing extension configurations.
+
+## Main Command
+
+### `forge extension` (aliases: `ext`)
+
+Extension management tools.
+
+```bash
+forge extension list
+forge ext info --name=cache
+```
+
+**Aliases:**
+- `ext` - Extension alias
+
+**Note**: The main command requires a subcommand. Use `forge extension --help` to see available subcommands.
+
+## Subcommands
+
+### `forge extension list` (aliases: `ls`)
+
+List available Forge extensions.
+
+```bash
+forge extension list
+forge ext list
+forge ext ls
+```
+
+**Aliases:**
+- `ls` - List alias
+
+**Behavior:**
+- Shows all available Forge extensions
+- Displays extension information in table format
+- Includes status and version information
+
+**Example Output:**
+```
+Available Forge Extensions:
+┌─────────────┬─────────┬─────────────────────────────────┬─────────┐
+│ Name        │ Version │ Description                     │ Status  │
+├─────────────┼─────────┼─────────────────────────────────┼─────────┤
+│ auth        │ 1.0.0   │ Authentication and authorization│ ✓ Ready │
+│ cache       │ 1.0.0   │ Caching layer with Redis       │ ✓ Ready │
+│ database    │ 1.0.0   │ Database integration           │ ✓ Ready │
+│ events      │ 1.0.0   │ Event-driven architecture     │ ✓ Ready │
+│ metrics     │ 1.0.0   │ Metrics collection and export  │ ✓ Ready │
+│ mcp         │ 1.0.0   │ Model Context Protocol support │ ✓ Ready │
+│ storage     │ 1.0.0   │ File storage and management    │ ✓ Ready │
+│ streaming   │ 1.0.0   │ Real-time streaming support    │ ✓ Ready │
+└─────────────┴─────────┴─────────────────────────────────┴─────────┘
+```
+
+### `forge extension info`
+
+Show extension information.
+
+```bash
+forge extension info --name=cache
+forge ext info -n database
+forge ext info -n mcp
+```
+
+**Flags:**
+- `-n, --name` - Extension name (required)
+
+**Behavior:**
+- Shows detailed information about specific extension
+- Displays configuration options
+- Shows dependencies and requirements
+- Includes usage examples
+
+**Example Output:**
+```
+Extension: cache
+Version: 1.0.0
+Description: Caching layer with Redis support
+
+Dependencies:
+  - redis (Redis server)
+
+Configuration:
+  host: localhost
+  port: 6379
+  password: ""
+  db: 0
+  ttl: 3600
+
+Usage:
+  app.Use(forge.CacheExtension(forge.CacheConfig{
+    Host: "localhost",
+    Port: 6379,
+  }))
+
+Available Options:
+  - WithHost(host string)
+  - WithPort(port int)
+  - WithPassword(password string)
+  - WithDB(db int)
+  - WithTTL(ttl time.Duration)
+```
+
+## Available Extensions
+
+### Core Extensions
+
+#### Authentication Extension (`auth`)
+
+Provides authentication and authorization capabilities.
+
+```bash
+forge ext info -n auth
+```
+
+**Features:**
+- JWT token authentication
+- OAuth2 integration
+- Role-based access control
+- Session management
+
+**Configuration:**
+```yaml
+extensions:
+  auth:
+    provider: jwt
+    secret: ${AUTH_SECRET}
+    ttl: 3600
+    issuer: myapp.com
+```
+
+#### Database Extension (`database`)
+
+Database integration and ORM support.
+
+```bash
+forge ext info -n database
+```
+
+**Features:**
+- Multiple database drivers (PostgreSQL, MySQL, SQLite)
+- Migration support
+- Connection pooling
+- Query builder
+
+**Configuration:**
+```yaml
+extensions:
+  database:
+    driver: postgres
+    host: localhost
+    port: 5432
+    name: myapp
+    user: myuser
+    password: mypass
+```
+
+#### Cache Extension (`cache`)
+
+Caching layer with Redis support.
+
+```bash
+forge ext info -n cache
+```
+
+**Features:**
+- Redis integration
+- In-memory caching
+- Cache invalidation
+- TTL support
+
+**Configuration:**
+```yaml
+extensions:
+  cache:
+    provider: redis
+    host: localhost
+    port: 6379
+    password: ""
+    db: 0
+    ttl: 3600
+```
+
+### Advanced Extensions
+
+#### Events Extension (`events`)
+
+Event-driven architecture support.
+
+```bash
+forge ext info -n events
+```
+
+**Features:**
+- Event publishing and consumption
+- Message queue integration
+- Event sourcing
+- CQRS support
+
+**Configuration:**
+```yaml
+extensions:
+  events:
+    provider: kafka
+    brokers:
+      - localhost:9092
+    topics:
+      - user.events
+      - order.events
+```
+
+#### Metrics Extension (`metrics`)
+
+Metrics collection and export.
+
+```bash
+forge ext info -n metrics
+```
+
+**Features:**
+- Prometheus metrics
+- Custom metrics
+- Health checks
+- Performance monitoring
+
+**Configuration:**
+```yaml
+extensions:
+  metrics:
+    provider: prometheus
+    port: 9090
+    path: /metrics
+    enabled: true
+```
+
+#### MCP Extension (`mcp`)
+
+Model Context Protocol support.
+
+```bash
+forge ext info -n mcp
+```
+
+**Features:**
+- MCP server implementation
+- Tool integration
+- Resource management
+- Client communication
+
+**Configuration:**
+```yaml
+extensions:
+  mcp:
+    server:
+      enabled: true
+      port: 3000
+    tools:
+      - filesystem
+      - database
+      - api
+```
+
+#### Storage Extension (`storage`)
+
+File storage and management.
+
+```bash
+forge ext info -n storage
+```
+
+**Features:**
+- Local file storage
+- Cloud storage (S3, GCS, Azure)
+- File upload handling
+- Image processing
+
+**Configuration:**
+```yaml
+extensions:
+  storage:
+    provider: local
+    path: ./uploads
+    max_size: 10MB
+    allowed_types:
+      - image/jpeg
+      - image/png
+      - application/pdf
+```
+
+#### Streaming Extension (`streaming`)
+
+Real-time streaming support.
+
+```bash
+forge ext info -n streaming
+```
+
+**Features:**
+- WebSocket support
+- Server-Sent Events
+- WebTransport
+- Real-time communication
+
+**Configuration:**
+```yaml
+extensions:
+  streaming:
+    websocket:
+      enabled: true
+      path: /ws
+    sse:
+      enabled: true
+      path: /events
+```
+
+## Extension Usage
+
+### Adding Extensions to Project
+
+Extensions are typically added to your application code:
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/auth"
+    "github.com/xraph/forge/extensions/database"
+    "github.com/xraph/forge/extensions/cache"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:    "my-app",
+        Version: "1.0.0",
+    })
+
+    // Add extensions
+    app.Use(auth.New(auth.Config{
+        Secret: "your-secret-key",
+        TTL:    3600,
+    }))
+
+    app.Use(database.New(database.Config{
+        Driver: "postgres",
+        Host:   "localhost",
+        Port:   5432,
+        Name:   "myapp",
+    }))
+
+    app.Use(cache.New(cache.Config{
+        Host: "localhost",
+        Port: 6379,
+    }))
+
+    // Start server
+    if err := app.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### Extension Configuration
+
+Configure extensions in `.forge.yaml`:
+
+```yaml
+extensions:
+  auth:
+    provider: jwt
+    secret: ${AUTH_SECRET}
+    ttl: 3600
+  
+  database:
+    driver: postgres
+    host: ${DB_HOST}
+    port: ${DB_PORT}
+    name: ${DB_NAME}
+    user: ${DB_USER}
+    password: ${DB_PASSWORD}
+  
+  cache:
+    provider: redis
+    host: ${REDIS_HOST}
+    port: ${REDIS_PORT}
+    password: ${REDIS_PASSWORD}
+  
+  metrics:
+    provider: prometheus
+    port: 9090
+    enabled: true
+```
+
+## Extension Development
+
+### Creating Custom Extensions
+
+Use the generate command to create custom extensions:
+
+```bash
+forge generate extension --name=my-extension
+```
+
+This creates the extension structure:
+
+```
+extensions/my-extension/
+├── extension.go
+├── config.go
+└── README.md
+```
+
+### Extension Interface
+
+Extensions must implement the `forge.Extension` interface:
+
+```go
+type Extension interface {
+    Name() string
+    Version() string
+    Description() string
+    Register(app App) error
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+    Health(ctx context.Context) error
+    Dependencies() []string
+}
+```
+
+### Extension Lifecycle
+
+Extensions follow this lifecycle:
+
+1. **Register**: Extension registers with the application
+2. **Start**: Extension starts its services
+3. **Health**: Extension provides health status
+4. **Stop**: Extension stops gracefully
+
+## Best Practices
+
+1. **Use Built-in Extensions**: Prefer built-in extensions when possible
+2. **Configure Properly**: Set appropriate configuration for each environment
+3. **Handle Dependencies**: Ensure extension dependencies are met
+4. **Monitor Health**: Use health checks for extension monitoring
+5. **Version Compatibility**: Check extension version compatibility
+6. **Documentation**: Document custom extension usage
+7. **Testing**: Test extensions in different environments
+
+## Troubleshooting
+
+### Extension Not Found
+
+If extension is not found:
+
+```bash
+forge ext info -n nonexistent
+# Error: extension not found: nonexistent
+```
+
+**Solution:**
+```bash
+# List available extensions
+forge ext list
+
+# Check extension name spelling
+forge ext info -n cache
+```
+
+### Extension Configuration Error
+
+If extension configuration is invalid:
+
+```bash
+# Extension fails to start
+# Error: invalid configuration for cache extension
+```
+
+**Solution:**
+```bash
+# Check extension info for configuration options
+forge ext info -n cache
+
+# Validate configuration in .forge.yaml
+forge doctor
+```
+
+### Extension Dependencies
+
+If extension dependencies are missing:
+
+```bash
+# Error: dependency not found: redis
+```
+
+**Solution:**
+```bash
+# Check extension dependencies
+forge ext info -n cache
+
+# Install missing dependencies
+# For Redis: install Redis server
+# For database: install database server
+```
+
+<Callout type="info">
+For more information about extension development, see the [Extensions](/docs/forge/concepts/extensions) documentation.
+</Callout>

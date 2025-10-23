@@ -1,0 +1,256 @@
+---
+title: Installation
+description: Set up your development environment and install Forge
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Installation
+
+This guide will help you install Forge and set up your development environment.
+
+## Prerequisites
+
+Before installing Forge, ensure you have the following:
+
+- **Go 1.21+**: Forge requires Go 1.21 or later
+- **Git**: For cloning repositories and version control
+- **Make**: For running build commands (optional but recommended)
+
+<Callout type="info">
+You can check your Go version with `go version`. If you need to install or update Go, visit [golang.org](https://golang.org/dl/).
+</Callout>
+
+## Installation Methods
+
+<Tabs items={['Go Module', 'CLI Tool', 'From Source']}>
+  <Tab value="Go Module">
+    ### Using Go Modules
+
+    The recommended way to use Forge is through Go modules:
+
+    ```bash
+    # Create a new project
+    mkdir my-forge-app
+    cd my-forge-app
+    go mod init my-forge-app
+
+    # Add Forge dependency
+    go get github.com/xraph/forge
+    ```
+
+    This will add Forge to your `go.mod` file and download the package.
+
+    <Callout type="tip">
+    Forge follows semantic versioning. Use `go get github.com/xraph/forge@latest` to get the latest stable version.
+    </Callout>
+  </Tab>
+
+  <Tab value="CLI Tool">
+    ### Using the CLI Tool
+
+    Forge provides a powerful CLI tool for project management:
+
+    ```bash
+    # Install the CLI tool
+    go install github.com/xraph/forge/cmd/forge@latest
+
+    # Verify installation
+    forge version
+
+    # Create a new project
+    forge init my-project
+    cd my-project
+
+    # Start development server
+    forge dev
+    ```
+
+    The CLI tool provides commands for:
+    - Project initialization
+    - Code generation
+    - Development server
+    - Database management
+    - Extension management
+    - Deployment
+
+    <Callout type="info">
+    See the [CLI documentation](/docs/forge/cli) for a complete list of commands.
+    </Callout>
+  </Tab>
+
+  <Tab value="From Source">
+    ### Building from Source
+
+    To build Forge from source:
+
+    ```bash
+    # Clone the repository
+    git clone https://github.com/xraph/forge.git
+    cd forge
+
+    # Build the CLI tool
+    make build
+
+    # Install CLI tool
+    make install
+
+    # Run tests
+    make test
+    ```
+
+    <Callout type="warning">
+    Building from source is only recommended for contributors or when you need the latest unreleased features.
+    </Callout>
+  </Tab>
+</Tabs>
+
+## Verify Installation
+
+After installation, verify everything is working:
+
+```bash
+# Check Go version
+go version
+
+# Check Forge CLI (if installed)
+forge version
+
+# Create a test project
+mkdir test-forge-app
+cd test-forge-app
+go mod init test-forge-app
+go get github.com/xraph/forge
+
+# Create a simple main.go
+cat > main.go << 'EOF'
+package main
+
+import "github.com/xraph/forge"
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name: "test-app",
+    })
+    
+    app.Router().GET("/", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{"message": "Hello, Forge!"})
+    })
+    
+    app.Run()
+}
+EOF
+
+# Run the application
+go run main.go
+```
+
+If everything is working correctly, you should see output indicating the server is running on `http://localhost:8080`.
+
+## Development Environment
+
+### Recommended IDE Setup
+
+**VS Code:**
+- Install the Go extension
+- Install the Forge extension (if available)
+- Configure Go settings for optimal development
+
+**GoLand/IntelliJ:**
+- Built-in Go support
+- Excellent debugging capabilities
+- Integrated terminal and version control
+
+### Environment Variables
+
+Forge respects standard Go environment variables:
+
+```bash
+# Go workspace
+export GOPATH=$HOME/go
+export PATH=$PATH:$GOPATH/bin
+
+# Go proxy (optional, for faster downloads)
+export GOPROXY=https://proxy.golang.org,direct
+
+# Go private modules (if using private repositories)
+export GOPRIVATE=github.com/your-org/*
+```
+
+### Project Structure
+
+A typical Forge project structure:
+
+```
+my-forge-app/
+├── main.go              # Application entry point
+├── go.mod               # Go module file
+├── go.sum               # Go module checksums
+├── .forge.yaml          # Forge configuration (optional)
+├── config/              # Configuration files
+│   ├── development.yaml
+│   ├── production.yaml
+│   └── testing.yaml
+├── internal/             # Private application code
+│   ├── handlers/         # HTTP handlers
+│   ├── services/         # Business logic
+│   ├── models/           # Data models
+│   └── middleware/       # Custom middleware
+├── pkg/                  # Public packages
+├── extensions/           # Custom extensions
+├── migrations/           # Database migrations
+└── tests/               # Test files
+```
+
+## Next Steps
+
+Now that you have Forge installed:
+
+1. **[Quick Start Guide](/docs/forge/quick-start)** - Build your first application
+2. **[Configuration](/docs/forge/concepts/configuration)** - Learn about configuration management
+3. **[CLI Reference](/docs/forge/cli)** - Explore the command-line tools
+4. **[Architecture](/docs/forge/concepts/architecture)** - Understand Forge's design principles
+
+## Troubleshooting
+
+### Common Issues
+
+**Go version too old:**
+```bash
+# Update Go to 1.21+
+# Visit https://golang.org/dl/ for downloads
+```
+
+**Module proxy issues:**
+```bash
+# Use direct mode
+export GOPROXY=direct
+go get github.com/xraph/forge
+```
+
+**Permission errors:**
+```bash
+# Fix Go module permissions
+sudo chown -R $(whoami) $GOPATH
+```
+
+**Build failures:**
+```bash
+# Clean module cache
+go clean -modcache
+go mod download
+```
+
+### Getting Help
+
+If you encounter issues:
+
+1. Check the [GitHub Issues](https://github.com/xraph/forge/issues)
+2. Review the [documentation](/docs/forge)
+3. Join our community discussions
+4. Create a new issue with detailed information
+
+<Callout type="info">
+When reporting issues, please include your Go version, operating system, and a minimal reproduction case.
+</Callout>

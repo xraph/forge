@@ -1,0 +1,489 @@
+---
+title: Code Generation Commands
+description: Generate code from templates for apps, services, controllers, and models
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Code Generation Commands
+
+The `forge generate` command provides code generation tools for creating applications, services, controllers, models, and extensions. It uses templates to generate boilerplate code with proper structure and conventions.
+
+## Main Command
+
+### `forge generate` (aliases: `gen`, `g`)
+
+Generate code from templates.
+
+```bash
+forge generate app --name=my-app
+forge gen service -n auth
+forge g model -n User --fields=name:string
+```
+
+**Aliases:**
+- `gen` - Short alias
+- `g` - Very short alias
+
+**Note**: The main command requires a subcommand. Use `forge generate --help` to see available subcommands.
+
+## Subcommands
+
+### `forge generate app`
+
+Generate a new application.
+
+```bash
+forge generate app --name=api-gateway --template=api
+forge gen app -n auth-service
+forge g app -n my-app
+```
+
+**Flags:**
+- `-n, --name` - App name (required)
+- `-t, --template` - Template (default: "basic")
+
+**Templates:**
+- `basic` - Basic web application
+- `api` - REST API application
+- `grpc` - gRPC service application
+- `worker` - Background worker application
+- `cli` - Command-line application
+
+**Generated Structure:**
+
+For single-module projects:
+```
+cmd/my-app/
+└── main.go
+
+apps/my-app/
+├── .forge.yaml
+└── internal/
+    └── handlers/
+```
+
+For multi-module projects:
+```
+apps/my-app/
+├── go.mod
+├── .forge.yaml
+├── cmd/
+│   └── server/
+│       └── main.go
+└── internal/
+    └── handlers/
+```
+
+**Generated main.go:**
+```go
+package main
+
+import (
+    "log"
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:    "my-app",
+        Version: "0.1.0",
+    })
+
+    // Register routes
+    app.Router().GET("/", func(c forge.Context) error {
+        return c.JSON(200, forge.Map{
+            "message": "Hello from my-app!",
+        })
+    })
+
+    // Start server
+    if err := app.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### `forge generate service` (aliases: `svc`)
+
+Generate a new service.
+
+```bash
+forge generate service --name=users
+forge gen service -n billing
+forge gen svc -n auth
+```
+
+**Flags:**
+- `-n, --name` - Service name (required)
+
+**Aliases:**
+- `svc` - Service alias
+
+**Generated Structure:**
+
+For single-module projects:
+```
+pkg/services/my-service/
+└── service.go
+```
+
+For multi-module projects:
+```
+services/my-service/
+└── service.go
+```
+
+**Generated service.go:**
+```go
+package myservice
+
+// MyServiceService handles myservice business logic
+type MyServiceService struct {
+    // Add dependencies
+}
+
+// NewMyServiceService creates a new myservice service
+func NewMyServiceService() *MyServiceService {
+    return &MyServiceService{}
+}
+```
+
+### `forge generate extension` (aliases: `ext`)
+
+Generate a new extension.
+
+```bash
+forge generate extension --name=payment
+forge gen ext -n notifications
+```
+
+**Flags:**
+- `-n, --name` - Extension name (required)
+
+**Aliases:**
+- `ext` - Extension alias
+
+**Generated Structure:**
+```
+extensions/my-extension/
+├── extension.go
+└── config.go
+```
+
+**Generated extension.go:**
+```go
+package myextension
+
+import (
+    "github.com/xraph/forge"
+)
+
+// Extension implements the myextension extension
+type Extension struct {
+    forge.BaseExtension
+    config Config
+}
+
+// NewExtension creates a new myextension extension
+func NewExtension(opts ...Option) forge.Extension {
+    config := DefaultConfig()
+    for _, opt := range opts {
+        opt(&config)
+    }
+
+    return &Extension{
+        config: config,
+    }
+}
+
+func (e *Extension) Name() string    { return "myextension" }
+func (e *Extension) Version() string { return "1.0.0" }
+
+func (e *Extension) Register(app forge.App) error {
+    if err := e.BaseExtension.Register(app); err != nil {
+        return err
+    }
+
+    // Extension registration logic here
+
+    return nil
+}
+```
+
+**Generated config.go:**
+```go
+package myextension
+
+// Config holds myextension extension configuration
+type Config struct {
+    Enabled bool
+}
+
+// DefaultConfig returns default configuration
+func DefaultConfig() Config {
+    return Config{
+        Enabled: true,
+    }
+}
+
+// Option is a functional option for configuring the extension
+type Option func(*Config)
+
+// WithEnabled sets the enabled flag
+func WithEnabled(enabled bool) Option {
+    return func(c *Config) {
+        c.Enabled = enabled
+    }
+}
+```
+
+### `forge generate controller` (aliases: `ctrl`, `handler`)
+
+Generate a controller/handler.
+
+```bash
+forge generate controller --name=users --app=api-gateway
+forge gen ctrl -n products -a api-gateway
+forge gen handler -n orders -a api
+```
+
+**Flags:**
+- `-n, --name` - Controller name (required)
+- `-a, --app` - App name (required)
+
+**Aliases:**
+- `ctrl` - Controller alias
+- `handler` - Handler alias
+
+**Generated Structure:**
+
+For single-module projects:
+```
+apps/my-app/internal/handlers/users.go
+```
+
+For multi-module projects:
+```
+apps/my-app/internal/handlers/users.go
+```
+
+**Generated controller:**
+```go
+package handlers
+
+import (
+    "github.com/xraph/forge"
+)
+
+// UsersController handles users endpoints
+type UsersController struct {
+    // Add dependencies
+}
+
+// NewUsersController creates a new users controller
+func NewUsersController() *UsersController {
+    return &UsersController{}
+}
+
+// RegisterRoutes registers the routes for this controller
+func (c *UsersController) RegisterRoutes(router forge.Router) {
+    router.GET("/users", c.List)
+    router.POST("/users", c.Create)
+    router.GET("/users/:id", c.Get)
+    router.PUT("/users/:id", c.Update)
+    router.DELETE("/users/:id", c.Delete)
+}
+
+func (c *UsersController) List(ctx forge.Context) error {
+    return ctx.JSON(200, forge.Map{"message": "list users"})
+}
+
+func (c *UsersController) Create(ctx forge.Context) error {
+    return ctx.JSON(201, forge.Map{"message": "create users"})
+}
+
+func (c *UsersController) Get(ctx forge.Context) error {
+    id := ctx.Param("id")
+    return ctx.JSON(200, forge.Map{"id": id})
+}
+
+func (c *UsersController) Update(ctx forge.Context) error {
+    id := ctx.Param("id")
+    return ctx.JSON(200, forge.Map{"message": "updated", "id": id})
+}
+
+func (c *UsersController) Delete(ctx forge.Context) error {
+    id := ctx.Param("id")
+    return ctx.JSON(204, nil)
+}
+```
+
+### `forge generate model`
+
+Generate a database model.
+
+```bash
+forge generate model --name=User --fields=name:string,email:string,age:int
+forge gen model -n Product -f name:string -f price:float64 -f stock:int
+```
+
+**Flags:**
+- `-n, --name` - Model name (required)
+- `-f, --fields` - Fields in format name:type (can be repeated)
+
+**Generated Structure:**
+```
+pkg/models/user.go
+```
+
+**Generated model:**
+```go
+package models
+
+import "time"
+
+// User represents a user entity
+type User struct {
+    Name  string  `json:"name"`
+    Email string  `json:"email"`
+    Age   int     `json:"age"`
+    CreatedAt time.Time `json:"created_at"`
+    UpdatedAt time.Time `json:"updated_at"`
+}
+```
+
+**Field Types:**
+- `string` - String field
+- `int` - Integer field
+- `int64` - 64-bit integer
+- `float64` - Float field
+- `bool` - Boolean field
+- `time.Time` - Time field
+
+## Interactive Mode
+
+Most generation commands support interactive mode when required flags are missing:
+
+```bash
+forge gen app
+# ? App name: my-app
+
+forge gen ctrl
+# ? Controller name: users
+# ? Select app: 
+#   ▸ api-gateway
+#     auth-service
+```
+
+## Project Layout Support
+
+### Single-Module Layout
+
+For single-module projects, generated code follows this structure:
+
+```
+my-project/
+├── cmd/                    # Generated apps
+├── apps/                   # App-specific code
+├── pkg/                    # Generated services and models
+│   ├── services/
+│   └── models/
+├── extensions/             # Generated extensions
+└── .forge.yaml
+```
+
+### Multi-Module Layout
+
+For multi-module projects, generated code follows this structure:
+
+```
+my-project/
+├── apps/                   # Generated apps (with go.mod)
+├── services/               # Generated services
+├── extensions/             # Generated extensions
+└── .forge.yaml
+```
+
+## Configuration
+
+### Generation Configuration
+
+Configure generation settings in `.forge.yaml`:
+
+```yaml
+generate:
+  templates:
+    app: "basic"
+    service: "default"
+    controller: "rest"
+    model: "gorm"
+  
+  paths:
+    apps: "apps"
+    services: "services"
+    models: "pkg/models"
+    extensions: "extensions"
+```
+
+## Best Practices
+
+1. **Use Descriptive Names**: Choose clear, descriptive names for generated components
+2. **Follow Conventions**: Use consistent naming conventions across your project
+3. **Interactive Mode**: Use interactive mode for better UX when unsure about parameters
+4. **Review Generated Code**: Always review and customize generated code
+5. **Use Aliases**: Use shorter aliases (`gen`, `g`) for faster typing
+
+## Troubleshooting
+
+### Project Not Found
+
+If not in a Forge project:
+
+```bash
+forge gen app
+# Error: no .forge.yaml found in current directory or any parent
+# This doesn't appear to be a Forge project.
+# To initialize a new project, run:
+#   forge init
+```
+
+**Solution:**
+```bash
+forge init
+```
+
+### App Not Found for Controller
+
+If the specified app doesn't exist:
+
+```bash
+forge gen ctrl -n users -a nonexistent-app
+# Error: app not found: nonexistent-app
+```
+
+**Solution:**
+```bash
+# List available apps
+forge dev list
+
+# Or create the app first
+forge gen app -n nonexistent-app
+```
+
+### Invalid Field Types
+
+If using invalid field types:
+
+```bash
+forge gen model -n User -f name:invalidtype
+# Generated code will use the invalid type as-is
+```
+
+**Solution:**
+Use valid Go types: `string`, `int`, `int64`, `float64`, `bool`, `time.Time`
+
+<Callout type="info">
+For more information about development workflows, see the [Development Commands](/docs/forge/cli/dev) documentation.
+</Callout>

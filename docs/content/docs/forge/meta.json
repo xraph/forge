@@ -1,0 +1,24 @@
+{
+  "title": "Forge",
+  "description": "Modern, extensible web framework for Go applications with built-in security and observability",
+  "icon": "Code",
+  "root": true,
+  "pages": [
+    "---Introduction---",
+    "index",
+    "installation",
+    "quick-start",
+    "first-app",
+    "---Core Concepts---",
+    "...(concepts)",
+    "router",
+    "---Highlights---",
+    "...(hightlights)",
+    "---CLI---",
+    "...(cli)",
+    "---Extensions---",
+    "...(extensions)",
+    "---Guides & Examples---",
+    "...(guides)"
+  ]
+}

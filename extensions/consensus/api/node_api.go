@@ -2,8 +2,8 @@ package api
 
 import (
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/consensus/cluster"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/extensions/consensus/internal/cluster"
 )
 
 // NodeAPI provides node-specific endpoints
@@ -24,15 +24,15 @@ func NewNodeAPI(raftNode internal.RaftNode, manager *cluster.Manager, logger for
 
 // GetNodeInfo returns information about the local node
 func (na *NodeAPI) GetNodeInfo(ctx forge.Context) error {
-	nodeID := na.raftNode.GetID()
-	node := na.manager.GetNode(nodeID)
+	stats := na.raftNode.GetStats()
+	node, _ := na.manager.GetNode(stats.NodeID)
 
 	info := map[string]interface{}{
-		"node_id":      nodeID,
+		"node_id":      stats.NodeID,
 		"is_leader":    na.raftNode.IsLeader(),
-		"current_term": na.raftNode.GetCurrentTerm(),
-		"commit_index": na.raftNode.GetCommitIndex(),
-		"last_applied": na.raftNode.GetLastApplied(),
+		"current_term": stats.Term,
+		"commit_index": stats.CommitIndex,
+		"last_applied": stats.LastApplied,
 	}
 
 	if node != nil {
@@ -47,12 +47,14 @@ func (na *NodeAPI) GetNodeInfo(ctx forge.Context) error {
 
 // GetNodeStatus returns detailed node status
 func (na *NodeAPI) GetNodeStatus(ctx forge.Context) error {
+	stats := na.raftNode.GetStats()
+
 	status := map[string]interface{}{
-		"node_id":      na.raftNode.GetID(),
+		"node_id":      stats.NodeID,
 		"is_leader":    na.raftNode.IsLeader(),
-		"current_term": na.raftNode.GetCurrentTerm(),
-		"commit_index": na.raftNode.GetCommitIndex(),
-		"last_applied": na.raftNode.GetLastApplied(),
+		"current_term": stats.Term,
+		"commit_index": stats.CommitIndex,
+		"last_applied": stats.LastApplied,
 		"state":        "running", // Would get from actual state
 	}
 
@@ -61,11 +63,13 @@ func (na *NodeAPI) GetNodeStatus(ctx forge.Context) error {
 
 // GetNodeMetrics returns node-specific metrics
 func (na *NodeAPI) GetNodeMetrics(ctx forge.Context) error {
+	stats := na.raftNode.GetStats()
+
 	metrics := map[string]interface{}{
-		"node_id":      na.raftNode.GetID(),
-		"commit_index": na.raftNode.GetCommitIndex(),
-		"last_applied": na.raftNode.GetLastApplied(),
-		"current_term": na.raftNode.GetCurrentTerm(),
+		"node_id":      stats.NodeID,
+		"commit_index": stats.CommitIndex,
+		"last_applied": stats.LastApplied,
+		"current_term": stats.Term,
 		"is_leader":    na.raftNode.IsLeader(),
 	}
 
@@ -86,7 +90,11 @@ func (na *NodeAPI) ProposeCommand(ctx forge.Context) error {
 		return ctx.JSON(400, map[string]string{"error": "command is required"})
 	}
 
-	if err := na.raftNode.Propose(ctx.Context(), []byte(req.Command)); err != nil {
+	// Use Apply method from RaftNode interface
+	entry := internal.LogEntry{
+		Data: []byte(req.Command),
+	}
+	if err := na.raftNode.Apply(ctx.Context(), entry); err != nil {
 		return ctx.JSON(500, map[string]string{"error": err.Error()})
 	}
 
@@ -107,8 +115,9 @@ func (na *NodeAPI) StepDown(ctx forge.Context) error {
 
 // GetNodePeers returns the node's view of peers
 func (na *NodeAPI) GetNodePeers(ctx forge.Context) error {
-	nodes := na.manager.GetAllNodes()
-	nodeID := na.raftNode.GetID()
+	nodes := na.manager.GetNodes()
+	stats := na.raftNode.GetStats()
+	nodeID := stats.NodeID
 
 	peers := make([]map[string]interface{}, 0)
 	for _, node := range nodes {

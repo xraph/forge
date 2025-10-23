@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/app"
 	"github.com/xraph/forge/internal/config"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/metrics"
@@ -205,14 +204,13 @@ func createTestApp(t *testing.T) forge.App {
 
 	cfg := config.NewConfigManager()
 
-	testApp, err := app.NewApp(app.Config{
-		Name:    "test-app",
-		Version: "1.0.0",
-	}, log, met, cfg)
-
-	if err != nil {
-		t.Fatalf("failed to create test app: %v", err)
-	}
+	testApp := forge.New(
+		forge.WithName("test-app"),
+		forge.WithVersion("1.0.0"),
+		forge.WithLogger(log),
+		forge.WithMetrics(met),
+		forge.WithConfig(cfg),
+	)
 
 	return testApp
 }

@@ -1,0 +1,15 @@
+{
+  "title": "Core Concepts",
+  "description": "Understanding Forge's core concepts and architecture",
+  "pages": [
+    "architecture",
+    "configuration",
+    "routing",
+    "streaming",
+    "dependency-injection",
+    "health",
+    "metrics",
+    "observability",
+    "extensions"
+  ]
+}

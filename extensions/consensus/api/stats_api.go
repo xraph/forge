@@ -4,9 +4,9 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/consensus/cluster"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/extensions/consensus/internal/cluster"
-	"github.com/xraph/forge/extensions/consensus/internal/observability"
+	"github.com/xraph/forge/extensions/consensus/observability"
 )
 
 // StatsAPI provides statistics endpoints
@@ -36,31 +36,36 @@ func NewStatsAPI(
 
 // GetStats returns overall statistics
 func (sa *StatsAPI) GetStats(ctx forge.Context) error {
+	raftStats := sa.raftNode.GetStats()
+
 	stats := map[string]interface{}{
 		"uptime_seconds": time.Since(sa.startTime).Seconds(),
-		"node_id":        sa.raftNode.GetID(),
+		"node_id":        raftStats.NodeID,
 		"is_leader":      sa.raftNode.IsLeader(),
-		"current_term":   sa.raftNode.GetCurrentTerm(),
-		"commit_index":   sa.raftNode.GetCommitIndex(),
-		"last_applied":   sa.raftNode.GetLastApplied(),
+		"current_term":   raftStats.Term,
+		"commit_index":   raftStats.CommitIndex,
+		"last_applied":   raftStats.LastApplied,
 		"cluster":        sa.getClusterStats(),
 	}
 
-	if sa.metrics != nil {
-		stats["metrics"] = sa.metrics.GetStats()
-	}
+	// Metrics stats would require a different method
+	// if sa.metrics != nil {
+	// 	stats["metrics"] = sa.metrics.CollectMetrics()
+	// }
 
 	return ctx.JSON(200, stats)
 }
 
 // GetRaftStats returns Raft-specific statistics
 func (sa *StatsAPI) GetRaftStats(ctx forge.Context) error {
+	raftStats := sa.raftNode.GetStats()
+
 	stats := map[string]interface{}{
-		"node_id":      sa.raftNode.GetID(),
+		"node_id":      raftStats.NodeID,
 		"is_leader":    sa.raftNode.IsLeader(),
-		"current_term": sa.raftNode.GetCurrentTerm(),
-		"commit_index": sa.raftNode.GetCommitIndex(),
-		"last_applied": sa.raftNode.GetLastApplied(),
+		"current_term": raftStats.Term,
+		"commit_index": raftStats.CommitIndex,
+		"last_applied": raftStats.LastApplied,
 	}
 
 	return ctx.JSON(200, stats)
@@ -95,16 +100,17 @@ func (sa *StatsAPI) GetPerformanceStats(ctx forge.Context) error {
 		"uptime_seconds": time.Since(sa.startTime).Seconds(),
 	}
 
-	if sa.metrics != nil {
-		stats["metrics"] = sa.metrics.GetStats()
-	}
+	// Metrics stats would require a different method
+	// if sa.metrics != nil {
+	// 	stats["metrics"] = sa.metrics.CollectMetrics()
+	// }
 
 	return ctx.JSON(200, stats)
 }
 
 // getClusterStats returns cluster statistics
 func (sa *StatsAPI) getClusterStats() map[string]interface{} {
-	nodes := sa.manager.GetAllNodes()
+	nodes := sa.manager.GetNodes()
 
 	healthyCount := 0
 	leaderCount := 0
@@ -138,7 +144,9 @@ func (sa *StatsAPI) GetMetrics(ctx forge.Context) error {
 	}
 
 	// TODO: Return Prometheus-formatted metrics
-	stats := sa.metrics.GetStats()
+	stats := map[string]interface{}{
+		"message": "metrics export not yet implemented",
+	}
 
 	return ctx.JSON(200, stats)
 }

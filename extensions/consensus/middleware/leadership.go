@@ -97,62 +97,6 @@ func (lm *LeadershipMiddleware) ReadOnlyRouting(next func(forge.Context) error) 
 	}
 }
 
-// ConsistencyMiddleware enforces read consistency levels
-type ConsistencyMiddleware struct {
-	service internal.ConsensusService
-	logger  forge.Logger
-}
-
-// NewConsistencyMiddleware creates a new consistency middleware
-func NewConsistencyMiddleware(service internal.ConsensusService, logger forge.Logger) *ConsistencyMiddleware {
-	return &ConsistencyMiddleware{
-		service: service,
-		logger:  logger,
-	}
-}
-
-// StrongConsistency enforces strong consistency (leader reads only)
-func (cm *ConsistencyMiddleware) StrongConsistency(next func(forge.Context) error) func(forge.Context) error {
-	return func(ctx forge.Context) error {
-		if !cm.service.IsLeader() {
-			leaderID := cm.service.GetLeader()
-
-			cm.logger.Debug("rejected read - strong consistency requires leader",
-				forge.F("leader_id", leaderID),
-				forge.F("path", ctx.Request().URL.Path),
-			)
-
-			return ctx.JSON(503, map[string]interface{}{
-				"error":     "not the leader",
-				"leader_id": leaderID,
-				"message":   "strong consistency requires reads from leader",
-			})
-		}
-
-		// Add consistency level to response headers
-		ctx.Response().Header().Set("X-Consensus-Consistency", "strong")
-		ctx.Response().Header().Set("X-Consensus-Leader", "true")
-
-		return next(ctx)
-	}
-}
-
-// EventualConsistency allows reads from any node
-func (cm *ConsistencyMiddleware) EventualConsistency(next func(forge.Context) error) func(forge.Context) error {
-	return func(ctx forge.Context) error {
-		// Add consistency level to response headers
-		ctx.Response().Header().Set("X-Consensus-Consistency", "eventual")
-		ctx.Response().Header().Set("X-Consensus-Leader", "false")
-
-		isLeader := cm.service.IsLeader()
-		if isLeader {
-			ctx.Response().Header().Set("X-Consensus-Leader", "true")
-		}
-
-		return next(ctx)
-	}
-}
-
 // QuorumMiddleware ensures cluster has quorum
 type QuorumMiddleware struct {
 	service internal.ConsensusService

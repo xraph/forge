@@ -1,0 +1,515 @@
+---
+title: Dependency Injection
+description: Understand Forge's powerful dependency injection system
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Dependency Injection
+
+Forge provides a powerful dependency injection system that promotes loose coupling, testability, and maintainability. The DI system supports multiple service lifetimes, scoped containers, and automatic lifecycle management.
+
+## Container Interface
+
+The dependency injection container is the central component for managing services:
+
+```go
+type Container interface {
+    // Service registration
+    Register(name string, factory Factory, opts ...RegisterOption) error
+    
+    // Service resolution
+    Get(name string) (interface{}, error)
+    Must[T any](name string) T
+    
+    // Scoped containers
+    Scope() Scope
+    
+    // Service information
+    Services() []ServiceInfo
+    IsRegistered(name string) bool
+}
+```
+
+## Service Lifetimes
+
+Forge supports three service lifetimes:
+
+<Tabs items={['Singleton', 'Scoped', 'Transient']}>
+  <Tab value="Singleton">
+    ### Singleton
+
+    Single instance per container. Created once and reused for all requests.
+
+    ```go
+    // Register singleton service
+    app.RegisterService("config", func(container Container) (interface{}, error) {
+        return &ConfigManager{}, nil
+    }, forge.WithSingleton())
+
+    // Usage
+    config := forge.Must[ConfigManager](app.Container(), "config")
+    ```
+
+    **Use cases:**
+    - Configuration managers
+    - Database connections
+    - Cache clients
+    - Loggers
+    - Metrics collectors
+
+    **Example:**
+    ```go
+    type DatabaseService struct {
+        conn *sql.DB
+    }
+
+    func (d *DatabaseService) Query(ctx context.Context, query string) (*sql.Rows, error) {
+        return d.conn.QueryContext(ctx, query)
+    }
+
+    // Register as singleton
+    app.RegisterService("database", func(container Container) (interface{}, error) {
+        db, err := sql.Open("postgres", "connection_string")
+        if err != nil {
+            return nil, err
+        }
+        return &DatabaseService{conn: db}, nil
+    }, forge.WithSingleton())
+    ```
+  </Tab>
+
+  <Tab value="Scoped">
+    ### Scoped
+
+    Instance per scope (typically per HTTP request). Created once per scope and reused within that scope.
+
+    ```go
+    // Register scoped service
+    app.RegisterService("userContext", func(container Container) (interface{}, error) {
+        return &UserContext{}, nil
+    }, forge.WithScoped())
+
+    // Usage in handler
+    func userHandler(ctx forge.Context) error {
+        scopedContainer := ctx.Scope()
+        userCtx := forge.Must[UserContext](scopedContainer, "userContext")
+        return ctx.JSON(200, userCtx.GetUser())
+    }
+    ```
+
+    **Use cases:**
+    - User context
+    - Request-specific data
+    - Transaction contexts
+    - Per-request caches
+
+    **Example:**
+    ```go
+    type UserContext struct {
+        userID string
+        user   *User
+    }
+
+    func (uc *UserContext) GetUser() *User {
+        if uc.user == nil {
+            uc.user = userService.GetUser(uc.userID)
+        }
+        return uc.user
+    }
+
+    // Register as scoped
+    app.RegisterService("userContext", func(container Container) (interface{}, error) {
+        return &UserContext{}, nil
+    }, forge.WithScoped())
+    ```
+  </Tab>
+
+  <Tab value="Transient">
+    ### Transient
+
+    New instance every time. Created fresh for each resolution.
+
+    ```go
+    // Register transient service
+    app.RegisterService("validator", func(container Container) (interface{}, error) {
+        return &Validator{}, nil
+    }, forge.WithTransient())
+
+    // Usage
+    validator := forge.Must[Validator](app.Container(), "validator")
+    ```
+
+    **Use cases:**
+    - Validators
+    - Mappers
+    - Temporary services
+    - Stateless utilities
+
+    **Example:**
+    ```go
+    type Validator struct {
+        rules map[string]ValidationRule
+    }
+
+    func (v *Validator) Validate(obj interface{}) error {
+        // Validation logic
+        return nil
+    }
+
+    // Register as transient
+    app.RegisterService("validator", func(container Container) (interface{}, error) {
+        return &Validator{rules: loadValidationRules()}, nil
+    }, forge.WithTransient())
+    ```
+  </Tab>
+</Tabs>
+
+## Service Registration
+
+### Basic Registration
+
+```go
+// Register a simple service
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    return &UserService{}, nil
+})
+
+// Register with dependencies
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    db := forge.Must[DatabaseService](container, "database")
+    cache := forge.Must[CacheService](container, "cache")
+    logger := forge.Must[Logger](container, "logger")
+    
+    return &UserService{
+        db:     db,
+        cache:  cache,
+        logger: logger,
+    }, nil
+})
+```
+
+### Registration Options
+
+```go
+// Register with options
+app.RegisterService("userService", factory,
+    forge.WithSingleton(),           // Service lifetime
+    forge.WithHealthCheck(),         // Enable health checks
+    forge.WithStartup(),             // Start during app startup
+    forge.WithShutdown(),            // Stop during app shutdown
+    forge.WithDependencies("database", "cache"), // Declare dependencies
+)
+```
+
+### Interface Registration
+
+```go
+// Register interface implementation
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    return &UserServiceImpl{}, nil
+})
+
+// Register multiple implementations
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    return &UserServiceImpl{}, nil
+})
+
+app.RegisterService("adminUserService", func(container Container) (interface{}, error) {
+    return &AdminUserServiceImpl{}, nil
+})
+```
+
+## Service Resolution
+
+### Basic Resolution
+
+```go
+// Get service by name
+service, err := app.Container().Get("userService")
+if err != nil {
+    return err
+}
+
+// Type assertion
+userService := service.(*UserService)
+```
+
+### Type-Safe Resolution
+
+```go
+// Type-safe resolution with Must
+userService := forge.Must[UserService](app.Container(), "userService")
+
+// Type-safe resolution with error handling
+userService, err := forge.Get[UserService](app.Container(), "userService")
+if err != nil {
+    return err
+}
+```
+
+### Scoped Resolution
+
+```go
+// Create scoped container
+scopedContainer := app.Container().Scope()
+
+// Register scoped services
+scopedContainer.Register("requestID", func(container Container) (interface{}, error) {
+    return generateRequestID(), nil
+}, forge.WithScoped())
+
+// Resolve scoped services
+requestID := forge.Must[string](scopedContainer, "requestID")
+```
+
+## Lifecycle Management
+
+### Startup and Shutdown
+
+```go
+type DatabaseService struct {
+    conn *sql.DB
+}
+
+func (d *DatabaseService) Start(ctx context.Context) error {
+    // Initialize database connection
+    return d.conn.PingContext(ctx)
+}
+
+func (d *DatabaseService) Stop(ctx context.Context) error {
+    // Close database connection
+    return d.conn.Close()
+}
+
+// Register with lifecycle management
+app.RegisterService("database", func(container Container) (interface{}, error) {
+    return &DatabaseService{}, nil
+}, forge.WithStartup(), forge.WithShutdown())
+```
+
+### Health Checks
+
+```go
+type CacheService struct {
+    client redis.Client
+}
+
+func (c *CacheService) Health(ctx context.Context) error {
+    // Check cache health
+    return c.client.Ping(ctx).Err()
+}
+
+// Register with health checks
+app.RegisterService("cache", func(container Container) (interface{}, error) {
+    return &CacheService{}, nil
+}, forge.WithHealthCheck())
+```
+
+## Dependency Injection Patterns
+
+### Constructor Injection
+
+```go
+type UserService struct {
+    db     DatabaseService
+    cache  CacheService
+    logger Logger
+}
+
+func NewUserService(db DatabaseService, cache CacheService, logger Logger) *UserService {
+    return &UserService{
+        db:     db,
+        cache:  cache,
+        logger: logger,
+    }
+}
+
+// Register with constructor
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    db := forge.Must[DatabaseService](container, "database")
+    cache := forge.Must[CacheService](container, "cache")
+    logger := forge.Must[Logger](container, "logger")
+    
+    return NewUserService(db, cache, logger), nil
+})
+```
+
+### Property Injection
+
+```go
+type UserService struct {
+    DB     DatabaseService `inject:"database"`
+    Cache  CacheService    `inject:"cache"`
+    Logger Logger          `inject:"logger"`
+}
+
+// Register with property injection
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    service := &UserService{}
+    
+    // Inject dependencies
+    if err := container.Inject(service); err != nil {
+        return nil, err
+    }
+    
+    return service, nil
+})
+```
+
+### Factory Pattern
+
+```go
+type ServiceFactory struct {
+    container Container
+}
+
+func (f *ServiceFactory) CreateUserService() *UserService {
+    db := forge.Must[DatabaseService](f.container, "database")
+    cache := forge.Must[CacheService](f.container, "cache")
+    logger := forge.Must[Logger](f.container, "logger")
+    
+    return &UserService{
+        db:     db,
+        cache:  cache,
+        logger: logger,
+    }
+}
+
+// Register factory
+app.RegisterService("serviceFactory", func(container Container) (interface{}, error) {
+    return &ServiceFactory{container: container}, nil
+})
+```
+
+## Testing with Dependency Injection
+
+### Mock Services
+
+```go
+type MockUserService struct{}
+
+func (m *MockUserService) GetUser(id string) (*User, error) {
+    return &User{ID: id, Name: "Test User"}, nil
+}
+
+func TestUserHandler(t *testing.T) {
+    app := forge.NewTestApp(forge.TestAppConfig{
+        Name: "test-app",
+    })
+    
+    // Register mock service
+    app.RegisterService("userService", func(container Container) (interface{}, error) {
+        return &MockUserService{}, nil
+    })
+    
+    // Test handler
+    handler := func(ctx forge.Context) error {
+        userService := forge.Must[UserService](app.Container(), "userService")
+        user, err := userService.GetUser("123")
+        if err != nil {
+            return err
+        }
+        return ctx.JSON(200, user)
+    }
+    
+    // Test the handler
+    resp := app.Test().GET("/users/123").Expect(t)
+    resp.Status(200)
+    resp.JSON().Object().Value("id").Equal("123")
+}
+```
+
+### Test Containers
+
+```go
+func TestWithTestContainer(t *testing.T) {
+    // Create test container
+    container := forge.NewContainer()
+    
+    // Register test services
+    container.Register("database", func(container Container) (interface{}, error) {
+        return &MockDatabase{}, nil
+    })
+    
+    container.Register("userService", func(container Container) (interface{}, error) {
+        db := forge.Must[DatabaseService](container, "database")
+        return &UserService{db: db}, nil
+    })
+    
+    // Test service resolution
+    userService := forge.Must[UserService](container, "userService")
+    assert.NotNil(t, userService)
+}
+```
+
+## Advanced Features
+
+### Service Dependencies
+
+```go
+// Declare service dependencies
+app.RegisterService("userService", factory,
+    forge.WithDependencies("database", "cache", "logger"),
+)
+
+// Automatic dependency resolution
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    // Dependencies are automatically resolved
+    deps := container.GetDependencies("userService")
+    
+    db := deps["database"].(DatabaseService)
+    cache := deps["cache"].(CacheService)
+    logger := deps["logger"].(Logger)
+    
+    return &UserService{db: db, cache: cache, logger: logger}, nil
+})
+```
+
+### Service Decorators
+
+```go
+// Decorate existing service
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    baseService := forge.Must[UserService](container, "baseUserService")
+    logger := forge.Must[Logger](container, "logger")
+    
+    return &LoggingUserServiceDecorator{
+        base:   baseService,
+        logger: logger,
+    }, nil
+})
+```
+
+### Service Interceptors
+
+```go
+// Add interceptors to service calls
+app.RegisterService("userService", func(container Container) (interface{}, error) {
+    baseService := forge.Must[UserService](container, "baseUserService")
+    
+    return &InterceptedUserService{
+        base: baseService,
+        interceptor: func(method string, args []interface{}) {
+            // Log method calls
+            logger.Info("calling method", forge.F("method", method))
+        },
+    }, nil
+})
+```
+
+## Best Practices
+
+1. **Interface-Based Design**: Use interfaces for better testability
+2. **Single Responsibility**: Each service should have a single responsibility
+3. **Dependency Declaration**: Declare dependencies explicitly
+4. **Lifecycle Management**: Use startup/shutdown for resources
+5. **Health Checks**: Implement health checks for critical services
+6. **Error Handling**: Handle service creation errors properly
+7. **Testing**: Use mocks and test containers for testing
+8. **Performance**: Consider service lifetimes for performance
+
+<Callout type="info">
+For more information about service lifecycle management, see the [Health Checks documentation](/docs/forge/concepts/health).
+</Callout>

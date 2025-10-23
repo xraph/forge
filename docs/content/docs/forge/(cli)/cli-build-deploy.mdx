@@ -1,0 +1,484 @@
+---
+title: Build and Deployment Commands
+description: Build applications and deploy to various environments
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Build and Deployment Commands
+
+The `forge build` and `forge deploy` commands provide comprehensive build and deployment tools for your applications. They support cross-platform builds, Docker containerization, and deployment to various cloud platforms.
+
+## Build Commands
+
+### `forge build`
+
+Build applications for production or development.
+
+```bash
+forge build                         # Build all apps
+forge build -a api-gateway          # Build specific app
+forge build --platform=linux/amd64  # Cross-platform build
+forge build --production            # Production build
+forge build -o ./dist               # Custom output
+```
+
+**Flags:**
+- `-a, --app` - App to build (empty = all)
+- `-p, --platform` - Target platform (os/arch)
+- `--production` - Production build with optimizations
+- `-o, --output` - Output directory
+
+**Behavior:**
+- Builds all apps by default
+- Supports single app builds
+- Cross-platform compilation
+- Production optimizations
+- Custom output directories
+
+**Example Output:**
+```
+Building all applications...
+  ✓ api-gateway (linux/amd64)
+  ✓ auth-service (linux/amd64)
+  ✓ user-service (linux/amd64)
+
+Build complete! Output: ./bin/
+```
+
+### Build Configuration
+
+Configure build settings in `.forge.yaml`:
+
+```yaml
+build:
+  output: bin
+  target: linux/amd64
+  optimize: true
+  docker: true
+  
+  platforms:
+    - linux/amd64
+    - linux/arm64
+    - darwin/amd64
+    - darwin/arm64
+    - windows/amd64
+  
+  production:
+    optimize: true
+    strip: true
+    compress: true
+```
+
+## Deployment Commands
+
+### `forge deploy`
+
+Deploy applications to various environments.
+
+```bash
+forge deploy -a api-gateway -e staging -t v1.2.3
+forge deploy -a auth-service -e production --tag=latest
+```
+
+**Flags:**
+- `-a, --app` - App to deploy
+- `-e, --env` - Environment
+- `-t, --tag` - Image tag
+
+**Behavior:**
+- Deploys specific app to environment
+- Uses configured deployment settings
+- Supports custom image tags
+- Environment-specific configuration
+
+### `forge deploy docker`
+
+Build and push Docker image.
+
+```bash
+forge deploy docker -a api-gateway -t v1.0.0
+forge deploy docker -a auth-service --tag=latest
+```
+
+**Flags:**
+- `-a, --app` - App to build (required)
+- `-t, --tag` - Image tag
+
+**Behavior:**
+- Builds Docker image for app
+- Pushes to configured registry
+- Uses app-specific Dockerfile
+- Supports custom tags
+
+**Example Output:**
+```
+Building Docker image for api-gateway...
+  ✓ Building image: api-gateway:v1.0.0
+  ✓ Pushing to registry: registry.example.com/api-gateway:v1.0.0
+
+Docker deployment complete!
+```
+
+### `forge deploy k8s` (aliases: `kubernetes`)
+
+Deploy to Kubernetes.
+
+```bash
+forge deploy k8s -e staging
+forge deploy k8s -e production --namespace=prod
+forge deploy kubernetes -e dev
+```
+
+**Flags:**
+- `-e, --env` - Environment
+- `-n, --namespace` - Kubernetes namespace
+
+**Aliases:**
+- `kubernetes` - Full Kubernetes alias
+
+**Behavior:**
+- Deploys to Kubernetes cluster
+- Uses environment-specific configuration
+- Supports custom namespaces
+- Applies Kubernetes manifests
+
+**Example Output:**
+```
+Deploying to Kubernetes (staging)...
+  ✓ Applying namespace: staging
+  ✓ Applying deployment: api-gateway
+  ✓ Applying service: api-gateway
+  ✓ Applying ingress: api-gateway
+
+Kubernetes deployment complete!
+```
+
+### `forge deploy status`
+
+Show deployment status.
+
+```bash
+forge deploy status
+forge deploy status --env=production
+```
+
+**Flags:**
+- `-e, --env` - Environment
+
+**Behavior:**
+- Shows deployment status for all apps
+- Environment-specific status
+- Displays health and version information
+
+**Example Output:**
+```
+Deployment Status (staging):
+┌─────────────┬─────────┬─────────┬─────────────────┐
+│ App         │ Status  │ Version │ Last Deployed   │
+├─────────────┼─────────┼─────────┼─────────────────┤
+│ api-gateway │ ✓ Healthy│ v1.2.3  │ 2024-01-15 10:30│
+│ auth-service│ ✓ Healthy│ v1.1.0  │ 2024-01-15 09:45│
+│ user-service│ ○ Pending│ v1.0.5  │ -               │
+└─────────────┴─────────┴─────────┴─────────────────┘
+```
+
+## Docker Integration
+
+### Dockerfile Generation
+
+Forge can generate Dockerfiles for your applications:
+
+```dockerfile
+# Generated Dockerfile
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN go build -o api-gateway ./cmd/api-gateway
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+
+COPY --from=builder /app/api-gateway .
+
+EXPOSE 8080
+CMD ["./api-gateway"]
+```
+
+### Docker Configuration
+
+Configure Docker settings in `.forge.yaml`:
+
+```yaml
+docker:
+  registry: registry.example.com
+  namespace: mycompany
+  
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: production
+  
+  images:
+    api-gateway:
+      tag: latest
+      platforms:
+        - linux/amd64
+        - linux/arm64
+```
+
+## Kubernetes Integration
+
+### Kubernetes Manifests
+
+Forge generates Kubernetes manifests for your applications:
+
+```yaml
+# Generated deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: staging
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: registry.example.com/api-gateway:v1.0.0
+        ports:
+        - containerPort: 8080
+        env:
+        - name: PORT
+          value: "8080"
+```
+
+### Kubernetes Configuration
+
+Configure Kubernetes settings in `.forge.yaml`:
+
+```yaml
+kubernetes:
+  environments:
+    dev:
+      namespace: dev
+      replicas: 1
+    staging:
+      namespace: staging
+      replicas: 2
+    production:
+      namespace: prod
+      replicas: 5
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+```
+
+## Environment Configuration
+
+### Environment-Specific Settings
+
+Configure different settings for each environment:
+
+```yaml
+environments:
+  development:
+    url: http://localhost:8080
+    database:
+      host: localhost
+      name: myapp_dev
+    replicas: 1
+  
+  staging:
+    url: https://staging.myapp.com
+    database:
+      host: staging-db.example.com
+      name: myapp_staging
+    replicas: 2
+  
+  production:
+    url: https://myapp.com
+    database:
+      host: prod-db.example.com
+      name: myapp_prod
+    replicas: 5
+```
+
+### Environment Variables
+
+Set environment-specific variables:
+
+```bash
+# Development
+export ENV=development
+export DATABASE_URL="postgres://user:pass@localhost/myapp_dev"
+
+# Staging
+export ENV=staging
+export DATABASE_URL="postgres://user:pass@staging-db.example.com/myapp_staging"
+
+# Production
+export ENV=production
+export DATABASE_URL="postgres://user:pass@prod-db.example.com/myapp_prod"
+```
+
+## CI/CD Integration
+
+### GitHub Actions
+
+Example GitHub Actions workflow:
+
+```yaml
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.24
+    
+    - name: Build
+      run: forge build --production
+    
+    - name: Build Docker
+      run: forge deploy docker -a api-gateway -t ${{ github.sha }}
+    
+    - name: Deploy to Staging
+      run: forge deploy k8s -e staging
+```
+
+### GitLab CI
+
+Example GitLab CI configuration:
+
+```yaml
+stages:
+  - build
+  - deploy
+
+build:
+  stage: build
+  script:
+    - forge build --production
+    - forge deploy docker -a api-gateway -t $CI_COMMIT_SHA
+
+deploy_staging:
+  stage: deploy
+  script:
+    - forge deploy k8s -e staging
+  only:
+    - develop
+
+deploy_production:
+  stage: deploy
+  script:
+    - forge deploy k8s -e production
+  only:
+    - main
+```
+
+## Best Practices
+
+1. **Environment Separation**: Use separate environments for dev, staging, and production
+2. **Version Tagging**: Use semantic versioning for image tags
+3. **Resource Limits**: Set appropriate resource limits in Kubernetes
+4. **Health Checks**: Implement health checks for deployments
+5. **Rollback Strategy**: Plan rollback procedures for failed deployments
+6. **Security**: Use secrets management for sensitive data
+7. **Monitoring**: Monitor deployments and application health
+
+## Troubleshooting
+
+### Build Failures
+
+If build fails:
+
+```bash
+forge build
+# Error: build failed for api-gateway
+```
+
+**Solution:**
+```bash
+# Check for syntax errors
+go build ./cmd/api-gateway
+
+# Check dependencies
+go mod tidy
+
+# Build with verbose output
+forge build --verbose
+```
+
+### Docker Build Issues
+
+If Docker build fails:
+
+```bash
+forge deploy docker -a api-gateway
+# Error: Docker build failed
+```
+
+**Solution:**
+```bash
+# Check Dockerfile
+cat Dockerfile
+
+# Test Docker build manually
+docker build -t api-gateway .
+
+# Check Docker daemon
+docker info
+```
+
+### Kubernetes Deployment Issues
+
+If Kubernetes deployment fails:
+
+```bash
+forge deploy k8s -e staging
+# Error: Kubernetes deployment failed
+```
+
+**Solution:**
+```bash
+# Check cluster connection
+kubectl cluster-info
+
+# Check namespace
+kubectl get namespaces
+
+# Check deployment status
+kubectl get deployments -n staging
+```
+
+<Callout type="info">
+For more information about application development, see the [Development Commands](/docs/forge/cli/dev) documentation.
+</Callout>

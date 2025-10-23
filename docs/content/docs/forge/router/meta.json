@@ -1,0 +1,9 @@
+{
+  "title": "Router",
+  "icon": "Map",
+  "pages": [
+    "index",
+    "basic",
+    "groups"
+  ]
+}

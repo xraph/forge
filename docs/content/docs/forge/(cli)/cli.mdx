@@ -1,0 +1,271 @@
+---
+title: CLI Interface
+description: Use Forge's powerful command-line interface for development and deployment
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# CLI Interface
+
+Forge provides a comprehensive command-line interface that helps you develop, build, and deploy your applications. The CLI uses a hierarchical subcommand structure for better organization and includes commands for project management, code generation, database operations, and more.
+
+## Installation
+
+### Install the CLI Tool
+
+```bash
+# Install the latest version
+go install github.com/xraph/forge/cmd/forge@latest
+
+# Verify installation
+forge version
+```
+
+### CLI Commands Overview
+
+```bash
+# Get help
+forge --help
+
+# Get version information
+forge version
+
+# Initialize a new project
+forge init
+
+# Start development server
+forge dev
+
+# Generate code
+forge generate app --name=my-app
+
+# Build the application
+forge build
+
+# Deploy the application
+forge deploy
+```
+
+## Command Structure
+
+Forge CLI uses a hierarchical subcommand structure for better organization:
+
+```bash
+forge <command> <subcommand> [flags]
+```
+
+Most commands support aliases for faster typing:
+
+```bash
+forge generate app       # Full command
+forge gen app            # Alias
+forge g app              # Short alias
+```
+
+## Core Commands
+
+### Project Management
+
+- **`forge init`** - Initialize a new Forge project
+- **`forge doctor`** - Check system requirements and project health
+
+### Development
+
+- **`forge dev`** - Start development server and tools
+  - `forge dev list` - List available apps
+  - `forge dev build` - Build app for development
+
+### Code Generation
+
+- **`forge generate`** (aliases: `gen`, `g`) - Generate code from templates
+  - `forge generate app` - Generate a new application
+  - `forge generate service` - Generate a new service
+  - `forge generate extension` - Generate a new extension
+  - `forge generate controller` - Generate a controller
+  - `forge generate model` - Generate a database model
+
+### Database Management
+
+- **`forge db`** (aliases: `database`) - Database management tools
+  - `forge db migrate` - Run database migrations
+  - `forge db rollback` - Rollback database migrations
+  - `forge db status` - Show migration status
+  - `forge db create` - Create a new migration
+  - `forge db seed` - Seed the database
+  - `forge db reset` - Reset the database
+
+### Build and Deployment
+
+- **`forge build`** - Build applications
+- **`forge deploy`** - Deploy applications
+  - `forge deploy docker` - Build and push Docker image
+  - `forge deploy k8s` - Deploy to Kubernetes
+  - `forge deploy status` - Show deployment status
+
+### Extensions
+
+- **`forge extension`** (aliases: `ext`) - Extension management tools
+  - `forge extension list` - List available extensions
+  - `forge extension info` - Show extension information
+
+### Client Tools
+
+- **`forge client`** - Client generation and management tools
+
+## Quick Start Examples
+
+### Create a New API
+
+```bash
+forge init --layout=single-module --template=api
+forge gen app -n api-gateway
+forge gen ctrl -n users -a api-gateway
+forge gen model -n User --fields=name:string,email:string
+forge db create -n create_users_table
+forge db migrate
+forge dev -a api-gateway
+```
+
+### Microservices Development
+
+```bash
+forge init --layout=multi-module
+forge gen app -n api-gateway
+forge gen app -n auth-service
+forge gen app -n user-service
+forge build --production
+forge deploy docker -a api-gateway -t v1.0.0
+forge deploy k8s -e staging
+```
+
+## Configuration
+
+### Forge Configuration File
+
+The `.forge.yaml` file configures your Forge project:
+
+```yaml
+# .forge.yaml
+project:
+  name: my-project
+  module: github.com/me/my-project
+  layout: single-module  # or multi-module
+
+structure:
+  cmd: cmd
+  apps: apps
+  pkg: pkg
+  internal: internal
+
+database:
+  migrations_path: migrations
+  seeds_path: seeds
+
+dev:
+  port: 8080
+  hot_reload: true
+
+build:
+  output: bin
+  target: linux/amd64
+```
+
+### Environment Variables
+
+```bash
+# Set environment variables
+export DATABASE_URL="postgres://user:pass@localhost/myapp"
+export AUTH_SECRET="your-secret-key"
+
+# Use in configuration
+forge dev --env development
+```
+
+## Aliases Quick Reference
+
+| Full Command | Aliases | Example |
+|-------------|---------|---------|
+| `generate` | `gen`, `g` | `forge gen app` |
+| `database` | `db` | `forge db migrate` |
+| `extension` | `ext` | `forge ext list` |
+| `dev list` | `dev ls` | `forge dev ls` |
+| `db migrate` | `db up` | `forge db up` |
+| `db rollback` | `db down` | `forge db down` |
+| `db create` | `db new` | `forge db new` |
+| `deploy k8s` | `deploy kubernetes` | `forge deploy k8s` |
+| `extension list` | `ext ls` | `forge ext ls` |
+| `generate service` | `gen svc` | `forge gen svc` |
+| `generate extension` | `gen ext` | `forge gen ext` |
+| `generate controller` | `gen ctrl`, `gen handler` | `forge gen ctrl` |
+
+## Tips and Best Practices
+
+1. **Tab Completion**: Most shells support tab completion. Run `forge completion bash` or `forge completion zsh` to enable it.
+
+2. **Help Everywhere**: Add `--help` to any command to see detailed usage:
+   ```bash
+   forge --help
+   forge generate --help
+   forge generate app --help
+   ```
+
+3. **Interactive Mode**: Most commands prompt for missing required arguments:
+   ```bash
+   forge gen app    # Will prompt for name
+   forge dev        # Will show app selector
+   ```
+
+4. **Aliases**: Use shorter aliases for faster typing:
+   ```bash
+   forge g app -n my-app     # Instead of forge generate app
+   forge db up               # Instead of forge db migrate
+   forge ext ls              # Instead of forge extension list
+   ```
+
+5. **Config Search**: Run commands from any subdirectory - `.forge.yaml` is found automatically.
+
+## Troubleshooting
+
+### Common Issues
+
+**Command not found:**
+```bash
+# Check if forge is in PATH
+which forge
+
+# Reinstall if needed
+go install github.com/xraph/forge/cmd/forge@latest
+```
+
+**Permission errors:**
+```bash
+# Fix permissions
+sudo chown -R $(whoami) $GOPATH
+```
+
+**Configuration errors:**
+```bash
+# Validate configuration
+forge doctor
+
+# Check configuration
+forge doctor --verbose
+```
+
+### Debug Mode
+
+```bash
+# Enable debug mode
+forge dev --debug
+
+# Verbose output
+forge dev --verbose
+
+# Log level
+forge dev --log-level debug
+```
+
+<Callout type="info">
+For detailed information about specific command groups, see the individual command pages in the navigation menu.
+</Callout>

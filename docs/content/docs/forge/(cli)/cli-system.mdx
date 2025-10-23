@@ -1,0 +1,466 @@
+---
+title: System Commands
+description: System utilities and project management commands
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# System Commands
+
+The system commands provide essential utilities for project management, system health checks, and client tools. These commands help you initialize projects, check system requirements, and manage client applications.
+
+## Project Management
+
+### `forge init`
+
+Initialize a new Forge project.
+
+```bash
+forge init
+forge init --layout=single-module
+forge init --name=my-app --module=github.com/me/my-app
+forge init --template=api --git
+```
+
+**Flags:**
+- `-n, --name` - Project name
+- `-m, --module` - Go module path
+- `-l, --layout` - Project layout (single-module, multi-module)
+- `-t, --template` - Project template (basic, api, microservices, fullstack)
+- `-g, --git` - Initialize git repository
+- `-f, --force` - Force init even if directory is not empty
+
+**Behavior:**
+- Creates project structure based on layout
+- Generates `.forge.yaml` configuration file
+- Sets up Go module
+- Optionally initializes git repository
+
+**Generated Structure:**
+
+For single-module layout:
+```
+my-project/
+├── .forge.yaml
+├── go.mod
+├── go.sum
+├── cmd/
+├── apps/
+├── pkg/
+├── internal/
+├── extensions/
+├── migrations/
+└── seeds/
+```
+
+For multi-module layout:
+```
+my-project/
+├── .forge.yaml
+├── go.mod
+├── go.sum
+├── apps/
+├── services/
+├── extensions/
+├── migrations/
+└── seeds/
+```
+
+**Generated .forge.yaml:**
+```yaml
+project:
+  name: my-project
+  module: github.com/me/my-project
+  layout: single-module
+
+structure:
+  cmd: cmd
+  apps: apps
+  pkg: pkg
+  internal: internal
+
+database:
+  migrations_path: migrations
+  seeds_path: seeds
+
+dev:
+  port: 8080
+  hot_reload: true
+
+build:
+  output: bin
+  target: linux/amd64
+```
+
+## System Health
+
+### `forge doctor`
+
+Check system requirements and project health.
+
+```bash
+forge doctor              # Standard check
+forge doctor --verbose    # Detailed output
+```
+
+**Flags:**
+- `-v, --verbose` - Show verbose output
+
+**Behavior:**
+- Checks system requirements
+- Validates project configuration
+- Verifies dependencies
+- Shows project health status
+
+**Example Output:**
+```
+Forge Doctor - System Health Check
+
+System Requirements:
+  ✓ Go version: 1.24.0
+  ✓ Git: 2.40.0
+  ✓ Docker: 24.0.0
+  ✓ kubectl: 1.28.0
+
+Project Configuration:
+  ✓ .forge.yaml found
+  ✓ Project name: my-project
+  ✓ Module: github.com/me/my-project
+  ✓ Layout: single-module
+
+Dependencies:
+  ✓ All dependencies resolved
+  ✓ No security vulnerabilities
+
+Project Structure:
+  ✓ cmd/ directory exists
+  ✓ apps/ directory exists
+  ✓ pkg/ directory exists
+  ✓ internal/ directory exists
+
+Health Status: ✓ Healthy
+```
+
+**Verbose Output:**
+```bash
+forge doctor --verbose
+```
+
+Shows additional details:
+- Detailed dependency information
+- Configuration validation results
+- File system checks
+- Network connectivity tests
+
+## Version Information
+
+### `forge version`
+
+Show version information.
+
+```bash
+forge version
+```
+
+**Behavior:**
+- Displays Forge CLI version
+- Shows build information
+- Includes commit hash and build date
+
+**Example Output:**
+```
+Forge v2.0.0
+Commit: a1b2c3d4e5f6
+Built: 2024-01-15 10:30:00
+```
+
+## Client Tools
+
+### `forge client`
+
+Client generation and management tools.
+
+```bash
+forge client generate --openapi spec.yaml
+forge client generate --grpc proto/service.proto
+forge client list
+```
+
+**Subcommands:**
+
+#### `forge client generate`
+
+Generate client code from API specifications.
+
+```bash
+forge client generate --openapi spec.yaml
+forge client generate --grpc proto/service.proto
+forge client generate --asyncapi events.yaml
+```
+
+**Flags:**
+- `--openapi` - OpenAPI specification file
+- `--grpc` - gRPC proto file
+- `--asyncapi` - AsyncAPI specification file
+- `--output` - Output directory
+- `--language` - Target language (go, typescript, python)
+
+**Generated Clients:**
+
+For OpenAPI:
+```go
+// Generated Go client
+package client
+
+import "github.com/xraph/forge/client"
+
+type APIClient struct {
+    baseURL string
+    client  *http.Client
+}
+
+func NewAPIClient(baseURL string) *APIClient {
+    return &APIClient{
+        baseURL: baseURL,
+        client:  &http.Client{},
+    }
+}
+
+func (c *APIClient) GetUsers() ([]User, error) {
+    // Generated method implementation
+}
+```
+
+For gRPC:
+```go
+// Generated gRPC client
+package client
+
+import (
+    "context"
+    "google.golang.org/grpc"
+)
+
+type UserServiceClient struct {
+    cc grpc.ClientConnInterface
+}
+
+func NewUserServiceClient(cc grpc.ClientConnInterface) UserServiceClient {
+    return &UserServiceClient{cc}
+}
+
+func (c *UserServiceClient) GetUser(ctx context.Context, req *GetUserRequest) (*User, error) {
+    // Generated method implementation
+}
+```
+
+#### `forge client list`
+
+List generated clients.
+
+```bash
+forge client list
+```
+
+**Example Output:**
+```
+Generated Clients:
+┌─────────────┬─────────┬─────────────────┬─────────────┐
+│ Name        │ Type    │ Language        │ Generated   │
+├─────────────┼─────────┼─────────────────┼─────────────┤
+│ api-client  │ OpenAPI │ Go              │ 2024-01-15  │
+│ user-client │ gRPC    │ Go              │ 2024-01-14  │
+│ events-client│ AsyncAPI│ TypeScript     │ 2024-01-13  │
+└─────────────┴─────────┴─────────────────┴─────────────┘
+```
+
+## Project Templates
+
+### Available Templates
+
+#### Basic Template
+
+Simple web application template.
+
+```bash
+forge init --template=basic
+```
+
+**Features:**
+- Basic HTTP server
+- Simple routing
+- Health check endpoint
+- Basic configuration
+
+#### API Template
+
+REST API application template.
+
+```bash
+forge init --template=api
+```
+
+**Features:**
+- REST API structure
+- OpenAPI documentation
+- Authentication middleware
+- Error handling
+- Request validation
+
+#### Microservices Template
+
+Microservices architecture template.
+
+```bash
+forge init --template=microservices
+```
+
+**Features:**
+- Multiple service structure
+- Service discovery
+- Inter-service communication
+- Shared libraries
+- Docker configuration
+
+#### Fullstack Template
+
+Full-stack application template.
+
+```bash
+forge init --template=fullstack
+```
+
+**Features:**
+- Backend API
+- Frontend application
+- Database integration
+- Authentication
+- Deployment configuration
+
+## Configuration Management
+
+### Environment Configuration
+
+Configure different environments:
+
+```yaml
+# .forge.yaml
+environments:
+  development:
+    url: http://localhost:8080
+    database:
+      host: localhost
+      name: myapp_dev
+    debug: true
+  
+  staging:
+    url: https://staging.myapp.com
+    database:
+      host: staging-db.example.com
+      name: myapp_staging
+    debug: false
+  
+  production:
+    url: https://myapp.com
+    database:
+      host: prod-db.example.com
+      name: myapp_prod
+    debug: false
+```
+
+### Environment Variables
+
+Set environment-specific variables:
+
+```bash
+# Development
+export ENV=development
+export DATABASE_URL="postgres://user:pass@localhost/myapp_dev"
+
+# Staging
+export ENV=staging
+export DATABASE_URL="postgres://user:pass@staging-db.example.com/myapp_staging"
+
+# Production
+export ENV=production
+export DATABASE_URL="postgres://user:pass@prod-db.example.com/myapp_prod"
+```
+
+## Best Practices
+
+1. **Project Structure**: Follow the recommended project structure
+2. **Configuration**: Use environment-specific configuration files
+3. **Version Control**: Initialize git repository with `--git` flag
+4. **Documentation**: Document your project setup and configuration
+5. **Health Checks**: Use `forge doctor` regularly to check project health
+6. **Client Generation**: Generate clients for external APIs
+7. **Templates**: Use appropriate templates for your use case
+
+## Troubleshooting
+
+### Project Initialization Issues
+
+If project initialization fails:
+
+```bash
+forge init
+# Error: directory is not empty
+```
+
+**Solution:**
+```bash
+# Use force flag
+forge init --force
+
+# Or initialize in empty directory
+mkdir my-project
+cd my-project
+forge init
+```
+
+### Configuration Validation
+
+If configuration validation fails:
+
+```bash
+forge doctor
+# Error: invalid configuration in .forge.yaml
+```
+
+**Solution:**
+```bash
+# Check configuration syntax
+cat .forge.yaml
+
+# Validate with verbose output
+forge doctor --verbose
+
+# Fix configuration issues
+# Edit .forge.yaml file
+```
+
+### Client Generation Issues
+
+If client generation fails:
+
+```bash
+forge client generate --openapi spec.yaml
+# Error: invalid OpenAPI specification
+```
+
+**Solution:**
+```bash
+# Validate OpenAPI spec
+# Use online validator or tools
+
+# Check file format
+file spec.yaml
+
+# Verify file content
+head -20 spec.yaml
+```
+
+<Callout type="info">
+For more information about project development, see the [Development Commands](/docs/forge/cli/dev) documentation.
+</Callout>

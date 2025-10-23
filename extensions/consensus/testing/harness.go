@@ -8,13 +8,13 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/consensus/cluster"
+	"github.com/xraph/forge/extensions/consensus/discovery"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/extensions/consensus/internal/cluster"
-	"github.com/xraph/forge/extensions/consensus/internal/discovery"
-	"github.com/xraph/forge/extensions/consensus/internal/raft"
-	"github.com/xraph/forge/extensions/consensus/internal/statemachine"
-	"github.com/xraph/forge/extensions/consensus/internal/storage"
-	"github.com/xraph/forge/extensions/consensus/internal/transport"
+	"github.com/xraph/forge/extensions/consensus/raft"
+	"github.com/xraph/forge/extensions/consensus/statemachine"
+	"github.com/xraph/forge/extensions/consensus/storage"
+	"github.com/xraph/forge/extensions/consensus/transport"
 )
 
 // TestHarness provides utilities for testing consensus
@@ -25,6 +25,9 @@ type TestHarness struct {
 	logger     forge.Logger
 	mu         sync.RWMutex
 }
+
+// TestCluster is an alias for TestHarness for backward compatibility
+type TestCluster = TestHarness
 
 // TestNode represents a node in the test cluster
 type TestNode struct {
@@ -62,11 +65,18 @@ func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 		nodeID := fmt.Sprintf("node-%d", i+1)
 
 		// Create components
-		trans := transport.NewLocalTransport(nodeID, h.logger)
+		trans := transport.NewLocalTransport(transport.LocalTransportConfig{
+			NodeID:     nodeID,
+			BufferSize: 100,
+		}, h.logger)
 		h.transports[nodeID] = trans
 
-		stor := storage.NewMemoryStorage(h.logger)
-		sm := statemachine.NewMemoryStateMachine(h.logger)
+		stor := storage.NewMemoryStorage(storage.MemoryStorageConfig{
+			InitialCapacity: 1000,
+		}, h.logger)
+		sm := statemachine.NewMemoryStateMachine(statemachine.MemoryStateMachineConfig{
+			InitialCapacity: 1000,
+		}, h.logger)
 
 		// Create peer list
 		var peers []internal.NodeInfo
@@ -79,38 +89,38 @@ func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 			})
 		}
 
-		disco := discovery.NewStaticDiscovery(peers, h.logger)
+		disco := discovery.NewStaticDiscovery(discovery.StaticDiscoveryConfig{
+			Nodes: peers,
+		}, h.logger)
 
 		// Create cluster manager
 		clusterCfg := cluster.ManagerConfig{
 			NodeID:              nodeID,
-			HeartbeatInterval:   100 * time.Millisecond,
-			HeartbeatTimeout:    500 * time.Millisecond,
-			SuspicionMultiplier: 3,
+			HealthCheckInterval: 100 * time.Millisecond,
+			HealthTimeout:       500 * time.Millisecond,
 		}
 		clusterMgr := cluster.NewManager(clusterCfg, h.logger)
 
 		// Initialize cluster with peers
 		for _, peer := range peers {
 			if peer.ID != nodeID {
-				clusterMgr.AddNode(internal.NodeInfo{
-					ID:      peer.ID,
-					Address: peer.Address,
-					Port:    peer.Port,
-					Role:    internal.RoleFollower,
-					Status:  internal.StatusActive,
-				})
+				clusterMgr.AddNode(peer.ID, peer.Address, peer.Port)
 			}
 		}
 
 		// Create Raft node
-		raftCfg := raft.NodeConfig{
-			NodeID:            nodeID,
-			ElectionTimeout:   200 * time.Millisecond,
-			HeartbeatInterval: 50 * time.Millisecond,
+		raftCfg := raft.Config{
+			NodeID:             nodeID,
+			HeartbeatInterval:  50 * time.Millisecond,
+			ElectionTimeoutMin: 200 * time.Millisecond,
+			ElectionTimeoutMax: 400 * time.Millisecond,
+			MaxAppendEntries:   64,
 		}
 
-		raftNode := raft.NewNode(raftCfg, trans, stor, sm, clusterMgr, h.logger)
+		raftNode, err := raft.NewNode(raftCfg, h.logger, sm, trans, stor)
+		if err != nil {
+			return err
+		}
 
 		h.nodes[nodeID] = &TestNode{
 			ID:           nodeID,
@@ -388,6 +398,102 @@ func (h *TestHarness) stopNode(ctx context.Context, node *TestNode) error {
 	return nil
 }
 
+// GetNodes returns a slice of all test nodes
+func (h *TestHarness) GetNodes() []*TestNode {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	nodes := make([]*TestNode, 0, len(h.nodes))
+	for _, node := range h.nodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+// GetHealthyNodeCount returns the number of started nodes
+func (h *TestHarness) GetHealthyNodeCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	count := 0
+	for _, node := range h.nodes {
+		if node.Started {
+			count++
+		}
+	}
+	return count
+}
+
+// GetQuorumSize returns the quorum size for the cluster
+func (h *TestHarness) GetQuorumSize() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return (len(h.nodes) / 2) + 1
+}
+
+// CreatePartition creates a network partition for the specified nodes
+func (h *TestHarness) CreatePartition(nodeIDs []string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// For each partitioned node, disconnect it from others
+	for _, nodeID := range nodeIDs {
+		node, exists := h.nodes[nodeID]
+		if !exists {
+			continue
+		}
+		// Disconnect transport (implementation depends on transport type)
+		if trans, ok := node.Transport.(*transport.LocalTransport); ok {
+			for _, otherID := range nodeIDs {
+				if otherID != nodeID {
+					trans.Disconnect(otherID)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// HealAllPartitions heals all network partitions
+func (h *TestHarness) HealAllPartitions() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Reconnect all transports
+	for _, node := range h.nodes {
+		if trans, ok := node.Transport.(*transport.LocalTransport); ok {
+			for _, otherNode := range h.nodes {
+				if otherNode.ID != node.ID {
+					trans.Connect(otherNode.ID, otherNode.Transport)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// InjectLatency injects artificial latency for a node
+func (h *TestHarness) InjectLatency(nodeID string, latency time.Duration) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	node, exists := h.nodes[nodeID]
+	if !exists {
+		return fmt.Errorf("node not found: %s", nodeID)
+	}
+
+	// Inject latency (implementation depends on transport type)
+	if trans, ok := node.Transport.(*transport.LocalTransport); ok {
+		trans.SetLatency(latency)
+	}
+	return nil
+}
+
+// RemoveLatency removes artificial latency for a node
+func (h *TestHarness) RemoveLatency(nodeID string) error {
+	return h.InjectLatency(nodeID, 0)
+}
+
 // testLogger implements forge.Logger for testing
 type testLogger struct {
 	t *testing.T
@@ -415,4 +521,69 @@ func (tl *testLogger) Fatal(msg string, fields ...forge.Field) {
 
 func (tl *testLogger) With(fields ...forge.Field) forge.Logger {
 	return tl
+}
+
+func (tl *testLogger) Debugf(template string, args ...interface{}) {
+	tl.t.Logf("[DEBUG] "+template, args...)
+}
+
+func (tl *testLogger) Infof(template string, args ...interface{}) {
+	tl.t.Logf("[INFO] "+template, args...)
+}
+
+func (tl *testLogger) Warnf(template string, args ...interface{}) {
+	tl.t.Logf("[WARN] "+template, args...)
+}
+
+func (tl *testLogger) Errorf(template string, args ...interface{}) {
+	tl.t.Logf("[ERROR] "+template, args...)
+}
+
+func (tl *testLogger) Fatalf(template string, args ...interface{}) {
+	tl.t.Fatalf("[FATAL] "+template, args...)
+}
+
+func (tl *testLogger) WithContext(ctx context.Context) forge.Logger {
+	return tl
+}
+
+func (tl *testLogger) Named(name string) forge.Logger {
+	return tl
+}
+
+func (tl *testLogger) Sugar() forge.SugarLogger {
+	return &testSugarLogger{t: tl.t}
+}
+
+func (tl *testLogger) Sync() error {
+	return nil
+}
+
+// testSugarLogger implements forge.SugarLogger for testing
+type testSugarLogger struct {
+	t *testing.T
+}
+
+func (tsl *testSugarLogger) Debugw(msg string, keysAndValues ...interface{}) {
+	tsl.t.Logf("[DEBUG] %s %v", msg, keysAndValues)
+}
+
+func (tsl *testSugarLogger) Infow(msg string, keysAndValues ...interface{}) {
+	tsl.t.Logf("[INFO] %s %v", msg, keysAndValues)
+}
+
+func (tsl *testSugarLogger) Warnw(msg string, keysAndValues ...interface{}) {
+	tsl.t.Logf("[WARN] %s %v", msg, keysAndValues)
+}
+
+func (tsl *testSugarLogger) Errorw(msg string, keysAndValues ...interface{}) {
+	tsl.t.Logf("[ERROR] %s %v", msg, keysAndValues)
+}
+
+func (tsl *testSugarLogger) Fatalw(msg string, keysAndValues ...interface{}) {
+	tsl.t.Fatalf("[FATAL] %s %v", msg, keysAndValues)
+}
+
+func (tsl *testSugarLogger) With(args ...interface{}) forge.SugarLogger {
+	return tsl
 }

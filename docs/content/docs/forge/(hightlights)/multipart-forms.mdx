@@ -1,0 +1,636 @@
+---
+title: Multipart Form
+description: Handle file uploads and multipart form data with Forge's built-in support
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+Forge provides comprehensive support for multipart form data, including file uploads, form fields, and advanced file handling. The framework handles parsing, validation, and storage of multipart data with built-in security features.
+
+## Multipart Form Interface
+
+Forge's multipart form interface provides a clean API for handling form data:
+
+```go
+type MultipartForm interface {
+    // Form fields
+    GetValue(key string) string
+    GetValues(key string) []string
+    
+    // File handling
+    GetFile(key string) (*FileHeader, error)
+    GetFiles(key string) ([]*FileHeader, error)
+    
+    // Form processing
+    Parse() error
+    RemoveAll() error
+    
+    // Validation
+    Validate() error
+}
+```
+
+## Basic File Upload
+
+### Simple File Upload Handler
+
+```go
+func uploadHandler(ctx forge.Context) error {
+    // Parse multipart form
+    form, err := ctx.MultipartForm()
+    if err != nil {
+        return forge.BadRequest("invalid multipart form")
+    }
+    
+    // Get uploaded file
+    file, err := form.GetFile("file")
+    if err != nil {
+        return forge.BadRequest("file is required")
+    }
+    
+    // Validate file
+    if file.Size > 10*1024*1024 { // 10MB limit
+        return forge.BadRequest("file too large")
+    }
+    
+    // Save file
+    dst, err := os.Create("uploads/" + file.Filename)
+    if err != nil {
+        return forge.InternalError("failed to save file")
+    }
+    defer dst.Close()
+    
+    src, err := file.Open()
+    if err != nil {
+        return forge.InternalError("failed to open file")
+    }
+    defer src.Close()
+    
+    _, err = io.Copy(dst, src)
+    if err != nil {
+        return forge.InternalError("failed to copy file")
+    }
+    
+    return ctx.JSON(200, map[string]string{
+        "message": "File uploaded successfully",
+        "filename": file.Filename,
+        "size": fmt.Sprintf("%d bytes", file.Size),
+    })
+}
+
+// Register upload endpoint
+app.Router().POST("/upload", uploadHandler)
+```
+
+### Multiple File Upload
+
+```go
+func multipleUploadHandler(ctx forge.Context) error {
+    form, err := ctx.MultipartForm()
+    if err != nil {
+        return forge.BadRequest("invalid multipart form")
+    }
+    
+    files, err := form.GetFiles("files")
+    if err != nil {
+        return forge.BadRequest("files are required")
+    }
+    
+    var uploadedFiles []map[string]interface{}
+    
+    for _, file := range files {
+        // Validate file
+        if file.Size > 5*1024*1024 { // 5MB limit per file
+            continue
+        }
+        
+        // Save file
+        filename := fmt.Sprintf("%d_%s", time.Now().Unix(), file.Filename)
+        dst, err := os.Create("uploads/" + filename)
+        if err != nil {
+            continue
+        }
+        defer dst.Close()
+        
+        src, err := file.Open()
+        if err != nil {
+            continue
+        }
+        defer src.Close()
+        
+        io.Copy(dst, src)
+        
+        uploadedFiles = append(uploadedFiles, map[string]interface{}{
+            "original_name": file.Filename,
+            "saved_name":    filename,
+            "size":          file.Size,
+            "content_type":  file.Header.Get("Content-Type"),
+        })
+    }
+    
+    return ctx.JSON(200, map[string]interface{}{
+        "message": "Files uploaded successfully",
+        "files":   uploadedFiles,
+        "count":   len(uploadedFiles),
+    })
+}
+```
+
+## Form Data Handling
+
+### Mixed Form Data and Files
+
+```go
+type UploadRequest struct {
+    Title       string `form:"title" validate:"required"`
+    Description string `form:"description"`
+    Category    string `form:"category" validate:"required"`
+}
+
+func mixedUploadHandler(ctx forge.Context) error {
+    form, err := ctx.MultipartForm()
+    if err != nil {
+        return forge.BadRequest("invalid multipart form")
+    }
+    
+    // Parse form fields
+    var req UploadRequest
+    if err := form.Bind(&req); err != nil {
+        return forge.BadRequest("invalid form data")
+    }
+    
+    // Validate form data
+    if err := validate.Struct(req); err != nil {
+        return forge.BadRequest("validation failed")
+    }
+    
+    // Get uploaded file
+    file, err := form.GetFile("file")
+    if err != nil {
+        return forge.BadRequest("file is required")
+    }
+    
+    // Process upload
+    uploadResult := processUpload(req, file)
+    
+    return ctx.JSON(200, uploadResult)
+}
+```
+
+### Form Field Access
+
+```go
+func formFieldsHandler(ctx forge.Context) error {
+    form, err := ctx.MultipartForm()
+    if err != nil {
+        return forge.BadRequest("invalid multipart form")
+    }
+    
+    // Get single value
+    title := form.GetValue("title")
+    
+    // Get multiple values (for checkboxes, etc.)
+    tags := form.GetValues("tags")
+    
+    // Get all form data
+    formData := make(map[string]interface{})
+    for key, values := range form.Value {
+        if len(values) == 1 {
+            formData[key] = values[0]
+        } else {
+            formData[key] = values
+        }
+    }
+    
+    return ctx.JSON(200, map[string]interface{}{
+        "title":    title,
+        "tags":     tags,
+        "form_data": formData,
+    })
+}
+```
+
+## File Validation and Security
+
+### File Type Validation
+
+```go
+func validateFileType(file *forge.FileHeader) error {
+    // Check file extension
+    ext := strings.ToLower(filepath.Ext(file.Filename))
+    allowedExts := []string{".jpg", ".jpeg", ".png", ".gif", ".pdf", ".txt"}
+    
+    for _, allowedExt := range allowedExts {
+        if ext == allowedExt {
+            return nil
+        }
+    }
+    
+    return errors.New("file type not allowed")
+}
+
+func secureUploadHandler(ctx forge.Context) error {
+    form, err := ctx.MultipartForm()
+    if err != nil {
+        return forge.BadRequest("invalid multipart form")
+    }
+    
+    file, err := form.GetFile("file")
+    if err != nil {
+        return forge.BadRequest("file is required")
+    }
+    
+    // Validate file type
+    if err := validateFileType(file); err != nil {
+        return forge.BadRequest("invalid file type")
+    }
+    
+    // Check file size
+    if file.Size > 2*1024*1024 { // 2MB limit
+        return forge.BadRequest("file too large")
+    }
+    
+    // Generate secure filename
+    secureFilename := generateSecureFilename(file.Filename)
+    
+    // Save file
+    err = saveFileSecurely(file, secureFilename)
+    if err != nil {
+        return forge.InternalError("failed to save file")
+    }
+    
+    return ctx.JSON(200, map[string]string{
+        "message": "File uploaded securely",
+        "filename": secureFilename,
+    })
+}
+```
+
+### File Content Validation
+
+```go
+func validateFileContent(file *forge.FileHeader) error {
+    src, err := file.Open()
+    if err != nil {
+        return err
+    }
+    defer src.Close()
+    
+    // Read first few bytes to check file signature
+    buffer := make([]byte, 512)
+    n, err := src.Read(buffer)
+    if err != nil && err != io.EOF {
+        return err
+    }
+    
+    // Check file signature
+    contentType := http.DetectContentType(buffer[:n])
+    
+    // Validate against expected content types
+    allowedTypes := []string{
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "application/pdf",
+        "text/plain",
+    }
+    
+    for _, allowedType := range allowedTypes {
+        if contentType == allowedType {
+            return nil
+        }
+    }
+    
+    return errors.New("invalid file content")
+}
+```
+
+## Advanced File Handling
+
+### File Processing Pipeline
+
+```go
+type FileProcessor struct {
+    validators []FileValidator
+    processors []FileProcessor
+    storage    FileStorage
+}
+
+func (fp *FileProcessor) ProcessFile(file *forge.FileHeader) (*ProcessedFile, error) {
+    // Validate file
+    for _, validator := range fp.validators {
+        if err := validator.Validate(file); err != nil {
+            return nil, err
+        }
+    }
+    
+    // Process file
+    processedFile := &ProcessedFile{
+        OriginalName: file.Filename,
+        Size:         file.Size,
+        ContentType:  file.Header.Get("Content-Type"),
+    }
+    
+    for _, processor := range fp.processors {
+        if err := processor.Process(file, processedFile); err != nil {
+            return nil, err
+        }
+    }
+    
+    // Store file
+    if err := fp.storage.Store(processedFile); err != nil {
+        return nil, err
+    }
+    
+    return processedFile, nil
+}
+```
+
+### Image Processing
+
+```go
+func processImage(file *forge.FileHeader) (*ProcessedImage, error) {
+    src, err := file.Open()
+    if err != nil {
+        return nil, err
+    }
+    defer src.Close()
+    
+    // Decode image
+    img, format, err := image.Decode(src)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Get image dimensions
+    bounds := img.Bounds()
+    width := bounds.Dx()
+    height := bounds.Dy()
+    
+    // Create thumbnails
+    thumbnails := make(map[string]string)
+    
+    // Small thumbnail (150x150)
+    smallThumb := resizeImage(img, 150, 150)
+    smallThumbPath := saveThumbnail(smallThumb, "small")
+    thumbnails["small"] = smallThumbPath
+    
+    // Medium thumbnail (300x300)
+    mediumThumb := resizeImage(img, 300, 300)
+    mediumThumbPath := saveThumbnail(mediumThumb, "medium")
+    thumbnails["medium"] = mediumThumbPath
+    
+    return &ProcessedImage{
+        OriginalName: file.Filename,
+        Format:       format,
+        Width:        width,
+        Height:       height,
+        Size:         file.Size,
+        Thumbnails:   thumbnails,
+    }, nil
+}
+```
+
+## Storage Integration
+
+### Local Storage
+
+```go
+type LocalStorage struct {
+    basePath string
+}
+
+func (ls *LocalStorage) Store(file *forge.FileHeader) (string, error) {
+    // Generate unique filename
+    filename := generateUniqueFilename(file.Filename)
+    filePath := filepath.Join(ls.basePath, filename)
+    
+    // Create directory if it doesn't exist
+    if err := os.MkdirAll(ls.basePath, 0755); err != nil {
+        return "", err
+    }
+    
+    // Save file
+    dst, err := os.Create(filePath)
+    if err != nil {
+        return "", err
+    }
+    defer dst.Close()
+    
+    src, err := file.Open()
+    if err != nil {
+        return "", err
+    }
+    defer src.Close()
+    
+    _, err = io.Copy(dst, src)
+    if err != nil {
+        return "", err
+    }
+    
+    return filename, nil
+}
+```
+
+### Cloud Storage Integration
+
+```go
+type CloudStorage struct {
+    bucket string
+    client *storage.Client
+}
+
+func (cs *CloudStorage) Store(file *forge.FileHeader) (string, error) {
+    // Generate unique filename
+    filename := generateUniqueFilename(file.Filename)
+    
+    // Create cloud storage object
+    obj := cs.client.Bucket(cs.bucket).Object(filename)
+    writer := obj.NewWriter(context.Background())
+    defer writer.Close()
+    
+    // Set metadata
+    writer.ObjectAttrs.ContentType = file.Header.Get("Content-Type")
+    writer.ObjectAttrs.Metadata = map[string]string{
+        "original-name": file.Filename,
+        "upload-time":   time.Now().Format(time.RFC3339),
+    }
+    
+    // Copy file data
+    src, err := file.Open()
+    if err != nil {
+        return "", err
+    }
+    defer src.Close()
+    
+    _, err = io.Copy(writer, src)
+    if err != nil {
+        return "", err
+    }
+    
+    return filename, nil
+}
+```
+
+## Configuration
+
+### Multipart Form Configuration
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    MultipartConfig: forge.MultipartConfig{
+        MaxMemory:     32 << 20, // 32MB
+        MaxFileSize:   10 << 20, // 10MB
+        MaxFiles:      10,
+        AllowedTypes:  []string{"image/jpeg", "image/png", "application/pdf"},
+        UploadPath:    "uploads/",
+        SecureMode:    true,
+    },
+})
+```
+
+### File Upload Limits
+
+```go
+// Global limits
+app.Router().Use(forge.MultipartLimitMiddleware(forge.MultipartLimit{
+    MaxMemory:   32 << 20, // 32MB
+    MaxFileSize: 5 << 20,  // 5MB
+    MaxFiles:    5,
+}))
+
+// Route-specific limits
+app.Router().POST("/upload", uploadHandler,
+    forge.WithMultipartLimit(forge.MultipartLimit{
+        MaxMemory:   64 << 20, // 64MB
+        MaxFileSize: 20 << 20, // 20MB
+        MaxFiles:    10,
+    }),
+)
+```
+
+## Error Handling
+
+### Upload Error Handling
+
+```go
+func uploadWithErrorHandling(ctx forge.Context) error {
+    form, err := ctx.MultipartForm()
+    if err != nil {
+        app.Logger().Error("multipart form error", forge.F("error", err))
+        return forge.BadRequest("invalid multipart form")
+    }
+    
+    file, err := form.GetFile("file")
+    if err != nil {
+        return forge.BadRequest("file is required")
+    }
+    
+    // Validate file
+    if err := validateFile(file); err != nil {
+        app.Logger().Warn("file validation failed", 
+            forge.F("filename", file.Filename),
+            forge.F("error", err),
+        )
+        return forge.BadRequest("file validation failed")
+    }
+    
+    // Process file
+    result, err := processFile(file)
+    if err != nil {
+        app.Logger().Error("file processing failed", 
+            forge.F("filename", file.Filename),
+            forge.F("error", err),
+        )
+        return forge.InternalError("file processing failed")
+    }
+    
+    return ctx.JSON(200, result)
+}
+```
+
+## Testing Multipart Forms
+
+### Unit Testing
+
+```go
+func TestFileUpload(t *testing.T) {
+    app := forge.NewTestApp(forge.TestAppConfig{
+        Name: "test-app",
+    })
+    
+    // Register upload handler
+    app.Router().POST("/upload", func(ctx forge.Context) error {
+        form, err := ctx.MultipartForm()
+        if err != nil {
+            return forge.BadRequest("invalid form")
+        }
+        
+        file, err := form.GetFile("file")
+        if err != nil {
+            return forge.BadRequest("file required")
+        }
+        
+        return ctx.JSON(200, map[string]string{
+            "filename": file.Filename,
+            "size":     fmt.Sprintf("%d", file.Size),
+        })
+    })
+    
+    // Test file upload
+    resp := app.Test().POST("/upload").
+        MultipartForm(map[string]interface{}{
+            "file": forge.TestFile{
+                Filename: "test.txt",
+                Content:  []byte("test content"),
+            },
+        }).
+        Expect(t)
+    
+    resp.Status(200)
+    resp.JSON().Object().Value("filename").Equal("test.txt")
+}
+```
+
+### Integration Testing
+
+```go
+func TestFileUploadIntegration(t *testing.T) {
+    app := forge.NewTestApp(forge.TestAppConfig{
+        Name: "test-app",
+    })
+    
+    // Start application
+    go func() {
+        app.Run()
+    }()
+    defer app.Stop(context.Background())
+    
+    // Create test file
+    testFile := createTestFile("test.txt", "test content")
+    defer os.Remove(testFile.Name())
+    
+    // Test file upload
+    resp, err := http.Post("http://localhost:8080/upload", "multipart/form-data", testFile)
+    require.NoError(t, err)
+    defer resp.Body.Close()
+    
+    assert.Equal(t, 200, resp.StatusCode)
+}
+```
+
+## Best Practices
+
+1. **File Validation**: Always validate file types and content
+2. **Size Limits**: Set appropriate file size limits
+3. **Security**: Use secure filenames and validate file content
+4. **Storage**: Choose appropriate storage backend
+5. **Error Handling**: Handle upload errors gracefully
+6. **Monitoring**: Monitor upload metrics and errors
+7. **Testing**: Test file upload functionality thoroughly
+8. **Performance**: Optimize for large file uploads
+
+<Callout type="info">
+For more advanced file handling features, see the [Storage Extension](/docs/forge/concepts/extensions) documentation.
+</Callout>

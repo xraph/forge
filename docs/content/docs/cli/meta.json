@@ -1,0 +1,10 @@
+{
+  "title": "CLI Framework",
+  "description": "Modern, extensible web framework for Go applications with built-in security and observability",
+  "icon": "Code",
+  "root": true,
+  "pages": [
+    "---Introduction---",
+    "index"
+  ]
+}

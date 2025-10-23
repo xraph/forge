@@ -45,41 +45,29 @@ func TestNewEnvSource(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			source := NewEnvSource(tt.opts)
+			source, err := NewEnvSource("TEST_", tt.opts)
+			if err != nil {
+				t.Fatalf("NewEnvSource() error = %v", err)
+			}
 			if source == nil {
 				t.Fatal("NewEnvSource() returned nil")
 			}
 
-			if source.Name() != "env" {
-				t.Errorf("Name() = %v, want env", source.Name())
+			if source.Name() != "env:TEST_" {
+				t.Errorf("Name() = %v, want env:TEST_", source.Name())
 			}
 		})
 	}
 }
 
-func TestNewEnvSourceWithConfig(t *testing.T) {
-	config := EnvSourceConfig{
-		Prefix:    "TEST_",
-		Separator: "_",
-		Priority:  10,
-	}
-
-	source := NewEnvSourceWithConfig(config)
-	if source == nil {
-		t.Fatal("NewEnvSourceWithConfig() returned nil")
-	}
-
-	if source.Priority() != 10 {
-		t.Errorf("Priority() = %d, want 10", source.Priority())
-	}
-}
+// TestNewEnvSourceWithConfig removed - API no longer exists
 
 // =============================================================================
 // ENV SOURCE METADATA TESTS
 // =============================================================================
 
 func TestEnvSource_Metadata(t *testing.T) {
-	source := NewEnvSource(EnvSourceOptions{})
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 	metadata := source.Metadata()
 
@@ -113,7 +101,7 @@ func TestEnvSource_Load(t *testing.T) {
 		defer os.Unsetenv(key)
 	}
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix: "TEST_",
 	})
 
@@ -146,7 +134,7 @@ func TestEnvSource_Load_WithoutPrefix(t *testing.T) {
 	os.Setenv("NO_PREFIX_VAR", "test_value")
 	defer os.Unsetenv("NO_PREFIX_VAR")
 
-	source := NewEnvSource(EnvSourceOptions{})
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 	ctx := context.Background()
 	data, err := source.Load(ctx)
@@ -171,7 +159,7 @@ func TestEnvSource_Load_WithSeparator(t *testing.T) {
 	defer os.Unsetenv("APP_DB_HOST")
 	defer os.Unsetenv("APP_DB_PORT")
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix:    "APP_",
 		Separator: "_",
 	})
@@ -204,7 +192,7 @@ func TestEnvSource_Get(t *testing.T) {
 	os.Setenv("TEST_KEY", "test_value")
 	defer os.Unsetenv("TEST_KEY")
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix: "TEST_",
 	})
 
@@ -241,7 +229,7 @@ func TestEnvSource_KeyTransform(t *testing.T) {
 		return key + "_TRANSFORMED"
 	}
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix:       "TEST_",
 		KeyTransform: keyTransform,
 	})
@@ -267,7 +255,7 @@ func TestEnvSource_ValueTransform(t *testing.T) {
 		return value + "_TRANSFORMED"
 	}
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix:         "TEST_",
 		ValueTransform: valueTransform,
 	})
@@ -300,7 +288,7 @@ func TestEnvSource_TypeConversion(t *testing.T) {
 		defer os.Unsetenv(key)
 	}
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix:       "TEST_",
 		ConvertTypes: true,
 	})
@@ -342,7 +330,7 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 		defer os.Unsetenv("REQ_VAR1")
 		defer os.Unsetenv("REQ_VAR2")
 
-		source := NewEnvSource(EnvSourceOptions{
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 			Prefix:       "REQ_",
 			RequiredVars: []string{"VAR1", "VAR2"},
 		})
@@ -359,7 +347,7 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 		os.Setenv("REQ_VAR1", "value1")
 		defer os.Unsetenv("REQ_VAR1")
 
-		source := NewEnvSource(EnvSourceOptions{
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 			Prefix:       "REQ_",
 			RequiredVars: []string{"VAR1", "VAR2"},
 		})
@@ -383,7 +371,7 @@ func TestEnvSource_SecretVars(t *testing.T) {
 	defer os.Unsetenv("SECRET_PASSWORD")
 	defer os.Unsetenv("NORMAL_VAR")
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix:     "SECRET_",
 		SecretVars: []string{"PASSWORD"},
 	})
@@ -407,7 +395,7 @@ func TestEnvSource_SecretVars(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_Watch(t *testing.T) {
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		EnableWatch:   true,
 		WatchInterval: 100 * time.Millisecond,
 	})
@@ -445,7 +433,7 @@ func TestEnvSource_Watch(t *testing.T) {
 }
 
 func TestEnvSource_Watch_Disabled(t *testing.T) {
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		EnableWatch: false,
 	})
 
@@ -466,7 +454,7 @@ func TestEnvSource_Watch_Disabled(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_Validate(t *testing.T) {
-	source := NewEnvSource(EnvSourceOptions{})
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 	ctx := context.Background()
 	err := source.Validate(ctx)
@@ -481,7 +469,7 @@ func TestEnvSource_Validate(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_Lifecycle(t *testing.T) {
-	source := NewEnvSource(EnvSourceOptions{})
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 	ctx := context.Background()
 
@@ -563,7 +551,7 @@ func TestEnvSourceFactory_Validate(t *testing.T) {
 
 func TestEnvSource_EdgeCases(t *testing.T) {
 	t.Run("empty environment", func(t *testing.T) {
-		source := NewEnvSource(EnvSourceOptions{
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 			Prefix: "NONEXISTENT_PREFIX_",
 		})
 
@@ -588,7 +576,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		os.Setenv("EMPTY_VAR", "")
 		defer os.Unsetenv("EMPTY_VAR")
 
-		source := NewEnvSource(EnvSourceOptions{})
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 		ctx := context.Background()
 		data, err := source.Load(ctx)
@@ -607,7 +595,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		os.Setenv("SPECIAL_VAR", specialValue)
 		defer os.Unsetenv("SPECIAL_VAR")
 
-		source := NewEnvSource(EnvSourceOptions{})
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 		ctx := context.Background()
 		data, err := source.Load(ctx)
@@ -626,7 +614,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		os.Setenv("LONG_VAR", longValue)
 		defer os.Unsetenv("LONG_VAR")
 
-		source := NewEnvSource(EnvSourceOptions{})
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 		ctx := context.Background()
 		data, err := source.Load(ctx)
@@ -645,7 +633,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		os.Setenv("UNICODE_VAR", unicodeValue)
 		defer os.Unsetenv("UNICODE_VAR")
 
-		source := NewEnvSource(EnvSourceOptions{})
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 		ctx := context.Background()
 		data, err := source.Load(ctx)
@@ -675,7 +663,7 @@ func TestEnvSource_ComplexNesting(t *testing.T) {
 	defer os.Unsetenv("APP_DB_REPLICA_HOST")
 	defer os.Unsetenv("APP_DB_REPLICA_PORT")
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix:    "APP_",
 		Separator: "_",
 	})
@@ -727,7 +715,7 @@ func TestEnvSource_MixedTypes(t *testing.T) {
 		os.Unsetenv("MIX_LIST")
 	}()
 
-	source := NewEnvSource(EnvSourceOptions{
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
 		Prefix:       "MIX_",
 		ConvertTypes: true,
 	})
@@ -789,7 +777,7 @@ func TestEnvSource_Priority(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_ContextCancellation(t *testing.T) {
-	source := NewEnvSource(EnvSourceOptions{})
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
@@ -810,7 +798,7 @@ func TestEnvSource_ReloadConsistency(t *testing.T) {
 	os.Setenv("RELOAD_VAR", "value")
 	defer os.Unsetenv("RELOAD_VAR")
 
-	source := NewEnvSource(EnvSourceOptions{})
+	source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 	ctx := context.Background()
 
 	// Load twice

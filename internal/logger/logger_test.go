@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xraph/forge/pkg/logger"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // BenchmarkLogger compares performance between different logger implementations

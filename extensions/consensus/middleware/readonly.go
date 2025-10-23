@@ -25,11 +25,11 @@ func NewReadOnlyMiddleware(raftNode internal.RaftNode, logger forge.Logger) *Rea
 func (rom *ReadOnlyMiddleware) Handle() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// Check if request is read-only (GET, HEAD)
-		if isReadOnlyMethod(ctx.Method()) {
+		if isReadOnlyMethod(ctx.Request().Method) {
 			// Allow read-only requests on any node
 			rom.logger.Debug("read-only request allowed",
-				forge.F("method", ctx.Method()),
-				forge.F("path", ctx.Path()),
+				forge.F("method", ctx.Request().Method),
+				forge.F("path", ctx.Request().URL.Path),
 			)
 			return nil
 		}
@@ -63,15 +63,15 @@ func (rom *ReadOnlyMiddleware) HandleStrict() func(forge.Context) error {
 func (rom *ReadOnlyMiddleware) HandleWithStaleReads() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// Check if request is read-only
-		if isReadOnlyMethod(ctx.Method()) {
+		if isReadOnlyMethod(ctx.Request().Method) {
 			// Check if client allows stale reads
 			allowStale := ctx.Query("allow_stale") == "true" ||
 				ctx.Header("X-Allow-Stale") == "true"
 
 			if allowStale {
 				rom.logger.Debug("stale read allowed",
-					forge.F("method", ctx.Method()),
-					forge.F("path", ctx.Path()),
+					forge.F("method", ctx.Request().Method),
+					forge.F("path", ctx.Request().URL.Path),
 				)
 				ctx.Set("stale_read", true)
 				return nil

@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/consensus/cluster"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/extensions/consensus/internal/cluster"
 )
 
 // ClusterAPI provides cluster management endpoints
@@ -39,7 +39,7 @@ func NewClusterAPI(
 
 // GetClusterStatus returns cluster status
 func (ca *ClusterAPI) GetClusterStatus(ctx forge.Context) error {
-	nodes := ca.manager.GetAllNodes()
+	nodes := ca.manager.GetNodes()
 
 	healthyCount := 0
 	unhealthyCount := 0
@@ -67,7 +67,7 @@ func (ca *ClusterAPI) GetClusterStatus(ctx forge.Context) error {
 
 // ListNodes returns all cluster nodes
 func (ca *ClusterAPI) ListNodes(ctx forge.Context) error {
-	nodes := ca.manager.GetAllNodes()
+	nodes := ca.manager.GetNodes()
 
 	return ctx.JSON(200, map[string]interface{}{
 		"nodes": nodes,
@@ -82,8 +82,8 @@ func (ca *ClusterAPI) GetNode(ctx forge.Context) error {
 		return ctx.JSON(400, map[string]string{"error": "node_id is required"})
 	}
 
-	node := ca.manager.GetNode(nodeID)
-	if node == nil {
+	node, err := ca.manager.GetNode(nodeID)
+	if err != nil || node == nil {
 		return ctx.JSON(404, map[string]string{"error": "node not found"})
 	}
 
@@ -220,8 +220,8 @@ func (ca *ClusterAPI) TransferLeadership(ctx forge.Context) error {
 	}
 
 	// Verify target node exists
-	node := ca.manager.GetNode(req.TargetNode)
-	if node == nil {
+	node, err := ca.manager.GetNode(req.TargetNode)
+	if err != nil || node == nil {
 		return ctx.JSON(404, map[string]string{"error": "target node not found"})
 	}
 
@@ -237,7 +237,7 @@ func (ca *ClusterAPI) TransferLeadership(ctx forge.Context) error {
 
 // GetClusterHealth returns overall cluster health
 func (ca *ClusterAPI) GetClusterHealth(ctx forge.Context) error {
-	nodes := ca.manager.GetAllNodes()
+	nodes := ca.manager.GetNodes()
 	quorumInfo := ca.quorum.GetQuorumInfo()
 
 	healthStatus := "healthy"

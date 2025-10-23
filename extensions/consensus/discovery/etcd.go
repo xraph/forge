@@ -242,8 +242,11 @@ func (ed *EtcdDiscovery) Watch(ctx context.Context) (<-chan internal.DiscoveryEv
 					if _, exists := lastPeers[id]; !exists {
 						// New peer
 						eventChan <- internal.DiscoveryEvent{
-							Type: internal.DiscoveryEventTypeJoin,
-							Node: peer,
+							Type:      internal.DiscoveryEventTypeJoin,
+							NodeID:    peer.ID,
+							Address:   peer.Address,
+							Port:      peer.Port,
+							Timestamp: time.Now(),
 						}
 					}
 				}
@@ -252,8 +255,11 @@ func (ed *EtcdDiscovery) Watch(ctx context.Context) (<-chan internal.DiscoveryEv
 					if _, exists := currentPeers[id]; !exists {
 						// Peer left
 						eventChan <- internal.DiscoveryEvent{
-							Type: internal.DiscoveryEventTypeLeave,
-							Node: peer,
+							Type:      internal.DiscoveryEventTypeLeave,
+							NodeID:    peer.ID,
+							Address:   peer.Address,
+							Port:      peer.Port,
+							Timestamp: time.Now(),
 						}
 					}
 				}

@@ -174,6 +174,16 @@ func (cp *ConnectionPool) Close(peerID string) error {
 		return fmt.Errorf("connection not found: %s", peerID)
 	}
 
+	// Close the connection if it has a Close method
+	if closer, ok := conn.Connection.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			cp.logger.Warn("failed to close connection",
+				forge.F("peer", peerID),
+				forge.F("error", err),
+			)
+		}
+	}
+
 	delete(cp.connections, peerID)
 	cp.stats.ClosedConnections++
 

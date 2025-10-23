@@ -136,13 +136,17 @@ func (r *Registry) Register(node *internal.NodeInfo) error {
 	r.nodes[node.ID] = registered
 
 	// Notify subscribers
-	event := internal.DiscoveryEvent{
-		Type: internal.DiscoveryEventTypeJoin,
-		Node: node,
+	eventType := internal.DiscoveryEventTypeJoin
+	if exists {
+		eventType = internal.DiscoveryEventTypeUpdate
 	}
 
-	if exists {
-		event.Type = internal.DiscoveryEventTypeUpdate
+	event := internal.DiscoveryEvent{
+		Type:      eventType,
+		NodeID:    node.ID,
+		Address:   node.Address,
+		Port:      node.Port,
+		Timestamp: time.Now(),
 	}
 
 	r.notifySubscribers(event)
@@ -170,9 +174,12 @@ func (r *Registry) Deregister(nodeID string) error {
 	}
 
 	// Notify subscribers
-	r.notifySubscribers(DiscoveryEvent{
-		Type: internal.DiscoveryEventTypeLeave,
-		Node: registered.Info,
+	r.notifySubscribers(internal.DiscoveryEvent{
+		Type:      internal.DiscoveryEventTypeLeave,
+		NodeID:    registered.Info.ID,
+		Address:   registered.Info.Address,
+		Port:      registered.Info.Port,
+		Timestamp: time.Now(),
 	})
 
 	r.logger.Info("node deregistered",
@@ -224,9 +231,12 @@ func (r *Registry) UpdateNodeInfo(info *internal.NodeInfo) error {
 	r.nodesMu.Unlock()
 
 	// Notify subscribers
-	r.notifySubscribers(DiscoveryEvent{
-		Type: internal.DiscoveryEventTypeUpdate,
-		Node: info,
+	r.notifySubscribers(internal.DiscoveryEvent{
+		Type:      internal.DiscoveryEventTypeUpdate,
+		NodeID:    info.ID,
+		Address:   info.Address,
+		Port:      info.Port,
+		Timestamp: time.Now(),
 	})
 
 	r.logger.Debug("node info updated",
@@ -253,8 +263,8 @@ func (r *Registry) Heartbeat(nodeID string) error {
 }
 
 // Watch watches for node changes
-func (r *Registry) Watch(ctx context.Context) (<-chan DiscoveryEvent, error) {
-	eventChan := make(chan DiscoveryEvent, 10)
+func (r *Registry) Watch(ctx context.Context) (<-chan internal.DiscoveryEvent, error) {
+	eventChan := make(chan internal.DiscoveryEvent, 10)
 
 	r.subsMu.Lock()
 	r.subscribers = append(r.subscribers, eventChan)
@@ -266,9 +276,12 @@ func (r *Registry) Watch(ctx context.Context) (<-chan DiscoveryEvent, error) {
 		for _, registered := range r.nodes {
 			if registered.Info.ID != r.nodeID {
 				select {
-				case eventChan <- DiscoveryEvent{
-					Type: internal.DiscoveryEventTypeJoin,
-					Node: registered.Info,
+				case eventChan <- internal.DiscoveryEvent{
+					Type:      internal.DiscoveryEventTypeJoin,
+					NodeID:    registered.Info.ID,
+					Address:   registered.Info.Address,
+					Port:      registered.Info.Port,
+					Timestamp: time.Now(),
 				}:
 				case <-ctx.Done():
 					r.nodesMu.RUnlock()
@@ -283,7 +296,7 @@ func (r *Registry) Watch(ctx context.Context) (<-chan DiscoveryEvent, error) {
 }
 
 // notifySubscribers notifies all subscribers of an event
-func (r *Registry) notifySubscribers(event DiscoveryEvent) {
+func (r *Registry) notifySubscribers(event internal.DiscoveryEvent) {
 	r.subsMu.RLock()
 	defer r.subsMu.RUnlock()
 
@@ -336,9 +349,12 @@ func (r *Registry) checkNodeHealth() {
 				)
 
 				// Notify subscribers
-				go r.notifySubscribers(DiscoveryEvent{
-					Type: internal.DiscoveryEventTypeLeave,
-					Node: registered.Info,
+				go r.notifySubscribers(internal.DiscoveryEvent{
+					Type:      internal.DiscoveryEventTypeLeave,
+					NodeID:    registered.Info.ID,
+					Address:   registered.Info.Address,
+					Port:      registered.Info.Port,
+					Timestamp: time.Now(),
 				})
 			}
 		}
