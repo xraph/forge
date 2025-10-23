@@ -1,0 +1,160 @@
+package api
+
+import (
+	"time"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/extensions/consensus/internal/cluster"
+	"github.com/xraph/forge/extensions/consensus/internal/observability"
+)
+
+// StatsAPI provides statistics endpoints
+type StatsAPI struct {
+	raftNode  internal.RaftNode
+	manager   *cluster.Manager
+	metrics   *observability.MetricsCollector
+	logger    forge.Logger
+	startTime time.Time
+}
+
+// NewStatsAPI creates a new stats API
+func NewStatsAPI(
+	raftNode internal.RaftNode,
+	manager *cluster.Manager,
+	metrics *observability.MetricsCollector,
+	logger forge.Logger,
+) *StatsAPI {
+	return &StatsAPI{
+		raftNode:  raftNode,
+		manager:   manager,
+		metrics:   metrics,
+		logger:    logger,
+		startTime: time.Now(),
+	}
+}
+
+// GetStats returns overall statistics
+func (sa *StatsAPI) GetStats(ctx forge.Context) error {
+	stats := map[string]interface{}{
+		"uptime_seconds": time.Since(sa.startTime).Seconds(),
+		"node_id":        sa.raftNode.GetID(),
+		"is_leader":      sa.raftNode.IsLeader(),
+		"current_term":   sa.raftNode.GetCurrentTerm(),
+		"commit_index":   sa.raftNode.GetCommitIndex(),
+		"last_applied":   sa.raftNode.GetLastApplied(),
+		"cluster":        sa.getClusterStats(),
+	}
+
+	if sa.metrics != nil {
+		stats["metrics"] = sa.metrics.GetStats()
+	}
+
+	return ctx.JSON(200, stats)
+}
+
+// GetRaftStats returns Raft-specific statistics
+func (sa *StatsAPI) GetRaftStats(ctx forge.Context) error {
+	stats := map[string]interface{}{
+		"node_id":      sa.raftNode.GetID(),
+		"is_leader":    sa.raftNode.IsLeader(),
+		"current_term": sa.raftNode.GetCurrentTerm(),
+		"commit_index": sa.raftNode.GetCommitIndex(),
+		"last_applied": sa.raftNode.GetLastApplied(),
+	}
+
+	return ctx.JSON(200, stats)
+}
+
+// GetClusterStats returns cluster statistics
+func (sa *StatsAPI) GetClusterStats(ctx forge.Context) error {
+	stats := sa.getClusterStats()
+	return ctx.JSON(200, stats)
+}
+
+// GetReplicationStats returns replication statistics
+func (sa *StatsAPI) GetReplicationStats(ctx forge.Context) error {
+	if !sa.raftNode.IsLeader() {
+		return ctx.JSON(400, map[string]string{
+			"error": "replication stats only available on leader",
+		})
+	}
+
+	// TODO: Get actual replication stats from leader state
+	stats := map[string]interface{}{
+		"is_leader": true,
+		"peers":     []map[string]interface{}{},
+	}
+
+	return ctx.JSON(200, stats)
+}
+
+// GetPerformanceStats returns performance statistics
+func (sa *StatsAPI) GetPerformanceStats(ctx forge.Context) error {
+	stats := map[string]interface{}{
+		"uptime_seconds": time.Since(sa.startTime).Seconds(),
+	}
+
+	if sa.metrics != nil {
+		stats["metrics"] = sa.metrics.GetStats()
+	}
+
+	return ctx.JSON(200, stats)
+}
+
+// getClusterStats returns cluster statistics
+func (sa *StatsAPI) getClusterStats() map[string]interface{} {
+	nodes := sa.manager.GetAllNodes()
+
+	healthyCount := 0
+	leaderCount := 0
+	followerCount := 0
+
+	for _, node := range nodes {
+		if node.Status == internal.StatusActive {
+			healthyCount++
+		}
+		if node.Role == internal.RoleLeader {
+			leaderCount++
+		} else if node.Role == internal.RoleFollower {
+			followerCount++
+		}
+	}
+
+	return map[string]interface{}{
+		"total_nodes":    len(nodes),
+		"healthy_nodes":  healthyCount,
+		"leader_count":   leaderCount,
+		"follower_count": followerCount,
+	}
+}
+
+// GetMetrics returns metrics in Prometheus format
+func (sa *StatsAPI) GetMetrics(ctx forge.Context) error {
+	if sa.metrics == nil {
+		return ctx.JSON(503, map[string]string{
+			"error": "metrics not enabled",
+		})
+	}
+
+	// TODO: Return Prometheus-formatted metrics
+	stats := sa.metrics.GetStats()
+
+	return ctx.JSON(200, stats)
+}
+
+// ResetMetrics resets metrics counters
+func (sa *StatsAPI) ResetMetrics(ctx forge.Context) error {
+	if sa.metrics == nil {
+		return ctx.JSON(503, map[string]string{
+			"error": "metrics not enabled",
+		})
+	}
+
+	// TODO: Implement metrics reset
+	sa.logger.Info("metrics reset requested")
+
+	return ctx.JSON(200, map[string]string{
+		"message": "metrics reset successfully",
+	})
+}

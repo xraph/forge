@@ -1,0 +1,948 @@
+---
+title: Cache Extension
+description: High-performance caching with multiple drivers, distributed caching, and advanced patterns
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+The Cache Extension provides high-performance caching capabilities with support for multiple drivers, distributed caching, and advanced caching patterns for optimal application performance.
+
+## Supported Cache Drivers
+
+<Cards>
+  <Card
+    title="🧠 In-Memory"
+    description="Fast local caching with LRU eviction and TTL support"
+  />
+  <Card
+    title="🔴 Redis"
+    description="Distributed caching with clustering and persistence"
+  />
+  <Card
+    title="⚡ Memcached"
+    description="High-performance distributed memory caching"
+  />
+  <Card
+    title="🗄️ BadgerDB"
+    description="Embedded key-value store with disk persistence"
+  />
+  <Card
+    title="🔗 Multi-tier"
+    description="L1/L2 caching with automatic promotion and demotion"
+  />
+  <Card
+    title="🌐 CDN"
+    description="Edge caching with CloudFlare, AWS CloudFront integration"
+  />
+</Cards>
+
+## Installation
+
+```bash
+go get github.com/xraph/forge/extensions/cache
+```
+
+## Basic Usage
+
+<Tabs items={['In-Memory', 'Redis', 'Memcached', 'Multi-tier']}>
+  <Tab value="In-Memory">
+    ```go
+    package main
+    
+    import (
+        "time"
+        "github.com/xraph/forge/v2"
+        "github.com/xraph/forge/v2/extensions/cache"
+    )
+    
+    func main() {
+        app := forge.NewApp(forge.AppConfig{
+            Name: "my-app",
+        })
+        
+        // Register cache extension with in-memory driver
+        app.RegisterExtension(
+            cache.NewExtension(
+                cache.WithInMemory(cache.InMemoryConfig{
+                    MaxSize:     1000,
+                    DefaultTTL:  time.Hour,
+                    CleanupInterval: 10 * time.Minute,
+                }),
+            ),
+        )
+        
+        // Use cache in handlers
+        app.Router().GET("/users/:id", func(ctx forge.Context) error {
+            userID := ctx.Param("id")
+            cacheKey := "user:" + userID
+            
+            // Get cache manager
+            cacheManager := forge.GetService[cache.Manager](app.Container())
+            
+            // Try to get from cache
+            var user User
+            found, err := cacheManager.Get(ctx, cacheKey, &user)
+            if err != nil {
+                return err
+            }
+            
+            if !found {
+                // Load from database
+                user, err = loadUserFromDB(ctx, userID)
+                if err != nil {
+                    return err
+                }
+                
+                // Store in cache
+                err = cacheManager.Set(ctx, cacheKey, user, time.Hour)
+                if err != nil {
+                    // Log error but don't fail request
+                    ctx.Logger().Error("failed to cache user", forge.F("error", err))
+                }
+            }
+            
+            return ctx.JSON(200, user)
+        })
+        
+        app.Run()
+    }
+    ```
+  </Tab>
+  <Tab value="Redis">
+    ```go
+    app.RegisterExtension(
+        cache.NewExtension(
+            cache.WithRedis(cache.RedisConfig{
+                Addresses: []string{"localhost:6379"},
+                Password:  "",
+                DB:        0,
+                PoolSize:  10,
+                Cluster:   false,
+                Sentinel: cache.SentinelConfig{
+                    Enabled:    false,
+                    MasterName: "mymaster",
+                    Addresses:  []string{"localhost:26379"},
+                },
+            }),
+        ),
+    )
+    
+    // Redis-specific operations
+    func useRedisFeatures(ctx forge.Context) error {
+        cacheManager := forge.GetService[cache.Manager](app.Container())
+        
+        // Atomic increment
+        count, err := cacheManager.Increment(ctx, "page_views", 1)
+        if err != nil {
+            return err
+        }
+        
+        // Set with expiration
+        err = cacheManager.SetEX(ctx, "session:"+sessionID, sessionData, 30*time.Minute)
+        if err != nil {
+            return err
+        }
+        
+        // Pipeline operations
+        pipe := cacheManager.Pipeline()
+        pipe.Set("key1", "value1", time.Hour)
+        pipe.Set("key2", "value2", time.Hour)
+        pipe.Increment("counter", 1)
+        
+        results, err := pipe.Exec(ctx)
+        if err != nil {
+            return err
+        }
+        
+        return ctx.JSON(200, map[string]any{
+            "page_views": count,
+            "pipeline_results": results,
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Memcached">
+    ```go
+    app.RegisterExtension(
+        cache.NewExtension(
+            cache.WithMemcached(cache.MemcachedConfig{
+                Servers: []string{"localhost:11211"},
+                Timeout: 5 * time.Second,
+                MaxIdleConns: 10,
+                PoolSize: 100,
+            }),
+        ),
+    )
+    
+    // Memcached operations
+    func useMemcachedFeatures(ctx forge.Context) error {
+        cacheManager := forge.GetService[cache.Manager](app.Container())
+        
+        // Compare and swap
+        item, err := cacheManager.Gets(ctx, "counter")
+        if err != nil {
+            return err
+        }
+        
+        newValue := item.Value.(int) + 1
+        success, err := cacheManager.CAS(ctx, "counter", newValue, item.CAS, time.Hour)
+        if err != nil {
+            return err
+        }
+        
+        if !success {
+            return errors.New("CAS operation failed")
+        }
+        
+        return ctx.JSON(200, map[string]any{
+            "counter": newValue,
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Multi-tier">
+    ```go
+    app.RegisterExtension(
+        cache.NewExtension(
+            cache.WithMultiTier(cache.MultiTierConfig{
+                L1: cache.InMemoryConfig{
+                    MaxSize:    100,
+                    DefaultTTL: 5 * time.Minute,
+                },
+                L2: cache.RedisConfig{
+                    Addresses: []string{"localhost:6379"},
+                },
+                PromotionThreshold: 3, // Promote to L1 after 3 hits
+                L1TTLRatio:        0.1, // L1 TTL is 10% of L2 TTL
+            }),
+        ),
+    )
+    
+    // Multi-tier automatically manages promotion/demotion
+    func useMultiTierCache(ctx forge.Context) error {
+        cacheManager := forge.GetService[cache.Manager](app.Container())
+        
+        // Cache operations work transparently
+        var data ExpensiveData
+        found, err := cacheManager.Get(ctx, "expensive_data", &data)
+        if err != nil {
+            return err
+        }
+        
+        if !found {
+            data = computeExpensiveData()
+            // Will be stored in L2, promoted to L1 after threshold hits
+            err = cacheManager.Set(ctx, "expensive_data", data, time.Hour)
+            if err != nil {
+                return err
+            }
+        }
+        
+        return ctx.JSON(200, data)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### YAML Configuration
+
+```yaml
+cache:
+  # Default driver
+  driver: redis
+  
+  # Default TTL for all cache operations
+  default_ttl: 1h
+  
+  # Key prefix for all cache keys
+  key_prefix: "myapp:"
+  
+  # Serialization format (json, msgpack, gob)
+  serializer: json
+  
+  # Compression (none, gzip, lz4, zstd)
+  compression: gzip
+  
+  # In-Memory Configuration
+  memory:
+    max_size: 1000
+    cleanup_interval: 10m
+    eviction_policy: lru # lru, lfu, fifo
+  
+  # Redis Configuration
+  redis:
+    addresses: 
+      - localhost:6379
+    password: ${REDIS_PASSWORD}
+    db: 0
+    pool_size: 10
+    min_idle_conns: 5
+    max_retries: 3
+    retry_delay: 100ms
+    dial_timeout: 5s
+    read_timeout: 3s
+    write_timeout: 3s
+    
+    # Cluster configuration
+    cluster:
+      enabled: false
+      read_only: false
+      route_by_latency: true
+      route_randomly: false
+    
+    # Sentinel configuration
+    sentinel:
+      enabled: false
+      master_name: mymaster
+      addresses:
+        - localhost:26379
+      password: ${REDIS_SENTINEL_PASSWORD}
+  
+  # Memcached Configuration
+  memcached:
+    servers:
+      - localhost:11211
+    timeout: 5s
+    max_idle_conns: 10
+    pool_size: 100
+  
+  # Multi-tier Configuration
+  multi_tier:
+    l1:
+      driver: memory
+      max_size: 100
+      default_ttl: 5m
+    l2:
+      driver: redis
+      addresses: [localhost:6379]
+    promotion_threshold: 3
+    l1_ttl_ratio: 0.1
+  
+  # Metrics and monitoring
+  metrics:
+    enabled: true
+    hit_rate_window: 1m
+    latency_buckets: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+```
+
+## Cache Manager Interface
+
+The cache extension provides a unified interface for all cache operations:
+
+```go
+type Manager interface {
+    // Basic operations
+    Get(ctx context.Context, key string, dest interface{}) (bool, error)
+    Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    Delete(ctx context.Context, key string) error
+    Exists(ctx context.Context, key string) (bool, error)
+    
+    // Batch operations
+    GetMulti(ctx context.Context, keys []string, dest interface{}) (map[string]bool, error)
+    SetMulti(ctx context.Context, items map[string]CacheItem) error
+    DeleteMulti(ctx context.Context, keys []string) error
+    
+    // Atomic operations
+    Increment(ctx context.Context, key string, delta int64) (int64, error)
+    Decrement(ctx context.Context, key string, delta int64) (int64, error)
+    
+    // Advanced operations
+    SetNX(ctx context.Context, key string, value interface{}, ttl time.Duration) (bool, error)
+    SetEX(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    GetSet(ctx context.Context, key string, value interface{}) (interface{}, error)
+    
+    // Pattern operations
+    Keys(ctx context.Context, pattern string) ([]string, error)
+    DeletePattern(ctx context.Context, pattern string) (int64, error)
+    
+    // TTL operations
+    TTL(ctx context.Context, key string) (time.Duration, error)
+    Expire(ctx context.Context, key string, ttl time.Duration) error
+    Persist(ctx context.Context, key string) error
+    
+    // Pipeline operations (Redis only)
+    Pipeline() Pipeline
+    
+    // Health and stats
+    Health(ctx context.Context) error
+    Stats(ctx context.Context) Stats
+    
+    // Cache invalidation
+    InvalidateTag(ctx context.Context, tag string) error
+    InvalidatePattern(ctx context.Context, pattern string) error
+}
+```
+
+## Advanced Caching Patterns
+
+### Cache-Aside Pattern
+
+```go
+type UserService struct {
+    cache cache.Manager
+    db    database.Manager
+}
+
+func (s *UserService) GetUser(ctx context.Context, userID string) (*User, error) {
+    cacheKey := fmt.Sprintf("user:%s", userID)
+    
+    // Try cache first
+    var user User
+    found, err := s.cache.Get(ctx, cacheKey, &user)
+    if err != nil {
+        // Log cache error but continue with DB
+        s.logger.Error("cache get failed", forge.F("error", err))
+    }
+    
+    if found {
+        return &user, nil
+    }
+    
+    // Load from database
+    user, err = s.db.GetUser(ctx, userID)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Store in cache (fire and forget)
+    go func() {
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        
+        if err := s.cache.Set(ctx, cacheKey, user, time.Hour); err != nil {
+            s.logger.Error("cache set failed", forge.F("error", err))
+        }
+    }()
+    
+    return &user, nil
+}
+```
+
+### Write-Through Pattern
+
+```go
+func (s *UserService) UpdateUser(ctx context.Context, userID string, updates UserUpdates) error {
+    // Update database first
+    user, err := s.db.UpdateUser(ctx, userID, updates)
+    if err != nil {
+        return err
+    }
+    
+    // Update cache
+    cacheKey := fmt.Sprintf("user:%s", userID)
+    if err := s.cache.Set(ctx, cacheKey, user, time.Hour); err != nil {
+        // Log error but don't fail the operation
+        s.logger.Error("cache update failed", forge.F("error", err))
+    }
+    
+    return nil
+}
+```
+
+### Write-Behind Pattern
+
+```go
+type WriteBackCache struct {
+    cache   cache.Manager
+    db      database.Manager
+    queue   chan WriteOperation
+    logger  forge.Logger
+}
+
+func (w *WriteBackCache) Set(ctx context.Context, key string, value interface{}) error {
+    // Write to cache immediately
+    if err := w.cache.Set(ctx, key, value, time.Hour); err != nil {
+        return err
+    }
+    
+    // Queue database write
+    select {
+    case w.queue <- WriteOperation{Key: key, Value: value, Timestamp: time.Now()}:
+        return nil
+    default:
+        // Queue is full, write synchronously
+        return w.writeToDatabase(ctx, key, value)
+    }
+}
+
+func (w *WriteBackCache) processWrites() {
+    for op := range w.queue {
+        ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+        
+        if err := w.writeToDatabase(ctx, op.Key, op.Value); err != nil {
+            w.logger.Error("write-behind failed", 
+                forge.F("key", op.Key),
+                forge.F("error", err),
+            )
+            // Could implement retry logic here
+        }
+        
+        cancel()
+    }
+}
+```
+
+### Cache Warming
+
+```go
+type CacheWarmer struct {
+    cache cache.Manager
+    db    database.Manager
+}
+
+func (w *CacheWarmer) WarmUserCache(ctx context.Context) error {
+    // Get popular users from analytics
+    popularUsers, err := w.getPopularUsers(ctx)
+    if err != nil {
+        return err
+    }
+    
+    // Warm cache in batches
+    batchSize := 100
+    for i := 0; i < len(popularUsers); i += batchSize {
+        end := i + batchSize
+        if end > len(popularUsers) {
+            end = len(popularUsers)
+        }
+        
+        batch := popularUsers[i:end]
+        if err := w.warmBatch(ctx, batch); err != nil {
+            w.logger.Error("cache warming batch failed", forge.F("error", err))
+            continue
+        }
+        
+        // Rate limit to avoid overwhelming the database
+        time.Sleep(100 * time.Millisecond)
+    }
+    
+    return nil
+}
+
+func (w *CacheWarmer) warmBatch(ctx context.Context, userIDs []string) error {
+    users, err := w.db.GetUsersBatch(ctx, userIDs)
+    if err != nil {
+        return err
+    }
+    
+    items := make(map[string]cache.CacheItem)
+    for _, user := range users {
+        key := fmt.Sprintf("user:%s", user.ID)
+        items[key] = cache.CacheItem{
+            Value: user,
+            TTL:   time.Hour,
+        }
+    }
+    
+    return w.cache.SetMulti(ctx, items)
+}
+```
+
+## Cache Invalidation
+
+### Tag-Based Invalidation
+
+```go
+type TaggedCache struct {
+    cache cache.Manager
+}
+
+func (t *TaggedCache) SetWithTags(ctx context.Context, key string, value interface{}, ttl time.Duration, tags []string) error {
+    // Store the main item
+    if err := t.cache.Set(ctx, key, value, ttl); err != nil {
+        return err
+    }
+    
+    // Store tag mappings
+    for _, tag := range tags {
+        tagKey := fmt.Sprintf("tag:%s", tag)
+        
+        // Get existing keys for this tag
+        var keys []string
+        t.cache.Get(ctx, tagKey, &keys)
+        
+        // Add new key
+        keys = append(keys, key)
+        
+        // Store updated tag mapping
+        if err := t.cache.Set(ctx, tagKey, keys, ttl); err != nil {
+            return err
+        }
+    }
+    
+    return nil
+}
+
+func (t *TaggedCache) InvalidateTag(ctx context.Context, tag string) error {
+    tagKey := fmt.Sprintf("tag:%s", tag)
+    
+    // Get all keys for this tag
+    var keys []string
+    found, err := t.cache.Get(ctx, tagKey, &keys)
+    if err != nil || !found {
+        return err
+    }
+    
+    // Delete all tagged keys
+    if err := t.cache.DeleteMulti(ctx, keys); err != nil {
+        return err
+    }
+    
+    // Delete the tag mapping
+    return t.cache.Delete(ctx, tagKey)
+}
+
+// Usage example
+func (s *UserService) UpdateUser(ctx context.Context, userID string, updates UserUpdates) error {
+    user, err := s.db.UpdateUser(ctx, userID, updates)
+    if err != nil {
+        return err
+    }
+    
+    // Invalidate related caches
+    tags := []string{
+        "user:" + userID,
+        "users",
+        "department:" + user.DepartmentID,
+    }
+    
+    for _, tag := range tags {
+        if err := s.taggedCache.InvalidateTag(ctx, tag); err != nil {
+            s.logger.Error("cache invalidation failed", 
+                forge.F("tag", tag),
+                forge.F("error", err),
+            )
+        }
+    }
+    
+    return nil
+}
+```
+
+### Event-Driven Invalidation
+
+```go
+type CacheInvalidator struct {
+    cache  cache.Manager
+    events events.Manager
+}
+
+func (c *CacheInvalidator) Start(ctx context.Context) error {
+    // Subscribe to user update events
+    return c.events.Subscribe(ctx, "user.updated", c.handleUserUpdated)
+}
+
+func (c *CacheInvalidator) handleUserUpdated(ctx context.Context, event events.Event) error {
+    var userEvent UserUpdatedEvent
+    if err := event.Unmarshal(&userEvent); err != nil {
+        return err
+    }
+    
+    // Invalidate user-specific caches
+    patterns := []string{
+        fmt.Sprintf("user:%s*", userEvent.UserID),
+        fmt.Sprintf("profile:%s*", userEvent.UserID),
+        "users:list*", // Invalidate user lists
+    }
+    
+    for _, pattern := range patterns {
+        if err := c.cache.DeletePattern(ctx, pattern); err != nil {
+            c.logger.Error("pattern invalidation failed",
+                forge.F("pattern", pattern),
+                forge.F("error", err),
+            )
+        }
+    }
+    
+    return nil
+}
+```
+
+## Performance Optimization
+
+### Connection Pooling
+
+```go
+// Redis connection pooling
+redisConfig := cache.RedisConfig{
+    Addresses:      []string{"localhost:6379"},
+    PoolSize:       20,              // Maximum number of connections
+    MinIdleConns:   5,               // Minimum idle connections
+    MaxRetries:     3,               // Retry failed operations
+    RetryDelay:     100 * time.Millisecond,
+    DialTimeout:    5 * time.Second,
+    ReadTimeout:    3 * time.Second,
+    WriteTimeout:   3 * time.Second,
+    IdleTimeout:    5 * time.Minute, // Close idle connections
+    MaxConnAge:     30 * time.Minute, // Rotate connections
+}
+```
+
+### Compression and Serialization
+
+```go
+// Configure compression and serialization
+cacheConfig := cache.Config{
+    Serializer:  cache.SerializerMsgPack, // More efficient than JSON
+    Compression: cache.CompressionLZ4,    // Fast compression
+    
+    // Compression threshold - only compress values larger than this
+    CompressionThreshold: 1024, // 1KB
+}
+
+// Custom serializer for specific types
+type CustomUser struct {
+    ID   string `msgpack:"i"`
+    Name string `msgpack:"n"`
+    // Use short field names to reduce serialized size
+}
+```
+
+### Batch Operations
+
+```go
+func (s *UserService) GetUsers(ctx context.Context, userIDs []string) (map[string]*User, error) {
+    // Prepare cache keys
+    cacheKeys := make([]string, len(userIDs))
+    for i, id := range userIDs {
+        cacheKeys[i] = fmt.Sprintf("user:%s", id)
+    }
+    
+    // Batch get from cache
+    var users map[string]*User
+    found, err := s.cache.GetMulti(ctx, cacheKeys, &users)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Find missing users
+    var missingIDs []string
+    for i, id := range userIDs {
+        if !found[cacheKeys[i]] {
+            missingIDs = append(missingIDs, id)
+        }
+    }
+    
+    // Load missing users from database
+    if len(missingIDs) > 0 {
+        missingUsers, err := s.db.GetUsersBatch(ctx, missingIDs)
+        if err != nil {
+            return nil, err
+        }
+        
+        // Batch set to cache
+        items := make(map[string]cache.CacheItem)
+        for _, user := range missingUsers {
+            key := fmt.Sprintf("user:%s", user.ID)
+            items[key] = cache.CacheItem{
+                Value: user,
+                TTL:   time.Hour,
+            }
+            users[key] = user
+        }
+        
+        if err := s.cache.SetMulti(ctx, items); err != nil {
+            s.logger.Error("batch cache set failed", forge.F("error", err))
+        }
+    }
+    
+    return users, nil
+}
+```
+
+## Monitoring and Metrics
+
+### Cache Metrics
+
+```go
+type CacheMetrics struct {
+    HitRate     float64 `json:"hit_rate"`
+    MissRate    float64 `json:"miss_rate"`
+    Operations  int64   `json:"operations"`
+    Hits        int64   `json:"hits"`
+    Misses      int64   `json:"misses"`
+    Errors      int64   `json:"errors"`
+    AvgLatency  float64 `json:"avg_latency_ms"`
+    P95Latency  float64 `json:"p95_latency_ms"`
+    P99Latency  float64 `json:"p99_latency_ms"`
+    KeyCount    int64   `json:"key_count"`
+    MemoryUsage int64   `json:"memory_usage_bytes"`
+}
+
+// Get cache statistics
+func getCacheStats(ctx forge.Context) error {
+    cacheManager := forge.GetService[cache.Manager](app.Container())
+    
+    stats, err := cacheManager.Stats(ctx)
+    if err != nil {
+        return err
+    }
+    
+    return ctx.JSON(200, stats)
+}
+```
+
+### Health Checks
+
+```go
+func (c *CacheExtension) Health(ctx context.Context) error {
+    // Test basic operations
+    testKey := "health_check:" + uuid.New().String()
+    testValue := "ok"
+    
+    // Test set
+    if err := c.manager.Set(ctx, testKey, testValue, time.Minute); err != nil {
+        return fmt.Errorf("cache set failed: %w", err)
+    }
+    
+    // Test get
+    var result string
+    found, err := c.manager.Get(ctx, testKey, &result)
+    if err != nil {
+        return fmt.Errorf("cache get failed: %w", err)
+    }
+    
+    if !found || result != testValue {
+        return errors.New("cache get returned incorrect value")
+    }
+    
+    // Test delete
+    if err := c.manager.Delete(ctx, testKey); err != nil {
+        return fmt.Errorf("cache delete failed: %w", err)
+    }
+    
+    return nil
+}
+```
+
+## Testing
+
+The cache extension provides comprehensive testing utilities:
+
+```go
+func TestCacheOperations(t *testing.T) {
+    app := forge.NewTestApp(t, forge.TestConfig{
+        Extensions: []forge.Extension{
+            cache.NewExtension(
+                cache.WithInMemory(cache.InMemoryConfig{
+                    MaxSize: 100,
+                }),
+            ),
+        },
+    })
+    
+    cacheManager := forge.GetService[cache.Manager](app.Container())
+    ctx := context.Background()
+    
+    // Test basic operations
+    t.Run("set and get", func(t *testing.T) {
+        key := "test_key"
+        value := "test_value"
+        
+        err := cacheManager.Set(ctx, key, value, time.Hour)
+        require.NoError(t, err)
+        
+        var result string
+        found, err := cacheManager.Get(ctx, key, &result)
+        require.NoError(t, err)
+        require.True(t, found)
+        require.Equal(t, value, result)
+    })
+    
+    // Test TTL
+    t.Run("ttl expiration", func(t *testing.T) {
+        key := "ttl_key"
+        value := "ttl_value"
+        
+        err := cacheManager.Set(ctx, key, value, 100*time.Millisecond)
+        require.NoError(t, err)
+        
+        // Should exist immediately
+        exists, err := cacheManager.Exists(ctx, key)
+        require.NoError(t, err)
+        require.True(t, exists)
+        
+        // Should expire after TTL
+        time.Sleep(150 * time.Millisecond)
+        exists, err = cacheManager.Exists(ctx, key)
+        require.NoError(t, err)
+        require.False(t, exists)
+    })
+}
+
+// Mock cache for testing
+func TestWithMockCache(t *testing.T) {
+    mockCache := cache.NewMockManager()
+    
+    // Set up expectations
+    mockCache.EXPECT().
+        Get(gomock.Any(), "user:123", gomock.Any()).
+        Return(false, nil) // Cache miss
+    
+    mockCache.EXPECT().
+        Set(gomock.Any(), "user:123", gomock.Any(), time.Hour).
+        Return(nil)
+    
+    service := &UserService{cache: mockCache}
+    
+    user, err := service.GetUser(context.Background(), "123")
+    require.NoError(t, err)
+    require.NotNil(t, user)
+}
+```
+
+## Best Practices
+
+<Callout type="info">
+Follow these best practices to maximize cache performance and reliability.
+</Callout>
+
+### Cache Key Design
+
+- **Consistent Naming**: Use consistent key naming patterns
+- **Hierarchical Keys**: Use colons for hierarchy (e.g., `user:123:profile`)
+- **Avoid Special Characters**: Stick to alphanumeric characters and common separators
+- **Key Length**: Keep keys reasonably short but descriptive
+- **Versioning**: Include version numbers for schema changes
+
+### TTL Strategy
+
+- **Appropriate TTLs**: Set TTLs based on data volatility
+- **Jitter**: Add random jitter to prevent thundering herd
+- **Refresh Ahead**: Refresh cache before expiration for hot data
+- **Graceful Degradation**: Handle cache failures gracefully
+
+### Error Handling
+
+- **Fail Open**: Continue serving requests even if cache fails
+- **Circuit Breaker**: Implement circuit breakers for cache operations
+- **Retry Logic**: Implement exponential backoff for retries
+- **Monitoring**: Monitor cache hit rates and error rates
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="🗄️ Database Extension"
+    description="Integrate caching with database operations"
+    href="/docs/extensions/database"
+  />
+  <Card
+    title="📡 Events Extension"
+    description="Implement cache invalidation with events"
+    href="/docs/extensions/events"
+  />
+  <Card
+    title="📊 Observability"
+    description="Monitor cache performance and health"
+    href="/docs/guides/observability"
+  />
+  <Card
+    title="🚀 Performance Guide"
+    description="Optimize application performance with caching"
+    href="/docs/guides/performance"
+  />
+</Cards>

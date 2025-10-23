@@ -1,0 +1,1355 @@
+---
+title: gRPC Extension
+description: High-performance gRPC server with Protocol Buffers, streaming, and advanced features
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+The gRPC Extension provides a complete gRPC server implementation with Protocol Buffers support, streaming capabilities, interceptors, and comprehensive tooling for building high-performance microservices.
+
+## Key Features
+
+<Cards>
+  <Card
+    title="🚀 High Performance"
+    description="HTTP/2-based communication with binary serialization"
+  />
+  <Card
+    title="📋 Protocol Buffers"
+    description="Strongly-typed service definitions with code generation"
+  />
+  <Card
+    title="🌊 Streaming"
+    description="Unary, server streaming, client streaming, and bidirectional streaming"
+  />
+  <Card
+    title="🔌 Interceptors"
+    description="Middleware for authentication, logging, metrics, and more"
+  />
+  <Card
+    title="🔍 Reflection"
+    description="Server reflection for dynamic client discovery"
+  />
+  <Card
+    title="🛡️ Security"
+    description="TLS encryption, authentication, and authorization"
+  />
+</Cards>
+
+## Installation
+
+```bash
+go get github.com/xraph/forge/extensions/grpc
+go get google.golang.org/grpc
+go get google.golang.org/protobuf
+```
+
+## Protocol Buffer Setup
+
+First, define your service using Protocol Buffers:
+
+```protobuf
+// user.proto
+syntax = "proto3";
+
+package user.v1;
+
+option go_package = "github.com/myorg/myapp/gen/user/v1;userv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// User service definition
+service UserService {
+  // Unary RPC
+  rpc GetUser(GetUserRequest) returns (GetUserResponse);
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
+  rpc DeleteUser(DeleteUserRequest) returns (google.protobuf.Empty);
+  
+  // Server streaming RPC
+  rpc ListUsers(ListUsersRequest) returns (stream User);
+  rpc WatchUser(WatchUserRequest) returns (stream UserEvent);
+  
+  // Client streaming RPC
+  rpc CreateUsers(stream CreateUserRequest) returns (CreateUsersResponse);
+  
+  // Bidirectional streaming RPC
+  rpc ChatWithUsers(stream ChatMessage) returns (stream ChatMessage);
+}
+
+// Message definitions
+message User {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  bool email_verified = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string name = 2;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message UpdateUserRequest {
+  string id = 1;
+  optional string email = 2;
+  optional string name = 3;
+}
+
+message UpdateUserResponse {
+  User user = 1;
+}
+
+message DeleteUserRequest {
+  string id = 1;
+}
+
+message ListUsersRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  string filter = 3;
+}
+
+message CreateUsersResponse {
+  repeated User users = 1;
+  int32 created_count = 2;
+}
+
+message WatchUserRequest {
+  string user_id = 1;
+}
+
+message UserEvent {
+  enum EventType {
+    CREATED = 0;
+    UPDATED = 1;
+    DELETED = 2;
+  }
+  
+  EventType type = 1;
+  User user = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message ChatMessage {
+  string user_id = 1;
+  string message = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+```
+
+Generate Go code from the proto file:
+
+```bash
+# Install protoc compiler and Go plugins
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Generate Go code
+protoc --go_out=. --go_opt=paths=source_relative \
+       --go-grpc_out=. --go-grpc_opt=paths=source_relative \
+       user.proto
+```
+
+## Basic Usage
+
+<Tabs items={['Server Setup', 'Unary RPC', 'Server Streaming', 'Client Streaming', 'Bidirectional Streaming']}>
+  <Tab value="Server Setup">
+    ```go
+    package main
+    
+    import (
+        "context"
+        "github.com/xraph/forge/v2"
+        "github.com/xraph/forge/v2/extensions/grpc"
+        "github.com/xraph/forge/v2/extensions/database"
+        userv1 "github.com/myorg/myapp/gen/user/v1"
+    )
+    
+    func main() {
+        app := forge.NewApp(forge.AppConfig{
+            Name: "grpc-service",
+        })
+        
+        // Register database extension
+        app.RegisterExtension(database.NewExtension(
+            database.WithPostgreSQL("postgres://localhost/mydb"),
+        ))
+        
+        // Register gRPC extension
+        app.RegisterExtension(grpc.NewExtension(
+            grpc.WithPort(9090),
+            grpc.WithReflection(true),
+            grpc.WithHealthCheck(true),
+            grpc.WithTLS("server.crt", "server.key"),
+            grpc.WithInterceptors(
+                grpc.LoggingInterceptor(),
+                grpc.MetricsInterceptor(),
+                grpc.AuthInterceptor(),
+                grpc.RecoveryInterceptor(),
+            ),
+        ))
+        
+        // Get gRPC server
+        server := forge.GetService[*grpc.Server](app.Container())
+        
+        // Register service implementation
+        userService := &UserServiceImpl{
+            db: forge.GetService[database.Manager](app.Container()),
+        }
+        
+        userv1.RegisterUserServiceServer(server.GRPCServer(), userService)
+        
+        app.Run()
+    }
+    
+    // Service implementation
+    type UserServiceImpl struct {
+        userv1.UnimplementedUserServiceServer
+        db database.Manager
+    }
+    ```
+  </Tab>
+  <Tab value="Unary RPC">
+    ```go
+    // Unary RPC implementations
+    func (s *UserServiceImpl) GetUser(ctx context.Context, req *userv1.GetUserRequest) (*userv1.GetUserResponse, error) {
+        // Validate request
+        if req.Id == "" {
+            return nil, status.Error(codes.InvalidArgument, "user ID is required")
+        }
+        
+        // Query database
+        var user User
+        err := s.db.QueryRow(ctx,
+            "SELECT id, email, name, email_verified, created_at, updated_at FROM users WHERE id = $1",
+            req.Id,
+        ).Scan(&user.ID, &user.Email, &user.Name, &user.EmailVerified, &user.CreatedAt, &user.UpdatedAt)
+        
+        if err != nil {
+            if err == sql.ErrNoRows {
+                return nil, status.Error(codes.NotFound, "user not found")
+            }
+            return nil, status.Error(codes.Internal, "database error")
+        }
+        
+        // Convert to protobuf
+        pbUser := &userv1.User{
+            Id:            user.ID,
+            Email:         user.Email,
+            Name:          user.Name,
+            EmailVerified: user.EmailVerified,
+            CreatedAt:     timestamppb.New(user.CreatedAt),
+            UpdatedAt:     timestamppb.New(user.UpdatedAt),
+        }
+        
+        return &userv1.GetUserResponse{
+            User: pbUser,
+        }, nil
+    }
+    
+    func (s *UserServiceImpl) CreateUser(ctx context.Context, req *userv1.CreateUserRequest) (*userv1.CreateUserResponse, error) {
+        // Validate request
+        if req.Email == "" {
+            return nil, status.Error(codes.InvalidArgument, "email is required")
+        }
+        if req.Name == "" {
+            return nil, status.Error(codes.InvalidArgument, "name is required")
+        }
+        
+        // Validate email format
+        if !isValidEmail(req.Email) {
+            return nil, status.Error(codes.InvalidArgument, "invalid email format")
+        }
+        
+        // Create user
+        user := User{
+            ID:            uuid.New().String(),
+            Email:         req.Email,
+            Name:          req.Name,
+            EmailVerified: false,
+            CreatedAt:     time.Now(),
+            UpdatedAt:     time.Now(),
+        }
+        
+        // Insert into database
+        _, err := s.db.Exec(ctx,
+            "INSERT INTO users (id, email, name, email_verified, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)",
+            user.ID, user.Email, user.Name, user.EmailVerified, user.CreatedAt, user.UpdatedAt,
+        )
+        if err != nil {
+            if isDuplicateKeyError(err) {
+                return nil, status.Error(codes.AlreadyExists, "user with this email already exists")
+            }
+            return nil, status.Error(codes.Internal, "failed to create user")
+        }
+        
+        // Convert to protobuf
+        pbUser := &userv1.User{
+            Id:            user.ID,
+            Email:         user.Email,
+            Name:          user.Name,
+            EmailVerified: user.EmailVerified,
+            CreatedAt:     timestamppb.New(user.CreatedAt),
+            UpdatedAt:     timestamppb.New(user.UpdatedAt),
+        }
+        
+        return &userv1.CreateUserResponse{
+            User: pbUser,
+        }, nil
+    }
+    
+    func (s *UserServiceImpl) UpdateUser(ctx context.Context, req *userv1.UpdateUserRequest) (*userv1.UpdateUserResponse, error) {
+        if req.Id == "" {
+            return nil, status.Error(codes.InvalidArgument, "user ID is required")
+        }
+        
+        // Build dynamic update query
+        setParts := []string{}
+        args := []interface{}{}
+        argIndex := 1
+        
+        if req.Email != nil {
+            if !isValidEmail(*req.Email) {
+                return nil, status.Error(codes.InvalidArgument, "invalid email format")
+            }
+            setParts = append(setParts, fmt.Sprintf("email = $%d", argIndex))
+            args = append(args, *req.Email)
+            argIndex++
+        }
+        
+        if req.Name != nil {
+            setParts = append(setParts, fmt.Sprintf("name = $%d", argIndex))
+            args = append(args, *req.Name)
+            argIndex++
+        }
+        
+        if len(setParts) == 0 {
+            return nil, status.Error(codes.InvalidArgument, "no fields to update")
+        }
+        
+        // Add updated_at
+        setParts = append(setParts, fmt.Sprintf("updated_at = $%d", argIndex))
+        args = append(args, time.Now())
+        argIndex++
+        
+        // Add WHERE clause
+        args = append(args, req.Id)
+        
+        query := fmt.Sprintf(
+            "UPDATE users SET %s WHERE id = $%d RETURNING id, email, name, email_verified, created_at, updated_at",
+            strings.Join(setParts, ", "), argIndex,
+        )
+        
+        var user User
+        err := s.db.QueryRow(ctx, query, args...).Scan(
+            &user.ID, &user.Email, &user.Name, &user.EmailVerified, &user.CreatedAt, &user.UpdatedAt,
+        )
+        if err != nil {
+            if err == sql.ErrNoRows {
+                return nil, status.Error(codes.NotFound, "user not found")
+            }
+            return nil, status.Error(codes.Internal, "failed to update user")
+        }
+        
+        pbUser := &userv1.User{
+            Id:            user.ID,
+            Email:         user.Email,
+            Name:          user.Name,
+            EmailVerified: user.EmailVerified,
+            CreatedAt:     timestamppb.New(user.CreatedAt),
+            UpdatedAt:     timestamppb.New(user.UpdatedAt),
+        }
+        
+        return &userv1.UpdateUserResponse{
+            User: pbUser,
+        }, nil
+    }
+    
+    func (s *UserServiceImpl) DeleteUser(ctx context.Context, req *userv1.DeleteUserRequest) (*emptypb.Empty, error) {
+        if req.Id == "" {
+            return nil, status.Error(codes.InvalidArgument, "user ID is required")
+        }
+        
+        result, err := s.db.Exec(ctx, "DELETE FROM users WHERE id = $1", req.Id)
+        if err != nil {
+            return nil, status.Error(codes.Internal, "failed to delete user")
+        }
+        
+        rowsAffected, err := result.RowsAffected()
+        if err != nil {
+            return nil, status.Error(codes.Internal, "failed to check delete result")
+        }
+        
+        if rowsAffected == 0 {
+            return nil, status.Error(codes.NotFound, "user not found")
+        }
+        
+        return &emptypb.Empty{}, nil
+    }
+    ```
+  </Tab>
+  <Tab value="Server Streaming">
+    ```go
+    // Server streaming RPC
+    func (s *UserServiceImpl) ListUsers(req *userv1.ListUsersRequest, stream userv1.UserService_ListUsersServer) error {
+        ctx := stream.Context()
+        
+        // Set default page size
+        pageSize := req.PageSize
+        if pageSize <= 0 || pageSize > 100 {
+            pageSize = 50
+        }
+        
+        // Build query with optional filter
+        query := "SELECT id, email, name, email_verified, created_at, updated_at FROM users"
+        args := []interface{}{}
+        argIndex := 1
+        
+        if req.Filter != "" {
+            query += " WHERE name ILIKE $" + strconv.Itoa(argIndex) + " OR email ILIKE $" + strconv.Itoa(argIndex)
+            args = append(args, "%"+req.Filter+"%")
+            argIndex++
+        }
+        
+        query += " ORDER BY created_at DESC LIMIT $" + strconv.Itoa(argIndex)
+        args = append(args, pageSize)
+        
+        // Handle pagination
+        if req.PageToken != "" {
+            // Decode page token (could be base64 encoded timestamp or ID)
+            offset, err := decodePaginationToken(req.PageToken)
+            if err != nil {
+                return status.Error(codes.InvalidArgument, "invalid page token")
+            }
+            query += " OFFSET $" + strconv.Itoa(argIndex+1)
+            args = append(args, offset)
+        }
+        
+        rows, err := s.db.Query(ctx, query, args...)
+        if err != nil {
+            return status.Error(codes.Internal, "database query failed")
+        }
+        defer rows.Close()
+        
+        // Stream users one by one
+        for rows.Next() {
+            // Check if client cancelled
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            default:
+            }
+            
+            var user User
+            err := rows.Scan(&user.ID, &user.Email, &user.Name, &user.EmailVerified, &user.CreatedAt, &user.UpdatedAt)
+            if err != nil {
+                return status.Error(codes.Internal, "failed to scan user")
+            }
+            
+            pbUser := &userv1.User{
+                Id:            user.ID,
+                Email:         user.Email,
+                Name:          user.Name,
+                EmailVerified: user.EmailVerified,
+                CreatedAt:     timestamppb.New(user.CreatedAt),
+                UpdatedAt:     timestamppb.New(user.UpdatedAt),
+            }
+            
+            if err := stream.Send(pbUser); err != nil {
+                return status.Error(codes.Internal, "failed to send user")
+            }
+        }
+        
+        return nil
+    }
+    
+    func (s *UserServiceImpl) WatchUser(req *userv1.WatchUserRequest, stream userv1.UserService_WatchUserServer) error {
+        ctx := stream.Context()
+        
+        if req.UserId == "" {
+            return status.Error(codes.InvalidArgument, "user ID is required")
+        }
+        
+        // Subscribe to user events (using events extension)
+        eventBus := forge.GetService[events.Bus](forge.GetContainer(ctx))
+        
+        // Create event channel
+        eventCh := make(chan events.Event, 10)
+        
+        // Subscribe to user events
+        err := eventBus.Subscribe(ctx, fmt.Sprintf("user.%s.*", req.UserId), 
+            func(ctx context.Context, event events.Event) error {
+                select {
+                case eventCh <- event:
+                case <-ctx.Done():
+                    return ctx.Err()
+                }
+                return nil
+            },
+        )
+        if err != nil {
+            return status.Error(codes.Internal, "failed to subscribe to events")
+        }
+        
+        // Send initial user state
+        user, err := s.GetUser(ctx, &userv1.GetUserRequest{Id: req.UserId})
+        if err != nil {
+            return err
+        }
+        
+        initialEvent := &userv1.UserEvent{
+            Type:      userv1.UserEvent_CREATED,
+            User:      user.User,
+            Timestamp: timestamppb.Now(),
+        }
+        
+        if err := stream.Send(initialEvent); err != nil {
+            return status.Error(codes.Internal, "failed to send initial event")
+        }
+        
+        // Stream events
+        for {
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            case event := <-eventCh:
+                userEvent, err := s.convertToUserEvent(event)
+                if err != nil {
+                    continue // Skip invalid events
+                }
+                
+                if err := stream.Send(userEvent); err != nil {
+                    return status.Error(codes.Internal, "failed to send event")
+                }
+            }
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Client Streaming">
+    ```go
+    // Client streaming RPC
+    func (s *UserServiceImpl) CreateUsers(stream userv1.UserService_CreateUsersServer) error {
+        ctx := stream.Context()
+        
+        var users []*userv1.User
+        var createdCount int32
+        
+        // Start database transaction
+        tx, err := s.db.Begin(ctx)
+        if err != nil {
+            return status.Error(codes.Internal, "failed to start transaction")
+        }
+        defer tx.Rollback()
+        
+        for {
+            // Receive user creation request
+            req, err := stream.Recv()
+            if err == io.EOF {
+                // Client finished sending
+                break
+            }
+            if err != nil {
+                return status.Error(codes.Internal, "failed to receive request")
+            }
+            
+            // Validate request
+            if req.Email == "" {
+                return status.Error(codes.InvalidArgument, "email is required")
+            }
+            if req.Name == "" {
+                return status.Error(codes.InvalidArgument, "name is required")
+            }
+            if !isValidEmail(req.Email) {
+                return status.Error(codes.InvalidArgument, "invalid email format")
+            }
+            
+            // Create user
+            user := User{
+                ID:            uuid.New().String(),
+                Email:         req.Email,
+                Name:          req.Name,
+                EmailVerified: false,
+                CreatedAt:     time.Now(),
+                UpdatedAt:     time.Now(),
+            }
+            
+            // Insert into database (within transaction)
+            _, err = tx.Exec(ctx,
+                "INSERT INTO users (id, email, name, email_verified, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)",
+                user.ID, user.Email, user.Name, user.EmailVerified, user.CreatedAt, user.UpdatedAt,
+            )
+            if err != nil {
+                if isDuplicateKeyError(err) {
+                    return status.Error(codes.AlreadyExists, fmt.Sprintf("user with email %s already exists", req.Email))
+                }
+                return status.Error(codes.Internal, "failed to create user")
+            }
+            
+            // Convert to protobuf
+            pbUser := &userv1.User{
+                Id:            user.ID,
+                Email:         user.Email,
+                Name:          user.Name,
+                EmailVerified: user.EmailVerified,
+                CreatedAt:     timestamppb.New(user.CreatedAt),
+                UpdatedAt:     timestamppb.New(user.UpdatedAt),
+            }
+            
+            users = append(users, pbUser)
+            createdCount++
+            
+            // Check context cancellation
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            default:
+            }
+        }
+        
+        // Commit transaction
+        if err := tx.Commit(); err != nil {
+            return status.Error(codes.Internal, "failed to commit transaction")
+        }
+        
+        // Send response
+        response := &userv1.CreateUsersResponse{
+            Users:        users,
+            CreatedCount: createdCount,
+        }
+        
+        return stream.SendAndClose(response)
+    }
+    ```
+  </Tab>
+  <Tab value="Bidirectional Streaming">
+    ```go
+    // Bidirectional streaming RPC
+    func (s *UserServiceImpl) ChatWithUsers(stream userv1.UserService_ChatWithUsersServer) error {
+        ctx := stream.Context()
+        
+        // Create channels for handling concurrent send/receive
+        receiveCh := make(chan *userv1.ChatMessage, 10)
+        sendCh := make(chan *userv1.ChatMessage, 10)
+        errCh := make(chan error, 2)
+        
+        // Goroutine for receiving messages from client
+        go func() {
+            defer close(receiveCh)
+            for {
+                msg, err := stream.Recv()
+                if err == io.EOF {
+                    return
+                }
+                if err != nil {
+                    errCh <- err
+                    return
+                }
+                
+                select {
+                case receiveCh <- msg:
+                case <-ctx.Done():
+                    return
+                }
+            }
+        }()
+        
+        // Goroutine for sending messages to client
+        go func() {
+            for {
+                select {
+                case msg := <-sendCh:
+                    if err := stream.Send(msg); err != nil {
+                        errCh <- err
+                        return
+                    }
+                case <-ctx.Done():
+                    return
+                }
+            }
+        }()
+        
+        // Subscribe to chat events
+        eventBus := forge.GetService[events.Bus](forge.GetContainer(ctx))
+        err := eventBus.Subscribe(ctx, "chat.*", 
+            func(ctx context.Context, event events.Event) error {
+                var chatEvent ChatEvent
+                if err := event.Unmarshal(&chatEvent); err != nil {
+                    return err
+                }
+                
+                msg := &userv1.ChatMessage{
+                    UserId:    chatEvent.UserID,
+                    Message:   chatEvent.Message,
+                    Timestamp: timestamppb.New(chatEvent.Timestamp),
+                }
+                
+                select {
+                case sendCh <- msg:
+                case <-ctx.Done():
+                    return ctx.Err()
+                }
+                
+                return nil
+            },
+        )
+        if err != nil {
+            return status.Error(codes.Internal, "failed to subscribe to chat events")
+        }
+        
+        // Main message processing loop
+        for {
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+                
+            case err := <-errCh:
+                return err
+                
+            case msg := <-receiveCh:
+                if msg == nil {
+                    // Client closed the stream
+                    return nil
+                }
+                
+                // Validate message
+                if msg.UserId == "" {
+                    return status.Error(codes.InvalidArgument, "user ID is required")
+                }
+                if msg.Message == "" {
+                    return status.Error(codes.InvalidArgument, "message is required")
+                }
+                
+                // Process the message (store in database, broadcast to other users, etc.)
+                chatEvent := ChatEvent{
+                    ID:        uuid.New().String(),
+                    UserID:    msg.UserId,
+                    Message:   msg.Message,
+                    Timestamp: time.Now(),
+                }
+                
+                // Store message in database
+                _, err := s.db.Exec(ctx,
+                    "INSERT INTO chat_messages (id, user_id, message, timestamp) VALUES ($1, $2, $3, $4)",
+                    chatEvent.ID, chatEvent.UserID, chatEvent.Message, chatEvent.Timestamp,
+                )
+                if err != nil {
+                    return status.Error(codes.Internal, "failed to store message")
+                }
+                
+                // Publish event for other subscribers
+                event := events.NewEvent("chat.message", chatEvent)
+                if err := eventBus.Publish(ctx, event); err != nil {
+                    // Log error but don't fail the stream
+                    log.Error("failed to publish chat event", "error", err)
+                }
+                
+                // Echo the message back to confirm receipt
+                echoMsg := &userv1.ChatMessage{
+                    UserId:    "system",
+                    Message:   fmt.Sprintf("Message received: %s", msg.Message),
+                    Timestamp: timestamppb.Now(),
+                }
+                
+                select {
+                case sendCh <- echoMsg:
+                case <-ctx.Done():
+                    return ctx.Err()
+                }
+            }
+        }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### YAML Configuration
+
+```yaml
+grpc:
+  # Server configuration
+  port: 9090
+  host: 0.0.0.0
+  
+  # TLS configuration
+  tls:
+    enabled: true
+    cert_file: /path/to/server.crt
+    key_file: /path/to/server.key
+    ca_file: /path/to/ca.crt
+    client_auth: require_and_verify_client_cert
+  
+  # Server options
+  max_receive_message_size: 4194304 # 4MB
+  max_send_message_size: 4194304    # 4MB
+  max_concurrent_streams: 1000
+  keepalive:
+    time: 30s
+    timeout: 5s
+    enforcement_policy:
+      min_time: 5s
+      permit_without_stream: false
+  
+  # Reflection
+  reflection:
+    enabled: true
+  
+  # Health check
+  health_check:
+    enabled: true
+    service_map:
+      "": serving
+      "user.v1.UserService": serving
+  
+  # Interceptors
+  interceptors:
+    # Logging
+    logging:
+      enabled: true
+      log_calls: true
+      log_payload: false
+      log_payload_on_error: true
+    
+    # Metrics
+    metrics:
+      enabled: true
+      histogram_buckets: [0.001, 0.01, 0.1, 0.3, 0.6, 1, 3, 6, 9, 20, 30, 60, 90, 120]
+    
+    # Authentication
+    auth:
+      enabled: true
+      jwt:
+        secret: ${JWT_SECRET}
+        issuer: myapp
+        audience: grpc-api
+      
+      # Method-level auth configuration
+      methods:
+        "/user.v1.UserService/GetUser": 
+          auth_required: true
+          roles: [user, admin]
+        "/user.v1.UserService/CreateUser":
+          auth_required: false
+        "/user.v1.UserService/DeleteUser":
+          auth_required: true
+          roles: [admin]
+    
+    # Rate limiting
+    rate_limit:
+      enabled: true
+      requests_per_second: 100
+      burst: 200
+      per_method:
+        "/user.v1.UserService/CreateUser": 10
+        "/user.v1.UserService/DeleteUser": 5
+    
+    # Recovery
+    recovery:
+      enabled: true
+      log_panics: true
+    
+    # Validation
+    validation:
+      enabled: true
+    
+    # Tracing
+    tracing:
+      enabled: true
+      service_name: user-service
+      jaeger:
+        endpoint: http://localhost:14268/api/traces
+  
+  # Gateway (gRPC-Gateway for REST API)
+  gateway:
+    enabled: true
+    port: 8080
+    cors:
+      enabled: true
+      allowed_origins: ["*"]
+      allowed_methods: [GET, POST, PUT, DELETE, OPTIONS]
+      allowed_headers: [Content-Type, Authorization]
+```
+
+## Interceptors
+
+gRPC interceptors provide middleware functionality for cross-cutting concerns:
+
+```go
+// Custom authentication interceptor
+func AuthInterceptor(secret string) grpc.UnaryServerInterceptor {
+    return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+        // Skip auth for certain methods
+        if isPublicMethod(info.FullMethod) {
+            return handler(ctx, req)
+        }
+        
+        // Extract token from metadata
+        md, ok := metadata.FromIncomingContext(ctx)
+        if !ok {
+            return nil, status.Error(codes.Unauthenticated, "missing metadata")
+        }
+        
+        tokens := md.Get("authorization")
+        if len(tokens) == 0 {
+            return nil, status.Error(codes.Unauthenticated, "missing authorization token")
+        }
+        
+        token := tokens[0]
+        if !strings.HasPrefix(token, "Bearer ") {
+            return nil, status.Error(codes.Unauthenticated, "invalid token format")
+        }
+        
+        // Validate JWT token
+        claims, err := validateJWT(strings.TrimPrefix(token, "Bearer "), secret)
+        if err != nil {
+            return nil, status.Error(codes.Unauthenticated, "invalid token")
+        }
+        
+        // Add user to context
+        ctx = context.WithValue(ctx, "user", claims)
+        
+        return handler(ctx, req)
+    }
+}
+
+// Custom logging interceptor
+func LoggingInterceptor(logger *slog.Logger) grpc.UnaryServerInterceptor {
+    return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+        start := time.Now()
+        
+        // Extract request ID from metadata
+        requestID := extractRequestID(ctx)
+        
+        logger.Info("gRPC request started",
+            slog.String("method", info.FullMethod),
+            slog.String("request_id", requestID),
+        )
+        
+        resp, err := handler(ctx, req)
+        
+        duration := time.Since(start)
+        
+        if err != nil {
+            logger.Error("gRPC request failed",
+                slog.String("method", info.FullMethod),
+                slog.String("request_id", requestID),
+                slog.Duration("duration", duration),
+                slog.String("error", err.Error()),
+            )
+        } else {
+            logger.Info("gRPC request completed",
+                slog.String("method", info.FullMethod),
+                slog.String("request_id", requestID),
+                slog.Duration("duration", duration),
+            )
+        }
+        
+        return resp, err
+    }
+}
+
+// Custom metrics interceptor
+func MetricsInterceptor(metrics *prometheus.Registry) grpc.UnaryServerInterceptor {
+    requestsTotal := prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "grpc_requests_total",
+            Help: "Total number of gRPC requests",
+        },
+        []string{"method", "status"},
+    )
+    
+    requestDuration := prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "grpc_request_duration_seconds",
+            Help:    "Duration of gRPC requests",
+            Buckets: prometheus.DefBuckets,
+        },
+        []string{"method"},
+    )
+    
+    metrics.MustRegister(requestsTotal, requestDuration)
+    
+    return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+        start := time.Now()
+        
+        resp, err := handler(ctx, req)
+        
+        duration := time.Since(start)
+        
+        status := "success"
+        if err != nil {
+            status = "error"
+        }
+        
+        requestsTotal.WithLabelValues(info.FullMethod, status).Inc()
+        requestDuration.WithLabelValues(info.FullMethod).Observe(duration.Seconds())
+        
+        return resp, err
+    }
+}
+
+// Streaming interceptors
+func StreamingAuthInterceptor(secret string) grpc.StreamServerInterceptor {
+    return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+        // Similar to unary interceptor but for streaming
+        ctx := stream.Context()
+        
+        if !isPublicMethod(info.FullMethod) {
+            // Validate authentication
+            if err := validateStreamAuth(ctx, secret); err != nil {
+                return err
+            }
+        }
+        
+        return handler(srv, stream)
+    }
+}
+```
+
+## Client Usage
+
+```go
+// gRPC client example
+func createGRPCClient() {
+    // Connect to server
+    conn, err := grpc.Dial("localhost:9090", 
+        grpc.WithTransportCredentials(insecure.NewCredentials()),
+        grpc.WithUnaryInterceptor(clientLoggingInterceptor()),
+        grpc.WithStreamInterceptor(clientStreamingInterceptor()),
+    )
+    if err != nil {
+        log.Fatal("failed to connect:", err)
+    }
+    defer conn.Close()
+    
+    client := userv1.NewUserServiceClient(conn)
+    ctx := context.Background()
+    
+    // Add authentication metadata
+    ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
+    
+    // Unary call
+    user, err := client.GetUser(ctx, &userv1.GetUserRequest{
+        Id: "user-123",
+    })
+    if err != nil {
+        log.Fatal("GetUser failed:", err)
+    }
+    fmt.Printf("User: %+v\n", user.User)
+    
+    // Server streaming
+    stream, err := client.ListUsers(ctx, &userv1.ListUsersRequest{
+        PageSize: 10,
+        Filter:   "john",
+    })
+    if err != nil {
+        log.Fatal("ListUsers failed:", err)
+    }
+    
+    for {
+        user, err := stream.Recv()
+        if err == io.EOF {
+            break
+        }
+        if err != nil {
+            log.Fatal("stream error:", err)
+        }
+        fmt.Printf("User: %+v\n", user)
+    }
+    
+    // Client streaming
+    createStream, err := client.CreateUsers(ctx)
+    if err != nil {
+        log.Fatal("CreateUsers failed:", err)
+    }
+    
+    users := []*userv1.CreateUserRequest{
+        {Email: "user1@example.com", Name: "User 1"},
+        {Email: "user2@example.com", Name: "User 2"},
+        {Email: "user3@example.com", Name: "User 3"},
+    }
+    
+    for _, user := range users {
+        if err := createStream.Send(user); err != nil {
+            log.Fatal("send error:", err)
+        }
+    }
+    
+    response, err := createStream.CloseAndRecv()
+    if err != nil {
+        log.Fatal("close error:", err)
+    }
+    fmt.Printf("Created %d users\n", response.CreatedCount)
+    
+    // Bidirectional streaming
+    chatStream, err := client.ChatWithUsers(ctx)
+    if err != nil {
+        log.Fatal("ChatWithUsers failed:", err)
+    }
+    
+    // Send messages
+    go func() {
+        messages := []string{"Hello", "How are you?", "Goodbye"}
+        for _, msg := range messages {
+            err := chatStream.Send(&userv1.ChatMessage{
+                UserId:    "user-123",
+                Message:   msg,
+                Timestamp: timestamppb.Now(),
+            })
+            if err != nil {
+                log.Printf("send error: %v", err)
+                return
+            }
+            time.Sleep(time.Second)
+        }
+        chatStream.CloseSend()
+    }()
+    
+    // Receive messages
+    for {
+        msg, err := chatStream.Recv()
+        if err == io.EOF {
+            break
+        }
+        if err != nil {
+            log.Fatal("receive error:", err)
+        }
+        fmt.Printf("Received: %s from %s\n", msg.Message, msg.UserId)
+    }
+}
+```
+
+## Testing
+
+The gRPC extension provides comprehensive testing utilities:
+
+```go
+func TestUserService(t *testing.T) {
+    app := forge.NewTestApp(t, forge.TestConfig{
+        Extensions: []forge.Extension{
+            database.NewExtension(database.WithInMemory()),
+            grpc.NewExtension(
+                grpc.WithPort(0), // Use random port for testing
+                grpc.WithReflection(true),
+            ),
+        },
+    })
+    
+    // Register service
+    server := forge.GetService[*grpc.Server](app.Container())
+    userService := &UserServiceImpl{
+        db: forge.GetService[database.Manager](app.Container()),
+    }
+    userv1.RegisterUserServiceServer(server.GRPCServer(), userService)
+    
+    // Start server
+    go app.Run()
+    defer app.Stop()
+    
+    // Wait for server to start
+    time.Sleep(100 * time.Millisecond)
+    
+    // Create client
+    conn, err := grpc.Dial(server.Address(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+    require.NoError(t, err)
+    defer conn.Close()
+    
+    client := userv1.NewUserServiceClient(conn)
+    ctx := context.Background()
+    
+    t.Run("create user", func(t *testing.T) {
+        req := &userv1.CreateUserRequest{
+            Email: "test@example.com",
+            Name:  "Test User",
+        }
+        
+        resp, err := client.CreateUser(ctx, req)
+        require.NoError(t, err)
+        require.NotNil(t, resp.User)
+        assert.Equal(t, req.Email, resp.User.Email)
+        assert.Equal(t, req.Name, resp.User.Name)
+        assert.NotEmpty(t, resp.User.Id)
+    })
+    
+    t.Run("get user", func(t *testing.T) {
+        // First create a user
+        createResp, err := client.CreateUser(ctx, &userv1.CreateUserRequest{
+            Email: "get@example.com",
+            Name:  "Get User",
+        })
+        require.NoError(t, err)
+        
+        // Then get the user
+        getResp, err := client.GetUser(ctx, &userv1.GetUserRequest{
+            Id: createResp.User.Id,
+        })
+        require.NoError(t, err)
+        require.NotNil(t, getResp.User)
+        assert.Equal(t, createResp.User.Id, getResp.User.Id)
+        assert.Equal(t, createResp.User.Email, getResp.User.Email)
+    })
+    
+    t.Run("list users streaming", func(t *testing.T) {
+        // Create some test users
+        for i := 0; i < 5; i++ {
+            _, err := client.CreateUser(ctx, &userv1.CreateUserRequest{
+                Email: fmt.Sprintf("user%d@example.com", i),
+                Name:  fmt.Sprintf("User %d", i),
+            })
+            require.NoError(t, err)
+        }
+        
+        // List users
+        stream, err := client.ListUsers(ctx, &userv1.ListUsersRequest{
+            PageSize: 10,
+        })
+        require.NoError(t, err)
+        
+        var users []*userv1.User
+        for {
+            user, err := stream.Recv()
+            if err == io.EOF {
+                break
+            }
+            require.NoError(t, err)
+            users = append(users, user)
+        }
+        
+        assert.GreaterOrEqual(t, len(users), 5)
+    })
+    
+    t.Run("error handling", func(t *testing.T) {
+        // Test invalid user ID
+        _, err := client.GetUser(ctx, &userv1.GetUserRequest{
+            Id: "nonexistent",
+        })
+        require.Error(t, err)
+        
+        st, ok := status.FromError(err)
+        require.True(t, ok)
+        assert.Equal(t, codes.NotFound, st.Code())
+    })
+}
+
+// Benchmark tests
+func BenchmarkUserService_GetUser(b *testing.B) {
+    app := forge.NewTestApp(b, forge.TestConfig{
+        Extensions: []forge.Extension{
+            database.NewExtension(database.WithInMemory()),
+            grpc.NewExtension(grpc.WithPort(0)),
+        },
+    })
+    
+    server := forge.GetService[*grpc.Server](app.Container())
+    userService := &UserServiceImpl{
+        db: forge.GetService[database.Manager](app.Container()),
+    }
+    userv1.RegisterUserServiceServer(server.GRPCServer(), userService)
+    
+    go app.Run()
+    defer app.Stop()
+    
+    time.Sleep(100 * time.Millisecond)
+    
+    conn, err := grpc.Dial(server.Address(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+    require.NoError(b, err)
+    defer conn.Close()
+    
+    client := userv1.NewUserServiceClient(conn)
+    ctx := context.Background()
+    
+    // Create test user
+    createResp, err := client.CreateUser(ctx, &userv1.CreateUserRequest{
+        Email: "bench@example.com",
+        Name:  "Bench User",
+    })
+    require.NoError(b, err)
+    
+    userID := createResp.User.Id
+    
+    b.ResetTimer()
+    b.RunParallel(func(pb *testing.PB) {
+        for pb.Next() {
+            _, err := client.GetUser(ctx, &userv1.GetUserRequest{Id: userID})
+            if err != nil {
+                b.Fatal(err)
+            }
+        }
+    })
+}
+```
+
+## Best Practices
+
+<Callout type="info">
+Follow these best practices when building gRPC services.
+</Callout>
+
+### Service Design
+
+- **Versioning**: Use package versioning (e.g., `user.v1`, `user.v2`)
+- **Backward Compatibility**: Add new fields, don't remove existing ones
+- **Error Handling**: Use appropriate gRPC status codes
+- **Pagination**: Implement cursor-based pagination for large datasets
+- **Timeouts**: Set appropriate timeouts for all operations
+
+### Performance
+
+- **Connection Pooling**: Reuse gRPC connections
+- **Streaming**: Use streaming for large datasets or real-time data
+- **Compression**: Enable gzip compression for large messages
+- **Keep-Alive**: Configure keep-alive settings appropriately
+- **Load Balancing**: Use client-side load balancing
+
+### Security
+
+- **TLS**: Always use TLS in production
+- **Authentication**: Implement proper authentication
+- **Authorization**: Use interceptors for authorization
+- **Input Validation**: Validate all inputs
+- **Rate Limiting**: Protect against abuse
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="🗄️ Database Extension"
+    description="Store and query your gRPC service data"
+    href="/docs/extensions/database"
+  />
+  <Card
+    title="🔐 Auth Extension"
+    description="Secure your gRPC services"
+    href="/docs/extensions/auth"
+  />
+  <Card
+    title="📊 Metrics & Monitoring"
+    description="Monitor your gRPC services"
+    href="/docs/guides/monitoring"
+  />
+  <Card
+    title="🚀 Microservices Guide"
+    description="Build microservices with gRPC"
+    href="/docs/guides/microservices"
+  />
+</Cards>

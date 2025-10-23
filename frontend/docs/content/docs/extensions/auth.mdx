@@ -1,0 +1,734 @@
+---
+title: Auth Extension
+description: Comprehensive authentication and authorization with multiple providers, middleware, and enterprise security features
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+The Auth Extension provides enterprise-grade authentication and authorization capabilities with support for multiple providers, middleware integration, and comprehensive security features.
+
+## Supported Authentication Methods
+
+<Cards>
+  <Card
+    title="🔑 JWT Tokens"
+    description="JSON Web Tokens with RS256/HS256 signing"
+  />
+  <Card
+    title="🌐 OAuth2"
+    description="OAuth2 with Google, GitHub, Microsoft, and custom providers"
+  />
+  <Card
+    title="🏢 SAML"
+    description="SAML 2.0 for enterprise single sign-on"
+  />
+  <Card
+    title="🔐 API Keys"
+    description="API key authentication with scopes and rate limiting"
+  />
+  <Card
+    title="🎫 Session-based"
+    description="Traditional session-based authentication"
+  />
+  <Card
+    title="📱 Multi-factor"
+    description="TOTP, SMS, and email-based MFA"
+  />
+</Cards>
+
+## Installation
+
+```bash
+go get github.com/xraph/forge/extensions/auth
+```
+
+## Basic Usage
+
+<Tabs items={['JWT', 'OAuth2', 'API Keys', 'SAML']}>
+  <Tab value="JWT">
+    ```go
+    package main
+    
+    import (
+        "github.com/xraph/forge/v2"
+        "github.com/xraph/forge/v2/extensions/auth"
+    )
+    
+    func main() {
+        app := forge.NewApp(forge.AppConfig{
+            Name: "my-app",
+        })
+        
+        // Register auth extension with JWT
+        app.RegisterExtension(
+            auth.NewExtension(
+                auth.WithJWT(auth.JWTConfig{
+                    SigningKey:    "your-secret-key",
+                    SigningMethod: "HS256",
+                    TokenTTL:      24 * time.Hour,
+                    RefreshTTL:    7 * 24 * time.Hour,
+                }),
+            ),
+        )
+        
+        // Protected route
+        app.Router().GET("/protected", 
+            func(ctx forge.Context) error {
+                user := auth.GetUser(ctx)
+                return ctx.JSON(200, map[string]any{
+                    "message": "Hello, " + user.Name,
+                    "user_id": user.ID,
+                })
+            },
+            auth.RequireAuth(),
+        )
+        
+        app.Run()
+    }
+    ```
+  </Tab>
+  <Tab value="OAuth2">
+    ```go
+    app.RegisterExtension(
+        auth.NewExtension(
+            auth.WithOAuth2(auth.OAuth2Config{
+                Providers: map[string]auth.OAuth2Provider{
+                    "google": {
+                        ClientID:     "your-google-client-id",
+                        ClientSecret: "your-google-client-secret",
+                        RedirectURL:  "http://localhost:8080/auth/google/callback",
+                        Scopes:       []string{"openid", "profile", "email"},
+                    },
+                    "github": {
+                        ClientID:     "your-github-client-id",
+                        ClientSecret: "your-github-client-secret",
+                        RedirectURL:  "http://localhost:8080/auth/github/callback",
+                        Scopes:       []string{"user:email"},
+                    },
+                },
+            }),
+        ),
+    )
+    
+    // OAuth2 routes are automatically registered:
+    // GET /auth/{provider} - Initiate OAuth2 flow
+    // GET /auth/{provider}/callback - Handle OAuth2 callback
+    ```
+  </Tab>
+  <Tab value="API Keys">
+    ```go
+    app.RegisterExtension(
+        auth.NewExtension(
+            auth.WithAPIKeys(auth.APIKeyConfig{
+                HeaderName: "X-API-Key",
+                Validator: func(ctx context.Context, key string) (*auth.User, error) {
+                    // Validate API key against your database
+                    return validateAPIKey(ctx, key)
+                },
+                Scopes: map[string][]string{
+                    "read":  {"users:read", "posts:read"},
+                    "write": {"users:write", "posts:write"},
+                    "admin": {"*"},
+                },
+            }),
+        ),
+    )
+    
+    // Protected route with scope requirement
+    app.Router().POST("/admin/users",
+        createUserHandler,
+        auth.RequireScope("admin"),
+    )
+    ```
+  </Tab>
+  <Tab value="SAML">
+    ```go
+    app.RegisterExtension(
+        auth.NewExtension(
+            auth.WithSAML(auth.SAMLConfig{
+                EntityID:    "https://myapp.com",
+                SSOURL:      "https://idp.company.com/sso",
+                Certificate: "path/to/idp-cert.pem",
+                PrivateKey:  "path/to/sp-private-key.pem",
+                AttributeMapping: map[string]string{
+                    "email":      "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress",
+                    "first_name": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/givenname",
+                    "last_name":  "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/surname",
+                },
+            }),
+        ),
+    )
+    
+    // SAML routes are automatically registered:
+    // GET /auth/saml/metadata - SAML metadata
+    // POST /auth/saml/acs - Assertion Consumer Service
+    // GET /auth/saml/slo - Single Logout
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### YAML Configuration
+
+```yaml
+auth:
+  # JWT Configuration
+  jwt:
+    signing_key: ${JWT_SIGNING_KEY}
+    signing_method: RS256
+    token_ttl: 24h
+    refresh_ttl: 168h # 7 days
+    issuer: myapp.com
+    audience: myapp-users
+  
+  # OAuth2 Providers
+  oauth2:
+    providers:
+      google:
+        client_id: ${GOOGLE_CLIENT_ID}
+        client_secret: ${GOOGLE_CLIENT_SECRET}
+        redirect_url: ${BASE_URL}/auth/google/callback
+        scopes: [openid, profile, email]
+      
+      github:
+        client_id: ${GITHUB_CLIENT_ID}
+        client_secret: ${GITHUB_CLIENT_SECRET}
+        redirect_url: ${BASE_URL}/auth/github/callback
+        scopes: [user:email]
+  
+  # API Keys
+  api_keys:
+    header_name: X-API-Key
+    query_param: api_key
+    rate_limit:
+      requests_per_minute: 1000
+      burst: 100
+  
+  # Session Configuration
+  session:
+    cookie_name: forge_session
+    cookie_domain: .myapp.com
+    cookie_secure: true
+    cookie_http_only: true
+    cookie_same_site: strict
+    ttl: 24h
+  
+  # Security Settings
+  security:
+    password_min_length: 8
+    password_require_uppercase: true
+    password_require_lowercase: true
+    password_require_numbers: true
+    password_require_symbols: true
+    max_login_attempts: 5
+    lockout_duration: 15m
+    require_email_verification: true
+```
+
+## Authentication Middleware
+
+The auth extension provides several middleware functions:
+
+### Basic Authentication Middleware
+
+```go
+// Require authentication
+app.Router().GET("/protected", handler, auth.RequireAuth())
+
+// Optional authentication (user may be nil)
+app.Router().GET("/optional", handler, auth.OptionalAuth())
+
+// Require specific role
+app.Router().GET("/admin", handler, auth.RequireRole("admin"))
+
+// Require specific permission
+app.Router().GET("/users", handler, auth.RequirePermission("users:read"))
+
+// Require specific scope (for API keys)
+app.Router().GET("/api/data", handler, auth.RequireScope("data:read"))
+
+// Custom authentication check
+app.Router().GET("/custom", handler, auth.RequireCustom(func(user *auth.User) bool {
+    return user.IsActive && user.EmailVerified
+}))
+```
+
+### Advanced Middleware
+
+```go
+// Rate limiting per user
+app.Router().Use(auth.RateLimitMiddleware(auth.RateLimitConfig{
+    RequestsPerMinute: 100,
+    Burst:            20,
+    KeyFunc: func(ctx forge.Context) string {
+        user := auth.GetUser(ctx)
+        if user != nil {
+            return "user:" + user.ID
+        }
+        return "ip:" + ctx.ClientIP()
+    },
+}))
+
+// Audit logging
+app.Router().Use(auth.AuditMiddleware(auth.AuditConfig{
+    LogSuccessfulAuth: true,
+    LogFailedAuth:     true,
+    LogPermissionDenied: true,
+    Logger: app.Logger(),
+}))
+
+// Security headers
+app.Router().Use(auth.SecurityHeadersMiddleware(auth.SecurityHeadersConfig{
+    ContentTypeNosniff:    true,
+    FrameOptions:         "DENY",
+    XSSProtection:        "1; mode=block",
+    ReferrerPolicy:       "strict-origin-when-cross-origin",
+    PermissionsPolicy:    "geolocation=(), microphone=(), camera=()",
+}))
+```
+
+## User Management
+
+### User Interface
+
+```go
+type User struct {
+    ID            string                 `json:"id"`
+    Email         string                 `json:"email"`
+    Name          string                 `json:"name"`
+    Roles         []string               `json:"roles"`
+    Permissions   []string               `json:"permissions"`
+    Attributes    map[string]interface{} `json:"attributes"`
+    EmailVerified bool                   `json:"email_verified"`
+    IsActive      bool                   `json:"is_active"`
+    CreatedAt     time.Time              `json:"created_at"`
+    UpdatedAt     time.Time              `json:"updated_at"`
+    LastLoginAt   *time.Time             `json:"last_login_at,omitempty"`
+}
+```
+
+### User Service
+
+```go
+type UserService struct {
+    auth auth.Manager
+}
+
+func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) (*User, error) {
+    // Hash password
+    hashedPassword, err := s.auth.HashPassword(req.Password)
+    if err != nil {
+        return nil, fmt.Errorf("failed to hash password: %w", err)
+    }
+    
+    user := &User{
+        ID:       uuid.New().String(),
+        Email:    req.Email,
+        Name:     req.Name,
+        Roles:    []string{"user"},
+        IsActive: true,
+    }
+    
+    // Store user with hashed password
+    err = s.auth.CreateUser(ctx, user, hashedPassword)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create user: %w", err)
+    }
+    
+    // Send verification email
+    if s.auth.Config().RequireEmailVerification {
+        err = s.auth.SendVerificationEmail(ctx, user)
+        if err != nil {
+            // Log error but don't fail user creation
+            s.auth.Logger().Error("failed to send verification email",
+                forge.F("user_id", user.ID),
+                forge.F("error", err),
+            )
+        }
+    }
+    
+    return user, nil
+}
+
+func (s *UserService) AuthenticateUser(ctx context.Context, email, password string) (*User, string, error) {
+    user, err := s.auth.GetUserByEmail(ctx, email)
+    if err != nil {
+        return nil, "", fmt.Errorf("user not found: %w", err)
+    }
+    
+    // Verify password
+    if !s.auth.VerifyPassword(password, user.PasswordHash) {
+        // Log failed attempt
+        s.auth.LogFailedLogin(ctx, email, ctx.ClientIP())
+        return nil, "", auth.ErrInvalidCredentials
+    }
+    
+    // Check if account is locked
+    if s.auth.IsAccountLocked(ctx, user.ID) {
+        return nil, "", auth.ErrAccountLocked
+    }
+    
+    // Generate JWT token
+    token, err := s.auth.GenerateToken(ctx, user)
+    if err != nil {
+        return nil, "", fmt.Errorf("failed to generate token: %w", err)
+    }
+    
+    // Update last login
+    s.auth.UpdateLastLogin(ctx, user.ID)
+    
+    return user, token, nil
+}
+```
+
+## Role-Based Access Control (RBAC)
+
+### Role and Permission Management
+
+```go
+type Role struct {
+    Name        string   `json:"name"`
+    Description string   `json:"description"`
+    Permissions []string `json:"permissions"`
+}
+
+type Permission struct {
+    Name        string `json:"name"`
+    Description string `json:"description"`
+    Resource    string `json:"resource"`
+    Action      string `json:"action"`
+}
+
+// Define roles and permissions
+func setupRBAC(auth auth.Manager) error {
+    // Define permissions
+    permissions := []Permission{
+        {Name: "users:read", Description: "Read user data", Resource: "users", Action: "read"},
+        {Name: "users:write", Description: "Create/update users", Resource: "users", Action: "write"},
+        {Name: "users:delete", Description: "Delete users", Resource: "users", Action: "delete"},
+        {Name: "posts:read", Description: "Read posts", Resource: "posts", Action: "read"},
+        {Name: "posts:write", Description: "Create/update posts", Resource: "posts", Action: "write"},
+        {Name: "admin:*", Description: "Full admin access", Resource: "*", Action: "*"},
+    }
+    
+    // Define roles
+    roles := []Role{
+        {
+            Name:        "user",
+            Description: "Regular user",
+            Permissions: []string{"posts:read"},
+        },
+        {
+            Name:        "moderator",
+            Description: "Content moderator",
+            Permissions: []string{"posts:read", "posts:write", "users:read"},
+        },
+        {
+            Name:        "admin",
+            Description: "System administrator",
+            Permissions: []string{"admin:*"},
+        },
+    }
+    
+    // Register permissions and roles
+    for _, perm := range permissions {
+        if err := auth.CreatePermission(context.Background(), perm); err != nil {
+            return err
+        }
+    }
+    
+    for _, role := range roles {
+        if err := auth.CreateRole(context.Background(), role); err != nil {
+            return err
+        }
+    }
+    
+    return nil
+}
+```
+
+### Using RBAC in Routes
+
+```go
+// Require specific role
+app.Router().GET("/admin/dashboard", 
+    adminDashboardHandler,
+    auth.RequireRole("admin"),
+)
+
+// Require specific permission
+app.Router().DELETE("/users/:id",
+    deleteUserHandler,
+    auth.RequirePermission("users:delete"),
+)
+
+// Multiple permissions (OR logic)
+app.Router().GET("/content",
+    contentHandler,
+    auth.RequireAnyPermission("posts:read", "posts:write"),
+)
+
+// Multiple permissions (AND logic)
+app.Router().POST("/admin/users",
+    createAdminUserHandler,
+    auth.RequireAllPermissions("users:write", "admin:*"),
+)
+
+// Custom authorization logic
+app.Router().PUT("/users/:id",
+    updateUserHandler,
+    auth.RequireCustom(func(user *auth.User, ctx forge.Context) bool {
+        targetUserID := ctx.Param("id")
+        // Users can update their own profile, or admins can update anyone
+        return user.ID == targetUserID || user.HasRole("admin")
+    }),
+)
+```
+
+## Multi-Factor Authentication (MFA)
+
+### TOTP (Time-based One-Time Password)
+
+```go
+type MFAService struct {
+    auth auth.Manager
+}
+
+func (s *MFAService) EnableTOTP(ctx context.Context, userID string) (*TOTPSetup, error) {
+    // Generate TOTP secret
+    secret, err := s.auth.GenerateTOTPSecret(userID)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Generate QR code for authenticator apps
+    qrCode, err := s.auth.GenerateTOTPQRCode(userID, secret)
+    if err != nil {
+        return nil, err
+    }
+    
+    return &TOTPSetup{
+        Secret:     secret,
+        QRCode:     qrCode,
+        BackupCodes: s.auth.GenerateBackupCodes(userID),
+    }, nil
+}
+
+func (s *MFAService) VerifyTOTP(ctx context.Context, userID, code string) error {
+    return s.auth.VerifyTOTP(ctx, userID, code)
+}
+
+// MFA middleware
+func RequireMFA() forge.Middleware {
+    return func(next forge.HandlerFunc) forge.HandlerFunc {
+        return func(ctx forge.Context) error {
+            user := auth.GetUser(ctx)
+            if user == nil {
+                return auth.ErrUnauthorized
+            }
+            
+            // Check if MFA is required for this user
+            if user.MFAEnabled && !auth.IsMFAVerified(ctx) {
+                return ctx.JSON(401, map[string]string{
+                    "error": "MFA verification required",
+                    "mfa_challenge_url": "/auth/mfa/challenge",
+                })
+            }
+            
+            return next(ctx)
+        }
+    }
+}
+```
+
+## Security Features
+
+### Password Security
+
+```go
+// Password validation
+func (s *AuthService) ValidatePassword(password string) error {
+    config := s.auth.Config().Security
+    
+    if len(password) < config.PasswordMinLength {
+        return fmt.Errorf("password must be at least %d characters", config.PasswordMinLength)
+    }
+    
+    if config.PasswordRequireUppercase && !regexp.MustCompile(`[A-Z]`).MatchString(password) {
+        return errors.New("password must contain uppercase letters")
+    }
+    
+    if config.PasswordRequireLowercase && !regexp.MustCompile(`[a-z]`).MatchString(password) {
+        return errors.New("password must contain lowercase letters")
+    }
+    
+    if config.PasswordRequireNumbers && !regexp.MustCompile(`[0-9]`).MatchString(password) {
+        return errors.New("password must contain numbers")
+    }
+    
+    if config.PasswordRequireSymbols && !regexp.MustCompile(`[^a-zA-Z0-9]`).MatchString(password) {
+        return errors.New("password must contain symbols")
+    }
+    
+    return nil
+}
+
+// Password strength checking
+func (s *AuthService) CheckPasswordStrength(password string) PasswordStrength {
+    score := 0
+    
+    if len(password) >= 8 { score++ }
+    if len(password) >= 12 { score++ }
+    if regexp.MustCompile(`[A-Z]`).MatchString(password) { score++ }
+    if regexp.MustCompile(`[a-z]`).MatchString(password) { score++ }
+    if regexp.MustCompile(`[0-9]`).MatchString(password) { score++ }
+    if regexp.MustCompile(`[^a-zA-Z0-9]`).MatchString(password) { score++ }
+    
+    switch {
+    case score <= 2:
+        return PasswordStrengthWeak
+    case score <= 4:
+        return PasswordStrengthMedium
+    default:
+        return PasswordStrengthStrong
+    }
+}
+```
+
+### Account Security
+
+```go
+// Account lockout protection
+func (s *AuthService) HandleFailedLogin(ctx context.Context, email, ip string) error {
+    // Increment failed attempts
+    attempts, err := s.auth.IncrementFailedAttempts(ctx, email)
+    if err != nil {
+        return err
+    }
+    
+    config := s.auth.Config().Security
+    if attempts >= config.MaxLoginAttempts {
+        // Lock account
+        err = s.auth.LockAccount(ctx, email, config.LockoutDuration)
+        if err != nil {
+            return err
+        }
+        
+        // Send security alert
+        user, _ := s.auth.GetUserByEmail(ctx, email)
+        if user != nil {
+            s.sendSecurityAlert(ctx, user, "Account locked due to multiple failed login attempts")
+        }
+    }
+    
+    return nil
+}
+
+// Suspicious activity detection
+func (s *AuthService) DetectSuspiciousActivity(ctx context.Context, user *User, ip string) {
+    // Check for login from new location
+    if !s.auth.IsKnownLocation(ctx, user.ID, ip) {
+        s.sendSecurityAlert(ctx, user, fmt.Sprintf("Login from new location: %s", ip))
+        s.auth.AddKnownLocation(ctx, user.ID, ip)
+    }
+    
+    // Check for unusual login time
+    if s.isUnusualLoginTime(user.ID) {
+        s.sendSecurityAlert(ctx, user, "Login at unusual time")
+    }
+}
+```
+
+## Testing
+
+The auth extension provides comprehensive testing utilities:
+
+```go
+func TestAuthMiddleware(t *testing.T) {
+    app := forge.NewTestApp(t, forge.TestConfig{
+        Extensions: []forge.Extension{
+            auth.NewExtension(
+                auth.WithJWT(auth.JWTConfig{
+                    SigningKey: "test-key",
+                }),
+            ),
+        },
+    })
+    
+    // Create test user
+    user := &auth.User{
+        ID:    "test-user",
+        Email: "test@example.com",
+        Name:  "Test User",
+        Roles: []string{"user"},
+    }
+    
+    // Generate test token
+    authManager := forge.GetService[auth.Manager](app.Container())
+    token, err := authManager.GenerateToken(context.Background(), user)
+    require.NoError(t, err)
+    
+    // Test protected endpoint
+    resp := app.GET("/protected").
+        WithHeader("Authorization", "Bearer "+token).
+        Expect().
+        Status(200)
+    
+    // Test unauthorized access
+    app.GET("/protected").
+        Expect().
+        Status(401)
+}
+```
+
+## Best Practices
+
+<Callout type="info">
+Follow these security best practices when implementing authentication in your application.
+</Callout>
+
+### Security Guidelines
+
+- **Use HTTPS**: Always use HTTPS in production
+- **Secure Cookies**: Set secure, httpOnly, and sameSite flags
+- **Token Expiration**: Use short-lived access tokens with refresh tokens
+- **Rate Limiting**: Implement rate limiting on auth endpoints
+- **Input Validation**: Validate all authentication inputs
+- **Audit Logging**: Log all authentication events
+- **MFA**: Require MFA for sensitive operations
+- **Password Policies**: Enforce strong password requirements
+
+### Performance Optimization
+
+- **Token Caching**: Cache JWT validation results
+- **Connection Pooling**: Use connection pooling for external auth providers
+- **Session Storage**: Use Redis for session storage in distributed systems
+- **Lazy Loading**: Load user permissions only when needed
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="💾 Cache Extension"
+    description="Add high-performance caching for auth data"
+    href="/docs/extensions/cache"
+  />
+  <Card
+    title="📡 Events Extension"
+    description="Implement auth event tracking"
+    href="/docs/extensions/events"
+  />
+  <Card
+    title="🗄️ Database Extension"
+    description="Store user data and sessions"
+    href="/docs/extensions/database"
+  />
+  <Card
+    title="🚀 Quick Start"
+    description="Build your first authenticated application"
+    href="/docs/quick-start"
+  />
+</Cards>

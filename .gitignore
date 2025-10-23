@@ -61,24 +61,9 @@ bin/
 dist/
 
 # Documentation artifacts
-*_COMPLETE.md
-*_PROGRESS.md
-*_SUMMARY.md
-*_STATUS.md
-*_UPDATE.md
-*_FINAL.md
-*_DESIGN.md
-*_ARCHITECTURE.md
-*_TESTING.md
-*_CONFIGURATION.md
-*_INTEGRATION.md
-*_SECURITY.md
-*_PERFORMANCE.md
-*_MAINTENANCE.md
-*_DOCUMENTATION.md
-*_EXAMPLES.md
-*_MIGRATION.md
-*_GUIDE.md
+/_impl_docs/docs/_build/
+_impl_docs/
+bk/
 
 # OS specific
 .DS_Store

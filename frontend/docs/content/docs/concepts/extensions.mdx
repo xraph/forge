@@ -1,0 +1,549 @@
+---
+title: Extension System
+description: Comprehensive guide to Forge v2's powerful extension system and built-in extensions
+---
+
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+Forge v2's extension system is the cornerstone of its modularity and extensibility. Extensions provide a standardized way to add functionality to your application while maintaining clean architecture and dependency management.
+
+## Extension Architecture
+
+Extensions in Forge v2 follow a well-defined lifecycle and interface contract:
+
+```mermaid
+graph LR
+    subgraph "Extension Lifecycle"
+        Register[Register]
+        Configure[Configure]
+        Start[Start]
+        Health[Health Check]
+        Stop[Stop]
+    end
+    
+    Register --> Configure
+    Configure --> Start
+    Start --> Health
+    Health --> Health
+    Stop --> Register
+```
+
+### Core Extension Interface
+
+```go
+type Extension interface {
+    // Metadata
+    Name() string
+    Version() string
+    Description() string
+    
+    // Lifecycle
+    Register(container Container) error
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+    
+    // Health and dependencies
+    Health(ctx context.Context) error
+    Dependencies() []string
+}
+```
+
+## Built-in Extensions
+
+Forge v2 comes with 15+ production-ready extensions covering common use cases:
+
+<Cards>
+  <Card
+    title="🤖 AI Extension"
+    description="LLM integration, AI agents, and inference capabilities"
+    href="/docs/extensions/ai"
+  />
+  <Card
+    title="🔐 Auth Extension"
+    description="Authentication and authorization with multiple providers"
+    href="/docs/extensions/auth"
+  />
+  <Card
+    title="💾 Cache Extension"
+    description="Redis, Memcached, and in-memory caching"
+    href="/docs/extensions/cache"
+  />
+  <Card
+    title="🗄️ Database Extension"
+    description="SQL and NoSQL database support with connection pooling"
+    href="/docs/extensions/database"
+  />
+  <Card
+    title="📡 Events Extension"
+    description="Event-driven architecture and event sourcing"
+    href="/docs/extensions/events"
+  />
+  <Card
+    title="🔍 GraphQL Extension"
+    description="GraphQL server with federation support"
+    href="/docs/extensions/graphql"
+  />
+  <Card
+    title="⚡ gRPC Extension"
+    description="gRPC server with interceptors and reflection"
+    href="/docs/extensions/grpc"
+  />
+  <Card
+    title="📊 Kafka Extension"
+    description="Apache Kafka integration for streaming"
+    href="/docs/extensions/kafka"
+  />
+  <Card
+    title="📱 MQTT Extension"
+    description="MQTT broker integration for IoT"
+    href="/docs/extensions/mqtt"
+  />
+  <Card
+    title="📁 Storage Extension"
+    description="File storage with multiple backends"
+    href="/docs/extensions/storage"
+  />
+  <Card
+    title="🎥 WebRTC Extension"
+    description="Real-time communication capabilities"
+    href="/docs/extensions/webrtc"
+  />
+  <Card
+    title="🔄 Queue Extension"
+    description="Message queues with multiple backends"
+    href="/docs/extensions/queue"
+  />
+</Cards>
+
+## Extension Configuration
+
+Extensions can be configured in multiple ways:
+
+<Tabs items={['Functional Options', 'Configuration Object', 'ConfigManager']}>
+  <Tab value="Functional Options">
+    ```go
+    // Using functional options
+    app.RegisterExtension(
+        cache.NewExtension(
+            cache.WithRedis("localhost:6379"),
+            cache.WithTTL(time.Hour),
+            cache.WithCompression(true),
+        ),
+    )
+    ```
+  </Tab>
+  <Tab value="Configuration Object">
+    ```go
+    // Using configuration object
+    config := cache.Config{
+        Driver: "redis",
+        Redis: cache.RedisConfig{
+            Addr:     "localhost:6379",
+            Password: "",
+            DB:       0,
+        },
+        TTL:         time.Hour,
+        Compression: true,
+    }
+    
+    app.RegisterExtension(cache.NewExtensionWithConfig(config))
+    ```
+  </Tab>
+  <Tab value="ConfigManager">
+    ```yaml
+    # config.yaml
+    cache:
+      driver: redis
+      redis:
+        addr: localhost:6379
+        password: ""
+        db: 0
+      ttl: 1h
+      compression: true
+    ```
+    
+    ```go
+    // Extension loads config automatically
+    app.RegisterExtension(cache.NewExtension())
+    ```
+  </Tab>
+</Tabs>
+
+## Extension Examples
+
+### Database Extension
+
+The database extension provides comprehensive database support:
+
+```go
+// Register database extension
+app.RegisterExtension(
+    database.NewExtension(
+        database.WithPostgreSQL("postgres://user:pass@localhost/db"),
+        database.WithConnectionPool(10, 100),
+        database.WithMigrations("./migrations"),
+    ),
+)
+
+// Use in service
+type UserService struct {
+    db database.Manager
+}
+
+func (s *UserService) GetUser(ctx context.Context, id string) (*User, error) {
+    conn := s.db.Connection("default")
+    
+    var user User
+    err := conn.QueryRow(ctx, "SELECT * FROM users WHERE id = $1", id).
+        Scan(&user.ID, &user.Name, &user.Email)
+    
+    return &user, err
+}
+```
+
+### Cache Extension
+
+High-performance caching with multiple backends:
+
+```go
+// Register cache extension
+app.RegisterExtension(
+    cache.NewExtension(
+        cache.WithRedis("localhost:6379"),
+        cache.WithTTL(time.Hour),
+    ),
+)
+
+// Use in service
+type ProductService struct {
+    cache cache.Manager
+}
+
+func (s *ProductService) GetProduct(ctx context.Context, id string) (*Product, error) {
+    // Try cache first
+    var product Product
+    if err := s.cache.Get(ctx, "product:"+id, &product); err == nil {
+        return &product, nil
+    }
+    
+    // Fetch from database
+    product, err := s.fetchFromDB(ctx, id)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Cache for future requests
+    s.cache.Set(ctx, "product:"+id, product, time.Hour)
+    
+    return &product, nil
+}
+```
+
+### Events Extension
+
+Event-driven architecture support:
+
+```go
+// Register events extension
+app.RegisterExtension(
+    events.NewExtension(
+        events.WithNATS("nats://localhost:4222"),
+        events.WithEventStore("postgres"),
+    ),
+)
+
+// Define events
+type UserCreated struct {
+    UserID string    `json:"user_id"`
+    Email  string    `json:"email"`
+    Time   time.Time `json:"time"`
+}
+
+// Publish events
+func (s *UserService) CreateUser(ctx context.Context, req CreateUserRequest) error {
+    user := &User{
+        ID:    uuid.New().String(),
+        Email: req.Email,
+    }
+    
+    // Save to database
+    if err := s.saveUser(ctx, user); err != nil {
+        return err
+    }
+    
+    // Publish event
+    event := UserCreated{
+        UserID: user.ID,
+        Email:  user.Email,
+        Time:   time.Now(),
+    }
+    
+    return s.eventBus.Publish(ctx, "user.created", event)
+}
+
+// Handle events
+func (s *EmailService) HandleUserCreated(ctx context.Context, event UserCreated) error {
+    return s.sendWelcomeEmail(ctx, event.Email)
+}
+
+// Register handler
+app.Container().RegisterSingleton(func(c forge.Container) (*EmailService, error) {
+    eventBus := forge.GetService[events.EventBus](c)
+    emailService := &EmailService{}
+    
+    eventBus.Subscribe("user.created", emailService.HandleUserCreated)
+    
+    return emailService, nil
+})
+```
+
+## Creating Custom Extensions
+
+You can create custom extensions to encapsulate domain-specific functionality:
+
+### Basic Extension
+
+```go
+package myextension
+
+import (
+    "context"
+    "github.com/xraph/forge/v2"
+)
+
+type Extension struct {
+    config Config
+    service *MyService
+}
+
+type Config struct {
+    APIKey string `yaml:"api_key"`
+    URL    string `yaml:"url"`
+}
+
+func NewExtension(options ...Option) *Extension {
+    config := Config{
+        URL: "https://api.example.com",
+    }
+    
+    for _, opt := range options {
+        opt(&config)
+    }
+    
+    return &Extension{config: config}
+}
+
+func (e *Extension) Name() string        { return "my-extension" }
+func (e *Extension) Version() string     { return "1.0.0" }
+func (e *Extension) Description() string { return "My custom extension" }
+func (e *Extension) Dependencies() []string { return []string{"logger", "metrics"} }
+
+func (e *Extension) Register(container forge.Container) error {
+    // Create service
+    e.service = &MyService{
+        apiKey: e.config.APIKey,
+        url:    e.config.URL,
+        logger: forge.GetService[forge.Logger](container),
+    }
+    
+    // Register in DI container
+    return container.RegisterSingleton(func(c forge.Container) (*MyService, error) {
+        return e.service, nil
+    })
+}
+
+func (e *Extension) Start(ctx context.Context) error {
+    return e.service.Start(ctx)
+}
+
+func (e *Extension) Stop(ctx context.Context) error {
+    return e.service.Stop(ctx)
+}
+
+func (e *Extension) Health(ctx context.Context) error {
+    return e.service.HealthCheck(ctx)
+}
+```
+
+### Configurable Extension
+
+Extensions can implement `ConfigurableExtension` for automatic configuration loading:
+
+```go
+type ConfigurableExtension struct {
+    *Extension
+}
+
+func NewConfigurableExtension() *ConfigurableExtension {
+    return &ConfigurableExtension{
+        Extension: &Extension{},
+    }
+}
+
+func (e *ConfigurableExtension) ConfigKey() string {
+    return "my_extension"
+}
+
+func (e *ConfigurableExtension) Configure(config any) error {
+    cfg, ok := config.(Config)
+    if !ok {
+        return fmt.Errorf("invalid config type")
+    }
+    
+    e.config = cfg
+    return nil
+}
+
+func (e *ConfigurableExtension) Register(container forge.Container) error {
+    // Load configuration from ConfigManager
+    configManager := forge.GetService[forge.ConfigManager](container)
+    
+    var config Config
+    if err := configManager.Load(e.ConfigKey(), &config); err != nil {
+        return fmt.Errorf("failed to load config: %w", err)
+    }
+    
+    if err := e.Configure(config); err != nil {
+        return fmt.Errorf("failed to configure: %w", err)
+    }
+    
+    return e.Extension.Register(container)
+}
+```
+
+### Observable Extension
+
+Extensions can implement `ObservableExtension` for enhanced monitoring:
+
+```go
+type ObservableExtension struct {
+    *Extension
+    metrics map[string]any
+    logger  forge.Logger
+}
+
+func (e *ObservableExtension) Metrics() map[string]any {
+    return map[string]any{
+        "requests_total":     e.service.RequestsTotal(),
+        "requests_failed":    e.service.RequestsFailed(),
+        "response_time_avg":  e.service.AvgResponseTime(),
+        "connections_active": e.service.ActiveConnections(),
+    }
+}
+
+func (e *ObservableExtension) Logger() forge.Logger {
+    return e.logger
+}
+```
+
+## Extension Best Practices
+
+<Callout type="info">
+Follow these best practices when creating or using extensions to ensure optimal performance and maintainability.
+</Callout>
+
+### Design Principles
+
+- **Single Responsibility**: Each extension should have a clear, focused purpose
+- **Dependency Injection**: Use the DI container for all dependencies
+- **Configuration**: Support multiple configuration methods
+- **Error Handling**: Provide clear, actionable error messages
+- **Testing**: Include comprehensive tests with mocks
+- **Documentation**: Document configuration options and usage examples
+
+### Performance Considerations
+
+- **Connection Pooling**: Reuse connections for external services
+- **Caching**: Cache expensive operations with appropriate TTLs
+- **Graceful Shutdown**: Implement proper cleanup in Stop() method
+- **Health Checks**: Provide meaningful health check implementations
+- **Metrics**: Expose relevant metrics for monitoring
+
+### Security Guidelines
+
+- **Secrets Management**: Never hardcode secrets in configuration
+- **Input Validation**: Validate all external inputs
+- **Rate Limiting**: Implement rate limiting for external APIs
+- **TLS/SSL**: Use secure connections for external services
+- **Audit Logging**: Log security-relevant events
+
+## Extension Registry
+
+Extensions can be discovered and managed through the extension registry:
+
+```go
+// List all registered extensions
+extensions := app.Container().GetServices()
+for _, ext := range extensions {
+    if ext.Type == "extension" {
+        fmt.Printf("Extension: %s v%s\n", ext.Name, ext.Version)
+    }
+}
+
+// Get specific extension
+authExt, exists := app.Container().GetService("auth-extension")
+if exists {
+    fmt.Printf("Auth extension status: %s\n", authExt.Status)
+}
+
+// Extension health checks
+healthManager := app.HealthManager()
+status := healthManager.Check(context.Background())
+for name, health := range status.Extensions {
+    fmt.Printf("%s: %s\n", name, health.Status)
+}
+```
+
+## Testing Extensions
+
+Forge v2 provides utilities for testing extensions:
+
+```go
+func TestMyExtension(t *testing.T) {
+    // Create test app with extension
+    app := forge.NewTestApp(t, forge.TestConfig{
+        Extensions: []forge.Extension{
+            myextension.NewExtension(
+                myextension.WithAPIKey("test-key"),
+                myextension.WithURL("http://localhost:8080"),
+            ),
+        },
+    })
+    
+    // Get service from container
+    service := forge.GetService[*MyService](app.Container())
+    require.NotNil(t, service)
+    
+    // Test service functionality
+    result, err := service.DoSomething(context.Background(), "test")
+    require.NoError(t, err)
+    assert.Equal(t, "expected", result)
+}
+```
+
+## Next Steps
+
+<Cards>
+  <Card
+    title="🗄️ Database Extension"
+    description="Learn about database integration and ORM features"
+    href="/docs/extensions/database"
+  />
+  <Card
+    title="🔐 Auth Extension"
+    description="Implement authentication and authorization"
+    href="/docs/extensions/auth"
+  />
+  <Card
+    title="💾 Cache Extension"
+    description="Add high-performance caching to your application"
+    href="/docs/extensions/cache"
+  />
+  <Card
+    title="📡 Events Extension"
+    description="Build event-driven architectures"
+    href="/docs/extensions/events"
+  />
+</Cards>

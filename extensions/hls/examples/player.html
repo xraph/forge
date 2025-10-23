@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HLS Player Example</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        #video-container {
+            margin: 20px 0;
+        }
+        video {
+            width: 100%;
+            max-width: 800px;
+            background-color: #000;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        input {
+            width: 70%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .info {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        .info p {
+            margin: 5px 0;
+            color: #666;
+        }
+        .quality-selector {
+            margin: 10px 0;
+        }
+        .quality-selector select {
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>HLS Video Player</h1>
+        
+        <div class="controls">
+            <input type="text" id="streamUrl" placeholder="Enter HLS stream URL (e.g., http://localhost:8080/hls/STREAM_ID/master.m3u8)">
+            <button onclick="loadStream()">Load Stream</button>
+        </div>
+
+        <div id="video-container">
+            <video id="video" controls></video>
+        </div>
+
+        <div class="quality-selector">
+            <label for="qualitySelect">Quality:</label>
+            <select id="qualitySelect" onchange="changeQuality()">
+                <option value="-1">Auto</option>
+            </select>
+        </div>
+
+        <div class="info">
+            <h3>Stream Info</h3>
+            <p><strong>Status:</strong> <span id="status">Not loaded</span></p>
+            <p><strong>Current Quality:</strong> <span id="currentQuality">-</span></p>
+            <p><strong>Buffer Length:</strong> <span id="bufferLength">-</span></p>
+            <p><strong>FPS:</strong> <span id="fps">-</span></p>
+        </div>
+
+        <div class="info">
+            <h3>Example URLs</h3>
+            <p>Replace STREAM_ID with your actual stream ID:</p>
+            <ul>
+                <li>Master Playlist: <code>http://localhost:8080/hls/STREAM_ID/master.m3u8</code></li>
+                <li>Single Quality: <code>http://localhost:8080/hls/STREAM_ID/variants/VARIANT_ID/playlist.m3u8</code></li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let hls;
+        const video = document.getElementById('video');
+        const statusEl = document.getElementById('status');
+        const qualityEl = document.getElementById('currentQuality');
+        const bufferEl = document.getElementById('bufferLength');
+        const fpsEl = document.getElementById('fps');
+        const qualitySelect = document.getElementById('qualitySelect');
+
+        function loadStream() {
+            const url = document.getElementById('streamUrl').value;
+            if (!url) {
+                alert('Please enter a stream URL');
+                return;
+            }
+
+            if (hls) {
+                hls.destroy();
+            }
+
+            if (Hls.isSupported()) {
+                hls = new Hls({
+                    debug: false,
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90
+                });
+
+                hls.loadSource(url);
+                hls.attachMedia(video);
+
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    statusEl.textContent = 'Loaded';
+                    video.play();
+                    
+                    // Populate quality selector
+                    qualitySelect.innerHTML = '<option value="-1">Auto</option>';
+                    hls.levels.forEach((level, index) => {
+                        const option = document.createElement('option');
+                        option.value = index;
+                        option.text = `${level.height}p (${Math.round(level.bitrate / 1000)} kbps)`;
+                        qualitySelect.add(option);
+                    });
+                });
+
+                hls.on(Hls.Events.LEVEL_SWITCHED, function(event, data) {
+                    const level = hls.levels[data.level];
+                    qualityEl.textContent = `${level.height}p (${Math.round(level.bitrate / 1000)} kbps)`;
+                });
+
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    console.error('HLS error:', data);
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                statusEl.textContent = 'Network error';
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                statusEl.textContent = 'Media error';
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                statusEl.textContent = 'Fatal error';
+                                hls.destroy();
+                                break;
+                        }
+                    }
+                });
+
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native HLS support (Safari)
+                video.src = url;
+                video.addEventListener('loadedmetadata', function() {
+                    statusEl.textContent = 'Loaded (Native)';
+                    video.play();
+                });
+            } else {
+                alert('Your browser does not support HLS playback');
+            }
+        }
+
+        function changeQuality() {
+            if (!hls) return;
+            
+            const quality = parseInt(qualitySelect.value);
+            hls.currentLevel = quality;
+        }
+
+        // Update stats
+        setInterval(() => {
+            if (hls) {
+                const buffer = video.buffered;
+                if (buffer.length > 0) {
+                    const bufferLength = buffer.end(buffer.length - 1) - video.currentTime;
+                    bufferEl.textContent = `${bufferLength.toFixed(2)}s`;
+                }
+            }
+        }, 1000);
+
+        // Allow loading from URL parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const streamUrl = urlParams.get('url');
+        if (streamUrl) {
+            document.getElementById('streamUrl').value = streamUrl;
+            loadStream();
+        }
+    </script>
+</body>
+</html>
+

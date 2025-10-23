@@ -1,175 +1,205 @@
 ---
-title: Getting Started
-description: Modern, extensible web framework for Go applications with built-in security and observability
+title: Forge Framework
+description: Modern, extensible Go web framework with enterprise-grade features, dependency injection, and powerful extension system
 ---
 
 import { Card, Cards } from 'fumadocs-ui/components/card'
 import { Callout } from 'fumadocs-ui/components/callout'
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
 
-**Forge** is a modern, extensible web framework for Go applications that provides enterprise-grade features including built-in security, observability, and a powerful plugin system. Designed for high-performance applications with clean architecture and developer experience in mind.
+**Forge v2** is a modern, enterprise-grade web framework for Go applications that provides a comprehensive foundation for building scalable, maintainable, and observable web services. Built with clean architecture principles, dependency injection, and a powerful extension system.
 
 <Callout type="info">
-Forge is actively maintained and production-ready. Check our [GitHub repository](https://github.com/xraph/forge) for the latest updates and contribute to the project.
+Forge v2 is production-ready and actively maintained. Check our [GitHub repository](https://github.com/xraph/forge) for the latest updates and contribute to the project.
 </Callout>
 
 ## Key Features
 
 <Cards>
   <Card
-    title="🔐 Built-in Security"
-    description="Comprehensive security features including authentication, authorization, rate limiting, and security middleware"
-    href="/docs/go/concepts/security"
+    title="🏗️ Clean Architecture"
+    description="Built on clean architecture principles with dependency injection, service layer, and clear separation of concerns"
+    href="/docs/concepts/architecture"
   />
   <Card
-    title="📊 Observability"
-    description="Built-in metrics, logging, tracing, and health checks for production monitoring"
-    href="/docs/go/concepts/observability"
+    title="🔌 Extension System"
+    description="Powerful extension system with 15+ built-in extensions for AI, databases, messaging, and more"
+    href="/docs/concepts/extensions"
   />
   <Card
-    title="🔌 Plugin System"
-    description="Extensible plugin architecture with database, deployment, framework, and generator plugins"
-    href="/docs/go/plugins/overview"
+    title="📊 Built-in Observability"
+    description="Comprehensive metrics, logging, health checks, and distributed tracing out of the box"
+    href="/docs/concepts/observability"
+  />
+  <Card
+    title="🔐 Enterprise Security"
+    description="Authentication, authorization, rate limiting, and security middleware with multiple provider support"
+    href="/docs/concepts/security"
   />
   <Card
     title="⚡ High Performance"
     description="Optimized for high concurrency with connection pooling, caching, and efficient middleware"
-    href="/docs/go/guides/performance"
-  />
-  <Card
-    title="🏗️ Clean Architecture"
-    description="Modular design with dependency injection, service layer, and clear separation of concerns"
-    href="/docs/go/concepts/architecture"
+    href="/docs/guides/performance"
   />
   <Card
     title="🔧 Developer Experience"
-    description="CLI tools, code generation, hot reload, and comprehensive documentation"
-    href="/docs/go/getting-started/installation"
+    description="Rich CLI tools, code generation, hot reload, and comprehensive documentation"
+    href="/docs/installation"
   />
 </Cards>
 
 ## Architecture Overview
 
-Forge follows clean architecture principles with clear separation of concerns:
+Forge v2 follows a layered architecture with clear separation of concerns:
 
-<Tabs items={['Core Framework', 'Plugin System']}>
+<Tabs items={['Core Framework', 'Extension System', 'Dependency Injection']}>
   <Tab value="Core Framework">
-    Essential framework components:
-    - HTTP router with middleware support
-    - Dependency injection container
-    - Configuration management
-    - Built-in security and observability
-    - Service layer architecture
+    **Core Components:**
+    - **App**: Application lifecycle management and coordination
+    - **Router**: HTTP routing with multiple backend support (BunRouter, Chi, etc.)
+    - **Container**: Dependency injection with lifecycle management
+    - **Config**: Configuration management with multiple sources
+    - **Logger**: Structured logging with multiple outputs
+    - **Metrics**: Prometheus-compatible metrics collection
+    - **Health**: Health check system with auto-discovery
   </Tab>
-  <Tab value="Plugin System">
-    Extensible plugin architecture:
-    - Database plugins (PostgreSQL, MySQL, SQLite)
-    - Deployment plugins (Docker, Kubernetes)
-    - Framework plugins (Gin, Echo, Fiber)
-    - Generator plugins for code generation
+  <Tab value="Extension System">
+    **Built-in Extensions:**
+    - **AI**: LLM integration, agents, and inference
+    - **Auth**: Authentication and authorization
+    - **Cache**: Redis, Memcached, and in-memory caching
+    - **Database**: SQL (PostgreSQL, MySQL, SQLite) and NoSQL (MongoDB)
+    - **Events**: Event-driven architecture with event sourcing
+    - **GraphQL**: GraphQL server with federation support
+    - **gRPC**: gRPC server with interceptors
+    - **Kafka**: Apache Kafka integration
+    - **MQTT**: MQTT broker integration
+    - **Storage**: File storage with multiple backends
+    - **WebRTC**: Real-time communication
+    - And more...
+  </Tab>
+  <Tab value="Dependency Injection">
+    **DI Features:**
+    - **Singleton**: Single instance per container
+    - **Scoped**: Instance per scope (e.g., HTTP request)
+    - **Transient**: New instance every time
+    - **Factory**: Custom factory functions
+    - **Lifecycle**: Automatic Start/Stop management
+    - **Health**: Automatic health check registration
   </Tab>
 </Tabs>
 
 ## Technology Stack
 
-- **Framework**: [Forge](https://github.com/xraph/forge) - Modern Go web framework
-- **Database**: PostgreSQL, MySQL, SQLite support with connection pooling
-- **Caching**: Redis for session caching and rate limiting
-- **Observability**: Built-in metrics, logging, and tracing
-- **Security**: Authentication, authorization, and security middleware
+- **Framework**: Go 1.24+ with modern language features
+- **Router**: Multiple backends (BunRouter, Chi, Gin, Echo)
+- **Database**: PostgreSQL, MySQL, SQLite, MongoDB with connection pooling
+- **Caching**: Redis, Memcached, in-memory with TTL support
+- **Messaging**: NATS, Kafka, RabbitMQ, MQTT
+- **Observability**: Prometheus metrics, structured logging, OpenTelemetry tracing
+- **Security**: OAuth2, SAML, JWT, API keys with multiple providers
 
 ## Quick Start
 
-Get started with Forge in minutes:
+Get started with Forge v2 in minutes:
 
 <Callout type="tip">
-Make sure you have Go 1.21+ installed and a supported database running.
+Make sure you have Go 1.24+ installed. No external dependencies required for basic usage.
 </Callout>
 
 ```bash
-# Install Forge CLI
-go install github.com/xraph/forge/cmd/forge@latest
+# Create a new Go module
+mkdir my-forge-app && cd my-forge-app
+go mod init my-forge-app
 
-# Create a new project
-forge new my-app
+# Add Forge v2 dependency
+go get github.com/xraph/forge
 
-# Navigate to your project
-cd my-app
-
-# Install dependencies
-go mod tidy
-
-# Run the application
-forge dev
-```
-
-```go
+# Create main.go
+cat > main.go << 'EOF'
 package main
 
-import (
-    "log"
-    "github.com/xraph/forge"
-)
+import "github.com/xraph/forge/v2"
 
 func main() {
-    // Create Forge app
-    app := forge.New(forge.Config{
-        Name:    "My App",
-        Version: "1.0.0",
+    // Create app with default configuration
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "my-app",
+        Version:     "1.0.0",
+        Environment: "development",
     })
-    
-    // Add a simple route
-    app.GET("/", func(c *forge.Context) error {
-        return c.JSON(200, map[string]string{
-            "message": "Hello from Forge!",
+
+    // Register a simple route
+    app.Router().GET("/", func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{
+            "message": "Hello, Forge v2!",
+            "app":     app.Name(),
         })
     })
-    
-    // Add health check
-    app.GET("/health", func(c *forge.Context) error {
-        return c.JSON(200, map[string]string{
-            "status": "healthy",
-        })
-    })
-    
-    // Start server
-    log.Println("🚀 Server starting on :8080")
-    log.Fatal(app.Listen(":8080"))
+
+    // Run the application
+    if err := app.Run(); err != nil {
+        app.Logger().Fatal("app failed", forge.F("error", err))
+    }
 }
+EOF
+
+# Run your application
+go run main.go
 ```
 
-## What's Next?
+Your application will be available at `http://localhost:8080` with built-in endpoints:
+- `/` - Your custom endpoint
+- `/_/info` - Application information
+- `/_/health` - Health checks
+- `/_/metrics` - Prometheus metrics
+
+## What's New in v2
+
+<Callout type="info">
+Forge v2 is a complete rewrite with breaking changes from v1. See our [migration guide](/docs/guides/migration) for upgrading.
+</Callout>
+
+**Major Improvements:**
+- **Simplified API**: Cleaner, more intuitive API design
+- **Better Performance**: Optimized for high concurrency and low latency
+- **Enhanced DI**: More powerful dependency injection with lifecycle management
+- **Rich Extensions**: 15+ built-in extensions for common use cases
+- **Better Testing**: Comprehensive testing utilities and mocks
+- **Improved Docs**: Complete documentation with examples and best practices
+
+## Next Steps
 
 <Cards>
   <Card
-    title="📚 Getting Started"
-    description="Learn how to install and configure Forge for your project"
-    href="/docs/go/getting-started/installation"
+    title="📖 Installation"
+    description="Set up your development environment and install Forge v2"
+    href="/docs/installation"
   />
   <Card
-    title="💡 Core Concepts"
-    description="Understand Forge's architecture, security, and observability features"
-    href="/docs/go/concepts/architecture"
+    title="🚀 Quick Start"
+    description="Build your first Forge v2 application in 5 minutes"
+    href="/docs/quick-start"
   />
   <Card
-    title="🔌 Explore Plugins"
-    description="Discover available plugins and learn to create custom ones"
-    href="/docs/go/plugins/overview"
+    title="🏗️ Architecture"
+    description="Understand Forge v2's architecture and design principles"
+    href="/docs/concepts/architecture"
   />
   <Card
-    title="📖 API Reference"
-    description="Detailed API documentation for all Forge services"
-    href="/docs/go/api/overview"
+    title="🔌 Extensions"
+    description="Explore the powerful extension system and available extensions"
+    href="/docs/concepts/extensions"
   />
 </Cards>
 
 ## Community & Support
 
-- **GitHub**: [github.com/xraph/forge](https://github.com/xraph/forge)
-- **Issues**: Report bugs and request features
-- **Discussions**: Ask questions and share ideas
-- **Contributing**: Help improve Forge
+- **GitHub**: [xraph/forge](https://github.com/xraph/forge) - Source code and issues
+- **Documentation**: Comprehensive guides and API reference
+- **Examples**: Real-world examples and use cases
+- **Contributing**: We welcome contributions and feedback
 
-<Callout type="warn">
-Forge is actively maintained and production-ready. Check the changelog for any breaking changes between versions.
-</Callout>
+---
+
+Ready to build something amazing? Let's [get started](/docs/installation)!
