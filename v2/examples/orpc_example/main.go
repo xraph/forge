@@ -8,6 +8,57 @@ import (
 	"github.com/xraph/forge/v2/extensions/orpc"
 )
 
+// Request/Response types demonstrating unified schema approach
+// These schemas are automatically used for both OpenAPI and oRPC
+
+type ListUsersRequest struct {
+	Limit  int    `query:"limit,omitempty" description:"Maximum number of users to return"`
+	Offset int    `query:"offset,omitempty" description:"Number of users to skip"`
+	Search string `query:"search,omitempty" description:"Search term for filtering users"`
+}
+
+type ListUsersResponse struct {
+	Users []UserResponse `json:"users" description:"List of users"`
+	Total int            `json:"total" description:"Total number of users"`
+}
+
+type GetUserRequest struct {
+	ID string `path:"id" description:"User ID"`
+}
+
+type UserResponse struct {
+	ID        string `json:"id" description:"User unique identifier"`
+	Name      string `json:"name" description:"User's full name"`
+	Email     string `json:"email" description:"User's email address"`
+	CreatedAt string `json:"created_at,omitempty" description:"When the user was created"`
+}
+
+type CreateUserRequest struct {
+	Name  string `json:"name" description:"User's full name"`
+	Email string `json:"email" description:"User's email address"`
+}
+
+type UpdateUserRequest struct {
+	ID    string `path:"id" description:"User ID"`
+	Name  string `json:"name,omitempty" description:"User's full name"`
+	Email string `json:"email,omitempty" description:"User's email address"`
+}
+
+type DeleteUserRequest struct {
+	ID string `path:"id" description:"User ID"`
+}
+
+type DeleteResponse struct {
+	Deleted bool   `json:"deleted" description:"Whether the deletion was successful"`
+	ID      string `json:"id" description:"ID of the deleted resource"`
+}
+
+type ErrorResponse struct {
+	Error   string `json:"error" description:"Error message"`
+	Code    string `json:"code,omitempty" description:"Error code"`
+	Details string `json:"details,omitempty" description:"Additional error details"`
+}
+
 func main() {
 	// Create Forge app
 	app := forge.NewApp(forge.AppConfig{
@@ -52,54 +103,53 @@ func setupRoutes(router forge.Router) {
 	users := router.Group("/users", forge.WithGroupTags("users"))
 
 	// GET /users - list users (custom RPC method name)
+	// This demonstrates unified schema reuse for both OpenAPI and oRPC
 	users.GET("", listUsersHandler,
 		forge.WithName("list-users"),
 		forge.WithSummary("List all users"),
 		forge.WithORPCMethod("user.list"), // Custom method name
+		forge.WithRequestSchema(ListUsersRequest{}),
+		forge.WithResponseSchema(200, "List of users", ListUsersResponse{}),
 	)
 
 	// GET /users/:id - get user by ID
+	// This demonstrates unified schema reuse with path parameter
 	users.GET("/:id", getUserHandler,
 		forge.WithName("get-user"),
 		forge.WithSummary("Get user by ID"),
 		forge.WithDescription("Retrieves a user by their unique identifier"),
-		forge.WithORPCParams(&orpc.ParamsSchema{
-			Type: "object",
-			Properties: map[string]*orpc.PropertySchema{
-				"id": {
-					Type:        "string",
-					Description: "User ID",
-				},
-			},
-			Required: []string{"id"},
-		}),
-		forge.WithORPCResult(&orpc.ResultSchema{
-			Type:        "object",
-			Description: "User object",
-			Properties: map[string]*orpc.PropertySchema{
-				"id":    {Type: "string"},
-				"name":  {Type: "string"},
-				"email": {Type: "string"},
-			},
-		}),
+		forge.WithRequestSchema(GetUserRequest{}),
+		forge.WithResponseSchema(200, "User details", UserResponse{}),
+		forge.WithResponseSchema(404, "User not found", ErrorResponse{}),
 	)
 
 	// POST /users - create user
+	// Demonstrates multiple response schemas and explicit primary selection
 	users.POST("", createUserHandler,
 		forge.WithName("create-user"),
 		forge.WithSummary("Create a new user"),
+		forge.WithRequestSchema(CreateUserRequest{}),
+		forge.WithResponseSchema(200, "User already exists", UserResponse{}),
+		forge.WithResponseSchema(201, "User created", UserResponse{}),
+		forge.WithORPCPrimaryResponse(201), // Explicitly choose 201 for oRPC
 	)
 
 	// PUT /users/:id - update user
 	users.PUT("/:id", updateUserHandler,
 		forge.WithName("update-user"),
 		forge.WithSummary("Update an existing user"),
+		forge.WithRequestSchema(UpdateUserRequest{}),
+		forge.WithResponseSchema(200, "User updated", UserResponse{}),
+		forge.WithResponseSchema(404, "User not found", ErrorResponse{}),
 	)
 
 	// DELETE /users/:id - delete user
 	users.DELETE("/:id", deleteUserHandler,
 		forge.WithName("delete-user"),
 		forge.WithSummary("Delete a user"),
+		forge.WithRequestSchema(DeleteUserRequest{}),
+		forge.WithResponseSchema(200, "User deleted", DeleteResponse{}),
+		forge.WithResponseSchema(404, "User not found", ErrorResponse{}),
 	)
 
 	// Product routes
@@ -128,64 +178,82 @@ func setupRoutes(router forge.Router) {
 // Handler implementations
 
 func listUsersHandler(ctx forge.Context) error {
-	users := []map[string]interface{}{
-		{"id": "1", "name": "Alice", "email": "alice@example.com"},
-		{"id": "2", "name": "Bob", "email": "bob@example.com"},
-		{"id": "3", "name": "Charlie", "email": "charlie@example.com"},
+	users := []UserResponse{
+		{ID: "1", Name: "Alice", Email: "alice@example.com"},
+		{ID: "2", Name: "Bob", Email: "bob@example.com"},
+		{ID: "3", Name: "Charlie", Email: "charlie@example.com"},
 	}
-	return ctx.JSON(200, map[string]interface{}{
-		"users": users,
-		"total": len(users),
+	return ctx.JSON(200, ListUsersResponse{
+		Users: users,
+		Total: len(users),
 	})
 }
 
 func getUserHandler(ctx forge.Context) error {
 	id := ctx.Param("id")
-	user := map[string]interface{}{
-		"id":    id,
-		"name":  fmt.Sprintf("User %s", id),
-		"email": fmt.Sprintf("user%s@example.com", id),
+	if id == "999" {
+		return ctx.JSON(404, ErrorResponse{
+			Error: "User not found",
+			Code:  "USER_NOT_FOUND",
+		})
+	}
+	user := UserResponse{
+		ID:    id,
+		Name:  fmt.Sprintf("User %s", id),
+		Email: fmt.Sprintf("user%s@example.com", id),
 	}
 	return ctx.JSON(200, user)
 }
 
 func createUserHandler(ctx forge.Context) error {
-	var body map[string]interface{}
-	if err := ctx.Bind(&body); err != nil {
+	var req CreateUserRequest
+	if err := ctx.Bind(&req); err != nil {
 		return forge.BadRequest("Invalid request body")
 	}
 
 	// Simulate user creation
-	user := map[string]interface{}{
-		"id":    "new-123",
-		"name":  body["name"],
-		"email": body["email"],
+	user := UserResponse{
+		ID:    "new-123",
+		Name:  req.Name,
+		Email: req.Email,
 	}
 	return ctx.JSON(201, user)
 }
 
 func updateUserHandler(ctx forge.Context) error {
 	id := ctx.Param("id")
-	var body map[string]interface{}
-	if err := ctx.Bind(&body); err != nil {
+	var req UpdateUserRequest
+	if err := ctx.Bind(&req); err != nil {
 		return forge.BadRequest("Invalid request body")
 	}
 
+	if id == "999" {
+		return ctx.JSON(404, ErrorResponse{
+			Error: "User not found",
+			Code:  "USER_NOT_FOUND",
+		})
+	}
+
 	// Simulate user update
-	user := map[string]interface{}{
-		"id":      id,
-		"name":    body["name"],
-		"email":   body["email"],
-		"updated": true,
+	user := UserResponse{
+		ID:    id,
+		Name:  req.Name,
+		Email: req.Email,
 	}
 	return ctx.JSON(200, user)
 }
 
 func deleteUserHandler(ctx forge.Context) error {
 	id := ctx.Param("id")
-	return ctx.JSON(200, map[string]interface{}{
-		"deleted": true,
-		"id":      id,
+	if id == "999" {
+		return ctx.JSON(404, ErrorResponse{
+			Error: "User not found",
+			Code:  "USER_NOT_FOUND",
+		})
+	}
+	return ctx.JSON(200, DeleteResponse{
+		Deleted: true,
+		ID:      id,
 	})
 }
 

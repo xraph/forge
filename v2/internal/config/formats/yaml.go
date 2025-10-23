@@ -1,7 +1,5 @@
 package formats
 
-
-
 import (
 	"errors"
 	"fmt"

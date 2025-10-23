@@ -102,7 +102,7 @@ func New(config *HealthConfig, logger logger.Logger, metrics shared.Metrics, con
 
 // Name returns the service name
 func (hc *ManagerImpl) Name() string {
-	return hc.Name()
+	return "forge.health.service"
 }
 
 // Start starts the health checker service
@@ -117,37 +117,44 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 	hc.started = true
 	hc.stopping = false
 
-	// Auto-discover services if enabled
-	if hc.config.EnableAutoDiscovery {
-		hc.autoDiscoverServices()
-	}
-
-	// Auto-register built-in health checks if enabled
-	if hc.config.EnableAutoDiscovery {
-		if err := hc.registerBuiltinChecks(); err != nil {
-			if hc.logger != nil {
-				hc.logger.Warn("failed to register some built-in health checks",
-					logger.Error(err),
-				)
-			}
-		}
-	}
-
-	// Register endpoints if enabled
-	if hc.config.EnableEndpoints {
-		if err := hc.registerEndpoints(); err != nil {
-			if hc.logger != nil {
-				hc.logger.Warn("failed to register health endpoints",
-					logger.Error(err),
-				)
-			}
-		}
-	}
+	// Defer auto-discovery to avoid deadlock (don't hold lock while calling container.Services())
+	autoDiscoveryEnabled := hc.config.EnableAutoDiscovery
+	endpointsEnabled := hc.config.EnableEndpoints
 
 	// Start background routines
 	go hc.checkLoop(ctx)
 	go hc.reportLoop(ctx)
 	go hc.resultProcessor(ctx)
+
+	// Perform auto-discovery and registration asynchronously to avoid holding lock
+	if autoDiscoveryEnabled || endpointsEnabled {
+		go func() {
+			// Auto-discover services if enabled
+			if autoDiscoveryEnabled {
+				hc.autoDiscoverServices()
+
+				// Auto-register built-in health checks
+				if err := hc.registerBuiltinChecks(); err != nil {
+					if hc.logger != nil {
+						hc.logger.Warn("failed to register some built-in health checks",
+							logger.Error(err),
+						)
+					}
+				}
+			}
+
+			// Register endpoints if enabled
+			if endpointsEnabled {
+				if err := hc.registerEndpoints(); err != nil {
+					if hc.logger != nil {
+						hc.logger.Warn("failed to register health endpoints",
+							logger.Error(err),
+						)
+					}
+				}
+			}
+		}()
+	}
 
 	if hc.logger != nil {
 		hc.logger.Info(hc.Name()+" started",
@@ -487,6 +494,9 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 			continue
 		}
 
+		// Create local copy for closure capture (avoid loop variable capture bug)
+		svcName := serviceName
+
 		// Create a service health check
 		config := &healthinternal.HealthCheckConfig{
 			Name:     serviceName,
@@ -496,7 +506,7 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 		}
 
 		check := healthinternal.NewSimpleHealthCheck(config, func(ctx context.Context) *healthinternal.HealthResult {
-			return hc.checkService(ctx, serviceName)
+			return hc.checkService(ctx, svcName)
 		})
 
 		hc.checks[serviceName] = check

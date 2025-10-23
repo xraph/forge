@@ -73,6 +73,16 @@ type AppConfig struct {
 
 // DefaultAppConfig returns a default application configuration
 func DefaultAppConfig() AppConfig {
+	// Get proper default health config with all fields set
+	healthConfig := DefaultHealthConfig()
+	healthConfig.CheckInterval = 30 * time.Second
+	healthConfig.ReportInterval = 60 * time.Second
+	healthConfig.EnableAutoDiscovery = true
+	healthConfig.MaxConcurrentChecks = 10
+	healthConfig.DefaultTimeout = 5 * time.Second
+	healthConfig.EnableSmartAggregation = true
+	healthConfig.HistorySize = 100
+
 	return AppConfig{
 		Name:            "forge-app",
 		Version:         "1.0.0",
@@ -84,7 +94,7 @@ func DefaultAppConfig() AppConfig {
 		ShutdownSignals: nil, // Will use default SIGINT, SIGTERM
 		RouterOptions:   nil,
 		MetricsConfig:   DefaultMetricsConfig(),
-		HealthConfig:    DefaultHealthConfig(),
+		HealthConfig:    healthConfig,
 	}
 }
 

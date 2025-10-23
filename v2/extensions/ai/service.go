@@ -30,4 +30,3 @@ func (s *service) Stop(ctx context.Context) error {
 func (s *service) Health(ctx context.Context) error {
 	return s.ai.HealthCheck(ctx)
 }
-

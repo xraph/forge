@@ -1,0 +1,259 @@
+# golangci-lint configuration for Forge v2
+# Production-ready linting configuration with strict settings
+
+run:
+  timeout: 5m
+  tests: true
+  modules-download-mode: readonly
+  allow-parallel-runners: true
+
+output:
+  formats:
+    - format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+  sort-results: true
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+    exclude-functions:
+      - (*database/sql.Rows).Close
+      - (*database/sql.DB).Close
+
+  govet:
+    enable-all: true
+    disable:
+      - shadow # too strict for some cases
+
+  gocyclo:
+    min-complexity: 15
+
+  dupl:
+    threshold: 100
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  misspell:
+    locale: US
+    ignore-words:
+      - cancelled
+
+  lll:
+    line-length: 140
+    tab-width: 4
+
+  unused:
+    check-exported: false
+
+  unparam:
+    check-exported: false
+
+  nakedret:
+    max-func-lines: 30
+
+  prealloc:
+    simple: true
+    range-loops: true
+    for-loops: false
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - whyNoLint
+      - wrapperFunc
+
+  goimports:
+    local-prefixes: github.com/xraph/forge/v2
+
+  gofumpt:
+    extra-rules: true
+
+  revive:
+    confidence: 0.8
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+      - name: var-declaration
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: time-naming
+      - name: unexported-return
+      - name: indent-error-flow
+      - name: errorf
+      - name: empty-block
+      - name: superfluous-else
+      - name: unused-parameter
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+  gosec:
+    excludes:
+      - G104 # Audit errors not checked - handled by errcheck
+      - G307 # Deferring unsafe method - false positives with Close()
+    config:
+      G301: "0644"
+      G302: "0644"
+      G306: "0644"
+
+  staticcheck:
+    checks: ["all"]
+
+  stylecheck:
+    checks: ["all"]
+
+  exhaustive:
+    check-generated: false
+    default-signifies-exhaustive: true
+
+linters:
+  disable-all: true
+  enable:
+    # Essential linters
+    - errcheck        # Check for unchecked errors
+    - gosimple        # Simplify code
+    - govet           # Examine Go source code and reports suspicious constructs
+    - ineffassign     # Detect ineffectual assignments
+    - staticcheck     # Advanced Go linter
+    - typecheck       # Type check Go code
+    - unused          # Check for unused constants, variables, functions and types
+
+    # Additional recommended linters
+    - asciicheck      # Check for non-ASCII identifiers
+    - bidichk         # Check for dangerous unicode character sequences
+    - bodyclose       # Check HTTP response body is closed
+    - contextcheck    # Check context usage
+    - cyclop          # Check function and package cyclomatic complexity
+    - dupl            # Code clone detection
+    - durationcheck   # Check for two durations multiplied together
+    - errname         # Check error naming conventions
+    - errorlint       # Find code that will cause problems with error wrapping
+    - exhaustive      # Check exhaustiveness of enum switch statements
+    - exportloopref   # Check for pointers to enclosing loop variables
+    - gochecknoinits  # Check that no init functions are present
+    - goconst         # Find repeated strings that could be replaced by a constant
+    - gocritic        # Provides diagnostics for suspicious code patterns
+    - gocyclo         # Compute cyclomatic complexity
+    - gofmt           # Check whether code was gofmt-ed
+    - gofumpt         # Stricter gofmt
+    - goimports       # Check import statements are formatted
+    - goprintffuncname # Check that printf-like functions are named with f at the end
+    - gosec           # Inspect code for security problems
+    - lll             # Report long lines
+    - makezero        # Find slice declarations with non-zero initial length
+    - misspell        # Find commonly misspelled English words
+    - nakedret        # Find naked returns in functions greater than a specified length
+    - nilerr          # Find code that returns nil even if it checks that error is not nil
+    - nilnil          # Check that there is no simultaneous return of nil error and invalid value
+    - noctx           # Find http requests without context.Context
+    - nolintlint      # Report ill-formed or insufficient nolint directives
+    - prealloc        # Find slice declarations that could potentially be pre-allocated
+    - predeclared     # Find code that shadows one of Go's predeclared identifiers
+    - promlinter      # Check Prometheus metrics naming
+    - revive          # Fast, configurable, extensible, flexible, and beautiful linter
+    - rowserrcheck    # Check whether Rows.Err is checked correctly
+    - sqlclosecheck   # Check that sql.Rows and sql.Stmt are closed
+    - stylecheck      # Replacement for golint
+    - tenv            # Detect using os.Setenv instead of t.Setenv
+    - tparallel       # Detect inappropriate usage of t.Parallel()
+    - unconvert       # Remove unnecessary type conversions
+    - unparam         # Report unused function parameters
+    - usestdlibvars   # Detect the possibility to use variables/constants from stdlib
+    - wastedassign    # Find wasted assignment statements
+    - whitespace      # Check for unnecessary newlines
+
+issues:
+  # Maximum issues count per one linter. Set to 0 to disable. Default is 50.
+  max-issues-per-linter: 0
+
+  # Maximum count of issues with the same text. Set to 0 to disable. Default is 3.
+  max-same-issues: 0
+
+  # Show only new issues created after git revision
+  # new: true
+  # new-from-rev: HEAD
+
+  exclude-rules:
+    # Exclude some linters from running on tests files
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+        - goconst
+        - lll
+
+    # Exclude known issues in generated files
+    - path: \.gen\.go$
+      linters:
+        - all
+
+    - path: generated/
+      linters:
+        - all
+
+    # Exclude some staticcheck messages
+    - linters:
+        - staticcheck
+      text: "SA1019:" # Ignore deprecation warnings for now
+
+    # Exclude lll issues for long lines with go:generate
+    - linters:
+        - lll
+      source: "^//go:generate "
+
+    # Exclude lll issues for long lines with comments
+    - linters:
+        - lll
+      source: "^\\s*// "
+
+    # Exclude some revive rules for specific cases
+    - linters:
+        - revive
+      text: "unexported-return"
+      path: internal/
+
+    - linters:
+        - revive
+      text: "unused-parameter"
+      path: _test\.go
+
+    # Exclude gosec for bind to all interfaces in development
+    - linters:
+        - gosec
+      text: "G102:"
+
+  # Independently of option `exclude` use or not the default list of exclusions
+  exclude-use-default: false
+
+  # Fix found issues (if it's supported by the linter)
+  fix: false
+
+severity:
+  default-severity: error
+  rules:
+    - linters:
+        - dupl
+        - gocyclo
+        - lll
+      severity: warning
+

@@ -17,15 +17,33 @@ type Gauge = shared.Gauge
 // Histogram tracks distributions of values
 type Histogram = shared.Histogram
 
+// MetricType represents the type of metric
+type MetricType = shared.MetricType
+
+// Metric type constants
+const (
+	MetricTypeCounter   = shared.MetricTypeCounter
+	MetricTypeGauge     = shared.MetricTypeGauge
+	MetricTypeHistogram = shared.MetricTypeHistogram
+	MetricTypeTimer     = shared.MetricTypeTimer
+)
+
 // MetricsConfig configures metrics collection
 type MetricsConfig = shared.MetricsConfig
 
 // DefaultMetricsConfig returns default metrics configuration
 func DefaultMetricsConfig() MetricsConfig {
 	return MetricsConfig{
-		Enabled:     true,
-		MetricsPath: "/_/metrics",
-		Namespace:   "forge",
+		Enabled:              true,
+		MetricsPath:          "/_/metrics",
+		Namespace:            "forge",
+		CollectionInterval:   10 * 1000000000, // 10 seconds in nanoseconds
+		EnableSystemMetrics:  false,           // Disable by default for performance
+		EnableRuntimeMetrics: false,           // Disable by default for performance
+		EnableHTTPMetrics:    false,           // Disable by default for performance
+		MaxMetrics:           10000,
+		BufferSize:           1000,
+		DefaultTags:          make(map[string]string),
 	}
 }
 

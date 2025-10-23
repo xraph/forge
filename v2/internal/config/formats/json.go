@@ -1,14 +1,11 @@
 package formats
 
-
-
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
-
 )
 
 // JSONProcessor implements JSON format processing

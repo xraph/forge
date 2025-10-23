@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xraph/forge/pkg/common"
+	"github.com/xraph/forge/v2/internal/errors"
 	"github.com/xraph/forge/v2/internal/metrics/internal"
 )
 
@@ -371,7 +371,7 @@ func (r *registry) UnregisterMetric(name string, tags map[string]string) error {
 
 	registered, exists := r.metrics[key]
 	if !exists {
-		return common.ErrServiceNotFound(key)
+		return errors.ErrServiceNotFound(key)
 	}
 
 	// Remove from indexes
@@ -397,7 +397,7 @@ func (r *registry) ResetMetric(name string) error {
 	}
 
 	if !found {
-		return common.ErrServiceNotFound(name)
+		return errors.ErrServiceNotFound(name)
 	}
 
 	return nil
@@ -469,7 +469,7 @@ func (r *registry) Start() error {
 	defer r.mu.Unlock()
 
 	if r.started {
-		return common.ErrServiceAlreadyExists("registry")
+		return errors.ErrServiceAlreadyExists("registry")
 	}
 
 	r.started = true
@@ -487,7 +487,7 @@ func (r *registry) Stop() error {
 	defer r.mu.Unlock()
 
 	if !r.started {
-		return common.ErrServiceNotFound("registry")
+		return errors.ErrServiceNotFound("registry")
 	}
 
 	r.started = false
@@ -510,14 +510,14 @@ func (r *registry) buildKey(name string, tags map[string]string) string {
 // registerMetricInternal registers a metric internally (assumes lock held)
 func (r *registry) registerMetricInternal(name string, metric interface{}, metricType internal.MetricType, tags map[string]string) error {
 	if len(r.metrics) >= r.maxMetrics {
-		return common.ErrInvalidConfig("max_metrics", fmt.Errorf("maximum number of metrics reached: %d", r.maxMetrics))
+		return errors.ErrInvalidConfig("max_metrics", fmt.Errorf("maximum number of metrics reached: %d", r.maxMetrics))
 	}
 
 	key := r.buildKey(name, tags)
 
 	// Check if metric already exists
 	if _, exists := r.metrics[key]; exists {
-		return common.ErrServiceAlreadyExists(key)
+		return errors.ErrServiceAlreadyExists(key)
 	}
 
 	// Create registered metric

@@ -1,0 +1,194 @@
+# Example .forge.yaml for Single-Module Layout
+# This is the recommended layout for most projects
+
+project:
+  name: "my-forge-project"
+  version: "0.1.0"
+  description: "My awesome Forge application"
+  type: "monorepo"
+  layout: "single-module"
+  
+  # Go module path
+  module: "github.com/myorg/my-forge-project"
+  
+  # Directory structure (defaults shown)
+  structure:
+    cmd: "./cmd"                # Entry points for applications
+    apps: "./apps"              # Application-specific code
+    pkg: "./pkg"                # Shared public libraries
+    internal: "./internal"      # Shared private code
+    extensions: "./extensions"  # Custom Forge extensions
+    database: "./database"      # Database files
+    config: "./config"          # Configuration files
+    deployments: "./deployments" # Deployment configs
+
+# Development configuration
+dev:
+  auto_discover: true
+  discover_pattern: "./cmd/*"  # Find all apps in cmd/
+  default_app: "api-gateway"   # Default app to run
+  
+  # File watching
+  watch:
+    enabled: true
+    paths:
+      - "./apps/**/internal/**/*.go"
+      - "./pkg/**/*.go"
+      - "./internal/**/*.go"
+    exclude:
+      - "**/*_test.go"
+      - "**/testdata/**"
+      - "**/vendor/**"
+  
+  # Hot reload
+  hot_reload:
+    enabled: true
+    delay: 500ms
+
+# Database configuration
+database:
+  driver: "postgres"
+  migrations_path: "./database/migrations"
+  seeds_path: "./database/seeds"
+  models_output: "./pkg/models/gen"
+  
+  # Code generation from schema
+  codegen:
+    enabled: false
+    output: "./pkg/models/gen"
+    templates: "./database/templates"
+  
+  # Database connections
+  connections:
+    dev:
+      url: "postgres://localhost:5432/mydb_dev?sslmode=disable"
+      max_connections: 20
+      max_idle: 5
+    
+    test:
+      url: "postgres://localhost:5432/mydb_test?sslmode=disable"
+      max_connections: 10
+      max_idle: 2
+    
+    production:
+      url: "${DATABASE_URL}"  # From environment
+      max_connections: 50
+      max_idle: 10
+
+# Build configuration
+build:
+  output_dir: "./bin"
+  cmd_dir: "./cmd"
+  
+  # Applications to build
+  apps:
+    - name: "api-gateway"
+      cmd: "./cmd/api-gateway"
+      output: "api-gateway"
+      
+    - name: "auth-service"
+      cmd: "./cmd/auth-service"
+      output: "auth-service"
+      
+    - name: "worker-service"
+      cmd: "./cmd/worker-service"
+      output: "worker-service"
+  
+  # Target platforms
+  platforms:
+    - os: linux
+      arch: amd64
+    - os: darwin
+      arch: arm64
+    - os: windows
+      arch: amd64
+  
+  # Build flags
+  ldflags: "-s -w -X main.version={{.Version}} -X main.commit={{.Commit}}"
+  tags:
+    - netgo
+    - osusergo
+
+# Deployment configuration
+deploy:
+  registry: "ghcr.io/myorg"
+  
+  docker:
+    build_context: "."
+    dockerfile: "./deployments/docker/Dockerfile"
+  
+  kubernetes:
+    manifests: "./deployments/kubernetes"
+    namespace: "default"
+  
+  environments:
+    - name: dev
+      cluster: "dev-cluster"
+      namespace: "development"
+    
+    - name: staging
+      cluster: "staging-cluster"
+      namespace: "staging"
+    
+    - name: production
+      cluster: "prod-cluster"
+      namespace: "production"
+
+# Code generation templates
+generate:
+  templates_path: "./templates"
+  
+  generators:
+    app:
+      cmd_path: "./cmd/{{.Name}}"
+      internal_path: "./apps/{{.Name}}/internal"
+    
+    service:
+      output: "./pkg/services/{{.Name}}"
+    
+    extension:
+      output: "./extensions/{{.Name}}"
+    
+    handler:
+      output: "./apps/{{.App}}/internal/handlers/{{.Name}}.go"
+    
+    model:
+      output: "./pkg/models/{{.Name}}.go"
+
+# Extension configuration
+extensions:
+  # Cache extension
+  cache:
+    driver: "redis"
+    url: "redis://localhost:6379/0"
+    ttl: 1h
+  
+  # Database extension
+  database:
+    driver: "postgres"
+    url: "${DATABASE_URL}"
+    max_connections: 20
+  
+  # Logger extension
+  logger:
+    level: "info"
+    format: "json"
+    output: "stdout"
+  
+  # MCP extension
+  mcp:
+    enabled: true
+    base_path: "/_/mcp"
+  
+  # Auth extension
+  auth:
+    jwt_secret: "${JWT_SECRET}"
+    token_ttl: 24h
+
+# Testing configuration
+test:
+  coverage_threshold: 80
+  race_detector: true
+  parallel: true
+  timeout: 30s
+

@@ -15,7 +15,7 @@ func TestGetErrorMessage(t *testing.T) {
 		{ErrServerError, "Server error"},
 		{-32099, "Unknown error"},
 	}
-	
+
 	for _, tt := range tests {
 		got := GetErrorMessage(tt.code)
 		if got != tt.want {

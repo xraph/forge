@@ -415,6 +415,26 @@ func WithORPCTags(tags ...string) RouteOption {
 	return WithMetadata("orpc.tags", tags)
 }
 
+// WithORPCPrimaryResponse sets which response status code should be used as the primary
+// oRPC result schema when multiple success responses (200, 201, etc.) are defined.
+// This is useful when you have both 200 and 201 responses and want to explicitly choose one.
+//
+// By default, oRPC uses method-aware selection:
+//   - POST: Prefers 201, then 200
+//   - GET: Prefers 200
+//   - PUT/PATCH/DELETE: Prefers 200
+//
+// Example:
+//
+//	router.POST("/users", createUserHandler,
+//	    forge.WithResponseSchema(200, "Updated user", UserResponse{}),
+//	    forge.WithResponseSchema(201, "Created user", UserResponse{}),
+//	    forge.WithORPCPrimaryResponse(200), // Explicitly use 200
+//	)
+func WithORPCPrimaryResponse(statusCode int) RouteOption {
+	return WithMetadata("orpc.primaryResponse", statusCode)
+}
+
 // Authentication route options
 
 // WithAuth adds authentication to a route using one or more providers.

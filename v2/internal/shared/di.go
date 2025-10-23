@@ -14,7 +14,7 @@ type Container interface {
 
 	// Has checks if a service is registered
 	Has(name string) bool
- 
+
 	// Services returns all registered service names
 	Services() []string
 

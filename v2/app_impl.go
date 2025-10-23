@@ -100,13 +100,20 @@ func newApp(config AppConfig) *app {
 	var metrics Metrics
 	metricsConfig := &config.MetricsConfig
 
+	// Apply defaults if metrics config is empty (not explicitly disabled)
+	if !metricsConfig.Enabled && metricsConfig.Namespace == "" {
+		// User didn't provide config, use defaults
+		defaultMetrics := DefaultMetricsConfig()
+		metricsConfig = &defaultMetrics
+	}
+
 	// Try to load from ConfigManager first
 	if configManager != nil {
 		var runtimeConfig shared.MetricsConfig
 		if err := configManager.Bind("metrics", &runtimeConfig); err == nil {
 			// Merge: runtime values override defaults, programmatic values override runtime
 			if runtimeConfig.Enabled {
-				metricsConfig = mergeMetricsConfig(&runtimeConfig, &config.MetricsConfig)
+				metricsConfig = mergeMetricsConfig(&runtimeConfig, metricsConfig)
 			}
 		}
 	}
@@ -126,12 +133,26 @@ func newApp(config AppConfig) *app {
 	var healthManager HealthManager
 	healthConfig := &config.HealthConfig
 
+	// Apply defaults if health config is empty (not explicitly disabled)
+	if !healthConfig.Enabled && healthConfig.CheckInterval == 0 {
+		// User didn't provide config, use defaults
+		defaultHealth := DefaultHealthConfig()
+		defaultHealth.CheckInterval = 30 * time.Second
+		defaultHealth.ReportInterval = 60 * time.Second
+		defaultHealth.EnableAutoDiscovery = true
+		defaultHealth.MaxConcurrentChecks = 10
+		defaultHealth.DefaultTimeout = 5 * time.Second
+		defaultHealth.EnableSmartAggregation = true
+		defaultHealth.HistorySize = 100
+		healthConfig = &defaultHealth
+	}
+
 	// Try to load from ConfigManager first
 	if configManager != nil {
 		var runtimeConfig shared.HealthConfig
 		if err := configManager.Bind("health", &runtimeConfig); err == nil {
 			if runtimeConfig.Enabled {
-				healthConfig = mergeHealthConfig(&runtimeConfig, &config.HealthConfig)
+				healthConfig = mergeHealthConfig(&runtimeConfig, healthConfig)
 			}
 		}
 	}
@@ -330,19 +351,25 @@ func (a *app) Start(ctx context.Context) error {
 	}
 
 	// 2. Start DI container (starts all registered services)
+	a.logger.Debug("starting DI container")
 	if err := a.container.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
 	}
+	a.logger.Debug("DI container started")
 
-	// 2.5 Set container reference for health manager
+	// 2.5 Set container reference for health manager (but don't start yet)
 	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
+		a.logger.Debug("setting container reference for health manager")
 		healthMgr.SetContainer(a.container)
+		a.logger.Debug("container reference set")
 	}
 
 	// 2.6 Reload configs from ConfigManager (hot-reload support)
+	a.logger.Debug("reloading configs from ConfigManager")
 	if err := a.reloadConfigsFromManager(); err != nil {
 		a.logger.Warn("failed to reload configs from ConfigManager", F("error", err))
 	}
+	a.logger.Debug("configs reloaded")
 
 	// 3. Start extensions in dependency order
 	if err := a.startExtensions(ctx); err != nil {
@@ -352,6 +379,9 @@ func (a *app) Start(ctx context.Context) error {
 	// 4. Setup observability endpoints (including extension health checks)
 	a.setupObservabilityEndpoints()
 	a.registerExtensionHealthChecks()
+
+	// Note: Health manager is already started by container.Start()
+	// No need to start it again here
 
 	a.started = true
 	a.startTime = time.Now()
@@ -371,10 +401,17 @@ func (a *app) Stop(ctx context.Context) error {
 
 	a.logger.Info("stopping application")
 
-	// 1. Stop extensions in reverse order
+	// 1. Stop health manager
+	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
+		if err := healthMgr.Stop(ctx); err != nil {
+			a.logger.Error("failed to stop health manager", F("error", err))
+		}
+	}
+
+	// 2. Stop extensions in reverse order
 	a.stopExtensions(ctx)
 
-	// 2. Stop DI container (stops all services in reverse order)
+	// 3. Stop DI container (stops all services in reverse order)
 	if err := a.container.Stop(ctx); err != nil {
 		a.logger.Error("failed to stop container", F("error", err))
 	}
@@ -577,8 +614,9 @@ func (a *app) stopExtensions(ctx context.Context) {
 // registerExtensionHealthChecks registers health checks for all extensions
 func (a *app) registerExtensionHealthChecks() {
 	for _, ext := range a.extensions {
+		// Create local copies for closure capture (avoid loop variable capture bug)
+		extRef := ext
 		extName := ext.Name()
-		extRef := ext // Capture for closure
 
 		checkName := "extension:" + extName
 		a.healthManager.RegisterFn(checkName, func(ctx context.Context) *HealthResult {

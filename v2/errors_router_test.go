@@ -27,7 +27,7 @@ func TestHTTPError_Error_WithErr(t *testing.T) {
 func TestHTTPError_Unwrap(t *testing.T) {
 	innerErr := errors.New("inner error")
 	err := &HTTPError{Code: 500, Err: innerErr}
-	
+
 	assert.Equal(t, innerErr, err.Unwrap())
 }
 
@@ -61,4 +61,3 @@ func TestInternalError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, err.Code)
 	assert.Equal(t, innerErr, err.Err)
 }
-

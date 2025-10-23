@@ -13,16 +13,16 @@ import (
 
 // ProductionMetricsExample demonstrates production-grade label usage
 type ProductionMetricsExample struct {
-	common     *metrics.CommonLabels
-	registry   *metrics.LabelRegistry
+	common      *metrics.CommonLabels
+	registry    *metrics.LabelRegistry
 	cardinality *metrics.LabelCardinality
-	pathCache  map[string]string // Cache normalized paths
+	pathCache   map[string]string // Cache normalized paths
 }
 
 // NewProductionMetricsExample creates a new example instance
 func NewProductionMetricsExample() *ProductionMetricsExample {
 	hostname, _ := os.Hostname()
-	
+
 	return &ProductionMetricsExample{
 		common: &metrics.CommonLabels{
 			Service:     "api-gateway",
@@ -46,21 +46,21 @@ func (p *ProductionMetricsExample) RecordHTTPRequest(
 ) {
 	// Normalize path to prevent cardinality explosion
 	normalizedPath := p.normalizePath(path)
-	
+
 	// Create bounded labels
 	labels := map[string]string{
 		"method": method,
 		"path":   normalizedPath,
 		"status": statusCodeCategory(statusCode),
 	}
-	
+
 	// Validate and sanitize
 	sanitized, err := metrics.ValidateAndSanitizeTags(labels)
 	if err != nil {
 		fmt.Printf("Label validation failed: %v\n", err)
 		return
 	}
-	
+
 	// Check cardinality before creating metric
 	metricName := "http_requests_total"
 	if !p.cardinality.Check(metricName, sanitized) {
@@ -71,24 +71,24 @@ func (p *ProductionMetricsExample) RecordHTTPRequest(
 			"status": statusCodeCategory(statusCode),
 		}
 	}
-	
+
 	// Record cardinality
 	if err := p.cardinality.Record(metricName, sanitized); err != nil {
 		fmt.Printf("Cardinality error: %v\n", err)
 	}
-	
+
 	// Record label usage for monitoring
 	for key, value := range sanitized {
 		p.registry.RecordLabel(key, value)
 	}
-	
+
 	// Add common labels
 	finalLabels := metrics.AddCommonLabels(sanitized, p.common)
-	
+
 	// Log formatted labels for debugging
-	fmt.Printf("Metric: %s %s\n", metricName, 
+	fmt.Printf("Metric: %s %s\n", metricName,
 		metrics.FormatLabelsPrometheus(finalLabels))
-	
+
 	// In real usage, you would increment your actual metric here
 	// counter := collector.Counter(metricName, flattenLabels(finalLabels)...)
 	// counter.Inc()
@@ -104,17 +104,17 @@ func (p *ProductionMetricsExample) RecordDatabaseQuery(
 		"table":     table,
 		"status":    status, // success, error, timeout
 	}
-	
+
 	// Validate
 	sanitized, err := metrics.ValidateAndSanitizeTags(labels)
 	if err != nil {
 		fmt.Printf("Invalid DB labels: %v\n", err)
 		return
 	}
-	
+
 	// Add common labels
 	finalLabels := metrics.AddCommonLabels(sanitized, p.common)
-	
+
 	// Record for multiple formats
 	fmt.Printf("Prometheus: db_query_duration_seconds%s\n",
 		metrics.FormatLabelsPrometheus(finalLabels))
@@ -128,10 +128,10 @@ func (p *ProductionMetricsExample) RecordCacheOperation(operation, status string
 		"operation": operation, // get, set, delete, expire
 		"status":    status,    // hit, miss, error
 	}
-	
+
 	sanitized, _ := metrics.ValidateAndSanitizeTags(labels)
 	finalLabels := metrics.AddCommonLabels(sanitized, p.common)
-	
+
 	fmt.Printf("Cache metric: cache_operations_total%s\n",
 		metrics.FormatLabelsPrometheus(finalLabels))
 }
@@ -141,7 +141,7 @@ func (p *ProductionMetricsExample) GetCardinalityStats() {
 	fmt.Printf("\n=== Cardinality Statistics ===\n")
 	fmt.Printf("Total label combinations: %d\n", p.cardinality.GetCardinality())
 	fmt.Printf("Limit: %d\n", metrics.MaxLabelCardinality)
-	
+
 	// Get high cardinality labels
 	highCard := p.registry.GetHighCardinalityLabels()
 	if len(highCard) > 0 {
@@ -150,11 +150,11 @@ func (p *ProductionMetricsExample) GetCardinalityStats() {
 			fmt.Printf("  - %s\n", label)
 		}
 	}
-	
+
 	// Get detailed stats
 	fmt.Printf("\n=== Label Usage Statistics ===\n")
 	stats := p.registry.GetLabelStats()
-	
+
 	// Sort by value count
 	type labelStat struct {
 		key   string
@@ -167,7 +167,7 @@ func (p *ProductionMetricsExample) GetCardinalityStats() {
 	sort.Slice(sortedStats, func(i, j int) bool {
 		return sortedStats[i].count > sortedStats[j].count
 	})
-	
+
 	for _, stat := range sortedStats {
 		meta := stats[stat.key]
 		fmt.Printf("Label: %-20s Values: %-6d High-Card: %-5v Samples: %v\n",
@@ -178,7 +178,7 @@ func (p *ProductionMetricsExample) GetCardinalityStats() {
 // DemonstrateValidation shows label validation examples
 func (p *ProductionMetricsExample) DemonstrateValidation() {
 	fmt.Printf("\n=== Label Validation Examples ===\n")
-	
+
 	testCases := []struct {
 		name   string
 		labels map[string]string
@@ -220,7 +220,7 @@ func (p *ProductionMetricsExample) DemonstrateValidation() {
 			}(),
 		},
 	}
-	
+
 	for _, tc := range testCases {
 		fmt.Printf("\nTest: %s\n", tc.name)
 		sanitized, err := metrics.ValidateAndSanitizeTags(tc.labels)
@@ -235,7 +235,7 @@ func (p *ProductionMetricsExample) DemonstrateValidation() {
 // DemonstrateFormatting shows format-specific label output
 func (p *ProductionMetricsExample) DemonstrateFormatting() {
 	fmt.Printf("\n=== Format-Specific Label Examples ===\n")
-	
+
 	labels := map[string]string{
 		"method":      "GET",
 		"path":        "/api/users",
@@ -243,26 +243,26 @@ func (p *ProductionMetricsExample) DemonstrateFormatting() {
 		"service":     "api-gateway",
 		"environment": "production",
 	}
-	
+
 	fmt.Printf("\nPrometheus Format:\n")
-	fmt.Printf("  http_requests_total%s 42\n", 
+	fmt.Printf("  http_requests_total%s 42\n",
 		metrics.FormatLabelsPrometheus(labels))
-	
+
 	fmt.Printf("\nInfluxDB Format:\n")
 	fmt.Printf("  http_requests_total,%s value=42\n",
 		metrics.FormatLabelsInflux(labels))
-	
+
 	fmt.Printf("\nJSON Format:\n")
 	jsonLabels := metrics.FormatLabelsJSON(labels)
 	fmt.Printf("  %+v\n", jsonLabels)
-	
+
 	// Demonstrate sanitization
 	problematicLabels := map[string]string{
 		"user:email": "user@example.com",
 		"query|data": "select * from users",
 		"path space": "value with spaces",
 	}
-	
+
 	fmt.Printf("\nSanitized for StatsD:\n")
 	for key, value := range problematicLabels {
 		sKey, sValue := metrics.SanitizeLabelForStatsD(key, value)
@@ -277,23 +277,23 @@ func (p *ProductionMetricsExample) normalizePath(path string) string {
 	if cached, ok := p.pathCache[path]; ok {
 		return cached
 	}
-	
+
 	// Normalize common patterns
 	normalized := path
-	
+
 	// UUID pattern: /api/users/123e4567-e89b-12d3-a456-426614174000
 	uuidRegex := regexp.MustCompile(`/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 	normalized = uuidRegex.ReplaceAllString(normalized, "/{uuid}")
-	
+
 	// Numeric ID pattern: /api/users/123
 	numericRegex := regexp.MustCompile(`/\d+`)
 	normalized = numericRegex.ReplaceAllString(normalized, "/{id}")
-	
+
 	// Cache result
 	if len(p.pathCache) < 1000 { // Limit cache size
 		p.pathCache[path] = normalized
 	}
-	
+
 	return normalized
 }
 
@@ -319,7 +319,7 @@ func flattenLabels(labels map[string]string) []string {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	
+
 	for _, k := range keys {
 		result = append(result, k, labels[k])
 	}
@@ -336,9 +336,9 @@ func getEnv(key, defaultValue string) string {
 // RunExample runs all demonstration functions
 func RunExample() {
 	example := NewProductionMetricsExample()
-	
+
 	fmt.Println("=== Production-Grade Metrics Labels Example ===\n")
-	
+
 	// Simulate HTTP requests
 	fmt.Println("Recording HTTP requests...")
 	example.RecordHTTPRequest("GET", "/api/users/123", 200, 50*time.Millisecond)
@@ -346,26 +346,25 @@ func RunExample() {
 	example.RecordHTTPRequest("GET", "/api/users/456", 200, 45*time.Millisecond)
 	example.RecordHTTPRequest("DELETE", "/api/users/789", 204, 30*time.Millisecond)
 	example.RecordHTTPRequest("GET", "/api/orders/abc-def-123", 404, 10*time.Millisecond)
-	
+
 	// Simulate database queries
 	fmt.Println("\nRecording database queries...")
 	example.RecordDatabaseQuery("SELECT", "users", "success", 15*time.Millisecond)
 	example.RecordDatabaseQuery("INSERT", "orders", "success", 25*time.Millisecond)
 	example.RecordDatabaseQuery("UPDATE", "users", "error", 50*time.Millisecond)
-	
+
 	// Simulate cache operations
 	fmt.Println("\nRecording cache operations...")
 	example.RecordCacheOperation("get", "hit")
 	example.RecordCacheOperation("get", "miss")
 	example.RecordCacheOperation("set", "success")
-	
+
 	// Show statistics
 	example.GetCardinalityStats()
-	
+
 	// Demonstrate validation
 	example.DemonstrateValidation()
-	
+
 	// Demonstrate formatting
 	example.DemonstrateFormatting()
 }
-

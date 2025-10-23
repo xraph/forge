@@ -10,9 +10,9 @@ import (
 	"time"
 
 	json "github.com/json-iterator/go"
-	"github.com/xraph/forge/pkg/common"
-	"github.com/xraph/forge/pkg/metrics/exporters"
+	"github.com/xraph/forge/v2/internal/errors"
 	"github.com/xraph/forge/v2/internal/logger"
+	"github.com/xraph/forge/v2/internal/metrics/exporters"
 	"github.com/xraph/forge/v2/internal/metrics/internal"
 	metrics "github.com/xraph/forge/v2/internal/metrics/internal"
 	"github.com/xraph/forge/v2/internal/shared"
@@ -144,7 +144,7 @@ func (m *MockMetricsCollector) RegisterCollector(collector internal.CustomCollec
 
 	name := collector.Name()
 	if _, exists := m.customCollectors[name]; exists {
-		return common.ErrServiceAlreadyExists(name)
+		return errors.ErrServiceAlreadyExists(name)
 	}
 
 	m.customCollectors[name] = collector
@@ -156,7 +156,7 @@ func (m *MockMetricsCollector) UnregisterCollector(name string) error {
 	defer m.mu.Unlock()
 
 	if _, exists := m.customCollectors[name]; !exists {
-		return common.ErrServiceNotFound(name)
+		return errors.ErrServiceNotFound(name)
 	}
 
 	delete(m.customCollectors, name)

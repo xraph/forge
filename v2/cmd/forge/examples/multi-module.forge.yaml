@@ -1,0 +1,169 @@
+# Example .forge.yaml for Multi-Module Layout
+# Use this layout for large projects with multiple independent services
+
+project:
+  name: "my-forge-microservices"
+  version: "0.1.0"
+  description: "My awesome microservices platform"
+  type: "monorepo"
+  layout: "multi-module"
+  
+  # Base module path (each app/service will have its own)
+  module: "github.com/myorg/my-forge-microservices"
+  
+  # Workspace configuration (Go workspace)
+  workspace:
+    enabled: true
+    apps: "./apps/*"
+    services: "./services/*"
+    extensions: "./extensions/*"
+    pkg: "./pkg"
+
+# Development configuration
+dev:
+  auto_discover: true
+  discover_pattern: "./apps/*/cmd/*"  # Find apps in workspace
+  default_app: "api-gateway"
+  
+  # File watching
+  watch:
+    enabled: true
+    paths:
+      - "./apps/**/internal/**/*.go"
+      - "./services/**/*.go"
+      - "./pkg/**/*.go"
+    exclude:
+      - "**/*_test.go"
+      - "**/testdata/**"
+      - "**/vendor/**"
+  
+  # Hot reload
+  hot_reload:
+    enabled: true
+    delay: 500ms
+
+# Database configuration
+database:
+  driver: "postgres"
+  migrations_path: "./database/migrations"
+  seeds_path: "./database/seeds"
+  
+  connections:
+    dev:
+      url: "postgres://localhost:5432/mydb_dev?sslmode=disable"
+      max_connections: 20
+    
+    test:
+      url: "postgres://localhost:5432/mydb_test?sslmode=disable"
+      max_connections: 10
+    
+    production:
+      url: "${DATABASE_URL}"
+      max_connections: 50
+
+# Build configuration
+build:
+  output_dir: "./bin"
+  auto_discover: true  # Auto-discover apps from workspace
+  
+  # Or explicit configuration
+  apps:
+    - name: "api-gateway"
+      module: "./apps/api-gateway"
+      cmd: "./apps/api-gateway/cmd/server"
+      output: "api-gateway"
+      dockerfile: "./apps/api-gateway/Dockerfile"
+      
+    - name: "auth-service"
+      module: "./apps/auth-service"
+      cmd: "./apps/auth-service/cmd/server"
+      output: "auth-service"
+      dockerfile: "./apps/auth-service/Dockerfile"
+      
+    - name: "worker-service"
+      module: "./apps/worker-service"
+      cmd: "./apps/worker-service/cmd/worker"
+      output: "worker-service"
+      dockerfile: "./apps/worker-service/Dockerfile"
+  
+  # Target platforms
+  platforms:
+    - os: linux
+      arch: amd64
+    - os: darwin
+      arch: arm64
+  
+  # Build flags
+  ldflags: "-s -w -X main.version={{.Version}}"
+  tags:
+    - netgo
+
+# Deployment configuration
+deploy:
+  registry: "ghcr.io/myorg"
+  
+  docker:
+    build_context: "."
+  
+  kubernetes:
+    manifests: "./deployments/kubernetes"
+    namespace: "default"
+  
+  environments:
+    - name: dev
+      cluster: "dev-cluster"
+      namespace: "development"
+    
+    - name: staging
+      cluster: "staging-cluster"
+      namespace: "staging"
+    
+    - name: production
+      cluster: "prod-cluster"
+      namespace: "production"
+
+# Code generation
+generate:
+  templates_path: "./templates"
+  
+  generators:
+    app:
+      output: "./apps/{{.Name}}"
+      create_module: true
+      module_path: "github.com/myorg/my-forge-microservices/apps/{{.Name}}"
+    
+    service:
+      output: "./services/{{.Name}}"
+      create_module: true
+      module_path: "github.com/myorg/my-forge-microservices/services/{{.Name}}"
+    
+    extension:
+      output: "./extensions/{{.Name}}"
+      create_module: true
+      module_path: "github.com/myorg/my-forge-microservices/extensions/{{.Name}}"
+
+# Extension configuration
+extensions:
+  cache:
+    driver: "redis"
+    url: "redis://localhost:6379/0"
+  
+  database:
+    driver: "postgres"
+    url: "${DATABASE_URL}"
+  
+  logger:
+    level: "info"
+    format: "json"
+  
+  mcp:
+    enabled: true
+    base_path: "/_/mcp"
+
+# Testing configuration
+test:
+  coverage_threshold: 80
+  race_detector: true
+  parallel: true
+  timeout: 30s
+

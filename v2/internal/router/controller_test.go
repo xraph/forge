@@ -68,15 +68,15 @@ func (c *testControllerWithMiddleware) Routes(r Router) error {
 func TestRouter_RegisterController(t *testing.T) {
 	router := NewRouter()
 	controller := &testController{}
-	
+
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
-	
+
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	router.ServeHTTP(rec, req)
-	
+
 	assert.Equal(t, 200, rec.Code)
 	assert.Equal(t, "controller route", rec.Body.String())
 }
@@ -84,15 +84,15 @@ func TestRouter_RegisterController(t *testing.T) {
 func TestRouter_RegisterController_WithPrefix(t *testing.T) {
 	router := NewRouter()
 	controller := &testControllerWithPrefix{}
-	
+
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
-	
+
 	req := httptest.NewRequest("GET", "/api/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	router.ServeHTTP(rec, req)
-	
+
 	assert.Equal(t, 200, rec.Code)
 	assert.Equal(t, "prefixed route", rec.Body.String())
 }
@@ -100,16 +100,15 @@ func TestRouter_RegisterController_WithPrefix(t *testing.T) {
 func TestRouter_RegisterController_WithMiddleware(t *testing.T) {
 	router := NewRouter()
 	controller := &testControllerWithMiddleware{}
-	
+
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
-	
+
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
-	
+
 	router.ServeHTTP(rec, req)
-	
+
 	assert.Equal(t, 200, rec.Code)
 	assert.True(t, controller.middlewareCalled)
 }
-

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -235,14 +236,93 @@ func (s *server) pathToMethodName(httpMethod, path string) string {
 
 // generateParamsSchema generates parameter schema from route
 func (s *server) generateParamsSchema(route forge.RouteInfo) *ParamsSchema {
-	// Check for custom params schema in metadata
+	// 1. Check for explicit oRPC params (backward compat - highest priority)
 	if customSchema, ok := route.Metadata["orpc.params"]; ok {
 		if schema, ok := customSchema.(*ParamsSchema); ok {
 			return schema
 		}
 	}
 
-	// Auto-generate schema from route
+	// 2. Use unified request schema from OpenAPI (NEW!)
+	if unifiedSchema, ok := route.Metadata["openapi.requestSchema.unified"]; ok {
+		return s.convertUnifiedSchemaToORPCParams(unifiedSchema, route)
+	}
+
+	// 3. Check for OpenAPI request type (legacy support)
+	if requestType, ok := route.Metadata["openapi.requestType"]; ok {
+		return s.generateParamsFromReflection(requestType, route)
+	}
+
+	// 4. Fallback: Auto-generate basic schema
+	return s.autoGenerateParamsSchema(route)
+}
+
+// generateParamsFromReflection generates params schema from a reflected type
+func (s *server) generateParamsFromReflection(requestType interface{}, route forge.RouteInfo) *ParamsSchema {
+	rt := reflect.TypeOf(requestType)
+	if rt == nil {
+		return s.autoGenerateParamsSchema(route)
+	}
+
+	if rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
+	}
+
+	if rt.Kind() != reflect.Struct {
+		return s.autoGenerateParamsSchema(route)
+	}
+
+	schema := &ParamsSchema{
+		Type:       "object",
+		Properties: make(map[string]*PropertySchema),
+		Required:   []string{},
+	}
+
+	// Extract path parameters first
+	pathParams := extractPathParams(route.Path)
+	for _, param := range pathParams {
+		schema.Properties[param] = &PropertySchema{
+			Type:        "string",
+			Description: fmt.Sprintf("Path parameter: %s", param),
+		}
+		schema.Required = append(schema.Required, param)
+	}
+
+	// Parse struct fields
+	bodyProps := make(map[string]*PropertySchema)
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		jsonName := field.Name
+		if jsonTag := field.Tag.Get("json"); jsonTag != "" {
+			name, _ := parseJSONTag(jsonTag)
+			if name != "" && name != "-" {
+				jsonName = name
+			}
+		}
+
+		bodyProps[jsonName] = &PropertySchema{
+			Type:        getJSONTypeFromReflectType(field.Type),
+			Description: field.Tag.Get("description"),
+		}
+	}
+
+	if len(bodyProps) > 0 {
+		schema.Properties["body"] = &PropertySchema{
+			Type:        "object",
+			Description: "Request body",
+			Properties:  bodyProps,
+		}
+	}
+
+	return schema
+}
+
+// autoGenerateParamsSchema is the fallback auto-generation logic
+func (s *server) autoGenerateParamsSchema(route forge.RouteInfo) *ParamsSchema {
 	schema := &ParamsSchema{
 		Type:       "object",
 		Properties: make(map[string]*PropertySchema),
@@ -278,14 +358,22 @@ func (s *server) generateParamsSchema(route forge.RouteInfo) *ParamsSchema {
 
 // generateResultSchema generates result schema from route
 func (s *server) generateResultSchema(route forge.RouteInfo) *ResultSchema {
-	// Check for custom result schema in metadata
+	// 1. Check for explicit oRPC result (backward compat - highest priority)
 	if customSchema, ok := route.Metadata["orpc.result"]; ok {
 		if schema, ok := customSchema.(*ResultSchema); ok {
 			return schema
 		}
 	}
 
-	// Default result schema
+	// 2. Use OpenAPI response schemas with smart selection (NEW!)
+	if responseSchemas, ok := route.Metadata["openapi.responseSchemas"].(map[int]*ResponseSchemaDef); ok {
+		_, responseDef := s.selectPrimaryResponseSchema(route, responseSchemas)
+		if responseDef != nil {
+			return convertOpenAPIResponseToORPC(responseDef)
+		}
+	}
+
+	// 3. Fallback: Basic schema
 	return &ResultSchema{
 		Type:        "object",
 		Description: "Response from " + route.Path,

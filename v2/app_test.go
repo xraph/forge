@@ -390,8 +390,8 @@ func TestAppWithHealth(t *testing.T) {
 		t.Fatalf("failed to parse health response: %v", err)
 	}
 
-	if report.Status != HealthStatusHealthy {
-		t.Errorf("expected healthy status, got %v", report.Status)
+	if report.Overall != HealthStatusHealthy {
+		t.Errorf("expected healthy status, got %v", report.Overall)
 	}
 }
 
@@ -579,7 +579,7 @@ func TestDefaultLoggerFatal(t *testing.T) {
 // TestDefaultConfigManager tests the default config manager
 func TestDefaultConfigManager(t *testing.T) {
 	logger := NewNoopLogger()
-	metrics := NewMetrics("test")
+	metrics := NewNoOpMetrics()
 	errorHandler := NewDefaultErrorHandler(logger)
 	cm := NewDefaultConfigManager(logger, metrics, errorHandler)
 

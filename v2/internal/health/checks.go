@@ -96,6 +96,9 @@ func (hc *ManagerImpl) registerServiceChecks() error {
 			}
 		}
 
+		// Create local copy for closure capture (avoid loop variable capture bug)
+		svcName := serviceName
+
 		// Create service health check
 		serviceCheck := NewSimpleHealthCheck(&HealthCheckConfig{
 			Name:     serviceName,
@@ -103,7 +106,7 @@ func (hc *ManagerImpl) registerServiceChecks() error {
 			Critical: critical,
 			Tags:     hc.config.Tags,
 		}, func(ctx context.Context) *HealthResult {
-			return hc.checkServiceHealth(ctx, serviceName)
+			return hc.checkServiceHealth(ctx, svcName)
 		})
 
 		if err := hc.Register(serviceCheck); err != nil {
