@@ -1,0 +1,553 @@
+---
+title: Commands
+description: Learn how to create commands, subcommands, and organize your CLI structure
+---
+
+# Commands
+
+Commands are the core building blocks of your CLI application. The Forge CLI framework provides a powerful and flexible command system that supports hierarchical structures, aliases, middleware, and rich configuration options.
+
+## Creating Commands
+
+### Basic Command
+
+Create a simple command using `cli.NewCommand()`:
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge/cli"
+)
+
+func main() {
+    app := cli.New(cli.Config{
+        Name:        "mytool",
+        Version:     "1.0.0",
+        Description: "My CLI tool",
+    })
+
+    // Create a basic command
+    helloCmd := cli.NewCommand(
+        "hello",                    // Command name
+        "Say hello to the world",   // Description
+        func(ctx cli.CommandContext) error {
+            ctx.Success("Hello, World!")
+            return nil
+        },
+    )
+
+    app.AddCommand(helloCmd)
+    app.Run(os.Args)
+}
+```
+
+### Command with Options
+
+Use command options to configure behavior:
+
+```go
+greetCmd := cli.NewCommand(
+    "greet",
+    "Greet someone with customizable options",
+    func(ctx cli.CommandContext) error {
+        name := ctx.String("name")
+        times := ctx.Int("times")
+        
+        for i := 0; i < times; i++ {
+            ctx.Success(fmt.Sprintf("Hello, %s!", name))
+        }
+        return nil
+    },
+    // Command options
+    cli.WithAlias("g"),                                    // Short alias
+    cli.WithUsage("greet [OPTIONS]"),                      // Custom usage text
+    cli.WithExample("greet --name John --times 3"),       // Usage example
+    cli.WithFlag(cli.NewStringFlag("name", "n", "Name to greet", "World")),
+    cli.WithFlag(cli.NewIntFlag("times", "t", "Number of times to greet", 1)),
+    cli.WithHidden(false),                                 // Visible in help (default)
+)
+```
+
+## Command Structure
+
+### Command Interface
+
+Commands implement the `Command` interface:
+
+```go
+type Command interface {
+    // Identity
+    Name() string
+    Description() string
+    Aliases() []string
+    Usage() string
+    Examples() []string
+
+    // Execution
+    Handler() CommandHandler
+    Run(ctx CommandContext) error
+
+    // Structure
+    Parent() Command
+    Subcommands() []Command
+    AddSubcommand(cmd Command)
+
+    // Configuration
+    Flags() []Flag
+    AddFlag(flag Flag)
+    IsHidden() bool
+
+    // Middleware
+    Middleware() []CommandMiddleware
+    AddMiddleware(middleware CommandMiddleware)
+}
+```
+
+### Command Context
+
+The `CommandContext` provides access to parsed arguments, flags, and CLI utilities:
+
+```go
+func commandHandler(ctx cli.CommandContext) error {
+    // Access parsed flags
+    name := ctx.String("name")
+    count := ctx.Int("count")
+    enabled := ctx.Bool("enabled")
+    
+    // Access positional arguments
+    args := ctx.Args()
+    if len(args) > 0 {
+        firstArg := args[0]
+    }
+    
+    // Output methods
+    ctx.Info("Information message")
+    ctx.Success("Success message")
+    ctx.Warning("Warning message")
+    ctx.Error("Error message")
+    
+    // Interactive methods
+    input, err := ctx.Prompt("Enter value:")
+    confirmed, err := ctx.Confirm("Are you sure?")
+    
+    // Progress and tables
+    progress := ctx.ProgressBar(100)
+    table := ctx.Table()
+    
+    return nil
+}
+```
+
+## Subcommands
+
+### Creating Hierarchical Commands
+
+Build complex CLI structures with subcommands:
+
+```go
+// Parent command
+userCmd := cli.NewCommand(
+    "user",
+    "Manage users",
+    nil, // No handler for parent command
+)
+
+// Subcommands
+listCmd := cli.NewCommand(
+    "list",
+    "List all users",
+    func(ctx cli.CommandContext) error {
+        // Implementation
+        return nil
+    },
+    cli.WithFlag(cli.NewBoolFlag("active", "a", "Show only active users", false)),
+)
+
+createCmd := cli.NewCommand(
+    "create",
+    "Create a new user",
+    func(ctx cli.CommandContext) error {
+        // Implementation
+        return nil
+    },
+    cli.WithFlag(cli.NewStringFlag("name", "n", "User name", "")),
+    cli.WithFlag(cli.NewStringFlag("email", "e", "User email", "")),
+)
+
+deleteCmd := cli.NewCommand(
+    "delete",
+    "Delete a user",
+    func(ctx cli.CommandContext) error {
+        // Implementation
+        return nil
+    },
+    cli.WithFlag(cli.NewBoolFlag("force", "f", "Force deletion", false)),
+)
+
+// Add subcommands
+userCmd.AddSubcommand(listCmd)
+userCmd.AddSubcommand(createCmd)
+userCmd.AddSubcommand(deleteCmd)
+
+app.AddCommand(userCmd)
+```
+
+Usage examples:
+```bash
+mytool user list --active
+mytool user create --name "John Doe" --email "john@example.com"
+mytool user delete 123 --force
+```
+
+### Nested Subcommands
+
+Create deeply nested command structures:
+
+```go
+// mytool database migration create
+dbCmd := cli.NewCommand("database", "Database operations", nil)
+migrationCmd := cli.NewCommand("migration", "Migration operations", nil)
+createMigrationCmd := cli.NewCommand(
+    "create",
+    "Create a new migration",
+    func(ctx cli.CommandContext) error {
+        name := ctx.String("name")
+        ctx.Success(fmt.Sprintf("Created migration: %s", name))
+        return nil
+    },
+    cli.WithFlag(cli.NewStringFlag("name", "n", "Migration name", "")),
+)
+
+migrationCmd.AddSubcommand(createMigrationCmd)
+dbCmd.AddSubcommand(migrationCmd)
+app.AddCommand(dbCmd)
+```
+
+## Command Options
+
+### Available Options
+
+Configure commands with various options:
+
+```go
+cmd := cli.NewCommand(
+    "deploy",
+    "Deploy application",
+    deployHandler,
+    
+    // Identity options
+    cli.WithAlias("d"),                           // Short alias
+    cli.WithAliases([]string{"d", "dep"}),       // Multiple aliases
+    
+    // Documentation options
+    cli.WithUsage("deploy [OPTIONS] <environment>"),
+    cli.WithExample("deploy --config prod.yaml production"),
+    cli.WithExamples([]string{
+        "deploy staging",
+        "deploy --dry-run production",
+        "deploy --config custom.yaml prod",
+    }),
+    
+    // Behavior options
+    cli.WithHidden(false),                        // Visibility in help
+    cli.WithFlags([]cli.Flag{                     // Multiple flags at once
+        cli.NewStringFlag("config", "c", "Config file", ""),
+        cli.NewBoolFlag("dry-run", "", "Dry run mode", false),
+    }),
+    
+    // Validation options
+    cli.WithArgsValidator(func(args []string) error {
+        if len(args) != 1 {
+            return fmt.Errorf("exactly one environment required")
+        }
+        return nil
+    }),
+)
+```
+
+### Command Validation
+
+Add custom validation for arguments and flags:
+
+```go
+deployCmd := cli.NewCommand(
+    "deploy",
+    "Deploy to environment",
+    func(ctx cli.CommandContext) error {
+        env := ctx.Args()[0] // Safe because of validation
+        config := ctx.String("config")
+        
+        ctx.Info(fmt.Sprintf("Deploying to %s with config %s", env, config))
+        return nil
+    },
+    cli.WithArgsValidator(func(args []string) error {
+        if len(args) == 0 {
+            return fmt.Errorf("environment is required")
+        }
+        if len(args) > 1 {
+            return fmt.Errorf("too many arguments")
+        }
+        
+        validEnvs := []string{"dev", "staging", "prod"}
+        env := args[0]
+        for _, valid := range validEnvs {
+            if env == valid {
+                return nil
+            }
+        }
+        return fmt.Errorf("invalid environment: %s (valid: %v)", env, validEnvs)
+    }),
+    cli.WithFlag(cli.NewStringFlag("config", "c", "Config file", "default.yaml")),
+)
+```
+
+## Middleware
+
+### Command Middleware
+
+Add before/after hooks to commands:
+
+```go
+// Logging middleware
+loggingMiddleware := func(next cli.CommandHandler) cli.CommandHandler {
+    return func(ctx cli.CommandContext) error {
+        start := time.Now()
+        ctx.Info(fmt.Sprintf("Executing command: %s", ctx.Command().Name()))
+        
+        err := next(ctx)
+        
+        duration := time.Since(start)
+        if err != nil {
+            ctx.Error(fmt.Sprintf("Command failed after %v: %v", duration, err))
+        } else {
+            ctx.Success(fmt.Sprintf("Command completed in %v", duration))
+        }
+        
+        return err
+    }
+}
+
+// Authentication middleware
+authMiddleware := func(next cli.CommandHandler) cli.CommandHandler {
+    return func(ctx cli.CommandContext) error {
+        if !isAuthenticated() {
+            return fmt.Errorf("authentication required")
+        }
+        return next(ctx)
+    }
+}
+
+// Apply middleware to command
+secureCmd := cli.NewCommand(
+    "secure-operation",
+    "Perform secure operation",
+    func(ctx cli.CommandContext) error {
+        ctx.Success("Secure operation completed")
+        return nil
+    },
+    cli.WithMiddleware(authMiddleware),
+    cli.WithMiddleware(loggingMiddleware),
+)
+```
+
+### Global Middleware
+
+Apply middleware to all commands:
+
+```go
+app := cli.New(cli.Config{
+    Name: "mytool",
+    GlobalMiddleware: []cli.CommandMiddleware{
+        loggingMiddleware,
+        errorHandlingMiddleware,
+    },
+})
+```
+
+## Advanced Examples
+
+### File Operations Command
+
+```go
+fileCmd := cli.NewCommand(
+    "file",
+    "File operations",
+    nil,
+)
+
+copyCmd := cli.NewCommand(
+    "copy",
+    "Copy files or directories",
+    func(ctx cli.CommandContext) error {
+        args := ctx.Args()
+        source, dest := args[0], args[1]
+        recursive := ctx.Bool("recursive")
+        force := ctx.Bool("force")
+        
+        if recursive {
+            ctx.Info("Copying recursively...")
+        }
+        
+        progress := ctx.ProgressBar(100)
+        // Simulate copy progress
+        for i := 0; i <= 100; i += 10 {
+            progress.Set(i)
+            time.Sleep(50 * time.Millisecond)
+        }
+        progress.Finish("Copy completed!")
+        
+        ctx.Success(fmt.Sprintf("Copied %s to %s", source, dest))
+        return nil
+    },
+    cli.WithUsage("file copy [OPTIONS] <source> <destination>"),
+    cli.WithExample("file copy --recursive /src /dst"),
+    cli.WithArgsValidator(func(args []string) error {
+        if len(args) != 2 {
+            return fmt.Errorf("source and destination required")
+        }
+        return nil
+    }),
+    cli.WithFlag(cli.NewBoolFlag("recursive", "r", "Copy recursively", false)),
+    cli.WithFlag(cli.NewBoolFlag("force", "f", "Force overwrite", false)),
+)
+
+fileCmd.AddSubcommand(copyCmd)
+```
+
+### Interactive Setup Command
+
+```go
+setupCmd := cli.NewCommand(
+    "setup",
+    "Interactive application setup",
+    func(ctx cli.CommandContext) error {
+        ctx.Info("🚀 Welcome to the setup wizard!")
+        
+        // Project name
+        name, err := ctx.Prompt("Project name:")
+        if err != nil {
+            return err
+        }
+        
+        // Environment selection
+        env, err := ctx.Select("Environment:", []string{
+            "development",
+            "staging",
+            "production",
+        })
+        if err != nil {
+            return err
+        }
+        
+        // Feature selection
+        features, err := ctx.MultiSelect("Select features:", []string{
+            "database",
+            "cache",
+            "events",
+            "api",
+            "web",
+        })
+        if err != nil {
+            return err
+        }
+        
+        // Confirmation
+        confirmed, err := ctx.Confirm("Create project with these settings?")
+        if err != nil {
+            return err
+        }
+        
+        if !confirmed {
+            ctx.Warning("Setup cancelled")
+            return nil
+        }
+        
+        // Setup progress
+        progress := ctx.ProgressBar(len(features) + 2)
+        progress.Set(1)
+        
+        ctx.Info(fmt.Sprintf("Creating project: %s", name))
+        time.Sleep(500 * time.Millisecond)
+        progress.Increment()
+        
+        for i, feature := range features {
+            ctx.Info(fmt.Sprintf("Setting up %s...", feature))
+            time.Sleep(300 * time.Millisecond)
+            progress.Set(2 + i + 1)
+        }
+        
+        progress.Finish("Setup complete! 🎉")
+        ctx.Success(fmt.Sprintf("Project '%s' created successfully!", name))
+        
+        return nil
+    },
+)
+```
+
+## Best Practices
+
+### 1. Command Organization
+
+```go
+// Group related commands
+userCmd := cli.NewCommand("user", "User management", nil)
+userCmd.AddSubcommand(cli.NewCommand("list", "List users", listUsers))
+userCmd.AddSubcommand(cli.NewCommand("create", "Create user", createUser))
+userCmd.AddSubcommand(cli.NewCommand("delete", "Delete user", deleteUser))
+
+projectCmd := cli.NewCommand("project", "Project management", nil)
+projectCmd.AddSubcommand(cli.NewCommand("init", "Initialize project", initProject))
+projectCmd.AddSubcommand(cli.NewCommand("build", "Build project", buildProject))
+```
+
+### 2. Consistent Naming
+
+```go
+// Use consistent verb-noun pattern
+cli.NewCommand("user-create", "Create a user", createUser)
+cli.NewCommand("user-delete", "Delete a user", deleteUser)
+cli.NewCommand("project-init", "Initialize project", initProject)
+cli.NewCommand("project-build", "Build project", buildProject)
+```
+
+### 3. Error Handling
+
+```go
+func commandHandler(ctx cli.CommandContext) error {
+    // Validate input
+    if ctx.String("name") == "" {
+        return cli.NewExitError("name is required", 1)
+    }
+    
+    // Handle operation errors
+    if err := performOperation(); err != nil {
+        return cli.NewExitError(fmt.Sprintf("operation failed: %v", err), 2)
+    }
+    
+    return nil
+}
+```
+
+### 4. Help Documentation
+
+```go
+cmd := cli.NewCommand(
+    "deploy",
+    "Deploy application to specified environment",
+    deployHandler,
+    cli.WithUsage("deploy [OPTIONS] <environment>"),
+    cli.WithExamples([]string{
+        "deploy staging                    # Deploy to staging",
+        "deploy --dry-run production       # Dry run deployment",
+        "deploy --config custom.yaml prod  # Deploy with custom config",
+    }),
+)
+```
+
+## Next Steps
+
+- Learn about [Flags](/docs/cli/flags) for command-line options
+- Explore [Prompts](/docs/cli/prompts) for interactive input
+- Discover [Output](/docs/cli/output) formatting options
+- Check out [Examples](/docs/cli/examples) for real-world use cases

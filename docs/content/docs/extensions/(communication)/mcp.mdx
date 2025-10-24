@@ -1,0 +1,926 @@
+---
+title: "MCP Extension"
+description: "Model Context Protocol extension that enables AI assistants to interact with your Forge application through a standardized protocol"
+---
+
+# MCP Extension
+
+The MCP (Model Context Protocol) extension enables AI assistants to interact with your Forge application through a standardized protocol. It automatically exposes your REST API endpoints as MCP tools and provides support for resources and prompts, making your application AI-ready with minimal configuration.
+
+## Features
+
+### Core MCP Capabilities
+- **Automatic Tool Generation**: Convert REST endpoints to MCP tools automatically
+- **Tool Execution**: Execute tools with input validation and error handling
+- **Resources**: Expose data and content for AI consumption
+- **Prompts**: Provide reusable prompt templates with arguments
+- **Schema Generation**: Automatic JSON schema generation for inputs
+
+### Security & Performance
+- **Authentication**: Token-based authentication with configurable headers
+- **Rate Limiting**: Per-client rate limiting with configurable limits
+- **Input Validation**: JSON schema validation for tool inputs
+- **Pattern Matching**: Include/exclude routes with regex patterns
+
+### Observability
+- **Metrics**: Built-in Prometheus metrics for tools, resources, and prompts
+- **Logging**: Comprehensive logging for debugging and monitoring
+- **Health Checks**: Health endpoint for monitoring server status
+- **Statistics**: Runtime statistics for performance monitoring
+
+## Installation
+
+### Prerequisites
+- Forge framework v1.0+
+- Go 1.21 or later
+
+### Install Extension
+
+```bash
+go get github.com/xraph/forge/extensions/mcp
+```
+
+## Quick Start
+
+### Basic MCP Server
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/mcp"
+)
+
+func main() {
+    // Create Forge app
+    app := forge.New()
+    
+    // Add some REST endpoints
+    app.GET("/users", getUsersHandler)
+    app.POST("/users", createUserHandler)
+    app.GET("/users/:id", getUserHandler)
+    
+    // Configure MCP extension
+    mcpExt, err := mcp.NewExtension(
+        mcp.WithAutoExposeRoutes(true),
+        mcp.WithToolPrefix("api"),
+        mcp.WithServerName("My API"),
+        mcp.WithServerVersion("1.0.0"),
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Register extension
+    app.Use(mcpExt)
+    
+    // Start server
+    app.Run(":8080")
+}
+
+func getUsersHandler(c *forge.Context) error {
+    // Your handler logic
+    return c.JSON(200, map[string]interface{}{
+        "users": []map[string]interface{}{
+            {"id": 1, "name": "John Doe"},
+            {"id": 2, "name": "Jane Smith"},
+        },
+    })
+}
+```
+
+### Custom Tools
+
+```go
+// Register custom tools
+tool := &mcp.Tool{
+    Name:        "calculate_sum",
+    Description: "Calculate the sum of two numbers",
+    InputSchema: &mcp.JSONSchema{
+        Type: "object",
+        Properties: map[string]*mcp.JSONSchema{
+            "a": {Type: "number", Description: "First number"},
+            "b": {Type: "number", Description: "Second number"},
+        },
+        Required: []string{"a", "b"},
+    },
+}
+
+err := mcpExt.RegisterTool(tool)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Register tool handler
+mcpExt.RegisterToolHandler("calculate_sum", func(ctx context.Context, args map[string]interface{}) (string, error) {
+    a, ok1 := args["a"].(float64)
+    b, ok2 := args["b"].(float64)
+    if !ok1 || !ok2 {
+        return "", fmt.Errorf("invalid arguments")
+    }
+    
+    result := a + b
+    return fmt.Sprintf("The sum is: %.2f", result), nil
+})
+```
+
+### Resources and Prompts
+
+```go
+// Register a resource
+resource := &mcp.Resource{
+    URI:         "file://config.json",
+    Name:        "Application Configuration",
+    Description: "Current application configuration",
+    MimeType:    "application/json",
+}
+
+err := mcpExt.RegisterResource(resource)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Register resource reader
+mcpExt.RegisterResourceReader("file://config.json", func(ctx context.Context, resource *mcp.Resource) (mcp.Content, error) {
+    config := getAppConfig() // Your config logic
+    data, _ := json.Marshal(config)
+    
+    return mcp.Content{
+        Type: "text",
+        Text: string(data),
+        MimeType: "application/json",
+    }, nil
+})
+
+// Register a prompt
+prompt := &mcp.Prompt{
+    Name:        "code_review",
+    Description: "Generate a code review prompt",
+    Arguments: []mcp.PromptArgument{
+        {Name: "language", Description: "Programming language", Required: true},
+        {Name: "code", Description: "Code to review", Required: true},
+    },
+}
+
+err := mcpExt.RegisterPrompt(prompt)
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+## Configuration
+
+### Programmatic Configuration
+
+```go
+mcpExt, err := mcp.NewExtension(
+    // Basic settings
+    mcp.WithEnabled(true),
+    mcp.WithBasePath("/_/mcp"),
+    mcp.WithServerName("My API Server"),
+    mcp.WithServerVersion("1.0.0"),
+    
+    // Auto-exposure settings
+    mcp.WithAutoExposeRoutes(true),
+    mcp.WithToolPrefix("api"),
+    mcp.WithMaxToolNameLength(50),
+    
+    // Pattern matching
+    mcp.WithIncludePatterns([]string{
+        `^/api/.*`,
+        `^/v1/.*`,
+    }),
+    mcp.WithExcludePatterns([]string{
+        `.*/_internal/.*`,
+        `.*/health$`,
+    }),
+    
+    // Features
+    mcp.WithEnableResources(true),
+    mcp.WithEnablePrompts(true),
+    
+    // Security
+    mcp.WithRequireAuth(true),
+    mcp.WithAuthHeader("Authorization"),
+    mcp.WithAuthTokens([]string{
+        "your-secret-token",
+        "another-valid-token",
+    }),
+    
+    // Rate limiting
+    mcp.WithRateLimitPerMinute(100),
+)
+```
+
+### YAML Configuration
+
+```yaml
+# config.yaml
+extensions:
+  mcp:
+    enabled: true
+    base_path: "/_/mcp"
+    server_name: "My API Server"
+    server_version: "1.0.0"
+    
+    # Auto-exposure
+    auto_expose_routes: true
+    tool_prefix: "api"
+    max_tool_name_length: 50
+    
+    # Pattern matching
+    include_patterns:
+      - "^/api/.*"
+      - "^/v1/.*"
+    exclude_patterns:
+      - ".*/_internal/.*"
+      - ".*/health$"
+    
+    # Features
+    enable_resources: true
+    enable_prompts: true
+    
+    # Security
+    require_auth: true
+    auth_header: "Authorization"
+    auth_tokens:
+      - "your-secret-token"
+      - "another-valid-token"
+    
+    # Rate limiting
+    rate_limit_per_minute: 100
+```
+
+### Environment Variables
+
+```bash
+# Basic settings
+MCP_ENABLED=true
+MCP_BASE_PATH=/_/mcp
+MCP_SERVER_NAME="My API Server"
+MCP_SERVER_VERSION=1.0.0
+
+# Auto-exposure
+MCP_AUTO_EXPOSE_ROUTES=true
+MCP_TOOL_PREFIX=api
+MCP_MAX_TOOL_NAME_LENGTH=50
+
+# Pattern matching (comma-separated)
+MCP_INCLUDE_PATTERNS="^/api/.*,^/v1/.*"
+MCP_EXCLUDE_PATTERNS=".*/_internal/.*,.*/health$"
+
+# Features
+MCP_ENABLE_RESOURCES=true
+MCP_ENABLE_PROMPTS=true
+
+# Security
+MCP_REQUIRE_AUTH=true
+MCP_AUTH_HEADER=Authorization
+MCP_AUTH_TOKENS="token1,token2,token3"
+
+# Rate limiting
+MCP_RATE_LIMIT_PER_MINUTE=100
+```
+
+## Usage Patterns
+
+### Tool Management
+
+```go
+// List all tools
+tools := mcpExt.ListTools()
+for _, tool := range tools {
+    fmt.Printf("Tool: %s - %s\n", tool.Name, tool.Description)
+}
+
+// Get specific tool
+tool, err := mcpExt.GetTool("api_get_users")
+if err != nil {
+    log.Printf("Tool not found: %v", err)
+    return
+}
+
+// Execute tool
+result, err := mcpExt.ExecuteTool(context.Background(), tool, map[string]interface{}{
+    "limit": 10,
+    "offset": 0,
+})
+if err != nil {
+    log.Printf("Tool execution failed: %v", err)
+    return
+}
+
+fmt.Printf("Result: %s\n", result)
+```
+
+### Resource Management
+
+```go
+// List all resources
+resources := mcpExt.ListResources()
+for _, resource := range resources {
+    fmt.Printf("Resource: %s - %s\n", resource.URI, resource.Name)
+}
+
+// Read resource content
+resource, err := mcpExt.GetResource("file://config.json")
+if err != nil {
+    log.Printf("Resource not found: %v", err)
+    return
+}
+
+content, err := mcpExt.ReadResource(context.Background(), resource)
+if err != nil {
+    log.Printf("Failed to read resource: %v", err)
+    return
+}
+
+fmt.Printf("Content: %s\n", content.Text)
+```
+
+### Prompt Management
+
+```go
+// List all prompts
+prompts := mcpExt.ListPrompts()
+for _, prompt := range prompts {
+    fmt.Printf("Prompt: %s - %s\n", prompt.Name, prompt.Description)
+}
+
+// Generate prompt
+prompt, err := mcpExt.GetPrompt("code_review")
+if err != nil {
+    log.Printf("Prompt not found: %v", err)
+    return
+}
+
+messages, err := mcpExt.GeneratePrompt(context.Background(), prompt, map[string]interface{}{
+    "language": "Go",
+    "code": "func main() { fmt.Println(\"Hello\") }",
+})
+if err != nil {
+    log.Printf("Failed to generate prompt: %v", err)
+    return
+}
+
+for _, message := range messages {
+    fmt.Printf("Role: %s, Content: %s\n", message.Role, message.Content[0].Text)
+}
+```
+
+## API Endpoints
+
+The MCP extension exposes several endpoints for AI assistants to interact with:
+
+### Server Information
+```
+GET /_/mcp/info
+```
+
+Returns server capabilities and information:
+
+```json
+{
+  "name": "My API Server",
+  "version": "1.0.0",
+  "capabilities": {
+    "tools": {"listChanged": false},
+    "resources": {"subscribe": false, "listChanged": false},
+    "prompts": {"listChanged": false}
+  }
+}
+```
+
+### Tools
+
+#### List Tools
+```
+GET /_/mcp/tools
+```
+
+Returns all available tools:
+
+```json
+{
+  "tools": [
+    {
+      "name": "api_get_users",
+      "description": "Get list of users",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {"type": "number", "description": "Number of users to return"},
+          "offset": {"type": "number", "description": "Offset for pagination"}
+        }
+      }
+    }
+  ]
+}
+```
+
+#### Execute Tool
+```
+POST /_/mcp/tools/call
+```
+
+Execute a specific tool:
+
+```json
+{
+  "name": "api_get_users",
+  "arguments": {
+    "limit": 10,
+    "offset": 0
+  }
+}
+```
+
+Response:
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"users\":[{\"id\":1,\"name\":\"John Doe\"}]}"
+    }
+  ],
+  "isError": false
+}
+```
+
+### Resources
+
+#### List Resources
+```
+GET /_/mcp/resources
+```
+
+#### Read Resource
+```
+POST /_/mcp/resources/read
+```
+
+### Prompts
+
+#### List Prompts
+```
+GET /_/mcp/prompts
+```
+
+#### Get Prompt
+```
+POST /_/mcp/prompts/get
+```
+
+## Schema Generation
+
+The MCP extension automatically generates JSON schemas for your REST endpoints:
+
+### Path Parameters
+```go
+// Route: GET /users/:id
+// Generated schema includes:
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Path parameter: id"
+    }
+  },
+  "required": ["id"]
+}
+```
+
+### Query Parameters
+```go
+// Route with query params
+// Generated schema includes common query parameters:
+{
+  "type": "object",
+  "properties": {
+    "limit": {"type": "number", "description": "Limit results"},
+    "offset": {"type": "number", "description": "Offset for pagination"},
+    "sort": {"type": "string", "description": "Sort field"},
+    "order": {"type": "string", "enum": ["asc", "desc"]}
+  }
+}
+```
+
+### Custom Schemas
+```go
+// Override auto-generated schema
+tool := &mcp.Tool{
+    Name: "custom_tool",
+    InputSchema: &mcp.JSONSchema{
+        Type: "object",
+        Properties: map[string]*mcp.JSONSchema{
+            "email": {
+                Type:    "string",
+                Format:  "email",
+                Pattern: `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`,
+            },
+            "age": {
+                Type:    "number",
+                Minimum: &[]float64{0}[0],
+                Maximum: &[]float64{150}[0],
+            },
+        },
+        Required: []string{"email"},
+    },
+}
+```
+
+## Security
+
+### Authentication
+
+```go
+// Token-based authentication
+mcpExt, err := mcp.NewExtension(
+    mcp.WithRequireAuth(true),
+    mcp.WithAuthHeader("Authorization"), // or "X-API-Key"
+    mcp.WithAuthTokens([]string{
+        "secret-token-1",
+        "secret-token-2",
+    }),
+)
+
+// Usage with Bearer token
+// Authorization: Bearer secret-token-1
+
+// Usage with direct token
+// X-API-Key: secret-token-1
+```
+
+### Rate Limiting
+
+```go
+// Configure rate limiting
+mcpExt, err := mcp.NewExtension(
+    mcp.WithRateLimitPerMinute(100), // 100 requests per minute per client
+)
+
+// Rate limit headers in response:
+// X-RateLimit-Limit: 100
+// X-RateLimit-Remaining: 95
+// X-RateLimit-Reset: 1640995200
+```
+
+### Pattern Filtering
+
+```go
+// Include only specific routes
+mcpExt, err := mcp.NewExtension(
+    mcp.WithIncludePatterns([]string{
+        `^/api/v1/.*`,     // Only v1 API routes
+        `^/public/.*`,     // Public routes
+    }),
+    mcp.WithExcludePatterns([]string{
+        `.*/admin/.*`,     // Exclude admin routes
+        `.*/internal/.*`,  // Exclude internal routes
+        `.*/health$`,      // Exclude health checks
+    }),
+)
+```
+
+## Monitoring & Observability
+
+### Built-in Metrics
+
+The extension provides Prometheus metrics:
+
+```go
+// Tool metrics
+mcp_tools_total                    // Total number of registered tools
+mcp_tool_calls_total              // Total tool calls
+mcp_tool_call_duration_seconds    // Tool call duration
+mcp_tool_call_errors_total        // Tool call errors
+
+// Resource metrics
+mcp_resources_total               // Total number of registered resources
+mcp_resource_reads_total          // Total resource reads
+mcp_resource_read_errors_total    // Resource read errors
+
+// Prompt metrics
+mcp_prompts_total                 // Total number of registered prompts
+mcp_prompt_generations_total      // Total prompt generations
+mcp_prompt_generation_errors_total // Prompt generation errors
+
+// Rate limiting metrics
+mcp_rate_limit_exceeded_total     // Rate limit violations
+```
+
+### Health Checks
+
+```go
+// Check extension health
+health := mcpExt.Health()
+if health.Status != "healthy" {
+    log.Printf("MCP extension unhealthy: %s", health.Message)
+}
+
+// Health response format:
+{
+  "status": "healthy",
+  "message": "MCP server is running",
+  "details": {
+    "tools_count": 15,
+    "resources_count": 3,
+    "prompts_count": 5
+  }
+}
+```
+
+### Custom Metrics
+
+```go
+// Add custom metrics
+mcpExt.RegisterMetric("custom_tool_usage", func() float64 {
+    return getCustomToolUsageCount()
+})
+
+// Log custom events
+mcpExt.LogEvent("tool_executed", map[string]interface{}{
+    "tool_name": "api_get_users",
+    "duration_ms": 150,
+    "success": true,
+})
+```
+
+## Best Practices
+
+### Tool Design
+
+```go
+// ✅ Good: Clear, descriptive tool names
+tool := &mcp.Tool{
+    Name:        "user_management_get_user_profile",
+    Description: "Retrieve detailed user profile information including preferences and settings",
+    // ...
+}
+
+// ❌ Bad: Vague tool names
+tool := &mcp.Tool{
+    Name:        "get_data",
+    Description: "Gets some data",
+    // ...
+}
+```
+
+### Schema Validation
+
+```go
+// ✅ Good: Comprehensive input validation
+inputSchema := &mcp.JSONSchema{
+    Type: "object",
+    Properties: map[string]*mcp.JSONSchema{
+        "email": {
+            Type:        "string",
+            Format:      "email",
+            Description: "User email address",
+            Pattern:     `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`,
+        },
+        "age": {
+            Type:        "number",
+            Description: "User age in years",
+            Minimum:     &[]float64{0}[0],
+            Maximum:     &[]float64{150}[0],
+        },
+    },
+    Required: []string{"email"},
+}
+```
+
+### Error Handling
+
+```go
+// ✅ Good: Detailed error responses
+func toolHandler(ctx context.Context, args map[string]interface{}) (string, error) {
+    userID, ok := args["user_id"].(string)
+    if !ok {
+        return "", fmt.Errorf("invalid user_id: must be a string")
+    }
+    
+    user, err := getUserByID(userID)
+    if err != nil {
+        if errors.Is(err, ErrUserNotFound) {
+            return "", fmt.Errorf("user not found: %s", userID)
+        }
+        return "", fmt.Errorf("database error: %w", err)
+    }
+    
+    return formatUserResponse(user), nil
+}
+```
+
+### Performance
+
+```go
+// ✅ Good: Implement caching for expensive operations
+type CachedToolHandler struct {
+    cache map[string]string
+    mutex sync.RWMutex
+    ttl   time.Duration
+}
+
+func (h *CachedToolHandler) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+    key := generateCacheKey(args)
+    
+    h.mutex.RLock()
+    if cached, exists := h.cache[key]; exists {
+        h.mutex.RUnlock()
+        return cached, nil
+    }
+    h.mutex.RUnlock()
+    
+    result, err := h.expensiveOperation(ctx, args)
+    if err != nil {
+        return "", err
+    }
+    
+    h.mutex.Lock()
+    h.cache[key] = result
+    h.mutex.Unlock()
+    
+    return result, nil
+}
+```
+
+### Security
+
+```go
+// ✅ Good: Validate and sanitize inputs
+func secureToolHandler(ctx context.Context, args map[string]interface{}) (string, error) {
+    // Validate input
+    query, ok := args["query"].(string)
+    if !ok {
+        return "", fmt.Errorf("query must be a string")
+    }
+    
+    // Sanitize input
+    query = sanitizeQuery(query)
+    
+    // Check permissions
+    if !hasPermission(ctx, "read_data") {
+        return "", fmt.Errorf("insufficient permissions")
+    }
+    
+    // Execute with timeout
+    ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+    defer cancel()
+    
+    return executeQuery(ctx, query)
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### Tools Not Appearing
+
+```go
+// Check if auto-exposure is enabled
+mcpExt, err := mcp.NewExtension(
+    mcp.WithAutoExposeRoutes(true), // Make sure this is true
+)
+
+// Check include/exclude patterns
+mcpExt, err := mcp.NewExtension(
+    mcp.WithIncludePatterns([]string{`^/api/.*`}), // Ensure your routes match
+    mcp.WithExcludePatterns([]string{}),           // Check exclusions
+)
+
+// Debug route registration
+app.Use(func(c *forge.Context) error {
+    log.Printf("Route registered: %s %s", c.Request.Method, c.Request.URL.Path)
+    return c.Next()
+})
+```
+
+#### Authentication Failures
+
+```bash
+# Check auth header format
+curl -H "Authorization: Bearer your-token" http://localhost:8080/_/mcp/tools
+
+# Check token configuration
+MCP_AUTH_TOKENS="token1,token2,token3"
+
+# Debug auth middleware
+mcpExt, err := mcp.NewExtension(
+    mcp.WithRequireAuth(true),
+    mcp.WithAuthHeader("Authorization"),
+    mcp.WithAuthTokens([]string{"debug-token"}),
+)
+```
+
+#### Rate Limiting Issues
+
+```go
+// Check rate limit configuration
+mcpExt, err := mcp.NewExtension(
+    mcp.WithRateLimitPerMinute(100), // Adjust as needed
+)
+
+// Monitor rate limit headers
+// X-RateLimit-Remaining: 0 means limit exceeded
+```
+
+#### Schema Generation Problems
+
+```go
+// Override auto-generated schemas
+tool := &mcp.Tool{
+    Name: "custom_tool",
+    InputSchema: &mcp.JSONSchema{
+        Type: "object",
+        Properties: map[string]*mcp.JSONSchema{
+            "param": {Type: "string", Description: "Custom parameter"},
+        },
+        Required: []string{"param"},
+    },
+}
+
+// Debug schema generation
+schema := mcpExt.GenerateInputSchema(routeInfo)
+log.Printf("Generated schema: %+v", schema)
+```
+
+### Debug Mode
+
+```go
+// Enable debug logging
+mcpExt, err := mcp.NewExtension(
+    mcp.WithDebugMode(true),
+)
+
+// Check server statistics
+stats := mcpExt.Stats()
+log.Printf("MCP Stats: %+v", stats)
+
+// Monitor tool execution
+mcpExt.OnToolExecuted(func(toolName string, duration time.Duration, err error) {
+    log.Printf("Tool %s executed in %v, error: %v", toolName, duration, err)
+})
+```
+
+## API Reference
+
+### Core Interface
+
+```go
+type Extension interface {
+    // Tool management
+    RegisterTool(tool *Tool) error
+    GetTool(name string) (*Tool, error)
+    ListTools() []Tool
+    ExecuteTool(ctx context.Context, tool *Tool, args map[string]interface{}) (string, error)
+    
+    // Resource management
+    RegisterResource(resource *Resource) error
+    GetResource(uri string) (*Resource, error)
+    ListResources() []Resource
+    ReadResource(ctx context.Context, resource *Resource) (Content, error)
+    
+    // Prompt management
+    RegisterPrompt(prompt *Prompt) error
+    GetPrompt(name string) (*Prompt, error)
+    ListPrompts() []Prompt
+    GeneratePrompt(ctx context.Context, prompt *Prompt, args map[string]interface{}) ([]PromptMessage, error)
+    
+    // Server information
+    GetServerInfo() ServerInfo
+    Health() forge.HealthStatus
+    Stats() map[string]interface{}
+}
+```
+
+### Configuration Options
+
+```go
+type Config struct {
+    Enabled              bool     `yaml:"enabled" env:"MCP_ENABLED"`
+    BasePath             string   `yaml:"base_path" env:"MCP_BASE_PATH"`
+    ServerName           string   `yaml:"server_name" env:"MCP_SERVER_NAME"`
+    ServerVersion        string   `yaml:"server_version" env:"MCP_SERVER_VERSION"`
+    AutoExposeRoutes     bool     `yaml:"auto_expose_routes" env:"MCP_AUTO_EXPOSE_ROUTES"`
+    ToolPrefix           string   `yaml:"tool_prefix" env:"MCP_TOOL_PREFIX"`
+    ExcludePatterns      []string `yaml:"exclude_patterns" env:"MCP_EXCLUDE_PATTERNS"`
+    IncludePatterns      []string `yaml:"include_patterns" env:"MCP_INCLUDE_PATTERNS"`
+    MaxToolNameLength    int      `yaml:"max_tool_name_length" env:"MCP_MAX_TOOL_NAME_LENGTH"`
+    EnableResources      bool     `yaml:"enable_resources" env:"MCP_ENABLE_RESOURCES"`
+    EnablePrompts        bool     `yaml:"enable_prompts" env:"MCP_ENABLE_PROMPTS"`
+    RequireAuth          bool     `yaml:"require_auth" env:"MCP_REQUIRE_AUTH"`
+    AuthHeader           string   `yaml:"auth_header" env:"MCP_AUTH_HEADER"`
+    AuthTokens           []string `yaml:"auth_tokens" env:"MCP_AUTH_TOKENS"`
+    RateLimitPerMinute   int      `yaml:"rate_limit_per_minute" env:"MCP_RATE_LIMIT_PER_MINUTE"`
+}
+```
+
+The MCP extension transforms your Forge application into an AI-ready service, enabling seamless integration with AI assistants and tools while maintaining security, performance, and observability standards.

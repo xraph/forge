@@ -4,7 +4,7 @@ description: Build your first Forge application in 5 minutes
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
-import { Steps } from 'fumadocs-ui/components/steps'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 # Quick Start
 
@@ -19,7 +19,7 @@ This guide will help you build your first Forge application in just a few minute
 ## Step 1: Create a New Project
 
 <Steps>
-  <Steps.Step>
+  <Step>
     Create a new directory and initialize a Go module:
 
 ```bash
@@ -27,15 +27,15 @@ This guide will help you build your first Forge application in just a few minute
     cd my-first-forge-app
     go mod init my-first-forge-app
     ```
-  </Steps.Step>
+  </Step>
 
-  <Steps.Step>
+  <Step>
     Add Forge as a dependency:
 
     ```bash
 go get github.com/xraph/forge
 ```
-  </Steps.Step>
+  </Step>
 </Steps>
 
 ## Step 2: Create Your First Application

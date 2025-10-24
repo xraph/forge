@@ -1,0 +1,734 @@
+---
+title: Flags
+description: Master flag types, validation, and advanced flag configuration
+---
+
+# Flags
+
+Flags provide a powerful way to accept command-line options in your CLI applications. The Forge CLI framework supports multiple flag types with validation, default values, and flexible configuration options.
+
+## Flag Types
+
+### String Flags
+
+Accept string values with optional validation:
+
+```go
+// Basic string flag
+nameFlag := cli.NewStringFlag(
+    "name",        // Flag name
+    "n",           // Short alias
+    "User name",   // Description
+    "",            // Default value
+)
+
+// String flag with validation
+emailFlag := cli.NewStringFlag(
+    "email",
+    "e", 
+    "Email address",
+    "",
+    cli.WithValidator(func(value string) error {
+        if !strings.Contains(value, "@") {
+            return fmt.Errorf("invalid email format")
+        }
+        return nil
+    }),
+)
+
+// String flag with choices
+envFlag := cli.NewStringFlag(
+    "environment",
+    "env",
+    "Deployment environment", 
+    "development",
+    cli.WithChoices([]string{"development", "staging", "production"}),
+)
+```
+
+### Integer Flags
+
+Accept integer values with range validation:
+
+```go
+// Basic integer flag
+portFlag := cli.NewIntFlag(
+    "port",
+    "p",
+    "Server port",
+    8080,
+)
+
+// Integer flag with range validation
+workersFlag := cli.NewIntFlag(
+    "workers",
+    "w",
+    "Number of workers",
+    4,
+    cli.WithRange(1, 100), // Min: 1, Max: 100
+)
+
+// Integer flag with custom validation
+timeoutFlag := cli.NewIntFlag(
+    "timeout",
+    "t",
+    "Timeout in seconds",
+    30,
+    cli.WithValidator(func(value int) error {
+        if value <= 0 {
+            return fmt.Errorf("timeout must be positive")
+        }
+        if value > 3600 {
+            return fmt.Errorf("timeout cannot exceed 1 hour")
+        }
+        return nil
+    }),
+)
+```
+
+### Boolean Flags
+
+Accept true/false values:
+
+```go
+// Basic boolean flag
+verboseFlag := cli.NewBoolFlag(
+    "verbose",
+    "v",
+    "Enable verbose output",
+    false, // Default value
+)
+
+// Boolean flag with custom behavior
+forceFlag := cli.NewBoolFlag(
+    "force",
+    "f",
+    "Force operation without confirmation",
+    false,
+)
+
+// Boolean flag that can be negated
+debugFlag := cli.NewBoolFlag(
+    "debug",
+    "d",
+    "Enable debug mode",
+    false,
+    cli.WithNegatable(true), // Allows --no-debug
+)
+```
+
+### Slice Flags
+
+Accept multiple values:
+
+```go
+// String slice flag
+tagsFlag := cli.NewStringSliceFlag(
+    "tags",
+    "t",
+    "Tags to apply",
+    []string{}, // Default empty slice
+)
+
+// Integer slice flag
+portsFlag := cli.NewIntSliceFlag(
+    "ports",
+    "p",
+    "Ports to expose",
+    []int{8080},
+)
+
+// Usage examples:
+// --tags tag1 --tags tag2 --tags tag3
+// --tags tag1,tag2,tag3
+// --ports 8080 --ports 9090
+// --ports 8080,9090,3000
+```
+
+### Duration Flags
+
+Accept time duration values:
+
+```go
+timeoutFlag := cli.NewDurationFlag(
+    "timeout",
+    "t",
+    "Request timeout",
+    30*time.Second,
+)
+
+intervalFlag := cli.NewDurationFlag(
+    "interval",
+    "i",
+    "Polling interval",
+    5*time.Minute,
+    cli.WithValidator(func(d time.Duration) error {
+        if d < time.Second {
+            return fmt.Errorf("interval must be at least 1 second")
+        }
+        return nil
+    }),
+)
+
+// Usage examples:
+// --timeout 30s
+// --timeout 5m
+// --timeout 1h30m
+// --interval 500ms
+```
+
+### Float Flags
+
+Accept floating-point values:
+
+```go
+ratioFlag := cli.NewFloat64Flag(
+    "ratio",
+    "r",
+    "Scaling ratio",
+    1.0,
+    cli.WithRange(0.1, 10.0),
+)
+
+percentFlag := cli.NewFloat64Flag(
+    "percent",
+    "p",
+    "Success percentage",
+    95.0,
+    cli.WithValidator(func(value float64) error {
+        if value < 0 || value > 100 {
+            return fmt.Errorf("percentage must be between 0 and 100")
+        }
+        return nil
+    }),
+)
+```
+
+## Flag Configuration
+
+### Flag Options
+
+Configure flags with various options:
+
+```go
+flag := cli.NewStringFlag(
+    "config",
+    "c",
+    "Configuration file path",
+    "config.yaml",
+    
+    // Validation options
+    cli.WithRequired(true),                    // Flag is required
+    cli.WithChoices([]string{"dev", "prod"}),  // Limit to specific values
+    cli.WithValidator(customValidator),        // Custom validation function
+    
+    // Behavior options
+    cli.WithHidden(false),                     // Visibility in help
+    cli.WithEnvVar("CONFIG_FILE"),            // Environment variable binding
+    cli.WithFileCompletion(),                 // File path completion
+    
+    // Documentation options
+    cli.WithUsage("Path to configuration file"),
+    cli.WithExample("--config /path/to/config.yaml"),
+)
+```
+
+### Environment Variable Binding
+
+Bind flags to environment variables:
+
+```go
+// Flag can be set via --port or PORT environment variable
+portFlag := cli.NewIntFlag(
+    "port",
+    "p",
+    "Server port",
+    8080,
+    cli.WithEnvVar("PORT"),
+)
+
+// Multiple environment variable names
+dbUrlFlag := cli.NewStringFlag(
+    "database-url",
+    "db",
+    "Database connection URL",
+    "",
+    cli.WithEnvVars([]string{"DATABASE_URL", "DB_URL"}),
+)
+```
+
+### Required Flags
+
+Make flags mandatory:
+
+```go
+cmd := cli.NewCommand(
+    "deploy",
+    "Deploy application",
+    func(ctx cli.CommandContext) error {
+        // These values are guaranteed to be present
+        env := ctx.String("environment")
+        version := ctx.String("version")
+        
+        ctx.Info(fmt.Sprintf("Deploying version %s to %s", version, env))
+        return nil
+    },
+    cli.WithFlag(cli.NewStringFlag(
+        "environment", "e", "Target environment", "",
+        cli.WithRequired(true),
+        cli.WithChoices([]string{"staging", "production"}),
+    )),
+    cli.WithFlag(cli.NewStringFlag(
+        "version", "v", "Version to deploy", "",
+        cli.WithRequired(true),
+    )),
+)
+```
+
+## Flag Validation
+
+### Built-in Validators
+
+Use built-in validation functions:
+
+```go
+// Range validation for numbers
+ageFlag := cli.NewIntFlag(
+    "age", "a", "User age", 0,
+    cli.WithRange(0, 150),
+)
+
+// Choice validation for strings
+levelFlag := cli.NewStringFlag(
+    "level", "l", "Log level", "info",
+    cli.WithChoices([]string{"debug", "info", "warn", "error"}),
+)
+
+// Pattern validation with regex
+usernameFlag := cli.NewStringFlag(
+    "username", "u", "Username", "",
+    cli.WithPattern(`^[a-zA-Z0-9_]{3,20}$`),
+)
+```
+
+### Custom Validators
+
+Create custom validation logic:
+
+```go
+// File existence validator
+configFlag := cli.NewStringFlag(
+    "config", "c", "Config file", "",
+    cli.WithValidator(func(path string) error {
+        if path == "" {
+            return nil // Allow empty if not required
+        }
+        if _, err := os.Stat(path); os.IsNotExist(err) {
+            return fmt.Errorf("config file does not exist: %s", path)
+        }
+        return nil
+    }),
+)
+
+// URL validation
+urlFlag := cli.NewStringFlag(
+    "url", "u", "API URL", "",
+    cli.WithValidator(func(value string) error {
+        if _, err := url.Parse(value); err != nil {
+            return fmt.Errorf("invalid URL: %v", err)
+        }
+        return nil
+    }),
+)
+
+// Complex validation with multiple conditions
+passwordFlag := cli.NewStringFlag(
+    "password", "p", "Password", "",
+    cli.WithValidator(func(password string) error {
+        if len(password) < 8 {
+            return fmt.Errorf("password must be at least 8 characters")
+        }
+        
+        hasUpper := regexp.MustCompile(`[A-Z]`).MatchString(password)
+        hasLower := regexp.MustCompile(`[a-z]`).MatchString(password)
+        hasDigit := regexp.MustCompile(`\d`).MatchString(password)
+        
+        if !hasUpper || !hasLower || !hasDigit {
+            return fmt.Errorf("password must contain uppercase, lowercase, and digit")
+        }
+        
+        return nil
+    }),
+)
+```
+
+## Accessing Flag Values
+
+### In Command Handlers
+
+Access parsed flag values in command handlers:
+
+```go
+func deployHandler(ctx cli.CommandContext) error {
+    // String flags
+    environment := ctx.String("environment")
+    version := ctx.String("version")
+    
+    // Integer flags
+    replicas := ctx.Int("replicas")
+    port := ctx.Int("port")
+    
+    // Boolean flags
+    dryRun := ctx.Bool("dry-run")
+    verbose := ctx.Bool("verbose")
+    
+    // Slice flags
+    tags := ctx.StringSlice("tags")
+    ports := ctx.IntSlice("ports")
+    
+    // Duration flags
+    timeout := ctx.Duration("timeout")
+    
+    // Float flags
+    ratio := ctx.Float64("ratio")
+    
+    // Check if flag was explicitly set
+    if ctx.IsSet("custom-config") {
+        config := ctx.String("custom-config")
+        // Use custom config
+    }
+    
+    return nil
+}
+```
+
+### Default Value Handling
+
+Handle default values and flag presence:
+
+```go
+func configHandler(ctx cli.CommandContext) error {
+    // Get value with fallback
+    configFile := ctx.String("config")
+    if configFile == "" {
+        configFile = "default.yaml"
+    }
+    
+    // Check if flag was explicitly provided
+    if ctx.IsSet("debug") {
+        // Debug flag was explicitly set
+        debug := ctx.Bool("debug")
+        if debug {
+            ctx.Info("Debug mode enabled")
+        }
+    }
+    
+    // Get all set flags
+    setFlags := ctx.SetFlags()
+    ctx.Info(fmt.Sprintf("Flags set: %v", setFlags))
+    
+    return nil
+}
+```
+
+## Advanced Flag Features
+
+### Flag Groups
+
+Group related flags together:
+
+```go
+// Database connection flags
+dbFlags := []cli.Flag{
+    cli.NewStringFlag("db-host", "", "Database host", "localhost"),
+    cli.NewIntFlag("db-port", "", "Database port", 5432),
+    cli.NewStringFlag("db-name", "", "Database name", ""),
+    cli.NewStringFlag("db-user", "", "Database user", ""),
+    cli.NewStringFlag("db-password", "", "Database password", ""),
+}
+
+// Server configuration flags
+serverFlags := []cli.Flag{
+    cli.NewIntFlag("port", "p", "Server port", 8080),
+    cli.NewStringFlag("host", "h", "Server host", "0.0.0.0"),
+    cli.NewBoolFlag("tls", "", "Enable TLS", false),
+}
+
+cmd := cli.NewCommand(
+    "start",
+    "Start the server",
+    startHandler,
+    cli.WithFlags(append(dbFlags, serverFlags...)),
+)
+```
+
+### Conditional Flags
+
+Make flags conditional based on other flags:
+
+```go
+cmd := cli.NewCommand(
+    "backup",
+    "Create backup",
+    func(ctx cli.CommandContext) error {
+        backupType := ctx.String("type")
+        
+        if backupType == "remote" {
+            // Validate remote-specific flags
+            if ctx.String("remote-url") == "" {
+                return fmt.Errorf("--remote-url is required for remote backups")
+            }
+        }
+        
+        if backupType == "encrypted" {
+            if ctx.String("encryption-key") == "" {
+                return fmt.Errorf("--encryption-key is required for encrypted backups")
+            }
+        }
+        
+        return nil
+    },
+    cli.WithFlag(cli.NewStringFlag(
+        "type", "t", "Backup type", "local",
+        cli.WithChoices([]string{"local", "remote", "encrypted"}),
+    )),
+    cli.WithFlag(cli.NewStringFlag(
+        "remote-url", "", "Remote backup URL", "",
+    )),
+    cli.WithFlag(cli.NewStringFlag(
+        "encryption-key", "", "Encryption key", "",
+    )),
+)
+```
+
+### Flag Aliases
+
+Create multiple aliases for flags:
+
+```go
+verboseFlag := cli.NewStringFlag(
+    "verbosity",
+    "v",
+    "Verbosity level",
+    "info",
+    cli.WithAliases([]string{"verbose", "log-level"}),
+    cli.WithChoices([]string{"debug", "info", "warn", "error"}),
+)
+
+// All of these work:
+// --verbosity debug
+// --verbose debug  
+// --log-level debug
+// -v debug
+```
+
+## Global Flags
+
+### Application-wide Flags
+
+Define flags that apply to all commands:
+
+```go
+app := cli.New(cli.Config{
+    Name: "mytool",
+    GlobalFlags: []cli.Flag{
+        cli.NewBoolFlag("verbose", "v", "Verbose output", false),
+        cli.NewStringFlag("config", "c", "Config file", "config.yaml"),
+        cli.NewBoolFlag("debug", "d", "Debug mode", false),
+    },
+})
+
+// Global flags are available in all commands
+cmd := cli.NewCommand(
+    "deploy",
+    "Deploy application", 
+    func(ctx cli.CommandContext) error {
+        if ctx.Bool("verbose") {
+            ctx.Info("Verbose mode enabled")
+        }
+        
+        configFile := ctx.String("config")
+        // Use config file
+        
+        return nil
+    },
+)
+```
+
+### Persistent Flags
+
+Flags that persist to subcommands:
+
+```go
+parentCmd := cli.NewCommand(
+    "database",
+    "Database operations",
+    nil,
+    cli.WithFlag(cli.NewStringFlag(
+        "connection", "c", "Database connection string", "",
+        cli.WithPersistent(true), // Available to all subcommands
+    )),
+)
+
+subCmd := cli.NewCommand(
+    "migrate",
+    "Run migrations",
+    func(ctx cli.CommandContext) error {
+        // Can access parent's persistent flags
+        connection := ctx.String("connection")
+        return nil
+    },
+)
+
+parentCmd.AddSubcommand(subCmd)
+```
+
+## Best Practices
+
+### 1. Consistent Naming
+
+```go
+// Use kebab-case for multi-word flags
+cli.NewStringFlag("database-url", "db", "Database URL", "")
+cli.NewBoolFlag("dry-run", "", "Dry run mode", false)
+cli.NewIntFlag("max-connections", "", "Maximum connections", 10)
+```
+
+### 2. Meaningful Descriptions
+
+```go
+// Good: Clear and specific
+cli.NewStringFlag("output", "o", "Output format (json, yaml, table)", "table")
+
+// Bad: Vague
+cli.NewStringFlag("output", "o", "Output", "table")
+```
+
+### 3. Sensible Defaults
+
+```go
+// Provide reasonable defaults
+cli.NewIntFlag("timeout", "t", "Request timeout in seconds", 30)
+cli.NewStringFlag("log-level", "l", "Log level", "info")
+cli.NewBoolFlag("color", "", "Enable colored output", true)
+```
+
+### 4. Validation
+
+```go
+// Always validate critical flags
+portFlag := cli.NewIntFlag(
+    "port", "p", "Server port", 8080,
+    cli.WithRange(1, 65535),
+)
+
+urlFlag := cli.NewStringFlag(
+    "api-url", "u", "API endpoint URL", "",
+    cli.WithValidator(func(value string) error {
+        if _, err := url.Parse(value); err != nil {
+            return fmt.Errorf("invalid URL: %v", err)
+        }
+        return nil
+    }),
+)
+```
+
+### 5. Environment Variables
+
+```go
+// Bind important flags to environment variables
+cli.NewStringFlag(
+    "database-url", "db", "Database connection URL", "",
+    cli.WithEnvVar("DATABASE_URL"),
+    cli.WithRequired(true),
+)
+```
+
+## Examples
+
+### Complete Command with Flags
+
+```go
+deployCmd := cli.NewCommand(
+    "deploy",
+    "Deploy application to specified environment",
+    func(ctx cli.CommandContext) error {
+        // Required flags
+        environment := ctx.String("environment")
+        version := ctx.String("version")
+        
+        // Optional flags with defaults
+        replicas := ctx.Int("replicas")
+        timeout := ctx.Duration("timeout")
+        
+        // Boolean flags
+        dryRun := ctx.Bool("dry-run")
+        verbose := ctx.Bool("verbose")
+        
+        // Slice flags
+        tags := ctx.StringSlice("tags")
+        
+        if verbose {
+            ctx.Info(fmt.Sprintf("Deploying version %s to %s", version, environment))
+            ctx.Info(fmt.Sprintf("Replicas: %d, Timeout: %v", replicas, timeout))
+            if len(tags) > 0 {
+                ctx.Info(fmt.Sprintf("Tags: %v", tags))
+            }
+        }
+        
+        if dryRun {
+            ctx.Warning("DRY RUN: No actual deployment will occur")
+            return nil
+        }
+        
+        // Perform deployment
+        progress := ctx.ProgressBar(100)
+        for i := 0; i <= 100; i += 10 {
+            progress.Set(i)
+            time.Sleep(200 * time.Millisecond)
+        }
+        progress.Finish("Deployment complete!")
+        
+        return nil
+    },
+    
+    // Required flags
+    cli.WithFlag(cli.NewStringFlag(
+        "environment", "e", "Target environment", "",
+        cli.WithRequired(true),
+        cli.WithChoices([]string{"staging", "production"}),
+    )),
+    cli.WithFlag(cli.NewStringFlag(
+        "version", "v", "Version to deploy", "",
+        cli.WithRequired(true),
+        cli.WithPattern(`^v\d+\.\d+\.\d+$`),
+    )),
+    
+    // Optional flags
+    cli.WithFlag(cli.NewIntFlag(
+        "replicas", "r", "Number of replicas", 3,
+        cli.WithRange(1, 10),
+    )),
+    cli.WithFlag(cli.NewDurationFlag(
+        "timeout", "t", "Deployment timeout", 5*time.Minute,
+    )),
+    cli.WithFlag(cli.NewStringSliceFlag(
+        "tags", "", "Deployment tags", []string{},
+    )),
+    
+    // Boolean flags
+    cli.WithFlag(cli.NewBoolFlag(
+        "dry-run", "", "Perform dry run without actual deployment", false,
+    )),
+    cli.WithFlag(cli.NewBoolFlag(
+        "verbose", "", "Enable verbose output", false,
+    )),
+)
+```
+
+## Next Steps
+
+- Learn about [Prompts](/docs/cli/prompts) for interactive input
+- Explore [Output](/docs/cli/output) formatting and tables
+- Check out [Examples](/docs/cli/examples) for complete applications
+- Review [Commands](/docs/cli/commands) for command structure

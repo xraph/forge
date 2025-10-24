@@ -1,0 +1,779 @@
+---
+title: Forge Integration
+description: Integrate CLI applications with the Forge web framework for powerful command-line tools
+---
+
+# Forge Integration
+
+The Forge CLI framework provides seamless integration with the Forge web framework, allowing you to build powerful command-line tools that can interact with your web application's services, models, and configuration.
+
+## Overview
+
+Forge integration enables your CLI applications to:
+
+- Access Forge services through dependency injection
+- Use the same configuration as your web application
+- Share models and business logic
+- Leverage Forge's observability and logging
+- Access database connections and migrations
+- Utilize Forge's security and authentication systems
+
+## Basic Integration
+
+### Setting Up Forge CLI
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "os"
+    
+    "github.com/forge/cli"
+    "github.com/forge/forge"
+    "github.com/forge/forge/config"
+    "github.com/forge/forge/database"
+    "github.com/forge/forge/logger"
+)
+
+func main() {
+    // Initialize Forge application
+    app := forge.New(forge.Config{
+        Name:    "myapp",
+        Version: "1.0.0",
+    })
+    
+    // Initialize CLI with Forge integration
+    cliApp := cli.New(cli.Config{
+        Name:        "myapp-cli",
+        Description: "Command-line interface for MyApp",
+        Version:     "1.0.0",
+        ForgeApp:    app, // Enable Forge integration
+    })
+    
+    // Add commands
+    cliApp.AddCommand(
+        cli.NewCommand("users").
+            WithDescription("User management commands").
+            WithSubcommands(
+                cli.NewCommand("list").
+                    WithDescription("List all users").
+                    WithHandler(listUsersHandler),
+                
+                cli.NewCommand("create").
+                    WithDescription("Create a new user").
+                    WithHandler(createUserHandler),
+                
+                cli.NewCommand("delete").
+                    WithDescription("Delete a user").
+                    WithArgs(cli.Arg{
+                        Name:        "id",
+                        Description: "User ID",
+                        Required:    true,
+                    }).
+                    WithHandler(deleteUserHandler),
+            ),
+    )
+    
+    cliApp.AddCommand(
+        cli.NewCommand("migrate").
+            WithDescription("Database migration commands").
+            WithSubcommands(
+                cli.NewCommand("up").
+                    WithDescription("Run pending migrations").
+                    WithHandler(migrateUpHandler),
+                
+                cli.NewCommand("down").
+                    WithDescription("Rollback migrations").
+                    WithFlags(
+                        cli.IntFlag("steps", "Number of migrations to rollback").
+                            WithDefault(1),
+                    ).
+                    WithHandler(migrateDownHandler),
+                
+                cli.NewCommand("status").
+                    WithDescription("Show migration status").
+                    WithHandler(migrateStatusHandler),
+            ),
+    )
+    
+    if err := cliApp.Run(); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+## Accessing Forge Services
+
+### Service Injection
+
+When Forge integration is enabled, you can access Forge services through the command context:
+
+```go
+func listUsersHandler(ctx cli.CommandContext) error {
+    // Access Forge services
+    db := ctx.ForgeService("database").(*database.DB)
+    logger := ctx.ForgeService("logger").(logger.Logger)
+    config := ctx.ForgeService("config").(config.Config)
+    
+    logger.Info("Listing users", "command", "users:list")
+    
+    // Query users from database
+    var users []User
+    if err := db.Find(&users).Error; err != nil {
+        return fmt.Errorf("failed to fetch users: %v", err)
+    }
+    
+    if len(users) == 0 {
+        ctx.Info("No users found")
+        return nil
+    }
+    
+    // Display users in table format
+    table := ctx.Table()
+    table.SetHeaders([]string{"ID", "Name", "Email", "Created At"})
+    
+    for _, user := range users {
+        table.AddRow([]string{
+            fmt.Sprintf("%d", user.ID),
+            user.Name,
+            user.Email,
+            user.CreatedAt.Format("2006-01-02 15:04:05"),
+        })
+    }
+    
+    table.Render()
+    
+    ctx.Success(fmt.Sprintf("Found %d users", len(users)))
+    return nil
+}
+
+func createUserHandler(ctx cli.CommandContext) error {
+    // Access user service
+    userService := ctx.ForgeService("user_service").(*services.UserService)
+    
+    // Interactive user creation
+    name, err := ctx.Prompt("User name:")
+    if err != nil {
+        return err
+    }
+    
+    email, err := ctx.Prompt("Email address:")
+    if err != nil {
+        return err
+    }
+    
+    password, err := ctx.PromptPassword("Password:")
+    if err != nil {
+        return err
+    }
+    
+    // Validate input
+    if name == "" || email == "" || password == "" {
+        return fmt.Errorf("all fields are required")
+    }
+    
+    // Create user using service
+    user, err := userService.Create(context.Background(), services.CreateUserRequest{
+        Name:     name,
+        Email:    email,
+        Password: password,
+    })
+    if err != nil {
+        return fmt.Errorf("failed to create user: %v", err)
+    }
+    
+    ctx.Success(fmt.Sprintf("✅ Created user: %s (ID: %d)", user.Name, user.ID))
+    return nil
+}
+```
+
+### Configuration Access
+
+Access your Forge application's configuration:
+
+```go
+func configHandler(ctx cli.CommandContext) error {
+    config := ctx.ForgeService("config").(config.Config)
+    
+    // Access configuration values
+    dbURL := config.GetString("database.url")
+    redisURL := config.GetString("redis.url")
+    appEnv := config.GetString("app.environment")
+    
+    ctx.Info("Application Configuration:")
+    ctx.Info(fmt.Sprintf("Environment: %s", appEnv))
+    ctx.Info(fmt.Sprintf("Database: %s", maskURL(dbURL)))
+    ctx.Info(fmt.Sprintf("Redis: %s", maskURL(redisURL)))
+    
+    return nil
+}
+
+func maskURL(url string) string {
+    // Mask sensitive parts of URLs
+    if strings.Contains(url, "@") {
+        parts := strings.Split(url, "@")
+        if len(parts) == 2 {
+            return "***@" + parts[1]
+        }
+    }
+    return url
+}
+```
+
+## Database Operations
+
+### Migration Commands
+
+```go
+func migrateUpHandler(ctx cli.CommandContext) error {
+    migrator := ctx.ForgeService("migrator").(*database.Migrator)
+    
+    ctx.Info("Running database migrations...")
+    
+    progress := ctx.Spinner("Applying migrations...")
+    
+    migrations, err := migrator.GetPendingMigrations()
+    if err != nil {
+        progress.Stop("Failed to get migrations")
+        return fmt.Errorf("failed to get pending migrations: %v", err)
+    }
+    
+    if len(migrations) == 0 {
+        progress.Stop("No pending migrations")
+        ctx.Success("✅ Database is up to date")
+        return nil
+    }
+    
+    progress.Stop(fmt.Sprintf("Found %d pending migrations", len(migrations)))
+    
+    // Show pending migrations
+    table := ctx.Table()
+    table.SetHeaders([]string{"Migration", "Description"})
+    
+    for _, migration := range migrations {
+        table.AddRow([]string{
+            migration.Name,
+            migration.Description,
+        })
+    }
+    
+    table.Render()
+    
+    // Confirm before applying
+    confirmed, err := ctx.Confirm("Apply these migrations?")
+    if err != nil {
+        return err
+    }
+    
+    if !confirmed {
+        ctx.Info("Migration cancelled")
+        return nil
+    }
+    
+    // Apply migrations with progress
+    progressBar := ctx.ProgressBar(len(migrations))
+    
+    for i, migration := range migrations {
+        progressBar.SetMessage(fmt.Sprintf("Applying %s", migration.Name))
+        
+        if err := migrator.ApplyMigration(migration); err != nil {
+            return fmt.Errorf("failed to apply migration %s: %v", migration.Name, err)
+        }
+        
+        progressBar.Increment()
+    }
+    
+    progressBar.Finish("Migrations completed successfully!")
+    return nil
+}
+
+func migrateStatusHandler(ctx cli.CommandContext) error {
+    migrator := ctx.ForgeService("migrator").(*database.Migrator)
+    
+    applied, err := migrator.GetAppliedMigrations()
+    if err != nil {
+        return fmt.Errorf("failed to get applied migrations: %v", err)
+    }
+    
+    pending, err := migrator.GetPendingMigrations()
+    if err != nil {
+        return fmt.Errorf("failed to get pending migrations: %v", err)
+    }
+    
+    ctx.Info(fmt.Sprintf("Applied migrations: %d", len(applied)))
+    ctx.Info(fmt.Sprintf("Pending migrations: %d", len(pending)))
+    
+    if len(pending) > 0 {
+        ctx.Warning("⚠️  Database migrations are pending")
+        
+        table := ctx.Table()
+        table.SetHeaders([]string{"Pending Migration", "Description"})
+        
+        for _, migration := range pending {
+            table.AddRow([]string{
+                migration.Name,
+                migration.Description,
+            })
+        }
+        
+        table.Render()
+    } else {
+        ctx.Success("✅ Database is up to date")
+    }
+    
+    return nil
+}
+```
+
+### Data Seeding
+
+```go
+func seedHandler(ctx cli.CommandContext) error {
+    db := ctx.ForgeService("database").(*database.DB)
+    logger := ctx.ForgeService("logger").(logger.Logger)
+    
+    // Check if data already exists
+    var userCount int64
+    if err := db.Model(&User{}).Count(&userCount).Error; err != nil {
+        return fmt.Errorf("failed to check existing data: %v", err)
+    }
+    
+    if userCount > 0 {
+        confirmed, err := ctx.Confirm(fmt.Sprintf("Database contains %d users. Continue seeding?", userCount))
+        if err != nil {
+            return err
+        }
+        
+        if !confirmed {
+            ctx.Info("Seeding cancelled")
+            return nil
+        }
+    }
+    
+    // Seed data
+    seedData := []struct {
+        Name  string
+        Email string
+        Role  string
+    }{
+        {"Admin User", "admin@example.com", "admin"},
+        {"John Doe", "john@example.com", "user"},
+        {"Jane Smith", "jane@example.com", "user"},
+    }
+    
+    progress := ctx.ProgressBar(len(seedData))
+    
+    for _, data := range seedData {
+        progress.SetMessage(fmt.Sprintf("Creating user: %s", data.Name))
+        
+        user := User{
+            Name:  data.Name,
+            Email: data.Email,
+            Role:  data.Role,
+        }
+        
+        if err := db.Create(&user).Error; err != nil {
+            logger.Error("Failed to create user", "error", err, "email", data.Email)
+            return fmt.Errorf("failed to create user %s: %v", data.Email, err)
+        }
+        
+        logger.Info("Created user", "id", user.ID, "email", user.Email)
+        progress.Increment()
+    }
+    
+    progress.Finish("Seeding completed successfully!")
+    return nil
+}
+```
+
+## Service Integration
+
+### Custom Service Access
+
+```go
+// Define your service interface
+type EmailService interface {
+    SendEmail(to, subject, body string) error
+    SendTemplate(to, template string, data interface{}) error
+}
+
+func sendEmailHandler(ctx cli.CommandContext) error {
+    emailService := ctx.ForgeService("email_service").(EmailService)
+    
+    // Interactive email composition
+    to, err := ctx.Prompt("To:")
+    if err != nil {
+        return err
+    }
+    
+    subject, err := ctx.Prompt("Subject:")
+    if err != nil {
+        return err
+    }
+    
+    body, err := ctx.PromptMultiline("Body:")
+    if err != nil {
+        return err
+    }
+    
+    // Send email
+    spinner := ctx.Spinner("Sending email...")
+    
+    if err := emailService.SendEmail(to, subject, body); err != nil {
+        spinner.Stop("Failed to send email")
+        return fmt.Errorf("failed to send email: %v", err)
+    }
+    
+    spinner.Stop("Email sent successfully")
+    ctx.Success("✅ Email sent to " + to)
+    
+    return nil
+}
+
+func bulkEmailHandler(ctx cli.CommandContext) error {
+    emailService := ctx.ForgeService("email_service").(EmailService)
+    userService := ctx.ForgeService("user_service").(*services.UserService)
+    
+    // Get email template
+    template, err := ctx.Select("Select email template:", []string{
+        "welcome",
+        "newsletter",
+        "notification",
+        "reminder",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Get user filter
+    filter, err := ctx.Select("Send to:", []string{
+        "all_users",
+        "active_users",
+        "inactive_users",
+        "admin_users",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Get users based on filter
+    users, err := userService.GetUsersByFilter(context.Background(), filter)
+    if err != nil {
+        return fmt.Errorf("failed to get users: %v", err)
+    }
+    
+    if len(users) == 0 {
+        ctx.Info("No users found for the selected filter")
+        return nil
+    }
+    
+    // Confirm before sending
+    confirmed, err := ctx.Confirm(fmt.Sprintf("Send %s email to %d users?", template, len(users)))
+    if err != nil {
+        return err
+    }
+    
+    if !confirmed {
+        ctx.Info("Bulk email cancelled")
+        return nil
+    }
+    
+    // Send emails with progress
+    progress := ctx.ProgressBar(len(users))
+    var successCount, errorCount int
+    
+    for _, user := range users {
+        progress.SetMessage(fmt.Sprintf("Sending to %s", user.Email))
+        
+        if err := emailService.SendTemplate(user.Email, template, user); err != nil {
+            errorCount++
+            ctx.Error(fmt.Sprintf("Failed to send to %s: %v", user.Email, err))
+        } else {
+            successCount++
+        }
+        
+        progress.Increment()
+    }
+    
+    progress.Finish(fmt.Sprintf("Bulk email completed: %d sent, %d failed", successCount, errorCount))
+    
+    if errorCount > 0 {
+        ctx.Warning(fmt.Sprintf("⚠️  %d emails failed to send", errorCount))
+    } else {
+        ctx.Success("✅ All emails sent successfully")
+    }
+    
+    return nil
+}
+```
+
+## Advanced Integration
+
+### Background Jobs
+
+```go
+func jobsHandler(ctx cli.CommandContext) error {
+    jobQueue := ctx.ForgeService("job_queue").(jobs.Queue)
+    
+    subcommand := ctx.Args()[0]
+    
+    switch subcommand {
+    case "list":
+        return listJobs(ctx, jobQueue)
+    case "retry":
+        return retryJob(ctx, jobQueue)
+    case "clear":
+        return clearJobs(ctx, jobQueue)
+    default:
+        return fmt.Errorf("unknown subcommand: %s", subcommand)
+    }
+}
+
+func listJobs(ctx cli.CommandContext, queue jobs.Queue) error {
+    jobs, err := queue.GetJobs(jobs.FilterAll)
+    if err != nil {
+        return fmt.Errorf("failed to get jobs: %v", err)
+    }
+    
+    if len(jobs) == 0 {
+        ctx.Info("No jobs found")
+        return nil
+    }
+    
+    table := ctx.Table()
+    table.SetHeaders([]string{"ID", "Type", "Status", "Created", "Attempts"})
+    
+    for _, job := range jobs {
+        table.AddRow([]string{
+            job.ID,
+            job.Type,
+            job.Status,
+            job.CreatedAt.Format("2006-01-02 15:04:05"),
+            fmt.Sprintf("%d/%d", job.Attempts, job.MaxAttempts),
+        })
+    }
+    
+    table.Render()
+    return nil
+}
+
+func retryJob(ctx cli.CommandContext, queue jobs.Queue) error {
+    if len(ctx.Args()) < 2 {
+        return fmt.Errorf("job ID required")
+    }
+    
+    jobID := ctx.Args()[1]
+    
+    if err := queue.RetryJob(jobID); err != nil {
+        return fmt.Errorf("failed to retry job: %v", err)
+    }
+    
+    ctx.Success(fmt.Sprintf("✅ Job %s queued for retry", jobID))
+    return nil
+}
+```
+
+### Cache Management
+
+```go
+func cacheHandler(ctx cli.CommandContext) error {
+    cache := ctx.ForgeService("cache").(cache.Cache)
+    
+    subcommand := ctx.Args()[0]
+    
+    switch subcommand {
+    case "clear":
+        return clearCache(ctx, cache)
+    case "stats":
+        return cacheStats(ctx, cache)
+    case "get":
+        return getCache(ctx, cache)
+    case "set":
+        return setCache(ctx, cache)
+    default:
+        return fmt.Errorf("unknown subcommand: %s", subcommand)
+    }
+}
+
+func clearCache(ctx cli.CommandContext, cache cache.Cache) error {
+    pattern := "*"
+    if len(ctx.Args()) > 1 {
+        pattern = ctx.Args()[1]
+    }
+    
+    confirmed, err := ctx.Confirm(fmt.Sprintf("Clear cache keys matching '%s'?", pattern))
+    if err != nil {
+        return err
+    }
+    
+    if !confirmed {
+        ctx.Info("Cache clear cancelled")
+        return nil
+    }
+    
+    spinner := ctx.Spinner("Clearing cache...")
+    
+    count, err := cache.Clear(pattern)
+    if err != nil {
+        spinner.Stop("Failed to clear cache")
+        return fmt.Errorf("failed to clear cache: %v", err)
+    }
+    
+    spinner.Stop("Cache cleared")
+    ctx.Success(fmt.Sprintf("✅ Cleared %d cache keys", count))
+    
+    return nil
+}
+
+func cacheStats(ctx cli.CommandContext, cache cache.Cache) error {
+    stats, err := cache.Stats()
+    if err != nil {
+        return fmt.Errorf("failed to get cache stats: %v", err)
+    }
+    
+    ctx.Info("Cache Statistics:")
+    ctx.Info(fmt.Sprintf("Total Keys: %d", stats.KeyCount))
+    ctx.Info(fmt.Sprintf("Memory Usage: %s", formatBytes(stats.MemoryUsage)))
+    ctx.Info(fmt.Sprintf("Hit Rate: %.2f%%", stats.HitRate*100))
+    ctx.Info(fmt.Sprintf("Uptime: %s", stats.Uptime))
+    
+    return nil
+}
+```
+
+## Configuration
+
+### Environment-Specific Commands
+
+```go
+func environmentHandler(ctx cli.CommandContext) error {
+    config := ctx.ForgeService("config").(config.Config)
+    env := config.GetString("app.environment")
+    
+    switch env {
+    case "production":
+        return productionCommands(ctx)
+    case "staging":
+        return stagingCommands(ctx)
+    case "development":
+        return developmentCommands(ctx)
+    default:
+        return fmt.Errorf("unknown environment: %s", env)
+    }
+}
+
+func productionCommands(ctx cli.CommandContext) error {
+    // Production-safe commands only
+    ctx.Warning("⚠️  Running in PRODUCTION environment")
+    
+    // Require additional confirmation for destructive operations
+    if isDestructiveCommand(ctx.Command()) {
+        confirmed, err := ctx.Confirm("This is a destructive operation in PRODUCTION. Are you sure?")
+        if err != nil {
+            return err
+        }
+        
+        if !confirmed {
+            ctx.Info("Operation cancelled")
+            return nil
+        }
+        
+        // Require second confirmation
+        confirmed, err = ctx.Confirm("Type 'yes' to confirm:")
+        if err != nil {
+            return err
+        }
+        
+        if !confirmed {
+            ctx.Info("Operation cancelled")
+            return nil
+        }
+    }
+    
+    return nil
+}
+
+func isDestructiveCommand(command string) bool {
+    destructive := []string{"delete", "drop", "clear", "reset", "purge"}
+    for _, cmd := range destructive {
+        if strings.Contains(command, cmd) {
+            return true
+        }
+    }
+    return false
+}
+```
+
+## Best Practices
+
+### Error Handling
+
+```go
+func robustHandler(ctx cli.CommandContext) error {
+    logger := ctx.ForgeService("logger").(logger.Logger)
+    
+    // Log command execution
+    logger.Info("Command started", 
+        "command", ctx.Command(),
+        "args", ctx.Args(),
+        "user", getCurrentUser(),
+    )
+    
+    defer func() {
+        if r := recover(); r != nil {
+            logger.Error("Command panicked", "panic", r, "command", ctx.Command())
+            ctx.Error("An unexpected error occurred")
+        }
+    }()
+    
+    // Your command logic here
+    if err := performOperation(); err != nil {
+        logger.Error("Command failed", "error", err, "command", ctx.Command())
+        return fmt.Errorf("operation failed: %v", err)
+    }
+    
+    logger.Info("Command completed successfully", "command", ctx.Command())
+    return nil
+}
+```
+
+### Resource Cleanup
+
+```go
+func resourceHandler(ctx cli.CommandContext) error {
+    db := ctx.ForgeService("database").(*database.DB)
+    
+    // Begin transaction
+    tx := db.Begin()
+    defer func() {
+        if r := recover(); r != nil {
+            tx.Rollback()
+            panic(r)
+        }
+    }()
+    
+    // Perform operations
+    if err := performDatabaseOperations(tx); err != nil {
+        tx.Rollback()
+        return fmt.Errorf("database operation failed: %v", err)
+    }
+    
+    // Commit transaction
+    if err := tx.Commit().Error; err != nil {
+        return fmt.Errorf("failed to commit transaction: %v", err)
+    }
+    
+    ctx.Success("✅ Operation completed successfully")
+    return nil
+}
+```
+
+## Next Steps
+
+- [Commands](/docs/cli/commands) for command structure and organization
+- [Examples](/docs/cli/examples) for complete application examples
+- [Plugins](/docs/cli/plugins) for extending CLI functionality
+- [Forge Documentation](/docs/forge) for web framework features

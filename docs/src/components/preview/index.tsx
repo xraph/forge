@@ -115,7 +115,7 @@ export function accordion(): ReactNode {
   return (
     <Wrapper>
       <Accordions type="single" collapsible>
-        <Accordion id="what-is-authsome" title="What is Authsome?">
+        <Accordion id="what-is-forge" title="What is Forge?">
           A framework for building authentication systems
         </Accordion>
         <Accordion id="ux" title="What do we love?">
@@ -237,7 +237,7 @@ export function banner(): ReactNode {
     <Wrapper>
       <div className="flex flex-col gap-4">
         <Banner className="z-0" changeLayout={false}>
-          Be careful, Authsome is still in alpha stage.
+          Be careful, Forge is still in alpha stage.
         </Banner>
 
         <Banner

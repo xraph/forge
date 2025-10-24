@@ -31,15 +31,15 @@ export const linkItems: LinkItemType[] = [
 
 export const logo = (
   <>
-    <Image
-      alt="Authsome"
+    {/* <Image
+      alt="Forge"
       // src={Logo}
       sizes="100px"
       className="hidden w-20 md:w-24 [.uwu_&]:block"
-      aria-label="Authsome"
-    />
+      aria-label="Forge"
+    /> */}
 
-    Authsome
+    Forge
   </>
 );
 
@@ -63,12 +63,12 @@ export function baseOptions(): BaseLayoutProps {
           >
             <circle cx={12} cy={12} r={12} fill="currentColor" />
           </svg>
-          Authsome
+          Forge
         </>
       ),
     },
     // see https://fumadocs.dev/docs/ui/navigation/links
     links: [...linkItems],
-    githubUrl: 'https://github.com/xraph/authsome',
+    githubUrl: 'https://github.com/xraph/forge',
   };
 }

@@ -1,9 +1,465 @@
 ---
 title: Group Routing
-description: Learn the fundamentals of HTTP routing with Forge
+description: Organize routes with prefixes, shared middleware, and hierarchical structure
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
-import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
 
-Forge's router provides a simple yet powerful way to handle HTTP requests. This guide covers the fundamentals of routing, including HTTP methods, path parameters, and basic route configuration.
+Route groups allow you to organize related routes under a common prefix and apply shared middleware, making your API structure clean and maintainable.
+
+## Basic Route Groups
+
+Create a route group with a common prefix:
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+)
+
+func main() {
+    app := forge.New()
+    
+    // Create API v1 group
+    v1 := app.Group("/api/v1")
+    
+    // All routes in this group will have /api/v1 prefix
+    v1.GET("/users", getUsersHandler)
+    v1.POST("/users", createUserHandler)
+    v1.GET("/users/:id", getUserHandler)
+    v1.PUT("/users/:id", updateUserHandler)
+    v1.DELETE("/users/:id", deleteUserHandler)
+    
+    app.Start(":8080")
+}
+```
+
+## Nested Groups
+
+Groups can be nested to create hierarchical route structures:
+
+```go
+func setupRoutes(app *forge.App) {
+    // Main API group
+    api := app.Group("/api")
+    
+    // Version 1 group
+    v1 := api.Group("/v1")
+    v1.GET("/health", healthHandler)
+    
+    // User routes under v1
+    users := v1.Group("/users")
+    users.GET("", listUsersHandler)        // GET /api/v1/users
+    users.POST("", createUserHandler)      // POST /api/v1/users
+    users.GET("/:id", getUserHandler)      // GET /api/v1/users/:id
+    users.PUT("/:id", updateUserHandler)   // PUT /api/v1/users/:id
+    users.DELETE("/:id", deleteUserHandler) // DELETE /api/v1/users/:id
+    
+    // Admin routes under users
+    admin := users.Group("/admin")
+    admin.GET("/stats", getUserStatsHandler)     // GET /api/v1/users/admin/stats
+    admin.POST("/bulk", bulkCreateUsersHandler)  // POST /api/v1/users/admin/bulk
+    
+    // Version 2 group with different structure
+    v2 := api.Group("/v2")
+    v2.GET("/users", listUsersV2Handler)
+    v2.GET("/users/:id/profile", getUserProfileHandler)
+}
+```
+
+## Group Middleware
+
+Apply middleware to all routes in a group:
+
+<Tabs items={["Basic Middleware", "Multiple Middleware", "Conditional Middleware"]}>
+<Tab value="Basic Middleware">
+
+```go
+func setupAuthenticatedRoutes(app *forge.App) {
+    // Create authenticated group with middleware
+    auth := app.Group("/auth", forge.WithGroupMiddleware(authMiddleware))
+    
+    auth.GET("/profile", getProfileHandler)
+    auth.PUT("/profile", updateProfileHandler)
+    auth.POST("/logout", logoutHandler)
+    
+    // All routes above require authentication
+}
+
+func authMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        token := r.Header.Get("Authorization")
+        if token == "" {
+            http.Error(w, "Unauthorized", http.StatusUnauthorized)
+            return
+        }
+        
+        // Validate token logic here
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+</Tab>
+<Tab value="Multiple Middleware">
+
+```go
+func setupSecureAPI(app *forge.App) {
+    // Apply multiple middleware to group
+    secure := app.Group("/secure", 
+        forge.WithGroupMiddleware(authMiddleware),
+        forge.WithGroupMiddleware(rateLimitMiddleware),
+        forge.WithGroupMiddleware(loggingMiddleware),
+    )
+    
+    secure.GET("/data", getSecureDataHandler)
+    secure.POST("/upload", uploadSecureFileHandler)
+}
+
+func rateLimitMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        // Rate limiting logic
+        next.ServeHTTP(w, r)
+    })
+}
+
+func loggingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        next.ServeHTTP(w, r)
+        log.Printf("%s %s - %v", r.Method, r.URL.Path, time.Since(start))
+    })
+}
+```
+
+</Tab>
+<Tab value="Conditional Middleware">
+
+```go
+func setupConditionalMiddleware(app *forge.App) {
+    // Admin group with role-based middleware
+    admin := app.Group("/admin", 
+        forge.WithGroupMiddleware(authMiddleware),
+        forge.WithGroupMiddleware(requireAdminRole),
+    )
+    
+    admin.GET("/users", adminListUsersHandler)
+    admin.DELETE("/users/:id", adminDeleteUserHandler)
+    
+    // Moderator group with different permissions
+    mod := app.Group("/mod",
+        forge.WithGroupMiddleware(authMiddleware),
+        forge.WithGroupMiddleware(requireModeratorRole),
+    )
+    
+    mod.GET("/reports", getReportsHandler)
+    mod.PUT("/reports/:id", updateReportHandler)
+}
+
+func requireAdminRole(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        user := getUserFromContext(r.Context())
+        if user.Role != "admin" {
+            http.Error(w, "Forbidden", http.StatusForbidden)
+            return
+        }
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+</Tab>
+</Tabs>
+
+## Group Configuration Options
+
+Configure groups with various options:
+
+```go
+func setupConfiguredGroups(app *forge.App) {
+    // Group with metadata and tags
+    api := app.Group("/api/v1",
+        forge.WithGroupTags("api", "v1"),
+        forge.WithGroupMetadata(map[string]any{
+            "version": "1.0.0",
+            "deprecated": false,
+        }),
+    )
+    
+    // Group with timeout configuration
+    longRunning := app.Group("/batch",
+        forge.WithGroupMiddleware(timeoutMiddleware(30*time.Second)),
+    )
+    
+    longRunning.POST("/process", batchProcessHandler)
+    longRunning.GET("/status/:id", batchStatusHandler)
+}
+
+func timeoutMiddleware(timeout time.Duration) forge.Middleware {
+    return func(next http.Handler) http.Handler {
+        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            ctx, cancel := context.WithTimeout(r.Context(), timeout)
+            defer cancel()
+            
+            r = r.WithContext(ctx)
+            next.ServeHTTP(w, r)
+        })
+    }
+}
+```
+
+## Authentication and Authorization Groups
+
+Organize routes by authentication requirements:
+
+```go
+func setupAuthGroups(app *forge.App) {
+    // Public routes (no authentication)
+    public := app.Group("/public")
+    public.GET("/health", healthHandler)
+    public.GET("/docs", docsHandler)
+    public.POST("/register", registerHandler)
+    public.POST("/login", loginHandler)
+    
+    // Authenticated routes
+    auth := app.Group("/api",
+        forge.WithGroupMiddleware(authMiddleware),
+    )
+    
+    // User routes (authenticated users)
+    user := auth.Group("/user")
+    user.GET("/profile", getProfileHandler)
+    user.PUT("/profile", updateProfileHandler)
+    user.GET("/orders", getUserOrdersHandler)
+    
+    // Admin routes (admin users only)
+    admin := auth.Group("/admin",
+        forge.WithGroupMiddleware(requireAdminRole),
+    )
+    admin.GET("/users", adminListUsersHandler)
+    admin.GET("/analytics", adminAnalyticsHandler)
+    admin.POST("/maintenance", maintenanceModeHandler)
+    
+    // API key routes (service-to-service)
+    apiKey := app.Group("/service",
+        forge.WithGroupMiddleware(apiKeyMiddleware),
+    )
+    apiKey.POST("/webhook", webhookHandler)
+    apiKey.GET("/metrics", metricsHandler)
+}
+```
+
+## Versioned API Groups
+
+Manage API versions with groups:
+
+```go
+func setupVersionedAPI(app *forge.App) {
+    // Version 1 - Legacy API
+    v1 := app.Group("/api/v1",
+        forge.WithGroupMiddleware(deprecationWarningMiddleware),
+        forge.WithGroupTags("v1", "deprecated"),
+    )
+    v1.GET("/users", getUsersV1Handler)
+    v1.GET("/posts", getPostsV1Handler)
+    
+    // Version 2 - Current API
+    v2 := app.Group("/api/v2",
+        forge.WithGroupTags("v2", "current"),
+    )
+    v2.GET("/users", getUsersV2Handler)
+    v2.GET("/posts", getPostsV2Handler)
+    v2.GET("/users/:id/posts", getUserPostsHandler) // New endpoint
+    
+    // Version 3 - Beta API
+    v3 := app.Group("/api/v3",
+        forge.WithGroupMiddleware(betaAccessMiddleware),
+        forge.WithGroupTags("v3", "beta"),
+    )
+    v3.GET("/users", getUsersV3Handler)
+    v3.GET("/posts", getPostsV3Handler)
+    v3.GET("/analytics", analyticsHandler) // New feature
+}
+
+func deprecationWarningMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("X-API-Deprecated", "true")
+        w.Header().Set("X-API-Sunset", "2024-12-31")
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+## Resource-Based Groups
+
+Organize routes around resources:
+
+```go
+func setupResourceGroups(app *forge.App) {
+    api := app.Group("/api/v1")
+    
+    // User resource
+    users := api.Group("/users")
+    users.GET("", listUsersHandler)           // GET /api/v1/users
+    users.POST("", createUserHandler)         // POST /api/v1/users
+    users.GET("/:id", getUserHandler)         // GET /api/v1/users/:id
+    users.PUT("/:id", updateUserHandler)      // PUT /api/v1/users/:id
+    users.DELETE("/:id", deleteUserHandler)   // DELETE /api/v1/users/:id
+    
+    // User sub-resources
+    users.GET("/:id/posts", getUserPostsHandler)       // GET /api/v1/users/:id/posts
+    users.GET("/:id/followers", getUserFollowersHandler) // GET /api/v1/users/:id/followers
+    
+    // Post resource
+    posts := api.Group("/posts")
+    posts.GET("", listPostsHandler)
+    posts.POST("", createPostHandler)
+    posts.GET("/:id", getPostHandler)
+    posts.PUT("/:id", updatePostHandler)
+    posts.DELETE("/:id", deletePostHandler)
+    
+    // Post sub-resources
+    posts.GET("/:id/comments", getPostCommentsHandler)
+    posts.POST("/:id/comments", createCommentHandler)
+    posts.POST("/:id/like", likePostHandler)
+    posts.DELETE("/:id/like", unlikePostHandler)
+}
+```
+
+## Middleware Inheritance
+
+Groups inherit middleware from parent groups:
+
+```go
+func setupMiddlewareInheritance(app *forge.App) {
+    // Root level middleware
+    app.Use(corsMiddleware)
+    app.Use(requestIDMiddleware)
+    
+    // API group inherits root middleware + adds auth
+    api := app.Group("/api",
+        forge.WithGroupMiddleware(authMiddleware),
+    )
+    
+    // V1 group inherits API middleware + adds versioning
+    v1 := api.Group("/v1",
+        forge.WithGroupMiddleware(versioningMiddleware("v1")),
+    )
+    
+    // Admin group inherits V1 middleware + adds admin check
+    admin := v1.Group("/admin",
+        forge.WithGroupMiddleware(requireAdminRole),
+    )
+    
+    // Final middleware chain for /api/v1/admin/* routes:
+    // corsMiddleware -> requestIDMiddleware -> authMiddleware -> 
+    // versioningMiddleware -> requireAdminRole -> handler
+    
+    admin.GET("/users", adminUsersHandler)
+}
+```
+
+## Error Handling in Groups
+
+Handle errors consistently across grouped routes:
+
+```go
+func setupErrorHandling(app *forge.App) {
+    // API group with error handling middleware
+    api := app.Group("/api",
+        forge.WithGroupMiddleware(errorHandlingMiddleware),
+        forge.WithGroupMiddleware(validationMiddleware),
+    )
+    
+    api.POST("/users", createUserHandler)
+    api.PUT("/users/:id", updateUserHandler)
+}
+
+func errorHandlingMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        defer func() {
+            if err := recover(); err != nil {
+                log.Printf("Panic in handler: %v", err)
+                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+            }
+        }()
+        
+        next.ServeHTTP(w, r)
+    })
+}
+
+func validationMiddleware(next http.Handler) http.Handler {
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        if r.Method == "POST" || r.Method == "PUT" {
+            contentType := r.Header.Get("Content-Type")
+            if !strings.Contains(contentType, "application/json") {
+                http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
+                return
+            }
+        }
+        
+        next.ServeHTTP(w, r)
+    })
+}
+```
+
+<Callout type="info">
+**Best Practices for Route Groups**
+
+1. **Logical Organization**: Group routes by functionality, version, or resource
+2. **Middleware Reuse**: Apply common middleware at the group level
+3. **Consistent Naming**: Use clear, consistent prefixes for groups
+4. **Security Layers**: Apply authentication/authorization at appropriate group levels
+5. **Version Management**: Use groups to manage API versions effectively
+</Callout>
+
+## Advanced Group Features
+
+### Group Metadata and Tags
+
+```go
+func setupAdvancedGroups(app *forge.App) {
+    // Group with comprehensive metadata
+    api := app.Group("/api/v1",
+        forge.WithGroupTags("api", "v1", "production"),
+        forge.WithGroupMetadata(map[string]any{
+            "version":     "1.0.0",
+            "maintainer":  "api-team@company.com",
+            "deprecated":  false,
+            "rate_limit":  1000,
+            "description": "Main API endpoints",
+        }),
+    )
+    
+    api.GET("/users", getUsersHandler)
+}
+```
+
+### Dynamic Group Configuration
+
+```go
+func setupDynamicGroups(app *forge.App, config *Config) {
+    // Configure groups based on environment
+    var middleware []forge.Middleware
+    
+    if config.Environment == "development" {
+        middleware = append(middleware, debugMiddleware)
+    }
+    
+    if config.RateLimitEnabled {
+        middleware = append(middleware, rateLimitMiddleware)
+    }
+    
+    api := app.Group("/api", forge.WithGroupMiddleware(middleware...))
+    api.GET("/health", healthHandler)
+}
+```
+
+## Next Steps
+
+- Learn about [Middleware](/docs/forge/router/middleware) for request processing
+- Explore [Route Parameters](/docs/forge/router/parameters) for dynamic routing
+- Check out [Controllers](/docs/forge/router/controllers) for organizing route logic
+- See [Advanced Features](/docs/forge/router/advanced) for OpenAPI, WebSockets, and more

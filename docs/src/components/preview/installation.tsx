@@ -8,7 +8,7 @@ import { CodeBlock } from '@/components/code-block';
 
 export function Installation({ name }: { name: string }) {
   const tabs = [
-    { name: 'Authsome CLI', value: 'authsome-cli' },
+    { name: 'Forge CLI', value: 'forge-cli' },
     { name: 'Shadcn CLI', value: 'shadcn' },
   ];
 
@@ -32,13 +32,13 @@ export function Installation({ name }: { name: string }) {
         ))}
       </TabsList>
 
-      <TabsContent value="authsome-cli">
-        <CodeBlock code={`npx @authsome/cli@latest add ${name}`} lang="bash" />
+      <TabsContent value="forge-cli">
+        <CodeBlock code={`npx @forge/cli@latest add ${name}`} lang="bash" />
       </TabsContent>
 
       <TabsContent value="shadcn">
         <CodeBlock
-          code={`npx shadcn@latest add https://authsome.dev/r/${name}.json`}
+          code={`npx shadcn@latest add https://forge.dev/r/${name}.json`}
           lang="bash"
         />
       </TabsContent>

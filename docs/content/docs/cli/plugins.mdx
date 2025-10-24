@@ -1,0 +1,751 @@
+---
+title: Plugins
+description: Extend your CLI applications with a powerful plugin system
+---
+
+# Plugins
+
+The Forge CLI framework includes a robust plugin system that allows you to extend your CLI applications with additional commands, functionality, and integrations. Plugins provide a clean way to modularize your CLI and enable third-party extensions.
+
+## Plugin Interface
+
+### Basic Plugin Structure
+
+Every plugin must implement the `Plugin` interface:
+
+```go
+type Plugin interface {
+    // Identity
+    Name() string
+    Version() string
+    Description() string
+    
+    // Functionality
+    Commands() []Command
+    Dependencies() []string
+    
+    // Lifecycle
+    Initialize(cli CLI) error
+    Cleanup() error
+}
+```
+
+### Simple Plugin Example
+
+Here's a basic plugin implementation:
+
+```go
+package main
+
+import (
+    "fmt"
+    "github.com/forge/cli"
+)
+
+// GreetingPlugin provides greeting commands
+type GreetingPlugin struct {
+    cli cli.CLI
+}
+
+// Name returns the plugin name
+func (p *GreetingPlugin) Name() string {
+    return "greeting"
+}
+
+// Version returns the plugin version
+func (p *GreetingPlugin) Version() string {
+    return "1.0.0"
+}
+
+// Description returns the plugin description
+func (p *GreetingPlugin) Description() string {
+    return "Provides greeting commands for different occasions"
+}
+
+// Commands returns the commands provided by this plugin
+func (p *GreetingPlugin) Commands() []cli.Command {
+    return []cli.Command{
+        cli.NewCommand("hello").
+            WithDescription("Say hello to someone").
+            WithHandler(p.helloHandler).
+            WithFlags(
+                cli.StringFlag("name", "Name of the person to greet").
+                    WithDefault("World").
+                    WithAlias("n"),
+                cli.BoolFlag("formal", "Use formal greeting").
+                    WithAlias("f"),
+            ),
+        
+        cli.NewCommand("goodbye").
+            WithDescription("Say goodbye to someone").
+            WithHandler(p.goodbyeHandler).
+            WithFlags(
+                cli.StringFlag("name", "Name of the person").
+                    WithDefault("World").
+                    WithAlias("n"),
+            ),
+    }
+}
+
+// Dependencies returns required dependencies
+func (p *GreetingPlugin) Dependencies() []string {
+    return []string{} // No dependencies
+}
+
+// Initialize sets up the plugin
+func (p *GreetingPlugin) Initialize(c cli.CLI) error {
+    p.cli = c
+    p.cli.Logger().Info("Greeting plugin initialized")
+    return nil
+}
+
+// Cleanup performs cleanup when plugin is unloaded
+func (p *GreetingPlugin) Cleanup() error {
+    p.cli.Logger().Info("Greeting plugin cleaned up")
+    return nil
+}
+
+// Command handlers
+func (p *GreetingPlugin) helloHandler(ctx cli.CommandContext) error {
+    name := ctx.String("name")
+    formal := ctx.Bool("formal")
+    
+    var greeting string
+    if formal {
+        greeting = fmt.Sprintf("Good day, %s!", name)
+    } else {
+        greeting = fmt.Sprintf("Hello, %s!", name)
+    }
+    
+    ctx.Success(greeting)
+    return nil
+}
+
+func (p *GreetingPlugin) goodbyeHandler(ctx cli.CommandContext) error {
+    name := ctx.String("name")
+    ctx.Info(fmt.Sprintf("Goodbye, %s! See you later!", name))
+    return nil
+}
+
+// Plugin factory function
+func NewGreetingPlugin() cli.Plugin {
+    return &GreetingPlugin{}
+}
+```
+
+## Plugin Registration
+
+### Registering Plugins
+
+Register plugins with your CLI application:
+
+```go
+package main
+
+import (
+    "github.com/forge/cli"
+)
+
+func main() {
+    // Create CLI application
+    app := cli.New(cli.Config{
+        Name:        "myapp",
+        Description: "My CLI application with plugins",
+        Version:     "1.0.0",
+    })
+    
+    // Register plugins
+    app.RegisterPlugin(NewGreetingPlugin())
+    app.RegisterPlugin(NewDatabasePlugin())
+    app.RegisterPlugin(NewDeploymentPlugin())
+    
+    // Run the application
+    if err := app.Run(); err != nil {
+        app.Logger().Error("Application failed", "error", err)
+        os.Exit(1)
+    }
+}
+```
+
+### Dynamic Plugin Loading
+
+Load plugins dynamically from files or directories:
+
+```go
+func loadPluginsFromDirectory(app cli.CLI, pluginDir string) error {
+    files, err := os.ReadDir(pluginDir)
+    if err != nil {
+        return fmt.Errorf("failed to read plugin directory: %v", err)
+    }
+    
+    for _, file := range files {
+        if !strings.HasSuffix(file.Name(), ".so") {
+            continue // Skip non-plugin files
+        }
+        
+        pluginPath := filepath.Join(pluginDir, file.Name())
+        plugin, err := loadPluginFromFile(pluginPath)
+        if err != nil {
+            app.Logger().Warning("Failed to load plugin", "file", file.Name(), "error", err)
+            continue
+        }
+        
+        if err := app.RegisterPlugin(plugin); err != nil {
+            app.Logger().Error("Failed to register plugin", "plugin", plugin.Name(), "error", err)
+            continue
+        }
+        
+        app.Logger().Info("Loaded plugin", "name", plugin.Name(), "version", plugin.Version())
+    }
+    
+    return nil
+}
+
+func loadPluginFromFile(path string) (cli.Plugin, error) {
+    // Implementation depends on your plugin loading mechanism
+    // This could use Go plugins, external processes, or other methods
+    return nil, fmt.Errorf("plugin loading not implemented")
+}
+```
+
+## Advanced Plugin Features
+
+### Plugin with Configuration
+
+Plugins can have their own configuration:
+
+```go
+type DatabasePlugin struct {
+    cli    cli.CLI
+    config DatabaseConfig
+}
+
+type DatabaseConfig struct {
+    DefaultHost     string `json:"default_host"`
+    DefaultPort     int    `json:"default_port"`
+    ConnectionPool  int    `json:"connection_pool"`
+    QueryTimeout    int    `json:"query_timeout"`
+}
+
+func (p *DatabasePlugin) Initialize(c cli.CLI) error {
+    p.cli = c
+    
+    // Load plugin configuration
+    configPath := filepath.Join(c.ConfigDir(), "plugins", "database.json")
+    if err := p.loadConfig(configPath); err != nil {
+        // Use default configuration
+        p.config = DatabaseConfig{
+            DefaultHost:    "localhost",
+            DefaultPort:    5432,
+            ConnectionPool: 10,
+            QueryTimeout:   30,
+        }
+        
+        // Save default configuration
+        if err := p.saveConfig(configPath); err != nil {
+            c.Logger().Warning("Failed to save default config", "error", err)
+        }
+    }
+    
+    return nil
+}
+
+func (p *DatabasePlugin) loadConfig(path string) error {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return err
+    }
+    
+    return json.Unmarshal(data, &p.config)
+}
+
+func (p *DatabasePlugin) saveConfig(path string) error {
+    // Ensure directory exists
+    if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+        return err
+    }
+    
+    data, err := json.MarshalIndent(p.config, "", "  ")
+    if err != nil {
+        return err
+    }
+    
+    return os.WriteFile(path, data, 0644)
+}
+
+func (p *DatabasePlugin) Commands() []cli.Command {
+    return []cli.Command{
+        cli.NewCommand("db").
+            WithDescription("Database operations").
+            WithSubcommands(
+                cli.NewCommand("connect").
+                    WithDescription("Connect to database").
+                    WithHandler(p.connectHandler).
+                    WithFlags(
+                        cli.StringFlag("host", "Database host").
+                            WithDefault(p.config.DefaultHost),
+                        cli.IntFlag("port", "Database port").
+                            WithDefault(p.config.DefaultPort),
+                    ),
+                
+                cli.NewCommand("config").
+                    WithDescription("Manage database configuration").
+                    WithSubcommands(
+                        cli.NewCommand("show").
+                            WithDescription("Show current configuration").
+                            WithHandler(p.showConfigHandler),
+                        cli.NewCommand("set").
+                            WithDescription("Set configuration value").
+                            WithHandler(p.setConfigHandler),
+                    ),
+            ),
+    }
+}
+```
+
+### Plugin Dependencies
+
+Handle plugin dependencies and loading order:
+
+```go
+type DeploymentPlugin struct {
+    cli cli.CLI
+}
+
+func (p *DeploymentPlugin) Dependencies() []string {
+    return []string{
+        "database",  // Requires database plugin
+        "docker",    // Requires docker plugin
+    }
+}
+
+func (p *DeploymentPlugin) Initialize(c cli.CLI) error {
+    p.cli = c
+    
+    // Verify dependencies are available
+    for _, dep := range p.Dependencies() {
+        if !c.HasPlugin(dep) {
+            return fmt.Errorf("required plugin '%s' is not available", dep)
+        }
+    }
+    
+    // Get reference to database plugin
+    dbPlugin := c.GetPlugin("database")
+    if dbPlugin == nil {
+        return fmt.Errorf("database plugin not found")
+    }
+    
+    return nil
+}
+```
+
+### Plugin Communication
+
+Plugins can communicate with each other:
+
+```go
+type EventPlugin struct {
+    cli        cli.CLI
+    eventBus   *EventBus
+    subscribers map[string][]EventHandler
+}
+
+type EventHandler func(event Event) error
+
+type Event struct {
+    Type      string                 `json:"type"`
+    Source    string                 `json:"source"`
+    Data      map[string]interface{} `json:"data"`
+    Timestamp time.Time              `json:"timestamp"`
+}
+
+func (p *EventPlugin) Initialize(c cli.CLI) error {
+    p.cli = c
+    p.eventBus = NewEventBus()
+    p.subscribers = make(map[string][]EventHandler)
+    
+    // Register event bus with CLI for other plugins to use
+    c.SetSharedResource("eventBus", p.eventBus)
+    
+    return nil
+}
+
+func (p *EventPlugin) Subscribe(eventType string, handler EventHandler) {
+    p.subscribers[eventType] = append(p.subscribers[eventType], handler)
+}
+
+func (p *EventPlugin) Publish(event Event) error {
+    handlers, exists := p.subscribers[event.Type]
+    if !exists {
+        return nil // No subscribers
+    }
+    
+    for _, handler := range handlers {
+        if err := handler(event); err != nil {
+            p.cli.Logger().Error("Event handler failed", 
+                "event", event.Type, 
+                "error", err)
+        }
+    }
+    
+    return nil
+}
+
+// Other plugins can use the event system
+type LoggingPlugin struct {
+    cli      cli.CLI
+    eventBus *EventBus
+}
+
+func (p *LoggingPlugin) Initialize(c cli.CLI) error {
+    p.cli = c
+    
+    // Get event bus from shared resources
+    if bus, ok := c.GetSharedResource("eventBus").(*EventBus); ok {
+        p.eventBus = bus
+        
+        // Subscribe to events
+        p.eventBus.Subscribe("command.executed", p.logCommandExecution)
+        p.eventBus.Subscribe("error.occurred", p.logError)
+    }
+    
+    return nil
+}
+
+func (p *LoggingPlugin) logCommandExecution(event Event) error {
+    p.cli.Logger().Info("Command executed", 
+        "command", event.Data["command"],
+        "user", event.Data["user"],
+        "duration", event.Data["duration"])
+    return nil
+}
+```
+
+## Plugin Management Commands
+
+### Built-in Plugin Management
+
+Add plugin management commands to your CLI:
+
+```go
+func addPluginManagementCommands(app cli.CLI) {
+    pluginCmd := cli.NewCommand("plugin").
+        WithDescription("Manage CLI plugins").
+        WithSubcommands(
+            cli.NewCommand("list").
+                WithDescription("List installed plugins").
+                WithHandler(listPluginsHandler),
+            
+            cli.NewCommand("info").
+                WithDescription("Show plugin information").
+                WithHandler(pluginInfoHandler).
+                WithArgs(cli.Arg{
+                    Name:        "plugin-name",
+                    Description: "Name of the plugin",
+                    Required:    true,
+                }),
+            
+            cli.NewCommand("install").
+                WithDescription("Install a plugin").
+                WithHandler(installPluginHandler).
+                WithArgs(cli.Arg{
+                    Name:        "plugin-path",
+                    Description: "Path or URL to plugin",
+                    Required:    true,
+                }),
+            
+            cli.NewCommand("uninstall").
+                WithDescription("Uninstall a plugin").
+                WithHandler(uninstallPluginHandler).
+                WithArgs(cli.Arg{
+                    Name:        "plugin-name",
+                    Description: "Name of the plugin to uninstall",
+                    Required:    true,
+                }),
+            
+            cli.NewCommand("enable").
+                WithDescription("Enable a plugin").
+                WithHandler(enablePluginHandler),
+            
+            cli.NewCommand("disable").
+                WithDescription("Disable a plugin").
+                WithHandler(disablePluginHandler),
+        )
+    
+    app.AddCommand(pluginCmd)
+}
+
+func listPluginsHandler(ctx cli.CommandContext) error {
+    plugins := ctx.CLI().GetPlugins()
+    
+    if len(plugins) == 0 {
+        ctx.Info("No plugins installed")
+        return nil
+    }
+    
+    table := ctx.Table()
+    table.SetHeaders([]string{"Name", "Version", "Status", "Description"})
+    
+    for _, plugin := range plugins {
+        status := "✅ Enabled"
+        if !ctx.CLI().IsPluginEnabled(plugin.Name()) {
+            status = "❌ Disabled"
+        }
+        
+        table.AddRow([]string{
+            plugin.Name(),
+            plugin.Version(),
+            status,
+            plugin.Description(),
+        })
+    }
+    
+    table.Render()
+    return nil
+}
+
+func pluginInfoHandler(ctx cli.CommandContext) error {
+    pluginName := ctx.Args()[0]
+    plugin := ctx.CLI().GetPlugin(pluginName)
+    
+    if plugin == nil {
+        return fmt.Errorf("plugin '%s' not found", pluginName)
+    }
+    
+    ctx.Info(fmt.Sprintf("📦 Plugin: %s", plugin.Name()))
+    ctx.Info(fmt.Sprintf("Version: %s", plugin.Version()))
+    ctx.Info(fmt.Sprintf("Description: %s", plugin.Description()))
+    
+    deps := plugin.Dependencies()
+    if len(deps) > 0 {
+        ctx.Info(fmt.Sprintf("Dependencies: %s", strings.Join(deps, ", ")))
+    }
+    
+    commands := plugin.Commands()
+    if len(commands) > 0 {
+        ctx.Info("\nCommands provided:")
+        for _, cmd := range commands {
+            ctx.Info(fmt.Sprintf("  %s - %s", cmd.Name(), cmd.Description()))
+        }
+    }
+    
+    return nil
+}
+```
+
+## Plugin Development Best Practices
+
+### 1. Plugin Structure
+
+Organize your plugin code properly:
+
+```
+my-plugin/
+├── plugin.go          # Main plugin implementation
+├── commands/          # Command implementations
+│   ├── create.go
+│   ├── list.go
+│   └── delete.go
+├── config/           # Configuration handling
+│   └── config.go
+├── internal/         # Internal utilities
+│   ├── api.go
+│   └── utils.go
+├── README.md         # Plugin documentation
+└── plugin.json       # Plugin metadata
+```
+
+### 2. Plugin Metadata
+
+Include metadata file for better plugin management:
+
+```json
+{
+  "name": "my-plugin",
+  "version": "1.0.0",
+  "description": "A sample plugin for demonstration",
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "homepage": "https://github.com/yourname/my-plugin",
+  "repository": "https://github.com/yourname/my-plugin.git",
+  "keywords": ["cli", "plugin", "tool"],
+  "dependencies": {
+    "database": ">=1.0.0",
+    "auth": ">=2.0.0"
+  },
+  "forge_version": ">=2.0.0"
+}
+```
+
+### 3. Error Handling
+
+Implement proper error handling in plugins:
+
+```go
+func (p *MyPlugin) commandHandler(ctx cli.CommandContext) error {
+    // Validate input
+    if err := p.validateInput(ctx); err != nil {
+        return cli.NewUserError("Invalid input: %v", err)
+    }
+    
+    // Perform operation with proper error handling
+    result, err := p.performOperation(ctx)
+    if err != nil {
+        // Log internal error
+        p.cli.Logger().Error("Operation failed", "error", err)
+        
+        // Return user-friendly error
+        return cli.NewInternalError("Failed to complete operation")
+    }
+    
+    // Success
+    ctx.Success(fmt.Sprintf("Operation completed: %s", result))
+    return nil
+}
+
+func (p *MyPlugin) validateInput(ctx cli.CommandContext) error {
+    // Validation logic
+    return nil
+}
+```
+
+### 4. Configuration Management
+
+Handle plugin configuration consistently:
+
+```go
+type PluginConfig struct {
+    APIKey      string `json:"api_key" validate:"required"`
+    BaseURL     string `json:"base_url" validate:"required,url"`
+    Timeout     int    `json:"timeout" validate:"min=1,max=300"`
+    RetryCount  int    `json:"retry_count" validate:"min=0,max=10"`
+}
+
+func (p *MyPlugin) loadConfig() error {
+    configPath := filepath.Join(p.cli.ConfigDir(), "plugins", p.Name()+".json")
+    
+    // Try to load existing config
+    if data, err := os.ReadFile(configPath); err == nil {
+        if err := json.Unmarshal(data, &p.config); err != nil {
+            return fmt.Errorf("invalid config format: %v", err)
+        }
+    } else {
+        // Create default config
+        p.config = PluginConfig{
+            BaseURL:    "https://api.example.com",
+            Timeout:    30,
+            RetryCount: 3,
+        }
+        
+        // Prompt for required values
+        apiKey, err := p.cli.PromptPassword("Enter API key:")
+        if err != nil {
+            return err
+        }
+        p.config.APIKey = apiKey
+        
+        // Save config
+        if err := p.saveConfig(); err != nil {
+            return err
+        }
+    }
+    
+    // Validate config
+    return p.validateConfig()
+}
+```
+
+### 5. Testing Plugins
+
+Write tests for your plugins:
+
+```go
+func TestGreetingPlugin(t *testing.T) {
+    // Create test CLI
+    testCLI := cli.NewTest()
+    
+    // Create and register plugin
+    plugin := NewGreetingPlugin()
+    err := testCLI.RegisterPlugin(plugin)
+    require.NoError(t, err)
+    
+    // Test hello command
+    result, err := testCLI.Execute("hello", "--name", "Test")
+    require.NoError(t, err)
+    assert.Contains(t, result.Output, "Hello, Test!")
+    
+    // Test formal greeting
+    result, err = testCLI.Execute("hello", "--name", "Test", "--formal")
+    require.NoError(t, err)
+    assert.Contains(t, result.Output, "Good day, Test!")
+}
+
+func TestPluginDependencies(t *testing.T) {
+    testCLI := cli.NewTest()
+    
+    // Try to register plugin without dependencies
+    plugin := NewDeploymentPlugin()
+    err := testCLI.RegisterPlugin(plugin)
+    assert.Error(t, err)
+    assert.Contains(t, err.Error(), "required plugin")
+    
+    // Register dependencies first
+    testCLI.RegisterPlugin(NewDatabasePlugin())
+    testCLI.RegisterPlugin(NewDockerPlugin())
+    
+    // Now registration should succeed
+    err = testCLI.RegisterPlugin(plugin)
+    assert.NoError(t, err)
+}
+```
+
+## Plugin Distribution
+
+### 1. Plugin Registry
+
+Create a plugin registry for easy distribution:
+
+```go
+type PluginRegistry struct {
+    baseURL string
+    client  *http.Client
+}
+
+func (r *PluginRegistry) Search(query string) ([]PluginInfo, error) {
+    // Search for plugins in registry
+    return nil, nil
+}
+
+func (r *PluginRegistry) Install(name, version string) error {
+    // Download and install plugin
+    return nil
+}
+
+func (r *PluginRegistry) Update(name string) error {
+    // Update plugin to latest version
+    return nil
+}
+```
+
+### 2. Plugin Packaging
+
+Package plugins for distribution:
+
+```bash
+# Create plugin package
+tar -czf my-plugin-1.0.0.tar.gz \
+    plugin.json \
+    plugin.so \
+    README.md \
+    LICENSE
+
+# Or use a plugin builder tool
+forge-cli plugin build --output my-plugin-1.0.0.tar.gz
+```
+
+## Next Steps
+
+- Learn about [Examples](/docs/cli/examples) for complete plugin implementations
+- Explore [Commands](/docs/cli/commands) for command structure
+- Check out [Configuration](/docs/cli/configuration) for app settings
+- Review [Testing](/docs/cli/testing) for plugin testing strategies

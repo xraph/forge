@@ -1,0 +1,762 @@
+---
+title: "HLS Extension"
+description: "HTTP Live Streaming extension providing production-ready video streaming capabilities with adaptive bitrate streaming, transcoding, and distributed support"
+---
+
+The HLS (HTTP Live Streaming) extension provides production-ready video streaming capabilities with adaptive bitrate streaming, transcoding, and distributed support for the Forge framework.
+
+## Features
+
+### Core Streaming Features
+- **Adaptive Bitrate Streaming**: Automatically switches between quality levels based on network conditions
+- **Live Streaming**: Real-time live streams with DVR capabilities and configurable window size
+- **Video on Demand (VOD)**: Convert video files to HLS format with multiple quality levels
+- **Multiple Stream Types**: Support for live, VOD, and event streaming
+
+### Media Processing
+- **FFmpeg-based Transcoding**: Multi-resolution and multi-bitrate transcoding
+- **Automatic Segmentation**: Video segmentation into HLS-compatible chunks
+- **Hardware Acceleration**: Support for CUDA, QuickSync, VideoToolbox, and other hardware encoders
+- **Configurable Profiles**: Predefined quality profiles (360p, 480p, 720p, 1080p, 4K)
+- **Custom Codecs**: Support for H.264, H.265, VP9 video and AAC, Opus audio codecs
+
+### Storage & Distribution
+- **Multiple Storage Backends**: Integration with Forge storage extension (Local, S3, GCS, Azure)
+- **Distributed Support**: Multi-node deployment with Raft consensus for high availability
+- **Auto Cleanup**: Automatic cleanup of old segments with configurable retention
+- **CDN Ready**: Optimized for CDN distribution with proper caching headers
+
+### Advanced Features
+- **CORS Support**: Built-in CORS headers for cross-origin playback
+- **Health Monitoring**: Integrated health checks and performance metrics
+- **Statistics Tracking**: Viewer counts, bandwidth usage, and performance analytics
+- **Leadership Management**: Automatic failover and load balancing in distributed mode
+
+## Installation
+
+```bash
+go get github.com/xraph/forge/extensions/hls
+```
+
+### Prerequisites
+
+The HLS extension requires FFmpeg and FFprobe to be installed on your system:
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Verify installation
+ffmpeg -version
+ffprobe -version
+```
+
+**Important**: The Forge storage extension must be registered before the HLS extension.
+
+## Quick Start
+
+### Basic HLS Server
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/hls"
+    "github.com/xraph/forge/extensions/storage"
+)
+
+func main() {
+    app := forge.New()
+    
+    // Register storage extension (required)
+    app.UseExtension(storage.NewExtension(storage.Config{
+        Backends: map[string]storage.BackendConfig{
+            "default": {
+                Type: "local",
+                Config: map[string]interface{}{
+                    "base_path": "./hls_storage",
+                },
+            },
+        },
+        Default: "default",
+    }))
+    
+    // Register HLS extension
+    app.UseExtension(hls.NewExtension(
+        hls.WithBasePath("/hls"),
+        hls.WithBaseURL("http://localhost:8080/hls"),
+        hls.WithTargetDuration(6),
+        hls.WithTranscoding(true, hls.DefaultProfiles()...),
+    ))
+    
+    ctx := context.Background()
+    if err := app.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+    
+    log.Println("HLS server started on http://localhost:8080")
+    app.Listen(":8080")
+}
+```
+
+### Creating a Live Stream
+
+```go
+// Get HLS service from DI container
+hlsSvc, err := forge.Resolve[hls.HLS](app.Container(), "hls")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Create a live stream
+stream, err := hlsSvc.CreateStream(ctx, hls.StreamOptions{
+    Type:           hls.StreamTypeLive,
+    Title:          "Live Event",
+    Description:    "Live streaming event",
+    TargetDuration: 6,
+    DVRWindowSize:  10,
+    TranscodeProfiles: []hls.TranscodeProfile{
+        hls.Profile720p,
+        hls.Profile1080p,
+    },
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Start the live stream
+err = hlsSvc.StartLiveStream(ctx, stream.ID)
+if err != nil {
+    log.Fatal(err)
+}
+
+log.Printf("Live stream available at: %s/%s/master.m3u8", baseURL, stream.ID)
+```
+
+### Creating VOD Content
+
+```go
+// Create VOD from file
+stream, err := hlsSvc.CreateVOD(ctx, fileReader, hls.VODOptions{
+    Title:          "Movie Title",
+    Description:    "Movie description",
+    TargetDuration: 10,
+    TranscodeProfiles: []hls.TranscodeProfile{
+        hls.Profile360p,
+        hls.Profile480p,
+        hls.Profile720p,
+        hls.Profile1080p,
+    },
+})
+if err != nil {
+    log.Fatal(err)
+}
+
+log.Printf("VOD available at: %s/%s/master.m3u8", baseURL, stream.ID)
+```
+
+## Configuration
+
+### Programmatic Configuration
+
+```go
+hlsExt := hls.NewExtension(
+    // Server settings
+    hls.WithBasePath("/hls"),
+    hls.WithBaseURL("http://localhost:8080/hls"),
+    
+    // Storage settings
+    hls.WithStorageBackend("s3"),
+    hls.WithStoragePrefix("hls"),
+    
+    // Stream settings
+    hls.WithTargetDuration(6),           // 6 second segments
+    hls.WithDVRWindow(10),               // Keep last 10 segments
+    hls.WithMaxSegmentSize(50*1024*1024), // 50MB max segment size
+    
+    // Transcoding settings
+    hls.WithTranscoding(true, 
+        hls.Profile360p,
+        hls.Profile720p,
+        hls.Profile1080p,
+    ),
+    hls.WithFFmpegPaths("/usr/bin/ffmpeg", "/usr/bin/ffprobe"),
+    hls.WithHardwareAccel(true, "cuda"),
+    hls.WithMaxTranscodeJobs(4),
+    
+    // CORS and cleanup
+    hls.WithCORS(true, "*"),
+    hls.WithCleanup(24*time.Hour, 1*time.Hour),
+)
+```
+
+### YAML Configuration
+
+```yaml
+hls:
+  enabled: true
+  base_path: "/hls"
+  base_url: "https://cdn.example.com/hls"
+  
+  # Storage configuration
+  storage_backend: "s3"
+  storage_prefix: "hls"
+  
+  # Stream configuration
+  target_duration: 6
+  dvr_window_size: 10
+  max_segment_size: 52428800  # 50MB
+  
+  # Transcoding configuration
+  enable_transcoding: true
+  ffmpeg_path: "/usr/bin/ffmpeg"
+  ffprobe_path: "/usr/bin/ffprobe"
+  enable_hardware_accel: true
+  hardware_accel_type: "cuda"
+  max_transcode_jobs: 4
+  
+  transcode_profiles:
+    - name: "360p"
+      width: 640
+      height: 360
+      bitrate: 800000
+      frame_rate: 30.0
+      video_codec: "h264"
+      audio_codec: "aac"
+      preset: "fast"
+      crf: 23
+    - name: "720p"
+      width: 1280
+      height: 720
+      bitrate: 2500000
+      frame_rate: 30.0
+      video_codec: "h264"
+      audio_codec: "aac"
+      preset: "fast"
+      crf: 23
+  
+  # CORS configuration
+  enable_cors: true
+  cors_origins: ["*"]
+  
+  # Cleanup configuration
+  cleanup_interval: "1h"
+  segment_retention: "24h"
+```
+
+### Environment Variables
+
+```bash
+# Server settings
+HLS_ENABLED=true
+HLS_BASE_PATH="/hls"
+HLS_BASE_URL="https://cdn.example.com/hls"
+
+# Storage settings
+HLS_STORAGE_BACKEND="s3"
+HLS_STORAGE_PREFIX="hls"
+
+# Stream settings
+HLS_TARGET_DURATION=6
+HLS_DVR_WINDOW_SIZE=10
+HLS_MAX_SEGMENT_SIZE=52428800
+
+# Transcoding settings
+HLS_ENABLE_TRANSCODING=true
+HLS_FFMPEG_PATH="/usr/bin/ffmpeg"
+HLS_FFPROBE_PATH="/usr/bin/ffprobe"
+HLS_ENABLE_HARDWARE_ACCEL=true
+HLS_HARDWARE_ACCEL_TYPE="cuda"
+HLS_MAX_TRANSCODE_JOBS=4
+
+# CORS settings
+HLS_ENABLE_CORS=true
+HLS_CORS_ORIGINS="*"
+
+# Cleanup settings
+HLS_CLEANUP_INTERVAL="1h"
+HLS_SEGMENT_RETENTION="24h"
+```
+
+## Distributed Mode
+
+The HLS extension supports distributed deployment for high availability and horizontal scaling using the Forge consensus extension.
+
+### Requirements
+
+1. **Consensus Extension**: Raft-based leader election and coordination
+2. **Shared Storage**: S3, GCS, Azure, or shared filesystem
+3. **Load Balancer**: Optional for distributing requests
+
+### Configuration
+
+```go
+// Register consensus extension first
+consensusExt := consensus.NewExtension(
+    consensus.WithNodeID("hls-node-1"),
+    consensus.WithClusterID("hls-cluster"),
+    consensus.WithBindAddress("0.0.0.0:7000"),
+    consensus.WithTransportType("tcp"),
+)
+
+// Configure HLS with distributed mode
+hlsExt := hls.NewExtension(
+    hls.WithDistributed(true),
+    hls.WithNodeID("hls-node-1"),
+    hls.WithClusterID("hls-cluster"),
+    hls.WithFailover(true),
+    hls.WithStorageBackend("s3"), // Shared storage required
+)
+
+app.UseExtension(storageExt)     // Storage extension
+app.UseExtension(consensusExt)   // Consensus extension (required)
+app.UseExtension(hlsExt)         // HLS extension
+```
+
+### Distributed Features
+
+- **Leader Election**: Automatic leader election using Raft consensus
+- **Write Operations**: Stream creation/deletion only on leader node
+- **Read Operations**: Playlists and segments available on all nodes
+- **Automatic Failover**: Re-election on leader failure
+- **Cluster Awareness**: Response headers showing node and leader info
+- **Request Routing**: Automatic redirect to leader for write operations
+
+### Running a 3-Node Cluster
+
+```bash
+# Node 1 (Leader)
+./app -node=hls-node-1 -port=8080 -raft=7000
+
+# Node 2
+./app -node=hls-node-2 -port=8081 -raft=7001 -peers=localhost:7000
+
+# Node 3
+./app -node=hls-node-3 -port=8082 -raft=7002 -peers=localhost:7000,localhost:7001
+```
+
+## API Endpoints
+
+### Stream Management
+
+```http
+# Create a new stream
+POST /hls/streams
+Content-Type: application/json
+
+{
+  "type": "live",
+  "title": "Live Event",
+  "description": "Live streaming event",
+  "target_duration": 6,
+  "dvr_window_size": 10,
+  "transcode_profiles": ["720p", "1080p"]
+}
+
+# List all streams
+GET /hls/streams
+
+# Get stream details
+GET /hls/streams/{streamID}
+
+# Delete a stream
+DELETE /hls/streams/{streamID}
+```
+
+### Live Streaming
+
+```http
+# Start live stream
+POST /hls/streams/{streamID}/start
+
+# Stop live stream
+POST /hls/streams/{streamID}/stop
+
+# Ingest segment
+POST /hls/streams/{streamID}/ingest
+Content-Type: video/mp2t
+
+[Binary segment data]
+```
+
+### Playlist Endpoints
+
+```http
+# Master playlist (adaptive bitrate)
+GET /hls/{streamID}/master.m3u8
+
+# Media playlist (specific quality)
+GET /hls/{streamID}/variants/{variantID}/playlist.m3u8
+
+# Video segment
+GET /hls/{streamID}/variants/{variantID}/segment_{segmentNum}.ts
+```
+
+### Statistics
+
+```http
+# Stream statistics
+GET /hls/streams/{streamID}/stats
+
+# Active viewers
+GET /hls/streams/{streamID}/viewers
+```
+
+## Transcoding Profiles
+
+### Predefined Profiles
+
+```go
+// Available predefined profiles
+hls.Profile360p   // 640x360, 800kbps
+hls.Profile480p   // 854x480, 1.2Mbps
+hls.Profile720p   // 1280x720, 2.5Mbps
+hls.Profile1080p  // 1920x1080, 5Mbps
+hls.Profile4K     // 3840x2160, 15Mbps
+
+// Use default profiles
+hls.DefaultProfiles() // Returns 360p, 720p, 1080p
+```
+
+### Custom Profiles
+
+```go
+customProfile := hls.TranscodeProfile{
+    Name:       "custom-720p",
+    Width:      1280,
+    Height:     720,
+    Bitrate:    3000000, // 3Mbps
+    FrameRate:  30.0,
+    VideoCodec: "h264",
+    AudioCodec: "aac",
+    Preset:     "fast",
+    CRF:        23,
+}
+
+hlsExt := hls.NewExtension(
+    hls.WithTranscoding(true, customProfile),
+)
+```
+
+### Hardware Acceleration
+
+```go
+// NVIDIA CUDA
+hls.WithHardwareAccel(true, "cuda")
+
+// Intel QuickSync
+hls.WithHardwareAccel(true, "qsv")
+
+// Apple VideoToolbox (macOS)
+hls.WithHardwareAccel(true, "videotoolbox")
+
+// AMD AMF
+hls.WithHardwareAccel(true, "amf")
+```
+
+## Client-Side Integration
+
+### HTML5 Video with HLS.js
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <video id="video" controls width="800"></video>
+    
+    <script>
+        const video = document.getElementById('video');
+        const src = 'http://localhost:8080/hls/STREAM_ID/master.m3u8';
+        
+        if (Hls.isSupported()) {
+            const hls = new Hls({
+                debug: false,
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 90
+            });
+            
+            hls.loadSource(src);
+            hls.attachMedia(video);
+            
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                video.play();
+            });
+            
+            // Quality selection
+            hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                const qualitySelect = document.getElementById('quality');
+                hls.levels.forEach((level, index) => {
+                    const option = document.createElement('option');
+                    option.value = index;
+                    option.text = `${level.height}p (${Math.round(level.bitrate/1000)}k)`;
+                    qualitySelect.appendChild(option);
+                });
+            });
+            
+            function changeQuality(level) {
+                hls.currentLevel = level; // -1 for auto
+            }
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native HLS support (Safari)
+            video.src = src;
+        }
+    </script>
+</body>
+</html>
+```
+
+### React Component
+
+```jsx
+import React, { useEffect, useRef } from 'react';
+import Hls from 'hls.js';
+
+const HLSPlayer = ({ src, autoPlay = false }) => {
+    const videoRef = useRef(null);
+    const hlsRef = useRef(null);
+    
+    useEffect(() => {
+        const video = videoRef.current;
+        
+        if (Hls.isSupported()) {
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+            });
+            
+            hls.loadSource(src);
+            hls.attachMedia(video);
+            
+            if (autoPlay) {
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    video.play();
+                });
+            }
+            
+            hlsRef.current = hls;
+            
+            return () => {
+                hls.destroy();
+            };
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = src;
+        }
+    }, [src, autoPlay]);
+    
+    return (
+        <video
+            ref={videoRef}
+            controls
+            style={{ width: '100%', maxWidth: '800px' }}
+        />
+    );
+};
+
+export default HLSPlayer;
+```
+
+## Monitoring and Analytics
+
+### Health Checks
+
+The HLS extension automatically registers health checks:
+
+```http
+GET /health
+```
+
+Response includes HLS-specific health information:
+
+```json
+{
+  "status": "healthy",
+  "extensions": {
+    "hls": {
+      "status": "healthy",
+      "active_streams": 5,
+      "total_viewers": 1250,
+      "storage_available": true,
+      "transcoder_jobs": 2
+    }
+  }
+}
+```
+
+### Prometheus Metrics
+
+```
+# Active streams
+hls_active_streams{type="live"} 3
+hls_active_streams{type="vod"} 12
+
+# Viewer metrics
+hls_total_viewers 1250
+hls_concurrent_viewers{stream_id="stream-123"} 45
+
+# Bandwidth metrics
+hls_bandwidth_bytes_total 1.5e+09
+hls_bandwidth_bytes{stream_id="stream-123"} 2.5e+07
+
+# Segment metrics
+hls_segments_served_total 15420
+hls_segments_created_total 8930
+
+# Transcoding metrics
+hls_transcode_jobs_active 2
+hls_transcode_jobs_completed_total 156
+hls_transcode_jobs_failed_total 3
+hls_transcode_duration_seconds{profile="720p"} 45.2
+```
+
+### Custom Analytics
+
+```go
+// Get stream statistics
+stats, err := hlsSvc.GetStreamStats(ctx, streamID)
+if err != nil {
+    log.Printf("Failed to get stats: %v", err)
+    return
+}
+
+log.Printf("Stream %s stats:", streamID)
+log.Printf("  Viewers: %d", stats.CurrentViewers)
+log.Printf("  Total views: %d", stats.TotalViews)
+log.Printf("  Bandwidth: %d bytes/sec", stats.BandwidthBytesPerSec)
+log.Printf("  Segments served: %d", stats.SegmentsServed)
+log.Printf("  Uptime: %v", stats.Uptime)
+```
+
+## Best Practices
+
+### Performance Optimization
+
+1. **Use Hardware Acceleration**: Enable GPU encoding for better performance
+2. **Optimize Segment Duration**: 6-10 seconds for live, 10-15 seconds for VOD
+3. **Limit Concurrent Jobs**: Set appropriate limits for transcoding jobs
+4. **Use CDN**: Distribute content via CDN for global reach
+5. **Monitor Resources**: Track CPU, memory, and storage usage
+
+### Storage Considerations
+
+1. **Use Shared Storage**: Required for distributed deployments
+2. **Enable Cleanup**: Automatic cleanup prevents storage bloat
+3. **Set Retention Policies**: Balance storage costs with DVR requirements
+4. **Use Compression**: Enable storage compression when available
+
+### Security
+
+1. **Authentication**: Implement stream access control
+2. **HTTPS**: Use HTTPS for all HLS endpoints
+3. **Token-based Access**: Use signed URLs for segment access
+4. **Rate Limiting**: Implement rate limiting for API endpoints
+
+### Scalability
+
+1. **Horizontal Scaling**: Use distributed mode for high availability
+2. **Load Balancing**: Distribute requests across nodes
+3. **Caching**: Implement caching for playlists and segments
+4. **Resource Planning**: Plan for peak concurrent viewers
+
+## Troubleshooting
+
+### Common Issues
+
+#### FFmpeg Not Found
+```
+Error: ffmpeg: executable file not found in $PATH
+```
+
+**Solution**: Install FFmpeg or specify custom paths:
+```go
+hls.WithFFmpegPaths("/usr/local/bin/ffmpeg", "/usr/local/bin/ffprobe")
+```
+
+#### Storage Extension Not Found
+```
+Error: failed to resolve storage manager
+```
+
+**Solution**: Register storage extension before HLS:
+```go
+app.UseExtension(storageExt) // Must come first
+app.UseExtension(hlsExt)
+```
+
+#### Segments Not Playing
+- Check FFmpeg logs for encoding errors
+- Verify segments are saved to storage
+- Ensure CORS headers are set for cross-origin requests
+- Check browser console for HLS.js errors
+
+#### High Memory Usage
+- Reduce DVR window size
+- Enable automatic cleanup
+- Limit concurrent transcoding jobs
+- Use streaming instead of buffering entire segments
+
+#### Distributed Mode Issues
+- Ensure consensus extension is registered first
+- Verify shared storage is accessible from all nodes
+- Check network connectivity between nodes
+- Monitor leader election logs
+
+### Debug Mode
+
+Enable debug logging for troubleshooting:
+
+```go
+hlsExt := hls.NewExtension(
+    hls.WithDebug(true),
+    // ... other options
+)
+```
+
+### Log Analysis
+
+Monitor logs for common patterns:
+
+```bash
+# Transcoding errors
+grep "transcode.*error" app.log
+
+# Storage issues
+grep "storage.*failed" app.log
+
+# Consensus issues (distributed mode)
+grep "consensus.*error" app.log
+
+# High memory usage
+grep "memory.*warning" app.log
+```
+
+## Examples
+
+The HLS extension includes comprehensive examples:
+
+- **Basic Example**: Simple live streaming setup
+- **VOD Example**: Video on demand processing
+- **Distributed Example**: 3-node cluster deployment
+- **Player Example**: HTML5 player with HLS.js
+
+See the [examples directory](https://github.com/xraph/forge/tree/main/extensions/hls/examples) for complete working examples.
+
+## Related Extensions
+
+- **[Storage Extension](./storage.mdx)**: Required for HLS storage backends
+- **[Consensus Extension](./consensus.mdx)**: Required for distributed mode
+- **[Dashboard Extension](./dashboard.mdx)**: Monitor HLS streams and performance
+
+## License
+
+The HLS extension is part of the Forge framework and is licensed under the same terms.

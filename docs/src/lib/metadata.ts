@@ -8,7 +8,7 @@ export function createMetadata(override: Metadata): Metadata {
       description: override.description ?? undefined,
       url: 'https://fumadocs.dev',
       images: '/banner.png',
-      siteName: 'Authsome',
+      siteName: 'Forge',
       ...override.openGraph,
     },
     twitter: {
@@ -23,8 +23,8 @@ export function createMetadata(override: Metadata): Metadata {
       types: {
         'application/rss+xml': [
           {
-            title: 'Authsome Blog',
-            url: 'https://authsome.dev/blog/rss.xml',
+            title: 'Forge Blog',
+            url: 'https://forge.dev/blog/rss.xml',
           },
         ],
       },

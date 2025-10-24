@@ -1,0 +1,772 @@
+---
+title: Prompts
+description: Create interactive experiences with prompts, selections, and user input
+---
+
+# Prompts
+
+The Forge CLI framework provides rich interactive prompt capabilities that make your CLI applications more user-friendly and engaging. From simple text input to complex multi-select menus with arrow key navigation, prompts help create intuitive command-line experiences.
+
+## Basic Prompts
+
+### Text Input
+
+Collect text input from users:
+
+```go
+func setupHandler(ctx cli.CommandContext) error {
+    // Simple text prompt
+    name, err := ctx.Prompt("What's your name?")
+    if err != nil {
+        return err
+    }
+    
+    // Prompt with default value
+    email, err := ctx.PromptWithDefault("Email address:", "user@example.com")
+    if err != nil {
+        return err
+    }
+    
+    // Prompt with validation
+    username, err := ctx.PromptWithValidator(
+        "Username (3-20 chars, alphanumeric):",
+        func(input string) error {
+            if len(input) < 3 || len(input) > 20 {
+                return fmt.Errorf("username must be 3-20 characters")
+            }
+            if !regexp.MustCompile(`^[a-zA-Z0-9_]+$`).MatchString(input) {
+                return fmt.Errorf("username can only contain letters, numbers, and underscores")
+            }
+            return nil
+        },
+    )
+    if err != nil {
+        return err
+    }
+    
+    ctx.Success(fmt.Sprintf("Welcome, %s (%s)!", name, email))
+    return nil
+}
+```
+
+### Password Input
+
+Securely collect sensitive information:
+
+```go
+func loginHandler(ctx cli.CommandContext) error {
+    username, err := ctx.Prompt("Username:")
+    if err != nil {
+        return err
+    }
+    
+    // Password input (hidden)
+    password, err := ctx.PromptPassword("Password:")
+    if err != nil {
+        return err
+    }
+    
+    // Password with confirmation
+    newPassword, err := ctx.PromptPassword("New password:")
+    if err != nil {
+        return err
+    }
+    
+    confirmPassword, err := ctx.PromptPassword("Confirm password:")
+    if err != nil {
+        return err
+    }
+    
+    if newPassword != confirmPassword {
+        return fmt.Errorf("passwords do not match")
+    }
+    
+    ctx.Success("Password updated successfully!")
+    return nil
+}
+```
+
+## Confirmation Prompts
+
+### Yes/No Questions
+
+Get boolean confirmation from users:
+
+```go
+func deleteHandler(ctx cli.CommandContext) error {
+    resource := ctx.Args()[0]
+    
+    // Simple confirmation
+    confirmed, err := ctx.Confirm(fmt.Sprintf("Delete %s?", resource))
+    if err != nil {
+        return err
+    }
+    
+    if !confirmed {
+        ctx.Info("Operation cancelled")
+        return nil
+    }
+    
+    // Confirmation with custom default
+    forceDelete, err := ctx.ConfirmWithDefault(
+        "This action cannot be undone. Are you absolutely sure?",
+        false, // Default to "no"
+    )
+    if err != nil {
+        return err
+    }
+    
+    if forceDelete {
+        ctx.Success(fmt.Sprintf("Deleted %s", resource))
+    } else {
+        ctx.Warning("Deletion cancelled for safety")
+    }
+    
+    return nil
+}
+```
+
+### Custom Confirmation Messages
+
+```go
+func deployHandler(ctx cli.CommandContext) error {
+    env := ctx.String("environment")
+    
+    if env == "production" {
+        // Production deployment warning
+        confirmed, err := ctx.ConfirmWithOptions(cli.ConfirmOptions{
+            Message:      "⚠️  You are about to deploy to PRODUCTION!",
+            Default:      false,
+            YesLabel:     "Deploy to Production",
+            NoLabel:      "Cancel",
+            WarningStyle: true,
+        })
+        if err != nil {
+            return err
+        }
+        
+        if !confirmed {
+            ctx.Warning("Production deployment cancelled")
+            return nil
+        }
+    }
+    
+    ctx.Success("Deployment started!")
+    return nil
+}
+```
+
+## Selection Prompts
+
+### Single Selection
+
+Let users choose one option from a list:
+
+```go
+func configHandler(ctx cli.CommandContext) error {
+    // Simple selection with arrow keys
+    environment, err := ctx.Select("Choose environment:", []string{
+        "development",
+        "staging",
+        "production",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Selection with descriptions
+    database, err := ctx.SelectWithDescriptions("Choose database:", []cli.SelectOption{
+        {Value: "postgresql", Label: "PostgreSQL", Description: "Advanced open-source database"},
+        {Value: "mysql", Label: "MySQL", Description: "Popular relational database"},
+        {Value: "sqlite", Label: "SQLite", Description: "Lightweight embedded database"},
+        {Value: "mongodb", Label: "MongoDB", Description: "Document-oriented NoSQL database"},
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Selection with default
+    logLevel, err := ctx.SelectWithDefault(
+        "Log level:",
+        []string{"debug", "info", "warn", "error"},
+        "info", // Default selection
+    )
+    if err != nil {
+        return err
+    }
+    
+    ctx.Success(fmt.Sprintf("Configuration: %s, %s, %s", environment, database, logLevel))
+    return nil
+}
+```
+
+### Multi-Selection
+
+Allow users to select multiple options:
+
+```go
+func featuresHandler(ctx cli.CommandContext) error {
+    // Multi-select with spacebar toggle
+    features, err := ctx.MultiSelect("Select features to enable:", []string{
+        "authentication",
+        "database",
+        "caching", 
+        "logging",
+        "metrics",
+        "api-docs",
+        "websockets",
+        "file-upload",
+    })
+    if err != nil {
+        return err
+    }
+    
+    if len(features) == 0 {
+        ctx.Warning("No features selected")
+        return nil
+    }
+    
+    // Multi-select with pre-selected options
+    plugins, err := ctx.MultiSelectWithDefaults(
+        "Select plugins:",
+        []string{"auth", "cache", "db", "events", "storage"},
+        []string{"auth", "db"}, // Pre-selected
+    )
+    if err != nil {
+        return err
+    }
+    
+    ctx.Success(fmt.Sprintf("Selected features: %v", features))
+    ctx.Success(fmt.Sprintf("Selected plugins: %v", plugins))
+    return nil
+}
+```
+
+### Advanced Selection Options
+
+```go
+func advancedSelectionHandler(ctx cli.CommandContext) error {
+    // Selection with custom styling
+    theme, err := ctx.SelectWithOptions(cli.SelectOptions{
+        Message: "Choose UI theme:",
+        Options: []cli.SelectOption{
+            {Value: "light", Label: "☀️  Light Theme", Description: "Clean and bright"},
+            {Value: "dark", Label: "🌙  Dark Theme", Description: "Easy on the eyes"},
+            {Value: "auto", Label: "🔄  Auto Theme", Description: "Follows system preference"},
+        },
+        Default:    "auto",
+        PageSize:   5,
+        ShowHelp:   true,
+        HelpText:   "Use ↑↓ arrows to navigate, Enter to select",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Searchable selection for large lists
+    country, err := ctx.SearchableSelect("Select country:", []string{
+        "United States", "Canada", "United Kingdom", "Germany", 
+        "France", "Japan", "Australia", "Brazil", "India", "China",
+        // ... many more options
+    })
+    if err != nil {
+        return err
+    }
+    
+    ctx.Success(fmt.Sprintf("Selected theme: %s, country: %s", theme, country))
+    return nil
+}
+```
+
+## Interactive Wizards
+
+### Step-by-Step Setup
+
+Create guided setup experiences:
+
+```go
+func setupWizardHandler(ctx cli.CommandContext) error {
+    ctx.Info("🚀 Welcome to the Project Setup Wizard!")
+    ctx.Info("This wizard will help you configure your new project.\n")
+    
+    // Step 1: Project basics
+    ctx.Info("📋 Step 1: Project Information")
+    projectName, err := ctx.PromptWithValidator(
+        "Project name:",
+        func(name string) error {
+            if len(name) < 3 {
+                return fmt.Errorf("project name must be at least 3 characters")
+            }
+            return nil
+        },
+    )
+    if err != nil {
+        return err
+    }
+    
+    description, err := ctx.PromptWithDefault(
+        "Project description:",
+        "A new project built with Forge",
+    )
+    if err != nil {
+        return err
+    }
+    
+    // Step 2: Technology choices
+    ctx.Info("\n🛠️  Step 2: Technology Stack")
+    language, err := ctx.Select("Programming language:", []string{
+        "Go",
+        "TypeScript", 
+        "Python",
+        "Rust",
+    })
+    if err != nil {
+        return err
+    }
+    
+    framework, err := ctx.Select("Framework:", []string{
+        "Forge (Go web framework)",
+        "Express.js (Node.js)",
+        "FastAPI (Python)",
+        "Actix (Rust)",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Step 3: Features
+    ctx.Info("\n⚡ Step 3: Features")
+    features, err := ctx.MultiSelect("Select features:", []string{
+        "Authentication & Authorization",
+        "Database Integration", 
+        "Caching (Redis)",
+        "Message Queue",
+        "File Storage",
+        "Real-time Features (WebSocket)",
+        "API Documentation",
+        "Monitoring & Metrics",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Step 4: Deployment
+    ctx.Info("\n🚀 Step 4: Deployment")
+    deployment, err := ctx.Select("Deployment target:", []string{
+        "Docker Container",
+        "Kubernetes",
+        "Cloud Functions",
+        "Traditional Server",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Step 5: Confirmation
+    ctx.Info("\n📋 Configuration Summary:")
+    ctx.Info(fmt.Sprintf("  Project: %s", projectName))
+    ctx.Info(fmt.Sprintf("  Description: %s", description))
+    ctx.Info(fmt.Sprintf("  Language: %s", language))
+    ctx.Info(fmt.Sprintf("  Framework: %s", framework))
+    ctx.Info(fmt.Sprintf("  Features: %v", features))
+    ctx.Info(fmt.Sprintf("  Deployment: %s", deployment))
+    
+    confirmed, err := ctx.Confirm("\nCreate project with this configuration?")
+    if err != nil {
+        return err
+    }
+    
+    if !confirmed {
+        ctx.Warning("Project creation cancelled")
+        return nil
+    }
+    
+    // Create project with progress
+    progress := ctx.ProgressBar(len(features) + 3)
+    
+    ctx.Info("Creating project structure...")
+    time.Sleep(500 * time.Millisecond)
+    progress.Increment()
+    
+    ctx.Info("Installing dependencies...")
+    time.Sleep(800 * time.Millisecond)
+    progress.Increment()
+    
+    for _, feature := range features {
+        ctx.Info(fmt.Sprintf("Setting up %s...", feature))
+        time.Sleep(300 * time.Millisecond)
+        progress.Increment()
+    }
+    
+    ctx.Info("Finalizing configuration...")
+    time.Sleep(400 * time.Millisecond)
+    progress.Increment()
+    
+    progress.Finish("Project created successfully! 🎉")
+    
+    ctx.Success(fmt.Sprintf("Project '%s' is ready!", projectName))
+    ctx.Info("Run 'cd %s && go run main.go' to start your application", projectName)
+    
+    return nil
+}
+```
+
+## Prompt Validation
+
+### Input Validation
+
+Validate user input with custom functions:
+
+```go
+func validatedInputHandler(ctx cli.CommandContext) error {
+    // Email validation
+    email, err := ctx.PromptWithValidator(
+        "Email address:",
+        func(input string) error {
+            emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+            if !emailRegex.MatchString(input) {
+                return fmt.Errorf("invalid email format")
+            }
+            return nil
+        },
+    )
+    if err != nil {
+        return err
+    }
+    
+    // Port number validation
+    port, err := ctx.PromptWithValidator(
+        "Port number (1-65535):",
+        func(input string) error {
+            port, err := strconv.Atoi(input)
+            if err != nil {
+                return fmt.Errorf("port must be a number")
+            }
+            if port < 1 || port > 65535 {
+                return fmt.Errorf("port must be between 1 and 65535")
+            }
+            return nil
+        },
+    )
+    if err != nil {
+        return err
+    }
+    
+    // URL validation
+    apiUrl, err := ctx.PromptWithValidator(
+        "API URL:",
+        func(input string) error {
+            _, err := url.Parse(input)
+            if err != nil {
+                return fmt.Errorf("invalid URL format")
+            }
+            if !strings.HasPrefix(input, "http://") && !strings.HasPrefix(input, "https://") {
+                return fmt.Errorf("URL must start with http:// or https://")
+            }
+            return nil
+        },
+    )
+    if err != nil {
+        return err
+    }
+    
+    ctx.Success(fmt.Sprintf("Configuration saved: %s, %s, %s", email, port, apiUrl))
+    return nil
+}
+```
+
+### Conditional Prompts
+
+Show prompts based on previous answers:
+
+```go
+func conditionalPromptsHandler(ctx cli.CommandContext) error {
+    // Initial choice
+    deploymentType, err := ctx.Select("Deployment type:", []string{
+        "local",
+        "cloud",
+        "hybrid",
+    })
+    if err != nil {
+        return err
+    }
+    
+    var cloudProvider, region string
+    
+    // Conditional prompts based on deployment type
+    if deploymentType == "cloud" || deploymentType == "hybrid" {
+        cloudProvider, err = ctx.Select("Cloud provider:", []string{
+            "AWS",
+            "Google Cloud",
+            "Azure",
+            "DigitalOcean",
+        })
+        if err != nil {
+            return err
+        }
+        
+        // Region selection based on provider
+        var regions []string
+        switch cloudProvider {
+        case "AWS":
+            regions = []string{"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"}
+        case "Google Cloud":
+            regions = []string{"us-central1", "us-east1", "europe-west1", "asia-east1"}
+        case "Azure":
+            regions = []string{"East US", "West US 2", "West Europe", "Southeast Asia"}
+        case "DigitalOcean":
+            regions = []string{"NYC1", "SFO3", "AMS3", "SGP1"}
+        }
+        
+        region, err = ctx.Select(fmt.Sprintf("%s region:", cloudProvider), regions)
+        if err != nil {
+            return err
+        }
+    }
+    
+    // Database choice
+    useDatabase, err := ctx.Confirm("Do you need a database?")
+    if err != nil {
+        return err
+    }
+    
+    var databaseType string
+    if useDatabase {
+        databaseType, err = ctx.Select("Database type:", []string{
+            "PostgreSQL",
+            "MySQL", 
+            "MongoDB",
+            "Redis",
+        })
+        if err != nil {
+            return err
+        }
+        
+        // Database-specific configuration
+        if databaseType == "PostgreSQL" || databaseType == "MySQL" {
+            backupEnabled, err := ctx.Confirm("Enable automated backups?")
+            if err != nil {
+                return err
+            }
+            
+            if backupEnabled {
+                _, err = ctx.Select("Backup frequency:", []string{
+                    "Daily",
+                    "Weekly", 
+                    "Monthly",
+                })
+                if err != nil {
+                    return err
+                }
+            }
+        }
+    }
+    
+    ctx.Success("Configuration completed!")
+    return nil
+}
+```
+
+## Prompt Styling
+
+### Custom Appearance
+
+Customize prompt appearance and behavior:
+
+```go
+func styledPromptsHandler(ctx cli.CommandContext) error {
+    // Prompt with custom styling
+    name, err := ctx.PromptWithOptions(cli.PromptOptions{
+        Message:     "👤 Enter your name:",
+        Default:     "",
+        Placeholder: "John Doe",
+        Style: cli.PromptStyle{
+            Prefix:      "🔹",
+            SuccessIcon: "✅",
+            ErrorIcon:   "❌",
+            Colors: cli.PromptColors{
+                Message: cli.ColorCyan,
+                Input:   cli.ColorWhite,
+                Success: cli.ColorGreen,
+                Error:   cli.ColorRed,
+            },
+        },
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Selection with custom styling
+    choice, err := ctx.SelectWithOptions(cli.SelectOptions{
+        Message: "🎨 Choose a theme:",
+        Options: []cli.SelectOption{
+            {Value: "light", Label: "☀️  Light", Description: "Bright and clean"},
+            {Value: "dark", Label: "🌙  Dark", Description: "Dark and elegant"},
+            {Value: "auto", Label: "🔄  Auto", Description: "System preference"},
+        },
+        PageSize: 3,
+        Style: cli.SelectStyle{
+            Cursor:      "▶",
+            Selected:    "●",
+            Unselected:  "○",
+            Colors: cli.SelectColors{
+                Cursor:      cli.ColorBlue,
+                Selected:    cli.ColorGreen,
+                Unselected:  cli.ColorGray,
+                Description: cli.ColorDarkGray,
+            },
+        },
+    })
+    if err != nil {
+        return err
+    }
+    
+    ctx.Success(fmt.Sprintf("Hello %s! Theme set to %s", name, choice))
+    return nil
+}
+```
+
+## Error Handling
+
+### Graceful Error Handling
+
+Handle prompt errors gracefully:
+
+```go
+func errorHandlingHandler(ctx cli.CommandContext) error {
+    // Handle user cancellation (Ctrl+C)
+    name, err := ctx.Prompt("Enter your name:")
+    if err != nil {
+        if cli.IsUserCancelled(err) {
+            ctx.Warning("Operation cancelled by user")
+            return nil
+        }
+        return fmt.Errorf("failed to get input: %v", err)
+    }
+    
+    // Retry on validation failure
+    var email string
+    for attempts := 0; attempts < 3; attempts++ {
+        email, err = ctx.PromptWithValidator(
+            "Email address:",
+            func(input string) error {
+                if !strings.Contains(input, "@") {
+                    return fmt.Errorf("invalid email format")
+                }
+                return nil
+            },
+        )
+        if err == nil {
+            break
+        }
+        
+        if cli.IsValidationError(err) {
+            ctx.Error(fmt.Sprintf("Validation failed: %v", err))
+            if attempts < 2 {
+                ctx.Info("Please try again...")
+            }
+        } else {
+            return err
+        }
+    }
+    
+    if email == "" {
+        return fmt.Errorf("failed to get valid email after 3 attempts")
+    }
+    
+    ctx.Success(fmt.Sprintf("Welcome, %s (%s)!", name, email))
+    return nil
+}
+```
+
+## Best Practices
+
+### 1. Clear and Concise Messages
+
+```go
+// Good: Clear and specific
+name, err := ctx.Prompt("Project name (3-50 characters):")
+
+// Bad: Vague
+name, err := ctx.Prompt("Name:")
+```
+
+### 2. Provide Helpful Defaults
+
+```go
+// Good: Sensible default
+port, err := ctx.PromptWithDefault("Server port:", "8080")
+
+// Good: Environment-based default
+env := os.Getenv("NODE_ENV")
+if env == "" {
+    env = "development"
+}
+environment, err := ctx.PromptWithDefault("Environment:", env)
+```
+
+### 3. Use Validation
+
+```go
+// Always validate critical input
+password, err := ctx.PromptPasswordWithValidator(
+    "Password:",
+    func(input string) error {
+        if len(input) < 8 {
+            return fmt.Errorf("password must be at least 8 characters")
+        }
+        return nil
+    },
+)
+```
+
+### 4. Group Related Prompts
+
+```go
+// Group related configuration
+ctx.Info("📊 Database Configuration")
+dbHost, _ := ctx.PromptWithDefault("Host:", "localhost")
+dbPort, _ := ctx.PromptWithDefault("Port:", "5432")
+dbName, _ := ctx.Prompt("Database name:")
+
+ctx.Info("\n🔐 Authentication")
+username, _ := ctx.Prompt("Username:")
+password, _ := ctx.PromptPassword("Password:")
+```
+
+### 5. Provide Progress Feedback
+
+```go
+func setupWithProgress(ctx cli.CommandContext) error {
+    ctx.Info("🚀 Starting setup process...")
+    
+    // Collect all input first
+    name, _ := ctx.Prompt("Project name:")
+    features, _ := ctx.MultiSelect("Features:", []string{"auth", "db", "cache"})
+    
+    // Then show progress
+    progress := ctx.ProgressBar(len(features) + 2)
+    
+    ctx.Info("Creating project structure...")
+    progress.Increment()
+    
+    for _, feature := range features {
+        ctx.Info(fmt.Sprintf("Setting up %s...", feature))
+        time.Sleep(200 * time.Millisecond)
+        progress.Increment()
+    }
+    
+    ctx.Info("Finalizing...")
+    progress.Increment()
+    progress.Finish("Setup complete!")
+    
+    return nil
+}
+```
+
+## Next Steps
+
+- Learn about [Output](/docs/cli/output) formatting and tables
+- Explore [Commands](/docs/cli/commands) for command structure
+- Check out [Flags](/docs/cli/flags) for command-line options
+- Review [Examples](/docs/cli/examples) for complete applications

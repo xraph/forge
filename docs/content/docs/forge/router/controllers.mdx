@@ -1,0 +1,696 @@
+---
+title: "Controllers"
+description: "Learn how to organize routes using controllers in Forge for better code structure and maintainability."
+---
+
+import { Callout } from "fumadocs-ui/components/callout"
+import { Tabs, Tab } from "fumadocs-ui/components/tabs"
+
+# Controllers
+
+Controllers in Forge provide a structured way to organize related routes and their handlers. They help you group functionality, apply shared middleware, and maintain clean, scalable code architecture.
+
+## Basic Controller
+
+### Controller Interface
+
+Every controller must implement the `Controller` interface:
+
+```go
+type Controller interface {
+    // Name returns the controller identifier
+    Name() string
+
+    // Routes registers routes on the router
+    Routes(r Router) error
+}
+```
+
+### Simple Controller Example
+
+```go
+package controllers
+
+import (
+    "github.com/xraph/forge"
+)
+
+type UserController struct{}
+
+func (c *UserController) Name() string {
+    return "user"
+}
+
+func (c *UserController) Routes(r forge.Router) error {
+    r.GET("/users", c.ListUsers)
+    r.POST("/users", c.CreateUser)
+    r.GET("/users/:id", c.GetUser)
+    r.PUT("/users/:id", c.UpdateUser)
+    r.DELETE("/users/:id", c.DeleteUser)
+    
+    return nil
+}
+
+func (c *UserController) ListUsers(ctx *forge.Context) error {
+    return ctx.JSON(200, map[string]string{
+        "message": "List users",
+    })
+}
+
+func (c *UserController) CreateUser(ctx *forge.Context) error {
+    return ctx.JSON(201, map[string]string{
+        "message": "User created",
+    })
+}
+
+func (c *UserController) GetUser(ctx *forge.Context) error {
+    userID := ctx.Param("id")
+    return ctx.JSON(200, map[string]string{
+        "user_id": userID,
+    })
+}
+
+func (c *UserController) UpdateUser(ctx *forge.Context) error {
+    userID := ctx.Param("id")
+    return ctx.JSON(200, map[string]string{
+        "message": "User updated",
+        "user_id": userID,
+    })
+}
+
+func (c *UserController) DeleteUser(ctx *forge.Context) error {
+    userID := ctx.Param("id")
+    return ctx.JSON(200, map[string]string{
+        "message": "User deleted",
+        "user_id": userID,
+    })
+}
+```
+
+### Registering Controllers
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+    "your-app/controllers"
+)
+
+func main() {
+    app := forge.New()
+    
+    // Register controller
+    userController := &controllers.UserController{}
+    app.RegisterController(userController)
+    
+    app.Start(":8080")
+}
+```
+
+## Advanced Controller Features
+
+### Controller with Prefix
+
+Use `ControllerWithPrefix` to automatically prefix all routes:
+
+```go
+type APIController struct{}
+
+func (c *APIController) Name() string {
+    return "api"
+}
+
+func (c *APIController) Prefix() string {
+    return "/api/v1"
+}
+
+func (c *APIController) Routes(r forge.Router) error {
+    // These routes will be prefixed with /api/v1
+    r.GET("/health", c.Health)        // /api/v1/health
+    r.GET("/version", c.Version)      // /api/v1/version
+    
+    return nil
+}
+
+func (c *APIController) Health(ctx *forge.Context) error {
+    return ctx.JSON(200, map[string]string{
+        "status": "healthy",
+    })
+}
+
+func (c *APIController) Version(ctx *forge.Context) error {
+    return ctx.JSON(200, map[string]string{
+        "version": "1.0.0",
+    })
+}
+```
+
+### Controller with Middleware
+
+Apply middleware to all controller routes:
+
+```go
+type AdminController struct{}
+
+func (c *AdminController) Name() string {
+    return "admin"
+}
+
+func (c *AdminController) Prefix() string {
+    return "/admin"
+}
+
+func (c *AdminController) Middleware() []forge.Middleware {
+    return []forge.Middleware{
+        AuthMiddleware,
+        AdminOnlyMiddleware,
+        AuditLogMiddleware,
+    }
+}
+
+func (c *AdminController) Routes(r forge.Router) error {
+    r.GET("/dashboard", c.Dashboard)
+    r.GET("/users", c.ManageUsers)
+    r.GET("/settings", c.Settings)
+    
+    return nil
+}
+
+// Middleware functions
+func AuthMiddleware(next forge.HandlerFunc) forge.HandlerFunc {
+    return func(ctx *forge.Context) error {
+        // Authentication logic
+        token := ctx.GetHeader("Authorization")
+        if token == "" {
+            return ctx.JSON(401, map[string]string{
+                "error": "Authentication required",
+            })
+        }
+        return next(ctx)
+    }
+}
+
+func AdminOnlyMiddleware(next forge.HandlerFunc) forge.HandlerFunc {
+    return func(ctx *forge.Context) error {
+        // Admin authorization logic
+        role := ctx.Get("user_role")
+        if role != "admin" {
+            return ctx.JSON(403, map[string]string{
+                "error": "Admin access required",
+            })
+        }
+        return next(ctx)
+    }
+}
+
+func AuditLogMiddleware(next forge.HandlerFunc) forge.HandlerFunc {
+    return func(ctx *forge.Context) error {
+        // Log admin actions
+        // ... logging logic
+        return next(ctx)
+    }
+}
+```
+
+### Controller with Dependencies
+
+Declare dependencies for proper initialization order:
+
+```go
+type OrderController struct {
+    userService    UserService
+    paymentService PaymentService
+}
+
+func (c *OrderController) Name() string {
+    return "order"
+}
+
+func (c *OrderController) Dependencies() []string {
+    return []string{"user_service", "payment_service"}
+}
+
+func (c *OrderController) Initialize(container forge.Container) error {
+    var err error
+    
+    c.userService, err = forge.Resolve[UserService](container, "user_service")
+    if err != nil {
+        return err
+    }
+    
+    c.paymentService, err = forge.Resolve[PaymentService](container, "payment_service")
+    if err != nil {
+        return err
+    }
+    
+    return nil
+}
+
+func (c *OrderController) Routes(r forge.Router) error {
+    r.GET("/orders", c.ListOrders)
+    r.POST("/orders", c.CreateOrder)
+    r.GET("/orders/:id", c.GetOrder)
+    
+    return nil
+}
+
+func (c *OrderController) CreateOrder(ctx *forge.Context) error {
+    // Use injected services
+    user, err := c.userService.GetCurrentUser(ctx)
+    if err != nil {
+        return ctx.JSON(400, map[string]string{
+            "error": "Invalid user",
+        })
+    }
+    
+    // Process payment
+    payment, err := c.paymentService.ProcessPayment(ctx)
+    if err != nil {
+        return ctx.JSON(400, map[string]string{
+            "error": "Payment failed",
+        })
+    }
+    
+    return ctx.JSON(201, map[string]interface{}{
+        "order_id": "12345",
+        "user_id":  user.ID,
+        "payment":  payment,
+    })
+}
+```
+
+### Controller with Tags
+
+Add metadata tags for organization and documentation:
+
+```go
+type ProductController struct{}
+
+func (c *ProductController) Name() string {
+    return "product"
+}
+
+func (c *ProductController) Tags() []string {
+    return []string{"ecommerce", "catalog", "public"}
+}
+
+func (c *ProductController) Routes(r forge.Router) error {
+    r.GET("/products", c.ListProducts)
+    r.GET("/products/:id", c.GetProduct)
+    r.GET("/products/categories", c.GetCategories)
+    
+    return nil
+}
+```
+
+## Controller Organization Patterns
+
+### RESTful Controllers
+
+<Tabs>
+<Tab value="basic">
+```go
+type ProductController struct {
+    service ProductService
+}
+
+func (c *ProductController) Routes(r forge.Router) error {
+    // Standard REST endpoints
+    r.GET("/products", c.Index)           // List all
+    r.POST("/products", c.Create)         // Create new
+    r.GET("/products/:id", c.Show)        // Show one
+    r.PUT("/products/:id", c.Update)      // Update
+    r.DELETE("/products/:id", c.Destroy)  // Delete
+    
+    return nil
+}
+```
+</Tab>
+
+<Tab value="nested">
+```go
+type ProductController struct {
+    service ProductService
+}
+
+func (c *ProductController) Routes(r forge.Router) error {
+    // Nested resources
+    r.GET("/categories/:categoryId/products", c.ListByCategory)
+    r.POST("/categories/:categoryId/products", c.CreateInCategory)
+    
+    // Product-specific routes
+    r.GET("/products/:id/reviews", c.GetReviews)
+    r.POST("/products/:id/reviews", c.CreateReview)
+    r.GET("/products/:id/variants", c.GetVariants)
+    
+    return nil
+}
+```
+</Tab>
+</Tabs>
+
+### API Versioning with Controllers
+
+```go
+// V1 Controller
+type UserV1Controller struct{}
+
+func (c *UserV1Controller) Name() string {
+    return "user_v1"
+}
+
+func (c *UserV1Controller) Prefix() string {
+    return "/api/v1"
+}
+
+func (c *UserV1Controller) Routes(r forge.Router) error {
+    r.GET("/users", c.ListUsers)
+    r.POST("/users", c.CreateUser)
+    
+    return nil
+}
+
+// V2 Controller with enhanced features
+type UserV2Controller struct{}
+
+func (c *UserV2Controller) Name() string {
+    return "user_v2"
+}
+
+func (c *UserV2Controller) Prefix() string {
+    return "/api/v2"
+}
+
+func (c *UserV2Controller) Routes(r forge.Router) error {
+    r.GET("/users", c.ListUsersWithPagination)
+    r.POST("/users", c.CreateUserWithValidation)
+    r.GET("/users/:id/profile", c.GetUserProfile)
+    
+    return nil
+}
+
+// Register both versions
+func main() {
+    app := forge.New()
+    
+    app.RegisterController(&UserV1Controller{})
+    app.RegisterController(&UserV2Controller{})
+    
+    app.Start(":8080")
+}
+```
+
+### Modular Controllers
+
+```go
+// Base controller with common functionality
+type BaseController struct {
+    logger forge.Logger
+}
+
+func (c *BaseController) Initialize(container forge.Container) error {
+    var err error
+    c.logger, err = forge.Resolve[forge.Logger](container, "logger")
+    return err
+}
+
+func (c *BaseController) LogRequest(ctx *forge.Context) {
+    c.logger.Info("Request received",
+        "method", ctx.Method(),
+        "path", ctx.Path(),
+        "ip", ctx.ClientIP(),
+    )
+}
+
+// Specific controllers extending base
+type UserController struct {
+    BaseController
+    userService UserService
+}
+
+func (c *UserController) Name() string {
+    return "user"
+}
+
+func (c *UserController) Routes(r forge.Router) error {
+    r.GET("/users", c.ListUsers)
+    return nil
+}
+
+func (c *UserController) ListUsers(ctx *forge.Context) error {
+    c.LogRequest(ctx) // Use base functionality
+    
+    users, err := c.userService.GetAll()
+    if err != nil {
+        return ctx.JSON(500, map[string]string{
+            "error": "Failed to fetch users",
+        })
+    }
+    
+    return ctx.JSON(200, users)
+}
+```
+
+## Controller Builder Pattern
+
+For complex controllers, use the builder pattern:
+
+```go
+type ControllerBuilder struct {
+    name         string
+    prefix       string
+    middleware   []forge.Middleware
+    dependencies []string
+    routes       []RouteConfig
+}
+
+type RouteConfig struct {
+    Method  string
+    Path    string
+    Handler forge.HandlerFunc
+}
+
+func NewControllerBuilder(name string) *ControllerBuilder {
+    return &ControllerBuilder{
+        name:         name,
+        middleware:   make([]forge.Middleware, 0),
+        dependencies: make([]string, 0),
+        routes:       make([]RouteConfig, 0),
+    }
+}
+
+func (cb *ControllerBuilder) WithPrefix(prefix string) *ControllerBuilder {
+    cb.prefix = prefix
+    return cb
+}
+
+func (cb *ControllerBuilder) WithMiddleware(mw ...forge.Middleware) *ControllerBuilder {
+    cb.middleware = append(cb.middleware, mw...)
+    return cb
+}
+
+func (cb *ControllerBuilder) WithDependency(dep string) *ControllerBuilder {
+    cb.dependencies = append(cb.dependencies, dep)
+    return cb
+}
+
+func (cb *ControllerBuilder) WithRoute(method, path string, handler forge.HandlerFunc) *ControllerBuilder {
+    cb.routes = append(cb.routes, RouteConfig{
+        Method:  method,
+        Path:    path,
+        Handler: handler,
+    })
+    return cb
+}
+
+func (cb *ControllerBuilder) Build() forge.Controller {
+    return &builtController{
+        name:         cb.name,
+        prefix:       cb.prefix,
+        middleware:   cb.middleware,
+        dependencies: cb.dependencies,
+        routes:       cb.routes,
+    }
+}
+
+type builtController struct {
+    name         string
+    prefix       string
+    middleware   []forge.Middleware
+    dependencies []string
+    routes       []RouteConfig
+}
+
+func (c *builtController) Name() string {
+    return c.name
+}
+
+func (c *builtController) Prefix() string {
+    return c.prefix
+}
+
+func (c *builtController) Middleware() []forge.Middleware {
+    return c.middleware
+}
+
+func (c *builtController) Dependencies() []string {
+    return c.dependencies
+}
+
+func (c *builtController) Routes(r forge.Router) error {
+    for _, route := range c.routes {
+        switch route.Method {
+        case "GET":
+            r.GET(route.Path, route.Handler)
+        case "POST":
+            r.POST(route.Path, route.Handler)
+        case "PUT":
+            r.PUT(route.Path, route.Handler)
+        case "DELETE":
+            r.DELETE(route.Path, route.Handler)
+        }
+    }
+    return nil
+}
+
+// Usage
+func CreateAPIController() forge.Controller {
+    return NewControllerBuilder("api").
+        WithPrefix("/api/v1").
+        WithMiddleware(AuthMiddleware).
+        WithDependency("user_service").
+        WithRoute("GET", "/health", healthHandler).
+        WithRoute("GET", "/version", versionHandler).
+        Build()
+}
+```
+
+## Testing Controllers
+
+### Unit Testing
+
+```go
+package controllers_test
+
+import (
+    "testing"
+    "net/http/httptest"
+    "github.com/xraph/forge"
+    "your-app/controllers"
+)
+
+func TestUserController(t *testing.T) {
+    // Create test app
+    app := forge.New()
+    
+    // Register controller
+    userController := &controllers.UserController{}
+    app.RegisterController(userController)
+    
+    // Test GET /users
+    req := httptest.NewRequest("GET", "/users", nil)
+    resp := httptest.NewRecorder()
+    
+    app.ServeHTTP(resp, req)
+    
+    if resp.Code != 200 {
+        t.Errorf("Expected status 200, got %d", resp.Code)
+    }
+}
+```
+
+### Integration Testing
+
+```go
+func TestUserControllerIntegration(t *testing.T) {
+    // Setup test database
+    db := setupTestDB()
+    defer db.Close()
+    
+    // Create app with dependencies
+    app := forge.New()
+    app.RegisterService("db", func(c forge.Container) (any, error) {
+        return db, nil
+    })
+    
+    // Register controller
+    userController := &controllers.UserController{}
+    app.RegisterController(userController)
+    
+    // Test with real dependencies
+    req := httptest.NewRequest("POST", "/users", strings.NewReader(`{"name":"John"}`))
+    req.Header.Set("Content-Type", "application/json")
+    resp := httptest.NewRecorder()
+    
+    app.ServeHTTP(resp, req)
+    
+    if resp.Code != 201 {
+        t.Errorf("Expected status 201, got %d", resp.Code)
+    }
+}
+```
+
+## Best Practices
+
+<Callout type="info">
+**Controller Best Practices**
+
+1. **Single Responsibility**: Each controller should handle one domain/resource
+2. **Consistent Naming**: Use clear, descriptive names for controllers and methods
+3. **Dependency Injection**: Use DI for services and dependencies
+4. **Error Handling**: Implement consistent error handling patterns
+5. **Middleware**: Use controller middleware for cross-cutting concerns
+6. **Testing**: Write comprehensive tests for controller logic
+</Callout>
+
+### Recommended Patterns
+
+```go
+// 1. Use consistent method naming
+type UserController struct{}
+
+func (c *UserController) ListUsers(ctx *forge.Context) error    { /* ... */ }
+func (c *UserController) CreateUser(ctx *forge.Context) error   { /* ... */ }
+func (c *UserController) GetUser(ctx *forge.Context) error      { /* ... */ }
+func (c *UserController) UpdateUser(ctx *forge.Context) error   { /* ... */ }
+func (c *UserController) DeleteUser(ctx *forge.Context) error   { /* ... */ }
+
+// 2. Group related functionality
+type AuthController struct{}  // Login, logout, register
+type UserController struct{}  // User CRUD operations
+type AdminController struct{} // Admin-specific operations
+
+// 3. Use dependency injection
+type OrderController struct {
+    orderService   OrderService
+    paymentService PaymentService
+    emailService   EmailService
+}
+
+// 4. Implement proper error handling
+func (c *UserController) GetUser(ctx *forge.Context) error {
+    userID := ctx.Param("id")
+    
+    user, err := c.userService.GetByID(userID)
+    if err != nil {
+        if errors.Is(err, ErrUserNotFound) {
+            return ctx.JSON(404, map[string]string{
+                "error": "User not found",
+            })
+        }
+        return ctx.JSON(500, map[string]string{
+            "error": "Internal server error",
+        })
+    }
+    
+    return ctx.JSON(200, user)
+}
+```
+
+## Next Steps
+
+- Learn about [Advanced Features](/docs/forge/router/advanced) for WebSocket and streaming support
+- Explore [Route Parameters](/docs/forge/router/parameters) for dynamic routing
+- Check out [Middleware](/docs/forge/router/middleware) for request processing
+- See [Examples](/docs/forge/router/examples) for complete implementation patterns

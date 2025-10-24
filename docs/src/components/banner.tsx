@@ -36,7 +36,7 @@ export function Banner({
   rainbowColors?: string[];
 
   /**
-   * Change Authsome layout styles
+   * Change Forge layout styles
    *
    * @defaultValue true
    */

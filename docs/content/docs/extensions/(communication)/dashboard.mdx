@@ -1,0 +1,1013 @@
+---
+title: "Dashboard Extension"
+description: "Production-ready health and metrics dashboard extension for Forge v2 with real-time monitoring, data export, and a modern web UI"
+---
+
+# Dashboard Extension
+
+A production-ready health and metrics dashboard extension for Forge v2 with real-time monitoring, data export, and a modern web UI.
+
+## Features
+
+### Real-time Monitoring
+- **WebSocket-based Updates**: Live updates of health checks and metrics without page refresh
+- **Configurable Refresh Intervals**: Customize how often data is collected and updated
+- **Connection Status Indicator**: Visual indicator showing WebSocket connection status
+
+### Health Monitoring
+- **Service Health Checks**: Monitor all registered services with detailed status information
+- **Overall Health Status**: Aggregated health status across all services
+- **Health History**: Track health status changes over time
+- **Detailed Health Reports**: View specific health check results and error messages
+
+### Metrics Visualization
+- **Interactive Charts**: Visualize data with ApexCharts integration
+- **Metrics Report**: Comprehensive breakdown of all metrics by type
+- **Historical Trends**: View metrics data over time with configurable retention
+- **Performance Statistics**: Track system performance metrics and trends
+
+### Modern Web UI
+- **Responsive Design**: Works seamlessly on desktop, tablet, and mobile devices
+- **Dark Mode Support**: Auto, light, and dark theme support with smooth transitions
+- **Beautiful Interface**: Modern design built with Tailwind CSS
+- **Interactive Components**: Clickable service cards, modal dialogs, and tabbed navigation
+
+### Data Export
+- **Multiple Formats**: Export dashboard data in JSON, CSV, and Prometheus formats
+- **Complete Snapshots**: Export comprehensive dashboard state for backup or analysis
+- **Prometheus Integration**: Native Prometheus metrics format for monitoring systems
+
+### Zero Build Setup
+- **CDN Assets**: Uses CDN for all external dependencies (Tailwind CSS, ApexCharts)
+- **No Compilation**: Ready to use without any build process
+- **Self-contained**: All templates and assets embedded in the extension
+
+## Installation
+
+The dashboard extension is included in Forge v2. Simply import it:
+
+```go
+import "github.com/xraph/forge/extensions/dashboard"
+```
+
+## Quick Start
+
+### Basic Setup
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/dashboard"
+)
+
+func main() {
+    // Create Forge app
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "my-app",
+        Version:     "1.0.0",
+        Environment: "production",
+    })
+
+    // Register dashboard extension
+    app.RegisterExtension(dashboard.NewExtension(
+        dashboard.WithPort(8080),
+        dashboard.WithTitle("My App Dashboard"),
+    ))
+
+    // Start app
+    ctx := context.Background()
+    if err := app.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    // Dashboard available at http://localhost:8080/dashboard
+    select {}
+}
+```
+
+### With Multiple Services
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/cache"
+    "github.com/xraph/forge/extensions/dashboard"
+    "github.com/xraph/forge/extensions/database"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "multi-service-app",
+        Version:     "1.0.0",
+        Environment: "production",
+    })
+
+    // Register services to monitor
+    app.RegisterExtension(cache.NewExtension(
+        cache.WithDriver("redis"),
+        cache.WithDefaultTTL(5*time.Minute),
+    ))
+
+    app.RegisterExtension(database.NewExtension(
+        database.WithDriver("postgres"),
+        database.WithDSN("postgres://user:pass@localhost/db"),
+    ))
+
+    // Register dashboard to monitor all services
+    app.RegisterExtension(dashboard.NewExtension(
+        dashboard.WithPort(8080),
+        dashboard.WithBasePath("/admin/dashboard"),
+        dashboard.WithTitle("Multi-Service Dashboard"),
+        dashboard.WithTheme("dark"),
+        dashboard.WithRealtime(true),
+        dashboard.WithRefreshInterval(15*time.Second),
+        dashboard.WithExport(true),
+        dashboard.WithHistoryDuration(2*time.Hour),
+    ))
+
+    ctx := context.Background()
+    if err := app.Start(ctx); err != nil {
+        log.Fatal(err)
+    }
+
+    log.Println("Dashboard available at: http://localhost:8080/admin/dashboard")
+    select {}
+}
+```
+
+## Configuration
+
+### Programmatic Configuration
+
+```go
+app.RegisterExtension(dashboard.NewExtension(
+    // Server settings
+    dashboard.WithPort(8080),                          // Server port
+    dashboard.WithBasePath("/dashboard"),              // Base URL path
+    dashboard.WithReadTimeout(30*time.Second),         // HTTP read timeout
+    dashboard.WithWriteTimeout(30*time.Second),        // HTTP write timeout
+    dashboard.WithShutdownTimeout(10*time.Second),     // Graceful shutdown timeout
+    
+    // UI settings
+    dashboard.WithTitle("My Dashboard"),               // Dashboard title
+    dashboard.WithTheme("auto"),                       // Theme: auto, light, dark
+    dashboard.WithMetaTags(map[string]string{          // Custom meta tags
+        "description": "Application monitoring dashboard",
+        "keywords":    "monitoring, health, metrics",
+    }),
+    
+    // Features
+    dashboard.WithRealtime(true),                      // Enable WebSocket updates
+    dashboard.WithExport(true),                        // Enable data export
+    dashboard.WithExportFormats([]string{              // Export formats
+        "json", "csv", "prometheus",
+    }),
+    
+    // Data collection
+    dashboard.WithRefreshInterval(30*time.Second),     // Data refresh interval
+    dashboard.WithHistoryDuration(1*time.Hour),        // Data retention period
+    dashboard.WithMaxDataPoints(1000),                 // Max historical points
+    
+    // Configuration loading
+    dashboard.WithRequireConfig(false),                // Require config file
+))
+```
+
+### YAML Configuration
+
+Create a `config.yaml`:
+
+```yaml
+extensions:
+  dashboard:
+    # Server settings
+    port: 8080
+    base_path: "/dashboard"
+    read_timeout: 30s
+    write_timeout: 30s
+    shutdown_timeout: 10s
+    
+    # Features
+    enable_auth: false
+    enable_realtime: true
+    enable_export: true
+    export_formats:
+      - json
+      - csv
+      - prometheus
+    
+    # Data collection
+    refresh_interval: 30s
+    history_duration: 1h
+    max_data_points: 1000
+    
+    # UI settings
+    theme: "auto"  # auto, light, dark
+    title: "My Application Dashboard"
+    meta_tags:
+      description: "Application monitoring dashboard"
+      keywords: "monitoring, health, metrics"
+    
+    # Configuration
+    require_config: false
+```
+
+Load configuration:
+
+```go
+app.RegisterExtension(dashboard.NewExtension(
+    dashboard.WithRequireConfig(true),
+))
+```
+
+### Environment Variables
+
+```bash
+# Server settings
+FORGE_DASHBOARD_PORT=8080
+FORGE_DASHBOARD_BASE_PATH="/dashboard"
+
+# Features
+FORGE_DASHBOARD_ENABLE_REALTIME=true
+FORGE_DASHBOARD_ENABLE_EXPORT=true
+
+# Data collection
+FORGE_DASHBOARD_REFRESH_INTERVAL=30s
+FORGE_DASHBOARD_HISTORY_DURATION=1h
+FORGE_DASHBOARD_MAX_DATA_POINTS=1000
+
+# UI settings
+FORGE_DASHBOARD_THEME=auto
+FORGE_DASHBOARD_TITLE="My Dashboard"
+```
+
+## UI Features
+
+### Overview Tab
+
+The main dashboard view provides:
+
+#### Summary Cards
+- **Overall Health**: Aggregated health status with visual indicator
+- **Services**: Count of healthy vs total services
+- **Metrics**: Total number of tracked metrics
+- **Uptime**: System uptime since startup
+
+#### Interactive Charts
+- **Health Trends**: Historical health status over time
+- **Service Count**: Number of services tracked over time
+- **Metrics Growth**: Metrics count trends
+
+#### Health Checks Table
+- **Service Status**: Real-time status of all services
+- **Last Check**: Timestamp of last health check
+- **Duration**: Time taken for health check
+- **Messages**: Detailed health check messages
+
+#### Services Grid
+- **Service Cards**: Clickable cards for each registered service
+- **Status Indicators**: Visual status indicators (healthy, degraded, unhealthy)
+- **Service Types**: Display service type and category
+
+#### Export Options
+- **One-click Export**: Export data in JSON, CSV, or Prometheus format
+- **Complete Snapshots**: Full dashboard state export
+
+### Service Detail Modal
+
+Click any service card to open a detailed modal with:
+
+- **Service Information**: Name, type, and current status
+- **Health Details**: Last check time, duration, and messages
+- **Service Metrics**: Metrics specific to the selected service
+- **Historical Data**: Service-specific historical information
+
+### Metrics Report Tab
+
+Comprehensive metrics analysis:
+
+#### Statistics Overview
+- **Total Metrics**: Count of all tracked metrics
+- **Type Breakdown**: Counters, gauges, histograms, timers
+- **Active Collectors**: Number of active metric collectors
+
+#### Type Distribution Chart
+- **Pie Chart**: Visual breakdown of metric types
+- **Interactive**: Hover for detailed information
+- **Theme-aware**: Adapts to light/dark mode
+
+#### Active Collectors Table
+- **Collector Status**: Status of all registered metrics collectors
+- **Collection Info**: Last collection time and status
+- **Metrics Count**: Number of metrics per collector
+
+#### Top Metrics List
+- **Current Values**: Real-time values of top 20 metrics
+- **Metric Names**: Full metric names and types
+- **Value Formatting**: Appropriate formatting for different metric types
+
+### Theme Support
+
+#### Dark Mode
+- **Full Support**: Complete dark mode for all UI elements
+- **Smooth Transitions**: Animated color transitions between themes
+- **Chart Integration**: Charts automatically adapt to theme changes
+
+#### Theme Toggle
+- **Persistent Preference**: Theme choice saved in localStorage
+- **Auto Detection**: Respects system preference if not explicitly set
+- **Visual Indicator**: Sun/moon icon shows current theme
+
+#### Responsive Design
+- **Mobile Optimized**: Works seamlessly on all screen sizes
+- **Touch Friendly**: Optimized for touch interactions
+- **Adaptive Layout**: Layout adjusts based on screen size
+
+## API Endpoints
+
+### Overview Data
+
+```http
+GET /dashboard/api/overview
+```
+
+Returns overview of system health, services, metrics, and uptime.
+
+**Response:**
+```json
+{
+  "timestamp": "2025-01-22T10:30:00Z",
+  "overall_health": "healthy",
+  "total_services": 5,
+  "healthy_services": 5,
+  "total_metrics": 42,
+  "uptime": 3600000000000,
+  "version": "1.0.0",
+  "environment": "production"
+}
+```
+
+### Health Checks
+
+```http
+GET /dashboard/api/health
+```
+
+Returns detailed health check results for all services.
+
+**Response:**
+```json
+{
+  "timestamp": "2025-01-22T10:30:00Z",
+  "overall_status": "healthy",
+  "services": {
+    "cache": {
+      "status": "healthy",
+      "message": "Cache is operational",
+      "duration": 1500000,
+      "last_check": "2025-01-22T10:30:00Z"
+    },
+    "database": {
+      "status": "healthy",
+      "message": "Database connection active",
+      "duration": 2300000,
+      "last_check": "2025-01-22T10:30:00Z"
+    }
+  }
+}
+```
+
+### Metrics
+
+```http
+GET /dashboard/api/metrics
+```
+
+Returns all current metrics.
+
+**Response:**
+```json
+{
+  "timestamp": "2025-01-22T10:30:00Z",
+  "metrics": {
+    "http_requests_total": 1234,
+    "http_request_duration_seconds": 0.045,
+    "memory_usage_bytes": 67108864,
+    "goroutines_count": 42
+  }
+}
+```
+
+### Services
+
+```http
+GET /dashboard/api/services
+```
+
+Returns list of registered services.
+
+**Response:**
+```json
+[
+  {
+    "name": "cache",
+    "type": "cache",
+    "status": "healthy",
+    "last_check": "2025-01-22T10:30:00Z"
+  },
+  {
+    "name": "database",
+    "type": "database",
+    "status": "healthy",
+    "last_check": "2025-01-22T10:30:00Z"
+  }
+]
+```
+
+### Service Detail
+
+```http
+GET /dashboard/api/service-detail?name=cache
+```
+
+Returns detailed information about a specific service.
+
+**Response:**
+```json
+{
+  "name": "cache",
+  "type": "cache",
+  "status": "healthy",
+  "last_check": "2025-01-22T10:30:00Z",
+  "health": {
+    "status": "healthy",
+    "message": "Cache is operational",
+    "duration": 1500000
+  },
+  "metrics": {
+    "cache_hits_total": 1000,
+    "cache_misses_total": 50,
+    "cache_size_bytes": 1048576
+  }
+}
+```
+
+### Metrics Report
+
+```http
+GET /dashboard/api/metrics-report
+```
+
+Returns comprehensive metrics report.
+
+**Response:**
+```json
+{
+  "timestamp": "2025-01-22T10:30:00Z",
+  "statistics": {
+    "total_metrics": 42,
+    "counters": 15,
+    "gauges": 20,
+    "histograms": 5,
+    "timers": 2
+  },
+  "collectors": [
+    {
+      "name": "http_collector",
+      "status": "active",
+      "metrics_count": 10,
+      "last_collection": "2025-01-22T10:30:00Z"
+    }
+  ],
+  "top_metrics": [
+    {
+      "name": "http_requests_total",
+      "type": "counter",
+      "value": 1234
+    }
+  ]
+}
+```
+
+### Historical Data
+
+```http
+GET /dashboard/api/history
+```
+
+Returns time-series historical data.
+
+**Response:**
+```json
+{
+  "overview": [
+    {
+      "timestamp": "2025-01-22T10:25:00Z",
+      "overall_health": "healthy",
+      "total_services": 5,
+      "healthy_services": 5
+    }
+  ],
+  "health": [
+    {
+      "timestamp": "2025-01-22T10:25:00Z",
+      "services": {
+        "cache": "healthy",
+        "database": "healthy"
+      }
+    }
+  ]
+}
+```
+
+## Data Export
+
+### JSON Export
+
+```http
+GET /dashboard/export/json
+```
+
+Exports complete dashboard snapshot as JSON file.
+
+**Features:**
+- Complete system state
+- All metrics and health data
+- Historical information
+- Downloadable file format
+
+### CSV Export
+
+```http
+GET /dashboard/export/csv
+```
+
+Exports dashboard data as CSV file.
+
+**Features:**
+- Tabular format for spreadsheet analysis
+- Separate sections for overview, health, and services
+- Human-readable format
+
+### Prometheus Metrics
+
+```http
+GET /dashboard/export/prometheus
+```
+
+Exports metrics in Prometheus text format for scraping.
+
+**Features:**
+- Standard Prometheus format
+- Compatible with Prometheus monitoring
+- Includes metric metadata
+
+## WebSocket API
+
+### Real-time Updates
+
+Connect to real-time updates:
+
+```javascript
+const ws = new WebSocket('ws://localhost:8080/dashboard/ws');
+
+ws.onopen = () => {
+    console.log('Connected to dashboard');
+};
+
+ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    
+    switch (message.type) {
+        case 'overview':
+            console.log('Overview update:', message.data);
+            updateOverviewUI(message.data);
+            break;
+        case 'health':
+            console.log('Health update:', message.data);
+            updateHealthUI(message.data);
+            break;
+        case 'metrics':
+            console.log('Metrics update:', message.data);
+            updateMetricsUI(message.data);
+            break;
+    }
+};
+
+ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+};
+
+ws.onclose = () => {
+    console.log('Disconnected from dashboard');
+};
+```
+
+### Message Types
+
+#### Ping/Pong
+
+```javascript
+// Send ping to keep connection alive
+ws.send(JSON.stringify({ type: 'ping' }));
+
+// Server responds with pong
+{
+  "type": "pong",
+  "timestamp": "2025-01-22T10:30:00Z"
+}
+```
+
+#### Data Updates
+
+```javascript
+// Overview data update
+{
+  "type": "overview",
+  "timestamp": "2025-01-22T10:30:00Z",
+  "data": {
+    "overall_health": "healthy",
+    "total_services": 5,
+    "healthy_services": 5,
+    "total_metrics": 42
+  }
+}
+
+// Health data update
+{
+  "type": "health",
+  "timestamp": "2025-01-22T10:30:00Z",
+  "data": {
+    "overall_status": "healthy",
+    "services": {
+      "cache": {
+        "status": "healthy",
+        "message": "Cache is operational"
+      }
+    }
+  }
+}
+```
+
+## Advanced Usage
+
+### Custom Dashboard Server
+
+Access the dashboard server for advanced operations:
+
+```go
+dashboard := dashboard.NewExtension()
+app.RegisterExtension(dashboard)
+
+// After app starts
+server := dashboard.Server()
+
+// Access collector
+collector := server.GetCollector()
+overview := collector.CollectOverview(ctx)
+
+// Access history
+history := server.GetHistory()
+data := history.GetAll()
+
+// Check if server is running
+if server.IsRunning() {
+    log.Println("Dashboard server is running")
+}
+```
+
+### Integration with DI Container
+
+The dashboard server is registered in the DI container:
+
+```go
+// Resolve dashboard from container
+dashboardServer, err := forge.Resolve[*dashboard.DashboardServer](app.Container(), "dashboard")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Use dashboard server
+collector := dashboardServer.GetCollector()
+overview := collector.CollectOverview(ctx)
+
+// Access WebSocket hub
+if hub := dashboardServer.GetHub(); hub != nil {
+    clientCount := hub.ClientCount()
+    log.Printf("Active WebSocket clients: %d", clientCount)
+}
+```
+
+### Custom Data Collection
+
+```go
+// Create custom collector
+collector := dashboard.NewDataCollector(
+    app.HealthManager(),
+    app.Metrics(),
+    app.Container(),
+    app.Logger(),
+    history,
+)
+
+// Collect specific data
+overview := collector.CollectOverview(ctx)
+health := collector.CollectHealth(ctx)
+metrics := collector.CollectMetrics(ctx)
+services := collector.CollectServices(ctx)
+
+// Get service detail
+serviceDetail := collector.CollectServiceDetail(ctx, "cache")
+
+// Get metrics report
+metricsReport := collector.CollectMetricsReport(ctx)
+```
+
+### Custom WebSocket Broadcasting
+
+```go
+// Get dashboard server
+dashboardServer, _ := forge.Resolve[*dashboard.DashboardServer](app.Container(), "dashboard")
+
+// Get WebSocket hub
+hub := dashboardServer.GetHub()
+
+// Broadcast custom message
+customData := map[string]interface{}{
+    "type": "custom",
+    "message": "Custom notification",
+    "data": someData,
+}
+
+if err := hub.Broadcast(customData); err != nil {
+    log.Printf("Failed to broadcast: %v", err)
+}
+```
+
+## Best Practices
+
+### Performance Optimization
+
+1. **Adjust Refresh Intervals**:
+   ```go
+   dashboard.WithRefreshInterval(60*time.Second) // Reduce frequency for better performance
+   ```
+
+2. **Limit Historical Data**:
+   ```go
+   dashboard.WithHistoryDuration(30*time.Minute) // Reduce retention period
+   dashboard.WithMaxDataPoints(500)              // Limit data points
+   ```
+
+3. **Disable Features if Not Needed**:
+   ```go
+   dashboard.WithRealtime(false) // Disable WebSocket if not needed
+   dashboard.WithExport(false)   // Disable export if not needed
+   ```
+
+### Security Considerations
+
+1. **Network Access**:
+   ```go
+   // Bind to localhost only in production
+   dashboard.WithPort(8080) // Consider using reverse proxy
+   ```
+
+2. **Authentication** (when available):
+   ```yaml
+   extensions:
+     dashboard:
+       enable_auth: true
+   ```
+
+3. **CORS Configuration**:
+   - Default allows all origins for development
+   - Configure appropriately for production
+
+### Monitoring Best Practices
+
+1. **Service Health Checks**:
+   - Implement comprehensive health checks in your services
+   - Include dependency checks (database, cache, external APIs)
+   - Provide meaningful error messages
+
+2. **Metrics Collection**:
+   - Use descriptive metric names
+   - Include relevant labels/tags
+   - Monitor key business metrics
+
+3. **Dashboard Organization**:
+   - Use meaningful service names
+   - Group related services
+   - Monitor critical services first
+
+### Deployment Considerations
+
+1. **Resource Usage**:
+   - Dashboard uses minimal resources
+   - WebSocket connections consume memory
+   - Historical data storage grows over time
+
+2. **High Availability**:
+   - Dashboard is stateless (except for historical data)
+   - Can be deployed behind load balancer
+   - Historical data is in-memory (consider external storage for persistence)
+
+3. **Scaling**:
+   - Multiple dashboard instances can run independently
+   - WebSocket connections are per-instance
+   - Consider centralized metrics collection for large deployments
+
+## Troubleshooting
+
+### Common Issues
+
+#### Dashboard Not Loading
+
+**Symptoms**: Dashboard page doesn't load or shows errors
+
+**Solutions**:
+1. Check if the port is available:
+   ```bash
+   netstat -an | grep :8080
+   ```
+
+2. Verify configuration:
+   ```go
+   dashboard.WithPort(8080)
+   dashboard.WithBasePath("/dashboard")
+   ```
+
+3. Check application logs for errors
+
+#### WebSocket Connection Failed
+
+**Symptoms**: "Connecting..." status never changes to "Live"
+
+**Solutions**:
+1. Verify WebSocket is enabled:
+   ```go
+   dashboard.WithRealtime(true)
+   ```
+
+2. Check browser console for WebSocket errors
+
+3. Verify firewall/proxy settings allow WebSocket connections
+
+#### No Data Showing
+
+**Symptoms**: Dashboard loads but shows no services or metrics
+
+**Solutions**:
+1. Ensure services are registered before dashboard:
+   ```go
+   app.RegisterExtension(cache.NewExtension()) // Register first
+   app.RegisterExtension(dashboard.NewExtension()) // Register after
+   ```
+
+2. Check if services implement health checks
+
+3. Verify metrics are being collected
+
+#### Theme Not Working
+
+**Symptoms**: Theme toggle doesn't change appearance
+
+**Solutions**:
+1. Clear browser cache and localStorage
+2. Check browser console for JavaScript errors
+3. Verify Tailwind CSS is loading from CDN
+
+### Debug Mode
+
+Enable debug logging:
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    LogLevel: "debug",
+})
+```
+
+Check dashboard-specific logs:
+- Extension registration
+- Server startup
+- WebSocket connections
+- Data collection errors
+
+### Performance Issues
+
+#### Slow Dashboard Loading
+
+**Solutions**:
+1. Reduce data collection frequency:
+   ```go
+   dashboard.WithRefreshInterval(60*time.Second)
+   ```
+
+2. Limit historical data:
+   ```go
+   dashboard.WithHistoryDuration(15*time.Minute)
+   dashboard.WithMaxDataPoints(100)
+   ```
+
+3. Disable real-time updates:
+   ```go
+   dashboard.WithRealtime(false)
+   ```
+
+#### High Memory Usage
+
+**Solutions**:
+1. Reduce historical data retention
+2. Limit maximum data points
+3. Monitor WebSocket connection count
+
+### Browser Compatibility
+
+**Supported Browsers**:
+- Chrome 60+
+- Firefox 55+
+- Safari 12+
+- Edge 79+
+
+**Known Issues**:
+- WebSocket support required for real-time features
+- CSS Grid support required for layout
+- JavaScript ES6+ features used
+
+## Migration Guide
+
+### From v1.x to v2.x
+
+The Dashboard extension has been completely rewritten for v2. Key changes:
+
+1. **New Configuration API**:
+   ```go
+   // Old (v1.x)
+   dashboard.New(dashboard.Config{
+       Port: 8080,
+   })
+   
+   // New (v2.x)
+   dashboard.NewExtension(
+       dashboard.WithPort(8080),
+   )
+   ```
+
+2. **Enhanced UI**: Complete redesign with modern interface
+
+3. **WebSocket Support**: Real-time updates now available
+
+4. **Export Features**: New data export capabilities
+
+5. **Better Integration**: Improved DI container integration
+
+### Configuration Migration
+
+```yaml
+# Old configuration (v1.x)
+dashboard:
+  port: 8080
+  path: "/dashboard"
+
+# New configuration (v2.x)
+extensions:
+  dashboard:
+    port: 8080
+    base_path: "/dashboard"
+    enable_realtime: true
+    enable_export: true
+```
+
+## Examples
+
+See the [examples directory](https://github.com/xraph/forge/tree/main/extensions/dashboard/examples) for complete working examples:
+
+- **Basic Setup**: Simple dashboard with minimal configuration
+- **Multi-Service**: Dashboard monitoring multiple services
+- **Custom Configuration**: Advanced configuration examples
+- **Integration Examples**: Integration with other Forge extensions
+
+## Contributing
+
+The Dashboard extension is part of the Forge project. Contributions are welcome:
+
+1. **Bug Reports**: Report issues on GitHub
+2. **Feature Requests**: Suggest new features
+3. **Pull Requests**: Submit improvements
+4. **Documentation**: Help improve documentation
+
+## License
+
+The Dashboard extension is licensed under the same license as the Forge project.

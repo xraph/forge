@@ -4,6 +4,11 @@
   "pages": [
     "index",
     "basic",
-    "groups"
+    "groups",
+    "middleware",
+    "parameters",
+    "controllers",
+    "advanced",
+    "inspection"
   ]
 }

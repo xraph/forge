@@ -1,0 +1,308 @@
+---
+title: Core Extensions
+description: Essential building blocks for any Forge application
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Core Extensions
+
+Core extensions provide the essential building blocks for any production application. These extensions handle data management, caching, authentication, and other fundamental requirements with production-ready features and multiple backend support.
+
+<Callout type="info">
+All core extensions are production-ready with comprehensive test coverage, observability, and security features.
+</Callout>
+
+## Available Core Extensions
+
+<Cards>
+  <Card
+    title="AI"
+    description="Comprehensive AI platform with LLM integration, agents, inference engine, and model management"
+    href="/docs/extensions/ai"
+  />
+  <Card
+    title="Auth"
+    description="Authentication and authorization with JWT, OAuth2, SAML, and LDAP support"
+    href="/docs/extensions/auth"
+  />
+  <Card
+    title="Cache"
+    description="High-performance caching with Redis, Memcached, and in-memory backends"
+    href="/docs/extensions/cache"
+  />
+  <Card
+    title="Database"
+    description="Unified database access for PostgreSQL, MySQL, SQLite, and MongoDB"
+    href="/docs/extensions/database"
+  />
+  <Card
+    title="Queue"
+    description="Message queuing with RabbitMQ, Redis, and in-memory backends"
+    href="/docs/extensions/queue"
+  />
+  <Card
+    title="Search"
+    description="Full-text search with Elasticsearch, OpenSearch, and Meilisearch"
+    href="/docs/extensions/search"
+  />
+  <Card
+    title="Storage"
+    description="Object storage with S3, GCS, Azure Blob, and local filesystem"
+    href="/docs/extensions/storage"
+  />
+</Cards>
+
+## Common Features
+
+All core extensions share these production-ready features:
+
+### Unified Interfaces
+- Consistent APIs across all backends
+- Easy switching between implementations
+- Type-safe operations with Go interfaces
+
+### Multiple Backends
+- Support for various backend implementations
+- Cloud and on-premises options
+- Development and production configurations
+
+### Production Ready
+- Connection pooling and resource management
+- Automatic retry logic with exponential backoff
+- Graceful degradation and circuit breakers
+- Comprehensive error handling
+
+### Observability
+- Built-in metrics with Prometheus support
+- Distributed tracing with OpenTelemetry
+- Health checks and readiness probes
+- Structured logging with context
+
+### Security
+- TLS/mTLS encryption for all connections
+- Authentication and authorization
+- Input validation and sanitization
+- Rate limiting and throttling
+
+### Configuration
+- YAML/JSON configuration files
+- Environment variable support
+- Programmatic configuration
+- Hot reloading capabilities
+
+## Quick Start Example
+
+Here's how to use multiple core extensions together:
+
+<Tabs items={['Configuration', 'Application Code', 'Usage Example']}>
+  <Tab value="Configuration">
+    ```yaml
+    # config.yaml
+    extensions:
+      database:
+        type: postgres
+        dsn: "postgres://user:pass@localhost/myapp"
+        max_open_conns: 25
+        max_idle_conns: 5
+        conn_max_lifetime: "5m"
+      
+      cache:
+        type: redis
+        addr: "localhost:6379"
+        db: 0
+        pool_size: 10
+        dial_timeout: "5s"
+      
+      queue:
+        type: rabbitmq
+        url: "amqp://guest:guest@localhost:5672/"
+        exchange: "myapp.events"
+        max_retries: 3
+      
+      auth:
+        type: jwt
+        secret: "${JWT_SECRET}"
+        expiry: "24h"
+        refresh_expiry: "7d"
+      
+      storage:
+        type: s3
+        bucket: "myapp-storage"
+        region: "us-west-2"
+        access_key: "${AWS_ACCESS_KEY}"
+        secret_key: "${AWS_SECRET_KEY}"
+    ```
+  </Tab>
+  <Tab value="Application Code">
+    ```go
+    package main
+
+    import (
+        "context"
+        "log"
+
+        "github.com/xraph/forge"
+        "github.com/xraph/forge/extensions/database"
+        "github.com/xraph/forge/extensions/cache"
+        "github.com/xraph/forge/extensions/queue"
+        "github.com/xraph/forge/extensions/auth"
+        "github.com/xraph/forge/extensions/storage"
+    )
+
+    func main() {
+        app := forge.New()
+
+        // Register core extensions
+        app.RegisterExtension(database.New())
+        app.RegisterExtension(cache.New())
+        app.RegisterExtension(queue.New())
+        app.RegisterExtension(auth.New())
+        app.RegisterExtension(storage.New())
+
+        // Define routes
+        app.GET("/users/:id", getUserHandler)
+        app.POST("/users", createUserHandler)
+
+        // Start the application
+        if err := app.Run(); err != nil {
+            log.Fatal(err)
+        }
+    }
+    ```
+  </Tab>
+  <Tab value="Usage Example">
+    ```go
+    func getUserHandler(c forge.Context) error {
+        userID := c.Param("id")
+        
+        // Try cache first
+        cache := forge.GetCache(c)
+        if userData, err := cache.Get(c.Context(), "user:"+userID); err == nil {
+            return c.JSON(200, userData)
+        }
+        
+        // Fallback to database
+        db := forge.GetDatabase(c)
+        var user User
+        if err := db.Driver().(*sql.DB).QueryRow(
+            "SELECT id, name, email FROM users WHERE id = $1", userID,
+        ).Scan(&user.ID, &user.Name, &user.Email); err != nil {
+            return c.JSON(404, map[string]string{"error": "User not found"})
+        }
+        
+        // Cache the result
+        cache.SetJSON(c.Context(), "user:"+userID, user, time.Hour)
+        
+        return c.JSON(200, user)
+    }
+
+    func createUserHandler(c forge.Context) error {
+        var user User
+        if err := c.Bind(&user); err != nil {
+            return c.JSON(400, map[string]string{"error": "Invalid input"})
+        }
+        
+        // Save to database
+        db := forge.GetDatabase(c)
+        if err := db.Driver().(*sql.DB).QueryRow(
+            "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id",
+            user.Name, user.Email,
+        ).Scan(&user.ID); err != nil {
+            return c.JSON(500, map[string]string{"error": "Failed to create user"})
+        }
+        
+        // Publish event
+        queue := forge.GetQueue(c)
+        event := map[string]interface{}{
+            "type": "user.created",
+            "user_id": user.ID,
+            "timestamp": time.Now(),
+        }
+        queue.Publish(c.Context(), "user.events", queue.Message{
+            Body: event,
+        })
+        
+        // Store profile image if provided
+        if user.ProfileImage != nil {
+            storage := forge.GetStorage(c)
+            key := fmt.Sprintf("profiles/%d/avatar.jpg", user.ID)
+            storage.Upload(c.Context(), key, user.ProfileImage)
+        }
+        
+        return c.JSON(201, user)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Extension Comparison
+
+| Feature | AI | Auth | Cache | Database | Queue | Search | Storage |
+|---------|----|----|-------|----------|-------|--------|---------|
+| **Primary Use** | ML/AI | Security | Performance | Data | Messaging | Discovery | Files |
+| **Backends** | 5+ | 4+ | 3+ | 4+ | 3+ | 3+ | 4+ |
+| **Complexity** | High | Medium | Low | Medium | Medium | Medium | Low |
+| **Performance** | Variable | Fast | Very Fast | Fast | Fast | Fast | Fast |
+| **Scalability** | High | High | Very High | High | High | High | High |
+| **Learning Curve** | Steep | Medium | Easy | Medium | Medium | Medium | Easy |
+
+## Best Practices
+
+### Extension Selection
+- Start with Database, Cache, and Auth for most applications
+- Add Queue for event-driven architectures
+- Include Search for content-heavy applications
+- Use Storage for file management needs
+- Consider AI for intelligent features
+
+### Configuration Management
+- Use environment variables for secrets
+- Separate configs for different environments
+- Enable health checks and metrics
+- Configure appropriate timeouts and retries
+
+### Performance Optimization
+- Use connection pooling for all extensions
+- Implement proper caching strategies
+- Monitor extension metrics and logs
+- Tune configuration based on load patterns
+
+### Security Considerations
+- Enable TLS for all external connections
+- Use strong authentication mechanisms
+- Implement proper access controls
+- Regular security audits and updates
+
+## Monitoring and Observability
+
+All core extensions provide comprehensive observability:
+
+```go
+// Health checks
+app.GET("/health", func(c forge.Context) error {
+    health := map[string]interface{}{
+        "database": forge.GetDatabase(c).Health(c.Context()),
+        "cache":    forge.GetCache(c).Health(c.Context()),
+        "queue":    forge.GetQueue(c).Health(c.Context()),
+    }
+    return c.JSON(200, health)
+})
+
+// Metrics endpoint
+app.GET("/metrics", forge.PrometheusHandler())
+```
+
+## Next Steps
+
+1. **Choose Extensions**: Select the core extensions you need
+2. **Configuration**: Set up your configuration files
+3. **Integration**: Register extensions with your application
+4. **Testing**: Implement health checks and monitoring
+5. **Deployment**: Deploy with proper security and scaling
+
+<Callout type="tip">
+Start with Database and Cache, then add other extensions as your application requirements grow.
+</Callout>

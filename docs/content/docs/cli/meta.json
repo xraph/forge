@@ -1,10 +1,20 @@
 {
   "title": "CLI Framework",
-  "description": "Modern, extensible web framework for Go applications with built-in security and observability",
-  "icon": "Code",
+  "description": "Modern, extensible CLI framework",
+  "icon": "Terminal",
   "root": true,
   "pages": [
     "---Introduction---",
-    "index"
+    "index",
+    "---Core Features---",
+    "commands",
+    "flags",
+    "prompts",
+    "output",
+    "plugins",
+    "---Integration---",
+    "forge-integration",
+    "---Examples---",
+    "examples"
   ]
 }

@@ -1,0 +1,1281 @@
+---
+title: Examples
+description: Complete examples and real-world use cases for building CLI applications
+---
+
+# Examples
+
+This section provides complete, real-world examples of CLI applications built with the Forge CLI framework. These examples demonstrate best practices, common patterns, and advanced features.
+
+## Simple CLI Application
+
+### Basic Todo CLI
+
+A simple todo list manager demonstrating core CLI features:
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "os"
+    "path/filepath"
+    "strconv"
+    "time"
+    
+    "github.com/forge/cli"
+)
+
+type Todo struct {
+    ID          int       `json:"id"`
+    Title       string    `json:"title"`
+    Description string    `json:"description"`
+    Completed   bool      `json:"completed"`
+    CreatedAt   time.Time `json:"created_at"`
+    CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+type TodoStore struct {
+    todos    []Todo
+    filePath string
+    nextID   int
+}
+
+func NewTodoStore() *TodoStore {
+    homeDir, _ := os.UserHomeDir()
+    filePath := filepath.Join(homeDir, ".todos.json")
+    
+    store := &TodoStore{
+        todos:    []Todo{},
+        filePath: filePath,
+        nextID:   1,
+    }
+    
+    store.load()
+    return store
+}
+
+func (s *TodoStore) load() error {
+    data, err := os.ReadFile(s.filePath)
+    if err != nil {
+        if os.IsNotExist(err) {
+            return nil // File doesn't exist yet
+        }
+        return err
+    }
+    
+    var todos []Todo
+    if err := json.Unmarshal(data, &todos); err != nil {
+        return err
+    }
+    
+    s.todos = todos
+    
+    // Find next ID
+    for _, todo := range todos {
+        if todo.ID >= s.nextID {
+            s.nextID = todo.ID + 1
+        }
+    }
+    
+    return nil
+}
+
+func (s *TodoStore) save() error {
+    data, err := json.MarshalIndent(s.todos, "", "  ")
+    if err != nil {
+        return err
+    }
+    
+    return os.WriteFile(s.filePath, data, 0644)
+}
+
+func (s *TodoStore) add(title, description string) *Todo {
+    todo := Todo{
+        ID:          s.nextID,
+        Title:       title,
+        Description: description,
+        Completed:   false,
+        CreatedAt:   time.Now(),
+    }
+    
+    s.todos = append(s.todos, todo)
+    s.nextID++
+    
+    return &todo
+}
+
+func (s *TodoStore) complete(id int) (*Todo, error) {
+    for i := range s.todos {
+        if s.todos[i].ID == id {
+            if s.todos[i].Completed {
+                return nil, fmt.Errorf("todo %d is already completed", id)
+            }
+            
+            now := time.Now()
+            s.todos[i].Completed = true
+            s.todos[i].CompletedAt = &now
+            return &s.todos[i], nil
+        }
+    }
+    
+    return nil, fmt.Errorf("todo %d not found", id)
+}
+
+func (s *TodoStore) delete(id int) error {
+    for i, todo := range s.todos {
+        if todo.ID == id {
+            s.todos = append(s.todos[:i], s.todos[i+1:]...)
+            return nil
+        }
+    }
+    
+    return fmt.Errorf("todo %d not found", id)
+}
+
+func (s *TodoStore) list(showCompleted bool) []Todo {
+    var result []Todo
+    for _, todo := range s.todos {
+        if showCompleted || !todo.Completed {
+            result = append(result, todo)
+        }
+    }
+    return result
+}
+
+func main() {
+    store := NewTodoStore()
+    
+    app := cli.New(cli.Config{
+        Name:        "todo",
+        Description: "A simple todo list manager",
+        Version:     "1.0.0",
+    })
+    
+    // Add command
+    app.AddCommand(
+        cli.NewCommand("add").
+            WithDescription("Add a new todo item").
+            WithHandler(func(ctx cli.CommandContext) error {
+                title, err := ctx.Prompt("Todo title:")
+                if err != nil {
+                    return err
+                }
+                
+                description, err := ctx.PromptWithDefault("Description (optional):", "")
+                if err != nil {
+                    return err
+                }
+                
+                todo := store.add(title, description)
+                if err := store.save(); err != nil {
+                    return fmt.Errorf("failed to save: %v", err)
+                }
+                
+                ctx.Success(fmt.Sprintf("✅ Added todo #%d: %s", todo.ID, todo.Title))
+                return nil
+            }),
+    )
+    
+    // List command
+    app.AddCommand(
+        cli.NewCommand("list").
+            WithDescription("List todo items").
+            WithAlias("ls").
+            WithFlags(
+                cli.BoolFlag("all", "Show completed todos").
+                    WithAlias("a"),
+            ).
+            WithHandler(func(ctx cli.CommandContext) error {
+                showCompleted := ctx.Bool("all")
+                todos := store.list(showCompleted)
+                
+                if len(todos) == 0 {
+                    ctx.Info("No todos found")
+                    return nil
+                }
+                
+                table := ctx.Table()
+                table.SetHeaders([]string{"ID", "Title", "Status", "Created"})
+                
+                for _, todo := range todos {
+                    status := "⏳ Pending"
+                    if todo.Completed {
+                        status = "✅ Completed"
+                    }
+                    
+                    table.AddRow([]string{
+                        strconv.Itoa(todo.ID),
+                        todo.Title,
+                        status,
+                        todo.CreatedAt.Format("2006-01-02 15:04"),
+                    })
+                }
+                
+                table.Render()
+                return nil
+            }),
+    )
+    
+    // Complete command
+    app.AddCommand(
+        cli.NewCommand("complete").
+            WithDescription("Mark a todo as completed").
+            WithAlias("done").
+            WithArgs(cli.Arg{
+                Name:        "id",
+                Description: "Todo ID to complete",
+                Required:    true,
+            }).
+            WithHandler(func(ctx cli.CommandContext) error {
+                idStr := ctx.Args()[0]
+                id, err := strconv.Atoi(idStr)
+                if err != nil {
+                    return fmt.Errorf("invalid todo ID: %s", idStr)
+                }
+                
+                todo, err := store.complete(id)
+                if err != nil {
+                    return err
+                }
+                
+                if err := store.save(); err != nil {
+                    return fmt.Errorf("failed to save: %v", err)
+                }
+                
+                ctx.Success(fmt.Sprintf("✅ Completed todo #%d: %s", todo.ID, todo.Title))
+                return nil
+            }),
+    )
+    
+    // Delete command
+    app.AddCommand(
+        cli.NewCommand("delete").
+            WithDescription("Delete a todo item").
+            WithAlias("rm").
+            WithArgs(cli.Arg{
+                Name:        "id",
+                Description: "Todo ID to delete",
+                Required:    true,
+            }).
+            WithHandler(func(ctx cli.CommandContext) error {
+                idStr := ctx.Args()[0]
+                id, err := strconv.Atoi(idStr)
+                if err != nil {
+                    return fmt.Errorf("invalid todo ID: %s", idStr)
+                }
+                
+                confirmed, err := ctx.Confirm(fmt.Sprintf("Delete todo #%d?", id))
+                if err != nil {
+                    return err
+                }
+                
+                if !confirmed {
+                    ctx.Info("Deletion cancelled")
+                    return nil
+                }
+                
+                if err := store.delete(id); err != nil {
+                    return err
+                }
+                
+                if err := store.save(); err != nil {
+                    return fmt.Errorf("failed to save: %v", err)
+                }
+                
+                ctx.Success(fmt.Sprintf("🗑️  Deleted todo #%d", id))
+                return nil
+            }),
+    )
+    
+    if err := app.Run(); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+```
+
+## File Management CLI
+
+### Advanced File Operations
+
+A file management CLI with advanced features:
+
+```go
+package main
+
+import (
+    "crypto/md5"
+    "fmt"
+    "io"
+    "os"
+    "path/filepath"
+    "strings"
+    "time"
+    
+    "github.com/forge/cli"
+)
+
+type FileInfo struct {
+    Path     string
+    Size     int64
+    ModTime  time.Time
+    IsDir    bool
+    Checksum string
+}
+
+func main() {
+    app := cli.New(cli.Config{
+        Name:        "fmgr",
+        Description: "Advanced file management CLI",
+        Version:     "1.0.0",
+    })
+    
+    // Copy command with progress
+    app.AddCommand(
+        cli.NewCommand("copy").
+            WithDescription("Copy files with progress indication").
+            WithAlias("cp").
+            WithArgs(
+                cli.Arg{Name: "source", Description: "Source file or directory", Required: true},
+                cli.Arg{Name: "destination", Description: "Destination path", Required: true},
+            ).
+            WithFlags(
+                cli.BoolFlag("recursive", "Copy directories recursively").WithAlias("r"),
+                cli.BoolFlag("preserve", "Preserve file attributes").WithAlias("p"),
+                cli.BoolFlag("verify", "Verify copy with checksums").WithAlias("v"),
+            ).
+            WithHandler(copyHandler),
+    )
+    
+    // Find command with filters
+    app.AddCommand(
+        cli.NewCommand("find").
+            WithDescription("Find files with advanced filtering").
+            WithArgs(cli.Arg{Name: "path", Description: "Search path", Required: true}).
+            WithFlags(
+                cli.StringFlag("name", "File name pattern").WithAlias("n"),
+                cli.StringFlag("type", "File type (f=file, d=directory)").WithAlias("t"),
+                cli.StringFlag("size", "Size filter (e.g., +1M, -100K)").WithAlias("s"),
+                cli.IntFlag("days", "Modified within N days").WithAlias("d"),
+                cli.BoolFlag("empty", "Find empty files/directories").WithAlias("e"),
+            ).
+            WithHandler(findHandler),
+    )
+    
+    // Duplicate finder
+    app.AddCommand(
+        cli.NewCommand("duplicates").
+            WithDescription("Find duplicate files").
+            WithAlias("dupes").
+            WithArgs(cli.Arg{Name: "path", Description: "Search path", Required: true}).
+            WithFlags(
+                cli.BoolFlag("delete", "Delete duplicates interactively").WithAlias("d"),
+                cli.StringFlag("output", "Output format (table, json)").WithDefault("table"),
+            ).
+            WithHandler(duplicatesHandler),
+    )
+    
+    // Disk usage analyzer
+    app.AddCommand(
+        cli.NewCommand("usage").
+            WithDescription("Analyze disk usage").
+            WithAlias("du").
+            WithArgs(cli.Arg{Name: "path", Description: "Path to analyze", Required: true}).
+            WithFlags(
+                cli.IntFlag("depth", "Maximum depth to analyze").WithDefault(3),
+                cli.BoolFlag("sort", "Sort by size").WithAlias("s"),
+                cli.StringFlag("format", "Output format (tree, table)").WithDefault("tree"),
+            ).
+            WithHandler(usageHandler),
+    )
+    
+    if err := app.Run(); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+
+func copyHandler(ctx cli.CommandContext) error {
+    source := ctx.Args()[0]
+    dest := ctx.Args()[1]
+    recursive := ctx.Bool("recursive")
+    verify := ctx.Bool("verify")
+    
+    // Check if source exists
+    sourceInfo, err := os.Stat(source)
+    if err != nil {
+        return fmt.Errorf("source not found: %v", err)
+    }
+    
+    if sourceInfo.IsDir() && !recursive {
+        return fmt.Errorf("source is a directory, use --recursive flag")
+    }
+    
+    // Calculate total size for progress
+    totalSize, fileCount, err := calculateSize(source, recursive)
+    if err != nil {
+        return fmt.Errorf("failed to calculate size: %v", err)
+    }
+    
+    ctx.Info(fmt.Sprintf("Copying %d files (%s)...", fileCount, formatBytes(totalSize)))
+    
+    progress := ctx.ProgressBar(fileCount)
+    var copiedSize int64
+    
+    err = copyWithProgress(source, dest, recursive, verify, func(file string, size int64) {
+        copiedSize += size
+        progress.SetMessage(fmt.Sprintf("Copying %s (%s/%s)", 
+            filepath.Base(file), 
+            formatBytes(copiedSize), 
+            formatBytes(totalSize)))
+        progress.Increment()
+    })
+    
+    if err != nil {
+        return fmt.Errorf("copy failed: %v", err)
+    }
+    
+    progress.Finish("Copy completed successfully!")
+    
+    if verify {
+        ctx.Info("Verifying checksums...")
+        if err := verifyChecksums(source, dest, recursive); err != nil {
+            return fmt.Errorf("verification failed: %v", err)
+        }
+        ctx.Success("✅ Verification passed!")
+    }
+    
+    return nil
+}
+
+func findHandler(ctx cli.CommandContext) error {
+    searchPath := ctx.Args()[0]
+    namePattern := ctx.String("name")
+    fileType := ctx.String("type")
+    sizeFilter := ctx.String("size")
+    days := ctx.Int("days")
+    empty := ctx.Bool("empty")
+    
+    spinner := ctx.Spinner("Searching files...")
+    
+    var results []FileInfo
+    err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return nil // Skip errors
+        }
+        
+        // Apply filters
+        if namePattern != "" && !matchPattern(info.Name(), namePattern) {
+            return nil
+        }
+        
+        if fileType != "" {
+            if fileType == "f" && info.IsDir() {
+                return nil
+            }
+            if fileType == "d" && !info.IsDir() {
+                return nil
+            }
+        }
+        
+        if sizeFilter != "" && !matchSize(info.Size(), sizeFilter) {
+            return nil
+        }
+        
+        if days > 0 && time.Since(info.ModTime()) > time.Duration(days)*24*time.Hour {
+            return nil
+        }
+        
+        if empty && ((info.IsDir() && !isDirEmpty(path)) || (!info.IsDir() && info.Size() > 0)) {
+            return nil
+        }
+        
+        results = append(results, FileInfo{
+            Path:    path,
+            Size:    info.Size(),
+            ModTime: info.ModTime(),
+            IsDir:   info.IsDir(),
+        })
+        
+        return nil
+    })
+    
+    spinner.Stop(fmt.Sprintf("Found %d files", len(results)))
+    
+    if err != nil {
+        return fmt.Errorf("search failed: %v", err)
+    }
+    
+    if len(results) == 0 {
+        ctx.Info("No files found matching criteria")
+        return nil
+    }
+    
+    // Display results
+    table := ctx.Table()
+    table.SetHeaders([]string{"Path", "Type", "Size", "Modified"})
+    
+    for _, file := range results {
+        fileType := "File"
+        if file.IsDir {
+            fileType = "Directory"
+        }
+        
+        table.AddRow([]string{
+            file.Path,
+            fileType,
+            formatBytes(file.Size),
+            file.ModTime.Format("2006-01-02 15:04"),
+        })
+    }
+    
+    table.Render()
+    return nil
+}
+
+func duplicatesHandler(ctx cli.CommandContext) error {
+    searchPath := ctx.Args()[0]
+    deleteMode := ctx.Bool("delete")
+    outputFormat := ctx.String("output")
+    
+    ctx.Info("Scanning for duplicate files...")
+    spinner := ctx.Spinner("Calculating checksums...")
+    
+    // Map of checksum to file paths
+    checksums := make(map[string][]string)
+    
+    err := filepath.Walk(searchPath, func(path string, info os.FileInfo, err error) error {
+        if err != nil || info.IsDir() {
+            return nil
+        }
+        
+        checksum, err := calculateChecksum(path)
+        if err != nil {
+            return nil // Skip files we can't read
+        }
+        
+        checksums[checksum] = append(checksums[checksum], path)
+        return nil
+    })
+    
+    spinner.Stop("Scan complete")
+    
+    if err != nil {
+        return fmt.Errorf("scan failed: %v", err)
+    }
+    
+    // Find duplicates
+    var duplicateGroups [][]string
+    for _, paths := range checksums {
+        if len(paths) > 1 {
+            duplicateGroups = append(duplicateGroups, paths)
+        }
+    }
+    
+    if len(duplicateGroups) == 0 {
+        ctx.Success("No duplicate files found!")
+        return nil
+    }
+    
+    ctx.Warning(fmt.Sprintf("Found %d groups of duplicate files", len(duplicateGroups)))
+    
+    if outputFormat == "json" {
+        return ctx.OutputJSON(map[string]interface{}{
+            "duplicate_groups": duplicateGroups,
+            "total_groups":     len(duplicateGroups),
+        })
+    }
+    
+    // Display duplicates
+    for i, group := range duplicateGroups {
+        ctx.Info(fmt.Sprintf("\nDuplicate group %d:", i+1))
+        
+        table := ctx.Table()
+        table.SetHeaders([]string{"Path", "Size", "Modified"})
+        
+        for _, path := range group {
+            info, _ := os.Stat(path)
+            table.AddRow([]string{
+                path,
+                formatBytes(info.Size()),
+                info.ModTime().Format("2006-01-02 15:04"),
+            })
+        }
+        
+        table.Render()
+        
+        if deleteMode {
+            // Interactive deletion
+            keep, err := ctx.Select("Which file to keep?", group)
+            if err != nil {
+                continue
+            }
+            
+            for _, path := range group {
+                if path != keep {
+                    confirmed, err := ctx.Confirm(fmt.Sprintf("Delete %s?", path))
+                    if err != nil || !confirmed {
+                        continue
+                    }
+                    
+                    if err := os.Remove(path); err != nil {
+                        ctx.Error(fmt.Sprintf("Failed to delete %s: %v", path, err))
+                    } else {
+                        ctx.Success(fmt.Sprintf("Deleted %s", path))
+                    }
+                }
+            }
+        }
+    }
+    
+    return nil
+}
+
+func usageHandler(ctx cli.CommandContext) error {
+    path := ctx.Args()[0]
+    maxDepth := ctx.Int("depth")
+    sortBySize := ctx.Bool("sort")
+    format := ctx.String("format")
+    
+    spinner := ctx.Spinner("Analyzing disk usage...")
+    
+    usage, err := analyzeDiskUsage(path, maxDepth)
+    if err != nil {
+        return fmt.Errorf("analysis failed: %v", err)
+    }
+    
+    spinner.Stop("Analysis complete")
+    
+    if sortBySize {
+        // Sort by size (implementation omitted for brevity)
+    }
+    
+    if format == "table" {
+        table := ctx.Table()
+        table.SetHeaders([]string{"Path", "Size", "Files", "Directories"})
+        
+        for _, item := range usage {
+            table.AddRow([]string{
+                item.Path,
+                formatBytes(item.Size),
+                fmt.Sprintf("%d", item.FileCount),
+                fmt.Sprintf("%d", item.DirCount),
+            })
+        }
+        
+        table.Render()
+    } else {
+        // Tree format (implementation omitted for brevity)
+        displayUsageTree(ctx, usage, 0)
+    }
+    
+    return nil
+}
+
+// Helper functions (implementations omitted for brevity)
+func calculateSize(path string, recursive bool) (int64, int, error) {
+    // Implementation
+    return 0, 0, nil
+}
+
+func copyWithProgress(source, dest string, recursive, verify bool, callback func(string, int64)) error {
+    // Implementation
+    return nil
+}
+
+func verifyChecksums(source, dest string, recursive bool) error {
+    // Implementation
+    return nil
+}
+
+func matchPattern(name, pattern string) bool {
+    // Implementation
+    return strings.Contains(strings.ToLower(name), strings.ToLower(pattern))
+}
+
+func matchSize(size int64, filter string) bool {
+    // Implementation
+    return true
+}
+
+func isDirEmpty(path string) bool {
+    // Implementation
+    return false
+}
+
+func calculateChecksum(path string) (string, error) {
+    file, err := os.Open(path)
+    if err != nil {
+        return "", err
+    }
+    defer file.Close()
+    
+    hash := md5.New()
+    if _, err := io.Copy(hash, file); err != nil {
+        return "", err
+    }
+    
+    return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func analyzeDiskUsage(path string, maxDepth int) ([]UsageInfo, error) {
+    // Implementation
+    return nil, nil
+}
+
+func displayUsageTree(ctx cli.CommandContext, usage []UsageInfo, depth int) {
+    // Implementation
+}
+
+func formatBytes(bytes int64) string {
+    const unit = 1024
+    if bytes < unit {
+        return fmt.Sprintf("%d B", bytes)
+    }
+    div, exp := int64(unit), 0
+    for n := bytes / unit; n >= unit; n /= unit {
+        div *= unit
+        exp++
+    }
+    return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+type UsageInfo struct {
+    Path      string
+    Size      int64
+    FileCount int
+    DirCount  int
+}
+```
+
+## API Client CLI
+
+### REST API Client with Authentication
+
+A comprehensive API client CLI:
+
+```go
+package main
+
+import (
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+    "os"
+    "path/filepath"
+    "strings"
+    "time"
+    
+    "github.com/forge/cli"
+)
+
+type APIClient struct {
+    baseURL    string
+    token      string
+    httpClient *http.Client
+}
+
+type Config struct {
+    BaseURL string `json:"base_url"`
+    Token   string `json:"token"`
+}
+
+func main() {
+    app := cli.New(cli.Config{
+        Name:        "api-cli",
+        Description: "REST API client with authentication",
+        Version:     "1.0.0",
+    })
+    
+    // Global flags
+    app.AddGlobalFlags(
+        cli.StringFlag("config", "Configuration file path").
+            WithDefault(getDefaultConfigPath()),
+        cli.StringFlag("base-url", "API base URL").
+            WithAlias("u"),
+        cli.StringFlag("token", "Authentication token").
+            WithAlias("t"),
+        cli.StringFlag("format", "Output format (json, table, yaml)").
+            WithDefault("json").
+            WithAlias("f"),
+        cli.BoolFlag("verbose", "Verbose output").
+            WithAlias("v"),
+    )
+    
+    // Auth commands
+    authCmd := cli.NewCommand("auth").
+        WithDescription("Authentication commands").
+        WithSubcommands(
+            cli.NewCommand("login").
+                WithDescription("Login and save credentials").
+                WithHandler(loginHandler),
+            
+            cli.NewCommand("logout").
+                WithDescription("Logout and clear credentials").
+                WithHandler(logoutHandler),
+            
+            cli.NewCommand("status").
+                WithDescription("Check authentication status").
+                WithHandler(authStatusHandler),
+        )
+    
+    // API commands
+    getCmd := cli.NewCommand("get").
+        WithDescription("GET request to API endpoint").
+        WithArgs(cli.Arg{Name: "endpoint", Description: "API endpoint", Required: true}).
+        WithFlags(
+            cli.StringSliceFlag("header", "Additional headers (key:value)").
+                WithAlias("H"),
+            cli.StringFlag("query", "Query parameters (JSON)").
+                WithAlias("q"),
+        ).
+        WithHandler(getHandler)
+    
+    postCmd := cli.NewCommand("post").
+        WithDescription("POST request to API endpoint").
+        WithArgs(cli.Arg{Name: "endpoint", Description: "API endpoint", Required: true}).
+        WithFlags(
+            cli.StringSliceFlag("header", "Additional headers (key:value)").
+                WithAlias("H"),
+            cli.StringFlag("data", "Request body (JSON)").
+                WithAlias("d"),
+            cli.StringFlag("file", "Read request body from file").
+                WithAlias("f"),
+        ).
+        WithHandler(postHandler)
+    
+    putCmd := cli.NewCommand("put").
+        WithDescription("PUT request to API endpoint").
+        WithArgs(cli.Arg{Name: "endpoint", Description: "API endpoint", Required: true}).
+        WithFlags(
+            cli.StringSliceFlag("header", "Additional headers (key:value)").
+                WithAlias("H"),
+            cli.StringFlag("data", "Request body (JSON)").
+                WithAlias("d"),
+            cli.StringFlag("file", "Read request body from file").
+                WithAlias("f"),
+        ).
+        WithHandler(putHandler)
+    
+    deleteCmd := cli.NewCommand("delete").
+        WithDescription("DELETE request to API endpoint").
+        WithArgs(cli.Arg{Name: "endpoint", Description: "API endpoint", Required: true}).
+        WithFlags(
+            cli.StringSliceFlag("header", "Additional headers (key:value)").
+                WithAlias("H"),
+        ).
+        WithHandler(deleteHandler)
+    
+    // Utility commands
+    configCmd := cli.NewCommand("config").
+        WithDescription("Configuration management").
+        WithSubcommands(
+            cli.NewCommand("show").
+                WithDescription("Show current configuration").
+                WithHandler(configShowHandler),
+            
+            cli.NewCommand("set").
+                WithDescription("Set configuration value").
+                WithArgs(
+                    cli.Arg{Name: "key", Description: "Configuration key", Required: true},
+                    cli.Arg{Name: "value", Description: "Configuration value", Required: true},
+                ).
+                WithHandler(configSetHandler),
+        )
+    
+    app.AddCommands(authCmd, getCmd, postCmd, putCmd, deleteCmd, configCmd)
+    
+    if err := app.Run(); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(1)
+    }
+}
+
+func loginHandler(ctx cli.CommandContext) error {
+    baseURL, err := ctx.Prompt("API Base URL:")
+    if err != nil {
+        return err
+    }
+    
+    username, err := ctx.Prompt("Username:")
+    if err != nil {
+        return err
+    }
+    
+    password, err := ctx.PromptPassword("Password:")
+    if err != nil {
+        return err
+    }
+    
+    // Authenticate
+    spinner := ctx.Spinner("Authenticating...")
+    
+    client := &APIClient{
+        baseURL:    baseURL,
+        httpClient: &http.Client{Timeout: 30 * time.Second},
+    }
+    
+    token, err := client.authenticate(username, password)
+    if err != nil {
+        spinner.Stop("Authentication failed")
+        return fmt.Errorf("authentication failed: %v", err)
+    }
+    
+    spinner.Stop("Authentication successful")
+    
+    // Save configuration
+    config := Config{
+        BaseURL: baseURL,
+        Token:   token,
+    }
+    
+    if err := saveConfig(ctx.String("config"), config); err != nil {
+        return fmt.Errorf("failed to save config: %v", err)
+    }
+    
+    ctx.Success("✅ Logged in successfully!")
+    return nil
+}
+
+func logoutHandler(ctx cli.CommandContext) error {
+    configPath := ctx.String("config")
+    
+    if err := os.Remove(configPath); err != nil && !os.IsNotExist(err) {
+        return fmt.Errorf("failed to remove config: %v", err)
+    }
+    
+    ctx.Success("✅ Logged out successfully!")
+    return nil
+}
+
+func authStatusHandler(ctx cli.CommandContext) error {
+    config, err := loadConfig(ctx.String("config"))
+    if err != nil {
+        ctx.Warning("Not logged in")
+        return nil
+    }
+    
+    client := newAPIClient(config)
+    
+    spinner := ctx.Spinner("Checking authentication status...")
+    
+    valid, user, err := client.validateToken()
+    if err != nil {
+        spinner.Stop("Status check failed")
+        return fmt.Errorf("failed to check status: %v", err)
+    }
+    
+    spinner.Stop("Status check complete")
+    
+    if valid {
+        ctx.Success(fmt.Sprintf("✅ Authenticated as %s", user))
+        ctx.Info(fmt.Sprintf("Base URL: %s", config.BaseURL))
+    } else {
+        ctx.Warning("❌ Authentication expired")
+    }
+    
+    return nil
+}
+
+func getHandler(ctx cli.CommandContext) error {
+    return makeRequest(ctx, "GET", ctx.Args()[0], nil)
+}
+
+func postHandler(ctx cli.CommandContext) error {
+    body, err := getRequestBody(ctx)
+    if err != nil {
+        return err
+    }
+    
+    return makeRequest(ctx, "POST", ctx.Args()[0], body)
+}
+
+func putHandler(ctx cli.CommandContext) error {
+    body, err := getRequestBody(ctx)
+    if err != nil {
+        return err
+    }
+    
+    return makeRequest(ctx, "PUT", ctx.Args()[0], body)
+}
+
+func deleteHandler(ctx cli.CommandContext) error {
+    endpoint := ctx.Args()[0]
+    
+    confirmed, err := ctx.Confirm(fmt.Sprintf("Delete %s?", endpoint))
+    if err != nil {
+        return err
+    }
+    
+    if !confirmed {
+        ctx.Info("Operation cancelled")
+        return nil
+    }
+    
+    return makeRequest(ctx, "DELETE", endpoint, nil)
+}
+
+func makeRequest(ctx cli.CommandContext, method, endpoint string, body []byte) error {
+    config, err := loadConfig(ctx.String("config"))
+    if err != nil {
+        return fmt.Errorf("not logged in, use 'auth login' first")
+    }
+    
+    // Override config with command-line flags
+    if baseURL := ctx.String("base-url"); baseURL != "" {
+        config.BaseURL = baseURL
+    }
+    if token := ctx.String("token"); token != "" {
+        config.Token = token
+    }
+    
+    client := newAPIClient(config)
+    
+    // Parse additional headers
+    headers := make(map[string]string)
+    for _, header := range ctx.StringSlice("header") {
+        parts := strings.SplitN(header, ":", 2)
+        if len(parts) == 2 {
+            headers[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
+        }
+    }
+    
+    // Parse query parameters
+    var queryParams map[string]interface{}
+    if queryStr := ctx.String("query"); queryStr != "" {
+        if err := json.Unmarshal([]byte(queryStr), &queryParams); err != nil {
+            return fmt.Errorf("invalid query JSON: %v", err)
+        }
+    }
+    
+    verbose := ctx.Bool("verbose")
+    if verbose {
+        ctx.Info(fmt.Sprintf("Making %s request to %s", method, endpoint))
+    }
+    
+    spinner := ctx.Spinner(fmt.Sprintf("Making %s request...", method))
+    
+    response, err := client.makeRequest(method, endpoint, body, headers, queryParams)
+    if err != nil {
+        spinner.Stop("Request failed")
+        return fmt.Errorf("request failed: %v", err)
+    }
+    
+    spinner.Stop("Request complete")
+    
+    // Display response
+    format := ctx.String("format")
+    return displayResponse(ctx, response, format, verbose)
+}
+
+func getRequestBody(ctx cli.CommandContext) ([]byte, error) {
+    if filePath := ctx.String("file"); filePath != "" {
+        return os.ReadFile(filePath)
+    }
+    
+    if data := ctx.String("data"); data != "" {
+        return []byte(data), nil
+    }
+    
+    // Interactive input
+    data, err := ctx.Prompt("Request body (JSON):")
+    if err != nil {
+        return nil, err
+    }
+    
+    return []byte(data), nil
+}
+
+func displayResponse(ctx cli.CommandContext, response *APIResponse, format string, verbose bool) error {
+    if verbose {
+        ctx.Info(fmt.Sprintf("Status: %d %s", response.StatusCode, response.Status))
+        ctx.Info(fmt.Sprintf("Content-Type: %s", response.ContentType))
+        ctx.Info(fmt.Sprintf("Content-Length: %d", len(response.Body)))
+        
+        if len(response.Headers) > 0 {
+            ctx.Info("Headers:")
+            for key, value := range response.Headers {
+                ctx.Info(fmt.Sprintf("  %s: %s", key, value))
+            }
+        }
+        ctx.Info("")
+    }
+    
+    switch format {
+    case "json":
+        if response.IsJSON() {
+            var formatted interface{}
+            if err := json.Unmarshal(response.Body, &formatted); err == nil {
+                return ctx.OutputJSON(formatted)
+            }
+        }
+        fmt.Print(string(response.Body))
+        
+    case "table":
+        if response.IsJSON() {
+            var data interface{}
+            if err := json.Unmarshal(response.Body, &data); err == nil {
+                return displayAsTable(ctx, data)
+            }
+        }
+        fmt.Print(string(response.Body))
+        
+    case "yaml":
+        if response.IsJSON() {
+            var data interface{}
+            if err := json.Unmarshal(response.Body, &data); err == nil {
+                return ctx.OutputYAML(data)
+            }
+        }
+        fmt.Print(string(response.Body))
+        
+    default:
+        fmt.Print(string(response.Body))
+    }
+    
+    return nil
+}
+
+// Helper types and functions
+type APIResponse struct {
+    StatusCode  int
+    Status      string
+    Headers     map[string]string
+    Body        []byte
+    ContentType string
+}
+
+func (r *APIResponse) IsJSON() bool {
+    return strings.Contains(r.ContentType, "application/json")
+}
+
+func (c *APIClient) authenticate(username, password string) (string, error) {
+    // Implementation
+    return "mock-token", nil
+}
+
+func (c *APIClient) validateToken() (bool, string, error) {
+    // Implementation
+    return true, "user@example.com", nil
+}
+
+func (c *APIClient) makeRequest(method, endpoint string, body []byte, headers map[string]string, queryParams map[string]interface{}) (*APIResponse, error) {
+    // Implementation
+    return &APIResponse{
+        StatusCode:  200,
+        Status:      "OK",
+        Headers:     make(map[string]string),
+        Body:        []byte(`{"message": "success"}`),
+        ContentType: "application/json",
+    }, nil
+}
+
+func newAPIClient(config Config) *APIClient {
+    return &APIClient{
+        baseURL:    config.BaseURL,
+        token:      config.Token,
+        httpClient: &http.Client{Timeout: 30 * time.Second},
+    }
+}
+
+func loadConfig(path string) (Config, error) {
+    var config Config
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return config, err
+    }
+    
+    err = json.Unmarshal(data, &config)
+    return config, err
+}
+
+func saveConfig(path string, config Config) error {
+    // Ensure directory exists
+    if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+        return err
+    }
+    
+    data, err := json.MarshalIndent(config, "", "  ")
+    if err != nil {
+        return err
+    }
+    
+    return os.WriteFile(path, data, 0600) // Secure permissions for credentials
+}
+
+func getDefaultConfigPath() string {
+    homeDir, _ := os.UserHomeDir()
+    return filepath.Join(homeDir, ".api-cli", "config.json")
+}
+
+func displayAsTable(ctx cli.CommandContext, data interface{}) error {
+    // Implementation to convert JSON to table format
+    return nil
+}
+
+func configShowHandler(ctx cli.CommandContext) error {
+    config, err := loadConfig(ctx.String("config"))
+    if err != nil {
+        return fmt.Errorf("no configuration found")
+    }
+    
+    ctx.Info("Current configuration:")
+    ctx.Info(fmt.Sprintf("Base URL: %s", config.BaseURL))
+    ctx.Info(fmt.Sprintf("Token: %s", maskToken(config.Token)))
+    
+    return nil
+}
+
+func configSetHandler(ctx cli.CommandContext) error {
+    key := ctx.Args()[0]
+    value := ctx.Args()[1]
+    
+    config, err := loadConfig(ctx.String("config"))
+    if err != nil {
+        config = Config{} // Create new config
+    }
+    
+    switch key {
+    case "base-url":
+        config.BaseURL = value
+    case "token":
+        config.Token = value
+    default:
+        return fmt.Errorf("unknown configuration key: %s", key)
+    }
+    
+    if err := saveConfig(ctx.String("config"), config); err != nil {
+        return fmt.Errorf("failed to save config: %v", err)
+    }
+    
+    ctx.Success(fmt.Sprintf("✅ Set %s = %s", key, value))
+    return nil
+}
+
+func maskToken(token string) string {
+    if len(token) <= 8 {
+        return strings.Repeat("*", len(token))
+    }
+    return token[:4] + strings.Repeat("*", len(token)-8) + token[len(token)-4:]
+}
+```
+
+## Next Steps
+
+These examples demonstrate:
+
+- **Simple CLI**: Basic CRUD operations with file persistence
+- **File Management**: Advanced file operations with progress indication
+- **API Client**: REST API interaction with authentication and multiple output formats
+
+For more examples, check out:
+
+- [Commands](/docs/cli/commands) for command structure patterns
+- [Prompts](/docs/cli/prompts) for interactive user input
+- [Output](/docs/cli/output) for formatting and progress indication
+- [Plugins](/docs/cli/plugins) for extending functionality
+- [Forge Integration](/docs/cli/forge-integration) for web framework integration

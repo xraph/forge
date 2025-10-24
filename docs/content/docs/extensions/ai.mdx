@@ -1,0 +1,759 @@
+---
+title: AI Extension
+description: Comprehensive AI platform with LLM integration, agents, inference engine, and model management
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Card, Cards } from 'fumadocs-ui/components/card'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+import { Step, Steps } from 'fumadocs-ui/components/steps'
+
+# AI Extension
+
+The AI extension is Forge's most comprehensive extension, providing a complete AI platform with LLM integration, AI agents, high-performance inference engine, model management, and advanced features like streaming, monitoring, and smart caching.
+
+<Callout type="info">
+The AI extension supports multiple LLM providers including OpenAI, Anthropic, Azure OpenAI, Ollama, and HuggingFace with unified interfaces.
+</Callout>
+
+## Features
+
+### LLM Integration
+- **Multiple Providers**: OpenAI, Anthropic, Azure OpenAI, Ollama, HuggingFace
+- **Unified Interface**: Consistent API across all providers
+- **Streaming Support**: Real-time response streaming
+- **Function Calling**: Tool use and function execution
+- **Vision Models**: Image understanding and analysis
+
+### AI Agents
+- **Agent Framework**: Build autonomous AI agents
+- **Tool Integration**: Connect agents to external tools
+- **Memory Management**: Persistent agent memory
+- **Multi-Agent Systems**: Coordinate multiple agents
+- **Workflow Orchestration**: Complex agent workflows
+
+### Inference Engine
+- **High Performance**: Optimized for production workloads
+- **Model Formats**: ONNX, PyTorch, TensorFlow support
+- **GPU Acceleration**: CUDA and Metal support
+- **Batch Processing**: Efficient batch inference
+- **Model Serving**: REST and gRPC endpoints
+
+### Model Management
+- **Model Registry**: Centralized model storage
+- **Version Control**: Model versioning and rollback
+- **A/B Testing**: Compare model performance
+- **Auto-scaling**: Dynamic model scaling
+- **Health Monitoring**: Model performance tracking
+
+## Installation
+
+```bash
+go get github.com/xraph/forge/extensions/ai
+```
+
+## Configuration
+
+<Tabs items={['YAML', 'Environment Variables', 'Programmatic']}>
+  <Tab value="YAML">
+    ```yaml
+    extensions:
+      ai:
+        # LLM Configuration
+        llm:
+          default_provider: "openai"
+          providers:
+            openai:
+              api_key: "${OPENAI_API_KEY}"
+              model: "gpt-4"
+              max_tokens: 4096
+              temperature: 0.7
+            anthropic:
+              api_key: "${ANTHROPIC_API_KEY}"
+              model: "claude-3-sonnet-20240229"
+              max_tokens: 4096
+            azure:
+              api_key: "${AZURE_OPENAI_API_KEY}"
+              endpoint: "${AZURE_OPENAI_ENDPOINT}"
+              deployment: "gpt-4"
+            ollama:
+              endpoint: "http://localhost:11434"
+              model: "llama2"
+        
+        # Inference Engine
+        inference:
+          enabled: true
+          gpu_enabled: true
+          max_batch_size: 32
+          timeout: "30s"
+          models_path: "./models"
+        
+        # Agents
+        agents:
+          enabled: true
+          max_agents: 100
+          memory_backend: "redis"
+          tools_enabled: true
+        
+        # Caching
+        cache:
+          enabled: true
+          backend: "redis"
+          ttl: "1h"
+          max_size: "1GB"
+        
+        # Monitoring
+        monitoring:
+          enabled: true
+          metrics_interval: "10s"
+          log_requests: true
+          trace_enabled: true
+    ```
+  </Tab>
+  <Tab value="Environment Variables">
+    ```bash
+    # LLM Provider Keys
+    export OPENAI_API_KEY="sk-..."
+    export ANTHROPIC_API_KEY="sk-ant-..."
+    export AZURE_OPENAI_API_KEY="..."
+    export AZURE_OPENAI_ENDPOINT="https://..."
+    
+    # AI Extension Config
+    export AI_DEFAULT_PROVIDER="openai"
+    export AI_INFERENCE_ENABLED="true"
+    export AI_GPU_ENABLED="true"
+    export AI_CACHE_ENABLED="true"
+    export AI_MONITORING_ENABLED="true"
+    ```
+  </Tab>
+  <Tab value="Programmatic">
+    ```go
+    package main
+
+    import (
+        "github.com/xraph/forge"
+        "github.com/xraph/forge/extensions/ai"
+    )
+
+    func main() {
+        app := forge.New()
+
+        // Configure AI extension
+        aiExt := ai.New(ai.Config{
+            LLM: ai.LLMConfig{
+                DefaultProvider: "openai",
+                Providers: map[string]ai.ProviderConfig{
+                    "openai": {
+                        APIKey: "sk-...",
+                        Model:  "gpt-4",
+                        MaxTokens: 4096,
+                        Temperature: 0.7,
+                    },
+                },
+            },
+            Inference: ai.InferenceConfig{
+                Enabled: true,
+                GPUEnabled: true,
+                MaxBatchSize: 32,
+            },
+            Agents: ai.AgentsConfig{
+                Enabled: true,
+                MaxAgents: 100,
+                MemoryBackend: "redis",
+            },
+        })
+
+        app.RegisterExtension(aiExt)
+        app.Run()
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Usage Examples
+
+### Basic LLM Usage
+
+<Tabs items={['Simple Chat', 'Streaming', 'Function Calling', 'Vision']}>
+  <Tab value="Simple Chat">
+    ```go
+    func chatHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        
+        var req struct {
+            Message string `json:"message"`
+        }
+        if err := c.Bind(&req); err != nil {
+            return c.JSON(400, map[string]string{"error": "Invalid request"})
+        }
+        
+        response, err := ai.Chat(c.Context(), ai.ChatRequest{
+            Messages: []ai.Message{
+                {Role: "user", Content: req.Message},
+            },
+            Model: "gpt-4",
+            MaxTokens: 1000,
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(200, map[string]string{
+            "response": response.Content,
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Streaming">
+    ```go
+    func streamChatHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        
+        // Set up SSE headers
+        c.Response().Header().Set("Content-Type", "text/event-stream")
+        c.Response().Header().Set("Cache-Control", "no-cache")
+        c.Response().Header().Set("Connection", "keep-alive")
+        
+        stream, err := ai.ChatStream(c.Context(), ai.ChatRequest{
+            Messages: []ai.Message{
+                {Role: "user", Content: "Tell me a story"},
+            },
+            Model: "gpt-4",
+            Stream: true,
+        })
+        if err != nil {
+            return err
+        }
+        defer stream.Close()
+        
+        for chunk := range stream.Channel() {
+            if chunk.Error != nil {
+                break
+            }
+            
+            data := fmt.Sprintf("data: %s\n\n", chunk.Content)
+            if _, err := c.Response().Write([]byte(data)); err != nil {
+                break
+            }
+            c.Response().Flush()
+        }
+        
+        return nil
+    }
+    ```
+  </Tab>
+  <Tab value="Function Calling">
+    ```go
+    func functionCallHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        
+        // Define available functions
+        tools := []ai.Tool{
+            {
+                Name: "get_weather",
+                Description: "Get current weather for a location",
+                Parameters: ai.ToolParameters{
+                    Type: "object",
+                    Properties: map[string]ai.Property{
+                        "location": {
+                            Type: "string",
+                            Description: "City name",
+                        },
+                    },
+                    Required: []string{"location"},
+                },
+                Handler: func(args map[string]interface{}) (interface{}, error) {
+                    location := args["location"].(string)
+                    // Call weather API
+                    return map[string]interface{}{
+                        "temperature": 22,
+                        "condition": "sunny",
+                        "location": location,
+                    }, nil
+                },
+            },
+        }
+        
+        response, err := ai.Chat(c.Context(), ai.ChatRequest{
+            Messages: []ai.Message{
+                {Role: "user", Content: "What's the weather in San Francisco?"},
+            },
+            Tools: tools,
+            ToolChoice: "auto",
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(200, response)
+    }
+    ```
+  </Tab>
+  <Tab value="Vision">
+    ```go
+    func visionHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        
+        // Handle file upload
+        file, err := c.FormFile("image")
+        if err != nil {
+            return c.JSON(400, map[string]string{"error": "No image provided"})
+        }
+        
+        src, err := file.Open()
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": "Failed to open image"})
+        }
+        defer src.Close()
+        
+        // Convert to base64
+        imageData, err := io.ReadAll(src)
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": "Failed to read image"})
+        }
+        
+        response, err := ai.Chat(c.Context(), ai.ChatRequest{
+            Messages: []ai.Message{
+                {
+                    Role: "user",
+                    Content: "What do you see in this image?",
+                    Images: []ai.Image{
+                        {
+                            Data: base64.StdEncoding.EncodeToString(imageData),
+                            MimeType: file.Header.Get("Content-Type"),
+                        },
+                    },
+                },
+            },
+            Model: "gpt-4-vision-preview",
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(200, map[string]string{
+            "description": response.Content,
+        })
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### AI Agents
+
+<Tabs items={['Simple Agent', 'Tool-Using Agent', 'Multi-Agent System']}>
+  <Tab value="Simple Agent">
+    ```go
+    func createAgentHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        
+        agent, err := ai.CreateAgent(c.Context(), ai.AgentConfig{
+            Name: "customer-support",
+            Description: "Customer support assistant",
+            Instructions: `You are a helpful customer support agent. 
+                          Be polite, professional, and try to resolve issues quickly.`,
+            Model: "gpt-4",
+            Memory: ai.MemoryConfig{
+                Type: "conversation",
+                MaxMessages: 50,
+            },
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(201, map[string]string{
+            "agent_id": agent.ID,
+            "status": "created",
+        })
+    }
+    
+    func chatWithAgentHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        agentID := c.Param("agent_id")
+        
+        var req struct {
+            Message string `json:"message"`
+        }
+        if err := c.Bind(&req); err != nil {
+            return c.JSON(400, map[string]string{"error": "Invalid request"})
+        }
+        
+        response, err := ai.ChatWithAgent(c.Context(), agentID, req.Message)
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(200, map[string]string{
+            "response": response.Content,
+            "agent_id": agentID,
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Tool-Using Agent">
+    ```go
+    func createToolAgentHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        
+        // Define tools for the agent
+        tools := []ai.Tool{
+            {
+                Name: "search_knowledge_base",
+                Description: "Search the company knowledge base",
+                Handler: func(args map[string]interface{}) (interface{}, error) {
+                    query := args["query"].(string)
+                    // Search knowledge base
+                    return searchKnowledgeBase(query), nil
+                },
+            },
+            {
+                Name: "create_ticket",
+                Description: "Create a support ticket",
+                Handler: func(args map[string]interface{}) (interface{}, error) {
+                    title := args["title"].(string)
+                    description := args["description"].(string)
+                    // Create ticket in system
+                    return createSupportTicket(title, description), nil
+                },
+            },
+        }
+        
+        agent, err := ai.CreateAgent(c.Context(), ai.AgentConfig{
+            Name: "support-agent-pro",
+            Description: "Advanced support agent with tools",
+            Instructions: `You are an advanced customer support agent with access to tools.
+                          Use the knowledge base to find answers and create tickets when needed.`,
+            Model: "gpt-4",
+            Tools: tools,
+            Memory: ai.MemoryConfig{
+                Type: "persistent",
+                Backend: "redis",
+            },
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(201, agent)
+    }
+    ```
+  </Tab>
+  <Tab value="Multi-Agent System">
+    ```go
+    func createAgentTeamHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        
+        // Create coordinator agent
+        coordinator, err := ai.CreateAgent(c.Context(), ai.AgentConfig{
+            Name: "coordinator",
+            Description: "Coordinates other agents",
+            Instructions: `You coordinate between specialist agents.
+                          Route requests to the appropriate specialist.`,
+            Model: "gpt-4",
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        // Create specialist agents
+        techAgent, err := ai.CreateAgent(c.Context(), ai.AgentConfig{
+            Name: "tech-specialist",
+            Description: "Technical support specialist",
+            Instructions: "You handle technical issues and troubleshooting.",
+            Model: "gpt-4",
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        billingAgent, err := ai.CreateAgent(c.Context(), ai.AgentConfig{
+            Name: "billing-specialist",
+            Description: "Billing and account specialist",
+            Instructions: "You handle billing questions and account issues.",
+            Model: "gpt-4",
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        // Create agent team
+        team, err := ai.CreateAgentTeam(c.Context(), ai.AgentTeamConfig{
+            Name: "support-team",
+            Coordinator: coordinator.ID,
+            Agents: []string{techAgent.ID, billingAgent.ID},
+            Workflow: ai.WorkflowConfig{
+                Type: "router",
+                Rules: []ai.RoutingRule{
+                    {
+                        Condition: "contains(message, 'technical') || contains(message, 'bug')",
+                        Target: techAgent.ID,
+                    },
+                    {
+                        Condition: "contains(message, 'billing') || contains(message, 'payment')",
+                        Target: billingAgent.ID,
+                    },
+                },
+            },
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(201, team)
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Inference Engine
+
+<Tabs items={['Model Loading', 'Batch Inference', 'Model Serving']}>
+  <Tab value="Model Loading">
+    ```go
+    func loadModelHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        
+        var req struct {
+            ModelPath string `json:"model_path"`
+            ModelType string `json:"model_type"` // "onnx", "pytorch", "tensorflow"
+            Name      string `json:"name"`
+        }
+        if err := c.Bind(&req); err != nil {
+            return c.JSON(400, map[string]string{"error": "Invalid request"})
+        }
+        
+        model, err := ai.LoadModel(c.Context(), ai.ModelConfig{
+            Name: req.Name,
+            Path: req.ModelPath,
+            Type: req.ModelType,
+            Device: "gpu", // or "cpu"
+            BatchSize: 32,
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "model_id": model.ID,
+            "status": "loaded",
+            "device": model.Device,
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Batch Inference">
+    ```go
+    func batchInferenceHandler(c forge.Context) error {
+        ai := forge.GetAI(c)
+        modelID := c.Param("model_id")
+        
+        var req struct {
+            Inputs []map[string]interface{} `json:"inputs"`
+        }
+        if err := c.Bind(&req); err != nil {
+            return c.JSON(400, map[string]string{"error": "Invalid request"})
+        }
+        
+        results, err := ai.BatchInference(c.Context(), ai.BatchRequest{
+            ModelID: modelID,
+            Inputs:  req.Inputs,
+            Options: ai.InferenceOptions{
+                Timeout: time.Second * 30,
+                Priority: "normal",
+            },
+        })
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "results": results,
+            "count": len(results),
+        })
+    }
+    ```
+  </Tab>
+  <Tab value="Model Serving">
+    ```go
+    func setupModelServing() {
+        app := forge.New()
+        ai := forge.GetAI(app)
+        
+        // Serve model via REST API
+        app.POST("/models/:model_id/predict", func(c forge.Context) error {
+            modelID := c.Param("model_id")
+            
+            var input map[string]interface{}
+            if err := c.Bind(&input); err != nil {
+                return c.JSON(400, map[string]string{"error": "Invalid input"})
+            }
+            
+            result, err := ai.Predict(c.Context(), ai.PredictRequest{
+                ModelID: modelID,
+                Input:   input,
+            })
+            if err != nil {
+                return c.JSON(500, map[string]string{"error": err.Error()})
+            }
+            
+            return c.JSON(200, result)
+        })
+        
+        // Model health check
+        app.GET("/models/:model_id/health", func(c forge.Context) error {
+            modelID := c.Param("model_id")
+            
+            health, err := ai.ModelHealth(c.Context(), modelID)
+            if err != nil {
+                return c.JSON(500, map[string]string{"error": err.Error()})
+            }
+            
+            return c.JSON(200, health)
+        })
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Advanced Features
+
+### Smart Caching
+
+The AI extension includes intelligent caching to reduce costs and improve performance:
+
+```go
+// Configure caching
+ai := forge.GetAI(c)
+
+// Cached chat completion
+response, err := ai.ChatCached(c.Context(), ai.ChatRequest{
+    Messages: []ai.Message{
+        {Role: "user", Content: "What is the capital of France?"},
+    },
+    CacheOptions: ai.CacheOptions{
+        TTL: time.Hour,
+        Key: "geography:france:capital",
+    },
+})
+```
+
+### Load Balancing
+
+Distribute requests across multiple providers:
+
+```go
+// Configure load balancing
+ai := ai.New(ai.Config{
+    LLM: ai.LLMConfig{
+        LoadBalancing: ai.LoadBalancingConfig{
+            Strategy: "round_robin", // or "weighted", "least_latency"
+            Providers: []string{"openai", "anthropic", "azure"},
+            Weights: map[string]int{
+                "openai": 50,
+                "anthropic": 30,
+                "azure": 20,
+            },
+        },
+    },
+})
+```
+
+### Monitoring and Observability
+
+```go
+// Get AI metrics
+app.GET("/ai/metrics", func(c forge.Context) error {
+    ai := forge.GetAI(c)
+    
+    metrics := ai.GetMetrics()
+    return c.JSON(200, metrics)
+})
+
+// AI health check
+app.GET("/ai/health", func(c forge.Context) error {
+    ai := forge.GetAI(c)
+    
+    health := ai.Health(c.Context())
+    return c.JSON(200, health)
+})
+```
+
+## Best Practices
+
+### Performance Optimization
+- Use caching for repeated queries
+- Implement request batching for inference
+- Choose appropriate models for your use case
+- Monitor token usage and costs
+
+### Security
+- Secure API keys with environment variables
+- Implement rate limiting for AI endpoints
+- Validate and sanitize user inputs
+- Monitor for prompt injection attempts
+
+### Cost Management
+- Use caching to reduce API calls
+- Choose cost-effective models when possible
+- Implement usage quotas and limits
+- Monitor spending with built-in metrics
+
+### Error Handling
+- Implement fallback providers
+- Handle rate limits gracefully
+- Provide meaningful error messages
+- Log errors for debugging
+
+## Troubleshooting
+
+### Common Issues
+
+**API Key Issues**
+```go
+// Check provider configuration
+health := ai.ProviderHealth(c.Context(), "openai")
+if !health.Healthy {
+    log.Printf("Provider issue: %s", health.Message)
+}
+```
+
+**Model Loading Failures**
+```go
+// Verify model path and format
+models := ai.ListModels(c.Context())
+for _, model := range models {
+    log.Printf("Model: %s, Status: %s", model.Name, model.Status)
+}
+```
+
+**Memory Issues**
+```go
+// Monitor memory usage
+stats := ai.GetStats()
+log.Printf("Memory usage: %d MB", stats.MemoryUsage/1024/1024)
+```
+
+<Callout type="warning">
+The AI extension requires significant computational resources. Ensure adequate memory and CPU/GPU resources for optimal performance.
+</Callout>
+
+## Next Steps
+
+<Steps>
+  <Step>
+    **Setup**: Configure your AI providers and test basic functionality
+  </Step>
+  <Step>
+    **Integration**: Integrate AI features into your application
+  </Step>
+  <Step>
+    **Optimization**: Implement caching and load balancing
+  </Step>
+  <Step>
+    **Monitoring**: Set up comprehensive monitoring and alerting
+  </Step>
+  <Step>
+    **Scaling**: Scale your AI infrastructure for production
+  </Step>
+</Steps>

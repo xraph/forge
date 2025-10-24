@@ -1,0 +1,800 @@
+---
+title: Output & Progress
+description: Display progress bars, spinners, tables, and formatted output in your CLI applications
+---
+
+# Output & Progress
+
+The Forge CLI framework provides rich output capabilities to create engaging and informative command-line experiences. From progress bars and spinners to formatted tables and colored output, you can provide clear feedback to users during long-running operations.
+
+## Progress Bars
+
+### Basic Progress Bar
+
+Display progress for operations with known duration:
+
+```go
+func downloadHandler(ctx cli.CommandContext) error {
+    files := []string{"config.json", "assets.zip", "database.sql", "images.tar.gz"}
+    
+    // Create progress bar with total steps
+    progress := ctx.ProgressBar(len(files))
+    
+    for i, file := range files {
+        ctx.Info(fmt.Sprintf("Downloading %s...", file))
+        
+        // Simulate download time
+        time.Sleep(time.Duration(500+i*200) * time.Millisecond)
+        
+        // Update progress
+        progress.Increment()
+    }
+    
+    // Finish with success message
+    progress.Finish("All files downloaded successfully!")
+    
+    return nil
+}
+```
+
+### Advanced Progress Bar
+
+Progress bars with custom messages and percentage display:
+
+```go
+func backupHandler(ctx cli.CommandContext) error {
+    totalSize := int64(1024 * 1024 * 100) // 100MB
+    chunkSize := int64(1024 * 1024)       // 1MB chunks
+    
+    // Progress bar with custom options
+    progress := ctx.ProgressBarWithOptions(cli.ProgressOptions{
+        Total:       int(totalSize / chunkSize),
+        Width:       50,
+        ShowPercent: true,
+        ShowCount:   true,
+        ShowTime:    true,
+        Template:    "{{.Prefix}} {{.Bar}} {{.Percent}}% {{.Current}}/{{.Total}} {{.Elapsed}}",
+        BarChars:    cli.ProgressChars{
+            Complete:   "█",
+            Incomplete: "░",
+            Current:    "▓",
+        },
+    })
+    
+    var processed int64
+    for processed < totalSize {
+        // Simulate processing
+        time.Sleep(100 * time.Millisecond)
+        processed += chunkSize
+        
+        // Update with custom message
+        progress.SetMessage(fmt.Sprintf("Backing up... %s", formatBytes(processed)))
+        progress.Increment()
+    }
+    
+    progress.Finish("Backup completed successfully!")
+    return nil
+}
+
+func formatBytes(bytes int64) string {
+    const unit = 1024
+    if bytes < unit {
+        return fmt.Sprintf("%d B", bytes)
+    }
+    div, exp := int64(unit), 0
+    for n := bytes / unit; n >= unit; n /= unit {
+        div *= unit
+        exp++
+    }
+    return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+```
+
+### Multiple Progress Bars
+
+Track multiple concurrent operations:
+
+```go
+func multiTaskHandler(ctx cli.CommandContext) error {
+    tasks := []struct {
+        name  string
+        steps int
+        delay time.Duration
+    }{
+        {"Database migration", 5, 300 * time.Millisecond},
+        {"Asset compilation", 8, 200 * time.Millisecond},
+        {"Cache warming", 3, 500 * time.Millisecond},
+    }
+    
+    // Create multiple progress bars
+    progressBars := make([]*cli.ProgressBar, len(tasks))
+    for i, task := range tasks {
+        progressBars[i] = ctx.ProgressBarWithLabel(task.steps, task.name)
+    }
+    
+    // Process tasks concurrently
+    var wg sync.WaitGroup
+    for i, task := range tasks {
+        wg.Add(1)
+        go func(idx int, t struct {
+            name  string
+            steps int
+            delay time.Duration
+        }) {
+            defer wg.Done()
+            
+            progress := progressBars[idx]
+            for step := 0; step < t.steps; step++ {
+                time.Sleep(t.delay)
+                progress.Increment()
+            }
+            progress.Finish(fmt.Sprintf("%s completed!", t.name))
+        }(i, task)
+    }
+    
+    wg.Wait()
+    ctx.Success("All tasks completed!")
+    return nil
+}
+```
+
+## Spinners
+
+### Basic Spinner
+
+Show activity for operations with unknown duration:
+
+```go
+func analyzeHandler(ctx cli.CommandContext) error {
+    // Start spinner
+    spinner := ctx.Spinner("Analyzing codebase...")
+    
+    // Simulate analysis
+    time.Sleep(3 * time.Second)
+    
+    // Stop spinner with success
+    spinner.Stop("Analysis complete!")
+    
+    ctx.Success("Found 42 files, 1,337 lines of code")
+    return nil
+}
+```
+
+### Custom Spinner Styles
+
+Different spinner animations and styles:
+
+```go
+func deployHandler(ctx cli.CommandContext) error {
+    // Spinner with custom animation
+    spinner := ctx.SpinnerWithOptions(cli.SpinnerOptions{
+        Message:   "Deploying to production...",
+        Animation: cli.SpinnerDots,    // ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏
+        Color:     cli.ColorBlue,
+        Speed:     100 * time.Millisecond,
+    })
+    
+    // Simulate deployment steps
+    time.Sleep(2 * time.Second)
+    spinner.Update("Building Docker image...")
+    
+    time.Sleep(3 * time.Second)
+    spinner.Update("Pushing to registry...")
+    
+    time.Sleep(2 * time.Second)
+    spinner.Update("Updating Kubernetes deployment...")
+    
+    time.Sleep(1 * time.Second)
+    spinner.Stop("Deployment successful!")
+    
+    ctx.Success("Application is now live at https://app.example.com")
+    return nil
+}
+```
+
+### Spinner Variations
+
+Different spinner animations for different contexts:
+
+```go
+func variousSpinnersHandler(ctx cli.CommandContext) error {
+    // Loading spinner
+    spinner1 := ctx.SpinnerWithAnimation("Loading data...", cli.SpinnerCircle)
+    time.Sleep(2 * time.Second)
+    spinner1.Stop("Data loaded!")
+    
+    // Processing spinner
+    spinner2 := ctx.SpinnerWithAnimation("Processing...", cli.SpinnerArrows)
+    time.Sleep(2 * time.Second)
+    spinner2.Stop("Processing complete!")
+    
+    // Syncing spinner
+    spinner3 := ctx.SpinnerWithAnimation("Syncing...", cli.SpinnerBounce)
+    time.Sleep(2 * time.Second)
+    spinner3.Stop("Sync complete!")
+    
+    return nil
+}
+```
+
+## Tables
+
+### Basic Table
+
+Display structured data in table format:
+
+```go
+func listUsersHandler(ctx cli.CommandContext) error {
+    // Create table
+    table := ctx.Table()
+    
+    // Set headers
+    table.SetHeaders([]string{"ID", "Name", "Email", "Role", "Status"})
+    
+    // Add rows
+    users := [][]string{
+        {"1", "John Doe", "john@example.com", "Admin", "Active"},
+        {"2", "Jane Smith", "jane@example.com", "User", "Active"},
+        {"3", "Bob Johnson", "bob@example.com", "User", "Inactive"},
+        {"4", "Alice Brown", "alice@example.com", "Moderator", "Active"},
+    }
+    
+    for _, user := range users {
+        table.AddRow(user)
+    }
+    
+    // Render table
+    table.Render()
+    
+    return nil
+}
+```
+
+### Styled Tables
+
+Tables with custom styling and formatting:
+
+```go
+func styledTableHandler(ctx cli.CommandContext) error {
+    table := ctx.TableWithOptions(cli.TableOptions{
+        Style: cli.TableStyleBordered,
+        Colors: cli.TableColors{
+            Header: cli.ColorBlue,
+            Border: cli.ColorGray,
+            Data:   cli.ColorWhite,
+        },
+        Alignment: []cli.Alignment{
+            cli.AlignLeft,   // ID
+            cli.AlignLeft,   // Name
+            cli.AlignCenter, // Status
+            cli.AlignRight,  // Count
+            cli.AlignRight,  // Size
+        },
+    })
+    
+    table.SetHeaders([]string{"Service", "Name", "Status", "Instances", "Memory"})
+    
+    services := [][]string{
+        {"web", "Frontend App", "✅ Running", "3", "256MB"},
+        {"api", "Backend API", "✅ Running", "5", "512MB"},
+        {"db", "Database", "✅ Running", "1", "2GB"},
+        {"cache", "Redis Cache", "⚠️  Warning", "2", "128MB"},
+        {"queue", "Message Queue", "❌ Stopped", "0", "0MB"},
+    }
+    
+    for _, service := range services {
+        table.AddRow(service)
+    }
+    
+    // Add footer with totals
+    table.AddSeparator()
+    table.AddRow([]string{"", "Total", "", "11", "2.9GB"})
+    
+    table.Render()
+    return nil
+}
+```
+
+### Dynamic Tables
+
+Tables that update in real-time:
+
+```go
+func monitorHandler(ctx cli.CommandContext) error {
+    ctx.Info("Monitoring system resources (Press Ctrl+C to stop)")
+    
+    // Create table for live updates
+    table := ctx.LiveTable()
+    table.SetHeaders([]string{"Time", "CPU %", "Memory %", "Disk %", "Network"})
+    
+    // Update every second
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+    
+    for i := 0; i < 10; i++ { // Run for 10 seconds
+        select {
+        case <-ticker.C:
+            // Simulate getting system stats
+            cpu := rand.Float64() * 100
+            memory := rand.Float64() * 100
+            disk := rand.Float64() * 100
+            network := fmt.Sprintf("%.1f KB/s", rand.Float64()*1000)
+            
+            row := []string{
+                time.Now().Format("15:04:05"),
+                fmt.Sprintf("%.1f", cpu),
+                fmt.Sprintf("%.1f", memory),
+                fmt.Sprintf("%.1f", disk),
+                network,
+            }
+            
+            // Update table (replaces previous data)
+            table.UpdateRow(0, row)
+            table.Render()
+        }
+    }
+    
+    ctx.Success("Monitoring stopped")
+    return nil
+}
+```
+
+### Table with Conditional Formatting
+
+Apply colors and styles based on data values:
+
+```go
+func statusTableHandler(ctx cli.CommandContext) error {
+    table := ctx.Table()
+    table.SetHeaders([]string{"Service", "Status", "Uptime", "Response Time"})
+    
+    services := []struct {
+        name         string
+        status       string
+        uptime       float64
+        responseTime int
+    }{
+        {"Web Server", "healthy", 99.9, 45},
+        {"Database", "healthy", 99.8, 12},
+        {"Cache", "warning", 98.5, 156},
+        {"Queue", "error", 85.2, 2340},
+        {"Storage", "healthy", 99.7, 23},
+    }
+    
+    for _, service := range services {
+        // Format status with colors
+        var statusDisplay string
+        switch service.status {
+        case "healthy":
+            statusDisplay = ctx.Colorize("✅ Healthy", cli.ColorGreen)
+        case "warning":
+            statusDisplay = ctx.Colorize("⚠️  Warning", cli.ColorYellow)
+        case "error":
+            statusDisplay = ctx.Colorize("❌ Error", cli.ColorRed)
+        }
+        
+        // Format uptime
+        uptimeDisplay := fmt.Sprintf("%.1f%%", service.uptime)
+        if service.uptime < 95 {
+            uptimeDisplay = ctx.Colorize(uptimeDisplay, cli.ColorRed)
+        } else if service.uptime < 99 {
+            uptimeDisplay = ctx.Colorize(uptimeDisplay, cli.ColorYellow)
+        }
+        
+        // Format response time
+        responseDisplay := fmt.Sprintf("%dms", service.responseTime)
+        if service.responseTime > 1000 {
+            responseDisplay = ctx.Colorize(responseDisplay, cli.ColorRed)
+        } else if service.responseTime > 100 {
+            responseDisplay = ctx.Colorize(responseDisplay, cli.ColorYellow)
+        }
+        
+        table.AddRow([]string{
+            service.name,
+            statusDisplay,
+            uptimeDisplay,
+            responseDisplay,
+        })
+    }
+    
+    table.Render()
+    return nil
+}
+```
+
+## Formatted Output
+
+### Colored Output
+
+Use colors to enhance readability:
+
+```go
+func coloredOutputHandler(ctx cli.CommandContext) error {
+    // Basic colored messages
+    ctx.Success("✅ Operation completed successfully!")
+    ctx.Warning("⚠️  This action cannot be undone")
+    ctx.Error("❌ Failed to connect to database")
+    ctx.Info("ℹ️  Processing 1,234 records...")
+    
+    // Custom colored text
+    ctx.Print(ctx.Colorize("Important:", cli.ColorRed) + " This is a critical message")
+    ctx.Print(ctx.Colorize("Note:", cli.ColorBlue) + " Additional information here")
+    
+    // Multiple colors in one line
+    ctx.Printf("%s %s %s\n",
+        ctx.Colorize("Status:", cli.ColorCyan),
+        ctx.Colorize("Connected", cli.ColorGreen),
+        ctx.Colorize("(3 retries)", cli.ColorGray),
+    )
+    
+    return nil
+}
+```
+
+### Formatted Lists
+
+Display structured lists with proper formatting:
+
+```go
+func formattedListsHandler(ctx cli.CommandContext) error {
+    ctx.Info("📋 Project Configuration:")
+    
+    // Simple list
+    ctx.List([]string{
+        "Name: My Awesome Project",
+        "Version: 1.2.3",
+        "Language: Go",
+        "Framework: Forge v2",
+    })
+    
+    // Nested list
+    ctx.Info("\n🛠️  Dependencies:")
+    ctx.NestedList(map[string][]string{
+        "Runtime": {
+            "go 1.21+",
+            "postgresql 14+",
+            "redis 6+",
+        },
+        "Development": {
+            "docker",
+            "make",
+            "golangci-lint",
+        },
+        "Optional": {
+            "kubernetes",
+            "prometheus",
+            "grafana",
+        },
+    })
+    
+    return nil
+}
+```
+
+### JSON and YAML Output
+
+Support for structured data output:
+
+```go
+func structuredOutputHandler(ctx cli.CommandContext) error {
+    data := map[string]interface{}{
+        "project": map[string]interface{}{
+            "name":    "my-app",
+            "version": "1.0.0",
+            "config": map[string]interface{}{
+                "database": map[string]string{
+                    "host": "localhost",
+                    "port": "5432",
+                    "name": "myapp_db",
+                },
+                "features": []string{"auth", "cache", "metrics"},
+            },
+        },
+        "status": "active",
+    }
+    
+    // Check output format flag
+    format := ctx.String("format")
+    
+    switch format {
+    case "json":
+        ctx.OutputJSON(data)
+    case "yaml":
+        ctx.OutputYAML(data)
+    case "table":
+        // Convert to table format
+        table := ctx.Table()
+        table.SetHeaders([]string{"Key", "Value"})
+        
+        // Flatten data for table display
+        flattenMap(data, "", table)
+        table.Render()
+    default:
+        // Default human-readable format
+        ctx.Info("Project Configuration:")
+        ctx.OutputPretty(data)
+    }
+    
+    return nil
+}
+
+func flattenMap(data map[string]interface{}, prefix string, table cli.TableWriter) {
+    for key, value := range data {
+        fullKey := key
+        if prefix != "" {
+            fullKey = prefix + "." + key
+        }
+        
+        switch v := value.(type) {
+        case map[string]interface{}:
+            flattenMap(v, fullKey, table)
+        case []string:
+            table.AddRow([]string{fullKey, strings.Join(v, ", ")})
+        default:
+            table.AddRow([]string{fullKey, fmt.Sprintf("%v", v)})
+        }
+    }
+}
+```
+
+## Real-time Updates
+
+### Live Status Display
+
+Create dashboards with real-time updates:
+
+```go
+func dashboardHandler(ctx cli.CommandContext) error {
+    ctx.Info("🚀 Live Dashboard (Press Ctrl+C to exit)")
+    
+    // Clear screen and hide cursor
+    ctx.ClearScreen()
+    ctx.HideCursor()
+    defer ctx.ShowCursor()
+    
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-ticker.C:
+            // Move cursor to top
+            ctx.MoveCursor(0, 0)
+            
+            // Display current time
+            ctx.Printf("🕐 %s\n\n", time.Now().Format("2006-01-02 15:04:05"))
+            
+            // System stats
+            ctx.Info("📊 System Status:")
+            displaySystemStats(ctx)
+            
+            // Service status
+            ctx.Info("\n🔧 Services:")
+            displayServiceStatus(ctx)
+            
+            // Recent activity
+            ctx.Info("\n📝 Recent Activity:")
+            displayRecentActivity(ctx)
+            
+        case <-ctx.Context().Done():
+            return nil
+        }
+    }
+}
+
+func displaySystemStats(ctx cli.CommandContext) {
+    stats := [][]string{
+        {"CPU Usage", fmt.Sprintf("%.1f%%", rand.Float64()*100)},
+        {"Memory", fmt.Sprintf("%.1f%%", rand.Float64()*100)},
+        {"Disk Space", fmt.Sprintf("%.1f%%", rand.Float64()*100)},
+        {"Network I/O", fmt.Sprintf("%.1f MB/s", rand.Float64()*10)},
+    }
+    
+    table := ctx.Table()
+    table.SetHeaders([]string{"Metric", "Value"})
+    for _, stat := range stats {
+        table.AddRow(stat)
+    }
+    table.Render()
+}
+
+func displayServiceStatus(ctx cli.CommandContext) {
+    services := []string{"web", "api", "database", "cache", "queue"}
+    
+    for _, service := range services {
+        status := "🟢 Running"
+        if rand.Float64() < 0.1 { // 10% chance of issues
+            status = "🔴 Error"
+        } else if rand.Float64() < 0.2 { // 20% chance of warnings
+            status = "🟡 Warning"
+        }
+        
+        ctx.Printf("  %-12s %s\n", service, status)
+    }
+}
+
+func displayRecentActivity(ctx cli.CommandContext) {
+    activities := []string{
+        "User login: john@example.com",
+        "Database backup completed",
+        "New deployment: v1.2.3",
+        "Cache cleared",
+        "SSL certificate renewed",
+    }
+    
+    for i, activity := range activities {
+        timestamp := time.Now().Add(-time.Duration(i) * time.Minute)
+        ctx.Printf("  %s %s\n", 
+            ctx.Colorize(timestamp.Format("15:04"), cli.ColorGray),
+            activity,
+        )
+    }
+}
+```
+
+## Output Utilities
+
+### Formatting Helpers
+
+Utility functions for common formatting needs:
+
+```go
+func formatUtilsHandler(ctx cli.CommandContext) error {
+    // File sizes
+    sizes := []int64{1024, 1048576, 1073741824, 1099511627776}
+    ctx.Info("📁 File Sizes:")
+    for _, size := range sizes {
+        ctx.Printf("  %s\n", ctx.FormatBytes(size))
+    }
+    
+    // Durations
+    durations := []time.Duration{
+        time.Second * 30,
+        time.Minute * 5,
+        time.Hour * 2,
+        time.Hour * 24 * 7,
+    }
+    ctx.Info("\n⏱️  Durations:")
+    for _, duration := range durations {
+        ctx.Printf("  %s\n", ctx.FormatDuration(duration))
+    }
+    
+    // Numbers
+    numbers := []int64{1000, 1000000, 1000000000}
+    ctx.Info("\n🔢 Numbers:")
+    for _, number := range numbers {
+        ctx.Printf("  %s\n", ctx.FormatNumber(number))
+    }
+    
+    // Percentages
+    values := []float64{0.1234, 0.5678, 0.9999}
+    ctx.Info("\n📊 Percentages:")
+    for _, value := range values {
+        ctx.Printf("  %s\n", ctx.FormatPercent(value))
+    }
+    
+    return nil
+}
+```
+
+### Output Redirection
+
+Handle different output destinations:
+
+```go
+func outputRedirectionHandler(ctx cli.CommandContext) error {
+    // Check if output is being redirected
+    if ctx.IsOutputRedirected() {
+        // Machine-readable output for scripts
+        data := map[string]interface{}{
+            "status": "success",
+            "count":  42,
+            "items":  []string{"item1", "item2", "item3"},
+        }
+        ctx.OutputJSON(data)
+    } else {
+        // Human-readable output for terminal
+        ctx.Success("✅ Operation completed successfully!")
+        ctx.Info("📊 Processed 42 items:")
+        ctx.List([]string{"item1", "item2", "item3"})
+    }
+    
+    return nil
+}
+```
+
+## Best Practices
+
+### 1. Provide Clear Progress Feedback
+
+```go
+// Good: Clear progress indication
+progress := ctx.ProgressBar(totalFiles)
+for _, file := range files {
+    ctx.Info(fmt.Sprintf("Processing %s...", file))
+    processFile(file)
+    progress.Increment()
+}
+progress.Finish("All files processed!")
+
+// Bad: No progress indication
+for _, file := range files {
+    processFile(file)
+}
+```
+
+### 2. Use Appropriate Output Methods
+
+```go
+// Good: Use semantic output methods
+ctx.Success("File uploaded successfully!")
+ctx.Warning("File already exists, overwriting...")
+ctx.Error("Failed to upload file")
+ctx.Info("Upload progress: 50%")
+
+// Bad: Generic print statements
+fmt.Println("File uploaded successfully!")
+fmt.Println("File already exists, overwriting...")
+```
+
+### 3. Handle Long-Running Operations
+
+```go
+// Good: Show activity during long operations
+spinner := ctx.Spinner("Analyzing large dataset...")
+result := performLongAnalysis()
+spinner.Stop("Analysis complete!")
+ctx.Success(fmt.Sprintf("Found %d patterns", result.PatternCount))
+
+// Bad: No feedback during long operations
+result := performLongAnalysis() // User sees nothing
+```
+
+### 4. Format Data Appropriately
+
+```go
+// Good: Use tables for structured data
+table := ctx.Table()
+table.SetHeaders([]string{"Name", "Size", "Modified"})
+for _, file := range files {
+    table.AddRow([]string{
+        file.Name,
+        ctx.FormatBytes(file.Size),
+        file.ModTime.Format("2006-01-02 15:04"),
+    })
+}
+table.Render()
+
+// Bad: Unformatted text output
+for _, file := range files {
+    fmt.Printf("%s %d %s\n", file.Name, file.Size, file.ModTime)
+}
+```
+
+### 5. Support Multiple Output Formats
+
+```go
+func listHandler(ctx cli.CommandContext) error {
+    data := getData()
+    
+    switch ctx.String("format") {
+    case "json":
+        ctx.OutputJSON(data)
+    case "yaml":
+        ctx.OutputYAML(data)
+    case "csv":
+        ctx.OutputCSV(data)
+    default:
+        displayAsTable(ctx, data)
+    }
+    
+    return nil
+}
+```
+
+## Next Steps
+
+- Learn about [Plugins](/docs/cli/plugins) for extending functionality
+- Explore [Examples](/docs/cli/examples) for complete applications
+- Check out [Commands](/docs/cli/commands) for command structure
+- Review [Prompts](/docs/cli/prompts) for interactive input

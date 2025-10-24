@@ -4,7 +4,7 @@ description: Build your first complete Forge application with real-world feature
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout'
-import { Steps } from 'fumadocs-ui/components/steps'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
 
 # First Application
 
@@ -25,7 +25,7 @@ We'll build a **User Management API** with the following features:
 ## Step 1: Project Setup
 
 <Steps>
-  <Steps.Step>
+  <Step>
     Create a new project directory:
 
     ```bash
@@ -33,9 +33,9 @@ We'll build a **User Management API** with the following features:
     cd user-management-api
     go mod init user-management-api
     ```
-  </Steps.Step>
+  </Step>
 
-  <Steps.Step>
+  <Step>
     Add Forge and required dependencies:
 
     ```bash
@@ -44,15 +44,15 @@ We'll build a **User Management API** with the following features:
     go get github.com/xraph/forge/extensions/database
     go get github.com/lib/pq
     ```
-  </Steps.Step>
+  </Step>
 
-  <Steps.Step>
+  <Step>
     Create the project structure:
 
     ```bash
     mkdir -p {config,internal/{handlers,services,models,middleware},migrations}
     ```
-  </Steps.Step>
+  </Step>
 </Steps>
 
 ## Step 2: Configuration Setup
