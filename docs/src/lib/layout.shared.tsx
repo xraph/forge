@@ -1,8 +1,7 @@
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { type LinkItemType } from 'fumadocs-ui/layouts/docs';
 import { AlbumIcon, Heart, LayoutTemplate } from 'lucide-react';
-import Image from 'next/image';
-import { ForgeLogo } from '@/components/logo';
+import { ThemedLogo } from './themed-logo';
 
 export const linkItems: LinkItemType[] = [
   {
@@ -44,7 +43,7 @@ export const linkItems: LinkItemType[] = [
 
 export const logo = (
   <>
-    <ForgeLogo size={20} />
+    <ThemedLogo />
   </>
 );
 
@@ -60,7 +59,7 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: (
         <>
-          <ForgeLogo size={20} animated />
+          <ThemedLogo />
           <span className="font-bold tracking-wide text-lg font-sans [.uwu_&]:hidden max-md:hidden">
             Forge
           </span>

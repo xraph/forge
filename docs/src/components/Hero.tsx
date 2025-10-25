@@ -17,7 +17,7 @@ export const Hero = () => {
           <h1 className="text-5xl sm:text-6xl lg:text-8xl font-black leading-tight mb-8">
             <LineShadowText className="italic" shadowColor='black'>
               Forge
-            </LineShadowText>{" "} your backends your way.
+            </LineShadowText>{" "} your backend your way.
           </h1>
           
           <p className="text-xl sm:text-2xl text-foreground/80 max-w-2xl mb-10 leading-relaxed">
