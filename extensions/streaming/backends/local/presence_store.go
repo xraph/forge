@@ -201,6 +201,71 @@ func (s *PresenceStore) Ping(ctx context.Context) error {
 	return nil // No-op for local
 }
 
+func (s *PresenceStore) SetMultiple(ctx context.Context, presences map[string]*streaming.UserPresence) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) DeleteMultiple(ctx context.Context, userIDs []string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) GetByStatus(ctx context.Context, status string) ([]*streaming.UserPresence, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) GetRecent(ctx context.Context, status string, since time.Duration) ([]*streaming.UserPresence, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.PresenceFilters) ([]*streaming.UserPresence, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) SaveHistory(ctx context.Context, userID string, event *streaming.PresenceEvent) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) GetHistory(ctx context.Context, userID string, limit int) ([]*streaming.PresenceEvent, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) GetHistorySince(ctx context.Context, userID string, since time.Time) ([]*streaming.PresenceEvent, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) SetDevice(ctx context.Context, userID, deviceID string, device streaming.DeviceInfo) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) GetDevices(ctx context.Context, userID string) ([]streaming.DeviceInfo, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) RemoveDevice(ctx context.Context, userID, deviceID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) CountByStatus(ctx context.Context) (map[string]int, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *PresenceStore) GetActiveCount(ctx context.Context, since time.Duration) (int, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
 func copyMap(m map[string]any) map[string]any {
 	if m == nil {
 		return nil

@@ -260,6 +260,101 @@ func (s *RoomStore) Ping(ctx context.Context) error {
 	return nil // No-op for local
 }
 
+func (s *RoomStore) CreateMany(ctx context.Context, rooms []streaming.Room) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) DeleteMany(ctx context.Context, roomIDs []string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) GetUserRoomsByRole(ctx context.Context, userID, role string) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) GetCommonRooms(ctx context.Context, userID1, userID2 string) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) Search(ctx context.Context, query string, filters map[string]any) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) FindByTag(ctx context.Context, tag string) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) FindByCategory(ctx context.Context, category string) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) GetPublicRooms(ctx context.Context, limit int) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) GetArchivedRooms(ctx context.Context, userID string) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) GetRoomCount(ctx context.Context) (int, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) GetTotalMembers(ctx context.Context) (int, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) BanMember(ctx context.Context, roomID, userID string, ban streaming.RoomBan) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) UnbanMember(ctx context.Context, roomID, userID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.RoomBan, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) IsBanned(ctx context.Context, roomID, userID string) (bool, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) SaveInvite(ctx context.Context, roomID string, invite *streaming.Invite) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) GetInvite(ctx context.Context, inviteCode string) (*streaming.Invite, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) DeleteInvite(ctx context.Context, inviteCode string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (s *RoomStore) ListInvites(ctx context.Context, roomID string) ([]*streaming.Invite, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
 // LocalRoom implements streaming.Room
 type LocalRoom struct {
 	mu          sync.RWMutex
@@ -378,6 +473,221 @@ func (r *LocalRoom) Update(ctx context.Context, updates map[string]any) error {
 
 func (r *LocalRoom) Delete(ctx context.Context) error {
 	return streaming.ErrInvalidRoom // Managed by RoomStore
+}
+
+func (r *LocalRoom) GetMembersByRole(ctx context.Context, role string) ([]streaming.Member, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) UpdateMemberRole(ctx context.Context, userID, newRole string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) TransferOwnership(ctx context.Context, newOwnerID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) BanMember(ctx context.Context, userID string, reason string, until *time.Time) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) UnbanMember(ctx context.Context, userID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) IsBanned(ctx context.Context, userID string) (bool, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetBannedMembers(ctx context.Context) ([]streaming.RoomBan, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) MuteMember(ctx context.Context, userID string, duration time.Duration) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) UnmuteMember(ctx context.Context, userID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) IsMuted(ctx context.Context, userID string) (bool, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) CreateInvite(ctx context.Context, opts streaming.InviteOptions) (*streaming.Invite, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) RevokeInvite(ctx context.Context, inviteCode string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) ValidateInvite(ctx context.Context, inviteCode string) (bool, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetInvites(ctx context.Context) ([]*streaming.Invite, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) JoinWithInvite(ctx context.Context, userID, inviteCode string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) IsPrivate() bool {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) SetPrivate(ctx context.Context, private bool) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetMaxMembers() int {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) SetMaxMembers(ctx context.Context, max int) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) IsArchived() bool {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) Archive(ctx context.Context) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) Unarchive(ctx context.Context) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) IsLocked() bool {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) Lock(ctx context.Context, reason string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) Unlock(ctx context.Context) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetModerationLog(ctx context.Context, limit int) ([]streaming.ModerationEvent, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) SetSlowMode(ctx context.Context, intervalSeconds int) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetSlowMode(ctx context.Context) int {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) PinMessage(ctx context.Context, messageID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) UnpinMessage(ctx context.Context, messageID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetPinnedMessages(ctx context.Context) ([]string, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) AddTag(ctx context.Context, tag string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) RemoveTag(ctx context.Context, tag string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetTags() []string {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) SetCategory(ctx context.Context, category string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetCategory() string {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetMessageCount(ctx context.Context) (int64, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetActiveMembers(ctx context.Context, since time.Duration) ([]streaming.Member, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) BroadcastExcept(ctx context.Context, message *streaming.Message, excludeUserIDs []string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) BroadcastToRole(ctx context.Context, message *streaming.Message, role string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) MarkAsRead(ctx context.Context, userID, messageID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetUnreadCount(ctx context.Context, userID string, since time.Time) (int, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (r *LocalRoom) GetLastReadMessage(ctx context.Context, userID string) (string, error) {
+	// TODO implement me
+	panic("implement me")
 }
 
 // LocalMember implements streaming.Member
