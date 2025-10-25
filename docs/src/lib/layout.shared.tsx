@@ -2,13 +2,37 @@ import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
 import { type LinkItemType } from 'fumadocs-ui/layouts/docs';
 import { AlbumIcon, Heart, LayoutTemplate } from 'lucide-react';
 import Image from 'next/image';
+import { ForgeLogo } from '@/components/logo';
 
 export const linkItems: LinkItemType[] = [
   {
     text: 'Documentation',
-    url: '/docs',
+    url: '/docs/forge',
     icon: <LayoutTemplate />,
     active: 'nested-url',
+  },
+  {
+    text: 'Extensions',
+    url: '/docs/extensions',
+    icon: <LayoutTemplate />,
+    active: 'nested-url',
+  },
+  {
+    text: 'CLI',
+    url: '/docs/cli',
+    icon: <LayoutTemplate />,
+    active: 'nested-url',
+  },
+  {
+    text: 'Changelog',
+    url: '/changelog', 
+    icon: <LayoutTemplate />,
+    active: 'url',
+  },
+  {
+    text: 'Roadmap',
+    url: '/roadmap',
+    icon: <Heart />,
   },
   {
     icon: <AlbumIcon />,
@@ -16,30 +40,11 @@ export const linkItems: LinkItemType[] = [
     url: '/blog',
     active: 'nested-url',
   },
-  // {
-  //   text: 'Showcase',
-  //   url: '/showcase',
-  //   icon: <LayoutTemplate />,
-  //   active: 'url',
-  // },
-  // {
-  //   text: 'Sponsors',
-  //   url: '/sponsors',
-  //   icon: <Heart />,
-  // },
 ];
 
 export const logo = (
   <>
-    {/* <Image
-      alt="Forge"
-      // src={Logo}
-      sizes="100px"
-      className="hidden w-20 md:w-24 [.uwu_&]:block"
-      aria-label="Forge"
-    /> */}
-
-    Forge
+    <ForgeLogo size={20} />
   </>
 );
 
@@ -55,15 +60,10 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: (
         <>
-          <svg
-            width="24"
-            height="24"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-label="Logo"
-          >
-            <circle cx={12} cy={12} r={12} fill="currentColor" />
-          </svg>
-          Forge
+          <ForgeLogo size={20} animated />
+          <span className="font-bold tracking-wide text-lg font-sans [.uwu_&]:hidden max-md:hidden">
+            Forge
+          </span>
         </>
       ),
     },

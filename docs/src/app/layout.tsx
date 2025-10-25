@@ -11,8 +11,8 @@ import { NextProvider } from 'fumadocs-core/framework/next';
 
 export const metadata = createMetadata({
   title: {
-    template: '%s | Octopus',
-    default: 'Octopus',
+    template: '%s | Forge',
+    default: 'Forge',
   },
   description: 'The framework for building authentication systems',
   metadataBase: baseUrl,
@@ -42,6 +42,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       className={`${geist.variable} ${mono.variable}`}
       suppressHydrationWarning
     >
+      <meta name="apple-mobile-web-app-title" content="Forge" />
       <Body>
         <NextProvider>
           <TreeContextProvider tree={source.pageTree}>

@@ -20,7 +20,7 @@ export default function Layout({ children }: LayoutProps<'/docs'>) {
           <>
             {logo}
             <span className="font-medium [.uwu_&]:hidden max-md:hidden">
-              Octopus
+              Forge
             </span>
           </>
         ),

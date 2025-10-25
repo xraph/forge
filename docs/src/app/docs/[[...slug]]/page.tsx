@@ -44,13 +44,13 @@ const generator = createGenerator();
 
 export const revalidate = false;
 
-export default async function Page(props: PageProps<'/docs/[...slug]'>) {
+export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
   const params = await props.params;
   const page = source.getPage(params.slug);
 
   if (!page)
     return (
-      <NotFound getSuggestions={() => getSuggestions(params.slug.join(' '))} />
+      <NotFound getSuggestions={() => getSuggestions((params.slug ?? []).join(' '))} />
     );
 
   if (page.data.type === 'openapi') {
@@ -59,7 +59,7 @@ export default async function Page(props: PageProps<'/docs/[...slug]'>) {
         <h1 className="text-[1.75em] font-semibold">{page.data.title}</h1>
         <p className="text-fd-muted-foreground mb-6">{page.data.description}</p>
         <DocsBody>
-          <APIPage {...page.data.getAPIPageProps()} />
+          <APIPage {...page.data?.getAPIPageProps()} />
         </DocsBody>
       </DocsPage>
     );

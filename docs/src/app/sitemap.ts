@@ -14,6 +14,26 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 1,
     },
     {
+      url: url('/docs/forge'),
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: url('/docs/cli'),
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: url('/docs/changelog'),
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
+      url: url('/docs/roadmap'),
+      changeFrequency: 'monthly',
+      priority: 0.8,
+    },
+    {
       url: url('/showcase'),
       changeFrequency: 'monthly',
       priority: 0.8,
