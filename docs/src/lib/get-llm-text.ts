@@ -1,7 +1,9 @@
-import { type Page } from '@/lib/source';
+// import { type Page } from '@/lib/source';
+
+import { Page } from "fumadocs-core/source";
 
 export async function getLLMText(page: Page) {
-  if (page.data.type === 'openapi') return '';
+  if ((page.data as any).type === 'openapi') return '';
 
   const category =
     {
@@ -11,7 +13,7 @@ export async function getLLMText(page: Page) {
       cli: 'Forge CLI (the CLI tool for automating Forge apps)',
     }[page.slugs[0]] ?? page.slugs[0];
 
-  const processed = await page.data.getText('processed');
+  const processed = await (page.data as any).getText('processed');
 
   return `# ${category}: ${page.data.title}
 URL: ${page.url}

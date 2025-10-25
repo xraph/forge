@@ -44,7 +44,7 @@ function SearchAIActions() {
           type="button"
           className={cn(
             buttonVariants({
-              color: 'secondary',
+              variant: 'secondary',
               size: 'sm',
               className: 'rounded-full gap-1.5',
             }),
@@ -59,7 +59,7 @@ function SearchAIActions() {
         type="button"
         className={cn(
           buttonVariants({
-            color: 'secondary',
+            variant: 'secondary',
             size: 'sm',
             className: 'rounded-full',
           }),
@@ -113,7 +113,7 @@ function SearchAIInput(props: ComponentProps<'form'>) {
           type="button"
           className={cn(
             buttonVariants({
-              color: 'secondary',
+              variant: 'secondary',
               className: 'transition-all rounded-full mt-2 gap-2',
             }),
           )}
@@ -128,7 +128,7 @@ function SearchAIInput(props: ComponentProps<'form'>) {
           type="submit"
           className={cn(
             buttonVariants({
-              color: 'secondary',
+              variant: 'secondary',
               className: 'transition-all rounded-full mt-2',
             }),
           )}
@@ -314,7 +314,7 @@ export function AISearchTrigger() {
                 className={cn(
                   buttonVariants({
                     size: 'icon-sm',
-                    color: 'secondary',
+                    variant: 'secondary',
                     className: 'rounded-full',
                   }),
                 )}

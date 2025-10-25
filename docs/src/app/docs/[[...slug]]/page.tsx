@@ -53,19 +53,19 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
       <NotFound getSuggestions={() => getSuggestions((params.slug ?? []).join(' '))} />
     );
 
-  if (page.data.type === 'openapi') {
+  if ((page.data as any).type === 'openapi') {
     return (
       <DocsPage>
         <h1 className="text-[1.75em] font-semibold">{page.data.title}</h1>
         <p className="text-fd-muted-foreground mb-6">{page.data.description}</p>
         <DocsBody>
-          <APIPage {...page.data?.getAPIPageProps()} />
+          <APIPage {...(page.data as any).getAPIPageProps()} />
         </DocsBody>
       </DocsPage>
     );
   }
 
-  const { body: Mdx, toc, lastModified, preview } = page.data;
+  const { body: Mdx, toc, lastModified, preview } = (page.data as any);
 
   return (
     <DocsPage
@@ -134,7 +134,7 @@ export default async function Page(props: PageProps<'/docs/[[...slug]]'>) {
             Customisation,
           })}
         />
-        {page.data.index ? <DocsCategory url={page.url} /> : null}
+        {(page.data as any).index ? <DocsCategory url={page.url} /> : null}
       </div>
       <Feedback onRateAction={onRateAction} />
     </DocsPage>
@@ -154,7 +154,7 @@ function DocsCategory({ url }: { url: string }) {
 }
 
 export async function generateMetadata(
-  props: PageProps<'/docs/[...slug]'>,
+  props: PageProps<'/docs/[[...slug]]'>,
 ): Promise<Metadata> {
   const { slug = [] } = await props.params;
   const page = source.getPage(slug);
