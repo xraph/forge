@@ -429,3 +429,111 @@ func (mes *MemoryEventStore) Close(ctx context.Context) error {
 func (mes *MemoryEventStore) HealthCheck(ctx context.Context) error {
 	return nil
 }
+
+func (mes *MemoryEventStore) DeleteEvent(ctx context.Context, eventID string) error {
+	mes.mu.Lock()
+	defer mes.mu.Unlock()
+
+	event, exists := mes.events[eventID]
+	if !exists {
+		return fmt.Errorf("event %s not found", eventID)
+	}
+
+	// Remove from events map
+	delete(mes.events, eventID)
+
+	// Remove from eventsByAggregate
+	eventsAgg := mes.eventsByAggregate[event.AggregateID]
+	for i, e := range eventsAgg {
+		if e.ID == eventID {
+			mes.eventsByAggregate[event.AggregateID] = append(eventsAgg[:i], eventsAgg[i+1:]...)
+			break
+		}
+	}
+
+	// Remove from eventsByType
+	eventsType := mes.eventsByType[event.Type]
+	for i, e := range eventsType {
+		if e.ID == eventID {
+			mes.eventsByType[event.Type] = append(eventsType[:i], eventsType[i+1:]...)
+			break
+		}
+	}
+
+	if mes.metrics != nil {
+		mes.metrics.Counter("forge.events.store.events_deleted", "store", "memory").Inc()
+	}
+
+	if mes.logger != nil {
+		mes.logger.Debug("event deleted from memory store", forge.F("event_id", eventID))
+	}
+
+	return nil
+}
+
+func (mes *MemoryEventStore) DeleteEventsByAggregate(ctx context.Context, aggregateID string) error {
+	mes.mu.Lock()
+	defer mes.mu.Unlock()
+
+	events, exists := mes.eventsByAggregate[aggregateID]
+	if !exists || len(events) == 0 {
+		return nil
+	}
+
+	// Remove each event
+	for _, event := range events {
+		delete(mes.events, event.ID)
+
+		// Remove from eventsByType
+		eventsType := mes.eventsByType[event.Type]
+		for i, e := range eventsType {
+			if e.ID == event.ID {
+				mes.eventsByType[event.Type] = append(eventsType[:i], eventsType[i+1:]...)
+				break
+			}
+		}
+	}
+
+	// Remove aggregate entries
+	delete(mes.eventsByAggregate, aggregateID)
+	delete(mes.aggregateVersions, aggregateID)
+
+	count := len(events)
+	if mes.metrics != nil {
+		mes.metrics.Counter("forge.events.store.events_deleted", "store", "memory").Add(float64(count))
+	}
+
+	if mes.logger != nil {
+		mes.logger.Debug("events deleted by aggregate from memory store", forge.F("aggregate_id", aggregateID), forge.F("count", count))
+	}
+
+	return nil
+}
+
+func (mes *MemoryEventStore) DeleteSnapshot(ctx context.Context, snapshotID string) error {
+	mes.mu.Lock()
+	defer mes.mu.Unlock()
+
+	snapshot, exists := mes.snapshots[snapshotID]
+	if !exists {
+		return fmt.Errorf("snapshot %s not found", snapshotID)
+	}
+
+	// Remove from snapshots map
+	delete(mes.snapshots, snapshotID)
+
+	// Remove from snapshotsByAggregate if this is the latest
+	if mes.snapshotsByAggregate[snapshot.AggregateID] != nil && mes.snapshotsByAggregate[snapshot.AggregateID].ID == snapshotID {
+		delete(mes.snapshotsByAggregate, snapshot.AggregateID)
+	}
+
+	if mes.metrics != nil {
+		mes.metrics.Counter("forge.events.store.snapshots_deleted", "store", "memory").Inc()
+	}
+
+	if mes.logger != nil {
+		mes.logger.Debug("snapshot deleted from memory store", forge.F("snapshot_id", snapshotID))
+	}
+
+	return nil
+}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai"
+	"github.com/xraph/forge/extensions/ai/agents"
 	"github.com/xraph/forge/extensions/ai/stores"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -15,15 +16,6 @@ import (
 
 func main() {
 	fmt.Println("=== Forge v2: AI Agent Storage & API Demo ===\n")
-
-	// Create app
-	app, err := forge.NewApp(forge.AppConfig{
-		Name:    "ai-agents-demo",
-		Version: "1.0.0",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	// Option 1: Use in-memory store (default, no database)
 	memoryStore := stores.NewMemoryAgentStore()
@@ -35,38 +27,35 @@ func main() {
 	}
 	defer db.Close()
 
-	// Get logger from app
-	var logger forge.Logger
-	if l, err := app.Container().Resolve("logger"); err == nil {
-		if loggerImpl, ok := l.(forge.Logger); ok {
-			logger = loggerImpl
-		}
-	}
-
-	sqlStore := stores.NewSQLAgentStore(db, "agents", logger)
-
-	// Create table
-	if err := sqlStore.CreateTable(context.Background()); err != nil {
-		log.Printf("Warning: failed to create agents table: %v", err)
-	}
-
 	// Choose which store to use
 	var agentStore ai.AgentStore
 	useSQL := true // Set to true to use SQL store, false for memory store
 
 	if useSQL {
+		// Get logger from temporary app to create SQL store
+		tempApp := forge.NewApp(forge.AppConfig{
+			Name:    "temp",
+			Version: "1.0.0",
+		})
+		var logger forge.Logger
+		if l, err := tempApp.Container().Resolve("logger"); err == nil {
+			if loggerImpl, ok := l.(forge.Logger); ok {
+				logger = loggerImpl
+			}
+		}
+		
+		sqlStore := stores.NewSQLAgentStore(db, "agents", logger)
+		
+		// Create table
+		if err := sqlStore.CreateTable(context.Background()); err != nil {
+			log.Printf("Warning: failed to create agents table: %v", err)
+		}
+		
 		agentStore = sqlStore
 		fmt.Println("✓ Using SQL store (persistent)")
 	} else {
 		agentStore = memoryStore
 		fmt.Println("✓ Using memory store (ephemeral)")
-	}
-
-	// Register agent store in DI
-	if err := app.Container().Register("agentStore", func(c forge.Container) (any, error) {
-		return agentStore, nil
-	}); err != nil {
-		log.Fatal(err)
 	}
 
 	// Configure AI extension
@@ -76,9 +65,20 @@ func main() {
 	config.EnableInference = false
 	config.EnableCoordination = true
 
-	// Register AI extension
+	// Create AI extension
 	ext := ai.NewExtensionWithConfig(config)
-	if err := app.RegisterExtension(ext); err != nil {
+
+	// Create app with AI extension
+	app := forge.NewApp(forge.AppConfig{
+		Name:       "ai-agents-demo",
+		Version:    "1.0.0",
+		Extensions: []forge.Extension{ext},
+	})
+
+	// Register agent store in DI
+	if err := app.Container().Register("agentStore", func(c forge.Container) (any, error) {
+		return agentStore, nil
+	}); err != nil {
 		log.Fatal(err)
 	}
 
@@ -92,7 +92,7 @@ func main() {
 		}
 	}()
 
-	ctx := context.Background()
+
 
 	// Get AI manager
 	var aiManager ai.AI
@@ -105,77 +105,47 @@ func main() {
 	// Demo: Create agents dynamically
 	fmt.Println("\n→ Creating Agents:")
 
-	agent1Def := &ai.AgentDefinition{
-		ID:           "code-reviewer-001",
-		Name:         "Go Code Reviewer",
-		Type:         "code_reviewer",
-		SystemPrompt: "You are an expert Go developer. Review code for best practices, security, and performance.",
-		Model:        "gpt-4",
-		Provider:     "openai",
+	// Create optimization agent
+	optimizationAgent := agents.NewOptimizationAgent("optimization-001", "Performance Optimizer")
+	fmt.Printf("  Creating agent: %s\n", optimizationAgent.Name())
+	if err := aiManager.RegisterAgent(optimizationAgent); err != nil {
+		log.Printf("  Error registering agent: %v", err)
+	} else {
+		fmt.Printf("  ✓ Agent registered: %s\n", optimizationAgent.ID())
 	}
 
-	fmt.Printf("  Creating agent: %s\n", agent1Def.Name)
-	if manager, ok := aiManager.(*ai.managerImpl); ok {
-		if _, err := manager.CreateAgent(ctx, agent1Def); err != nil {
-			log.Printf("  Error creating agent: %v", err)
-		} else {
-			fmt.Printf("  ✓ Agent created: %s\n", agent1Def.ID)
-		}
-	}
-
-	agent2Def := &ai.AgentDefinition{
-		ID:           "code-generator-001",
-		Name:         "Code Generator",
-		Type:         "code_generator",
-		SystemPrompt: "You are a helpful code generation assistant. Write clean, well-documented code.",
-		Model:        "gpt-3.5-turbo",
-		Provider:     "openai",
-	}
-
-	fmt.Printf("  Creating agent: %s\n", agent2Def.Name)
-	if manager, ok := aiManager.(*ai.managerImpl); ok {
-		if _, err := manager.CreateAgent(ctx, agent2Def); err != nil {
-			log.Printf("  Error creating agent: %v", err)
-		} else {
-			fmt.Printf("  ✓ Agent created: %s\n", agent2Def.ID)
-		}
+	// Create anomaly detection agent
+	anomalyAgent := agents.NewAnomalyDetectionAgent("anomaly-001", "Anomaly Detector")
+	fmt.Printf("  Creating agent: %s\n", anomalyAgent.Name())
+	if err := aiManager.RegisterAgent(anomalyAgent); err != nil {
+		log.Printf("  Error registering agent: %v", err)
+	} else {
+		fmt.Printf("  ✓ Agent registered: %s\n", anomalyAgent.ID())
 	}
 
 	// Demo: List agents
 	fmt.Println("\n→ Listing Agents:")
-	if manager, ok := aiManager.(*ai.managerImpl); ok {
-		agents, err := manager.ListAgentsWithFilter(ctx, ai.AgentFilter{})
-		if err != nil {
-			log.Printf("  Error listing agents: %v", err)
-		} else {
-			fmt.Printf("  Found %d agents:\n", len(agents))
-			for _, agent := range agents {
-				fmt.Printf("    - %s (%s): %s\n", agent.ID, agent.Type, agent.Name)
-			}
-		}
+	agents := aiManager.ListAgents()
+	fmt.Printf("  Found %d agents:\n", len(agents))
+	for _, agent := range agents {
+		fmt.Printf("    - %s (%s): %s\n", agent.ID(), agent.Type(), agent.Name())
 	}
 
 	// Demo: Create a team
 	fmt.Println("\n→ Creating Agent Team:")
-	team := ai.NewAgentTeam("dev-team-001", "Development Team", logger)
+	team := ai.NewAgentTeam("dev-team-001", "Development Team", app.Logger())
 
 	// Add agents to team
-	if manager, ok := aiManager.(*ai.managerImpl); ok {
-		agent1, err1 := manager.GetAgent("code-reviewer-001")
-		agent2, err2 := manager.GetAgent("code-generator-001")
+	agent1, err1 := aiManager.GetAgent("optimization-001")
+	agent2, err2 := aiManager.GetAgent("anomaly-001")
 
-		if err1 == nil && err2 == nil {
-			team.AddAgent(agent1)
-			team.AddAgent(agent2)
-			fmt.Printf("  ✓ Team created with %d agents\n", len(team.Agents()))
-
-			// Register team
-			if err := manager.RegisterTeam(team); err != nil {
-				log.Printf("  Error registering team: %v", err)
-			} else {
-				fmt.Println("  ✓ Team registered")
-			}
-		}
+	if err1 == nil && err2 == nil {
+		team.AddAgent(agent1)
+		team.AddAgent(agent2)
+		fmt.Printf("  ✓ Team created with %d agents\n", len(team.Agents()))
+		fmt.Println("  ✓ Team configured (teams are managed separately from individual agents)")
+	} else {
+		log.Printf("  Error getting agents for team: %v, %v", err1, err2)
 	}
 
 	// Demo: Persistence test (restart simulation)

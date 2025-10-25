@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/events/core"
 )
@@ -355,24 +356,24 @@ func (pes *PostgresEventStore) QueryEvents(ctx context.Context, criteria *core.E
 	args := make([]interface{}, 0)
 	argPos := 1
 
-	if criteria.AggregateID != "" {
-		query += fmt.Sprintf(" AND aggregate_id = $%d", argPos)
-		args = append(args, criteria.AggregateID)
+	if len(criteria.AggregateIDs) > 0 {
+		query += fmt.Sprintf(" AND aggregate_id = ANY($%d)", argPos)
+		args = append(args, pq.Array(criteria.AggregateIDs))
 		argPos++
 	}
-	if criteria.EventType != "" {
-		query += fmt.Sprintf(" AND type = $%d", argPos)
-		args = append(args, criteria.EventType)
+	if len(criteria.EventTypes) > 0 {
+		query += fmt.Sprintf(" AND type = ANY($%d)", argPos)
+		args = append(args, pq.Array(criteria.EventTypes))
 		argPos++
 	}
-	if !criteria.FromTime.IsZero() {
+	if !criteria.StartTime.IsZero() {
 		query += fmt.Sprintf(" AND timestamp >= $%d", argPos)
-		args = append(args, criteria.FromTime)
+		args = append(args, criteria.StartTime)
 		argPos++
 	}
-	if !criteria.ToTime.IsZero() {
+	if !criteria.EndTime.IsZero() {
 		query += fmt.Sprintf(" AND timestamp <= $%d", argPos)
-		args = append(args, criteria.ToTime)
+		args = append(args, criteria.EndTime)
 		argPos++
 	}
 

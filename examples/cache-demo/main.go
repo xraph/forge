@@ -150,8 +150,7 @@ func main() {
 			Namespace:   "cache_demo",
 		},
 		HealthConfig: forge.HealthConfig{
-			Enabled:    true,
-			HealthPath: "/_/health",
+			Enabled: true,
 		},
 	})
 

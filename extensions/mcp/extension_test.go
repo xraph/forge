@@ -329,7 +329,7 @@ func TestMCPToolNameGeneration(t *testing.T) {
 	}
 
 	logger := forge.NewNoopLogger()
-	metrics := forge.NewMetrics("test")
+	metrics := forge.NewNoOpMetrics()
 
 	config := mcp.Config{
 		Enabled:          true,

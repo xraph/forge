@@ -9,6 +9,7 @@ type (
 	Field         = logger.Field
 	LogLevel      = logger.LogLevel
 	LoggingConfig = logger.LoggingConfig
+	LoggerConfig  = logger.LoggingConfig
 )
 
 // Re-export logger constants

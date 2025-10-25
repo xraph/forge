@@ -8,6 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // Extension implements the database extension
@@ -192,7 +193,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	for name, status := range statuses {
 		if !status.Healthy {
 			unhealthy++
-			e.logger.Warn("database unhealthy", "name", name, "error", status.Message)
+			e.logger.Warn("database unhealthy", logger.String("name", name), logger.String("error", status.Message))
 		}
 	}
 

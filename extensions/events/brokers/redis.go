@@ -605,9 +605,9 @@ func (rb *RedisBroker) collectPoolStats(ctx context.Context) {
 				if poolStater, ok := rb.client.(interface{ PoolStats() *redis.PoolStats }); ok {
 					stats := poolStater.PoolStats()
 					rb.mu.Lock()
-					rb.stats.PoolStats.TotalConns = stats.TotalConns
-					rb.stats.PoolStats.IdleConns = stats.IdleConns
-					rb.stats.PoolStats.StaleConns = stats.StaleConns
+					rb.stats.PoolStats.TotalConns = int(stats.TotalConns)
+					rb.stats.PoolStats.IdleConns = int(stats.IdleConns)
+					rb.stats.PoolStats.StaleConns = int(stats.StaleConns)
 					rb.stats.PoolStats.Hits = int(stats.Hits)
 					rb.stats.PoolStats.Misses = int(stats.Misses)
 					rb.stats.PoolStats.Timeouts = int(stats.Timeouts)

@@ -31,7 +31,7 @@ type MongoEvent struct {
 	AggregateID string                 `bson:"aggregate_id"`
 	Type        string                 `bson:"type"`
 	Version     int                    `bson:"version"`
-	Data        map[string]interface{} `bson:"data"`
+	Data        any                    `bson:"data"`
 	Metadata    map[string]interface{} `bson:"metadata,omitempty"`
 	Source      string                 `bson:"source,omitempty"`
 	Timestamp   time.Time              `bson:"timestamp"`
@@ -44,7 +44,7 @@ type MongoSnapshot struct {
 	AggregateID string                 `bson:"aggregate_id"`
 	Type        string                 `bson:"type"`
 	Version     int                    `bson:"version"`
-	Data        map[string]interface{} `bson:"data"`
+	Data        any                    `bson:"data"`
 	Metadata    map[string]interface{} `bson:"metadata,omitempty"`
 	Timestamp   time.Time              `bson:"timestamp"`
 	CreatedAt   time.Time              `bson:"created_at"`
@@ -344,19 +344,19 @@ func (mes *MongoEventStore) GetEventsByType(ctx context.Context, eventType strin
 func (mes *MongoEventStore) QueryEvents(ctx context.Context, criteria *core.EventCriteria) ([]*core.Event, error) {
 	filter := bson.D{}
 
-	if criteria.AggregateID != "" {
-		filter = append(filter, bson.E{Key: "aggregate_id", Value: criteria.AggregateID})
+	if len(criteria.AggregateIDs) > 0 {
+		filter = append(filter, bson.E{Key: "aggregate_id", Value: bson.D{{Key: "$in", Value: criteria.AggregateIDs}}})
 	}
-	if criteria.EventType != "" {
-		filter = append(filter, bson.E{Key: "type", Value: criteria.EventType})
+	if len(criteria.EventTypes) > 0 {
+		filter = append(filter, bson.E{Key: "type", Value: bson.D{{Key: "$in", Value: criteria.EventTypes}}})
 	}
-	if !criteria.FromTime.IsZero() || !criteria.ToTime.IsZero() {
+	if !criteria.StartTime.IsZero() || !criteria.StartTime.IsZero() {
 		timeFilter := bson.D{}
-		if !criteria.FromTime.IsZero() {
-			timeFilter = append(timeFilter, bson.E{Key: "$gte", Value: criteria.FromTime})
+		if !criteria.StartTime.IsZero() {
+			timeFilter = append(timeFilter, bson.E{Key: "$gte", Value: criteria.StartTime})
 		}
-		if !criteria.ToTime.IsZero() {
-			timeFilter = append(timeFilter, bson.E{Key: "$lte", Value: criteria.ToTime})
+		if !criteria.EndTime.IsZero() {
+			timeFilter = append(timeFilter, bson.E{Key: "$lte", Value: criteria.EndTime})
 		}
 		filter = append(filter, bson.E{Key: "timestamp", Value: timeFilter})
 	}

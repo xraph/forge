@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -36,7 +35,7 @@ func example1() {
 	configManager := forge.NewManager(forge.ManagerConfig{})
 
 	source, err := sources.NewFileSource("./config.yaml", sources.FileSourceOptions{
-		Logger: forge.NewLogger(logger.LoggerConfig{
+		Logger: forge.NewLogger(forge.LoggingConfig{
 			Level: "info",
 		}),
 	})
@@ -45,18 +44,15 @@ func example1() {
 	}
 
 	if err := configManager.LoadFrom(source); err != nil {
-		log.Fatalf("Failed to add config source: %v", err)
+		log.Fatalf("Failed to load config from source: %v", err)
 	}
 
-	if err := configManager.Load(context.Background()); err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	// Create app with extensions
-	// Extensions will automatically load their config from ConfigManager
+	// Create app with extensions and provide the ConfigManager
+	// Extensions will automatically load their config from the provided ConfigManager
 	app := forge.NewApp(forge.AppConfig{
-		Name:    "config-example",
-		Version: "1.0.0",
+		Name:          "config-example",
+		Version:       "1.0.0",
+		ConfigManager: configManager, // Provide the pre-loaded ConfigManager
 		Extensions: []forge.Extension{
 			// Load config from "extensions.cache" or "cache" key
 			cache.NewExtension(),
@@ -65,13 +61,6 @@ func example1() {
 			mcp.NewExtension(),
 		},
 	})
-
-	// Register ConfigManager with DI so extensions can use it
-	if err := forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
-		return configManager, nil
-	}); err != nil {
-		log.Fatalf("Failed to register ConfigManager: %v", err)
-	}
 
 	// Register a simple test route
 	app.Router().GET("/test", func(ctx forge.Context) error {
@@ -88,7 +77,7 @@ func example1() {
 	fmt.Println("Visit: http://localhost:8080/_/mcp/info")
 	fmt.Println()
 
-	if err := app.Run(context.Background()); err != nil {
+	if err := app.Run(); err != nil {
 		log.Fatalf("App failed: %v", err)
 	}
 }
@@ -98,20 +87,20 @@ func example2() {
 	fmt.Println("Example 2: Programmatic config overrides")
 	fmt.Println("----------------------------------------")
 
-	// Create config manager
+	// Create config manager and load config file
 	configManager := forge.NewManager(forge.ManagerConfig{})
-	if err := configManager.AddSource("file", forge.SourceConfig{
-		Type: "file",
-		Config: map[string]interface{}{
-			"path":   "./config.yaml",
-			"format": "yaml",
-		},
-	}); err != nil {
-		log.Fatalf("Failed to add config source: %v", err)
+
+	source, err := sources.NewFileSource("./config.yaml", sources.FileSourceOptions{
+		Logger: forge.NewLogger(forge.LoggingConfig{
+			Level: "info",
+		}),
+	})
+	if err != nil {
+		log.Fatalf("Failed to create file source: %v", err)
 	}
 
-	if err := configManager.Load(context.Background()); err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	if err := configManager.LoadFrom(source); err != nil {
+		log.Fatalf("Failed to load config from source: %v", err)
 	}
 
 	// Create app with programmatic overrides
@@ -144,7 +133,7 @@ func example2() {
 	fmt.Println("MCP base path: /api/mcp (overrides /_/mcp from config)")
 	fmt.Println()
 
-	if err := app.Run(context.Background()); err != nil {
+	if err := app.Run(); err != nil {
 		log.Fatalf("App failed: %v", err)
 	}
 }
@@ -171,7 +160,7 @@ func example3() {
 	fmt.Println("This will fail because cache requires config")
 	fmt.Println()
 
-	if err := app.Run(context.Background()); err != nil {
+	if err := app.Run(); err != nil {
 		fmt.Printf("Expected error: %v\n", err)
 		fmt.Println("\nThis demonstrates the RequireConfig flag working correctly.")
 	}

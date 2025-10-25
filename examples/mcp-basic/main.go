@@ -81,7 +81,7 @@ func main() {
 	fmt.Println("\n")
 
 	// Run HTTP server
-	if err := app.Run(ctx, ":8080"); err != nil {
+	if err := app.Run(); err != nil {
 		fmt.Printf("Server error: %v\n", err)
 		os.Exit(1)
 	}

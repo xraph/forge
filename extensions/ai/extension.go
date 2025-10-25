@@ -117,7 +117,7 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Register AI interface for direct access
-	if err := forge.RegisterSingleton[internal.AI](app.Container(), "ai.manager", func(c forge.Container) (AI, error) {
+	if err := forge.RegisterSingleton[internal.AI](app.Container(), "ai.manager", func(c forge.Container) (internal.AI, error) {
 		return e.ai, nil
 	}); err != nil {
 		return fmt.Errorf("failed to register AI manager: %w", err)

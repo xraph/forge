@@ -23,18 +23,23 @@ func main() {
 
 		// Enable metrics
 		MetricsConfig: forge.MetricsConfig{
-			Enabled:     true,
-			MetricsPath: "/_/metrics",
-			Namespace:   "example",
+			Enabled:            true,
+			MetricsPath:        "/_/metrics",
+			Namespace:          "example",
+			CollectionInterval: 15 * time.Second,
 		},
 
 		// Enable health checks
 		HealthConfig: forge.HealthConfig{
-			Enabled:            true,
-			HealthPath:         "/_/health",
-			LivenessPath:       "/_/health/live",
-			ReadinessPath:      "/_/health/ready",
-			HealthCheckTimeout: 5 * time.Second,
+			Enabled:                true,
+			CheckInterval:          30 * time.Second,
+			ReportInterval:         60 * time.Second,
+			DefaultTimeout:         5 * time.Second,
+			EnableEndpoints:        true,
+			EndpointPrefix:         "/_",
+			EnableAutoDiscovery:    true,
+			MaxConcurrentChecks:    10,
+			EnableSmartAggregation: true,
 		},
 	})
 
@@ -42,11 +47,11 @@ func main() {
 	healthManager := app.HealthManager()
 
 	// Database health check
-	healthManager.Register("database", func(ctx context.Context) forge.HealthResult {
+	healthManager.RegisterFn("database", func(ctx context.Context) *forge.HealthResult {
 		// Simulate database ping
 		time.Sleep(50 * time.Millisecond)
 
-		return forge.HealthResult{
+		return &forge.HealthResult{
 			Status:  forge.HealthStatusHealthy,
 			Message: "database connection OK",
 			Details: map[string]any{
@@ -57,8 +62,8 @@ func main() {
 	})
 
 	// Cache health check
-	healthManager.Register("cache", func(ctx context.Context) forge.HealthResult {
-		return forge.HealthResult{
+	healthManager.RegisterFn("cache", func(ctx context.Context) *forge.HealthResult {
+		return &forge.HealthResult{
 			Status:  forge.HealthStatusHealthy,
 			Message: "cache connection OK",
 			Details: map[string]any{
@@ -68,9 +73,9 @@ func main() {
 	})
 
 	// External API health check
-	healthManager.Register("external_api", func(ctx context.Context) forge.HealthResult {
+	healthManager.RegisterFn("external_api", func(ctx context.Context) *forge.HealthResult {
 		// Simulate API check
-		return forge.HealthResult{
+		return &forge.HealthResult{
 			Status:  forge.HealthStatusHealthy,
 			Message: "external API reachable",
 		}
