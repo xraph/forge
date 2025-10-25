@@ -10,6 +10,128 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
+// runMessageProcessor processes incoming messages from the transport layer
+func (n *Node) runMessageProcessor() {
+	defer n.wg.Done()
+
+	// Get the message channel from transport
+	msgCh := n.transport.Receive()
+
+	for {
+		select {
+		case <-n.ctx.Done():
+			return
+
+		case msg := <-msgCh:
+			n.handleMessage(msg)
+		}
+	}
+}
+
+// handleMessage handles incoming messages
+func (n *Node) handleMessage(msg internal.Message) {
+	n.logger.Debug("received message",
+		forge.F("from", msg.From),
+		forge.F("to", msg.To),
+		forge.F("type", msg.Type),
+	)
+
+	switch msg.Type {
+	case internal.MessageTypeAppendEntries:
+		if req, ok := msg.Payload.(*internal.AppendEntriesRequest); ok {
+			resp := n.handleAppendEntries(*req)
+			// Send response back to sender
+			responseMsg := internal.Message{
+				Type:    internal.MessageTypeAppendEntriesResponse,
+				From:    n.id,
+				To:      msg.From,
+				Payload: &resp,
+			}
+			if err := n.transport.Send(n.ctx, msg.From, responseMsg); err != nil {
+				n.logger.Error("failed to send AppendEntries response",
+					forge.F("error", err),
+					forge.F("to", msg.From),
+				)
+			}
+		}
+
+	case internal.MessageTypeAppendEntriesResponse:
+		if resp, ok := msg.Payload.(*internal.AppendEntriesResponse); ok {
+			// Send response to pending request
+			requestID := fmt.Sprintf("append_entries_%s_%s", msg.To, msg.From)
+			n.sendResponse(requestID, resp)
+
+			// Also handle the response for replication logic
+			n.peersLock.RLock()
+			peer, exists := n.peers[msg.From]
+			n.peersLock.RUnlock()
+
+			if exists {
+				// Create a dummy request for the response handler
+				req := &internal.AppendEntriesRequest{
+					Term: resp.Term,
+				}
+				n.handleAppendEntriesResponse(peer, req, resp)
+			}
+		}
+
+	case internal.MessageTypeRequestVote:
+		if req, ok := msg.Payload.(*internal.RequestVoteRequest); ok {
+			resp := n.handleRequestVote(*req)
+			// Send response back to sender
+			responseMsg := internal.Message{
+				Type:    internal.MessageTypeRequestVoteResponse,
+				From:    n.id,
+				To:      msg.From,
+				Payload: &resp,
+			}
+			if err := n.transport.Send(n.ctx, msg.From, responseMsg); err != nil {
+				n.logger.Error("failed to send RequestVote response",
+					forge.F("error", err),
+					forge.F("to", msg.From),
+				)
+			}
+		}
+
+	case internal.MessageTypeRequestVoteResponse:
+		if resp, ok := msg.Payload.(*internal.RequestVoteResponse); ok {
+			// Send response to pending request
+			requestID := fmt.Sprintf("request_vote_%s_%s", msg.To, msg.From)
+			n.sendResponse(requestID, resp)
+
+			n.logger.Debug("received vote response",
+				forge.F("from", msg.From),
+				forge.F("granted", resp.VoteGranted),
+				forge.F("term", resp.Term),
+			)
+		}
+
+	case internal.MessageTypeInstallSnapshot:
+		if req, ok := msg.Payload.(*internal.InstallSnapshotRequest); ok {
+			resp := n.handleInstallSnapshot(*req)
+			// Send response back to sender
+			responseMsg := internal.Message{
+				Type:    internal.MessageTypeInstallSnapshotResponse,
+				From:    n.id,
+				To:      msg.From,
+				Payload: &resp,
+			}
+			if err := n.transport.Send(n.ctx, msg.From, responseMsg); err != nil {
+				n.logger.Error("failed to send InstallSnapshot response",
+					forge.F("error", err),
+					forge.F("to", msg.From),
+				)
+			}
+		}
+
+	default:
+		n.logger.Warn("unknown message type",
+			forge.F("type", msg.Type),
+			forge.F("from", msg.From),
+		)
+	}
+}
+
 // runStateMachine processes apply messages and applies them to the state machine
 func (n *Node) runStateMachine() {
 	defer n.wg.Done()
@@ -67,6 +189,11 @@ func (n *Node) runStateMachine() {
 // runSnapshotManager manages snapshot creation
 func (n *Node) runSnapshotManager() {
 	defer n.wg.Done()
+
+	// If snapshots are disabled, just return
+	if !n.config.EnableSnapshots {
+		return
+	}
 
 	// Create a ticker for periodic snapshots
 	ticker := time.NewTicker(n.config.SnapshotInterval)

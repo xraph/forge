@@ -2,7 +2,6 @@ package examples
 
 import (
 	"fmt"
-	"net/http"
 	"os"
 	"regexp"
 	"sort"

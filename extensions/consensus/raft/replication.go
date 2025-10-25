@@ -2,6 +2,7 @@ package raft
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -11,8 +12,10 @@ import (
 
 // replicateToPeer replicates log entries to a single peer
 func (n *Node) replicateToPeer(peer *PeerState) {
-	// Use mutex to prevent concurrent replication to the same peer
-	peer.ReplicationMu.Lock()
+	// Try to acquire lock, skip if already replicating
+	if !peer.ReplicationMu.TryLock() {
+		return
+	}
 	defer peer.ReplicationMu.Unlock()
 
 	n.mu.RLock()
@@ -25,6 +28,13 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 	commitIndex := n.commitIndex
 	nextIndex := n.nextIndex[peer.ID]
 	n.mu.RUnlock()
+
+	n.logger.Debug("replicating to peer",
+		forge.F("node_id", n.id),
+		forge.F("peer_id", peer.ID),
+		forge.F("next_index", nextIndex),
+		forge.F("commit_index", commitIndex),
+	)
 
 	// Get entries to send
 	prevLogIndex := nextIndex - 1
@@ -83,6 +93,15 @@ func (n *Node) sendAppendEntries(peer *PeerState, req *internal.AppendEntriesReq
 	ctx, cancel := context.WithTimeout(n.ctx, 5*time.Second)
 	defer cancel()
 
+	// Generate unique request ID
+	requestID := fmt.Sprintf("append_entries_%s_%s", n.id, peer.ID)
+	responseCh := make(chan interface{}, 1)
+
+	// Register pending request
+	n.requestMu.Lock()
+	n.pendingRequests[requestID] = responseCh
+	n.requestMu.Unlock()
+
 	msg := internal.Message{
 		Type:    internal.MessageTypeAppendEntries,
 		From:    n.id,
@@ -93,21 +112,35 @@ func (n *Node) sendAppendEntries(peer *PeerState, req *internal.AppendEntriesReq
 	// Send via transport
 	err := n.transport.Send(ctx, peer.ID, msg)
 	if err != nil {
+		// Clean up
+		n.requestMu.Lock()
+		delete(n.pendingRequests, requestID)
+		n.requestMu.Unlock()
 		return nil, err
 	}
 
-	// In a real implementation, we would wait for response via a response channel
-	// For now, return a placeholder response
-	// TODO: Implement proper RPC response handling
 	peer.LastContact = time.Now()
 
-	resp := &internal.AppendEntriesResponse{
-		Term:    req.Term,
-		Success: true,
-		NodeID:  peer.ID,
-	}
+	// Wait for response
+	select {
+	case response := <-responseCh:
+		// Clean up
+		n.requestMu.Lock()
+		delete(n.pendingRequests, requestID)
+		n.requestMu.Unlock()
 
-	return resp, nil
+		if resp, ok := response.(*internal.AppendEntriesResponse); ok {
+			return resp, nil
+		}
+		return nil, fmt.Errorf("invalid response type")
+
+	case <-ctx.Done():
+		// Clean up
+		n.requestMu.Lock()
+		delete(n.pendingRequests, requestID)
+		n.requestMu.Unlock()
+		return nil, ctx.Err()
+	}
 }
 
 // handleAppendEntriesResponse handles the response from an AppendEntries RPC

@@ -218,6 +218,24 @@ func (s *MemoryStorage) GetRange(start, end []byte) ([]internal.KeyValue, error)
 	return result, nil
 }
 
+// Batch executes a batch of operations
+func (s *MemoryStorage) Batch(ops []internal.BatchOp) error {
+	return s.WriteBatch(ops)
+}
+
+// Close closes the storage backend
+func (s *MemoryStorage) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.cancel != nil {
+		s.cancel()
+	}
+
+	s.logger.Info("memory storage closed")
+	return nil
+}
+
 // Size returns the number of stored keys
 func (s *MemoryStorage) Size() int {
 	s.mu.RLock()

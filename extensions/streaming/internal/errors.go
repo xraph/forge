@@ -43,6 +43,10 @@ var (
 	ErrPresenceNotFound = errors.New("presence not found")
 	ErrInvalidStatus    = errors.New("invalid status")
 
+	// Invite errors
+	ErrInviteNotFound = errors.New("invite not found")
+	ErrInviteExpired  = errors.New("invite expired")
+
 	// Backend errors
 	ErrBackendNotConnected = errors.New("backend not connected")
 	ErrBackendTimeout      = errors.New("backend operation timeout")

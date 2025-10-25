@@ -235,6 +235,12 @@ type RaftNode interface {
 	// Apply applies a log entry
 	Apply(ctx context.Context, entry LogEntry) error
 
+	// Propose proposes a new command to the cluster
+	Propose(ctx context.Context, command []byte) error
+
+	// GetCommitIndex returns the current commit index
+	GetCommitIndex() uint64
+
 	// AppendEntries handles AppendEntries RPC
 	AppendEntries(ctx context.Context, req *AppendEntriesRequest) (*AppendEntriesResponse, error)
 
@@ -246,6 +252,9 @@ type RaftNode interface {
 
 	// GetStats returns Raft statistics
 	GetStats() RaftStats
+
+	// AddPeer adds a peer to the Raft node
+	AddPeer(peerID string)
 }
 
 // RaftStats represents Raft node statistics
@@ -397,10 +406,16 @@ type MessageType string
 const (
 	// MessageTypeAppendEntries is for AppendEntries RPC
 	MessageTypeAppendEntries MessageType = "append_entries"
+	// MessageTypeAppendEntriesResponse is for AppendEntries response
+	MessageTypeAppendEntriesResponse MessageType = "append_entries_response"
 	// MessageTypeRequestVote is for RequestVote RPC
 	MessageTypeRequestVote MessageType = "request_vote"
+	// MessageTypeRequestVoteResponse is for RequestVote response
+	MessageTypeRequestVoteResponse MessageType = "request_vote_response"
 	// MessageTypeInstallSnapshot is for InstallSnapshot RPC
 	MessageTypeInstallSnapshot MessageType = "install_snapshot"
+	// MessageTypeInstallSnapshotResponse is for InstallSnapshot response
+	MessageTypeInstallSnapshotResponse MessageType = "install_snapshot_response"
 	// MessageTypeHeartbeat is for heartbeat messages
 	MessageTypeHeartbeat MessageType = "heartbeat"
 )

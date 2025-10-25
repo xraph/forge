@@ -290,3 +290,111 @@ type MessageEdit struct {
 	EditedAt    time.Time `json:"edited_at"`
 	PrevContent any       `json:"prev_content,omitempty"`
 }
+
+// ModerationStatus represents the status of a moderation action.
+type ModerationStatus string
+
+const (
+	ModerationStatusPending  ModerationStatus = "pending"
+	ModerationStatusApproved ModerationStatus = "approved"
+	ModerationStatusRejected ModerationStatus = "rejected"
+	ModerationStatusActive   ModerationStatus = "active"
+	ModerationStatusExpired  ModerationStatus = "expired"
+)
+
+
+
+// MessageSearchQuery represents a query for searching messages.
+type MessageSearchQuery struct {
+	Query     string            `json:"query"`
+	RoomID    string            `json:"room_id,omitempty"`
+	UserID    string            `json:"user_id,omitempty"`
+	Before    *time.Time        `json:"before,omitempty"`
+	After     *time.Time        `json:"after,omitempty"`
+	Limit     int               `json:"limit,omitempty"`
+	Offset    int               `json:"offset,omitempty"`
+	Filters   map[string]any    `json:"filters,omitempty"`
+}
+
+// AnalyticsQuery represents a query for analytics data.
+type AnalyticsQuery struct {
+	Metric    string            `json:"metric"`
+	StartTime time.Time         `json:"start_time"`
+	EndTime   time.Time         `json:"end_time"`
+	GroupBy   string            `json:"group_by,omitempty"`
+	Filters   map[string]any    `json:"filters,omitempty"`
+	Limit     int               `json:"limit,omitempty"`
+}
+
+// AnalyticsResult represents the result of an analytics query.
+type AnalyticsResult struct {
+	Metric    string            `json:"metric"`
+	Value     float64           `json:"value"`
+	Timestamp time.Time         `json:"timestamp"`
+	Labels    map[string]string `json:"labels,omitempty"`
+	Metadata  map[string]any    `json:"metadata,omitempty"`
+}
+
+// AnalyticsEvent represents an event for analytics tracking.
+type AnalyticsEvent struct {
+	Type      string            `json:"type"`
+	UserID    string            `json:"user_id,omitempty"`
+	RoomID    string            `json:"room_id,omitempty"`
+	Data      map[string]any    `json:"data,omitempty"`
+	Timestamp time.Time         `json:"timestamp"`
+}
+
+// FileUpload represents a file upload request.
+type FileUpload struct {
+	ID          string            `json:"id"`
+	Filename    string            `json:"filename"`
+	ContentType string            `json:"content_type"`
+	Size        int64             `json:"size"`
+	UserID      string            `json:"user_id"`
+	RoomID      string            `json:"room_id,omitempty"`
+	Data        []byte            `json:"data,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Metadata    map[string]any    `json:"metadata,omitempty"`
+	UploadedAt  time.Time         `json:"uploaded_at"`
+}
+
+// FileInfo represents information about an uploaded file.
+type FileInfo struct {
+	ID          string            `json:"id"`
+	Filename    string            `json:"filename"`
+	ContentType string            `json:"content_type"`
+	Size        int64             `json:"size"`
+	UserID      string            `json:"user_id"`
+	RoomID      string            `json:"room_id,omitempty"`
+	URL         string            `json:"url"`
+	ThumbnailURL string           `json:"thumbnail_url,omitempty"`
+	Metadata    map[string]any    `json:"metadata,omitempty"`
+	UploadedAt  time.Time         `json:"uploaded_at"`
+	ExpiresAt   *time.Time        `json:"expires_at,omitempty"`
+}
+
+// FileQuery represents a query for searching files.
+type FileQuery struct {
+	UserID      string            `json:"user_id,omitempty"`
+	RoomID      string            `json:"room_id,omitempty"`
+	ContentType string            `json:"content_type,omitempty"`
+	Before      *time.Time        `json:"before,omitempty"`
+	After       *time.Time        `json:"after,omitempty"`
+	Limit       int               `json:"limit,omitempty"`
+	Offset      int               `json:"offset,omitempty"`
+	Filters     map[string]any    `json:"filters,omitempty"`
+}
+
+// WebhookConfig represents webhook configuration.
+type WebhookConfig struct {
+	ID          string            `json:"id"`
+	URL         string            `json:"url"`
+	Events      []string          `json:"events"`
+	Secret      string            `json:"secret,omitempty"`
+	Active      bool              `json:"active"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Timeout     time.Duration     `json:"timeout,omitempty"`
+	RetryCount  int               `json:"retry_count,omitempty"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
+}

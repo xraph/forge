@@ -66,6 +66,23 @@ type RateLimitStatus = internal.RateLimitStatus
 
 // Query types
 type HistoryQuery = internal.HistoryQuery
+type MessageSearchQuery = internal.MessageSearchQuery
+type AnalyticsQuery = internal.AnalyticsQuery
+type FileQuery = internal.FileQuery
+
+// Analytics types
+type AnalyticsResult = internal.AnalyticsResult
+type AnalyticsEvent = internal.AnalyticsEvent
+
+// File types
+type FileUpload = internal.FileUpload
+type FileInfo = internal.FileInfo
+
+// Webhook types
+type WebhookConfig = internal.WebhookConfig
+
+// Moderation types
+type ModerationStatus = internal.ModerationStatus
 
 // Configuration
 type Config = internal.Config
@@ -94,3 +111,54 @@ var ErrInvalidPermission = internal.ErrInvalidPermission
 var ErrInsufficientRole = internal.ErrInsufficientRole
 var ErrMessageTooLarge = internal.ErrMessageTooLarge
 var ErrMessageNotFound = internal.ErrMessageNotFound
+
+// Connection errors
+var ErrConnectionNotFound = internal.ErrConnectionNotFound
+var ErrConnectionClosed = internal.ErrConnectionClosed
+var ErrConnectionLimitReached = internal.ErrConnectionLimitReached
+var ErrInvalidConnection = internal.ErrInvalidConnection
+
+// Room errors
+var ErrRoomNotFound = internal.ErrRoomNotFound
+var ErrRoomAlreadyExists = internal.ErrRoomAlreadyExists
+var ErrRoomFull = internal.ErrRoomFull
+var ErrNotRoomMember = internal.ErrNotRoomMember
+var ErrAlreadyRoomMember = internal.ErrAlreadyRoomMember
+var ErrRoomLimitReached = internal.ErrRoomLimitReached
+
+// Channel errors
+var ErrChannelNotFound = internal.ErrChannelNotFound
+var ErrChannelAlreadyExists = internal.ErrChannelAlreadyExists
+var ErrNotSubscribed = internal.ErrNotSubscribed
+var ErrAlreadySubscribed = internal.ErrAlreadySubscribed
+
+// Permission errors
+var ErrPermissionDenied = internal.ErrPermissionDenied
+
+// Invite errors
+var ErrInviteNotFound = internal.ErrInviteNotFound
+var ErrInviteExpired = internal.ErrInviteExpired
+
+// Error constructors
+var NewConnectionError = internal.NewConnectionError
+var NewRoomError = internal.NewRoomError
+var NewChannelError = internal.NewChannelError
+var NewMessageError = internal.NewMessageError
+var NewBackendError = internal.NewBackendError
+
+// Status constants
+const StatusOnline = internal.StatusOnline
+const StatusAway = internal.StatusAway
+const StatusBusy = internal.StatusBusy
+const StatusOffline = internal.StatusOffline
+
+// Message type constants
+const MessageTypeMessage = internal.MessageTypeMessage
+const MessageTypeJoin = internal.MessageTypeJoin
+const MessageTypeLeave = internal.MessageTypeLeave
+const MessageTypeTyping = internal.MessageTypeTyping
+const MessageTypePresence = internal.MessageTypePresence
+
+// Default option functions
+var DefaultPresenceOptions = internal.DefaultPresenceOptions
+var DefaultTypingOptions = internal.DefaultTypingOptions

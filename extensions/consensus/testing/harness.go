@@ -115,6 +115,7 @@ func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 			ElectionTimeoutMin: 200 * time.Millisecond,
 			ElectionTimeoutMax: 400 * time.Millisecond,
 			MaxAppendEntries:   64,
+			EnableSnapshots:    false, // Disable snapshots for testing
 		}
 
 		raftNode, err := raft.NewNode(raftCfg, h.logger, sm, trans, stor)
@@ -133,12 +134,14 @@ func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 		}
 	}
 
-	// Connect all transports
+	// Connect all transports and add peers to Raft nodes
 	for _, node := range h.nodes {
 		localTrans := node.Transport.(*transport.LocalTransport)
 		for peerID, peerTrans := range h.transports {
 			if peerID != node.ID {
-				localTrans.Connect(peerID, peerTrans)
+				localTrans.Connect(peerTrans)
+				// Add peer to Raft node
+				node.RaftNode.AddPeer(peerID)
 			}
 		}
 	}
@@ -263,7 +266,7 @@ func (h *TestHarness) PartitionNode(nodeID string) error {
 		return fmt.Errorf("node %s not found", nodeID)
 	}
 
-	trans.Disconnect()
+	trans.DisconnectAll()
 	h.t.Logf("Partitioned node: %s", nodeID)
 	return nil
 }
@@ -281,7 +284,7 @@ func (h *TestHarness) HealPartition(nodeID string) error {
 	// Reconnect to all other nodes
 	for peerID, peerTrans := range h.transports {
 		if peerID != nodeID {
-			trans.Connect(peerID, peerTrans)
+			trans.Connect(peerTrans)
 		}
 	}
 
@@ -464,7 +467,9 @@ func (h *TestHarness) HealAllPartitions() error {
 		if trans, ok := node.Transport.(*transport.LocalTransport); ok {
 			for _, otherNode := range h.nodes {
 				if otherNode.ID != node.ID {
-					trans.Connect(otherNode.ID, otherNode.Transport)
+					if otherTrans, ok := otherNode.Transport.(*transport.LocalTransport); ok {
+						trans.Connect(otherTrans)
+					}
 				}
 			}
 		}

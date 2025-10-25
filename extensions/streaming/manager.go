@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/xraph/forge"
+	streaming "github.com/xraph/forge/extensions/streaming/internal"
 )
 
 // manager implements the Manager interface.
@@ -25,8 +27,8 @@ type manager struct {
 	distributed DistributedBackend
 
 	// Connection registry
-	connections map[string]EnhancedConnection // connID -> connection
-	userConns   map[string][]string           // userID -> []connID
+	connections map[string]Connection // connID -> connection
+	userConns   map[string][]string   // userID -> []connID
 
 	// Configuration
 	config Config
@@ -58,7 +60,7 @@ func NewManager(
 		presenceTracker: presenceTracker,
 		typingTracker:   typingTracker,
 		distributed:     distributed,
-		connections:     make(map[string]EnhancedConnection),
+		connections:     make(map[string]Connection),
 		userConns:       make(map[string][]string),
 		config:          config,
 		logger:          logger,
@@ -69,7 +71,7 @@ func NewManager(
 
 // Connection management
 
-func (m *manager) Register(conn EnhancedConnection) error {
+func (m *manager) Register(conn Connection) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -148,7 +150,7 @@ func (m *manager) Unregister(connID string) error {
 	return nil
 }
 
-func (m *manager) GetConnection(connID string) (EnhancedConnection, error) {
+func (m *manager) GetConnection(connID string) (Connection, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -160,16 +162,16 @@ func (m *manager) GetConnection(connID string) (EnhancedConnection, error) {
 	return conn, nil
 }
 
-func (m *manager) GetUserConnections(userID string) []EnhancedConnection {
+func (m *manager) GetUserConnections(userID string) []Connection {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	connIDs, exists := m.userConns[userID]
 	if !exists {
-		return []EnhancedConnection{}
+		return []Connection{}
 	}
 
-	conns := make([]EnhancedConnection, 0, len(connIDs))
+	conns := make([]Connection, 0, len(connIDs))
 	for _, connID := range connIDs {
 		if conn, exists := m.connections[connID]; exists {
 			conns = append(conns, conn)
@@ -179,11 +181,11 @@ func (m *manager) GetUserConnections(userID string) []EnhancedConnection {
 	return conns
 }
 
-func (m *manager) GetAllConnections() []EnhancedConnection {
+func (m *manager) GetAllConnections() []Connection {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	conns := make([]EnhancedConnection, 0, len(m.connections))
+	conns := make([]Connection, 0, len(m.connections))
 	for _, conn := range m.connections {
 		conns = append(conns, conn)
 	}
@@ -437,6 +439,24 @@ func (m *manager) BroadcastToChannel(ctx context.Context, channelID string, mess
 	return nil
 }
 
+func (m *manager) BroadcastToRooms(ctx context.Context, roomIDs []string, message *Message) error {
+	for _, roomID := range roomIDs {
+		if err := m.BroadcastToRoom(ctx, roomID, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *manager) BroadcastToUsers(ctx context.Context, userIDs []string, message *Message) error {
+	for _, userID := range userIDs {
+		if err := m.SendToUser(ctx, userID, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (m *manager) SendToUser(ctx context.Context, userID string, message *Message) error {
 	conns := m.GetUserConnections(userID)
 
@@ -471,6 +491,35 @@ func (m *manager) SendToConnection(ctx context.Context, connID string, message *
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.messages.direct").Inc()
+	}
+
+	return nil
+}
+
+func (m *manager) BroadcastExcept(ctx context.Context, message *Message, excludeConnIDs []string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	excludeMap := make(map[string]bool)
+	for _, id := range excludeConnIDs {
+		excludeMap[id] = true
+	}
+
+	for connID, conn := range m.connections {
+		if !excludeMap[connID] {
+			if err := conn.WriteJSON(message); err != nil {
+				if m.logger != nil {
+					m.logger.Error("Failed to send message to connection",
+						forge.F("conn_id", connID),
+						forge.F("error", err),
+					)
+				}
+			}
+		}
+	}
+
+	if m.metrics != nil {
+		m.metrics.Counter("streaming.messages.broadcast_except").Inc()
 	}
 
 	return nil
@@ -657,6 +706,231 @@ func (m *manager) Health(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (m *manager) GetConnectionsByStatus(status string) []streaming.EnhancedConnection {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) KickConnection(ctx context.Context, connID string, reason string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetConnectionInfo(connID string) (*streaming.ConnectionInfo, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetIdleConnections(idleFor time.Duration) []streaming.EnhancedConnection {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) CleanupIdleConnections(ctx context.Context, idleFor time.Duration) (int, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) UpdateRoom(ctx context.Context, roomID string, updates map[string]any) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) SearchRooms(ctx context.Context, query string, filters map[string]any) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetPublicRooms(ctx context.Context, limit int) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetUserRoomCount(ctx context.Context, userID string) (int, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) ArchiveRoom(ctx context.Context, roomID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) RestoreRoom(ctx context.Context, roomID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) TransferRoomOwnership(ctx context.Context, roomID, newOwnerID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) UpdateChannel(ctx context.Context, channelID string, updates map[string]any) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetChannelSubscribers(ctx context.Context, channelID string) ([]string, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetUserChannels(ctx context.Context, userID string) ([]streaming.Channel, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) BulkJoinRoom(ctx context.Context, connIDs []string, roomID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetPresenceForUsers(ctx context.Context, userIDs []string) ([]*streaming.UserPresence, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) SetCustomStatus(ctx context.Context, userID, customStatus string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetOnlineCount(ctx context.Context) (int, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetPresenceInRooms(ctx context.Context, roomIDs []string) (map[string][]string, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetTypingUsersInChannels(ctx context.Context, channelIDs []string) (map[string][]string, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) IsTyping(ctx context.Context, userID, roomID string) (bool, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) ClearTyping(ctx context.Context, userID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetThreadHistory(ctx context.Context, roomID, threadID string, query streaming.HistoryQuery) ([]*streaming.Message, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetUserMessages(ctx context.Context, userID string, query streaming.HistoryQuery) ([]*streaming.Message, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) SearchMessages(ctx context.Context, roomID, searchTerm string, query streaming.HistoryQuery) ([]*streaming.Message, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) DeleteMessage(ctx context.Context, messageID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) EditMessage(ctx context.Context, messageID string, newContent any) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) AddReaction(ctx context.Context, messageID, userID, emoji string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) RemoveReaction(ctx context.Context, messageID, userID, emoji string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetReactions(ctx context.Context, messageID string) (map[string][]string, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) MuteUser(ctx context.Context, userID, roomID string, duration time.Duration) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) UnmuteUser(ctx context.Context, userID, roomID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) BanUser(ctx context.Context, userID, roomID string, reason string, until *time.Time) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) UnbanUser(ctx context.Context, userID, roomID string) error {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetModerationLog(ctx context.Context, roomID string, limit int) ([]streaming.ModerationEvent, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) CheckRateLimit(ctx context.Context, userID string, action string) (bool, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetRateLimitStatus(ctx context.Context, userID string) (*streaming.RateLimitStatus, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetStats(ctx context.Context) (*streaming.ManagerStats, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetRoomStats(ctx context.Context, roomID string) (*streaming.RoomStats, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetUserStats(ctx context.Context, userID string) (*streaming.UserStats, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetActiveRooms(ctx context.Context, since time.Duration) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) CreateDirectMessage(ctx context.Context, fromUserID, toUserID string) (string, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) GetDirectMessages(ctx context.Context, userID string) ([]streaming.Room, error) {
+	// TODO implement me
+	panic("implement me")
+}
+
+func (m *manager) IsDirectMessage(ctx context.Context, roomID string) (bool, error) {
+	// TODO implement me
+	panic("implement me")
 }
 
 // Helper functions

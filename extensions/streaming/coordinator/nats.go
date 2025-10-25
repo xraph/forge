@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/nats-io/nats.go"
+	nats "github.com/nats-io/nats.go"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
 )
 

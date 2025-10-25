@@ -161,9 +161,9 @@ func TestLogReplication(t *testing.T) {
 
 	// Submit commands
 	commands := [][]byte{
-		[]byte("set:key1:value1"),
-		[]byte("set:key2:value2"),
-		[]byte("set:key3:value3"),
+		[]byte(`{"type":"set","payload":{"key":"key1","value":"value1"}}`),
+		[]byte(`{"type":"set","payload":{"key":"key2","value":"value2"}}`),
+		[]byte(`{"type":"set","payload":{"key":"key3","value":"value3"}}`),
 	}
 
 	for i, cmd := range commands {

@@ -300,7 +300,7 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 }
 
 // handleMessage processes incoming messages.
-func (e *Extension) handleMessage(ctx context.Context, conn EnhancedConnection, msg *Message) error {
+func (e *Extension) handleMessage(ctx context.Context, conn Connection, msg *Message) error {
 	switch msg.Type {
 	case MessageTypeMessage:
 		// Regular message

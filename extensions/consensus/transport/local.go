@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
@@ -230,4 +231,11 @@ func (t *LocalTransport) GetPeers() []string {
 	}
 
 	return peers
+}
+
+// SetLatency sets artificial latency for testing
+func (t *LocalTransport) SetLatency(latency time.Duration) {
+	// For local transport, latency is simulated by adding delays
+	// This is a placeholder implementation
+	_ = latency
 }

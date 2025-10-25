@@ -77,6 +77,10 @@ type Node struct {
 	snapshotCh     chan SnapshotMsg
 	configChangeCh chan ConfigChangeMsg
 
+	// RPC response channels
+	pendingRequests map[string]chan interface{}
+	requestMu       sync.RWMutex
+
 	// State
 	started   bool
 	startTime time.Time
@@ -165,23 +169,24 @@ func NewNode(
 	}
 
 	n := &Node{
-		config:         config,
-		logger:         logger,
-		id:             config.NodeID,
-		clusterID:      config.ClusterID,
-		currentTerm:    0,
-		votedFor:       "",
-		commitIndex:    0,
-		lastApplied:    0,
-		nextIndex:      make(map[string]uint64),
-		matchIndex:     make(map[string]uint64),
-		stateMachine:   stateMachine,
-		transport:      transport,
-		storage:        storage,
-		peers:          make(map[string]*PeerState),
-		applyCh:        make(chan ApplyMsg, 100),
-		snapshotCh:     make(chan SnapshotMsg, 10),
-		configChangeCh: make(chan ConfigChangeMsg, 10),
+		config:          config,
+		logger:          logger,
+		id:              config.NodeID,
+		clusterID:       config.ClusterID,
+		currentTerm:     0,
+		votedFor:        "",
+		commitIndex:     0,
+		lastApplied:     0,
+		nextIndex:       make(map[string]uint64),
+		matchIndex:      make(map[string]uint64),
+		stateMachine:    stateMachine,
+		transport:       transport,
+		storage:         storage,
+		peers:           make(map[string]*PeerState),
+		applyCh:         make(chan ApplyMsg, 100),
+		snapshotCh:      make(chan SnapshotMsg, 10),
+		configChangeCh:  make(chan ConfigChangeMsg, 10),
+		pendingRequests: make(map[string]chan interface{}),
 	}
 
 	// Initialize role as follower
@@ -222,11 +227,12 @@ func (n *Node) Start(ctx context.Context) error {
 	)
 
 	// Start background goroutines
-	n.wg.Add(4)
+	n.wg.Add(5)
 	go n.runStateMachine()
 	go n.runSnapshotManager()
 	go n.runElectionTimer()
 	go n.runHeartbeat()
+	go n.runMessageProcessor()
 
 	return nil
 }
@@ -480,6 +486,29 @@ func (n *Node) GetStats() internal.RaftStats {
 	}
 }
 
+// Propose proposes a new command to the cluster
+func (n *Node) Propose(ctx context.Context, command []byte) error {
+	if !n.IsLeader() {
+		return internal.NewNotLeaderError(n.id, n.GetLeader())
+	}
+
+	// Create log entry
+	entry := internal.LogEntry{
+		Type:    internal.EntryNormal,
+		Data:    command,
+		Created: time.Now(),
+	}
+
+	return n.Apply(ctx, entry)
+}
+
+// GetCommitIndex returns the current commit index
+func (n *Node) GetCommitIndex() uint64 {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.commitIndex
+}
+
 // restoreState restores persistent state from storage
 func (n *Node) restoreState() error {
 	// Restore current term
@@ -571,4 +600,78 @@ func bytesToUint64(b []byte) uint64 {
 		v |= uint64(b[i]) << (56 - uint(i)*8)
 	}
 	return v
+}
+
+// generateRequestID generates a unique request ID
+func (n *Node) generateRequestID() string {
+	return fmt.Sprintf("%s-%d", n.id, time.Now().UnixNano())
+}
+
+// waitForResponse waits for a response to a pending request
+func (n *Node) waitForResponse(requestID string, timeout time.Duration) (interface{}, error) {
+	n.requestMu.RLock()
+	responseCh, exists := n.pendingRequests[requestID]
+	n.requestMu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("request %s not found", requestID)
+	}
+
+	select {
+	case response := <-responseCh:
+		// Clean up
+		n.requestMu.Lock()
+		delete(n.pendingRequests, requestID)
+		n.requestMu.Unlock()
+		return response, nil
+	case <-time.After(timeout):
+		// Clean up
+		n.requestMu.Lock()
+		delete(n.pendingRequests, requestID)
+		n.requestMu.Unlock()
+		return nil, fmt.Errorf("request %s timed out", requestID)
+	}
+}
+
+// sendResponse sends a response to a pending request
+func (n *Node) sendResponse(requestID string, response interface{}) {
+	n.requestMu.RLock()
+	responseCh, exists := n.pendingRequests[requestID]
+	n.requestMu.RUnlock()
+
+	if exists {
+		select {
+		case responseCh <- response:
+		default:
+			// Channel is full or closed, clean up
+			n.requestMu.Lock()
+			delete(n.pendingRequests, requestID)
+			n.requestMu.Unlock()
+		}
+	}
+}
+
+// AddPeer adds a peer to the Raft node
+func (n *Node) AddPeer(peerID string) {
+	n.peersLock.Lock()
+	defer n.peersLock.Unlock()
+
+	if _, exists := n.peers[peerID]; !exists {
+		n.peers[peerID] = &PeerState{
+			ID:            peerID,
+			NextIndex:     1,
+			MatchIndex:    0,
+			LastContact:   time.Now(),
+			ReplicationMu: sync.Mutex{},
+		}
+
+		// Initialize nextIndex and matchIndex for the new peer
+		n.nextIndex[peerID] = 1
+		n.matchIndex[peerID] = 0
+
+		n.logger.Info("added peer to raft node",
+			forge.F("node_id", n.id),
+			forge.F("peer_id", peerID),
+		)
+	}
 }
