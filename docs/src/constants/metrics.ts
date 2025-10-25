@@ -1,9 +1,15 @@
 export const metrics = [
+  // {
+  //   value: 50000,
+  //   suffix: "+",
+  //   label: "GitHub Stars",
+  //   description: "Trusted by developers worldwide"
+  // },
   {
-    value: 50000,
+    value: 20,
     suffix: "+",
-    label: "GitHub Stars",
-    description: "Trusted by developers worldwide"
+    label: "Extensions",
+    description: "Community extensions available"
   },
   {
     value: 100,
@@ -18,7 +24,7 @@ export const metrics = [
     description: "Production reliability"
   },
   {
-    value: 500,
+    value: 1,
     suffix: "+",
     label: "Contributors",
     description: "Active open source community"

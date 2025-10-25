@@ -1,6 +1,9 @@
+'use client'
+
 import { Button } from "@/components/ui/button";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, CopyIcon } from "lucide-react";
 import { LineShadowText } from "./ui/line-shadow-text";
+import Link from "next/link";
 
 export const Hero = () => {
   return (
@@ -23,19 +26,33 @@ export const Hero = () => {
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 mb-12">
-            <Button size="lg">
-              Get Started
-              <ArrowRight className="ml-2 w-4 h-4" />
-            </Button>
-            <Button size="lg" variant="outline">
-              View Documentation
-            </Button>
+            <Link href="/docs/forge/quick-start" className="block cursor-pointer">
+              <Button size="lg">
+                Get Started
+                <ArrowRight className="ml-2 w-4 h-4" />
+              </Button>
+            </Link>
+            <Link href="/docs/forge" className="block cursor-pointer">
+              <Button size="lg" variant="outline">
+                View Documentation
+              </Button>
+            </Link>
           </div>
 
           <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-            <code className="px-3 py-2 bg-white/50 rounded-lg font-mono border border-border">
-              go get github.com/xraph/forge
-            </code>
+            <div className="flex items-center gap-2">
+              <code className="px-3 py-2 bg-white/50 rounded-lg font-mono border border-border">
+                go get github.com/xraph/forge
+              </code>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="p-2"
+                onClick={() => navigator.clipboard.writeText("go get github.com/xraph/forge")}
+              >
+                <CopyIcon />
+              </Button>
+            </div>
           </div>
         </div>
       </div>

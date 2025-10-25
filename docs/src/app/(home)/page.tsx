@@ -5,11 +5,11 @@ import { MetricsDashboard } from "@/components/MetricsDashboard";
 import { CodePlayground } from "@/components/CodePlayground";
 import { UseCases } from "@/components/UseCases";
 import { ApiExplorer } from "@/components/ApiExplorer";
-import { CaseStudiesCarousel } from "@/components/CaseStudiesCarousel";
-import { GitHubStats } from "@/components/GitHubStats";
-import { Testimonials } from "@/components/Testimonials";
+// import { CaseStudiesCarousel } from "@/components/CaseStudiesCarousel";
+// import { GitHubStats } from "@/components/GitHubStats";
+// import { Testimonials } from "@/components/Testimonials";
 import { Newsletter } from "@/components/Newsletter";
-import { CTA } from "@/components/CTA";
+// import { CTA } from "@/components/CTA";
 import { ParticlesBackground } from "@/components/ParticlesBackground";
 
 /**
@@ -21,7 +21,7 @@ export default function HomePage() {
     <main className="min-h-screen relative">
       <ParticlesBackground />
       <Hero />
-      <GitHubStats noTopBorder />
+      {/* <GitHubStats noTopBorder /> */}
       <Features />
       <BentoShowcase />
       <MetricsDashboard />
