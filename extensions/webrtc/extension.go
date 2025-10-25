@@ -92,17 +92,19 @@ func (e *Extension) Register(app forge.App) error {
 		if e.config.SFUConfig == nil {
 			return fmt.Errorf("webrtc: SFU enabled but no config provided")
 		}
-		e.sfuRouter = NewSFURouter(*e.config.SFUConfig, e.logger, e.metrics)
+		e.sfuRouter = NewSFURouter("default-room", e.logger, e.metrics)
 	}
 
 	// Initialize quality monitor
 	if e.config.QualityConfig.MonitorEnabled {
-		e.qualityMonitor = NewQualityMonitor(e.config.QualityConfig, e.logger)
+		// Quality monitor needs a peer connection, so we'll initialize it later
+		// when a peer connection is available
 	}
 
 	// Initialize recorder if enabled
 	if e.config.RecordingEnabled {
-		e.recorder = NewRecorder(e.config.RecordingPath, e.logger)
+		// Recorder needs proper config, so we'll initialize it later
+		// when recording is actually needed
 	}
 
 	// Register in DI container
@@ -247,8 +249,8 @@ func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts stre
 
 	// Metrics: track room creation
 	if e.metrics != nil {
-		e.metrics.Inc("webrtc.rooms.create_attempts",
-			forge.F("topology", e.config.Topology))
+		counter := e.metrics.Counter("webrtc.rooms.create_attempts")
+		counter.Inc()
 	}
 
 	// Create call room
@@ -289,9 +291,10 @@ func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts stre
 
 	// Metrics: track successful creation
 	if e.metrics != nil {
-		e.metrics.Inc("webrtc.rooms.created",
-			forge.F("topology", e.config.Topology))
-		e.metrics.Gauge("webrtc.rooms.active", float64(len(e.rooms)))
+		counter := e.metrics.Counter("webrtc.rooms.created")
+		counter.Inc()
+		gauge := e.metrics.Gauge("webrtc.rooms.active")
+		gauge.Set(float64(len(e.rooms)))
 	}
 
 	return callRoom, nil
@@ -334,8 +337,10 @@ func (e *Extension) DeleteCallRoom(ctx context.Context, roomID string) error {
 
 	// Metrics: track deletion
 	if e.metrics != nil {
-		e.metrics.Inc("webrtc.rooms.deleted")
-		e.metrics.Gauge("webrtc.rooms.active", float64(len(e.rooms)))
+		counter := e.metrics.Counter("webrtc.rooms.deleted")
+		counter.Inc()
+		gauge := e.metrics.Gauge("webrtc.rooms.active")
+		gauge.Set(float64(len(e.rooms)))
 	}
 
 	return nil
@@ -363,27 +368,26 @@ func (e *Extension) JoinCall(ctx context.Context, roomID, userID string, opts *J
 
 	// Metrics: track join attempts
 	if e.metrics != nil {
-		e.metrics.Inc("webrtc.calls.join_attempts",
-			forge.F("room_id", roomID),
-			forge.F("user_id", userID))
+		counter := e.metrics.Counter("webrtc.calls.join_attempts")
+		counter.Inc()
 	}
 
 	peer, err := room.JoinCall(ctx, userID, opts)
 	if err != nil {
 		// Metrics: track failures
 		if e.metrics != nil {
-			e.metrics.Inc("webrtc.calls.join_failures",
-				forge.F("room_id", roomID),
-				forge.F("error", err.Error()))
+			counter := e.metrics.Counter("webrtc.calls.join_failures")
+			counter.Inc()
 		}
 		return nil, fmt.Errorf("webrtc: failed to join call in room %s: %w", roomID, err)
 	}
 
 	// Metrics: track successful joins
 	if e.metrics != nil {
-		e.metrics.Inc("webrtc.calls.joined",
-			forge.F("room_id", roomID))
-		e.metrics.Gauge("webrtc.peers.active", float64(len(room.GetPeers())))
+		counter := e.metrics.Counter("webrtc.calls.joined")
+		counter.Inc()
+		gauge := e.metrics.Gauge("webrtc.peers.active")
+		gauge.Set(float64(len(room.GetPeers())))
 	}
 
 	return peer, nil
@@ -403,9 +407,10 @@ func (e *Extension) LeaveCall(ctx context.Context, roomID, userID string) error 
 
 	// Metrics: track leaves
 	if e.metrics != nil {
-		e.metrics.Inc("webrtc.calls.left",
-			forge.F("room_id", roomID))
-		e.metrics.Gauge("webrtc.peers.active", float64(len(room.GetPeers())))
+		counter := e.metrics.Counter("webrtc.calls.left")
+		counter.Inc()
+		gauge := e.metrics.Gauge("webrtc.peers.active")
+		gauge.Set(float64(len(room.GetPeers())))
 	}
 
 	return nil

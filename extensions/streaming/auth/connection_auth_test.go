@@ -113,7 +113,7 @@ func TestConnectionAuthenticator_AuthenticateConnection(t *testing.T) {
 	}{
 		{
 			name:      "successful authentication with jwt",
-			providers: []string{"jwt"},
+			providers: []string{"mock"},
 			setupRegistry: func() *mockRegistry {
 				reg := &mockRegistry{providers: make(map[string]auth.AuthProvider)}
 				reg.Register(&mockProvider{

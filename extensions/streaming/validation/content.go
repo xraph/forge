@@ -123,11 +123,16 @@ func (cv *ContentValidator) ValidateMetadata(metadata map[string]any) error {
 }
 
 func (cv *ContentValidator) validateURLsInText(text string) error {
-	// Extract URLs
-	urlRegex := regexp.MustCompile(`https?://[^\s]+`)
+	// Extract URLs - match protocol and anything after it
+	urlRegex := regexp.MustCompile(`https?://[^\s]*`)
 	urls := urlRegex.FindAllString(text, -1)
 
 	for _, urlStr := range urls {
+		// Check if URL is incomplete (just protocol)
+		if len(urlStr) <= 8 { // "https://" is 8 characters
+			return NewValidationError("content", fmt.Sprintf("incomplete URL: %s", urlStr), "INVALID_URL")
+		}
+
 		if _, err := url.ParseRequestURI(urlStr); err != nil {
 			return NewValidationError("content", fmt.Sprintf("invalid URL: %s", urlStr), "INVALID_URL")
 		}

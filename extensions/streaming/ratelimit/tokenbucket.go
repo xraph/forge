@@ -58,11 +58,11 @@ func (tb *tokenBucket) AllowN(ctx context.Context, key string, action string, n 
 
 	// Use distributed store if available
 	if tb.store != nil {
-		return tb.allowWithStore(ctx, key, limit, n)
+		return tb.allowWithStore(ctx, key, action, limit, n)
 	}
 
 	// Use in-memory bucket
-	return tb.allowInMemory(key, limit, n)
+	return tb.allowInMemory(key, action, limit, n)
 }
 
 // GetStatus returns rate limit status.
@@ -116,6 +116,15 @@ func (tb *tokenBucket) GetStatus(ctx context.Context, key string, action string)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	// Refill tokens based on elapsed time (same logic as Allow)
+	now := time.Now()
+	elapsed := now.Sub(b.lastRefill)
+	refillRate := float64(limit.Requests) / float64(limit.Window.Seconds())
+	tokensToAdd := elapsed.Seconds() * refillRate
+
+	b.tokens = min64(b.tokens+tokensToAdd, float64(limit.Burst))
+	b.lastRefill = now
+
 	return &RateLimitStatus{
 		Allowed:   b.tokens > 0,
 		Remaining: int(b.tokens),
@@ -139,8 +148,8 @@ func (tb *tokenBucket) Reset(ctx context.Context, key string, action string) err
 	return nil
 }
 
-func (tb *tokenBucket) allowInMemory(key string, limit RateLimit, n int) (bool, error) {
-	fullKey := tb.makeKey(key, "")
+func (tb *tokenBucket) allowInMemory(key string, action string, limit RateLimit, n int) (bool, error) {
+	fullKey := tb.makeKey(key, action)
 
 	tb.mu.Lock()
 	b, ok := tb.buckets[fullKey]
@@ -175,8 +184,8 @@ func (tb *tokenBucket) allowInMemory(key string, limit RateLimit, n int) (bool, 
 	return true, nil
 }
 
-func (tb *tokenBucket) allowWithStore(ctx context.Context, key string, limit RateLimit, n int) (bool, error) {
-	fullKey := tb.makeKey(key, "")
+func (tb *tokenBucket) allowWithStore(ctx context.Context, key string, action string, limit RateLimit, n int) (bool, error) {
+	fullKey := tb.makeKey(key, action)
 
 	data, err := tb.store.Get(ctx, fullKey)
 	if err != nil {

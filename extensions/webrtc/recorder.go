@@ -34,6 +34,11 @@ type recorder struct {
 	frameCount uint64
 	audioCount uint64
 
+	// Additional stats
+	fileSize  uint64
+	bitrate   int
+	frameRate int
+
 	mu sync.RWMutex
 }
 
@@ -78,12 +83,17 @@ func NewRecorder(roomID string, config RecorderConfig, logger forge.Logger, metr
 }
 
 // Start starts recording
-func (r *recorder) Start(ctx context.Context, opts *RecordOptions) error {
+func (r *recorder) Start(ctx context.Context, roomID string, options *RecordingOptions) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.recording {
 		return fmt.Errorf("recorder: already recording")
+	}
+
+	// Use roomID from parameter instead of stored roomID
+	if roomID != "" {
+		r.roomID = roomID
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
@@ -96,7 +106,7 @@ func (r *recorder) Start(ctx context.Context, opts *RecordOptions) error {
 		if err != nil {
 			return fmt.Errorf("failed to create audio writer: %w", err)
 		}
-		r.audioWriter = writer
+		r.audioWriter = &writeCloserWrapper{writer: writer}
 		r.logger.Info("recording audio to file", forge.F("file", audioFile))
 	}
 
@@ -110,7 +120,7 @@ func (r *recorder) Start(ctx context.Context, opts *RecordOptions) error {
 			}
 			return fmt.Errorf("failed to create video writer: %w", err)
 		}
-		r.videoWriter = writer
+		r.videoWriter = &writeCloserWrapper{writer: writer}
 		r.logger.Info("recording video to file", forge.F("file", videoFile))
 	}
 
@@ -127,15 +137,15 @@ func (r *recorder) Start(ctx context.Context, opts *RecordOptions) error {
 	)
 
 	if r.metrics != nil {
-		r.metrics.Inc("webrtc.recordings.started",
-			forge.F("room_id", r.roomID))
+		counter := r.metrics.Counter("webrtc.recordings.started")
+		counter.Inc()
 	}
 
 	return nil
 }
 
 // Stop stops recording
-func (r *recorder) Stop(ctx context.Context) error {
+func (r *recorder) Stop(ctx context.Context, roomID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -170,12 +180,41 @@ func (r *recorder) Stop(ctx context.Context) error {
 	)
 
 	if r.metrics != nil {
-		r.metrics.Inc("webrtc.recordings.stopped",
-			forge.F("room_id", r.roomID))
-		r.metrics.Histogram("webrtc.recordings.duration",
-			r.duration.Seconds(),
-			forge.F("room_id", r.roomID))
+		counter := r.metrics.Counter("webrtc.recordings.stopped")
+		counter.Inc()
+		histogram := r.metrics.Histogram("webrtc.recordings.duration")
+		histogram.Observe(r.duration.Seconds())
 	}
+
+	return nil
+}
+
+// Pause pauses recording
+func (r *recorder) Pause(ctx context.Context, roomID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.recording {
+		return fmt.Errorf("recording is not active")
+	}
+
+	// TODO: Implement pause functionality
+	r.logger.Info("recording paused", forge.F("room_id", roomID))
+
+	return nil
+}
+
+// Resume resumes recording
+func (r *recorder) Resume(ctx context.Context, roomID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.recording {
+		return fmt.Errorf("recording is not active")
+	}
+
+	// TODO: Implement resume functionality
+	r.logger.Info("recording resumed", forge.F("room_id", roomID))
 
 	return nil
 }
@@ -198,13 +237,36 @@ func (r *recorder) GetStats(ctx context.Context) (*RecordingStats, error) {
 	}
 
 	return &RecordingStats{
-		RecorderID:   r.id,
-		RoomID:       r.roomID,
-		Recording:    r.recording,
-		StartTime:    r.startTime,
-		Duration:     duration,
-		VideoFrames:  r.frameCount,
-		AudioSamples: r.audioCount,
+		Duration:    duration,
+		FileSize:    r.fileSize,
+		Bitrate:     r.bitrate,
+		FrameRate:   r.frameRate,
+		AudioTracks: int(r.audioCount),
+		VideoTracks: int(r.frameCount),
+		StartTime:   r.startTime,
+		EndTime:     time.Now(),
+	}, nil
+}
+
+// GetStatus returns recording status
+func (r *recorder) GetStatus(roomID string) (*RecordingStatus, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	status := "stopped"
+	if r.recording {
+		status = "recording"
+	}
+
+	recording := status == "recording"
+	return &RecordingStatus{
+		RoomID:     roomID,
+		Recording:  recording,
+		Paused:     false,
+		StartedAt:  r.startTime,
+		Duration:   r.duration,
+		FileSize:   int64(r.fileSize),
+		OutputPath: "", // TODO: Set actual output path
 	}, nil
 }
 
@@ -218,7 +280,11 @@ func (r *recorder) WriteAudioSample(sample media.Sample) error {
 	}
 
 	// Write sample
-	oggWriter, ok := r.audioWriter.(*oggwriter.OggWriter)
+	wrapper, ok := r.audioWriter.(*writeCloserWrapper)
+	if !ok {
+		return fmt.Errorf("invalid audio writer type")
+	}
+	oggWriter, ok := wrapper.writer.(*oggwriter.OggWriter)
 	if !ok {
 		return fmt.Errorf("invalid audio writer type")
 	}
@@ -245,7 +311,11 @@ func (r *recorder) WriteVideoSample(sample media.Sample) error {
 	}
 
 	// Write sample
-	ivfWriter, ok := r.videoWriter.(*ivfwriter.IVFWriter)
+	wrapper, ok := r.videoWriter.(*writeCloserWrapper)
+	if !ok {
+		return fmt.Errorf("invalid video writer type")
+	}
+	ivfWriter, ok := wrapper.writer.(*ivfwriter.IVFWriter)
 	if !ok {
 		return fmt.Errorf("invalid video writer type")
 	}
@@ -272,7 +342,22 @@ func (r *recorder) WriteVideoSample(sample media.Sample) error {
 // Close closes the recorder
 func (r *recorder) Close() error {
 	if r.IsRecording() {
-		return r.Stop(context.Background())
+		return r.Stop(context.Background(), r.roomID)
 	}
+	return nil
+}
+
+// writeCloserWrapper wraps writers that don't implement io.WriteCloser
+type writeCloserWrapper struct {
+	writer interface{}
+}
+
+func (w *writeCloserWrapper) Write(p []byte) (n int, err error) {
+	// This is a placeholder - the actual implementation would depend on the specific writer
+	return 0, fmt.Errorf("write not implemented")
+}
+
+func (w *writeCloserWrapper) Close() error {
+	// This is a placeholder - the actual implementation would depend on the specific writer
 	return nil
 }

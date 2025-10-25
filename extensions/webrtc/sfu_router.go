@@ -3,6 +3,7 @@ package webrtc
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -87,6 +88,47 @@ func NewSFURouter(roomID string, logger forge.Logger, metrics forge.Metrics) SFU
 	}
 }
 
+// RouteTrack routes a track from sender to receivers
+func (s *sfuRouter) RouteTrack(ctx context.Context, senderID string, track MediaTrack, receiverIDs []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Find the sender
+	sender, exists := s.publishers[senderID]
+	if !exists {
+		return fmt.Errorf("sender not found: %s", senderID)
+	}
+
+	// Store the track
+	sfuTrack := &sfuTrack{
+		id:          track.ID(),
+		publisherID: senderID,
+		kind:        track.Kind(),
+	}
+
+	sender.tracks[track.ID()] = sfuTrack
+	s.tracks[track.ID()] = sfuTrack
+
+	// Route to all receivers
+	for _, receiverID := range receiverIDs {
+		if err := s.AddReceiver(ctx, track.ID(), receiverID); err != nil {
+			s.logger.Error("failed to add receiver",
+				forge.F("track_id", track.ID()),
+				forge.F("receiver_id", receiverID),
+				forge.F("error", err),
+			)
+		}
+	}
+
+	s.logger.Info("routed track to receivers",
+		forge.F("track_id", track.ID()),
+		forge.F("sender_id", senderID),
+		forge.F("receiver_count", len(receiverIDs)),
+	)
+
+	return nil
+}
+
 // AddPublisher adds a publishing peer
 func (s *sfuRouter) AddPublisher(ctx context.Context, userID string, peer PeerConnection) error {
 	s.mu.Lock()
@@ -116,7 +158,7 @@ func (s *sfuRouter) AddPublisher(ctx context.Context, userID string, peer PeerCo
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.publishers", float64(len(s.publishers)))
+		s.metrics.Gauge("webrtc.sfu.publishers", "count", strconv.Itoa(len(s.publishers))).Set(float64(len(s.publishers)))
 	}
 
 	return nil
@@ -146,7 +188,7 @@ func (s *sfuRouter) AddSubscriber(ctx context.Context, userID string, peer PeerC
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.subscribers", float64(len(s.subscribers)))
+		s.metrics.Gauge("webrtc.sfu.subscribers", "count", strconv.Itoa(len(s.subscribers))).Set(float64(len(s.subscribers)))
 	}
 
 	return nil
@@ -177,7 +219,7 @@ func (s *sfuRouter) RemovePublisher(ctx context.Context, userID string) error {
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.publishers", float64(len(s.publishers)))
+		s.metrics.Gauge("webrtc.sfu.publishers", "count", strconv.Itoa(len(s.publishers))).Set(float64(len(s.publishers)))
 	}
 
 	return nil
@@ -202,7 +244,7 @@ func (s *sfuRouter) RemoveSubscriber(ctx context.Context, userID string) error {
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.subscribers", float64(len(s.subscribers)))
+		s.metrics.Gauge("webrtc.sfu.subscribers", "count", strconv.Itoa(len(s.subscribers))).Set(float64(len(s.subscribers)))
 	}
 
 	return nil
@@ -255,10 +297,7 @@ func (s *sfuRouter) SubscribeToTrack(ctx context.Context, subscriberID, publishe
 	)
 
 	if s.metrics != nil {
-		s.metrics.Inc("webrtc.sfu.subscriptions",
-			forge.F("subscriber_id", subscriberID),
-			forge.F("track_id", trackID),
-		)
+		s.metrics.Counter("webrtc.sfu.subscriptions", "subscriber_id", subscriberID, "track_id", trackID).Inc()
 	}
 
 	return nil
@@ -286,11 +325,121 @@ func (s *sfuRouter) UnsubscribeFromTrack(ctx context.Context, subscriberID, trac
 	)
 
 	if s.metrics != nil {
-		s.metrics.Inc("webrtc.sfu.unsubscriptions",
-			forge.F("subscriber_id", subscriberID),
-			forge.F("track_id", trackID),
-		)
+		s.metrics.Counter("webrtc.sfu.unsubscriptions", "subscriber_id", subscriberID, "track_id", trackID).Inc()
 	}
+
+	return nil
+}
+
+// AddReceiver adds a receiver for a track
+func (s *sfuRouter) AddReceiver(ctx context.Context, trackID, receiverID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Find the track
+	track, exists := s.tracks[trackID]
+	if !exists {
+		return fmt.Errorf("track not found: %s", trackID)
+	}
+
+	// Find the subscriber
+	subscriber, exists := s.subscribers[receiverID]
+	if !exists {
+		return fmt.Errorf("subscriber not found: %s", receiverID)
+	}
+
+	// Create subscription
+	subscription := &sfuSubscription{
+		trackID:        trackID,
+		publisherID:    track.publisherID,
+		selectedLayer:  0,
+		lastPacketTime: time.Now(),
+	}
+
+	subscriber.subscriptions[trackID] = subscription
+
+	s.logger.Info("added receiver for track",
+		forge.F("track_id", trackID),
+		forge.F("receiver_id", receiverID),
+	)
+
+	return nil
+}
+
+// RemoveReceiver removes a receiver
+func (s *sfuRouter) RemoveReceiver(ctx context.Context, trackID, receiverID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	subscriber, exists := s.subscribers[receiverID]
+	if !exists {
+		return fmt.Errorf("subscriber not found: %s", receiverID)
+	}
+
+	if _, exists := subscriber.subscriptions[trackID]; !exists {
+		return fmt.Errorf("not subscribed to track: %s", trackID)
+	}
+
+	delete(subscriber.subscriptions, trackID)
+
+	s.logger.Info("removed receiver for track",
+		forge.F("track_id", trackID),
+		forge.F("receiver_id", receiverID),
+	)
+
+	return nil
+}
+
+// GetReceivers returns all receivers for a track
+func (s *sfuRouter) GetReceivers(trackID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var receivers []string
+	for subscriberID, subscriber := range s.subscribers {
+		if _, exists := subscriber.subscriptions[trackID]; exists {
+			receivers = append(receivers, subscriberID)
+		}
+	}
+
+	return receivers
+}
+
+// SetQuality sets quality layer for receiver
+func (s *sfuRouter) SetQuality(ctx context.Context, trackID, receiverID, quality string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	subscriber, exists := s.subscribers[receiverID]
+	if !exists {
+		return fmt.Errorf("subscriber not found: %s", receiverID)
+	}
+
+	subscription, exists := subscriber.subscriptions[trackID]
+	if !exists {
+		return fmt.Errorf("not subscribed to track: %s", trackID)
+	}
+
+	// Map quality string to layer index
+	layerIndex := 0
+	switch quality {
+	case "low":
+		layerIndex = 0
+	case "medium":
+		layerIndex = 1
+	case "high":
+		layerIndex = 2
+	default:
+		return fmt.Errorf("invalid quality: %s", quality)
+	}
+
+	subscription.selectedLayer = layerIndex
+
+	s.logger.Info("set quality for receiver",
+		forge.F("track_id", trackID),
+		forge.F("receiver_id", receiverID),
+		forge.F("quality", quality),
+	)
 
 	return nil
 }
@@ -313,79 +462,32 @@ func (s *sfuRouter) GetAvailableTracks() []TrackInfo {
 	return tracks
 }
 
-// SwitchLayer switches simulcast layer for a subscription
-func (s *sfuRouter) SwitchLayer(ctx context.Context, subscriberID, trackID string, layer int) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	subscriber, exists := s.subscribers[subscriberID]
-	if !exists {
-		return fmt.Errorf("subscriber not found: %s", subscriberID)
-	}
-
-	subscription, exists := subscriber.subscriptions[trackID]
-	if !exists {
-		return fmt.Errorf("not subscribed to track: %s", trackID)
-	}
-
-	layers, exists := s.simulcastLayers[trackID]
-	if !exists || len(layers) == 0 {
-		return fmt.Errorf("no simulcast layers available for track: %s", trackID)
-	}
-
-	if layer < 0 || layer >= len(layers) {
-		return fmt.Errorf("invalid layer index: %d", layer)
-	}
-
-	subscription.selectedLayer = layer
-
-	s.logger.Info("switched simulcast layer",
-		forge.F("subscriber_id", subscriberID),
-		forge.F("track_id", trackID),
-		forge.F("layer", layer),
-	)
-
-	if s.metrics != nil {
-		s.metrics.Inc("webrtc.sfu.layer_switches",
-			forge.F("track_id", trackID),
-			forge.F("layer", layer),
-		)
-	}
-
-	return nil
-}
-
 // GetStats returns SFU statistics
-func (s *sfuRouter) GetStats(ctx context.Context) (*SFUStats, error) {
+func (s *sfuRouter) GetStats(ctx context.Context) (*RouterStats, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	stats := &SFUStats{
-		RoomID:             s.roomID,
-		PublisherCount:     len(s.publishers),
-		SubscriberCount:    len(s.subscribers),
-		TrackCount:         len(s.tracks),
-		TotalSubscriptions: 0,
-	}
-
 	// Count total subscriptions
+	totalSubscriptions := 0
 	for _, subscriber := range s.subscribers {
-		stats.TotalSubscriptions += len(subscriber.subscriptions)
+		totalSubscriptions += len(subscriber.subscriptions)
 	}
 
 	// Aggregate track stats
-	var totalPacketsReceived, totalBytesReceived, totalPacketsDropped uint64
+	var totalBytesReceived uint64
 	for _, track := range s.tracks {
 		track.mu.RLock()
-		totalPacketsReceived += track.packetsReceived
 		totalBytesReceived += track.bytesReceived
-		totalPacketsDropped += track.packetsDropped
 		track.mu.RUnlock()
 	}
 
-	stats.PacketsReceived = totalPacketsReceived
-	stats.BytesReceived = totalBytesReceived
-	stats.PacketsDropped = totalPacketsDropped
+	stats := &RouterStats{
+		TotalTracks:        len(s.tracks),
+		ActiveReceivers:    totalSubscriptions,
+		TotalBytesSent:     0, // TODO: Track bytes sent
+		TotalBytesReceived: totalBytesReceived,
+		AverageBitrate:     int(float64(totalBytesReceived) / time.Since(time.Now()).Seconds()),
+	}
 
 	return stats, nil
 }
@@ -422,7 +524,7 @@ func (s *sfuRouter) handlePublisherTrack(ctx context.Context, userID string, tra
 	)
 
 	if s.metrics != nil {
-		s.metrics.Gauge("webrtc.sfu.tracks", float64(len(s.tracks)))
+		s.metrics.Gauge("webrtc.sfu.tracks", "count", strconv.Itoa(len(s.tracks))).Set(float64(len(s.tracks)))
 	}
 
 	// TODO: Start RTP packet forwarding loop
@@ -452,6 +554,8 @@ func (s *sfuRouter) forwardTrack(ctx context.Context, track *sfuTrack, peer Peer
 	if err != nil {
 		return fmt.Errorf("failed to create local track: %w", err)
 	}
+
+	fmt.Println("pionTrack", pionTrack)
 
 	// Add track to subscriber's peer connection
 	// Note: This requires casting peer to *peerConnection to access the underlying webrtc.PeerConnection

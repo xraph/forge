@@ -31,6 +31,9 @@ type qualityMonitor struct {
 	running bool
 	stopCh  chan struct{}
 
+	// Callbacks
+	qualityHandler QualityChangeHandler
+
 	mu sync.RWMutex
 }
 
@@ -44,25 +47,18 @@ type QualitySample struct {
 	AvailableBitrate uint64
 }
 
-// QualityConfig holds thresholds for quality assessment
-type QualityConfig struct {
-	SampleInterval      time.Duration
-	MaxSamples          int
-	PacketLossThreshold float64 // 0.0-1.0, e.g., 0.05 = 5%
-	JitterThreshold     time.Duration
-	RTTThreshold        time.Duration
-	BitrateThreshold    uint64
-}
+// QualityConfig is defined in config.go
 
 // DefaultQualityConfig returns default quality monitoring configuration
 func DefaultQualityConfig() QualityConfig {
 	return QualityConfig{
-		SampleInterval:      time.Second,
-		MaxSamples:          60, // Keep 1 minute of samples
-		PacketLossThreshold: 0.05,
-		JitterThreshold:     30 * time.Millisecond,
-		RTTThreshold:        200 * time.Millisecond,
-		BitrateThreshold:    500 * 1024, // 500 Kbps
+		MonitorEnabled:       true,
+		MonitorInterval:      time.Second,
+		MaxPacketLoss:        5.0, // 5%
+		MaxJitter:            30 * time.Millisecond,
+		MinBitrate:           500, // 500 kbps
+		AdaptiveQuality:      true,
+		QualityCheckInterval: time.Second,
 	}
 }
 
@@ -75,14 +71,16 @@ func NewQualityMonitor(peerID string, peer PeerConnection, config QualityConfig,
 		metrics: metrics,
 		config:  config,
 		currentQuality: &ConnectionQuality{
-			Score:      100,
-			PacketLoss: 0,
-			Jitter:     0,
-			RTT:        0,
-			Bitrate:    0,
+			Score:       100,
+			PacketLoss:  0,
+			Jitter:      0,
+			Latency:     0,
+			BitrateKbps: 0,
+			Warnings:    []string{},
+			LastUpdated: time.Now(),
 		},
-		samples:    make([]QualitySample, 0, config.MaxSamples),
-		maxSamples: config.MaxSamples,
+		samples:    make([]QualitySample, 0, 60), // Default to 60 samples
+		maxSamples: 60,
 		stopCh:     make(chan struct{}),
 	}
 }
@@ -97,7 +95,7 @@ func (q *qualityMonitor) Start(ctx context.Context) error {
 	}
 
 	q.running = true
-	q.sampleTicker = time.NewTicker(q.config.SampleInterval)
+	q.sampleTicker = time.NewTicker(q.config.MonitorInterval)
 
 	go q.monitorLoop(ctx)
 
@@ -107,12 +105,12 @@ func (q *qualityMonitor) Start(ctx context.Context) error {
 }
 
 // Stop stops quality monitoring
-func (q *qualityMonitor) Stop() error {
+func (q *qualityMonitor) Stop(peerID string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	if !q.running {
-		return nil
+		return
 	}
 
 	q.running = false
@@ -122,12 +120,23 @@ func (q *qualityMonitor) Stop() error {
 	close(q.stopCh)
 
 	q.logger.Debug("stopped quality monitor", forge.F("peer_id", q.peerID))
+}
 
-	return nil
+// Monitor starts monitoring a peer connection
+func (q *qualityMonitor) Monitor(ctx context.Context, peer PeerConnection) error {
+	// Start monitoring the peer
+	return q.Start(ctx)
+}
+
+// OnQualityChange sets quality change callback
+func (q *qualityMonitor) OnQualityChange(handler QualityChangeHandler) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.qualityHandler = handler
 }
 
 // GetQuality returns current connection quality
-func (q *qualityMonitor) GetQuality(ctx context.Context) (*ConnectionQuality, error) {
+func (q *qualityMonitor) GetQuality(peerID string) (*ConnectionQuality, error) {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
 
@@ -200,16 +209,20 @@ func (q *qualityMonitor) collectSample(ctx context.Context) error {
 
 	// Report metrics
 	if q.metrics != nil {
-		q.metrics.Gauge("webrtc.quality.score", float64(quality.Score),
-			forge.F("peer_id", q.peerID))
-		q.metrics.Gauge("webrtc.quality.packet_loss", quality.PacketLoss,
-			forge.F("peer_id", q.peerID))
-		q.metrics.Gauge("webrtc.quality.jitter_ms", float64(quality.Jitter.Milliseconds()),
-			forge.F("peer_id", q.peerID))
-		q.metrics.Gauge("webrtc.quality.rtt_ms", float64(quality.RTT.Milliseconds()),
-			forge.F("peer_id", q.peerID))
-		q.metrics.Gauge("webrtc.quality.bitrate", float64(quality.Bitrate),
-			forge.F("peer_id", q.peerID))
+		scoreGauge := q.metrics.Gauge("webrtc.quality.score")
+		scoreGauge.Set(float64(quality.Score))
+
+		packetLossGauge := q.metrics.Gauge("webrtc.quality.packet_loss")
+		packetLossGauge.Set(quality.PacketLoss)
+
+		jitterGauge := q.metrics.Gauge("webrtc.quality.jitter_ms")
+		jitterGauge.Set(float64(quality.Jitter.Milliseconds()))
+
+		latencyGauge := q.metrics.Gauge("webrtc.quality.latency_ms")
+		latencyGauge.Set(float64(quality.Latency.Milliseconds()))
+
+		bitrateGauge := q.metrics.Gauge("webrtc.quality.bitrate")
+		bitrateGauge.Set(float64(quality.BitrateKbps))
 	}
 
 	return nil
@@ -227,7 +240,7 @@ func (q *qualityMonitor) calculateSample(stats *PeerStats) QualitySample {
 	}
 
 	// Calculate bitrate (bytes per second over sample interval)
-	bitrate := uint64(float64(stats.BytesSent+stats.BytesReceived) / q.config.SampleInterval.Seconds())
+	bitrate := uint64(float64(stats.BytesSent+stats.BytesReceived) / q.config.MonitorInterval.Seconds())
 
 	sample := QualitySample{
 		Timestamp:        time.Now(),
@@ -246,28 +259,28 @@ func (q *qualityMonitor) assessQuality(sample QualitySample) *ConnectionQuality 
 	score := 100
 
 	// Deduct points for packet loss
-	if sample.PacketLoss > q.config.PacketLossThreshold {
-		lossScore := int((sample.PacketLoss - q.config.PacketLossThreshold) * 100)
+	if sample.PacketLoss > q.config.MaxPacketLoss/100 {
+		lossScore := int((sample.PacketLoss - q.config.MaxPacketLoss/100) * 100)
 		score -= lossScore
 	}
 
 	// Deduct points for high jitter
-	if sample.Jitter > q.config.JitterThreshold {
-		excessJitter := sample.Jitter - q.config.JitterThreshold
+	if sample.Jitter > q.config.MaxJitter {
+		excessJitter := sample.Jitter - q.config.MaxJitter
 		jitterScore := int(excessJitter.Milliseconds() / 10)
 		score -= jitterScore
 	}
 
 	// Deduct points for high RTT
-	if sample.RTT > q.config.RTTThreshold {
-		excessRTT := sample.RTT - q.config.RTTThreshold
+	if sample.RTT > q.config.MaxJitter { // Using MaxJitter as RTT threshold
+		excessRTT := sample.RTT - q.config.MaxJitter
 		rttScore := int(excessRTT.Milliseconds() / 50)
 		score -= rttScore
 	}
 
 	// Deduct points for low bitrate
-	if sample.Bitrate < q.config.BitrateThreshold {
-		bitrateDef := q.config.BitrateThreshold - sample.Bitrate
+	if sample.Bitrate < uint64(q.config.MinBitrate*1024) {
+		bitrateDef := uint64(q.config.MinBitrate*1024) - sample.Bitrate
 		bitrateScore := int(bitrateDef / (50 * 1024))
 		score -= bitrateScore
 	}
@@ -281,26 +294,28 @@ func (q *qualityMonitor) assessQuality(sample QualitySample) *ConnectionQuality 
 	}
 
 	return &ConnectionQuality{
-		Score:      score,
-		PacketLoss: sample.PacketLoss,
-		Jitter:     sample.Jitter,
-		RTT:        sample.RTT,
-		Bitrate:    sample.Bitrate,
+		Score:       float64(score),
+		PacketLoss:  sample.PacketLoss,
+		Jitter:      sample.Jitter,
+		Latency:     sample.RTT,
+		BitrateKbps: int(sample.Bitrate / 1024),
+		Warnings:    []string{},
+		LastUpdated: time.Now(),
 	}
 }
 
 // GetRecommendedLayer returns recommended simulcast layer based on quality
-func (q *qualityMonitor) GetRecommendedLayer(ctx context.Context) (int, error) {
-	quality, err := q.GetQuality(ctx)
+func (q *qualityMonitor) GetRecommendedLayer(peerID string) (int, error) {
+	quality, err := q.GetQuality(peerID)
 	if err != nil {
 		return 0, err
 	}
 
 	// Recommend layer based on quality score
 	if quality.Score >= 80 {
-		return 2 // High quality
+		return 2, nil // High quality
 	} else if quality.Score >= 50 {
-		return 1 // Medium quality
+		return 1, nil // Medium quality
 	}
-	return 0 // Low quality
+	return 0, nil // Low quality
 }

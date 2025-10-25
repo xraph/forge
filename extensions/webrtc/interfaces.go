@@ -196,6 +196,24 @@ type SFURouter interface {
 	// RouteTrack routes a track from sender to receivers
 	RouteTrack(ctx context.Context, senderID string, track MediaTrack, receiverIDs []string) error
 
+	// AddPublisher adds a publishing peer
+	AddPublisher(ctx context.Context, userID string, peer PeerConnection) error
+
+	// AddSubscriber adds a subscribing peer
+	AddSubscriber(ctx context.Context, userID string, peer PeerConnection) error
+
+	// RemovePublisher removes a publishing peer
+	RemovePublisher(ctx context.Context, userID string) error
+
+	// RemoveSubscriber removes a subscribing peer
+	RemoveSubscriber(ctx context.Context, userID string) error
+
+	// SubscribeToTrack subscribes a peer to a publisher's track
+	SubscribeToTrack(ctx context.Context, subscriberID, publisherID, trackID string) error
+
+	// UnsubscribeFromTrack unsubscribes a peer from a track
+	UnsubscribeFromTrack(ctx context.Context, subscriberID, trackID string) error
+
 	// AddReceiver adds a receiver for a track
 	AddReceiver(ctx context.Context, trackID, receiverID string) error
 
@@ -210,6 +228,9 @@ type SFURouter interface {
 
 	// GetStats returns routing statistics
 	GetStats(ctx context.Context) (*RouterStats, error)
+
+	// GetAvailableTracks returns all available tracks
+	GetAvailableTracks() []TrackInfo
 }
 
 // Recorder handles call recording
@@ -438,4 +459,44 @@ type ConnectionQuality struct {
 	BitrateKbps int
 	Warnings    []string
 	LastUpdated time.Time
+}
+
+// SimulcastLayer represents a simulcast layer
+type SimulcastLayer struct {
+	RID     string
+	Active  bool
+	Width   int
+	Height  int
+	Bitrate int
+}
+
+// SFUStats holds SFU router statistics
+type SFUStats struct {
+	TotalTracks        int
+	ActiveReceivers    int
+	TotalBytesSent     uint64
+	TotalBytesReceived uint64
+	AverageBitrate     int
+	Timestamp          time.Time
+}
+
+// RecordOptions holds recording configuration options
+type RecordOptions struct {
+	Format      string
+	Quality     string
+	AudioOnly   bool
+	VideoOnly   bool
+	MaxDuration time.Duration
+}
+
+// RecordingStats holds recording statistics
+type RecordingStats struct {
+	Duration    time.Duration
+	FileSize    uint64
+	Bitrate     int
+	FrameRate   int
+	AudioTracks int
+	VideoTracks int
+	StartTime   time.Time
+	EndTime     time.Time
 }

@@ -11,7 +11,7 @@ import (
 )
 
 func TestInMemoryCache_ConnectDisconnect(t *testing.T) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 
 	// Initially not connected
@@ -41,7 +41,7 @@ func TestInMemoryCache_ConnectDisconnect(t *testing.T) {
 }
 
 func TestInMemoryCache_BasicOperations(t *testing.T) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -99,7 +99,7 @@ func TestInMemoryCache_BasicOperations(t *testing.T) {
 }
 
 func TestInMemoryCache_TTL(t *testing.T) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -148,7 +148,7 @@ func TestInMemoryCache_TTL(t *testing.T) {
 }
 
 func TestInMemoryCache_Keys(t *testing.T) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -185,7 +185,7 @@ func TestInMemoryCache_Keys(t *testing.T) {
 func TestInMemoryCache_Prefix(t *testing.T) {
 	config := DefaultConfig()
 	config.Prefix = "myapp:"
-	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -203,7 +203,7 @@ func TestInMemoryCache_Prefix(t *testing.T) {
 func TestInMemoryCache_MaxSize(t *testing.T) {
 	config := DefaultConfig()
 	config.MaxSize = 3
-	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -230,7 +230,7 @@ func TestInMemoryCache_MaxSize(t *testing.T) {
 }
 
 func TestInMemoryCache_TypedOperations(t *testing.T) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -265,7 +265,7 @@ func TestInMemoryCache_Validation(t *testing.T) {
 	config := DefaultConfig()
 	config.MaxKeySize = 10
 	config.MaxValueSize = 20
-	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -286,7 +286,7 @@ func TestInMemoryCache_Validation(t *testing.T) {
 func TestInMemoryCache_Cleanup(t *testing.T) {
 	config := DefaultConfig()
 	config.CleanupInterval = 100 * time.Millisecond
-	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -310,7 +310,7 @@ func TestInMemoryCache_Cleanup(t *testing.T) {
 }
 
 func TestInMemoryCache_Concurrent(t *testing.T) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -336,7 +336,7 @@ func TestInMemoryCache_Concurrent(t *testing.T) {
 // Benchmarks
 
 func BenchmarkInMemoryCache_Set(b *testing.B) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -350,7 +350,7 @@ func BenchmarkInMemoryCache_Set(b *testing.B) {
 }
 
 func BenchmarkInMemoryCache_Get(b *testing.B) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
@@ -368,7 +368,7 @@ func BenchmarkInMemoryCache_Get(b *testing.B) {
 }
 
 func BenchmarkInMemoryCache_Exists(b *testing.B) {
-	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewMetrics("test"))
+	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)

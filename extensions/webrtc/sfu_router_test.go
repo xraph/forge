@@ -3,20 +3,23 @@ package webrtc
 import (
 	"context"
 	"testing"
+
+	"github.com/xraph/forge"
 )
 
 func TestNewSFURouter(t *testing.T) {
-	logger := &nullLogger{}
+	logger := forge.NewNoopLogger()
 
-	router := NewSFURouter("test-room", logger, nil)
+	metrics := forge.NewNoOpMetrics()
+	router := NewSFURouter("test-room", logger, metrics)
 	if router == nil {
 		t.Fatal("router is nil")
 	}
 }
 
 func TestSFURouter_AddPublisher(t *testing.T) {
-	logger := &nullLogger{}
-	router := NewSFURouter("test-room", logger, nil)
+	logger := forge.NewNoopLogger()
+	router := NewSFURouter("test-room", logger, forge.NewNoOpMetrics())
 	ctx := context.Background()
 
 	config := DefaultConfig()
@@ -38,8 +41,9 @@ func TestSFURouter_AddPublisher(t *testing.T) {
 }
 
 func TestSFURouter_AddSubscriber(t *testing.T) {
-	logger := &nullLogger{}
-	router := NewSFURouter("test-room", logger, nil)
+	logger := forge.NewNoopLogger()
+	metrics := forge.NewNoOpMetrics()
+	router := NewSFURouter("test-room", logger, metrics)
 	ctx := context.Background()
 
 	config := DefaultConfig()
@@ -61,8 +65,9 @@ func TestSFURouter_AddSubscriber(t *testing.T) {
 }
 
 func TestSFURouter_RemovePublisher(t *testing.T) {
-	logger := &nullLogger{}
-	router := NewSFURouter("test-room", logger, nil)
+	logger := forge.NewNoopLogger()
+	metrics := forge.NewNoOpMetrics()
+	router := NewSFURouter("test-room", logger, metrics)
 	ctx := context.Background()
 
 	config := DefaultConfig()
@@ -86,8 +91,9 @@ func TestSFURouter_RemovePublisher(t *testing.T) {
 }
 
 func TestSFURouter_GetStats(t *testing.T) {
-	logger := &nullLogger{}
-	router := NewSFURouter("test-room", logger, nil)
+	logger := forge.NewNoopLogger()
+	metrics := forge.NewNoOpMetrics()
+	router := NewSFURouter("test-room", logger, metrics)
 	ctx := context.Background()
 
 	// Get initial stats
@@ -96,22 +102,19 @@ func TestSFURouter_GetStats(t *testing.T) {
 		t.Fatalf("failed to get stats: %v", err)
 	}
 
-	if stats.RoomID != "test-room" {
-		t.Errorf("expected room ID 'test-room', got %s", stats.RoomID)
+	if stats.TotalTracks != 0 {
+		t.Errorf("expected 0 tracks, got %d", stats.TotalTracks)
 	}
 
-	if stats.PublisherCount != 0 {
-		t.Errorf("expected 0 publishers, got %d", stats.PublisherCount)
-	}
-
-	if stats.SubscriberCount != 0 {
-		t.Errorf("expected 0 subscribers, got %d", stats.SubscriberCount)
+	if stats.ActiveReceivers != 0 {
+		t.Errorf("expected 0 active receivers, got %d", stats.ActiveReceivers)
 	}
 }
 
 func TestSFURouter_GetAvailableTracks(t *testing.T) {
-	logger := &nullLogger{}
-	router := NewSFURouter("test-room", logger, nil)
+	logger := forge.NewNoopLogger()
+	metrics := forge.NewNoOpMetrics()
+	router := NewSFURouter("test-room", logger, metrics)
 
 	// Get tracks (should be empty initially)
 	tracks := router.GetAvailableTracks()

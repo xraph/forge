@@ -51,6 +51,9 @@ var (
 	// Auth errors
 	ErrUnauthorized = errors.New("webrtc: unauthorized")
 	ErrForbidden    = errors.New("webrtc: forbidden")
+
+	// General errors
+	ErrNotImplemented = errors.New("webrtc: not implemented - requires additional setup")
 )
 
 // SignalingError wraps signaling errors with context

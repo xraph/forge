@@ -460,13 +460,13 @@ func (thc *TestHealthChecker) SetCheckResult(name string, result *health.HealthR
 type testMetrics struct{}
 
 func (tm *testMetrics) RegisterCollector(collector shared.CustomCollector) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) UnregisterCollector(name string) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) Counter(name string, tags ...string) shared.Counter { return &testCounter{} }
@@ -477,83 +477,83 @@ func (tm *testMetrics) Histogram(name string, tags ...string) shared.Histogram {
 func (tm *testMetrics) Timer(name string, tags ...string) shared.Timer { return &testTimer{} }
 
 func (tm *testMetrics) Name() string {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - return test name
+	return "test-metrics"
 }
 
 func (tm *testMetrics) Dependencies() []string {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - return empty dependencies
+	return []string{}
 }
 
 func (tm *testMetrics) Start(ctx context.Context) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) Stop(ctx context.Context) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) Health(ctx context.Context) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - always healthy for testing
+	return nil
 }
 
 func (tm *testMetrics) Register(collector shared.CustomCollector) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) Unregister(name string) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) GetCollectors() []shared.CustomCollector {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - return empty list
+	return []shared.CustomCollector{}
 }
 
 func (tm *testMetrics) GetMetrics() map[string]interface{} {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - return empty metrics
+	return map[string]interface{}{}
 }
 
 func (tm *testMetrics) GetMetricsByType(metricType shared.MetricType) map[string]interface{} {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - return empty metrics
+	return map[string]interface{}{}
 }
 
 func (tm *testMetrics) GetMetricsByTag(tagKey, tagValue string) map[string]interface{} {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - return empty metrics
+	return map[string]interface{}{}
 }
 
 func (tm *testMetrics) Export(format shared.ExportFormat) ([]byte, error) {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - return empty export
+	return []byte("{}"), nil
 }
 
 func (tm *testMetrics) ExportToFile(format shared.ExportFormat, filename string) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) Reset() error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) ResetMetric(name string) error {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - no-op for testing
+	return nil
 }
 
 func (tm *testMetrics) GetStats() shared.CollectorStats {
-	// TODO implement me
-	panic("implement me")
+	// Test implementation - return empty stats
+	return shared.CollectorStats{}
 }
 
 func (tm *testMetrics) Reload(config *shared.MetricsConfig) error {
@@ -603,7 +603,7 @@ func (tg *testGauge) Add(value float64) {}
 type testHistogram struct{}
 
 func (th *testHistogram) ObserveDuration(start time.Time) {
-	return
+	// Test implementation - no-op
 }
 
 func (th *testHistogram) WithLabels(labels map[string]string) shared.Histogram {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v3"
 	"github.com/xraph/forge"
@@ -65,11 +66,16 @@ func (p *peerConnection) setupEventHandlers() {
 	// ICE candidate handler
 	p.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate != nil && p.iceHandler != nil {
+			usernameFragment := ""
+			if candidate.ToJSON().UsernameFragment != nil {
+				usernameFragment = *candidate.ToJSON().UsernameFragment
+			}
+
 			iceCandidate := &ICECandidate{
 				Candidate:        candidate.ToJSON().Candidate,
 				SDPMid:           *candidate.ToJSON().SDPMid,
 				SDPMLineIndex:    int(*candidate.ToJSON().SDPMLineIndex),
-				UsernameFragment: candidate.ToJSON().UsernameFragment,
+				UsernameFragment: usernameFragment,
 			}
 			p.iceHandler(iceCandidate)
 		}
@@ -156,27 +162,85 @@ func (p *peerConnection) State() ConnectionState {
 
 // CreateOffer creates an SDP offer
 func (p *peerConnection) CreateOffer(ctx context.Context) (*SessionDescription, error) {
+	// Create offer with ICE gathering
 	offer, err := p.pc.CreateOffer(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create offer: %w", err)
 	}
 
+	// Set local description to trigger ICE gathering
+	if err := p.pc.SetLocalDescription(offer); err != nil {
+		return nil, fmt.Errorf("failed to set local description: %w", err)
+	}
+
+	// Wait for ICE gathering to complete
+	iceGatheringComplete := make(chan struct{})
+	p.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			close(iceGatheringComplete)
+		}
+	})
+
+	// Wait for ICE gathering or timeout (5 seconds)
+	select {
+	case <-iceGatheringComplete:
+		// ICE gathering completed
+	case <-time.After(5 * time.Second):
+		// ICE gathering timeout - continue anyway
+		p.logger.Warn("ICE gathering timeout, continuing with offer")
+	}
+
+	// Get the updated local description with ICE candidates
+	localDesc := p.pc.LocalDescription()
+	if localDesc == nil {
+		return nil, fmt.Errorf("no local description available")
+	}
+
 	return &SessionDescription{
 		Type: SessionDescriptionTypeOffer,
-		SDP:  offer.SDP,
+		SDP:  localDesc.SDP,
 	}, nil
 }
 
 // CreateAnswer creates an SDP answer
 func (p *peerConnection) CreateAnswer(ctx context.Context) (*SessionDescription, error) {
+	// Create answer with ICE gathering
 	answer, err := p.pc.CreateAnswer(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create answer: %w", err)
 	}
 
+	// Set local description to trigger ICE gathering
+	if err := p.pc.SetLocalDescription(answer); err != nil {
+		return nil, fmt.Errorf("failed to set local description: %w", err)
+	}
+
+	// Wait for ICE gathering to complete
+	iceGatheringComplete := make(chan struct{})
+	p.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			close(iceGatheringComplete)
+		}
+	})
+
+	// Wait for ICE gathering or timeout (5 seconds)
+	select {
+	case <-iceGatheringComplete:
+		// ICE gathering completed
+	case <-time.After(5 * time.Second):
+		// ICE gathering timeout - continue anyway
+		p.logger.Warn("ICE gathering timeout, continuing with offer")
+	}
+
+	// Get the updated local description with ICE candidates
+	localDesc := p.pc.LocalDescription()
+	if localDesc == nil {
+		return nil, fmt.Errorf("no local description available")
+	}
+
 	return &SessionDescription{
 		Type: SessionDescriptionTypeAnswer,
-		SDP:  answer.SDP,
+		SDP:  localDesc.SDP,
 	}, nil
 }
 

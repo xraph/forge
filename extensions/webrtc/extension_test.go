@@ -12,10 +12,13 @@ import (
 type mockStreamingExtension struct{}
 
 func (m *mockStreamingExtension) Name() string                     { return "streaming" }
+func (m *mockStreamingExtension) Version() string                  { return "1.0.0" }
+func (m *mockStreamingExtension) Description() string              { return "Mock streaming extension" }
 func (m *mockStreamingExtension) Register(app any) error           { return nil }
 func (m *mockStreamingExtension) Start(ctx context.Context) error  { return nil }
 func (m *mockStreamingExtension) Stop(ctx context.Context) error   { return nil }
 func (m *mockStreamingExtension) Health(ctx context.Context) error { return nil }
+func (m *mockStreamingExtension) Dependencies() []string           { return []string{} }
 func (m *mockStreamingExtension) Manager() streaming.Manager       { return nil }
 
 func TestNew(t *testing.T) {
@@ -60,11 +63,15 @@ func TestNew(t *testing.T) {
 		},
 	}
 
-	mockStreaming := &mockStreamingExtension{}
+	// Create a real streaming extension for testing
+	streamingExt := streaming.NewExtension(
+		streaming.WithLocalBackend(),
+		streaming.WithFeatures(false, false, false, false, false), // Disable all features for testing
+	).(*streaming.Extension)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ext, err := New(mockStreaming, tt.config)
+			ext, err := New(streamingExt, tt.config)
 
 			if tt.wantErr {
 				if err == nil {

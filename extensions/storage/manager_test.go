@@ -227,8 +227,8 @@ func TestStorageManager_PresignedURLs(t *testing.T) {
 	config := DefaultConfig()
 	config.EnablePresignedURLs = true
 	config.UseEnhancedBackend = true
-	logger := &mockLogger{}
-	metrics := &mockMetrics{}
+	logger := logger.NewTestLogger()
+	metrics := metrics.NewMockMetricsCollector()
 
 	manager := NewStorageManager(config, logger, metrics)
 
@@ -271,8 +271,8 @@ func TestStorageManager_PresignedURLs(t *testing.T) {
 
 func TestStorageManager_Health(t *testing.T) {
 	config := DefaultConfig()
-	logger := &mockLogger{}
-	metrics := &mockMetrics{}
+	logger := logger.NewTestLogger()
+	metrics := metrics.NewMockMetricsCollector()
 
 	manager := NewStorageManager(config, logger, metrics)
 
@@ -308,8 +308,8 @@ func TestStorageManager_Health(t *testing.T) {
 
 func TestStorageManager_Backend(t *testing.T) {
 	config := DefaultConfig()
-	logger := &mockLogger{}
-	metrics := &mockMetrics{}
+	logger := logger.NewTestLogger()
+	metrics := metrics.NewMockMetricsCollector()
 
 	manager := NewStorageManager(config, logger, metrics)
 
@@ -365,8 +365,8 @@ func TestStorageManager_InvalidConfiguration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger := &mockLogger{}
-			metrics := &mockMetrics{}
+			logger := logger.NewTestLogger()
+			metrics := metrics.NewMockMetricsCollector()
 
 			// Validate should fail
 			err := tt.config.Validate()
