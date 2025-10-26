@@ -15,11 +15,11 @@ import (
 type RoomStore struct {
 	mu             sync.RWMutex
 	rooms          map[string]*LocalRoom
-	members        map[string]map[string]*LocalMember // roomID -> userID -> member
+	members        map[string]map[string]*LocalMember       // roomID -> userID -> member
 	bans           map[string]map[string]*streaming.RoomBan // roomID -> userID -> ban
-	invites        map[string]*streaming.Invite // inviteCode -> invite
-	roomInvites    map[string][]string // roomID -> []inviteCode
-	moderationLogs map[string][]*streaming.ModerationEvent // roomID -> events
+	invites        map[string]*streaming.Invite             // inviteCode -> invite
+	roomInvites    map[string][]string                      // roomID -> []inviteCode
+	moderationLogs map[string][]*streaming.ModerationEvent  // roomID -> events
 }
 
 // NewRoomStore creates a new local room store.
@@ -305,7 +305,7 @@ func (s *RoomStore) DeleteMany(ctx context.Context, roomIDs []string) error {
 		delete(s.rooms, roomID)
 		delete(s.members, roomID)
 		delete(s.bans, roomID)
-		
+
 		// Clean up invites
 		if inviteCodes, exists := s.roomInvites[roomID]; exists {
 			for _, code := range inviteCodes {
@@ -361,7 +361,7 @@ func (s *RoomStore) Search(ctx context.Context, query string, filters map[string
 		// Search in name and description
 		if strings.Contains(strings.ToLower(room.name), query) ||
 			strings.Contains(strings.ToLower(room.description), query) {
-			
+
 			// Apply filters
 			if s.matchesFilters(room, filters) {
 				results = append(results, room)
@@ -674,16 +674,16 @@ func (s *RoomStore) addModerationEvent(roomID string, event *streaming.Moderatio
 	s.moderationLogs[roomID] = append(s.moderationLogs[roomID], event)
 }
 
-// LocalRoom implements streaming.Room
+// Room implements streaming.Room for local backend
 type LocalRoom struct {
-	mu             sync.RWMutex
-	id             string
-	name           string
-	description    string
-	owner          string
-	created        time.Time
-	updated        time.Time
-	metadata       map[string]any
+	mu          sync.RWMutex
+	id          string
+	name        string
+	description string
+	owner       string
+	created     time.Time
+	updated     time.Time
+	metadata    map[string]any
 	// Additional fields for extended functionality
 	isPrivate      bool
 	maxMembers     int
@@ -694,11 +694,11 @@ type LocalRoom struct {
 	pinnedMessages []string
 	tags           []string
 	category       string
-	readMarkers    map[string]string // userID -> messageID
+	readMarkers    map[string]string    // userID -> messageID
 	mutedMembers   map[string]time.Time // userID -> unmute time
 }
 
-func NewLocalRoom(opts streaming.RoomOptions) *LocalRoom {
+func NewRoom(opts streaming.RoomOptions) *LocalRoom {
 	now := time.Now()
 	return &LocalRoom{
 		id:          opts.ID,
@@ -859,7 +859,7 @@ func (r *LocalRoom) UnmuteMember(ctx context.Context, userID string) error {
 func (r *LocalRoom) IsMuted(ctx context.Context, userID string) (bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	if muteUntil, exists := r.mutedMembers[userID]; exists {
 		if muteUntil.After(time.Now()) {
 			return true, nil
@@ -985,14 +985,14 @@ func (r *LocalRoom) GetSlowMode(ctx context.Context) int {
 func (r *LocalRoom) PinMessage(ctx context.Context, messageID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	// Check if already pinned
 	for _, pinned := range r.pinnedMessages {
 		if pinned == messageID {
 			return nil // Already pinned
 		}
 	}
-	
+
 	r.pinnedMessages = append(r.pinnedMessages, messageID)
 	r.updated = time.Now()
 	return nil
@@ -1001,7 +1001,7 @@ func (r *LocalRoom) PinMessage(ctx context.Context, messageID string) error {
 func (r *LocalRoom) UnpinMessage(ctx context.Context, messageID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	for i, pinned := range r.pinnedMessages {
 		if pinned == messageID {
 			r.pinnedMessages = append(r.pinnedMessages[:i], r.pinnedMessages[i+1:]...)
@@ -1015,7 +1015,7 @@ func (r *LocalRoom) UnpinMessage(ctx context.Context, messageID string) error {
 func (r *LocalRoom) GetPinnedMessages(ctx context.Context) ([]string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	// Return copy to prevent external modification
 	pinned := make([]string, len(r.pinnedMessages))
 	copy(pinned, r.pinnedMessages)
@@ -1025,14 +1025,14 @@ func (r *LocalRoom) GetPinnedMessages(ctx context.Context) ([]string, error) {
 func (r *LocalRoom) AddTag(ctx context.Context, tag string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	// Check if tag already exists
 	for _, existingTag := range r.tags {
 		if existingTag == tag {
 			return nil // Already exists
 		}
 	}
-	
+
 	r.tags = append(r.tags, tag)
 	r.updated = time.Now()
 	return nil
@@ -1041,7 +1041,7 @@ func (r *LocalRoom) AddTag(ctx context.Context, tag string) error {
 func (r *LocalRoom) RemoveTag(ctx context.Context, tag string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	for i, existingTag := range r.tags {
 		if existingTag == tag {
 			r.tags = append(r.tags[:i], r.tags[i+1:]...)
@@ -1055,7 +1055,7 @@ func (r *LocalRoom) RemoveTag(ctx context.Context, tag string) error {
 func (r *LocalRoom) GetTags() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	// Return copy to prevent external modification
 	tags := make([]string, len(r.tags))
 	copy(tags, r.tags)
@@ -1106,7 +1106,7 @@ func (r *LocalRoom) GetUnreadCount(ctx context.Context, userID string, since tim
 func (r *LocalRoom) GetLastReadMessage(ctx context.Context, userID string) (string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	if messageID, exists := r.readMarkers[userID]; exists {
 		return messageID, nil
 	}

@@ -36,6 +36,11 @@ func (m *StorageManager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Ensure resilience config has sane defaults
+	if m.config.Resilience.OperationTimeout == 0 {
+		m.config.Resilience = DefaultResilienceConfig()
+	}
+
 	// Initialize backends
 	for name, backendConfig := range m.config.Backends {
 		var backend Storage

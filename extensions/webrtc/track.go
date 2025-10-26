@@ -10,11 +10,13 @@ import (
 
 // localMediaTrack implements MediaTrack for local tracks
 type localMediaTrack struct {
-	track   webrtc.TrackLocal
-	sender  *webrtc.RTPSender
-	kind    TrackKind
-	enabled bool
-	logger  forge.Logger
+	track        webrtc.TrackLocal
+	sender       *webrtc.RTPSender
+	kind         TrackKind
+	enabled      bool
+	muted        bool // Local mute state
+	originalTrack webrtc.TrackLocal // Store original track for unmute
+	logger       forge.Logger
 }
 
 // NewLocalTrack creates a new local media track
@@ -70,8 +72,51 @@ func (t *localMediaTrack) Enabled() bool {
 }
 
 func (t *localMediaTrack) SetEnabled(enabled bool) {
+	if t.enabled == enabled {
+		return // No-op if already in desired state
+	}
+	
 	t.enabled = enabled
-	// Note: Actual muting would be done by stopping sample writes
+	
+	// If we have a sender, control the actual media transmission
+	if t.sender != nil {
+		if enabled {
+			// Unmute: restore the original track
+			if t.originalTrack != nil && t.muted {
+				if err := t.sender.ReplaceTrack(t.originalTrack); err != nil {
+					t.logger.Error("failed to restore track on unmute",
+						forge.F("track_id", t.ID()),
+						forge.F("error", err))
+					return
+				}
+				t.track = t.originalTrack
+				t.muted = false
+				t.logger.Debug("unmuted track", forge.F("track_id", t.ID()))
+			}
+		} else {
+			// Mute: replace with a silent/null track or disable the sender
+			// Store the original track if not already stored
+			if !t.muted {
+				t.originalTrack = t.track
+				t.muted = true
+			}
+			
+			// For muting, we set the track to nil (stops transmission)
+			// In a production environment, you might want to send silence instead
+			if err := t.sender.ReplaceTrack(nil); err != nil {
+				t.logger.Error("failed to mute track",
+					forge.F("track_id", t.ID()),
+					forge.F("error", err))
+				return
+			}
+			t.logger.Debug("muted track", forge.F("track_id", t.ID()))
+		}
+	} else {
+		// No sender attached, just track the state
+		t.logger.Debug("track enabled state changed (no sender)",
+			forge.F("track_id", t.ID()),
+			forge.F("enabled", enabled))
+	}
 }
 
 func (t *localMediaTrack) GetSettings() TrackSettings {
@@ -110,20 +155,30 @@ func (t *localMediaTrack) Close() error {
 
 // remoteMediaTrack implements MediaTrack for remote tracks
 type remoteMediaTrack struct {
-	track   *webrtc.TrackRemote
-	enabled bool
-	logger  forge.Logger
+	track    *webrtc.TrackRemote
+	receiver *webrtc.RTPReceiver // Store receiver for stats
+	enabled  bool                 // Controls local playback
+	logger   forge.Logger
 }
 
 func (t *remoteMediaTrack) ID() string {
+	if t.track == nil {
+		return "remote-track-nil"
+	}
 	return t.track.ID()
 }
 
 func (t *remoteMediaTrack) Kind() TrackKind {
+	if t.track == nil {
+		return TrackKindAudio // Default to audio
+	}
 	return TrackKind(t.track.Kind().String())
 }
 
 func (t *remoteMediaTrack) Label() string {
+	if t.track == nil {
+		return "remote-track-nil"
+	}
 	return t.track.StreamID()
 }
 
@@ -132,7 +187,18 @@ func (t *remoteMediaTrack) Enabled() bool {
 }
 
 func (t *remoteMediaTrack) SetEnabled(enabled bool) {
+	if t.enabled == enabled {
+		return // No-op if already in desired state
+	}
+	
 	t.enabled = enabled
+	
+	// For remote tracks, "enabled" controls local playback
+	// The actual media is controlled by the sender
+	// This flag is used by the application to decide whether to play the media
+	t.logger.Debug("remote track playback state changed",
+		forge.F("track_id", t.ID()),
+		forge.F("enabled", enabled))
 }
 
 func (t *remoteMediaTrack) GetSettings() TrackSettings {

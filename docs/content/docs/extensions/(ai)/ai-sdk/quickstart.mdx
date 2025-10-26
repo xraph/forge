@@ -1,0 +1,252 @@
+---
+title: Quick Start
+description: Get started with the AI SDK in 5 minutes
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Steps, Step } from 'fumadocs-ui/components/steps'
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs'
+
+# Quick Start
+
+Get up and running with the Forge AI SDK in 5 minutes.
+
+## Installation
+
+<Steps>
+  <Step>
+    ### Install Forge and AI Extension
+    
+    ```bash
+    go get github.com/xraph/forge
+    go get github.com/xraph/forge/extensions/ai
+    ```
+  </Step>
+
+  <Step>
+    ### Create Your Application
+    
+    ```go title="main.go"
+    package main
+
+    import (
+        "context"
+        "github.com/xraph/forge"
+        "github.com/xraph/forge/extensions/ai"
+        "github.com/xraph/forge/extensions/ai/sdk"
+    )
+
+    func main() {
+        app := forge.NewApp()
+        
+        // Register AI extension
+        app.RegisterExtension(ai.NewExtension())
+        
+        // Use the SDK
+        app.GET("/generate", generateHandler)
+        
+        app.Start(context.Background())
+    }
+    ```
+  </Step>
+
+  <Step>
+    ### Implement Your Handler
+    
+    ```go title="handlers.go"
+    func generateHandler(c forge.Context) error {
+        container := c.App().Container()
+        
+        // Resolve dependencies
+        llmManager, _ := container.Resolve("llmManager")
+        logger, _ := container.Resolve("logger")
+        metrics, _ := container.Resolve("metrics")
+        
+        // Create builder
+        result, err := sdk.NewGenerateBuilder(
+            c.Context(),
+            llmManager.(sdk.LLMManager),
+            logger.(forge.Logger),
+            metrics.(forge.Metrics),
+        ).
+            WithPrompt(c.Query("prompt")).
+            WithModel("gpt-4").
+            WithTemperature(0.7).
+            Execute()
+        
+        if err != nil {
+            return c.JSON(500, map[string]string{"error": err.Error()})
+        }
+        
+        return c.JSON(200, map[string]interface{}{
+            "content": result.Content,
+            "tokens":  result.Usage.TotalTokens,
+        })
+    }
+    ```
+  </Step>
+
+  <Step>
+    ### Run Your Application
+    
+    ```bash
+    go run main.go
+    ```
+    
+    Test the endpoint:
+    
+    ```bash
+    curl "http://localhost:8080/generate?prompt=What+is+Go?"
+    ```
+  </Step>
+</Steps>
+
+## Common Patterns
+
+### Text Generation
+
+Simple text completion with parameters:
+
+```go
+result, err := sdk.NewGenerateBuilder(ctx, llmManager, logger, metrics).
+    WithPrompt("Explain quantum computing").
+    WithModel("gpt-4").
+    WithTemperature(0.7).
+    WithMaxTokens(500).
+    WithTopP(0.9).
+    Execute()
+
+if err != nil {
+    return err
+}
+
+fmt.Println(result.Content)
+fmt.Printf("Used %d tokens\n", result.Usage.TotalTokens)
+```
+
+### Structured Output
+
+Extract structured data with type safety:
+
+```go
+type Product struct {
+    Name        string   `json:"name" jsonschema:"required"`
+    Price       float64  `json:"price" jsonschema:"minimum=0"`
+    Category    string   `json:"category"`
+    Features    []string `json:"features"`
+    InStock     bool     `json:"in_stock"`
+}
+
+product, err := sdk.NewGenerateObjectBuilder[Product](
+    ctx, llmManager, logger, metrics,
+).
+    WithPrompt("Extract: iPhone 15 Pro costs $999, smartphone, 5G/A17/Camera, available").
+    WithModel("gpt-4").
+    WithMaxRetries(3).
+    Execute()
+
+if err != nil {
+    return err
+}
+
+fmt.Printf("%+v\n", product)
+// Output: &{Name:iPhone 15 Pro Price:999 Category:smartphone 
+//         Features:[5G A17 Camera] InStock:true}
+```
+
+### Streaming
+
+Real-time token-by-token streaming:
+
+```go
+stream := sdk.NewStreamBuilder(ctx, llmManager, logger, metrics).
+    WithPrompt("Write a story about Go").
+    WithReasoning(true).
+    OnToken(func(token string) {
+        fmt.Print(token)
+    }).
+    OnReasoning(func(step string) {
+        fmt.Printf("\n[Thinking: %s]\n", step)
+    }).
+    OnComplete(func(result *sdk.Result) {
+        fmt.Printf("\n\nCompleted! Used %d tokens\n", result.Usage.TotalTokens)
+    })
+
+result, err := stream.Stream()
+```
+
+### Multi-Modal
+
+Process images with AI:
+
+```go
+result, err := sdk.NewMultiModalBuilder(ctx, llmManager, logger, metrics).
+    WithImageFile("./photo.jpg").
+    WithText("Describe this image in detail").
+    WithModel("gpt-4-vision").
+    Execute()
+
+fmt.Println(result.Text)
+```
+
+## Environment Configuration
+
+Create a `.env` file for your API keys:
+
+```text title=".env"
+# OpenAI
+OPENAI_API_KEY=sk-...
+
+# Anthropic
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Cohere
+COHERE_API_KEY=...
+
+# Application
+LOG_LEVEL=info
+METRICS_ENABLED=true
+```
+
+## Configuration in Forge
+
+```yaml title="config.yaml"
+ai:
+  providers:
+    - name: openai
+      type: openai
+      api_key: ${OPENAI_API_KEY}
+      default_model: gpt-4
+    - name: anthropic
+      type: anthropic
+      api_key: ${ANTHROPIC_API_KEY}
+      default_model: claude-3-opus
+  
+  sdk:
+    default_temperature: 0.7
+    default_max_tokens: 2000
+    enable_caching: true
+    enable_metrics: true
+  
+  memory:
+    working_capacity: 5
+    short_term_ttl: 1h
+    long_term_threshold: 0.8
+  
+  cost:
+    enable_tracking: true
+    monthly_budget: 1000.00
+```
+
+## Next Steps
+
+<Callout type="success">
+  You're now ready to use the AI SDK! Explore advanced features:
+</Callout>
+
+- [Builders](/docs/extensions/ai/ai/builders) - Master all builder patterns
+- [Multi-Modal](/docs/extensions/ai/ai/multimodal) - Process images, audio, video
+- [Agents](/docs/extensions/ai/ai/agents) - Build autonomous agents
+- [RAG](/docs/extensions/ai/ai/rag) - Implement retrieval-augmented generation
+- [Examples](/docs/extensions/ai/ai/examples) - View 20+ production examples
+

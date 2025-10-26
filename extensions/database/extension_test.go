@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/logger"
+	forgeTesting "github.com/xraph/forge/testing"
 )
 
 func TestExtension_Implementation(t *testing.T) {
@@ -105,8 +105,8 @@ func TestExtension_SQLiteLifecycle(t *testing.T) {
 }
 
 func TestDatabaseManager_Register(t *testing.T) {
-	log := logger.NewTestLogger()
-	metrics := forge.NewNoOpMetrics()
+	log := forgeTesting.NewTestLogger()
+	metrics := forgeTesting.NewMetrics()
 
 	manager := NewDatabaseManager(log, metrics)
 
@@ -152,8 +152,8 @@ func TestDatabaseManager_Register(t *testing.T) {
 }
 
 func TestDatabaseManager_List(t *testing.T) {
-	log := logger.NewTestLogger()
-	metrics := forge.NewNoOpMetrics()
+	log := forgeTesting.NewTestLogger()
+	metrics := forgeTesting.NewMetrics()
 
 	manager := NewDatabaseManager(log, metrics)
 
@@ -183,8 +183,8 @@ func TestDatabaseManager_List(t *testing.T) {
 }
 
 func TestSQLDatabase_Health(t *testing.T) {
-	log := logger.NewTestLogger()
-	metrics := forge.NewNoOpMetrics()
+	log := forgeTesting.NewTestLogger()
+	metrics := forgeTesting.NewMetrics()
 
 	config := DatabaseConfig{
 		Name:         "test",
@@ -223,8 +223,8 @@ func TestSQLDatabase_Health(t *testing.T) {
 }
 
 func TestSQLDatabase_Stats(t *testing.T) {
-	log := logger.NewTestLogger()
-	metrics := forge.NewNoOpMetrics()
+	log := forgeTesting.NewTestLogger()
+	metrics := forgeTesting.NewMetrics()
 
 	config := DatabaseConfig{
 		Name:         "test",

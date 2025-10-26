@@ -18,6 +18,7 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 	}
 	defer peer.ReplicationMu.Unlock()
 
+	// Read node state (release lock immediately)
 	n.mu.RLock()
 	if !n.IsLeader() {
 		n.mu.RUnlock()
@@ -84,7 +85,7 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 		return
 	}
 
-	// Handle response
+	// Handle response (no locks held - handler may call stepDown which needs write lock)
 	n.handleAppendEntriesResponse(peer, req, resp)
 }
 
@@ -155,7 +156,7 @@ func (n *Node) handleAppendEntriesResponse(peer *PeerState, req *internal.Append
 
 	// If term in response is higher, step down
 	if resp.Term > n.currentTerm {
-		n.stepDown(resp.Term)
+		n.stepDownLocked(resp.Term)
 		return
 	}
 

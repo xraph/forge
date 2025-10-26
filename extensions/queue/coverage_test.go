@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -371,9 +372,9 @@ func TestInMemoryQueue_ConsumeOptions(t *testing.T) {
 		}
 	}
 
-	received := 0
+	var received int32
 	handler := func(ctx context.Context, msg Message) error {
-		received++
+		atomic.AddInt32(&received, 1)
 		return nil
 	}
 
@@ -397,7 +398,8 @@ func TestInMemoryQueue_ConsumeOptions(t *testing.T) {
 		t.Errorf("StopConsuming() error = %v", err)
 	}
 
-	if received != 5 {
-		t.Errorf("received %d messages, want 5", received)
+	receivedCount := atomic.LoadInt32(&received)
+	if receivedCount != 5 {
+		t.Errorf("received %d messages, want 5", receivedCount)
 	}
 }

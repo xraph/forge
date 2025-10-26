@@ -55,15 +55,18 @@ func (e *Extension) Register(app forge.App) error {
 	e.logger = forge.Must[forge.Logger](app.Container(), "logger")
 	e.metrics = forge.Must[forge.Metrics](app.Container(), "metrics")
 
-	// Get config from ConfigManager (bind pattern)
-	configMgr := forge.Must[forge.ConfigManager](app.Container(), "config")
-	var tempConfig Config
-	if err := configMgr.Bind("extensions.database", &tempConfig); err == nil {
-		e.config = tempConfig
-	} else {
-		// Use default config if not found
-		e.logger.Info("using default database config")
-		e.config = DefaultConfig()
+	// Get config from ConfigManager (bind pattern) only if config wasn't provided
+	// Check if config was provided in constructor (has databases configured)
+	if len(e.config.Databases) == 0 {
+		configMgr := forge.Must[forge.ConfigManager](app.Container(), "config")
+		var tempConfig Config
+		if err := configMgr.Bind("extensions.database", &tempConfig); err == nil {
+			e.config = tempConfig
+		} else {
+			// Use default config if not found
+			e.logger.Info("using default database config")
+			e.config = DefaultConfig()
+		}
 	}
 
 	// Validate configuration

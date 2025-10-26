@@ -192,7 +192,12 @@ func (mb *MemoryBroker) Close(ctx context.Context) error {
 	// Wait for workers to finish
 	mb.wg.Wait()
 
+	// Reset state for potential reconnection
 	mb.connected = false
+	mb.subscriptions = make(map[string][]core.EventHandler)
+	mb.topics = make(map[string]chan core.Event)
+	mb.ctx = nil
+	mb.cancel = nil
 
 	if mb.logger != nil {
 		mb.logger.Info("memory broker closed", forge.F("broker", mb.name))

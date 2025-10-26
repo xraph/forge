@@ -13,7 +13,7 @@ import (
 
 func TestCacheExtension_Register(t *testing.T) {
 	config := DefaultConfig()
-	ext := NewExtension(config)
+	ext := NewExtension(WithConfig(config))
 
 	app := forge.NewApp(forge.DefaultAppConfig())
 
@@ -28,7 +28,7 @@ func TestCacheExtension_Register(t *testing.T) {
 
 func TestCacheExtension_Lifecycle(t *testing.T) {
 	config := DefaultConfig()
-	ext := NewExtension(config)
+	ext := NewExtension(WithConfig(config))
 
 	app := forge.NewApp(forge.AppConfig{
 		Name:       "test-app",
@@ -67,7 +67,7 @@ func TestCacheExtension_Lifecycle(t *testing.T) {
 
 func TestCacheExtension_Health(t *testing.T) {
 	config := DefaultConfig()
-	ext := NewExtension(config)
+	ext := NewExtension(WithConfig(config))
 
 	app := forge.NewApp(forge.AppConfig{
 		Extensions: []forge.Extension{ext},
@@ -93,7 +93,7 @@ func TestCacheExtension_Health(t *testing.T) {
 func TestCacheExtension_InvalidConfig(t *testing.T) {
 	t.Run("Empty driver", func(t *testing.T) {
 		config := Config{}
-		ext := NewExtension(config)
+		ext := NewExtension(WithConfig(config))
 
 		app := forge.NewApp(forge.DefaultAppConfig())
 
@@ -106,7 +106,7 @@ func TestCacheExtension_InvalidConfig(t *testing.T) {
 		config := Config{
 			Driver: "unknown",
 		}
-		ext := NewExtension(config)
+		ext := NewExtension(WithConfig(config))
 
 		app := forge.NewApp(forge.DefaultAppConfig())
 
@@ -119,7 +119,7 @@ func TestCacheExtension_InvalidConfig(t *testing.T) {
 			Driver: "redis",
 			URL:    "",
 		}
-		ext := NewExtension(config)
+		ext := NewExtension(WithConfig(config))
 
 		app := forge.NewApp(forge.DefaultAppConfig())
 
@@ -135,7 +135,7 @@ func TestCacheExtension_UsageInService(t *testing.T) {
 	}
 
 	config := DefaultConfig()
-	ext := NewExtension(config)
+	ext := NewExtension(WithConfig(config))
 
 	app := forge.NewApp(forge.AppConfig{
 		Extensions: []forge.Extension{ext},
@@ -201,7 +201,7 @@ func TestConfig_Validate(t *testing.T) {
 
 func TestCacheExtension_ConcurrentAccess(t *testing.T) {
 	config := DefaultConfig()
-	ext := NewExtension(config)
+	ext := NewExtension(WithConfig(config))
 
 	app := forge.NewApp(forge.AppConfig{
 		Extensions: []forge.Extension{ext},

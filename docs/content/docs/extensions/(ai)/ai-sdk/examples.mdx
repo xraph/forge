@@ -1,0 +1,493 @@
+---
+title: Examples
+description: Production-ready examples for all SDK features
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Examples
+
+Production-ready examples demonstrating all SDK features.
+
+## Basic Generation
+
+### Simple Text Generation
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "github.com/xraph/forge/extensions/ai/sdk"
+)
+
+func main() {
+    result, err := sdk.NewGenerateBuilder(ctx, llm, logger, metrics).
+        WithPrompt("Explain quantum computing in 3 sentences").
+        WithModel("gpt-4").
+        WithTemperature(0.7).
+        Execute()
+    
+    if err != nil {
+        panic(err)
+    }
+    
+    fmt.Println(result.Content)
+}
+```
+
+### Conversation
+
+```go
+messages := []sdk.AgentMessage{
+    {Role: "system", Content: "You are a helpful math tutor"},
+    {Role: "user", Content: "What is calculus?"},
+    {Role: "assistant", Content: "Calculus is the study of change..."},
+    {Role: "user", Content: "Can you give an example?"},
+}
+
+result, _ := sdk.NewGenerateBuilder(ctx, llm, logger, metrics).
+    WithMessages(messages).
+    Execute()
+```
+
+## Structured Output
+
+### Extract Person Info
+
+```go
+type Person struct {
+    Name    string   `json:"name" jsonschema:"required"`
+    Age     int      `json:"age" jsonschema:"minimum=0"`
+    Email   string   `json:"email" jsonschema:"format=email"`
+    Hobbies []string `json:"hobbies"`
+}
+
+person, err := sdk.NewGenerateObjectBuilder[Person](ctx, llm, logger, metrics).
+    WithPrompt("John Doe, 30 years old, john@example.com, enjoys hiking and photography").
+    Execute()
+
+fmt.Printf("%+v\n", person)
+```
+
+### Parse Invoice
+
+```go
+type Invoice struct {
+    Number     string    `json:"number"`
+    Date       string    `json:"date"`
+    Vendor     string    `json:"vendor"`
+    Total      float64   `json:"total"`
+    Items      []Item    `json:"items"`
+}
+
+type Item struct {
+    Description string  `json:"description"`
+    Quantity    int     `json:"quantity"`
+    Price       float64 `json:"price"`
+}
+
+invoice, _ := sdk.NewGenerateObjectBuilder[Invoice](ctx, llm, logger, metrics).
+    WithPrompt(invoiceText).
+    Execute()
+```
+
+## Streaming
+
+### Real-time Story Generation
+
+```go
+var story strings.Builder
+
+result, err := sdk.NewStreamBuilder(ctx, llm, logger, metrics).
+    WithPrompt("Write a short mystery story").
+    OnToken(func(token string) {
+        story.WriteString(token)
+        fmt.Print(token)
+    }).
+    OnComplete(func(result *sdk.Result) {
+        fmt.Printf("\n\nTotal tokens: %d\n", result.Usage.TotalTokens)
+    }).
+    Stream()
+```
+
+### Streaming with Reasoning
+
+```go
+result, _ := sdk.NewStreamBuilder(ctx, llm, logger, metrics).
+    WithPrompt("Solve: If a train travels 120 miles in 2 hours, what is its average speed?").
+    WithReasoning(true).
+    OnReasoning(func(step string) {
+        fmt.Printf("[💭 %s]\n", step)
+    }).
+    OnToken(func(token string) {
+        fmt.Print(token)
+    }).
+    Stream()
+```
+
+## Multi-Modal
+
+### Image Analysis
+
+```go
+result, _ := sdk.NewMultiModalBuilder(ctx, llm, logger, metrics).
+    WithImageFile("./product.jpg").
+    WithText("Describe this product and list its features").
+    WithModel("gpt-4-vision").
+    Execute()
+
+fmt.Println(result.Text)
+```
+
+### OCR from Image
+
+```go
+result, _ := sdk.NewMultiModalBuilder(ctx, llm, logger, metrics).
+    WithImageFile("./document.jpg").
+    WithText("Extract all text from this document, preserving structure").
+    Execute()
+
+documentText := result.Text
+```
+
+### Audio Transcription
+
+```go
+result, _ := sdk.NewMultiModalBuilder(ctx, llm, logger, metrics).
+    WithAudioFile("./meeting.mp3").
+    WithText("Transcribe this meeting with timestamps").
+    Execute()
+
+transcript := result.Text
+```
+
+## Agents
+
+### Customer Support Agent
+
+```go
+func createSupportAgent(userID string) *sdk.Agent {
+    agent := sdk.NewAgent(
+        fmt.Sprintf("support-%s", userID),
+        llm,
+        logger,
+        metrics,
+        &sdk.AgentOptions{
+            Model:         "gpt-4",
+            SystemMessage: "You are a helpful customer support agent.",
+            StateStore:    stateStore,
+            MaxHistory:    100,
+        },
+    )
+    
+    // Register tools
+    agent.RegisterTool(&sdk.Tool{
+        Name:        "get_order",
+        Description: "Get order details",
+        Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+            orderID := args["order_id"].(string)
+            return database.GetOrder(orderID)
+        },
+    })
+    
+    agent.RegisterTool(&sdk.Tool{
+        Name:        "create_ticket",
+        Description: "Create support ticket",
+        Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+            issue := args["issue"].(string)
+            return ticketSystem.CreateTicket(userID, issue)
+        },
+    })
+    
+    return agent
+}
+
+// Use
+agent := createSupportAgent("user123")
+response, _ := agent.Execute(ctx, "What's my order status for #12345?")
+```
+
+### Self-Healing Agent
+
+```go
+agent := sdk.NewAgent("robust", llm, logger, metrics, nil)
+
+healer := sdk.NewSelfHealingAgent(agent,
+    sdk.SelfHealingConfig{
+        MaxRetries:      3,
+        AutoRecover:     true,
+        EnableLearning:  true,
+    },
+    logger, metrics,
+)
+
+// Automatically recovers from failures
+response, _ := healer.Process(ctx, "Complex query that might fail")
+```
+
+## RAG (Retrieval-Augmented Generation)
+
+### Documentation Q&A
+
+```go
+rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+    sdk.RAGConfig{
+        ChunkSize:    512,
+        ChunkOverlap: 50,
+        TopK:         5,
+    },
+)
+
+// Index documentation
+docs, _ := filepath.Glob("./docs/**/*.md")
+for _, doc := range docs {
+    content, _ := os.ReadFile(doc)
+    rag.IndexDocument(ctx, filepath.Base(doc), string(content))
+}
+
+// Query with context
+result, _ := rag.GenerateWithContext(ctx, "How do I deploy to production?")
+fmt.Println(result.Content)
+```
+
+### Code Search
+
+```go
+// Index codebase
+codeFiles, _ := filepath.Glob("./**/*.go")
+for _, file := range codeFiles {
+    content, _ := os.ReadFile(file)
+    rag.IndexDocumentWithMetadata(ctx, file, string(content), map[string]interface{}{
+        "type": "code",
+        "language": "go",
+    })
+}
+
+// Search for implementations
+result, _ := rag.GenerateWithContext(ctx, 
+    "Show me examples of HTTP middleware implementation")
+```
+
+## Memory
+
+### Learning Agent with Memory
+
+```go
+memory := sdk.NewMemoryManager(vectorStore, logger, metrics,
+    sdk.MemoryConfig{
+        WorkingCapacity:   5,
+        ShortTermTTL:      1 * time.Hour,
+        LongTermThreshold: 0.8,
+    },
+)
+
+agent := sdk.NewAgent("learner", llm, logger, metrics, nil)
+
+// Store user preferences
+memory.Store(ctx, &sdk.Memory{
+    Content:    "User prefers concise answers",
+    Importance: 0.9,
+    Tags:       []string{"preference"},
+})
+
+// Recall during conversation
+preferences, _ := memory.Recall(ctx, "preferences", 5)
+agent.SetContext(formatMemories(preferences))
+
+response, _ := agent.Execute(ctx, "Explain neural networks")
+```
+
+## Workflows
+
+### Content Creation Pipeline
+
+```go
+workflow := sdk.NewWorkflowEngine(logger, metrics)
+
+// Define workflow
+workflow.AddNode("research", researchAgent, nil)
+workflow.AddNode("outline", outlineAgent, []string{"research"})
+workflow.AddNode("draft", draftAgent, []string{"outline"})
+workflow.AddNode("review", reviewAgent, []string{"draft"})
+workflow.AddNode("publish", publishAgent, []string{"review"})
+
+// Execute
+result, _ := workflow.Execute(ctx, map[string]interface{}{
+    "topic":  "AI Ethics",
+    "length": "2000 words",
+})
+```
+
+### Data Processing Pipeline
+
+```go
+workflow := sdk.NewWorkflowEngine(logger, metrics)
+
+// Parallel extraction
+workflow.AddNode("extract_csv", csvAgent, nil)
+workflow.AddNode("extract_json", jsonAgent, nil)
+workflow.AddNode("extract_xml", xmlAgent, nil)
+
+// Transform
+workflow.AddNode("transform", transformAgent, []string{
+    "extract_csv", "extract_json", "extract_xml",
+})
+
+// Load
+workflow.AddNode("validate", validateAgent, []string{"transform"})
+workflow.AddNode("load", loadAgent, []string{"validate"})
+
+result, _ := workflow.Execute(ctx, inputData)
+```
+
+## Cost Management
+
+### Budget Tracking
+
+```go
+tracker := sdk.NewCostTracker(logger, metrics)
+
+// Set budget
+tracker.SetMonthlyBudget(1000.00)
+tracker.SetAlertThreshold(0.8)
+
+// Track requests
+tracker.OnBudgetAlert(func(status sdk.BudgetStatus) {
+    log.Printf("⚠️  Budget alert: %.1f%% used", status.Percentage * 100)
+    notifyAdmin(status)
+})
+
+// Use with builder
+result, _ := sdk.NewGenerateBuilder(ctx, llm, logger, metrics).
+    WithPrompt("Hello").
+    WithCost(tracker).
+    Execute()
+
+// Check costs
+fmt.Printf("Total: $%.2f\n", tracker.GetTotalCost())
+```
+
+## Resilience
+
+### Circuit Breaker + Retry
+
+```go
+cb := sdk.NewCircuitBreaker(logger, metrics, sdk.CircuitBreakerConfig{
+    MaxFailures:  5,
+    ResetTimeout: 60 * time.Second,
+})
+
+retry := sdk.NewRetry(logger, metrics, sdk.RetryConfig{
+    MaxRetries:   3,
+    InitialDelay: 1 * time.Second,
+})
+
+result, err := cb.Execute(ctx, func() (interface{}, error) {
+    return retry.Execute(ctx, func() (interface{}, error) {
+        return llm.Generate(ctx, request)
+    })
+})
+```
+
+## Caching & Batching
+
+### Semantic Cache
+
+```go
+cache := sdk.NewSemanticCache(vectorStore, cacheStore, logger, metrics,
+    sdk.SemanticCacheConfig{
+        SimilarityThreshold: 0.95,
+        TTL: 1 * time.Hour,
+    },
+)
+
+// Automatic caching
+result, _ := sdk.NewGenerateBuilder(ctx, llm, logger, metrics).
+    WithPrompt("What is Go?").
+    WithCache(cache).
+    Execute()
+
+// Similar query hits cache
+result2, _ := sdk.NewGenerateBuilder(ctx, llm, logger, metrics).
+    WithPrompt("Tell me about the Go programming language").
+    WithCache(cache).  // Cache HIT!
+    Execute()
+
+stats := cache.GetStats()
+fmt.Printf("Hit rate: %.1f%%\n", stats.HitRate * 100)
+```
+
+### Batch Processing
+
+```go
+processor := sdk.NewBatchProcessor(llm, logger, metrics,
+    sdk.BatchConfig{
+        MaxBatchSize:  10,
+        MaxWaitTime:   100 * time.Millisecond,
+        WorkerCount:   5,
+    },
+)
+
+// Submit many requests
+for _, prompt := range prompts {
+    processor.Submit(ctx, sdk.BatchRequest{
+        Prompt: prompt,
+        OnComplete: func(result *sdk.Result) {
+            fmt.Println(result.Content)
+        },
+    })
+}
+```
+
+## Complete Application
+
+```go
+package main
+
+import (
+    "context"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/ai"
+    "github.com/xraph/forge/extensions/ai/sdk"
+    "github.com/xraph/forge/extensions/ai/sdk/server"
+)
+
+func main() {
+    // Create app
+    app := forge.NewApp()
+    
+    // Register AI extension
+    app.RegisterExtension(ai.NewExtension())
+    
+    // Get dependencies
+    container := app.Container()
+    llm, _ := container.Resolve("llmManager")
+    logger, _ := container.Resolve("logger")
+    metrics, _ := container.Resolve("metrics")
+    
+    // Mount SDK API
+    sdkServer := server.NewServer(
+        llm.(sdk.LLMManager),
+        logger.(forge.Logger),
+        metrics.(forge.Metrics),
+        server.ServerConfig{BasePath: "/api/sdk"},
+    )
+    sdkServer.MountRoutes(app.Router())
+    
+    // Mount Dashboard
+    dashboard := server.NewDashboard(metrics.(forge.Metrics), logger.(forge.Logger))
+    dashboard.MountRoutes(app.Router())
+    
+    // Start
+    app.Start(context.Background())
+}
+```
+
+## Next Steps
+
+- [API Reference](/docs/extensions/ai/ai/api-reference) - Full API docs
+- [Quickstart](/docs/extensions/ai/ai/quickstart) - Get started
+- [Integration](/docs/extensions/ai/ai/integration) - Integrate with Forge
+

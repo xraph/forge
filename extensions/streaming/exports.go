@@ -1,6 +1,9 @@
 package streaming
 
-import "github.com/xraph/forge/extensions/streaming/internal"
+import (
+	"github.com/xraph/forge/extensions/streaming/backends/local"
+	"github.com/xraph/forge/extensions/streaming/internal"
+)
 
 // Core interfaces
 type Manager = internal.Manager
@@ -48,6 +51,9 @@ type ConnectionInfo = internal.ConnectionInfo
 
 // Statistics types
 type RoomStats = internal.RoomStats
+
+// Room creation (local backend)
+type LocalRoom = *local.LocalRoom
 type UserStats = internal.UserStats
 type ManagerStats = internal.ManagerStats
 type OnlineStats = internal.OnlineStats
@@ -145,6 +151,11 @@ var NewRoomError = internal.NewRoomError
 var NewChannelError = internal.NewChannelError
 var NewMessageError = internal.NewMessageError
 var NewBackendError = internal.NewBackendError
+
+// Room creation
+func NewLocalRoom(opts RoomOptions) *local.LocalRoom {
+	return local.NewRoom(opts)
+}
 
 // Status constants
 const StatusOnline = internal.StatusOnline

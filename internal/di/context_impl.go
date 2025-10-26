@@ -31,6 +31,12 @@ type Ctx struct {
 	healthManager HealthManager
 }
 
+// ResponseBuilder provides fluent response building
+type ResponseBuilder struct {
+	ctx    *Ctx
+	status int
+}
+
 // NewContext creates a new context
 func NewContext(w http.ResponseWriter, r *http.Request, container Container) Context {
 	var scope Scope
@@ -349,4 +355,71 @@ func (c *Ctx) cleanup() {
 // Cleanup ends the scope (should be called after request)
 func (c *Ctx) Cleanup() {
 	c.cleanup()
+}
+
+// Status sets the HTTP status code and returns a builder for chaining
+func (c *Ctx) Status(code int) shared.ResponseBuilder {
+	return &ResponseBuilder{
+		ctx:    c,
+		status: code,
+	}
+}
+
+// JSON sends a JSON response with the configured status
+func (rb *ResponseBuilder) JSON(v any) error {
+	rb.ctx.response.Header().Set("Content-Type", "application/json")
+	rb.ctx.response.WriteHeader(rb.status)
+
+	encoder := json.NewEncoder(rb.ctx.response)
+	if err := encoder.Encode(v); err != nil {
+		return fmt.Errorf("failed to encode JSON: %w", err)
+	}
+	return nil
+}
+
+// XML sends an XML response with the configured status
+func (rb *ResponseBuilder) XML(v any) error {
+	rb.ctx.response.Header().Set("Content-Type", "application/xml")
+	rb.ctx.response.WriteHeader(rb.status)
+
+	encoder := xml.NewEncoder(rb.ctx.response)
+	if err := encoder.Encode(v); err != nil {
+		return fmt.Errorf("failed to encode XML: %w", err)
+	}
+	return nil
+}
+
+// String sends a string response with the configured status
+func (rb *ResponseBuilder) String(s string) error {
+	rb.ctx.response.Header().Set("Content-Type", "text/plain")
+	rb.ctx.response.WriteHeader(rb.status)
+
+	_, err := rb.ctx.response.Write([]byte(s))
+	if err != nil {
+		return fmt.Errorf("failed to write string: %w", err)
+	}
+	return nil
+}
+
+// Bytes sends a byte response with the configured status
+func (rb *ResponseBuilder) Bytes(data []byte) error {
+	rb.ctx.response.WriteHeader(rb.status)
+
+	_, err := rb.ctx.response.Write(data)
+	if err != nil {
+		return fmt.Errorf("failed to write bytes: %w", err)
+	}
+	return nil
+}
+
+// Header sets a response header and returns the builder for chaining
+func (rb *ResponseBuilder) Header(key, value string) shared.ResponseBuilder {
+	rb.ctx.response.Header().Set(key, value)
+	return rb
+}
+
+// NoContent sends a no-content response with the configured status
+func (rb *ResponseBuilder) NoContent() error {
+	rb.ctx.response.WriteHeader(rb.status)
+	return nil
 }

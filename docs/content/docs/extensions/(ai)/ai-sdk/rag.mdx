@@ -1,0 +1,368 @@
+---
+title: RAG
+description: Retrieval-Augmented Generation pipeline with semantic search
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# RAG (Retrieval-Augmented Generation)
+
+Full RAG pipeline with document chunking, embedding, vector search, and context-aware generation.
+
+## Basic RAG
+
+```go
+rag := sdk.NewRAG(
+    llmManager,
+    vectorStore,
+    logger,
+    metrics,
+    sdk.RAGConfig{
+        ChunkSize:    512,
+        ChunkOverlap: 50,
+        TopK:         5,
+    },
+)
+
+// Index documents
+err := rag.IndexDocument(ctx, "doc1", `
+    Your long document content here...
+`)
+
+// Query with retrieval
+result, err := rag.GenerateWithContext(ctx, 
+    "What does the document say about X?")
+
+fmt.Println(result.Content)
+```
+
+## Document Indexing
+
+### Single Document
+
+```go
+err := rag.IndexDocument(ctx, "product-manual", productManual)
+```
+
+### Multiple Documents
+
+```go
+documents := map[string]string{
+    "doc1": content1,
+    "doc2": content2,
+    "doc3": content3,
+}
+
+for id, content := range documents {
+    if err := rag.IndexDocument(ctx, id, content); err != nil {
+        log.Printf("Failed to index %s: %v", id, err)
+    }
+}
+```
+
+### From File
+
+```go
+content, err := os.ReadFile("./documentation.txt")
+if err != nil {
+    return err
+}
+
+err = rag.IndexDocument(ctx, "documentation", string(content))
+```
+
+## Semantic Search
+
+```go
+// Search without generation
+results, err := rag.Search(ctx, "query", 5)
+
+for _, result := range results {
+    fmt.Printf("Document: %s\n", result.DocumentID)
+    fmt.Printf("Score: %.2f\n", result.Score)
+    fmt.Printf("Content: %s\n", result.Content)
+}
+```
+
+## Context-Aware Generation
+
+```go
+result, err := rag.GenerateWithContext(ctx, 
+    "Explain the installation process",
+    sdk.WithModel("gpt-4"),
+    sdk.WithTemperature(0.7),
+    sdk.WithMaxTokens(500),
+)
+
+fmt.Println(result.Content)
+
+// See which documents were used
+for _, doc := range result.ContextDocuments {
+    fmt.Printf("Used: %s (score: %.2f)\n", doc.ID, doc.Score)
+}
+```
+
+## Chunking Strategies
+
+### Fixed Size
+
+```go
+rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+    sdk.RAGConfig{
+        ChunkSize:    512,    // 512 tokens per chunk
+        ChunkOverlap: 50,     // 50 token overlap
+    },
+)
+```
+
+### Semantic Chunking
+
+```go
+rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+    sdk.RAGConfig{
+        ChunkStrategy: sdk.SemanticChunking,
+        ChunkSize:     512,
+    },
+)
+```
+
+## Reranking
+
+Improve relevance with semantic reranking:
+
+```go
+rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+    sdk.RAGConfig{
+        TopK:          10,   // Get top 10 initial results
+        RerankTopK:    5,    // Rerank to top 5
+        EnableRerank:  true,
+    },
+)
+```
+
+## Metadata Filtering
+
+```go
+// Index with metadata
+err := rag.IndexDocumentWithMetadata(ctx, "doc1", content, map[string]interface{}{
+    "category": "technical",
+    "author":   "engineering",
+    "date":     "2024-01-01",
+})
+
+// Search with filters
+results, err := rag.SearchWithFilters(ctx, "query", 5, map[string]interface{}{
+    "category": "technical",
+})
+```
+
+## Hybrid Search
+
+Combine vector and keyword search:
+
+```go
+rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+    sdk.RAGConfig{
+        SearchStrategy: sdk.HybridSearch,
+        VectorWeight:   0.7,  // 70% vector, 30% keyword
+    },
+)
+```
+
+## Real-World Examples
+
+### Documentation Q&A
+
+```go
+func createDocumentationRAG() *sdk.RAG {
+    rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+        sdk.RAGConfig{
+            ChunkSize:    400,
+            ChunkOverlap: 50,
+            TopK:         3,
+            EnableRerank: true,
+        },
+    )
+    
+    // Index all documentation files
+    files, _ := filepath.Glob("./docs/**/*.md")
+    for _, file := range files {
+        content, _ := os.ReadFile(file)
+        docID := filepath.Base(file)
+        rag.IndexDocument(ctx, docID, string(content))
+    }
+    
+    return rag
+}
+
+// Use
+rag := createDocumentationRAG()
+result, _ := rag.GenerateWithContext(ctx, "How do I deploy to production?")
+```
+
+### Customer Support Knowledge Base
+
+```go
+type SupportRAG struct {
+    rag *sdk.RAG
+}
+
+func (s *SupportRAG) Answer(ctx context.Context, question string) (string, error) {
+    result, err := s.rag.GenerateWithContext(ctx, 
+        fmt.Sprintf(`
+            Based on our knowledge base, answer this customer question:
+            
+            Question: %s
+            
+            If the answer isn't in the knowledge base, say so.
+        `, question),
+    )
+    
+    if err != nil {
+        return "", err
+    }
+    
+    return result.Content, nil
+}
+```
+
+### Code Search
+
+```go
+func indexCodebase() *sdk.RAG {
+    rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+        sdk.RAGConfig{
+            ChunkSize:    600,    // Larger chunks for code
+            ChunkOverlap: 100,
+            TopK:         5,
+        },
+    )
+    
+    // Index all Go files
+    files, _ := filepath.Glob("./**/*.go")
+    for _, file := range files {
+        content, _ := os.ReadFile(file)
+        rag.IndexDocumentWithMetadata(ctx, file, string(content), map[string]interface{}{
+            "type":     "code",
+            "language": "go",
+            "path":     file,
+        })
+    }
+    
+    return rag
+}
+
+// Search for code
+rag := indexCodebase()
+result, _ := rag.GenerateWithContext(ctx, 
+    "Show me examples of HTTP middleware implementation")
+```
+
+## Configuration Options
+
+```go
+type RAGConfig struct {
+    // Chunking
+    ChunkSize     int
+    ChunkOverlap  int
+    ChunkStrategy ChunkStrategy  // Fixed, Semantic, Paragraph
+    
+    // Retrieval
+    TopK          int
+    SearchStrategy SearchStrategy // Vector, Keyword, Hybrid
+    VectorWeight  float64        // For hybrid search
+    
+    // Reranking
+    EnableRerank  bool
+    RerankTopK    int
+    RerankModel   string
+    
+    // Generation
+    SystemPrompt  string
+    Temperature   float64
+    MaxTokens     int
+}
+```
+
+## Best Practices
+
+### 1. Optimal Chunk Size
+
+```go
+// For technical docs: 400-600 tokens
+rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+    sdk.RAGConfig{
+        ChunkSize:    500,
+        ChunkOverlap: 50,  // 10% overlap
+    },
+)
+```
+
+### 2. Use Reranking
+
+```go
+// Improves relevance significantly
+rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+    sdk.RAGConfig{
+        TopK:         10,   // Cast wide net
+        RerankTopK:   3,    // Narrow to best
+        EnableRerank: true,
+    },
+)
+```
+
+### 3. Metadata for Filtering
+
+```go
+// Add rich metadata
+rag.IndexDocumentWithMetadata(ctx, docID, content, map[string]interface{}{
+    "category":    "api",
+    "version":     "v2",
+    "audience":    "developers",
+    "last_updated": time.Now(),
+})
+
+// Filter searches
+results, _ := rag.SearchWithFilters(ctx, query, 5, map[string]interface{}{
+    "version": "v2",
+})
+```
+
+## Performance Optimization
+
+### Batch Indexing
+
+```go
+// Index in batches
+batch := []sdk.Document{}
+for id, content := range documents {
+    batch = append(batch, sdk.Document{
+        ID:      id,
+        Content: content,
+    })
+    
+    if len(batch) >= 100 {
+        rag.IndexBatch(ctx, batch)
+        batch = []sdk.Document{}
+    }
+}
+```
+
+### Caching
+
+```go
+// Cache embeddings
+rag := sdk.NewRAG(llm, vectorStore, logger, metrics,
+    sdk.RAGConfig{
+        EnableCache: true,
+        CacheTTL:    24 * time.Hour,
+    },
+)
+```
+
+## Next Steps
+
+- [Memory](/docs/extensions/ai/ai/memory) - Multi-tier memory system
+- [Agents](/docs/extensions/ai/ai/agents) - RAG-enabled agents
+- [Examples](/docs/extensions/ai/ai/examples) - RAG examples
+

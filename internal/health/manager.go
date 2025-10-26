@@ -218,21 +218,21 @@ func (hc *ManagerImpl) OnHealthCheck(ctx context.Context) error {
 	defer hc.mu.RUnlock()
 
 	if !hc.started {
-		return fmt.Errorf(hc.Name() + " not started")
+		return fmt.Errorf("%s not started", hc.Name())
 	}
 
 	if hc.stopping {
-		return fmt.Errorf(hc.Name() + " is stopping")
+		return fmt.Errorf("%s is stopping", hc.Name())
 	}
 
 	// Check if we have any registered checks
 	if len(hc.checks) == 0 {
-		return fmt.Errorf(hc.Name() + " no health checks registered")
+		return fmt.Errorf("%s no health checks registered", hc.Name())
 	}
 
 	// Check if we've performed any checks recently
 	if hc.lastReport != nil && time.Since(hc.lastReport.Timestamp) > hc.config.CheckInterval*2 {
-		return fmt.Errorf(hc.Name() + " health checks are stale")
+		return fmt.Errorf("%s health checks are stale", hc.Name())
 	}
 
 	return nil

@@ -10,13 +10,11 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/events"
 	"github.com/xraph/forge/extensions/events/core"
+	forgetesting "github.com/xraph/forge/testing"
 )
 
 func TestEventsExtension_Registration(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -29,10 +27,7 @@ func TestEventsExtension_Registration(t *testing.T) {
 }
 
 func TestEventsExtension_Lifecycle(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -54,10 +49,7 @@ func TestEventsExtension_Lifecycle(t *testing.T) {
 }
 
 func TestEventsExtension_DIRegistration(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -86,10 +78,7 @@ func TestEventsExtension_DIRegistration(t *testing.T) {
 }
 
 func TestEventsExtension_PublishSubscribe(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -136,10 +125,7 @@ func TestEventsExtension_PublishSubscribe(t *testing.T) {
 }
 
 func TestEventsExtension_EventStore(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -181,10 +167,7 @@ func TestEventsExtension_EventStore(t *testing.T) {
 }
 
 func TestEventsExtension_TypedHandler(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -233,10 +216,7 @@ func TestEventsExtension_TypedHandler(t *testing.T) {
 }
 
 func TestEventsExtension_MultipleHandlers(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -297,10 +277,7 @@ func TestEventsExtension_MultipleHandlers(t *testing.T) {
 }
 
 func TestEventsExtension_EventSourcing(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -348,10 +325,7 @@ func TestEventsExtension_EventSourcing(t *testing.T) {
 }
 
 func TestEventsExtension_Snapshot(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -384,10 +358,7 @@ func TestEventsExtension_Snapshot(t *testing.T) {
 }
 
 func TestEventsExtension_CustomConfig(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	config := events.Config{
 		Bus: events.BusConfig{
@@ -435,10 +406,7 @@ func TestEventsExtension_CustomConfig(t *testing.T) {
 }
 
 func TestEventsExtension_BusStats(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -461,10 +429,7 @@ func TestEventsExtension_BusStats(t *testing.T) {
 }
 
 func TestEventsExtension_Unsubscribe(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)
@@ -497,10 +462,7 @@ func TestEventsExtension_Unsubscribe(t *testing.T) {
 }
 
 func TestEventsExtension_BatchSave(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forgetesting.NewTestApp("test-app", "1.0.0")
 
 	ext := events.NewExtension()
 	err := app.RegisterExtension(ext)

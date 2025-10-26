@@ -16,6 +16,9 @@ type dataChannel struct {
 	messageHandler DataChannelMessageHandler
 	openHandler    DataChannelStateHandler
 	closeHandler   DataChannelStateHandler
+	
+	// State tracking
+	closed bool
 }
 
 // ID returns channel ID
@@ -49,7 +52,21 @@ func (d *dataChannel) State() DataChannelState {
 
 // Send sends binary data
 func (d *dataChannel) Send(data []byte) error {
+	// Check if channel is closed
+	if d.closed {
+		return fmt.Errorf("data channel is closed: %w", ErrConnectionClosed)
+	}
+	
+	// Check channel state
+	state := d.dc.ReadyState()
+	if state != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("data channel not open (state: %s): %w", state, ErrConnectionClosed)
+	}
+	
 	if err := d.dc.Send(data); err != nil {
+		d.logger.Error("failed to send data on data channel",
+			forge.F("label", d.Label()),
+			forge.F("error", err))
 		return fmt.Errorf("failed to send data: %w", err)
 	}
 	return nil
@@ -57,7 +74,21 @@ func (d *dataChannel) Send(data []byte) error {
 
 // SendText sends text data
 func (d *dataChannel) SendText(text string) error {
+	// Check if channel is closed
+	if d.closed {
+		return fmt.Errorf("data channel is closed: %w", ErrConnectionClosed)
+	}
+	
+	// Check channel state
+	state := d.dc.ReadyState()
+	if state != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("data channel not open (state: %s): %w", state, ErrConnectionClosed)
+	}
+	
 	if err := d.dc.SendText(text); err != nil {
+		d.logger.Error("failed to send text on data channel",
+			forge.F("label", d.Label()),
+			forge.F("error", err))
 		return fmt.Errorf("failed to send text: %w", err)
 	}
 	return nil
@@ -91,7 +122,8 @@ func (d *dataChannel) OnClose(handler DataChannelStateHandler) {
 	d.closeHandler = handler
 
 	d.dc.OnClose(func() {
-		d.logger.Debug("data channel closed", forge.F("label", d.Label()))
+		d.closed = true
+		d.logger.Debug("data channel closed event", forge.F("label", d.Label()))
 		if handler != nil {
 			handler()
 		}
@@ -100,9 +132,22 @@ func (d *dataChannel) OnClose(handler DataChannelStateHandler) {
 
 // Close closes the channel
 func (d *dataChannel) Close() error {
-	if err := d.dc.Close(); err != nil {
-		return fmt.Errorf("failed to close data channel: %w", err)
+	// Check if already closed
+	if d.closed {
+		return nil // Idempotent close
 	}
+	
+	d.closed = true
+	
+	if err := d.dc.Close(); err != nil {
+		// Log the error but don't return it if the channel is already closed
+		d.logger.Debug("error closing data channel (might already be closed)",
+			forge.F("label", d.Label()),
+			forge.F("error", err))
+		return nil // Make close idempotent
+	}
+	
+	d.logger.Debug("data channel closed", forge.F("label", d.Label()))
 	return nil
 }
 

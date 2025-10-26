@@ -1,0 +1,423 @@
+---
+title: Resilience
+description: Circuit breakers, retries, rate limiting, and fallback strategies
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+
+# Resilience Patterns
+
+Production-grade resilience with circuit breakers, retries, rate limiting, and fallbacks.
+
+## Circuit Breaker
+
+Automatically stop calling failing services:
+
+```go
+cb := sdk.NewCircuitBreaker(
+    logger,
+    metrics,
+    sdk.CircuitBreakerConfig{
+        MaxFailures:  5,
+        ResetTimeout: 60 * time.Second,
+    },
+)
+
+result, err := cb.Execute(ctx, func() (interface{}, error) {
+    return llm.Generate(ctx, request)
+})
+
+if errors.Is(err, sdk.ErrCircuitOpen) {
+    fmt.Println("Circuit breaker is open, service unavailable")
+}
+```
+
+### States
+
+- **Closed**: Normal operation
+- **Open**: Too many failures, reject requests
+- **Half-Open**: Testing if service recovered
+
+```go
+state := cb.GetState()
+fmt.Printf("State: %s\n", state)  // closed, open, or half-open
+
+stats := cb.GetStats()
+fmt.Printf("Failures: %d/%d\n", stats.Failures, stats.MaxFailures)
+fmt.Printf("Success rate: %.1f%%\n", stats.SuccessRate * 100)
+```
+
+## Retry with Exponential Backoff
+
+Automatically retry failed requests:
+
+```go
+retry := sdk.NewRetry(
+    logger,
+    metrics,
+    sdk.RetryConfig{
+        MaxRetries:   3,
+        InitialDelay: 1 * time.Second,
+        MaxDelay:     10 * time.Second,
+        Multiplier:   2.0,
+    },
+)
+
+result, err := retry.Execute(ctx, func() (interface{}, error) {
+    return llm.Generate(ctx, request)
+})
+
+// Automatically retries with:
+// 1st retry: 1s delay
+// 2nd retry: 2s delay
+// 3rd retry: 4s delay
+```
+
+### Custom Retry Logic
+
+```go
+retry := sdk.NewRetry(logger, metrics, sdk.RetryConfig{
+    MaxRetries: 3,
+    ShouldRetry: func(err error) bool {
+        // Only retry on specific errors
+        return errors.Is(err, sdk.ErrRateLimited) ||
+               errors.Is(err, sdk.ErrTimeout)
+    },
+})
+```
+
+## Rate Limiting
+
+Token bucket rate limiter:
+
+```go
+limiter := sdk.NewRateLimiter(
+    logger,
+    metrics,
+    sdk.RateLimiterConfig{
+        RequestsPerSecond: 10,
+        BurstSize:         20,
+    },
+)
+
+result, err := limiter.Execute(ctx, func() (interface{}, error) {
+    return llm.Generate(ctx, request)
+})
+
+if errors.Is(err, sdk.ErrRateLimitExceeded) {
+    fmt.Println("Rate limit exceeded, try again later")
+}
+```
+
+### Dynamic Rate Limiting
+
+```go
+limiter := sdk.NewRateLimiter(logger, metrics, sdk.RateLimiterConfig{
+    RequestsPerSecond: 10,
+})
+
+// Adjust rate limit dynamically
+limiter.SetRateLimit(20)  // Increase to 20 RPS
+```
+
+## Fallback Chain
+
+Try multiple strategies in sequence:
+
+```go
+fallback := sdk.NewFallbackChain(logger, metrics)
+
+// Add strategies in order of preference
+fallback.AddStrategy("primary", func(ctx context.Context) (interface{}, error) {
+    return primaryLLM.Generate(ctx, request)
+})
+
+fallback.AddStrategy("cache", func(ctx context.Context) (interface{}, error) {
+    return cache.Get(ctx, request)
+})
+
+fallback.AddStrategy("fallback_model", func(ctx context.Context) (interface{}, error) {
+    return fallbackLLM.Generate(ctx, request)
+})
+
+// Tries each strategy until one succeeds
+result, err := fallback.Execute(ctx)
+```
+
+## Bulkhead
+
+Isolate failures with resource pools:
+
+```go
+bulkhead := sdk.NewBulkhead(
+    logger,
+    metrics,
+    sdk.BulkheadConfig{
+        MaxConcurrent: 10,
+        QueueSize:     50,
+        Timeout:       30 * time.Second,
+    },
+)
+
+result, err := bulkhead.Execute(ctx, func() (interface{}, error) {
+    return llm.Generate(ctx, request)
+})
+
+if errors.Is(err, sdk.ErrBulkheadFull) {
+    fmt.Println("Too many concurrent requests")
+}
+```
+
+## Timeout
+
+Wrap operations with timeouts:
+
+```go
+timeout := sdk.NewTimeout(logger, metrics, 5*time.Second)
+
+result, err := timeout.Execute(ctx, func() (interface{}, error) {
+    return slowOperation()
+})
+
+if errors.Is(err, context.DeadlineExceeded) {
+    fmt.Println("Operation timed out")
+}
+```
+
+## Combined Patterns
+
+Combine multiple patterns for production resilience:
+
+```go
+func createResilientClient() *ResilientClient {
+    // Circuit breaker
+    cb := sdk.NewCircuitBreaker(logger, metrics, 
+        sdk.CircuitBreakerConfig{
+            MaxFailures:  5,
+            ResetTimeout: 60 * time.Second,
+        },
+    )
+    
+    // Retry
+    retry := sdk.NewRetry(logger, metrics,
+        sdk.RetryConfig{
+            MaxRetries:   3,
+            InitialDelay: 1 * time.Second,
+        },
+    )
+    
+    // Rate limiter
+    limiter := sdk.NewRateLimiter(logger, metrics,
+        sdk.RateLimiterConfig{
+            RequestsPerSecond: 100,
+            BurstSize:         200,
+        },
+    )
+    
+    // Fallback
+    fallback := sdk.NewFallbackChain(logger, metrics)
+    fallback.AddStrategy("primary", primaryLLM.Generate)
+    fallback.AddStrategy("fallback", fallbackLLM.Generate)
+    
+    return &ResilientClient{
+        cb:       cb,
+        retry:    retry,
+        limiter:  limiter,
+        fallback: fallback,
+    }
+}
+
+func (c *ResilientClient) Generate(ctx context.Context, req Request) (*Response, error) {
+    return c.limiter.Execute(ctx, func() (interface{}, error) {
+        return c.cb.Execute(ctx, func() (interface{}, error) {
+            return c.retry.Execute(ctx, func() (interface{}, error) {
+                return c.fallback.Execute(ctx)
+            })
+        })
+    })
+}
+```
+
+## Real-World Examples
+
+### Robust API Client
+
+```go
+type RobustLLMClient struct {
+    primary   LLMClient
+    fallback  LLMClient
+    cb        *sdk.CircuitBreaker
+    retry     *sdk.Retry
+    limiter   *sdk.RateLimiter
+}
+
+func (c *RobustLLMClient) Generate(ctx context.Context, prompt string) (*Result, error) {
+    // Rate limit
+    _, err := c.limiter.Execute(ctx, func() (interface{}, error) {
+        // Circuit breaker
+        return c.cb.Execute(ctx, func() (interface{}, error) {
+            // Retry with backoff
+            return c.retry.Execute(ctx, func() (interface{}, error) {
+                // Try primary
+                result, err := c.primary.Generate(ctx, prompt)
+                if err != nil {
+                    // Fallback
+                    return c.fallback.Generate(ctx, prompt)
+                }
+                return result, nil
+            })
+        })
+    })
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    return result.(*Result), nil
+}
+```
+
+### Microservice Integration
+
+```go
+type ServiceClient struct {
+    resilience *sdk.ResilientClient
+}
+
+func (s *ServiceClient) Call(ctx context.Context, req Request) (*Response, error) {
+    return s.resilience.
+        WithCircuitBreaker(5, 60*time.Second).
+        WithRetry(3).
+        WithRateLimit(100).
+        WithTimeout(30*time.Second).
+        WithBulkhead(10, 50).
+        Execute(ctx, func() (interface{}, error) {
+            return s.makeRequest(ctx, req)
+        })
+}
+```
+
+## Monitoring & Metrics
+
+### Circuit Breaker Metrics
+
+```go
+metrics.Gauge("circuit_breaker.state", "service", "llm").Set(stateValue)
+metrics.Counter("circuit_breaker.failures", "service", "llm").Inc()
+metrics.Counter("circuit_breaker.successes", "service", "llm").Inc()
+```
+
+### Retry Metrics
+
+```go
+metrics.Counter("retry.attempts", "operation", "generate").Inc()
+metrics.Histogram("retry.delay", "operation", "generate").Observe(delay.Seconds())
+```
+
+### Rate Limit Metrics
+
+```go
+metrics.Counter("rate_limit.allowed", "endpoint", "/generate").Inc()
+metrics.Counter("rate_limit.rejected", "endpoint", "/generate").Inc()
+metrics.Gauge("rate_limit.current_rate").Set(currentRate)
+```
+
+## Best Practices
+
+### 1. Start Conservative
+
+```go
+// Start with safe defaults
+cb := sdk.NewCircuitBreaker(logger, metrics, sdk.CircuitBreakerConfig{
+    MaxFailures:  3,   // Low threshold initially
+    ResetTimeout: 30 * time.Second,
+})
+
+// Tune based on metrics
+```
+
+### 2. Layer Defenses
+
+```go
+// Layer 1: Rate limiting (protect your service)
+limiter.Execute(ctx, func() (interface{}, error) {
+    // Layer 2: Circuit breaker (protect downstream)
+    return cb.Execute(ctx, func() (interface{}, error) {
+        // Layer 3: Retry (handle transient failures)
+        return retry.Execute(ctx, func() (interface{}, error) {
+            // Layer 4: Timeout (don't wait forever)
+            return timeout.Execute(ctx, operation)
+        })
+    })
+})
+```
+
+### 3. Monitor Closely
+
+```go
+// Alert on circuit breaker opens
+cb.OnStateChange(func(from, to State) {
+    if to == StateOpen {
+        logger.Error("circuit breaker opened", "service", "llm")
+        alertOn Call("Circuit breaker opened for LLM service")
+    }
+})
+
+// Track retry rates
+retry.OnRetry(func(attempt int, err error) {
+    logger.Warn("retrying request", 
+        "attempt", attempt,
+        "error", err,
+    )
+    metrics.Counter("retries", "reason", err.Error()).Inc()
+})
+```
+
+## Configuration Recommendations
+
+### For LLM APIs
+
+```go
+sdk.CircuitBreakerConfig{
+    MaxFailures:  5,              // Allow some failures
+    ResetTimeout: 60 * time.Second,
+}
+
+sdk.RetryConfig{
+    MaxRetries:   3,
+    InitialDelay: 1 * time.Second,
+    MaxDelay:     10 * time.Second,
+    Multiplier:   2.0,
+}
+
+sdk.RateLimiterConfig{
+    RequestsPerSecond: 10,  // Match API limits
+    BurstSize:         20,
+}
+```
+
+### For Internal Services
+
+```go
+sdk.CircuitBreakerConfig{
+    MaxFailures:  10,             // More tolerant
+    ResetTimeout: 30 * time.Second,
+}
+
+sdk.RetryConfig{
+    MaxRetries:   5,
+    InitialDelay: 100 * time.Millisecond,
+}
+
+sdk.BulkheadConfig{
+    MaxConcurrent: 100,
+    QueueSize:     500,
+}
+```
+
+## Next Steps
+
+- [Self-Healing](/docs/extensions/ai/ai/self-healing) - Automatic recovery
+- [Cost Management](/docs/extensions/ai/ai/cost-management) - Track costs
+- [Examples](/docs/extensions/ai/ai/examples) - Resilience examples
+

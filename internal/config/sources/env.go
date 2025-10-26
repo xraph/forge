@@ -86,6 +86,10 @@ func NewEnvSource(prefix string, options EnvSourceOptions) (configcore.ConfigSou
 		options.WatchInterval = 30 * time.Second
 	}
 
+	if options.Priority == 0 {
+		options.Priority = 100 // Default priority for environment sources
+	}
+
 	name := options.Name
 	if name == "" {
 		if prefix != "" {
@@ -360,8 +364,7 @@ func (es *EnvSource) transformKey(envKey string) string {
 	if es.options.KeyTransform != nil {
 		key = es.options.KeyTransform(key)
 	} else {
-		// Default transformation: convert to lowercase and replace separators with dots
-		key = strings.ToLower(key)
+		// Default transformation: preserve case and replace separators with dots
 		key = strings.ReplaceAll(key, es.separator, ".")
 	}
 

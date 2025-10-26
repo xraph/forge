@@ -63,11 +63,11 @@ func TestLeaderFailover(t *testing.T) {
 
 	t.Logf("Stopped leader: %s", leaderID)
 
-	// Wait a bit for detection
-	time.Sleep(1 * time.Second)
+	// Wait for leader detection and new election
+	time.Sleep(2 * time.Second)
 
-	// Wait for new leader
-	newLeaderID, err := harness.WaitForLeader(10 * time.Second)
+	// Wait for new leader with longer timeout for election to complete
+	newLeaderID, err := harness.WaitForLeader(15 * time.Second)
 	if err != nil {
 		t.Fatalf("failover failed: %v", err)
 	}

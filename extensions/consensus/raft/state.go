@@ -3,6 +3,7 @@ package raft
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -78,15 +79,6 @@ func (n *Node) startElection() {
 		forge.F("last_log_term", lastLogTerm),
 	)
 
-	// For testing purposes, only allow node-1 to become leader
-	// This prevents split-brain scenarios
-	if n.id != "node-1" {
-		n.logger.Debug("skipping election for non-primary node",
-			forge.F("node_id", n.id),
-		)
-		return
-	}
-
 	// Request votes from all peers
 	votes := 1 // Vote for self
 	votesNeeded := (len(n.peers)+1)/2 + 1
@@ -94,20 +86,32 @@ func (n *Node) startElection() {
 	// Channel to collect votes
 	voteCh := make(chan bool, len(n.peers))
 
+	// Wait group to track vote goroutines
+	var voteWg sync.WaitGroup
+
 	// Send RequestVote RPCs to all peers
 	n.peersLock.RLock()
+	peerCount := len(n.peers)
 	for _, peer := range n.peers {
+		voteWg.Add(1)
 		go func(p *PeerState) {
+			defer voteWg.Done()
 			granted := n.requestVote(p, currentTerm, lastLogIndex, lastLogTerm)
 			voteCh <- granted
 		}(peer)
 	}
 	n.peersLock.RUnlock()
 
+	// Goroutine to close voteCh when all votes are collected
+	go func() {
+		voteWg.Wait()
+		close(voteCh)
+	}()
+
 	// Collect votes with timeout
 	electionTimeout := time.After(n.electionTimeout)
 
-	for votes < votesNeeded && len(n.peers) > 0 {
+	for votes < votesNeeded && peerCount > 0 {
 		select {
 		case <-n.ctx.Done():
 			return
@@ -121,7 +125,11 @@ func (n *Node) startElection() {
 			)
 			return
 
-		case granted := <-voteCh:
+		case granted, ok := <-voteCh:
+			if !ok {
+				// Channel closed, all votes collected
+				break
+			}
 			n.logger.Debug("received vote response",
 				forge.F("node_id", n.id),
 				forge.F("granted", granted),
@@ -136,12 +144,14 @@ func (n *Node) startElection() {
 					forge.F("needed", votesNeeded),
 				)
 				if votes >= votesNeeded {
-					// Won election!
+					// Won election! Wait for all vote goroutines to finish
 					n.logger.Info("won election!",
 						forge.F("node_id", n.id),
 						forge.F("votes", votes),
 						forge.F("needed", votesNeeded),
 					)
+					// Wait for remaining vote goroutines to complete
+					voteWg.Wait()
 					n.becomeLeader(currentTerm)
 					return
 				}
@@ -150,7 +160,7 @@ func (n *Node) startElection() {
 	}
 
 	// If we have no peers, become leader immediately
-	if len(n.peers) == 0 {
+	if peerCount == 0 {
 		n.becomeLeader(currentTerm)
 	}
 }
@@ -331,29 +341,43 @@ func (n *Node) isLogUpToDate(candidateIndex, candidateTerm uint64) bool {
 
 // becomeLeader transitions to leader state
 func (n *Node) becomeLeader(term uint64) {
+	// Step 1: Verify term and transition role (minimize lock time)
 	n.mu.Lock()
-	defer n.mu.Unlock()
-
-	// Double-check we're still in the same term
 	if n.currentTerm != term {
+		n.mu.Unlock()
 		return
 	}
-
+	
 	n.setRole(internal.RoleLeader)
 	n.setLeader(n.id)
+	n.mu.Unlock()
 
-	// Initialize leader state
-	n.nextIndex = make(map[string]uint64)
-	n.matchIndex = make(map[string]uint64)
+	// Step 2: Get peer list without holding n.mu
+	n.peersLock.RLock()
+	peerIDs := make([]string, 0, len(n.peers))
+	for peerID := range n.peers {
+		peerIDs = append(peerIDs, peerID)
+	}
+	n.peersLock.RUnlock()
 
+	// Step 3: Get log index (no locks needed for read-only operation)
 	lastLogIndex := n.log.LastIndex()
 
-	n.peersLock.RLock()
-	for peerID := range n.peers {
+	// Step 4: Initialize leader state (acquire lock only for this)
+	n.mu.Lock()
+	n.nextIndex = make(map[string]uint64)
+	n.matchIndex = make(map[string]uint64)
+	for _, peerID := range peerIDs {
 		n.nextIndex[peerID] = lastLogIndex + 1
 		n.matchIndex[peerID] = 0
 	}
-	n.peersLock.RUnlock()
+	
+	// Stop old heartbeat ticker if exists
+	if n.heartbeatTicker != nil {
+		n.heartbeatTicker.Stop()
+	}
+	n.heartbeatTicker = time.NewTicker(n.config.HeartbeatInterval)
+	n.mu.Unlock()
 
 	n.logger.Info("became leader",
 		forge.F("node_id", n.id),
@@ -361,7 +385,7 @@ func (n *Node) becomeLeader(term uint64) {
 		forge.F("last_log_index", lastLogIndex),
 	)
 
-	// Append a no-op entry to commit previous entries
+	// Step 5: Append no-op entry (log has its own locking)
 	noop := internal.LogEntry{
 		Index:   lastLogIndex + 1,
 		Term:    term,
@@ -377,13 +401,7 @@ func (n *Node) becomeLeader(term uint64) {
 		return
 	}
 
-	// Start heartbeat ticker
-	if n.heartbeatTicker != nil {
-		n.heartbeatTicker.Stop()
-	}
-	n.heartbeatTicker = time.NewTicker(n.config.HeartbeatInterval)
-
-	// Immediately send heartbeat
+	// Step 6: Send initial heartbeats
 	go n.sendHeartbeats()
 }
 
@@ -391,7 +409,11 @@ func (n *Node) becomeLeader(term uint64) {
 func (n *Node) stepDown(term uint64) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	n.stepDownLocked(term)
+}
 
+// stepDownLocked transitions to follower state (assumes n.mu is already held)
+func (n *Node) stepDownLocked(term uint64) {
 	if term > n.currentTerm {
 		n.currentTerm = term
 		n.votedFor = ""

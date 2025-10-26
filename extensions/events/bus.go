@@ -162,7 +162,7 @@ func (eb *EventBusImpl) Stop(ctx context.Context) error {
 	eb.stopping = true
 
 	// Close event queue to signal workers to stop
-	close(eb.eventQueue)
+	if eb.eventQueue != nil { close(eb.eventQueue) }
 
 	// Wait for workers to finish processing
 	eb.wg.Wait()

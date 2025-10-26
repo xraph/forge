@@ -34,6 +34,10 @@ func (sr *SourceRegistryImpl) RegisterSource(source ConfigSource) error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
+	if source == nil {
+		return ErrValidationError("source", fmt.Errorf("source cannot be nil"))
+	}
+
 	sourceName := source.Name()
 	if sourceName == "" {
 		return ErrValidationError("source_name", fmt.Errorf("source name cannot be empty"))

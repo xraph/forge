@@ -94,6 +94,17 @@ func (q *qualityMonitor) Start(ctx context.Context) error {
 		return fmt.Errorf("quality monitor already running")
 	}
 
+	// Check if monitoring is enabled
+	if !q.config.MonitorEnabled {
+		q.logger.Debug("quality monitor disabled, not starting",
+			forge.F("peer_id", q.peerID))
+		return nil
+	}
+
+	if q.config.MonitorInterval <= 0 {
+		return fmt.Errorf("invalid monitor interval: %v", q.config.MonitorInterval)
+	}
+
 	q.running = true
 	q.sampleTicker = time.NewTicker(q.config.MonitorInterval)
 
@@ -109,6 +120,11 @@ func (q *qualityMonitor) Stop(peerID string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
+	// Check if this monitor is for the requested peer
+	if q.peerID != peerID {
+		return
+	}
+
 	if !q.running {
 		return
 	}
@@ -117,7 +133,12 @@ func (q *qualityMonitor) Stop(peerID string) {
 	if q.sampleTicker != nil {
 		q.sampleTicker.Stop()
 	}
-	close(q.stopCh)
+	select {
+	case <-q.stopCh:
+		// Channel already closed
+	default:
+		close(q.stopCh)
+	}
 
 	q.logger.Debug("stopped quality monitor", forge.F("peer_id", q.peerID))
 }
@@ -140,8 +161,21 @@ func (q *qualityMonitor) GetQuality(peerID string) (*ConnectionQuality, error) {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
 
-	// Return a copy
-	quality := *q.currentQuality
+	// Check if this monitor is for the requested peer
+	if q.peerID != peerID {
+		return nil, fmt.Errorf("quality monitor not found for peer %s", peerID)
+	}
+
+	// Return a deep copy to avoid race conditions
+	quality := ConnectionQuality{
+		Score:       q.currentQuality.Score,
+		PacketLoss:  q.currentQuality.PacketLoss,
+		Jitter:      q.currentQuality.Jitter,
+		Latency:     q.currentQuality.Latency,
+		BitrateKbps: q.currentQuality.BitrateKbps,
+		Warnings:    append([]string{}, q.currentQuality.Warnings...),
+		LastUpdated: q.currentQuality.LastUpdated,
+	}
 	return &quality, nil
 }
 

@@ -753,3 +753,113 @@ func TestContext_Cleanup_MultipartForm(t *testing.T) {
 		ctx.cleanup()
 	})
 }
+
+func TestContext_StatusBuilder_JSON(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	// Test fluent builder pattern
+	err := ctx.Status(503).JSON(map[string]string{
+		"status": "unhealthy",
+		"error":  "service unavailable",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 503, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var response map[string]string
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "unhealthy", response["status"])
+	assert.Equal(t, "service unavailable", response["error"])
+}
+
+func TestContext_StatusBuilder_XML(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	type ErrorResponse struct {
+		Status  string `xml:"status"`
+		Message string `xml:"message"`
+	}
+
+	err := ctx.Status(500).XML(ErrorResponse{
+		Status:  "error",
+		Message: "internal server error",
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 500, rec.Code)
+	assert.Equal(t, "application/xml", rec.Header().Get("Content-Type"))
+
+	var response ErrorResponse
+	err = xml.Unmarshal(rec.Body.Bytes(), &response)
+	require.NoError(t, err)
+	assert.Equal(t, "error", response.Status)
+	assert.Equal(t, "internal server error", response.Message)
+}
+
+func TestContext_StatusBuilder_String(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	err := ctx.Status(404).String("not found")
+
+	require.NoError(t, err)
+	assert.Equal(t, 404, rec.Code)
+	assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "not found", rec.Body.String())
+}
+
+func TestContext_StatusBuilder_Bytes(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	data := []byte{0x89, 0x50, 0x4E, 0x47}
+	err := ctx.Status(200).Bytes(data)
+
+	require.NoError(t, err)
+	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, data, rec.Body.Bytes())
+}
+
+func TestContext_StatusBuilder_NoContent(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	err := ctx.Status(204).NoContent()
+
+	require.NoError(t, err)
+	assert.Equal(t, 204, rec.Code)
+	assert.Empty(t, rec.Body.Bytes())
+}
+
+func TestContext_StatusBuilder_WithHeaders(t *testing.T) {
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+
+	ctx := NewContext(rec, req, nil)
+
+	// Test chaining headers before JSON
+	err := ctx.Status(200).
+		Header("X-Request-ID", "12345").
+		Header("X-Custom", "value").
+		JSON(map[string]string{"message": "success"})
+
+	require.NoError(t, err)
+	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, "12345", rec.Header().Get("X-Request-ID"))
+	assert.Equal(t, "value", rec.Header().Get("X-Custom"))
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+}

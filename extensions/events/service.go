@@ -172,16 +172,36 @@ func (es *EventService) initializeEventStore(ctx context.Context) error {
 
 // initializeEventBus initializes the event bus
 func (es *EventService) initializeEventBus(ctx context.Context) error {
-	// Create event bus implementation
-	bus := &EventBusImpl{
-		name:            "event-bus",
-		brokers:         make(map[string]core.MessageBroker),
-		defaultBroker:   es.config.Bus.DefaultBroker,
-		store:           es.store,
-		handlerRegistry: es.handlerRegistry,
-		logger:          es.logger,
-		metrics:         es.metrics,
+	// Convert BusConfig to EventBusConfig
+	busConfig := EventBusOptions{
+		Store:           es.store,
+		HandlerRegistry: es.handlerRegistry,
+		Logger:          es.logger,
+		Metrics:         es.metrics,
+		Config: EventBusConfig{
+			DefaultBroker:     es.config.Bus.DefaultBroker,
+			MaxRetries:        es.config.Bus.MaxRetries,
+			RetryDelay:        es.config.Bus.RetryDelay,
+			EnableMetrics:     es.config.Bus.EnableMetrics,
+			EnableTracing:     es.config.Bus.EnableTracing,
+			BufferSize:        es.config.Bus.BufferSize,
+			WorkerCount:       es.config.Bus.WorkerCount,
+			ProcessingTimeout: es.config.Bus.ProcessingTimeout,
+		},
 	}
+	
+	busInstance, err := NewEventBus(busConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create event bus: %w", err)
+	}
+	
+	bus, ok := busInstance.(*EventBusImpl)
+	if !ok {
+		return fmt.Errorf("unexpected bus type")
+	}
+	
+	// Set default broker
+	bus.defaultBroker = es.config.Bus.DefaultBroker
 
 	// Initialize brokers
 	for _, brokerConfig := range es.config.Brokers {
@@ -212,10 +232,7 @@ func (es *EventService) initializeEventBus(ctx context.Context) error {
 			continue
 		}
 
-		if err := broker.Connect(ctx, brokerConfig.Config); err != nil {
-			return fmt.Errorf("failed to connect broker %s: %w", brokerConfig.Name, err)
-		}
-
+		// Register broker (will be connected when bus.Start() is called)
 		if err := bus.RegisterBroker(brokerConfig.Name, broker); err != nil {
 			return fmt.Errorf("failed to register broker %s: %w", brokerConfig.Name, err)
 		}

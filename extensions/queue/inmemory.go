@@ -22,12 +22,13 @@ type InMemoryQueue struct {
 }
 
 type memoryQueue struct {
-	name      string
-	opts      QueueOptions
-	messages  []Message
-	dlq       []Message
-	createdAt time.Time
-	mu        sync.RWMutex
+	name       string
+	opts       QueueOptions
+	messages   []Message
+	dlq        []Message
+	inflight   map[string]Message // Track messages being processed
+	createdAt  time.Time
+	mu         sync.RWMutex
 }
 
 type consumer struct {
@@ -112,6 +113,7 @@ func (q *InMemoryQueue) DeclareQueue(ctx context.Context, name string, opts Queu
 		opts:      opts,
 		messages:  make([]Message, 0),
 		dlq:       make([]Message, 0),
+		inflight:  make(map[string]Message),
 		createdAt: time.Now(),
 	}
 
@@ -264,40 +266,71 @@ func (q *InMemoryQueue) Consume(ctx context.Context, queueName string, handler M
 	}
 	q.mu.Unlock()
 
-	go func() {
-		ticker := time.NewTicker(100 * time.Millisecond)
-		defer ticker.Stop()
+	// Start consumer goroutines based on concurrency setting
+	concurrency := opts.Concurrency
+	if concurrency == 0 {
+		concurrency = 1
+	}
 
-		for {
-			select {
-			case <-consumerCtx.Done():
-				return
-			case <-ticker.C:
-				mq.mu.Lock()
-				if len(mq.messages) > 0 {
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			for {
+				select {
+				case <-consumerCtx.Done():
+					return
+				default:
+					// Try to get a message
+					mq.mu.Lock()
+					if len(mq.messages) == 0 {
+						mq.mu.Unlock()
+						// No messages, wait a bit before checking again
+						time.Sleep(10 * time.Millisecond)
+						continue
+					}
+
 					msg := mq.messages[0]
 					mq.messages = mq.messages[1:]
+					
+					// Track message in flight
+					if !opts.AutoAck {
+						mq.inflight[msg.ID] = msg
+					}
 					mq.mu.Unlock()
 
+					// Process message
 					if err := handler(consumerCtx, msg); err != nil {
 						q.logger.Error("message handler failed",
 							forge.F("queue", queueName),
 							forge.F("msg_id", msg.ID),
 							forge.F("error", err),
 						)
-						// Move to DLQ
-						if q.config.EnableDeadLetter {
-							mq.mu.Lock()
-							mq.dlq = append(mq.dlq, msg)
-							mq.mu.Unlock()
+						
+						mq.mu.Lock()
+						// Remove from inflight if AutoAck
+						if opts.AutoAck {
+							// Move to DLQ on error
+							if q.config.EnableDeadLetter {
+								mq.dlq = append(mq.dlq, msg)
+							}
+						} else {
+							// Remove from inflight and move to DLQ
+							delete(mq.inflight, msg.ID)
+							if q.config.EnableDeadLetter {
+								mq.dlq = append(mq.dlq, msg)
+							}
 						}
+						mq.mu.Unlock()
+					} else {
+						// Success - auto-ack if enabled
+						if opts.AutoAck {
+							// Message successfully processed, no further action needed
+						}
+						// If not AutoAck, message stays in inflight for manual Ack/Nack
 					}
-				} else {
-					mq.mu.Unlock()
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	q.logger.Info("started consumer", forge.F("queue", queueName))
 	return nil
@@ -322,15 +355,68 @@ func (q *InMemoryQueue) StopConsuming(ctx context.Context, queueName string) err
 }
 
 func (q *InMemoryQueue) Ack(ctx context.Context, messageID string) error {
-	return nil // No-op for in-memory
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	// Find which queue has this message in flight
+	for _, mq := range q.queues {
+		mq.mu.Lock()
+		if _, exists := mq.inflight[messageID]; exists {
+			delete(mq.inflight, messageID)
+			mq.mu.Unlock()
+			return nil
+		}
+		mq.mu.Unlock()
+	}
+
+	return ErrMessageNotFound
 }
 
 func (q *InMemoryQueue) Nack(ctx context.Context, messageID string, requeue bool) error {
-	return nil // No-op for in-memory
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	// Find which queue has this message in flight
+	for _, mq := range q.queues {
+		mq.mu.Lock()
+		msg, exists := mq.inflight[messageID]
+		if exists {
+			delete(mq.inflight, messageID)
+			if requeue {
+				// Put back at the front of the queue
+				mq.messages = append([]Message{msg}, mq.messages...)
+			} else {
+				// Move to DLQ
+				mq.dlq = append(mq.dlq, msg)
+			}
+			mq.mu.Unlock()
+			return nil
+		}
+		mq.mu.Unlock()
+	}
+
+	return ErrMessageNotFound
 }
 
 func (q *InMemoryQueue) Reject(ctx context.Context, messageID string) error {
-	return nil // No-op for in-memory
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	// Find which queue has this message in flight
+	for _, mq := range q.queues {
+		mq.mu.Lock()
+		msg, exists := mq.inflight[messageID]
+		if exists {
+			delete(mq.inflight, messageID)
+			// Move to DLQ
+			mq.dlq = append(mq.dlq, msg)
+			mq.mu.Unlock()
+			return nil
+		}
+		mq.mu.Unlock()
+	}
+
+	return ErrMessageNotFound
 }
 
 func (q *InMemoryQueue) GetDeadLetterQueue(ctx context.Context, queueName string) ([]Message, error) {

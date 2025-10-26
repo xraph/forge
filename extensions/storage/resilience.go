@@ -386,9 +386,12 @@ func (rs *ResilientStorage) executeWithResilience(ctx context.Context, operation
 		return ErrRateLimitExceeded
 	}
 
-	// Apply timeout
-	ctx, cancel := context.WithTimeout(ctx, rs.config.OperationTimeout)
-	defer cancel()
+	// Apply timeout (only if configured and not zero)
+	if rs.config.OperationTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, rs.config.OperationTimeout)
+		defer cancel()
+	}
 
 	// Execute with circuit breaker and retry
 	return rs.retryWithBackoff(ctx, operation, func() error {
@@ -400,6 +403,11 @@ func (rs *ResilientStorage) executeWithResilience(ctx context.Context, operation
 func (rs *ResilientStorage) retryWithBackoff(ctx context.Context, operation string, fn func() error) error {
 	var lastErr error
 	backoff := rs.config.InitialBackoff
+	
+	// Ensure backoff has a minimum value to prevent tight retry loops
+	if backoff == 0 {
+		backoff = 10 * time.Millisecond
+	}
 
 	for attempt := 0; attempt <= rs.config.MaxRetries; attempt++ {
 		// Check context

@@ -69,7 +69,9 @@ func (pv *PathValidator) ValidateKey(key string) error {
 	}
 
 	// Additional checks
-	if strings.HasPrefix(key, ".") {
+	// Allow system/internal keys starting with dot (e.g., .health_check)
+	// but still prevent dangerous patterns like ../
+	if strings.HasPrefix(key, ".") && !strings.HasPrefix(key, ".health") {
 		return fmt.Errorf("%w: key cannot start with dot", ErrInvalidKey)
 	}
 

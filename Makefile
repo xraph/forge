@@ -475,9 +475,9 @@ check-tools:
 ci: verify test build
 	@echo "$(COLOR_GREEN)✓ All CI checks passed$(COLOR_RESET)"
 
-.PHONY: ci-full
-## ci-full: Run comprehensive CI checks (verify, test-coverage, security, build)
-ci-full: verify test-coverage security vuln-check build
+.PHONY: ci-comprehensive
+## ci-comprehensive: Run comprehensive CI checks (verify, test-coverage, security, build)
+ci-comprehensive: verify test-coverage security vuln-check build
 	@echo "$(COLOR_GREEN)✓ All comprehensive CI checks passed$(COLOR_RESET)"
 
 .PHONY: pre-commit
@@ -582,6 +582,483 @@ info:
 	@echo ""
 	@echo "$(COLOR_GREEN)Module:$(COLOR_RESET)     $$(head -1 go.mod | cut -d' ' -f2)"
 	@echo ""
+
+# ==============================================================================
+# Multi-Module Release Management
+# ==============================================================================
+
+.PHONY: modules-check
+## modules-check: Check all module versions and dependencies
+modules-check:
+	@echo "$(COLOR_GREEN)Checking module versions and dependencies...$(COLOR_RESET)"
+	@./scripts/check-module-versions.sh
+
+.PHONY: modules-fix-versions
+## modules-fix-versions: Fix Go version mismatches across all modules
+modules-fix-versions:
+	@echo "$(COLOR_GREEN)Fixing Go version mismatches...$(COLOR_RESET)"
+	@MAIN_VERSION=$$(grep "^go " go.mod | awk '{print $$2}'); \
+	echo "Main module uses Go $$MAIN_VERSION"; \
+	for ext in graphql grpc hls kafka mqtt; do \
+		if [ -f "extensions/$$ext/go.mod" ]; then \
+			EXT_VERSION=$$(grep "^go " extensions/$$ext/go.mod | awk '{print $$2}'); \
+			if [ "$$EXT_VERSION" != "$$MAIN_VERSION" ]; then \
+				echo "  Updating extensions/$$ext: $$EXT_VERSION -> $$MAIN_VERSION"; \
+				cd extensions/$$ext && go mod edit -go=$$MAIN_VERSION && cd ../..; \
+			else \
+				echo "  extensions/$$ext: $$EXT_VERSION $(COLOR_GREEN)✓$(COLOR_RESET)"; \
+			fi; \
+		fi; \
+	done
+	@echo "$(COLOR_GREEN)✓ Go versions aligned$(COLOR_RESET)"
+
+.PHONY: modules-update-deps
+## modules-update-deps: Update extension dependencies to latest main module version
+modules-update-deps:
+	@echo "$(COLOR_GREEN)Updating extension dependencies...$(COLOR_RESET)"
+	@LATEST_TAG=$$(git tag -l "v*" --sort=-version:refname | grep -v "extensions" | head -1); \
+	if [ -z "$$LATEST_TAG" ]; then \
+		echo "$(COLOR_RED)No main module release found. Release main module first.$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	echo "Latest main module version: $$LATEST_TAG"; \
+	for ext in graphql grpc hls kafka mqtt; do \
+		if [ -f "extensions/$$ext/go.mod" ]; then \
+			echo "  Updating extensions/$$ext to $$LATEST_TAG..."; \
+			cd extensions/$$ext && \
+			go mod edit -require=github.com/xraph/forge@$$LATEST_TAG && \
+			go mod tidy && \
+			cd ../..; \
+		fi; \
+	done
+	@echo "$(COLOR_GREEN)✓ Dependencies updated$(COLOR_RESET)"
+
+.PHONY: modules-test
+## modules-test: Run tests for all modules
+modules-test:
+	@echo "$(COLOR_GREEN)Testing all modules...$(COLOR_RESET)"
+	@echo "  Testing main module..."
+	@$(GOTEST) $(TEST_FLAGS) $(TEST_DIRS)
+	@for ext in graphql grpc hls kafka mqtt; do \
+		if [ -d "extensions/$$ext" ]; then \
+			echo "  Testing extensions/$$ext..."; \
+			cd extensions/$$ext && $(GOTEST) $(TEST_FLAGS) ./... && cd ../..; \
+		fi; \
+	done
+	@echo "$(COLOR_GREEN)✓ All module tests passed$(COLOR_RESET)"
+
+.PHONY: release-prepare
+## release-prepare: Prepare for release (check versions, run tests, validate)
+release-prepare: modules-check modules-test verify
+	@echo "$(COLOR_GREEN)Running pre-release checks...$(COLOR_RESET)"
+	@if ! git diff-index --quiet HEAD --; then \
+		echo "$(COLOR_RED)Working directory is not clean. Commit changes first.$(COLOR_RESET)"; \
+		git status --short; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_GREEN)✓ Ready for release$(COLOR_RESET)"
+
+.PHONY: release-main
+## release-main: Release main module (interactive)
+release-main: release-prepare
+	@echo "$(COLOR_GREEN)Releasing main module...$(COLOR_RESET)"
+	@read -p "Enter version (e.g., 1.0.0): " VERSION; \
+	if [ -z "$$VERSION" ]; then \
+		echo "$(COLOR_RED)Version required$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	./scripts/release-modules.sh $$VERSION
+
+.PHONY: release-all
+## release-all: Release all modules with same version (interactive)
+release-all: release-prepare
+	@echo "$(COLOR_GREEN)Releasing all modules...$(COLOR_RESET)"
+	@read -p "Enter version (e.g., 1.0.0): " VERSION; \
+	if [ -z "$$VERSION" ]; then \
+		echo "$(COLOR_RED)Version required$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	./scripts/release-modules.sh $$VERSION all
+
+.PHONY: release-extensions
+## release-extensions: Release specific extensions (interactive)
+release-extensions: release-prepare
+	@echo "$(COLOR_GREEN)Available extensions: graphql, grpc, hls, kafka, mqtt$(COLOR_RESET)"
+	@read -p "Enter version (e.g., 1.0.0): " VERSION; \
+	if [ -z "$$VERSION" ]; then \
+		echo "$(COLOR_RED)Version required$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	read -p "Enter extensions (comma-separated, e.g., grpc,kafka): " EXTS; \
+	if [ -z "$$EXTS" ]; then \
+		echo "$(COLOR_RED)Extensions required$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	./scripts/release-modules.sh $$VERSION $$EXTS
+
+# ==============================================================================
+# Binary Distribution (Multi-Platform)
+# ==============================================================================
+
+.PHONY: dist-local
+## dist-local: Build binaries for all platforms locally (without publishing)
+dist-local:
+	@echo "$(COLOR_GREEN)Building multi-platform binaries...$(COLOR_RESET)"
+	@if ! command -v goreleaser >/dev/null 2>&1; then \
+		echo "$(COLOR_YELLOW)Installing goreleaser...$(COLOR_RESET)"; \
+		go install github.com/goreleaser/goreleaser@latest; \
+	fi
+	@goreleaser check
+	@goreleaser release --snapshot --clean --skip=publish
+	@echo "$(COLOR_GREEN)✓ Binaries built in dist/$(COLOR_RESET)"
+	@ls -lh dist/ | grep -E "\.(tar\.gz|zip)$$"
+
+.PHONY: dist-verify
+## dist-verify: Verify GoReleaser configuration
+dist-verify:
+	@echo "$(COLOR_GREEN)Verifying GoReleaser configuration...$(COLOR_RESET)"
+	@if ! command -v goreleaser >/dev/null 2>&1; then \
+		echo "$(COLOR_RED)goreleaser not installed. Run 'make install-tools'$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@goreleaser check
+	@echo "$(COLOR_GREEN)✓ Configuration is valid$(COLOR_RESET)"
+
+.PHONY: dist-clean
+## dist-clean: Clean distribution artifacts
+dist-clean:
+	@echo "$(COLOR_GREEN)Cleaning distribution artifacts...$(COLOR_RESET)"
+	@rm -rf dist/
+	@echo "$(COLOR_GREEN)✓ Distribution artifacts cleaned$(COLOR_RESET)"
+
+# ==============================================================================
+# Package Manager Integration
+# ==============================================================================
+
+.PHONY: brew-tap-check
+## brew-tap-check: Check Homebrew tap configuration
+brew-tap-check:
+	@echo "$(COLOR_GREEN)Checking Homebrew tap configuration...$(COLOR_RESET)"
+	@if grep -q "homebrew-tap" .goreleaser.yml; then \
+		echo "$(COLOR_GREEN)✓ Homebrew tap configured in .goreleaser.yml$(COLOR_RESET)"; \
+	else \
+		echo "$(COLOR_YELLOW)⚠ Homebrew tap not configured$(COLOR_RESET)"; \
+	fi
+
+.PHONY: scoop-check
+## scoop-check: Check Scoop bucket configuration
+scoop-check:
+	@echo "$(COLOR_GREEN)Checking Scoop bucket configuration...$(COLOR_RESET)"
+	@if grep -q "scoop-bucket" .goreleaser.yml; then \
+		echo "$(COLOR_GREEN)✓ Scoop bucket configured in .goreleaser.yml$(COLOR_RESET)"; \
+	else \
+		echo "$(COLOR_YELLOW)⚠ Scoop bucket not configured$(COLOR_RESET)"; \
+	fi
+
+.PHONY: pkg-managers-check
+## pkg-managers-check: Check all package manager configurations
+pkg-managers-check: brew-tap-check scoop-check
+	@echo ""
+	@echo "$(COLOR_BLUE)Package manager configuration status:$(COLOR_RESET)"
+	@echo "  - Homebrew: Check output above"
+	@echo "  - Scoop: Check output above"
+	@echo "  - Docker: See .goreleaser.yml dockers section"
+	@echo "  - Snapcraft: See .goreleaser.yml snapcrafts section"
+	@echo "  - AUR: See .goreleaser.yml aurs section"
+
+# ==============================================================================
+# Conventional Commits Automation
+# ==============================================================================
+
+.PHONY: commit-check
+## commit-check: Validate last commit message follows conventional commits
+commit-check:
+	@echo "$(COLOR_GREEN)Checking last commit message...$(COLOR_RESET)"
+	@if ! command -v npx >/dev/null 2>&1; then \
+		echo "$(COLOR_RED)npx not found. Install Node.js first.$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@COMMIT_MSG=$$(git log -1 --pretty=%B); \
+	echo "$$COMMIT_MSG" | npx --yes @commitlint/cli@latest --config .github/workflows/commitlint.config.js || \
+	(echo "$(COLOR_RED)Commit message does not follow conventional commits format$(COLOR_RESET)" && exit 1)
+
+.PHONY: commit-types
+## commit-types: Show conventional commit types
+commit-types:
+	@echo "$(COLOR_BLUE)Conventional Commit Types:$(COLOR_RESET)"
+	@echo ""
+	@echo "  $(COLOR_GREEN)feat:$(COLOR_RESET)      New feature (triggers minor version bump)"
+	@echo "  $(COLOR_GREEN)fix:$(COLOR_RESET)       Bug fix (triggers patch version bump)"
+	@echo "  $(COLOR_GREEN)docs:$(COLOR_RESET)      Documentation only"
+	@echo "  $(COLOR_GREEN)style:$(COLOR_RESET)     Code style changes (formatting, etc.)"
+	@echo "  $(COLOR_GREEN)refactor:$(COLOR_RESET)  Code refactoring"
+	@echo "  $(COLOR_GREEN)perf:$(COLOR_RESET)      Performance improvement"
+	@echo "  $(COLOR_GREEN)test:$(COLOR_RESET)      Adding or updating tests"
+	@echo "  $(COLOR_GREEN)chore:$(COLOR_RESET)     Maintenance tasks"
+	@echo "  $(COLOR_GREEN)ci:$(COLOR_RESET)        CI/CD changes"
+	@echo "  $(COLOR_GREEN)build:$(COLOR_RESET)     Build system changes"
+	@echo "  $(COLOR_GREEN)revert:$(COLOR_RESET)    Revert previous commit"
+	@echo ""
+	@echo "  $(COLOR_YELLOW)Breaking changes:$(COLOR_RESET) Add '!' or 'BREAKING CHANGE:' footer"
+	@echo ""
+	@echo "$(COLOR_BLUE)Examples:$(COLOR_RESET)"
+	@echo "  feat(router): add middleware support"
+	@echo "  fix(database): resolve connection timeout"
+	@echo "  feat!: remove deprecated API"
+	@echo "  docs: update installation guide"
+
+.PHONY: commit-template
+## commit-template: Set up git commit message template
+commit-template:
+	@echo "$(COLOR_GREEN)Setting up commit message template...$(COLOR_RESET)"
+	@printf '%s\n' \
+		'# <type>(<scope>): <subject>' \
+		'#' \
+		'# [optional body]' \
+		'#' \
+		'# [optional footer(s)]' \
+		'#' \
+		'# Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert' \
+		'# Scopes: core, grpc, kafka, graphql, hls, mqtt, cli, docs, etc.' \
+		'#' \
+		'# Examples:' \
+		'#   feat(router): add middleware support' \
+		'#   fix(database): resolve connection timeout' \
+		'#   feat!: remove deprecated API' \
+		'#' \
+		'# Breaking changes: Add ! after type or BREAKING CHANGE: in footer' \
+		> .git/commit-template
+	@git config commit.template .git/commit-template
+	@echo "$(COLOR_GREEN)✓ Commit template configured$(COLOR_RESET)"
+
+# ==============================================================================
+# Security Scanning
+# ==============================================================================
+
+.PHONY: security-scan
+## security-scan: Run comprehensive security scan
+security-scan:
+	@echo "$(COLOR_GREEN)Running security scans...$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_BLUE)1. gosec - Security audit$(COLOR_RESET)"
+	@if command -v gosec >/dev/null 2>&1; then \
+		gosec -exclude-dir=bk -exclude-dir=vendor -fmt=text ./...; \
+	else \
+		echo "$(COLOR_YELLOW)Installing gosec...$(COLOR_RESET)"; \
+		go install github.com/securego/gosec/v2/cmd/gosec@latest; \
+		gosec -exclude-dir=bk -exclude-dir=vendor -fmt=text ./...; \
+	fi
+	@echo ""
+	@echo "$(COLOR_BLUE)2. govulncheck - Vulnerability scan$(COLOR_RESET)"
+	@if command -v govulncheck >/dev/null 2>&1; then \
+		govulncheck ./...; \
+	else \
+		echo "$(COLOR_YELLOW)Installing govulncheck...$(COLOR_RESET)"; \
+		go install golang.org/x/vuln/cmd/govulncheck@latest; \
+		govulncheck ./...; \
+	fi
+	@echo ""
+	@echo "$(COLOR_GREEN)✓ Security scans completed$(COLOR_RESET)"
+
+.PHONY: security-deps
+## security-deps: Check for known vulnerabilities in dependencies
+security-deps:
+	@echo "$(COLOR_GREEN)Checking dependencies for vulnerabilities...$(COLOR_RESET)"
+	@if command -v govulncheck >/dev/null 2>&1; then \
+		govulncheck -test ./...; \
+	else \
+		echo "$(COLOR_YELLOW)Installing govulncheck...$(COLOR_RESET)"; \
+		go install golang.org/x/vuln/cmd/govulncheck@latest; \
+		govulncheck -test ./...; \
+	fi
+
+.PHONY: security-audit
+## security-audit: Full security audit (gosec + vulncheck + mod verify)
+security-audit:
+	@echo "$(COLOR_GREEN)Running full security audit...$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_BLUE)1. Verifying module integrity$(COLOR_RESET)"
+	@go mod verify
+	@echo ""
+	@echo "$(COLOR_BLUE)2. Running gosec$(COLOR_RESET)"
+	@$(MAKE) security 2>/dev/null || true
+	@echo ""
+	@echo "$(COLOR_BLUE)3. Running govulncheck$(COLOR_RESET)"
+	@$(MAKE) vuln-check 2>/dev/null || true
+	@echo ""
+	@echo "$(COLOR_GREEN)✓ Security audit completed$(COLOR_RESET)"
+
+# ==============================================================================
+# Multi-Platform Testing
+# ==============================================================================
+
+.PHONY: test-platforms
+## test-platforms: Test on multiple platforms (requires Docker)
+test-platforms:
+	@echo "$(COLOR_GREEN)Testing on multiple platforms...$(COLOR_RESET)"
+	@if ! command -v docker >/dev/null 2>&1; then \
+		echo "$(COLOR_RED)Docker not installed$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "$(COLOR_BLUE)Testing on Linux (Alpine)$(COLOR_RESET)"
+	@docker run --rm -v $(PWD):/app -w /app golang:1.24-alpine \
+		sh -c "apk add --no-cache git && go test -v ./... | grep -v '/bk/'"
+	@echo ""
+	@echo "$(COLOR_BLUE)Testing on Linux (Ubuntu)$(COLOR_RESET)"
+	@docker run --rm -v $(PWD):/app -w /app golang:1.24 \
+		sh -c "go test -v ./... | grep -v '/bk/'"
+	@echo ""
+	@echo "$(COLOR_GREEN)✓ Multi-platform tests completed$(COLOR_RESET)"
+
+.PHONY: test-versions
+## test-versions: Test with multiple Go versions (requires Docker)
+test-versions:
+	@echo "$(COLOR_GREEN)Testing with multiple Go versions...$(COLOR_RESET)"
+	@for version in 1.22 1.23 1.24; do \
+		echo ""; \
+		echo "$(COLOR_BLUE)Testing with Go $$version$(COLOR_RESET)"; \
+		docker run --rm -v $(PWD):/app -w /app golang:$$version \
+			sh -c "go test -short ./... | grep -v '/bk/'" || exit 1; \
+	done
+	@echo ""
+	@echo "$(COLOR_GREEN)✓ Multi-version tests completed$(COLOR_RESET)"
+
+.PHONY: test-matrix
+## test-matrix: Run comprehensive test matrix (platforms + versions)
+test-matrix:
+	@echo "$(COLOR_GREEN)Running comprehensive test matrix...$(COLOR_RESET)"
+	@$(MAKE) test-versions
+	@$(MAKE) test-platforms
+	@echo "$(COLOR_GREEN)✓ Test matrix completed$(COLOR_RESET)"
+
+# ==============================================================================
+# Workflow Standardization
+# ==============================================================================
+
+.PHONY: workflows-check
+## workflows-check: Validate GitHub workflows
+workflows-check:
+	@echo "$(COLOR_GREEN)Checking GitHub workflows...$(COLOR_RESET)"
+	@if command -v actionlint >/dev/null 2>&1; then \
+		actionlint .github/workflows/*.yml; \
+	else \
+		echo "$(COLOR_YELLOW)actionlint not installed. Install with:$(COLOR_RESET)"; \
+		echo "  go install github.com/rhysd/actionlint/cmd/actionlint@latest"; \
+	fi
+
+.PHONY: workflows-list
+## workflows-list: List all GitHub workflows
+workflows-list:
+	@echo "$(COLOR_BLUE)GitHub Workflows:$(COLOR_RESET)"
+	@for workflow in .github/workflows/*.yml; do \
+		NAME=$$(grep "^name:" $$workflow | head -1 | cut -d':' -f2 | xargs); \
+		FILE=$$(basename $$workflow); \
+		echo "  - $$NAME ($$FILE)"; \
+	done
+
+.PHONY: workflows-update
+## workflows-update: Update workflow action versions
+workflows-update:
+	@echo "$(COLOR_GREEN)Updating workflow action versions...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Note: This requires manual review of changes$(COLOR_RESET)"
+	@echo ""
+	@echo "Common updates needed:"
+	@echo "  - actions/checkout@v3 → actions/checkout@v4"
+	@echo "  - actions/setup-go@v4 → actions/setup-go@v5"
+	@echo "  - actions/cache@v3 → actions/cache@v4"
+	@echo ""
+	@echo "Use: sed -i '' 's/actions\/checkout@v3/actions\/checkout@v4/g' .github/workflows/*.yml"
+
+# ==============================================================================
+# CI/CD Comprehensive Checks
+# ==============================================================================
+
+.PHONY: ci-full
+## ci-full: Run all CI checks (format, lint, test, security, build)
+ci-full: fmt-check vet tidy-check lint test security-scan build
+	@echo "$(COLOR_GREEN)✓ All CI checks passed$(COLOR_RESET)"
+
+.PHONY: ci-pre-release
+## ci-pre-release: Run all pre-release checks
+ci-pre-release: ci-full modules-check dist-verify
+	@echo "$(COLOR_GREEN)✓ Pre-release checks passed$(COLOR_RESET)"
+
+.PHONY: ci-quick
+## ci-quick: Quick CI checks (format, lint, test-short)
+ci-quick: fmt lint test-short
+	@echo "$(COLOR_GREEN)✓ Quick CI checks passed$(COLOR_RESET)"
+
+.PHONY: ci-status
+## ci-status: Show CI/CD status and configuration
+ci-status:
+	@echo "$(COLOR_BLUE)=== CI/CD Status ===$(COLOR_RESET)"
+	@echo ""
+	@echo "$(COLOR_BLUE)Modules:$(COLOR_RESET)"
+	@./scripts/check-module-versions.sh 2>&1 | head -20 || true
+	@echo ""
+	@echo "$(COLOR_BLUE)Tools:$(COLOR_RESET)"
+	@$(MAKE) check-tools 2>/dev/null | grep "✓\|✗"
+	@echo ""
+	@echo "$(COLOR_BLUE)Workflows:$(COLOR_RESET)"
+	@COUNT=$$(ls -1 .github/workflows/*.yml 2>/dev/null | wc -l); echo "  Total workflows: $$COUNT"
+	@echo ""
+	@echo "$(COLOR_BLUE)Git Status:$(COLOR_RESET)"
+	@git status --short || echo "  Clean"
+	@echo ""
+	@echo "$(COLOR_BLUE)Latest Tags:$(COLOR_RESET)"
+	@git tag -l "v*" --sort=-version:refname | head -5
+
+# ==============================================================================
+# Documentation Generation
+# ==============================================================================
+
+.PHONY: docs-ci
+## docs-ci: Generate CI/CD documentation summary
+docs-ci:
+	@echo "$(COLOR_GREEN)Generating CI/CD documentation summary...$(COLOR_RESET)"
+	@echo "Forge CI/CD Status Report" > CI_CD_STATUS.txt
+	@echo "Generated: $$(date)" >> CI_CD_STATUS.txt
+	@echo "" >> CI_CD_STATUS.txt
+	@echo "MODULES:" >> CI_CD_STATUS.txt
+	@./scripts/check-module-versions.sh 2>&1 >> CI_CD_STATUS.txt || true
+	@echo "" >> CI_CD_STATUS.txt
+	@echo "WORKFLOWS:" >> CI_CD_STATUS.txt
+	@ls -1 .github/workflows/*.yml | xargs -I {} basename {} | sed 's/^/  - /' >> CI_CD_STATUS.txt
+	@echo "" >> CI_CD_STATUS.txt
+	@echo "TOOLS:" >> CI_CD_STATUS.txt
+	@$(MAKE) check-tools 2>/dev/null >> CI_CD_STATUS.txt || true
+	@echo "" >> CI_CD_STATUS.txt
+	@echo "LATEST RELEASES:" >> CI_CD_STATUS.txt
+	@git tag -l "v*" --sort=-version:refname | head -5 | sed 's/^/  - /' >> CI_CD_STATUS.txt
+	@echo "" >> CI_CD_STATUS.txt
+	@echo "For detailed documentation, see:" >> CI_CD_STATUS.txt
+	@echo "  - .github/EXECUTIVE_SUMMARY.md" >> CI_CD_STATUS.txt
+	@echo "  - .github/QUICK_REFERENCE.md" >> CI_CD_STATUS.txt
+	@echo "  - .github/CI_CD_REVIEW.md" >> CI_CD_STATUS.txt
+	@cat CI_CD_STATUS.txt
+	@echo ""
+	@echo "$(COLOR_GREEN)✓ Report saved to CI_CD_STATUS.txt$(COLOR_RESET)"
+
+# ==============================================================================
+# Quick Aliases for CI/CD
+# ==============================================================================
+
+.PHONY: release
+## release: Alias for release-prepare (check before release)
+release: release-prepare
+
+.PHONY: scan
+## scan: Alias for security-scan
+scan: security-scan
+
+.PHONY: dist
+## dist: Alias for dist-local
+dist: dist-local
+
+.PHONY: matrix
+## matrix: Alias for test-matrix
+matrix: test-matrix
 
 # ==============================================================================
 # Default target

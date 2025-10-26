@@ -1,0 +1,177 @@
+name: Detect Module Changes
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      main: ${{ steps.filter.outputs.main }}
+      graphql: ${{ steps.filter.outputs.graphql }}
+      grpc: ${{ steps.filter.outputs.grpc }}
+      hls: ${{ steps.filter.outputs.hls }}
+      kafka: ${{ steps.filter.outputs.kafka }}
+      mqtt: ${{ steps.filter.outputs.mqtt }}
+      changed_modules: ${{ steps.summary.outputs.modules }}
+      has_changes: ${{ steps.summary.outputs.has_changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for module changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            main:
+              - '*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'cmd/**'
+              - 'internal/**'
+              - 'pkg/**'
+              - 'middleware/**'
+              - 'cli/**'
+              - '!extensions/**'
+              - '!examples/**'
+              - '!_v0/**'
+              - '!bk/**'
+            graphql:
+              - 'extensions/graphql/**'
+            grpc:
+              - 'extensions/grpc/**'
+            hls:
+              - 'extensions/hls/**'
+            kafka:
+              - 'extensions/kafka/**'
+            mqtt:
+              - 'extensions/mqtt/**'
+
+      - name: Generate summary
+        id: summary
+        run: |
+          CHANGED=()
+          
+          if [ "${{ steps.filter.outputs.main }}" == "true" ]; then
+            CHANGED+=("main")
+          fi
+          if [ "${{ steps.filter.outputs.graphql }}" == "true" ]; then
+            CHANGED+=("graphql")
+          fi
+          if [ "${{ steps.filter.outputs.grpc }}" == "true" ]; then
+            CHANGED+=("grpc")
+          fi
+          if [ "${{ steps.filter.outputs.hls }}" == "true" ]; then
+            CHANGED+=("hls")
+          fi
+          if [ "${{ steps.filter.outputs.kafka }}" == "true" ]; then
+            CHANGED+=("kafka")
+          fi
+          if [ "${{ steps.filter.outputs.mqtt }}" == "true" ]; then
+            CHANGED+=("mqtt")
+          fi
+          
+          if [ ${#CHANGED[@]} -eq 0 ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "modules=" >> $GITHUB_OUTPUT
+            echo "No modules changed"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            MODULES_JSON=$(printf '%s\n' "${CHANGED[@]}" | jq -R . | jq -s -c .)
+            echo "modules=$MODULES_JSON" >> $GITHUB_OUTPUT
+            echo "Changed modules: ${CHANGED[*]}"
+          fi
+
+      - name: Display results
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🔍 Module Change Detection
+          
+          | Module | Changed |
+          |--------|---------|
+          | Main (forge) | ${{ steps.filter.outputs.main == 'true' && '✅ Yes' || '⬜ No' }} |
+          | GraphQL Extension | ${{ steps.filter.outputs.graphql == 'true' && '✅ Yes' || '⬜ No' }} |
+          | gRPC Extension | ${{ steps.filter.outputs.grpc == 'true' && '✅ Yes' || '⬜ No' }} |
+          | HLS Extension | ${{ steps.filter.outputs.hls == 'true' && '✅ Yes' || '⬜ No' }} |
+          | Kafka Extension | ${{ steps.filter.outputs.kafka == 'true' && '✅ Yes' || '⬜ No' }} |
+          | MQTT Extension | ${{ steps.filter.outputs.mqtt == 'true' && '✅ Yes' || '⬜ No' }} |
+          
+          ### Summary
+          **Changed Modules**: ${{ steps.summary.outputs.modules }}
+          EOF
+
+  test-changed-modules:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJson(needs.detect-changes.outputs.changed_modules) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine module path
+        id: module-path
+        run: |
+          if [ "${{ matrix.module }}" = "main" ]; then
+            echo "path=." >> $GITHUB_OUTPUT
+            echo "name=forge" >> $GITHUB_OUTPUT
+          else
+            echo "path=extensions/${{ matrix.module }}" >> $GITHUB_OUTPUT
+            echo "name=${{ matrix.module }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ steps.module-path.outputs.path }}/go.mod
+          check-latest: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ matrix.module }}-${{ hashFiles(format('{0}/go.sum', steps.module-path.outputs.path)) }}
+
+      - name: Download dependencies
+        run: |
+          cd ${{ steps.module-path.outputs.path }}
+          go mod download
+
+      - name: Run tests
+        run: |
+          cd ${{ steps.module-path.outputs.path }}
+          go test -v -race -timeout=10m ./...
+
+      - name: Run go vet
+        run: |
+          cd ${{ steps.module-path.outputs.path }}
+          go vet ./...
+
+  test-results:
+    needs: [detect-changes, test-changed-modules]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test summary
+        run: |
+          if [ "${{ needs.test-changed-modules.result }}" == "success" ]; then
+            echo "✅ All module tests passed" >> $GITHUB_STEP_SUMMARY
+          elif [ "${{ needs.test-changed-modules.result }}" == "skipped" ]; then
+            echo "⬜ No modules changed, tests skipped" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ Some module tests failed" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+

@@ -1,0 +1,390 @@
+name: CLI Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  # Validate the tag and prepare release metadata
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag_name: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      is_prerelease: ${{ steps.tag.outputs.prerelease }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract and validate tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG=${GITHUB_REF#refs/tags/}
+          fi
+          
+          # Validate semantic version format
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "❌ Invalid tag format: $TAG"
+            echo "Expected format: v1.2.3 or v1.2.3-beta.1"
+            exit 1
+          fi
+          
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Check if this is a prerelease
+          if [[ "$TAG" == *"-"* ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+            echo "🚧 This is a pre-release: $TAG"
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+            echo "🚀 This is a stable release: $TAG"
+          fi
+
+      - name: Verify tag exists
+        run: |
+          if ! git rev-parse "${{ steps.tag.outputs.tag }}" >/dev/null 2>&1; then
+            echo "❌ Tag ${{ steps.tag.outputs.tag }} does not exist"
+            exit 1
+          fi
+          echo "✅ Tag ${{ steps.tag.outputs.tag }} found"
+
+  # Run comprehensive tests before release
+  test:
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Verify dependencies
+        run: |
+          go mod verify
+          go mod download
+
+      - name: Run tests (excluding bk/)
+        run: |
+          go test -v -race -timeout=10m $(go list ./... | grep -v '/bk/')
+
+      - name: Build CLI
+        run: |
+          cd cmd/forge
+          go build -v -ldflags="-s -w -X main.version=${{ needs.prepare.outputs.version }}" -o forge${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+
+      - name: Test CLI binary
+        run: |
+          cd cmd/forge
+          ./forge${{ matrix.os == 'windows-latest' && '.exe' || '' }} --version
+
+  # Lint and security checks
+  quality:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: Run go vet
+        run: go vet $(go list ./... | grep -v '/bk/')
+
+      - name: Check go mod tidiness
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "❌ go.mod or go.sum needs tidying" && exit 1)
+
+      - name: Security scan with gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -exclude-dir=bk -exclude-dir=vendor ./...
+
+      - name: Vulnerability check
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  # Build and release with GoReleaser
+  release:
+    needs: [prepare, test, quality]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify GoReleaser config
+        run: |
+          go install github.com/goreleaser/goreleaser@latest
+          goreleaser check
+
+      - name: Run GoReleaser (Dry Run)
+        if: needs.prepare.outputs.is_prerelease == 'true'
+        run: |
+          goreleaser release --snapshot --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run GoReleaser (Production)
+        if: needs.prepare.outputs.is_prerelease == 'false'
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FURY_TOKEN: ${{ secrets.FURY_TOKEN || '' }}
+          AUR_KEY: ${{ secrets.AUR_KEY || '' }}
+
+      - name: Run GoReleaser (Pre-Release)
+        if: needs.prepare.outputs.is_prerelease == 'true'
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          distribution: goreleaser
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-artifacts-${{ needs.prepare.outputs.tag_name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+          retention-days: 30
+
+  # Verify the release was successful
+  verify-release:
+    needs: [prepare, release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify GitHub Release
+        run: |
+          TAG="${{ needs.prepare.outputs.tag_name }}"
+          
+          # Wait a bit for release to be available
+          sleep 10
+          
+          # Check if release exists
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "✅ Release $TAG created successfully"
+            
+            # List assets
+            echo "📦 Release assets:"
+            gh release view "$TAG" --json assets --jq '.assets[] | .name'
+          else
+            echo "❌ Release $TAG not found"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify Docker images
+        run: |
+          TAG="${{ needs.prepare.outputs.tag_name }}"
+          VERSION="${{ needs.prepare.outputs.version }}"
+          
+          echo "🐳 Checking Docker images..."
+          
+          # Check if images exist (may take a few minutes to be available)
+          for i in {1..5}; do
+            if docker manifest inspect ghcr.io/xraph/forge:$VERSION >/dev/null 2>&1; then
+              echo "✅ Docker image ghcr.io/xraph/forge:$VERSION exists"
+              break
+            fi
+            
+            if [ $i -eq 5 ]; then
+              echo "⚠️ Docker image not yet available (may still be building)"
+            else
+              echo "Waiting for Docker image... (attempt $i/5)"
+              sleep 30
+            fi
+          done
+
+      - name: Test installation
+        run: |
+          TAG="${{ needs.prepare.outputs.tag_name }}"
+          
+          # Test go install
+          echo "📥 Testing 'go install' method..."
+          go install github.com/xraph/forge/cmd/forge@$TAG
+          
+          # Verify installed binary
+          if command -v forge >/dev/null 2>&1; then
+            echo "✅ CLI installed successfully"
+            forge --version
+          else
+            echo "❌ CLI installation failed"
+            exit 1
+          fi
+
+  # Post-release notifications and cleanup
+  post-release:
+    needs: [prepare, verify-release]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate release summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # 🎉 Forge CLI Release ${{ needs.prepare.outputs.tag_name }}
+          
+          ## Release Information
+          - **Version**: ${{ needs.prepare.outputs.version }}
+          - **Tag**: ${{ needs.prepare.outputs.tag_name }}
+          - **Type**: ${{ needs.prepare.outputs.is_prerelease == 'true' && 'Pre-release' || 'Stable Release' }}
+          - **Commit**: ${{ github.sha }}
+          
+          ## Installation Methods
+          
+          ### Using Go Install
+          \`\`\`bash
+          go install github.com/xraph/forge/cmd/forge@${{ needs.prepare.outputs.tag_name }}
+          \`\`\`
+          
+          ### Using Homebrew (macOS/Linux)
+          \`\`\`bash
+          brew install xraph/tap/forge
+          \`\`\`
+          
+          ### Using Scoop (Windows)
+          \`\`\`bash
+          scoop bucket add xraph https://github.com/xraph/scoop-bucket
+          scoop install forge
+          \`\`\`
+          
+          ### Docker
+          \`\`\`bash
+          docker pull ghcr.io/xraph/forge:${{ needs.prepare.outputs.version }}
+          \`\`\`
+          
+          ### Download Binary
+          Download from [GitHub Releases](https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare.outputs.tag_name }})
+          
+          ## What's Next
+          - 📝 Update documentation
+          - 📢 Announce on social media
+          - 🔍 Monitor for issues
+          - 📊 Track adoption metrics
+          
+          ---
+          **Release completed at**: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          EOF
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Release workflow failed for ${{ needs.prepare.outputs.tag_name }}"
+          echo "Check the workflow logs for details"
+          # Add notification integration here (Discord, Slack, etc.)
+
+      - name: Cleanup old artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const retentionDays = 90;
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+            
+            const artifacts = await github.rest.actions.listArtifactsForRepo({
+              owner,
+              repo,
+              per_page: 100
+            });
+            
+            for (const artifact of artifacts.data.artifacts) {
+              const createdAt = new Date(artifact.created_at);
+              if (createdAt < cutoffDate) {
+                console.log(`Deleting old artifact: ${artifact.name}`);
+                await github.rest.actions.deleteArtifact({
+                  owner,
+                  repo,
+                  artifact_id: artifact.id
+                });
+              }
+            }
+
+# Job timeout settings
+defaults:
+  run:
+    shell: bash
+
+# Global timeout for the entire workflow
+timeout-minutes: 60
+

@@ -12,7 +12,14 @@ import (
 )
 
 func TestStorageManager_Start(t *testing.T) {
+	testDir := t.TempDir()
 	config := DefaultConfig()
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	testLogger := logger.NewTestLogger()
 	testMetrics := metrics.NewMockMetricsCollector()
 
@@ -42,8 +49,15 @@ func TestStorageManager_Upload_Download(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
+	testDir := t.TempDir()
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	testLogger := logger.NewTestLogger()
 	testMetrics := metrics.NewMockMetricsCollector()
 
@@ -69,12 +83,15 @@ func TestStorageManager_Upload_Download(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to download: %v", err)
 	}
-	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
+		rc.Close()
 		t.Fatalf("Failed to read downloaded data: %v", err)
 	}
+	
+	// Close the reader immediately to release the lock
+	rc.Close()
 
 	if string(data) != testData {
 		t.Errorf("Expected data '%s', got '%s'", testData, string(data))
@@ -119,8 +136,15 @@ func TestStorageManager_List(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
+	testDir := t.TempDir()
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	testLogger := logger.NewTestLogger()
 	testMetrics := metrics.NewMockMetricsCollector()
 
@@ -161,8 +185,15 @@ func TestStorageManager_Copy_Move(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
+	testDir := t.TempDir()
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	testLogger := logger.NewTestLogger()
 	testMetrics := metrics.NewMockMetricsCollector()
 
@@ -224,9 +255,16 @@ func TestStorageManager_PresignedURLs(t *testing.T) {
 		t.Skip("Skipping integration test in short mode")
 	}
 
+	testDir := t.TempDir()
 	config := DefaultConfig()
 	config.EnablePresignedURLs = true
 	config.UseEnhancedBackend = true
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	logger := logger.NewTestLogger()
 	metrics := metrics.NewMockMetricsCollector()
 
@@ -270,7 +308,14 @@ func TestStorageManager_PresignedURLs(t *testing.T) {
 }
 
 func TestStorageManager_Health(t *testing.T) {
+	testDir := t.TempDir()
 	config := DefaultConfig()
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	logger := logger.NewTestLogger()
 	metrics := metrics.NewMockMetricsCollector()
 
@@ -307,7 +352,14 @@ func TestStorageManager_Health(t *testing.T) {
 }
 
 func TestStorageManager_Backend(t *testing.T) {
+	testDir := t.TempDir()
 	config := DefaultConfig()
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	logger := logger.NewTestLogger()
 	metrics := metrics.NewMockMetricsCollector()
 
@@ -387,8 +439,15 @@ func TestStorageManager_InvalidConfiguration(t *testing.T) {
 }
 
 func BenchmarkStorageManager_Upload(b *testing.B) {
+	testDir := b.TempDir()
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	testLogger := logger.NewTestLogger()
 	testMetrics := metrics.NewMockMetricsCollector()
 
@@ -413,8 +472,15 @@ func BenchmarkStorageManager_Upload(b *testing.B) {
 }
 
 func BenchmarkStorageManager_Download(b *testing.B) {
+	testDir := b.TempDir()
 	config := DefaultConfig()
 	config.UseEnhancedBackend = true
+	config.Backends["local"] = BackendConfig{
+		Type: "local",
+		Config: map[string]interface{}{
+			"root_dir": testDir,
+		},
+	}
 	testLogger := logger.NewTestLogger()
 	testMetrics := metrics.NewMockMetricsCollector()
 

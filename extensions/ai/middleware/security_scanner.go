@@ -1001,7 +1001,7 @@ func (s *AISecurityScanner) GetStats() ai.AIMiddlewareStats {
 		RequestsProcessed: s.stats.RequestsScanned,
 		AverageLatency:    s.stats.AverageScanTime,
 		ErrorRate:         0.0, // Security scanner doesn't have traditional "errors"
-		Metadata: map[string]interface{}{
+		CustomMetrics: map[string]interface{}{
 			"threats_detected":  s.stats.ThreatsDetected,
 			"requests_blocked":  s.stats.RequestsBlocked,
 			"threats_by_level":  s.stats.ThreatsByLevel,

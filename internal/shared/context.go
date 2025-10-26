@@ -6,6 +6,16 @@ import (
 	"net/http"
 )
 
+// ResponseBuilder provides fluent response building
+type ResponseBuilder interface {
+	JSON(v any) error
+	XML(v any) error
+	String(s string) error
+	Bytes(data []byte) error
+	NoContent() error
+	Header(key, value string) ResponseBuilder
+}
+
 // Context wraps http.Request with convenience methods
 type Context interface {
 
@@ -40,6 +50,9 @@ type Context interface {
 	Bytes(code int, data []byte) error
 	NoContent(code int) error
 	Redirect(code int, url string) error
+
+	// Fluent response builder
+	Status(code int) ResponseBuilder
 
 	// Headers
 	Header(key string) string

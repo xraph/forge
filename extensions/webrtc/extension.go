@@ -7,7 +7,6 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/streaming"
-	"github.com/xraph/forge/internal/logger"
 )
 
 // Extension is the WebRTC extension
@@ -65,6 +64,21 @@ func (e *Extension) Name() string {
 	return "webrtc"
 }
 
+// Version returns the extension version
+func (e *Extension) Version() string {
+	return "1.0.0"
+}
+
+// Description returns the extension description
+func (e *Extension) Description() string {
+	return "WebRTC video calling with mesh and SFU topologies"
+}
+
+// Dependencies returns the extensions this extension depends on
+func (e *Extension) Dependencies() []string {
+	return []string{"streaming"}
+}
+
 // Register registers the extension with the app
 func (e *Extension) Register(app forge.App) error {
 	e.mu.Lock()
@@ -73,16 +87,14 @@ func (e *Extension) Register(app forge.App) error {
 	// Get dependencies from DI container
 	e.container = app.Container()
 
-	// Get logger (optional) - TODO: Use proper DI resolution when available
-	e.logger = nil // Will be set via dependency injection
-
-	// Ensure we always have a logger (fallback to null logger)
+	// Get logger from app (fallback to noop logger if not available)
+	e.logger = app.Logger()
 	if e.logger == nil {
-		e.logger = logger.GetGlobalLogger()
+		e.logger = forge.NewNoopLogger()
 	}
 
-	// Get metrics (optional)
-	e.metrics = nil // Will be set via dependency injection
+	// Get metrics from app (optional, can be nil)
+	e.metrics = app.Metrics()
 
 	// Initialize signaling manager
 	e.signaling = NewSignalingManager(e.streaming, e.logger)
@@ -242,10 +254,19 @@ func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts stre
 	}
 
 	// Create underlying streaming room
-	// TODO: This needs to be updated when streaming Room creation API is finalized
-	// For now, we'll need to construct a Room and pass it to Manager.CreateRoom
-	// The streaming extension should provide a factory method for this
-	var streamingRoom streaming.Room = nil
+	// Convert RoomOptions to create a streaming room
+	// For local backend, we can create a LocalRoom directly
+	if opts.ID == "" {
+		return nil, fmt.Errorf("webrtc: room ID is required")
+	}
+
+	// Create streaming room using the exported constructor
+	streamingRoom := streaming.NewLocalRoom(opts)
+
+	// Register the room with the streaming manager
+	if err := e.streaming.Manager().CreateRoom(ctx, streamingRoom); err != nil {
+		return nil, fmt.Errorf("webrtc: failed to create streaming room: %w", err)
+	}
 
 	// Metrics: track room creation
 	if e.metrics != nil {
@@ -255,26 +276,33 @@ func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts stre
 
 	// Create call room
 	var callRoom CallRoom
+	var err error
 
 	switch e.config.Topology {
 	case TopologyMesh:
-		callRoom = NewMeshCallRoom(
-			streamingRoom,
+		callRoom, err = NewMeshCallRoomFromOptions(
+			opts,
 			e.config,
 			e.signaling,
 			e.logger,
 			e.metrics,
 		)
+		if err != nil {
+			return nil, fmt.Errorf("webrtc: failed to create mesh call room: %w", err)
+		}
 
 	case TopologySFU:
-		callRoom = NewSFUCallRoom(
-			streamingRoom,
+		callRoom, err = NewSFUCallRoomFromOptions(
+			opts,
 			e.config,
 			e.signaling,
 			e.sfuRouter,
 			e.logger,
 			e.metrics,
 		)
+		if err != nil {
+			return nil, fmt.Errorf("webrtc: failed to create SFU call room: %w", err)
+		}
 
 	default:
 		return nil, fmt.Errorf("webrtc: unsupported topology: %s", e.config.Topology)

@@ -145,3 +145,30 @@ func (tl *TestLogger) Sugar() SugarLogger {
 func (tl *TestLogger) Sync() error {
 	return nil
 }
+
+// AssertLogs checks if expected logs were recorded (only works with TestLogger)
+func (tl *TestLogger) AssertHasLog(level, message string) bool {
+	tl.mu.RLock()
+	defer tl.mu.RUnlock()
+
+	for _, log := range tl.logs {
+		if log.Level == level && log.Message == message {
+			return true
+		}
+	}
+	return false
+}
+
+// CountLogs returns count of logs at a specific level
+func (tl *TestLogger) CountLogs(level string) int {
+	tl.mu.RLock()
+	defer tl.mu.RUnlock()
+
+	count := 0
+	for _, log := range tl.logs {
+		if log.Level == level {
+			count++
+		}
+	}
+	return count
+}

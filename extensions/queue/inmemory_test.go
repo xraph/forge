@@ -459,20 +459,61 @@ func TestInMemoryQueue_AckNackReject(t *testing.T) {
 		t.Fatalf("failed to connect: %v", err)
 	}
 
-	// These are no-ops for in-memory
-	err = q.Ack(ctx, "msg-id")
+	// Declare a queue and publish a message
+	err = q.DeclareQueue(ctx, "test-queue", QueueOptions{})
 	if err != nil {
-		t.Error("Ack should not error")
+		t.Fatalf("failed to declare queue: %v", err)
 	}
 
-	err = q.Nack(ctx, "msg-id", true)
+	msg := Message{
+		ID:   "test-msg-1",
+		Body: []byte("test message"),
+	}
+	err = q.Publish(ctx, "test-queue", msg)
 	if err != nil {
-		t.Error("Nack should not error")
+		t.Fatalf("failed to publish message: %v", err)
 	}
 
-	err = q.Reject(ctx, "msg-id")
+	// Start consuming without AutoAck to track messages in flight
+	received := make(chan Message, 1)
+	handler := func(ctx context.Context, m Message) error {
+		received <- m
+		return nil
+	}
+
+	err = q.Consume(ctx, "test-queue", handler, ConsumeOptions{
+		AutoAck: false, // Don't auto-ack so message stays in flight
+	})
 	if err != nil {
-		t.Error("Reject should not error")
+		t.Fatalf("failed to consume: %v", err)
+	}
+
+	// Wait for message to be received
+	select {
+	case receivedMsg := <-received:
+		// Test Ack on existing message
+		err = q.Ack(ctx, receivedMsg.ID)
+		if err != nil {
+			t.Errorf("Ack should not error for existing message: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timeout waiting for message")
+	}
+
+	// Test operations on non-existent message should return ErrMessageNotFound
+	err = q.Ack(ctx, "nonexistent")
+	if err != ErrMessageNotFound {
+		t.Errorf("Ack on non-existent message should return ErrMessageNotFound, got: %v", err)
+	}
+
+	err = q.Nack(ctx, "nonexistent", true)
+	if err != ErrMessageNotFound {
+		t.Errorf("Nack on non-existent message should return ErrMessageNotFound, got: %v", err)
+	}
+
+	err = q.Reject(ctx, "nonexistent")
+	if err != ErrMessageNotFound {
+		t.Errorf("Reject on non-existent message should return ErrMessageNotFound, got: %v", err)
 	}
 }
 
