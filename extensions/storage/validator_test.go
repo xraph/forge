@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -164,7 +165,7 @@ func TestValidateMetadata(t *testing.T) {
 func generateMetadata(count int) map[string]string {
 	m := make(map[string]string)
 	for i := 0; i < count; i++ {
-		m[string(rune('a'+i%26))] = "value"
+		m[fmt.Sprintf("key%d", i)] = "value"
 	}
 	return m
 }

@@ -59,6 +59,12 @@ func (p *YAMLProcessor) Parse(data []byte) (map[string]interface{}, error) {
 		return make(map[string]interface{}), nil
 	}
 
+	// Check if content is only whitespace
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return make(map[string]interface{}), nil
+	}
+
 	var result map[string]interface{}
 
 	// Create decoder with options

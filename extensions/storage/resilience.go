@@ -127,8 +127,8 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, name string, fn func() er
 
 // CanAttempt checks if a request can be attempted
 func (cb *CircuitBreaker) CanAttempt() bool {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
 
 	switch cb.state {
 	case CircuitClosed:
@@ -136,7 +136,10 @@ func (cb *CircuitBreaker) CanAttempt() bool {
 	case CircuitOpen:
 		// Check if timeout has passed
 		if time.Since(cb.lastFailTime) > cb.config.CircuitBreakerTimeout {
-			return true // Transition to half-open will happen in RecordFailure/Success
+			cb.state = CircuitHalfOpen
+			cb.halfOpenAttempts = 0
+			cb.logger.Info("circuit breaker half-open")
+			return true
 		}
 		return false
 	case CircuitHalfOpen:
@@ -269,6 +272,7 @@ type ResilientStorage struct {
 	config         ResilienceConfig
 	circuitBreaker *CircuitBreaker
 	rateLimiter    *RateLimiter
+	validator      *PathValidator
 	logger         forge.Logger
 	metrics        forge.Metrics
 }
@@ -280,6 +284,7 @@ func NewResilientStorage(backend Storage, config ResilienceConfig, logger forge.
 		config:         config,
 		circuitBreaker: NewCircuitBreaker(config, logger, metrics),
 		rateLimiter:    NewRateLimiter(config, metrics),
+		validator:      NewPathValidator(),
 		logger:         logger,
 		metrics:        metrics,
 	}
@@ -287,7 +292,7 @@ func NewResilientStorage(backend Storage, config ResilienceConfig, logger forge.
 
 // Upload uploads with resilience
 func (rs *ResilientStorage) Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error {
-	return rs.executeWithResilience(ctx, "upload", func() error {
+	return rs.executeWithResilience(ctx, "upload", func(ctx context.Context) error {
 		return rs.backend.Upload(ctx, key, data, opts...)
 	})
 }
@@ -295,7 +300,7 @@ func (rs *ResilientStorage) Upload(ctx context.Context, key string, data io.Read
 // Download downloads with resilience
 func (rs *ResilientStorage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
 	var result io.ReadCloser
-	err := rs.executeWithResilience(ctx, "download", func() error {
+	err := rs.executeWithResilience(ctx, "download", func(ctx context.Context) error {
 		var err error
 		result, err = rs.backend.Download(ctx, key)
 		return err
@@ -305,7 +310,12 @@ func (rs *ResilientStorage) Download(ctx context.Context, key string) (io.ReadCl
 
 // Delete deletes with resilience
 func (rs *ResilientStorage) Delete(ctx context.Context, key string) error {
-	return rs.executeWithResilience(ctx, "delete", func() error {
+	// Validate key before calling backend
+	if err := rs.validator.ValidateKey(key); err != nil {
+		return fmt.Errorf("invalid key: %w", err)
+	}
+	
+	return rs.executeWithResilience(ctx, "delete", func(ctx context.Context) error {
 		return rs.backend.Delete(ctx, key)
 	})
 }
@@ -313,7 +323,7 @@ func (rs *ResilientStorage) Delete(ctx context.Context, key string) error {
 // List lists with resilience
 func (rs *ResilientStorage) List(ctx context.Context, prefix string, opts ...ListOption) ([]Object, error) {
 	var result []Object
-	err := rs.executeWithResilience(ctx, "list", func() error {
+	err := rs.executeWithResilience(ctx, "list", func(ctx context.Context) error {
 		var err error
 		result, err = rs.backend.List(ctx, prefix, opts...)
 		return err
@@ -324,7 +334,7 @@ func (rs *ResilientStorage) List(ctx context.Context, prefix string, opts ...Lis
 // Metadata gets metadata with resilience
 func (rs *ResilientStorage) Metadata(ctx context.Context, key string) (*ObjectMetadata, error) {
 	var result *ObjectMetadata
-	err := rs.executeWithResilience(ctx, "metadata", func() error {
+	err := rs.executeWithResilience(ctx, "metadata", func(ctx context.Context) error {
 		var err error
 		result, err = rs.backend.Metadata(ctx, key)
 		return err
@@ -335,7 +345,7 @@ func (rs *ResilientStorage) Metadata(ctx context.Context, key string) (*ObjectMe
 // Exists checks existence with resilience
 func (rs *ResilientStorage) Exists(ctx context.Context, key string) (bool, error) {
 	var result bool
-	err := rs.executeWithResilience(ctx, "exists", func() error {
+	err := rs.executeWithResilience(ctx, "exists", func(ctx context.Context) error {
 		var err error
 		result, err = rs.backend.Exists(ctx, key)
 		return err
@@ -345,14 +355,14 @@ func (rs *ResilientStorage) Exists(ctx context.Context, key string) (bool, error
 
 // Copy copies with resilience
 func (rs *ResilientStorage) Copy(ctx context.Context, srcKey, dstKey string) error {
-	return rs.executeWithResilience(ctx, "copy", func() error {
+	return rs.executeWithResilience(ctx, "copy", func(ctx context.Context) error {
 		return rs.backend.Copy(ctx, srcKey, dstKey)
 	})
 }
 
 // Move moves with resilience
 func (rs *ResilientStorage) Move(ctx context.Context, srcKey, dstKey string) error {
-	return rs.executeWithResilience(ctx, "move", func() error {
+	return rs.executeWithResilience(ctx, "move", func(ctx context.Context) error {
 		return rs.backend.Move(ctx, srcKey, dstKey)
 	})
 }
@@ -360,7 +370,7 @@ func (rs *ResilientStorage) Move(ctx context.Context, srcKey, dstKey string) err
 // PresignUpload presigns upload URL with resilience
 func (rs *ResilientStorage) PresignUpload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	var result string
-	err := rs.executeWithResilience(ctx, "presign_upload", func() error {
+	err := rs.executeWithResilience(ctx, "presign_upload", func(ctx context.Context) error {
 		var err error
 		result, err = rs.backend.PresignUpload(ctx, key, expiry)
 		return err
@@ -371,7 +381,7 @@ func (rs *ResilientStorage) PresignUpload(ctx context.Context, key string, expir
 // PresignDownload presigns download URL with resilience
 func (rs *ResilientStorage) PresignDownload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	var result string
-	err := rs.executeWithResilience(ctx, "presign_download", func() error {
+	err := rs.executeWithResilience(ctx, "presign_download", func(ctx context.Context) error {
 		var err error
 		result, err = rs.backend.PresignDownload(ctx, key, expiry)
 		return err
@@ -380,7 +390,7 @@ func (rs *ResilientStorage) PresignDownload(ctx context.Context, key string, exp
 }
 
 // executeWithResilience executes a function with retry, circuit breaker, and rate limiting
-func (rs *ResilientStorage) executeWithResilience(ctx context.Context, operation string, fn func() error) error {
+func (rs *ResilientStorage) executeWithResilience(ctx context.Context, operation string, fn func(context.Context) error) error {
 	// Check rate limit
 	if !rs.rateLimiter.Allow() {
 		return ErrRateLimitExceeded
@@ -395,7 +405,9 @@ func (rs *ResilientStorage) executeWithResilience(ctx context.Context, operation
 
 	// Execute with circuit breaker and retry
 	return rs.retryWithBackoff(ctx, operation, func() error {
-		return rs.circuitBreaker.Execute(ctx, operation, fn)
+		return rs.circuitBreaker.Execute(ctx, operation, func() error {
+			return fn(ctx)
+		})
 	})
 }
 

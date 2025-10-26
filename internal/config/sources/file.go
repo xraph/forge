@@ -37,6 +37,7 @@ type FileSource struct {
 // FileSourceOptions contains options for file sources
 type FileSourceOptions struct {
 	Name            string
+	Format          string
 	Priority        int
 	WatchEnabled    bool
 	WatchInterval   time.Duration
@@ -76,8 +77,8 @@ func NewFileSource(path string, options FileSourceOptions) (configcore.ConfigSou
 		path = expandedPath
 	}
 
-	// Detect format from file extension if not specified
-	format := options.Name
+	// Detect format from options or file extension
+	format := options.Format
 	if format == "" {
 		ext := strings.ToLower(filepath.Ext(path))
 		switch ext {
@@ -98,13 +99,6 @@ func NewFileSource(path string, options FileSourceOptions) (configcore.ConfigSou
 		name = fmt.Sprintf("file:%s", filepath.Base(path))
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(path); err != nil {
-		if options.RequireFile || !os.IsNotExist(err) {
-			return nil, errors.ErrConfigError(fmt.Sprintf("configuration file not found: %s", path), err)
-		}
-	}
-
 	// Get format processor
 	processor, err := getFormatProcessor(format)
 	if err != nil {
@@ -122,7 +116,7 @@ func NewFileSource(path string, options FileSourceOptions) (configcore.ConfigSou
 		options:      options,
 	}
 
-	// Get initial modification time
+	// Get initial modification time if file exists
 	if stat, err := os.Stat(path); err == nil {
 		source.lastModTime = stat.ModTime()
 	}
@@ -625,6 +619,7 @@ func NewFileSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler
 func (factory *FileSourceFactory) CreateFromConfig(config FileSourceConfig) (configcore.ConfigSource, error) {
 	options := FileSourceOptions{
 		Name:          fmt.Sprintf("file:%s", filepath.Base(config.Path)),
+		Format:        config.Format,
 		Priority:      config.Priority,
 		WatchEnabled:  config.WatchEnabled,
 		WatchInterval: config.WatchInterval,

@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -263,8 +264,8 @@ list = ["item1", "item2", "item3"]
 		t.Errorf("string = %v, want value", data["string"])
 	}
 
-	// TOML integers are int64
-	if val, ok := data["int"].(int64); !ok || val != 42 {
+	// TOML integers are converted to int if they fit
+	if val, ok := data["int"].(int); !ok || val != 42 {
 		t.Errorf("int = %v (%T), want 42", data["int"], data["int"])
 	}
 }
@@ -464,7 +465,9 @@ func TestFileSource_Load_NonExistentFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	nonExistentFile := filepath.Join(tmpDir, "nonexistent.yaml")
 
-	source, err := NewFileSource(nonExistentFile, FileSourceOptions{})
+	source, err := NewFileSource(nonExistentFile, FileSourceOptions{
+		RequireFile: true,
+	})
 	if err != nil {
 		t.Fatalf("NewFileSource() error = %v", err)
 	}
@@ -676,8 +679,8 @@ func TestFileSourceFactory_Validate(t *testing.T) {
 
 		// Test CreateFromConfig instead of Validate
 		_, err := factory.CreateFromConfig(config)
-		if err != nil {
-			t.Errorf("CreateFromConfig() error = %v, want nil", err)
+		if err == nil {
+			t.Error("CreateFromConfig() should return error for missing path")
 		}
 	})
 
@@ -707,9 +710,9 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		os.WriteFile(testFile, []byte{}, 0644)
 
 		source, err := NewFileSource(testFile, FileSourceOptions{})
-	if err != nil {
-		t.Fatalf("NewFileSource() error = %v", err)
-	}
+		if err != nil {
+			t.Fatalf("NewFileSource() error = %v", err)
+		}
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -730,9 +733,9 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		os.WriteFile(testFile, content, 0644)
 
 		source, err := NewFileSource(testFile, FileSourceOptions{})
-	if err != nil {
-		t.Fatalf("NewFileSource() error = %v", err)
-	}
+		if err != nil {
+			t.Fatalf("NewFileSource() error = %v", err)
+		}
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -749,17 +752,17 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		tmpDir := t.TempDir()
 		testFile := filepath.Join(tmpDir, "large.yaml")
 
-		// Create a large YAML file
+		// Create a large YAML file with unique keys
 		var content []byte
 		for i := 0; i < 10000; i++ {
-			content = append(content, []byte("key"+string(rune(i%26+'a'))+": value\n")...)
+			content = append(content, []byte("key"+fmt.Sprintf("%d", i)+": value\n")...)
 		}
 		os.WriteFile(testFile, content, 0644)
 
 		source, err := NewFileSource(testFile, FileSourceOptions{})
-	if err != nil {
-		t.Fatalf("NewFileSource() error = %v", err)
-	}
+		if err != nil {
+			t.Fatalf("NewFileSource() error = %v", err)
+		}
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -786,9 +789,9 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		os.WriteFile(testFile, content, 0644)
 
 		source, err := NewFileSource(testFile, FileSourceOptions{})
-	if err != nil {
-		t.Fatalf("NewFileSource() error = %v", err)
-	}
+		if err != nil {
+			t.Fatalf("NewFileSource() error = %v", err)
+		}
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -809,9 +812,9 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		os.WriteFile(testFile, content, 0644)
 
 		source, err := NewFileSource(testFile, FileSourceOptions{})
-	if err != nil {
-		t.Fatalf("NewFileSource() error = %v", err)
-	}
+		if err != nil {
+			t.Fatalf("NewFileSource() error = %v", err)
+		}
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -901,9 +904,9 @@ func TestFileSource_FormatDetection(t *testing.T) {
 			os.WriteFile(testFile, tt.content, 0644)
 
 			source, err := NewFileSource(testFile, FileSourceOptions{})
-	if err != nil {
-		t.Fatalf("NewFileSource() error = %v", err)
-	}
+			if err != nil {
+				t.Fatalf("NewFileSource() error = %v", err)
+			}
 			ctx := context.Background()
 
 			data, err := source.Load(ctx)

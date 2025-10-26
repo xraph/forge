@@ -48,11 +48,15 @@ func TestSelfHealingAgent_Process_Success(t *testing.T) {
 	agent := createTestAgentWithMocks()
 	mockLLM := agent.llmManager.(*testhelpers.MockLLMManager)
 	mockLLM.ChatFunc = func(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
-		return llm.ChatResponse{
+		response := llm.ChatResponse{
 			Choices: []llm.ChatChoice{
-				{Message: llm.ChatMessage{Content: "Success!"}},
+				{
+					Message:      llm.ChatMessage{Content: "Success!"},
+					FinishReason: "stop",
+				},
 			},
-		}, nil
+		}
+		return response, nil
 	}
 
 	config := SelfHealingConfig{
@@ -82,7 +86,10 @@ func TestSelfHealingAgent_Process_RetrySuccess(t *testing.T) {
 		}
 		return llm.ChatResponse{
 			Choices: []llm.ChatChoice{
-				{Message: llm.ChatMessage{Content: "Success after retries!"}},
+				{
+					Message:      llm.ChatMessage{Content: "Success after retries!"},
+					FinishReason: "stop",
+				},
 			},
 		}, nil
 	}
@@ -411,16 +418,26 @@ func createTestAgent() *Agent {
 func createTestAgentWithMocks() *Agent {
 	mockStateStore := &MockStateStore{}
 	agent := &Agent{
-		Name:       "test-agent",
-		llmManager: testhelpers.NewMockLLM(),
-		logger:     testhelpers.NewMockLogger(),
-		metrics:    testhelpers.NewMockMetrics(),
-		stateStore: mockStateStore,
+		ID:            "test-agent",
+		Name:          "test-agent",
+		Provider:      "test-provider",
+		Model:         "test-model",
+		llmManager:    testhelpers.NewMockLLM(),
+		logger:        testhelpers.NewMockLogger(),
+		metrics:       testhelpers.NewMockMetrics(),
+		stateStore:    mockStateStore,
+		maxIterations: 10,
+		temperature:   0.7,
+		tools:         make([]Tool, 0),
 		state: &AgentState{
-			AgentID:   "test",
+			AgentID:   "test-agent",
 			SessionID: "session-1",
+			Version:   1,
 			History:   make([]AgentMessage, 0),
 			Data:      make(map[string]interface{}),
+			Context:   make(map[string]interface{}),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
 		},
 	}
 	return agent

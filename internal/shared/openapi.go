@@ -55,14 +55,14 @@ type ServerVariable struct {
 
 // SecurityScheme defines a security scheme
 type SecurityScheme struct {
-	Type             string // "apiKey", "http", "oauth2", "openIdConnect"
-	Description      string
-	Name             string // For apiKey
-	In               string // For apiKey: "query", "header", "cookie"
-	Scheme           string // For http: "bearer", "basic"
-	BearerFormat     string // For http bearer
-	Flows            *OAuthFlows
-	OpenIdConnectUrl string
+	Type             string `json:"type" yaml:"type"` // "apiKey", "http", "oauth2", "openIdConnect"
+	Description      string `json:"description,omitempty" yaml:"description,omitempty"`
+	Name             string `json:"name,omitempty" yaml:"name,omitempty"` // For apiKey
+	In               string `json:"in,omitempty" yaml:"in,omitempty"` // For apiKey: "query", "header", "cookie"
+	Scheme           string `json:"scheme,omitempty" yaml:"scheme,omitempty"` // For http: "bearer", "basic"
+	BearerFormat     string `json:"bearerFormat,omitempty" yaml:"bearerFormat,omitempty"` // For http bearer
+	Flows            *OAuthFlows `json:"flows,omitempty" yaml:"flows,omitempty"`
+	OpenIdConnectUrl string `json:"openIdConnectUrl,omitempty" yaml:"openIdConnectUrl,omitempty"`
 }
 
 // OAuthFlows defines OAuth 2.0 flows
@@ -146,30 +146,30 @@ type PathItem struct {
 
 // Operation describes a single API operation on a path
 type Operation struct {
-	Tags         []string                        `json:"tags,omitempty"`
-	Summary      string                          `json:"summary,omitempty"`
-	Description  string                          `json:"description,omitempty"`
-	OperationID  string                          `json:"operationId,omitempty"`
-	Parameters   []Parameter                     `json:"parameters,omitempty"`
-	RequestBody  *RequestBody                    `json:"requestBody,omitempty"`
-	Responses    map[string]*Response            `json:"responses"`
-	Callbacks    map[string]map[string]*PathItem `json:"callbacks,omitempty"`
-	Deprecated   bool                            `json:"deprecated,omitempty"`
-	Security     []SecurityRequirement           `json:"security,omitempty"`
-	ExternalDocs *ExternalDocs                   `json:"externalDocs,omitempty"`
+	Tags         []string                        `json:"tags,omitempty" yaml:"tags,omitempty"`
+	Summary      string                          `json:"summary,omitempty" yaml:"summary,omitempty"`
+	Description  string                          `json:"description,omitempty" yaml:"description,omitempty"`
+	OperationID  string                          `json:"operationId,omitempty" yaml:"operationId,omitempty"`
+	Parameters   []Parameter                     `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	RequestBody  *RequestBody                    `json:"requestBody,omitempty" yaml:"requestBody,omitempty"`
+	Responses    map[string]*Response            `json:"responses" yaml:"responses"`
+	Callbacks    map[string]map[string]*PathItem `json:"callbacks,omitempty" yaml:"callbacks,omitempty"`
+	Deprecated   bool                            `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	Security     []SecurityRequirement           `json:"security,omitempty" yaml:"security,omitempty"`
+	ExternalDocs *ExternalDocs                   `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 }
 
 // Parameter describes a single operation parameter
 type Parameter struct {
-	Name            string              `json:"name"`
-	In              string              `json:"in"` // "query", "header", "path", "cookie"
-	Description     string              `json:"description,omitempty"`
-	Required        bool                `json:"required,omitempty"`
-	Deprecated      bool                `json:"deprecated,omitempty"`
-	AllowEmptyValue bool                `json:"allowEmptyValue,omitempty"`
-	Schema          *Schema             `json:"schema,omitempty"`
-	Example         interface{}         `json:"example,omitempty"`
-	Examples        map[string]*Example `json:"examples,omitempty"`
+	Name            string              `json:"name" yaml:"name"`
+	In              string              `json:"in" yaml:"in"` // "query", "header", "path", "cookie"
+	Description     string              `json:"description,omitempty" yaml:"description,omitempty"`
+	Required        bool                `json:"required,omitempty" yaml:"required,omitempty"`
+	Deprecated      bool                `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	AllowEmptyValue bool                `json:"allowEmptyValue,omitempty" yaml:"allowEmptyValue,omitempty"`
+	Schema          *Schema             `json:"schema,omitempty" yaml:"schema,omitempty"`
+	Example         interface{}         `json:"example,omitempty" yaml:"example,omitempty"`
+	Examples        map[string]*Example `json:"examples,omitempty" yaml:"examples,omitempty"`
 }
 
 // RequestBody describes a single request body
@@ -287,15 +287,15 @@ type Encoding struct {
 
 // Components holds reusable objects for the API spec
 type Components struct {
-	Schemas         map[string]*Schema        `json:"schemas,omitempty"`
-	Responses       map[string]*Response      `json:"responses,omitempty"`
-	Parameters      map[string]*Parameter     `json:"parameters,omitempty"`
-	Examples        map[string]*Example       `json:"examples,omitempty"`
-	RequestBodies   map[string]*RequestBody   `json:"requestBodies,omitempty"`
-	Headers         map[string]*Header        `json:"headers,omitempty"`
-	SecuritySchemes map[string]SecurityScheme `json:"securitySchemes,omitempty"`
-	Links           map[string]*Link          `json:"links,omitempty"`
-	Callbacks       map[string]interface{}    `json:"callbacks,omitempty"`
+	Schemas         map[string]*Schema        `json:"schemas,omitempty" yaml:"schemas,omitempty"`
+	Responses       map[string]*Response      `json:"responses,omitempty" yaml:"responses,omitempty"`
+	Parameters      map[string]*Parameter     `json:"parameters,omitempty" yaml:"parameters,omitempty"`
+	Examples        map[string]*Example       `json:"examples,omitempty" yaml:"examples,omitempty"`
+	RequestBodies   map[string]*RequestBody   `json:"requestBodies,omitempty" yaml:"requestBodies,omitempty"`
+	Headers         map[string]*Header        `json:"headers,omitempty" yaml:"headers,omitempty"`
+	SecuritySchemes map[string]SecurityScheme `json:"securitySchemes,omitempty" yaml:"securitySchemes,omitempty"`
+	Links           map[string]*Link          `json:"links,omitempty" yaml:"links,omitempty"`
+	Callbacks       map[string]interface{}    `json:"callbacks,omitempty" yaml:"callbacks,omitempty"`
 }
 
 // SecurityRequirement lists required security schemes

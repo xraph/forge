@@ -247,7 +247,20 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 		}
 	}
 
+	// Extract servers
+	for _, srv := range asyncAPISpec.Servers {
+		server := Server{
+			URL:         fmt.Sprintf("%s://%s%s", srv.Protocol, srv.Host, srv.Pathname),
+			Description: srv.Description,
+			Variables:   make(map[string]ServerVariable),
+		}
+		spec.Servers = append(spec.Servers, server)
+	}
+
 	// Extract operations and channels
+	wsEndpoints := make(map[string]*WebSocketEndpoint)
+	sseEndpoints := make(map[string]*SSEEndpoint)
+	
 	for opID, operation := range asyncAPISpec.Operations {
 		if operation == nil || operation.Channel == nil {
 			continue
@@ -268,18 +281,57 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 		isWebSocket := detectWebSocketChannel(&asyncAPISpec, channel)
 
 		if isWebSocket {
-			ws := convertWebSocketChannel(opID, channel, operation)
-			spec.WebSockets = append(spec.WebSockets, ws)
+			// Use channel name as key to merge operations on same channel
+			if wsEndpoints[channelName] == nil {
+				ws := convertWebSocketChannel(opID, channel, operation)
+				wsEndpoints[channelName] = &ws
+			} else {
+				// Merge with existing endpoint
+				existing := wsEndpoints[channelName]
+				if operation.Action == "send" && existing.SendSchema == nil {
+					existing.SendSchema = convertSchemaFromChannel(channel, operation)
+				} else if operation.Action == "receive" && existing.ReceiveSchema == nil {
+					existing.ReceiveSchema = convertSchemaFromChannel(channel, operation)
+				}
+			}
 		} else {
-			sse := convertSSEChannel(opID, channel, operation)
-			spec.SSEs = append(spec.SSEs, sse)
+			// Use channel name as key to merge operations on same channel
+			if sseEndpoints[channelName] == nil {
+				sse := convertSSEChannel(opID, channel, operation)
+				sseEndpoints[channelName] = &sse
+			} else {
+				// Merge event schemas
+				existing := sseEndpoints[channelName]
+				for msgName, msg := range channel.Messages {
+					if msg.Payload != nil {
+						existing.EventSchemas[msgName] = convertSchema(msg.Payload)
+					}
+				}
+			}
 		}
+	}
+	
+	// Add merged endpoints to spec
+	for _, ws := range wsEndpoints {
+		spec.WebSockets = append(spec.WebSockets, *ws)
+	}
+	for _, sse := range sseEndpoints {
+		spec.SSEs = append(spec.SSEs, *sse)
 	}
 
 	return spec, nil
 }
 
 // Helper conversion functions
+
+func convertSchemaFromChannel(channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) *Schema {
+	for _, msg := range channel.Messages {
+		if msg.Payload != nil {
+			return convertSchema(msg.Payload)
+		}
+	}
+	return nil
+}
 
 func convertOperation(method, path string, op *shared.Operation) Endpoint {
 	endpoint := Endpoint{

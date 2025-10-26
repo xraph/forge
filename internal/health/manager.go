@@ -489,8 +489,12 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 	services := hc.container.Services()
 
 	for _, serviceName := range services {
-		// Skip if already registered
-		if _, exists := hc.checks[serviceName]; exists {
+		// Check if already registered (with lock)
+		hc.mu.RLock()
+		_, exists := hc.checks[serviceName]
+		hc.mu.RUnlock()
+		
+		if exists {
 			continue
 		}
 
@@ -509,7 +513,13 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 			return hc.checkService(ctx, svcName)
 		})
 
-		hc.checks[serviceName] = check
+		// Register the check (with lock)
+		hc.mu.Lock()
+		// Double-check after acquiring write lock
+		if _, exists := hc.checks[serviceName]; !exists {
+			hc.checks[serviceName] = check
+		}
+		hc.mu.Unlock()
 
 		if hc.logger != nil {
 			hc.logger.Info(hc.Name()+" auto-discovered service health check",

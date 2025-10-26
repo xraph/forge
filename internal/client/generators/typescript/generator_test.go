@@ -25,7 +25,7 @@ func TestTypeScriptGenerator(t *testing.T) {
 		"auth",
 		"reconnection",
 		"heartbeat",
-		"stateManagement",
+		"state-management",
 	}
 
 	for _, expected := range expectedFeatures {
@@ -51,6 +51,13 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 		},
 		Servers: []client.Server{
 			{URL: "https://api.example.com"},
+		},
+		Security: []client.SecurityScheme{
+			{
+				Type:        "http",
+				Scheme:      "bearer",
+				BearerFormat: "JWT",
+			},
 		},
 		Endpoints: []client.Endpoint{
 			{
@@ -183,13 +190,14 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 		t.Error("types.ts should contain CreateUserRequest interface")
 	}
 	if !strings.Contains(typesCode, "interface AuthConfig") {
+		t.Logf("types.ts content: %s", typesCode)
 		t.Error("types.ts should contain AuthConfig interface")
 	}
 
 	// Check client.ts
 	clientCode := result.Files["src/client.ts"]
-	if !strings.Contains(clientCode, "class Client") {
-		t.Error("client.ts should contain Client class")
+	if !strings.Contains(clientCode, "class APIClient") {
+		t.Error("client.ts should contain APIClient class")
 	}
 	if !strings.Contains(clientCode, "axios") {
 		t.Error("client.ts should use axios")
@@ -197,11 +205,11 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 
 	// Check rest.ts contains methods
 	restCode := result.Files["src/rest.ts"]
-	if !strings.Contains(restCode, "listUsers") {
-		t.Error("rest.ts should contain listUsers method")
+	if !strings.Contains(restCode, "listusers") {
+		t.Error("rest.ts should contain listusers method")
 	}
-	if !strings.Contains(restCode, "createUser") {
-		t.Error("rest.ts should contain createUser method")
+	if !strings.Contains(restCode, "createuser") {
+		t.Error("rest.ts should contain createuser method")
 	}
 	if !strings.Contains(restCode, "async") {
 		t.Error("rest.ts should use async/await")

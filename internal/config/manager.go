@@ -1419,6 +1419,7 @@ func (m *Manager) Set(key string, value interface{}) {
 		Timestamp: time.Now(),
 	}
 	m.notifyChangeCallbacks(change)
+	m.notifyWatchCallbacks()
 }
 
 // =============================================================================
@@ -2049,15 +2050,30 @@ func (m *Manager) parseSizeInBytes(s string) uint64 {
 
 func (m *Manager) bindValue(value interface{}, target interface{}) error {
 	targetValue := reflect.ValueOf(target)
-	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
-		return ErrConfigError("target must be a pointer to struct", nil)
+	if targetValue.Kind() != reflect.Ptr {
+		return ErrConfigError("target must be a pointer", nil)
 	}
 
-	targetStruct := targetValue.Elem()
+	targetElem := targetValue.Elem()
 	sourceValue := reflect.ValueOf(value)
 
+	// Handle simple type binding (string, int, etc.)
+	if targetElem.Kind() != reflect.Struct {
+		if sourceValue.Type().AssignableTo(targetElem.Type()) {
+			targetElem.Set(sourceValue)
+			return nil
+		}
+		// Try to convert if possible
+		if sourceValue.Type().ConvertibleTo(targetElem.Type()) {
+			targetElem.Set(sourceValue.Convert(targetElem.Type()))
+			return nil
+		}
+		return ErrConfigError(fmt.Sprintf("cannot convert %s to %s", sourceValue.Type(), targetElem.Type()), nil)
+	}
+
+	// Handle struct binding
 	if sourceValue.Kind() == reflect.Map {
-		return m.bindMapToStruct(sourceValue, targetStruct)
+		return m.bindMapToStruct(sourceValue, targetElem)
 	}
 
 	return ErrConfigError("unsupported value type for binding", nil)

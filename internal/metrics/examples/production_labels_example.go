@@ -336,7 +336,7 @@ func getEnv(key, defaultValue string) string {
 func RunExample() {
 	example := NewProductionMetricsExample()
 
-	fmt.Println("=== Production-Grade Metrics Labels Example ===\n")
+	fmt.Println("=== Production-Grade Metrics Labels Example ===")
 
 	// Simulate HTTP requests
 	fmt.Println("Recording HTTP requests...")

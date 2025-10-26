@@ -24,8 +24,8 @@ func TestGoGenerator(t *testing.T) {
 		"auth",
 		"reconnection",
 		"heartbeat",
-		"stateManagement",
-		"typedErrors",
+		"state-management",
+		"typed-errors",
 	}
 
 	for _, expected := range expectedFeatures {
@@ -282,7 +282,7 @@ func TestGoGeneratorWebSocket(t *testing.T) {
 
 	// Check for heartbeat
 	if config.Features.Heartbeat {
-		if !strings.Contains(wsCode, "heartbeat") || !strings.Contains(wsCode, "ping") {
+		if !strings.Contains(wsCode, "heartbeat") || !strings.Contains(wsCode, "PingMessage") {
 			t.Error("websocket.go should contain heartbeat/ping logic")
 		}
 	}

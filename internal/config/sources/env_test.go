@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -390,8 +391,7 @@ func TestEnvSource_SecretVars(t *testing.T) {
 	defer os.Unsetenv("SECRET_PASSWORD")
 	defer os.Unsetenv("NORMAL_VAR")
 
-	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
-		Prefix:     "SECRET_",
+	source, _ := NewEnvSource("SECRET_", EnvSourceOptions{
 		SecretVars: []string{"PASSWORD"},
 	})
 
@@ -593,10 +593,14 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty var value", func(t *testing.T) {
-		os.Setenv("EMPTY_VAR", "")
-		defer os.Unsetenv("EMPTY_VAR")
+		os.Setenv("TEST_EMPTY_VAR", "")
+		defer os.Unsetenv("TEST_EMPTY_VAR")
 
-		source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
+			KeyTransform: func(key string) string {
+				return key // Don't convert separators to dots
+			},
+		})
 
 		ctx := context.Background()
 		data, err := source.Load(ctx)
@@ -605,6 +609,9 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 			t.Errorf("Load() error = %v", err)
 		}
 
+		// Debug: print all loaded data
+		t.Logf("Loaded data: %+v", data)
+
 		if val, ok := data["EMPTY_VAR"].(string); !ok || val != "" {
 			t.Errorf("EMPTY_VAR = %v, want empty string", data["EMPTY_VAR"])
 		}
@@ -612,10 +619,14 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 
 	t.Run("special characters in value", func(t *testing.T) {
 		specialValue := "value with spaces and !@#$%^&*()"
-		os.Setenv("SPECIAL_VAR", specialValue)
-		defer os.Unsetenv("SPECIAL_VAR")
+		os.Setenv("TEST_SPECIAL_VAR", specialValue)
+		defer os.Unsetenv("TEST_SPECIAL_VAR")
 
-		source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
+			KeyTransform: func(key string) string {
+				return key // Don't convert separators to dots
+			},
+		})
 
 		ctx := context.Background()
 		data, err := source.Load(ctx)
@@ -630,11 +641,15 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("very long value", func(t *testing.T) {
-		longValue := string(make([]byte, 10000))
-		os.Setenv("LONG_VAR", longValue)
-		defer os.Unsetenv("LONG_VAR")
+		longValue := strings.Repeat("a", 10000)
+		os.Setenv("TEST_LONG_VAR", longValue)
+		defer os.Unsetenv("TEST_LONG_VAR")
 
-		source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
+			KeyTransform: func(key string) string {
+				return key // Don't convert separators to dots
+			},
+		})
 
 		ctx := context.Background()
 		data, err := source.Load(ctx)
@@ -650,10 +665,14 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 
 	t.Run("unicode in value", func(t *testing.T) {
 		unicodeValue := "Hello 世界 🌍"
-		os.Setenv("UNICODE_VAR", unicodeValue)
-		defer os.Unsetenv("UNICODE_VAR")
+		os.Setenv("TEST_UNICODE_VAR", unicodeValue)
+		defer os.Unsetenv("TEST_UNICODE_VAR")
 
-		source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
+		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
+			KeyTransform: func(key string) string {
+				return key // Don't convert separators to dots
+			},
+		})
 
 		ctx := context.Background()
 		data, err := source.Load(ctx)
@@ -735,8 +754,8 @@ func TestEnvSource_MixedTypes(t *testing.T) {
 		os.Unsetenv("MIX_LIST")
 	}()
 
-	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
-		Prefix: "MIX_",
+	source, _ := NewEnvSource("MIX_", EnvSourceOptions{
+		TypeConversion: true,
 	})
 
 	ctx := context.Background()

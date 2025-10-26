@@ -55,7 +55,7 @@ func (sr *SourceRegistryImpl) RegisterSource(source ConfigSource) error {
 	metadata := &SourceMetadata{
 		Name:         sourceName,
 		Priority:     source.Priority(),
-		Type:         sr.getSourceType(source),
+		Type:         source.GetType(),
 		LastLoaded:   time.Time{}, // Will be updated on first load
 		LastModified: time.Time{}, // Will be updated when source changes
 		IsWatching:   false,       // Will be updated when watching starts
@@ -156,9 +156,12 @@ func (sr *SourceRegistryImpl) GetSources() []ConfigSource {
 		})
 	}
 
-	// Sort by priority (higher priority first)
+	// Sort by priority (higher priority first), then by name for stability
 	sort.Slice(sourcesWithPriority, func(i, j int) bool {
-		return sourcesWithPriority[i].priority > sourcesWithPriority[j].priority
+		if sourcesWithPriority[i].priority != sourcesWithPriority[j].priority {
+			return sourcesWithPriority[i].priority > sourcesWithPriority[j].priority
+		}
+		return sourcesWithPriority[i].source.Name() < sourcesWithPriority[j].source.Name()
 	})
 
 	// Extract sorted sources
@@ -349,7 +352,12 @@ func (sr *SourceRegistryImpl) GetSourceStats() map[string]interface{} {
 
 // getSourceType determines the type of a configuration source
 func (sr *SourceRegistryImpl) getSourceType(source ConfigSource) string {
-	// Use type assertion to determine the source type
+	// Use GetType() method first
+	if sourceType := source.GetType(); sourceType != "" && sourceType != "unknown" {
+		return sourceType
+	}
+	
+	// Fall back to type assertion for known types
 	switch source.(type) {
 	case *sources.FileSource:
 		return "file"

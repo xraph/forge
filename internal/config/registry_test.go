@@ -111,6 +111,9 @@ func (m *mockConfigSource) GetName() string {
 }
 
 func (m *mockConfigSource) GetType() string {
+	if m.metadata.Type != "" {
+		return m.metadata.Type
+	}
 	return "mock"
 }
 

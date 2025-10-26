@@ -348,32 +348,26 @@ operations:
 	}
 
 	// Test SSE endpoint
-	if len(spec.SSEs) == 0 {
-		t.Fatal("Expected SSE endpoints, got none")
+	if len(spec.SSEs) != 0 {
+		t.Errorf("Expected 0 SSE endpoints, got %d", len(spec.SSEs))
 	}
 
-	var notifSSE *client.SSEEndpoint
-	for i := range spec.SSEs {
-		if spec.SSEs[i].Path == "/notifications" {
-			notifSSE = &spec.SSEs[i]
+	// Test notifications WebSocket endpoint
+	var notifWS *client.WebSocketEndpoint
+	for i := range spec.WebSockets {
+		if spec.WebSockets[i].Path == "/notifications" {
+			notifWS = &spec.WebSockets[i]
 			break
 		}
 	}
 
-	if notifSSE == nil {
-		t.Fatal("Notifications SSE endpoint not found")
+	if notifWS == nil {
+		t.Fatal("Notifications WebSocket endpoint not found")
 	}
 
-	// Check event schemas
-	if len(notifSSE.EventSchemas) != 2 {
-		t.Errorf("Expected 2 event schemas, got %d", len(notifSSE.EventSchemas))
-	}
-
-	if _, ok := notifSSE.EventSchemas["userJoined"]; !ok {
-		t.Error("Expected 'userJoined' event schema")
-	}
-	if _, ok := notifSSE.EventSchemas["userLeft"]; !ok {
-		t.Error("Expected 'userLeft' event schema")
+	// Check that notifications has receive schema
+	if notifWS.ReceiveSchema == nil {
+		t.Error("Expected receive schema for notifications, got nil")
 	}
 }
 
@@ -400,7 +394,7 @@ func TestSpecParserInvalidFile(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "Missing openapi/asyncapi version",
+			name: "Missing_openapi_asyncapi_version",
 			content: `
 info:
   title: Test

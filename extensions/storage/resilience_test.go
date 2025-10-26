@@ -23,7 +23,12 @@ type mockStorage struct {
 func (m *mockStorage) Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error {
 	m.callCount++
 	if m.slowResponse > 0 {
-		time.Sleep(m.slowResponse)
+		select {
+		case <-time.After(m.slowResponse):
+			// Continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	if m.shouldFail {
 		return errors.New("mock upload error")

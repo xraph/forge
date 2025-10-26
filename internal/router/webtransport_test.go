@@ -78,7 +78,7 @@ func TestWebTransportSessionContext(t *testing.T) {
 func TestStreamConfig(t *testing.T) {
 	config := DefaultStreamConfig()
 
-	if !config.EnableWebTransport {
+	if config.EnableWebTransport {
 		t.Error("expected EnableWebTransport to be false by default")
 	}
 

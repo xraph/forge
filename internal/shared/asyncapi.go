@@ -128,7 +128,7 @@ type HTTPChannelBinding struct {
 
 // AsyncAPIServerReference references a server
 type AsyncAPIServerReference struct {
-	Ref string `json:"$ref"` // #/servers/serverName
+	Ref string `json:"$ref" yaml:"$ref"` // #/servers/serverName
 }
 
 // AsyncAPIParameter represents a parameter in channel address
@@ -159,12 +159,12 @@ type AsyncAPIOperation struct {
 
 // AsyncAPIChannelReference references a channel
 type AsyncAPIChannelReference struct {
-	Ref string `json:"$ref"` // #/channels/channelName
+	Ref string `json:"$ref" yaml:"$ref"` // #/channels/channelName
 }
 
 // AsyncAPIMessageReference references a message
 type AsyncAPIMessageReference struct {
-	Ref string `json:"$ref"` // #/components/messages/messageName or #/channels/channelName/messages/messageName
+	Ref string `json:"$ref" yaml:"$ref"` // #/components/messages/messageName or #/channels/channelName/messages/messageName
 }
 
 // AsyncAPIOperationBindings contains protocol-specific operation bindings
