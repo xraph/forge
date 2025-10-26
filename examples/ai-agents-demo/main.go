@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Forge v2: AI Agent Storage & API Demo ===\n")
+	fmt.Println("=== Forge v2: AI Agent Storage & API Demo ===")
 
 	// Option 1: Use in-memory store (default, no database)
 	memoryStore := stores.NewMemoryAgentStore()
@@ -43,14 +43,14 @@ func main() {
 				logger = loggerImpl
 			}
 		}
-		
+
 		sqlStore := stores.NewSQLAgentStore(db, "agents", logger)
-		
+
 		// Create table
 		if err := sqlStore.CreateTable(context.Background()); err != nil {
 			log.Printf("Warning: failed to create agents table: %v", err)
 		}
-		
+
 		agentStore = sqlStore
 		fmt.Println("✓ Using SQL store (persistent)")
 	} else {
@@ -91,8 +91,6 @@ func main() {
 			log.Printf("Error stopping app: %v", err)
 		}
 	}()
-
-
 
 	// Get AI manager
 	var aiManager ai.AI

@@ -186,7 +186,7 @@ func main() {
 	fmt.Println("  curl -X POST http://localhost:8080/users/1/invalidate")
 	fmt.Println("\n  # Extension health")
 	fmt.Println("  curl http://localhost:8080/_/health")
-	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
 	// Run app (blocks until SIGINT/SIGTERM)
 	if err := app.Run(); err != nil {

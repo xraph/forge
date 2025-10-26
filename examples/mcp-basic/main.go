@@ -78,7 +78,7 @@ func main() {
 	fmt.Println(`  curl -X POST http://localhost:8080/_/mcp/tools/example_create_users \
     -H "Content-Type: application/json" \
     -d '{"name":"example_create_users","arguments":{"body":{"name":"Charlie","email":"charlie@example.com"}}}'`)
-	fmt.Println("\n")
+	fmt.Println("")
 
 	// Run HTTP server
 	if err := app.Run(); err != nil {

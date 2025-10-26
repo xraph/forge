@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/xraph/forge/internal/logger"
 )
 
 // TestNewApp tests app creation
@@ -37,6 +39,8 @@ func TestNewApp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Use test logger to prevent terminal bloating
+			tt.config.Logger = logger.NewTestLogger()
 			app := NewApp(tt.config)
 			if app == nil {
 				t.Fatal("expected app, got nil")
@@ -51,6 +55,7 @@ func TestNewApp(t *testing.T) {
 // TestAppComponents tests core component access
 func TestAppComponents(t *testing.T) {
 	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
 	app := NewApp(config)
 
 	t.Run("container", func(t *testing.T) {
@@ -96,6 +101,7 @@ func TestAppInfo(t *testing.T) {
 		Name:        "test-app",
 		Version:     "1.2.3",
 		Environment: "test",
+		Logger:      logger.NewTestLogger(),
 	}
 	app := NewApp(config)
 
@@ -136,7 +142,9 @@ func TestAppInfo(t *testing.T) {
 // TestAppStart tests app startup
 func TestAppStart(t *testing.T) {
 	t.Run("successful start", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 		ctx := context.Background()
 
 		err := app.Start(ctx)
@@ -149,7 +157,9 @@ func TestAppStart(t *testing.T) {
 	})
 
 	t.Run("double start fails", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 		ctx := context.Background()
 
 		err := app.Start(ctx)
@@ -171,7 +181,9 @@ func TestAppStart(t *testing.T) {
 // TestAppStop tests app shutdown
 func TestAppStop(t *testing.T) {
 	t.Run("stop after start", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 		ctx := context.Background()
 
 		err := app.Start(ctx)
@@ -186,7 +198,9 @@ func TestAppStop(t *testing.T) {
 	})
 
 	t.Run("stop without start", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 		ctx := context.Background()
 
 		// Should not error
@@ -197,7 +211,9 @@ func TestAppStop(t *testing.T) {
 	})
 
 	t.Run("double stop", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 		ctx := context.Background()
 
 		err := app.Start(ctx)
@@ -221,7 +237,9 @@ func TestAppStop(t *testing.T) {
 // TestAppRegisterService tests service registration
 func TestAppRegisterService(t *testing.T) {
 	t.Run("register service", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 
 		// Register a test service
 		err := app.RegisterService("testService", func(c Container) (any, error) {
@@ -247,7 +265,9 @@ func TestAppRegisterService(t *testing.T) {
 // TestAppRegisterController tests controller registration
 func TestAppRegisterController(t *testing.T) {
 	t.Run("register controller", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 
 		// Create a test controller
 		ctrl := &appTestController{}
@@ -291,6 +311,7 @@ func TestAppInfoEndpoint(t *testing.T) {
 		Version:     "1.0.0",
 		Description: "Test app",
 		Environment: "test",
+		Logger:      logger.NewTestLogger(),
 	})
 
 	// Start app
@@ -334,6 +355,7 @@ func TestAppWithMetrics(t *testing.T) {
 	config := DefaultAppConfig()
 	config.MetricsConfig.Enabled = true
 	config.MetricsConfig.Namespace = "test"
+	config.Logger = logger.NewTestLogger()
 
 	app := NewApp(config)
 	ctx := context.Background()
@@ -357,6 +379,7 @@ func TestAppWithMetrics(t *testing.T) {
 func TestAppWithHealth(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HealthConfig.Enabled = true
+	config.Logger = logger.NewTestLogger()
 
 	app := NewApp(config)
 	ctx := context.Background()
@@ -463,6 +486,7 @@ func TestAppConfigDefaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			tt.config.Logger = logger.NewTestLogger()
 			app := NewApp(tt.config)
 			tt.check(t, app)
 		})
@@ -481,6 +505,7 @@ func TestAppGracefulShutdown(t *testing.T) {
 	t.Run("shutdown with timeout", func(t *testing.T) {
 		config := DefaultAppConfig()
 		config.ShutdownTimeout = 100 * time.Millisecond
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(config)
 		ctx := context.Background()
@@ -578,7 +603,7 @@ func TestDefaultLoggerFatal(t *testing.T) {
 
 // TestDefaultConfigManager tests the default config manager
 func TestDefaultConfigManager(t *testing.T) {
-	logger := NewNoopLogger()
+	logger := logger.NewTestLogger()
 	metrics := NewNoOpMetrics()
 	errorHandler := NewDefaultErrorHandler(logger)
 	cm := NewDefaultConfigManager(logger, metrics, errorHandler)
@@ -618,7 +643,7 @@ func TestDefaultConfigManager(t *testing.T) {
 
 	t.Run("Bind returns error", func(t *testing.T) {
 		var target string
-		err := cm.Bind("key", &target)
+		err := cm.Bind("nonexistent-key", &target)
 		if err == nil {
 			t.Error("expected error, got nil")
 		}
@@ -674,6 +699,7 @@ func (l *testSugarLogger) With(args ...interface{}) SugarLogger            { ret
 func TestAppShutdownSignals(t *testing.T) {
 	config := DefaultAppConfig()
 	config.ShutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+	config.Logger = logger.NewTestLogger()
 
 	app := NewApp(config)
 	if app == nil {
@@ -688,6 +714,7 @@ func TestAppWithDisabledObservability(t *testing.T) {
 	config := DefaultAppConfig()
 	config.MetricsConfig.Enabled = false
 	config.HealthConfig.Enabled = false
+	config.Logger = logger.NewTestLogger()
 
 	app := NewApp(config)
 	ctx := context.Background()

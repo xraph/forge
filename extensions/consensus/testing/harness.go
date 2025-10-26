@@ -499,25 +499,25 @@ func (h *TestHarness) RemoveLatency(nodeID string) error {
 	return h.InjectLatency(nodeID, 0)
 }
 
-// testLogger implements forge.Logger for testing
+// testLogger implements forge.Logger for testing (no-op to reduce terminal output)
 type testLogger struct {
 	t *testing.T
 }
 
 func (tl *testLogger) Debug(msg string, fields ...forge.Field) {
-	tl.t.Logf("[DEBUG] %s %v", msg, fields)
+	// No-op to reduce terminal output during tests
 }
 
 func (tl *testLogger) Info(msg string, fields ...forge.Field) {
-	tl.t.Logf("[INFO] %s %v", msg, fields)
+	// No-op to reduce terminal output during tests
 }
 
 func (tl *testLogger) Warn(msg string, fields ...forge.Field) {
-	tl.t.Logf("[WARN] %s %v", msg, fields)
+	// No-op to reduce terminal output during tests
 }
 
 func (tl *testLogger) Error(msg string, fields ...forge.Field) {
-	tl.t.Logf("[ERROR] %s %v", msg, fields)
+	// No-op to reduce terminal output during tests
 }
 
 func (tl *testLogger) Fatal(msg string, fields ...forge.Field) {
@@ -529,19 +529,19 @@ func (tl *testLogger) With(fields ...forge.Field) forge.Logger {
 }
 
 func (tl *testLogger) Debugf(template string, args ...interface{}) {
-	tl.t.Logf("[DEBUG] "+template, args...)
+	// No-op to reduce terminal output during tests
 }
 
 func (tl *testLogger) Infof(template string, args ...interface{}) {
-	tl.t.Logf("[INFO] "+template, args...)
+	// No-op to reduce terminal output during tests
 }
 
 func (tl *testLogger) Warnf(template string, args ...interface{}) {
-	tl.t.Logf("[WARN] "+template, args...)
+	// No-op to reduce terminal output during tests
 }
 
 func (tl *testLogger) Errorf(template string, args ...interface{}) {
-	tl.t.Logf("[ERROR] "+template, args...)
+	// No-op to reduce terminal output during tests
 }
 
 func (tl *testLogger) Fatalf(template string, args ...interface{}) {
@@ -564,25 +564,25 @@ func (tl *testLogger) Sync() error {
 	return nil
 }
 
-// testSugarLogger implements forge.SugarLogger for testing
+// testSugarLogger implements forge.SugarLogger for testing (no-op to reduce terminal output)
 type testSugarLogger struct {
 	t *testing.T
 }
 
 func (tsl *testSugarLogger) Debugw(msg string, keysAndValues ...interface{}) {
-	tsl.t.Logf("[DEBUG] %s %v", msg, keysAndValues)
+	// No-op to reduce terminal output during tests
 }
 
 func (tsl *testSugarLogger) Infow(msg string, keysAndValues ...interface{}) {
-	tsl.t.Logf("[INFO] %s %v", msg, keysAndValues)
+	// No-op to reduce terminal output during tests
 }
 
 func (tsl *testSugarLogger) Warnw(msg string, keysAndValues ...interface{}) {
-	tsl.t.Logf("[WARN] %s %v", msg, keysAndValues)
+	// No-op to reduce terminal output during tests
 }
 
 func (tsl *testSugarLogger) Errorw(msg string, keysAndValues ...interface{}) {
-	tsl.t.Logf("[ERROR] %s %v", msg, keysAndValues)
+	// No-op to reduce terminal output during tests
 }
 
 func (tsl *testSugarLogger) Fatalw(msg string, keysAndValues ...interface{}) {

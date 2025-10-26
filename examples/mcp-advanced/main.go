@@ -222,5 +222,5 @@ func printUsageInfo() {
     curl -H "X-API-Key: dev-secret-key-123" \
     http://localhost:8080/_/mcp/tools; \
   done`)
-	fmt.Println("\n")
+	fmt.Println("")
 }

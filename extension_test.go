@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metrics2 "github.com/xraph/forge/internal/metrics"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // Mock extension for testing
@@ -88,7 +89,7 @@ func TestBaseExtension(t *testing.T) {
 
 	t.Run("LoggerAndMetrics", func(t *testing.T) {
 		ext := NewBaseExtension("test", "1.0.0", "Test")
-		logger := NewNoopLogger()
+		logger := logger.NewTestLogger()
 		metrics := metrics2.NewNoOpMetrics()
 
 		ext.SetLogger(logger)
@@ -100,7 +101,9 @@ func TestBaseExtension(t *testing.T) {
 
 	t.Run("DefaultRegister", func(t *testing.T) {
 		ext := NewBaseExtension("test", "1.0.0", "Test")
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 
 		err := ext.Register(app)
 		assert.NoError(t, err)
@@ -133,7 +136,9 @@ func TestBaseExtension(t *testing.T) {
 // Test Extension registration with App
 func TestAppRegisterExtension(t *testing.T) {
 	t.Run("RegisterSingleExtension", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 		ext := newMockExtension("test", "1.0.0")
 
 		err := app.RegisterExtension(ext)
@@ -145,7 +150,9 @@ func TestAppRegisterExtension(t *testing.T) {
 	})
 
 	t.Run("RegisterMultipleExtensions", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 		ext1 := newMockExtension("ext1", "1.0.0")
 		ext2 := newMockExtension("ext2", "2.0.0")
 
@@ -160,7 +167,9 @@ func TestAppRegisterExtension(t *testing.T) {
 	})
 
 	t.Run("RegisterDuplicateExtension", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 		ext1 := newMockExtension("test", "1.0.0")
 		ext2 := newMockExtension("test", "2.0.0")
 
@@ -176,8 +185,11 @@ func TestAppRegisterExtension(t *testing.T) {
 		ext1 := newMockExtension("ext1", "1.0.0")
 		ext2 := newMockExtension("ext2", "2.0.0")
 
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 		app := NewApp(AppConfig{
 			Name:       "test-app",
+			Logger:     config.Logger,
 			Extensions: []Extension{ext1, ext2},
 		})
 
@@ -190,7 +202,10 @@ func TestAppRegisterExtension(t *testing.T) {
 func TestAppGetExtension(t *testing.T) {
 	t.Run("GetExistingExtension", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext},
 		})
 
@@ -200,7 +215,9 @@ func TestAppGetExtension(t *testing.T) {
 	})
 
 	t.Run("GetNonExistentExtension", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 
 		_, err := app.GetExtension("nonexistent")
 		assert.Error(t, err)
@@ -212,7 +229,10 @@ func TestAppGetExtension(t *testing.T) {
 func TestExtensionLifecycle(t *testing.T) {
 	t.Run("StartCallsRegisterAndStart", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext},
 		})
 
@@ -229,7 +249,10 @@ func TestExtensionLifecycle(t *testing.T) {
 
 	t.Run("StopCallsStop", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext},
 		})
 
@@ -245,8 +268,11 @@ func TestExtensionLifecycle(t *testing.T) {
 	t.Run("StartErrorPropagates", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
 		ext.startError = fmt.Errorf("start failed")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext},
 		})
 
@@ -259,8 +285,11 @@ func TestExtensionLifecycle(t *testing.T) {
 	t.Run("StopErrorDoesNotPropagate", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
 		ext.stopError = fmt.Errorf("stop failed")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext},
 		})
 
@@ -278,8 +307,11 @@ func TestExtensionDependencies(t *testing.T) {
 		ext1 := newMockExtension("ext1", "1.0.0")
 		ext2 := newMockExtension("ext2", "1.0.0", "ext1") // ext2 depends on ext1
 		ext3 := newMockExtension("ext3", "1.0.0", "ext2") // ext3 depends on ext2
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext3, ext2, ext1}, // Random order
 		})
 
@@ -298,8 +330,11 @@ func TestExtensionDependencies(t *testing.T) {
 	t.Run("CircularDependencyError", func(t *testing.T) {
 		ext1 := newMockExtension("ext1", "1.0.0", "ext2")
 		ext2 := newMockExtension("ext2", "1.0.0", "ext1") // Circular
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext1, ext2},
 		})
 
@@ -311,8 +346,11 @@ func TestExtensionDependencies(t *testing.T) {
 
 	t.Run("MissingDependencyIsOptional", func(t *testing.T) {
 		ext1 := newMockExtension("ext1", "1.0.0", "missing-ext")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext1},
 		})
 
@@ -328,8 +366,11 @@ func TestExtensionDependencies(t *testing.T) {
 		ext1 := newMockExtension("ext1", "1.0.0")
 		ext2 := newMockExtension("ext2", "1.0.0", "ext1")
 		ext3 := newMockExtension("ext3", "1.0.0")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext1, ext2, ext3}, // Registered in this order
 		})
 
@@ -354,7 +395,10 @@ func TestExtensionDependencies(t *testing.T) {
 func TestExtensionHealthChecks(t *testing.T) {
 	t.Run("HealthCheckRegistered", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext},
 		})
 
@@ -375,8 +419,11 @@ func TestExtensionHealthChecks(t *testing.T) {
 	t.Run("UnhealthyExtension", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
 		ext.healthError = fmt.Errorf("extension unhealthy")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext},
 		})
 
@@ -399,10 +446,13 @@ func TestExtensionInfoEndpoint(t *testing.T) {
 	t.Run("InfoIncludesExtensions", func(t *testing.T) {
 		ext1 := newMockExtension("ext1", "1.0.0")
 		ext2 := newMockExtension("ext2", "2.0.0", "ext1")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 
 		app := NewApp(AppConfig{
 			Name:       "test-app",
 			Version:    "1.0.0",
+			Logger:     config.Logger,
 			Extensions: []Extension{ext1, ext2},
 		})
 
@@ -428,7 +478,9 @@ func TestExtensionInfoEndpoint(t *testing.T) {
 // Test Extension thread safety
 func TestExtensionThreadSafety(t *testing.T) {
 	t.Run("ConcurrentRegister", func(t *testing.T) {
-		app := NewApp(DefaultAppConfig())
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
+		app := NewApp(config)
 
 		done := make(chan bool)
 		for i := 0; i < 10; i++ {
@@ -449,7 +501,10 @@ func TestExtensionThreadSafety(t *testing.T) {
 
 	t.Run("ConcurrentAccess", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
+		config := DefaultAppConfig()
+		config.Logger = logger.NewTestLogger()
 		app := NewApp(AppConfig{
+			Logger:     config.Logger,
 			Extensions: []Extension{ext},
 		})
 
@@ -475,7 +530,9 @@ func TestExtensionThreadSafety(t *testing.T) {
 
 // Benchmark Extension operations
 func BenchmarkExtensionRegister(b *testing.B) {
-	app := NewApp(DefaultAppConfig())
+	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
+	app := NewApp(config)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -486,7 +543,10 @@ func BenchmarkExtensionRegister(b *testing.B) {
 
 func BenchmarkExtensionGetExtension(b *testing.B) {
 	ext := newMockExtension("test", "1.0.0")
+	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
 	app := NewApp(AppConfig{
+		Logger:     config.Logger,
 		Extensions: []Extension{ext},
 	})
 

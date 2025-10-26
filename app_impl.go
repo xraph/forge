@@ -496,8 +496,17 @@ func (a *app) setupBuiltinEndpoints() {
 
 // setupObservabilityEndpoints sets up observability endpoints
 func (a *app) setupObservabilityEndpoints() {
-	// These are already setup by router observability integration
-	// This is a placeholder for any additional setup
+	// Setup metrics endpoint if enabled
+	if a.config.MetricsConfig.Enabled {
+		a.router.GET("/_/metrics", a.handleMetrics)
+	}
+
+	// Setup health endpoints if enabled
+	if a.config.HealthConfig.Enabled {
+		a.router.GET("/_/health", a.handleHealth)
+		a.router.GET("/_/health/live", a.handleHealthLive)
+		a.router.GET("/_/health/ready", a.handleHealthReady)
+	}
 }
 
 // handleInfo handles the /_/info endpoint
@@ -852,4 +861,76 @@ func (a *app) reloadConfigsFromManager() error {
 	}
 
 	return nil
+}
+
+// handleMetrics handles the /_/metrics endpoint
+func (a *app) handleMetrics(ctx Context) error {
+	if a.metrics == nil {
+		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
+			"error": "metrics not available",
+		})
+	}
+
+	// Export metrics in Prometheus format
+	data, err := a.metrics.Export(shared.ExportFormatPrometheus)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to export metrics",
+		})
+	}
+
+	ctx.Response().Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+	ctx.Response().WriteHeader(http.StatusOK)
+	ctx.Response().Write(data)
+	return nil
+}
+
+// handleHealth handles the /_/health endpoint
+func (a *app) handleHealth(ctx Context) error {
+	if a.healthManager == nil {
+		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
+			"error": "health manager not available",
+		})
+	}
+
+	report := a.healthManager.Check(ctx.Request().Context())
+	
+	// Set status code based on health
+	statusCode := http.StatusOK
+	if report.Overall == HealthStatusUnhealthy {
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	return ctx.JSON(statusCode, report)
+}
+
+// handleHealthLive handles the /_/health/live endpoint
+func (a *app) handleHealthLive(ctx Context) error {
+	// Liveness probe - always returns 200 if server is up
+	return ctx.JSON(http.StatusOK, map[string]string{
+		"status": "alive",
+	})
+}
+
+// handleHealthReady handles the /_/health/ready endpoint
+func (a *app) handleHealthReady(ctx Context) error {
+	if a.healthManager == nil {
+		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
+			"status": "not ready",
+			"error":  "health manager not available",
+		})
+	}
+
+	report := a.healthManager.Check(ctx.Request().Context())
+	
+	if report.Overall == HealthStatusHealthy {
+		return ctx.JSON(http.StatusOK, map[string]string{
+			"status": "ready",
+		})
+	}
+	
+	return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
+		"status":  "not ready",
+		"message": "one or more services unhealthy",
+	})
 }
