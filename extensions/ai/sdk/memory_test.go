@@ -222,12 +222,18 @@ func TestMemoryManager_Recall_Limit(t *testing.T) {
 		},
 	}
 
+	// Provide embedding function so memories can be consolidated
+	embedFn := func(ctx context.Context, text string) ([]float64, error) {
+		return []float64{0.1, 0.2}, nil
+	}
+
 	mm := NewMemoryManager(nil, mockVector, nil, nil, &MemoryManagerOptions{
-		AgentID:         "agent-1",
-		WorkingCapacity: 10,
+		AgentID:           "agent-1",
+		WorkingCapacity:   3, // Set capacity to 3 to test consolidation
+		EmbeddingFunction: embedFn,
 	})
 
-	// Store 5 memories
+	// Store 5 memories (more than capacity)
 	for i := 0; i < 5; i++ {
 		mm.Store(context.Background(), "Memory", nil, 0.5)
 	}
