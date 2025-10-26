@@ -15,9 +15,17 @@ import (
 func (n *Node) runElectionTimer() {
 	defer n.wg.Done()
 
+	n.mu.Lock()
 	n.electionTimeout = n.randomElectionTimeout()
 	n.electionTimer = time.NewTimer(n.electionTimeout)
-	defer n.electionTimer.Stop()
+	n.mu.Unlock()
+	defer func() {
+		n.mu.Lock()
+		if n.electionTimer != nil {
+			n.electionTimer.Stop()
+		}
+		n.mu.Unlock()
+	}()
 
 	for {
 		select {
@@ -31,14 +39,24 @@ func (n *Node) runElectionTimer() {
 			}
 
 			// Reset timer
+			n.mu.Lock()
 			n.electionTimeout = n.randomElectionTimeout()
 			n.electionTimer.Reset(n.electionTimeout)
+			n.mu.Unlock()
 		}
 	}
 }
 
 // resetElectionTimer resets the election timer
 func (n *Node) resetElectionTimer() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.resetElectionTimerUnsafe()
+}
+
+// resetElectionTimerUnsafe resets the election timer without acquiring the lock
+// This should only be called when the caller already holds the lock
+func (n *Node) resetElectionTimerUnsafe() {
 	if n.electionTimer != nil {
 		n.electionTimeout = n.randomElectionTimeout()
 		n.electionTimer.Reset(n.electionTimeout)
@@ -67,6 +85,7 @@ func (n *Node) startElection() {
 
 	lastLogIndex := n.log.LastIndex()
 	lastLogTerm := n.log.LastTerm()
+	electionTimeout := n.electionTimeout // Read timeout while holding lock
 
 	n.mu.Unlock()
 
@@ -109,14 +128,14 @@ func (n *Node) startElection() {
 	}()
 
 	// Collect votes with timeout
-	electionTimeout := time.After(n.electionTimeout)
+	electionTimeoutTimer := time.After(electionTimeout)
 
 	for votes < votesNeeded && peerCount > 0 {
 		select {
 		case <-n.ctx.Done():
 			return
 
-		case <-electionTimeout:
+		case <-electionTimeoutTimer:
 			n.logger.Warn("election timeout",
 				forge.F("node_id", n.id),
 				forge.F("term", currentTerm),
@@ -269,7 +288,7 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 
 		n.votedFor = req.CandidateID
 		n.persistState()
-		n.resetElectionTimer()
+		n.resetElectionTimerUnsafe()
 
 		resp.VoteGranted = true
 		resp.Term = n.currentTerm
@@ -302,7 +321,7 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 	if (n.votedFor == "" || n.votedFor == req.CandidateID) && logUpToDate {
 		n.votedFor = req.CandidateID
 		n.persistState()
-		n.resetElectionTimer()
+		n.resetElectionTimerUnsafe()
 
 		resp.VoteGranted = true
 		resp.Term = n.currentTerm
@@ -436,7 +455,7 @@ func (n *Node) stepDownLocked(term uint64) {
 		n.heartbeatTicker = nil
 	}
 
-	n.resetElectionTimer()
+	n.resetElectionTimerUnsafe()
 }
 
 // runHeartbeat sends periodic heartbeats when leader

@@ -329,7 +329,7 @@ func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.A
 	}
 
 	// Reset election timer on valid AppendEntries
-	n.resetElectionTimer()
+	n.resetElectionTimerUnsafe()
 	n.setLeader(req.LeaderID)
 
 	// Reply false if log doesn't contain an entry at prevLogIndex
@@ -399,7 +399,7 @@ func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) intern
 	}
 
 	// Reset election timer
-	n.resetElectionTimer()
+	n.resetElectionTimerUnsafe()
 	n.setLeader(req.LeaderID)
 
 	// Install snapshot

@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -870,11 +871,14 @@ func TestManager_WatchWithCallback(t *testing.T) {
 		"key": "initial",
 	}
 
+	var mu sync.Mutex
 	callbackCalled := false
 	var callbackKey string
 	var callbackValue interface{}
 
 	manager.WatchWithCallback("key", func(key string, value interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
 		callbackCalled = true
 		callbackKey = key
 		callbackValue = value
@@ -886,24 +890,33 @@ func TestManager_WatchWithCallback(t *testing.T) {
 	// Give callback time to execute
 	time.Sleep(100 * time.Millisecond)
 
-	if !callbackCalled {
+	mu.Lock()
+	called := callbackCalled
+	key := callbackKey
+	value := callbackValue
+	mu.Unlock()
+
+	if !called {
 		t.Error("Watch callback was not called")
 	}
-	if callbackKey != "key" {
-		t.Errorf("callback key = %v, want %v", callbackKey, "key")
+	if key != "key" {
+		t.Errorf("callback key = %v, want %v", key, "key")
 	}
-	if callbackValue != "changed" {
-		t.Errorf("callback value = %v, want %v", callbackValue, "changed")
+	if value != "changed" {
+		t.Errorf("callback value = %v, want %v", value, "changed")
 	}
 }
 
 func TestManager_WatchChanges(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
 
+	var mu sync.Mutex
 	callbackCalled := false
 	var change ConfigChange
 
 	manager.WatchChanges(func(c ConfigChange) {
+		mu.Lock()
+		defer mu.Unlock()
 		callbackCalled = true
 		change = c
 	})
@@ -913,11 +926,16 @@ func TestManager_WatchChanges(t *testing.T) {
 	// Give callback time to execute
 	time.Sleep(100 * time.Millisecond)
 
-	if !callbackCalled {
+	mu.Lock()
+	called := callbackCalled
+	changeData := change
+	mu.Unlock()
+
+	if !called {
 		t.Error("Change callback was not called")
 	}
-	if change.Key != "key" {
-		t.Errorf("change.Key = %v, want %v", change.Key, "key")
+	if changeData.Key != "key" {
+		t.Errorf("change.Key = %v, want %v", changeData.Key, "key")
 	}
 }
 

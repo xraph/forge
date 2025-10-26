@@ -198,13 +198,22 @@ func (q *qualityMonitor) GetHistory(ctx context.Context, duration time.Duration)
 
 // monitorLoop runs the quality monitoring loop
 func (q *qualityMonitor) monitorLoop(ctx context.Context) {
+	// Get the ticker channel under read lock to avoid race condition
+	q.mu.RLock()
+	ticker := q.sampleTicker
+	q.mu.RUnlock()
+	
+	if ticker == nil {
+		return
+	}
+	
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-q.stopCh:
 			return
-		case <-q.sampleTicker.C:
+		case <-ticker.C:
 			if err := q.collectSample(ctx); err != nil {
 				q.logger.Error("failed to collect quality sample",
 					forge.F("peer_id", q.peerID),

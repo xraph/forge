@@ -481,12 +481,16 @@ func (hc *ManagerImpl) GetStats() *healthinternal.HealthCheckerStats {
 
 // autoDiscoverServices automatically discovers services for health checking
 func (hc *ManagerImpl) autoDiscoverServices() {
-	if hc.container == nil {
+	hc.mu.RLock()
+	container := hc.container
+	hc.mu.RUnlock()
+	
+	if container == nil {
 		return
 	}
 
 	// Get all services from the container
-	services := hc.container.Services()
+	services := container.Services()
 
 	for _, serviceName := range services {
 		// Check if already registered (with lock)
@@ -533,7 +537,15 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 // checkService performs a health check on a service
 func (hc *ManagerImpl) checkService(ctx context.Context, serviceName string) *healthinternal.HealthResult {
 	// Try to resolve the service
-	service, err := hc.container.Resolve(serviceName)
+	hc.mu.RLock()
+	container := hc.container
+	hc.mu.RUnlock()
+	
+	if container == nil {
+		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "container not available")
+	}
+	
+	service, err := container.Resolve(serviceName)
 	if err != nil {
 		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "service not found").WithError(err)
 	}

@@ -505,6 +505,7 @@ func (hc *HealthChecker) RunChecks(ctx context.Context) map[string]*HealthCheckR
 
 	results := make(map[string]*HealthCheckResult)
 	var wg sync.WaitGroup
+	var resultsMu sync.Mutex
 
 	for name, check := range checks {
 		wg.Add(1)
@@ -529,7 +530,9 @@ func (hc *HealthChecker) RunChecks(ctx context.Context) map[string]*HealthCheckR
 				result.Message = "OK"
 			}
 
+			resultsMu.Lock()
 			results[n] = result
+			resultsMu.Unlock()
 		}(name, check)
 	}
 

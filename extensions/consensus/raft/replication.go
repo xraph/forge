@@ -208,7 +208,7 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 	}
 
 	// Reset election timer since we heard from leader
-	n.resetElectionTimer()
+	n.resetElectionTimerUnsafe()
 
 	// If RPC term is higher, update our term and step down
 	if req.Term > n.currentTerm {
@@ -405,7 +405,7 @@ func (n *Node) InstallSnapshot(ctx context.Context, req *internal.InstallSnapsho
 	}
 
 	// Reset election timer
-	n.resetElectionTimer()
+	n.resetElectionTimerUnsafe()
 
 	// If term is higher, update our term
 	if req.Term > n.currentTerm {

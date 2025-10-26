@@ -74,12 +74,16 @@ func (hc *ManagerImpl) registerSystemChecks() error {
 
 // registerServiceChecks registers health checks for framework services
 func (hc *ManagerImpl) registerServiceChecks() error {
-	if hc.container == nil {
+	hc.mu.RLock()
+	container := hc.container
+	hc.mu.RUnlock()
+	
+	if container == nil {
 		return nil
 	}
 
 	// Get all registered services
-	services := hc.container.Services()
+	services := container.Services()
 
 	for _, serviceName := range services {
 		// Skip self and health checker
@@ -133,7 +137,16 @@ func (hc *ManagerImpl) registerServiceChecks() error {
 // checkServiceHealth checks the health of a specific service
 func (hc *ManagerImpl) checkServiceHealth(ctx context.Context, serviceName string) *HealthResult {
 	// Try to resolve the service from the container
-	service, err := hc.container.Resolve(serviceName)
+	hc.mu.RLock()
+	container := hc.container
+	hc.mu.RUnlock()
+	
+	if container == nil {
+		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "container not available").
+			WithDetail("service_name", serviceName)
+	}
+	
+	service, err := container.Resolve(serviceName)
 	if err != nil {
 		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "failed to resolve service").
 			WithError(err).

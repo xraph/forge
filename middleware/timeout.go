@@ -3,10 +3,68 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	forge "github.com/xraph/forge"
 )
+
+// safeResponseWriter wraps http.ResponseWriter to prevent race conditions
+// by completely buffering the response until flush is called
+type safeResponseWriter struct {
+	http.ResponseWriter
+	mu     sync.Mutex
+	header http.Header
+	code   int
+	body   []byte
+	flushed bool
+}
+
+func newSafeResponseWriter(w http.ResponseWriter) *safeResponseWriter {
+	return &safeResponseWriter{
+		ResponseWriter: w,
+		header:         make(http.Header),
+		code:           http.StatusOK,
+	}
+}
+
+func (w *safeResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *safeResponseWriter) WriteHeader(code int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.flushed {
+		w.code = code
+	}
+}
+
+func (w *safeResponseWriter) Write(data []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.flushed {
+		w.body = append(w.body, data...)
+		return len(data), nil
+	}
+	return w.ResponseWriter.Write(data)
+}
+
+func (w *safeResponseWriter) flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !w.flushed {
+		// Copy headers to underlying writer
+		for k, v := range w.header {
+			w.ResponseWriter.Header()[k] = v
+		}
+		w.ResponseWriter.WriteHeader(w.code)
+		if len(w.body) > 0 {
+			w.ResponseWriter.Write(w.body)
+		}
+		w.flushed = true
+	}
+}
 
 // Timeout middleware enforces a timeout on request handling
 // Returns 504 Gateway Timeout if request exceeds duration
@@ -17,26 +75,32 @@ func Timeout(duration time.Duration, logger forge.Logger) forge.Middleware {
 			ctx, cancel := context.WithTimeout(r.Context(), duration)
 			defer cancel()
 
+			// Wrap response writer to prevent race conditions
+			safeW := newSafeResponseWriter(w)
+
 			// Channel to signal completion
 			done := make(chan struct{})
 
 			// Run handler in goroutine
 			go func() {
-				next.ServeHTTP(w, r.WithContext(ctx))
-				close(done)
+				defer close(done)
+				next.ServeHTTP(safeW, r.WithContext(ctx))
 			}()
 
 			// Wait for completion or timeout
 			select {
 			case <-done:
-				// Request completed successfully
+				// Request completed successfully, flush any buffered data
+				safeW.flush()
 				return
 			case <-ctx.Done():
-				// Timeout occurred
+				// Timeout occurred - write timeout response directly to underlying writer
 				if logger != nil {
 					logger.Warn("request timeout")
 				}
-				http.Error(w, "Gateway Timeout", http.StatusGatewayTimeout)
+				// Write timeout response directly to avoid race with buffered response
+				w.WriteHeader(http.StatusGatewayTimeout)
+				w.Write([]byte("Gateway Timeout"))
 			}
 		})
 	}
