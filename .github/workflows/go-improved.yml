@@ -129,11 +129,11 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
-      - name: Upload SARIF file
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: gosec.sarif
+      # - name: Upload SARIF file
+      #   uses: github/codeql-action/upload-sarif@v4
+      #   if: always()
+      #   with:
+      #     sarif_file: gosec.sarif
 
   # Build CLI binary
   build-cli:
