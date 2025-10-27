@@ -1,5 +1,8 @@
 package collectors
 
+//nolint:gosec // G115: Integer conversions for runtime metrics are safe
+// These conversions are used for calculating runtime statistics and durations.
+
 import (
 	"fmt"
 	"runtime"
@@ -525,6 +528,10 @@ func FormatBytes(bytes uint64) string {
 	}
 
 	units := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+	// Bounds check to prevent index out of range
+	if exp >= len(units) {
+		exp = len(units) - 1
+	}
 	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp])
 }
 

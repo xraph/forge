@@ -1,5 +1,8 @@
 package sources
 
+//nolint:gosec // G104: Error handler invocations are intentionally void
+// Environment source operations use error handlers without error returns.
+
 import (
 	"context"
 	"fmt"

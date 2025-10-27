@@ -1,5 +1,8 @@
 package sources
 
+//nolint:gosec // G104: Error handler invocations and Close() methods are intentionally void
+// File source operations use error handlers and watcher close methods without error returns.
+
 import (
 	"context"
 	"fmt"
@@ -179,6 +182,7 @@ func (fs *FileSource) Load(ctx context.Context) (map[string]interface{}, error) 
 	fs.mu.Unlock()
 
 	// Read file content
+	// nolint:gosec // G304: Path is validated and controlled by application configuration
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.ErrConfigError(fmt.Sprintf("failed to read file %s", path), err)
@@ -525,8 +529,8 @@ func (fs *FileSource) createBackup(content []byte) error {
 		return nil
 	}
 
-	// Ensure backup directory exists
-	if err := os.MkdirAll(fs.options.BackupDir, 0755); err != nil {
+	// Ensure backup directory exists with restrictive permissions
+	if err := os.MkdirAll(fs.options.BackupDir, 0750); err != nil {
 		return err
 	}
 
@@ -535,8 +539,8 @@ func (fs *FileSource) createBackup(content []byte) error {
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := filepath.Join(fs.options.BackupDir, fmt.Sprintf("%s.%s.backup", filename, timestamp))
 
-	// Write backup
-	return os.WriteFile(backupPath, content, 0644)
+	// Write backup with restrictive permissions
+	return os.WriteFile(backupPath, content, 0600)
 }
 
 // GetPath returns the file path

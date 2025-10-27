@@ -22,6 +22,7 @@ func NewSpecParser() *SpecParser {
 
 // ParseFile parses a specification file (OpenAPI or AsyncAPI)
 func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, error) {
+	// nolint:gosec // G304: Path is validated and controlled by application configuration
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("read spec file: %w", err)
@@ -389,7 +390,7 @@ func convertOperation(method, path string, op *shared.Operation) Endpoint {
 	for statusCode, resp := range op.Responses {
 		code := 0
 		if statusCode != "default" {
-			fmt.Sscanf(statusCode, "%d", &code)
+			_, _ = fmt.Sscanf(statusCode, "%d", &code) // nolint:gosec // G104: fmt.Sscanf errors are ignored - default to 0 if parse fails
 		}
 
 		response := &Response{

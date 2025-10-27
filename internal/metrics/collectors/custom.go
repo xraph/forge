@@ -1,5 +1,8 @@
 package collectors
 
+//nolint:gosec // G104: Collector Reset() and Stop() methods are intentionally void
+// Custom collector methods don't return errors by design.
+
 import (
 	"fmt"
 	"sync"

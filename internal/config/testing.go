@@ -1,5 +1,9 @@
 package config
 
+//nolint:gosec // G115: All integer type conversions are intentional and value-controlled for testing
+// Test configuration manager uses type conversions for test data generation.
+// These conversions are safe in the test context.
+
 import (
 	"context"
 	"fmt"

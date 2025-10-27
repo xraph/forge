@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -217,8 +218,9 @@ func (p *PrometheusExporter) Start() error {
 
 	// Create HTTP server
 	p.server = &http.Server{
-		Addr:    p.config.ListenAddress,
-		Handler: handler,
+		Addr:              p.config.ListenAddress,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second, // Prevent Slowloris attack
 	}
 
 	// Start server in goroutine

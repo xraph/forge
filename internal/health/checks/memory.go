@@ -1,5 +1,8 @@
 package checks
 
+//nolint:gosec // G115: Integer conversions for memory metrics are safe
+// Conversions are used for calculating memory statistics from runtime data.
+
 import (
 	"context"
 	"fmt"

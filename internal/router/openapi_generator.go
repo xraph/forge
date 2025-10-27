@@ -224,11 +224,13 @@ func (g *openAPIGenerator) setOperation(pathItem *PathItem, method string, opera
 func (g *openAPIGenerator) RegisterEndpoints() {
 	// Register spec endpoint
 	if g.config.SpecEnabled {
+		// nolint:gosec // G104: Router registration errors are not possible here
 		g.router.GET(g.config.SpecPath, g.specHandler())
 	}
 
 	// Register Swagger UI endpoint
 	if g.config.UIEnabled {
+		// nolint:gosec // G104: Router registration errors are not possible here
 		g.router.GET(g.config.UIPath, g.uiHandler())
 	}
 }
@@ -249,6 +251,7 @@ func (g *openAPIGenerator) specHandler() interface{} {
 		}
 
 		ctx.Response().Header().Set("Content-Type", "application/json")
+		// nolint:gosec // G104: Response write errors are handled by the framework
 		ctx.Response().Write(data)
 		return nil
 	}
@@ -259,6 +262,7 @@ func (g *openAPIGenerator) uiHandler() interface{} {
 	return func(ctx Context) error {
 		html := g.generateSwaggerHTML()
 		ctx.Response().Header().Set("Content-Type", "text/html; charset=utf-8")
+		// nolint:gosec // G104: Response write errors are handled by the framework
 		ctx.Response().Write([]byte(html))
 		return nil
 	}

@@ -310,7 +310,7 @@ func (i *Introspector) operationToEndpoint(method, path string, op *shared.Opera
 	for statusCode, resp := range op.Responses {
 		code := 0
 		if statusCode != "default" {
-			fmt.Sscanf(statusCode, "%d", &code)
+			_, _ = fmt.Sscanf(statusCode, "%d", &code) // nolint:gosec // G104: fmt.Sscanf errors are ignored - default to 0 if parse fails
 		}
 
 		response := &Response{

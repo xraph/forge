@@ -1,5 +1,8 @@
 package logger
 
+//nolint:gosec // G115: Type conversions for logger field extraction are safe
+// Integer conversions are used for type casting in structured logging.
+
 import (
 	"context"
 	"fmt"

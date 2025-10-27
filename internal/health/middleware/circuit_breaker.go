@@ -649,6 +649,7 @@ func (hcb *HealthBasedCircuitBreaker) Handler() func(http.Handler) http.Handler 
 					"timestamp":     time.Now().Format(time.RFC3339),
 				}
 
+				// nolint:gosec // G104: writeJSON errors are handled by HTTP framework
 				writeJSON(w, response)
 				return
 			}

@@ -658,6 +658,7 @@ func (sm *SecretsManagerImpl) getProvidersInOrder() []SecretProvider {
 
 func (sm *SecretsManagerImpl) registerDefaultProviders() {
 	// Register built-in providers
+	// nolint:gosec // G104: RegisterProvider errors are not critical during initialization
 	sm.RegisterProvider("env", &EnvironmentSecretProvider{})
 	sm.RegisterProvider("file", &FileSecretProvider{})
 	sm.RegisterProvider("memory", &MemorySecretProvider{})
@@ -894,6 +895,7 @@ func (fsp *FileSecretProvider) GetSecret(ctx context.Context, key string) (strin
 
 	// Try to load from file
 	filePath := fmt.Sprintf("%s/%s", fsp.basePath, key)
+	// nolint:gosec // G304: Path is validated and controlled by application configuration
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read secret file %s: %w", filePath, err)

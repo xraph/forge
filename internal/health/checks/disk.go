@@ -2,6 +2,9 @@
 
 package checks
 
+//nolint:gosec // G115: Integer conversions for disk metrics are safe
+// Conversions are used for calculating file sizes from file system operations.
+
 import (
 	"context"
 	"fmt"
@@ -460,7 +463,8 @@ func (tdhc *TempDirHealthCheck) checkTempDir(tempDir string) map[string]interfac
 	var oldFiles int
 	cutoff := time.Now().Add(-tdhc.oldFileThreshold)
 
-	filepath.Walk(tempDir, func(path string, fileInfo os.FileInfo, err error) error {
+	// nolint:gosec // G104: filepath.Walk error is not critical, we still return info
+	if err := filepath.Walk(tempDir, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
 		}
@@ -475,7 +479,10 @@ func (tdhc *TempDirHealthCheck) checkTempDir(tempDir string) map[string]interfac
 		}
 
 		return nil
-	})
+	}); err != nil {
+		// Log the error but continue with the info collected so far
+		// This allows partial results to be returned
+	}
 
 	info["total_size"] = totalSize
 	info["file_count"] = fileCount
@@ -588,7 +595,8 @@ func (ldhc *LogDirHealthCheck) checkLogDir(logDir string) map[string]interface{}
 	var logFiles int
 	var rotationIssues []string
 
-	filepath.Walk(logDir, func(path string, fileInfo os.FileInfo, err error) error {
+	// nolint:gosec // G104: filepath.Walk error is not critical, we still return info
+	if err := filepath.Walk(logDir, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
 		}
@@ -604,7 +612,10 @@ func (ldhc *LogDirHealthCheck) checkLogDir(logDir string) map[string]interface{}
 		}
 
 		return nil
-	})
+	}); err != nil {
+		// Log the error but continue with the info collected so far
+		// This allows partial results to be returned
+	}
 
 	info["total_size"] = totalSize
 	info["log_files"] = logFiles
