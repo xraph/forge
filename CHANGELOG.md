@@ -1,3 +1,3 @@
 ### Bug Fixes
 
-* **ci:** prevent auto-release on direct release commits ([d481cbb](https://github.com/xraph/forge/commit/d481cbb8fa344ffe99402354e244081feb10d32e))
+* **ci:** trigger auto-release on PR merge event ([77c635b](https://github.com/xraph/forge/commit/77c635b936fbeba71588c0832a4eec9bfb33c775))
