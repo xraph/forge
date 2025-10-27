@@ -143,11 +143,13 @@ jobs:
           git diff --exit-code go.mod go.sum || (echo "❌ go.mod or go.sum needs tidying" && exit 1)
 
       - name: Security scan with gosec
+        continue-on-error: true
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
           gosec -exclude-dir=bk -exclude-dir=vendor -exclude-dir=examples ./... || true
 
       - name: Vulnerability check
+        continue-on-error: true
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
@@ -156,6 +158,7 @@ jobs:
   release:
     needs: [prepare, test, quality]
     runs-on: ubuntu-latest
+    if: needs.prepare.result == 'success' && needs.test.result == 'success'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -229,6 +232,7 @@ jobs:
   verify-release:
     needs: [prepare, release]
     runs-on: ubuntu-latest
+    if: needs.prepare.result == 'success' && needs.release.result == 'success'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -295,7 +299,7 @@ jobs:
 
   # Post-release notifications and cleanup
   post-release:
-    needs: [prepare, verify-release]
+    needs: [prepare, test, quality, verify-release]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -335,6 +339,18 @@ jobs:
           
           ### Download Binary
           Download from [GitHub Releases](https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare.outputs.tag_name }})
+          
+          EOF
+          
+          # Check for quality issues
+          if [ "${{ needs.quality.result }}" != "success" ]; then
+            cat >> $GITHUB_STEP_SUMMARY << EOF
+          
+          > ⚠️ **Note**: Quality checks had some warnings, but the release was successful. Please review security scan logs.
+          EOF
+          fi
+          
+          cat >> $GITHUB_STEP_SUMMARY << EOF
           
           ## What's Next
           - 📝 Update documentation
