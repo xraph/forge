@@ -1,3 +1,3 @@
 ### Bug Fixes
 
-* **ci:** trigger auto-release on PR merge event ([77c635b](https://github.com/xraph/forge/commit/77c635b936fbeba71588c0832a4eec9bfb33c775))
+* **ci:** make Windows tests optional in multi-module release workflow ([1ada987](https://github.com/xraph/forge/commit/1ada9872f81392b920701cf5846f43c49a00d968))
