@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -22,6 +21,19 @@ var (
 	kernel32               = syscall.NewLazyDLL("kernel32.dll")
 	getDiskFreeSpaceExPtr = kernel32.NewProc("GetDiskFreeSpaceExW")
 )
+
+// MemoryStatusEx represents Windows memory status structure
+type MemoryStatusEx struct {
+	Length              uint32
+	MemoryLoad          uint32
+	TotalPhys           uint64
+	AvailPhys           uint64
+	TotalPageFile       uint64
+	AvailPageFile       uint64
+	TotalVirtual        uint64
+	AvailVirtual        uint64
+	AvailExtendedVirtual uint64
+}
 
 // StatFS represents Windows disk statistics (compatible with Unix version)
 type StatFS struct {
@@ -250,7 +262,7 @@ func (sc *SystemCollector) addCPUMetrics(stats *CPUStats) {
 
 // collectMemoryStats collects memory statistics
 func (sc *SystemCollector) collectMemoryStats() (*MemoryStats, error) {
-	var memStatus syscall.MemoryStatusEx
+	var memStatus MemoryStatusEx
 	memStatus.Length = uint32(unsafe.Sizeof(memStatus))
 
 	ret, _, _ := syscall.NewLazyDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx").Call(uintptr(unsafe.Pointer(&memStatus)))

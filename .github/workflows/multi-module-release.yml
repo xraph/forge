@@ -178,20 +178,19 @@ jobs:
           
           echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
           
+          CHANGELOG_FILE=/tmp/changelog.txt
+          
           if [ -z "$PREV_TAG" ]; then
             echo "🎉 First release for $MODULE_NAME"
-            CHANGELOG=$(cat <<CHANGELOG_EOF
-## First Release
-
-This is the first release of the $MODULE_NAME module.
-
-### Installation
-
-\`\`\`bash
-go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG
-\`\`\`
-CHANGELOG_EOF
-            )
+            echo "## First Release" > "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+            echo "This is the first release of the $MODULE_NAME module." >> "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+            echo "### Installation" >> "$CHANGELOG_FILE"
+            echo "" >> "$CHANGELOG_FILE"
+            echo '```bash' >> "$CHANGELOG_FILE"
+            echo "go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG" >> "$CHANGELOG_FILE"
+            echo '```' >> "$CHANGELOG_FILE"
           else
             echo "📝 Generating changelog from $PREV_TAG to $CURRENT_TAG"
             
@@ -202,14 +201,11 @@ CHANGELOG_EOF
             fi
             
             if [ -z "$COMMITS" ]; then
-              CHANGELOG=$(cat <<CHANGELOG_EOF
-## No Changes
-
-No code changes in this module since $PREV_TAG.
-
-This release updates dependencies or metadata only.
-CHANGELOG_EOF
-              )
+              echo "## No Changes" > "$CHANGELOG_FILE"
+              echo "" >> "$CHANGELOG_FILE"
+              echo "No code changes in this module since $PREV_TAG." >> "$CHANGELOG_FILE"
+              echo "" >> "$CHANGELOG_FILE"
+              echo "This release updates dependencies or metadata only." >> "$CHANGELOG_FILE"
             else
               FEATURES=$(echo "$COMMITS" | grep -i "feat" || true)
               FIXES=$(echo "$COMMITS" | grep -i "fix" || true)
@@ -217,77 +213,57 @@ CHANGELOG_EOF
               PERF=$(echo "$COMMITS" | grep -i "perf" || true)
               REFACTOR=$(echo "$COMMITS" | grep -i "refactor" || true)
               
-              # Build changelog sections
-              CHANGELOG="## What's Changed"
+              echo "## What's Changed" > "$CHANGELOG_FILE"
               
               if [ -n "$BREAKING" ]; then
-                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
-
-### ⚠️ BREAKING CHANGES
-
-$BREAKING
-SECTION_EOF
-)"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "### ⚠️ BREAKING CHANGES" >> "$CHANGELOG_FILE"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "$BREAKING" >> "$CHANGELOG_FILE"
               fi
               
               if [ -n "$FEATURES" ]; then
-                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
-
-### ✨ New Features
-
-$FEATURES
-SECTION_EOF
-)"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "### ✨ New Features" >> "$CHANGELOG_FILE"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "$FEATURES" >> "$CHANGELOG_FILE"
               fi
               
               if [ -n "$FIXES" ]; then
-                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
-
-### 🐛 Bug Fixes
-
-$FIXES
-SECTION_EOF
-)"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "### 🐛 Bug Fixes" >> "$CHANGELOG_FILE"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "$FIXES" >> "$CHANGELOG_FILE"
               fi
               
               if [ -n "$PERF" ]; then
-                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
-
-### ⚡ Performance Improvements
-
-$PERF
-SECTION_EOF
-)"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "### ⚡ Performance Improvements" >> "$CHANGELOG_FILE"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "$PERF" >> "$CHANGELOG_FILE"
               fi
               
               if [ -n "$REFACTOR" ]; then
-                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
-
-### 🔨 Refactoring
-
-$REFACTOR
-SECTION_EOF
-)"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "### 🔨 Refactoring" >> "$CHANGELOG_FILE"
+                echo "" >> "$CHANGELOG_FILE"
+                echo "$REFACTOR" >> "$CHANGELOG_FILE"
               fi
               
-              # Add installation section
-              CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
-
-### Installation
-
-\`\`\`bash
-go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG
-\`\`\`
-
-**Full Changelog**: [\`$PREV_TAG...$CURRENT_TAG\`](https://github.com/${{ github.repository }}/compare/$PREV_TAG...$CURRENT_TAG)
-SECTION_EOF
-              )"
+              echo "" >> "$CHANGELOG_FILE"
+              echo "### Installation" >> "$CHANGELOG_FILE"
+              echo "" >> "$CHANGELOG_FILE"
+              echo '```bash' >> "$CHANGELOG_FILE"
+              echo "go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG" >> "$CHANGELOG_FILE"
+              echo '```' >> "$CHANGELOG_FILE"
+              echo "" >> "$CHANGELOG_FILE"
+              echo "**Full Changelog**: [\`$PREV_TAG...$CURRENT_TAG\`](https://github.com/${{ github.repository }}/compare/$PREV_TAG...$CURRENT_TAG)" >> "$CHANGELOG_FILE"
             fi
           fi
           
           # Save changelog to output
           echo "content<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          cat "$CHANGELOG_FILE" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
   create-release:
