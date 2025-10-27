@@ -217,35 +217,35 @@ jobs:
               
               if [ -n "$BREAKING" ]; then
                 echo "" >> "$CHANGELOG_FILE"
-                echo "### ⚠️ BREAKING CHANGES" >> "$CHANGELOG_FILE"
+                echo "### BREAKING CHANGES" >> "$CHANGELOG_FILE"
                 echo "" >> "$CHANGELOG_FILE"
                 echo "$BREAKING" >> "$CHANGELOG_FILE"
               fi
               
               if [ -n "$FEATURES" ]; then
                 echo "" >> "$CHANGELOG_FILE"
-                echo "### ✨ New Features" >> "$CHANGELOG_FILE"
+                echo "### New Features" >> "$CHANGELOG_FILE"
                 echo "" >> "$CHANGELOG_FILE"
                 echo "$FEATURES" >> "$CHANGELOG_FILE"
               fi
               
               if [ -n "$FIXES" ]; then
                 echo "" >> "$CHANGELOG_FILE"
-                echo "### 🐛 Bug Fixes" >> "$CHANGELOG_FILE"
+                echo "### Bug Fixes" >> "$CHANGELOG_FILE"
                 echo "" >> "$CHANGELOG_FILE"
                 echo "$FIXES" >> "$CHANGELOG_FILE"
               fi
               
               if [ -n "$PERF" ]; then
                 echo "" >> "$CHANGELOG_FILE"
-                echo "### ⚡ Performance Improvements" >> "$CHANGELOG_FILE"
+                echo "### Performance Improvements" >> "$CHANGELOG_FILE"
                 echo "" >> "$CHANGELOG_FILE"
                 echo "$PERF" >> "$CHANGELOG_FILE"
               fi
               
               if [ -n "$REFACTOR" ]; then
                 echo "" >> "$CHANGELOG_FILE"
-                echo "### 🔨 Refactoring" >> "$CHANGELOG_FILE"
+                echo "### Refactoring" >> "$CHANGELOG_FILE"
                 echo "" >> "$CHANGELOG_FILE"
                 echo "$REFACTOR" >> "$CHANGELOG_FILE"
               fi
@@ -257,7 +257,8 @@ jobs:
               echo "go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG" >> "$CHANGELOG_FILE"
               echo '```' >> "$CHANGELOG_FILE"
               echo "" >> "$CHANGELOG_FILE"
-              echo "**Full Changelog**: [\`$PREV_TAG...$CURRENT_TAG\`](https://github.com/${{ github.repository }}/compare/$PREV_TAG...$CURRENT_TAG)" >> "$CHANGELOG_FILE"
+              echo "**Full Changelog**: \`$PREV_TAG...$CURRENT_TAG\`" >> "$CHANGELOG_FILE"
+              echo "Compare: https://github.com/${{ github.repository }}/compare/$PREV_TAG...$CURRENT_TAG" >> "$CHANGELOG_FILE"
             fi
           fi
           
