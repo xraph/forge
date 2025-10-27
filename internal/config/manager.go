@@ -206,19 +206,33 @@ func (m *Manager) GetInt8(key string, defaultValue ...int8) int8 {
 	case int8:
 		return v
 	case int:
-		return int8(v)
+		if v >= -128 && v <= 127 {
+			return int8(v)
+		}
 	case int16:
-		return int8(v)
+		if v >= -128 && v <= 127 {
+			return int8(v)
+		}
 	case int32:
-		return int8(v)
+		if v >= -128 && v <= 127 {
+			return int8(v)
+		}
 	case int64:
-		return int8(v)
+		if v >= -128 && v <= 127 {
+			return int8(v)
+		}
 	case uint8:
-		return int8(v)
+		if v <= 127 {
+			return int8(v)
+		}
 	case float32:
-		return int8(v)
+		if v >= -128 && v <= 127 && v == float32(int8(v)) {
+			return int8(v)
+		}
 	case float64:
-		return int8(v)
+		if v >= -128 && v <= 127 && v == float64(int8(v)) {
+			return int8(v)
+		}
 	case string:
 		if i, err := strconv.ParseInt(v, 10, 8); err == nil {
 			return int8(i)
@@ -245,19 +259,31 @@ func (m *Manager) GetInt16(key string, defaultValue ...int16) int16 {
 	case int16:
 		return v
 	case int:
-		return int16(v)
+		if v >= -32768 && v <= 32767 {
+			return int16(v)
+		}
 	case int8:
 		return int16(v)
 	case int32:
-		return int16(v)
+		if v >= -32768 && v <= 32767 {
+			return int16(v)
+		}
 	case int64:
-		return int16(v)
+		if v >= -32768 && v <= 32767 {
+			return int16(v)
+		}
 	case uint16:
-		return int16(v)
+		if v <= 32767 {
+			return int16(v)
+		}
 	case float32:
-		return int16(v)
+		if v >= -32768 && v <= 32767 && v == float32(int16(v)) {
+			return int16(v)
+		}
 	case float64:
-		return int16(v)
+		if v >= -32768 && v <= 32767 && v == float64(int16(v)) {
+			return int16(v)
+		}
 	case string:
 		if i, err := strconv.ParseInt(v, 10, 16); err == nil {
 			return int16(i)
@@ -407,19 +433,27 @@ func (m *Manager) GetUint8(key string, defaultValue ...uint8) uint8 {
 	case uint8:
 		return v
 	case uint:
-		return uint8(v)
+		if v <= 255 {
+			return uint8(v)
+		}
 	case uint16:
-		return uint8(v)
+		if v <= 255 {
+			return uint8(v)
+		}
 	case uint32:
-		return uint8(v)
+		if v <= 255 {
+			return uint8(v)
+		}
 	case uint64:
-		return uint8(v)
+		if v <= 255 {
+			return uint8(v)
+		}
 	case int:
-		if v >= 0 {
+		if v >= 0 && v <= 255 {
 			return uint8(v)
 		}
 	case float64:
-		if v >= 0 {
+		if v >= 0 && v <= 255 && v == float64(uint8(v)) {
 			return uint8(v)
 		}
 	case string:

@@ -94,7 +94,7 @@ func (w *gzipResponseWriter) WriteHeader(code int) {
 // Flush implements http.Flusher
 func (w *gzipResponseWriter) Flush() {
 	if gz, ok := w.Writer.(*gzip.Writer); ok {
-		gz.Flush()
+		_ = gz.Flush()
 	}
 	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()

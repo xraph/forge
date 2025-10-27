@@ -663,6 +663,10 @@ func (t *MockTimer) GetMean() time.Duration {
 	if t.count == 0 {
 		return 0
 	}
+	// Check for potential overflow when converting uint64 to int64 (time.Duration)
+	if t.count > 9223372036854775807 { // math.MaxInt64
+		return 0 // Return 0 for overflow case
+	}
 	return t.totalDuration / time.Duration(t.count)
 }
 
