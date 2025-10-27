@@ -17,6 +17,7 @@
 * **local:** add stubs for presence and room store methods ([fe50c28](https://github.com/xraph/forge/commit/fe50c28107d6151ab7238035af5a63323314cbf9))
 * **memory:** enhance memory manager with embedding function and consolidation testing ([69a56d5](https://github.com/xraph/forge/commit/69a56d5e81c33ab9ff8c5b456028330e61bdbe52))
 * **observability:** add metrics and health endpoints to app ([a253e7d](https://github.com/xraph/forge/commit/a253e7da28bb9537a4ad5fb1f08f66c041c9dc7b))
+* **scripts:** add script to fix gosec SARIF file format ([96ce0a0](https://github.com/xraph/forge/commit/96ce0a06f426e5aa3e3392b2d70fe4cf62acf602))
 
 
 
