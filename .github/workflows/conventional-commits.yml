@@ -116,6 +116,22 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
 
+      - name: Ensure labels exist
+        run: |
+          # Create release label if it doesn't exist
+          if ! gh label view release --json name 2>/dev/null; then
+            gh label create release --description "Release pull requests" --color "0B8D00"
+            echo "Created 'release' label"
+          fi
+          
+          # Create automated label if it doesn't exist
+          if ! gh label view automated --json name 2>/dev/null; then
+            gh label create automated --description "Automated by GitHub Actions" --color "FBCA04"
+            echo "Created 'automated' label"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # Update version file and changelog
       - name: Update version and changelog
         run: |
