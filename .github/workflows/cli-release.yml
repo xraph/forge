@@ -71,6 +71,7 @@ jobs:
   test:
     needs: prepare
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -384,7 +385,4 @@ jobs:
 defaults:
   run:
     shell: bash
-
-# Global timeout for the entire workflow
-timeout-minutes: 60
 
