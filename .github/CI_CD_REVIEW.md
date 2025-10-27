@@ -216,7 +216,7 @@ jobs:
       
       - name: Run tests (exclude bk/)
         run: |
-          go test -v -race -timeout=5m $(go list ./... | grep -v '/bk/')
+          go test -v -race -timeout=10m $(go list ./... | grep -v '/bk/')
       
       - name: Run linter
         uses: golangci/golangci-lint-action@v3

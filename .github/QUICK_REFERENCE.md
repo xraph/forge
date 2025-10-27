@@ -73,7 +73,7 @@ check-latest: true        # ✅ NEW
 ### Fix #2: Standardize Tests (60 min)
 ```bash
 # Use this command EVERYWHERE:
-go test -v -race -timeout=5m $(go list ./... | grep -v '/bk/')
+go test -v -race -timeout=10m $(go list ./... | grep -v '/bk/')
 
 # NOT this:
 go test -v -race ./...  # ❌ Includes bk/
