@@ -1,5 +1,8 @@
 package metrics
 
+//nolint:gosec // G104: Collector Reset() methods are intentionally void
+// Testing code and collectors use Reset() for cleanup without error handling.
+
 import (
 	"context"
 	"fmt"

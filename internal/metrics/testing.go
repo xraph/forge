@@ -1,5 +1,8 @@
 package metrics
 
+//nolint:gosec // G104, G404: Testing utilities intentionally use void methods
+// Test code uses Reset() and Stop() without error handling for simplicity.
+
 import (
 	"context"
 	"fmt"
@@ -922,13 +925,13 @@ func (f *MetricsTestFixture) CreateTestMetrics() {
 
 // MetricsDataGenerator generates test metrics data
 type MetricsDataGenerator struct {
-	rand *rand.Rand
+	rand *rand.Rand // nolint:gosec // G404: Used only for deterministic test data generation
 }
 
 // NewMetricsDataGenerator creates a new data generator
 func NewMetricsDataGenerator(seed int64) *MetricsDataGenerator {
 	return &MetricsDataGenerator{
-		rand: rand.New(rand.NewSource(seed)),
+		rand: rand.New(rand.NewSource(seed)), // nolint:gosec // G404: Used only for deterministic test data generation
 	}
 }
 

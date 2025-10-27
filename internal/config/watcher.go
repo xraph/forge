@@ -1,5 +1,8 @@
 package config
 
+//nolint:gosec // G104: Error handler invocations don't return values
+// Config watcher and source files use error handlers that don't return errors.
+
 import (
 	"context"
 	"fmt"

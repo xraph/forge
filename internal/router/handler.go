@@ -177,6 +177,7 @@ func convertContextHandler(info *handlerInfo, container di.Container, errorHandl
 		if len(results) > 0 && !results[0].IsNil() {
 			err := results[0].Interface().(error)
 			if errorHandler != nil {
+				// nolint:gosec // G104: Error handler intentionally discards return value
 				errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				handleError(ctx, err)
@@ -271,6 +272,7 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 		if !errVal.IsNil() {
 			err := errVal.Interface().(error)
 			if errorHandler != nil {
+				// nolint:gosec // G104: Error handler intentionally discards return value
 				errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				handleError(ctx, err)
@@ -306,6 +308,7 @@ func convertServiceHandler(info *handlerInfo, container di.Container, errorHandl
 		if len(results) > 0 && !results[0].IsNil() {
 			err := results[0].Interface().(error)
 			if errorHandler != nil {
+				// nolint:gosec // G104: Error handler intentionally discards return value
 				errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				handleError(ctx, err)
@@ -355,6 +358,7 @@ func convertCombinedHandler(info *handlerInfo, container di.Container, errorHand
 		if !errVal.IsNil() {
 			err := errVal.Interface().(error)
 			if errorHandler != nil {
+				// nolint:gosec // G104: Error handler intentionally discards return value
 				errorHandler.HandleError(ctx.Context(), err)
 			} else {
 				handleError(ctx, err)

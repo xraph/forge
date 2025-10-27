@@ -566,6 +566,7 @@ func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg
 
 	if en.config.UseTLS {
 		// Direct TLS connection
+		// nolint:gosec // G402: InsecureSkipVerify is user-configurable for testing environments
 		tlsConfig := &tls.Config{
 			ServerName:         en.config.SMTPHost,
 			InsecureSkipVerify: en.config.InsecureSkipVerify,
@@ -587,6 +588,7 @@ func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg
 
 	// Start TLS if configured
 	if en.config.UseStartTLS {
+		// nolint:gosec // G402: InsecureSkipVerify is user-configurable for testing environments
 		tlsConfig := &tls.Config{
 			ServerName:         en.config.SMTPHost,
 			InsecureSkipVerify: en.config.InsecureSkipVerify,

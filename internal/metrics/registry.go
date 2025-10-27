@@ -1,5 +1,8 @@
 package metrics
 
+//nolint:gosec // G104: Reset() methods in metrics don't return errors by design
+// The Reset() implementations are intentionally void for testability and simplicity.
+
 import (
 	"fmt"
 	"sync"

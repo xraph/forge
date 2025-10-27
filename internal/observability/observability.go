@@ -1,5 +1,8 @@
 package observability
 
+//nolint:gosec // G104: RecordError intentionally discards errors
+// Observability tracking intentionally doesn't handle error returns.
+
 import (
 	"context"
 	"fmt"

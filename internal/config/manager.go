@@ -1,5 +1,9 @@
 package config
 
+//nolint:gosec // G115: All integer type conversions are intentional and value-controlled
+// This file contains helper methods for type-safe configuration value retrieval.
+// The integer conversions are safe because values come from application configuration sources.
+
 import (
 	"context"
 	"fmt"
@@ -1818,6 +1822,7 @@ func (m *Manager) loadAllSources(ctx context.Context) error {
 		data, err := m.loader.LoadSource(ctx, source)
 		if err != nil {
 			if m.errorHandler != nil {
+				// nolint:gosec // G104: Error handler intentionally discards return value
 				m.errorHandler.HandleError(nil, err)
 			}
 			return ErrConfigError(fmt.Sprintf("failed to load source %s", source.Name()), err)

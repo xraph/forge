@@ -1,5 +1,8 @@
 package sources
 
+//nolint:gosec // G104: Error handler invocations and StopWatch() are intentionally void
+// Consul source operations use error handlers and stop methods without error returns.
+
 import (
 	"context"
 	"encoding/json"

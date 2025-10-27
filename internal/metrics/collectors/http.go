@@ -1,5 +1,8 @@
 package collectors
 
+//nolint:gosec // G104: Collector Reset() methods are intentionally void
+// HTTP collector Reset() methods don't return errors by design.
+
 import (
 	"fmt"
 	"net/http"

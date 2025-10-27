@@ -19,8 +19,8 @@ func NewOutputManager() *OutputManager {
 
 // WriteClient writes the generated client to disk
 func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDir string) error {
-	// Create output directory
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
+	// Create output directory with restrictive permissions
+	if err := os.MkdirAll(outputDir, 0750); err != nil {
 		return fmt.Errorf("create output directory: %w", err)
 	}
 
@@ -31,13 +31,13 @@ func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDi
 		// Create subdirectories if needed
 		dir := filepath.Dir(filePath)
 		if dir != outputDir {
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := os.MkdirAll(dir, 0750); err != nil {
 				return fmt.Errorf("create subdirectory %s: %w", dir, err)
 			}
 		}
 
-		// Write file
-		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		// Write file with restrictive permissions
+		if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
 			return fmt.Errorf("write file %s: %w", filename, err)
 		}
 	}
@@ -45,7 +45,7 @@ func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDi
 	// Write README if instructions are provided
 	if client.Instructions != "" {
 		readmePath := filepath.Join(outputDir, "README.md")
-		if err := os.WriteFile(readmePath, []byte(client.Instructions), 0644); err != nil {
+		if err := os.WriteFile(readmePath, []byte(client.Instructions), 0600); err != nil {
 			return fmt.Errorf("write README: %w", err)
 		}
 	}

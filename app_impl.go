@@ -208,7 +208,10 @@ func newApp(config AppConfig) *app {
 	}
 
 	// Setup built-in endpoints
-	a.setupBuiltinEndpoints()
+	if err := a.setupBuiltinEndpoints(); err != nil {
+		logger.Error("failed to setup built-in endpoints", F("error", err))
+		panic(fmt.Sprintf("failed to setup built-in endpoints: %v", err))
+	}
 
 	return a
 }
@@ -377,7 +380,9 @@ func (a *app) Start(ctx context.Context) error {
 	}
 
 	// 4. Setup observability endpoints (including extension health checks)
-	a.setupObservabilityEndpoints()
+	if err := a.setupObservabilityEndpoints(); err != nil {
+		return fmt.Errorf("failed to setup observability endpoints: %w", err)
+	}
 	a.registerExtensionHealthChecks()
 
 	// Note: Health manager is already started by container.Start()
@@ -489,24 +494,36 @@ func (a *app) gracefulShutdown() error {
 }
 
 // setupBuiltinEndpoints sets up built-in endpoints
-func (a *app) setupBuiltinEndpoints() {
+func (a *app) setupBuiltinEndpoints() error {
 	// Info endpoint
-	a.router.GET("/_/info", a.handleInfo)
+	if err := a.router.GET("/_/info", a.handleInfo); err != nil {
+		return fmt.Errorf("failed to register info endpoint: %w", err)
+	}
+	return nil
 }
 
 // setupObservabilityEndpoints sets up observability endpoints
-func (a *app) setupObservabilityEndpoints() {
+func (a *app) setupObservabilityEndpoints() error {
 	// Setup metrics endpoint if enabled
 	if a.config.MetricsConfig.Enabled {
-		a.router.GET("/_/metrics", a.handleMetrics)
+		if err := a.router.GET("/_/metrics", a.handleMetrics); err != nil {
+			return fmt.Errorf("failed to register metrics endpoint: %w", err)
+		}
 	}
 
 	// Setup health endpoints if enabled
 	if a.config.HealthConfig.Enabled {
-		a.router.GET("/_/health", a.handleHealth)
-		a.router.GET("/_/health/live", a.handleHealthLive)
-		a.router.GET("/_/health/ready", a.handleHealthReady)
+		if err := a.router.GET("/_/health", a.handleHealth); err != nil {
+			return fmt.Errorf("failed to register health endpoint: %w", err)
+		}
+		if err := a.router.GET("/_/health/live", a.handleHealthLive); err != nil {
+			return fmt.Errorf("failed to register live health endpoint: %w", err)
+		}
+		if err := a.router.GET("/_/health/ready", a.handleHealthReady); err != nil {
+			return fmt.Errorf("failed to register ready health endpoint: %w", err)
+		}
 	}
+	return nil
 }
 
 // handleInfo handles the /_/info endpoint
@@ -628,7 +645,7 @@ func (a *app) registerExtensionHealthChecks() {
 		extName := ext.Name()
 
 		checkName := "extension:" + extName
-		a.healthManager.RegisterFn(checkName, func(ctx context.Context) *HealthResult {
+		if err := a.healthManager.RegisterFn(checkName, func(ctx context.Context) *HealthResult {
 			if err := extRef.Health(ctx); err != nil {
 				return &HealthResult{
 					Status:  HealthStatusUnhealthy,
@@ -640,7 +657,9 @@ func (a *app) registerExtensionHealthChecks() {
 				Status:  HealthStatusHealthy,
 				Message: fmt.Sprintf("%s extension healthy", extName),
 			}
-		})
+		}); err != nil {
+			a.logger.Warn("failed to register health check for extension", F("extension", extName), F("error", err))
+		}
 	}
 }
 
@@ -881,7 +900,9 @@ func (a *app) handleMetrics(ctx Context) error {
 
 	ctx.Response().Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	ctx.Response().WriteHeader(http.StatusOK)
-	ctx.Response().Write(data)
+	if _, err := ctx.Response().Write(data); err != nil {
+		return fmt.Errorf("failed to write metrics data: %w", err)
+	}
 	return nil
 }
 
@@ -894,7 +915,7 @@ func (a *app) handleHealth(ctx Context) error {
 	}
 
 	report := a.healthManager.Check(ctx.Request().Context())
-	
+
 	// Set status code based on health
 	statusCode := http.StatusOK
 	if report.Overall == HealthStatusUnhealthy {
@@ -922,13 +943,13 @@ func (a *app) handleHealthReady(ctx Context) error {
 	}
 
 	report := a.healthManager.Check(ctx.Request().Context())
-	
+
 	if report.Overall == HealthStatusHealthy {
 		return ctx.JSON(http.StatusOK, map[string]string{
 			"status": "ready",
 		})
 	}
-	
+
 	return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
 		"status":  "not ready",
 		"message": "one or more services unhealthy",

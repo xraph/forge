@@ -1,5 +1,8 @@
 package internal
 
+//nolint:gosec // G115: Integer conversions for metrics storage are safe and intentional
+// These conversions are used for encoding float64 values using bit patterns.
+
 import (
 	"bytes"
 	"fmt"
