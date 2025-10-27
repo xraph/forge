@@ -5,6 +5,8 @@
 * **ci:** improve create-or-update-release-pr workflow robustness ([7301d16](https://github.com/xraph/forge/commit/7301d16a5ad257d418de1619a866955712341d5d))
 * **docs:** update button variants and type assertions ([08305d6](https://github.com/xraph/forge/commit/08305d641aa7aa008066ec0ac2f7d5eba54b1159))
 * fixed tests ([c3e812c](https://github.com/xraph/forge/commit/c3e812c1efa70518ec1c778e9f6bdfe1110da0e4))
+* forced release ([b3fe39f](https://github.com/xraph/forge/commit/b3fe39fe55e760ae07e9809e31c8428f3f6db908))
+* forced release ([5f98a16](https://github.com/xraph/forge/commit/5f98a16fbc93a13275ea852895dec896dfc28617))
 
 
 ### Features
