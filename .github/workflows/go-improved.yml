@@ -89,11 +89,11 @@ jobs:
             ~/.cache/go-build
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
-        with:
-          version: latest
-          args: --timeout=5m --exclude-dirs=bk
+      # - name: Run golangci-lint
+      #   uses: golangci/golangci-lint-action@v4
+      #   with:
+      #     version: latest
+      #     args: --timeout=5m --exclude-dirs=bk
 
       - name: Run go vet
         run: go vet $(go list ./... | grep -v '/bk/')

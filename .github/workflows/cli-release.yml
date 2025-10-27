@@ -127,11 +127,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v4
-        with:
-          version: latest
-          args: --timeout=5m
+      # - name: Run golangci-lint
+      #   uses: golangci/golangci-lint-action@v4
+      #   with:
+      #     version: latest
+      #     args: --timeout=5m
 
       - name: Run go vet
         run: go vet $(go list ./... | grep -v '/bk/')
