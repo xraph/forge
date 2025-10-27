@@ -180,86 +180,112 @@ jobs:
           
           if [ -z "$PREV_TAG" ]; then
             echo "🎉 First release for $MODULE_NAME"
-            CHANGELOG=$(printf '## First Release\n\nThis is the first release of the %s module.\n\n### Installation\n\n```bash\ngo get %s@%s\n```' "$MODULE_NAME" "${{ needs.parse-tag.outputs.module_import }}" "$CURRENT_TAG")
+            CHANGELOG=$(cat <<CHANGELOG_EOF
+## First Release
+
+This is the first release of the $MODULE_NAME module.
+
+### Installation
+
+\`\`\`bash
+go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG
+\`\`\`
+CHANGELOG_EOF
+            )
           else
             echo "📝 Generating changelog from $PREV_TAG to $CURRENT_TAG"
             
-            # Get commits affecting this module
             if [ "$MODULE_PATH" = "." ]; then
-              # Main module: exclude extensions directory
               COMMITS=$(git log $PREV_TAG..$CURRENT_TAG --oneline --no-merges -- . ':!extensions/' ':!examples/' ':!_v0/' ':!bk/' 2>/dev/null || echo "")
             else
-              # Extension module: only include that extension's directory
               COMMITS=$(git log $PREV_TAG..$CURRENT_TAG --oneline --no-merges -- "$MODULE_PATH/" 2>/dev/null || echo "")
             fi
             
             if [ -z "$COMMITS" ]; then
-              CHANGELOG=$(printf '## No Changes\n\nNo code changes in this module since %s.\n\nThis release updates dependencies or metadata only.' "$PREV_TAG")
+              CHANGELOG=$(cat <<CHANGELOG_EOF
+## No Changes
+
+No code changes in this module since $PREV_TAG.
+
+This release updates dependencies or metadata only.
+CHANGELOG_EOF
+              )
             else
-              # Parse commits by type
               FEATURES=$(echo "$COMMITS" | grep -i "feat" || true)
               FIXES=$(echo "$COMMITS" | grep -i "fix" || true)
               BREAKING=$(echo "$COMMITS" | grep -i "BREAKING\|!" || true)
               PERF=$(echo "$COMMITS" | grep -i "perf" || true)
               REFACTOR=$(echo "$COMMITS" | grep -i "refactor" || true)
               
-              # Build changelog
-              CHANGELOG='## What'\''s Changed'
+              # Build changelog sections
+              CHANGELOG="## What's Changed"
               
               if [ -n "$BREAKING" ]; then
-                CHANGELOG="$CHANGELOG
+                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
 
 ### ⚠️ BREAKING CHANGES
 
-$BREAKING"
+$BREAKING
+SECTION_EOF
+)"
               fi
               
               if [ -n "$FEATURES" ]; then
-                CHANGELOG="$CHANGELOG
+                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
 
 ### ✨ New Features
 
-$FEATURES"
+$FEATURES
+SECTION_EOF
+)"
               fi
               
               if [ -n "$FIXES" ]; then
-                CHANGELOG="$CHANGELOG
+                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
 
 ### 🐛 Bug Fixes
 
-$FIXES"
+$FIXES
+SECTION_EOF
+)"
               fi
               
               if [ -n "$PERF" ]; then
-                CHANGELOG="$CHANGELOG
+                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
 
 ### ⚡ Performance Improvements
 
-$PERF"
+$PERF
+SECTION_EOF
+)"
               fi
               
               if [ -n "$REFACTOR" ]; then
-                CHANGELOG="$CHANGELOG
+                CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
 
 ### 🔨 Refactoring
 
-$REFACTOR"
+$REFACTOR
+SECTION_EOF
+)"
               fi
               
-              INSTALL_CMD=$(printf 'go get %s@%s' "${{ needs.parse-tag.outputs.module_import }}" "$CURRENT_TAG")
-              CHANGELOG="$CHANGELOG
+              # Add installation section
+              CHANGELOG="$CHANGELOG$(cat <<SECTION_EOF
 
 ### Installation
 
 \`\`\`bash
-$INSTALL_CMD
+go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG
 \`\`\`
 
-**Full Changelog**: [\`$PREV_TAG...$CURRENT_TAG\`](https://github.com/${{ github.repository }}/compare/$PREV_TAG...$CURRENT_TAG)"
+**Full Changelog**: [\`$PREV_TAG...$CURRENT_TAG\`](https://github.com/${{ github.repository }}/compare/$PREV_TAG...$CURRENT_TAG)
+SECTION_EOF
+              )"
             fi
           fi
           
-          # Save changelog
+          # Save changelog to output
           echo "content<<EOF" >> $GITHUB_OUTPUT
           echo "$CHANGELOG" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
