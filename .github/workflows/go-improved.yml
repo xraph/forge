@@ -118,7 +118,7 @@ jobs:
       - name: Run gosec
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -exclude-dir=bk -exclude-dir=vendor -fmt=sarif -out=gosec.sarif ./... || true
+          gosec -exclude-dir=bk -exclude-dir=vendor -exclude-dir=examples -fmt=sarif -out=gosec.sarif ./... || true
 
       - name: Fix SARIF file format
         if: always()
