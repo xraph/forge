@@ -303,13 +303,16 @@ jobs:
       - name: Check if release merge
         id: check_release
         run: |
-          # Get the commit message
-          COMMIT_MSG=$(git log -1 --pretty=%B)
-          echo "Commit message: $COMMIT_MSG"
+          # Get recent commits to look for release commit
+          # Check the last 5 commits for a release commit
+          COMMITS=$(git log -5 --pretty=%B)
+          echo "Recent commits:"
+          echo "$COMMITS"
           
-          # Check if it's a release commit
-          if echo "$COMMIT_MSG" | grep -q "chore(release): prepare release"; then
-            VERSION=$(echo "$COMMIT_MSG" | sed -n 's/.*prepare release v\([0-9.]*\).*/\1/p')
+          # Look for release commit in recent history using sed
+          VERSION=$(echo "$COMMITS" | grep "chore(release): prepare release v" | sed -n 's/.*prepare release v\([0-9.]*\).*/\1/p' | head -1)
+          
+          if [ -n "$VERSION" ]; then
             echo "Release version detected: $VERSION"
             echo "is_release=true" >> $GITHUB_OUTPUT
             echo "version=$VERSION" >> $GITHUB_OUTPUT
@@ -322,6 +325,7 @@ jobs:
               echo "should_tag=true" >> $GITHUB_OUTPUT
             fi
           else
+            echo "No release commit found in recent commits"
             echo "is_release=false" >> $GITHUB_OUTPUT
             echo "should_tag=false" >> $GITHUB_OUTPUT
           fi
