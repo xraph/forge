@@ -210,16 +210,14 @@ jobs:
             echo "Updated PR #$PR_NUMBER"
           else
             echo "Creating new release PR"
-            PR_NUMBER=$(gh pr create \
+            PR_URL=$(gh pr create \
               --base main \
               --head "${{ needs.prepare-release.outputs.release_branch }}" \
               --title "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}" \
               --body "$PR_BODY" \
-              --label "release,automated" \
-              --reviewer "" \
-              --assignee "" \
-              --draft false \
-              --json number --jq '.number')
+              --label "release,automated")
+            # Extract PR number from URL
+            PR_NUMBER=$(echo "$PR_URL" | grep -oE 'pull/[0-9]+' | cut -d'/' -f2)
             echo "Created PR #$PR_NUMBER"
           fi
           

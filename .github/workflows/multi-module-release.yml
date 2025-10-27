@@ -109,6 +109,7 @@ jobs:
   test-module:
     needs: parse-tag
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -179,15 +180,7 @@ jobs:
           
           if [ -z "$PREV_TAG" ]; then
             echo "🎉 First release for $MODULE_NAME"
-            CHANGELOG="## First Release
-
-This is the first release of the $MODULE_NAME module.
-
-### Installation
-
-\`\`\`bash
-go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG
-\`\`\`"
+            CHANGELOG=$(printf '## First Release\n\nThis is the first release of the %s module.\n\n### Installation\n\n```bash\ngo get %s@%s\n```' "$MODULE_NAME" "${{ needs.parse-tag.outputs.module_import }}" "$CURRENT_TAG")
           else
             echo "📝 Generating changelog from $PREV_TAG to $CURRENT_TAG"
             
@@ -201,11 +194,7 @@ go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG
             fi
             
             if [ -z "$COMMITS" ]; then
-              CHANGELOG="## No Changes
-
-No code changes in this module since $PREV_TAG.
-
-This release updates dependencies or metadata only."
+              CHANGELOG=$(printf '## No Changes\n\nNo code changes in this module since %s.\n\nThis release updates dependencies or metadata only.' "$PREV_TAG")
             else
               # Parse commits by type
               FEATURES=$(echo "$COMMITS" | grep -i "feat" || true)
@@ -214,7 +203,8 @@ This release updates dependencies or metadata only."
               PERF=$(echo "$COMMITS" | grep -i "perf" || true)
               REFACTOR=$(echo "$COMMITS" | grep -i "refactor" || true)
               
-              CHANGELOG="## What's Changed"
+              # Build changelog
+              CHANGELOG='## What'\''s Changed'
               
               if [ -n "$BREAKING" ]; then
                 CHANGELOG="$CHANGELOG
@@ -256,12 +246,13 @@ $PERF"
 $REFACTOR"
               fi
               
+              INSTALL_CMD=$(printf 'go get %s@%s' "${{ needs.parse-tag.outputs.module_import }}" "$CURRENT_TAG")
               CHANGELOG="$CHANGELOG
 
 ### Installation
 
 \`\`\`bash
-go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG
+$INSTALL_CMD
 \`\`\`
 
 **Full Changelog**: [\`$PREV_TAG...$CURRENT_TAG\`](https://github.com/${{ github.repository }}/compare/$PREV_TAG...$CURRENT_TAG)"
@@ -368,7 +359,4 @@ go get ${{ needs.parse-tag.outputs.module_import }}@$CURRENT_TAG
           EOF
             exit 1
           fi
-
-# Global timeout
-timeout-minutes: 45
 
