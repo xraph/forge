@@ -83,3 +83,18 @@ temp/
 # **/generated/
 # *.pb.go
 # *.gen.go
+extensions/streaming/backends/local/room_store.go.backup
+extensions/streaming/backends/local/room_store.go.bak
+extensions/consensus/DEADLOCK_FIXED.md
+extensions/consensus/DEADLOCK_FIXED_V2.md
+extensions/database/FIXES.md
+extensions/events/FIXES.md
+extensions/webrtc/examples/basic/basic
+extensions/webrtc/PRODUCTION_READY.md
+MAKEFILE_CI_CD.md
+METRICS_DEADLOCK_FIX.md
+.cursor/rules/golang-project-rules.mdc
+.github/MULTI_MODULE_SUMMARY.md
+.github/ACTION_PLAN.md
+.github/EXECUTIVE_SUMMARY.md
+.github/MONOREPO_STRATEGY.md
