@@ -200,9 +200,11 @@ jobs:
           PR_NUMBER="${{ needs.prepare-release.outputs.existing_pr_number }}"
           BRANCH_NAME="${{ needs.prepare-release.outputs.release_branch }}"
           
-          # Verify branch exists before creating PR
-          if ! git show-ref --verify --quiet refs/remotes/origin/$BRANCH_NAME; then
+          # Verify branch exists (locally or remotely)
+          if ! git show-ref --verify --quiet refs/heads/$BRANCH_NAME && ! git show-ref --verify --quiet refs/remotes/origin/$BRANCH_NAME; then
             echo "❌ Release branch $BRANCH_NAME does not exist, cannot create PR"
+            echo "List of branches:"
+            git branch -a
             exit 1
           fi
           
@@ -314,21 +316,35 @@ jobs:
           
           if [ -n "$VERSION" ]; then
             echo "Release version detected: $VERSION"
-            echo "is_release=true" >> $GITHUB_OUTPUT
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
-          
-            # Check if tag already exists
-            if git tag -l "v$VERSION" | grep -q "v$VERSION"; then
-              echo "Tag v$VERSION already exists, skipping"
+            
+            # Check if there's an open release PR for this or any version
+            OPEN_RELEASE_PR=$(gh pr list --state open --label release --json number,headRefName --jq '.[] | .number' | head -1 || echo "")
+            
+            if [ -n "$OPEN_RELEASE_PR" ]; then
+              echo "⚠️ Open release PR detected, skipping auto-release to allow PR to be reviewed first"
+              echo "is_release=true" >> $GITHUB_OUTPUT
+              echo "version=$VERSION" >> $GITHUB_OUTPUT
               echo "should_tag=false" >> $GITHUB_OUTPUT
             else
-              echo "should_tag=true" >> $GITHUB_OUTPUT
+              echo "✅ No open release PR, proceeding with auto-release"
+              echo "is_release=true" >> $GITHUB_OUTPUT
+              echo "version=$VERSION" >> $GITHUB_OUTPUT
+              
+              # Check if tag already exists
+              if git tag -l "v$VERSION" | grep -q "v$VERSION"; then
+                echo "Tag v$VERSION already exists, skipping"
+                echo "should_tag=false" >> $GITHUB_OUTPUT
+              else
+                echo "should_tag=true" >> $GITHUB_OUTPUT
+              fi
             fi
           else
             echo "No release commit found in recent commits"
             echo "is_release=false" >> $GITHUB_OUTPUT
             echo "should_tag=false" >> $GITHUB_OUTPUT
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Create and push tag to trigger release
       - name: Create and push tag
