@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  security-events: write
 
 jobs:
   # Build and test
@@ -116,6 +117,12 @@ jobs:
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
           gosec -exclude-dir=bk -exclude-dir=vendor -fmt=sarif -out=gosec.sarif ./... || true
+
+      - name: Fix SARIF file format
+        if: always()
+        run: |
+          chmod +x .github/scripts/fix_sarif.py
+          python3 .github/scripts/fix_sarif.py
 
       - name: Run govulncheck
         run: |

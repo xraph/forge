@@ -327,20 +327,24 @@ func (c *collector) GetCollectors() []metrics.CustomCollector {
 
 // GetMetrics returns all metrics
 func (c *collector) GetMetrics() map[string]interface{} {
+	// Snapshot collectors and registry access without holding lock
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	metrics := c.registry.GetAllMetrics()
-
-	// Add custom collector metrics
+	allMetrics := c.registry.GetAllMetrics()
+	collectors := make([]metrics.CustomCollector, 0, len(c.customCollectors))
 	for _, collector := range c.customCollectors {
+		collectors = append(collectors, collector)
+	}
+	c.mu.RUnlock()
+
+	// Collect from custom collectors without holding the lock
+	for _, collector := range collectors {
 		customMetrics := collector.Collect()
 		for k, v := range customMetrics {
-			metrics[k] = v
+			allMetrics[k] = v
 		}
 	}
 
-	return metrics
+	return allMetrics
 }
 
 // GetMetricsByType returns metrics filtered by type
@@ -543,31 +547,50 @@ func (c *collector) collectionLoop(ctx context.Context) {
 
 // collectMetrics collects metrics from all collectors
 func (c *collector) collectMetrics() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.lastCollectionTime = time.Now()
-
-	// Collect from custom collectors
+	// Snapshot collectors without holding lock
+	c.mu.RLock()
+	lastCollectionTime := time.Now()
+	collectors := make([]struct {
+		name      string
+		collector metrics.CustomCollector
+	}, 0, len(c.customCollectors))
 	for name, collector := range c.customCollectors {
+		collectors = append(collectors, struct {
+			name      string
+			collector metrics.CustomCollector
+		}{name: name, collector: collector})
+	}
+	c.mu.RUnlock()
+
+	// Collect from custom collectors without holding the lock
+	// This prevents deadlocks when collectors do I/O or take time
+	errors := make([]error, 0)
+	for _, item := range collectors {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					err := fmt.Errorf("panic in collector %s: %v", name, r)
-					c.errors = append(c.errors, err)
+					err := fmt.Errorf("panic in collector %s: %v", item.name, r)
+					errors = append(errors, err)
 					if c.logger != nil {
 						c.logger.Error("metrics collection panic",
-							logger.String("collector", name),
+							logger.String("collector", item.name),
 							logger.Any("panic", r),
 						)
 					}
 				}
 			}()
 
-			collector.Collect()
-			c.metricsCollected++
+			item.collector.Collect()
 		}()
 	}
+
+	// Update state while holding write lock
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.lastCollectionTime = lastCollectionTime
+	c.metricsCollected += int64(len(collectors))
+	c.errors = append(c.errors, errors...)
 
 	// Trim error list if too long
 	if len(c.errors) > 100 {
