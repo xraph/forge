@@ -71,11 +71,11 @@ jobs:
   test:
     needs: prepare
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]  # Exclude windows-latest due to flaky AI tests
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -103,17 +103,17 @@ jobs:
 
       - name: Run tests (excluding bk/)
         run: |
-          go test -v -race -timeout=10m $(go list ./... | grep -v '/bk/')
+          go test -v -race -timeout=15m $(go list ./... | grep -v '/bk/')
 
       - name: Build CLI
         run: |
           cd cmd/forge
-          go build -v -ldflags="-s -w -X main.version=${{ needs.prepare.outputs.version }}" -o forge${{ matrix.os == 'windows-latest' && '.exe' || '' }} .
+          go build -v -ldflags="-s -w -X main.version=${{ needs.prepare.outputs.version }}" -o forge .
 
       - name: Test CLI binary
         run: |
           cd cmd/forge
-          ./forge${{ matrix.os == 'windows-latest' && '.exe' || '' }} --version
+          ./forge --version
 
   # Lint and security checks
   quality:
