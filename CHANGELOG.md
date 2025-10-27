@@ -13,6 +13,7 @@
 * **docs:** add comprehensive documentation and branding for Forge framework ([cf770d2](https://github.com/xraph/forge/commit/cf770d205cd5875e94758fe7e14bbb8a8b80621f))
 * **docs:** add themed logo component and update extensions documentation ([b6a9838](https://github.com/xraph/forge/commit/b6a98380b1de22d801337220648c988e5fc387bb))
 * **docs:** update metrics and add logo assets ([d1e4c55](https://github.com/xraph/forge/commit/d1e4c55f4d3cc5ce982a1cf6996fd44c8d74f1fc))
+* **health:** add Windows-specific disk and system metrics collectors ([d61f475](https://github.com/xraph/forge/commit/d61f475c091df0df11fc33f57eb9fcedec9e22e2))
 * introduce new CLI framework and dashboard extension ([c64dac8](https://github.com/xraph/forge/commit/c64dac8351f17444040c26fb65351d648c8474a3))
 * **local:** add stubs for presence and room store methods ([fe50c28](https://github.com/xraph/forge/commit/fe50c28107d6151ab7238035af5a63323314cbf9))
 * **memory:** enhance memory manager with embedding function and consolidation testing ([69a56d5](https://github.com/xraph/forge/commit/69a56d5e81c33ab9ff8c5b456028330e61bdbe52))
