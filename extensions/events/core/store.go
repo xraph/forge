@@ -315,8 +315,8 @@ type EventStream interface {
 	// Position returns the current stream position
 	Position() int64
 
-	// Seek seeks to a specific position in the stream
-	Seek(position int64) error
+	// SeekTo seeks to a specific position in the stream
+	SeekTo(position int64) error
 
 	// Close closes the event stream
 	Close() error

@@ -412,12 +412,22 @@ func (p *Profiler) GetProfile(name string) *Profile {
 	defer p.mu.RUnlock()
 	
 	if profile, exists := p.profiles[name]; exists {
-		// Return a copy
+		// Return a copy without the mutex
 		profile.mu.Lock()
 		defer profile.mu.Unlock()
 		
-		profileCopy := *profile
-		return &profileCopy
+		// Copy only the public fields to avoid copying the mutex
+		profileCopy := &Profile{
+			Name:        profile.Name,
+			Count:       profile.Count,
+			TotalTime:   profile.TotalTime,
+			MinTime:     profile.MinTime,
+			MaxTime:     profile.MaxTime,
+			AvgTime:     profile.AvgTime,
+			Percentiles: profile.Percentiles,
+			// Don't copy mu or durations as they're private implementation details
+		}
+		return profileCopy
 	}
 	
 	return nil
@@ -431,9 +441,19 @@ func (p *Profiler) GetAllProfiles() map[string]*Profile {
 	profiles := make(map[string]*Profile)
 	for name, profile := range p.profiles {
 		profile.mu.Lock()
-		profileCopy := *profile
+		// Copy only the public fields to avoid copying the mutex
+		profileCopy := &Profile{
+			Name:        profile.Name,
+			Count:       profile.Count,
+			TotalTime:   profile.TotalTime,
+			MinTime:     profile.MinTime,
+			MaxTime:     profile.MaxTime,
+			AvgTime:     profile.AvgTime,
+			Percentiles: profile.Percentiles,
+			// Don't copy mu or durations as they're private implementation details
+		}
 		profile.mu.Unlock()
-		profiles[name] = &profileCopy
+		profiles[name] = profileCopy
 	}
 
 	return profiles

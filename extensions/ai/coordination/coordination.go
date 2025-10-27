@@ -155,8 +155,8 @@ const (
 // CoordinationExecutor executes coordination plans using different strategies
 type CoordinationExecutor struct {
 	strategy     CoordinationStrategy
-	communicator CommunicationManager
-	consensus    ConsensusManager
+	communicator *CommunicationManager
+	consensus    *ConsensusManager
 	agents       map[string]AIAgent
 	activePlans  map[string]*CoordinationPlan
 	planHistory  []*CoordinationPlan
@@ -187,8 +187,8 @@ type ResourceRequirements struct {
 // NewCoordinationExecutor creates a new coordination executor
 func NewCoordinationExecutor(
 	strategy CoordinationStrategy,
-	communicator CommunicationManager,
-	consensus ConsensusManager,
+	communicator *CommunicationManager,
+	consensus *ConsensusManager,
 	logger logger.Logger,
 	metrics forge.Metrics,
 ) *CoordinationExecutor {
@@ -697,7 +697,7 @@ func (ds *DistributedStrategy) CalculateResourceRequirements(plan *CoordinationP
 
 // ConsensusStrategy implements consensus-based coordination
 type ConsensusStrategy struct {
-	consensus ConsensusManager
+	consensus *ConsensusManager
 }
 
 func (cs *ConsensusStrategy) Name() string {
