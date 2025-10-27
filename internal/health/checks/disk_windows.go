@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build windows
 
 package checks
 
@@ -11,8 +11,14 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
 	health "github.com/xraph/forge/internal/health/internal"
+)
+
+var (
+	kernel32               = syscall.NewLazyDLL("kernel32.dll")
+	getDiskFreeSpaceExPtr = kernel32.NewProc("GetDiskFreeSpaceExW")
 )
 
 // DiskHealthCheck performs health checks on disk usage
@@ -50,7 +56,7 @@ func NewDiskHealthCheck(config *DiskHealthCheckConfig) *DiskHealthCheck {
 	}
 
 	if len(config.Paths) == 0 {
-		config.Paths = []string{"/", "/tmp", "/var/log"}
+		config.Paths = []string{"C:\\", "D:\\"}
 	}
 
 	if config.WarningThreshold == 0 {
@@ -159,7 +165,7 @@ func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	return result
 }
 
-// checkPath checks disk usage for a specific path
+// checkPath checks disk usage for a specific path using Windows APIs
 func (dhc *DiskHealthCheck) checkPath(path string) (map[string]interface{}, error) {
 	dhc.mu.RLock()
 	defer dhc.mu.RUnlock()
@@ -169,52 +175,60 @@ func (dhc *DiskHealthCheck) checkPath(path string) (map[string]interface{}, erro
 		return nil, fmt.Errorf("path does not exist: %w", err)
 	}
 
-	// Get disk usage statistics
-	stat := &syscall.Statfs_t{}
-	if err := syscall.Statfs(path, stat); err != nil {
+	// Convert to absolute path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	// Get the root drive letter (e.g., "C:\")
+	root := filepath.VolumeName(absPath) + "\\"
+	if root == "\\" {
+		root = absPath[:2] + "\\"
+	}
+
+	// Use GetDiskFreeSpaceEx on Windows
+	var freeBytes, totalBytes, availBytes int64
+
+	rootW, err := syscall.UTF16PtrFromString(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert path to UTF16: %w", err)
+	}
+
+	ret, _, _ := getDiskFreeSpaceExPtr.Call(
+		uintptr(unsafe.Pointer(rootW)),
+		uintptr(unsafe.Pointer(&freeBytes)),
+		uintptr(unsafe.Pointer(&totalBytes)),
+		uintptr(unsafe.Pointer(&availBytes)),
+	)
+
+	if ret == 0 {
 		return nil, fmt.Errorf("failed to get disk stats: %w", err)
 	}
 
-	// Calculate disk usage
-	totalBytes := stat.Blocks * uint64(stat.Bsize)
-	freeBytes := stat.Bfree * uint64(stat.Bsize)
-	usedBytes := totalBytes - freeBytes
+	usedBytes := uint64(totalBytes) - uint64(freeBytes)
 	usagePercent := float64(usedBytes) / float64(totalBytes) * 100.0
 
 	pathInfo := map[string]interface{}{
 		"path":          path,
-		"total_bytes":   totalBytes,
+		"total_bytes":   uint64(totalBytes),
 		"used_bytes":    usedBytes,
-		"free_bytes":    freeBytes,
+		"free_bytes":    uint64(freeBytes),
 		"usage_percent": usagePercent,
-		"total_human":   formatBytes(totalBytes),
+		"total_human":   formatBytes(uint64(totalBytes)),
 		"used_human":    formatBytes(usedBytes),
-		"free_human":    formatBytes(freeBytes),
+		"free_human":    formatBytes(uint64(freeBytes)),
 	}
 
-	// Check inodes if enabled
-	if dhc.checkInodes {
-		totalInodes := stat.Files
-		freeInodes := stat.Ffree
-		usedInodes := totalInodes - freeInodes
-		var inodeUsagePercent float64
-		if totalInodes > 0 {
-			inodeUsagePercent = float64(usedInodes) / float64(totalInodes) * 100.0
-		}
-
-		pathInfo["total_inodes"] = totalInodes
-		pathInfo["used_inodes"] = usedInodes
-		pathInfo["free_inodes"] = freeInodes
-		pathInfo["inode_usage_percent"] = inodeUsagePercent
-	}
+	// Note: Inodes are a Unix concept, not applicable to Windows
+	// The checkInodes flag is ignored on Windows
 
 	return pathInfo, nil
 }
 
 // getIOStats returns disk I/O statistics
 func (dhc *DiskHealthCheck) getIOStats() map[string]interface{} {
-	// In a real implementation, this would read from /proc/diskstats or similar
-	// For now, return placeholder data
+	// Placeholder implementation for Windows
 	return map[string]interface{}{
 		"io_reads":       1000,
 		"io_writes":      500,
@@ -289,7 +303,7 @@ func NewDiskIOHealthCheck(config *DiskHealthCheckConfig) *DiskIOHealthCheck {
 		readLatencyThreshold:  10 * time.Millisecond,
 		writeLatencyThreshold: 20 * time.Millisecond,
 		utilizationThreshold:  80.0, // 80%
-		devices:               []string{"sda", "sdb", "nvme0n1"},
+		devices:               []string{"C:", "D:"},
 	}
 }
 
@@ -344,8 +358,7 @@ func (diohc *DiskIOHealthCheck) Check(ctx context.Context) *health.HealthResult 
 
 // checkDevice checks I/O statistics for a specific device
 func (diohc *DiskIOHealthCheck) checkDevice(device string) map[string]interface{} {
-	// In a real implementation, this would read from /proc/diskstats
-	// For now, return placeholder data
+	// Placeholder implementation for Windows
 	return map[string]interface{}{
 		"device":         device,
 		"reads_per_sec":  150,
@@ -383,14 +396,14 @@ func NewTempDirHealthCheck(config *DiskHealthCheckConfig) *TempDirHealthCheck {
 
 	baseConfig := &health.HealthCheckConfig{
 		Name:     config.Name,
-		Timeout:  config.Timeout,
-		Critical: config.Critical,
+		Timeout: config.Timeout,
+		Critical:  config.Critical,
 		Tags:     config.Tags,
 	}
 
 	return &TempDirHealthCheck{
 		BaseHealthCheck:  health.NewBaseHealthCheck(baseConfig),
-		tempDirs:         []string{"/tmp", "/var/tmp", os.TempDir()},
+		tempDirs:         []string{os.TempDir()},
 		sizeThreshold:    1024 * 1024 * 1024, // 1GB
 		oldFileThreshold: 7 * 24 * time.Hour, // 7 days
 	}
@@ -518,7 +531,7 @@ func NewLogDirHealthCheck(config *DiskHealthCheckConfig) *LogDirHealthCheck {
 
 	return &LogDirHealthCheck{
 		BaseHealthCheck: health.NewBaseHealthCheck(baseConfig),
-		logDirs:         []string{"/var/log", "/var/log/app"},
+		logDirs:         []string{"C:\\ProgramData", "C:\\Windows\\Logs"},
 		sizeThreshold:   5 * 1024 * 1024 * 1024, // 5GB
 		rotationCheck:   true,
 	}
@@ -635,7 +648,7 @@ func formatBytes(bytes uint64) string {
 
 // sanitizePath sanitizes a path for use as a map key
 func sanitizePath(path string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(path, "/", "_"), ":", "_")
+	return strings.ReplaceAll(strings.ReplaceAll(path, "\\", "_"), ":", "_")
 }
 
 // RegisterDiskHealthChecks registers disk health checks with the health service
@@ -643,10 +656,10 @@ func RegisterDiskHealthChecks(healthService health.HealthService) error {
 	// Register main disk health check
 	diskCheck := NewDiskHealthCheck(&DiskHealthCheckConfig{
 		Name:              "disk",
-		Paths:             []string{"/", "/tmp", "/var/log"},
+		Paths:             []string{"C:\\", "D:\\"},
 		WarningThreshold:  80.0,
 		CriticalThreshold: 90.0,
-		CheckInodes:       true,
+		CheckInodes:       false, // Inodes not applicable on Windows
 		CheckIO:           false,
 		Critical:          true,
 	})
@@ -687,3 +700,4 @@ func RegisterDiskHealthChecks(healthService health.HealthService) error {
 
 	return nil
 }
+

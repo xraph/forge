@@ -384,6 +384,12 @@ func (h *TestHarness) stopNode(ctx context.Context, node *TestNode) error {
 		return nil
 	}
 
+	// Disconnect this node from all other nodes
+	// This is critical for detection of node failures in tests
+	if localTrans, ok := node.Transport.(*transport.LocalTransport); ok {
+		localTrans.DisconnectAll()
+	}
+
 	// Stop components in reverse order
 	if err := node.RaftNode.Stop(ctx); err != nil {
 		return err

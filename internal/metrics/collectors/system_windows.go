@@ -1,20 +1,36 @@
-//go:build !windows
+//go:build windows
 
 package collectors
 
 import (
-	"bufio"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"runtime"
-	"strconv"
-	"strings"
+	"path/filepath"
 	"syscall"
 	"time"
+	"unsafe"
 
 	metrics "github.com/xraph/forge/internal/metrics/internal"
 )
+
+// Windows specific constants
+const (
+	maxPath = 260
+)
+
+var (
+	kernel32               = syscall.NewLazyDLL("kernel32.dll")
+	getDiskFreeSpaceExPtr = kernel32.NewProc("GetDiskFreeSpaceExW")
+)
+
+// StatFS represents Windows disk statistics (compatible with Unix version)
+type StatFS struct {
+	Blocks  uint64
+	Bavail  uint64
+	Bsize   uint64
+	Files   uint64
+	Ffree   uint64
+}
 
 // =============================================================================
 // SYSTEM COLLECTOR
@@ -103,14 +119,13 @@ type LoadStats struct {
 // DefaultSystemCollectorConfig returns default configuration
 func DefaultSystemCollectorConfig() *SystemCollectorConfig {
 	return &SystemCollectorConfig{
-		Interval:          time.Second * 30,
-		CollectCPU:        true,
-		CollectMemory:     true,
-		CollectDisk:       true,
-		CollectNetwork:    false,
-		CollectLoad:       true,
-		DiskMountPoints:   []string{"/", "/home", "/var"},
-		NetworkInterfaces: []string{"eth0", "wlan0"},
+		Interval:        time.Second * 30,
+		CollectCPU:      true,
+		CollectMemory:   true,
+		CollectDisk:      true,
+		CollectNetwork:  false,
+		CollectLoad:     true,
+		DiskMountPoints: []string{"C:\\", "D:\\"},
 	}
 }
 
@@ -168,14 +183,9 @@ func (sc *SystemCollector) Collect() map[string]interface{} {
 		sc.addDiskMetrics(diskStats)
 	}
 
-	// Collect network metrics
+	// Collect network metrics (not implemented on Windows yet)
 	if networkStats, err := sc.collectNetworkStats(); err == nil {
 		sc.addNetworkMetrics(networkStats)
-	}
-
-	// Collect load metrics
-	if loadStats, err := sc.collectLoadStats(); err == nil {
-		sc.addLoadMetrics(loadStats)
 	}
 
 	return sc.metrics
@@ -195,103 +205,8 @@ func (sc *SystemCollector) Reset() error {
 
 // collectCPUStats collects CPU statistics
 func (sc *SystemCollector) collectCPUStats() (*CPUStats, error) {
-	// Different implementations for different operating systems
-	switch runtime.GOOS {
-	case "linux":
-		return sc.collectLinuxCPUStats()
-	case "darwin":
-		return sc.collectDarwinCPUStats()
-	case "windows":
-		return sc.collectWindowsCPUStats()
-	default:
-		return nil, fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-	}
-}
-
-// collectLinuxCPUStats collects CPU statistics on Linux
-func (sc *SystemCollector) collectLinuxCPUStats() (*CPUStats, error) {
-	file, err := os.Open("/proc/stat")
-	if err != nil {
-		return nil, fmt.Errorf("failed to open /proc/stat: %w", err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	if !scanner.Scan() {
-		return nil, fmt.Errorf("failed to read first line from /proc/stat")
-	}
-
-	line := scanner.Text()
-	if !strings.HasPrefix(line, "cpu ") {
-		return nil, fmt.Errorf("invalid format in /proc/stat")
-	}
-
-	// Parse CPU stats: cpu user nice system idle iowait irq softirq steal guest guest_nice
-	fields := strings.Fields(line)
-	if len(fields) < 5 {
-		return nil, fmt.Errorf("insufficient fields in /proc/stat")
-	}
-
-	stats := &CPUStats{}
-	values := []uint64{}
-
-	for i := 1; i < len(fields) && i <= 10; i++ {
-		val, err := strconv.ParseUint(fields[i], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse CPU stat: %w", err)
-		}
-		values = append(values, val)
-	}
-
-	// Map values to struct fields
-	if len(values) >= 4 {
-		stats.User = values[0]
-		stats.Nice = values[1]
-		stats.System = values[2]
-		stats.Idle = values[3]
-	}
-	if len(values) >= 5 {
-		stats.IOWait = values[4]
-	}
-	if len(values) >= 6 {
-		stats.IRQ = values[5]
-	}
-	if len(values) >= 7 {
-		stats.SoftIRQ = values[6]
-	}
-	if len(values) >= 8 {
-		stats.Steal = values[7]
-	}
-	if len(values) >= 9 {
-		stats.Guest = values[8]
-	}
-	if len(values) >= 10 {
-		stats.GuestNice = values[9]
-	}
-
-	// Calculate total
-	stats.Total = stats.User + stats.Nice + stats.System + stats.Idle +
-		stats.IOWait + stats.IRQ + stats.SoftIRQ + stats.Steal + stats.Guest + stats.GuestNice
-
-	return stats, nil
-}
-
-// collectDarwinCPUStats collects CPU statistics on Darwin/macOS
-func (sc *SystemCollector) collectDarwinCPUStats() (*CPUStats, error) {
-	// Placeholder implementation for macOS
-	// In a real implementation, this would use system calls or parse system files
-	return &CPUStats{
-		User:   1000,
-		System: 500,
-		Idle:   8500,
-		Total:  10000,
-	}, nil
-}
-
-// collectWindowsCPUStats collects CPU statistics on Windows
-func (sc *SystemCollector) collectWindowsCPUStats() (*CPUStats, error) {
 	// Placeholder implementation for Windows
-	// In a real implementation, this would use Windows API calls
+	// Would need Windows Pdh API or similar
 	return &CPUStats{
 		User:   1000,
 		System: 500,
@@ -335,84 +250,29 @@ func (sc *SystemCollector) addCPUMetrics(stats *CPUStats) {
 
 // collectMemoryStats collects memory statistics
 func (sc *SystemCollector) collectMemoryStats() (*MemoryStats, error) {
-	switch runtime.GOOS {
-	case "linux":
-		return sc.collectLinuxMemoryStats()
-	case "darwin":
-		return sc.collectDarwinMemoryStats()
-	case "windows":
-		return sc.collectWindowsMemoryStats()
-	default:
-		return nil, fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-	}
-}
+	var memStatus syscall.MemoryStatusEx
+	memStatus.Length = uint32(unsafe.Sizeof(memStatus))
 
-// collectLinuxMemoryStats collects memory statistics on Linux
-func (sc *SystemCollector) collectLinuxMemoryStats() (*MemoryStats, error) {
-	data, err := ioutil.ReadFile("/proc/meminfo")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read /proc/meminfo: %w", err)
+	ret, _, _ := syscall.NewLazyDLL("kernel32.dll").NewProc("GlobalMemoryStatusEx").Call(uintptr(unsafe.Pointer(&memStatus)))
+
+	if ret == 0 {
+		// Fallback to placeholder data
+		return &MemoryStats{
+			Total:     8 * 1024 * 1024 * 1024, // 8GB
+			Available: 4 * 1024 * 1024 * 1024, // 4GB
+			Used:      4 * 1024 * 1024 * 1024, // 4GB
+			Free:      4 * 1024 * 1024 * 1024, // 4GB
+		}, nil
 	}
 
-	lines := strings.Split(string(data), "\n")
-	values := make(map[string]uint64)
-
-	for _, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-
-		key := strings.TrimSuffix(fields[0], ":")
-		value, err := strconv.ParseUint(fields[1], 10, 64)
-		if err != nil {
-			continue
-		}
-
-		// Convert from kB to bytes
-		values[key] = value * 1024
-	}
-
-	stats := &MemoryStats{
-		Total:     values["MemTotal"],
-		Free:      values["MemFree"],
-		Available: values["MemAvailable"],
-		Buffers:   values["Buffers"],
-		Cached:    values["Cached"],
-		SwapTotal: values["SwapTotal"],
-		SwapFree:  values["SwapFree"],
-	}
-
-	// Calculate used memory
-	stats.Used = stats.Total - stats.Available
-	stats.SwapUsed = stats.SwapTotal - stats.SwapFree
-
-	return stats, nil
-}
-
-// collectDarwinMemoryStats collects memory statistics on Darwin/macOS
-func (sc *SystemCollector) collectDarwinMemoryStats() (*MemoryStats, error) {
-	// Placeholder implementation for macOS
 	return &MemoryStats{
-		Total:     8 * 1024 * 1024 * 1024, // 8GB
-		Available: 4 * 1024 * 1024 * 1024, // 4GB
-		Used:      4 * 1024 * 1024 * 1024, // 4GB
-		Free:      4 * 1024 * 1024 * 1024, // 4GB
-	}, nil
-}
-
-// collectWindowsMemoryStats collects memory statistics on Windows
-func (sc *SystemCollector) collectWindowsMemoryStats() (*MemoryStats, error) {
-	// Placeholder implementation for Windows
-	return &MemoryStats{
-		Total:     8 * 1024 * 1024 * 1024, // 8GB
-		Available: 4 * 1024 * 1024 * 1024, // 4GB
-		Used:      4 * 1024 * 1024 * 1024, // 4GB
-		Free:      4 * 1024 * 1024 * 1024, // 4GB
+		Total:     memStatus.TotalPhys,
+		Available: memStatus.AvailPhys,
+		Used:      memStatus.TotalPhys - memStatus.AvailPhys,
+		Free:      memStatus.AvailPhys,
+		SwapTotal: memStatus.TotalPageFile,
+		SwapFree:  memStatus.AvailPageFile,
+		SwapUsed:  memStatus.TotalPageFile - memStatus.AvailPageFile,
 	}, nil
 }
 
@@ -449,8 +309,8 @@ func (sc *SystemCollector) addMemoryMetrics(stats *MemoryStats) {
 func (sc *SystemCollector) collectDiskStats() ([]DiskStats, error) {
 	var allStats []DiskStats
 
-	// Common mount points to check
-	mountPoints := []string{"/", "/home", "/var", "/tmp"}
+	// Common mount points to check on Windows
+	mountPoints := []string{"C:\\", "D:\\"}
 
 	for _, mountPoint := range mountPoints {
 		if stats, err := sc.collectDiskStatsForPath(mountPoint); err == nil {
@@ -463,27 +323,49 @@ func (sc *SystemCollector) collectDiskStats() ([]DiskStats, error) {
 
 // collectDiskStatsForPath collects disk statistics for a specific path
 func (sc *SystemCollector) collectDiskStatsForPath(path string) (*DiskStats, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(path, &stat); err != nil {
-		return nil, fmt.Errorf("failed to get disk stats for %s: %w", path, err)
+	// Convert to absolute path
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	// Calculate disk usage
-	total := stat.Blocks * uint64(stat.Bsize)
-	available := stat.Bavail * uint64(stat.Bsize)
-	used := total - available
+	// Get the root drive letter (e.g., "C:\")
+	root := filepath.VolumeName(absPath) + "\\"
+	if root == "\\" {
+		root = absPath[:2] + "\\"
+	}
 
+	// Use GetDiskFreeSpaceEx on Windows
+	var freeBytes, totalBytes, availBytes int64
+
+	rootW, err := syscall.UTF16PtrFromString(root)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert path to UTF16: %w", err)
+	}
+
+	ret, _, _ := getDiskFreeSpaceExPtr.Call(
+		uintptr(unsafe.Pointer(rootW)),
+		uintptr(unsafe.Pointer(&freeBytes)),
+		uintptr(unsafe.Pointer(&totalBytes)),
+		uintptr(unsafe.Pointer(&availBytes)),
+	)
+
+	if ret == 0 {
+		return nil, fmt.Errorf("failed to get disk stats for %s", path)
+	}
+
+	used := uint64(totalBytes) - uint64(freeBytes)
 	usedPercent := float64(0)
-	if total > 0 {
-		usedPercent = float64(used) / float64(total) * 100
+	if totalBytes > 0 {
+		usedPercent = float64(used) / float64(totalBytes) * 100
 	}
 
 	return &DiskStats{
 		MountPoint:  path,
-		Device:      "unknown", // Would need additional system calls to get device name
-		Total:       total,
+		Device:      root,
+		Total:       uint64(totalBytes),
 		Used:        used,
-		Available:   available,
+		Available:   uint64(freeBytes),
 		UsedPercent: usedPercent,
 	}, nil
 }
@@ -491,10 +373,10 @@ func (sc *SystemCollector) collectDiskStatsForPath(path string) (*DiskStats, err
 // addDiskMetrics adds disk metrics to the collection
 func (sc *SystemCollector) addDiskMetrics(stats []DiskStats) {
 	for _, stat := range stats {
-		prefix := fmt.Sprintf("system.disk.%s", strings.ReplaceAll(stat.MountPoint, "/", "_"))
-		if prefix == "system.disk._" {
-			prefix = "system.disk.root"
-		}
+		// Replace backslashes and colons for metric key
+		prefix := fmt.Sprintf("system.disk.%s", filepath.ToSlash(stat.MountPoint))
+		prefix = replaceAll(prefix, "/", "_")
+		prefix = replaceAll(prefix, ":", "_")
 
 		sc.metrics[prefix+".total"] = stat.Total
 		sc.metrics[prefix+".used"] = stat.Used
@@ -509,8 +391,7 @@ func (sc *SystemCollector) addDiskMetrics(stats []DiskStats) {
 
 // collectNetworkStats collects network statistics
 func (sc *SystemCollector) collectNetworkStats() ([]NetworkStats, error) {
-	// This is a simplified implementation
-	// In a real implementation, this would parse /proc/net/dev on Linux
+	// Placeholder for Windows
 	return []NetworkStats{
 		{
 			Interface:   "eth0",
@@ -536,73 +417,6 @@ func (sc *SystemCollector) addNetworkMetrics(stats []NetworkStats) {
 		sc.metrics[prefix+".drops_recv"] = stat.DropsRecv
 		sc.metrics[prefix+".drops_sent"] = stat.DropsSent
 	}
-}
-
-// =============================================================================
-// LOAD METRICS COLLECTION
-// =============================================================================
-
-// collectLoadStats collects system load statistics
-func (sc *SystemCollector) collectLoadStats() (*LoadStats, error) {
-	switch runtime.GOOS {
-	case "linux":
-		return sc.collectLinuxLoadStats()
-	case "darwin":
-		return sc.collectDarwinLoadStats()
-	default:
-		return nil, fmt.Errorf("load statistics not supported on %s", runtime.GOOS)
-	}
-}
-
-// collectLinuxLoadStats collects load statistics on Linux
-func (sc *SystemCollector) collectLinuxLoadStats() (*LoadStats, error) {
-	data, err := ioutil.ReadFile("/proc/loadavg")
-	if err != nil {
-		return nil, fmt.Errorf("failed to read /proc/loadavg: %w", err)
-	}
-
-	fields := strings.Fields(string(data))
-	if len(fields) < 3 {
-		return nil, fmt.Errorf("invalid format in /proc/loadavg")
-	}
-
-	load1, err := strconv.ParseFloat(fields[0], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse load1: %w", err)
-	}
-
-	load5, err := strconv.ParseFloat(fields[1], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse load5: %w", err)
-	}
-
-	load15, err := strconv.ParseFloat(fields[2], 64)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse load15: %w", err)
-	}
-
-	return &LoadStats{
-		Load1:  load1,
-		Load5:  load5,
-		Load15: load15,
-	}, nil
-}
-
-// collectDarwinLoadStats collects load statistics on Darwin/macOS
-func (sc *SystemCollector) collectDarwinLoadStats() (*LoadStats, error) {
-	// Placeholder implementation for macOS
-	return &LoadStats{
-		Load1:  1.0,
-		Load5:  1.2,
-		Load15: 1.5,
-	}, nil
-}
-
-// addLoadMetrics adds load metrics to the collection
-func (sc *SystemCollector) addLoadMetrics(stats *LoadStats) {
-	sc.metrics["system.load.1"] = stats.Load1
-	sc.metrics["system.load.5"] = stats.Load5
-	sc.metrics["system.load.15"] = stats.Load15
 }
 
 // =============================================================================
@@ -643,3 +457,22 @@ func (sc *SystemCollector) GetLastCollectionTime() time.Time {
 func (sc *SystemCollector) GetMetricsCount() int {
 	return len(sc.metrics)
 }
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+// replaceAll replaces all occurrences of old in s with new
+func replaceAll(s, old, new string) string {
+	result := ""
+	for i := 0; i < len(s); i++ {
+		if i+len(old) <= len(s) && s[i:i+len(old)] == old {
+			result += new
+			i += len(old) - 1
+		} else {
+			result += string(s[i])
+		}
+	}
+	return result
+}
+
