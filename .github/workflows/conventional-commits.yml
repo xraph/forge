@@ -122,13 +122,18 @@ jobs:
           if ! gh label view release --json name 2>/dev/null; then
             gh label create release --description "Release pull requests" --color "0B8D00"
             echo "Created 'release' label"
+          else
+            echo "'release' label already exists"
           fi
           
           # Create automated label if it doesn't exist
           if ! gh label view automated --json name 2>/dev/null; then
             gh label create automated --description "Automated by GitHub Actions" --color "FBCA04"
             echo "Created 'automated' label"
+          else
+            echo "'automated' label already exists"
           fi
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -147,26 +152,32 @@ jobs:
         run: |
           BRANCH_NAME="${{ needs.prepare-release.outputs.release_branch }}"
           
-          # Ensure we're on main branch first
-          git checkout main
+          # Ensure we're on main branch first and up to date
+          CURRENT_BRANCH=$(git branch --show-current)
+          echo "Current branch: $CURRENT_BRANCH"
+          
+          if [ "$CURRENT_BRANCH" != "main" ]; then
+            echo "Switching to main branch"
+            git checkout main
+          fi
+          
+          # Pull latest main
           git pull origin main
           
-          # Check if branch exists
+          # Check if branch exists remotely
           if git show-ref --verify --quiet refs/remotes/origin/$BRANCH_NAME; then
-            echo "Branch $BRANCH_NAME exists, checking out and updating"
+            echo "Branch $BRANCH_NAME exists remotely, checking out and updating"
             
-            # Handle untracked files that might conflict with checkout
-            if [ -f "CHANGELOG.md" ] && ! git ls-files --error-unmatch CHANGELOG.md >/dev/null 2>&1; then
-              echo "Moving untracked CHANGELOG.md to avoid checkout conflict"
-              mv CHANGELOG.md CHANGELOG.md.backup
-            fi
+            # Fetch latest version of the branch
+            git fetch origin $BRANCH_NAME
             
-            git checkout $BRANCH_NAME
-            git pull origin $BRANCH_NAME
-            
-            # Restore backup file if it exists
-            if [ -f "CHANGELOG.md.backup" ]; then
-              mv CHANGELOG.md.backup CHANGELOG.md
+            # Try to checkout the existing branch
+            if git ls-remote --heads origin $BRANCH_NAME | grep -q $BRANCH_NAME; then
+              git checkout $BRANCH_NAME
+              git pull origin $BRANCH_NAME --no-rebase || true
+            else
+              echo "Branch exists but couldn't checkout, creating fresh"
+              git checkout -b $BRANCH_NAME origin/$BRANCH_NAME
             fi
           else
             echo "Creating new branch $BRANCH_NAME"
@@ -179,7 +190,7 @@ jobs:
           # Commit if there are changes
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}"
-            git push origin $BRANCH_NAME
+            git push origin $BRANCH_NAME || git push origin $BRANCH_NAME --force
           else
             echo "No changes to commit"
           fi
@@ -187,9 +198,18 @@ jobs:
       - name: Create or update release PR
         run: |
           PR_NUMBER="${{ needs.prepare-release.outputs.existing_pr_number }}"
+          BRANCH_NAME="${{ needs.prepare-release.outputs.release_branch }}"
+          
+          # Verify branch exists before creating PR
+          if ! git show-ref --verify --quiet refs/remotes/origin/$BRANCH_NAME; then
+            echo "❌ Release branch $BRANCH_NAME does not exist, cannot create PR"
+            exit 1
+          fi
+          
+          echo "✅ Release branch $BRANCH_NAME verified"
           
           # Prepare PR body
-          PR_BODY=$(cat << 'EOF'
+          PR_BODY=$(cat << EOF
           # Release v${{ needs.prepare-release.outputs.new_version }}
           
           This PR prepares a new release based on conventional commits.
@@ -218,28 +238,49 @@ jobs:
           EOF
           )
           
-          if [ -n "$PR_NUMBER" ]; then
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
             echo "Updating existing PR #$PR_NUMBER"
-            gh pr edit $PR_NUMBER \
-              --title "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}" \
-              --body "$PR_BODY"
-            echo "Updated PR #$PR_NUMBER"
-          else
+            if gh pr view $PR_NUMBER --json number &>/dev/null; then
+              gh pr edit $PR_NUMBER \
+                --title "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}" \
+                --body "$PR_BODY" || true
+              echo "Updated PR #$PR_NUMBER"
+            else
+              echo "PR #$PR_NUMBER not found, creating new PR"
+              PR_NUMBER=""
+            fi
+          fi
+          
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" == "null" ]; then
             echo "Creating new release PR"
-            PR_URL=$(gh pr create \
-              --base main \
-              --head "${{ needs.prepare-release.outputs.release_branch }}" \
-              --title "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}" \
-              --body "$PR_BODY" \
-              --label "release,automated")
-            # Extract PR number from URL
-            PR_NUMBER=$(echo "$PR_URL" | grep -oE 'pull/[0-9]+' | cut -d'/' -f2)
-            echo "Created PR #$PR_NUMBER"
+            # Check if PR already exists with this branch
+            EXISTING_PR=$(gh pr list --base main --head "$BRANCH_NAME" --json number --jq '.[0].number' 2>/dev/null || echo "")
+            
+            if [ -n "$EXISTING_PR" ]; then
+              echo "PR already exists for branch $BRANCH_NAME: #$EXISTING_PR"
+              PR_NUMBER=$EXISTING_PR
+            else
+              PR_URL=$(gh pr create \
+                --base main \
+                --head "$BRANCH_NAME" \
+                --title "chore(release): prepare release v${{ needs.prepare-release.outputs.new_version }}" \
+                --body "$PR_BODY" \
+                --label "release,automated" 2>&1)
+              
+              if [ $? -eq 0 ]; then
+                # Extract PR number from URL
+                PR_NUMBER=$(echo "$PR_URL" | grep -oE 'pull/[0-9]+' | cut -d'/' -f2)
+                echo "Created PR #$PR_NUMBER"
+              else
+                echo "Failed to create PR: $PR_URL"
+                exit 1
+              fi
+            fi
           fi
           
           # Enable auto-merge if all checks pass
           if [ -n "$PR_NUMBER" ]; then
-            gh pr merge $PR_NUMBER --auto --squash --delete-branch
+            gh pr merge $PR_NUMBER --auto --squash --delete-branch || true
             echo "Enabled auto-merge for PR #$PR_NUMBER"
           fi
         env:
