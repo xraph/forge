@@ -13,10 +13,10 @@ import (
 // by completely buffering the response until flush is called
 type safeResponseWriter struct {
 	http.ResponseWriter
-	mu     sync.Mutex
-	header http.Header
-	code   int
-	body   []byte
+	mu      sync.Mutex
+	header  http.Header
+	code    int
+	body    []byte
 	flushed bool
 }
 
@@ -60,7 +60,7 @@ func (w *safeResponseWriter) flush() {
 		}
 		w.ResponseWriter.WriteHeader(w.code)
 		if len(w.body) > 0 {
-			w.ResponseWriter.Write(w.body)
+			_, _ = w.ResponseWriter.Write(w.body)
 		}
 		w.flushed = true
 	}
@@ -100,7 +100,7 @@ func Timeout(duration time.Duration, logger forge.Logger) forge.Middleware {
 				}
 				// Write timeout response directly to avoid race with buffered response
 				w.WriteHeader(http.StatusGatewayTimeout)
-				w.Write([]byte("Gateway Timeout"))
+				_, _ = w.Write([]byte("Gateway Timeout"))
 			}
 		})
 	}

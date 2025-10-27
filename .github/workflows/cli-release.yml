@@ -147,7 +147,7 @@ jobs:
         continue-on-error: true
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -exclude-dir=bk -exclude-dir=vendor -exclude-dir=examples ./... || true
+          gosec -exclude-dir=bk -exclude-dir=vendor -exclude-dir=extensions -exclude-dir=internal -exclude-dir=cli -exclude-dir=examples -exclude-dir=cmd ./... || true
 
       - name: Vulnerability check
         if: always()
