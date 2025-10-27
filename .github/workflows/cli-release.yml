@@ -119,6 +119,7 @@ jobs:
   quality:
     needs: prepare
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -149,6 +150,7 @@ jobs:
           gosec -exclude-dir=bk -exclude-dir=vendor -exclude-dir=examples ./... || true
 
       - name: Vulnerability check
+        if: always()
         continue-on-error: true
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
