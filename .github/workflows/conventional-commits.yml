@@ -311,37 +311,38 @@ jobs:
           echo "Recent commits:"
           echo "$COMMITS"
           
-          # Look for release commit in recent history using sed
-          VERSION=$(echo "$COMMITS" | grep "chore(release): prepare release v" | sed -n 's/.*prepare release v\([0-9.]*\).*/\1/p' | head -1)
+          # Get the most recent commit message
+          LATEST_COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Latest commit message: $LATEST_COMMIT_MSG"
           
-          if [ -n "$VERSION" ]; then
-            echo "Release version detected: $VERSION"
+          # Check if the latest commit is directly a release commit (manual trigger)
+          if echo "$LATEST_COMMIT_MSG" | grep -q "^chore(release): prepare release v"; then
+            echo "⚠️ This is a direct release commit on main, not a merged PR"
+            echo "⚠️ Skipping auto-release - use workflow_dispatch or let a release PR merge instead"
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "should_tag=false" >> $GITHUB_OUTPUT
+          else
+            # Look for release commit in history (from merged PR)
+            VERSION=$(echo "$COMMITS" | grep "chore(release): prepare release v" | sed -n 's/.*prepare release v\([0-9.]*\).*/\1/p' | head -1)
             
-            # Check if there's an open release PR for this or any version
-            OPEN_RELEASE_PR=$(gh pr list --state open --label release --json number,headRefName --jq '.[] | .number' | head -1 || echo "")
-            
-            if [ -n "$OPEN_RELEASE_PR" ]; then
-              echo "⚠️ Open release PR detected, skipping auto-release to allow PR to be reviewed first"
-              echo "is_release=true" >> $GITHUB_OUTPUT
-              echo "version=$VERSION" >> $GITHUB_OUTPUT
-              echo "should_tag=false" >> $GITHUB_OUTPUT
-            else
-              echo "✅ No open release PR, proceeding with auto-release"
-              echo "is_release=true" >> $GITHUB_OUTPUT
-              echo "version=$VERSION" >> $GITHUB_OUTPUT
+            if [ -n "$VERSION" ]; then
+              echo "Release version detected from merged PR: $VERSION"
               
               # Check if tag already exists
               if git tag -l "v$VERSION" | grep -q "v$VERSION"; then
                 echo "Tag v$VERSION already exists, skipping"
+                echo "is_release=false" >> $GITHUB_OUTPUT
                 echo "should_tag=false" >> $GITHUB_OUTPUT
               else
+                echo "is_release=true" >> $GITHUB_OUTPUT
+                echo "version=$VERSION" >> $GITHUB_OUTPUT
                 echo "should_tag=true" >> $GITHUB_OUTPUT
               fi
+            else
+              echo "No release commit found in recent commits"
+              echo "is_release=false" >> $GITHUB_OUTPUT
+              echo "should_tag=false" >> $GITHUB_OUTPUT
             fi
-          else
-            echo "No release commit found in recent commits"
-            echo "is_release=false" >> $GITHUB_OUTPUT
-            echo "should_tag=false" >> $GITHUB_OUTPUT
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
