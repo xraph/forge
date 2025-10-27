@@ -3,6 +3,9 @@ name: Conventional Commits Release
 on:
   push:
     branches: [ main ]
+  pull_request:
+    types: [closed]
+    branches: [ main ]
 
 jobs:
   prepare-release:
@@ -291,7 +294,9 @@ jobs:
   # Auto-release when release PR is merged
   auto-release:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: |
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && github.event.action == 'closed')
     permissions:
       contents: write
     steps:
