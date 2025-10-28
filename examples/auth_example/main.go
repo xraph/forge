@@ -199,24 +199,24 @@ func main() {
 	)
 
 	// Public routes (no auth)
-	router.GET("/", func(w http.ResponseWriter, r *http.Request) error {
-		return forge.JSON(w, 200, map[string]string{
+	router.GET("/", func(ctx forge.Context) error {
+		return ctx.JSON(200, map[string]string{
 			"message": "Welcome to the Auth Example API",
 			"docs":    "Visit /swagger for API documentation",
 		})
 	}, forge.WithSummary("Welcome endpoint"))
 
-	router.GET("/health", func(w http.ResponseWriter, r *http.Request) error {
-		return forge.JSON(w, 200, map[string]string{
+	router.GET("/health", func(ctx forge.Context) error {
+		return ctx.JSON(200, map[string]string{
 			"status": "healthy",
 			"time":   time.Now().Format(time.RFC3339),
 		})
 	}, forge.WithSummary("Health check"))
 
 	// Protected route - API Key OR JWT
-	router.GET("/protected", func(w http.ResponseWriter, r *http.Request) error {
-		authCtx, _ := auth.FromContext(r.Context())
-		return forge.JSON(w, 200, map[string]interface{}{
+	router.GET("/protected", func(ctx forge.Context) error {
+		authCtx, _ := auth.FromContext(ctx.Request().Context())
+		return ctx.JSON(200, map[string]interface{}{
 			"message":  "This is a protected resource",
 			"user":     authCtx.Subject,
 			"provider": authCtx.ProviderName,
@@ -230,9 +230,9 @@ func main() {
 	)
 
 	// Protected route - JWT only with required scopes
-	router.GET("/users", func(w http.ResponseWriter, r *http.Request) error {
-		authCtx, _ := auth.FromContext(r.Context())
-		return forge.JSON(w, 200, map[string]interface{}{
+	router.GET("/users", func(ctx forge.Context) error {
+		authCtx, _ := auth.FromContext(ctx.Request().Context())
+		return ctx.JSON(200, map[string]interface{}{
 			"users": []User{
 				{ID: "1", Email: "user1@example.com", Name: "User 1"},
 				{ID: "2", Email: "user2@example.com", Name: "User 2"},
@@ -248,9 +248,9 @@ func main() {
 	)
 
 	// Admin only route
-	router.POST("/admin/users", func(w http.ResponseWriter, r *http.Request) error {
-		authCtx, _ := auth.FromContext(r.Context())
-		return forge.JSON(w, 201, map[string]interface{}{
+	router.POST("/admin/users", func(ctx forge.Context) error {
+		authCtx, _ := auth.FromContext(ctx.Request().Context())
+		return ctx.JSON(201, map[string]interface{}{
 			"message": "User created successfully",
 			"admin":   authCtx.Subject,
 		})
@@ -262,9 +262,9 @@ func main() {
 	)
 
 	// Basic auth protected route
-	router.GET("/basic", func(w http.ResponseWriter, r *http.Request) error {
-		authCtx, _ := auth.FromContext(r.Context())
-		return forge.JSON(w, 200, map[string]interface{}{
+	router.GET("/basic", func(ctx forge.Context) error {
+		authCtx, _ := auth.FromContext(ctx.Request().Context())
+		return ctx.JSON(200, map[string]interface{}{
 			"message": "Authenticated with Basic Auth",
 			"user":    authCtx.Subject,
 		})
@@ -280,18 +280,18 @@ func main() {
 		forge.WithGroupTags("api", "v1"),
 	)
 	{
-		apiV1.GET("/profile", func(w http.ResponseWriter, r *http.Request) error {
-			authCtx, _ := auth.FromContext(r.Context())
-			return forge.JSON(w, 200, map[string]interface{}{
+		apiV1.GET("/profile", func(ctx forge.Context) error {
+			authCtx, _ := auth.FromContext(ctx.Request().Context())
+			return ctx.JSON(200, map[string]interface{}{
 				"id":    authCtx.Subject,
 				"email": authCtx.Claims["email"],
 				"name":  authCtx.Claims["name"],
 			})
 		}, forge.WithSummary("Get user profile"))
 
-		apiV1.PUT("/profile", func(w http.ResponseWriter, r *http.Request) error {
-			authCtx, _ := auth.FromContext(r.Context())
-			return forge.JSON(w, 200, map[string]interface{}{
+		apiV1.PUT("/profile", func(ctx forge.Context) error {
+			authCtx, _ := auth.FromContext(ctx.Request().Context())
+			return ctx.JSON(200, map[string]interface{}{
 				"message": "Profile updated",
 				"user":    authCtx.Subject,
 			})
@@ -299,9 +299,9 @@ func main() {
 	}
 
 	// Multi-auth route (requires both API key AND JWT - rare use case)
-	router.GET("/high-security", func(w http.ResponseWriter, r *http.Request) error {
-		authCtx, _ := auth.FromContext(r.Context())
-		return forge.JSON(w, 200, map[string]interface{}{
+	router.GET("/high-security", func(ctx forge.Context) error {
+		authCtx, _ := auth.FromContext(ctx.Request().Context())
+		return ctx.JSON(200, map[string]interface{}{
 			"message": "This requires multiple authentication methods",
 			"user":    authCtx.Subject,
 		})

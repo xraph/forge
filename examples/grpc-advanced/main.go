@@ -151,13 +151,15 @@ func main() {
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop...")
 
-	// Display stats periodically
+	// Display stats periodically when receiving SIGUSR1
+	statsCh := make(chan os.Signal, 1)
+	signal.Notify(statsCh, syscall.SIGUSR1)
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-syscall.Signal(syscall.SIGUSR1):
+			case <-statsCh:
 				stats := grpcServer.GetStats()
 				logger.Info("server statistics",
 					forge.F("rpcs_started", stats.RPCsStarted),
