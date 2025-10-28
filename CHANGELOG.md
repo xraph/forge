@@ -1,3 +1,3 @@
-### Bug Fixes
+### Features
 
-* **ci:** add continue-on-error to quality job and improve vulnerability check step ([d295ec6](https://github.com/xraph/forge/commit/d295ec661282de39524dd9e9e1369acb48f60a9a))
+* **license:** add Forge License Decision Tree for quick licensing guidance ([e73443c](https://github.com/xraph/forge/commit/e73443c683a94e3eb4bfe1cf07ccb7037e16ecbc))
