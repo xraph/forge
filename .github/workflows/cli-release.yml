@@ -197,6 +197,11 @@ jobs:
           fi
           echo "✅ GoReleaser config is valid (deprecation warnings are acceptable)"
 
+      - name: Install snapcraft
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y snapcraft
+
       - name: Run GoReleaser (Dry Run)
         if: needs.prepare.outputs.is_prerelease == 'true'
         run: |
