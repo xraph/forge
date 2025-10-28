@@ -183,25 +183,27 @@ scoops:
 #         plugs: ["home", "network"]
 
 # AUR packages for Arch Linux
-aurs:
-  - name: forge-bin
-    ids:
-      - forge-archives
-    homepage: https://github.com/xraph/forge
-    description: "Comprehensive backend framework for Go with enterprise-grade features"
-    maintainers:
-      - 'Your Name <your.email@example.com>'
-    license: MIT
-    private_key: '{{ .Env.AUR_KEY }}'
-    git_url: 'ssh://aur@aur.archlinux.org/forge-bin.git'
-    package: |-
-      # bin
-      install -Dm755 "./forge" "${pkgdir}/usr/bin/forge"
-      # license
-      install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/forge/LICENSE"
-    commit_author:
-      name: goreleaserbot
-      email: bot@goreleaser.com
+# NOTE: Disabled - Requires AUR_KEY secret for SSH authentication
+# To enable: Set up AUR account, add AUR_KEY secret to GitHub Actions, update maintainer email
+# aurs:
+#   - name: forge-bin
+#     ids:
+#       - forge-archives
+#     homepage: https://github.com/xraph/forge
+#     description: "Comprehensive backend framework for Go with enterprise-grade features"
+#     maintainers:
+#       - 'Your Name <your.email@example.com>'
+#     license: MIT
+#     private_key: '{{ .Env.AUR_KEY }}'
+#     git_url: 'ssh://aur@aur.archlinux.org/forge-bin.git'
+#     package: |-
+#       # bin
+#       install -Dm755 "./forge" "${pkgdir}/usr/bin/forge"
+#       # license
+#       install -Dm644 "./LICENSE" "${pkgdir}/usr/share/licenses/forge/LICENSE"
+#     commit_author:
+#       name: goreleaserbot
+#       email: bot@goreleaser.com
 
 # NFPM packages for Debian/RPM
 nfpms:

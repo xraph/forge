@@ -206,7 +206,7 @@ jobs:
         run: |
           goreleaser release --snapshot --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Run GoReleaser (Production)
         if: needs.prepare.outputs.is_prerelease == 'false'
@@ -216,7 +216,7 @@ jobs:
           version: '~> v2'
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN || secrets.GITHUB_TOKEN }}
           FURY_TOKEN: ${{ secrets.FURY_TOKEN || '' }}
           AUR_KEY: ${{ secrets.AUR_KEY || '' }}
 
@@ -228,7 +228,7 @@ jobs:
           version: '~> v2'
           args: release --clean
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GORELEASER_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
