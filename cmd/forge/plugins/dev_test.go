@@ -4,6 +4,7 @@ package plugins
 import (
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,10 +16,10 @@ import (
 
 func TestDebouncer(t *testing.T) {
 	debouncer := newDebouncer(100 * time.Millisecond)
-	
-	callCount := 0
+
+	var callCount atomic.Int32
 	fn := func() {
-		callCount++
+		callCount.Add(1)
 	}
 
 	// Call multiple times rapidly
@@ -31,15 +32,15 @@ func TestDebouncer(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Should only be called once due to debouncing
-	assert.Equal(t, 1, callCount, "debouncer should only call function once")
+	assert.Equal(t, int32(1), callCount.Load(), "debouncer should only call function once")
 }
 
 func TestDebouncerMultipleCalls(t *testing.T) {
 	debouncer := newDebouncer(50 * time.Millisecond)
-	
-	callCount := 0
+
+	var callCount atomic.Int32
 	fn := func() {
-		callCount++
+		callCount.Add(1)
 	}
 
 	// First burst
@@ -53,7 +54,7 @@ func TestDebouncerMultipleCalls(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Should be called twice (once per burst)
-	assert.Equal(t, 2, callCount, "debouncer should call function once per burst")
+	assert.Equal(t, int32(2), callCount.Load(), "debouncer should call function once per burst")
 }
 
 func TestShouldReload(t *testing.T) {
@@ -174,7 +175,7 @@ func TestAddWatchRecursive(t *testing.T) {
 
 	// Check watched directories
 	watchedDirs := watcher.WatchList()
-	
+
 	// Should watch cmd and internal but not vendor, .git, or bin
 	hasCmd := false
 	hasInternal := false
@@ -312,14 +313,13 @@ func main() {}`
 	require.NoError(t, err)
 
 	assert.Len(t, apps, 2, "should discover 2 apps")
-	
+
 	appNames := make([]string, len(apps))
 	for i, app := range apps {
 		appNames[i] = app.Name
 	}
-	
+
 	assert.Contains(t, appNames, "app1")
 	assert.Contains(t, appNames, "app2")
 	assert.NotContains(t, appNames, "app3")
 }
-
