@@ -93,7 +93,7 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 		if err != nil {
 			return err
 		}
-		if layoutChoice[:12] == "single-module" {
+		if layoutChoice[:13] == "single-module" {
 			layout = "single-module"
 		} else {
 			layout = "multi-module"
