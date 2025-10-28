@@ -3,11 +3,6 @@ FROM scratch
 # Copy the binary from the build context
 COPY forge /usr/local/bin/forge
 
-# Copy documentation and examples
-COPY README.md /
-COPY LICENSE /
-COPY CHANGELOG.md /
-
 # Set the entrypoint
 ENTRYPOINT ["/usr/local/bin/forge"]
 
