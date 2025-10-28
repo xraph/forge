@@ -22,7 +22,7 @@ go build -o forge main.go
 forge init
 
 # Generate an app
-forge generate:app --name=my-app
+forge generate app --name=my-app
 
 # Start development server
 forge dev
@@ -31,7 +31,7 @@ forge dev
 forge build --production
 
 # Run database migrations
-forge db:migrate
+forge db migrate
 
 # Deploy to Kubernetes
 forge deploy --env=staging
@@ -108,63 +108,68 @@ forge dev -a api-gateway     # Run specific app
 forge dev -a api-gateway -p 8080 --watch
 
 # List available apps
-forge dev:list
+forge dev list
 
 # Build for development
-forge dev:build -a my-app
+forge dev build -a my-app
 ```
 
 ### Code Generation
 
 ```bash
 # Generate application
-forge generate:app --name=api-gateway --template=api
-forge gen:app -n auth-service
+forge generate app --name=api-gateway --template=api
+forge gen app -n auth-service
+forge g app -n auth-service  # Short alias
 
 # Generate service
-forge generate:service --name=users
-forge gen:service -n billing
+forge generate service --name=users
+forge gen service -n billing
+forge g service -n billing  # Short alias
 
 # Generate extension
-forge generate:extension --name=payment
-forge gen:ext -n notifications
+forge generate extension --name=payment
+forge gen ext -n notifications
+forge g ext -n notifications  # Short alias
 
 # Generate controller/handler
-forge generate:controller --name=users --app=api-gateway
-forge gen:ctrl -n products -a api-gateway
+forge generate controller --name=users --app=api-gateway
+forge gen ctrl -n products -a api-gateway
+forge g ctrl -n products -a api-gateway  # Short alias
 
 # Generate model
-forge generate:model --name=User --fields=name:string,email:string,age:int
-forge gen:model -n Product -f name:string -f price:float64
+forge generate model --name=User --fields=name:string,email:string,age:int
+forge gen model -n Product -f name:string -f price:float64
+forge g model -n Product -f name:string -f price:float64  # Short alias
 ```
 
 ### Database
 
 ```bash
 # Run migrations
-forge db:migrate                 # All migrations
-forge db:migrate --env=staging
-forge db:migrate --steps=1       # Run one migration
+forge db migrate                 # All migrations
+forge db migrate --env=staging
+forge db migrate --steps=1       # Run one migration
 
 # Rollback migrations
-forge db:rollback
-forge db:rollback --steps=2
+forge db rollback
+forge db rollback --steps=2
 
 # Show migration status
-forge db:status
-forge db:status --env=production
+forge db status
+forge db status --env=production
 
 # Create new migration
-forge db:create --name=add_users_table
-forge db:create -n create_products
+forge db create --name=add_users_table
+forge db create -n create_products
 
 # Seed database
-forge db:seed
-forge db:seed --file=dev_users.sql
+forge db seed
+forge db seed --file=dev_users.sql
 
 # Reset database
-forge db:reset --env=dev
-forge db:reset --env=production --force
+forge db reset --env=dev
+forge db reset --env=production --force
 ```
 
 ### Build
@@ -194,28 +199,28 @@ forge build -o ./dist
 forge deploy -a api-gateway -e staging -t v1.2.3
 
 # Build and push Docker image
-forge deploy:docker -a api-gateway -t latest
-forge deploy:docker -a auth-service -t v2.0.0
+forge deploy docker -a api-gateway -t latest
+forge deploy docker -a auth-service -t v2.0.0
 
 # Deploy to Kubernetes
-forge deploy:k8s -e production
-forge deploy:k8s -e staging --namespace=my-namespace
+forge deploy k8s -e production
+forge deploy k8s -e staging --namespace=my-namespace
 
 # Show deployment status
-forge deploy:status
-forge deploy:status --env=production
+forge deploy status
+forge deploy status --env=production
 ```
 
 ### Extensions
 
 ```bash
 # List available extensions
-forge extension:list
-forge ext:list
+forge extension list
+forge ext list
 
 # Show extension info
-forge extension:info --name=cache
-forge ext:info -n database
+forge extension info --name=cache
+forge ext info -n database
 ```
 
 ## Configuration
@@ -324,22 +329,22 @@ Forge CLI is built on a plugin architecture. Current plugins:
 forge init --layout=single-module --template=api
 
 # Generate API app
-forge generate:app --name=api-gateway
+forge generate app --name=api-gateway
 
 # Generate controllers
-forge generate:controller --name=users --app=api-gateway
-forge generate:controller --name=products --app=api-gateway
+forge generate controller --name=users --app=api-gateway
+forge generate controller --name=products --app=api-gateway
 
 # Generate models
-forge generate:model --name=User --fields=name:string,email:string
-forge generate:model --name=Product --fields=name:string,price:float64
+forge generate model --name=User --fields=name:string,email:string
+forge generate model --name=Product --fields=name:string,price:float64
 
 # Create database migrations
-forge db:create --name=create_users_table
-forge db:create --name=create_products_table
+forge db create --name=create_users_table
+forge db create --name=create_products_table
 
 # Run migrations
-forge db:migrate
+forge db migrate
 
 # Start development
 forge dev -a api-gateway
@@ -352,10 +357,10 @@ forge dev -a api-gateway
 forge init --layout=multi-module --template=microservices
 
 # Generate services
-forge generate:app --name=api-gateway
-forge generate:app --name=auth-service
-forge generate:app --name=user-service
-forge generate:app --name=order-service
+forge generate app --name=api-gateway
+forge generate app --name=auth-service
+forge generate app --name=user-service
+forge generate app --name=order-service
 
 # Start a service
 forge dev -a auth-service
@@ -364,7 +369,7 @@ forge dev -a auth-service
 forge build --production
 
 # Deploy to staging
-forge deploy:k8s --env=staging
+forge deploy k8s --env=staging
 ```
 
 ## Troubleshooting
