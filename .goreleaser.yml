@@ -39,8 +39,6 @@ builds:
 
 archives:
   - id: forge-archives
-    builds:
-      - forge
     name_template: >-
       {{ .ProjectName }}-
       {{- .Version }}-
@@ -48,13 +46,14 @@ archives:
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
-    format_overrides:
-      - goos: windows
-        format: zip
     files:
       - README.md
       - LICENSE
       - CHANGELOG.md
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
 
 checksum:
   name_template: 'checksums.txt'
@@ -133,7 +132,8 @@ release:
     ## What's Changed
     Full changelog: https://github.com/xraph/forge/compare/{{ .PreviousTag }}...{{ .Tag }}
 
-# Homebrew tap
+# Homebrew tap - DEPRECATED but still functional
+# Awaiting clear migration path to homebrew_casks with compatible field structure
 brews:
   - repository:
       owner: xraph
@@ -165,51 +165,9 @@ scoops:
     description: "Comprehensive backend framework for Go with enterprise-grade features"
     license: MIT
 
-# Docker images
-dockers:
-  - image_templates:
-      - "ghcr.io/xraph/forge:{{ .Version }}-amd64"
-      - "ghcr.io/xraph/forge:latest-amd64"
-    dockerfile: Dockerfile
-    use: buildx
-    build_flag_templates:
-      - "--pull"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.name={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-      - "--platform=linux/amd64"
-  - image_templates:
-      - "ghcr.io/xraph/forge:{{ .Version }}-arm64"
-      - "ghcr.io/xraph/forge:latest-arm64"
-    dockerfile: Dockerfile
-    use: buildx
-    build_flag_templates:
-      - "--pull"
-      - "--label=org.opencontainers.image.created={{.Date}}"
-      - "--label=org.opencontainers.image.name={{.ProjectName}}"
-      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-      - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=org.opencontainers.image.source={{.GitURL}}"
-      - "--platform=linux/arm64"
-    goarch: arm64
-
-docker_manifests:
-  - name_template: "ghcr.io/xraph/forge:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/xraph/forge:{{ .Version }}-amd64"
-      - "ghcr.io/xraph/forge:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/xraph/forge:latest"
-    image_templates:
-      - "ghcr.io/xraph/forge:latest-amd64"
-      - "ghcr.io/xraph/forge:latest-arm64"
-
 # Snapcraft
 snapcrafts:
   - id: forge-snap
-    builds:
-      - forge
     publish: true
     summary: Comprehensive backend framework for Go
     description: |
@@ -282,6 +240,51 @@ nfpms:
       lintian_overrides:
         - statically-linked-binary
         - changelog-file-missing-in-native-package
+
+# Docker images - Using buildx for cross-platform builds
+# Note: dockers API is deprecated in favor of dockers_v2, but v2 syntax is still evolving
+# and lacks full feature parity. Keeping dockers/docker_manifests until v2 is production-ready.
+dockers:
+  - id: forge-amd64
+    image_templates:
+      - "ghcr.io/xraph/forge:{{ .Version }}-amd64"
+      - "ghcr.io/xraph/forge:latest-amd64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--platform=linux/amd64"
+  - id: forge-arm64
+    image_templates:
+      - "ghcr.io/xraph/forge:{{ .Version }}-arm64"
+      - "ghcr.io/xraph/forge:latest-arm64"
+    dockerfile: Dockerfile
+    use: buildx
+    build_flag_templates:
+      - "--pull"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.name={{.ProjectName}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.source={{.GitURL}}"
+      - "--platform=linux/arm64"
+    goarch: arm64
+
+# Docker manifests for multi-arch images
+docker_manifests:
+  - name_template: "ghcr.io/xraph/forge:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/xraph/forge:{{ .Version }}-amd64"
+      - "ghcr.io/xraph/forge:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/xraph/forge:latest"
+    image_templates:
+      - "ghcr.io/xraph/forge:latest-amd64"
+      - "ghcr.io/xraph/forge:latest-arm64"
 
 # Git settings
 git:
