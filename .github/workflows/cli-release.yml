@@ -188,7 +188,7 @@ jobs:
 
       - name: Verify GoReleaser config
         run: |
-          go install github.com/goreleaser/goreleaser@latest
+          go install github.com/goreleaser/goreleaser/v2@latest
           goreleaser check
 
       - name: Run GoReleaser (Dry Run)
@@ -200,10 +200,10 @@ jobs:
 
       - name: Run GoReleaser (Production)
         if: needs.prepare.outputs.is_prerelease == 'false'
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: latest
+          version: '~> v2'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -212,10 +212,10 @@ jobs:
 
       - name: Run GoReleaser (Pre-Release)
         if: needs.prepare.outputs.is_prerelease == 'true'
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: latest
+          version: '~> v2'
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
