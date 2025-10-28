@@ -250,6 +250,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
       - name: Verify GitHub Release
         run: |
           TAG="${{ needs.prepare.outputs.tag_name }}"
