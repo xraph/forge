@@ -7,7 +7,7 @@ replace github.com/xraph/forge => ../..
 replace github.com/xraph/forge/extensions/graphql => ../../extensions/graphql
 
 require (
-	github.com/xraph/forge v2.0.0
+	github.com/xraph/forge v0.0.6
 	github.com/xraph/forge/extensions/graphql v0.0.0-00010101000000-000000000000
 )
 
@@ -55,15 +55,20 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/quic-go/qpack v0.5.1 // indirect
+	github.com/quic-go/quic-go v0.55.0 // indirect
+	github.com/quic-go/webtransport-go v0.9.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/sosodev/duration v1.2.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
+	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/urfave/cli/v2 v2.27.1 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.11 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
+	golang.org/x/crypto v0.41.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
 	golang.org/x/mod v0.27.0 // indirect
 	golang.org/x/net v0.43.0 // indirect

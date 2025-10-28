@@ -509,6 +509,8 @@ For detailed API documentation, see:
 
 ## 🤝 Contributing
 
+We welcome contributions to the AI Extension! By contributing, you grant xraph a license to use your contribution under any license terms, including the commercial license.
+
 1. Fork the repository
 2. Create a feature branch
 3. Add tests for new functionality
@@ -517,4 +519,34 @@ For detailed API documentation, see:
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+⚠️ **Important**: The AI Extension uses a **Commercial Source-Available License**, which is different from the main Forge framework's MIT license.
+
+### What This Means
+
+✅ **Free for:**
+- Personal projects
+- Educational and research purposes
+- Internal evaluation (90 days)
+- Learning and studying the code
+
+❌ **Commercial license required for:**
+- Production deployments
+- Commercial products and services
+- Revenue-generating applications
+- SaaS platforms
+
+### Full License Details
+
+- See [LICENSE](LICENSE) for complete terms
+- See [LICENSE_NOTICE.md](LICENSE_NOTICE.md) for a summary
+- See main [LICENSING.md](../../LICENSING.md) for the complete licensing guide
+
+### Need a Commercial License?
+
+For commercial use of the AI Extension in production:
+
+- **Email**: licensing@xraph.com
+- **Web**: https://github.com/xraph/forge
+- **Issues**: https://github.com/xraph/forge/issues
+
+We offer flexible pricing for startups, enterprises, and custom agreements.

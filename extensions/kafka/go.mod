@@ -1,11 +1,11 @@
 module github.com/xraph/forge/extensions/kafka
 
-go 1.24.0
+go 1.24.9
 
 require (
 	github.com/IBM/sarama v1.43.3
 	github.com/xdg-go/scram v1.1.2
-	github.com/xraph/forge v0.0.0
+	github.com/xraph/forge v0.0.6
 )
 
 require (
