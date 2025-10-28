@@ -199,8 +199,7 @@ jobs:
 
       - name: Install snapcraft
         run: |
-          sudo apt-get update
-          sudo apt-get install -y snapcraft
+          sudo snap install snapcraft --classic
 
       - name: Run GoReleaser (Dry Run)
         if: needs.prepare.outputs.is_prerelease == 'true'
