@@ -54,36 +54,37 @@ forge init --layout=multi-module --name=my-services --module=github.com/me/my-se
 
 ```bash
 # Generate a new application
-forge generate:app --name=api-gateway
+forge generate app --name=api-gateway
 
-# Or with alias
-forge gen:app -n api-gateway
+# Or with aliases
+forge gen app -n api-gateway
+forge g app -n api-gateway  # Short alias
 ```
 
 ## Add Components
 
 ```bash
 # Generate a controller
-forge generate:controller --name=users --app=api-gateway
+forge generate controller --name=users --app=api-gateway
 
 # Generate a model
-forge generate:model --name=User --fields=name:string,email:string,age:int
+forge generate model --name=User --fields=name:string,email:string,age:int
 
 # Generate a service
-forge generate:service --name=auth
+forge generate service --name=auth
 ```
 
 ## Database Setup
 
 ```bash
 # Create a migration
-forge db:create --name=create_users_table
+forge db create --name=create_users_table
 
 # Run migrations
-forge db:migrate
+forge db migrate
 
 # Check status
-forge db:status
+forge db status
 ```
 
 ## Start Development
@@ -99,7 +100,7 @@ forge dev -a api-gateway
 forge dev -a api-gateway -p 8080
 
 # List available apps
-forge dev:list
+forge dev list
 ```
 
 ## Build and Deploy
@@ -127,20 +128,20 @@ forge deploy -a api-gateway -e staging -t v1.0.0
 forge init --layout=single-module --template=api
 
 # Generate app
-forge gen:app -n api-gateway
+forge gen app -n api-gateway
 
 # Add controllers
-forge gen:controller -n users -a api-gateway
-forge gen:controller -n products -a api-gateway
+forge gen controller -n users -a api-gateway
+forge gen controller -n products -a api-gateway
 
 # Add models
-forge gen:model -n User --fields=name:string,email:string
-forge gen:model -n Product --fields=name:string,price:float64
+forge gen model -n User --fields=name:string,email:string
+forge gen model -n Product --fields=name:string,price:float64
 
 # Setup database
-forge db:create -n create_users_table
-forge db:create -n create_products_table
-forge db:migrate
+forge db create -n create_users_table
+forge db create -n create_products_table
+forge db migrate
 
 # Start developing
 forge dev -a api-gateway
@@ -153,20 +154,20 @@ forge dev -a api-gateway
 forge init --layout=multi-module
 
 # Generate multiple services
-forge gen:app -n api-gateway
-forge gen:app -n auth-service
-forge gen:app -n user-service
-forge gen:app -n order-service
+forge gen app -n api-gateway
+forge gen app -n auth-service
+forge gen app -n user-service
+forge gen app -n order-service
 
 # Add shared services
-forge gen:service -n email
-forge gen:service -n notifications
+forge gen service -n email
+forge gen service -n notifications
 
 # Build all
 forge build --production
 
 # Deploy to kubernetes
-forge deploy:k8s -e staging
+forge deploy k8s -e staging
 ```
 
 ## Project Structure
@@ -188,7 +189,7 @@ my-app/
 └── deployments/
 ```
 
-### After `forge generate:app --name=api-gateway`
+### After `forge generate app --name=api-gateway`
 
 ```
 my-app/
@@ -218,7 +219,8 @@ forge dev           # Still works!
 Most commands support interactive mode when arguments are missing:
 
 ```bash
-forge gen:app       # Will prompt for name
+forge gen app       # Will prompt for name
+forge g app         # Short alias, will prompt for name
 forge dev           # Will show app selector
 ```
 
@@ -232,8 +234,8 @@ forge doctor --verbose  # Detailed output
 ### View Available Extensions
 
 ```bash
-forge extension:list
-forge extension:info --name=cache
+forge extension list
+forge extension info --name=cache
 ```
 
 ### Help is Always Available
@@ -241,7 +243,8 @@ forge extension:info --name=cache
 ```bash
 forge --help
 forge dev --help
-forge generate:app --help
+forge generate app --help
+forge g app --help  # Short alias
 ```
 
 ## Configuration

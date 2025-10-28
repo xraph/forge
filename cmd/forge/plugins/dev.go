@@ -2,12 +2,18 @@
 package plugins
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 )
@@ -291,10 +297,44 @@ func (p *DevPlugin) runApp(ctx cli.CommandContext, app *AppInfo) error {
 }
 
 func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
-	// For now, just run without watching
-	// TODO: Implement file watching with fsnotify
-	ctx.Warning("Hot reload not yet implemented, running in normal mode")
-	return p.runApp(ctx, app)
+	watcher, err := newAppWatcher(p.config.RootDir, app)
+	if err != nil {
+		return fmt.Errorf("failed to create watcher: %w", err)
+	}
+	defer watcher.Close()
+
+	// Setup signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Setup watcher context
+	watchCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	// Start the app initially
+	if err := watcher.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start app: %w", err)
+	}
+
+	// Watch for file changes
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		watcher.Watch(watchCtx, ctx)
+	}()
+
+	// Wait for interrupt signal
+	<-sigChan
+	ctx.Println("")
+	ctx.Info("Shutting down gracefully...")
+
+	cancel()
+	watcher.Stop()
+	wg.Wait()
+
+	return nil
 }
 
 func (p *DevPlugin) findMainFile(dir string) (string, error) {
@@ -334,4 +374,306 @@ func (p *DevPlugin) findMainFile(dir string) (string, error) {
 	}
 
 	return "", fmt.Errorf("no main.go found in %s", dir)
+}
+
+// appWatcher manages file watching and process lifecycle for hot reload
+type appWatcher struct {
+	watcher   *fsnotify.Watcher
+	rootDir   string
+	app       *AppInfo
+	cmd       *exec.Cmd
+	mu        sync.Mutex
+	debouncer *debouncer
+	mainFile  string
+}
+
+// newAppWatcher creates a new app watcher
+func newAppWatcher(rootDir string, app *AppInfo) (*appWatcher, error) {
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
+	}
+
+	aw := &appWatcher{
+		watcher:   watcher,
+		rootDir:   rootDir,
+		app:       app,
+		debouncer: newDebouncer(300 * time.Millisecond),
+	}
+
+	// Find main file
+	mainFile, err := aw.findMainFile(app.Path)
+	if err != nil {
+		watcher.Close()
+		return nil, err
+	}
+	aw.mainFile = mainFile
+
+	// Setup watch directories
+	if err := aw.setupWatchers(); err != nil {
+		watcher.Close()
+		return nil, err
+	}
+
+	return aw, nil
+}
+
+// setupWatchers adds directories to watch
+func (aw *appWatcher) setupWatchers() error {
+	// Watch the app directory
+	if err := aw.addWatchRecursive(aw.app.Path); err != nil {
+		return err
+	}
+
+	// Also watch common source directories
+	watchDirs := []string{
+		filepath.Join(aw.rootDir, "internal"),
+		filepath.Join(aw.rootDir, "pkg"),
+	}
+
+	for _, dir := range watchDirs {
+		if _, err := os.Stat(dir); err == nil {
+			if err := aw.addWatchRecursive(dir); err != nil {
+				// Non-fatal, just skip
+				continue
+			}
+		}
+	}
+
+	return nil
+}
+
+// addWatchRecursive adds a directory and all its subdirectories to the watcher
+func (aw *appWatcher) addWatchRecursive(dir string) error {
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip hidden directories, vendor, and build artifacts
+		if info.IsDir() {
+			name := info.Name()
+			if strings.HasPrefix(name, ".") ||
+				name == "vendor" ||
+				name == "node_modules" ||
+				name == "bin" ||
+				name == "dist" ||
+				name == "tmp" {
+				return filepath.SkipDir
+			}
+			return aw.watcher.Add(path)
+		}
+		return nil
+	})
+}
+
+// Start starts the application process
+func (aw *appWatcher) Start(ctx cli.CommandContext) error {
+	aw.mu.Lock()
+	defer aw.mu.Unlock()
+
+	// Kill existing process if running
+	if aw.cmd != nil && aw.cmd.Process != nil {
+		aw.killProcess()
+	}
+
+	ctx.Success(fmt.Sprintf("Starting %s...", aw.app.Name))
+
+	// Create new command
+	cmd := exec.Command("go", "run", aw.mainFile)
+	cmd.Dir = aw.rootDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	// Set process group to allow killing child processes
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start process: %w", err)
+	}
+
+	aw.cmd = cmd
+
+	// Monitor process in background
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			// Only log if it's not a killed process
+			if !strings.Contains(err.Error(), "killed") &&
+				!strings.Contains(err.Error(), "signal: killed") {
+				ctx.Error(fmt.Errorf("process exited: %v", err))
+			}
+		}
+	}()
+
+	return nil
+}
+
+// Stop stops the application process
+func (aw *appWatcher) Stop() {
+	aw.mu.Lock()
+	defer aw.mu.Unlock()
+	aw.killProcess()
+}
+
+// killProcess kills the running process and its children
+func (aw *appWatcher) killProcess() {
+	if aw.cmd == nil || aw.cmd.Process == nil {
+		return
+	}
+
+	// Kill the entire process group
+	pgid, err := syscall.Getpgid(aw.cmd.Process.Pid)
+	if err == nil {
+		// Send SIGTERM to the process group
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+
+		// Wait a bit for graceful shutdown
+		time.Sleep(100 * time.Millisecond)
+
+		// Force kill if still running
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	} else {
+		// Fallback to killing just the main process
+		_ = aw.cmd.Process.Kill()
+	}
+
+	aw.cmd = nil
+}
+
+// Watch watches for file changes and triggers restarts
+func (aw *appWatcher) Watch(ctx context.Context, cliCtx cli.CommandContext) {
+	cliCtx.Success(fmt.Sprintf("Watching for changes in %s...", aw.app.Name))
+	cliCtx.Info("Press Ctrl+C to stop")
+	cliCtx.Println("")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case event, ok := <-aw.watcher.Events:
+			if !ok {
+				return
+			}
+
+			// Only process write and create events for .go files
+			if !aw.shouldReload(event) {
+				continue
+			}
+
+			// Debounce rapid file changes
+			aw.debouncer.Debounce(func() {
+				cliCtx.Println("")
+				cliCtx.Warning(fmt.Sprintf("Detected change in %s", filepath.Base(event.Name)))
+				cliCtx.Info("Reloading...")
+
+				if err := aw.Start(cliCtx); err != nil {
+					cliCtx.Error(fmt.Errorf("restart failed: %v", err))
+				}
+			})
+
+		case err, ok := <-aw.watcher.Errors:
+			if !ok {
+				return
+			}
+			cliCtx.Error(fmt.Errorf("watcher error: %v", err))
+		}
+	}
+}
+
+// shouldReload determines if a file change should trigger a reload
+func (aw *appWatcher) shouldReload(event fsnotify.Event) bool {
+	// Only process write, create, and remove events
+	if event.Op&fsnotify.Write != fsnotify.Write &&
+		event.Op&fsnotify.Create != fsnotify.Create &&
+		event.Op&fsnotify.Remove != fsnotify.Remove {
+		return false
+	}
+
+	// Only reload for .go files
+	if !strings.HasSuffix(event.Name, ".go") {
+		return false
+	}
+
+	// Skip temporary files and test files
+	base := filepath.Base(event.Name)
+	if strings.HasPrefix(base, ".") ||
+		strings.HasSuffix(base, "_test.go") ||
+		strings.HasSuffix(base, "~") ||
+		strings.Contains(base, ".swp") {
+		return false
+	}
+
+	return true
+}
+
+// Close closes the watcher
+func (aw *appWatcher) Close() error {
+	aw.Stop()
+	return aw.watcher.Close()
+}
+
+// findMainFile finds the main.go file for the app
+func (aw *appWatcher) findMainFile(dir string) (string, error) {
+	// Check for main.go directly
+	mainPath := filepath.Join(dir, "main.go")
+	if _, err := os.Stat(mainPath); err == nil {
+		return mainPath, nil
+	}
+
+	// Check for server/main.go or other subdirs
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			subMainPath := filepath.Join(dir, entry.Name(), "main.go")
+			if _, err := os.Stat(subMainPath); err == nil {
+				return subMainPath, nil
+			}
+		}
+	}
+
+	// Look for any .go file with main function
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
+			filePath := filepath.Join(dir, entry.Name())
+			content, err := os.ReadFile(filePath)
+			if err != nil {
+				continue
+			}
+			if strings.Contains(string(content), "func main()") {
+				return filePath, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no main.go found in %s", dir)
+}
+
+// debouncer prevents rapid successive calls
+type debouncer struct {
+	mu    sync.Mutex
+	timer *time.Timer
+	delay time.Duration
+}
+
+// newDebouncer creates a new debouncer with the specified delay
+func newDebouncer(delay time.Duration) *debouncer {
+	return &debouncer{delay: delay}
+}
+
+// Debounce debounces function calls
+func (d *debouncer) Debounce(fn func()) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.timer != nil {
+		d.timer.Stop()
+	}
+
+	d.timer = time.AfterFunc(d.delay, fn)
 }

@@ -47,19 +47,39 @@ forge init --template=api --git
 
 ### `forge dev`
 
-Start development server and tools.
+Start development server with hot reload support.
 
 ```bash
-forge dev                    # Interactive app selection
-forge dev -a api-gateway     # Run specific app
-forge dev -a api -p 8080     # Run on specific port
-forge dev --watch            # With hot reload (default)
+forge dev                    # Interactive app selection with hot reload
+forge dev -a api-gateway     # Run specific app with hot reload
+forge dev -a api -p 8080     # Run on specific port with hot reload
+forge dev --watch=false      # Disable hot reload
 ```
 
 **Flags:**
 - `-a, --app` - App to run
-- `-w, --watch` - Watch for changes
+- `-w, --watch` - Watch for changes and auto-reload (default: true)
 - `-p, --port` - Port number
+
+**Hot Reload Features:**
+- Automatically watches `.go` files in app, `internal/`, and `pkg/` directories
+- Intelligently filters changes (ignores test files, temporary files, hidden files)
+- Debounces rapid file changes (300ms window) to prevent excessive restarts
+- Gracefully terminates and restarts processes on code changes
+- Clean shutdown on Ctrl+C with proper resource cleanup
+
+**What Triggers Reload:**
+- Modifications to `.go` files (write, create, delete)
+- Files in watched directories: `cmd/`, `internal/`, `pkg/`
+
+**What's Ignored:**
+- Test files (`*_test.go`)
+- Hidden files and directories (`.git`, `.idea`, etc.)
+- Vendor and node_modules
+- Build artifacts (`bin/`, `dist/`, `tmp/`)
+- Editor temporary files (`.swp`, `~`, etc.)
+
+For detailed information about hot reload implementation, see [HOT_RELOAD.md](./HOT_RELOAD.md).
 
 #### Subcommands
 
