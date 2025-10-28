@@ -1,3 +1,3 @@
 ### Bug Fixes
 
-* resolve cross-platform test timing issues in consensus cluster tests ([6c47900](https://github.com/xraph/forge/commit/6c479001d438eaa6c6cb2d2b5b8a57736815513f))
+* improve GoReleaser config validation in release workflow ([5e81e7f](https://github.com/xraph/forge/commit/5e81e7f9a4b48cd9b5c893a0f2f068e82e5831ff))
