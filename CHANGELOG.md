@@ -1,3 +1,3 @@
-### Features
+### Bug Fixes
 
-* **license:** add Forge License Decision Tree for quick licensing guidance ([e73443c](https://github.com/xraph/forge/commit/e73443c683a94e3eb4bfe1cf07ccb7037e16ecbc))
+* resolve cross-platform test timing issues in consensus cluster tests ([6c47900](https://github.com/xraph/forge/commit/6c479001d438eaa6c6cb2d2b5b8a57736815513f))
