@@ -372,14 +372,17 @@ func (c *collector) GetMetricsByTag(tagKey, tagValue string) map[string]interfac
 
 // Export exports metrics in the specified format
 func (c *collector) Export(format metrics.ExportFormat) ([]byte, error) {
+	// Snapshot exporter without holding lock during export operation
 	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	exporter, exists := c.exporters[format]
+	c.mu.RUnlock()
+
 	if !exists {
 		return nil, errors.ErrServiceNotFound(string(format))
 	}
 
+	// Get metrics without holding the collector lock
+	// This prevents deadlock with other systems (health checks, etc.) that may need locks
 	metrics := c.GetMetrics()
 	return exporter.Export(metrics)
 }

@@ -241,17 +241,23 @@ func (hc *ManagerImpl) OnHealthCheck(ctx context.Context) error {
 // Register registers a health check
 func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 	hc.mu.Lock()
-	defer hc.mu.Unlock()
-
 	name := check.Name()
 	if _, exists := hc.checks[name]; exists {
+		hc.mu.Unlock()
 		return errors.ErrServiceAlreadyExists(name)
 	}
 
 	hc.checks[name] = check
+	
+	// Get check count while holding lock
+	checkCount := len(hc.checks)
+	metrics := hc.metrics
+	loggerInstance := hc.logger
+	hc.mu.Unlock()
 
-	if hc.logger != nil {
-		hc.logger.Info(hc.Name()+" health check registered",
+	// Log and update metrics without holding lock to avoid deadlock
+	if loggerInstance != nil {
+		loggerInstance.Info(hc.Name()+" health check registered",
 			logger.String("name", name),
 			logger.Bool("critical", check.Critical()),
 			logger.Duration("timeout", check.Timeout()),
@@ -259,9 +265,9 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 		)
 	}
 
-	if hc.metrics != nil {
-		hc.metrics.Counter(hc.Name() + ".checks_registered").Inc()
-		hc.metrics.Gauge(hc.Name() + ".registered_checks").Set(float64(len(hc.checks)))
+	if metrics != nil {
+		metrics.Counter(hc.Name() + ".checks_registered").Inc()
+		metrics.Gauge(hc.Name() + ".registered_checks").Set(float64(checkCount))
 	}
 
 	return nil
@@ -280,23 +286,29 @@ func (hc *ManagerImpl) RegisterFn(name string, checkFn healthinternal.HealthChec
 // Unregister unregisters a health check
 func (hc *ManagerImpl) Unregister(name string) error {
 	hc.mu.Lock()
-	defer hc.mu.Unlock()
-
 	if _, exists := hc.checks[name]; !exists {
+		hc.mu.Unlock()
 		return errors.ErrServiceNotFound(name)
 	}
 
 	delete(hc.checks, name)
 
-	if hc.logger != nil {
-		hc.logger.Info(hc.Name()+" health check unregistered",
+	// Get check count while holding lock
+	checkCount := len(hc.checks)
+	metrics := hc.metrics
+	loggerInstance := hc.logger
+	hc.mu.Unlock()
+
+	// Log and update metrics without holding lock to avoid deadlock
+	if loggerInstance != nil {
+		loggerInstance.Info(hc.Name()+" health check unregistered",
 			logger.String("name", name),
 		)
 	}
 
-	if hc.metrics != nil {
-		hc.metrics.Counter(hc.Name() + ".checks_unregistered").Inc()
-		hc.metrics.Gauge(hc.Name() + ".registered_checks").Set(float64(len(hc.checks)))
+	if metrics != nil {
+		metrics.Counter(hc.Name() + ".checks_unregistered").Inc()
+		metrics.Gauge(hc.Name() + ".registered_checks").Set(float64(checkCount))
 	}
 
 	return nil
