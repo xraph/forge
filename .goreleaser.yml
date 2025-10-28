@@ -165,22 +165,22 @@ scoops:
     description: "Comprehensive backend framework for Go with enterprise-grade features"
     license: MIT
 
-# Snapcraft
-snapcrafts:
-  - id: forge-snap
-    publish: true
-    summary: Comprehensive backend framework for Go
-    description: |
-      Forge is a comprehensive, opinionated backend framework for Go that 
-      provides enterprise-grade features for building scalable, distributed applications.
-    grade: stable
-    confinement: strict
-    license: MIT
-    base: core22
-    apps:
-      forge:
-        command: forge
-        plugs: ["home", "network"]
+# Snapcraft packages (disabled - snapcraft not available in GitHub Actions)
+# snapcrafts:
+#   - id: forge-snap
+#     publish: true
+#     summary: Comprehensive backend framework for Go
+#     description: |
+#       Forge is a comprehensive, opinionated backend framework for Go that 
+#       provides enterprise-grade features for building scalable, distributed applications.
+#     grade: stable
+#     confinement: strict
+#     license: MIT
+#     base: core22
+#     apps:
+#       forge:
+#         command: forge
+#         plugs: ["home", "network"]
 
 # AUR packages for Arch Linux
 aurs:
