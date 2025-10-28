@@ -1,0 +1,101 @@
+Forge AI Extension License
+Version 1.0, October 2025
+
+Copyright (c) 2025 xraph
+
+TERMS AND CONDITIONS
+
+1. DEFINITIONS
+
+   "Software" refers to the Forge AI Extension and all associated documentation.
+   "Commercial Use" means use of the Software in production environments or as part
+   of a commercial product or service where the Software contributes to revenue
+   generation, cost savings, or competitive advantage.
+   "Modification" means any change, addition, or deletion to the Software's source code.
+   "Distribution" means making the Software available to third parties.
+
+2. GRANT OF RIGHTS
+
+   Subject to the terms and conditions of this License, xraph hereby grants you a
+   worldwide, royalty-free, non-exclusive, non-transferable license to:
+
+   a) View and study the source code of the Software
+   b) Use the Software for personal, educational, or research purposes
+   c) Use the Software for internal evaluation within your organization (up to 90 days)
+   d) Modify the Software for your own use
+
+3. RESTRICTIONS
+
+   You may NOT, without prior written permission from xraph:
+
+   a) Use the Software for Commercial Use
+   b) Distribute the Software or any Modifications to third parties
+   c) Sublicense, sell, rent, lease, or otherwise transfer rights to the Software
+   d) Remove or alter any copyright notices, trademarks, or proprietary markings
+   e) Use the Software to train or develop competing AI products or services
+   f) Extract, reuse, or repurpose the AI models, algorithms, or training data
+
+4. COMMERCIAL LICENSE
+
+   For Commercial Use of the Software, you must obtain a separate commercial license
+   from xraph. Contact: licensing@xraph.com or visit https://github.com/xraph/forge
+
+5. CONTRIBUTIONS
+
+   If you submit Modifications back to xraph (via pull requests or other means),
+   you grant xraph a perpetual, worldwide, royalty-free, irrevocable license to use,
+   reproduce, modify, and distribute your contributions under any license terms,
+   including but not limited to this License.
+
+6. ATTRIBUTION
+
+   You must retain, in the source code and any Modifications you create:
+   - All copyright notices
+   - This License file
+   - Attribution to xraph as the original author
+
+7. DISCLAIMER OF WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+   THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING
+   FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+8. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL XRAPH BE LIABLE FOR ANY SPECIAL, INCIDENTAL, INDIRECT,
+   OR CONSEQUENTIAL DAMAGES WHATSOEVER (INCLUDING, WITHOUT LIMITATION, DAMAGES
+   FOR LOSS OF BUSINESS PROFITS, BUSINESS INTERRUPTION, LOSS OF BUSINESS
+   INFORMATION, OR ANY OTHER PECUNIARY LOSS) ARISING OUT OF THE USE OF OR
+   INABILITY TO USE THE SOFTWARE, EVEN IF XRAPH HAS BEEN ADVISED OF THE
+   POSSIBILITY OF SUCH DAMAGES.
+
+9. TERMINATION
+
+   This License is effective until terminated. Your rights under this License will
+   terminate automatically without notice if you fail to comply with any term(s)
+   of this License. Upon termination, you must cease all use of the Software and
+   destroy all copies in your possession.
+
+10. GOVERNING LAW
+
+    This License shall be governed by and construed in accordance with the laws
+    of the jurisdiction where xraph is registered, without regard to its conflict
+    of law provisions.
+
+11. ENTIRE AGREEMENT
+
+    This License constitutes the entire agreement between the parties with respect
+    to the Software and supersedes all prior or contemporaneous understandings,
+    whether written or oral.
+
+---
+
+For questions about this License or to obtain a commercial license:
+- Email: licensing@xraph.com
+- Web: https://github.com/xraph/forge
+- Issues: https://github.com/xraph/forge/issues
+

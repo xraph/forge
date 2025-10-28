@@ -1,10 +1,10 @@
 module github.com/xraph/forge/examples/openapi_complete
 
-go 1.24.0
+go 1.24.9
 
 replace github.com/xraph/forge => ../..
 
-require github.com/xraph/forge v0.0.1
+require github.com/xraph/forge v0.0.6
 
 require (
 	github.com/BurntSushi/toml v1.5.0 // indirect

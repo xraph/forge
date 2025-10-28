@@ -1,5 +1,6 @@
 # GoReleaser configuration for Forge CLI
 # Build system for cross-platform releases
+version: 2
 
 project_name: forge
 
@@ -11,7 +12,7 @@ before:
     - go generate ./...
 
 builds:
-  - id: forge-cli
+  - id: forge
     main: ./cmd/forge
     binary: forge
     env:
@@ -39,7 +40,7 @@ builds:
 archives:
   - id: forge-archives
     builds:
-      - forge-cli
+      - forge
     name_template: >-
       {{ .ProjectName }}-
       {{- .Version }}-
@@ -134,16 +135,13 @@ release:
 
 # Homebrew tap
 brews:
-  - name: forge
-    ids:
-      - forge-archives
-    tap:
+  - repository:
       owner: xraph
       name: homebrew-tap
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
-    folder: Formula
+    directory: Formula
     homepage: https://github.com/xraph/forge
     description: "Comprehensive backend framework for Go with enterprise-grade features"
     license: MIT
@@ -157,10 +155,7 @@ brews:
 
 # Scoop manifest
 scoops:
-  - name: forge
-    ids:
-      - forge-archives
-    bucket:
+  - repository:
       owner: xraph
       name: scoop-bucket
     commit_author:
@@ -212,9 +207,9 @@ docker_manifests:
 
 # Snapcraft
 snapcrafts:
-  - name: forge
-    ids:
-      - forge-archives
+  - id: forge-snap
+    builds:
+      - forge
     publish: true
     summary: Comprehensive backend framework for Go
     description: |
@@ -287,30 +282,6 @@ nfpms:
       lintian_overrides:
         - statically-linked-binary
         - changelog-file-missing-in-native-package
-
-# Publishers
-publishers:
-  - name: fury.io
-    ids:
-      - forge-packages
-    env:
-      - FURY_TOKEN={{ .Env.FURY_TOKEN }}
-    cmd: curl -F package=@{{ .ArtifactPath }} https://{{ .Env.FURY_TOKEN }}@push.fury.io/xraph/
-
-# Announcements
-announces:
-  discord:
-    enabled: true
-    message_template: 'Forge {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
-
-  slack:
-    enabled: true
-    message_template: 'Forge {{ .Tag }} is out! Check it out at {{ .ReleaseURL }}'
-    channel: '#releases'
-
-  twitter:
-    enabled: true
-    message_template: 'Forge {{ .Tag }} is out! 🚀 #golang #framework #backend {{ .ReleaseURL }}'
 
 # Git settings
 git:

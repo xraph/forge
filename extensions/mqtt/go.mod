@@ -1,10 +1,10 @@
 module github.com/xraph/forge/extensions/mqtt
 
-go 1.24.0
+go 1.24.9
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.5.0
-	github.com/xraph/forge v0.0.0
+	github.com/xraph/forge v0.0.6
 )
 
 require (

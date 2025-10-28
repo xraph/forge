@@ -1,10 +1,10 @@
 module github.com/xraph/forge/extensions/hls
 
-go 1.24.0
+go 1.24.9
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/xraph/forge v0.0.0
+	github.com/xraph/forge v0.0.6
 )
 
 require (

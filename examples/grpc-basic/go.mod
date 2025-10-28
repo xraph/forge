@@ -7,7 +7,7 @@ replace github.com/xraph/forge => ../..
 replace github.com/xraph/forge/extensions/grpc => ../../extensions/grpc
 
 require (
-	github.com/xraph/forge v2.0.0-00010101000000-000000000000
+	github.com/xraph/forge v0.0.6
 	github.com/xraph/forge/extensions/grpc v0.0.0-00010101000000-000000000000
 	google.golang.org/grpc/examples v0.0.0-20251021191511-58d4b2b1492d
 )
@@ -51,19 +51,25 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/quic-go/qpack v0.5.1 // indirect
+	github.com/quic-go/quic-go v0.55.0 // indirect
+	github.com/quic-go/webtransport-go v0.9.0 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/forge v0.0.1 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
+	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/exp v0.0.0-20250305212735-054e65f0b394 // indirect
+	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
 	golang.org/x/oauth2 v0.32.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/term v0.36.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
+	golang.org/x/tools v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251014184007-4626949a642f // indirect
 	google.golang.org/grpc v1.76.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect

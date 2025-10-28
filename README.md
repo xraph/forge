@@ -5,7 +5,7 @@
 > Build scalable, maintainable, and observable Go applications with Forge—the modern framework that brings clean architecture, dependency injection, and powerful extensions to your production services.
 
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
-[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/xraph/forge)](https://github.com/xraph/forge)
 [![CI/CD](https://github.com/xraph/forge/workflows/CI/badge.svg)](https://github.com/xraph/forge/actions)
 
@@ -467,6 +467,43 @@ Built with ❤️ by [Rex Raphael](https://github.com/juicycleff)
 - **[Discussions](https://github.com/xraph/forge/discussions)** - Questions and ideas
 - **[Examples](examples/)** - Code examples
 - **[CLI Reference](cli/README.md)** - CLI documentation
+
+---
+
+## 📜 License
+
+Forge uses a **dual-licensing approach**:
+
+### Forge Core & Most Extensions: MIT License
+
+The core framework and most extensions are licensed under the **MIT License** - one of the most permissive open source licenses.
+
+✅ **Use freely for:**
+- Commercial products and services
+- Personal projects
+- Closed-source applications
+- Modifications and distributions
+
+See the [LICENSE](LICENSE) file for full terms.
+
+### AI Extension: Commercial Source-Available License
+
+The AI Extension (`extensions/ai/`) uses a more restrictive **Commercial Source-Available License**.
+
+✅ **Free for:**
+- Personal projects
+- Educational purposes
+- Research and academic use
+- Internal evaluation (90 days)
+
+❌ **Commercial license required for:**
+- Production deployments
+- Commercial products/services
+- Revenue-generating applications
+
+See [extensions/ai/LICENSE](extensions/ai/LICENSE) for full terms or [LICENSING.md](LICENSING.md) for the complete licensing guide.
+
+**Need a commercial license?** Contact: licensing@xraph.com
 
 ---
 

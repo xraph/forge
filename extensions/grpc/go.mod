@@ -1,9 +1,9 @@
 module github.com/xraph/forge/extensions/grpc
 
-go 1.24.0
+go 1.24.9
 
 require (
-	github.com/xraph/forge v0.0.1
+	github.com/xraph/forge v0.0.6
 	google.golang.org/grpc v1.76.0
 )
 
