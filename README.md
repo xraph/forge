@@ -23,7 +23,7 @@ go install github.com/xraph/forge/cmd/forge@latest
 forge --version
 ```
 
-### Create Your First App
+### Forge Your First App
 
 ```bash
 # Initialize a new project
