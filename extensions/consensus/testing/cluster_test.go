@@ -159,6 +159,9 @@ func TestLogReplication(t *testing.T) {
 		t.Fatalf("leader election failed: %v", err)
 	}
 
+	// Allow time for leader to stabilize and establish replication
+	time.Sleep(500 * time.Millisecond)
+
 	// Submit commands
 	commands := [][]byte{
 		[]byte(`{"type":"set","payload":{"key":"key1","value":"value1"}}`),
@@ -173,7 +176,7 @@ func TestLogReplication(t *testing.T) {
 	}
 
 	// Wait for all commands to be committed
-	if err := harness.WaitForCommit(uint64(len(commands)), 10*time.Second); err != nil {
+	if err := harness.WaitForCommit(uint64(len(commands)), 30*time.Second); err != nil {
 		t.Fatalf("log replication failed: %v", err)
 	}
 

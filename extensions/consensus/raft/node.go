@@ -458,7 +458,7 @@ func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
 		return err
 	case <-ctx.Done():
 		return ctx.Err()
-	case <-time.After(30 * time.Second):
+	case <-time.After(60 * time.Second):
 		return internal.NewTimeoutError("apply operation timed out")
 	}
 }

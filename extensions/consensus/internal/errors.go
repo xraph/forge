@@ -2,6 +2,7 @@ package internal
 
 import (
 	stderrors "errors"
+	"time"
 
 	"github.com/xraph/forge/internal/errors"
 )
@@ -159,7 +160,7 @@ func NewNoLeaderError() *errors.ForgeError {
 
 // NewTimeoutError creates a timeout error
 func NewTimeoutError(operation string) *errors.ForgeError {
-	return errors.ErrTimeoutError(operation, 0)
+	return errors.ErrTimeoutError(operation, 30*time.Second)
 }
 
 // NewNoQuorumError creates a no quorum error with context
