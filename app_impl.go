@@ -105,6 +105,7 @@ func newApp(config AppConfig) *app {
 		// User didn't provide config, use defaults
 		defaultMetrics := DefaultMetricsConfig()
 		metricsConfig = &defaultMetrics
+		config.MetricsConfig = defaultMetrics // Update config for banner display
 	}
 
 	// Try to load from ConfigManager first
@@ -114,6 +115,7 @@ func newApp(config AppConfig) *app {
 			// Merge: runtime values override defaults, programmatic values override runtime
 			if runtimeConfig.Enabled {
 				metricsConfig = mergeMetricsConfig(&runtimeConfig, metricsConfig)
+				config.MetricsConfig = *metricsConfig // Update config for banner display
 			}
 		}
 	}
@@ -145,6 +147,7 @@ func newApp(config AppConfig) *app {
 		defaultHealth.EnableSmartAggregation = true
 		defaultHealth.HistorySize = 100
 		healthConfig = &defaultHealth
+		config.HealthConfig = defaultHealth // Update config for banner display
 	}
 
 	// Try to load from ConfigManager first
@@ -153,6 +156,7 @@ func newApp(config AppConfig) *app {
 		if err := configManager.Bind("health", &runtimeConfig); err == nil {
 			if runtimeConfig.Enabled {
 				healthConfig = mergeHealthConfig(&runtimeConfig, healthConfig)
+				config.HealthConfig = *healthConfig // Update config for banner display
 			}
 		}
 	}
@@ -443,6 +447,9 @@ func (a *app) Run() error {
 		IdleTimeout:  a.config.HTTPTimeout * 2,
 	}
 
+	// Print startup banner
+	a.printStartupBanner()
+
 	// Channel for shutdown signal
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, a.config.ShutdownSignals...)
@@ -452,7 +459,6 @@ func (a *app) Run() error {
 
 	// Start HTTP server in goroutine
 	go func() {
-		a.logger.Info("starting http server", F("address", a.config.HTTPAddress))
 		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errChan <- err
 		}
@@ -491,6 +497,41 @@ func (a *app) gracefulShutdown() error {
 
 	a.logger.Info("graceful shutdown complete")
 	return nil
+}
+
+// printStartupBanner prints a styled startup banner with app info and endpoints
+func (a *app) printStartupBanner() {
+	bannerCfg := shared.BannerConfig{
+		AppName:     a.config.Name,
+		Version:     a.config.Version,
+		Environment: a.config.Environment,
+		HTTPAddress: a.config.HTTPAddress,
+		StartTime:   a.startTime,
+	}
+
+	// Add OpenAPI paths if enabled
+	if spec := a.router.OpenAPISpec(); spec != nil {
+		// Default paths for OpenAPI (standard Forge defaults)
+		bannerCfg.OpenAPISpec = "/openapi.json"
+		bannerCfg.OpenAPIUI = "/swagger"
+	}
+
+	// Add AsyncAPI path if enabled
+	if spec := a.router.AsyncAPISpec(); spec != nil {
+		// Default path for AsyncAPI UI
+		bannerCfg.AsyncAPIUI = "/asyncapi"
+	}
+
+	// Add observability endpoints
+	if a.config.HealthConfig.Enabled {
+		bannerCfg.HealthPath = "/_/health"
+	}
+	if a.config.MetricsConfig.Enabled {
+		bannerCfg.MetricsPath = "/_/metrics"
+	}
+
+	// Print the banner
+	shared.PrintStartupBanner(bannerCfg)
 }
 
 // setupBuiltinEndpoints sets up built-in endpoints
