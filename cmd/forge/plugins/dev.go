@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -303,9 +302,9 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 	}
 	defer watcher.Close()
 
-	// Setup signal handling
+	// Setup signal handling (platform-specific signals)
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(sigChan, terminationSignals...)
 
 	// Setup watcher context
 	watchCtx, cancel := context.WithCancel(context.Background())
@@ -486,8 +485,8 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 
-	// Set process group to allow killing child processes
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Set process group to allow killing child processes (platform-specific)
+	setupProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
@@ -522,21 +521,8 @@ func (aw *appWatcher) killProcess() {
 		return
 	}
 
-	// Kill the entire process group
-	pgid, err := syscall.Getpgid(aw.cmd.Process.Pid)
-	if err == nil {
-		// Send SIGTERM to the process group
-		_ = syscall.Kill(-pgid, syscall.SIGTERM)
-
-		// Wait a bit for graceful shutdown
-		time.Sleep(100 * time.Millisecond)
-
-		// Force kill if still running
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-	} else {
-		// Fallback to killing just the main process
-		_ = aw.cmd.Process.Kill()
-	}
+	// Kill the process group (platform-specific implementation)
+	killProcessGroup(aw.cmd)
 
 	aw.cmd = nil
 }
