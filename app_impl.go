@@ -78,7 +78,7 @@ func newApp(config AppConfig) *app {
 		// Use development logger for dev, production for prod, noop otherwise
 		switch config.Environment {
 		case "development":
-			logger = NewDevelopmentLogger()
+			logger = NewBeautifulLogger("forge")
 		case "production":
 			logger = NewProductionLogger()
 		default:

@@ -113,7 +113,7 @@ type ColorScheme struct {
 
 var (
 	// Global logger instance
-	globalLogger *logger
+	globalLogger Logger
 )
 
 // logger implements the Logger interface using zap
@@ -382,7 +382,7 @@ func createColoredEncoder(encoderConfig zapcore.EncoderConfig) zapcore.Encoder {
 // GetGlobalLogger returns the global logger instance
 func GetGlobalLogger() Logger {
 	if globalLogger == nil {
-		globalLogger = NewDevelopmentLogger().(*logger)
+		globalLogger = NewBeautifulLogger("forge")
 	}
 	return globalLogger
 }
