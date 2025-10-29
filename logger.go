@@ -25,6 +25,7 @@ const (
 var (
 	NewLogger            = logger.NewLogger
 	NewDevelopmentLogger = logger.NewDevelopmentLogger
+	NewBeautifulLogger   = logger.NewBeautifulLogger
 	NewProductionLogger  = logger.NewProductionLogger
 	NewNoopLogger        = logger.NewNoopLogger
 	GetGlobalLogger      = logger.GetGlobalLogger

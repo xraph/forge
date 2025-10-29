@@ -200,14 +200,40 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 		}
 	}
 
-	spinner := ctx.Spinner(fmt.Sprintf("Generating service %s...", name))
-
-	var servicePath string
-	if p.config.IsSingleModule() {
-		servicePath = filepath.Join(p.config.RootDir, "pkg", "services", name)
-	} else {
-		servicePath = filepath.Join(p.config.RootDir, "services", name)
+	// Discover available directories for service placement
+	dirs, err := p.discoverServiceDirs()
+	if err != nil {
+		return err
 	}
+
+	if len(dirs) == 0 {
+		return fmt.Errorf("no valid service directories found (pkg, internal, or extensions)")
+	}
+
+	var selectedDir string
+	if len(dirs) == 1 {
+		selectedDir = dirs[0]
+		ctx.Info(fmt.Sprintf("Using directory: %s", selectedDir))
+	} else {
+		var err error
+		selectedDir, err = ctx.Select("Select directory for service:", dirs)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Build service path based on selected directory
+	var servicePath string
+	if selectedDir == "pkg" {
+		servicePath = filepath.Join(p.config.RootDir, "pkg", "services", name)
+	} else if selectedDir == "internal" {
+		servicePath = filepath.Join(p.config.RootDir, "internal", "services", name)
+	} else {
+		// It's an extension directory
+		servicePath = filepath.Join(p.config.RootDir, "extensions", selectedDir, "services", name)
+	}
+
+	spinner := ctx.Spinner(fmt.Sprintf("Generating service %s in %s...", name, selectedDir))
 
 	// Create directory
 	if err := os.MkdirAll(servicePath, 0755); err != nil {
@@ -222,7 +248,180 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 		return err
 	}
 
-	spinner.Stop(cli.Green(fmt.Sprintf("✓ Service %s created!", name)))
+	spinner.Stop(cli.Green(fmt.Sprintf("✓ Service %s created in %s!", name, selectedDir)))
+
+	// Ask if user wants to add controller to an app/extension
+	addController, err := ctx.Confirm("Add controller to an app or extension?")
+	if err != nil {
+		return err
+	}
+
+	if addController {
+		targets, err := p.discoverTargets()
+		if err != nil {
+			return err
+		}
+
+		if len(targets) == 0 {
+			ctx.Warning("No apps or extensions found for controller registration")
+			return nil
+		}
+
+		// Format targets for display
+		targetNames := make([]string, len(targets))
+		for i, target := range targets {
+			prefix := "📦 "
+			if target.IsExtension {
+				prefix = "🔌 "
+			}
+			targetNames[i] = fmt.Sprintf("%s%s (%s)", prefix, target.Name, target.Type)
+		}
+
+		targetStr, err := ctx.Select("Select app or extension to add controller:", targetNames)
+		if err != nil {
+			return err
+		}
+
+		// Find selected target
+		selectedIdx := -1
+		for i, tn := range targetNames {
+			if strings.Contains(tn, targetStr) || strings.HasPrefix(targetStr, tn) {
+				selectedIdx = i
+				break
+			}
+		}
+
+		if selectedIdx < 0 || selectedIdx >= len(targets) {
+			// Extract name from formatted string
+			for i, t := range targets {
+				if strings.Contains(targetStr, t.Name) {
+					selectedIdx = i
+					break
+				}
+			}
+		}
+
+		if selectedIdx >= 0 && selectedIdx < len(targets) {
+			target := targets[selectedIdx]
+			controllerName, err := ctx.Prompt("Controller name (leave empty to skip):")
+			if err != nil {
+				return err
+			}
+
+			if controllerName != "" {
+				if err := p.addControllerToTarget(ctx, controllerName, target, name); err != nil {
+					ctx.Warning(fmt.Sprintf("Failed to add controller: %v", err))
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// discoverServiceDirs returns available directories where services can be placed
+func (p *GeneratePlugin) discoverServiceDirs() ([]string, error) {
+	var dirs []string
+
+	// Check pkg/services
+	if _, err := os.Stat(filepath.Join(p.config.RootDir, "pkg")); err == nil {
+		dirs = append(dirs, "pkg")
+	}
+
+	// Check internal/services
+	if _, err := os.Stat(filepath.Join(p.config.RootDir, "internal")); err == nil {
+		dirs = append(dirs, "internal")
+	}
+
+	// Check extensions directory and list all extensions
+	extensionsDir := filepath.Join(p.config.RootDir, "extensions")
+	if entries, err := os.ReadDir(extensionsDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+				dirs = append(dirs, entry.Name())
+			}
+		}
+	}
+
+	return dirs, nil
+}
+
+// TargetInfo represents an app or extension that can receive a controller
+type TargetInfo struct {
+	Name        string
+	Type        string // "app" or "extension"
+	IsExtension bool
+	Path        string
+}
+
+// discoverTargets returns available apps and extensions
+func (p *GeneratePlugin) discoverTargets() ([]TargetInfo, error) {
+	var targets []TargetInfo
+
+	// Discover apps using DevPlugin's method
+	devPlugin := &DevPlugin{config: p.config}
+	apps, err := devPlugin.discoverApps()
+	if err == nil {
+		for _, app := range apps {
+			targets = append(targets, TargetInfo{
+				Name:        app.Name,
+				Type:        "app",
+				IsExtension: false,
+				Path:        app.Path,
+			})
+		}
+	}
+
+	// Discover extensions
+	extensionsDir := filepath.Join(p.config.RootDir, "extensions")
+	if entries, err := os.ReadDir(extensionsDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+				targets = append(targets, TargetInfo{
+					Name:        entry.Name(),
+					Type:        "extension",
+					IsExtension: true,
+					Path:        filepath.Join(extensionsDir, entry.Name()),
+				})
+			}
+		}
+	}
+
+	return targets, nil
+}
+
+// addControllerToTarget adds a controller to the specified app or extension
+func (p *GeneratePlugin) addControllerToTarget(ctx cli.CommandContext, controllerName string, target TargetInfo, serviceName string) error {
+	spinner := ctx.Spinner(fmt.Sprintf("Adding controller %s to %s...", controllerName, target.Name))
+	defer spinner.Stop(cli.Green("✓ Done"))
+
+	var handlersPath string
+	if target.IsExtension {
+		handlersPath = filepath.Join(target.Path, "internal", "handlers")
+	} else {
+		// For apps
+		handlersPath = filepath.Join(target.Path, "..", "internal", "handlers")
+		// Normalize the path
+		if p.config.IsSingleModule() {
+			handlersPath = filepath.Join(p.config.RootDir, p.config.Project.Structure.Apps, target.Name, "internal", "handlers")
+		} else {
+			handlersPath = filepath.Join(p.config.RootDir, "apps", target.Name, "internal", "handlers")
+		}
+	}
+
+	// Create handlers directory if it doesn't exist
+	if err := os.MkdirAll(handlersPath, 0755); err != nil {
+		return err
+	}
+
+	// Generate controller file
+	fileName := fmt.Sprintf("%s.go", strings.ToLower(controllerName))
+	controllerContent := p.generateControllerFile(controllerName, target.Name)
+	if err := os.WriteFile(filepath.Join(handlersPath, fileName), []byte(controllerContent), 0644); err != nil {
+		return err
+	}
+
+	spinner.Stop(cli.Green(fmt.Sprintf("✓ Controller %s added to %s!", controllerName, target.Name)))
 	return nil
 }
 
