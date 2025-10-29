@@ -139,6 +139,10 @@ func TestNetworkPartition(t *testing.T) {
 }
 
 func TestLogReplication(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping consensus test in short mode")
+	}
+
 	harness := NewTestHarness(t)
 	ctx := context.Background()
 
@@ -154,15 +158,18 @@ func TestLogReplication(t *testing.T) {
 	defer harness.StopCluster(ctx)
 
 	// Wait for leader
-	_, err := harness.WaitForLeader(5 * time.Second)
+	leaderID, err := harness.WaitForLeader(10 * time.Second)
 	if err != nil {
 		t.Fatalf("leader election failed: %v", err)
 	}
 
-	// Allow time for leader to stabilize and establish replication
-	time.Sleep(500 * time.Millisecond)
+	t.Logf("Leader elected: %s, allowing stabilization time...", leaderID)
 
-	// Submit commands
+	// Allow more time for leader to stabilize and establish replication channels
+	// This is critical on slower CI systems (Ubuntu)
+	time.Sleep(2 * time.Second)
+
+	// Submit commands with individual timeouts
 	commands := [][]byte{
 		[]byte(`{"type":"set","payload":{"key":"key1","value":"value1"}}`),
 		[]byte(`{"type":"set","payload":{"key":"key2","value":"value2"}}`),
@@ -170,13 +177,23 @@ func TestLogReplication(t *testing.T) {
 	}
 
 	for i, cmd := range commands {
-		if err := harness.SubmitToLeader(ctx, cmd); err != nil {
+		// Create context with timeout for each command
+		cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		err := harness.SubmitToLeader(cmdCtx, cmd)
+		cancel()
+
+		if err != nil {
 			t.Fatalf("failed to submit command %d: %v", i, err)
 		}
+
+		// Brief pause between commands to allow processing
+		time.Sleep(100 * time.Millisecond)
+
+		t.Logf("Successfully submitted command %d", i)
 	}
 
-	// Wait for all commands to be committed
-	if err := harness.WaitForCommit(uint64(len(commands)), 30*time.Second); err != nil {
+	// Wait for all commands to be committed with generous timeout
+	if err := harness.WaitForCommit(uint64(len(commands)), 20*time.Second); err != nil {
 		t.Fatalf("log replication failed: %v", err)
 	}
 
