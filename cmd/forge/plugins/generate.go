@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
@@ -76,6 +77,17 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 		p.generateModel,
 		cli.WithFlag(cli.NewStringFlag("name", "n", "Model name", "")),
 		cli.WithFlag(cli.NewStringSliceFlag("fields", "f", "Fields (name:type)", []string{})),
+		cli.WithFlag(cli.NewStringFlag("base", "b", "Base model type (base|uuid|xid|soft-delete|uuid-soft-delete|xid-soft-delete|timestamp|audit|xid-audit|none)", "")),
+		cli.WithFlag(cli.NewBoolFlag("table", "t", "Add table name tag", false)),
+		cli.WithFlag(cli.NewStringFlag("path", "p", "Models directory path (relative to project root)", "internal/models")),
+	))
+
+	generateCmd.AddSubcommand(cli.NewCommand(
+		"migration",
+		"Generate a database migration",
+		p.generateMigration,
+		cli.WithAliases("mig"),
+		cli.WithFlag(cli.NewStringFlag("name", "n", "Migration name", "")),
 	))
 
 	return []cli.Command{generateCmd}
@@ -134,6 +146,12 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 			return err
 		}
 
+		// Create app-specific config.yaml
+		if err := p.createAppConfig(appPath, name, false); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+			return err
+		}
+
 	} else {
 		// Multi-module: create apps/app-name with go.mod
 		appPath = filepath.Join(p.config.RootDir, "apps", name)
@@ -170,13 +188,21 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 			spinner.Stop(cli.Red("✗ Failed"))
 			return err
 		}
+
+		// Create app-specific config.yaml
+		if err := p.createAppConfig(appPath, name, true); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+			return err
+		}
 	}
 
 	spinner.Stop(cli.Green(fmt.Sprintf("✓ App %s created successfully!", name)))
 
 	ctx.Println("")
 	ctx.Success("Next steps:")
-	ctx.Println("  forge dev -a", name)
+	ctx.Println("  1. Review app config at apps/" + name + "/config.yaml")
+	ctx.Println("  2. (Optional) Create config.local.yaml for local overrides")
+	ctx.Println("  3. Run: forge dev -a", name)
 
 	return nil
 }
@@ -224,26 +250,41 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 
 	// Build service path based on selected directory
 	var servicePath string
+	var serviceFileName string
+	var isExtensionService bool
+
 	if selectedDir == "pkg" {
 		servicePath = filepath.Join(p.config.RootDir, "pkg", "services", name)
+		serviceFileName = "service.go"
 	} else if selectedDir == "internal" {
 		servicePath = filepath.Join(p.config.RootDir, "internal", "services", name)
+		serviceFileName = "service.go"
 	} else {
-		// It's an extension directory
-		servicePath = filepath.Join(p.config.RootDir, "extensions", selectedDir, "services", name)
+		// It's an extension directory - use flat naming
+		servicePath = filepath.Join(p.config.RootDir, "extensions", selectedDir)
+		serviceFileName = fmt.Sprintf("%s.service.go", strings.ToLower(name))
+		isExtensionService = true
 	}
 
 	spinner := ctx.Spinner(fmt.Sprintf("Generating service %s in %s...", name, selectedDir))
 
-	// Create directory
-	if err := os.MkdirAll(servicePath, 0755); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-		return err
+	// Create directory (skip for extension flat files at root)
+	if !isExtensionService {
+		if err := os.MkdirAll(servicePath, 0755); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+			return err
+		}
+	} else {
+		// Ensure extension directory exists
+		if err := os.MkdirAll(servicePath, 0755); err != nil {
+			spinner.Stop(cli.Red("✗ Failed"))
+			return err
+		}
 	}
 
 	// Generate service file
 	serviceContent := p.generateServiceFile(name)
-	if err := os.WriteFile(filepath.Join(servicePath, "service.go"), []byte(serviceContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(servicePath, serviceFileName), []byte(serviceContent), 0644); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 		return err
 	}
@@ -309,8 +350,32 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 			}
 
 			if controllerName != "" {
-				if err := p.addControllerToTarget(ctx, controllerName, target, name); err != nil {
-					ctx.Warning(fmt.Sprintf("Failed to add controller: %v", err))
+				// For extensions, offer placement options
+				var placementPath string
+				if target.IsExtension {
+					placement, err := ctx.Select("Where to place the controller in extension?",
+						[]string{
+							"internal/controllers (recommended)",
+							"root of extension",
+						})
+					if err != nil {
+						return err
+					}
+
+					if strings.Contains(placement, "root") {
+						placementPath = ""
+					} else {
+						placementPath = "internal/controllers"
+					}
+
+					if err := p.addControllerToTarget(ctx, controllerName, target, name, placementPath); err != nil {
+						ctx.Warning(fmt.Sprintf("Failed to add controller: %v", err))
+					}
+				} else {
+					// For apps, use default controllers directory
+					if err := p.addControllerToTarget(ctx, controllerName, target, name, "internal/controllers"); err != nil {
+						ctx.Warning(fmt.Sprintf("Failed to add controller: %v", err))
+					}
 				}
 			}
 		}
@@ -391,37 +456,61 @@ func (p *GeneratePlugin) discoverTargets() ([]TargetInfo, error) {
 }
 
 // addControllerToTarget adds a controller to the specified app or extension
-func (p *GeneratePlugin) addControllerToTarget(ctx cli.CommandContext, controllerName string, target TargetInfo, serviceName string) error {
+// placementPath specifies where to place the controller (relative to target):
+// - "internal/controllers" for organized structure
+// - "" (empty) for root of extension
+func (p *GeneratePlugin) addControllerToTarget(ctx cli.CommandContext, controllerName string, target TargetInfo, serviceName string, placementPath string) error {
 	spinner := ctx.Spinner(fmt.Sprintf("Adding controller %s to %s...", controllerName, target.Name))
 	defer spinner.Stop(cli.Green("✓ Done"))
 
-	var handlersPath string
+	var controllersPath string
 	if target.IsExtension {
-		handlersPath = filepath.Join(target.Path, "internal", "handlers")
+		if placementPath == "" {
+			// Place at root of extension
+			controllersPath = target.Path
+		} else {
+			// Place in internal/controllers directory
+			controllersPath = filepath.Join(target.Path, placementPath)
+		}
 	} else {
-		// For apps
-		handlersPath = filepath.Join(target.Path, "..", "internal", "handlers")
+		// For apps, always use internal/controllers
+		controllersPath = filepath.Join(target.Path, "..", "internal", "controllers")
 		// Normalize the path
 		if p.config.IsSingleModule() {
-			handlersPath = filepath.Join(p.config.RootDir, p.config.Project.Structure.Apps, target.Name, "internal", "handlers")
+			controllersPath = filepath.Join(p.config.RootDir, p.config.Project.Structure.Apps, target.Name, "internal", "controllers")
 		} else {
-			handlersPath = filepath.Join(p.config.RootDir, "apps", target.Name, "internal", "handlers")
+			controllersPath = filepath.Join(p.config.RootDir, "apps", target.Name, "internal", "controllers")
 		}
 	}
 
-	// Create handlers directory if it doesn't exist
-	if err := os.MkdirAll(handlersPath, 0755); err != nil {
-		return err
+	// Create controllers directory if it doesn't exist (unless placing at root)
+	if placementPath != "" {
+		if err := os.MkdirAll(controllersPath, 0755); err != nil {
+			return err
+		}
+	}
+
+	// Determine package name based on placement
+	packageName := "controllers"
+	if target.IsExtension && placementPath == "" {
+		// Use extension name as package when placing at root
+		packageName = target.Name
 	}
 
 	// Generate controller file
-	fileName := fmt.Sprintf("%s.go", strings.ToLower(controllerName))
-	controllerContent := p.generateControllerFile(controllerName, target.Name)
-	if err := os.WriteFile(filepath.Join(handlersPath, fileName), []byte(controllerContent), 0644); err != nil {
+	fileName := fmt.Sprintf("%s.controller.go", strings.ToLower(controllerName))
+	controllerContent := p.generateControllerFile(controllerName, packageName)
+	if err := os.WriteFile(filepath.Join(controllersPath, fileName), []byte(controllerContent), 0644); err != nil {
 		return err
 	}
 
-	spinner.Stop(cli.Green(fmt.Sprintf("✓ Controller %s added to %s!", controllerName, target.Name)))
+	var location string
+	if placementPath == "" {
+		location = fmt.Sprintf("%s (root)", target.Name)
+	} else {
+		location = fmt.Sprintf("%s/%s", target.Name, placementPath)
+	}
+	spinner.Stop(cli.Green(fmt.Sprintf("✓ Controller %s added to %s!", controllerName, location)))
 	return nil
 }
 
@@ -492,45 +581,87 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 		}
 	}
 
+	var selectedTarget *TargetInfo
 	if appName == "" {
-		apps, err := (&DevPlugin{config: p.config}).discoverApps()
+		// Discover all targets (apps and extensions)
+		targets, err := p.discoverTargets()
 		if err != nil {
 			return err
 		}
 
-		if len(apps) == 0 {
-			return fmt.Errorf("no apps found")
+		if len(targets) == 0 {
+			return fmt.Errorf("no apps or extensions found")
 		}
 
-		appNames := make([]string, len(apps))
-		for i, app := range apps {
-			appNames[i] = app.Name
+		// Format targets for display
+		targetNames := make([]string, len(targets))
+		for i, target := range targets {
+			prefix := "📦 "
+			if target.IsExtension {
+				prefix = "🔌 "
+			}
+			targetNames[i] = fmt.Sprintf("%s%s (%s)", prefix, target.Name, target.Type)
 		}
-		appName, err = ctx.Select("Select app:", appNames)
+
+		targetStr, err := ctx.Select("Select app or extension:", targetNames)
 		if err != nil {
 			return err
 		}
-	}
 
-	spinner := ctx.Spinner(fmt.Sprintf("Generating controller %s...", name))
+		// Find selected target
+		for i, tn := range targetNames {
+			if tn == targetStr || strings.Contains(targetStr, targets[i].Name) {
+				selectedTarget = &targets[i]
+				break
+			}
+		}
 
-	var controllerPath string
-	if p.config.IsSingleModule() {
-		controllerPath = filepath.Join(p.config.RootDir, p.config.Project.Structure.Apps, appName, "internal", "handlers")
+		if selectedTarget == nil {
+			return fmt.Errorf("failed to identify selected target")
+		}
 	} else {
-		controllerPath = filepath.Join(p.config.RootDir, "apps", appName, "internal", "handlers")
+		// Try to find target by name
+		targets, err := p.discoverTargets()
+		if err != nil {
+			return err
+		}
+
+		for _, target := range targets {
+			if target.Name == appName {
+				selectedTarget = &target
+				break
+			}
+		}
+
+		if selectedTarget == nil {
+			return fmt.Errorf("target not found: %s", appName)
+		}
 	}
 
-	// Create controller file
-	fileName := fmt.Sprintf("%s.go", strings.ToLower(name))
-	controllerContent := p.generateControllerFile(name, appName)
-	if err := os.WriteFile(filepath.Join(controllerPath, fileName), []byte(controllerContent), 0644); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-		return err
+	// For extensions, ask for placement
+	var placementPath string
+	if selectedTarget.IsExtension {
+		placement, err := ctx.Select("Where to place the controller in extension?",
+			[]string{
+				"internal/controllers (recommended)",
+				"root of extension",
+			})
+		if err != nil {
+			return err
+		}
+
+		if strings.Contains(placement, "root") {
+			placementPath = ""
+		} else {
+			placementPath = "internal/controllers"
+		}
+	} else {
+		// Apps always use internal/controllers
+		placementPath = "internal/controllers"
 	}
 
-	spinner.Stop(cli.Green(fmt.Sprintf("✓ Controller %s created!", name)))
-	return nil
+	// Use the enhanced addControllerToTarget with placement
+	return p.addControllerToTarget(ctx, name, *selectedTarget, "", placementPath)
 }
 
 func (p *GeneratePlugin) generateModel(ctx cli.CommandContext) error {
@@ -553,10 +684,60 @@ func (p *GeneratePlugin) generateModel(ctx cli.CommandContext) error {
 	}
 
 	fields := ctx.StringSlice("fields")
+	baseType := ctx.String("base")
+	addTableTag := ctx.Bool("table")
+	modelsPath := ctx.String("path")
+
+	// Interactive mode for base type if not specified
+	if baseType == "" {
+		baseTypes := []string{
+			"base - Standard model with ID and timestamps",
+			"uuid - UUID primary key with timestamps",
+			"xid - XID primary key (compact, sortable, URL-safe)",
+			"soft-delete - Soft delete support with timestamps",
+			"uuid-soft-delete - UUID with soft delete",
+			"xid-soft-delete - XID with soft delete",
+			"timestamp - Only timestamps (bring your own ID)",
+			"audit - Full audit trail with user tracking",
+			"xid-audit - XID with full audit trail and user tracking",
+			"none - No base model (manual fields only)",
+		}
+
+		selected, err := ctx.Select("Select base model type:", baseTypes)
+		if err != nil {
+			return err
+		}
+
+		// Extract the type from selection
+		baseType = strings.Split(selected, " ")[0]
+	}
+
+	// Interactive mode for path if default
+	if modelsPath == "internal/models" {
+		pathOptions := []string{
+			"internal/models - Internal models (recommended, default)",
+			"pkg/models - Public models (for libraries)",
+			"custom - Specify custom path",
+		}
+
+		selected, err := ctx.Select("Select models directory:", pathOptions)
+		if err != nil {
+			return err
+		}
+
+		if strings.HasPrefix(selected, "custom") {
+			modelsPath, err = ctx.Prompt("Enter custom path (relative to project root):")
+			if err != nil {
+				return err
+			}
+		} else {
+			modelsPath = strings.Split(selected, " ")[0]
+		}
+	}
 
 	spinner := ctx.Spinner(fmt.Sprintf("Generating model %s...", name))
 
-	modelPath := filepath.Join(p.config.RootDir, "pkg", "models")
+	modelPath := filepath.Join(p.config.RootDir, modelsPath)
 	if err := os.MkdirAll(modelPath, 0755); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 		return err
@@ -564,14 +745,50 @@ func (p *GeneratePlugin) generateModel(ctx cli.CommandContext) error {
 
 	// Generate model file
 	fileName := fmt.Sprintf("%s.go", strings.ToLower(name))
-	modelContent := p.generateModelFile(name, fields)
+	modelContent := p.generateModelFile(name, fields, baseType, addTableTag)
 	if err := os.WriteFile(filepath.Join(modelPath, fileName), []byte(modelContent), 0644); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
 		return err
 	}
 
 	spinner.Stop(cli.Green(fmt.Sprintf("✓ Model %s created!", name)))
+
+	// Show helpful info about the base model
+	ctx.Println("")
+	p.printModelInfo(ctx, baseType)
+
 	return nil
+}
+
+func (p *GeneratePlugin) printModelInfo(ctx cli.CommandContext, baseType string) {
+	switch baseType {
+	case "base":
+		ctx.Info("✨ Model includes: ID (int64), CreatedAt, UpdatedAt with automatic hooks")
+	case "uuid":
+		ctx.Info("✨ Model includes: ID (UUID), CreatedAt, UpdatedAt with automatic UUID generation")
+	case "xid":
+		ctx.Info("✨ Model includes: ID (XID), CreatedAt, UpdatedAt with automatic XID generation")
+		ctx.Info("   XID is compact (20 bytes), sortable, and URL-safe")
+	case "soft-delete":
+		ctx.Info("✨ Model includes: ID, timestamps, DeletedAt with soft delete hooks")
+		ctx.Info("   Use IsDeleted() and Restore() methods for soft delete operations")
+	case "uuid-soft-delete":
+		ctx.Info("✨ Model includes: UUID ID, timestamps, DeletedAt with automatic UUID and soft delete")
+	case "xid-soft-delete":
+		ctx.Info("✨ Model includes: XID ID, timestamps, DeletedAt with automatic XID and soft delete")
+		ctx.Info("   XID is compact, sortable, and URL-safe")
+	case "timestamp":
+		ctx.Info("✨ Model includes: CreatedAt, UpdatedAt - add your own ID field")
+	case "audit":
+		ctx.Info("✨ Model includes: ID, timestamps, soft delete, and user tracking (CreatedBy, UpdatedBy, DeletedBy)")
+		ctx.Info("   Use database.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
+	case "xid-audit":
+		ctx.Info("✨ Model includes: XID ID, timestamps, soft delete, and user tracking (CreatedBy, UpdatedBy, DeletedBy)")
+		ctx.Info("   XID is compact, sortable, and URL-safe")
+		ctx.Info("   Use database.SetUserID(ctx, userID) in your auth middleware for automatic user tracking")
+	case "none":
+		ctx.Info("✨ Model created without base - all fields are custom")
+	}
 }
 
 // Template generation functions
@@ -621,7 +838,14 @@ build:
 
 func (p *GeneratePlugin) generateServiceFile(name string) string {
 	titleName := strings.Title(name)
+	lowerName := strings.ToLower(name)
 	return fmt.Sprintf(`package %s
+
+import (
+	"context"
+
+	"github.com/xraph/forge"
+)
 
 // %sService handles %s business logic
 type %sService struct {
@@ -632,7 +856,27 @@ type %sService struct {
 func New%sService() *%sService {
 	return &%sService{}
 }
-`, name, titleName, name, titleName, titleName, name, titleName, titleName, titleName)
+
+// Name implements forge.Service
+func (s *%sService) Name() string {
+	return "%s:service"
+}
+
+// Start implements forge.Service
+func (s *%sService) Start(ctx context.Context) error {
+	// Initialize service resources
+	return nil
+}
+
+// Stop implements forge.Service
+func (s *%sService) Stop(ctx context.Context) error {
+	// Cleanup service resources
+	return nil
+}
+
+// Verify interface implementation
+var _ forge.Service = (*%sService)(nil)
+`, lowerName, titleName, lowerName, titleName, titleName, lowerName, titleName, titleName, titleName, titleName, lowerName, titleName, titleName, titleName)
 }
 
 func (p *GeneratePlugin) generateExtensionFile(name string) string {
@@ -702,9 +946,10 @@ func WithEnabled(enabled bool) Option {
 `, name, name)
 }
 
-func (p *GeneratePlugin) generateControllerFile(name, appName string) string {
+func (p *GeneratePlugin) generateControllerFile(name, packageName string) string {
 	titleName := strings.Title(name)
-	return fmt.Sprintf(`package handlers
+	lowerName := strings.ToLower(name)
+	return fmt.Sprintf(`package %s
 
 import (
 	"github.com/xraph/forge"
@@ -720,13 +965,19 @@ func New%sController() *%sController {
 	return &%sController{}
 }
 
-// RegisterRoutes registers the routes for this controller
-func (c *%sController) RegisterRoutes(router forge.Router) {
+// Name implements forge.Controller
+func (c *%sController) Name() string {
+	return "%s:controller"
+}
+
+// Routes implements forge.Controller
+func (c *%sController) Routes(router forge.Router) error {
 	router.GET("/%s", c.List)
 	router.POST("/%s", c.Create)
 	router.GET("/%s/:id", c.Get)
 	router.PUT("/%s/:id", c.Update)
 	router.DELETE("/%s/:id", c.Delete)
+	return nil
 }
 
 func (c *%sController) List(ctx forge.Context) error {
@@ -751,35 +1002,428 @@ func (c *%sController) Delete(ctx forge.Context) error {
 	id := ctx.Param("id")
 	return ctx.JSON(204, nil)
 }
-`, titleName, name, titleName, titleName, name, titleName, titleName, titleName,
-		titleName, strings.ToLower(name), strings.ToLower(name), strings.ToLower(name),
-		strings.ToLower(name), strings.ToLower(name), titleName, name, titleName, name,
-		titleName, titleName, titleName)
+
+// Verify interface implementation
+var _ forge.Controller = (*%sController)(nil)
+`, packageName, titleName, lowerName, titleName, titleName, lowerName, titleName, titleName, titleName,
+		titleName, lowerName, lowerName, lowerName, lowerName,
+		lowerName, lowerName, titleName, lowerName, titleName, lowerName,
+		titleName, titleName, titleName, titleName, titleName)
 }
 
-func (p *GeneratePlugin) generateModelFile(name string, fields []string) string {
+func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseType string, addTableTag bool) string {
+	// Prepare custom fields
 	fieldsCode := ""
 	for _, field := range fields {
 		parts := strings.Split(field, ":")
-		if len(parts) == 2 {
+		if len(parts) >= 2 {
 			fieldName := strings.Title(parts[0])
 			fieldType := parts[1]
-			fieldsCode += fmt.Sprintf("\t%s %s\n", fieldName, fieldType)
+
+			// Add bun and json tags
+			bunTag := fmt.Sprintf(`bun:"%s"`, strings.ToLower(parts[0]))
+			jsonTag := fmt.Sprintf(`json:"%s"`, strings.ToLower(parts[0]))
+
+			fieldsCode += fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, bunTag, jsonTag)
 		}
 	}
 
-	if fieldsCode == "" {
-		fieldsCode = "\tID   int    `json:\"id\"`\n\tName string `json:\"name\"`\n"
+	// Default example field if none provided and no base model
+	if fieldsCode == "" && baseType == "none" {
+		fieldsCode = "\tName string `bun:\"name\" json:\"name\"`\n"
+	}
+
+	// Determine imports
+	imports := []string{}
+	needsTime := false
+	needsDatabase := baseType != "none"
+	needsUUID := baseType == "uuid" || baseType == "uuid-soft-delete"
+	needsXID := baseType == "xid" || baseType == "xid-soft-delete" || baseType == "xid-audit"
+
+	if needsDatabase {
+		imports = append(imports, `"github.com/xraph/forge/extensions/database"`)
+	}
+	if needsUUID {
+		imports = append(imports, `"github.com/google/uuid"`)
+	}
+	if needsXID {
+		imports = append(imports, `"github.com/rs/xid"`)
+	}
+
+	// Check if we need time import for custom fields
+	for _, field := range fields {
+		if strings.Contains(field, "time.Time") || strings.Contains(field, "*time.Time") {
+			needsTime = true
+			break
+		}
+	}
+
+	// Add time if needed and not already included via base model
+	if needsTime && baseType == "none" {
+		imports = append(imports, `"time"`)
+	}
+
+	// Build imports section
+	importSection := ""
+	if len(imports) > 0 {
+		if len(imports) == 1 {
+			importSection = fmt.Sprintf("import %s\n\n", imports[0])
+		} else {
+			importSection = "import (\n"
+			for _, imp := range imports {
+				importSection += fmt.Sprintf("\t%s\n", imp)
+			}
+			importSection += ")\n\n"
+		}
+	}
+
+	// Add bun import if using any base model (do this before building imports section)
+	hasBunImport := false
+	for _, imp := range imports {
+		if strings.Contains(imp, "bun") {
+			hasBunImport = true
+			break
+		}
+	}
+	if baseType != "none" && !hasBunImport {
+		imports = append(imports, `"github.com/uptrace/bun"`)
+	}
+
+	// Rebuild imports section now that we have all imports
+	importSection = ""
+	if len(imports) > 0 {
+		if len(imports) == 1 {
+			importSection = fmt.Sprintf("import %s\n\n", imports[0])
+		} else {
+			importSection = "import (\n"
+			for _, imp := range imports {
+				importSection += fmt.Sprintf("\t%s\n", imp)
+			}
+			importSection += ")\n\n"
+		}
+	}
+
+	// Determine base model embedding - always include bun.BaseModel first
+	baseEmbedding := ""
+
+	// Add table name tag if requested
+	tableName := strings.ToLower(name) + "s" // Simple pluralization
+
+	// Generate alias from model name (take first letter of each capital letter)
+	alias := generateAlias(name)
+
+	// Build bun.BaseModel with appropriate tag
+	bunBaseModel := ""
+	if baseType != "none" {
+		if addTableTag {
+			// Add table configuration to bun.BaseModel
+			bunBaseModel = fmt.Sprintf("\tbun.BaseModel `bun:\"table:%s,alias:%s\"`\n", tableName, alias)
+		} else {
+			bunBaseModel = "\tbun.BaseModel `bun:\"-\"`\n"
+		}
+	}
+
+	switch baseType {
+	case "base":
+		baseEmbedding = bunBaseModel + "\tdatabase.BaseModel\n"
+	case "uuid":
+		baseEmbedding = bunBaseModel + "\tdatabase.UUIDModel\n"
+	case "xid":
+		baseEmbedding = bunBaseModel + "\tdatabase.XIDModel\n"
+	case "soft-delete":
+		baseEmbedding = bunBaseModel + "\tdatabase.SoftDeleteModel\n"
+	case "uuid-soft-delete":
+		baseEmbedding = bunBaseModel + "\tdatabase.UUIDSoftDeleteModel\n"
+	case "xid-soft-delete":
+		baseEmbedding = bunBaseModel + "\tdatabase.XIDSoftDeleteModel\n"
+	case "timestamp":
+		baseEmbedding = bunBaseModel + "\tdatabase.TimestampModel\n"
+	case "audit":
+		baseEmbedding = bunBaseModel + "\tdatabase.AuditModel\n"
+	case "xid-audit":
+		baseEmbedding = bunBaseModel + "\tdatabase.XIDAuditModel\n"
+	case "none":
+		baseEmbedding = ""
+	default:
+		baseEmbedding = bunBaseModel + "\tdatabase.BaseModel\n"
+	}
+
+	// Build the struct
+	structBody := ""
+	if baseEmbedding != "" {
+		structBody = baseEmbedding
+		if fieldsCode != "" {
+			structBody += "\n" + fieldsCode
+		}
+	} else {
+		structBody = fieldsCode
+	}
+
+	// Build comments
+	comment := fmt.Sprintf("// %s represents a %s entity\n", name, strings.ToLower(name))
+	if baseType != "none" {
+		comment += fmt.Sprintf("// Embeds bun.BaseModel and %s for ORM functionality and automatic hooks\n", getBaseModelName(baseType))
+	}
+
+	// Add init function to auto-register model for migrations
+	initFunc := fmt.Sprintf(`
+func init() {
+	// Auto-register model for migrations
+	// This allows automatic table creation in development
+	migrate.RegisterModel((*%s)(nil))
+}
+`, name)
+
+	// Add migrate import if needed
+	if !strings.Contains(importSection, "migrate") {
+		if importSection == "" {
+			importSection = "import \"github.com/xraph/forge/extensions/database/migrate\"\n\n"
+		} else if strings.Contains(importSection, "import (") {
+			// Add to existing import block
+			importSection = strings.Replace(importSection, ")", "\t\"github.com/xraph/forge/extensions/database/migrate\"\n)", 1)
+		} else {
+			// Single import, convert to block
+			oldImport := strings.TrimPrefix(strings.TrimSuffix(importSection, "\n\n"), "import ")
+			importSection = fmt.Sprintf("import (\n%s\t\"github.com/xraph/forge/extensions/database/migrate\"\n)\n\n", oldImport)
+		}
 	}
 
 	return fmt.Sprintf(`package models
 
-import "time"
-
-// %s represents a %s entity
-type %s struct {
-%s	CreatedAt time.Time `+"`json:\"created_at\"`"+`
-	UpdatedAt time.Time `+"`json:\"updated_at\"`"+`
+%s%stype %s struct {
+%s}
+%s`, importSection, comment, name, structBody, initFunc)
 }
-`, name, strings.ToLower(name), name, fieldsCode)
+
+func getBaseModelName(baseType string) string {
+	switch baseType {
+	case "base":
+		return "BaseModel"
+	case "uuid":
+		return "UUIDModel"
+	case "xid":
+		return "XIDModel"
+	case "soft-delete":
+		return "SoftDeleteModel"
+	case "uuid-soft-delete":
+		return "UUIDSoftDeleteModel"
+	case "xid-soft-delete":
+		return "XIDSoftDeleteModel"
+	case "timestamp":
+		return "TimestampModel"
+	case "audit":
+		return "AuditModel"
+	case "xid-audit":
+		return "XIDAuditModel"
+	default:
+		return "BaseModel"
+	}
+}
+
+// generateAlias creates a short alias from a model name by taking the first letter
+// of each capital letter in the name (e.g., "PersonalAccessToken" -> "pat")
+func generateAlias(name string) string {
+	var alias string
+	for _, c := range name {
+		if c >= 'A' && c <= 'Z' {
+			alias += string(c + 32) // Convert to lowercase
+		}
+	}
+	// Fallback to first 3 chars if no capitals found or alias is empty
+	if alias == "" {
+		if len(name) >= 3 {
+			alias = strings.ToLower(name[:3])
+		} else {
+			alias = strings.ToLower(name)
+		}
+	}
+	return alias
+}
+
+func (p *GeneratePlugin) generateMigration(ctx cli.CommandContext) error {
+	if p.config == nil {
+		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Println("")
+		ctx.Info("This doesn't appear to be a Forge project.")
+		ctx.Info("To initialize a new project, run:")
+		ctx.Println("  forge init")
+		return fmt.Errorf("not a forge project")
+	}
+
+	name := ctx.String("name")
+	if name == "" {
+		var err error
+		name, err = ctx.Prompt("Migration name (e.g., create_users_table):")
+		if err != nil {
+			return err
+		}
+	}
+
+	// Clean name - remove spaces, use underscores
+	name = strings.ReplaceAll(strings.ToLower(name), " ", "_")
+	name = strings.ReplaceAll(name, "-", "_")
+
+	spinner := ctx.Spinner(fmt.Sprintf("Generating migration %s...", name))
+
+	// Create migrations directory
+	migrationsPath := filepath.Join(p.config.RootDir, "database", "migrations")
+	if err := os.MkdirAll(migrationsPath, 0755); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	// Generate timestamp
+	timestamp := time.Now().Format("20060102150405")
+
+	// Generate migration file
+	fileName := fmt.Sprintf("%s_%s.go", timestamp, name)
+	migrationContent := p.generateMigrationFile(name, timestamp)
+	if err := os.WriteFile(filepath.Join(migrationsPath, fileName), []byte(migrationContent), 0644); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	spinner.Stop(cli.Green(fmt.Sprintf("✓ Migration %s created!", fileName)))
+
+	ctx.Println("")
+	ctx.Info("💡 Next steps:")
+	ctx.Info("   1. Implement the up/down migration functions")
+	ctx.Info("   2. Run: forge db migrate")
+	ctx.Info("")
+	ctx.Info("📚 Learn more: https://bun.uptrace.dev/guide/migrations.html#go-based-migrations")
+
+	return nil
+}
+
+func (p *GeneratePlugin) generateMigrationFile(name, timestamp string) string {
+	return fmt.Sprintf(`package migrations
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/uptrace/bun"
+)
+
+func init() {
+	// Register this migration
+	// Format: YYYYMMDDHHMMSS_description
+	Migrations.MustRegister(up%s_%s, down%s_%s)
+}
+
+// up%s_%s performs the forward migration
+func up%s_%s(ctx context.Context, db *bun.DB) error {
+	fmt.Print(" [up migration: %s_%s] ")
+	
+	// TODO: Implement your migration here
+	// Example: Create table
+	// _, err := db.NewCreateTable().
+	// 	Model((*models.YourModel)(nil)).
+	// 	IfNotExists().
+	// 	Exec(ctx)
+	// return err
+	
+	return nil
+}
+
+// down%s_%s performs the rollback migration
+func down%s_%s(ctx context.Context, db *bun.DB) error {
+	fmt.Print(" [down migration: %s_%s] ")
+	
+	// TODO: Implement your rollback here
+	// Example: Drop table
+	// _, err := db.NewDropTable().
+	// 	Model((*models.YourModel)(nil)).
+	// 	IfExists().
+	// 	Exec(ctx)
+	// return err
+	
+	return nil
+}
+`, timestamp, name, timestamp, name,
+		timestamp, name,
+		timestamp, name,
+		timestamp, name,
+		timestamp, name,
+		timestamp, name,
+		timestamp, name)
+}
+
+// createAppConfig creates app-specific config.yaml file
+func (p *GeneratePlugin) createAppConfig(appPath, appName string, isMultiModule bool) error {
+	configPath := filepath.Join(appPath, "config.yaml")
+
+	var configContent string
+	if isMultiModule {
+		// For multi-module, create a simple config that will be merged with root config
+		configContent = fmt.Sprintf(`# %s App Configuration
+# This config is specific to the %s app in the monorepo.
+# It will be automatically merged with the root config.yaml
+# Create config.local.yaml here for local overrides specific to this app.
+
+app:
+  name: "%s"
+  version: "0.1.0"
+
+server:
+  port: 8080
+
+# App-specific settings
+# These will override the root config when running this app
+`, appName, appName, appName)
+	} else {
+		// For single-module, create a full config
+		configContent = fmt.Sprintf(`# %s App Configuration
+# This is the app-specific configuration file.
+# Create config.local.yaml for local overrides.
+
+app:
+  name: "%s"
+  version: "0.1.0"
+  environment: "development"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+
+logging:
+  level: "info"
+  format: "json"
+
+# Database configuration (uncomment when needed)
+# database:
+#   driver: "postgres"
+#   host: "localhost"
+#   port: 5432
+#   database: "%s"
+#   max_open_conns: 25
+#   max_idle_conns: 5
+`, appName, appName, appName)
+	}
+
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		return err
+	}
+
+	// Create config.local.yaml.example
+	examplePath := filepath.Join(appPath, "config.local.yaml.example")
+	exampleContent := `# Local Configuration Override Example
+# Copy this file to config.local.yaml and customize for your local environment
+# config.local.yaml is ignored by git
+
+server:
+  port: 3000
+
+logging:
+  level: "debug"
+
+# database:
+#   host: "localhost"
+#   username: "dev"
+#   password: "dev"
+`
+
+	return os.WriteFile(examplePath, []byte(exampleContent), 0644)
 }

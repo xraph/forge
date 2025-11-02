@@ -1,0 +1,54 @@
+# Monorepo Local Override Configuration
+# This file overrides settings in config.yaml for local development
+# It should be in .gitignore
+
+# Override global settings for local development
+database:
+  host: localhost
+
+cache:
+  driver: inmemory
+
+# App-specific local overrides
+apps:
+  api-service:
+    database:
+      name: api_service_dev
+    
+    logging:
+      level: debug
+      format: text
+    
+    extensions:
+      cache:
+        driver: inmemory
+        max_size: 5000
+
+  admin-dashboard:
+    database:
+      name: admin_dashboard_dev
+    
+    logging:
+      format: text
+    
+    extensions:
+      cache:
+        driver: inmemory
+        max_size: 3000
+
+  worker-service:
+    database:
+      name: worker_service_dev
+    
+    logging:
+      level: debug
+      format: text
+    
+    worker:
+      concurrency: 2  # Lower for local dev
+    
+    extensions:
+      cache:
+        driver: inmemory
+        max_size: 2000
+

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 func TestCacheExtension_Register(t *testing.T) {
@@ -586,7 +587,9 @@ func BenchmarkCacheExtension_Register(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ext := NewExtension(WithConfig(config))
-		app := forge.NewApp(forge.DefaultAppConfig())
+		appConfig := forge.DefaultAppConfig()
+		appConfig.Logger = logger.NewTestLogger()
+		app := forge.NewApp(appConfig)
 		_ = ext.Register(app)
 	}
 }
@@ -602,7 +605,9 @@ func BenchmarkCacheExtension_RegisterWithConfigManager(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		app := forge.NewApp(forge.DefaultAppConfig())
+		appConfig := forge.DefaultAppConfig()
+		appConfig.Logger = logger.NewTestLogger()
+		app := forge.NewApp(appConfig)
 		_ = forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
 			return configManager, nil
 		})

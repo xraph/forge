@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/uptrace/bun"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/forge/internal/shared"
 )
 
 // DatabaseManager manages multiple database connections
@@ -35,7 +37,7 @@ func (m *DatabaseManager) Register(name string, db Database) error {
 	defer m.mu.Unlock()
 
 	if _, exists := m.databases[name]; exists {
-		return fmt.Errorf("database %s already registered", name)
+		return ErrDatabaseAlreadyExists(name)
 	}
 
 	m.databases[name] = db
@@ -51,7 +53,7 @@ func (m *DatabaseManager) Get(name string) (Database, error) {
 
 	db, exists := m.databases[name]
 	if !exists {
-		return nil, fmt.Errorf("database %s not found", name)
+		return nil, ErrDatabaseNotFound(name)
 	}
 
 	return db, nil
@@ -66,7 +68,7 @@ func (m *DatabaseManager) SQL(name string) (*bun.DB, error) {
 
 	sqlDB, ok := db.(*SQLDatabase)
 	if !ok {
-		return nil, fmt.Errorf("database %s is not a SQL database", name)
+		return nil, ErrInvalidDatabaseTypeOp(name, TypePostgres, db.Type())
 	}
 
 	return sqlDB.Bun(), nil
@@ -81,7 +83,7 @@ func (m *DatabaseManager) Mongo(name string) (*mongo.Client, error) {
 
 	mongoDB, ok := db.(*MongoDatabase)
 	if !ok {
-		return nil, fmt.Errorf("database %s is not a MongoDB database", name)
+		return nil, ErrInvalidDatabaseTypeOp(name, TypeMongoDB, db.Type())
 	}
 
 	return mongoDB.Client(), nil
@@ -96,47 +98,94 @@ func (m *DatabaseManager) MongoDatabase(name string) (*MongoDatabase, error) {
 
 	mongoDB, ok := db.(*MongoDatabase)
 	if !ok {
-		return nil, fmt.Errorf("database %s is not a MongoDB database", name)
+		return nil, ErrInvalidDatabaseTypeOp(name, TypeMongoDB, db.Type())
 	}
 
 	return mongoDB, nil
 }
 
-// OpenAll opens all registered databases
+// MultiError represents multiple database errors
+type MultiError struct {
+	Errors map[string]error
+}
+
+func (e *MultiError) Error() string {
+	if len(e.Errors) == 0 {
+		return "no errors"
+	}
+
+	var msgs []string
+	for name, err := range e.Errors {
+		msgs = append(msgs, fmt.Sprintf("%s: %v", name, err))
+	}
+	return fmt.Sprintf("multiple database errors: %s", strings.Join(msgs, "; "))
+}
+
+// HasErrors returns true if there are any errors
+func (e *MultiError) HasErrors() bool {
+	return len(e.Errors) > 0
+}
+
+// OpenAll opens all registered databases, collecting errors without stopping
 func (m *DatabaseManager) OpenAll(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var errs []error
+	multiErr := &MultiError{Errors: make(map[string]error)}
+
 	for name, db := range m.databases {
 		if err := db.Open(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			multiErr.Errors[name] = err
+			m.logger.Error("failed to open database",
+				logger.String("name", name),
+				logger.String("type", string(db.Type())),
+				logger.Error(err),
+			)
+			if m.metrics != nil {
+				m.metrics.Counter("db_open_failures",
+					"db", name,
+					"type", string(db.Type()),
+				).Inc()
+			}
+		} else {
+			m.logger.Info("database opened successfully",
+				logger.String("name", name),
+				logger.String("type", string(db.Type())),
+			)
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to open databases: %v", errs)
+	if multiErr.HasErrors() {
+		return multiErr
 	}
-
 	return nil
 }
 
-// CloseAll closes all registered databases
+// CloseAll closes all registered databases, collecting errors without stopping
 func (m *DatabaseManager) CloseAll(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var errs []error
+	multiErr := &MultiError{Errors: make(map[string]error)}
+
 	for name, db := range m.databases {
 		if err := db.Close(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			multiErr.Errors[name] = err
+			m.logger.Error("failed to close database",
+				logger.String("name", name),
+				logger.String("type", string(db.Type())),
+				logger.Error(err),
+			)
+		} else {
+			m.logger.Info("database closed successfully",
+				logger.String("name", name),
+			)
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to close databases: %v", errs)
+	if multiErr.HasErrors() {
+		return multiErr
 	}
-
 	return nil
 }
 
@@ -165,3 +214,17 @@ func (m *DatabaseManager) List() []string {
 
 	return names
 }
+
+func (m *DatabaseManager) Health(ctx context.Context) error {
+	statuses := m.HealthCheckAll(ctx)
+
+	for name, status := range statuses {
+		if !status.Healthy {
+			return fmt.Errorf("database %s is unhealthy: %s", name, status.Message)
+		}
+	}
+
+	return nil
+}
+
+var _ shared.HealthChecker = (*DatabaseManager)(nil)

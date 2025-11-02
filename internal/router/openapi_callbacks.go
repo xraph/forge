@@ -81,7 +81,7 @@ func NewCallbackOperation(summary, description string) *CallbackOperation {
 
 // WithCallbackRequestBody sets the request body for a callback operation
 func (co *CallbackOperation) WithCallbackRequestBody(description string, schema interface{}) *CallbackOperation {
-	gen := newSchemaGenerator()
+	gen := newSchemaGenerator(nil) // Callbacks use inline schemas
 	var schemaObj *Schema
 
 	if s, ok := schema.(*Schema); ok {

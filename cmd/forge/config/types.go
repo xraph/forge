@@ -129,26 +129,53 @@ type DeployConfig struct {
 	Registry     string              `yaml:"registry"`
 	Docker       DockerConfig        `yaml:"docker"`
 	Kubernetes   KubernetesConfig    `yaml:"kubernetes"`
+	DigitalOcean DigitalOceanConfig  `yaml:"digitalocean"`
+	Render       RenderConfig        `yaml:"render"`
 	Environments []EnvironmentConfig `yaml:"environments"`
 }
 
 // DockerConfig for Docker deployment
 type DockerConfig struct {
-	BuildContext string `yaml:"build_context"`
-	Dockerfile   string `yaml:"dockerfile"`
+	BuildContext string            `yaml:"build_context"`
+	Dockerfile   string            `yaml:"dockerfile"`
+	ComposeFile  string            `yaml:"compose_file"`
+	Network      string            `yaml:"network"`
+	Volumes      map[string]string `yaml:"volumes"`
 }
 
 // KubernetesConfig for Kubernetes deployment
 type KubernetesConfig struct {
 	Manifests string `yaml:"manifests"`
 	Namespace string `yaml:"namespace"`
+	Context   string `yaml:"context"`
+	Registry  string `yaml:"registry"`
+}
+
+// DigitalOceanConfig for Digital Ocean deployment
+type DigitalOceanConfig struct {
+	Region        string `yaml:"region"`
+	AppSpecFile   string `yaml:"app_spec_file"`
+	ClusterName   string `yaml:"cluster_name"`
+	GitRepo       string `yaml:"git_repo"`        // e.g., "myorg/myrepo"
+	GitBranch     string `yaml:"git_branch"`      // e.g., "main"
+	DeployOnPush  bool   `yaml:"deploy_on_push"`  // Auto-deploy on push
+}
+
+// RenderConfig for Render.com deployment
+type RenderConfig struct {
+	BlueprintFile string `yaml:"blueprint_file"`
+	Region        string `yaml:"region"`
+	GitRepo       string `yaml:"git_repo"`   // e.g., "myorg/myrepo"
+	GitBranch     string `yaml:"git_branch"` // e.g., "main"
 }
 
 // EnvironmentConfig defines deployment environment
 type EnvironmentConfig struct {
-	Name      string `yaml:"name"`
-	Cluster   string `yaml:"cluster"`
-	Namespace string `yaml:"namespace"`
+	Name      string            `yaml:"name"`
+	Cluster   string            `yaml:"cluster"`
+	Namespace string            `yaml:"namespace"`
+	Region    string            `yaml:"region"`
+	Variables map[string]string `yaml:"variables"`
 }
 
 // GenerateConfig defines code generation configuration

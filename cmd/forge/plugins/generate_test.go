@@ -2,6 +2,7 @@
 package plugins
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -192,4 +193,124 @@ func TestTargetInfoProperties(t *testing.T) {
 	assert.Equal(t, "cache", extTarget.Name)
 	assert.Equal(t, "extension", extTarget.Type)
 	assert.True(t, extTarget.IsExtension)
+}
+
+// TestControllerPaths verifies controller directory structure
+func TestControllerPaths(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "forge-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create extension structure
+	extDir := filepath.Join(tmpDir, "extensions", "cache")
+	require.NoError(t, os.MkdirAll(extDir, 0755))
+
+	tests := []struct {
+		name        string
+		placement   string
+		expectedDir string
+	}{
+		{
+			name:        "Internal controllers placement",
+			placement:   "internal/controllers",
+			expectedDir: "extensions/cache/internal/controllers",
+		},
+		{
+			name:        "Root placement",
+			placement:   "",
+			expectedDir: "extensions/cache",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := TargetInfo{
+				Name:        "cache",
+				Type:        "extension",
+				IsExtension: true,
+				Path:        extDir,
+			}
+
+			// Simulate path construction from addControllerToTarget logic
+			var controllersPath string
+			if tt.placement == "" {
+				controllersPath = target.Path
+			} else {
+				controllersPath = filepath.Join(target.Path, tt.placement)
+			}
+
+			expectedPath := filepath.Join(tmpDir, tt.expectedDir)
+			assert.Equal(t, expectedPath, controllersPath)
+		})
+	}
+}
+
+// TestControllerPackageNames verifies correct package name generation
+func TestControllerPackageNames(t *testing.T) {
+	plugin := &GeneratePlugin{}
+
+	tests := []struct {
+		name            string
+		target          TargetInfo
+		placementPath   string
+		expectedPackage string
+	}{
+		{
+			name: "App controller uses controllers package",
+			target: TargetInfo{
+				Name:        "api",
+				Type:        "app",
+				IsExtension: false,
+			},
+			placementPath:   "internal/controllers",
+			expectedPackage: "controllers",
+		},
+		{
+			name: "Extension controller in internal/controllers uses controllers",
+			target: TargetInfo{
+				Name:        "cache",
+				Type:        "extension",
+				IsExtension: true,
+			},
+			placementPath:   "internal/controllers",
+			expectedPackage: "controllers",
+		},
+		{
+			name: "Extension controller at root uses extension name",
+			target: TargetInfo{
+				Name:        "cache",
+				Type:        "extension",
+				IsExtension: true,
+			},
+			placementPath:   "",
+			expectedPackage: "cache",
+		},
+		{
+			name: "Extension with hyphenated name at root",
+			target: TargetInfo{
+				Name:        "auth-service",
+				Type:        "extension",
+				IsExtension: true,
+			},
+			placementPath:   "",
+			expectedPackage: "auth-service",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate package name determination logic
+			packageName := "controllers"
+			if tt.target.IsExtension && tt.placementPath == "" {
+				packageName = tt.target.Name
+			}
+
+			assert.Equal(t, tt.expectedPackage, packageName)
+
+			// Verify the generated controller has the correct package
+			controllerContent := plugin.generateControllerFile("Test", packageName)
+			expectedPackageLine := fmt.Sprintf("package %s", tt.expectedPackage)
+			assert.Contains(t, controllerContent, expectedPackageLine)
+		})
+	}
 }

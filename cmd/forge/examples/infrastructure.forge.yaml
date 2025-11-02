@@ -1,0 +1,349 @@
+# .forge.yaml - Infrastructure Deployment Configuration Example
+# This example shows all available infrastructure and deployment options
+
+project:
+  name: my-awesome-app
+  version: 1.2.3
+  description: Full-stack application with microservices
+  type: monorepo
+  layout: single-module
+  module: github.com/myorg/my-awesome-app
+  
+  structure:
+    cmd: ./cmd
+    apps: ./apps
+    pkg: ./pkg
+    internal: ./internal
+    extensions: ./extensions
+    database: ./database
+    config: ./config
+    deployments: ./deployments
+
+# Development Configuration
+dev:
+  auto_discover: true
+  discover_pattern: "./cmd/*"
+  default_app: api-gateway
+  watch:
+    enabled: true
+    paths:
+      - "./cmd/**/main.go"
+      - "./internal/**/*.go"
+      - "./pkg/**/*.go"
+    exclude:
+      - "**/*_test.go"
+      - "**/testdata/**"
+      - "**/vendor/**"
+  hot_reload:
+    enabled: true
+    delay: 500ms
+
+# Build Configuration
+build:
+  output_dir: ./bin
+  cmd_dir: ./cmd
+  apps:
+    - name: api-gateway
+      cmd: ./cmd/api-gateway
+      output: api-gateway
+      dockerfile: ./cmd/api-gateway/Dockerfile
+    - name: auth-service
+      cmd: ./cmd/auth-service
+      output: auth-service
+      dockerfile: ./cmd/auth-service/Dockerfile
+    - name: worker-service
+      cmd: ./cmd/worker-service
+      output: worker-service
+      dockerfile: ./cmd/worker-service/Dockerfile
+  platforms:
+    - os: linux
+      arch: amd64
+    - os: darwin
+      arch: arm64
+  ldflags: "-s -w -X main.version={{.Version}} -X main.commit={{.Commit}}"
+  tags:
+    - netgo
+    - osusergo
+
+# Deployment Configuration
+deploy:
+  # Container Registry
+  registry: registry.example.com/myorg
+  
+  # Docker Configuration
+  docker:
+    build_context: .
+    compose_file: ./deployments/docker/docker-compose.yml
+    network: my-app-network
+    volumes:
+      data: /var/lib/data
+      logs: /var/log/app
+  
+  # Kubernetes Configuration
+  kubernetes:
+    manifests: ./deployments/k8s
+    namespace: default
+    context: production-cluster
+    registry: registry.example.com/myorg
+  
+  # Digital Ocean Configuration
+  digitalocean:
+    region: nyc1
+    app_spec_file: ./deployments/do/app.yaml
+    cluster_name: production-cluster
+  
+  # Render Configuration
+  render:
+    blueprint_file: ./deployments/render/render.yaml
+    region: oregon
+  
+  # Environment-specific configurations
+  environments:
+    # Development Environment
+    - name: dev
+      cluster: dev-cluster
+      namespace: development
+      region: us-west-2
+      variables:
+        ENV: development
+        LOG_LEVEL: debug
+        DEBUG: "true"
+        API_RATE_LIMIT: "1000"
+        CACHE_TTL: "60"
+        
+    # Staging Environment
+    - name: staging
+      cluster: staging-cluster
+      namespace: staging
+      region: us-east-1
+      variables:
+        ENV: staging
+        LOG_LEVEL: info
+        DEBUG: "false"
+        API_RATE_LIMIT: "5000"
+        CACHE_TTL: "300"
+        
+    # Production Environment
+    - name: prod
+      cluster: prod-cluster
+      namespace: production
+      region: us-east-1
+      variables:
+        ENV: production
+        LOG_LEVEL: warn
+        DEBUG: "false"
+        API_RATE_LIMIT: "10000"
+        CACHE_TTL: "600"
+        ENABLE_METRICS: "true"
+        ENABLE_TRACING: "true"
+
+# Database Configuration
+database:
+  driver: postgres
+  migrations_path: ./database/migrations
+  seeds_path: ./database/seeds
+  models_output: ./internal/models
+  codegen:
+    enabled: true
+    output: ./internal/db/models
+    templates: ./database/templates
+  connections:
+    default:
+      url: ${DATABASE_URL}
+      max_connections: 25
+      max_idle: 5
+    readonly:
+      url: ${DATABASE_READONLY_URL}
+      max_connections: 10
+      max_idle: 2
+
+# Code Generation Configuration
+generate:
+  templates_path: ./templates
+  generators:
+    service:
+      output: ./internal/services
+      internal_path: ./internal
+    controller:
+      output: ./internal/controllers
+      internal_path: ./internal
+    repository:
+      output: ./internal/repositories
+      internal_path: ./internal
+
+# Extensions Configuration
+extensions:
+  # Cache Extension
+  cache:
+    driver: redis
+    url: ${REDIS_URL}
+    ttl: 300
+    prefix: myapp
+  
+  # Logger Extension
+  logger:
+    level: info
+    format: json
+    output: stdout
+  
+  # Tracing Extension
+  tracing:
+    enabled: true
+    provider: jaeger
+    endpoint: ${JAEGER_ENDPOINT}
+    sample_rate: 0.1
+  
+  # Metrics Extension
+  metrics:
+    enabled: true
+    provider: prometheus
+    port: 9090
+    path: /metrics
+
+# Testing Configuration
+test:
+  coverage_threshold: 80
+  race_detector: true
+  parallel: true
+  timeout: 30s
+
+# ============================================
+# Example Usage Commands
+# ============================================
+
+# Development
+# forge dev                                   # Start dev server with hot reload
+# forge dev -a api-gateway                    # Run specific service
+
+# Docker Deployment
+# forge infra docker deploy                   # Deploy all services (internal generation)
+# forge infra docker deploy -e dev            # Deploy to dev environment
+# forge infra docker deploy -s api-gateway    # Deploy specific service
+# forge infra docker export                   # Export configuration to deployments/docker/
+# forge infra docker deploy                   # Now uses exported configuration
+
+# Kubernetes Deployment
+# forge infra k8s deploy                      # Deploy all services
+# forge infra k8s deploy -e prod              # Deploy to production
+# forge infra k8s deploy -n production        # Deploy to specific namespace
+# forge infra k8s deploy --dry-run            # Preview changes
+# forge infra k8s export                      # Export manifests to deployments/k8s/
+
+# Digital Ocean Deployment
+# forge infra do deploy                       # Deploy all services
+# forge infra do deploy -e prod -r nyc1       # Deploy to production in NYC
+# forge infra do export                       # Export app spec
+
+# Render Deployment
+# forge infra render deploy                   # Deploy all services
+# forge infra render deploy -e prod           # Deploy to production
+# forge infra render export                   # Export blueprint
+
+# Forge Cloud Deployment
+# forge cloud login                           # Authenticate
+# forge cloud deploy                          # Deploy all services
+# forge cloud deploy -s api-gateway -e prod   # Deploy specific service to prod
+# forge cloud status                          # Check deployment status
+# forge cloud logs -s api-gateway -f          # Follow logs
+# forge cloud scale -s api-gateway -r 5       # Scale to 5 instances
+# forge cloud rollback -s api-gateway         # Rollback to previous version
+
+# Database Operations
+# forge db migrate                            # Run migrations
+# forge db seed                               # Seed database
+# forge db rollback                           # Rollback last migration
+# forge db status                             # Check migration status
+
+# Build Operations
+# forge build                                 # Build all apps
+# forge build -a api-gateway                  # Build specific app
+# forge build --all-platforms                 # Build for all platforms
+
+# ============================================
+# Notes
+# ============================================
+
+# 1. Environment Variables
+#    Use .env files for local development:
+#    - .env                     (local overrides, gitignored)
+#    - .env.example             (template, version controlled)
+#    - .env.dev, .env.prod      (environment-specific, gitignored)
+
+# 2. Secrets Management
+#    Never commit secrets to version control:
+#    - Use environment variables: ${VAR_NAME}
+#    - Use secret managers: Vault, AWS Secrets Manager, etc.
+#    - Use Kubernetes secrets for K8s deployments
+#    - Use platform secret managers for cloud deployments
+
+# 3. Registry Authentication
+#    Ensure Docker registry is authenticated:
+#    - docker login registry.example.com
+#    - Or use imagePullSecrets in Kubernetes
+#    - Or platform-specific authentication (DO, Render, etc.)
+
+# 4. Multi-Environment Strategy
+#    Development -> Staging -> Production
+#    - Test in dev first
+#    - Validate in staging
+#    - Deploy to production with confidence
+#    - Always have rollback plan ready
+
+# 5. Infrastructure as Code
+#    Export configurations for version control:
+#    - forge infra docker export
+#    - forge infra k8s export
+#    - git add deployments/
+#    - git commit -m "Add deployment configurations"
+
+# 6. Monitoring and Observability
+#    Enable metrics and tracing in production:
+#    - Prometheus for metrics
+#    - Jaeger for distributed tracing
+#    - Structured logging with correlation IDs
+#    - Health check endpoints
+
+# 7. High Availability
+#    For production deployments:
+#    - Use multiple replicas (scale -r 3+)
+#    - Configure health checks and readiness probes
+#    - Set up auto-scaling policies
+#    - Implement circuit breakers
+#    - Use load balancers
+
+# 8. Disaster Recovery
+#    Always be prepared:
+#    - Keep backup of configurations
+#    - Test rollback procedures
+#    - Document incident response
+#    - Regular backup of databases
+#    - Multi-region if critical
+
+# ============================================
+# Production Checklist
+# ============================================
+
+# Before deploying to production:
+# [ ] All tests passing
+# [ ] Security scan completed
+# [ ] Environment variables configured
+# [ ] Secrets properly managed
+# [ ] Resource limits set
+# [ ] Health checks configured
+# [ ] Monitoring enabled
+# [ ] Logging configured
+# [ ] Backup strategy in place
+# [ ] Rollback plan documented
+# [ ] Team notified
+# [ ] Maintenance window scheduled (if needed)
+
+# ============================================
+# Further Reading
+# ============================================
+
+# - INFRASTRUCTURE_DEPLOYMENT.md    - Complete deployment guide
+# - INFRA_QUICK_REFERENCE.md        - Quick command reference
+# - COMMANDS.md                      - All CLI commands
+# - HOT_RELOAD.md                    - Development workflow
+# - DATABASE_GUIDE.md                - Database operations
+

@@ -15,7 +15,7 @@ func TestExtension_Implementation(t *testing.T) {
 }
 
 func TestExtension_BasicInfo(t *testing.T) {
-	ext := NewExtension(DefaultConfig())
+	ext := NewExtension()
 
 	if ext.Name() != "database" {
 		t.Errorf("expected name 'database', got %s", ext.Name())
@@ -42,25 +42,21 @@ func TestExtension_SQLiteLifecycle(t *testing.T) {
 		Version: "1.0.0",
 	})
 
-	// Create extension with SQLite
-	config := Config{
-		Databases: []DatabaseConfig{
-			{
-				Name:                "test",
-				Type:                TypeSQLite,
-				DSN:                 ":memory:",
-				MaxOpenConns:        10,
-				MaxIdleConns:        5,
-				ConnMaxLifetime:     5 * time.Minute,
-				ConnMaxIdleTime:     5 * time.Minute,
-				MaxRetries:          3,
-				RetryDelay:          time.Second,
-				HealthCheckInterval: 30 * time.Second,
-			},
-		},
-	}
-
-	ext := NewExtension(config)
+	// Create extension with SQLite using options
+	ext := NewExtension(
+		WithDatabase(DatabaseConfig{
+			Name:                "test",
+			Type:                TypeSQLite,
+			DSN:                 ":memory:",
+			MaxOpenConns:        10,
+			MaxIdleConns:        5,
+			ConnMaxLifetime:     5 * time.Minute,
+			ConnMaxIdleTime:     5 * time.Minute,
+			MaxRetries:          3,
+			RetryDelay:          time.Second,
+			HealthCheckInterval: 30 * time.Second,
+		}),
+	)
 
 	// Register extension
 	if err := ext.Register(app); err != nil {

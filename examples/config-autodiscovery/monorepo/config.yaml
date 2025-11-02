@@ -1,0 +1,92 @@
+# Monorepo Configuration Example
+# This is the root config that contains settings for all apps
+
+# Global settings (applied to all apps unless overridden)
+database:
+  driver: postgres
+  host: db.company.com
+  port: 5432
+  max_connections: 20
+
+cache:
+  driver: redis
+  url: redis://cache.company.com:6379/0
+
+logging:
+  level: info
+  format: json
+
+# App-specific configurations
+apps:
+  # API Service Configuration
+  api-service:
+    app:
+      name: api-service
+      version: 1.0.0
+      port: 8080
+    
+    # Override global database settings for API
+    database:
+      name: api_service_db
+      user: api_user
+    
+    # API-specific settings
+    api:
+      rate_limit: 1000
+      timeout: 30s
+    
+    extensions:
+      cache:
+        prefix: "api:"
+        default_ttl: 10m
+
+  # Admin Dashboard Configuration
+  admin-dashboard:
+    app:
+      name: admin-dashboard
+      version: 1.0.0
+      port: 8081
+    
+    # Override global database settings for Admin
+    database:
+      name: admin_dashboard_db
+      user: admin_user
+    
+    # Admin-specific settings
+    admin:
+      session_timeout: 30m
+      max_upload_size: 10mb
+    
+    extensions:
+      cache:
+        prefix: "admin:"
+        default_ttl: 5m
+    
+    # Admin uses debug logging
+    logging:
+      level: debug
+
+  # Worker Service Configuration
+  worker-service:
+    app:
+      name: worker-service
+      version: 1.0.0
+      port: 8082
+    
+    # Override global database settings for Worker
+    database:
+      name: worker_service_db
+      user: worker_user
+      max_connections: 50  # Workers need more connections
+    
+    # Worker-specific settings
+    worker:
+      concurrency: 10
+      queue_name: default
+      retry_attempts: 3
+    
+    extensions:
+      cache:
+        prefix: "worker:"
+        default_ttl: 1m
+

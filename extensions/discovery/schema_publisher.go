@@ -1,0 +1,314 @@
+package discovery
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/xraph/forge"
+	"github.com/xraph/forge/farp"
+	"github.com/xraph/forge/farp/providers/asyncapi"
+	"github.com/xraph/forge/farp/providers/openapi"
+	"github.com/xraph/forge/farp/registry/memory"
+)
+
+// SchemaPublisher handles FARP schema registration
+type SchemaPublisher struct {
+	config   FARPConfig
+	registry farp.SchemaRegistry
+	app      forge.App
+	logger   forge.Logger
+}
+
+// NewSchemaPublisher creates a new schema publisher
+func NewSchemaPublisher(config FARPConfig, app forge.App) *SchemaPublisher {
+	// For now, use memory registry - in production, this should use the same backend as discovery
+	registry := memory.NewRegistry()
+
+	return &SchemaPublisher{
+		config:   config,
+		registry: registry,
+		app:      app,
+		logger:   app.Logger(),
+	}
+}
+
+// Publish generates and publishes schemas for the service
+func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error {
+	if !p.config.Enabled {
+		return nil
+	}
+
+	p.logger.Info("publishing FARP schemas", forge.F("instance_id", instanceID))
+
+	// Create schema manifest
+	manifest := farp.NewManifest(
+		p.app.Name(),
+		p.app.Version(),
+		instanceID,
+	)
+
+	// Add capabilities
+	for _, cap := range p.config.Capabilities {
+		manifest.AddCapability(cap)
+	}
+
+	// Set endpoints
+	manifest.Endpoints = farp.SchemaEndpoints{
+		Health:         p.config.Endpoints.Health,
+		Metrics:        p.config.Endpoints.Metrics,
+		OpenAPI:        p.config.Endpoints.OpenAPI,
+		AsyncAPI:       p.config.Endpoints.AsyncAPI,
+		GRPCReflection: p.config.Endpoints.GRPCReflection,
+		GraphQL:        p.config.Endpoints.GraphQL,
+	}
+
+	// Process configured schemas
+	for _, schemaConfig := range p.config.Schemas {
+		descriptor, err := p.createSchemaDescriptor(ctx, schemaConfig)
+		if err != nil {
+			p.logger.Warn("failed to create schema descriptor",
+				forge.F("type", schemaConfig.Type),
+				forge.F("error", err),
+			)
+			continue
+		}
+
+		manifest.AddSchema(*descriptor)
+
+		// Publish schema to registry if using push strategy
+		if p.config.Strategy == "push" || p.config.Strategy == "hybrid" {
+			if descriptor.Location.Type == farp.LocationTypeRegistry {
+				if err := p.publishSchemaContent(ctx, descriptor); err != nil {
+					p.logger.Warn("failed to publish schema content",
+						forge.F("type", schemaConfig.Type),
+						forge.F("error", err),
+					)
+				}
+			}
+		}
+	}
+
+	// Update manifest checksum
+	if err := manifest.UpdateChecksum(); err != nil {
+		return fmt.Errorf("failed to update manifest checksum: %w", err)
+	}
+
+	// Register manifest with registry
+	if err := p.registry.RegisterManifest(ctx, manifest); err != nil {
+		return fmt.Errorf("failed to register manifest: %w", err)
+	}
+
+	p.logger.Info("FARP schemas published successfully",
+		forge.F("instance_id", instanceID),
+		forge.F("schemas", len(manifest.Schemas)),
+		forge.F("checksum", manifest.Checksum[:16]+"..."),
+	)
+
+	return nil
+}
+
+// createSchemaDescriptor creates a schema descriptor from configuration
+func (p *SchemaPublisher) createSchemaDescriptor(ctx context.Context, config FARPSchemaConfig) (*farp.SchemaDescriptor, error) {
+	// Generate or fetch schema based on type
+	var schema interface{}
+	var err error
+
+	switch config.Type {
+	case "openapi":
+		schema, err = p.generateOpenAPISchema(ctx)
+	case "asyncapi":
+		schema, err = p.generateAsyncAPISchema(ctx)
+	case "grpc":
+		// TODO: Implement gRPC schema extraction
+		return nil, fmt.Errorf("grpc schema generation not yet implemented")
+	case "graphql":
+		// TODO: Implement GraphQL schema extraction
+		return nil, fmt.Errorf("graphql schema generation not yet implemented")
+	default:
+		return nil, fmt.Errorf("unsupported schema type: %s", config.Type)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate %s schema: %w", config.Type, err)
+	}
+
+	// Calculate hash
+	hash, err := farp.CalculateSchemaChecksum(schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate schema hash: %w", err)
+	}
+
+	// Calculate size
+	data, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal schema: %w", err)
+	}
+
+	// Build location
+	location := farp.SchemaLocation{
+		Type: farp.LocationType(config.Location.Type),
+	}
+
+	switch location.Type {
+	case farp.LocationTypeHTTP:
+		location.URL = config.Location.URL
+		location.Headers = config.Location.Headers
+	case farp.LocationTypeRegistry:
+		location.RegistryPath = config.Location.RegistryPath
+	case farp.LocationTypeInline:
+		// Schema will be embedded in descriptor
+	}
+
+	descriptor := &farp.SchemaDescriptor{
+		Type:        farp.SchemaType(config.Type),
+		SpecVersion: config.SpecVersion,
+		Location:    location,
+		ContentType: config.ContentType,
+		Hash:        hash,
+		Size:        int64(len(data)),
+	}
+
+	// Add inline schema if location type is inline
+	if location.Type == farp.LocationTypeInline {
+		descriptor.InlineSchema = schema
+	}
+
+	return descriptor, nil
+}
+
+// generateOpenAPISchema generates OpenAPI schema from the app
+func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (interface{}, error) {
+	p.logger.Debug("generating OpenAPI schema from Forge router")
+
+	// Get router from app
+	router := p.app.Router()
+	if router == nil {
+		p.logger.Warn("no router available, returning minimal schema")
+		return p.generateMinimalOpenAPISchema(), nil
+	}
+
+	// Use Forge-integrated OpenAPI provider
+	provider := openapi.NewForgeProvider("3.1.0", "/openapi.json")
+	
+	// Generate schema from router
+	schema, err := provider.GenerateFromRouter(router)
+	if err != nil {
+		p.logger.Warn("failed to generate OpenAPI schema from router, using minimal schema",
+			forge.F("error", err),
+		)
+		return p.generateMinimalOpenAPISchema(), nil
+	}
+
+	// Validate schema
+	if err := provider.Validate(schema); err != nil {
+		p.logger.Warn("generated OpenAPI schema failed validation, using minimal schema",
+			forge.F("error", err),
+		)
+		return p.generateMinimalOpenAPISchema(), nil
+	}
+
+	p.logger.Debug("OpenAPI schema generated successfully")
+	return schema, nil
+}
+
+// generateMinimalOpenAPISchema returns a minimal valid OpenAPI schema
+func (p *SchemaPublisher) generateMinimalOpenAPISchema() map[string]interface{} {
+	return map[string]interface{}{
+		"openapi": "3.1.0",
+		"info": map[string]interface{}{
+			"title":   p.app.Name(),
+			"version": p.app.Version(),
+		},
+		"paths": map[string]interface{}{},
+	}
+}
+
+// generateAsyncAPISchema generates AsyncAPI schema from the app
+func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (interface{}, error) {
+	p.logger.Debug("generating AsyncAPI schema from Forge router")
+
+	// Get router from app
+	router := p.app.Router()
+	if router == nil {
+		p.logger.Warn("no router available, returning minimal schema")
+		return p.generateMinimalAsyncAPISchema(), nil
+	}
+
+	// Use Forge-integrated AsyncAPI provider
+	provider := asyncapi.NewForgeProvider("3.0.0", "/asyncapi.json")
+	
+	// Generate schema from router
+	schema, err := provider.GenerateFromRouter(router)
+	if err != nil {
+		p.logger.Warn("failed to generate AsyncAPI schema from router, using minimal schema",
+			forge.F("error", err),
+		)
+		return p.generateMinimalAsyncAPISchema(), nil
+	}
+
+	// Validate schema
+	if err := provider.Validate(schema); err != nil {
+		p.logger.Warn("generated AsyncAPI schema failed validation, using minimal schema",
+			forge.F("error", err),
+		)
+		return p.generateMinimalAsyncAPISchema(), nil
+	}
+
+	p.logger.Debug("AsyncAPI schema generated successfully")
+	return schema, nil
+}
+
+// generateMinimalAsyncAPISchema returns a minimal valid AsyncAPI schema
+func (p *SchemaPublisher) generateMinimalAsyncAPISchema() map[string]interface{} {
+	return map[string]interface{}{
+		"asyncapi": "3.0.0",
+		"info": map[string]interface{}{
+			"title":   p.app.Name(),
+			"version": p.app.Version(),
+		},
+		"channels":   map[string]interface{}{},
+		"operations": map[string]interface{}{},
+	}
+}
+
+// publishSchemaContent publishes schema content to the registry
+func (p *SchemaPublisher) publishSchemaContent(ctx context.Context, descriptor *farp.SchemaDescriptor) error {
+	if descriptor.Location.Type != farp.LocationTypeRegistry {
+		return nil
+	}
+
+	// Generate schema
+	var schema interface{}
+	var err error
+
+	switch descriptor.Type {
+	case farp.SchemaTypeOpenAPI:
+		schema, err = p.generateOpenAPISchema(ctx)
+	case farp.SchemaTypeAsyncAPI:
+		schema, err = p.generateAsyncAPISchema(ctx)
+	default:
+		return fmt.Errorf("unsupported schema type: %s", descriptor.Type)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	// Publish to registry
+	return p.registry.PublishSchema(ctx, descriptor.Location.RegistryPath, schema)
+}
+
+// GetManifest retrieves the manifest for an instance
+func (p *SchemaPublisher) GetManifest(ctx context.Context, instanceID string) (*farp.SchemaManifest, error) {
+	return p.registry.GetManifest(ctx, instanceID)
+}
+
+// Close closes the schema publisher
+func (p *SchemaPublisher) Close() error {
+	if p.registry != nil {
+		return p.registry.Close()
+	}
+	return nil
+}
+

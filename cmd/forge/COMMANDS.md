@@ -132,7 +132,7 @@ forge g app -n my-app
 
 **`forge generate service`** (aliases: `svc`)
 
-Generate a new service.
+Generate a new service with interactive directory and target selection.
 
 ```bash
 forge generate service --name=users
@@ -140,8 +140,34 @@ forge gen service -n billing
 forge gen svc -n auth
 ```
 
+**Features:**
+
+The service generation command now provides interactive selection for:
+
+1. **Service Location** - Choose where to place the service:
+   - `pkg` - Main package directory
+   - `internal` - Internal packages directory
+   - Any extension directory (e.g., `cache`, `database`, `auth`)
+
+2. **Optional Controller** - After service creation, you can add a controller to:
+   - Any app in your project
+   - Any extension in your project
+
 **Flags:**
 - `-n, --name` - Service name (required)
+
+**Example Interactive Session:**
+
+```bash
+$ forge gen service -n UserService
+? Service name: UserService
+? Select directory for service: [pkg | internal | auth-ext | cache-ext]
+✓ Service UserService created in pkg!
+? Add controller to an app or extension? [y/n]
+? Select app or extension to add controller: [📦 api | 📦 web | 🔌 auth]
+? Controller name: users
+✓ Controller users added to api!
+```
 
 **`forge generate extension`** (aliases: `ext`)
 
@@ -157,17 +183,47 @@ forge gen ext -n notifications
 
 **`forge generate controller`** (aliases: `ctrl`, `handler`)
 
-Generate a controller/handler.
+Generate a controller for an app or extension with flexible placement options.
+
+The controller generation command now provides interactive selection for:
+
+1. **Target Selection** - Choose where to add the controller:
+   - Any app in your project (📦)
+   - Any extension in your project (🔌)
+
+2. **Placement Options** - For extensions, choose where to place the controller:
+   - `internal/controllers` (recommended) - Follows standard project structure
+   - `root of extension` - Places controller directly in extension directory
+
+Apps always use `internal/controllers` (no choice needed).
 
 ```bash
-forge generate controller --name=users --app=api-gateway
+# Interactive mode - prompts for all options
+forge generate controller
+
+# With name specified
+forge generate controller --name=users
+
+# With target specified (works for both apps and extensions)
 forge gen ctrl -n products -a api-gateway
-forge gen handler -n orders -a api
+forge gen controller -n cache -a cache-extension
 ```
 
 **Flags:**
-- `-n, --name` - Controller name (required)
-- `-a, --app` - App name (required)
+- `-n, --name` - Controller name (required if not prompted)
+- `-a, --app` - Target app or extension name (optional, prompts if not provided)
+
+**Example Interactive Session:**
+
+```bash
+$ forge gen controller -n UserController
+? Controller name: UserController
+? Select app or extension: [📦 api | 📦 web | 🔌 cache | 🔌 auth]
+  > 🔌 cache (extension)
+? Where to place the controller in extension: [internal/controllers (recommended) | root of extension]
+  > internal/controllers (recommended)
+✓ Controller UserController created at extensions/cache/internal/controllers/user_controller.go
+```
 
 **`forge generate model`**
 
@@ -492,6 +548,260 @@ forge db seed
 forge db status
 forge db rollback --steps=1
 ```
+
+---
+
+## Infrastructure Deployment Commands
+
+### `forge infra`
+
+Deploy applications using various infrastructure providers.
+
+See [INFRASTRUCTURE_DEPLOYMENT.md](./INFRASTRUCTURE_DEPLOYMENT.md) for complete guide.
+
+#### Docker Commands
+
+**`forge infra docker deploy`**
+
+Deploy using Docker and Docker Compose.
+
+```bash
+forge infra docker deploy                    # Deploy all services
+forge infra docker deploy -s api-service     # Deploy specific service
+forge infra docker deploy -e prod            # Deploy to production
+forge infra docker deploy -b                 # Force rebuild images
+```
+
+**Flags:**
+- `-s, --service` - Service to deploy (default: all)
+- `-e, --env` - Environment (default: dev)
+- `-b, --build` - Force rebuild images
+
+**`forge infra docker export`**
+
+Export Docker configuration to deployments folder.
+
+```bash
+forge infra docker export                    # Export to deployments/docker/
+forge infra docker export -o ./infra/docker  # Export to custom path
+forge infra docker export -f                 # Force overwrite
+```
+
+**Flags:**
+- `-o, --output` - Output directory
+- `-f, --force` - Force overwrite existing files
+
+#### Kubernetes Commands
+
+**`forge infra k8s deploy`** (aliases: `kubernetes`)
+
+Deploy to Kubernetes cluster.
+
+```bash
+forge infra k8s deploy                       # Deploy all services
+forge infra k8s deploy -s api-service        # Deploy specific service
+forge infra k8s deploy -e prod               # Deploy to production
+forge infra k8s deploy -n production         # Deploy to namespace
+forge infra k8s deploy --dry-run             # Preview changes
+```
+
+**Flags:**
+- `-s, --service` - Service to deploy (default: all)
+- `-e, --env` - Environment (default: dev)
+- `-n, --namespace` - Kubernetes namespace
+- `--dry-run` - Perform a dry run
+
+**`forge infra k8s export`**
+
+Export Kubernetes manifests.
+
+```bash
+forge infra k8s export                       # Export to deployments/k8s/
+forge infra k8s export -o ./k8s              # Export to custom path
+forge infra k8s export -f                    # Force overwrite
+```
+
+**Flags:**
+- `-o, --output` - Output directory
+- `-f, --force` - Force overwrite existing files
+
+#### Digital Ocean Commands
+
+**`forge infra do deploy`** (aliases: `digitalocean`)
+
+Deploy to Digital Ocean App Platform.
+
+```bash
+forge infra do deploy                        # Deploy all services
+forge infra do deploy -s api-service         # Deploy specific service
+forge infra do deploy -e prod                # Deploy to production
+forge infra do deploy -r nyc1                # Deploy to region
+```
+
+**Flags:**
+- `-s, --service` - Service to deploy (default: all)
+- `-e, --env` - Environment (default: dev)
+- `-r, --region` - Digital Ocean region
+
+**`forge infra do export`**
+
+Export Digital Ocean configuration.
+
+```bash
+forge infra do export                        # Export to deployments/do/
+forge infra do export -f                     # Force overwrite
+```
+
+**Flags:**
+- `-o, --output` - Output directory
+- `-f, --force` - Force overwrite existing files
+
+#### Render Commands
+
+**`forge infra render deploy`**
+
+Deploy to Render.com.
+
+```bash
+forge infra render deploy                    # Deploy all services
+forge infra render deploy -s api-service     # Deploy specific service
+forge infra render deploy -e prod            # Deploy to production
+```
+
+**Flags:**
+- `-s, --service` - Service to deploy (default: all)
+- `-e, --env` - Environment (default: dev)
+
+**`forge infra render export`**
+
+Export Render.com configuration.
+
+```bash
+forge infra render export                    # Export to deployments/render/
+forge infra render export -f                 # Force overwrite
+```
+
+**Flags:**
+- `-o, --output` - Output directory
+- `-f, --force` - Force overwrite existing files
+
+---
+
+## Forge Cloud Commands
+
+### `forge cloud`
+
+Deploy and manage applications on Forge Cloud platform.
+
+See [INFRASTRUCTURE_DEPLOYMENT.md](./INFRASTRUCTURE_DEPLOYMENT.md) for complete guide.
+
+#### Authentication
+
+**`forge cloud login`**
+
+Authenticate with Forge Cloud.
+
+```bash
+forge cloud login                            # Login with browser
+forge cloud login -t YOUR_TOKEN              # Login with token
+```
+
+**Flags:**
+- `-t, --token` - API token
+
+**`forge cloud logout`**
+
+Log out from Forge Cloud.
+
+```bash
+forge cloud logout
+```
+
+#### Deployment
+
+**`forge cloud deploy`**
+
+Deploy services to Forge Cloud.
+
+```bash
+forge cloud deploy                           # Deploy all services
+forge cloud deploy -s api-service            # Deploy specific service
+forge cloud deploy -e prod                   # Deploy to production
+forge cloud deploy -r us-east-1              # Deploy to region
+forge cloud deploy -w                        # Watch deployment progress
+```
+
+**Flags:**
+- `-s, --service` - Service to deploy (default: all)
+- `-e, --env` - Environment (default: dev)
+- `-r, --region` - Deployment region
+- `-w, --watch` - Watch deployment progress
+
+#### Status & Monitoring
+
+**`forge cloud status`**
+
+Show deployment status.
+
+```bash
+forge cloud status                           # View all services
+forge cloud status -e prod                   # Check production status
+forge cloud status -s api-service            # Filter by service
+forge cloud status -w                        # Watch status updates
+```
+
+**Flags:**
+- `-e, --env` - Environment (default: dev)
+- `-s, --service` - Filter by service
+- `-w, --watch` - Watch status updates
+
+**`forge cloud logs`**
+
+View service logs.
+
+```bash
+forge cloud logs -s api-service              # View service logs
+forge cloud logs -s api-service -f           # Follow logs
+forge cloud logs -s api-service -n 500       # Last 500 lines
+forge cloud logs -s api -e prod -f           # Follow prod logs
+```
+
+**Flags:**
+- `-s, --service` - Service name (required)
+- `-e, --env` - Environment (default: dev)
+- `-f, --follow` - Follow log output
+- `-n, --tail` - Number of lines to show (default: 100)
+
+#### Management
+
+**`forge cloud rollback`**
+
+Rollback to previous deployment.
+
+```bash
+forge cloud rollback -s api-service          # Rollback to previous
+forge cloud rollback -s api -v v1.2.3        # Rollback to version
+forge cloud rollback -s api -e prod          # Rollback in production
+```
+
+**Flags:**
+- `-s, --service` - Service to rollback (required)
+- `-e, --env` - Environment (default: dev)
+- `-v, --version` - Version to rollback to
+
+**`forge cloud scale`**
+
+Scale service instances.
+
+```bash
+forge cloud scale -s api-service -r 3        # Scale to 3 instances
+forge cloud scale -s api -e prod -r 5        # Scale prod to 5 instances
+```
+
+**Flags:**
+- `-s, --service` - Service to scale (required)
+- `-e, --env` - Environment (default: dev)
+- `-r, --replicas` - Number of replicas (default: 1)
 
 ---
 

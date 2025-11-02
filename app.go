@@ -69,6 +69,14 @@ type AppConfig struct {
 
 	// Extensions
 	Extensions []Extension // Extensions to register with the app
+
+	// Config Auto-Discovery
+	// If ConfigManager is not provided, these options control auto-discovery
+	EnableConfigAutoDiscovery bool     // Enable automatic config file discovery (default: true)
+	ConfigSearchPaths         []string // Paths to search for config files (default: current directory)
+	ConfigBaseNames           []string // Base config file names (default: ["config.yaml", "config.yml"])
+	ConfigLocalNames          []string // Local config file names (default: ["config.local.yaml", "config.local.yml"])
+	EnableAppScopedConfig     bool     // Enable app-scoped config extraction for monorepos (default: true)
 }
 
 // DefaultAppConfig returns a default application configuration
@@ -84,17 +92,21 @@ func DefaultAppConfig() AppConfig {
 	healthConfig.HistorySize = 100
 
 	return AppConfig{
-		Name:            "forge-app",
-		Version:         "1.0.0",
-		Description:     "Forge Application",
-		Environment:     "development",
-		HTTPAddress:     ":8080",
-		HTTPTimeout:     30 * time.Second,
-		ShutdownTimeout: 30 * time.Second,
-		ShutdownSignals: nil, // Will use default SIGINT, SIGTERM
-		RouterOptions:   nil,
-		MetricsConfig:   DefaultMetricsConfig(),
-		HealthConfig:    healthConfig,
+		Name:                      "forge-app",
+		Version:                   "1.0.0",
+		Description:               "Forge Application",
+		Environment:               "development",
+		HTTPAddress:               ":8080",
+		HTTPTimeout:               30 * time.Second,
+		ShutdownTimeout:           30 * time.Second,
+		ShutdownSignals:           nil, // Will use default SIGINT, SIGTERM
+		RouterOptions:             nil,
+		MetricsConfig:             DefaultMetricsConfig(),
+		HealthConfig:              healthConfig,
+		EnableConfigAutoDiscovery: true,
+		EnableAppScopedConfig:     true,
+		ConfigBaseNames:           []string{"config.yaml", "config.yml"},
+		ConfigLocalNames:          []string{"config.local.yaml", "config.local.yml"},
 	}
 }
 

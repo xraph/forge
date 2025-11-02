@@ -9,13 +9,15 @@ import (
 
 // schemaGenerator generates JSON schemas from Go types
 type schemaGenerator struct {
-	schemas map[string]*Schema
+	schemas    map[string]*Schema
+	components map[string]*Schema // Reference to spec components for registering nested types
 }
 
 // newSchemaGenerator creates a new schema generator
-func newSchemaGenerator() *schemaGenerator {
+func newSchemaGenerator(components map[string]*Schema) *schemaGenerator {
 	return &schemaGenerator{
-		schemas: make(map[string]*Schema),
+		schemas:    make(map[string]*Schema),
+		components: components,
 	}
 }
 
@@ -125,12 +127,106 @@ func (g *schemaGenerator) generateStructSchema(typ reflect.Type) *Schema {
 }
 
 func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) *Schema {
+	fieldType := field.Type
+	
+	// Handle pointer types
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+	
+	// Check if this is a named struct type that should be a component reference
+	if g.shouldBeComponentRef(fieldType) {
+		return g.createOrReuseComponentRef(fieldType, field)
+	}
+	
+	// Handle slices/arrays of named structs
+	if fieldType.Kind() == reflect.Slice || fieldType.Kind() == reflect.Array {
+		elemType := fieldType.Elem()
+		if elemType.Kind() == reflect.Ptr {
+			elemType = elemType.Elem()
+		}
+		
+		if g.shouldBeComponentRef(elemType) {
+			return g.createArrayWithComponentRef(elemType, field)
+		}
+	}
+	
+	// Default behavior for primitives and inline types
 	schema := g.generateSchemaFromType(field.Type)
-
-	// Process struct tags
 	g.applyStructTags(schema, field)
-
+	
 	return schema
+}
+
+// shouldBeComponentRef determines if a type should be extracted as a component
+func (g *schemaGenerator) shouldBeComponentRef(typ reflect.Type) bool {
+	// Only named struct types (not time.Time or anonymous structs)
+	return typ.Kind() == reflect.Struct && 
+		typ.Name() != "" && 
+		typ != reflect.TypeOf(time.Time{})
+}
+
+// createOrReuseComponentRef creates or reuses a component reference for a struct type
+func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field reflect.StructField) *Schema {
+	typeName := GetTypeName(typ)
+	
+	// Register the component if not already registered
+	if _, exists := g.schemas[typeName]; !exists {
+		componentSchema := g.generateSchemaFromType(typ)
+		g.schemas[typeName] = componentSchema
+		
+		// Add to spec components if available
+		if g.components != nil {
+			g.components[typeName] = componentSchema
+			// Debug: Uncomment to trace component registration
+			// fmt.Printf("[DEBUG] Registered component: %s (total: %d)\n", typeName, len(g.components))
+		}
+	}
+	
+	// Return a reference schema
+	refSchema := &Schema{
+		Ref: "#/components/schemas/" + typeName,
+	}
+	
+	// Apply struct tags to the reference (for description, etc.)
+	// Note: Some tags like description should be on the reference, not the component
+	if desc := field.Tag.Get("description"); desc != "" {
+		refSchema.Description = desc
+	}
+	if title := field.Tag.Get("title"); title != "" {
+		refSchema.Title = title
+	}
+	
+	return refSchema
+}
+
+// createArrayWithComponentRef creates an array schema with component reference for elements
+func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, field reflect.StructField) *Schema {
+	typeName := GetTypeName(elemType)
+	
+	// Register the element type as a component if not already registered
+	if _, exists := g.schemas[typeName]; !exists {
+		componentSchema := g.generateSchemaFromType(elemType)
+		g.schemas[typeName] = componentSchema
+		
+		// Add to spec components if available
+		if g.components != nil {
+			g.components[typeName] = componentSchema
+		}
+	}
+	
+	// Return array schema with ref to component
+	arraySchema := &Schema{
+		Type: "array",
+		Items: &Schema{
+			Ref: "#/components/schemas/" + typeName,
+		},
+	}
+	
+	// Apply struct tags to the array
+	g.applyStructTags(arraySchema, field)
+	
+	return arraySchema
 }
 
 func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructField) {

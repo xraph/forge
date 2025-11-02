@@ -145,6 +145,12 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 		return fmt.Errorf("failed to initialize go module: %w", err)
 	}
 
+	// Create base config file
+	if err := p.createBaseConfig(cwd, projectName, layout); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return fmt.Errorf("failed to create config file: %w", err)
+	}
+
 	// Initialize git
 	if ctx.Bool("git") {
 		if err := p.initGit(cwd); err != nil {
@@ -157,9 +163,10 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 	// Show next steps
 	ctx.Println("")
 	ctx.Success("Next steps:")
-	ctx.Println("  1. Review .forge.yaml configuration")
-	ctx.Println("  2. Run: forge generate:app --name=my-app")
-	ctx.Println("  3. Run: forge dev")
+	ctx.Println("  1. Review .forge.yaml and config.yaml configuration")
+	ctx.Println("  2. (Optional) Copy config.local.yaml.example to config.local.yaml for local overrides")
+	ctx.Println("  3. Run: forge generate:app --name=my-app")
+	ctx.Println("  4. Run: forge dev")
 
 	return nil
 }
@@ -294,6 +301,10 @@ Thumbs.db
 
 # Forge
 .forge.local.yaml
+
+# Local configuration overrides
+config.local.yaml
+config.local.yml
 `
 	if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), 0644); err != nil {
 		return err
@@ -304,4 +315,117 @@ Thumbs.db
 	readmeContent := fmt.Sprintf("# %s\n\nA Forge v2 application.\n\n## Getting Started\n\n```bash\nforge dev\n```\n",
 		filepath.Base(root))
 	return os.WriteFile(readmePath, []byte(readmeContent), 0644)
+}
+
+func (p *InitPlugin) createBaseConfig(root, projectName, layout string) error {
+	configPath := filepath.Join(root, "config.yaml")
+	
+	var configContent string
+	if layout == "multi-module" {
+		// Monorepo config with apps section
+		configContent = fmt.Sprintf(`# %s Configuration
+# This is the base configuration file. Create config.local.yaml for local overrides.
+
+app:
+  name: "%s"
+  version: "0.1.0"
+  environment: "development"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+
+# App-specific configurations for monorepo
+# Each app under apps/ directory can have its own settings
+apps:
+  # Example app configuration
+  # api-service:
+  #   server:
+  #     port: 8081
+  #   database:
+  #     host: localhost
+  #     port: 5432
+
+logging:
+  level: "info"
+  format: "json"
+
+# Database configuration (uncomment when needed)
+# database:
+#   driver: "postgres"
+#   host: "localhost"
+#   port: 5432
+#   database: "%s"
+#   max_open_conns: 25
+#   max_idle_conns: 5
+
+# Redis configuration (uncomment when needed)
+# redis:
+#   host: "localhost"
+#   port: 6379
+#   db: 0
+`, projectName, projectName, projectName)
+	} else {
+		// Single-module config
+		configContent = fmt.Sprintf(`# %s Configuration
+# This is the base configuration file. Create config.local.yaml for local overrides.
+
+app:
+  name: "%s"
+  version: "0.1.0"
+  environment: "development"
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: 30s
+  write_timeout: 30s
+
+logging:
+  level: "info"
+  format: "json"
+
+# Database configuration (uncomment when needed)
+# database:
+#   driver: "postgres"
+#   host: "localhost"
+#   port: 5432
+#   database: "%s"
+#   max_open_conns: 25
+#   max_idle_conns: 5
+
+# Redis configuration (uncomment when needed)
+# redis:
+#   host: "localhost"
+#   port: 6379
+#   db: 0
+`, projectName, projectName, projectName)
+	}
+	
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		return err
+	}
+	
+	// Create config.local.yaml.example
+	examplePath := filepath.Join(root, "config.local.yaml.example")
+	exampleContent := `# Local Configuration Override Example
+# Copy this file to config.local.yaml and customize for your local environment
+# config.local.yaml is ignored by git
+
+server:
+  port: 3000
+
+logging:
+  level: "debug"
+
+# database:
+#   host: "localhost"
+#   port: 5432
+#   username: "dev"
+#   password: "dev"
+`
+	
+	return os.WriteFile(examplePath, []byte(exampleContent), 0644)
 }

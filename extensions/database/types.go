@@ -19,6 +19,34 @@ const (
 	TypeRedis    DatabaseType = "redis"
 )
 
+// ConnectionState represents the state of a database connection
+type ConnectionState int32
+
+const (
+	StateDisconnected ConnectionState = iota
+	StateConnecting
+	StateConnected
+	StateError
+	StateReconnecting
+)
+
+func (s ConnectionState) String() string {
+	switch s {
+	case StateDisconnected:
+		return "disconnected"
+	case StateConnecting:
+		return "connecting"
+	case StateConnected:
+		return "connected"
+	case StateError:
+		return "error"
+	case StateReconnecting:
+		return "reconnecting"
+	default:
+		return "unknown"
+	}
+}
+
 // Database represents a database connection
 type Database interface {
 	// Identity
@@ -29,6 +57,10 @@ type Database interface {
 	Open(ctx context.Context) error
 	Close(ctx context.Context) error
 	Ping(ctx context.Context) error
+
+	// State
+	IsOpen() bool
+	State() ConnectionState
 
 	// Health
 	Health(ctx context.Context) HealthStatus
@@ -53,6 +85,13 @@ type DatabaseConfig struct {
 	// Retry settings
 	MaxRetries int           `yaml:"max_retries" json:"max_retries" default:"3"`
 	RetryDelay time.Duration `yaml:"retry_delay" json:"retry_delay" default:"1s"`
+
+	// Timeout settings
+	ConnectionTimeout time.Duration `yaml:"connection_timeout" json:"connection_timeout" default:"10s"`
+	QueryTimeout      time.Duration `yaml:"query_timeout" json:"query_timeout" default:"30s"`
+
+	// Observability settings
+	SlowQueryThreshold time.Duration `yaml:"slow_query_threshold" json:"slow_query_threshold" default:"100ms"`
 
 	// Health check
 	HealthCheckInterval time.Duration `yaml:"health_check_interval" json:"health_check_interval" default:"30s"`

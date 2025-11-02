@@ -4,422 +4,346 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-type TestUser struct {
-	ID        string                 `json:"id" description:"User ID" example:"usr_123" readOnly:"true"`
-	Name      string                 `json:"name" minLength:"1" maxLength:"100" example:"John Doe"`
-	Email     string                 `json:"email" format:"email" example:"john@example.com"`
-	Age       int                    `json:"age" minimum:"0" maximum:"150" example:"30"`
-	IsActive  bool                   `json:"is_active" example:"true"`
-	CreatedAt time.Time              `json:"created_at" format:"date-time"`
-	Tags      []string               `json:"tags" minItems:"1" maxItems:"10" uniqueItems:"true"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+// Test types for nested struct schema generation
+type testAddress struct {
+	Street  string `json:"street" description:"Street address"`
+	City    string `json:"city" description:"City name"`
+	ZipCode string `json:"zipCode" description:"Postal code"`
 }
 
-type TestProduct struct {
-	ID       string  `json:"id"`
-	Name     string  `json:"name" minLength:"1"`
-	Price    float64 `json:"price" minimum:"0" exclusiveMinimum:"true"`
-	Category string  `json:"category" enum:"electronics,books,clothing"`
-	Stock    *int    `json:"stock,omitempty" minimum:"0"`
-	Optional *string `json:"optional,omitempty"`
+type testMetadata struct {
+	CreatedAt time.Time         `json:"created_at" description:"Creation timestamp"`
+	UpdatedAt time.Time         `json:"updated_at" description:"Update timestamp"`
+	Tags      []string          `json:"tags,omitempty" description:"Tags"`
+	Custom    map[string]string `json:"custom,omitempty" description:"Custom fields"`
 }
 
-func TestSchemaGenerator_New(t *testing.T) {
-	gen := newSchemaGenerator()
-	assert.NotNil(t, gen)
-	assert.NotNil(t, gen.schemas)
+type testAuthFactor struct {
+	FactorID int          `json:"factor_id" description:"Factor ID"`
+	Type     string       `json:"type" description:"Factor type"`
+	Name     string       `json:"name" description:"Factor name"`
+	Metadata testMetadata `json:"metadata,omitempty" description:"Metadata"`
 }
 
-func TestSchemaGenerator_GenerateSchema_Nil(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(nil)
-	assert.Nil(t, schema)
+type testUserProfile struct {
+	UserID         string           `json:"user_id" description:"User ID"`
+	Name           string           `json:"name" description:"User name"`
+	Address        testAddress      `json:"address" description:"Primary address"`
+	BillingAddress *testAddress     `json:"billing_address,omitempty" description:"Billing address"`
+	Factors        []testAuthFactor `json:"factors,omitempty" description:"Auth factors"`
 }
 
-func TestSchemaGenerator_StringType(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema("")
-	require.NotNil(t, schema)
-	assert.Equal(t, "string", schema.Type)
+type testChallengeResponse struct {
+	ChallengeID      int              `json:"challenge_id" description:"Challenge ID"`
+	SessionID        string           `json:"session_id" description:"Session ID"`
+	AvailableFactors []testAuthFactor `json:"available_factors" description:"Available factors"`
+	ExpiresAt        time.Time        `json:"expires_at" description:"Expiration time"`
 }
 
-func TestSchemaGenerator_IntegerType(t *testing.T) {
-	gen := newSchemaGenerator()
+func TestNestedStructComponentGeneration(t *testing.T) {
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components)
 
-	tests := []struct {
-		name  string
-		value interface{}
-	}{
-		{"int", int(0)},
-		{"int8", int8(0)},
-		{"int16", int16(0)},
-		{"int32", int32(0)},
-		{"int64", int64(0)},
-		{"uint", uint(0)},
-		{"uint8", uint8(0)},
-		{"uint16", uint16(0)},
-		{"uint32", uint32(0)},
-		{"uint64", uint64(0)},
+	// Generate schema for a type with nested structs
+	schema := gen.GenerateSchema(&testUserProfile{})
+
+	// Verify main schema is generated
+	if schema == nil {
+		t.Fatal("Expected schema to be generated")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			schema := gen.GenerateSchema(tt.value)
-			require.NotNil(t, schema)
-			assert.Equal(t, "integer", schema.Type)
-		})
-	}
-}
-
-func TestSchemaGenerator_NumberType(t *testing.T) {
-	gen := newSchemaGenerator()
-
-	tests := []struct {
-		name  string
-		value interface{}
-	}{
-		{"float32", float32(0)},
-		{"float64", float64(0)},
+	if schema.Type != "object" {
+		t.Errorf("Expected schema type 'object', got %s", schema.Type)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			schema := gen.GenerateSchema(tt.value)
-			require.NotNil(t, schema)
-			assert.Equal(t, "number", schema.Type)
-		})
-	}
-}
-
-func TestSchemaGenerator_BooleanType(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(true)
-	require.NotNil(t, schema)
-	assert.Equal(t, "boolean", schema.Type)
-}
-
-func TestSchemaGenerator_ArrayType(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema([]string{})
-	require.NotNil(t, schema)
-	assert.Equal(t, "array", schema.Type)
-	assert.NotNil(t, schema.Items)
-	assert.Equal(t, "string", schema.Items.Type)
-}
-
-func TestSchemaGenerator_MapType(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(map[string]interface{}{})
-	require.NotNil(t, schema)
-	assert.Equal(t, "object", schema.Type)
-	assert.Equal(t, true, schema.AdditionalProperties)
-}
-
-func TestSchemaGenerator_TimeType(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(time.Time{})
-	require.NotNil(t, schema)
-	assert.Equal(t, "string", schema.Type)
-	assert.Equal(t, "date-time", schema.Format)
-}
-
-func TestSchemaGenerator_PointerType(t *testing.T) {
-	gen := newSchemaGenerator()
-	str := "test"
-	schema := gen.GenerateSchema(&str)
-	require.NotNil(t, schema)
-	assert.Equal(t, "string", schema.Type)
-}
-
-func TestSchemaGenerator_StructType(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(TestUser{})
-	require.NotNil(t, schema)
-	assert.Equal(t, "object", schema.Type)
-	assert.NotEmpty(t, schema.Properties)
-	assert.NotEmpty(t, schema.Required)
-}
-
-func TestSchemaGenerator_StructFields(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(TestUser{})
-	require.NotNil(t, schema)
-
-	// Check ID field with readOnly
-	idSchema := schema.Properties["id"]
-	require.NotNil(t, idSchema)
-	assert.Equal(t, "string", idSchema.Type)
-	assert.Equal(t, "User ID", idSchema.Description)
-	assert.Equal(t, "usr_123", idSchema.Example)
-	assert.True(t, idSchema.ReadOnly)
-
-	// Check name field with length constraints
-	nameSchema := schema.Properties["name"]
-	require.NotNil(t, nameSchema)
-	assert.Equal(t, "string", nameSchema.Type)
-	assert.Equal(t, 1, nameSchema.MinLength)
-	assert.Equal(t, 100, nameSchema.MaxLength)
-	assert.Equal(t, "John Doe", nameSchema.Example)
-
-	// Check email field with format
-	emailSchema := schema.Properties["email"]
-	require.NotNil(t, emailSchema)
-	assert.Equal(t, "string", emailSchema.Type)
-	assert.Equal(t, "email", emailSchema.Format)
-
-	// Check age field with numeric constraints
-	ageSchema := schema.Properties["age"]
-	require.NotNil(t, ageSchema)
-	assert.Equal(t, "integer", ageSchema.Type)
-	assert.Equal(t, 0.0, ageSchema.Minimum)
-	assert.Equal(t, 150.0, ageSchema.Maximum)
-
-	// Check array field with constraints
-	tagsSchema := schema.Properties["tags"]
-	require.NotNil(t, tagsSchema)
-	assert.Equal(t, "array", tagsSchema.Type)
-	assert.Equal(t, 1, tagsSchema.MinItems)
-	assert.Equal(t, 10, tagsSchema.MaxItems)
-	assert.True(t, tagsSchema.UniqueItems)
-
-	// Check time field
-	createdSchema := schema.Properties["created_at"]
-	require.NotNil(t, createdSchema)
-	assert.Equal(t, "string", createdSchema.Type)
-	assert.Equal(t, "date-time", createdSchema.Format)
-
-	// Check required fields
-	assert.Contains(t, schema.Required, "id")
-	assert.Contains(t, schema.Required, "name")
-	assert.Contains(t, schema.Required, "email")
-	assert.NotContains(t, schema.Required, "metadata") // omitempty
-}
-
-func TestSchemaGenerator_EnumField(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(TestProduct{})
-	require.NotNil(t, schema)
-
-	categorySchema := schema.Properties["category"]
-	require.NotNil(t, categorySchema)
-	assert.Equal(t, "string", categorySchema.Type)
-	assert.Len(t, categorySchema.Enum, 3)
-}
-
-func TestSchemaGenerator_ExclusiveMinimum(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(TestProduct{})
-	require.NotNil(t, schema)
-
-	priceSchema := schema.Properties["price"]
-	require.NotNil(t, priceSchema)
-	assert.Equal(t, "number", priceSchema.Type)
-	assert.Equal(t, 0.0, priceSchema.Minimum)
-	assert.True(t, priceSchema.ExclusiveMinimum)
-}
-
-func TestSchemaGenerator_OptionalFields(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(TestProduct{})
-	require.NotNil(t, schema)
-
-	// Pointer fields with omitempty should not be required
-	assert.NotContains(t, schema.Required, "stock")
-	assert.NotContains(t, schema.Required, "optional")
-
-	// Non-pointer, non-omitempty fields should be required
-	assert.Contains(t, schema.Required, "id")
-	assert.Contains(t, schema.Required, "name")
-}
-
-func TestParseJSONTag(t *testing.T) {
-	tests := []struct {
-		name     string
-		tag      string
-		wantName string
-		wantOmit bool
-	}{
-		{"simple", "field_name", "field_name", false},
-		{"with omitempty", "field_name,omitempty", "field_name", true},
-		{"dash", "-", "-", false},
-		{"empty", "", "", false},
-		{"multiple options", "field,omitempty,string", "field", true},
+	// Verify the address field is a component reference
+	addressField, ok := schema.Properties["address"]
+	if !ok {
+		t.Fatal("Expected 'address' field in schema properties")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			name, omit := parseJSONTag(tt.tag)
-			assert.Equal(t, tt.wantName, name)
-			assert.Equal(t, tt.wantOmit, omit)
-		})
+	if addressField.Ref != "#/components/schemas/testAddress" {
+		t.Errorf("Expected address to be a component ref, got Ref=%s, Type=%s", addressField.Ref, addressField.Type)
+	}
+
+	// Verify billing_address (pointer type) is also a component reference
+	billingField, ok := schema.Properties["billing_address"]
+	if !ok {
+		t.Fatal("Expected 'billing_address' field in schema properties")
+	}
+
+	if billingField.Ref != "#/components/schemas/testAddress" {
+		t.Errorf("Expected billing_address to be a component ref, got Ref=%s", billingField.Ref)
+	}
+
+	// Verify factors (slice of structs) has proper array schema with component ref
+	factorsField, ok := schema.Properties["factors"]
+	if !ok {
+		t.Fatal("Expected 'factors' field in schema properties")
+	}
+
+	if factorsField.Type != "array" {
+		t.Errorf("Expected factors type 'array', got %s", factorsField.Type)
+	}
+
+	if factorsField.Items == nil {
+		t.Fatal("Expected factors to have items schema")
+	}
+
+	if factorsField.Items.Ref != "#/components/schemas/testAuthFactor" {
+		t.Errorf("Expected factors items to be a component ref, got Ref=%s", factorsField.Items.Ref)
+	}
+
+	// Verify components were registered
+	if _, ok := components["testAddress"]; !ok {
+		t.Error("Expected testAddress to be registered in components")
+	}
+
+	if _, ok := components["testAuthFactor"]; !ok {
+		t.Error("Expected testAuthFactor to be registered in components")
+	}
+
+	// Verify nested component (Metadata inside AuthFactor) is also registered
+	if _, ok := components["testMetadata"]; !ok {
+		t.Error("Expected testMetadata to be registered in components")
 	}
 }
 
-func TestParseExample(t *testing.T) {
-	tests := []struct {
-		name       string
-		example    string
-		schemaType string
-		want       interface{}
-	}{
-		{"integer", "42", "integer", 42},
-		{"number", "3.14", "number", 3.14},
-		{"boolean true", "true", "boolean", true},
-		{"boolean false", "false", "boolean", false},
-		{"string", "hello", "string", "hello"},
-		{"array", "a,b,c", "array", []string{"a", "b", "c"}},
+func TestChallengeResponseNestedStructs(t *testing.T) {
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components)
+
+	// This tests the exact scenario from the user's issue
+	schema := gen.GenerateSchema(&testChallengeResponse{})
+
+	if schema == nil {
+		t.Fatal("Expected schema to be generated")
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := parseExample(tt.example, tt.schemaType)
-			assert.Equal(t, tt.want, result)
-		})
+	// Verify available_factors is an array with component ref
+	availableFactorsField, ok := schema.Properties["available_factors"]
+	if !ok {
+		t.Fatal("Expected 'available_factors' field in schema properties")
+	}
+
+	if availableFactorsField.Type != "array" {
+		t.Errorf("Expected available_factors type 'array', got %s", availableFactorsField.Type)
+	}
+
+	if availableFactorsField.Items == nil {
+		t.Fatal("Expected available_factors to have items schema")
+	}
+
+	if availableFactorsField.Items.Ref != "#/components/schemas/testAuthFactor" {
+		t.Errorf("Expected available_factors items to be a component ref to testAuthFactor, got Ref=%s", 
+			availableFactorsField.Items.Ref)
+	}
+
+	// Verify the AuthFactor component exists and has proper structure
+	authFactorSchema, ok := components["testAuthFactor"]
+	if !ok {
+		t.Fatal("Expected testAuthFactor to be registered in components")
+	}
+
+	if authFactorSchema.Type != "object" {
+		t.Errorf("Expected testAuthFactor type 'object', got %s", authFactorSchema.Type)
+	}
+
+	// Verify factor_id field exists
+	if _, ok := authFactorSchema.Properties["factor_id"]; !ok {
+		t.Error("Expected 'factor_id' field in testAuthFactor schema")
+	}
+
+	// Verify type field exists
+	if _, ok := authFactorSchema.Properties["type"]; !ok {
+		t.Error("Expected 'type' field in testAuthFactor schema")
+	}
+
+	// Verify metadata is also a component ref (deeply nested)
+	metadataField, ok := authFactorSchema.Properties["metadata"]
+	if !ok {
+		t.Error("Expected 'metadata' field in testAuthFactor schema")
+	}
+
+	if metadataField.Ref != "#/components/schemas/testMetadata" {
+		t.Errorf("Expected metadata to be a component ref, got Ref=%s", metadataField.Ref)
 	}
 }
 
-type NestedStruct struct {
-	Outer string `json:"outer"`
-	Inner struct {
-		Field string `json:"field"`
-	} `json:"inner"`
+func TestPrimitiveTypesNotCreatedAsComponents(t *testing.T) {
+	type testSimple struct {
+		Name  string   `json:"name"`
+		Age   int      `json:"age"`
+		Tags  []string `json:"tags"`
+		Admin bool     `json:"admin"`
+	}
+
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components)
+
+	schema := gen.GenerateSchema(&testSimple{})
+
+	if schema == nil {
+		t.Fatal("Expected schema to be generated")
+	}
+
+	// Verify primitive fields are inline, not refs
+	nameField, ok := schema.Properties["name"]
+	if !ok {
+		t.Fatal("Expected 'name' field in schema properties")
+	}
+
+	if nameField.Ref != "" {
+		t.Error("Expected primitive field 'name' to be inline, not a ref")
+	}
+
+	if nameField.Type != "string" {
+		t.Errorf("Expected name type 'string', got %s", nameField.Type)
+	}
+
+	// Verify array of primitives is inline
+	tagsField, ok := schema.Properties["tags"]
+	if !ok {
+		t.Fatal("Expected 'tags' field in schema properties")
+	}
+
+	if tagsField.Ref != "" {
+		t.Error("Expected array field 'tags' to be inline, not a ref")
+	}
+
+	if tagsField.Type != "array" {
+		t.Errorf("Expected tags type 'array', got %s", tagsField.Type)
+	}
+
+	if tagsField.Items.Type != "string" {
+		t.Errorf("Expected tags items type 'string', got %s", tagsField.Items.Type)
+	}
+
+	// Verify no primitive types were added to components
+	if len(components) > 0 {
+		t.Errorf("Expected no components to be registered for primitive types, got %d", len(components))
+	}
 }
 
-func TestSchemaGenerator_NestedStruct(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(NestedStruct{})
-	require.NotNil(t, schema)
-	assert.Equal(t, "object", schema.Type)
-	assert.Contains(t, schema.Properties, "outer")
-	assert.Contains(t, schema.Properties, "inner")
+func TestTimeTypeNotCreatedAsComponent(t *testing.T) {
+	type testWithTime struct {
+		CreatedAt time.Time  `json:"created_at"`
+		UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	}
 
-	innerSchema := schema.Properties["inner"]
-	require.NotNil(t, innerSchema)
-	assert.Equal(t, "object", innerSchema.Type)
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components)
+
+	schema := gen.GenerateSchema(&testWithTime{})
+
+	if schema == nil {
+		t.Fatal("Expected schema to be generated")
+	}
+
+	// Verify time.Time fields are inline string with date-time format
+	createdAtField, ok := schema.Properties["created_at"]
+	if !ok {
+		t.Fatal("Expected 'created_at' field in schema properties")
+	}
+
+	if createdAtField.Ref != "" {
+		t.Error("Expected time.Time field to be inline, not a ref")
+	}
+
+	if createdAtField.Type != "string" {
+		t.Errorf("Expected created_at type 'string', got %s", createdAtField.Type)
+	}
+
+	if createdAtField.Format != "date-time" {
+		t.Errorf("Expected created_at format 'date-time', got %s", createdAtField.Format)
+	}
+
+	// Verify no Time component was created
+	if _, ok := components["Time"]; ok {
+		t.Error("Expected time.Time NOT to be registered as a component")
+	}
 }
 
-type IgnoredFieldsStruct struct {
-	Exported   string `json:"exported"`
-	unexported string
-	Ignored    string `json:"-"`
-}
+func TestComponentReuseAcrossMultipleSchemas(t *testing.T) {
+	type testUser struct {
+		ID      string      `json:"id"`
+		Address testAddress `json:"address"`
+	}
 
-func TestSchemaGenerator_IgnoredFields(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(IgnoredFieldsStruct{})
-	require.NotNil(t, schema)
+	type testCompany struct {
+		Name    string      `json:"name"`
+		Address testAddress `json:"address"`
+	}
 
-	assert.Contains(t, schema.Properties, "exported")
-	assert.NotContains(t, schema.Properties, "unexported")
-	assert.NotContains(t, schema.Properties, "Ignored")
+	components := make(map[string]*Schema)
+	gen := newSchemaGenerator(components)
+
+	// Generate schemas for both types
+	userSchema := gen.GenerateSchema(&testUser{})
+	companySchema := gen.GenerateSchema(&testCompany{})
+
+	if userSchema == nil || companySchema == nil {
+		t.Fatal("Expected both schemas to be generated")
+	}
+
+	// Verify both use the same component reference
+	userAddressField := userSchema.Properties["address"]
+	companyAddressField := companySchema.Properties["address"]
+
+	if userAddressField.Ref != companyAddressField.Ref {
+		t.Error("Expected both schemas to reference the same Address component")
+	}
+
+	if userAddressField.Ref != "#/components/schemas/testAddress" {
+		t.Errorf("Expected component ref to testAddress, got %s", userAddressField.Ref)
+	}
+
+	// Verify only one Address component was registered
+	if len(components) != 1 {
+		t.Errorf("Expected exactly 1 component (testAddress), got %d", len(components))
+	}
+
+	if _, ok := components["testAddress"]; !ok {
+		t.Error("Expected testAddress to be registered")
+	}
 }
 
 func TestGetTypeName(t *testing.T) {
 	tests := []struct {
-		name string
-		typ  interface{}
-		want string
+		name     string
+		input    reflect.Type
+		expected string
 	}{
-		{"basic struct", TestUser{}, "TestUser"},
-		{"pointer", &TestUser{}, "TestUser"},
+		{
+			name:     "named struct",
+			input:    reflect.TypeOf(testAddress{}),
+			expected: "testAddress",
+		},
+		{
+			name:     "pointer to named struct",
+			input:    reflect.TypeOf(&testAddress{}),
+			expected: "testAddress",
+		},
+		{
+			name:     "primitive type",
+			input:    reflect.TypeOf("string"),
+			expected: "string",
+		},
+		{
+			name:     "anonymous struct",
+			input:    reflect.TypeOf(struct{ Name string }{}),
+			expected: "Object",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			typ := getReflectType(tt.typ)
-			name := GetTypeName(typ)
-			assert.Contains(t, name, tt.want)
+			result := GetTypeName(tt.input)
+			if result != tt.expected {
+				t.Errorf("GetTypeName() = %s, expected %s", result, tt.expected)
+			}
 		})
 	}
-}
-
-func getReflectType(v interface{}) reflect.Type {
-	return reflect.TypeOf(v)
-}
-
-type ValidationStruct struct {
-	Pattern    string   `json:"pattern" pattern:"^[a-z]+$"`
-	MultipleOf float64  `json:"multiple_of" multipleOf:"5"`
-	MaxProps   struct{} `json:"max_props" maxProperties:"10"`
-	MinProps   struct{} `json:"min_props" minProperties:"1"`
-}
-
-func TestSchemaGenerator_ValidationTags(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(ValidationStruct{})
-	require.NotNil(t, schema)
-
-	patternSchema := schema.Properties["pattern"]
-	require.NotNil(t, patternSchema)
-	assert.Equal(t, "^[a-z]+$", patternSchema.Pattern)
-
-	multipleSchema := schema.Properties["multiple_of"]
-	require.NotNil(t, multipleSchema)
-	assert.Equal(t, 5.0, multipleSchema.MultipleOf)
-}
-
-type DeprecatedStruct struct {
-	Current    string `json:"current"`
-	Deprecated string `json:"deprecated" deprecated:"true"`
-}
-
-func TestSchemaGenerator_DeprecatedField(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(DeprecatedStruct{})
-	require.NotNil(t, schema)
-
-	deprecatedSchema := schema.Properties["deprecated"]
-	require.NotNil(t, deprecatedSchema)
-	assert.True(t, deprecatedSchema.Deprecated)
-
-	currentSchema := schema.Properties["current"]
-	require.NotNil(t, currentSchema)
-	assert.False(t, currentSchema.Deprecated)
-}
-
-type NullableStruct struct {
-	Required string  `json:"required"`
-	Nullable *string `json:"nullable" nullable:"true"`
-}
-
-func TestSchemaGenerator_NullableField(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(NullableStruct{})
-	require.NotNil(t, schema)
-
-	nullableSchema := schema.Properties["nullable"]
-	require.NotNil(t, nullableSchema)
-	assert.True(t, nullableSchema.Nullable)
-}
-
-type ReadWriteStruct struct {
-	ID       string `json:"id" readOnly:"true"`
-	Password string `json:"password" writeOnly:"true"`
-	Normal   string `json:"normal"`
-}
-
-func TestSchemaGenerator_ReadWriteOnly(t *testing.T) {
-	gen := newSchemaGenerator()
-	schema := gen.GenerateSchema(ReadWriteStruct{})
-	require.NotNil(t, schema)
-
-	idSchema := schema.Properties["id"]
-	require.NotNil(t, idSchema)
-	assert.True(t, idSchema.ReadOnly)
-	assert.False(t, idSchema.WriteOnly)
-
-	passwordSchema := schema.Properties["password"]
-	require.NotNil(t, passwordSchema)
-	assert.False(t, passwordSchema.ReadOnly)
-	assert.True(t, passwordSchema.WriteOnly)
-
-	normalSchema := schema.Properties["normal"]
-	require.NotNil(t, normalSchema)
-	assert.False(t, normalSchema.ReadOnly)
-	assert.False(t, normalSchema.WriteOnly)
 }

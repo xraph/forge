@@ -1,0 +1,45 @@
+package migrate
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/uptrace/bun"
+)
+
+func init() {
+	// Register this migration
+	// Format: YYYYMMDDHHMMSS_description
+	Migrations.MustRegister(up{{.Timestamp}}_{{.Name}}, down{{.Timestamp}}_{{.Name}})
+}
+
+// up{{.Timestamp}}_{{.Name}} performs the forward migration
+func up{{.Timestamp}}_{{.Name}}(ctx context.Context, db *bun.DB) error {
+	fmt.Print(" [up migration: {{.Timestamp}}_{{.Name}}] ")
+	
+	// TODO: Implement your migration here
+	// Example: Create table
+	// _, err := db.NewCreateTable().
+	// 	Model((*models.YourModel)(nil)).
+	// 	IfNotExists().
+	// 	Exec(ctx)
+	// return err
+	
+	return nil
+}
+
+// down{{.Timestamp}}_{{.Name}} performs the rollback migration
+func down{{.Timestamp}}_{{.Name}}(ctx context.Context, db *bun.DB) error {
+	fmt.Print(" [down migration: {{.Timestamp}}_{{.Name}}] ")
+	
+	// TODO: Implement your rollback here
+	// Example: Drop table
+	// _, err := db.NewDropTable().
+	// 	Model((*models.YourModel)(nil)).
+	// 	IfExists().
+	// 	Exec(ctx)
+	// return err
+	
+	return nil
+}
+

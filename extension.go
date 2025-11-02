@@ -70,5 +70,46 @@ type HotReloadableExtension interface {
 	Reload(ctx context.Context) error
 }
 
+// MiddlewareExtension is an optional interface for extensions that provide global middleware.
+//
+// Global middleware is applied to ALL routes in the application after extensions are registered
+// but before the router starts accepting requests. Middleware is applied in the order
+// extensions are registered, and in the order they are returned from Middlewares().
+//
+// Example:
+//
+//	type MyExtension struct {
+//	    *forge.BaseExtension
+//	}
+//
+//	func (e *MyExtension) Middlewares() []forge.Middleware {
+//	    return []forge.Middleware{
+//	        e.authMiddleware(),
+//	        e.loggingMiddleware(),
+//	    }
+//	}
+//
+// Best Practices:
+//   - Keep middleware lightweight and fast
+//   - Avoid blocking operations in middleware
+//   - Use path exclusions for health checks and public endpoints
+//   - Consider middleware order carefully
+//   - Log when middlewares are applied for debugging
+//   - Provide configuration to enable/disable middleware
+//
+// Security Considerations:
+//   - Validate all inputs in middleware
+//   - Don't leak sensitive information in errors
+//   - Be aware of middleware execution order
+//   - Use appropriate timeouts
+//   - Implement rate limiting if needed
+type MiddlewareExtension interface {
+	Extension
+	// Middlewares returns middleware functions to be applied globally.
+	// These are applied in the order returned, after extension registration
+	// but before routes are fully initialized.
+	Middlewares() []Middleware
+}
+
 // ExtensionInfo contains information about a registered extension
 type ExtensionInfo = shared.ExtensionInfo

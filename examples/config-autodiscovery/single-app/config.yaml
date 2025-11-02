@@ -1,0 +1,29 @@
+# Single App Configuration Example
+# This is the base config that will be loaded automatically
+
+app:
+  name: single-app-example
+  version: 1.0.0
+  port: 8080
+
+# Database configuration
+database:
+  driver: postgres
+  host: localhost
+  port: 5432
+  name: myapp
+  user: dbuser
+  max_connections: 10
+
+# Cache configuration
+extensions:
+  cache:
+    driver: redis
+    url: redis://localhost:6379/0
+    default_ttl: 5m
+
+# Logging
+logging:
+  level: info
+  format: json
+

@@ -251,13 +251,48 @@ func generatePropertiesFromStruct(rt reflect.Type) map[string]*PropertySchema {
 		// Get description from tag
 		description := field.Tag.Get("description")
 
-		props[jsonName] = &PropertySchema{
-			Type:        getJSONTypeFromReflectType(field.Type),
-			Description: description,
-		}
+		// Generate property schema with nested struct support
+		propSchema := generatePropertySchemaFromType(field.Type, description)
+		props[jsonName] = propSchema
 	}
 
 	return props
+}
+
+// generatePropertySchemaFromType generates PropertySchema from a reflect.Type
+// This handles nested structs recursively
+func generatePropertySchemaFromType(rt reflect.Type, description string) *PropertySchema {
+	propSchema := &PropertySchema{
+		Type:        getJSONTypeFromReflectType(rt),
+		Description: description,
+	}
+
+	// Handle pointer types
+	if rt.Kind() == reflect.Ptr {
+		rt = rt.Elem()
+	}
+
+	// Handle nested structs
+	if rt.Kind() == reflect.Struct {
+		propSchema.Properties = generatePropertiesFromStruct(rt)
+	}
+
+	// Handle arrays/slices of structs
+	if rt.Kind() == reflect.Slice || rt.Kind() == reflect.Array {
+		elemType := rt.Elem()
+		if elemType.Kind() == reflect.Ptr {
+			elemType = elemType.Elem()
+		}
+		if elemType.Kind() == reflect.Struct {
+			// For arrays of structs, add an items property
+			propSchema.Items = &PropertySchema{
+				Type:       "object",
+				Properties: generatePropertiesFromStruct(elemType),
+			}
+		}
+	}
+
+	return propSchema
 }
 
 // getJSONTypeFromReflectType maps Go types to JSON Schema types

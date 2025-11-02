@@ -1,16 +1,18 @@
-// v2/cmd/forge/plugins/database.go
 package plugins
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
-	"time"
+
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/migrate"
+	"gopkg.in/yaml.v3"
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/extensions/database"
 )
 
 // DatabasePlugin handles database operations
@@ -33,361 +35,521 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 	// Create main db command with subcommands
 	dbCmd := cli.NewCommand(
 		"db",
-		"Database management tools",
+		"Database management commands",
 		nil, // No handler, requires subcommand
 		cli.WithAliases("database"),
 	)
 
 	// Add subcommands
 	dbCmd.AddSubcommand(cli.NewCommand(
+		"init",
+		"Initialize migration tables",
+		p.initMigrations,
+		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
+		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
+		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
+	))
+
+	dbCmd.AddSubcommand(cli.NewCommand(
 		"migrate",
-		"Run database migrations",
-		p.migrate,
-		cli.WithAliases("up"),
-		cli.WithFlag(cli.NewStringFlag("env", "e", "Environment", "dev")),
-		cli.WithFlag(cli.NewIntFlag("steps", "s", "Number of steps (0 = all)", 0)),
+		"Run pending migrations",
+		p.runMigrations,
+		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
+		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
+		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
 
 	dbCmd.AddSubcommand(cli.NewCommand(
 		"rollback",
-		"Rollback database migrations",
-		p.rollback,
-		cli.WithAliases("down"),
-		cli.WithFlag(cli.NewIntFlag("steps", "s", "Steps to rollback", 1)),
+		"Rollback last migration group",
+		p.rollbackMigrations,
+		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
+		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
+		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
 
 	dbCmd.AddSubcommand(cli.NewCommand(
 		"status",
 		"Show migration status",
-		p.status,
-		cli.WithFlag(cli.NewStringFlag("env", "e", "Environment", "dev")),
-	))
-
-	dbCmd.AddSubcommand(cli.NewCommand(
-		"create",
-		"Create a new migration",
-		p.createMigration,
-		cli.WithAliases("new"),
-		cli.WithFlag(cli.NewStringFlag("name", "n", "Migration name", "")),
-	))
-
-	dbCmd.AddSubcommand(cli.NewCommand(
-		"seed",
-		"Seed the database",
-		p.seed,
-		cli.WithFlag(cli.NewStringFlag("env", "e", "Environment", "dev")),
-		cli.WithFlag(cli.NewStringFlag("file", "f", "Seed file", "")),
+		p.migrationStatus,
+		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
+		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
 	))
 
 	dbCmd.AddSubcommand(cli.NewCommand(
 		"reset",
-		"Reset the database",
-		p.reset,
-		cli.WithFlag(cli.NewStringFlag("env", "e", "Environment", "dev")),
-		cli.WithFlag(cli.NewBoolFlag("force", "", "Force reset", false)),
+		"Reset database (rollback all and rerun)",
+		p.resetDatabase,
+		cli.WithFlag(cli.NewStringFlag("database", "d", "Database name from config", "default")),
+		cli.WithFlag(cli.NewStringFlag("dsn", "", "Override database DSN/connection string", "")),
+		cli.WithFlag(cli.NewStringFlag("type", "t", "Override database type (postgres|mysql|sqlite|mongodb)", "")),
+		cli.WithFlag(cli.NewStringFlag("app", "a", "App name for app-specific config", "")),
+		cli.WithFlag(cli.NewBoolFlag("force", "f", "Skip confirmation", false)),
+		cli.WithFlag(cli.NewBoolFlag("verbose", "v", "Verbose output", false)),
 	))
 
 	return []cli.Command{dbCmd}
 }
 
-func (p *DatabasePlugin) migrate(ctx cli.CommandContext) error {
+func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
-		ctx.Println("")
-		ctx.Info("This doesn't appear to be a Forge project.")
-		ctx.Info("To initialize a new project, run:")
-		ctx.Println("  forge init")
 		return fmt.Errorf("not a forge project")
 	}
 
-	env := ctx.String("env")
-	steps := ctx.Int("steps")
+	dbName := ctx.String("database")
+	spinner := ctx.Spinner(fmt.Sprintf("Initializing migrations for %s...", dbName))
 
-	ctx.Info(fmt.Sprintf("Running migrations for %s environment...", env))
+	// Load migrations
+	migrations, err := p.loadMigrations()
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return fmt.Errorf("failed to load migrations: %w", err)
+	}
 
-	migrations, err := p.getMigrations()
+	// Get database connection
+	db, err := p.getDatabaseConnection(ctx)
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	// Create migration manager
+	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+
+	// Initialize migration tables
+	if err := manager.CreateTables(context.Background()); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	spinner.Stop(cli.Green("✓ Migration tables created!"))
+	return nil
+}
+
+func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
+	if p.config == nil {
+		return fmt.Errorf("not a forge project")
+	}
+
+	dbName := ctx.String("database")
+	spinner := ctx.Spinner(fmt.Sprintf("Running migrations on %s...", dbName))
+
+	// Load migrations
+	migrations, err := p.loadMigrations()
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return fmt.Errorf("failed to load migrations: %w", err)
+	}
+
+	// Get database connection
+	db, err := p.getDatabaseConnection(ctx)
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	// Create migration manager
+	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+
+	// Run migrations
+	if err := manager.Migrate(context.Background()); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	spinner.Stop(cli.Green("✓ Migrations completed!"))
+	return nil
+}
+
+func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
+	if p.config == nil {
+		return fmt.Errorf("not a forge project")
+	}
+
+	dbName := ctx.String("database")
+	
+	// Confirm rollback
+	confirm, err := ctx.Confirm(fmt.Sprintf("Rollback last migration group on %s?", dbName))
+	if err != nil || !confirm {
+		ctx.Info("Rollback cancelled")
+		return nil
+	}
+
+	spinner := ctx.Spinner(fmt.Sprintf("Rolling back migrations on %s...", dbName))
+
+	// Load migrations
+	migrations, err := p.loadMigrations()
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return fmt.Errorf("failed to load migrations: %w", err)
+	}
+
+	// Get database connection
+	db, err := p.getDatabaseConnection(ctx)
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	// Create migration manager
+	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+
+	// Rollback migrations
+	if err := manager.Rollback(context.Background()); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	spinner.Stop(cli.Green("✓ Rollback completed!"))
+	return nil
+}
+
+func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
+	if p.config == nil {
+		return fmt.Errorf("not a forge project")
+	}
+
+	dbName := ctx.String("database")
+
+	// Load migrations
+	migrations, err := p.loadMigrations()
+	if err != nil {
+		return fmt.Errorf("failed to load migrations: %w", err)
+	}
+
+	// Get database connection
+	db, err := p.getDatabaseConnection(ctx)
 	if err != nil {
 		return err
 	}
 
-	if len(migrations) == 0 {
-		ctx.Warning("No migrations found")
-		return nil
+	// Create migration manager
+	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+
+	// Get status
+	status, err := manager.Status(context.Background())
+	if err != nil {
+		return err
 	}
 
-	// For now, just list migrations (actual DB migration would need database connection)
-	ctx.Info(fmt.Sprintf("Found %d migration(s)", len(migrations)))
-
-	for i, m := range migrations {
-		if steps > 0 && i >= steps {
-			break
-		}
-		ctx.Success(fmt.Sprintf("  ✓ %s", m.Name))
-	}
-
+	// Display status
 	ctx.Println("")
-	ctx.Success("Migrations complete!")
-	ctx.Warning("Note: Actual database execution requires database extension integration")
+	ctx.Success(fmt.Sprintf("Migration Status for %s:", dbName))
+	ctx.Println("")
 
-	return nil
-}
-
-func (p *DatabasePlugin) rollback(ctx cli.CommandContext) error {
-	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
-		ctx.Println("")
-		ctx.Info("This doesn't appear to be a Forge project.")
-		ctx.Info("To initialize a new project, run:")
-		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
-	}
-
-	steps := ctx.Int("steps")
-
-	confirmed, err := ctx.Confirm(fmt.Sprintf("Rollback %d migration(s)?", steps))
-	if err != nil {
-		return err
-	}
-	if !confirmed {
-		ctx.Warning("Cancelled")
-		return nil
-	}
-
-	ctx.Info(fmt.Sprintf("Rolling back %d migration(s)...", steps))
-	ctx.Success("Rollback complete!")
-
-	return nil
-}
-
-func (p *DatabasePlugin) status(ctx cli.CommandContext) error {
-	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
-		ctx.Println("")
-		ctx.Info("This doesn't appear to be a Forge project.")
-		ctx.Info("To initialize a new project, run:")
-		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
-	}
-
-	migrations, err := p.getMigrations()
-	if err != nil {
-		return err
-	}
-
-	if len(migrations) == 0 {
-		ctx.Warning("No migrations found")
-		return nil
-	}
-
-	table := ctx.Table()
-	table.SetHeader([]string{"Version", "Name", "Status", "Applied At"})
-
-	for _, m := range migrations {
-		status := cli.Yellow("○ Pending")
-		appliedAt := "-"
-
-		// Mock some as applied for demo
-		if m.Version[:3] < "003" {
-			status = cli.Green("✓ Applied")
-			appliedAt = time.Now().Add(-24 * time.Hour).Format("2006-01-02 15:04")
+	if len(status.Applied) > 0 {
+		ctx.Info(fmt.Sprintf("Applied Migrations (%d):", len(status.Applied)))
+		for _, mig := range status.Applied {
+			ctx.Println(fmt.Sprintf("  ✓ %s (Group: %d, Applied: %s)",
+				mig.Name,
+				mig.GroupID,
+				mig.AppliedAt.Format("2006-01-02 15:04:05"),
+			))
 		}
-
-		table.AppendRow([]string{
-			m.Version,
-			m.Name,
-			status,
-			appliedAt,
-		})
-	}
-
-	table.Render()
-	return nil
-}
-
-func (p *DatabasePlugin) createMigration(ctx cli.CommandContext) error {
-	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
-		ctx.Info("This doesn't appear to be a Forge project.")
-		ctx.Info("To initialize a new project, run:")
-		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
 	}
 
-	name := ctx.String("name")
-	if name == "" {
-		var err error
-		name, err = ctx.Prompt("Migration name:")
-		if err != nil {
-			return err
+	if len(status.Pending) > 0 {
+		ctx.Info(fmt.Sprintf("Pending Migrations (%d):", len(status.Pending)))
+		for _, name := range status.Pending {
+			ctx.Println(fmt.Sprintf("  ⏸ %s", name))
 		}
-	}
-
-	// Clean name
-	name = strings.ReplaceAll(strings.ToLower(name), " ", "_")
-
-	// Get next version number
-	migrations, err := p.getMigrations()
-	if err != nil {
-		return err
-	}
-
-	version := 1
-	if len(migrations) > 0 {
-		lastVersion := migrations[len(migrations)-1].Version
-		fmt.Sscanf(lastVersion, "%d", &version)
-		version++
-	}
-
-	versionStr := fmt.Sprintf("%03d", version)
-	fileName := fmt.Sprintf("%s_%s.sql", versionStr, name)
-
-	migrationsPath := filepath.Join(p.config.RootDir, p.config.Database.MigrationsPath)
-	filePath := filepath.Join(migrationsPath, fileName)
-
-	// Create migration file
-	content := fmt.Sprintf(`-- Migration: %s
--- Created: %s
-
--- Up Migration
--- Write your SQL migration here
-
--- Example:
--- CREATE TABLE IF NOT EXISTS example (
---     id SERIAL PRIMARY KEY,
---     name VARCHAR(255) NOT NULL,
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
--- );
-
--- Down Migration (for rollback)
--- DROP TABLE IF EXISTS example;
-`, name, time.Now().Format("2006-01-02 15:04:05"))
-
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-		return err
-	}
-
-	ctx.Success(fmt.Sprintf("✓ Created migration: %s", fileName))
-	ctx.Info(fmt.Sprintf("  Location: %s", filePath))
-
-	return nil
-}
-
-func (p *DatabasePlugin) seed(ctx cli.CommandContext) error {
-	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
-		ctx.Info("This doesn't appear to be a Forge project.")
-		ctx.Info("To initialize a new project, run:")
-		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
-	}
-
-	env := ctx.String("env")
-	seedFile := ctx.String("file")
-
-	ctx.Info(fmt.Sprintf("Seeding database for %s environment...", env))
-
-	seedsPath := filepath.Join(p.config.RootDir, p.config.Database.SeedsPath)
-
-	if seedFile != "" {
-		ctx.Info(fmt.Sprintf("  Loading seed: %s", seedFile))
+		ctx.Info("Run 'forge db migrate' to apply pending migrations")
 	} else {
-		// List available seeds
-		files, err := os.ReadDir(seedsPath)
-		if err != nil {
-			return err
-		}
+		ctx.Success("All migrations applied!")
+	}
 
-		for _, file := range files {
-			if !file.IsDir() && strings.HasSuffix(file.Name(), ".sql") {
-				ctx.Info(fmt.Sprintf("  ✓ %s", file.Name()))
+	return nil
+}
+
+func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
+	if p.config == nil {
+		return fmt.Errorf("not a forge project")
+	}
+
+	dbName := ctx.String("database")
+	force := ctx.Bool("force")
+
+	// Confirm reset
+	if !force {
+		ctx.Error(fmt.Errorf("⚠️  WARNING: This will rollback ALL migrations and re-run them"))
+		ctx.Error(fmt.Errorf("⚠️  This is a DESTRUCTIVE operation"))
+		ctx.Println("")
+		
+		confirm, err := ctx.Confirm(fmt.Sprintf("Reset database %s?", dbName))
+		if err != nil || !confirm {
+			ctx.Info("Reset cancelled")
+			return nil
+		}
+	}
+
+	spinner := ctx.Spinner(fmt.Sprintf("Resetting database %s...", dbName))
+
+	// Load migrations
+	migrations, err := p.loadMigrations()
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return fmt.Errorf("failed to load migrations: %w", err)
+	}
+
+	// Get database connection
+	db, err := p.getDatabaseConnection(ctx)
+	if err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	// Create migration manager
+	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
+
+	// Reset database
+	if err := manager.Reset(context.Background()); err != nil {
+		spinner.Stop(cli.Red("✗ Failed"))
+		return err
+	}
+
+	spinner.Stop(cli.Green("✓ Database reset completed!"))
+	return nil
+}
+
+// Helper functions
+
+func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
+	migrationPath := filepath.Join(p.config.RootDir, "database", "migrations")
+	
+	// Check if migrations directory exists
+	if _, err := os.Stat(migrationPath); os.IsNotExist(err) {
+		// Create initial migrations.go file
+		if err := os.MkdirAll(migrationPath, 0755); err != nil {
+			return nil, err
+		}
+		
+		// Create migrations.go
+		migrationsFile := filepath.Join(migrationPath, "migrations.go")
+		if _, err := os.Stat(migrationsFile); os.IsNotExist(err) {
+			content := `package migrations
+
+import (
+	"github.com/uptrace/bun/migrate"
+)
+
+// Migrations is the global migration collection
+var Migrations = migrate.NewMigrations()
+`
+			if err := os.WriteFile(migrationsFile, []byte(content), 0644); err != nil {
+				return nil, err
 			}
 		}
 	}
-
-	ctx.Success("Database seeded!")
-	return nil
+	
+	// Return empty collection - migrations are registered via init() in migration files
+	return migrate.NewMigrations(), nil
 }
 
-func (p *DatabasePlugin) reset(ctx cli.CommandContext) error {
-	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
-		ctx.Println("")
-		ctx.Info("This doesn't appear to be a Forge project.")
-		ctx.Info("To initialize a new project, run:")
-		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
-	}
-
-	env := ctx.String("env")
-	force := ctx.Bool("force")
-
-	if env == "production" && !force {
-		return fmt.Errorf("cannot reset production database without --force flag")
-	}
-
-	ctx.Warning("⚠️  This will DELETE all data in the database!")
-	confirmed, err := ctx.Confirm("Are you sure?")
+func (p *DatabasePlugin) getDatabaseConnection(ctx cli.CommandContext) (*bun.DB, error) {
+	dbName := ctx.String("database")
+	customDSN := ctx.String("dsn")
+	customType := ctx.String("type")
+	appName := ctx.String("app")
+	
+	// Load database config from forge config hierarchy
+	dbConfig, err := p.loadDatabaseConfig(dbName, appName)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to load database config: %w", err)
 	}
-	if !confirmed {
-		ctx.Warning("Cancelled")
-		return nil
+	
+	// Override with command-line flags if provided
+	if customDSN != "" {
+		dbConfig.DSN = customDSN
 	}
-
-	spinner := ctx.Spinner("Resetting database...")
-	time.Sleep(1 * time.Second) // Simulate work
-	spinner.Stop(cli.Green("✓ Database reset complete!"))
-
-	return nil
-}
-
-// Migration represents a database migration
-type Migration struct {
-	Version string
-	Name    string
-	Path    string
-}
-
-func (p *DatabasePlugin) getMigrations() ([]Migration, error) {
-	migrationsPath := filepath.Join(p.config.RootDir, p.config.Database.MigrationsPath)
-
-	files, err := os.ReadDir(migrationsPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []Migration{}, nil
+	if customType != "" {
+		dbConfig.Type = database.DatabaseType(customType)
+	}
+	
+	// Validate config
+	if dbConfig.DSN == "" {
+		return nil, fmt.Errorf("database DSN not configured for '%s'. Use --dsn flag or configure in config.yaml", dbName)
+	}
+	
+	// Create database connection using the database extension
+	switch dbConfig.Type {
+	case database.TypePostgres, database.TypeMySQL, database.TypeSQLite:
+		// Use nil for logger and metrics - CLI doesn't need detailed logging
+		sqlDB, err := database.NewSQLDatabase(dbConfig, nil, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create database: %w", err)
 		}
-		return nil, err
+		if err := sqlDB.Open(context.Background()); err != nil {
+			return nil, fmt.Errorf("failed to connect to database: %w", err)
+		}
+		return sqlDB.Bun(), nil
+	case database.TypeMongoDB:
+		return nil, fmt.Errorf("mongodb migrations not supported via CLI yet - use application context")
+	default:
+		return nil, fmt.Errorf("unsupported database type: %s", dbConfig.Type)
 	}
+}
 
-	var migrations []Migration
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".sql") {
+// loadDatabaseConfig loads database configuration from the forge config hierarchy
+func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.DatabaseConfig, error) {
+	var dbConfig database.DatabaseConfig
+	
+	// Config file paths in priority order (lowest to highest)
+	configPaths := []string{
+		filepath.Join(p.config.RootDir, "config.yaml"),           // Global config
+		filepath.Join(p.config.RootDir, "config.local.yaml"),     // Local global override
+	}
+	
+	// Add app-specific configs if app name provided
+	if appName != "" {
+		configPaths = append(configPaths,
+			filepath.Join(p.config.RootDir, "apps", appName, "config.yaml"),       // App config
+			filepath.Join(p.config.RootDir, "apps", appName, "config.local.yaml"), // App local config
+		)
+	}
+	
+	// Load and merge configs
+	found := false
+	for _, path := range configPaths {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
 			continue
 		}
-
-		// Parse version and name from filename (e.g., "001_create_users.sql")
-		parts := strings.SplitN(file.Name(), "_", 2)
-		if len(parts) != 2 {
+		
+		data, err := os.ReadFile(path)
+		if err != nil {
 			continue
 		}
-
-		version := parts[0]
-		name := strings.TrimSuffix(parts[1], ".sql")
-
-		migrations = append(migrations, Migration{
-			Version: version,
-			Name:    name,
-			Path:    filepath.Join(migrationsPath, file.Name()),
-		})
+		
+		var cfg struct {
+			Database struct {
+				Databases []database.DatabaseConfig `yaml:"databases"`
+			} `yaml:"database"`
+			Apps map[string]struct {
+				Database struct {
+					Databases []database.DatabaseConfig `yaml:"databases"`
+				} `yaml:"database"`
+			} `yaml:"apps"`
+		}
+		
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			continue
+		}
+		
+		// Look for database in global config
+		for _, db := range cfg.Database.Databases {
+			if db.Name == dbName {
+				// Merge configs (later configs override earlier ones)
+				if !found || db.DSN != "" {
+					dbConfig.Name = db.Name
+					if db.DSN != "" {
+						dbConfig.DSN = db.DSN
+					}
+					if db.Type != "" {
+						dbConfig.Type = db.Type
+					}
+					if db.MaxOpenConns > 0 {
+						dbConfig.MaxOpenConns = db.MaxOpenConns
+					}
+					if db.MaxIdleConns > 0 {
+						dbConfig.MaxIdleConns = db.MaxIdleConns
+					}
+					if db.MaxRetries > 0 {
+						dbConfig.MaxRetries = db.MaxRetries
+					}
+					if db.ConnectionTimeout > 0 {
+						dbConfig.ConnectionTimeout = db.ConnectionTimeout
+					}
+					if db.QueryTimeout > 0 {
+						dbConfig.QueryTimeout = db.QueryTimeout
+					}
+					if db.SlowQueryThreshold > 0 {
+						dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
+					}
+					found = true
+				}
+			}
+		}
+		
+		// Look for database in app-specific config
+		if appName != "" {
+			if appCfg, ok := cfg.Apps[appName]; ok {
+				for _, db := range appCfg.Database.Databases {
+					if db.Name == dbName {
+						// App config overrides global config
+						if !found || db.DSN != "" {
+							dbConfig.Name = db.Name
+							if db.DSN != "" {
+								dbConfig.DSN = db.DSN
+							}
+							if db.Type != "" {
+								dbConfig.Type = db.Type
+							}
+							if db.MaxOpenConns > 0 {
+								dbConfig.MaxOpenConns = db.MaxOpenConns
+							}
+							if db.MaxIdleConns > 0 {
+								dbConfig.MaxIdleConns = db.MaxIdleConns
+							}
+							if db.MaxRetries > 0 {
+								dbConfig.MaxRetries = db.MaxRetries
+							}
+							if db.ConnectionTimeout > 0 {
+								dbConfig.ConnectionTimeout = db.ConnectionTimeout
+							}
+							if db.QueryTimeout > 0 {
+								dbConfig.QueryTimeout = db.QueryTimeout
+							}
+							if db.SlowQueryThreshold > 0 {
+								dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
+							}
+							found = true
+						}
+					}
+				}
+			}
+		}
 	}
+	
+	if !found {
+		return dbConfig, fmt.Errorf("database '%s' not found in config files", dbName)
+	}
+	
+	// Set defaults
+	if dbConfig.MaxOpenConns == 0 {
+		dbConfig.MaxOpenConns = 25
+	}
+	if dbConfig.MaxIdleConns == 0 {
+		dbConfig.MaxIdleConns = 25
+	}
+	if dbConfig.MaxRetries == 0 {
+		dbConfig.MaxRetries = 3
+	}
+	
+	return dbConfig, nil
+}
 
-	// Sort by version
-	sort.Slice(migrations, func(i, j int) bool {
-		return migrations[i].Version < migrations[j].Version
-	})
+// cliLoggerAdapter adapts CLI context to database.Logger interface
+type cliLoggerAdapter struct {
+	ctx cli.CommandContext
+}
 
-	return migrations, nil
+func (l *cliLoggerAdapter) Info(msg string, fields ...interface{}) {
+	l.ctx.Info(msg)
+}
+
+func (l *cliLoggerAdapter) Error(msg string, fields ...interface{}) {
+	l.ctx.Error(fmt.Errorf("%s", msg))
+}
+
+func (l *cliLoggerAdapter) Warn(msg string, fields ...interface{}) {
+	l.ctx.Info(fmt.Sprintf("⚠️  %s", msg))
 }

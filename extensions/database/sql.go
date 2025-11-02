@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -31,23 +32,90 @@ type SQLDatabase struct {
 	sqlDB *sql.DB // Raw database/sql connection
 	bun   *bun.DB // Bun ORM instance
 
+	// Connection state
+	state atomic.Int32
+
 	logger  forge.Logger
 	metrics forge.Metrics
 }
 
 // NewSQLDatabase creates a new SQL database instance
 func NewSQLDatabase(config DatabaseConfig, logger forge.Logger, metrics forge.Metrics) (*SQLDatabase, error) {
-	return &SQLDatabase{
+	db := &SQLDatabase{
 		name:    config.Name,
 		dbType:  config.Type,
 		config:  config,
 		logger:  logger,
 		metrics: metrics,
-	}, nil
+	}
+	db.state.Store(int32(StateDisconnected))
+	return db, nil
 }
 
-// Open establishes the database connection
+// Open establishes the database connection with retry logic
 func (d *SQLDatabase) Open(ctx context.Context) error {
+	d.state.Store(int32(StateConnecting))
+
+	var lastErr error
+	for attempt := 0; attempt <= d.config.MaxRetries; attempt++ {
+		if attempt > 0 {
+			d.state.Store(int32(StateReconnecting))
+			// Apply exponential backoff with jitter
+			delay := d.config.RetryDelay * time.Duration(1<<uint(attempt-1))
+			if delay > 30*time.Second {
+				delay = 30 * time.Second
+			}
+
+			d.logger.Info("retrying database connection",
+				logger.String("name", d.name),
+				logger.Int("attempt", attempt+1),
+				logger.Int("max_attempts", d.config.MaxRetries+1),
+				logger.Duration("delay", delay),
+			)
+
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				d.state.Store(int32(StateError))
+				return ctx.Err()
+			}
+		}
+
+		if err := d.openAttempt(ctx); err != nil {
+			lastErr = err
+			d.logger.Warn("database connection attempt failed",
+				logger.String("name", d.name),
+				logger.Int("attempt", attempt+1),
+				logger.Error(err),
+			)
+			continue
+		}
+
+		d.state.Store(int32(StateConnected))
+		d.logger.Info("database opened",
+			logger.String("name", d.name),
+			logger.String("type", string(d.dbType)),
+			logger.String("dsn", MaskDSN(d.config.DSN, d.dbType)),
+			logger.Int("max_open", d.config.MaxOpenConns),
+			logger.Int("attempts", attempt+1),
+		)
+		return nil
+	}
+
+	d.state.Store(int32(StateError))
+	return ErrConnectionFailed(d.name, d.dbType, fmt.Errorf("failed after %d attempts: %w", d.config.MaxRetries+1, lastErr))
+}
+
+// openAttempt performs a single connection attempt
+func (d *SQLDatabase) openAttempt(ctx context.Context) error {
+	// Add timeout for connection
+	connectCtx := ctx
+	if d.config.ConnectionTimeout > 0 {
+		var cancel context.CancelFunc
+		connectCtx, cancel = context.WithTimeout(ctx, d.config.ConnectionTimeout)
+		defer cancel()
+	}
+
 	// Open raw SQL connection
 	sqlDB, err := sql.Open(d.driverName(), d.config.DSN)
 	if err != nil {
@@ -61,7 +129,7 @@ func (d *SQLDatabase) Open(ctx context.Context) error {
 	sqlDB.SetConnMaxIdleTime(d.config.ConnMaxIdleTime)
 
 	// Verify connection
-	if err := sqlDB.PingContext(ctx); err != nil {
+	if err := sqlDB.PingContext(connectCtx); err != nil {
 		sqlDB.Close()
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
@@ -74,19 +142,20 @@ func (d *SQLDatabase) Open(ctx context.Context) error {
 	// Add query hook for observability
 	d.bun.AddQueryHook(d.queryHook())
 
-	d.logger.Info("database opened",
-		logger.String("name", d.name),
-		logger.String("type", string(d.dbType)),
-		logger.Int("max_open", d.config.MaxOpenConns),
-	)
-
 	return nil
 }
 
 // Close closes the database connection
 func (d *SQLDatabase) Close(ctx context.Context) error {
 	if d.bun != nil {
-		return d.bun.Close()
+		err := d.bun.Close()
+		if err != nil {
+			d.state.Store(int32(StateError))
+			return ErrConnectionFailed(d.name, d.dbType, fmt.Errorf("failed to close: %w", err))
+		}
+		d.state.Store(int32(StateDisconnected))
+		d.logger.Info("database closed", logger.String("name", d.name))
+		return nil
 	}
 	return nil
 }
@@ -94,9 +163,28 @@ func (d *SQLDatabase) Close(ctx context.Context) error {
 // Ping checks database connectivity
 func (d *SQLDatabase) Ping(ctx context.Context) error {
 	if d.sqlDB == nil {
-		return fmt.Errorf("database not opened")
+		return ErrDatabaseNotOpened(d.name)
 	}
-	return d.sqlDB.PingContext(ctx)
+
+	// Add timeout if configured
+	pingCtx := ctx
+	if d.config.ConnectionTimeout > 0 {
+		var cancel context.CancelFunc
+		pingCtx, cancel = context.WithTimeout(ctx, d.config.ConnectionTimeout)
+		defer cancel()
+	}
+
+	return d.sqlDB.PingContext(pingCtx)
+}
+
+// IsOpen returns whether the database is connected
+func (d *SQLDatabase) IsOpen() bool {
+	return d.State() == StateConnected
+}
+
+// State returns the current connection state
+func (d *SQLDatabase) State() ConnectionState {
+	return ConnectionState(d.state.Load())
 }
 
 // Name returns the database name
@@ -164,16 +252,44 @@ func (d *SQLDatabase) Stats() DatabaseStats {
 	}
 }
 
-// Transaction executes a function in a SQL transaction
-func (d *SQLDatabase) Transaction(ctx context.Context, fn func(tx bun.Tx) error) error {
-	return d.bun.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+// Transaction executes a function in a SQL transaction with panic recovery
+func (d *SQLDatabase) Transaction(ctx context.Context, fn func(tx bun.Tx) error) (err error) {
+	return d.bun.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = ErrPanicRecovered(d.name, d.dbType, r)
+				d.logger.Error("panic recovered in transaction",
+					logger.String("db", d.name),
+					logger.Any("panic", r),
+				)
+				if d.metrics != nil {
+					d.metrics.Counter("db_transaction_panics",
+						"db", d.name,
+					).Inc()
+				}
+			}
+		}()
 		return fn(tx)
 	})
 }
 
-// TransactionWithOptions executes a function in a SQL transaction with options
-func (d *SQLDatabase) TransactionWithOptions(ctx context.Context, opts *sql.TxOptions, fn func(tx bun.Tx) error) error {
-	return d.bun.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) error {
+// TransactionWithOptions executes a function in a SQL transaction with options and panic recovery
+func (d *SQLDatabase) TransactionWithOptions(ctx context.Context, opts *sql.TxOptions, fn func(tx bun.Tx) error) (err error) {
+	return d.bun.RunInTx(ctx, opts, func(ctx context.Context, tx bun.Tx) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = ErrPanicRecovered(d.name, d.dbType, r)
+				d.logger.Error("panic recovered in transaction",
+					logger.String("db", d.name),
+					logger.Any("panic", r),
+				)
+				if d.metrics != nil {
+					d.metrics.Counter("db_transaction_panics",
+						"db", d.name,
+					).Inc()
+				}
+			}
+		}()
 		return fn(tx)
 	})
 }
@@ -209,17 +325,19 @@ func (d *SQLDatabase) dialect() schema.Dialect {
 // Helper: Query hook for observability
 func (d *SQLDatabase) queryHook() bun.QueryHook {
 	return &QueryHook{
-		logger:  d.logger,
-		metrics: d.metrics,
-		dbName:  d.name,
+		logger:             d.logger,
+		metrics:            d.metrics,
+		dbName:             d.name,
+		slowQueryThreshold: d.config.SlowQueryThreshold,
 	}
 }
 
 // QueryHook provides observability for Bun queries
 type QueryHook struct {
-	logger  forge.Logger
-	metrics forge.Metrics
-	dbName  string
+	logger             forge.Logger
+	metrics            forge.Metrics
+	dbName             string
+	slowQueryThreshold time.Duration
 }
 
 // BeforeQuery is called before query execution
@@ -231,12 +349,13 @@ func (h *QueryHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) cont
 func (h *QueryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
 	duration := time.Since(event.StartTime)
 
-	// Log slow queries
-	if duration > 100*time.Millisecond {
+	// Log slow queries using configurable threshold
+	if duration > h.slowQueryThreshold {
 		h.logger.Warn("slow query detected",
 			logger.String("db", h.dbName),
 			logger.String("query", event.Query),
 			logger.Duration("duration", duration),
+			logger.Duration("threshold", h.slowQueryThreshold),
 		)
 	}
 
