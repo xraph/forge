@@ -14,13 +14,15 @@ type AsyncAPIParameter = shared.AsyncAPIParameter
 // asyncAPISchemaGenerator generates AsyncAPI message schemas from Go types
 // It reuses the OpenAPI schema generator since AsyncAPI uses JSON Schema
 type asyncAPISchemaGenerator struct {
-	schemaGen *schemaGenerator
+	schemaGen  *schemaGenerator
+	components map[string]*Schema // Reference to AsyncAPI components for nested types
 }
 
 // newAsyncAPISchemaGenerator creates a new AsyncAPI schema generator
-func newAsyncAPISchemaGenerator() *asyncAPISchemaGenerator {
+func newAsyncAPISchemaGenerator(components map[string]*Schema) *asyncAPISchemaGenerator {
 	return &asyncAPISchemaGenerator{
-		schemaGen: newSchemaGenerator(),
+		schemaGen:  newSchemaGenerator(components), // AsyncAPI supports component references
+		components: components,
 	}
 }
 

@@ -29,11 +29,15 @@ func newOpenAPIGenerator(config OpenAPIConfig, router Router, container interfac
 		config.SpecPath = "/openapi.json"
 	}
 
+	// Create components map that will be shared with schema generator
+	// This allows the generator to register nested struct types as components
+	componentsSchemas := make(map[string]*Schema)
+
 	return &openAPIGenerator{
 		config:    config,
 		router:    router,
 		container: container,
-		schemas:   newSchemaGenerator(),
+		schemas:   newSchemaGenerator(componentsSchemas),
 	}
 }
 
@@ -51,7 +55,7 @@ func (g *openAPIGenerator) Generate() *OpenAPISpec {
 		Servers: g.config.Servers,
 		Paths:   make(map[string]*PathItem),
 		Components: &Components{
-			Schemas:         make(map[string]*Schema),
+			Schemas:         g.schemas.components, // Use the shared components map
 			SecuritySchemes: g.config.Security,
 		},
 		Tags:         g.config.Tags,

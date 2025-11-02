@@ -49,10 +49,14 @@ func newAsyncAPIGenerator(config AsyncAPIConfig, router Router) *asyncAPIGenerat
 		config.DefaultContentType = "application/json"
 	}
 
+	// Create components map that will be shared with schema generator
+	// This allows nested struct types to be registered as components
+	componentsSchemas := make(map[string]*Schema)
+
 	return &asyncAPIGenerator{
 		config:  config,
 		router:  router,
-		schemas: newAsyncAPISchemaGenerator(),
+		schemas: newAsyncAPISchemaGenerator(componentsSchemas),
 	}
 }
 
@@ -72,7 +76,7 @@ func (g *asyncAPIGenerator) Generate() *AsyncAPISpec {
 		Channels:   make(map[string]*AsyncAPIChannel),
 		Operations: make(map[string]*AsyncAPIOperation),
 		Components: &AsyncAPIComponents{
-			Schemas:  make(map[string]*Schema),
+			Schemas:  g.schemas.components, // Use the shared components map for nested struct types
 			Messages: make(map[string]*AsyncAPIMessage),
 		},
 	}

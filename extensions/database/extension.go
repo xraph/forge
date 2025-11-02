@@ -8,66 +8,49 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/logger"
 )
 
 // Extension implements the database extension
 type Extension struct {
+	*forge.BaseExtension
 	config  Config
 	manager *DatabaseManager
-	logger  forge.Logger
-	metrics forge.Metrics
-	app     forge.App
 }
 
-// NewExtension creates a new database extension
-func NewExtension(config Config) forge.Extension {
+// NewExtension creates a new database extension with variadic options
+func NewExtension(opts ...ConfigOption) forge.Extension {
+	config := DefaultConfig()
+	for _, opt := range opts {
+		opt(&config)
+	}
+
+	base := forge.NewBaseExtension("database", "2.0.0", "Multi-database support with SQL (Postgres, MySQL, SQLite) and NoSQL (MongoDB)")
 	return &Extension{
-		config: config,
+		BaseExtension: base,
+		config:        config,
 	}
 }
 
-// Name returns the extension name
-func (e *Extension) Name() string {
-	return "database"
-}
-
-// Version returns the extension version
-func (e *Extension) Version() string {
-	return "2.0.0"
-}
-
-// Description returns the extension description
-func (e *Extension) Description() string {
-	return "Multi-database support with SQL (Postgres, MySQL, SQLite) and NoSQL (MongoDB)"
-}
-
-// Dependencies returns the list of extension dependencies
-func (e *Extension) Dependencies() []string {
-	return []string{} // No dependencies
+// NewExtensionWithConfig creates a new database extension with a complete config
+func NewExtensionWithConfig(config Config) forge.Extension {
+	return NewExtension(WithConfig(config))
 }
 
 // Register registers the extension with the application
 func (e *Extension) Register(app forge.App) error {
-	e.app = app
-
-	// Get dependencies from DI
-	e.logger = forge.Must[forge.Logger](app.Container(), "logger")
-	e.metrics = forge.Must[forge.Metrics](app.Container(), "metrics")
-
-	// Get config from ConfigManager (bind pattern) only if config wasn't provided
-	// Check if config was provided in constructor (has databases configured)
-	if len(e.config.Databases) == 0 {
-		configMgr := forge.Must[forge.ConfigManager](app.Container(), "config")
-		var tempConfig Config
-		if err := configMgr.Bind("extensions.database", &tempConfig); err == nil {
-			e.config = tempConfig
-		} else {
-			// Use default config if not found
-			e.logger.Info("using default database config")
-			e.config = DefaultConfig()
-		}
+	if err := e.BaseExtension.Register(app); err != nil {
+		return err
 	}
+
+	programmaticConfig := e.config
+	finalConfig := DefaultConfig()
+	if err := e.LoadConfig("database", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
+		if programmaticConfig.RequireConfig {
+			return fmt.Errorf("database: failed to load required config: %w", err)
+		}
+		e.Logger().Warn("database: using default/programmatic config", forge.F("error", err.Error()))
+	}
+	e.config = finalConfig
 
 	// Validate configuration
 	if err := e.config.Validate(); err != nil {
@@ -75,7 +58,7 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Create database manager
-	e.manager = NewDatabaseManager(e.logger, e.metrics)
+	e.manager = NewDatabaseManager(e.Logger(), e.Metrics())
 
 	// Register databases
 	for _, dbConfig := range e.config.Databases {
@@ -84,9 +67,9 @@ func (e *Extension) Register(app forge.App) error {
 
 		switch dbConfig.Type {
 		case TypePostgres, TypeMySQL, TypeSQLite:
-			db, err = NewSQLDatabase(dbConfig, e.logger, e.metrics)
+			db, err = NewSQLDatabase(dbConfig, e.Logger(), e.Metrics())
 		case TypeMongoDB:
-			db, err = NewMongoDatabase(dbConfig, e.logger, e.metrics)
+			db, err = NewMongoDatabase(dbConfig, e.Logger(), e.Metrics())
 		default:
 			return fmt.Errorf("unsupported database type: %s", dbConfig.Type)
 		}
@@ -101,7 +84,7 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Register database manager in DI
-	if err := forge.RegisterSingleton(app.Container(), "databaseManager", func(c forge.Container) (*DatabaseManager, error) {
+	if err := forge.RegisterSingleton(app.Container(), ManagerKey, func(c forge.Container) (*DatabaseManager, error) {
 		return e.manager, nil
 	}); err != nil {
 		return fmt.Errorf("failed to register database manager: %w", err)
@@ -115,7 +98,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if defaultName != "" {
 		// Register default database
-		if err := forge.RegisterSingleton(app.Container(), "database", func(c forge.Container) (Database, error) {
+		if err := forge.RegisterSingleton(app.Container(), DatabaseKey, func(c forge.Container) (Database, error) {
 			return e.manager.Get(defaultName)
 		}); err != nil {
 			return fmt.Errorf("failed to register default database: %w", err)
@@ -153,7 +136,7 @@ func (e *Extension) Register(app forge.App) error {
 		}
 	}
 
-	e.logger.Info("database extension registered",
+	e.Logger().Info("database extension registered",
 		forge.F("databases", len(e.config.Databases)),
 		forge.F("default", defaultName),
 	)
@@ -163,27 +146,29 @@ func (e *Extension) Register(app forge.App) error {
 
 // Start starts the extension
 func (e *Extension) Start(ctx context.Context) error {
-	e.logger.Info("starting database extension")
+	e.Logger().Info("starting database extension")
 
 	// Open all databases
 	if err := e.manager.OpenAll(ctx); err != nil {
 		return fmt.Errorf("failed to open databases: %w", err)
 	}
 
-	e.logger.Info("database extension started")
+	e.MarkStarted()
+	e.Logger().Info("database extension started")
 	return nil
 }
 
 // Stop stops the extension
 func (e *Extension) Stop(ctx context.Context) error {
-	e.logger.Info("stopping database extension")
+	e.Logger().Info("stopping database extension")
 
 	// Close all databases
 	if err := e.manager.CloseAll(ctx); err != nil {
 		return fmt.Errorf("failed to close databases: %w", err)
 	}
 
-	e.logger.Info("database extension stopped")
+	e.MarkStopped()
+	e.Logger().Info("database extension stopped")
 	return nil
 }
 
@@ -196,7 +181,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	for name, status := range statuses {
 		if !status.Healthy {
 			unhealthy++
-			e.logger.Warn("database unhealthy", logger.String("name", name), logger.String("error", status.Message))
+			e.Logger().Warn("database unhealthy", forge.F("name", name), forge.F("error", status.Message))
 		}
 	}
 

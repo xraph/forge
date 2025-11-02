@@ -1,0 +1,143 @@
+# .forge.yaml - Complete Deployment Configuration Example
+# This example shows all deployment options including auto-configured git repository settings
+
+project:
+  name: my-awesome-app
+  version: 1.0.0
+  description: Full-stack application with microservices
+  type: monorepo
+  layout: single-module
+  module: github.com/myorg/my-awesome-app  # Used to auto-extract git repo
+  
+  structure:
+    cmd: ./cmd
+    apps: ./apps
+    pkg: ./pkg
+    internal: ./internal
+    deployments: ./deployments
+
+# Build Configuration
+build:
+  output_dir: ./bin
+  apps:
+    - name: api-service
+      cmd: ./cmd/api-service
+      output: api-service
+    - name: worker-service
+      cmd: ./cmd/worker-service
+      output: worker-service
+
+# Deployment Configuration
+deploy:
+  # Container registry for all deployments
+  registry: registry.example.com/myorg
+  
+  # Docker Deployment
+  docker:
+    build_context: .
+    network: forge-network
+    volumes:
+      data: /var/data
+  
+  # Kubernetes Deployment
+  kubernetes:
+    namespace: myapp
+    context: production-cluster
+    registry: registry.example.com/myorg
+  
+  # Digital Ocean Deployment
+  digitalocean:
+    # Git repository (auto-detected from project.module or go.mod)
+    # Override if you want to use a different repo
+    git_repo: myorg/my-awesome-app
+    
+    # Git branch to deploy from
+    # Default: main
+    git_branch: main
+    
+    # Auto-deploy when code is pushed to branch
+    # Default: false
+    deploy_on_push: true
+    
+    # Digital Ocean region
+    # Options: nyc1, nyc3, sfo3, ams3, sgp1, lon1, fra1, tor1, blr1
+    # Default: nyc1
+    region: nyc1
+    
+    # Optional: Custom app spec file path
+    # app_spec_file: ./deployments/do/app.yaml
+    
+    # Optional: Kubernetes cluster name (if using DO Kubernetes)
+    # cluster_name: production-k8s
+  
+  # Render.com Deployment
+  render:
+    # Git repository (auto-detected from project.module or go.mod)
+    # Override if you want to use a different repo
+    git_repo: myorg/my-awesome-app
+    
+    # Git branch to deploy from
+    # Default: main
+    git_branch: main
+    
+    # Render region
+    # Options: oregon, frankfurt, ohio, singapore
+    # Default: not set (Render chooses automatically)
+    region: oregon
+    
+    # Optional: Custom blueprint file path
+    # blueprint_file: ./deployments/render/render.yaml
+  
+  # Environment Configurations
+  environments:
+    - name: dev
+      cluster: dev-cluster
+      namespace: dev
+      region: nyc1
+      variables:
+        LOG_LEVEL: debug
+        ENV: development
+    
+    - name: staging
+      cluster: staging-cluster
+      namespace: staging
+      region: sfo3
+      variables:
+        LOG_LEVEL: info
+        ENV: staging
+    
+    - name: prod
+      cluster: prod-cluster
+      namespace: production
+      region: sfo3
+      variables:
+        LOG_LEVEL: warn
+        ENV: production
+
+# Example Usage:
+# 
+# 1. Export Digital Ocean configuration:
+#    forge infra do export
+#    - Automatically uses: github.com/myorg/my-awesome-app -> myorg/my-awesome-app
+#    - Branch: main (from config)
+#    - Deploy on push: true (from config)
+#    - Region: nyc1 (from config)
+#
+# 2. Export Render configuration:
+#    forge infra render export
+#    - Automatically uses: https://github.com/myorg/my-awesome-app
+#    - Branch: main (from config)
+#    - Region: oregon (from config)
+#
+# 3. Deploy to Docker:
+#    forge infra docker deploy --build -e dev
+#
+# 4. Deploy to Kubernetes:
+#    forge infra k8s deploy -e prod -n production
+#
+# 5. Deploy to Digital Ocean:
+#    forge infra do deploy -e prod
+#
+# 6. Deploy to Render:
+#    forge infra render deploy -e prod
+

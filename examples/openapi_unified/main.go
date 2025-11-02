@@ -122,6 +122,59 @@ type ErrorResponse struct {
 	Details any    `json:"details,omitempty" description:"Additional error details"`
 }
 
+// ========================================
+// NESTED STRUCT EXAMPLES (for testing component refs)
+// ========================================
+
+// Address represents a physical address (nested struct)
+type Address struct {
+	Street  string `json:"street" description:"Street address" example:"123 Main St"`
+	City    string `json:"city" description:"City name" example:"San Francisco"`
+	State   string `json:"state,omitempty" description:"State/Province" example:"CA"`
+	ZipCode string `json:"zipCode" description:"Postal code" example:"94102"`
+	Country string `json:"country" description:"Country code" example:"US"`
+}
+
+// AuthFactor represents an authentication factor (nested struct)
+type AuthFactor struct {
+	FactorID int      `json:"factor_id" description:"Unique factor identifier" example:"1"`
+	Type     string   `json:"type" description:"Factor type" enum:"totp,sms,email,webauthn" example:"totp"`
+	Name     string   `json:"name" description:"Factor display name" example:"Authenticator App"`
+	Metadata Metadata `json:"metadata,omitempty" description:"Additional factor metadata"`
+}
+
+// Metadata represents additional metadata (deeply nested struct)
+type Metadata struct {
+	CreatedAt time.Time         `json:"created_at" description:"Creation timestamp"`
+	UpdatedAt time.Time         `json:"updated_at" description:"Last update timestamp"`
+	Tags      []string          `json:"tags,omitempty" description:"Metadata tags"`
+	Custom    map[string]string `json:"custom,omitempty" description:"Custom key-value pairs"`
+}
+
+// UserProfile represents extended user profile (with nested structs)
+type UserProfile struct {
+	UserID         string       `json:"user_id" description:"User identifier" format:"uuid"`
+	Bio            string       `json:"bio,omitempty" description:"User biography" maxLength:"500"`
+	Address        Address      `json:"address" description:"Primary address"`
+	BillingAddress *Address     `json:"billing_address,omitempty" description:"Billing address (if different)"`
+	Factors        []AuthFactor `json:"factors,omitempty" description:"Available authentication factors"`
+	Preferences    Metadata     `json:"preferences,omitempty" description:"User preferences"`
+}
+
+// ChallengeResponse represents an authentication challenge (demonstrates the reported issue)
+type ChallengeResponse struct {
+	ChallengeID      int          `json:"challenge_id" description:"Challenge identifier" example:"12345"`
+	SessionID        string       `json:"session_id" description:"Session identifier" format:"uuid"`
+	AvailableFactors []AuthFactor `json:"available_factors" description:"Factors available for this challenge"`
+	FactorsRequired  int          `json:"factors_required" description:"Number of factors required" minimum:"1" maximum:"3" example:"1"`
+	ExpiresAt        time.Time    `json:"expires_at" description:"Challenge expiration time"`
+}
+
+// GetProfileRequest demonstrates nested struct in response
+type GetProfileRequest struct {
+	UserID string `path:"userId" description:"User ID" format:"uuid" required:"true"`
+}
+
 func main() {
 	// Create Forge app with OpenAPI configuration
 	app := forge.NewApp(forge.AppConfig{
@@ -215,6 +268,29 @@ func main() {
 	)
 
 	// ========================================
+	// NESTED STRUCT ROUTES (demonstrating component references)
+	// ========================================
+
+	// GET /users/:userId/profile - Response with nested structs
+	router.GET("/users/:userId/profile", handleGetProfile,
+		forge.WithSummary("Get user profile"),
+		forge.WithDescription("Retrieves extended user profile with nested address and authentication factors"),
+		forge.WithTags("Users", "Profiles"),
+		forge.WithRequestSchema(&GetProfileRequest{}),
+		forge.WithResponseSchema(200, "User profile with nested data", &UserProfile{}),
+		forge.WithResponseSchema(404, "User not found", &ErrorResponse{}),
+	)
+
+	// POST /auth/challenge - Demonstrates the reported nested struct issue
+	router.POST("/auth/challenge", handleCreateChallenge,
+		forge.WithSummary("Create authentication challenge"),
+		forge.WithDescription("Creates an authentication challenge with available factors (demonstrates nested struct component refs)"),
+		forge.WithTags("Authentication"),
+		forge.WithResponseSchema(200, "Authentication challenge created", &ChallengeResponse{}),
+		forge.WithResponseSchema(400, "Invalid request", &ErrorResponse{}),
+	)
+
+	// ========================================
 	// COMPARISON: Old vs New Approach
 	// ========================================
 
@@ -249,6 +325,7 @@ func main() {
 	fmt.Println("   ✓ Type-safe path parameters")
 	fmt.Println("   ✓ Comprehensive validation rules")
 	fmt.Println("   ✓ Multiple response status codes")
+	fmt.Println("   ✓ Nested struct component references (NEW!)")
 	fmt.Println("")
 	fmt.Println("📌 Example API Calls:")
 	fmt.Println("  GET    http://localhost:8085/users/123e4567-e89b-12d3-a456-426614174000?include=profile")
@@ -256,6 +333,10 @@ func main() {
 	fmt.Println("  PATCH  http://localhost:8085/users/123e4567-e89b-12d3-a456-426614174000?validate=true")
 	fmt.Println("  DELETE http://localhost:8085/users/123e4567-e89b-12d3-a456-426614174000?force=false")
 	fmt.Println("  GET    http://localhost:8085/users?q=john&role=user&page=1&pageSize=20")
+	fmt.Println("")
+	fmt.Println("🔧 Nested Struct Examples (Component References):")
+	fmt.Println("  GET    http://localhost:8085/users/123e4567-e89b-12d3-a456-426614174000/profile")
+	fmt.Println("  POST   http://localhost:8085/auth/challenge")
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop...")
 	fmt.Println("")
@@ -383,4 +464,116 @@ func handleSearchUsers(ctx forge.Context, req *SearchUsersRequest) (*PaginatedUs
 	}
 
 	return result, nil
+}
+
+// ========================================
+// NESTED STRUCT HANDLER IMPLEMENTATIONS
+// ========================================
+
+func handleGetProfile(ctx forge.Context, req *GetProfileRequest) (*UserProfile, error) {
+	fmt.Printf("GetProfile - UserID: %s\n", req.UserID)
+
+	// Mock profile response with nested structs
+	profile := &UserProfile{
+		UserID: req.UserID,
+		Bio:    "Software engineer passionate about distributed systems",
+		Address: Address{
+			Street:  "123 Main St",
+			City:    "San Francisco",
+			State:   "CA",
+			ZipCode: "94102",
+			Country: "US",
+		},
+		BillingAddress: &Address{
+			Street:  "456 Market St",
+			City:    "San Francisco",
+			State:   "CA",
+			ZipCode: "94103",
+			Country: "US",
+		},
+		Factors: []AuthFactor{
+			{
+				FactorID: 1,
+				Type:     "totp",
+				Name:     "Authenticator App",
+				Metadata: Metadata{
+					CreatedAt: time.Now().Add(-30 * 24 * time.Hour),
+					UpdatedAt: time.Now(),
+					Tags:      []string{"primary", "verified"},
+					Custom:    map[string]string{"device": "iPhone 12"},
+				},
+			},
+			{
+				FactorID: 2,
+				Type:     "sms",
+				Name:     "Phone +1 *** *** 1234",
+				Metadata: Metadata{
+					CreatedAt: time.Now().Add(-60 * 24 * time.Hour),
+					UpdatedAt: time.Now().Add(-5 * 24 * time.Hour),
+					Tags:      []string{"backup"},
+					Custom:    map[string]string{"carrier": "AT&T"},
+				},
+			},
+		},
+		Preferences: Metadata{
+			CreatedAt: time.Now().Add(-90 * 24 * time.Hour),
+			UpdatedAt: time.Now().Add(-1 * time.Hour),
+			Tags:      []string{"beta-tester"},
+			Custom: map[string]string{
+				"theme":         "dark",
+				"notifications": "enabled",
+			},
+		},
+	}
+
+	return profile, nil
+}
+
+func handleCreateChallenge(ctx forge.Context) (*ChallengeResponse, error) {
+	fmt.Println("CreateChallenge - Creating authentication challenge")
+
+	// Mock challenge response - demonstrates the reported nested struct issue
+	challenge := &ChallengeResponse{
+		ChallengeID: 12345,
+		SessionID:   "987e6543-e21b-87c6-d543-321698765432",
+		AvailableFactors: []AuthFactor{
+			{
+				FactorID: 1,
+				Type:     "totp",
+				Name:     "Authenticator App",
+				Metadata: Metadata{
+					CreatedAt: time.Now().Add(-30 * 24 * time.Hour),
+					UpdatedAt: time.Now(),
+					Tags:      []string{"primary"},
+					Custom:    map[string]string{"status": "active"},
+				},
+			},
+			{
+				FactorID: 2,
+				Type:     "sms",
+				Name:     "Phone +1 *** *** 1234",
+				Metadata: Metadata{
+					CreatedAt: time.Now().Add(-60 * 24 * time.Hour),
+					UpdatedAt: time.Now(),
+					Tags:      []string{"backup"},
+					Custom:    map[string]string{"status": "active"},
+				},
+			},
+			{
+				FactorID: 3,
+				Type:     "webauthn",
+				Name:     "Security Key",
+				Metadata: Metadata{
+					CreatedAt: time.Now().Add(-10 * 24 * time.Hour),
+					UpdatedAt: time.Now(),
+					Tags:      []string{"hardware"},
+					Custom:    map[string]string{"status": "active", "device_type": "YubiKey"},
+				},
+			},
+		},
+		FactorsRequired: 1,
+		ExpiresAt:       time.Now().Add(5 * time.Minute),
+	}
+
+	return challenge, nil
 }

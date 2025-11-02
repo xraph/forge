@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/xraph/forge/internal/config"
+	configM "github.com/xraph/forge/internal/config"
 	"github.com/xraph/forge/internal/di"
 	healthinternal "github.com/xraph/forge/internal/health"
 	"github.com/xraph/forge/internal/logger"
@@ -94,7 +94,53 @@ func newApp(config AppConfig) *app {
 
 	// Create config manager if not provided (needed for metrics/health initialization)
 	configManager := config.ConfigManager
-	// Will initialize later once metrics is available
+
+	// Auto-discover and load config files if ConfigManager not provided and auto-discovery is enabled
+	if configManager == nil && config.EnableConfigAutoDiscovery {
+		autoConfig := configM.AutoDiscoveryConfig{
+			AppName:          config.Name,
+			SearchPaths:      config.ConfigSearchPaths,
+			ConfigNames:      config.ConfigBaseNames,
+			LocalConfigNames: config.ConfigLocalNames,
+			EnableAppScoping: config.EnableAppScopedConfig,
+			RequireBase:      false,
+			RequireLocal:     false,
+			MaxDepth:         5,
+			Logger:           logger,
+		}
+
+		// Try to auto-discover and load configs
+		if autoManager, result, err := configM.DiscoverAndLoadConfigs(autoConfig); err == nil {
+			configManager = autoManager
+
+			// Log discovery results
+			if logger != nil {
+				if result.BaseConfigPath != "" {
+					logger.Info("auto-discovered base config",
+						F("path", result.BaseConfigPath),
+					)
+				}
+				if result.LocalConfigPath != "" {
+					logger.Info("auto-discovered local config",
+						F("path", result.LocalConfigPath),
+					)
+				}
+				if result.IsMonorepo {
+					logger.Info("detected monorepo layout",
+						F("app", config.Name),
+						F("app_scoped", config.EnableAppScopedConfig),
+					)
+				}
+			}
+		} else {
+			// Auto-discovery failed, but that's okay - we'll create a default manager
+			if logger != nil {
+				logger.Debug("config auto-discovery did not find files, using empty config",
+					F("error", err.Error()),
+				)
+			}
+		}
+	}
 
 	// Create metrics with full config support
 	var metrics Metrics
@@ -126,9 +172,12 @@ func newApp(config AppConfig) *app {
 		metrics = metricsinternal.NewNoOpMetrics()
 	}
 
-	// Initialize config manager if not provided
+	// Initialize config manager if still not provided (after auto-discovery attempt)
 	if configManager == nil {
 		configManager = NewDefaultConfigManager(logger, metrics, errorHandler)
+		if logger != nil {
+			logger.Debug("using default empty config manager")
+		}
 	}
 
 	// Create health manager with full config support
@@ -356,6 +405,13 @@ func (a *app) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
 		}
 	}
+
+	// 1.5 Apply global middleware from extensions
+	a.logger.Debug("applying extension middlewares")
+	if err := a.applyExtensionMiddlewares(); err != nil {
+		return fmt.Errorf("failed to apply extension middlewares: %w", err)
+	}
+	a.logger.Debug("extension middlewares applied")
 
 	// 2. Start DI container (starts all registered services)
 	a.logger.Debug("starting DI container")
@@ -678,6 +734,39 @@ func (a *app) stopExtensions(ctx context.Context) {
 	}
 }
 
+// applyExtensionMiddlewares applies global middlewares from extensions that implement MiddlewareExtension
+func (a *app) applyExtensionMiddlewares() error {
+	middlewareCount := 0
+	for _, ext := range a.extensions {
+		// Check if extension implements MiddlewareExtension
+		if mwExt, ok := ext.(MiddlewareExtension); ok {
+			middlewares := mwExt.Middlewares()
+			if len(middlewares) > 0 {
+				a.logger.Info("applying middlewares from extension",
+					F("extension", ext.Name()),
+					F("count", len(middlewares)),
+				)
+
+				// Apply all middlewares from this extension
+				a.router.Use(middlewares...)
+				middlewareCount += len(middlewares)
+
+				a.logger.Debug("middlewares applied",
+					F("extension", ext.Name()),
+				)
+			}
+		}
+	}
+
+	if middlewareCount > 0 {
+		a.logger.Info("extension middlewares applied",
+			F("total_middlewares", middlewareCount),
+		)
+	}
+
+	return nil
+}
+
 // registerExtensionHealthChecks registers health checks for all extensions
 func (a *app) registerExtensionHealthChecks() {
 	for _, ext := range a.extensions {
@@ -714,7 +803,7 @@ func NewDefaultConfigManager(
 		e = shared.NewDefaultErrorHandler(l)
 	}
 
-	return config.NewManager(config.ManagerConfig{
+	return configM.NewManager(configM.ManagerConfig{
 		Logger:       l,
 		Metrics:      m,
 		ErrorHandler: e,

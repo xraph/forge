@@ -25,18 +25,16 @@ func main() {
 		Name:    "database-demo",
 		Version: "1.0.0",
 		Extensions: []forge.Extension{
-			database.NewExtension(database.Config{
-				Databases: []database.DatabaseConfig{
-					{
-						Name:            "primary",
-						Type:            database.TypeSQLite,
-						DSN:             "file:demo.db?cache=shared",
-						MaxOpenConns:    10,
-						MaxIdleConns:    5,
-						ConnMaxLifetime: 5 * time.Minute,
-					},
+			database.NewExtension(database.WithDatabases(
+				database.DatabaseConfig{
+					Name:            "primary",
+					Type:            database.TypeSQLite,
+					DSN:             "file:demo.db?cache=shared",
+					MaxOpenConns:    10,
+					MaxIdleConns:    5,
+					ConnMaxLifetime: 5 * time.Minute,
 				},
-			}),
+			)),
 		},
 	})
 

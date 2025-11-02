@@ -1,0 +1,21 @@
+# Local Override Configuration
+# This file overrides settings in config.yaml for local development
+# It should be in .gitignore
+
+# Override database for local development
+database:
+  host: localhost
+  name: myapp_dev
+  user: devuser
+
+# Override cache for local
+extensions:
+  cache:
+    driver: inmemory
+    max_size: 5000
+
+# Override logging for local development
+logging:
+  level: debug
+  format: text
+

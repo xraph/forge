@@ -236,7 +236,7 @@ func WithAcceptedResponse() RouteOption {
 
 // generateSchemaForType generates a schema from a type
 func generateSchemaForType(itemType interface{}) *Schema {
-	gen := newSchemaGenerator()
+	gen := newSchemaGenerator(nil) // Inline schema generation
 	return gen.GenerateSchema(itemType)
 }
 
@@ -332,7 +332,7 @@ func WithValidationErrorResponse() RouteOption {
 
 // GetSchemaFromType is a helper to get schema from a type
 func GetSchemaFromType(t reflect.Type) *Schema {
-	gen := newSchemaGenerator()
+	gen := newSchemaGenerator(nil) // Inline schema generation
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}

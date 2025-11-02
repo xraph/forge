@@ -98,3 +98,9 @@ METRICS_DEADLOCK_FIX.md
 .github/ACTION_PLAN.md
 .github/EXECUTIVE_SUMMARY.md
 .github/MONOREPO_STRATEGY.md
+
+!docs/**/*.md
+!README.md
+**/*.md
+!**/README.md
+/**/*.disabled

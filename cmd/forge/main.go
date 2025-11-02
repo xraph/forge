@@ -42,6 +42,8 @@ func main() {
 		plugins.NewGeneratePlugin(forgeConfig),  // forge generate:*
 		plugins.NewBuildPlugin(forgeConfig),     // forge build
 		plugins.NewDeployPlugin(forgeConfig),    // forge deploy:*
+		plugins.NewInfraPlugin(forgeConfig),     // forge infra:*
+		plugins.NewCloudPlugin(forgeConfig),     // forge cloud:*
 		plugins.NewDatabasePlugin(forgeConfig),  // forge db:*
 		plugins.NewExtensionPlugin(forgeConfig), // forge extension:*
 		plugins.NewDoctorPlugin(forgeConfig),    // forge doctor
