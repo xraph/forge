@@ -25,12 +25,13 @@ type app struct {
 	config AppConfig
 
 	// Core components
-	container     Container
-	router        Router
-	configManager ConfigManager
-	logger        Logger
-	metrics       Metrics
-	healthManager HealthManager
+	container         Container
+	router            Router
+	configManager     ConfigManager
+	logger            Logger
+	metrics           Metrics
+	healthManager     HealthManager
+	lifecycleManager  LifecycleManager
 
 	// HTTP server
 	httpServer *http.Server
@@ -248,16 +249,32 @@ func newApp(config AppConfig) *app {
 		return router, nil
 	})
 
+	// Create lifecycle manager
+	lifecycleManager := NewLifecycleManager(logger)
+
 	a := &app{
-		config:        config,
-		container:     container,
-		router:        router,
-		configManager: configManager,
-		logger:        logger,
-		metrics:       metrics,
-		healthManager: healthManager,
-		extensions:    config.Extensions,
-		startTime:     time.Now(),
+		config:           config,
+		container:        container,
+		router:           router,
+		configManager:    configManager,
+		logger:           logger,
+		metrics:          metrics,
+		healthManager:    healthManager,
+		lifecycleManager: lifecycleManager,
+		extensions:       []Extension{}, // Initialize empty, will populate below
+		startTime:        time.Now(),
+	}
+
+	// Register extensions from config
+	// This ensures RunnableExtension hooks are registered properly
+	for _, ext := range config.Extensions {
+		if err := a.RegisterExtension(ext); err != nil {
+			logger.Error("failed to register extension from config",
+				F("extension", ext.Name()),
+				F("error", err),
+			)
+			// Continue with other extensions
+		}
 	}
 
 	// Setup built-in endpoints
@@ -299,6 +316,11 @@ func (a *app) HealthManager() HealthManager {
 	return a.healthManager
 }
 
+// LifecycleManager returns the lifecycle manager
+func (a *app) LifecycleManager() LifecycleManager {
+	return a.lifecycleManager
+}
+
 // RegisterService registers a service with the DI container
 func (a *app) RegisterService(name string, factory Factory, opts ...RegisterOption) error {
 	return a.container.Register(name, factory, opts...)
@@ -322,7 +344,45 @@ func (a *app) RegisterExtension(ext Extension) error {
 	}
 
 	a.extensions = append(a.extensions, ext)
+
+	// Auto-register lifecycle hooks for RunnableExtension implementations
+	if runnableExt, ok := ext.(RunnableExtension); ok {
+		a.logger.Debug("registering runnable extension hooks",
+			F("extension", ext.Name()),
+		)
+
+		// Register Run() hook in PhaseAfterRun
+		runOpts := DefaultLifecycleHookOptions(fmt.Sprintf("run-%s", ext.Name()))
+		if err := a.lifecycleManager.RegisterHook(PhaseAfterRun, func(ctx context.Context, app App) error {
+			return runnableExt.Run(ctx)
+		}, runOpts); err != nil {
+			return fmt.Errorf("failed to register run hook for %s: %w", ext.Name(), err)
+		}
+
+		// Register Shutdown() hook in PhaseBeforeStop
+		shutdownOpts := DefaultLifecycleHookOptions(fmt.Sprintf("shutdown-%s", ext.Name()))
+		if err := a.lifecycleManager.RegisterHook(PhaseBeforeStop, func(ctx context.Context, app App) error {
+			return runnableExt.Shutdown(ctx)
+		}, shutdownOpts); err != nil {
+			return fmt.Errorf("failed to register shutdown hook for %s: %w", ext.Name(), err)
+		}
+
+		a.logger.Debug("runnable extension hooks registered",
+			F("extension", ext.Name()),
+		)
+	}
+
 	return nil
+}
+
+// RegisterHook registers a lifecycle hook
+func (a *app) RegisterHook(phase LifecyclePhase, hook LifecycleHook, opts LifecycleHookOptions) error {
+	return a.lifecycleManager.RegisterHook(phase, hook, opts)
+}
+
+// RegisterHookFn is a convenience method to register a hook with default options
+func (a *app) RegisterHookFn(phase LifecyclePhase, name string, hook LifecycleHook) error {
+	return a.lifecycleManager.RegisterHookFn(phase, name, hook)
 }
 
 // Extensions returns all registered extensions
@@ -395,6 +455,11 @@ func (a *app) Start(ctx context.Context) error {
 		F("extensions", len(a.extensions)),
 	)
 
+	// Execute before start hooks
+	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStart, a); err != nil {
+		return fmt.Errorf("before start hooks failed: %w", err)
+	}
+
 	// 1. Register extensions with app (registers services with DI)
 	for _, ext := range a.extensions {
 		a.logger.Info("registering extension",
@@ -404,6 +469,11 @@ func (a *app) Start(ctx context.Context) error {
 		if err := ext.Register(a); err != nil {
 			return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
 		}
+	}
+
+	// Execute after register hooks
+	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterRegister, a); err != nil {
+		return fmt.Errorf("after register hooks failed: %w", err)
 	}
 
 	// 1.5 Apply global middleware from extensions
@@ -450,6 +520,12 @@ func (a *app) Start(ctx context.Context) error {
 
 	a.started = true
 	a.startTime = time.Now()
+
+	// Execute after start hooks
+	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterStart, a); err != nil {
+		return fmt.Errorf("after start hooks failed: %w", err)
+	}
+
 	a.logger.Info("application started successfully")
 
 	return nil
@@ -465,6 +541,11 @@ func (a *app) Stop(ctx context.Context) error {
 	}
 
 	a.logger.Info("stopping application")
+
+	// Execute before stop hooks
+	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStop, a); err != nil {
+		a.logger.Warn("before stop hooks failed", F("error", err))
+	}
 
 	// 1. Stop health manager
 	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
@@ -482,6 +563,12 @@ func (a *app) Stop(ctx context.Context) error {
 	}
 
 	a.started = false
+
+	// Execute after stop hooks
+	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterStop, a); err != nil {
+		a.logger.Warn("after stop hooks failed", F("error", err))
+	}
+
 	a.logger.Info("application stopped")
 
 	return nil
@@ -506,6 +593,11 @@ func (a *app) Run() error {
 	// Print startup banner
 	a.printStartupBanner()
 
+	// Execute before run hooks (before HTTP server starts)
+	if err := a.lifecycleManager.ExecuteHooks(context.Background(), PhaseBeforeRun, a); err != nil {
+		return fmt.Errorf("before run hooks failed: %w", err)
+	}
+
 	// Channel for shutdown signal
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, a.config.ShutdownSignals...)
@@ -517,6 +609,14 @@ func (a *app) Run() error {
 	go func() {
 		if err := a.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errChan <- err
+		}
+	}()
+
+	// Execute after run hooks (after HTTP server starts, non-blocking)
+	// Run in background to not block main loop
+	go func() {
+		if err := a.lifecycleManager.ExecuteHooks(context.Background(), PhaseAfterRun, a); err != nil {
+			a.logger.Warn("after run hooks failed", F("error", err))
 		}
 	}()
 

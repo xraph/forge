@@ -58,21 +58,22 @@ func (m *mockApp) Router() forge.Router                               { return n
 func (m *mockApp) Config() forge.ConfigManager                        { return nil }
 func (m *mockApp) Metrics() forge.Metrics                             { return nil }
 func (m *mockApp) HealthManager() forge.HealthManager                 { return nil }
+func (m *mockApp) LifecycleManager() forge.LifecycleManager           { return forge.NewLifecycleManager(m.logger) }
 func (m *mockApp) Context() context.Context                           { return context.Background() }
 func (m *mockApp) Run() error                                         { return nil }
 func (m *mockApp) Start(ctx context.Context) error                    { return nil }
 func (m *mockApp) Stop(ctx context.Context) error                     { return nil }
 func (m *mockApp) RegisterExtension(ext forge.Extension) error        { return nil }
-func (m *mockApp) GetExtension(name string) (forge.Extension, error) { return nil, nil }
-func (m *mockApp) ListExtensions() []forge.ExtensionInfo             { return nil }
-func (m *mockApp) Extensions() []forge.Extension                      { return nil }
-func (m *mockApp) HealthCheck(ctx context.Context) error              { return nil }
-func (m *mockApp) RegisterService(name string, factory forge.Factory, opts ...forge.RegisterOption) error {
-	return nil
-}
+func (m *mockApp) RegisterService(name string, factory forge.Factory, opts ...forge.RegisterOption) error { return nil }
 func (m *mockApp) RegisterController(controller forge.Controller) error { return nil }
-func (m *mockApp) Uptime() time.Duration                                { return 0 }
-func (m *mockApp) StartTime() time.Time                                 { return time.Now() }
+func (m *mockApp) RegisterHook(phase forge.LifecyclePhase, hook forge.LifecycleHook, opts forge.LifecycleHookOptions) error { return nil }
+func (m *mockApp) RegisterHookFn(phase forge.LifecyclePhase, name string, hook forge.LifecycleHook) error { return nil }
+func (m *mockApp) GetExtension(name string) (forge.Extension, error) { return nil, nil }
+func (m *mockApp) Extensions() []forge.Extension                     { return nil }
+func (m *mockApp) StartTime() time.Time                              { return time.Now() }
+func (m *mockApp) Uptime() time.Duration                             { return time.Second }
+func (m *mockApp) ListExtensions() []forge.ExtensionInfo             { return nil }
+func (m *mockApp) HealthCheck(ctx context.Context) error              { return nil }
 
 type mockScope struct{}
 

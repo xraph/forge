@@ -3,8 +3,11 @@
 package plugins
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -24,19 +27,54 @@ func killProcessGroup(cmd *exec.Cmd) {
 		return
 	}
 
-	// Kill the entire process group
-	pgid, err := syscall.Getpgid(cmd.Process.Pid)
+	pid := cmd.Process.Pid
+	
+	// Try to get the process group ID
+	pgid, err := syscall.Getpgid(pid)
 	if err == nil {
-		// Send SIGTERM to the process group (negative PID targets the process group)
+		// Send SIGTERM to the process group first (graceful shutdown)
+		// Negative PID targets the entire process group
 		_ = syscall.Kill(-pgid, syscall.SIGTERM)
 
-		// Wait a bit for graceful shutdown
-		time.Sleep(100 * time.Millisecond)
+		// Wait for graceful shutdown
+		waited := 0
+		for waited < 500 {
+			// Check if process still exists
+			if err := syscall.Kill(pid, 0); err != nil {
+				// Process is gone
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+			waited += 50
+		}
 
-		// Force kill if still running
+		// Force kill the entire process group if still running
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		
+		// Additional cleanup: kill any child processes that might have detached
+		killChildProcesses(pid)
 	} else {
 		// Fallback to killing just the main process
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		time.Sleep(200 * time.Millisecond)
 		_ = cmd.Process.Kill()
+	}
+}
+
+// killChildProcesses kills child processes using pgrep
+func killChildProcesses(parentPid int) {
+	// Use pgrep to find child processes
+	cmd := exec.Command("pgrep", "-P", fmt.Sprintf("%d", parentPid))
+	output, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	// Kill each child process
+	childPids := strings.Fields(string(output))
+	for _, pidStr := range childPids {
+		if pid, err := strconv.Atoi(pidStr); err == nil {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
 	}
 }
