@@ -27,12 +27,15 @@ func (m *mockApp) Router() forge.Router                               { return n
 func (m *mockApp) Config() forge.ConfigManager                        { return nil }
 func (m *mockApp) Logger() forge.Logger                               { return forge.NewNoopLogger() }
 func (m *mockApp) Metrics() forge.Metrics                             { return forge.NewNoOpMetrics() }
+func (m *mockApp) LifecycleManager() forge.LifecycleManager           { return forge.NewLifecycleManager(m.Logger()) }
 func (m *mockApp) Start(ctx context.Context) error                   { return nil }
 func (m *mockApp) Stop(ctx context.Context) error                    { return nil }
 func (m *mockApp) Run() error                                         { return nil }
 func (m *mockApp) RegisterService(name string, factory forge.Factory, opts ...forge.RegisterOption) error { return nil }
 func (m *mockApp) RegisterController(controller forge.Controller) error { return nil }
 func (m *mockApp) RegisterExtension(ext forge.Extension) error        { return nil }
+func (m *mockApp) RegisterHook(phase forge.LifecyclePhase, hook forge.LifecycleHook, opts forge.LifecycleHookOptions) error { return nil }
+func (m *mockApp) RegisterHookFn(phase forge.LifecyclePhase, name string, hook forge.LifecycleHook) error { return nil }
 func (m *mockApp) GetExtension(name string) (forge.Extension, error)  { return nil, nil }
 func (m *mockApp) GetExtensionByType(extType any) (forge.Extension, error) { return nil, nil }
 func (m *mockApp) Environment() string                                { return "test" }

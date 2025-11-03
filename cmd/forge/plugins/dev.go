@@ -473,7 +473,25 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 
 	// Kill existing process if running
 	if aw.cmd != nil && aw.cmd.Process != nil {
+		ctx.Info("Stopping previous instance...")
 		aw.killProcess()
+		
+		// Wait for process to fully terminate and release resources
+		// This is crucial for port release and resource cleanup
+		waitForProcessTermination(aw.cmd, 2*time.Second)
+		
+		// Additional wait for port release (TCP TIME_WAIT state)
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Check if port is available (if PORT env var is set)
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		if !isPortAvailable(portStr) {
+			ctx.Warning(fmt.Sprintf("Port %s is still in use, waiting for release...", portStr))
+			if err := waitForPort(portStr, 5*time.Second); err != nil {
+				return fmt.Errorf("port %s is not available: %w", portStr, err)
+			}
+		}
 	}
 
 	ctx.Success(fmt.Sprintf("Starting %s...", aw.app.Name))
@@ -484,6 +502,12 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
+	
+	// Set environment variables for better process control
+	cmd.Env = append(os.Environ(),
+		"FORGE_DEV=true",
+		"FORGE_HOT_RELOAD=true",
+	)
 
 	// Set process group to allow killing child processes (platform-specific)
 	setupProcessGroup(cmd)
@@ -499,11 +523,15 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 		if err := cmd.Wait(); err != nil {
 			// Only log if it's not a killed process
 			if !strings.Contains(err.Error(), "killed") &&
-				!strings.Contains(err.Error(), "signal: killed") {
+				!strings.Contains(err.Error(), "signal: killed") &&
+				!strings.Contains(err.Error(), "terminated") {
 				ctx.Error(fmt.Errorf("process exited: %v", err))
 			}
 		}
 	}()
+
+	// Give the process a moment to start and bind to ports
+	time.Sleep(100 * time.Millisecond)
 
 	return nil
 }
@@ -662,4 +690,53 @@ func (d *debouncer) Debounce(fn func()) {
 	}
 
 	d.timer = time.AfterFunc(d.delay, fn)
+}
+
+// waitForProcessTermination waits for a process to fully terminate
+func waitForProcessTermination(cmd *exec.Cmd, timeout time.Duration) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+
+	done := make(chan struct{})
+	go func() {
+		cmd.Process.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Process terminated successfully
+	case <-time.After(timeout):
+		// Timeout - force kill
+		cmd.Process.Kill()
+	}
+}
+
+// isPortAvailable checks if a port is available for binding
+func isPortAvailable(port string) bool {
+	// Try to bind to the port using lsof
+	// This is more reliable than trying to bind since we want to detect
+	// ports in TIME_WAIT state as well
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -i :%s -sTCP:LISTEN", port))
+	output, err := cmd.CombinedOutput()
+	
+	// If lsof returns nothing or errors, port is available
+	return err != nil || len(output) == 0
+}
+
+// waitForPort waits for a port to become available
+func waitForPort(port string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for time.Now().Before(deadline) {
+		if isPortAvailable(port) {
+			return nil
+		}
+		<-ticker.C
+	}
+
+	return fmt.Errorf("timeout waiting for port to become available")
 }
