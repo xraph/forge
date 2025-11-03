@@ -15,6 +15,7 @@ type App interface {
 	Logger() Logger
 	Metrics() Metrics
 	HealthManager() HealthManager
+	LifecycleManager() LifecycleManager
 
 	// Lifecycle
 	Start(ctx context.Context) error
@@ -25,6 +26,10 @@ type App interface {
 	RegisterService(name string, factory Factory, opts ...RegisterOption) error
 	RegisterController(controller Controller) error
 	RegisterExtension(ext Extension) error
+
+	// Lifecycle hooks - convenience methods
+	RegisterHook(phase LifecyclePhase, hook LifecycleHook, opts LifecycleHookOptions) error
+	RegisterHookFn(phase LifecyclePhase, name string, hook LifecycleHook) error
 
 	// Information
 	Name() string

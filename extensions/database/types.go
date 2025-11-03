@@ -6,6 +6,8 @@ package database
 import (
 	"context"
 	"time"
+
+	"github.com/xraph/forge/extensions/database/migrate"
 )
 
 // DatabaseType represents the type of database
@@ -125,3 +127,21 @@ type MigrationStatus struct {
 	Applied   bool      `json:"applied"`
 	AppliedAt time.Time `json:"applied_at"`
 }
+
+// Re-export migrate package for convenience
+// This allows users to import "github.com/xraph/forge/extensions/database"
+// and use database.Migrations instead of importing the migrate subpackage
+var (
+	// Migrations is the global migration collection
+	// All migrations should register themselves here using init()
+	Migrations = migrate.Migrations
+
+	// RegisterMigration is a helper to register a migration
+	RegisterMigration = migrate.RegisterMigration
+
+	// RegisterModel adds a model to the auto-registration list
+	RegisterModel = migrate.RegisterModel
+
+	// Models is the list of all models that should be auto-registered
+	Models = &migrate.Models
+)
