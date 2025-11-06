@@ -53,9 +53,15 @@ func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error 
 		manifest.AddCapability(cap)
 	}
 
-	// Set endpoints
+	// Set endpoints with defaults
+	// Health endpoint defaults to Forge's built-in health endpoint
+	healthEndpoint := p.config.Endpoints.Health
+	if healthEndpoint == "" {
+		healthEndpoint = "/_/health" // Use Forge's default health endpoint
+	}
+
 	manifest.Endpoints = farp.SchemaEndpoints{
-		Health:         p.config.Endpoints.Health,
+		Health:         healthEndpoint,
 		Metrics:        p.config.Endpoints.Metrics,
 		OpenAPI:        p.config.Endpoints.OpenAPI,
 		AsyncAPI:       p.config.Endpoints.AsyncAPI,
@@ -63,8 +69,15 @@ func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error 
 		GraphQL:        p.config.Endpoints.GraphQL,
 	}
 
-	// Process configured schemas
-	for _, schemaConfig := range p.config.Schemas {
+	// Auto-detect schemas if none configured and auto-register is enabled
+	schemas := p.config.Schemas
+	if len(schemas) == 0 && p.config.AutoRegister {
+		p.logger.Info("auto-detecting schemas (no schemas configured)")
+		schemas = p.autoDetectSchemas()
+	}
+
+	// Process configured or auto-detected schemas
+	for _, schemaConfig := range schemas {
 		descriptor, err := p.createSchemaDescriptor(ctx, schemaConfig)
 		if err != nil {
 			p.logger.Warn("failed to create schema descriptor",
@@ -99,10 +112,15 @@ func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error 
 		return fmt.Errorf("failed to register manifest: %w", err)
 	}
 
+	checksumDisplay := manifest.Checksum
+	if len(checksumDisplay) > 16 {
+		checksumDisplay = checksumDisplay[:16] + "..."
+	}
+
 	p.logger.Info("FARP schemas published successfully",
 		forge.F("instance_id", instanceID),
 		forge.F("schemas", len(manifest.Schemas)),
-		forge.F("checksum", manifest.Checksum[:16]+"..."),
+		forge.F("checksum", checksumDisplay),
 	)
 
 	return nil
@@ -190,7 +208,7 @@ func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (interface{
 
 	// Use Forge-integrated OpenAPI provider
 	provider := openapi.NewForgeProvider("3.1.0", "/openapi.json")
-	
+
 	// Generate schema from router
 	schema, err := provider.GenerateFromRouter(router)
 	if err != nil {
@@ -237,7 +255,7 @@ func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (interface
 
 	// Use Forge-integrated AsyncAPI provider
 	provider := asyncapi.NewForgeProvider("3.0.0", "/asyncapi.json")
-	
+
 	// Generate schema from router
 	schema, err := provider.GenerateFromRouter(router)
 	if err != nil {
@@ -304,6 +322,147 @@ func (p *SchemaPublisher) GetManifest(ctx context.Context, instanceID string) (*
 	return p.registry.GetManifest(ctx, instanceID)
 }
 
+// GetMetadataForDiscovery returns metadata that should be added to service discovery
+// This allows mDNS/Bonjour and other backends to advertise FARP endpoints in TXT records
+func (p *SchemaPublisher) GetMetadataForDiscovery(baseURL string) map[string]string {
+	if !p.config.Enabled {
+		return nil
+	}
+
+	metadata := make(map[string]string)
+
+	// Add FARP manifest endpoint
+	if baseURL != "" {
+		metadata["farp.manifest"] = baseURL + "/_farp/manifest"
+	}
+
+	// Add schema endpoints if configured
+	if p.config.Endpoints.OpenAPI != "" {
+		if baseURL != "" {
+			metadata["farp.openapi"] = baseURL + p.config.Endpoints.OpenAPI
+		}
+		metadata["farp.openapi.path"] = p.config.Endpoints.OpenAPI
+	}
+
+	if p.config.Endpoints.AsyncAPI != "" {
+		if baseURL != "" {
+			metadata["farp.asyncapi"] = baseURL + p.config.Endpoints.AsyncAPI
+		}
+		metadata["farp.asyncapi.path"] = p.config.Endpoints.AsyncAPI
+	}
+
+	if p.config.Endpoints.GraphQL != "" {
+		if baseURL != "" {
+			metadata["farp.graphql"] = baseURL + p.config.Endpoints.GraphQL
+		}
+		metadata["farp.graphql.path"] = p.config.Endpoints.GraphQL
+	}
+
+	if p.config.Endpoints.GRPCReflection {
+		metadata["farp.grpc.reflection"] = "true"
+	}
+
+	// Add capabilities
+	if len(p.config.Capabilities) > 0 {
+		metadata["farp.capabilities"] = fmt.Sprintf("%v", p.config.Capabilities)
+	}
+
+	// Add strategy
+	if p.config.Strategy != "" {
+		metadata["farp.strategy"] = p.config.Strategy
+	}
+
+	// Mark as FARP-enabled
+	metadata["farp.enabled"] = "true"
+
+	return metadata
+}
+
+// autoDetectSchemas detects available schema types based on router capabilities
+func (p *SchemaPublisher) autoDetectSchemas() []FARPSchemaConfig {
+	var schemas []FARPSchemaConfig
+
+	router := p.app.Router()
+	if router == nil {
+		p.logger.Debug("no router available for schema auto-detection")
+		return schemas
+	}
+
+	// Try to detect OpenAPI support
+	if p.supportsOpenAPI(router) {
+		endpoint := p.config.Endpoints.OpenAPI
+		if endpoint == "" {
+			endpoint = "/openapi.json"
+		}
+
+		schemas = append(schemas, FARPSchemaConfig{
+			Type:        "openapi",
+			SpecVersion: "3.1.0",
+			Location: FARPLocationConfig{
+				Type: "inline", // Use inline by default for auto-detected schemas
+			},
+			ContentType: "application/json",
+		})
+		p.logger.Debug("auto-detected OpenAPI schema support")
+	}
+
+	// Try to detect AsyncAPI support
+	if p.supportsAsyncAPI(router) {
+		endpoint := p.config.Endpoints.AsyncAPI
+		if endpoint == "" {
+			endpoint = "/asyncapi.json"
+		}
+
+		schemas = append(schemas, FARPSchemaConfig{
+			Type:        "asyncapi",
+			SpecVersion: "3.0.0",
+			Location: FARPLocationConfig{
+				Type: "inline", // Use inline by default for auto-detected schemas
+			},
+			ContentType: "application/json",
+		})
+		p.logger.Debug("auto-detected AsyncAPI schema support")
+	}
+
+	if len(schemas) > 0 {
+		p.logger.Info("auto-detected schemas", forge.F("count", len(schemas)))
+	} else {
+		p.logger.Warn("no schemas auto-detected - router may not have routes configured yet")
+	}
+
+	return schemas
+}
+
+// supportsOpenAPI checks if the router supports OpenAPI schema generation
+func (p *SchemaPublisher) supportsOpenAPI(router interface{}) bool {
+	// Check if router has OpenAPISpec method
+	type hasOpenAPISpec interface {
+		OpenAPISpec() interface{}
+	}
+
+	if specProvider, ok := router.(hasOpenAPISpec); ok {
+		spec := specProvider.OpenAPISpec()
+		return spec != nil
+	}
+
+	return false
+}
+
+// supportsAsyncAPI checks if the router supports AsyncAPI schema generation
+func (p *SchemaPublisher) supportsAsyncAPI(router interface{}) bool {
+	// Check if router has AsyncAPISpec method
+	type hasAsyncAPISpec interface {
+		AsyncAPISpec() interface{}
+	}
+
+	if specProvider, ok := router.(hasAsyncAPISpec); ok {
+		spec := specProvider.AsyncAPISpec()
+		return spec != nil
+	}
+
+	return false
+}
+
 // Close closes the schema publisher
 func (p *SchemaPublisher) Close() error {
 	if p.registry != nil {
@@ -311,4 +470,3 @@ func (p *SchemaPublisher) Close() error {
 	}
 	return nil
 }
-

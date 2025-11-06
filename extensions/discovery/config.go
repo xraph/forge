@@ -3,6 +3,7 @@ package discovery
 import (
 	"time"
 
+	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/discovery/backends"
 )
 
@@ -384,3 +385,17 @@ func WithConfig(config Config) ConfigOption {
 	}
 }
 
+// WithAppConfig sets the app config for auto-detecting service info
+// This allows the extension to read Name, Version, and HTTPAddress from the app config
+// when Service config is not fully provided
+func WithAppConfig(appConfig forge.AppConfig) ConfigOption {
+	return func(c *Config) {
+		// Store in metadata for later extraction in Register
+		if c.Service.Metadata == nil {
+			c.Service.Metadata = make(map[string]string)
+		}
+		c.Service.Metadata["_app_config_name"] = appConfig.Name
+		c.Service.Metadata["_app_config_version"] = appConfig.Version
+		c.Service.Metadata["_app_config_http_address"] = appConfig.HTTPAddress
+	}
+}

@@ -50,6 +50,9 @@ func NewMDNSBackend(config MDNSConfig) (*MDNSBackend, error) {
 	if config.BrowseTimeout == 0 {
 		config.BrowseTimeout = 3 * time.Second
 	}
+	if config.WatchInterval == 0 {
+		config.WatchInterval = 30 * time.Second
+	}
 	if config.TTL == 0 {
 		config.TTL = 120 // 2 minutes
 	}
@@ -138,16 +141,34 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 	}
 
 	// Register mDNS service
-	// Service type format: _<service-name>._tcp
-	serviceType := fmt.Sprintf("_%s._tcp", sanitizeServiceName(instance.Name))
+	// Use configured service type or generate from service name
+	serviceType := b.config.ServiceType
+	if serviceType == "" {
+		// Default: _<service-name>._tcp
+		serviceType = fmt.Sprintf("_%s._tcp", sanitizeServiceName(instance.Name))
+	}
+
+	// Add service type to metadata for gateway discovery
+	txt = append(txt, fmt.Sprintf("mdns.service_type=%s", serviceType))
+
+	// Get network interfaces for registration
+	// If Interface is specified, use only that one, otherwise use all
+	var ifaces []net.Interface
+	if b.config.Interface != "" {
+		iface, err := net.InterfaceByName(b.config.Interface)
+		if err != nil {
+			return fmt.Errorf("failed to get interface %s: %w", b.config.Interface, err)
+		}
+		ifaces = []net.Interface{*iface}
+	}
 
 	server, err := zeroconf.Register(
 		instance.ID,     // Instance name
-		serviceType,     // Service type
+		serviceType,     // Service type (configurable)
 		b.config.Domain, // Domain
 		instance.Port,   // Port
 		txt,             // TXT records
-		nil,             // Network interfaces (nil = all)
+		ifaces,          // Network interfaces (nil = all, or specific interface)
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register mDNS service: %w", err)
@@ -168,6 +189,25 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 		},
 		server: server,
 	}
+
+	// Log successful registration with details
+	fmt.Printf("[mDNS] Service registered successfully:\n")
+	fmt.Printf("  - Instance ID: %s\n", instance.ID)
+	fmt.Printf("  - Service Type: %s\n", serviceType)
+	fmt.Printf("  - Domain: %s\n", b.config.Domain)
+	fmt.Printf("  - Address: %s:%d\n", addresses[0], instance.Port)
+	fmt.Printf("  - TXT Records: %d records\n", len(txt))
+	if b.config.Interface != "" {
+		fmt.Printf("  - Interface: %s\n", b.config.Interface)
+	} else {
+		fmt.Printf("  - Interface: all interfaces\n")
+	}
+
+	// Give the mDNS server time to fully initialize and start responding
+	// This ensures the service is discoverable immediately
+	time.Sleep(100 * time.Millisecond)
+
+	fmt.Printf("[mDNS] Service is now discoverable\n")
 
 	return nil
 }
@@ -193,6 +233,17 @@ func (b *MDNSBackend) Deregister(ctx context.Context, serviceID string) error {
 
 // Discover discovers service instances by name via mDNS
 func (b *MDNSBackend) Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error) {
+	// Use configured service type or generate from service name
+	serviceType := b.config.ServiceType
+	if serviceType == "" {
+		serviceType = fmt.Sprintf("_%s._tcp", sanitizeServiceName(serviceName))
+	}
+
+	return b.discoverByServiceType(ctx, serviceName, serviceType)
+}
+
+// discoverByServiceType discovers services by specific mDNS service type
+func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, serviceType string) ([]*ServiceInstance, error) {
 	// Create resolver
 	resolver, err := zeroconf.NewResolver(nil)
 	if err != nil {
@@ -219,7 +270,6 @@ func (b *MDNSBackend) Discover(ctx context.Context, serviceName string) ([]*Serv
 	}()
 
 	// Browse for services
-	serviceType := fmt.Sprintf("_%s._tcp", sanitizeServiceName(serviceName))
 	browseCtx, cancel := context.WithTimeout(ctx, b.config.BrowseTimeout)
 	defer cancel()
 
@@ -237,6 +287,41 @@ func (b *MDNSBackend) Discover(ctx context.Context, serviceName string) ([]*Serv
 	}
 
 	return instances, nil
+}
+
+// DiscoverAllTypes discovers services across all configured service types
+// This is useful for gateways and service meshes that need to discover multiple service types
+func (b *MDNSBackend) DiscoverAllTypes(ctx context.Context) ([]*ServiceInstance, error) {
+	serviceTypes := b.config.ServiceTypes
+	if len(serviceTypes) == 0 {
+		return nil, fmt.Errorf("no service types configured for discovery")
+	}
+
+	allInstances := make([]*ServiceInstance, 0)
+	instanceMap := make(map[string]*ServiceInstance) // Deduplicate by ID
+
+	for _, serviceType := range serviceTypes {
+		// Extract service name from type (_octopus._tcp -> octopus)
+		serviceName := extractServiceNameFromType(serviceType)
+
+		instances, err := b.discoverByServiceType(ctx, serviceName, serviceType)
+		if err != nil {
+			// Log but continue with other types
+			continue
+		}
+
+		// Deduplicate by ID
+		for _, instance := range instances {
+			instanceMap[instance.ID] = instance
+		}
+	}
+
+	// Convert map to slice
+	for _, instance := range instanceMap {
+		allInstances = append(allInstances, instance)
+	}
+
+	return allInstances, nil
 }
 
 // DiscoverWithTags discovers service instances by name and tags
@@ -304,7 +389,12 @@ func (b *MDNSBackend) Watch(ctx context.Context, serviceName string, onChange fu
 
 // watchService continuously watches for service changes
 func (b *MDNSBackend) watchService(ctx context.Context, watcher *serviceWatcher) {
-	serviceType := fmt.Sprintf("_%s._tcp", sanitizeServiceName(watcher.serviceName))
+	// Use configured service type or generate from service name
+	serviceType := b.config.ServiceType
+	if serviceType == "" {
+		serviceType = fmt.Sprintf("_%s._tcp", sanitizeServiceName(watcher.serviceName))
+	}
+
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -486,5 +576,20 @@ func sanitizeServiceName(name string) string {
 	name = strings.ToLower(name)
 	name = strings.ReplaceAll(name, "_", "-")
 	name = strings.ReplaceAll(name, " ", "-")
+	return name
+}
+
+// extractServiceNameFromType extracts service name from mDNS service type
+// Example: "_octopus._tcp" -> "octopus", "_http._tcp.local." -> "http"
+func extractServiceNameFromType(serviceType string) string {
+	// Remove leading underscore
+	name := strings.TrimPrefix(serviceType, "_")
+
+	// Split by dots and take first part
+	parts := strings.Split(name, ".")
+	if len(parts) > 0 {
+		return parts[0]
+	}
+
 	return name
 }

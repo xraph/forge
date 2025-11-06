@@ -43,14 +43,24 @@ func killProcessGroup(cmd *exec.Cmd) {
 		uintptr(pid),
 	)
 
-	// Wait a bit for graceful shutdown
-	time.Sleep(100 * time.Millisecond)
+	// Wait longer for graceful shutdown
+	// Forge apps may need time to drain connections and clean up resources
+	time.Sleep(500 * time.Millisecond)
 
-	// Force kill if still running
-	// Use taskkill to kill the process tree (/F=force, /T=tree)
-	killCmd := exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", pid))
-	_ = killCmd.Run()
+	// Check if process is still running before force killing
+	checkCmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid))
+	output, _ := checkCmd.Output()
 
-	// Also try direct kill as fallback
-	_ = cmd.Process.Kill()
+	// If process is still running, force kill
+	if len(output) > 0 {
+		// Use taskkill to kill the process tree (/F=force, /T=tree)
+		killCmd := exec.Command("taskkill", "/F", "/T", "/PID", fmt.Sprintf("%d", pid))
+		_ = killCmd.Run()
+
+		// Wait a bit for force kill to complete
+		time.Sleep(200 * time.Millisecond)
+
+		// Also try direct kill as fallback
+		_ = cmd.Process.Kill()
+	}
 }

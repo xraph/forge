@@ -278,13 +278,46 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: current
+          fetch-depth: 0
+
+      - name: Check if previous commit exists
+        id: check_previous
+        run: |
+          cd current
+          BEFORE_REF="${{ github.event.before }}"
+          
+          # Check if before ref is valid (not all zeros, which indicates new branch/repo)
+          if [ "$BEFORE_REF" = "0000000000000000000000000000000000000000" ] || [ -z "$BEFORE_REF" ]; then
+            echo "No previous commit to compare (new branch or initial push)"
+            echo "has_previous=false" >> $GITHUB_OUTPUT
+            
+            # Try to find the previous tag as fallback
+            PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+            if [ -n "$PREV_TAG" ]; then
+              echo "Found previous tag: $PREV_TAG"
+              echo "has_previous=true" >> $GITHUB_OUTPUT
+              echo "previous_ref=$PREV_TAG" >> $GITHUB_OUTPUT
+            fi
+          else
+            # Verify the commit exists in the repository
+            if git cat-file -e "$BEFORE_REF" 2>/dev/null; then
+              echo "Previous commit exists: $BEFORE_REF"
+              echo "has_previous=true" >> $GITHUB_OUTPUT
+              echo "previous_ref=$BEFORE_REF" >> $GITHUB_OUTPUT
+            else
+              echo "Previous commit does not exist in repository"
+              echo "has_previous=false" >> $GITHUB_OUTPUT
+            fi
+          fi
 
       - name: Checkout previous
+        if: steps.check_previous.outputs.has_previous == 'true'
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.before }}
+          ref: ${{ steps.check_previous.outputs.previous_ref }}
           path: previous
-          fetch-depth: 0
+          fetch-depth: 1
+        continue-on-error: true
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -302,6 +335,13 @@ jobs:
           
           echo "Checking for potential breaking changes..."
           
+          # Check if we have a previous version to compare
+          if [ ! -d "../previous" ]; then
+            echo "ℹ️ No previous version available for comparison (new branch or initial push)"
+            echo "Skipping compatibility check"
+            exit 0
+          fi
+          
           # Compare go.mod major versions
           CURRENT_MAJOR=$(grep "^module " go.mod | cut -d'/' -f3 | cut -d'v' -f2 | cut -d'.' -f1)
           
@@ -317,18 +357,24 @@ jobs:
           fi
           
           # Check if any major interfaces changed
-          go doc -all ./pkg/core > /tmp/current-core-api.txt
+          go doc -all ./pkg/core > /tmp/current-core-api.txt 2>/dev/null || true
           if [ -f "../previous/pkg/core" ]; then
             cd ../previous
-            go doc -all ./pkg/core > /tmp/previous-core-api.txt || true
+            go doc -all ./pkg/core > /tmp/previous-core-api.txt 2>/dev/null || true
             cd ../current
           
-            if ! diff -u /tmp/previous-core-api.txt /tmp/current-core-api.txt > /tmp/api-diff.txt; then
-              echo "⚠️ Core API changes detected:"
-              head -n 50 /tmp/api-diff.txt
+            if [ -f /tmp/previous-core-api.txt ] && [ -f /tmp/current-core-api.txt ]; then
+              if ! diff -u /tmp/previous-core-api.txt /tmp/current-core-api.txt > /tmp/api-diff.txt; then
+                echo "⚠️ Core API changes detected:"
+                head -n 50 /tmp/api-diff.txt
+              else
+                echo "✅ No core API changes detected"
+              fi
             else
-              echo "✅ No core API changes detected"
+              echo "ℹ️ Could not compare core APIs (pkg/core may not exist)"
             fi
+          else
+            echo "ℹ️ No previous pkg/core to compare"
           fi
 
   # Success summary

@@ -1,6 +1,6 @@
 module github.com/xraph/forge/extensions/graphql
 
-go 1.24.9
+go 1.25.0
 
 require (
 	github.com/99designs/gqlgen v0.17.45

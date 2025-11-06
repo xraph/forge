@@ -1,6 +1,6 @@
 module github.com/xraph/forge/extensions/kafka
 
-go 1.24.9
+go 1.25.0
 
 require (
 	github.com/IBM/sarama v1.43.3

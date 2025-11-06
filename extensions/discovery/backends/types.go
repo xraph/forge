@@ -204,13 +204,26 @@ type MDNSConfig struct {
 	// Domain is the mDNS domain (default: "local.")
 	Domain string `yaml:"domain" json:"domain"`
 
+	// ServiceType is the mDNS service type for registration (e.g., "_octopus._tcp", "_farp._tcp")
+	// If empty, defaults to "_{service-name}._tcp"
+	// This is used when registering a single service
+	ServiceType string `yaml:"service_type" json:"service_type"`
+
+	// ServiceTypes is a list of service types to discover (gateway/mesh use case)
+	// Example: ["_octopus._tcp", "_farp._tcp", "_http._tcp"]
+	// Used for discovering multiple service types simultaneously
+	ServiceTypes []string `yaml:"service_types" json:"service_types"`
+
+	// WatchInterval is how often to poll for service changes (default: 30s)
+	WatchInterval time.Duration `yaml:"watch_interval" json:"watch_interval"`
+
 	// Interface is the network interface to use (empty for all interfaces)
 	Interface string `yaml:"interface" json:"interface"`
 
 	// IPv6 enables IPv6 support
 	IPv6 bool `yaml:"ipv6" json:"ipv6"`
 
-	// BrowseTimeout is the timeout for browsing services
+	// BrowseTimeout is the timeout for browsing services (default: 3s)
 	BrowseTimeout time.Duration `yaml:"browse_timeout" json:"browse_timeout"`
 
 	// TTL is the time-to-live for service records (default: 120 seconds)

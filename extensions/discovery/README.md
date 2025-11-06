@@ -4,13 +4,15 @@ Enterprise-grade service discovery and registry for distributed Forge applicatio
 
 ## Features
 
-- ✅ **Multiple Backends** - Consul, etcd, Kubernetes, Eureka, in-memory
+- ✅ **Multiple Backends** - Consul, etcd, mDNS/Bonjour, Kubernetes, Eureka, in-memory
 - ✅ **Service Registration** - Automatic service registration on startup
 - ✅ **Health Checks** - Continuous health monitoring
 - ✅ **Service Discovery** - Find services by name, tags, health status
 - ✅ **Load Balancing** - Round-robin, random, weighted strategies
 - ✅ **Service Watching** - Real-time notifications of service changes
 - ✅ **Auto-Deregistration** - Automatic cleanup on shutdown
+- ✅ **FARP Integration** - Automatic API schema advertisement (OpenAPI, AsyncAPI, gRPC, GraphQL)
+- ✅ **mDNS/Bonjour** - Zero-config local network discovery with schema propagation
 
 ## Installation
 
@@ -231,6 +233,35 @@ discovery.NewExtension(
     discovery.WithBackend("memory"),
 )
 ```
+
+### mDNS/Bonjour Backend (Zero-Config)
+
+**NEW**: Zero-configuration service discovery with automatic API schema advertisement!
+
+```go
+discovery.NewExtension(
+    discovery.WithBackend("mdns"),
+    discovery.WithServiceName("my-api"),
+    discovery.WithServiceAddress("", 8080), // Auto-detect address
+    discovery.WithFARP(discovery.FARPConfig{
+        Enabled:      true,
+        AutoRegister: true,
+        Endpoints: discovery.FARPEndpointsConfig{
+            OpenAPI:  "/openapi.json",
+            AsyncAPI: "/asyncapi.json",
+        },
+        Capabilities: []string{"rest", "websocket"},
+    }),
+)
+```
+
+**Features:**
+- ✅ Native OS support (macOS Bonjour, Linux Avahi, Windows DNS-SD)
+- ✅ Automatic API schema advertisement in TXT records
+- ✅ Zero infrastructure - works out of the box
+- ✅ Perfect for local development and IoT devices
+
+**See:** [FARP + mDNS Integration Guide](./FARP_MDNS_INTEGRATION.md) | [Quick Start](./FARP_MDNS_QUICK_START.md)
 
 ### Consul Backend
 

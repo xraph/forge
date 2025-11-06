@@ -1,6 +1,6 @@
 module github.com/xraph/forge/examples/openapi_complete
 
-go 1.24.9
+go 1.25.0
 
 replace github.com/xraph/forge => ../..
 
