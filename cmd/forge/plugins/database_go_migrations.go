@@ -80,10 +80,58 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 		return fmt.Errorf("failed to generate migration runner: %w", err)
 	}
 
+	// Initialize go.mod in temp directory
+	moduleName, err := p.getModuleName()
+	if err != nil {
+		return fmt.Errorf("failed to get module name: %w", err)
+	}
+
+	// Get Go version from project's go.mod
+	goVersion, err := p.getGoVersion()
+	if err != nil {
+		goVersion = "1.21" // fallback to reasonable default
+	}
+
+	// Get replace directives from the project's go.mod for local modules
+	replaceDirectives, err := p.getReplaceDirectives()
+	if err != nil {
+		return fmt.Errorf("failed to get replace directives: %w", err)
+	}
+
+	// Build replace section
+	replacesSection := fmt.Sprintf("replace %s => %s\n", moduleName, p.config.RootDir)
+	for module, path := range replaceDirectives {
+		replacesSection += fmt.Sprintf("replace %s => %s\n", module, path)
+	}
+
+	// Create go.mod with replace directives pointing to the actual project and local dependencies
+	goModContent := fmt.Sprintf(`module forge-migrate-runner
+
+go %s
+
+%s
+require (
+	%s v0.0.0
+)
+`, goVersion, replacesSection, moduleName)
+
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
+		return fmt.Errorf("failed to create go.mod: %w", err)
+	}
+
+	// Run go mod tidy to generate go.sum and resolve all dependencies
+	tidyCmd := exec.CommandContext(context.Background(), "go", "mod", "tidy")
+	tidyCmd.Dir = tmpDir
+	tidyCmd.Env = os.Environ()
+	if output, err := tidyCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to tidy dependencies: %w\n%s", err, string(output))
+	}
+
 	// Build the runner
 	binaryPath := filepath.Join(tmpDir, "migrate")
-	buildCmd := exec.CommandContext(context.Background(), "go", "build", "-o", binaryPath, runnerPath)
-	buildCmd.Dir = p.config.RootDir
+	buildCmd := exec.CommandContext(context.Background(), "go", "build", "-o", binaryPath, ".")
+	buildCmd.Dir = tmpDir
 	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
 	if output, err := buildCmd.CombinedOutput(); err != nil {
@@ -213,6 +261,15 @@ func main() {
 		fmt.Println()
 
 	case "migrate":
+		// Ensure migration tables exist (auto-init if needed)
+		if err := migrator.Init(ctx); err != nil {
+			// Ignore error if tables already exist
+			if !strings.Contains(err.Error(), "already exists") {
+				fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
+				os.Exit(1)
+			}
+		}
+
 		group, err := migrator.Migrate(ctx)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\n\033[31m✗ Error:\033[0m %%v\n\n", err)
@@ -364,4 +421,66 @@ func (p *DatabasePlugin) getModuleName() (string, error) {
 	}
 
 	return "", fmt.Errorf("module directive not found in go.mod")
+}
+
+// getGoVersion extracts the Go version from go.mod
+func (p *DatabasePlugin) getGoVersion() (string, error) {
+	goModPath := filepath.Join(p.config.RootDir, "go.mod")
+	content, err := os.ReadFile(goModPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read go.mod: %w", err)
+	}
+
+	lines := strings.Split(string(content), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "go ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "go")), nil
+		}
+	}
+
+	return "", fmt.Errorf("go directive not found in go.mod")
+}
+
+// getReplaceDirectives extracts replace directives from go.mod
+// This handles local modules that aren't publicly available
+func (p *DatabasePlugin) getReplaceDirectives() (map[string]string, error) {
+	goModPath := filepath.Join(p.config.RootDir, "go.mod")
+	content, err := os.ReadFile(goModPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read go.mod: %w", err)
+	}
+
+	replaces := make(map[string]string)
+	lines := strings.Split(string(content), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		// Handle single-line replace directives: replace example.com/module => /path/to/module
+		if strings.HasPrefix(line, "replace ") {
+			line = strings.TrimPrefix(line, "replace ")
+			parts := strings.Split(line, "=>")
+			if len(parts) == 2 {
+				module := strings.TrimSpace(parts[0])
+				// Remove version if present (e.g., "module v1.2.3" -> "module")
+				moduleParts := strings.Fields(module)
+				if len(moduleParts) > 0 {
+					module = moduleParts[0]
+				}
+				path := strings.TrimSpace(parts[1])
+				// Remove version if present in replacement path
+				pathParts := strings.Fields(path)
+				if len(pathParts) > 0 {
+					path = pathParts[0]
+				}
+				// Convert relative paths to absolute
+				if !filepath.IsAbs(path) {
+					path = filepath.Join(p.config.RootDir, path)
+				}
+				replaces[module] = path
+			}
+		}
+	}
+
+	return replaces, nil
 }

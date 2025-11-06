@@ -1,0 +1,158 @@
+# Example: FARP + mDNS/Bonjour Integration Configuration
+# This configuration enables zero-config service discovery with automatic API schema advertisement
+
+# Application settings
+app:
+  name: user-api
+  version: 2.1.0
+  host: 0.0.0.0
+  port: 8080
+  debug: true
+
+# Extensions configuration
+extensions:
+  # Service Discovery with FARP
+  discovery:
+    enabled: true
+    backend: mdns  # Use mDNS/Bonjour for zero-config local network discovery
+    
+    # Service registration settings
+    service:
+      # Service identification
+      name: user-api
+      version: 2.1.0
+      id: ""  # Auto-generated if empty
+      
+      # Network settings
+      address: ""  # Auto-detected if empty (recommended for development)
+      port: 8080
+      
+      # Service tags for filtering
+      tags:
+        - api
+        - users
+        - rest
+        - v2
+        - production
+      
+      # Custom metadata (available in TXT records)
+      metadata:
+        environment: development
+        region: local
+        team: backend
+        contact: backend-team@example.com
+      
+      # Auto-deregister on shutdown
+      enable_auto_deregister: true
+    
+    # Health check configuration
+    health_check:
+      enabled: true
+      interval: 10s
+      timeout: 5s
+      http: "http://localhost:8080/_/health"
+    
+    # mDNS/Bonjour backend settings
+    mdns:
+      domain: local.           # mDNS domain (default: "local.")
+      interface: ""            # Network interface (empty = all interfaces)
+      ipv6: false             # Enable IPv6 support
+      browse_timeout: 3s      # Discovery timeout
+      ttl: 120                # Time-to-live for service records (seconds)
+    
+    # FARP (Forge API Gateway Registration Protocol) settings
+    farp:
+      # Enable FARP schema registration
+      enabled: true
+      
+      # Automatically register schemas on service startup
+      auto_register: true
+      
+      # Strategy for schema distribution:
+      # - "push": Push schemas to registry
+      # - "pull": Serve schemas via HTTP only
+      # - "hybrid": Both push and pull
+      strategy: hybrid
+      
+      # Schema configurations
+      schemas:
+        # OpenAPI schema
+        - type: openapi
+          spec_version: "3.1.0"
+          content_type: application/json
+          location:
+            type: http          # Location type: http, registry, or inline
+            url: /openapi.json  # HTTP endpoint path
+        
+        # AsyncAPI schema (for async/event-driven APIs)
+        - type: asyncapi
+          spec_version: "3.0.0"
+          content_type: application/json
+          location:
+            type: http
+            url: /asyncapi.json
+      
+      # Service endpoint paths
+      # These are advertised in mDNS TXT records
+      endpoints:
+        health: /_/health           # Health check endpoint
+        metrics: /_/metrics         # Metrics endpoint
+        openapi: /openapi.json      # OpenAPI schema endpoint
+        asyncapi: /asyncapi.json    # AsyncAPI schema endpoint
+        grpc_reflection: false      # gRPC reflection enabled
+        graphql: /graphql           # GraphQL endpoint (if applicable)
+      
+      # Advertised capabilities
+      # API gateways use this to understand what protocols the service supports
+      capabilities:
+        - rest          # RESTful HTTP API
+        - websocket     # WebSocket support
+        - events        # Event streaming
+        - pubsub        # Pub/sub messaging
+
+# What gets advertised in mDNS TXT records:
+#
+# Service: _user-api._tcp.local.
+# Port: 8080
+# TXT Records:
+#   - version=2.1.0
+#   - id=user-api-1730745600
+#   - tags=api,users,rest,v2,production
+#   - environment=development
+#   - region=local
+#   - team=backend
+#   - contact=backend-team@example.com
+#   - farp.enabled=true
+#   - farp.manifest=http://192.168.1.100:8080/_farp/manifest
+#   - farp.openapi=http://192.168.1.100:8080/openapi.json
+#   - farp.openapi.path=/openapi.json
+#   - farp.asyncapi=http://192.168.1.100:8080/asyncapi.json
+#   - farp.asyncapi.path=/asyncapi.json
+#   - farp.graphql=http://192.168.1.100:8080/graphql
+#   - farp.graphql.path=/graphql
+#   - farp.capabilities=[rest websocket events pubsub]
+#   - farp.strategy=hybrid
+
+# Usage:
+#
+# 1. Start your service:
+#    forge run --config examples/farp-mdns.yaml
+#
+# 2. Discover the service from another application:
+#    avahi-browse _user-api._tcp -t -r  # Linux
+#    dns-sd -B _user-api._tcp            # macOS
+#
+# 3. Access FARP endpoints:
+#    curl http://localhost:8080/_farp/manifest
+#    curl http://localhost:8080/_farp/discovery
+#    curl http://localhost:8080/openapi.json
+#
+# 4. From Go code:
+#    discoveryService := forge.Must[*discovery.Service](app.Container(), "discovery.Service")
+#    instances, _ := discoveryService.Discover(ctx, "user-api")
+#    
+#    for _, instance := range instances {
+#        manifestURL := instance.Metadata["farp.manifest"]
+#        // Fetch and use manifest...
+#    }
+

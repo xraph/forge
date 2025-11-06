@@ -333,6 +333,12 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 	watcher.Stop()
 	wg.Wait()
 
+	// Wait for the process to fully terminate before exiting
+	// This ensures ports are released and no zombie processes remain
+	ctx.Info("Waiting for process to terminate...")
+	watcher.WaitForTermination(3 * time.Second)
+	ctx.Success("Shutdown complete")
+
 	return nil
 }
 
@@ -475,11 +481,11 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	if aw.cmd != nil && aw.cmd.Process != nil {
 		ctx.Info("Stopping previous instance...")
 		aw.killProcess()
-		
+
 		// Wait for process to fully terminate and release resources
 		// This is crucial for port release and resource cleanup
 		waitForProcessTermination(aw.cmd, 2*time.Second)
-		
+
 		// Additional wait for port release (TCP TIME_WAIT state)
 		time.Sleep(200 * time.Millisecond)
 	}
@@ -502,7 +508,7 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	
+
 	// Set environment variables for better process control
 	cmd.Env = append(os.Environ(),
 		"FORGE_DEV=true",
@@ -541,6 +547,20 @@ func (aw *appWatcher) Stop() {
 	aw.mu.Lock()
 	defer aw.mu.Unlock()
 	aw.killProcess()
+}
+
+// WaitForTermination waits for the process to fully terminate
+func (aw *appWatcher) WaitForTermination(timeout time.Duration) {
+	aw.mu.Lock()
+	cmd := aw.cmd
+	aw.mu.Unlock()
+
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+
+	// Wait for the process to exit
+	waitForProcessTermination(cmd, timeout)
 }
 
 // killProcess kills the running process and its children
@@ -720,7 +740,7 @@ func isPortAvailable(port string) bool {
 	// ports in TIME_WAIT state as well
 	cmd := exec.Command("sh", "-c", fmt.Sprintf("lsof -i :%s -sTCP:LISTEN", port))
 	output, err := cmd.CombinedOutput()
-	
+
 	// If lsof returns nothing or errors, port is available
 	return err != nil || len(output) == 0
 }

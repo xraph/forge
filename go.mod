@@ -42,7 +42,6 @@ require (
 	github.com/uptrace/bun/dialect/mysqldialect v1.2.15
 	github.com/uptrace/bun/dialect/pgdialect v1.2.15
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.15
-	github.com/xraph/forge/farp v0.0.0-00010101000000-000000000000
 	go.etcd.io/bbolt v1.4.3
 	go.etcd.io/etcd/client/v3 v3.5.17
 	go.mongodb.org/mongo-driver v1.17.4
@@ -209,4 +208,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/xraph/forge/farp => ./farp
+// replace github.com/xraph/forge/farp => ./farp

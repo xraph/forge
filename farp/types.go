@@ -18,6 +18,9 @@ const (
 	// SchemaTypeGraphQL represents GraphQL Schema Definition Language
 	SchemaTypeGraphQL SchemaType = "graphql"
 
+	// SchemaTypeORPC represents oRPC (OpenAPI-based RPC) specifications
+	SchemaTypeORPC SchemaType = "orpc"
+
 	// SchemaTypeThrift represents Apache Thrift IDL (future support)
 	SchemaTypeThrift SchemaType = "thrift"
 
@@ -32,7 +35,7 @@ const (
 func (st SchemaType) IsValid() bool {
 	switch st {
 	case SchemaTypeOpenAPI, SchemaTypeAsyncAPI, SchemaTypeGRPC,
-		SchemaTypeGraphQL, SchemaTypeThrift, SchemaTypeAvro, SchemaTypeCustom:
+		SchemaTypeGraphQL, SchemaTypeORPC, SchemaTypeThrift, SchemaTypeAvro, SchemaTypeCustom:
 		return true
 	default:
 		return false
@@ -215,4 +218,3 @@ const (
 func (c Capability) String() string {
 	return string(c)
 }
-

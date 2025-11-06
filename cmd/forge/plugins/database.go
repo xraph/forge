@@ -150,8 +150,6 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 		return fmt.Errorf("not a forge project")
 	}
 
-	dbName := ctx.String("database")
-
 	// Ensure migrations directory and migrations.go exist
 	migrationPath, err := p.getMigrationPath()
 	if err != nil {
@@ -165,47 +163,18 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 			return fmt.Errorf("failed to create migrations.go: %w", err)
 		}
 		ctx.Println("")
-		ctx.Success(fmt.Sprintf("Created: %s", migrationsGoPath))
+		ctx.Success(fmt.Sprintf("✓ Created: %s", migrationsGoPath))
+	} else {
+		ctx.Println("")
+		ctx.Info(fmt.Sprintf("✓ Migration structure already exists: %s", migrationPath))
 	}
 
-	// Check if there are Go migrations
-	hasGo, err := p.hasGoMigrations()
-	if err != nil {
-		return fmt.Errorf("failed to check for Go migrations: %w", err)
-	}
+	ctx.Println("")
+	ctx.Info("📚 Next steps:")
+	ctx.Info("   1. Create migrations with: forge generate migration <name>")
+	ctx.Info("   2. Run migrations with: forge db migrate")
+	ctx.Println("")
 
-	// If Go migrations exist, use the enhanced runner
-	if hasGo {
-		return p.runWithGoMigrations(ctx, "init")
-	}
-
-	// Otherwise, use the standard SQL-only approach
-	spinner := ctx.Spinner(fmt.Sprintf("Initializing migrations for %s...", dbName))
-
-	// Load migrations
-	migrations, err := p.loadMigrations()
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-		return fmt.Errorf("failed to load migrations: %w", err)
-	}
-
-	// Get database connection
-	db, err := p.getDatabaseConnection(ctx)
-	if err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-		return err
-	}
-
-	// Create migration manager
-	manager := database.NewMigrationManager(db, migrations, &cliLoggerAdapter{ctx: ctx})
-
-	// Initialize migration tables
-	if err := manager.CreateTables(context.Background()); err != nil {
-		spinner.Stop(cli.Red("✗ Failed"))
-		return err
-	}
-
-	spinner.Stop(cli.Green("✓ Migration tables created!"))
 	return nil
 }
 

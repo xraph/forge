@@ -25,13 +25,13 @@ type app struct {
 	config AppConfig
 
 	// Core components
-	container         Container
-	router            Router
-	configManager     ConfigManager
-	logger            Logger
-	metrics           Metrics
-	healthManager     HealthManager
-	lifecycleManager  LifecycleManager
+	container        Container
+	router           Router
+	configManager    ConfigManager
+	logger           Logger
+	metrics          Metrics
+	healthManager    HealthManager
+	lifecycleManager LifecycleManager
 
 	// HTTP server
 	httpServer *http.Server
@@ -319,6 +319,12 @@ func (a *app) HealthManager() HealthManager {
 // LifecycleManager returns the lifecycle manager
 func (a *app) LifecycleManager() LifecycleManager {
 	return a.lifecycleManager
+}
+
+// GetHTTPAddress returns the configured HTTP address
+// This is a helper method for extensions that need to know the server address
+func (a *app) GetHTTPAddress() string {
+	return a.config.HTTPAddress
 }
 
 // RegisterService registers a service with the DI container

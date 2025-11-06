@@ -28,7 +28,7 @@ func killProcessGroup(cmd *exec.Cmd) {
 	}
 
 	pid := cmd.Process.Pid
-	
+
 	// Try to get the process group ID
 	pgid, err := syscall.Getpgid(pid)
 	if err == nil {
@@ -36,28 +36,34 @@ func killProcessGroup(cmd *exec.Cmd) {
 		// Negative PID targets the entire process group
 		_ = syscall.Kill(-pgid, syscall.SIGTERM)
 
-		// Wait for graceful shutdown
+		// Wait for graceful shutdown with increased timeout
+		// Forge apps may need time to drain connections and clean up resources
 		waited := 0
-		for waited < 500 {
+		maxWait := 2000 // 2 seconds for graceful shutdown
+		for waited < maxWait {
 			// Check if process still exists
 			if err := syscall.Kill(pid, 0); err != nil {
 				// Process is gone
 				return
 			}
-			time.Sleep(50 * time.Millisecond)
-			waited += 50
+			time.Sleep(100 * time.Millisecond)
+			waited += 100
 		}
 
 		// Force kill the entire process group if still running
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		
+
+		// Wait a bit more to ensure force kill completes
+		time.Sleep(100 * time.Millisecond)
+
 		// Additional cleanup: kill any child processes that might have detached
 		killChildProcesses(pid)
 	} else {
 		// Fallback to killing just the main process
 		_ = cmd.Process.Signal(syscall.SIGTERM)
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 		_ = cmd.Process.Kill()
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
