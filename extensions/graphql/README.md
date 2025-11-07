@@ -316,8 +316,8 @@ type Resolver struct {
 }
 
 func (r *queryResolver) GetData(ctx context.Context) (*Data, error) {
-    // Resolve database from DI
-    db, err := forge.Resolve[*forge.Database](r.container, "database")
+    // Resolve database from DI using helper function
+    db, err := database.GetDatabase(r.container)
     if err != nil {
         return nil, err
     }

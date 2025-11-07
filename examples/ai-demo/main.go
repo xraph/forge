@@ -73,8 +73,11 @@ func main() {
 		}
 	}()
 
-	// Get AI manager
-	aiManager := forge.Must[ai.AI](app.Container(), "ai.manager")
+	// Get AI manager using helper function
+	aiManager, err := ai.GetAIManager(app.Container())
+	if err != nil {
+		log.Fatalf("Failed to get AI manager: %v", err)
+	}
 
 	// Display configuration
 	fmt.Println("✓ AI Extension Initialized")

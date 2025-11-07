@@ -46,8 +46,8 @@ func main() {
 	}
 	defer app.Stop(ctx)
 
-	// Get database manager
-	dbManager := forge.Must[*database.DatabaseManager](app.Container(), "databaseManager")
+	// Get database manager using constant
+	dbManager := forge.Must[*database.DatabaseManager](app.Container(), database.ManagerKey)
 
 	// Get SQL database
 	db, err := dbManager.SQL("primary")

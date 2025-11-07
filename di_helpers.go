@@ -64,3 +64,21 @@ func ResolveScope[T any](s Scope, name string) (T, error) {
 func MustScope[T any](s Scope, name string) T {
 	return di.MustScope[T](s, name)
 }
+
+// GetLogger resolves the logger from the container
+// Returns the logger instance and an error if resolution fails
+func GetLogger(c Container) (Logger, error) {
+	return di.GetLogger(c)
+}
+
+// GetMetrics resolves the metrics from the container
+// Returns the metrics instance and an error if resolution fails
+func GetMetrics(c Container) (Metrics, error) {
+	return di.GetMetrics(c)
+}
+
+// GetHealthManager resolves the health manager from the container
+// Returns the health manager instance and an error if resolution fails
+func GetHealthManager(c Container) (HealthManager, error) {
+	return di.GetHealthManager(c)
+}

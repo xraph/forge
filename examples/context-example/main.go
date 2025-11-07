@@ -27,7 +27,7 @@ var products = map[int64]*Product{
 
 func main() {
 	// Create app
-	app := forge.New()
+	app := forge.New(forge.DefaultAppConfig())
 
 	// Register security extension for sessions
 	securityExt := security.NewExtension(
@@ -38,20 +38,20 @@ func main() {
 	app.RegisterExtension(securityExt)
 
 	// Session middleware
-	app.Use(SessionMiddleware(securityExt.SessionStore()))
+	app.Router().Use(SessionMiddleware(securityExt.SessionStore()))
 
 	// Routes
-	app.GET("/", HomeHandler)
-	app.POST("/login", LoginHandler)
-	app.POST("/logout", LogoutHandler)
-	app.GET("/profile", RequireAuth(GetProfileHandler))
-	app.POST("/preferences", RequireAuth(UpdatePreferencesHandler))
+	app.Router().GET("/", HomeHandler)
+	app.Router().POST("/login", LoginHandler)
+	app.Router().POST("/logout", LogoutHandler)
+	app.Router().GET("/profile", RequireAuth(GetProfileHandler))
+	app.Router().POST("/preferences", RequireAuth(UpdatePreferencesHandler))
 
 	// Product routes - demonstrating path parameter type conversion
-	app.GET("/products", ListProductsHandler)
-	app.GET("/products/:id", GetProductHandler)
-	app.POST("/products/:id/price", RequireAuth(UpdateProductPriceHandler))
-	app.POST("/products/:id/stock", RequireAuth(ToggleProductStockHandler))
+	app.Router().GET("/products", ListProductsHandler)
+	app.Router().GET("/products/:id", GetProductHandler)
+	app.Router().POST("/products/:id/price", RequireAuth(UpdateProductPriceHandler))
+	app.Router().POST("/products/:id/stock", RequireAuth(ToggleProductStockHandler))
 
 	// Start server
 	if err := app.Start(context.Background()); err != nil {
@@ -74,16 +74,16 @@ func HomeHandler(ctx forge.Context) error {
 
 	// Check if user is logged in
 	var username string
-	if session, err := ctx.Session(); err == nil {
+	if _, err := ctx.Session(); err == nil {
 		if u, ok := ctx.GetSessionValue("username"); ok {
 			username = u.(string)
 		}
 	}
 
 	return ctx.Status(200).JSON(forge.Map{
-		"message":  "Welcome to Context Example API",
-		"theme":    theme,
-		"username": username,
+		"message":       "Welcome to Context Example API",
+		"theme":         theme,
+		"username":      username,
 		"authenticated": username != "",
 	})
 }
@@ -237,7 +237,7 @@ func ListProductsHandler(ctx forge.Context) error {
 	// Get pagination parameters with defaults
 	page := ctx.ParamIntDefault("page", 1)
 	limit := ctx.ParamIntDefault("limit", 10)
-	
+
 	// Get filtering parameters
 	minPrice := ctx.ParamFloat64Default("min_price", 0.0)
 	maxPrice := ctx.ParamFloat64Default("max_price", 999999.99)
@@ -304,7 +304,7 @@ func GetProductHandler(ctx forge.Context) error {
 		}
 		ctx.SetSessionValue("product_views", viewCount+1)
 		_ = ctx.SaveSession()
-		
+
 		log.Printf("User %s viewed product %d", session.GetUserID(), id)
 	}
 
@@ -439,4 +439,3 @@ func RequireAuth(next forge.Handler) forge.Handler {
 		return next(ctx)
 	}
 }
-

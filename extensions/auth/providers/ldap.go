@@ -260,11 +260,7 @@ func (p *LDAPProvider) authenticateLDAP(ctx context.Context, username, password 
 		nil,
 	)
 
-	// Set timeout
-	ctx, cancel := context.WithTimeout(ctx, p.config.RequestTimeout)
-	defer cancel()
-
-	sr, err := conn.SearchWithContext(ctx, searchRequest)
+	sr, err := conn.Search(searchRequest)
 	if err != nil {
 		return nil, fmt.Errorf("user search failed: %w", err)
 	}
@@ -344,7 +340,7 @@ func (p *LDAPProvider) fetchGroups(ctx context.Context, conn *ldap.Conn, userDN 
 		nil,
 	)
 
-	sr, err := conn.SearchWithContext(ctx, searchRequest)
+	sr, err := conn.Search(searchRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +418,24 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 			time.Sleep(pool.config.RetryDelay * time.Duration(1<<uint(attempt-1)))
 		}
 
-		conn, err = ldap.DialTimeout("tcp", addr, pool.config.ConnectionTimeout)
+		// Dial with timeout using goroutine
+		type result struct {
+			conn *ldap.Conn
+			err  error
+		}
+		resultCh := make(chan result, 1)
+		go func() {
+			c, e := ldap.Dial("tcp", addr)
+			resultCh <- result{conn: c, err: e}
+		}()
+
+		select {
+		case res := <-resultCh:
+			conn, err = res.conn, res.err
+		case <-time.After(pool.config.ConnectionTimeout):
+			err = fmt.Errorf("connection timeout after %v", pool.config.ConnectionTimeout)
+		}
+
 		if err == nil {
 			break
 		}

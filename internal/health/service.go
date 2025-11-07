@@ -11,6 +11,7 @@ import (
 
 const ServiceKey = shared.HealthServiceKey
 const CheckerKey = shared.HealthCheckerKey
+const ManagerKey = shared.HealthManagerKey
 
 // checkMemoryUsage checks memory usage
 func checkMemoryUsage(ctx context.Context) *HealthResult {

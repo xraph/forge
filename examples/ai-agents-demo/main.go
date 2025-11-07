@@ -38,10 +38,8 @@ func main() {
 			Version: "1.0.0",
 		})
 		var logger forge.Logger
-		if l, err := tempApp.Container().Resolve("logger"); err == nil {
-			if loggerImpl, ok := l.(forge.Logger); ok {
-				logger = loggerImpl
-			}
+		if l, err := forge.GetLogger(tempApp.Container()); err == nil {
+			logger = l
 		}
 
 		sqlStore := stores.NewSQLAgentStore(db, "agents", logger)
@@ -92,12 +90,10 @@ func main() {
 		}
 	}()
 
-	// Get AI manager
-	var aiManager ai.AI
-	if manager, err := app.Container().Resolve("ai.manager"); err == nil {
-		if m, ok := manager.(ai.AI); ok {
-			aiManager = m
-		}
+	// Get AI manager using helper function
+	aiManager, err := ai.GetAIManager(app.Container())
+	if err != nil {
+		log.Printf("Warning: failed to get AI manager: %v", err)
 	}
 
 	// Demo: Create agents dynamically

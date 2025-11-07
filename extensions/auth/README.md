@@ -385,7 +385,10 @@ apiKeyProvider := providers.NewAPIKeyProvider("api-key",
     providers.WithAPIKeyContainer(app.Container()),
     providers.WithAPIKeyValidator(func(ctx context.Context, apiKey string) (*auth.AuthContext, error) {
         // Access services from container
-        db := forge.Must[Database](app.Container(), "database")
+        db, err := database.GetDatabase(app.Container())
+        if err != nil {
+            return nil, err
+        }
         cache := forge.Must[Cache](app.Container(), "cache")
         
         // Check cache first

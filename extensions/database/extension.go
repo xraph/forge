@@ -119,7 +119,7 @@ func (e *Extension) Register(app forge.App) error {
 
 		// If SQL, register Bun instance
 		if defaultConfig.Type == TypePostgres || defaultConfig.Type == TypeMySQL || defaultConfig.Type == TypeSQLite {
-			if err := forge.RegisterSingleton(app.Container(), "db", func(c forge.Container) (*bun.DB, error) {
+			if err := forge.RegisterSingleton(app.Container(), SQLKey, func(c forge.Container) (*bun.DB, error) {
 				return e.manager.SQL(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register Bun DB: %w", err)
@@ -128,7 +128,7 @@ func (e *Extension) Register(app forge.App) error {
 
 		// If MongoDB, register client
 		if defaultConfig.Type == TypeMongoDB {
-			if err := forge.RegisterSingleton(app.Container(), "mongo", func(c forge.Container) (*mongo.Client, error) {
+			if err := forge.RegisterSingleton(app.Container(), MongoKey, func(c forge.Container) (*mongo.Client, error) {
 				return e.manager.Mongo(defaultName)
 			}); err != nil {
 				return fmt.Errorf("failed to register MongoDB client: %w", err)

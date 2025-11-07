@@ -196,16 +196,17 @@ func main() {
     app := forge.New()
     app.AddExtension(ai.NewExtension())
     
-    // Get AI service
-    aiService, err := app.Container().Resolve("ai")
+    // Get AI manager using helper function
+    aiManager, err := ai.GetAIManager(app.Container())
     if err != nil {
         log.Fatal(err)
     }
     
-    ai := aiService.(ai.AI)
-    
-    // Get LLM manager
-    llmManager := ai.GetLLMManager()
+    // Get LLM manager using helper function
+    llmManager, err := ai.GetLLMManager(app.Container())
+    if err != nil {
+        log.Fatal(err)
+    }
     
     // Create chat request
     request := ai.ChatRequest{
@@ -235,12 +236,10 @@ func main() {
 
 ```go
 // Create and register an optimization agent
-agentFactory, err := app.Container().Resolve("agentFactory")
+factory, err := ai.GetAgentFactory(app.Container())
 if err != nil {
     log.Fatal(err)
 }
-
-factory := agentFactory.(ai.AgentFactory)
 
 // Create optimization agent
 agent, err := factory.CreateAgent("optimization", ai.AgentConfig{

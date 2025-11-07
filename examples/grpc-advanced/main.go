@@ -111,7 +111,7 @@ func main() {
 		log.Fatalf("Failed to resolve gRPC: %v", err)
 	}
 
-	logger, err := forge.Resolve[forge.Logger](app.Container(), "logger")
+	logger, err := forge.GetLogger(app.Container())
 	if err != nil {
 		log.Fatalf("Failed to resolve logger: %v", err)
 	}

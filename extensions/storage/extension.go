@@ -48,11 +48,21 @@ func (e *Extension) Register(app forge.App) error {
 	e.app = app
 
 	// Get dependencies from DI
-	e.logger = forge.Must[forge.Logger](app.Container(), "logger")
-	e.metrics = forge.Must[forge.Metrics](app.Container(), "metrics")
+	var err error
+	e.logger, err = forge.GetLogger(app.Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve logger: %w", err)
+	}
+	e.metrics, err = forge.GetMetrics(app.Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve metrics: %w", err)
+	}
 
 	// Get config from ConfigManager (bind pattern)
-	configMgr := forge.Must[forge.ConfigManager](app.Container(), "config")
+	configMgr, err := forge.GetConfigManager(app.Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve config manager: %w", err)
+	}
 	var tempConfig Config
 	if err := configMgr.Bind("extensions.storage", &tempConfig); err == nil {
 		e.config = tempConfig

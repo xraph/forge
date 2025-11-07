@@ -74,8 +74,8 @@ func TestExtension_SQLiteLifecycle(t *testing.T) {
 		t.Errorf("health check failed: %v", err)
 	}
 
-	// Get database manager
-	dbManager := forge.Must[*DatabaseManager](app.Container(), "databaseManager")
+	// Get database manager using constant
+	dbManager := forge.Must[*DatabaseManager](app.Container(), ManagerKey)
 	if dbManager == nil {
 		t.Fatal("database manager not found")
 	}

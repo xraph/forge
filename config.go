@@ -14,6 +14,7 @@ import (
 // =============================================================================
 
 // ConfigKey is the service key for configuration manager
+// Use config.ManagerKey or shared.ConfigKey for consistency
 const ConfigKey = "config"
 
 // =============================================================================
@@ -207,4 +208,10 @@ func MustGet[T any](cm ConfigManager, key string) T {
 		panic(err)
 	}
 	return value
+}
+
+// GetConfigManager resolves the config manager from the container
+// Returns the config manager instance and an error if resolution fails
+func GetConfigManager(c Container) (ConfigManager, error) {
+	return config.GetConfigManager(c)
 }
