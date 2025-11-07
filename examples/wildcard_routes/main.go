@@ -14,7 +14,7 @@ func main() {
 	cfg.Description = "Demonstrates support for wildcard routes in bunrouter"
 	cfg.HTTPAddress = ":8080"
 
-	app := forge.New(cfg)
+	app := forge.New(forge.WithConfig(cfg))
 	router := app.Router()
 
 	// Static file serving using unnamed wildcard
@@ -59,9 +59,8 @@ func main() {
 
 	fmt.Println("🚀 Server starting on :8080")
 	fmt.Println("📝 Visit http://localhost:8080 to test wildcard routes")
-	
+
 	if err := app.Run(); err != nil {
 		fmt.Printf("❌ Server error: %v\n", err)
 	}
 }
-

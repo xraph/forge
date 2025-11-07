@@ -11,10 +11,10 @@ import (
 // TestFARPIntegration validates FARP schema publisher integration with service discovery
 func TestFARPIntegration(t *testing.T) {
 	// Create a test app
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	})
+	}))
 
 	// Configure discovery extension with FARP enabled
 	config := Config{
@@ -100,10 +100,10 @@ func TestFARPIntegration(t *testing.T) {
 
 // TestFARPMetadataGeneration validates that FARP metadata is correctly generated
 func TestFARPMetadataGeneration(t *testing.T) {
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	})
+	}))
 
 	config := FARPConfig{
 		Enabled:      true,
@@ -175,10 +175,10 @@ func TestFARPWithDifferentBackends(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := forge.New(forge.AppConfig{
+			app := forge.New(forge.WithConfig(forge.AppConfig{
 				Name:    "test-service",
 				Version: "1.0.0",
-			})
+			}))
 
 			config := Config{
 				Enabled: true,
@@ -250,10 +250,10 @@ func TestFARPSchemaTypes(t *testing.T) {
 
 // TestServiceInstanceWithFARPMetadata validates service instance contains FARP metadata
 func TestServiceInstanceWithFARPMetadata(t *testing.T) {
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	})
+	}))
 
 	config := Config{
 		Enabled: true,
@@ -323,10 +323,10 @@ func TestServiceInstanceWithFARPMetadata(t *testing.T) {
 
 // TestFARPRegistryIntegration validates FARP manifest registration
 func TestFARPRegistryIntegration(t *testing.T) {
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	})
+	}))
 
 	config := FARPConfig{
 		Enabled:      true,
