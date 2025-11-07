@@ -14,10 +14,10 @@ import (
 // TestFARPManifestEndpoint validates the /_farp/manifest endpoint works correctly
 func TestFARPManifestEndpoint(t *testing.T) {
 	// Create app with router
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	})
+	}))
 
 	// Configure discovery with FARP
 	config := Config{
@@ -108,10 +108,10 @@ func TestFARPManifestEndpoint(t *testing.T) {
 // TestFARPDiscoveryEndpoint validates the /_farp/discovery endpoint works correctly
 func TestFARPDiscoveryEndpoint(t *testing.T) {
 	// Create app with router
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	})
+	}))
 
 	// Configure discovery with FARP
 	config := Config{
@@ -209,10 +209,10 @@ func TestFARPDiscoveryEndpoint(t *testing.T) {
 // TestFARPEndpointsWithoutService validates endpoints return error when service not registered
 func TestFARPEndpointsWithoutService(t *testing.T) {
 	// Create app with router
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	})
+	}))
 
 	// Configure discovery with FARP but WITHOUT service registration
 	config := Config{

@@ -11,7 +11,7 @@ import (
 // where extensions are passed via AppConfig.Extensions without WithAppConfig
 func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 	// This mimics the user's actual usage pattern
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "kineta",
 		Version:     "0.1.0",
 		HTTPAddress: ":4400",
@@ -34,7 +34,7 @@ func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 				}),
 			),
 		},
-	})
+	}))
 
 	// Start the app (which starts extensions)
 	ctx := context.Background()
@@ -96,7 +96,7 @@ func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 
 // TestMinimalAppConfig tests the absolute minimum configuration
 func TestMinimalAppConfig(t *testing.T) {
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "minimal-service",
 		HTTPAddress: ":3000",
 		Extensions: []forge.Extension{
@@ -111,7 +111,7 @@ func TestMinimalAppConfig(t *testing.T) {
 				}),
 			),
 		},
-	})
+	}))
 
 	ctx := context.Background()
 	if err := app.Start(ctx); err != nil {
@@ -179,7 +179,7 @@ func TestComplexHTTPAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := forge.New(forge.AppConfig{
+			app := forge.New(forge.WithConfig(forge.AppConfig{
 				Name:        "test-service",
 				HTTPAddress: tt.httpAddress,
 				Extensions: []forge.Extension{
@@ -193,7 +193,7 @@ func TestComplexHTTPAddress(t *testing.T) {
 						}),
 					),
 				},
-			})
+			}))
 
 			ctx := context.Background()
 			if err := app.Start(ctx); err != nil {

@@ -27,7 +27,7 @@ var products = map[int64]*Product{
 
 func main() {
 	// Create app
-	app := forge.New(forge.DefaultAppConfig())
+	app := forge.New(forge.WithConfig(forge.DefaultAppConfig()))
 
 	// Register security extension for sessions
 	securityExt := security.NewExtension(

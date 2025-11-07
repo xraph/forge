@@ -10,11 +10,11 @@ import (
 // TestAutoConfigFromApp validates that Service config is optional and reads from app config
 func TestAutoConfigFromApp(t *testing.T) {
 	// Create app with name, version, and HTTPAddress
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "kineta",
 		Version:     "0.1.0",
 		HTTPAddress: ":4400",
-	})
+	}))
 
 	// Configure discovery WITHOUT Service config - should use app config
 	appConfig := forge.AppConfig{
@@ -98,11 +98,11 @@ func TestAutoConfigFromApp(t *testing.T) {
 
 // TestAutoConfigWithPartialServiceConfig validates mixing Service config with app config
 func TestAutoConfigWithPartialServiceConfig(t *testing.T) {
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "my-app",
 		Version:     "1.0.0",
 		HTTPAddress: "0.0.0.0:8080",
-	})
+	}))
 
 	// Provide partial Service config - only override address
 	appConfig := forge.AppConfig{
@@ -209,7 +209,7 @@ func TestHTTPAddressParsingVariations(t *testing.T) {
 				HTTPAddress: tt.httpAddress,
 			}
 
-			app := forge.New(appConfig)
+			app := forge.New(forge.WithConfig(appConfig))
 
 			config := Config{
 				Enabled: true,
