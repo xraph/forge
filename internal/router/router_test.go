@@ -323,11 +323,11 @@ func TestRouter_WithMiddleware(t *testing.T) {
 	router := NewRouter()
 
 	called := false
-	middleware := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := func(next Handler) Handler {
+		return func(ctx Context) error {
 			called = true
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 
 	err := router.GET("/test", func(ctx Context) error {
@@ -384,11 +384,11 @@ func TestRouter_GroupWithMiddleware(t *testing.T) {
 	router := NewRouter()
 
 	called := false
-	middleware := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	middleware := func(next Handler) Handler {
+		return func(ctx Context) error {
 			called = true
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 
 	api := router.Group("/api", WithGroupMiddleware(middleware))
@@ -411,20 +411,22 @@ func TestRouter_Use(t *testing.T) {
 
 	order := []string{}
 
-	mw1 := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw1 := func(next Handler) Handler {
+		return func(ctx Context) error {
 			order = append(order, "mw1-before")
-			next.ServeHTTP(w, r)
+			err := next(ctx)
 			order = append(order, "mw1-after")
-		})
+			return err
+		}
 	}
 
-	mw2 := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw2 := func(next Handler) Handler {
+		return func(ctx Context) error {
 			order = append(order, "mw2-before")
-			next.ServeHTTP(w, r)
+			err := next(ctx)
 			order = append(order, "mw2-after")
-		})
+			return err
+		}
 	}
 
 	router.Use(mw1, mw2)
@@ -501,3 +503,37 @@ func TestRouter_Handler(t *testing.T) {
 	assert.NotNil(t, handler)
 	assert.Implements(t, (*http.Handler)(nil), handler)
 }
+
+// // simpleAdapter is a basic in-memory adapter for testing
+// type simpleAdapter struct {
+// 	routes map[string]map[string]http.Handler // method -> path -> handler
+// }
+
+// func (a *simpleAdapter) Handle(method, path string, handler http.Handler) {
+// 	if a.routes[method] == nil {
+// 		a.routes[method] = make(map[string]http.Handler)
+// 	}
+// 	a.routes[method][path] = handler
+// }
+
+// func (a *simpleAdapter) Mount(path string, handler http.Handler) {
+// 	// Simple implementation: mount on all methods
+// 	for _, method := range []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"} {
+// 		a.Handle(method, path, handler)
+// 	}
+// }
+
+// func (a *simpleAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// 	if handlers, ok := a.routes[r.Method]; ok {
+// 		if handler, ok := handlers[r.URL.Path]; ok {
+// 			handler.ServeHTTP(w, r)
+// 			return
+// 		}
+// 	}
+// 	http.NotFound(w, r)
+// }
+
+// func (a *simpleAdapter) Close() error {
+// 	a.routes = nil
+// 	return nil
+// }

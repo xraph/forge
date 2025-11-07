@@ -132,7 +132,7 @@ func loginHandler(store security.SessionStore, cm *security.CookieManager) forge
             return err
         }
         
-        return forge.JSON(w, 200, map[string]string{
+        return forge.JSON(w, http.StatusOK, map[string]string{
             "session_id": session.ID,
         })
     }
@@ -141,10 +141,10 @@ func loginHandler(store security.SessionStore, cm *security.CookieManager) forge
 func profileHandler(w http.ResponseWriter, r *http.Request) error {
     session, ok := security.GetSession(r.Context())
     if !ok {
-        return forge.JSON(w, 401, map[string]string{"error": "unauthorized"})
+        return forge.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
     }
     
-    return forge.JSON(w, 200, map[string]interface{}{
+    return forge.JSON(w, http.StatusOK, map[string]interface{}{
         "user_id": session.UserID,
         "data":    session.Data,
     })
@@ -156,7 +156,7 @@ func logoutHandler(store security.SessionStore, cm *security.CookieManager) forg
             return err
         }
         
-        return forge.JSON(w, 200, map[string]string{"message": "logged out"})
+        return forge.JSON(w, http.StatusOK, map[string]string{"message": "logged out"})
     }
 }
 ```
@@ -383,7 +383,7 @@ Protects routes by requiring a valid session:
 ```go
 // With handler
 unauthorizedHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-    forge.JSON(w, 401, map[string]string{"error": "unauthorized"})
+    forge.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 })
 
 protectedRouter := app.Router().Group("/api")
@@ -391,7 +391,7 @@ protectedRouter.Use(security.RequireSession(unauthorizedHandler))
 
 // With handler function
 protectedRouter.Use(security.RequireSessionFunc(func(w http.ResponseWriter, r *http.Request) {
-    forge.JSON(w, 401, map[string]string{"error": "unauthorized"})
+    forge.JSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 }))
 ```
 
@@ -612,13 +612,13 @@ func tenantMiddleware(next http.Handler) http.Handler {
     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
         session, ok := security.GetSession(r.Context())
         if !ok {
-            http.Error(w, "Unauthorized", 401)
+            http.Error(w, "Unauthorized", http.StatusUnauthorized)
             return
         }
         
         tenantID, ok := session.Data["tenant_id"].(string)
         if !ok {
-            http.Error(w, "Invalid session", 400)
+            http.Error(w, "Invalid session", http.StatusBadRequest)
             return
         }
         

@@ -3,7 +3,6 @@ package server
 import (
 	"embed"
 	"html/template"
-	"net/http"
 
 	"github.com/xraph/forge"
 )
@@ -22,7 +21,7 @@ type Dashboard struct {
 // NewDashboard creates a new web dashboard
 func NewDashboard(server *Server, logger forge.Logger, metrics forge.Metrics) *Dashboard {
 	tmpl := template.Must(template.New("dashboard").Parse(dashboardHTML))
-	
+
 	return &Dashboard{
 		server:  server,
 		logger:  logger,
@@ -66,59 +65,59 @@ func (d *Dashboard) MountRoutes(router forge.Router, basePath string) error {
 	return nil
 }
 
-func (d *Dashboard) handleDashboard(w http.ResponseWriter, r *http.Request) {
+func (d *Dashboard) handleDashboard(ctx forge.Context) error {
 	data := map[string]interface{}{
 		"Title":   "AI SDK Dashboard",
 		"Section": "home",
 	}
-	d.tmpl.Execute(w, data)
+	return d.tmpl.Execute(ctx.Response(), data)
 }
 
-func (d *Dashboard) handleGeneration(w http.ResponseWriter, r *http.Request) {
+func (d *Dashboard) handleGeneration(ctx forge.Context) error {
 	data := map[string]interface{}{
 		"Title":   "Generation Playground",
 		"Section": "generation",
 	}
-	d.tmpl.Execute(w, data)
+	return d.tmpl.Execute(ctx.Response(), data)
 }
 
-func (d *Dashboard) handleAgents(w http.ResponseWriter, r *http.Request) {
+func (d *Dashboard) handleAgents(ctx forge.Context) error {
 	data := map[string]interface{}{
 		"Title":   "Agent Management",
 		"Section": "agents",
 	}
-	d.tmpl.Execute(w, data)
+	return d.tmpl.Execute(ctx.Response(), data)
 }
 
-func (d *Dashboard) handleRAG(w http.ResponseWriter, r *http.Request) {
+func (d *Dashboard) handleRAG(ctx forge.Context) error {
 	data := map[string]interface{}{
 		"Title":   "RAG Dashboard",
 		"Section": "rag",
 	}
-	d.tmpl.Execute(w, data)
+	return d.tmpl.Execute(ctx.Response(), data)
 }
 
-func (d *Dashboard) handleCosts(w http.ResponseWriter, r *http.Request) {
+func (d *Dashboard) handleCosts(ctx forge.Context) error {
 	data := map[string]interface{}{
 		"Title":   "Cost Analytics",
 		"Section": "costs",
 	}
-	
+
 	// Get cost insights if available
 	if d.server.costManager != nil {
 		insights := d.server.costManager.GetInsights()
 		data["Insights"] = insights
 	}
-	
-	d.tmpl.Execute(w, data)
+
+	return d.tmpl.Execute(ctx.Response(), data)
 }
 
-func (d *Dashboard) handleMetrics(w http.ResponseWriter, r *http.Request) {
+func (d *Dashboard) handleMetrics(ctx forge.Context) error {
 	data := map[string]interface{}{
 		"Title":   "Metrics Dashboard",
 		"Section": "metrics",
 	}
-	d.tmpl.Execute(w, data)
+	return d.tmpl.Execute(ctx.Response(), data)
 }
 
 // dashboardHTML is the main dashboard template with Tailwind CSS
@@ -335,4 +334,3 @@ const dashboardHTML = `<!DOCTYPE html>
     </script>
 </body>
 </html>`
-

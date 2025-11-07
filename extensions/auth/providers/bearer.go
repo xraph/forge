@@ -105,16 +105,15 @@ func (p *BearerTokenProvider) OpenAPIScheme() auth.SecurityScheme {
 }
 
 func (p *BearerTokenProvider) Middleware() forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authCtx, err := p.Authenticate(r.Context(), r)
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			authCtx, err := p.Authenticate(ctx.Context(), ctx.Request())
 			if err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
-			ctx := auth.WithContext(r.Context(), authCtx)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+			ctx.Set("auth_context", authCtx)
+			return next(ctx)
+		}
 	}
 }

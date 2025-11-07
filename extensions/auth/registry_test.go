@@ -39,7 +39,7 @@ func (m *mockProvider) OpenAPIScheme() SecurityScheme {
 }
 
 func (m *mockProvider) Middleware() forge.Middleware {
-	return func(next http.Handler) http.Handler {
+	return func(next forge.Handler) forge.Handler {
 		return next
 	}
 }

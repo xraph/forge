@@ -229,44 +229,45 @@ func (c *CSRFProtection) shouldSkipPath(path string) bool {
 }
 
 // CSRFMiddleware returns a middleware function for CSRF protection
-func CSRFMiddleware(csrf *CSRFProtection, cookieManager *CookieManager) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func CSRFMiddleware(csrf *CSRFProtection, cookieManager *CookieManager) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			if !csrf.config.Enabled {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
+
+			r := ctx.Request()
 
 			// Skip CSRF protection for specified paths
 			if csrf.shouldSkipPath(r.URL.Path) {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
 
 			// Skip CSRF protection for safe methods
 			if csrf.isSafeMethod(r.Method) {
 				// For safe methods, generate and set a new token if one doesn't exist
-				csrf.handleSafeMethod(w, r, cookieManager, next)
-				return
+				return csrf.handleSafeMethod(ctx, cookieManager, next)
 			}
 
 			// For unsafe methods (POST, PUT, DELETE, etc.), validate the CSRF token
-			csrf.handleUnsafeMethod(w, r, cookieManager, next)
-		})
+			return csrf.handleUnsafeMethod(ctx, cookieManager, next)
+		}
 	}
 }
 
 // handleSafeMethod handles safe HTTP methods (GET, HEAD, etc.)
-func (c *CSRFProtection) handleSafeMethod(w http.ResponseWriter, r *http.Request, cookieManager *CookieManager, next http.Handler) {
+func (c *CSRFProtection) handleSafeMethod(ctx forge.Context, cookieManager *CookieManager, next forge.Handler) error {
+	r := ctx.Request()
+	w := ctx.Response()
+
 	// Get or create session ID
 	sessionID, _ := cookieManager.GetCookie(r, c.config.CookieName)
-	
+
 	// Check if we already have a valid token
 	if sessionID != "" {
 		if _, ok := c.GetToken(sessionID); ok {
 			// Token exists and is valid
-			next.ServeHTTP(w, r)
-			return
+			return next(ctx)
 		}
 	}
 
@@ -274,8 +275,7 @@ func (c *CSRFProtection) handleSafeMethod(w http.ResponseWriter, r *http.Request
 	token, err := c.GenerateToken()
 	if err != nil {
 		c.logger.Error("failed to generate csrf token", forge.F("error", err))
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
+		return ctx.String(http.StatusInternalServerError, "Internal Server Error")
 	}
 
 	// Generate new session ID if needed
@@ -299,17 +299,18 @@ func (c *CSRFProtection) handleSafeMethod(w http.ResponseWriter, r *http.Request
 	// Set token in response header so client can read it
 	w.Header().Set("X-CSRF-Token", token)
 
-	next.ServeHTTP(w, r)
+	return next(ctx)
 }
 
 // handleUnsafeMethod handles unsafe HTTP methods (POST, PUT, DELETE, etc.)
-func (c *CSRFProtection) handleUnsafeMethod(w http.ResponseWriter, r *http.Request, cookieManager *CookieManager, next http.Handler) {
+func (c *CSRFProtection) handleUnsafeMethod(ctx forge.Context, cookieManager *CookieManager, next forge.Handler) error {
+	r := ctx.Request()
+
 	// Get session ID from cookie
 	sessionID, _ := cookieManager.GetCookie(r, c.config.CookieName)
 	if sessionID == "" {
 		c.logger.Warn("csrf validation failed: no session cookie")
-		http.Error(w, "CSRF token validation failed", http.StatusForbidden)
-		return
+		return ctx.String(http.StatusForbidden, "CSRF token validation failed")
 	}
 
 	// Extract token from request
@@ -319,8 +320,7 @@ func (c *CSRFProtection) handleUnsafeMethod(w http.ResponseWriter, r *http.Reque
 			forge.F("method", r.Method),
 			forge.F("path", r.URL.Path),
 		)
-		http.Error(w, "CSRF token validation failed", http.StatusForbidden)
-		return
+		return ctx.String(http.StatusForbidden, "CSRF token validation failed")
 	}
 
 	// Validate token
@@ -330,12 +330,11 @@ func (c *CSRFProtection) handleUnsafeMethod(w http.ResponseWriter, r *http.Reque
 			forge.F("method", r.Method),
 			forge.F("path", r.URL.Path),
 		)
-		http.Error(w, "CSRF token validation failed", http.StatusForbidden)
-		return
+		return ctx.String(http.StatusForbidden, "CSRF token validation failed")
 	}
 
 	// Token is valid, proceed
-	next.ServeHTTP(w, r)
+	return next(ctx)
 }
 
 // GetCSRFToken retrieves the CSRF token from response header (helper for templates/responses)
@@ -346,4 +345,3 @@ func GetCSRFToken(w http.ResponseWriter) (string, bool) {
 	}
 	return "", false
 }
-

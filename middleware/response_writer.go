@@ -2,8 +2,6 @@ package middleware
 
 import (
 	"bufio"
-	"compress/gzip"
-	"io"
 	"net"
 	"net/http"
 )
@@ -74,29 +72,4 @@ func (w *ResponseWriter) Push(target string, opts *http.PushOptions) error {
 		return pusher.Push(target, opts)
 	}
 	return http.ErrNotSupported
-}
-
-// gzipResponseWriter wraps ResponseWriter with gzip compression
-type gzipResponseWriter struct {
-	io.Writer
-	http.ResponseWriter
-}
-
-func (w *gzipResponseWriter) Write(data []byte) (int, error) {
-	return w.Writer.Write(data)
-}
-
-func (w *gzipResponseWriter) WriteHeader(code int) {
-	w.Header().Del("Content-Length")
-	w.ResponseWriter.WriteHeader(code)
-}
-
-// Flush implements http.Flusher
-func (w *gzipResponseWriter) Flush() {
-	if gz, ok := w.Writer.(*gzip.Writer); ok {
-		_ = gz.Flush()
-	}
-	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
 }

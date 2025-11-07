@@ -309,13 +309,20 @@ func (o *strictValidationOpt) Apply(config *RouteConfig) {
 
 // CreateValidationMiddleware creates a middleware that validates requests against schemas
 func CreateValidationMiddleware(validator *SchemaValidator) Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return func(next Handler) Handler {
+		return func(ctx Context) error {
 			// Extract validation metadata from context if available
 			// For now, just pass through
 			// Real implementation would extract schema from route metadata
-			next.ServeHTTP(w, r)
-		})
+			schema := ctx.Get("schema").(*Schema)
+			if schema == nil {
+				return next(ctx)
+			}
+			if err := ValidateRequestBody(ctx.Request(), schema); err != nil {
+				return err
+			}
+			return next(ctx)
+		}
 	}
 }
 

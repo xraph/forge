@@ -16,9 +16,9 @@ import (
 
 // JWT errors
 var (
-	ErrJWTMissing    = errors.New("jwt token missing")
-	ErrJWTInvalid    = errors.New("jwt token invalid")
-	ErrJWTExpired    = errors.New("jwt token expired")
+	ErrJWTMissing     = errors.New("jwt token missing")
+	ErrJWTInvalid     = errors.New("jwt token invalid")
+	ErrJWTExpired     = errors.New("jwt token expired")
 	ErrJWTNotYetValid = errors.New("jwt token not yet valid")
 )
 
@@ -321,18 +321,18 @@ func (jm *JWTManager) shouldSkipPath(path string) bool {
 type jwtContextKey struct{}
 
 // JWTMiddleware returns a middleware function for JWT authentication
-func JWTMiddleware(jwtManager *JWTManager) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func JWTMiddleware(jwtManager *JWTManager) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			if !jwtManager.config.Enabled {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
+
+			r := ctx.Request()
 
 			// Skip JWT authentication for specified paths
 			if jwtManager.shouldSkipPath(r.URL.Path) {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
 
 			// Extract token from request
@@ -341,8 +341,7 @@ func JWTMiddleware(jwtManager *JWTManager) func(http.Handler) http.Handler {
 				jwtManager.logger.Debug("jwt token missing",
 					forge.F("path", r.URL.Path),
 				)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			// Validate token
@@ -352,31 +351,40 @@ func JWTMiddleware(jwtManager *JWTManager) func(http.Handler) http.Handler {
 					forge.F("error", err),
 					forge.F("path", r.URL.Path),
 				)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
-			// Store claims in context
-			ctx := context.WithValue(r.Context(), jwtContextKey{}, claims)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+			// Store claims in Forge context
+			ctx.Set("jwt_claims", claims)
+
+			return next(ctx)
+		}
 	}
 }
 
-// GetJWTClaims retrieves JWT claims from context
-func GetJWTClaims(ctx context.Context) (*JWTClaims, bool) {
+// GetJWTClaims retrieves JWT claims from Forge context
+func GetJWTClaims(ctx forge.Context) (*JWTClaims, bool) {
+	val := ctx.Get("jwt_claims")
+	if val == nil {
+		return nil, false
+	}
+	claims, ok := val.(*JWTClaims)
+	return claims, ok
+}
+
+// GetJWTClaimsFromStdContext retrieves JWT claims from standard context (for backward compatibility)
+func GetJWTClaimsFromStdContext(ctx context.Context) (*JWTClaims, bool) {
 	claims, ok := ctx.Value(jwtContextKey{}).(*JWTClaims)
 	return claims, ok
 }
 
 // RequireRoles returns a middleware that checks if the user has required roles
-func RequireRoles(roles ...string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			claims, ok := GetJWTClaims(r.Context())
+func RequireRoles(roles ...string) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			claims, ok := GetJWTClaims(ctx)
 			if !ok {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			// Check if user has any of the required roles
@@ -394,12 +402,11 @@ func RequireRoles(roles ...string) func(http.Handler) http.Handler {
 			}
 
 			if !hasRole {
-				http.Error(w, "Forbidden: insufficient permissions", http.StatusForbidden)
-				return
+				return ctx.String(http.StatusForbidden, "Forbidden: insufficient permissions")
 			}
 
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 }
 
@@ -411,4 +418,3 @@ func generateTokenID() (string, error) {
 	}
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }
-

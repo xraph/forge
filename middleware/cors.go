@@ -50,8 +50,11 @@ func CORS(config CORSConfig) forge.Middleware {
 	exposeHeaders := strings.Join(config.ExposeHeaders, ", ")
 	maxAge := strconv.Itoa(config.MaxAge)
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			w := ctx.Response()
+			r := ctx.Request()
+
 			// Set CORS headers
 			w.Header().Set("Access-Control-Allow-Origin", config.AllowOrigin)
 			w.Header().Set("Access-Control-Allow-Methods", allowMethods)
@@ -72,10 +75,10 @@ func CORS(config CORSConfig) forge.Middleware {
 			// Handle preflight OPTIONS request
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
-				return
+				return nil
 			}
 
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 }

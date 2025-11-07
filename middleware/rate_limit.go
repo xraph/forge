@@ -94,22 +94,21 @@ func (rl *RateLimiter) cleanupLoop() {
 
 // RateLimit middleware enforces rate limiting per client
 func RateLimit(limiter *RateLimiter, logger forge.Logger) forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			// Use remote address as key (could also use user ID, API key, etc.)
-			key := r.RemoteAddr
+			key := ctx.Request().RemoteAddr
 
 			if !limiter.Allow(key) {
 				if logger != nil {
 					logger.Warn("rate limit exceeded")
 				}
 
-				w.Header().Set("X-RateLimit-Limit", "exceeded")
-				http.Error(w, "Rate Limit Exceeded", http.StatusTooManyRequests)
-				return
+				ctx.Response().Header().Set("X-RateLimit-Limit", "exceeded")
+				return ctx.String(http.StatusTooManyRequests, "Rate Limit Exceeded")
 			}
 
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 }

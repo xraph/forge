@@ -45,20 +45,26 @@ func (m *mockRegistry) Has(name string) bool {
 }
 
 func (m *mockRegistry) Middleware(providerNames ...string) forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return next
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			return nil
+		}
 	}
 }
 
 func (m *mockRegistry) MiddlewareAnd(providerNames ...string) forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return next
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			return nil
+		}
 	}
 }
 
-func (m *mockRegistry) MiddlewareWithScopes(scopeString string, providerNames ...string) forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return next
+func (m *mockRegistry) MiddlewareWithScopes(providerName string, scopes ...string) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			return nil
+		}
 	}
 }
 
@@ -99,7 +105,7 @@ func (m *mockProvider) OpenAPIScheme() auth.SecurityScheme {
 }
 
 func (m *mockProvider) Middleware() forge.Middleware {
-	return func(next http.Handler) http.Handler {
+	return func(next forge.Handler) forge.Handler {
 		return next
 	}
 }

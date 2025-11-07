@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"net/http"
 	"time"
 
 	forge "github.com/xraph/forge"
@@ -41,31 +40,29 @@ func LoggingWithConfig(logger forge.Logger, config LoggingConfig) forge.Middlewa
 		excludeMap[path] = true
 	}
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			// Skip excluded paths
-			if excludeMap[r.URL.Path] {
-				next.ServeHTTP(w, r)
-				return
+			if excludeMap[ctx.Request().URL.Path] {
+				return next(ctx)
 			}
 
 			// Start timing
 			start := time.Now()
 
-			// Wrap response writer to capture status
-			wrapped := NewResponseWriter(w)
-
 			// Log request start
 			logger.Info("request started")
 
 			// Process request
-			next.ServeHTTP(wrapped, r)
+			err := next(ctx)
 
 			// Calculate duration
 			_ = time.Since(start)
 
 			// Log request completion
 			logger.Info("request completed")
-		})
+
+			return err
+		}
 	}
 }

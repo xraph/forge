@@ -67,8 +67,9 @@ func (w *safeResponseWriter) flush() {
 }
 
 // Timeout middleware enforces a timeout on request handling
-// Returns 504 Gateway Timeout if request exceeds duration
-func Timeout(duration time.Duration, logger forge.Logger) forge.Middleware {
+// Returns http.StatusGatewayTimeout if request exceeds duration
+// Note: This middleware uses http.Handler pattern due to goroutine requirements
+func Timeout(duration time.Duration, logger forge.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Create context with timeout

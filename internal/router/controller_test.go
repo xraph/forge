@@ -1,7 +1,6 @@
 package router
 
 import (
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -50,11 +49,11 @@ func (c *testControllerWithMiddleware) Name() string {
 
 func (c *testControllerWithMiddleware) Middleware() []Middleware {
 	return []Middleware{
-		func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		func(next Handler) Handler {
+			return func(ctx Context) error {
 				c.middlewareCalled = true
-				next.ServeHTTP(w, r)
-			})
+				return next(ctx)
+			}
 		},
 	}
 }

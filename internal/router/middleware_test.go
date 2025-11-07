@@ -6,25 +6,38 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/xraph/forge/internal/di"
 )
 
 func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
 	called := false
+	container := di.NewContainer()
 
 	mw := MiddlewareFunc(func(w http.ResponseWriter, r *http.Request, next http.Handler) {
 		called = true
 		next.ServeHTTP(w, r)
 	})
 
-	handler := mw.ToMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
+	// Convert to forge Middleware
+	forgeMW := mw.ToMiddleware(container)
 
+	// Create a forge handler
+	forgeHandler := func(ctx Context) error {
+		ctx.Response().WriteHeader(200)
+		return nil
+	}
+
+	// Apply middleware
+	wrappedHandler := forgeMW(forgeHandler)
+
+	// Execute with a test context
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, container)
+	defer ctx.(di.ContextWithClean).Cleanup()
 
-	handler.ServeHTTP(rec, req)
-
+	err := wrappedHandler(ctx)
+	assert.NoError(t, err)
 	assert.True(t, called)
 	assert.Equal(t, 200, rec.Code)
 }
@@ -32,39 +45,52 @@ func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
 func TestChain(t *testing.T) {
 	order := []string{}
 
-	mw1 := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw1 := func(next Handler) Handler {
+		return func(ctx Context) error {
 			order = append(order, "mw1-before")
-			next.ServeHTTP(w, r)
+			err := next(ctx)
 			order = append(order, "mw1-after")
-		})
+			return err
+		}
 	}
 
-	mw2 := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw2 := func(next Handler) Handler {
+		return func(ctx Context) error {
 			order = append(order, "mw2-before")
-			next.ServeHTTP(w, r)
+			err := next(ctx)
 			order = append(order, "mw2-after")
-		})
+			return err
+		}
 	}
 
-	mw3 := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw3 := func(next Handler) Handler {
+		return func(ctx Context) error {
 			order = append(order, "mw3-before")
-			next.ServeHTTP(w, r)
+			err := next(ctx)
 			order = append(order, "mw3-after")
-		})
+			return err
+		}
 	}
 
-	handler := Chain(mw1, mw2, mw3)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Create a forge handler
+	handler := func(ctx Context) error {
 		order = append(order, "handler")
-		w.WriteHeader(200)
-	}))
+		ctx.Response().WriteHeader(200)
+		return nil
+	}
 
+	// Chain middleware
+	chained := Chain(mw1, mw2, mw3)(handler)
+
+	// Execute with a test context
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	container := di.NewContainer()
+	ctx := di.NewContext(rec, req, container)
+	defer ctx.(di.ContextWithClean).Cleanup()
 
-	handler.ServeHTTP(rec, req)
+	err := chained(ctx)
+	assert.NoError(t, err)
 
 	expected := []string{
 		"mw1-before",
@@ -81,37 +107,49 @@ func TestChain(t *testing.T) {
 }
 
 func TestChain_Empty(t *testing.T) {
-	handler := Chain()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
+	handler := func(ctx Context) error {
+		ctx.Response().WriteHeader(200)
+		return nil
+	}
+
+	chained := Chain()(handler)
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	container := di.NewContainer()
+	ctx := di.NewContext(rec, req, container)
+	defer ctx.(di.ContextWithClean).Cleanup()
 
-	handler.ServeHTTP(rec, req)
-
+	err := chained(ctx)
+	assert.NoError(t, err)
 	assert.Equal(t, 200, rec.Code)
 }
 
 func TestChain_Single(t *testing.T) {
 	called := false
 
-	mw := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mw := func(next Handler) Handler {
+		return func(ctx Context) error {
 			called = true
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 
-	handler := Chain(mw)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
+	handler := func(ctx Context) error {
+		ctx.Response().WriteHeader(200)
+		return nil
+	}
+
+	chained := Chain(mw)(handler)
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	container := di.NewContainer()
+	ctx := di.NewContext(rec, req, container)
+	defer ctx.(di.ContextWithClean).Cleanup()
 
-	handler.ServeHTTP(rec, req)
-
+	err := chained(ctx)
+	assert.NoError(t, err)
 	assert.True(t, called)
 	assert.Equal(t, 200, rec.Code)
 }

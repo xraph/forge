@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/auth"
+	"github.com/xraph/forge/internal/di"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -207,14 +208,16 @@ func TestLDAPProvider_Middleware(t *testing.T) {
 
 	// Test middleware with missing auth
 	handlerCalled := false
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := func(ctx forge.Context) error {
 		handlerCalled = true
-	})
+		return ctx.String(http.StatusOK, "OK")
+	}
 
 	req := httptest.NewRequest("GET", "/", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	middleware(handler).ServeHTTP(rec, req)
+	_ = middleware(handler)(ctx)
 
 	assert.False(t, handlerCalled, "handler should not be called without auth")
 	assert.Equal(t, http.StatusUnauthorized, rec.Code)

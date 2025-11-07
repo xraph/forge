@@ -8,21 +8,21 @@ import (
 )
 
 // Recovery middleware recovers from panics and logs them
-// Returns 500 Internal Server Error on panic
+// Returns http.StatusInternalServerError on panic
 func Recovery(logger forge.Logger) forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			defer func() {
 				if err := recover(); err != nil {
 					// Log the panic with stack trace
 					logger.Error(fmt.Sprintf("panic recovered: %v", err))
 
-					// Return 500 error
-					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+					// Return http.StatusInternalServerError error
+					_ = ctx.String(http.StatusInternalServerError, "Internal Server Error")
 				}
 			}()
 
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 }

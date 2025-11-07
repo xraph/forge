@@ -17,7 +17,7 @@ func TestNewResponseWriter(t *testing.T) {
 	rw := NewResponseWriter(w)
 
 	assert.NotNil(t, rw)
-	assert.Equal(t, 200, rw.Status())
+	assert.Equal(t, http.StatusOK, rw.Status())
 	assert.Equal(t, 0, rw.Size())
 }
 
@@ -25,20 +25,20 @@ func TestResponseWriter_WriteHeader(t *testing.T) {
 	w := httptest.NewRecorder()
 	rw := NewResponseWriter(w)
 
-	rw.WriteHeader(404)
+	rw.WriteHeader(http.StatusNotFound)
 
-	assert.Equal(t, 404, rw.Status())
-	assert.Equal(t, 404, w.Code)
+	assert.Equal(t, http.StatusNotFound, rw.Status())
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestResponseWriter_WriteHeader_MultipleCall(t *testing.T) {
 	w := httptest.NewRecorder()
 	rw := NewResponseWriter(w)
 
-	rw.WriteHeader(404)
-	rw.WriteHeader(500) // Should be ignored
+	rw.WriteHeader(http.StatusNotFound)
+	rw.WriteHeader(http.StatusInternalServerError) // Should be ignored
 
-	assert.Equal(t, 404, rw.Status())
+	assert.Equal(t, http.StatusNotFound, rw.Status())
 }
 
 func TestResponseWriter_Write(t *testing.T) {
@@ -50,7 +50,7 @@ func TestResponseWriter_Write(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, 11, n)
 	assert.Equal(t, 11, rw.Size())
-	assert.Equal(t, 200, rw.Status())
+	assert.Equal(t, http.StatusOK, rw.Status())
 	assert.Equal(t, "hello world", w.Body.String())
 }
 
@@ -120,11 +120,11 @@ func TestGzipResponseWriter_WriteHeader(t *testing.T) {
 		ResponseWriter: rec,
 	}
 
-	gzw.WriteHeader(200)
+	gzw.WriteHeader(http.StatusOK)
 
 	// Content-Length should be removed
 	assert.Empty(t, rec.Header().Get("Content-Length"))
-	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestGzipResponseWriter_Flush(t *testing.T) {

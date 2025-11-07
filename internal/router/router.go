@@ -84,8 +84,16 @@ type GroupOption interface {
 	Apply(*GroupConfig)
 }
 
-// Middleware wraps HTTP handlers
-type Middleware func(http.Handler) http.Handler
+// Handler is a forge handler function that takes a Context and returns an error
+// This is the preferred handler pattern for forge applications
+type Handler func(ctx Context) error
+
+// Middleware wraps forge handlers (new pattern)
+// This is the preferred middleware pattern for forge applications
+type Middleware func(next Handler) Handler
+
+// PureMiddleware wraps HTTP handlers
+type PureMiddleware func(http.Handler) http.Handler
 
 // RouteConfig holds route configuration
 type RouteConfig struct {

@@ -2,7 +2,6 @@ package security
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/xraph/forge"
@@ -91,38 +90,38 @@ type SecurityHeadersConfig struct {
 // DefaultSecurityHeadersConfig returns the default security headers configuration
 func DefaultSecurityHeadersConfig() SecurityHeadersConfig {
 	return SecurityHeadersConfig{
-		Enabled:                     true,
-		XFrameOptions:               "SAMEORIGIN",
-		XContentTypeOptions:         "nosniff",
-		XSSProtection:               "1; mode=block",
-		StrictTransportSecurity:     "max-age=31536000; includeSubDomains",
-		ReferrerPolicy:              "strict-origin-when-cross-origin",
-		RemoveServerHeader:          true,
-		RemovePoweredBy:             true,
-		CustomHeaders:               make(map[string]string),
-		SkipPaths:                   []string{},
-		AutoApplyMiddleware:         false, // Default to false for backwards compatibility
+		Enabled:                 true,
+		XFrameOptions:           "SAMEORIGIN",
+		XContentTypeOptions:     "nosniff",
+		XSSProtection:           "1; mode=block",
+		StrictTransportSecurity: "max-age=31536000; includeSubDomains",
+		ReferrerPolicy:          "strict-origin-when-cross-origin",
+		RemoveServerHeader:      true,
+		RemovePoweredBy:         true,
+		CustomHeaders:           make(map[string]string),
+		SkipPaths:               []string{},
+		AutoApplyMiddleware:     false, // Default to false for backwards compatibility
 	}
 }
 
 // SecureHeadersPreset returns a preset configuration for secure headers
 func SecureHeadersPreset() SecurityHeadersConfig {
 	return SecurityHeadersConfig{
-		Enabled:                     true,
-		XFrameOptions:               "DENY",
-		XContentTypeOptions:         "nosniff",
-		XSSProtection:               "1; mode=block",
-		ContentSecurityPolicy:       "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
-		StrictTransportSecurity:     "max-age=63072000; includeSubDomains; preload",
-		ReferrerPolicy:              "no-referrer",
-		PermissionsPolicy:           "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), ambient-light-sensor=()",
-		CrossOriginEmbedderPolicy:   "require-corp",
-		CrossOriginOpenerPolicy:     "same-origin",
-		CrossOriginResourcePolicy:   "same-origin",
-		RemoveServerHeader:          true,
-		RemovePoweredBy:             true,
-		CustomHeaders:               make(map[string]string),
-		SkipPaths:                   []string{},
+		Enabled:                   true,
+		XFrameOptions:             "DENY",
+		XContentTypeOptions:       "nosniff",
+		XSSProtection:             "1; mode=block",
+		ContentSecurityPolicy:     "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'",
+		StrictTransportSecurity:   "max-age=63072000; includeSubDomains; preload",
+		ReferrerPolicy:            "no-referrer",
+		PermissionsPolicy:         "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=(), ambient-light-sensor=()",
+		CrossOriginEmbedderPolicy: "require-corp",
+		CrossOriginOpenerPolicy:   "same-origin",
+		CrossOriginResourcePolicy: "same-origin",
+		RemoveServerHeader:        true,
+		RemovePoweredBy:           true,
+		CustomHeaders:             make(map[string]string),
+		SkipPaths:                 []string{},
 	}
 }
 
@@ -151,21 +150,19 @@ func (m *SecurityHeadersManager) shouldSkipPath(path string) bool {
 }
 
 // SecurityHeadersMiddleware returns a middleware function for setting security headers
-func SecurityHeadersMiddleware(manager *SecurityHeadersManager) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func SecurityHeadersMiddleware(manager *SecurityHeadersManager) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			if !manager.config.Enabled {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
 
 			// Skip security headers for specified paths
-			if manager.shouldSkipPath(r.URL.Path) {
-				next.ServeHTTP(w, r)
-				return
+			if manager.shouldSkipPath(ctx.Request().URL.Path) {
+				return next(ctx)
 			}
 
-			headers := w.Header()
+			headers := ctx.Response().Header()
 
 			// X-Frame-Options
 			if manager.config.XFrameOptions != "" {
@@ -192,53 +189,53 @@ func SecurityHeadersMiddleware(manager *SecurityHeadersManager) func(http.Handle
 				headers.Set("Content-Security-Policy-Report-Only", manager.config.ContentSecurityPolicyReportOnly)
 			}
 
-		// Strict-Transport-Security (only set on HTTPS)
-		if manager.config.StrictTransportSecurity != "" && r.TLS != nil {
-			headers.Set("Strict-Transport-Security", manager.config.StrictTransportSecurity)
-		}
+			// Strict-Transport-Security (only set on HTTPS)
+			if manager.config.StrictTransportSecurity != "" && ctx.Request().TLS != nil {
+				headers.Set("Strict-Transport-Security", manager.config.StrictTransportSecurity)
+			}
 
-		// Referrer-Policy
-		if manager.config.ReferrerPolicy != "" {
-			headers.Set("Referrer-Policy", manager.config.ReferrerPolicy)
-		}
+			// Referrer-Policy
+			if manager.config.ReferrerPolicy != "" {
+				headers.Set("Referrer-Policy", manager.config.ReferrerPolicy)
+			}
 
-		// Permissions-Policy
-		if manager.config.PermissionsPolicy != "" {
-			headers.Set("Permissions-Policy", manager.config.PermissionsPolicy)
-		}
+			// Permissions-Policy
+			if manager.config.PermissionsPolicy != "" {
+				headers.Set("Permissions-Policy", manager.config.PermissionsPolicy)
+			}
 
-		// Cross-Origin-Embedder-Policy
-		if manager.config.CrossOriginEmbedderPolicy != "" {
-			headers.Set("Cross-Origin-Embedder-Policy", manager.config.CrossOriginEmbedderPolicy)
-		}
+			// Cross-Origin-Embedder-Policy
+			if manager.config.CrossOriginEmbedderPolicy != "" {
+				headers.Set("Cross-Origin-Embedder-Policy", manager.config.CrossOriginEmbedderPolicy)
+			}
 
-		// Cross-Origin-Opener-Policy
-		if manager.config.CrossOriginOpenerPolicy != "" {
-			headers.Set("Cross-Origin-Opener-Policy", manager.config.CrossOriginOpenerPolicy)
-		}
+			// Cross-Origin-Opener-Policy
+			if manager.config.CrossOriginOpenerPolicy != "" {
+				headers.Set("Cross-Origin-Opener-Policy", manager.config.CrossOriginOpenerPolicy)
+			}
 
-		// Cross-Origin-Resource-Policy
-		if manager.config.CrossOriginResourcePolicy != "" {
-			headers.Set("Cross-Origin-Resource-Policy", manager.config.CrossOriginResourcePolicy)
-		}
+			// Cross-Origin-Resource-Policy
+			if manager.config.CrossOriginResourcePolicy != "" {
+				headers.Set("Cross-Origin-Resource-Policy", manager.config.CrossOriginResourcePolicy)
+			}
 
-		// Remove Server header
-		if manager.config.RemoveServerHeader {
-			headers.Del("Server")
-		}
+			// Remove Server header
+			if manager.config.RemoveServerHeader {
+				headers.Del("Server")
+			}
 
-		// Remove X-Powered-By header
-		if manager.config.RemovePoweredBy {
-			headers.Del("X-Powered-By")
-		}
+			// Remove X-Powered-By header
+			if manager.config.RemovePoweredBy {
+				headers.Del("X-Powered-By")
+			}
 
-		// Custom headers
-		for key, value := range manager.config.CustomHeaders {
-			headers.Set(key, value)
-		}
+			// Custom headers
+			for key, value := range manager.config.CustomHeaders {
+				headers.Set(key, value)
+			}
 
-		next.ServeHTTP(w, r)
-	})
+			return next(ctx)
+		}
 	}
 }
 
@@ -377,13 +374,12 @@ func (b *CSPBuilder) Build() string {
 
 // Common CSP source values
 const (
-	CSPSelf         = "'self'"
-	CSPNone         = "'none'"
-	CSPUnsafeInline = "'unsafe-inline'"
-	CSPUnsafeEval   = "'unsafe-eval'"
+	CSPSelf          = "'self'"
+	CSPNone          = "'none'"
+	CSPUnsafeInline  = "'unsafe-inline'"
+	CSPUnsafeEval    = "'unsafe-eval'"
 	CSPStrictDynamic = "'strict-dynamic'"
-	CSPData         = "data:"
-	CSPBlob         = "blob:"
-	CSPHTTPS        = "https:"
+	CSPData          = "data:"
+	CSPBlob          = "blob:"
+	CSPHTTPS         = "https:"
 )
-
