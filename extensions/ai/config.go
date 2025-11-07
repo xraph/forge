@@ -7,6 +7,20 @@ import (
 	"github.com/xraph/forge/extensions/ai/internal"
 )
 
+// DI container keys for AI extension services
+const (
+	// ServiceKey is the DI key for the AI service
+	ServiceKey = "forge.ai.service"
+	// ManagerKey is the DI key for the AI manager
+	ManagerKey = "forge.ai.manager"
+	// AgentFactoryKey is the DI key for the agent factory
+	AgentFactoryKey = "forge.ai.agentFactory"
+	// LLMManagerKey is the DI key for the LLM manager
+	LLMManagerKey = "forge.ai.llmManager"
+	// SDKLLMManagerKey is the DI key for the SDK LLM manager interface
+	SDKLLMManagerKey = "forge.ai.sdk.llmManager"
+)
+
 // Config is the public configuration for the AI extension
 type Config struct {
 	// Core features
@@ -127,4 +141,72 @@ func (c Config) ToInternal(logger forge.Logger, metrics forge.Metrics) internal.
 		Logger:             logger,
 		Metrics:            metrics,
 	}
+}
+
+// ConfigOption is a functional option for Config
+type ConfigOption func(*Config)
+
+// WithConfig replaces the entire config
+func WithConfig(config Config) ConfigOption {
+	return func(c *Config) { *c = config }
+}
+
+// WithEnableLLM sets whether LLM is enabled
+func WithEnableLLM(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableLLM = enabled }
+}
+
+// WithEnableAgents sets whether agents are enabled
+func WithEnableAgents(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableAgents = enabled }
+}
+
+// WithEnableTraining sets whether training is enabled
+func WithEnableTraining(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableTraining = enabled }
+}
+
+// WithEnableInference sets whether inference is enabled
+func WithEnableInference(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableInference = enabled }
+}
+
+// WithEnableCoordination sets whether coordination is enabled
+func WithEnableCoordination(enabled bool) ConfigOption {
+	return func(c *Config) { c.EnableCoordination = enabled }
+}
+
+// WithMaxConcurrency sets the maximum concurrency
+func WithMaxConcurrency(max int) ConfigOption {
+	return func(c *Config) { c.MaxConcurrency = max }
+}
+
+// WithRequestTimeout sets the request timeout
+func WithRequestTimeout(timeout time.Duration) ConfigOption {
+	return func(c *Config) { c.RequestTimeout = timeout }
+}
+
+// WithCacheSize sets the cache size
+func WithCacheSize(size int) ConfigOption {
+	return func(c *Config) { c.CacheSize = size }
+}
+
+// WithLLMConfig sets the LLM configuration
+func WithLLMConfig(llm LLMConfiguration) ConfigOption {
+	return func(c *Config) { c.LLM = llm }
+}
+
+// WithInferenceConfig sets the inference configuration
+func WithInferenceConfig(inference InferenceConfiguration) ConfigOption {
+	return func(c *Config) { c.Inference = inference }
+}
+
+// WithAgentsConfig sets the agents configuration
+func WithAgentsConfig(agents AgentConfiguration) ConfigOption {
+	return func(c *Config) { c.Agents = agents }
+}
+
+// WithMiddlewareConfig sets the middleware configuration
+func WithMiddlewareConfig(middleware MiddlewareConfiguration) ConfigOption {
+	return func(c *Config) { c.Middleware = middleware }
 }

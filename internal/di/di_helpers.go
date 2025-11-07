@@ -4,6 +4,9 @@ import (
 	"fmt"
 
 	errors2 "github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/internal/logger"
+	"github.com/xraph/forge/internal/metrics"
+	"github.com/xraph/forge/internal/shared"
 )
 
 // Resolve with type safety
@@ -106,4 +109,51 @@ func MustScope[T any](s Scope, name string) T {
 		panic(fmt.Sprintf("failed to resolve %s from scope: %v", name, err))
 	}
 	return instance
+}
+
+// GetLogger resolves the logger from the container
+// This is a convenience function for resolving the logger service
+// The logger type is defined in the forge package, so this returns interface{}
+// and should be type-asserted to the appropriate logger interface
+func GetLogger(c Container) (logger.Logger, error) {
+	l, err := c.Resolve(shared.LoggerKey)
+	if err != nil {
+		return nil, err
+	}
+	log, ok := l.(logger.Logger)
+	if !ok {
+		return nil, fmt.Errorf("resolved instance is not Logger, got %T", l)
+	}
+	return log, nil
+}
+
+// GetMetrics resolves the metrics from the container
+// This is a convenience function for resolving the metrics service
+// The metrics type is defined in the forge package, so this returns interface{}
+// and should be type-asserted to the appropriate metrics interface
+func GetMetrics(c Container) (metrics.Metrics, error) {
+	m, err := c.Resolve(shared.MetricsKey)
+	if err != nil {
+		return nil, err
+	}
+	metrics, ok := m.(metrics.Metrics)
+	if !ok {
+		return nil, fmt.Errorf("resolved instance is not Metrics, got %T", m)
+	}
+	return metrics, nil
+}
+
+// GetHealthManager resolves the health manager from the container
+// This is a convenience function for resolving the health manager service
+// The health manager type is defined in the forge package, so this returns the interface
+func GetHealthManager(c Container) (shared.HealthManager, error) {
+	hm, err := c.Resolve(shared.HealthManagerKey)
+	if err != nil {
+		return nil, err
+	}
+	healthManager, ok := hm.(shared.HealthManager)
+	if !ok {
+		return nil, fmt.Errorf("resolved instance is not HealthManager, got %T", hm)
+	}
+	return healthManager, nil
 }

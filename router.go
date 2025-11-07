@@ -50,6 +50,12 @@ func NewRouter(opts ...RouterOption) Router {
 	return router.NewRouter(opts...)
 }
 
+// GetRouter resolves the router from the container
+// Returns the router instance and an error if resolution fails
+func GetRouter(c Container) (Router, error) {
+	return router.GetRouter(c)
+}
+
 // RouterOption configures the router
 type RouterOption = router.RouterOption
 

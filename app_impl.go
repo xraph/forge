@@ -233,19 +233,19 @@ func newApp(config AppConfig) *app {
 	router := NewRouter(routerOpts...)
 
 	// Register core services with DI
-	_ = RegisterSingleton(container, "logger", func(c Container) (Logger, error) {
+	_ = RegisterSingleton(container, shared.LoggerKey, func(c Container) (Logger, error) {
 		return logger, nil
 	})
-	_ = RegisterSingleton(container, "config", func(c Container) (ConfigManager, error) {
+	_ = RegisterSingleton(container, shared.ConfigKey, func(c Container) (ConfigManager, error) {
 		return configManager, nil
 	})
-	_ = RegisterSingleton(container, "metrics", func(c Container) (Metrics, error) {
+	_ = RegisterSingleton(container, shared.MetricsKey, func(c Container) (Metrics, error) {
 		return metrics, nil
 	})
-	_ = RegisterSingleton(container, "health", func(c Container) (HealthManager, error) {
+	_ = RegisterSingleton(container, shared.HealthManagerKey, func(c Container) (HealthManager, error) {
 		return healthManager, nil
 	})
-	_ = RegisterSingleton(container, "router", func(c Container) (Router, error) {
+	_ = RegisterSingleton(container, shared.RouterKey, func(c Container) (Router, error) {
 		return router, nil
 	})
 

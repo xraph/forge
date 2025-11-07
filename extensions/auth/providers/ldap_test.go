@@ -9,33 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-ldap/ldap/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/auth"
+	"github.com/xraph/forge/internal/logger"
 )
 
-// mockLogger implements forge.Logger for testing
-type mockLogger struct{}
-
-func (m *mockLogger) Debug(msg string, fields ...forge.Field)                              {}
-func (m *mockLogger) Info(msg string, fields ...forge.Field)                               {}
-func (m *mockLogger) Warn(msg string, fields ...forge.Field)                               {}
-func (m *mockLogger) Error(msg string, fields ...forge.Field)                              {}
-func (m *mockLogger) Fatal(msg string, fields ...forge.Field)                              {}
-func (m *mockLogger) Debugf(template string, args ...interface{})                          {}
-func (m *mockLogger) Infof(template string, args ...interface{})                           {}
-func (m *mockLogger) Warnf(template string, args ...interface{})                           {}
-func (m *mockLogger) Errorf(template string, args ...interface{})                          {}
-func (m *mockLogger) Fatalf(template string, args ...interface{})                          {}
-func (m *mockLogger) With(fields ...forge.Field) forge.Logger                              { return m }
-func (m *mockLogger) WithContext(ctx context.Context) forge.Logger                         { return m }
-func (m *mockLogger) Named(name string) forge.Logger                                       { return m }
-func (m *mockLogger) Sugar() interface{}                                                   { return nil }
-func (m *mockLogger) Sync() error                                                          { return nil }
-
 func newMockLogger() forge.Logger {
-	return &mockLogger{}
+	return logger.NewTestLogger()
 }
 
 func TestDefaultLDAPConfig(t *testing.T) {
@@ -625,4 +608,3 @@ func TestLDAPCache_ConcurrentAccess(t *testing.T) {
 	// Should not panic or race
 	assert.True(t, len(cache.entries) > 0)
 }
-

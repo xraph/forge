@@ -5,9 +5,16 @@ import (
 	"time"
 )
 
+// DI container keys for database extension services
 const (
-	ManagerKey  = "databaseManager"
-	DatabaseKey = "database"
+	// ManagerKey is the DI key for the database manager
+	ManagerKey = "forge.database.manager"
+	// DatabaseKey is the DI key for the default database
+	DatabaseKey = "forge.database.database"
+	// SQLKey is the DI key for the default SQL database (Bun DB)
+	SQLKey = "forge.database.sql"
+	// MongoKey is the DI key for the default MongoDB client
+	MongoKey = "forge.database.mongo"
 )
 
 // Config is the configuration for the database extension

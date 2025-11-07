@@ -24,23 +24,19 @@ func NewAgentController(c forge.Container) *AgentController {
 	var agentFactory *AgentFactory
 	var logger forge.Logger
 
-	// Resolve dependencies
-	if ai, err := c.Resolve("ai.manager.impl"); err == nil {
-		if impl, ok := ai.(*managerImpl); ok {
+	// Resolve dependencies using helper functions
+	if manager, err := GetAIManager(c); err == nil {
+		if impl, ok := manager.(*managerImpl); ok {
 			aiManager = impl
 		}
 	}
 
-	if factory, err := c.Resolve("agentFactory"); err == nil {
-		if f, ok := factory.(*AgentFactory); ok {
-			agentFactory = f
-		}
+	if factory, err := GetAgentFactory(c); err == nil {
+		agentFactory = factory
 	}
 
-	if log, err := c.Resolve("logger"); err == nil {
-		if l, ok := log.(forge.Logger); ok {
-			logger = l
-		}
+	if l, err := forge.GetLogger(c); err == nil {
+		logger = l
 	}
 
 	return &AgentController{

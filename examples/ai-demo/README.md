@@ -81,7 +81,10 @@ app.RegisterExtension(ext)
 
 ```go
 // Get AI manager
-aiManager := forge.Must[ai.AI](app, "ai.manager")
+aiManager, err := ai.GetAIManager(app.Container())
+if err != nil {
+    log.Fatal(err)
+}
 
 // Access LLM
 llmManager := aiManager.LLM()

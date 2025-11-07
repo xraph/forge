@@ -20,7 +20,8 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-const ManagerKey = ConfigKey
+// ManagerKey is the DI key for the config manager service
+const ManagerKey = shared.ConfigKey
 
 // =============================================================================
 // MANAGER IMPLEMENTATION
@@ -1852,14 +1853,14 @@ func (m *Manager) loadAllSources(ctx context.Context) error {
 	mergedData := make(map[string]interface{})
 
 	sources := m.registry.GetSources()
-	
+
 	// Sort sources by priority (lower number = lower priority, loaded first)
 	// This ensures higher priority sources override lower priority ones
 	type prioritySource struct {
 		priority int
 		source   ConfigSource
 	}
-	
+
 	prioritySources := make([]prioritySource, 0, len(sources))
 	for _, source := range sources {
 		prioritySources = append(prioritySources, prioritySource{
@@ -1867,7 +1868,7 @@ func (m *Manager) loadAllSources(ctx context.Context) error {
 			source:   source,
 		})
 	}
-	
+
 	// Sort by priority (ascending)
 	for i := 0; i < len(prioritySources); i++ {
 		for j := i + 1; j < len(prioritySources); j++ {
@@ -1876,7 +1877,7 @@ func (m *Manager) loadAllSources(ctx context.Context) error {
 			}
 		}
 	}
-	
+
 	// Load sources in priority order (lower priority first, so higher priority can override)
 	for _, ps := range prioritySources {
 		data, err := m.loader.LoadSource(ctx, ps.source)

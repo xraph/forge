@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== FARP + Discovery Integration Example ===\n")
+	fmt.Println("=== FARP + Discovery Integration Example ===")
 
 	app := forge.NewApp(forge.AppConfig{
 		Name:    "user-service",
@@ -20,7 +20,7 @@ func main() {
 				discovery.WithServiceName("user-service"),
 				discovery.WithServiceAddress("localhost", 8080),
 				discovery.WithServiceTags("rest", "production"),
-				
+
 				// Enable FARP
 				discovery.WithConfig(discovery.Config{
 					Enabled: true,
@@ -71,7 +71,7 @@ func main() {
 
 	// Configure router with OpenAPI
 	router := app.Router()
-	
+
 	// Add some example routes
 	router.GET("/users", func(ctx forge.Context) error {
 		return ctx.JSON(200, map[string]interface{}{
@@ -130,4 +130,3 @@ func main() {
 
 	app.Run()
 }
-

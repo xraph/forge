@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -409,14 +410,13 @@ func main() {
 	// Run the application
 	// =============================================================================
 
-	fmt.Println("\n" + string('═')*80)
+	fmt.Println("\n" + strings.Repeat("═", 80))
 	fmt.Println("  Lifecycle Hooks Example")
 	fmt.Println("  This demonstrates how to use lifecycle hooks to manage external apps")
-	fmt.Println(string('═') * 80 + "\n")
+	fmt.Println(strings.Repeat("═", 80) + "\n")
 
 	if err := app.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
 		os.Exit(1)
 	}
 }
-

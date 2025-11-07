@@ -24,6 +24,12 @@ type Extension struct {
 	middlewares     []forge.Middleware
 }
 
+// Compile-time interface enforcement
+var (
+	_ forge.Extension           = (*Extension)(nil)
+	_ forge.MiddlewareExtension = (*Extension)(nil)
+)
+
 // NewExtension creates a new security extension with functional options.
 // Config is loaded from ConfigManager by default, with options providing overrides.
 //
@@ -40,7 +46,7 @@ type Extension struct {
 //
 //	// Require config from ConfigManager
 //	security.NewExtension(security.WithRequireConfig(true))
-func NewExtension(opts ...ConfigOption) forge.Extension {
+func NewExtension(opts ...ConfigOption) *Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
 		opt(&config)

@@ -1,4 +1,6 @@
-# 🔨 Forge v2
+# 🔨 Forge
+
+Forge™ is a backend framework, and Forge Cloud™ is its AI cloud offering, maintained by XRAPH™.
 
 **Enterprise-Grade Web Framework for Go**
 
@@ -10,6 +12,7 @@
 [![CI/CD](https://github.com/xraph/forge/workflows/CI/badge.svg)](https://github.com/xraph/forge/actions)
 
 ---
+
 
 ## 🚀 Quick Start
 
@@ -215,7 +218,10 @@ app := forge.NewApp(forge.AppConfig{
 
 // Dependency Injection
 forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
-    db := forge.Must[*bun.DB](c, "db")
+    db, err := database.GetSQL(c)
+    if err != nil {
+        return nil, err
+    }
     logger := forge.Must[forge.Logger](c, "logger")
     return NewUserService(db, logger), nil
 })
@@ -257,8 +263,11 @@ func main() {
         },
     })
 
-    // Access AI service via DI
-    aiService := forge.Must[ai.Service](app.Container(), "ai")
+    // Access AI service via DI using helper function
+    aiService, err := ai.GetAIService(app.Container())
+    if err != nil {
+        log.Fatal(err)
+    }
 
     // Use in your handlers
     router := app.Router()

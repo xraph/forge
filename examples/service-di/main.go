@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	forge "github.com/xraph/forge"
@@ -14,8 +15,14 @@ type UserService struct {
 }
 
 func NewUserService(c forge.Container) (*UserService, error) {
-	logger := forge.Must[forge.Logger](c, "logger")
-	metrics := forge.Must[forge.Metrics](c, "metrics")
+	logger, err := forge.GetLogger(c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve logger: %w", err)
+	}
+	metrics, err := forge.GetMetrics(c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve metrics: %w", err)
+	}
 
 	return &UserService{
 		logger:  logger,

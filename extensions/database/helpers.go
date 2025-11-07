@@ -68,25 +68,25 @@ func MustGetDatabase(c forge.Container) Database {
 // GetSQL retrieves the default Bun SQL database from the container
 // Returns error if not found, type assertion fails, or default is not a SQL database
 func GetSQL(c forge.Container) (*bun.DB, error) {
-	return forge.Resolve[*bun.DB](c, "db")
+	return forge.Resolve[*bun.DB](c, SQLKey)
 }
 
 // MustGetSQL retrieves the default Bun SQL database from the container
 // Panics if not found, type assertion fails, or default is not a SQL database
 func MustGetSQL(c forge.Container) *bun.DB {
-	return forge.Must[*bun.DB](c, "db")
+	return forge.Must[*bun.DB](c, SQLKey)
 }
 
 // GetMongo retrieves the default MongoDB client from the container
 // Returns error if not found, type assertion fails, or default is not MongoDB
 func GetMongo(c forge.Container) (*mongo.Client, error) {
-	return forge.Resolve[*mongo.Client](c, "mongo")
+	return forge.Resolve[*mongo.Client](c, MongoKey)
 }
 
 // MustGetMongo retrieves the default MongoDB client from the container
 // Panics if not found, type assertion fails, or default is not MongoDB
 func MustGetMongo(c forge.Container) *mongo.Client {
-	return forge.Must[*mongo.Client](c, "mongo")
+	return forge.Must[*mongo.Client](c, MongoKey)
 }
 
 // =============================================================================

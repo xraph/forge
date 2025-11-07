@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/events/core"
@@ -52,11 +53,21 @@ func (e *Extension) Dependencies() []string {
 // Register registers the extension with the app
 func (e *Extension) Register(app forge.App) error {
 	// Get dependencies
-	e.logger = forge.Must[forge.Logger](app.Container(), "logger")
-	e.metrics = forge.Must[forge.Metrics](app.Container(), "metrics")
+	var err error
+	e.logger, err = forge.GetLogger(app.Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve logger: %w", err)
+	}
+	e.metrics, err = forge.GetMetrics(app.Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve metrics: %w", err)
+	}
 
 	// Get config from ConfigManager (bind pattern)
-	configMgr := forge.Must[forge.ConfigManager](app.Container(), "config")
+	configMgr, err := forge.GetConfigManager(app.Container())
+	if err != nil {
+		return fmt.Errorf("failed to resolve config manager: %w", err)
+	}
 	if err := configMgr.Bind("extensions.events", &e.config); err != nil {
 		// Use defaults if not found
 		e.config = DefaultConfig()
