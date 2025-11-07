@@ -18,28 +18,28 @@ type Server struct {
 	logger     forge.Logger
 	metrics    forge.Metrics
 	router     forge.Router
-	
+
 	// Optional components
 	vectorStore sdk.VectorStore
 	stateStore  sdk.StateStore
 	cacheStore  sdk.CacheStore
 	costManager sdk.CostManager
-	
+
 	// Configuration
 	config ServerConfig
 }
 
 // ServerConfig configures the SDK API server
 type ServerConfig struct {
-	BasePath           string
-	EnableAuth         bool
-	APIKey             string
-	RateLimit          int
-	Timeout            time.Duration
-	EnableCORS         bool
-	EnableDocs         bool
-	EnableMetrics      bool
-	EnableHealthCheck  bool
+	BasePath          string
+	EnableAuth        bool
+	APIKey            string
+	RateLimit         int
+	Timeout           time.Duration
+	EnableCORS        bool
+	EnableDocs        bool
+	EnableMetrics     bool
+	EnableHealthCheck bool
 }
 
 // DefaultServerConfig returns default configuration
@@ -134,19 +134,19 @@ func (s *Server) MountRoutes(router forge.Router) error {
 	// Agent endpoints
 	if s.stateStore != nil {
 		agentGroup := apiGroup.Group("/agents")
-		
+
 		agentGroup.POST("", s.handleCreateAgent,
 			forge.WithSummary("Create Agent"),
 		)
-		
+
 		agentGroup.POST("/:id/execute", s.handleAgentExecute,
 			forge.WithSummary("Execute Agent"),
 		)
-		
+
 		agentGroup.GET("/:id/state", s.handleGetAgentState,
 			forge.WithSummary("Get Agent State"),
 		)
-		
+
 		agentGroup.DELETE("/:id", s.handleDeleteAgent,
 			forge.WithSummary("Delete Agent"),
 		)
@@ -155,11 +155,11 @@ func (s *Server) MountRoutes(router forge.Router) error {
 	// RAG endpoints
 	if s.vectorStore != nil {
 		ragGroup := apiGroup.Group("/rag")
-		
+
 		ragGroup.POST("/index", s.handleRAGIndex,
 			forge.WithSummary("Index Document"),
 		)
-		
+
 		ragGroup.POST("/query", s.handleRAGQuery,
 			forge.WithSummary("Query Documents"),
 		)
@@ -168,11 +168,11 @@ func (s *Server) MountRoutes(router forge.Router) error {
 	// Cost management
 	if s.costManager != nil {
 		costGroup := apiGroup.Group("/cost")
-		
+
 		costGroup.GET("/insights", s.handleCostInsights,
 			forge.WithSummary("Get Cost Insights"),
 		)
-		
+
 		costGroup.GET("/budget", s.handleCheckBudget,
 			forge.WithSummary("Check Budget"),
 		)
@@ -192,10 +192,16 @@ func (s *Server) MountRoutes(router forge.Router) error {
 		)
 	}
 
+	// Apply middleware to the API group based on configuration
+	middlewares := s.buildMiddleware()
+	for _, mw := range middlewares {
+		apiGroup.Use(mw)
+	}
+
 	return nil
 }
 
-// buildMiddleware creates middleware stack
+// buildMiddleware creates middleware stack based on server configuration
 func (s *Server) buildMiddleware() []forge.Middleware {
 	middlewares := []forge.Middleware{}
 
@@ -222,23 +228,28 @@ func (s *Server) buildMiddleware() []forge.Middleware {
 
 // --- Middleware ---
 
-func (s *Server) corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) corsMiddleware(next forge.Handler) forge.Handler {
+	return func(ctx forge.Context) error {
+		w := ctx.Response()
+		r := ctx.Request()
+
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		
+
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusOK)
-			return
+			return nil
 		}
-		
-		next.ServeHTTP(w, r)
-	})
+
+		return next(ctx)
+	}
 }
 
-func (s *Server) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) authMiddleware(next forge.Handler) forge.Handler {
+	return func(ctx forge.Context) error {
+		r := ctx.Request()
+
 		apiKey := r.Header.Get("X-API-Key")
 		if apiKey == "" {
 			apiKey = r.Header.Get("Authorization")
@@ -246,22 +257,26 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 				apiKey = apiKey[7:]
 			}
 		}
-		
+
 		if s.config.APIKey != "" && apiKey != s.config.APIKey {
-			s.respondError(w, http.StatusUnauthorized, "Invalid API key")
-			return
+			return ctx.Status(http.StatusUnauthorized).JSON(map[string]interface{}{
+				"error":     "Invalid API key",
+				"status":    http.StatusUnauthorized,
+				"timestamp": time.Now().Format(time.RFC3339),
+			})
 		}
-		
-		next.ServeHTTP(w, r)
-	})
+
+		return next(ctx)
+	}
 }
 
-func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) loggingMiddleware(next forge.Handler) forge.Handler {
+	return func(ctx forge.Context) error {
 		start := time.Now()
-		
-		next.ServeHTTP(w, r)
-		
+		r := ctx.Request()
+
+		err := next(ctx)
+
 		if s.logger != nil {
 			s.logger.Info("API request",
 				forge.F("method", r.Method),
@@ -269,15 +284,18 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 				forge.F("duration_ms", time.Since(start).Milliseconds()),
 			)
 		}
-	})
+
+		return err
+	}
 }
 
-func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func (s *Server) metricsMiddleware(next forge.Handler) forge.Handler {
+	return func(ctx forge.Context) error {
 		start := time.Now()
-		
-		next.ServeHTTP(w, r)
-		
+		r := ctx.Request()
+
+		err := next(ctx)
+
 		if s.metrics != nil {
 			s.metrics.Counter("sdk.api.requests",
 				"method", r.Method,
@@ -288,32 +306,37 @@ func (s *Server) metricsMiddleware(next http.Handler) http.Handler {
 				"path", r.URL.Path,
 			).Observe(time.Since(start).Seconds())
 		}
-	})
+
+		return err
+	}
 }
 
 // --- Handlers ---
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+func (s *Server) handleHealth(ctx forge.Context) error {
+	return ctx.Status(http.StatusOK).JSON(map[string]interface{}{
 		"status": "healthy",
 		"time":   time.Now().Format(time.RFC3339),
 	})
 }
 
-func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGenerate(forgeCtx forge.Context) error {
 	var req GenerateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.respondError(w, http.StatusBadRequest, "Invalid request body")
-		return
+	if err := json.NewDecoder(forgeCtx.Request().Body).Decode(&req); err != nil {
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+			"error":     "Invalid request body",
+			"status":    http.StatusBadRequest,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), s.config.Timeout)
+	ctx, cancel := context.WithTimeout(forgeCtx.Context(), s.config.Timeout)
 	defer cancel()
 
 	// Build and execute generation
 	builder := sdk.NewGenerateBuilder(ctx, s.llmManager, s.logger, s.metrics)
 	builder.WithPrompt(req.Prompt)
-	
+
 	if req.Model != "" {
 		builder.WithModel(req.Model)
 	}
@@ -329,25 +352,33 @@ func (s *Server) handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	result, err := builder.Execute()
 	if err != nil {
-		s.respondError(w, http.StatusInternalServerError, err.Error())
-		return
+		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]interface{}{
+			"error":     err.Error(),
+			"status":    http.StatusInternalServerError,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
-	s.respondJSON(w, http.StatusOK, GenerateResponse{
+	return forgeCtx.Status(http.StatusOK).JSON(GenerateResponse{
 		Content: result.Content,
 		Usage:   result.Usage,
 	})
 }
 
-func (s *Server) handleGenerateStream(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 	var req GenerateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.respondError(w, http.StatusBadRequest, "Invalid request body")
-		return
+	if err := json.NewDecoder(forgeCtx.Request().Body).Decode(&req); err != nil {
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+			"error":     "Invalid request body",
+			"status":    http.StatusBadRequest,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), s.config.Timeout)
+	ctx, cancel := context.WithTimeout(forgeCtx.Context(), s.config.Timeout)
 	defer cancel()
+
+	w := forgeCtx.Response()
 
 	// Set up SSE
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -356,14 +387,17 @@ func (s *Server) handleGenerateStream(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		s.respondError(w, http.StatusInternalServerError, "Streaming not supported")
-		return
+		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]interface{}{
+			"error":     "Streaming not supported",
+			"status":    http.StatusInternalServerError,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
 	// Build streaming generation
 	builder := sdk.NewStreamBuilder(ctx, s.llmManager, s.logger, s.metrics)
 	builder.WithPrompt(req.Prompt)
-	
+
 	if req.Model != "" {
 		builder.WithModel(req.Model)
 	}
@@ -377,7 +411,7 @@ func (s *Server) handleGenerateStream(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		flusher.Flush()
-		return
+		return nil
 	}
 
 	// Send final result
@@ -387,36 +421,49 @@ func (s *Server) handleGenerateStream(w http.ResponseWriter, r *http.Request) {
 	})
 	fmt.Fprintf(w, "event: done\ndata: %s\n\n", string(finalData))
 	flusher.Flush()
+
+	return nil
 }
 
-func (s *Server) handleGenerateObject(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGenerateObject(forgeCtx forge.Context) error {
 	var req GenerateObjectRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		s.respondError(w, http.StatusBadRequest, "Invalid request body")
-		return
+	if err := json.NewDecoder(forgeCtx.Request().Body).Decode(&req); err != nil {
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+			"error":     "Invalid request body",
+			"status":    http.StatusBadRequest,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
 	// For simplicity, return the schema - in production, you'd use reflection
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+	return forgeCtx.Status(http.StatusOK).JSON(map[string]interface{}{
 		"message": "Structured output generation",
 		"schema":  req.Schema,
 	})
 }
 
-func (s *Server) handleMultiModal(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleMultiModal(forgeCtx forge.Context) error {
+	r := forgeCtx.Request()
+
 	// Parse multipart form
 	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32 MB max
-		s.respondError(w, http.StatusBadRequest, "Failed to parse form")
-		return
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+			"error":     "Failed to parse form",
+			"status":    http.StatusBadRequest,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
 	prompt := r.FormValue("prompt")
 	if prompt == "" {
-		s.respondError(w, http.StatusBadRequest, "Prompt is required")
-		return
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+			"error":     "Prompt is required",
+			"status":    http.StatusBadRequest,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), s.config.Timeout)
+	ctx, cancel := context.WithTimeout(forgeCtx.Context(), s.config.Timeout)
 	defer cancel()
 
 	builder := sdk.NewMultiModalBuilder(ctx, s.llmManager, s.logger, s.metrics)
@@ -457,82 +504,91 @@ func (s *Server) handleMultiModal(w http.ResponseWriter, r *http.Request) {
 
 	result, err := builder.Execute()
 	if err != nil {
-		s.respondError(w, http.StatusInternalServerError, err.Error())
-		return
+		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]interface{}{
+			"error":     err.Error(),
+			"status":    http.StatusInternalServerError,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+	return forgeCtx.Status(http.StatusOK).JSON(map[string]interface{}{
 		"text":  result.Text,
 		"usage": result.Usage,
 	})
 }
 
-func (s *Server) handleCreateAgent(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, map[string]string{
+func (s *Server) handleCreateAgent(ctx forge.Context) error {
+	return ctx.Status(http.StatusOK).JSON(map[string]string{
 		"message": "Agent creation endpoint",
 	})
 }
 
-func (s *Server) handleAgentExecute(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, map[string]string{
+func (s *Server) handleAgentExecute(ctx forge.Context) error {
+	return ctx.Status(http.StatusOK).JSON(map[string]string{
 		"message": "Agent execution endpoint",
 	})
 }
 
-func (s *Server) handleGetAgentState(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, map[string]string{
+func (s *Server) handleGetAgentState(ctx forge.Context) error {
+	return ctx.Status(http.StatusOK).JSON(map[string]string{
 		"message": "Get agent state endpoint",
 	})
 }
 
-func (s *Server) handleDeleteAgent(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
+func (s *Server) handleDeleteAgent(ctx forge.Context) error {
+	ctx.Response().WriteHeader(http.StatusNoContent)
+	return nil
 }
 
-func (s *Server) handleRAGIndex(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, map[string]string{
+func (s *Server) handleRAGIndex(ctx forge.Context) error {
+	return ctx.Status(http.StatusOK).JSON(map[string]string{
 		"message": "RAG indexing endpoint",
 	})
 }
 
-func (s *Server) handleRAGQuery(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, map[string]string{
+func (s *Server) handleRAGQuery(ctx forge.Context) error {
+	return ctx.Status(http.StatusOK).JSON(map[string]string{
 		"message": "RAG query endpoint",
 	})
 }
 
-func (s *Server) handleCostInsights(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCostInsights(ctx forge.Context) error {
 	if s.costManager == nil {
-		s.respondError(w, http.StatusNotImplemented, "Cost manager not configured")
-		return
+		return ctx.Status(http.StatusNotImplemented).JSON(map[string]interface{}{
+			"error":     "Cost manager not configured",
+			"status":    http.StatusNotImplemented,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
 	insights := s.costManager.GetInsights()
-	s.respondJSON(w, http.StatusOK, insights)
+	return ctx.Status(http.StatusOK).JSON(insights)
 }
 
-func (s *Server) handleCheckBudget(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCheckBudget(forgeCtx forge.Context) error {
 	if s.costManager == nil {
-		s.respondError(w, http.StatusNotImplemented, "Cost manager not configured")
-		return
+		return forgeCtx.Status(http.StatusNotImplemented).JSON(map[string]interface{}{
+			"error":     "Cost manager not configured",
+			"status":    http.StatusNotImplemented,
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
 	}
 
-	err := s.costManager.CheckBudget(r.Context())
+	err := s.costManager.CheckBudget(forgeCtx.Context())
 	if err != nil {
-		s.respondJSON(w, http.StatusOK, map[string]interface{}{
+		return forgeCtx.Status(http.StatusOK).JSON(map[string]interface{}{
 			"within_budget": false,
 			"error":         err.Error(),
 		})
-		return
 	}
 
-	s.respondJSON(w, http.StatusOK, map[string]interface{}{
+	return forgeCtx.Status(http.StatusOK).JSON(map[string]interface{}{
 		"within_budget": true,
 	})
 }
 
-func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	s.respondJSON(w, http.StatusOK, map[string]string{
+func (s *Server) handleMetrics(ctx forge.Context) error {
+	return ctx.Status(http.StatusOK).JSON(map[string]string{
 		"message": "Metrics endpoint",
 	})
 }
@@ -550,8 +606,8 @@ type GenerateRequest struct {
 
 // GenerateResponse represents a generation response
 type GenerateResponse struct {
-	Content string      `json:"content"`
-	Usage   *sdk.Usage  `json:"usage,omitempty"`
+	Content string     `json:"content"`
+	Usage   *sdk.Usage `json:"usage,omitempty"`
 }
 
 // GenerateObjectRequest represents a structured generation request
@@ -562,18 +618,4 @@ type GenerateObjectRequest struct {
 }
 
 // --- Helper Methods ---
-
-func (s *Server) respondJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
-}
-
-func (s *Server) respondError(w http.ResponseWriter, status int, message string) {
-	s.respondJSON(w, status, map[string]interface{}{
-		"error":   message,
-		"status":  status,
-		"timestamp": time.Now().Format(time.RFC3339),
-	})
-}
-
+// (All helpers removed - now using forge.Context methods directly)

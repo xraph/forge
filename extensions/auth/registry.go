@@ -120,13 +120,14 @@ func (r *registry) List() []string {
 
 // Middleware creates combined middleware for multiple providers (OR logic)
 func (r *registry) Middleware(providerNames ...string) forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			// If no providers specified, pass through
 			if len(providerNames) == 0 {
-				next.ServeHTTP(w, req)
-				return
+				return next(ctx)
 			}
+
+			req := ctx.Request()
 
 			// Try each provider in order
 			for _, name := range providerNames {
@@ -136,7 +137,7 @@ func (r *registry) Middleware(providerNames ...string) forge.Middleware {
 					continue
 				}
 
-				authCtx, err := provider.Authenticate(req.Context(), req)
+				authCtx, err := provider.Authenticate(ctx.Context(), req)
 				if err != nil {
 					r.logger.Debug("authentication failed")
 					continue
@@ -144,30 +145,29 @@ func (r *registry) Middleware(providerNames ...string) forge.Middleware {
 
 				// Authentication succeeded
 				authCtx.ProviderName = name
-				ctx := WithContext(req.Context(), authCtx)
-				req = req.WithContext(ctx)
+				ctx.Set("auth_context", authCtx)
 
 				r.logger.Debug("authentication succeeded")
 
-				next.ServeHTTP(w, req)
-				return
+				return next(ctx)
 			}
 
 			// All providers failed
 			r.logger.Warn("authentication failed for all providers")
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		})
+			return ctx.String(http.StatusUnauthorized, "Unauthorized")
+		}
 	}
 }
 
 // MiddlewareAnd creates middleware requiring ALL providers to succeed
 func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			if len(providerNames) == 0 {
-				next.ServeHTTP(w, req)
-				return
+				return next(ctx)
 			}
+
+			req := ctx.Request()
 
 			// All providers must succeed
 			var combinedAuthCtx *AuthContext
@@ -175,15 +175,13 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 				provider, err := r.Get(name)
 				if err != nil {
 					r.logger.Warn("auth provider not found")
-					http.Error(w, "Unauthorized", http.StatusUnauthorized)
-					return
+					return ctx.String(http.StatusUnauthorized, "Unauthorized")
 				}
 
-				authCtx, err := provider.Authenticate(req.Context(), req)
+				authCtx, err := provider.Authenticate(ctx.Context(), req)
 				if err != nil {
 					r.logger.Warn("authentication failed")
-					http.Error(w, "Unauthorized", http.StatusUnauthorized)
-					return
+					return ctx.String(http.StatusUnauthorized, "Unauthorized")
 				}
 
 				// Merge contexts (first provider wins for subject)
@@ -203,50 +201,46 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 			}
 
 			// All providers succeeded
-			ctx := WithContext(req.Context(), combinedAuthCtx)
-			req = req.WithContext(ctx)
+			ctx.Set("auth_context", combinedAuthCtx)
 
 			r.logger.Debug("authentication succeeded (AND mode)")
 
-			next.ServeHTTP(w, req)
-		})
+			return next(ctx)
+		}
 	}
 }
 
 // MiddlewareWithScopes creates middleware with required scopes
 func (r *registry) MiddlewareWithScopes(providerName string, scopes ...string) forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			provider, err := r.Get(providerName)
 			if err != nil {
 				r.logger.Warn("auth provider not found")
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
-			authCtx, err := provider.Authenticate(req.Context(), req)
+			req := ctx.Request()
+			authCtx, err := provider.Authenticate(ctx.Context(), req)
 			if err != nil {
 				r.logger.Warn("authentication failed")
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			// Check required scopes
 			if len(scopes) > 0 && !authCtx.HasScopes(scopes...) {
 				r.logger.Warn("insufficient scopes")
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
+				return ctx.String(http.StatusForbidden, "Forbidden")
 			}
 
 			// Authentication and authorization succeeded
 			authCtx.ProviderName = providerName
-			ctx := WithContext(req.Context(), authCtx)
-			req = req.WithContext(ctx)
+			ctx.Set("auth_context", authCtx)
 
 			r.logger.Debug("authentication succeeded with scopes")
 
-			next.ServeHTTP(w, req)
-		})
+			return next(ctx)
+		}
 	}
 }
 

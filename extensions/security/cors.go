@@ -165,72 +165,72 @@ func (m *CORSManager) getAllowOrigin(origin string) string {
 }
 
 // CORSMiddleware returns a middleware function for CORS handling
-func CORSMiddleware(manager *CORSManager) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func CORSMiddleware(manager *CORSManager) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			if !manager.config.Enabled {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
+
+			r := ctx.Request()
+			w := ctx.Response()
 
 			// Skip CORS for specified paths
 			if manager.shouldSkipPath(r.URL.Path) {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
 
 			origin := r.Header.Get("Origin")
 
-		// No origin header means it's not a CORS request
-		if origin == "" {
-			next.ServeHTTP(w, r)
-			return
+			// No origin header means it's not a CORS request
+			if origin == "" {
+				return next(ctx)
+			}
+
+			// Check if origin is allowed
+			allowOrigin := manager.getAllowOrigin(origin)
+			if allowOrigin == "" {
+				// Origin not allowed, but we still process the request
+				// The browser will block the response
+				manager.logger.Debug("cors origin not allowed",
+					forge.F("origin", origin),
+					forge.F("path", r.URL.Path),
+				)
+				return next(ctx)
+			}
+
+			// Set CORS headers
+			w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+
+			// Handle credentials
+			if manager.config.AllowCredentials {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+
+			// Expose headers
+			if len(manager.config.ExposeHeaders) > 0 {
+				w.Header().Set("Access-Control-Expose-Headers", strings.Join(manager.config.ExposeHeaders, ", "))
+			}
+
+			// Handle preflight requests
+			if r.Method == "OPTIONS" {
+				return manager.handlePreflight(ctx)
+			}
+
+			return next(ctx)
 		}
-
-		// Check if origin is allowed
-		allowOrigin := manager.getAllowOrigin(origin)
-		if allowOrigin == "" {
-			// Origin not allowed, but we still process the request
-			// The browser will block the response
-			manager.logger.Debug("cors origin not allowed",
-				forge.F("origin", origin),
-				forge.F("path", r.URL.Path),
-			)
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Set CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
-
-		// Handle credentials
-		if manager.config.AllowCredentials {
-			w.Header().Set("Access-Control-Allow-Credentials", "true")
-		}
-
-		// Expose headers
-		if len(manager.config.ExposeHeaders) > 0 {
-			w.Header().Set("Access-Control-Expose-Headers", strings.Join(manager.config.ExposeHeaders, ", "))
-		}
-
-		// Handle preflight requests
-		if r.Method == "OPTIONS" {
-			manager.handlePreflight(w, r)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
 	}
 }
 
 // handlePreflight handles CORS preflight requests
-func (m *CORSManager) handlePreflight(w http.ResponseWriter, r *http.Request) {
+func (m *CORSManager) handlePreflight(ctx forge.Context) error {
+	r := ctx.Request()
+	w := ctx.Response()
+
 	// Access-Control-Request-Method is required for preflight
 	requestMethod := r.Header.Get("Access-Control-Request-Method")
 	if requestMethod == "" {
-		http.Error(w, "Access-Control-Request-Method header is required", http.StatusBadRequest)
-		return
+		return ctx.String(http.StatusBadRequest, "Access-Control-Request-Method header is required")
 	}
 
 	// Check if method is allowed
@@ -247,8 +247,7 @@ func (m *CORSManager) handlePreflight(w http.ResponseWriter, r *http.Request) {
 			forge.F("method", requestMethod),
 			forge.F("path", r.URL.Path),
 		)
-		http.Error(w, "Method not allowed by CORS policy", http.StatusForbidden)
-		return
+		return ctx.String(http.StatusForbidden, "Method not allowed by CORS policy")
 	}
 
 	// Set preflight headers
@@ -265,6 +264,7 @@ func (m *CORSManager) handlePreflight(w http.ResponseWriter, r *http.Request) {
 
 	// Return 204 No Content for successful preflight
 	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // Vary header management for CORS
@@ -286,4 +286,3 @@ func addVaryHeader(header http.Header, value string) {
 
 	header.Set("Vary", vary+", "+value)
 }
-

@@ -6,40 +6,44 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	forge "github.com/xraph/forge"
+	"github.com/xraph/forge/internal/di"
 )
 
 func TestRequestID_Generate(t *testing.T) {
-	handler := RequestID()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := GetRequestID(r.Context())
+	handler := RequestID()(func(ctx forge.Context) error {
+		requestID := GetRequestIDFromForgeContext(ctx)
 		assert.NotEmpty(t, requestID)
-		w.WriteHeader(200)
-	}))
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	handler.ServeHTTP(rec, req)
+	_ = handler(ctx)
 
-	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.NotEmpty(t, rec.Header().Get("X-Request-ID"))
 }
 
 func TestRequestID_UseExisting(t *testing.T) {
 	existingID := "existing-request-id"
 
-	handler := RequestID()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := GetRequestID(r.Context())
+	handler := RequestID()(func(ctx forge.Context) error {
+		requestID := GetRequestIDFromForgeContext(ctx)
 		assert.Equal(t, existingID, requestID)
-		w.WriteHeader(200)
-	}))
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Header.Set("X-Request-ID", existingID)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	handler.ServeHTTP(rec, req)
+	_ = handler(ctx)
 
-	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, existingID, rec.Header().Get("X-Request-ID"))
 }
 

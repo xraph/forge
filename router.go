@@ -29,6 +29,9 @@ type RouteOption = router.RouteOption
 // GroupOption configures a route group
 type GroupOption = router.GroupOption
 
+// Handler is a forge handler function
+type Handler = router.Handler
+
 // Middleware wraps HTTP handlers
 type Middleware = router.Middleware
 

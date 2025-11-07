@@ -10,7 +10,7 @@ import (
 )
 
 // AuthMiddleware creates middleware for MCP authentication
-func AuthMiddleware(config Config, logger forge.Logger) forge.Middleware {
+func AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip if auth not required
@@ -84,7 +84,7 @@ func NewRateLimiter(config Config, logger forge.Logger) *RateLimiter {
 }
 
 // RateLimitMiddleware creates middleware for rate limiting
-func RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metrics) forge.Middleware {
+func RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metrics) forge.PureMiddleware {
 	// Skip if rate limiting not configured
 	if config.RateLimitPerMinute <= 0 {
 		return func(next http.Handler) http.Handler {

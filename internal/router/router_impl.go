@@ -392,7 +392,7 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 
 	// Register with adapter
 	if r.adapter != nil {
-		finalHandler := applyMiddleware(converted, combinedMiddleware)
+		finalHandler := applyMiddleware(converted, combinedMiddleware, r.container, r.errorHandler)
 		r.adapter.Handle(method, fullPath, finalHandler)
 	}
 
@@ -404,44 +404,33 @@ func newDefaultBunRouterAdapter() RouterAdapter {
 	return NewBunRouterAdapter()
 }
 
-func applyMiddleware(h http.Handler, middleware []Middleware) http.Handler {
-	// Apply in reverse order
+func applyMiddleware(h http.Handler, middleware []Middleware, container di.Container, errorHandler ErrorHandler) http.Handler {
+	// Convert http.Handler to forge Handler
+	forgeHandler := func(ctx Context) error {
+		h.ServeHTTP(ctx.Response(), ctx.Request())
+		return nil
+	}
+
+	// Apply middleware chain
 	for i := len(middleware) - 1; i >= 0; i-- {
-		h = middleware[i](h)
+		forgeHandler = middleware[i](forgeHandler)
 	}
-	return h
-}
 
-// simpleAdapter is a basic in-memory adapter for testing
-type simpleAdapter struct {
-	routes map[string]map[string]http.Handler // method -> path -> handler
-}
+	// Convert back to http.Handler
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Create forge context
+		ctx := di.NewContext(w, r, container)
+		defer ctx.(di.ContextWithClean).Cleanup()
 
-func (a *simpleAdapter) Handle(method, path string, handler http.Handler) {
-	if a.routes[method] == nil {
-		a.routes[method] = make(map[string]http.Handler)
-	}
-	a.routes[method][path] = handler
-}
-
-func (a *simpleAdapter) Mount(path string, handler http.Handler) {
-	// Simple implementation: mount on all methods
-	for _, method := range []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"} {
-		a.Handle(method, path, handler)
-	}
-}
-
-func (a *simpleAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if handlers, ok := a.routes[r.Method]; ok {
-		if handler, ok := handlers[r.URL.Path]; ok {
-			handler.ServeHTTP(w, r)
-			return
+		// Execute the forge handler
+		if err := forgeHandler(ctx); err != nil {
+			// Error handling
+			if errorHandler != nil {
+				errorHandler.HandleError(ctx.Context(), err)
+			} else {
+				// Default error handling
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 		}
-	}
-	http.NotFound(w, r)
-}
-
-func (a *simpleAdapter) Close() error {
-	a.routes = nil
-	return nil
+	})
 }

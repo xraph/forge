@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	forge "github.com/xraph/forge"
+	"github.com/xraph/forge/internal/di"
 )
 
 func TestNewRateLimiter(t *testing.T) {
@@ -70,17 +72,17 @@ func TestRateLimit_AllowedRequest(t *testing.T) {
 	logger := &mockLogger{}
 	limiter := NewRateLimiter(10, 5)
 
-	handler := RateLimit(limiter, logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-	}))
+	handler := RateLimit(limiter, logger)(func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	handler.ServeHTTP(rec, req)
+	_ = handler(ctx)
 
-	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "ok", rec.Body.String())
 }
 
@@ -88,21 +90,23 @@ func TestRateLimit_ExceededRequest(t *testing.T) {
 	logger := &mockLogger{}
 	limiter := NewRateLimiter(1, 1)
 
-	handler := RateLimit(limiter, logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
+	handler := RateLimit(limiter, logger)(func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 
 	// First request allowed
 	rec1 := httptest.NewRecorder()
-	handler.ServeHTTP(rec1, req)
-	assert.Equal(t, 200, rec1.Code)
+	ctx1 := di.NewContext(rec1, req, nil)
+	_ = handler(ctx1)
+	assert.Equal(t, http.StatusOK, rec1.Code)
 
 	// Second request blocked
 	rec2 := httptest.NewRecorder()
-	handler.ServeHTTP(rec2, req)
-	assert.Equal(t, 429, rec2.Code)
+	ctx2 := di.NewContext(rec2, req, nil)
+	_ = handler(ctx2)
+	assert.Equal(t, http.StatusTooManyRequests, rec2.Code)
 	assert.Contains(t, rec2.Body.String(), "Rate Limit Exceeded")
 	assert.Len(t, logger.messages, 1)
 }
@@ -110,15 +114,17 @@ func TestRateLimit_ExceededRequest(t *testing.T) {
 func TestRateLimit_NilLogger(t *testing.T) {
 	limiter := NewRateLimiter(1, 1)
 
-	handler := RateLimit(limiter, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
+	handler := RateLimit(limiter, nil)(func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec1 := httptest.NewRecorder()
-	handler.ServeHTTP(rec1, req)
+	ctx1 := di.NewContext(rec1, req, nil)
+	_ = handler(ctx1)
 
 	rec2 := httptest.NewRecorder()
-	handler.ServeHTTP(rec2, req)
-	assert.Equal(t, 429, rec2.Code)
+	ctx2 := di.NewContext(rec2, req, nil)
+	_ = handler(ctx2)
+	assert.Equal(t, http.StatusTooManyRequests, rec2.Code)
 }

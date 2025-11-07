@@ -380,22 +380,21 @@ func (p *LDAPProvider) OpenAPIScheme() auth.SecurityScheme {
 
 // Middleware returns the authentication middleware
 func (p *LDAPProvider) Middleware() forge.Middleware {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authCtx, err := p.Authenticate(r.Context(), r)
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			authCtx, err := p.Authenticate(ctx.Context(), ctx.Request())
 			if err != nil {
 				p.logger.Debug("ldap middleware authentication failed",
-					forge.F("path", r.URL.Path),
+					forge.F("path", ctx.Request().URL.Path),
 					forge.F("error", err),
 				)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
-			// Store auth context in request context
-			ctx := context.WithValue(r.Context(), "auth", authCtx)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+			// Store auth context in forge context
+			ctx.Set("auth_context", authCtx)
+			return next(ctx)
+		}
 	}
 }
 

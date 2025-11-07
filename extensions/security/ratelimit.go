@@ -38,9 +38,9 @@ type RateLimitConfig struct {
 
 // RateLimitInfo contains information about the current rate limit status
 type RateLimitInfo struct {
-	Limit     int           // Maximum requests allowed
-	Remaining int           // Remaining requests in current window
-	Reset     time.Time     // When the rate limit resets
+	Limit      int           // Maximum requests allowed
+	Remaining  int           // Remaining requests in current window
+	Reset      time.Time     // When the rate limit resets
 	RetryAfter time.Duration // How long to wait before retrying
 }
 
@@ -86,7 +86,7 @@ func (tb *tokenBucket) take(n int) (bool, *RateLimitInfo) {
 	// Refill tokens based on elapsed time
 	now := time.Now()
 	elapsed := now.Sub(tb.lastRefill)
-	
+
 	if elapsed >= tb.refillPeriod {
 		// Full refill if a full period has elapsed
 		tb.tokens = tb.capacity
@@ -193,26 +193,26 @@ func (rl *MemoryRateLimiter) shouldSkipPath(path string) bool {
 }
 
 // RateLimitMiddleware returns a middleware function for rate limiting
-func RateLimitMiddleware(limiter *MemoryRateLimiter) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func RateLimitMiddleware(limiter *MemoryRateLimiter) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			if !limiter.config.Enabled {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
+
+			r := ctx.Request()
+			w := ctx.Response()
 
 			// Skip rate limiting for specified paths
 			if limiter.shouldSkipPath(r.URL.Path) {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
 
 			// Extract rate limit key
 			key := limiter.extractRateLimitKey(r)
 			if key == "" {
 				limiter.logger.Warn("rate limit key extraction failed, allowing request")
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
 
 			// Check rate limit
@@ -229,12 +229,11 @@ func RateLimitMiddleware(limiter *MemoryRateLimiter) func(http.Handler) http.Han
 					forge.F("path", r.URL.Path),
 				)
 				w.Header().Set("Retry-After", fmt.Sprintf("%d", int(info.RetryAfter.Seconds())))
-				http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-				return
+				return ctx.String(http.StatusTooManyRequests, "Rate limit exceeded")
 			}
 
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 }
 
@@ -251,7 +250,7 @@ func (rl *MemoryRateLimiter) extractRateLimitKey(r *http.Request) string {
 			return strings.TrimSpace(ips[0])
 		}
 	}
-	
+
 	// Fall back to RemoteAddr
 	ip, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -279,4 +278,3 @@ func WithRateLimitPerUser(requests int, window time.Duration) ConfigOption {
 		// KeyFunc removed - use custom middleware wrapper for user-based rate limiting
 	}
 }
-

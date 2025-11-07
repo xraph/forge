@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	forge "github.com/xraph/forge"
+	"github.com/xraph/forge/internal/di"
 )
 
 type mockLogger struct {
@@ -32,33 +33,35 @@ func (m *mockLogger) Sync() error                                  { return nil 
 
 func TestRecovery_NoPanic(t *testing.T) {
 	logger := &mockLogger{}
-	handler := Recovery(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-	}))
+	handler := Recovery(logger)(func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	handler.ServeHTTP(rec, req)
+	err := handler(ctx)
 
-	assert.Equal(t, 200, rec.Code)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "ok", rec.Body.String())
 	assert.Empty(t, logger.messages)
 }
 
 func TestRecovery_WithPanic(t *testing.T) {
 	logger := &mockLogger{}
-	handler := Recovery(logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := Recovery(logger)(func(ctx forge.Context) error {
 		panic("something went wrong")
-	}))
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	handler.ServeHTTP(rec, req)
+	_ = handler(ctx)
 
-	assert.Equal(t, 500, rec.Code)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 	assert.Contains(t, rec.Body.String(), "Internal Server Error")
 	assert.Len(t, logger.messages, 1)
 	assert.Contains(t, logger.messages[0], "panic recovered")

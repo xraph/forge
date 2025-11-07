@@ -70,16 +70,16 @@ func DefaultAPIKeyConfig() APIKeyConfig {
 
 // APIKeyInfo represents information about an API key
 type APIKeyInfo struct {
-	Key         string                 // The API key
-	Name        string                 // Friendly name for the key
-	UserID      string                 // Associated user ID
-	Scopes      []string               // Allowed scopes/permissions
-	RateLimit   int                    // Rate limit for this key
-	ExpiresAt   *time.Time             // Expiration time (nil = never expires)
-	CreatedAt   time.Time              // Creation time
-	LastUsedAt  *time.Time             // Last usage time
-	Revoked     bool                   // Whether the key is revoked
-	Metadata    map[string]interface{} // Additional metadata
+	Key        string                 // The API key
+	Name       string                 // Friendly name for the key
+	UserID     string                 // Associated user ID
+	Scopes     []string               // Allowed scopes/permissions
+	RateLimit  int                    // Rate limit for this key
+	ExpiresAt  *time.Time             // Expiration time (nil = never expires)
+	CreatedAt  time.Time              // Creation time
+	LastUsedAt *time.Time             // Last usage time
+	Revoked    bool                   // Whether the key is revoked
+	Metadata   map[string]interface{} // Additional metadata
 }
 
 // IsExpired checks if the API key is expired
@@ -305,18 +305,18 @@ func (m *APIKeyManager) shouldSkipPath(path string) bool {
 type apiKeyContextKey struct{}
 
 // APIKeyMiddleware returns a middleware function for API key authentication
-func APIKeyMiddleware(manager *APIKeyManager) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func APIKeyMiddleware(manager *APIKeyManager) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			if !manager.config.Enabled {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
+
+			r := ctx.Request()
 
 			// Skip API key authentication for specified paths
 			if manager.shouldSkipPath(r.URL.Path) {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
 
 			// Extract key from request
@@ -325,12 +325,11 @@ func APIKeyMiddleware(manager *APIKeyManager) func(http.Handler) http.Handler {
 				manager.logger.Debug("api key missing",
 					forge.F("path", r.URL.Path),
 				)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			// Validate key
-			info, err := manager.ValidateAPIKey(r.Context(), key)
+			info, err := manager.ValidateAPIKey(ctx.Context(), key)
 			if err != nil {
 				// Use constant-time comparison to prevent timing attacks
 				// even when logging
@@ -338,49 +337,56 @@ func APIKeyMiddleware(manager *APIKeyManager) func(http.Handler) http.Handler {
 					forge.F("error", err),
 					forge.F("path", r.URL.Path),
 				)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			// Store key info in context
-			ctx := context.WithValue(r.Context(), apiKeyContextKey{}, info)
+			ctx.Set("apikey_info", info)
 
 			manager.logger.Debug("api key authenticated",
 				forge.F("key_name", info.Name),
 				forge.F("user_id", info.UserID),
 			)
 
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+			return next(ctx)
+		}
 	}
 }
 
-// GetAPIKeyInfo retrieves API key info from context
-func GetAPIKeyInfo(ctx context.Context) (*APIKeyInfo, bool) {
+// GetAPIKeyInfo retrieves API key info from Forge context
+func GetAPIKeyInfo(ctx forge.Context) (*APIKeyInfo, bool) {
+	val := ctx.Get("apikey_info")
+	if val == nil {
+		return nil, false
+	}
+	info, ok := val.(*APIKeyInfo)
+	return info, ok
+}
+
+// GetAPIKeyInfoFromStdContext retrieves API key info from standard context (for backward compatibility)
+func GetAPIKeyInfoFromStdContext(ctx context.Context) (*APIKeyInfo, bool) {
 	info, ok := ctx.Value(apiKeyContextKey{}).(*APIKeyInfo)
 	return info, ok
 }
 
 // RequireScopes returns a middleware that checks if the API key has required scopes
-func RequireScopes(scopes ...string) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			info, ok := GetAPIKeyInfo(r.Context())
+func RequireScopes(scopes ...string) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			info, ok := GetAPIKeyInfo(ctx)
 			if !ok {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			// Check if API key has all required scopes
 			for _, requiredScope := range scopes {
 				if !info.HasScope(requiredScope) {
-					http.Error(w, fmt.Sprintf("Forbidden: missing scope %s", requiredScope), http.StatusForbidden)
-					return
+					return ctx.String(http.StatusForbidden, fmt.Sprintf("Forbidden: missing scope %s", requiredScope))
 				}
 			}
 
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 }
 
@@ -400,4 +406,3 @@ func VerifyAPIKeyHash(key, hash string, hasher *PasswordHasher) (bool, error) {
 func ConstantTimeCompare(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
-

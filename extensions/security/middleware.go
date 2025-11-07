@@ -40,23 +40,24 @@ type SessionMiddlewareOptions struct {
 }
 
 // SessionMiddleware creates middleware for session management
-func SessionMiddleware(opts SessionMiddlewareOptions) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func SessionMiddleware(opts SessionMiddlewareOptions) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(forgeCtx forge.Context) error {
+			r := forgeCtx.Request()
+			w := forgeCtx.Response()
+
 			// Check if we should skip this path
 			if shouldSkipPath(r.URL.Path, opts.SkipPaths) {
-				next.ServeHTTP(w, r)
-				return
+				return next(forgeCtx)
 			}
 
-			ctx := r.Context()
+			ctx := forgeCtx.Context()
 
 			// Try to get session from cookie
 			sessionID, err := opts.CookieManager.GetCookie(r, opts.Config.CookieName)
 			if err != nil {
 				// No session cookie, continue without session
-				next.ServeHTTP(w, r)
-				return
+				return next(forgeCtx)
 			}
 
 			// Get session from store
@@ -74,8 +75,7 @@ func SessionMiddleware(opts SessionMiddlewareOptions) func(http.Handler) http.Ha
 						opts.Metrics.Counter("security.sessions.expired_on_access").Inc()
 					}
 
-					next.ServeHTTP(w, r)
-					return
+					return next(forgeCtx)
 				}
 
 				// Other error, log and continue
@@ -86,8 +86,7 @@ func SessionMiddleware(opts SessionMiddlewareOptions) func(http.Handler) http.Ha
 					)
 				}
 
-				next.ServeHTTP(w, r)
-				return
+				return next(forgeCtx)
 			}
 
 			// Auto-renew session if enabled
@@ -102,8 +101,8 @@ func SessionMiddleware(opts SessionMiddlewareOptions) func(http.Handler) http.Ha
 				}
 			}
 
-			// Store session in context
-			ctx = context.WithValue(ctx, SessionContextKey{}, session)
+			// Store session in Forge context
+			forgeCtx.Set("session", session)
 
 			// Track metrics
 			if opts.Metrics != nil {
@@ -111,8 +110,8 @@ func SessionMiddleware(opts SessionMiddlewareOptions) func(http.Handler) http.Ha
 			}
 
 			// Continue with session in context
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+			return next(forgeCtx)
+		}
 	}
 }
 
@@ -151,15 +150,34 @@ func CreateSession(
 	return session, nil
 }
 
-// GetSession retrieves the session from context
+// GetSession retrieves the session from standard context (for backward compatibility)
 func GetSession(ctx context.Context) (*Session, bool) {
 	session, ok := ctx.Value(SessionContextKey{}).(*Session)
+	return session, ok
+}
+
+// GetSessionFromForgeContext retrieves the session from Forge context
+func GetSessionFromForgeContext(ctx forge.Context) (*Session, bool) {
+	val := ctx.Get("session")
+	if val == nil {
+		return nil, false
+	}
+	session, ok := val.(*Session)
 	return session, ok
 }
 
 // MustGetSession retrieves the session from context or panics
 func MustGetSession(ctx context.Context) *Session {
 	session, ok := GetSession(ctx)
+	if !ok {
+		panic("session not found in context")
+	}
+	return session
+}
+
+// MustGetSessionFromForgeContext retrieves the session from Forge context or panics
+func MustGetSessionFromForgeContext(ctx forge.Context) *Session {
+	session, ok := GetSessionFromForgeContext(ctx)
 	if !ok {
 		panic("session not found in context")
 	}
@@ -206,22 +224,34 @@ func UpdateSession(
 }
 
 // RequireSession creates middleware that requires a valid session
-func RequireSession(unauthorizedHandler http.Handler) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_, ok := GetSession(r.Context())
+func RequireSession(unauthorizedHandler forge.Handler) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			_, ok := GetSessionFromForgeContext(ctx)
 			if !ok {
-				unauthorizedHandler.ServeHTTP(w, r)
-				return
+				return unauthorizedHandler(ctx)
 			}
-			next.ServeHTTP(w, r)
-		})
+			return next(ctx)
+		}
 	}
 }
 
 // RequireSessionFunc creates middleware that requires a valid session with a handler function
-func RequireSessionFunc(unauthorizedHandler func(http.ResponseWriter, *http.Request)) func(http.Handler) http.Handler {
-	return RequireSession(http.HandlerFunc(unauthorizedHandler))
+func RequireSessionFunc(unauthorizedHandler forge.Handler) forge.Middleware {
+	return RequireSession(unauthorizedHandler)
+}
+
+// RequireSessionSimple creates middleware that returns 401 Unauthorized if no session exists
+func RequireSessionSimple() forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
+			_, ok := GetSessionFromForgeContext(ctx)
+			if !ok {
+				return ctx.String(http.StatusUnauthorized, "Unauthorized")
+			}
+			return next(ctx)
+		}
+	}
 }
 
 // shouldSkipPath checks if the path should skip session handling
@@ -233,4 +263,3 @@ func shouldSkipPath(path string, skipPaths []string) bool {
 	}
 	return false
 }
-

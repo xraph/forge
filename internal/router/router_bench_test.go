@@ -109,10 +109,10 @@ func BenchmarkRouter_Middleware(b *testing.B) {
 	router := NewRouter()
 
 	// Add middleware
-	router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next.ServeHTTP(w, r)
-		})
+	router.Use(func(next Handler) Handler {
+		return func(ctx Context) error {
+			return next(ctx)
+		}
 	})
 
 	_ = router.GET("/test", func(ctx Context) error {
@@ -134,10 +134,10 @@ func BenchmarkRouter_MiddlewareChain(b *testing.B) {
 
 	// Add 5 middleware
 	for j := 0; j < 5; j++ {
-		router.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				next.ServeHTTP(w, r)
-			})
+		router.Use(func(next Handler) Handler {
+			return func(ctx Context) error {
+				return next(ctx)
+			}
 		})
 	}
 

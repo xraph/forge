@@ -19,10 +19,10 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) error {
 
 func main() {
 	// Create a new Forge app
-	app := forge.New(forge.AppConfig{
+	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "security-auto-middleware-example",
 		Version: "1.0.0",
-	})
+	}))
 
 	// Register the security extension with AUTO-APPLY middleware enabled
 	// This automatically applies session middleware to ALL routes (except skip paths)
@@ -235,4 +235,3 @@ func main() {
 		app.Logger().Error("server error", forge.F("error", err))
 	}
 }
-

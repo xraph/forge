@@ -87,14 +87,14 @@ type AuditEntry struct {
 	Email    string `json:"email,omitempty"`
 
 	// Request information
-	Method     string            `json:"method"`
-	Path       string            `json:"path"`
-	Query      string            `json:"query,omitempty"`
-	IPAddress  string            `json:"ip_address"`
-	UserAgent  string            `json:"user_agent,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	RequestID  string            `json:"request_id,omitempty"`
-	SessionID  string            `json:"session_id,omitempty"`
+	Method    string            `json:"method"`
+	Path      string            `json:"path"`
+	Query     string            `json:"query,omitempty"`
+	IPAddress string            `json:"ip_address"`
+	UserAgent string            `json:"user_agent,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	RequestID string            `json:"request_id,omitempty"`
+	SessionID string            `json:"session_id,omitempty"`
 
 	// Request/Response data
 	RequestBody  string `json:"request_body,omitempty"`
@@ -302,18 +302,18 @@ func extractIPAddress(r *http.Request) string {
 }
 
 // AuditMiddleware returns a middleware for audit logging
-func AuditMiddleware(auditLogger *AuditLogger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func AuditMiddleware(auditLogger *AuditLogger) forge.Middleware {
+	return func(next forge.Handler) forge.Handler {
+		return func(ctx forge.Context) error {
 			if !auditLogger.config.Enabled {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
+
+			r := ctx.Request()
 
 			// Check if path should be audited
 			if !auditLogger.shouldAuditPath(r.URL.Path) {
-				next.ServeHTTP(w, r)
-				return
+				return next(ctx)
 			}
 
 			start := time.Now()
@@ -329,29 +329,36 @@ func AuditMiddleware(auditLogger *AuditLogger) func(http.Handler) http.Handler {
 			}
 
 			// Extract user information from session or JWT
-			if session, ok := GetSession(r.Context()); ok {
+			if session, ok := GetSession(ctx.Context()); ok {
 				entry.UserID = session.UserID
 				entry.SessionID = session.ID
-			} else if claims, ok := GetJWTClaims(r.Context()); ok {
+			} else if claims, ok := GetJWTClaims(ctx); ok {
 				entry.UserID = claims.UserID
 				entry.Username = claims.Username
 				entry.Email = claims.Email
 			}
 
 			// Execute handler
-			next.ServeHTTP(w, r)
+			err := next(ctx)
 
 			// Calculate duration
 			entry.Duration = time.Since(start)
 
-			// Set result as success (errors would need custom error handling)
-			entry.Result = "success"
+			// Set result based on error
+			if err != nil {
+				entry.Result = "error"
+				entry.Message = err.Error()
+			} else {
+				entry.Result = "success"
+			}
 			entry.Category = "data"
-			entry.EventType = "request.success"
+			entry.EventType = "request." + entry.Result
 
 			// Log the entry
 			auditLogger.Log(entry)
-		})
+
+			return err
+		}
 	}
 }
 
@@ -412,4 +419,3 @@ func LogAdminEvent(auditLogger *AuditLogger, ctx context.Context, eventType stri
 	}
 	auditLogger.Log(entry)
 }
-

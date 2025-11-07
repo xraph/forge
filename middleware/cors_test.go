@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	forge "github.com/xraph/forge"
+	"github.com/xraph/forge/internal/di"
 )
 
 func TestCORS_DefaultConfig(t *testing.T) {
@@ -19,17 +21,17 @@ func TestCORS_DefaultConfig(t *testing.T) {
 
 func TestCORS_RegularRequest(t *testing.T) {
 	config := DefaultCORSConfig()
-	handler := CORS(config)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-		w.Write([]byte("ok"))
-	}))
+	handler := CORS(config)(func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	handler.ServeHTTP(rec, req)
+	_ = handler(ctx)
 
-	assert.Equal(t, 200, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "ok", rec.Body.String())
 	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
 	assert.NotEmpty(t, rec.Header().Get("Access-Control-Allow-Methods"))
@@ -38,16 +40,17 @@ func TestCORS_RegularRequest(t *testing.T) {
 
 func TestCORS_PreflightRequest(t *testing.T) {
 	config := DefaultCORSConfig()
-	handler := CORS(config)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
+	handler := CORS(config)(func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("OPTIONS", "/test", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	handler.ServeHTTP(rec, req)
+	_ = handler(ctx)
 
-	assert.Equal(t, 204, rec.Code)
+	assert.Equal(t, http.StatusNoContent, rec.Code)
 	assert.Empty(t, rec.Body.String())
 	assert.Equal(t, "*", rec.Header().Get("Access-Control-Allow-Origin"))
 }
@@ -62,14 +65,15 @@ func TestCORS_WithCredentials(t *testing.T) {
 		ExposeHeaders:    []string{"X-Request-ID"},
 	}
 
-	handler := CORS(config)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
-	}))
+	handler := CORS(config)(func(ctx forge.Context) error {
+		return ctx.String(http.StatusOK, "ok")
+	})
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	rec := httptest.NewRecorder()
+	ctx := di.NewContext(rec, req, nil)
 
-	handler.ServeHTTP(rec, req)
+	_ = handler(ctx)
 
 	assert.Equal(t, "https://example.com", rec.Header().Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "true", rec.Header().Get("Access-Control-Allow-Credentials"))
