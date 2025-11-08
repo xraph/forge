@@ -8,6 +8,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // FailoverManager manages automatic failover between nodes.

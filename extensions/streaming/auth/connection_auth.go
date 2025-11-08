@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/xraph/forge/extensions/auth"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // connectionAuthenticator implements ConnectionAuthenticator using the auth extension registry.

@@ -8,6 +8,7 @@ import (
 
 	"github.com/xraph/forge"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // presenceTracker implements streaming.PresenceTracker.

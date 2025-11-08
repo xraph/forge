@@ -2,10 +2,10 @@ package search
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // TypesenseSearch implements Search interface for Typesense.

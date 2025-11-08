@@ -8,6 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // ChannelStore implements streaming.ChannelStore with Redis backend.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Extension implements forge.Extension and forge.MiddlewareExtension for comprehensive security features.

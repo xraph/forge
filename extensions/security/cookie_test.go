@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 func TestCookieManager_SetCookie(t *testing.T) {

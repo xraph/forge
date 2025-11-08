@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Additional tests to increase coverage to 100%

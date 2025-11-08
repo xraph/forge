@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Test all backend constructors and basic error paths

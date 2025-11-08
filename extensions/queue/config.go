@@ -3,6 +3,8 @@ package queue
 import (
 	"fmt"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Config contains configuration for the queue extension.

@@ -8,6 +8,7 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/streaming/backends"
 	"github.com/xraph/forge/extensions/streaming/trackers"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Extension implements forge.Extension for streaming functionality.

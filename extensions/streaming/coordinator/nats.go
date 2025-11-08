@@ -8,6 +8,7 @@ import (
 
 	nats "github.com/nats-io/nats.go"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // natsCoordinator implements StreamCoordinator using NATS JetStream.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Config holds the oRPC extension configuration.

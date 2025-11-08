@@ -2,10 +2,10 @@ package search
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // MeilisearchSearch implements Search interface for Meilisearch.

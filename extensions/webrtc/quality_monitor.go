@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // qualityMonitor implements QualityMonitor for connection quality tracking.

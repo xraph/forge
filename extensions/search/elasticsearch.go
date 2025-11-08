@@ -2,10 +2,10 @@ package search
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // ElasticsearchSearch implements Search interface for Elasticsearch.

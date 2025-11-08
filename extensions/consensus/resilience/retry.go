@@ -2,7 +2,6 @@ package resilience
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/xraph/forge"
