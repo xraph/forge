@@ -280,14 +280,17 @@ func (t *TypesGenerator) toGoFieldName(name string) string {
 		return r == '_' || r == '-'
 	})
 
-	var result string
-	var resultSb278 strings.Builder
+	var (
+		result      string
+		resultSb278 strings.Builder
+	)
 
 	for _, part := range parts {
 		if len(part) > 0 {
 			resultSb278.WriteString(strings.ToUpper(part[:1]) + part[1:])
 		}
 	}
+
 	result += resultSb278.String()
 
 	// If empty, return the original name capitalized
@@ -304,7 +307,6 @@ func (t *TypesGenerator) toGoFieldName(name string) string {
 
 // isRequired checks if a property is required.
 func (t *TypesGenerator) isRequired(propName string, required []string) bool {
-
 	return slices.Contains(required, propName)
 }
 

@@ -202,7 +202,6 @@ func isValidNPMName(name string) bool {
 
 // contains checks if a slice contains a string.
 func contains(slice []string, item string) bool {
-
 	return slices.Contains(slice, item)
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,7 +35,7 @@ func (s *RoomStore) Create(ctx context.Context, room streaming.Room) error {
 	key := fmt.Sprintf("%s:%s", s.prefix, room.GetID())
 
 	// Serialize room data
-	data := map[string]interface{}{
+	data := map[string]any{
 		"id":          room.GetID(),
 		"name":        room.GetName(),
 		"description": room.GetDescription(),
@@ -80,7 +81,7 @@ func (s *RoomStore) Get(ctx context.Context, roomID string) (streaming.Room, err
 		return nil, err
 	}
 
-	var roomData map[string]interface{}
+	var roomData map[string]any
 	if err := json.Unmarshal([]byte(data), &roomData); err != nil {
 		return nil, err
 	}
@@ -107,7 +108,7 @@ func (s *RoomStore) Update(ctx context.Context, roomID string, updates map[strin
 	}
 
 	// Update fields
-	data := map[string]interface{}{
+	data := map[string]any{
 		"id":          room.GetID(),
 		"name":        room.GetName(),
 		"description": room.GetDescription(),
@@ -201,7 +202,7 @@ func (s *RoomStore) AddMember(ctx context.Context, roomID string, member streami
 	}
 
 	// Serialize member
-	memberData := map[string]interface{}{
+	memberData := map[string]any{
 		"user_id":     member.GetUserID(),
 		"role":        member.GetRole(),
 		"joined_at":   member.GetJoinedAt().Unix(),
@@ -243,7 +244,7 @@ func (s *RoomStore) GetMembers(ctx context.Context, roomID string) ([]streaming.
 
 	members := make([]streaming.Member, 0, len(memberData))
 	for _, data := range memberData {
-		var memberInfo map[string]interface{}
+		var memberInfo map[string]any
 		if err := json.Unmarshal([]byte(data), &memberInfo); err != nil {
 			continue
 		}
@@ -272,7 +273,7 @@ func (s *RoomStore) GetMember(ctx context.Context, roomID, userID string) (strea
 		return nil, err
 	}
 
-	var memberInfo map[string]interface{}
+	var memberInfo map[string]any
 	if err := json.Unmarshal([]byte(data), &memberInfo); err != nil {
 		return nil, err
 	}
@@ -344,7 +345,7 @@ func (s *RoomStore) CreateMany(ctx context.Context, rooms []streaming.Room) erro
 	for _, room := range rooms {
 		key := fmt.Sprintf("%s:%s", s.prefix, room.GetID())
 
-		data := map[string]interface{}{
+		data := map[string]any{
 			"id":          room.GetID(),
 			"name":        room.GetName(),
 			"description": room.GetDescription(),
@@ -929,13 +930,7 @@ func (m *redisMember) SetMetadata(key string, val any) {
 }
 
 func (m *redisMember) HasPermission(permission string) bool {
-	for _, p := range m.permissions {
-		if p == permission {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(m.permissions, permission)
 }
 
 func (m *redisMember) GrantPermission(permission string) {
@@ -956,7 +951,7 @@ func (m *redisMember) RevokePermission(permission string) {
 
 // Helper functions
 
-func getString(m map[string]interface{}, key string) string {
+func getString(m map[string]any, key string) string {
 	if val, ok := m[key]; ok {
 		if str, ok := val.(string); ok {
 			return str
@@ -966,9 +961,9 @@ func getString(m map[string]interface{}, key string) string {
 	return ""
 }
 
-func getMap(m map[string]interface{}, key string) map[string]any {
+func getMap(m map[string]any, key string) map[string]any {
 	if val, ok := m[key]; ok {
-		if mapVal, ok := val.(map[string]interface{}); ok {
+		if mapVal, ok := val.(map[string]any); ok {
 			return mapVal
 		}
 	}
@@ -976,9 +971,9 @@ func getMap(m map[string]interface{}, key string) map[string]any {
 	return make(map[string]any)
 }
 
-func getStringSlice(m map[string]interface{}, key string) []string {
+func getStringSlice(m map[string]any, key string) []string {
 	if val, ok := m[key]; ok {
-		if slice, ok := val.([]interface{}); ok {
+		if slice, ok := val.([]any); ok {
 			result := make([]string, 0, len(slice))
 			for _, item := range slice {
 				if str, ok := item.(string); ok {
@@ -1024,15 +1019,7 @@ func matchesFilters(room streaming.Room, filters map[string]any) bool {
 	}
 
 	if tag, ok := filters["tag"].(string); ok {
-		found := false
-
-		for _, roomTag := range room.GetTags() {
-			if roomTag == tag {
-				found = true
-
-				break
-			}
-		}
+		found := slices.Contains(room.GetTags(), tag)
 
 		if !found {
 			return false

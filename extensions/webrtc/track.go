@@ -27,7 +27,6 @@ func NewLocalTrack(kind TrackKind, id, label string, logger forge.Logger) (Media
 	)
 
 	switch kind {
-
 	case TrackKindAudio:
 		track, err = webrtc.NewTrackLocalStaticSample(
 			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus},

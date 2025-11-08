@@ -301,7 +301,7 @@ func benchmarkThroughput(b *testing.B, dataSize int) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		if err := leader.RaftNode.Propose(ctx, data); err != nil {
 			b.Fatalf("Propose failed: %v", err)
 		}
@@ -476,7 +476,7 @@ func benchmarkLatency(b *testing.B, percentile int) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for i := range b.N {
 		start := time.Now()
 
 		leader.RaftNode.Propose(ctx, data)
@@ -535,7 +535,7 @@ func benchmarkScalability(b *testing.B, clusterSize int) {
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for range b.N {
 		if err := leader.RaftNode.Propose(ctx, data); err != nil {
 			b.Fatalf("Propose failed: %v", err)
 		}

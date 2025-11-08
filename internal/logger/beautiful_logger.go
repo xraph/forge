@@ -3,6 +3,7 @@ package logger
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -60,7 +61,7 @@ func DefaultFormatConfig() FormatConfig {
 type BeautifulLogger struct {
 	level       zapcore.Level
 	name        string
-	fields      map[string]interface{}
+	fields      map[string]any
 	mu          sync.RWMutex
 	colorScheme *BeautifulColorScheme
 	format      FormatConfig
@@ -103,7 +104,7 @@ func NewBeautifulLogger(name string) *BeautifulLogger {
 	return &BeautifulLogger{
 		level:       zapcore.InfoLevel,
 		name:        name,
-		fields:      make(map[string]interface{}),
+		fields:      make(map[string]any),
 		colorScheme: DefaultBeautifulColorScheme(),
 		format:      DefaultFormatConfig(),
 	}
@@ -191,23 +192,23 @@ func (bl *BeautifulLogger) Fatal(msg string, fields ...Field) {
 	os.Exit(1)
 }
 
-func (bl *BeautifulLogger) Debugf(template string, args ...interface{}) {
+func (bl *BeautifulLogger) Debugf(template string, args ...any) {
 	bl.Debug(fmt.Sprintf(template, args...))
 }
 
-func (bl *BeautifulLogger) Infof(template string, args ...interface{}) {
+func (bl *BeautifulLogger) Infof(template string, args ...any) {
 	bl.Info(fmt.Sprintf(template, args...))
 }
 
-func (bl *BeautifulLogger) Warnf(template string, args ...interface{}) {
+func (bl *BeautifulLogger) Warnf(template string, args ...any) {
 	bl.Warn(fmt.Sprintf(template, args...))
 }
 
-func (bl *BeautifulLogger) Errorf(template string, args ...interface{}) {
+func (bl *BeautifulLogger) Errorf(template string, args ...any) {
 	bl.Error(fmt.Sprintf(template, args...))
 }
 
-func (bl *BeautifulLogger) Fatalf(template string, args ...interface{}) {
+func (bl *BeautifulLogger) Fatalf(template string, args ...any) {
 	bl.Fatal(fmt.Sprintf(template, args...))
 }
 
@@ -375,7 +376,7 @@ func (bl *BeautifulLogger) logMinimalist(level, msg, color, icon string, fields 
 }
 
 // formatFieldsInline formats fields as key=value pairs.
-func (bl *BeautifulLogger) formatFieldsInline(fields map[string]interface{}) string {
+func (bl *BeautifulLogger) formatFieldsInline(fields map[string]any) string {
 	if len(fields) == 0 {
 		return ""
 	}
@@ -406,10 +407,8 @@ func (bl *BeautifulLogger) clone() *BeautifulLogger {
 	bl.mu.RLock()
 	defer bl.mu.RUnlock()
 
-	newFields := make(map[string]interface{})
-	for k, v := range bl.fields {
-		newFields[k] = v
-	}
+	newFields := make(map[string]any)
+	maps.Copy(newFields, bl.fields)
 
 	return &BeautifulLogger{
 		level:       bl.level,
@@ -420,14 +419,12 @@ func (bl *BeautifulLogger) clone() *BeautifulLogger {
 	}
 }
 
-func (bl *BeautifulLogger) mergeFields(fields []Field) map[string]interface{} {
+func (bl *BeautifulLogger) mergeFields(fields []Field) map[string]any {
 	bl.mu.RLock()
 	defer bl.mu.RUnlock()
 
-	merged := make(map[string]interface{})
-	for k, v := range bl.fields {
-		merged[k] = v
-	}
+	merged := make(map[string]any)
+	maps.Copy(merged, bl.fields)
 
 	for _, f := range fields {
 		merged[f.Key()] = f.Value()
@@ -439,6 +436,7 @@ func (bl *BeautifulLogger) mergeFields(fields []Field) map[string]interface{} {
 func stripANSI(s string) string {
 	ansi := "\033["
 	result := ""
+
 	var resultSb423 strings.Builder
 
 	for i := 0; i < len(s); i++ {
@@ -454,12 +452,13 @@ func stripANSI(s string) string {
 			resultSb423.WriteString(string(s[i]))
 		}
 	}
+
 	result += resultSb423.String()
 
 	return result
 }
 
-func getOrderedKeys(m map[string]interface{}) []string {
+func getOrderedKeys(m map[string]any) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
 		keys = append(keys, k)
@@ -476,38 +475,38 @@ type beautifulSugarLogger struct {
 	bl *BeautifulLogger
 }
 
-func (bsl *beautifulSugarLogger) Debugw(msg string, keysAndValues ...interface{}) {
+func (bsl *beautifulSugarLogger) Debugw(msg string, keysAndValues ...any) {
 	fields := keysAndValuesToFields(keysAndValues...)
 	bsl.bl.Debug(msg, fields...)
 }
 
-func (bsl *beautifulSugarLogger) Infow(msg string, keysAndValues ...interface{}) {
+func (bsl *beautifulSugarLogger) Infow(msg string, keysAndValues ...any) {
 	fields := keysAndValuesToFields(keysAndValues...)
 	bsl.bl.Info(msg, fields...)
 }
 
-func (bsl *beautifulSugarLogger) Warnw(msg string, keysAndValues ...interface{}) {
+func (bsl *beautifulSugarLogger) Warnw(msg string, keysAndValues ...any) {
 	fields := keysAndValuesToFields(keysAndValues...)
 	bsl.bl.Warn(msg, fields...)
 }
 
-func (bsl *beautifulSugarLogger) Errorw(msg string, keysAndValues ...interface{}) {
+func (bsl *beautifulSugarLogger) Errorw(msg string, keysAndValues ...any) {
 	fields := keysAndValuesToFields(keysAndValues...)
 	bsl.bl.Error(msg, fields...)
 }
 
-func (bsl *beautifulSugarLogger) Fatalw(msg string, keysAndValues ...interface{}) {
+func (bsl *beautifulSugarLogger) Fatalw(msg string, keysAndValues ...any) {
 	fields := keysAndValuesToFields(keysAndValues...)
 	bsl.bl.Fatal(msg, fields...)
 }
 
-func (bsl *beautifulSugarLogger) With(args ...interface{}) SugarLogger {
+func (bsl *beautifulSugarLogger) With(args ...any) SugarLogger {
 	fields := keysAndValuesToFields(args...)
 
 	return &beautifulSugarLogger{bl: bsl.bl.With(fields...).(*BeautifulLogger)}
 }
 
-func keysAndValuesToFields(keysAndValues ...interface{}) []Field {
+func keysAndValuesToFields(keysAndValues ...any) []Field {
 	fields := make([]Field, 0, len(keysAndValues)/2)
 	for i := 0; i < len(keysAndValues)-1; i += 2 {
 		key := fmt.Sprintf("%v", keysAndValues[i])

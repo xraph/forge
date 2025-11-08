@@ -129,6 +129,5 @@ func isHelpFlag(arg string) bool {
 
 // hasHelpFlag checks if arguments contain a help flag.
 func hasHelpFlag(args []string) bool {
-
 	return slices.ContainsFunc(args, isHelpFlag)
 }

@@ -204,6 +204,5 @@ func (uc *UserContext) GetAttributeString(key string) (string, error) {
 
 // HasGroup checks if user is in a group.
 func (uc *UserContext) HasGroup(group string) bool {
-
 	return slices.Contains(uc.Groups, group)
 }

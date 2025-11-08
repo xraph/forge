@@ -94,7 +94,6 @@ func (info *APIKeyInfo) IsExpired() bool {
 
 // HasScope checks if the API key has a specific scope.
 func (info *APIKeyInfo) HasScope(scope string) bool {
-
 	return slices.Contains(info.Scopes, scope)
 }
 

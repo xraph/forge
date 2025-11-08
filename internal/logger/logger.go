@@ -325,7 +325,7 @@ func (w *ColoredWriteSyncer) Write(p []byte) (n int, err error) {
 	content := string(fixedLog)
 
 	// Look for level strings in the content
-	for i := 0; i < len(content)-6; i++ {
+	for i := range len(content) - 6 {
 		if content[i] == '[' || (i > 0 && content[i-1] == ' ') {
 			if i+5 < len(content) && content[i:i+5] == "DEBUG" {
 				colorCode = Cyan

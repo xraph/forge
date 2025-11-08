@@ -97,7 +97,6 @@ func (si *ServiceInstance) URL(scheme string) string {
 
 // HasTag checks if the service has a specific tag.
 func (si *ServiceInstance) HasTag(tag string) bool {
-
 	return slices.Contains(si.Tags, tag)
 }
 

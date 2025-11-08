@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -240,13 +241,7 @@ func (cbm *CircuitBreakerMiddleware) shouldSkipCircuitBreaker(r *http.Request) b
 	}
 
 	// Check skip methods
-	for _, method := range cbm.config.SkipMethods {
-		if r.Method == method {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(cbm.config.SkipMethods, r.Method)
 }
 
 // handleOpenCircuit handles requests when circuit is open.
@@ -258,7 +253,7 @@ func (cbm *CircuitBreakerMiddleware) handleOpenCircuit(w http.ResponseWriter, r 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"error":         cbm.config.OpenResponse,
 		"circuit_state": "open",
 		"timestamp":     time.Now().Format(time.RFC3339),
@@ -459,13 +454,7 @@ func (cbm *CircuitBreakerMiddleware) checkHealthAndAdjustCircuit() {
 
 // shouldTriggerOnStatus checks if status should trigger circuit opening.
 func (cbm *CircuitBreakerMiddleware) shouldTriggerOnStatus(status health.HealthStatus) bool {
-	for _, triggerStatus := range cbm.config.TriggerStatuses {
-		if status == triggerStatus {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(cbm.config.TriggerStatuses, status)
 }
 
 // sendStateChangeNotification sends notification about state change.
@@ -652,7 +641,7 @@ func (hcb *HealthBasedCircuitBreaker) Handler() func(http.Handler) http.Handler 
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 
-				response := map[string]interface{}{
+				response := map[string]any{
 					"error":         hcb.config.OpenResponse,
 					"circuit_state": "open",
 					"timestamp":     time.Now().Format(time.RFC3339),
@@ -694,15 +683,7 @@ func (hcb *HealthBasedCircuitBreaker) checkHealthAndAdjust() {
 	defer hcb.mu.Unlock()
 
 	// Check if should open circuit
-	shouldOpen := false
-
-	for _, triggerStatus := range hcb.config.TriggerStatuses {
-		if status == triggerStatus {
-			shouldOpen = true
-
-			break
-		}
-	}
+	shouldOpen := slices.Contains(hcb.config.TriggerStatuses, status)
 
 	if shouldOpen && hcb.state == CircuitStateClosed {
 		hcb.state = CircuitStateOpen

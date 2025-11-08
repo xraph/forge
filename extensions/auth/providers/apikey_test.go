@@ -29,7 +29,7 @@ func TestAPIKeyProvider_Authenticate_Header(t *testing.T) {
 
 	// Test with valid key in header
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("X-API-Key", "valid-key")
+	req.Header.Set("X-Api-Key", "valid-key")
 
 	ctx, err := provider.Authenticate(context.Background(), req)
 	if err != nil {
@@ -46,7 +46,7 @@ func TestAPIKeyProvider_Authenticate_Header(t *testing.T) {
 
 	// Test with invalid key
 	req = httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("X-API-Key", "invalid-key")
+	req.Header.Set("X-Api-Key", "invalid-key")
 
 	_, err = provider.Authenticate(context.Background(), req)
 	if !errors.Is(err, auth.ErrInvalidCredentials) {

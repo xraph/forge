@@ -271,7 +271,6 @@ func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, se
 	var wg sync.WaitGroup
 
 	wg.Go(func() {
-
 		for entry := range entries {
 			instance := convertEntryToInstance(serviceName, entry)
 			if instance != nil {
@@ -425,7 +424,6 @@ func (b *MDNSBackend) watchService(ctx context.Context, watcher *serviceWatcher)
 			var wg sync.WaitGroup
 
 			wg.Go(func() {
-
 				for entry := range entries {
 					// Use instance name as ID
 					id := entry.Instance
@@ -589,7 +587,7 @@ func convertEntryToInstance(serviceName string, entry *zeroconf.ServiceEntry) *S
 }
 
 // sanitizeServiceName sanitizes a service name for mDNS
-// mDNS service names should be lowercase and contain only alphanumeric and hyphens.
+// service names should be lowercase and contain only alphanumeric and hyphens.
 func sanitizeServiceName(name string) string {
 	name = strings.ToLower(name)
 	name = strings.ReplaceAll(name, "_", "-")

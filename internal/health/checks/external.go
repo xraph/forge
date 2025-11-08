@@ -238,9 +238,9 @@ func (hsc *HTTPSHealthCheck) Check(ctx context.Context) *health.HealthResult {
 }
 
 // checkSSLCertificate checks SSL certificate status.
-func (hsc *HTTPSHealthCheck) checkSSLCertificate(ctx context.Context) map[string]interface{} {
+func (hsc *HTTPSHealthCheck) checkSSLCertificate(ctx context.Context) map[string]any {
 	// In a real implementation, this would check SSL certificate details
-	return map[string]interface{}{
+	return map[string]any{
 		"certificate_valid":        true,
 		"certificate_expires_soon": false,
 		"certificate_issuer":       "Let's Encrypt",
@@ -253,7 +253,7 @@ type GraphQLHealthCheck struct {
 	*ExternalAPIHealthCheck
 
 	query     string
-	variables map[string]interface{}
+	variables map[string]any
 }
 
 // NewGraphQLHealthCheck creates a new GraphQL health check.
@@ -275,7 +275,7 @@ func NewGraphQLHealthCheck(config *ExternalAPIHealthCheckConfig) *GraphQLHealthC
 	return &GraphQLHealthCheck{
 		ExternalAPIHealthCheck: NewExternalAPIHealthCheck(config),
 		query:                  "query { __typename }",
-		variables:              make(map[string]interface{}),
+		variables:              make(map[string]any),
 	}
 }
 
@@ -352,7 +352,7 @@ func (rahc *RestAPIHealthCheck) Check(ctx context.Context) *health.HealthResult 
 
 	var failedEndpoints []string
 
-	endpointResults := make(map[string]interface{})
+	endpointResults := make(map[string]any)
 
 	for _, endpoint := range rahc.endpoints {
 		// Create a temporary check for this endpoint
@@ -370,7 +370,7 @@ func (rahc *RestAPIHealthCheck) Check(ctx context.Context) *health.HealthResult 
 		tempCheck := NewExternalAPIHealthCheck(tempConfig)
 		endpointResult := tempCheck.Check(ctx)
 
-		endpointResults[endpoint] = map[string]interface{}{
+		endpointResults[endpoint] = map[string]any{
 			"status":   endpointResult.Status,
 			"message":  endpointResult.Message,
 			"duration": endpointResult.Duration,
@@ -597,11 +597,3 @@ func (cbhc *CircuitBreakerHealthCheck) Check(ctx context.Context) *health.Health
 }
 
 // Helper functions
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-
-	return b
-}

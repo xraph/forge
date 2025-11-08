@@ -3,6 +3,8 @@ package local
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -393,12 +395,8 @@ func (s *RoomStore) FindByTag(ctx context.Context, tag string) ([]streaming.Room
 	var results []streaming.Room
 
 	for _, room := range s.rooms {
-		for _, roomTag := range room.tags {
-			if roomTag == tag {
-				results = append(results, room)
-
-				break
-			}
+		if slices.Contains(room.tags, tag) {
+			results = append(results, room)
 		}
 	}
 
@@ -791,9 +789,7 @@ func (r *LocalRoom) GetMetadata() map[string]any {
 	defer r.mu.RUnlock()
 	// Return copy to prevent external modification
 	metadata := make(map[string]any, len(r.metadata))
-	for k, v := range r.metadata {
-		metadata[k] = v
-	}
+	maps.Copy(metadata, r.metadata)
 
 	return metadata
 }
@@ -1054,10 +1050,8 @@ func (r *LocalRoom) PinMessage(ctx context.Context, messageID string) error {
 	defer r.mu.Unlock()
 
 	// Check if already pinned
-	for _, pinned := range r.pinnedMessages {
-		if pinned == messageID {
-			return nil // Already pinned
-		}
+	if slices.Contains(r.pinnedMessages, messageID) {
+		return nil // Already pinned
 	}
 
 	r.pinnedMessages = append(r.pinnedMessages, messageID)
@@ -1098,10 +1092,8 @@ func (r *LocalRoom) AddTag(ctx context.Context, tag string) error {
 	defer r.mu.Unlock()
 
 	// Check if tag already exists
-	for _, existingTag := range r.tags {
-		if existingTag == tag {
-			return nil // Already exists
-		}
+	if slices.Contains(r.tags, tag) {
+		return nil // Already exists
 	}
 
 	r.tags = append(r.tags, tag)
@@ -1256,13 +1248,7 @@ func (m *LocalMember) HasPermission(permission string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for _, p := range m.permissions {
-		if p == permission {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(m.permissions, permission)
 }
 
 func (m *LocalMember) GrantPermission(permission string) {
@@ -1292,9 +1278,7 @@ func (m *LocalMember) GetMetadata() map[string]any {
 	defer m.mu.RUnlock()
 
 	metadata := make(map[string]any, len(m.metadata))
-	for k, v := range m.metadata {
-		metadata[k] = v
-	}
+	maps.Copy(metadata, m.metadata)
 
 	return metadata
 }

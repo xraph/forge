@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -33,7 +34,7 @@ type WorkflowNode struct {
 	Type        NodeType
 	Name        string
 	Description string
-	Config      map[string]interface{}
+	Config      map[string]any
 	Retry       *RetryConfig
 	Timeout     time.Duration
 
@@ -43,7 +44,7 @@ type WorkflowNode struct {
 	// For tool nodes
 	ToolName    string
 	ToolVersion string
-	ToolParams  map[string]interface{}
+	ToolParams  map[string]any
 
 	// For condition nodes
 	Condition string
@@ -55,7 +56,7 @@ type WorkflowNode struct {
 	Status    NodeStatus
 	StartTime time.Time
 	EndTime   time.Time
-	Result    interface{}
+	Result    any
 	Error     error
 	Attempts  int
 }
@@ -91,8 +92,8 @@ type WorkflowExecution struct {
 	Status         WorkflowStatus
 	StartTime      time.Time
 	EndTime        time.Time
-	Input          map[string]interface{}
-	Output         map[string]interface{}
+	Input          map[string]any
+	Output         map[string]any
 	NodeExecutions map[string]*NodeExecution
 	Error          error
 
@@ -105,8 +106,8 @@ type NodeExecution struct {
 	Status    NodeStatus
 	StartTime time.Time
 	EndTime   time.Time
-	Input     map[string]interface{}
-	Output    interface{}
+	Input     map[string]any
+	Output    any
 	Error     error
 	Attempts  int
 }
@@ -206,10 +207,8 @@ func (w *Workflow) SetStartNode(nodeID string) error {
 	}
 
 	// Check if already a start node
-	for _, id := range w.StartNodes {
-		if id == nodeID {
-			return nil
-		}
+	if slices.Contains(w.StartNodes, nodeID) {
+		return nil
 	}
 
 	w.StartNodes = append(w.StartNodes, nodeID)
@@ -218,7 +217,7 @@ func (w *Workflow) SetStartNode(nodeID string) error {
 }
 
 // Execute runs the workflow.
-func (w *Workflow) Execute(ctx context.Context, input map[string]interface{}) (*WorkflowExecution, error) {
+func (w *Workflow) Execute(ctx context.Context, input map[string]any) (*WorkflowExecution, error) {
 	w.mu.RLock()
 
 	if len(w.StartNodes) == 0 {
@@ -389,7 +388,7 @@ func (w *Workflow) executeNode(ctx context.Context, execution *WorkflowExecution
 		NodeID:    nodeID,
 		Status:    NodeStatusRunning,
 		StartTime: time.Now(),
-		Input:     make(map[string]interface{}),
+		Input:     make(map[string]any),
 		Attempts:  1,
 	}
 
@@ -403,7 +402,7 @@ func (w *Workflow) executeNode(ctx context.Context, execution *WorkflowExecution
 
 	var (
 		err    error
-		result interface{}
+		result any
 	)
 
 	// Execute based on node type
@@ -455,45 +454,45 @@ func (w *Workflow) executeNode(ctx context.Context, execution *WorkflowExecution
 }
 
 // executeToolNode executes a tool node.
-func (w *Workflow) executeToolNode(ctx context.Context, node *WorkflowNode) (interface{}, error) {
+func (w *Workflow) executeToolNode(ctx context.Context, node *WorkflowNode) (any, error) {
 	// This would integrate with the ToolRegistry
 	// For now, return a placeholder
-	return map[string]interface{}{
+	return map[string]any{
 		"tool":   node.ToolName,
 		"status": "executed",
 	}, nil
 }
 
 // executeAgentNode executes an agent node.
-func (w *Workflow) executeAgentNode(ctx context.Context, node *WorkflowNode) (interface{}, error) {
+func (w *Workflow) executeAgentNode(ctx context.Context, node *WorkflowNode) (any, error) {
 	// This would integrate with the Agent system
-	return map[string]interface{}{
+	return map[string]any{
 		"agent":  node.AgentID,
 		"status": "executed",
 	}, nil
 }
 
 // executeConditionNode executes a conditional node.
-func (w *Workflow) executeConditionNode(ctx context.Context, node *WorkflowNode, execution *WorkflowExecution) (interface{}, error) {
+func (w *Workflow) executeConditionNode(ctx context.Context, node *WorkflowNode, execution *WorkflowExecution) (any, error) {
 	// Evaluate condition based on previous node outputs
 	// Simplified implementation
-	return map[string]interface{}{
+	return map[string]any{
 		"condition": node.Condition,
 		"result":    true,
 	}, nil
 }
 
 // executeTransformNode executes a data transformation node.
-func (w *Workflow) executeTransformNode(ctx context.Context, node *WorkflowNode, execution *WorkflowExecution) (interface{}, error) {
+func (w *Workflow) executeTransformNode(ctx context.Context, node *WorkflowNode, execution *WorkflowExecution) (any, error) {
 	// Transform data from previous nodes
-	return map[string]interface{}{
+	return map[string]any{
 		"transform": node.Transform,
 		"status":    "transformed",
 	}, nil
 }
 
 // executeWaitNode executes a wait/delay node.
-func (w *Workflow) executeWaitNode(ctx context.Context, node *WorkflowNode) (interface{}, error) {
+func (w *Workflow) executeWaitNode(ctx context.Context, node *WorkflowNode) (any, error) {
 	// Default wait time
 	waitTime := 1 * time.Second
 	if duration, ok := node.Config["duration"].(time.Duration); ok {
@@ -502,7 +501,7 @@ func (w *Workflow) executeWaitNode(ctx context.Context, node *WorkflowNode) (int
 
 	select {
 	case <-time.After(waitTime):
-		return map[string]interface{}{"waited": waitTime.String()}, nil
+		return map[string]any{"waited": waitTime.String()}, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}

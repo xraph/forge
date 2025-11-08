@@ -363,7 +363,6 @@ func (hc *HTTPCollector) shouldTrackPath(path string) bool {
 
 	// Check whitelist (if configured)
 	if len(hc.config.PathWhitelist) > 0 {
-
 		return slices.Contains(hc.config.PathWhitelist, path)
 	}
 

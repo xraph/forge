@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -32,10 +33,8 @@ func (m *SchemaManifest) AddSchema(descriptor SchemaDescriptor) {
 // AddCapability adds a capability to the manifest.
 func (m *SchemaManifest) AddCapability(capability string) {
 	// Check if capability already exists
-	for _, c := range m.Capabilities {
-		if c == capability {
-			return
-		}
+	if slices.Contains(m.Capabilities, capability) {
+		return
 	}
 
 	m.Capabilities = append(m.Capabilities, capability)
@@ -111,13 +110,7 @@ func (m *SchemaManifest) GetSchema(schemaType SchemaType) (*SchemaDescriptor, bo
 
 // HasCapability checks if the manifest includes a specific capability.
 func (m *SchemaManifest) HasCapability(capability string) bool {
-	for _, c := range m.Capabilities {
-		if c == capability {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(m.Capabilities, capability)
 }
 
 // Clone creates a deep copy of the manifest.
@@ -216,11 +209,15 @@ func CalculateManifestChecksum(manifest *SchemaManifest) (string, error) {
 	})
 
 	// Concatenate all schema hashes
-	var combined string
-	var combinedSb211 strings.Builder
+	var (
+		combined      string
+		combinedSb211 strings.Builder
+	)
+
 	for _, schema := range sortedSchemas {
 		combinedSb211.WriteString(schema.Hash)
 	}
+
 	combined += combinedSb211.String()
 
 	// Calculate SHA256 of combined hashes
@@ -230,7 +227,7 @@ func CalculateManifestChecksum(manifest *SchemaManifest) (string, error) {
 }
 
 // CalculateSchemaChecksum calculates the SHA256 checksum of a schema.
-func CalculateSchemaChecksum(schema interface{}) (string, error) {
+func CalculateSchemaChecksum(schema any) (string, error) {
 	// Serialize to canonical JSON (map keys are sorted by json.Marshal)
 	data, err := json.Marshal(schema)
 	if err != nil {

@@ -308,7 +308,6 @@ func (p *LocalProvider) evaluateRule(rule TargetingRule, userCtx *UserContext) b
 	// Evaluate operator
 	switch rule.Operator {
 	case "equals":
-
 		return slices.Contains(rule.Values, attrValue)
 
 	case "contains":
@@ -321,11 +320,9 @@ func (p *LocalProvider) evaluateRule(rule TargetingRule, userCtx *UserContext) b
 		return false
 
 	case "in":
-
 		return slices.Contains(rule.Values, attrValue)
 
 	case "not_in":
-
 		return !slices.Contains(rule.Values, attrValue)
 
 	default:

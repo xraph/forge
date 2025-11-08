@@ -3,6 +3,8 @@ package alerting
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -47,20 +49,20 @@ func (at AlertType) String() string {
 
 // Alert represents an alert notification.
 type Alert struct {
-	ID          string                 `json:"id"`
-	Type        AlertType              `json:"type"`
-	Severity    AlertSeverity          `json:"severity"`
-	Title       string                 `json:"title"`
-	Message     string                 `json:"message"`
-	Details     map[string]interface{} `json:"details"`
-	Source      string                 `json:"source"`
-	Service     string                 `json:"service"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Resolved    bool                   `json:"resolved"`
-	ResolvedAt  *time.Time             `json:"resolved_at,omitempty"`
-	Tags        map[string]string      `json:"tags"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Fingerprint string                 `json:"fingerprint"`
+	ID          string            `json:"id"`
+	Type        AlertType         `json:"type"`
+	Severity    AlertSeverity     `json:"severity"`
+	Title       string            `json:"title"`
+	Message     string            `json:"message"`
+	Details     map[string]any    `json:"details"`
+	Source      string            `json:"source"`
+	Service     string            `json:"service"`
+	Timestamp   time.Time         `json:"timestamp"`
+	Resolved    bool              `json:"resolved"`
+	ResolvedAt  *time.Time        `json:"resolved_at,omitempty"`
+	Tags        map[string]string `json:"tags"`
+	Metadata    map[string]any    `json:"metadata"`
+	Fingerprint string            `json:"fingerprint"`
 }
 
 // NewAlert creates a new alert.
@@ -71,26 +73,24 @@ func NewAlert(alertType AlertType, severity AlertSeverity, title, message string
 		Severity:    severity,
 		Title:       title,
 		Message:     message,
-		Details:     make(map[string]interface{}),
+		Details:     make(map[string]any),
 		Timestamp:   time.Now(),
 		Resolved:    false,
 		Tags:        make(map[string]string),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 		Fingerprint: "",
 	}
 }
 
 // WithDetails adds details to the alert.
-func (a *Alert) WithDetails(details map[string]interface{}) *Alert {
-	for k, v := range details {
-		a.Details[k] = v
-	}
+func (a *Alert) WithDetails(details map[string]any) *Alert {
+	maps.Copy(a.Details, details)
 
 	return a
 }
 
 // WithDetail adds a single detail to the alert.
-func (a *Alert) WithDetail(key string, value interface{}) *Alert {
+func (a *Alert) WithDetail(key string, value any) *Alert {
 	a.Details[key] = value
 
 	return a
@@ -112,9 +112,7 @@ func (a *Alert) WithService(service string) *Alert {
 
 // WithTags adds tags to the alert.
 func (a *Alert) WithTags(tags map[string]string) *Alert {
-	for k, v := range tags {
-		a.Tags[k] = v
-	}
+	maps.Copy(a.Tags, tags)
 
 	return a
 }
@@ -127,10 +125,8 @@ func (a *Alert) WithTag(key, value string) *Alert {
 }
 
 // WithMetadata adds metadata to the alert.
-func (a *Alert) WithMetadata(metadata map[string]interface{}) *Alert {
-	for k, v := range metadata {
-		a.Metadata[k] = v
-	}
+func (a *Alert) WithMetadata(metadata map[string]any) *Alert {
+	maps.Copy(a.Metadata, metadata)
 
 	return a
 }
@@ -194,37 +190,37 @@ type AlertNotifier interface {
 
 // AlertRule defines conditions for triggering alerts.
 type AlertRule struct {
-	Name       string                 `json:"name"`
-	Enabled    bool                   `json:"enabled"`
-	Services   []string               `json:"services"`
-	Statuses   []health.HealthStatus  `json:"statuses"`
-	Severity   AlertSeverity          `json:"severity"`
-	Threshold  int                    `json:"threshold"` // Number of failures
-	Duration   time.Duration          `json:"duration"`  // Time window
-	Cooldown   time.Duration          `json:"cooldown"`  // Cooldown period
-	Template   string                 `json:"template"`  // Message template
-	Tags       map[string]string      `json:"tags"`
-	Metadata   map[string]interface{} `json:"metadata"`
-	Conditions []AlertCondition       `json:"conditions"`
-	Actions    []AlertAction          `json:"actions"`
-	LastFired  time.Time              `json:"last_fired"`
-	FireCount  int                    `json:"fire_count"`
+	Name       string                `json:"name"`
+	Enabled    bool                  `json:"enabled"`
+	Services   []string              `json:"services"`
+	Statuses   []health.HealthStatus `json:"statuses"`
+	Severity   AlertSeverity         `json:"severity"`
+	Threshold  int                   `json:"threshold"` // Number of failures
+	Duration   time.Duration         `json:"duration"`  // Time window
+	Cooldown   time.Duration         `json:"cooldown"`  // Cooldown period
+	Template   string                `json:"template"`  // Message template
+	Tags       map[string]string     `json:"tags"`
+	Metadata   map[string]any        `json:"metadata"`
+	Conditions []AlertCondition      `json:"conditions"`
+	Actions    []AlertAction         `json:"actions"`
+	LastFired  time.Time             `json:"last_fired"`
+	FireCount  int                   `json:"fire_count"`
 	mu         sync.RWMutex
 }
 
 // AlertCondition defines a condition for alert rules.
 type AlertCondition struct {
-	Field    string      `json:"field"`
-	Operator string      `json:"operator"`
-	Value    interface{} `json:"value"`
+	Field    string `json:"field"`
+	Operator string `json:"operator"`
+	Value    any    `json:"value"`
 }
 
 // AlertAction defines an action to take when an alert is triggered.
 type AlertAction struct {
-	Type       string                 `json:"type"`
-	Notifier   string                 `json:"notifier"`
-	Template   string                 `json:"template"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Type       string         `json:"type"`
+	Notifier   string         `json:"notifier"`
+	Template   string         `json:"template"`
+	Parameters map[string]any `json:"parameters"`
 }
 
 // ShouldFire determines if the rule should fire based on health results.
@@ -257,15 +253,7 @@ func (ar *AlertRule) ShouldFire(results []*health.HealthResult) bool {
 func (ar *AlertRule) matchesRule(result *health.HealthResult) bool {
 	// Check services filter
 	if len(ar.Services) > 0 {
-		found := false
-
-		for _, service := range ar.Services {
-			if service == result.Name {
-				found = true
-
-				break
-			}
-		}
+		found := slices.Contains(ar.Services, result.Name)
 
 		if !found {
 			return false
@@ -274,15 +262,7 @@ func (ar *AlertRule) matchesRule(result *health.HealthResult) bool {
 
 	// Check status filter
 	if len(ar.Statuses) > 0 {
-		found := false
-
-		for _, status := range ar.Statuses {
-			if status == result.Status {
-				found = true
-
-				break
-			}
-		}
+		found := slices.Contains(ar.Statuses, result.Status)
 
 		if !found {
 			return false
@@ -302,7 +282,7 @@ func (ar *AlertRule) matchesRule(result *health.HealthResult) bool {
 // evaluateCondition evaluates a single condition.
 func (ar *AlertRule) evaluateCondition(condition AlertCondition, result *health.HealthResult) bool {
 	// Get field value from result
-	var fieldValue interface{}
+	var fieldValue any
 
 	switch condition.Field {
 	case "status":
@@ -697,9 +677,7 @@ func (am *AlertManager) GetNotifiers() map[string]AlertNotifier {
 	defer am.mu.RUnlock()
 
 	notifiers := make(map[string]AlertNotifier)
-	for name, notifier := range am.notifiers {
-		notifiers[name] = notifier
-	}
+	maps.Copy(notifiers, am.notifiers)
 
 	return notifiers
 }
@@ -795,7 +773,7 @@ func generateAlertID() string {
 	return fmt.Sprintf("alert-%d", time.Now().UnixNano())
 }
 
-func compareValues(a, b interface{}) int {
+func compareValues(a, b any) int {
 	// Simple comparison - in production, use proper type comparison
 	switch va := a.(type) {
 	case int:

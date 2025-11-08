@@ -122,6 +122,7 @@ services:
 	}
 
 	var contentSb121 strings.Builder
+
 	for _, app := range apps {
 		if environment == "base" {
 			contentSb121.WriteString(fmt.Sprintf(`  %s:
@@ -159,6 +160,7 @@ services:
 `, app.Name, replicas))
 		}
 	}
+
 	content += contentSb121.String()
 
 	if environment == "base" {
@@ -220,10 +222,12 @@ LOG_LEVEL=info
 
 # Service Ports
 `
+
 	var contentSb218 strings.Builder
 	for _, app := range apps {
 		contentSb218.WriteString(normalizeEnvVar(app.Name) + "_PORT=8080\n")
 	}
+
 	content += contentSb218.String()
 
 	content += `
@@ -314,6 +318,7 @@ func (g *Generator) generateK8sDeployment(apps []AppInfo) string {
 	content := ""
 
 	var contentSb308 strings.Builder
+
 	for i, app := range apps {
 		if i > 0 {
 			contentSb308.WriteString("---\n")
@@ -372,6 +377,7 @@ spec:
           periodSeconds: 5
 `, app.Name, app.Name, app.Name, app.Name, app.Name, registryImage, app.Name))
 	}
+
 	content += contentSb308.String()
 
 	return content
@@ -381,6 +387,7 @@ func (g *Generator) generateK8sService(apps []AppInfo) string {
 	content := ""
 
 	var contentSb373 strings.Builder
+
 	for i, app := range apps {
 		if i > 0 {
 			contentSb373.WriteString("---\n")
@@ -403,6 +410,7 @@ spec:
     app: %s
 `, app.Name, app.Name, app.Name))
 	}
+
 	content += contentSb373.String()
 
 	return content
@@ -446,6 +454,7 @@ replicas:
     count: %d
 `, app.Name, replicas))
 	}
+
 	content += contentSb430.String()
 
 	content += `
@@ -553,6 +562,7 @@ services:
 
 `, app.Name, gitRepo, gitBranch, deployOnPush, app.Name))
 	}
+
 	content += contentSb516.String()
 
 	return content
@@ -695,6 +705,7 @@ func (g *Generator) generateRenderSpec(apps []AppInfo) string {
 
 `, app.Name, gitRepo, gitBranch, app.MainPath))
 	}
+
 	content += contentSb659.String()
 
 	return content
@@ -772,13 +783,15 @@ func normalizeEnvVar(name string) string {
 	result := ""
 
 	var resultSb751 strings.Builder
+
 	for _, c := range name {
 		if c == '-' {
 			resultSb751.WriteString("_")
 		} else {
-			resultSb751.WriteString(string(c))
+			resultSb751.WriteRune(c)
 		}
 	}
+
 	result += resultSb751.String()
 
 	return result
@@ -813,24 +826,24 @@ func (g *Generator) extractGitRepo() string {
 // e.g., "github.com/myorg/myrepo" -> "myorg/myrepo".
 func extractRepoFromModule(module string) string {
 	// Handle github.com modules
-	if strings.HasPrefix(module, "github.com/") {
-		parts := strings.Split(strings.TrimPrefix(module, "github.com/"), "/")
+	if after, ok := strings.CutPrefix(module, "github.com/"); ok {
+		parts := strings.Split(after, "/")
 		if len(parts) >= 2 {
 			return parts[0] + "/" + parts[1]
 		}
 	}
 
 	// Handle gitlab.com modules
-	if strings.HasPrefix(module, "gitlab.com/") {
-		parts := strings.Split(strings.TrimPrefix(module, "gitlab.com/"), "/")
+	if after, ok := strings.CutPrefix(module, "gitlab.com/"); ok {
+		parts := strings.Split(after, "/")
 		if len(parts) >= 2 {
 			return parts[0] + "/" + parts[1]
 		}
 	}
 
 	// Handle bitbucket.org modules
-	if strings.HasPrefix(module, "bitbucket.org/") {
-		parts := strings.Split(strings.TrimPrefix(module, "bitbucket.org/"), "/")
+	if after, ok := strings.CutPrefix(module, "bitbucket.org/"); ok {
+		parts := strings.Split(after, "/")
 		if len(parts) >= 2 {
 			return parts[0] + "/" + parts[1]
 		}

@@ -14,7 +14,7 @@ import (
 type Client struct {
 	registry      farp.SchemaRegistry
 	manifestCache map[string]*farp.SchemaManifest // key: instanceID
-	schemaCache   map[string]interface{}          // key: hash
+	schemaCache   map[string]any                  // key: hash
 	mu            sync.RWMutex
 }
 
@@ -23,7 +23,7 @@ func NewClient(registry farp.SchemaRegistry) *Client {
 	return &Client{
 		registry:      registry,
 		manifestCache: make(map[string]*farp.SchemaManifest),
-		schemaCache:   make(map[string]interface{}),
+		schemaCache:   make(map[string]any),
 	}
 }
 
@@ -75,7 +75,7 @@ func (c *Client) ConvertToRoutes(manifests []*farp.SchemaManifest) []ServiceRout
 		// Fetch schemas for this manifest
 		for _, schemaDesc := range manifest.Schemas {
 			var (
-				schema interface{}
+				schema any
 				err    error
 			)
 
@@ -128,7 +128,7 @@ type ServiceRoute struct {
 	Middleware []string
 
 	// Metadata contains additional route information
-	Metadata map[string]interface{}
+	Metadata map[string]any
 
 	// ServiceName is the name of the backend service
 	ServiceName string
@@ -138,7 +138,7 @@ type ServiceRoute struct {
 }
 
 // fetchSchema fetches a schema based on its location.
-func (c *Client) fetchSchema(ctx context.Context, descriptor *farp.SchemaDescriptor) (interface{}, error) {
+func (c *Client) fetchSchema(ctx context.Context, descriptor *farp.SchemaDescriptor) (any, error) {
 	switch descriptor.Location.Type {
 	case farp.LocationTypeInline:
 		return descriptor.InlineSchema, nil
@@ -157,16 +157,16 @@ func (c *Client) fetchSchema(ctx context.Context, descriptor *farp.SchemaDescrip
 }
 
 // convertOpenAPIToRoutes converts an OpenAPI schema to gateway routes.
-func (c *Client) convertOpenAPIToRoutes(manifest *farp.SchemaManifest, schema interface{}) []ServiceRoute {
+func (c *Client) convertOpenAPIToRoutes(manifest *farp.SchemaManifest, schema any) []ServiceRoute {
 	var routes []ServiceRoute
 
 	// Parse OpenAPI schema
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return routes
 	}
 
-	paths, ok := schemaMap["paths"].(map[string]interface{})
+	paths, ok := schemaMap["paths"].(map[string]any)
 	if !ok {
 		return routes
 	}
@@ -176,7 +176,7 @@ func (c *Client) convertOpenAPIToRoutes(manifest *farp.SchemaManifest, schema in
 
 	// Convert each path to a route
 	for path, pathItem := range paths {
-		pathItemMap, ok := pathItem.(map[string]interface{})
+		pathItemMap, ok := pathItem.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -199,7 +199,7 @@ func (c *Client) convertOpenAPIToRoutes(manifest *farp.SchemaManifest, schema in
 				HealthURL:      baseURL + manifest.Endpoints.Health,
 				ServiceName:    manifest.ServiceName,
 				ServiceVersion: manifest.ServiceVersion,
-				Metadata: map[string]interface{}{
+				Metadata: map[string]any{
 					"schema_type": "openapi",
 				},
 			})
@@ -210,16 +210,16 @@ func (c *Client) convertOpenAPIToRoutes(manifest *farp.SchemaManifest, schema in
 }
 
 // convertAsyncAPIToRoutes converts an AsyncAPI schema to gateway routes (WebSocket, SSE).
-func (c *Client) convertAsyncAPIToRoutes(manifest *farp.SchemaManifest, schema interface{}) []ServiceRoute {
+func (c *Client) convertAsyncAPIToRoutes(manifest *farp.SchemaManifest, schema any) []ServiceRoute {
 	var routes []ServiceRoute
 
 	// Parse AsyncAPI schema
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return routes
 	}
 
-	channels, ok := schemaMap["channels"].(map[string]interface{})
+	channels, ok := schemaMap["channels"].(map[string]any)
 	if !ok {
 		return routes
 	}
@@ -236,7 +236,7 @@ func (c *Client) convertAsyncAPIToRoutes(manifest *farp.SchemaManifest, schema i
 			HealthURL:      baseURL + manifest.Endpoints.Health,
 			ServiceName:    manifest.ServiceName,
 			ServiceVersion: manifest.ServiceVersion,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"schema_type": "asyncapi",
 				"protocol":    "websocket",
 			},
@@ -247,7 +247,7 @@ func (c *Client) convertAsyncAPIToRoutes(manifest *farp.SchemaManifest, schema i
 }
 
 // convertGraphQLToRoutes converts a GraphQL schema to a gateway route.
-func (c *Client) convertGraphQLToRoutes(manifest *farp.SchemaManifest, schema interface{}) []ServiceRoute {
+func (c *Client) convertGraphQLToRoutes(manifest *farp.SchemaManifest, schema any) []ServiceRoute {
 	var routes []ServiceRoute
 
 	// GraphQL typically has a single endpoint
@@ -265,7 +265,7 @@ func (c *Client) convertGraphQLToRoutes(manifest *farp.SchemaManifest, schema in
 		HealthURL:      baseURL + manifest.Endpoints.Health,
 		ServiceName:    manifest.ServiceName,
 		ServiceVersion: manifest.ServiceVersion,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"schema_type": "graphql",
 		},
 	})
@@ -274,7 +274,7 @@ func (c *Client) convertGraphQLToRoutes(manifest *farp.SchemaManifest, schema in
 }
 
 // getSchemaFromCache retrieves a cached schema by hash.
-func (c *Client) getSchemaFromCache(hash string) (interface{}, bool) {
+func (c *Client) getSchemaFromCache(hash string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -284,7 +284,7 @@ func (c *Client) getSchemaFromCache(hash string) (interface{}, bool) {
 }
 
 // cacheSchema stores a schema in cache.
-func (c *Client) cacheSchema(hash string, schema interface{}) {
+func (c *Client) cacheSchema(hash string, schema any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -296,7 +296,7 @@ func (c *Client) ClearCache() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.schemaCache = make(map[string]interface{})
+	c.schemaCache = make(map[string]any)
 }
 
 // GetManifest retrieves a cached manifest by instance ID.

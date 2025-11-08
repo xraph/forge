@@ -3,6 +3,7 @@ package coordination
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -61,8 +62,8 @@ type CoordinatedAgent struct {
 	LastHeartbeat time.Time
 	Capabilities  []string
 	Dependencies  []string
-	Constraints   map[string]interface{}
-	Metadata      map[string]interface{}
+	Constraints   map[string]any
+	Metadata      map[string]any
 	Statistics    AgentStatistics
 	mu            sync.RWMutex
 }
@@ -87,19 +88,19 @@ type AgentStatistics struct {
 
 // CoordinationTask represents a task that requires coordination.
 type CoordinationTask struct {
-	ID            string                 `json:"id"`
-	Type          string                 `json:"type"`
-	Priority      int                    `json:"priority"`
-	Requirements  []string               `json:"requirements"`
-	Constraints   map[string]interface{} `json:"constraints"`
-	Deadline      time.Time              `json:"deadline"`
-	AssignedAgent string                 `json:"assigned_agent"`
-	Status        TaskStatus             `json:"status"`
-	Result        interface{}            `json:"result"`
-	CreatedAt     time.Time              `json:"created_at"`
-	StartedAt     time.Time              `json:"started_at"`
-	CompletedAt   time.Time              `json:"completed_at"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	ID            string         `json:"id"`
+	Type          string         `json:"type"`
+	Priority      int            `json:"priority"`
+	Requirements  []string       `json:"requirements"`
+	Constraints   map[string]any `json:"constraints"`
+	Deadline      time.Time      `json:"deadline"`
+	AssignedAgent string         `json:"assigned_agent"`
+	Status        TaskStatus     `json:"status"`
+	Result        any            `json:"result"`
+	CreatedAt     time.Time      `json:"created_at"`
+	StartedAt     time.Time      `json:"started_at"`
+	CompletedAt   time.Time      `json:"completed_at"`
+	Metadata      map[string]any `json:"metadata"`
 }
 
 // TaskStatus represents the status of a coordination task.
@@ -116,15 +117,15 @@ const (
 
 // CoordinationDecision represents a decision made through coordination.
 type CoordinationDecision struct {
-	ID           string                 `json:"id"`
-	Type         string                 `json:"type"`
-	Description  string                 `json:"description"`
-	Participants []string               `json:"participants"`
-	Votes        map[string]interface{} `json:"votes"`
-	Result       interface{}            `json:"result"`
-	Confidence   float64                `json:"confidence"`
-	Timestamp    time.Time              `json:"timestamp"`
-	Metadata     map[string]interface{} `json:"metadata"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Description  string         `json:"description"`
+	Participants []string       `json:"participants"`
+	Votes        map[string]any `json:"votes"`
+	Result       any            `json:"result"`
+	Confidence   float64        `json:"confidence"`
+	Timestamp    time.Time      `json:"timestamp"`
+	Metadata     map[string]any `json:"metadata"`
 }
 
 // MultiAgentCoordinator manages coordination between multiple AI agents.
@@ -297,8 +298,8 @@ func (mac *MultiAgentCoordinator) RegisterAgent(agent ai.AIAgent) error {
 		LastHeartbeat: time.Now(),
 		Capabilities:  mac.extractCapabilities(agent),
 		Dependencies:  []string{},
-		Constraints:   make(map[string]interface{}),
-		Metadata:      make(map[string]interface{}),
+		Constraints:   make(map[string]any),
+		Metadata:      make(map[string]any),
 		Statistics:    AgentStatistics{},
 	}
 
@@ -431,7 +432,7 @@ func (mac *MultiAgentCoordinator) MakeDecision(ctx context.Context, decision *Co
 
 	decision.ID = mac.generateDecisionID()
 	decision.Timestamp = time.Now()
-	decision.Votes = make(map[string]interface{})
+	decision.Votes = make(map[string]any)
 
 	// Get relevant agents for this decision
 	participants := mac.getDecisionParticipants(decision)
@@ -725,12 +726,8 @@ func (mac *MultiAgentCoordinator) calculateTaskScore(agent *CoordinatedAgent, ta
 	capabilityMatch := 0
 
 	for _, requirement := range task.Requirements {
-		for _, capability := range agent.Capabilities {
-			if requirement == capability {
-				capabilityMatch++
-
-				break
-			}
+		if slices.Contains(agent.Capabilities, requirement) {
+			capabilityMatch++
 		}
 	}
 
@@ -882,7 +879,7 @@ func (mac *MultiAgentCoordinator) hierarchicalDecision(ctx context.Context, deci
 
 func (mac *MultiAgentCoordinator) distributedDecision(ctx context.Context, decision *CoordinationDecision) error {
 	// Each agent votes with equal weight
-	votes := make(map[string]interface{})
+	votes := make(map[string]any)
 
 	for _, participantID := range decision.Participants {
 		if agent, exists := mac.agents[participantID]; exists {
@@ -918,7 +915,7 @@ func (mac *MultiAgentCoordinator) swarmDecision(ctx context.Context, decision *C
 	return nil
 }
 
-func (mac *MultiAgentCoordinator) getAgentVote(agent *CoordinatedAgent, decision *CoordinationDecision) interface{} {
+func (mac *MultiAgentCoordinator) getAgentVote(agent *CoordinatedAgent, decision *CoordinationDecision) any {
 	// Simple voting logic based on agent type
 	switch agent.Agent.Type() {
 	case ai.AgentTypeOptimization:
@@ -932,7 +929,7 @@ func (mac *MultiAgentCoordinator) getAgentVote(agent *CoordinatedAgent, decision
 	}
 }
 
-func (mac *MultiAgentCoordinator) tallyVotes(votes map[string]interface{}) interface{} {
+func (mac *MultiAgentCoordinator) tallyVotes(votes map[string]any) any {
 	voteCounts := make(map[string]int)
 
 	for _, vote := range votes {

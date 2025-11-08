@@ -102,10 +102,12 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 
 	// Build replace section
 	replacesSection := fmt.Sprintf("replace %s => %s\n", moduleName, p.config.RootDir)
+
 	var replacesSectionSb103 strings.Builder
 	for module, path := range replaceDirectives {
 		replacesSectionSb103.WriteString(fmt.Sprintf("replace %s => %s\n", module, path))
 	}
+
 	replacesSection += replacesSectionSb103.String()
 
 	// Create go.mod with replace directives pointing to the actual project and local dependencies
@@ -160,7 +162,7 @@ require (
 }
 
 // generateMigrationRunner creates a temporary Go file that imports the user's migrations.
-func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig interface{}) error {
+func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig any) error {
 	// Determine the module name from go.mod
 	moduleName, err := p.getModuleName()
 	if err != nil {
@@ -423,8 +425,8 @@ func (p *DatabasePlugin) getModuleName() (string, error) {
 		return "", fmt.Errorf("failed to read go.mod: %w", err)
 	}
 
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "module ") {
 			return strings.TrimSpace(strings.TrimPrefix(line, "module")), nil
@@ -443,8 +445,8 @@ func (p *DatabasePlugin) getGoVersion() (string, error) {
 		return "", fmt.Errorf("failed to read go.mod: %w", err)
 	}
 
-	lines := strings.Split(string(content), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(content), "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "go ") {
 			return strings.TrimSpace(strings.TrimPrefix(line, "go")), nil
@@ -465,13 +467,13 @@ func (p *DatabasePlugin) getReplaceDirectives() (map[string]string, error) {
 	}
 
 	replaces := make(map[string]string)
-	lines := strings.Split(string(content), "\n")
+	lines := strings.SplitSeq(string(content), "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		// Handle single-line replace directives: replace example.com/module => /path/to/module
-		if strings.HasPrefix(line, "replace ") {
-			line = strings.TrimPrefix(line, "replace ")
+		if after, ok := strings.CutPrefix(line, "replace "); ok {
+			line = after
 
 			parts := strings.Split(line, "=>")
 			if len(parts) == 2 {

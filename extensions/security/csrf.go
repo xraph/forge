@@ -219,7 +219,6 @@ func (c *CSRFProtection) extractTokenFromRequest(r *http.Request) string {
 
 // isSafeMethod checks if the HTTP method is safe (doesn't require CSRF protection).
 func (c *CSRFProtection) isSafeMethod(method string) bool {
-
 	return slices.Contains(c.config.SafeMethods, method)
 }
 

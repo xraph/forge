@@ -3,6 +3,7 @@ package trackers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -81,11 +82,12 @@ func (pt *presenceTracker) SetPresence(ctx context.Context, userID, status strin
 	}
 
 	// Update online status
-	if status == streaming.StatusOnline {
+	switch status {
+	case streaming.StatusOnline:
 		if err := pt.store.SetOnline(ctx, userID, pt.options.OfflineTimeout); err != nil {
 			return err
 		}
-	} else if status == streaming.StatusOffline {
+	case streaming.StatusOffline:
 		if err := pt.store.SetOffline(ctx, userID); err != nil {
 			return err
 		}
@@ -487,7 +489,7 @@ func (pt *presenceTracker) GetPresenceDuration(ctx context.Context, userID strin
 
 	var (
 		duration         time.Duration
-		lastStatusChange time.Time = since
+		lastStatusChange = since
 		currentStatus    string
 	)
 
@@ -673,10 +675,8 @@ func (pt *presenceTracker) WatchUser(ctx context.Context, watcherID, watchedUser
 	// Add watcher to the list
 	if watchers, exists := pt.watchers[watchedUserID]; exists {
 		// Check if already watching
-		for _, w := range watchers {
-			if w == watcherID {
-				return nil // Already watching
-			}
+		if slices.Contains(watchers, watcherID) {
+			return nil // Already watching
 		}
 
 		pt.watchers[watchedUserID] = append(watchers, watcherID)
@@ -747,12 +747,8 @@ func (pt *presenceTracker) GetWatching(ctx context.Context, userID string) ([]st
 
 	// Find all users that the given userID is watching
 	for watchedUserID, watchers := range pt.watchers {
-		for _, watcherID := range watchers {
-			if watcherID == userID {
-				watching = append(watching, watchedUserID)
-
-				break
-			}
+		if slices.Contains(watchers, userID) {
+			watching = append(watching, watchedUserID)
 		}
 	}
 

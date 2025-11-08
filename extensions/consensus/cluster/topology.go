@@ -380,7 +380,6 @@ func (tm *TopologyManager) ValidateTopology() []string {
 
 // Helper functions.
 func contains(slice []string, item string) bool {
-
 	return slices.Contains(slice, item)
 }
 

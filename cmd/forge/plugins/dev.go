@@ -336,7 +336,6 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 	// Watch for file changes
 
 	wg.Go(func() {
-
 		watcher.Watch(watchCtx, ctx)
 	})
 

@@ -488,7 +488,6 @@ func (p *AnthropicProvider) cleanupRateLimit(now time.Time) {
 
 // IsModelSupported checks if a model is supported.
 func (p *AnthropicProvider) IsModelSupported(model string) bool {
-
 	return slices.Contains(p.models, model)
 }
 

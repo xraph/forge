@@ -48,7 +48,9 @@ func convertPathToChi(path string) string {
 	result := ""
 
 	i := 0
+
 	var resultSb49 strings.Builder
+
 	for i < len(path) {
 		if path[i] == ':' {
 			// Find end of parameter name
@@ -64,6 +66,7 @@ func convertPathToChi(path string) string {
 			i++
 		}
 	}
+
 	result += resultSb49.String()
 
 	return result

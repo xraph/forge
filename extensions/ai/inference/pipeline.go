@@ -207,7 +207,6 @@ func (p *InferencePipeline) Start(ctx context.Context) error {
 	// Start stats collection
 
 	p.wg.Go(func() {
-
 		p.runStatsCollection(ctx)
 	})
 

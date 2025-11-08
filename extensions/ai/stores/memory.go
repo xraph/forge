@@ -3,6 +3,7 @@ package stores
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -107,12 +108,8 @@ func (s *MemoryAgentStore) List(ctx context.Context, filter ai.AgentFilter) ([]*
 			hasTag := false
 
 			for _, filterTag := range filter.Tags {
-				for _, agentTag := range agent.Tags {
-					if filterTag == agentTag {
-						hasTag = true
-
-						break
-					}
+				if slices.Contains(agent.Tags, filterTag) {
+					hasTag = true
 				}
 
 				if hasTag {

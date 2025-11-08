@@ -330,7 +330,6 @@ func (e *InferenceEngine) Start(ctx context.Context) error {
 	// Start stats collection
 
 	e.wg.Go(func() {
-
 		e.runStatsCollection(ctx)
 	})
 

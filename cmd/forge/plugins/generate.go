@@ -276,7 +276,6 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 	)
 
 	switch selectedDir {
-
 	case "pkg":
 		servicePath = filepath.Join(p.config.RootDir, "pkg", "services", name)
 		serviceFileName = "service.go"
@@ -1073,6 +1072,7 @@ var _ forge.Controller = (*%sController)(nil)
 func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseType string, addTableTag bool) string {
 	// Prepare custom fields
 	fieldsCode := ""
+
 	var fieldsCodeSb1017 strings.Builder
 
 	for _, field := range fields {
@@ -1088,6 +1088,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 			fieldsCodeSb1017.WriteString(fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, bunTag, jsonTag))
 		}
 	}
+
 	fieldsCode += fieldsCodeSb1017.String()
 
 	// Default example field if none provided and no base model
@@ -1136,10 +1137,12 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 			importSection = fmt.Sprintf("import %s\n\n", imports[0])
 		} else {
 			importSection = "import (\n"
+
 			var importSectionSb1073 strings.Builder
 			for _, imp := range imports {
 				importSectionSb1073.WriteString(fmt.Sprintf("\t%s\n", imp))
 			}
+
 			importSection += importSectionSb1073.String()
 
 			importSection += ")\n\n"
@@ -1169,10 +1172,12 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 			importSection = fmt.Sprintf("import %s\n\n", imports[0])
 		} else {
 			importSection = "import (\n"
+
 			var importSectionSb1099 strings.Builder
 			for _, imp := range imports {
 				importSectionSb1099.WriteString(fmt.Sprintf("\t%s\n", imp))
 			}
+
 			importSection += importSectionSb1099.String()
 
 			importSection += ")\n\n"
@@ -1300,14 +1305,17 @@ func getBaseModelName(baseType string) string {
 // generateAlias creates a short alias from a model name by taking the first letter
 // of each capital letter in the name (e.g., "PersonalAccessToken" -> "pat").
 func generateAlias(name string) string {
-	var alias string
-	var aliasSb1227 strings.Builder
+	var (
+		alias       string
+		aliasSb1227 strings.Builder
+	)
 
 	for _, c := range name {
 		if c >= 'A' && c <= 'Z' {
-			aliasSb1227.WriteString(string(c + 32)) // Convert to lowercase
+			aliasSb1227.WriteRune(c + 32) // Convert to lowercase
 		}
 	}
+
 	alias += aliasSb1227.String()
 	// Fallback to first 3 chars if no capitals found or alias is empty
 	if alias == "" {

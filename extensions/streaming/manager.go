@@ -3,6 +3,7 @@ package streaming
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -946,12 +947,8 @@ func (m *manager) SearchRooms(ctx context.Context, query string, filters map[str
 					hasMatchingTag := false
 
 					for _, filterTag := range tagSlice {
-						for _, roomTag := range roomTags {
-							if roomTag == filterTag {
-								hasMatchingTag = true
-
-								break
-							}
+						if slices.Contains(roomTags, filterTag) {
+							hasMatchingTag = true
 						}
 					}
 
@@ -1232,10 +1229,8 @@ func (m *manager) IsTyping(ctx context.Context, userID, roomID string) (bool, er
 	}
 
 	// Check if user is in the typing list
-	for _, typingUser := range typingUsers {
-		if typingUser == userID {
-			return true, nil
-		}
+	if slices.Contains(typingUsers, userID) {
+		return true, nil
 	}
 
 	return false, nil

@@ -387,15 +387,6 @@ func (s *signalingManager) handleICECandidate(ctx context.Context, roomID, userI
 	return nil
 }
 
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-
-	return b
-}
-
 // parseSessionDescription parses a session description from raw data
 func parseSessionDescription(data any) (*SessionDescription, error) {
 	jsonData, err := json.Marshal(data)

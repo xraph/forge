@@ -657,7 +657,7 @@ func (c *EmbeddingCollection) ClusterEmbeddings(k int, maxIterations int) ([]Emb
 
 			count := 0
 
-			for i := 0; i < cluster.Size; i++ {
+			for i := range cluster.Size {
 				for j := i + 1; j < cluster.Size; j++ {
 					similarity := cosineSimilarity(cluster.Items[i].Embedding, cluster.Items[j].Embedding)
 					totalSimilarity += similarity

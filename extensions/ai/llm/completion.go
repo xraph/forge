@@ -3,44 +3,45 @@ package llm
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 // CompletionRequest represents a text completion request.
 type CompletionRequest struct {
-	Provider         string                 `json:"provider"`
-	Model            string                 `json:"model"`
-	Prompt           string                 `json:"prompt"`
-	Temperature      *float64               `json:"temperature,omitempty"`
-	MaxTokens        *int                   `json:"max_tokens,omitempty"`
-	TopP             *float64               `json:"top_p,omitempty"`
-	TopK             *int                   `json:"top_k,omitempty"`
-	Stop             []string               `json:"stop,omitempty"`
-	Stream           bool                   `json:"stream"`
-	N                *int                   `json:"n,omitempty"`
-	LogProbs         *int                   `json:"logprobs,omitempty"`
-	Echo             bool                   `json:"echo"`
-	PresencePenalty  *float64               `json:"presence_penalty,omitempty"`
-	FrequencyPenalty *float64               `json:"frequency_penalty,omitempty"`
-	BestOf           *int                   `json:"best_of,omitempty"`
-	Suffix           string                 `json:"suffix,omitempty"`
-	Context          map[string]interface{} `json:"context"`
-	Metadata         map[string]interface{} `json:"metadata"`
-	RequestID        string                 `json:"request_id"`
+	Provider         string         `json:"provider"`
+	Model            string         `json:"model"`
+	Prompt           string         `json:"prompt"`
+	Temperature      *float64       `json:"temperature,omitempty"`
+	MaxTokens        *int           `json:"max_tokens,omitempty"`
+	TopP             *float64       `json:"top_p,omitempty"`
+	TopK             *int           `json:"top_k,omitempty"`
+	Stop             []string       `json:"stop,omitempty"`
+	Stream           bool           `json:"stream"`
+	N                *int           `json:"n,omitempty"`
+	LogProbs         *int           `json:"logprobs,omitempty"`
+	Echo             bool           `json:"echo"`
+	PresencePenalty  *float64       `json:"presence_penalty,omitempty"`
+	FrequencyPenalty *float64       `json:"frequency_penalty,omitempty"`
+	BestOf           *int           `json:"best_of,omitempty"`
+	Suffix           string         `json:"suffix,omitempty"`
+	Context          map[string]any `json:"context"`
+	Metadata         map[string]any `json:"metadata"`
+	RequestID        string         `json:"request_id"`
 }
 
 // CompletionResponse represents a text completion response.
 type CompletionResponse struct {
-	ID        string                 `json:"id"`
-	Object    string                 `json:"object"`
-	Created   int64                  `json:"created"`
-	Model     string                 `json:"model"`
-	Provider  string                 `json:"provider"`
-	Choices   []CompletionChoice     `json:"choices"`
-	Usage     *LLMUsage              `json:"usage,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	RequestID string                 `json:"request_id"`
+	ID        string             `json:"id"`
+	Object    string             `json:"object"`
+	Created   int64              `json:"created"`
+	Model     string             `json:"model"`
+	Provider  string             `json:"provider"`
+	Choices   []CompletionChoice `json:"choices"`
+	Usage     *LLMUsage          `json:"usage,omitempty"`
+	Metadata  map[string]any     `json:"metadata"`
+	RequestID string             `json:"request_id"`
 }
 
 // CompletionChoice represents a completion choice.
@@ -59,17 +60,17 @@ type TextDelta struct {
 
 // CompletionStreamEvent represents a streaming completion event.
 type CompletionStreamEvent struct {
-	Type      string                 `json:"type"` // text, error, done
-	ID        string                 `json:"id"`
-	Object    string                 `json:"object"`
-	Created   int64                  `json:"created"`
-	Model     string                 `json:"model"`
-	Provider  string                 `json:"provider"`
-	Choices   []CompletionChoice     `json:"choices"`
-	Usage     *LLMUsage              `json:"usage,omitempty"`
-	Error     string                 `json:"error,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
-	RequestID string                 `json:"request_id"`
+	Type      string             `json:"type"` // text, error, done
+	ID        string             `json:"id"`
+	Object    string             `json:"object"`
+	Created   int64              `json:"created"`
+	Model     string             `json:"model"`
+	Provider  string             `json:"provider"`
+	Choices   []CompletionChoice `json:"choices"`
+	Usage     *LLMUsage          `json:"usage,omitempty"`
+	Error     string             `json:"error,omitempty"`
+	Metadata  map[string]any     `json:"metadata,omitempty"`
+	RequestID string             `json:"request_id"`
 }
 
 // CompletionStreamHandler handles streaming completion events.
@@ -77,25 +78,25 @@ type CompletionStreamHandler func(event CompletionStreamEvent) error
 
 // CompletionTemplate represents a completion template.
 type CompletionTemplate struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Template    string                 `json:"template"`
-	Variables   []TemplateVariable     `json:"variables"`
-	Settings    CompletionSettings     `json:"settings"`
-	Examples    []CompletionExample    `json:"examples"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	Template    string              `json:"template"`
+	Variables   []TemplateVariable  `json:"variables"`
+	Settings    CompletionSettings  `json:"settings"`
+	Examples    []CompletionExample `json:"examples"`
+	Metadata    map[string]any      `json:"metadata"`
 }
 
 // TemplateVariable represents a template variable.
 type TemplateVariable struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"` // string, number, boolean, array, object
-	Description string                 `json:"description"`
-	Required    bool                   `json:"required"`
-	Default     interface{}            `json:"default,omitempty"`
-	Validation  string                 `json:"validation,omitempty"`
-	Examples    []string               `json:"examples,omitempty"`
-	Constraints map[string]interface{} `json:"constraints,omitempty"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"` // string, number, boolean, array, object
+	Description string         `json:"description"`
+	Required    bool           `json:"required"`
+	Default     any            `json:"default,omitempty"`
+	Validation  string         `json:"validation,omitempty"`
+	Examples    []string       `json:"examples,omitempty"`
+	Constraints map[string]any `json:"constraints,omitempty"`
 }
 
 // CompletionSettings represents settings for completion.
@@ -114,9 +115,9 @@ type CompletionSettings struct {
 
 // CompletionExample represents an example for the template.
 type CompletionExample struct {
-	Input       map[string]interface{} `json:"input"`
-	Output      string                 `json:"output"`
-	Description string                 `json:"description"`
+	Input       map[string]any `json:"input"`
+	Output      string         `json:"output"`
+	Description string         `json:"description"`
 }
 
 // CompletionBuilder provides a fluent interface for building completion requests.
@@ -128,8 +129,8 @@ type CompletionBuilder struct {
 func NewCompletionBuilder() *CompletionBuilder {
 	return &CompletionBuilder{
 		request: CompletionRequest{
-			Context:  make(map[string]interface{}),
-			Metadata: make(map[string]interface{}),
+			Context:  make(map[string]any),
+			Metadata: make(map[string]any),
 		},
 	}
 }
@@ -247,14 +248,14 @@ func (b *CompletionBuilder) WithSuffix(suffix string) *CompletionBuilder {
 }
 
 // WithContext adds context data.
-func (b *CompletionBuilder) WithContext(key string, value interface{}) *CompletionBuilder {
+func (b *CompletionBuilder) WithContext(key string, value any) *CompletionBuilder {
 	b.request.Context[key] = value
 
 	return b
 }
 
 // WithMetadata adds metadata.
-func (b *CompletionBuilder) WithMetadata(key string, value interface{}) *CompletionBuilder {
+func (b *CompletionBuilder) WithMetadata(key string, value any) *CompletionBuilder {
 	b.request.Metadata[key] = value
 
 	return b
@@ -286,7 +287,7 @@ func NewCompletionTemplate(name, description, template string) *CompletionTempla
 		Variables:   make([]TemplateVariable, 0),
 		Settings:    CompletionSettings{},
 		Examples:    make([]CompletionExample, 0),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 }
 
@@ -301,7 +302,7 @@ func (t *CompletionTemplate) AddExample(example CompletionExample) {
 }
 
 // Render renders the template with the provided variables.
-func (t *CompletionTemplate) Render(variables map[string]interface{}) (string, error) {
+func (t *CompletionTemplate) Render(variables map[string]any) (string, error) {
 	result := t.Template
 
 	// Simple template rendering - replace {{variable}} with values
@@ -321,7 +322,7 @@ func (t *CompletionTemplate) Render(variables map[string]interface{}) (string, e
 }
 
 // CreateCompletionRequest creates a completion request from the template.
-func (t *CompletionTemplate) CreateCompletionRequest(variables map[string]interface{}) (CompletionRequest, error) {
+func (t *CompletionTemplate) CreateCompletionRequest(variables map[string]any) (CompletionRequest, error) {
 	prompt, err := t.Render(variables)
 	if err != nil {
 		return CompletionRequest{}, err
@@ -345,7 +346,7 @@ func (t *CompletionTemplate) CreateCompletionRequest(variables map[string]interf
 }
 
 // ValidateVariables validates the provided variables against the template.
-func (t *CompletionTemplate) ValidateVariables(variables map[string]interface{}) error {
+func (t *CompletionTemplate) ValidateVariables(variables map[string]any) error {
 	for _, variable := range t.Variables {
 		value, exists := variables[variable.Name]
 
@@ -372,7 +373,7 @@ func (t *CompletionTemplate) ValidateVariables(variables map[string]interface{})
 }
 
 // validateVariableType validates the type of a variable.
-func validateVariableType(variable TemplateVariable, value interface{}) error {
+func validateVariableType(variable TemplateVariable, value any) error {
 	switch variable.Type {
 	case "string":
 		if _, ok := value.(string); !ok {
@@ -390,11 +391,11 @@ func validateVariableType(variable TemplateVariable, value interface{}) error {
 			return fmt.Errorf("expected boolean, got %T", value)
 		}
 	case "array":
-		if _, ok := value.([]interface{}); !ok {
+		if _, ok := value.([]any); !ok {
 			return fmt.Errorf("expected array, got %T", value)
 		}
 	case "object":
-		if _, ok := value.(map[string]interface{}); !ok {
+		if _, ok := value.(map[string]any); !ok {
 			return fmt.Errorf("expected object, got %T", value)
 		}
 	}
@@ -403,7 +404,7 @@ func validateVariableType(variable TemplateVariable, value interface{}) error {
 }
 
 // validateVariableConstraints validates the constraints of a variable.
-func validateVariableConstraints(variable TemplateVariable, value interface{}) error {
+func validateVariableConstraints(variable TemplateVariable, value any) error {
 	if variable.Constraints == nil {
 		return nil
 	}
@@ -440,16 +441,8 @@ func validateVariableConstraints(variable TemplateVariable, value interface{}) e
 
 	// Enum constraints
 	if enumValues, exists := variable.Constraints["enum"]; exists {
-		if enum, ok := enumValues.([]interface{}); ok {
-			found := false
-
-			for _, enumValue := range enum {
-				if value == enumValue {
-					found = true
-
-					break
-				}
-			}
+		if enum, ok := enumValues.([]any); ok {
+			found := slices.Contains(enum, value)
 
 			if !found {
 				return fmt.Errorf("value %v is not in allowed enum values %v", value, enum)
@@ -461,7 +454,7 @@ func validateVariableConstraints(variable TemplateVariable, value interface{}) e
 }
 
 // toString converts an interface{} to string.
-func toString(value interface{}) string {
+func toString(value any) string {
 	switch v := value.(type) {
 	case string:
 		return v
@@ -560,8 +553,8 @@ Summary:`
 		Description: "Desired summary length",
 		Required:    false,
 		Default:     "Brief",
-		Constraints: map[string]interface{}{
-			"enum": []interface{}{"Brief", "Medium", "Detailed"},
+		Constraints: map[string]any{
+			"enum": []any{"Brief", "Medium", "Detailed"},
 		},
 	})
 
@@ -571,8 +564,8 @@ Summary:`
 		Description: "Summary style",
 		Required:    false,
 		Default:     "Neutral",
-		Constraints: map[string]interface{}{
-			"enum": []interface{}{"Neutral", "Formal", "Casual", "Technical"},
+		Constraints: map[string]any{
+			"enum": []any{"Neutral", "Formal", "Casual", "Technical"},
 		},
 	})
 

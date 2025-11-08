@@ -3,6 +3,7 @@ package typescript
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -143,15 +144,19 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 	depsJSON := "{\n"
 
 	first := true
+
 	var depsJSONSb143 strings.Builder
+
 	for name, version := range deps {
 		if !first {
 			depsJSONSb143.WriteString(",\n")
 		}
 
 		depsJSONSb143.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, version))
+
 		first = false
 	}
+
 	depsJSON += depsJSONSb143.String()
 
 	depsJSON += "\n  }"
@@ -416,11 +421,5 @@ func (g *Generator) generateInstructions(spec *client.APISpec, config client.Gen
 
 // Helper function.
 func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(slice, item)
 }

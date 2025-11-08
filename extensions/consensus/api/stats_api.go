@@ -121,8 +121,8 @@ func (sa *StatsAPI) getClusterStats() map[string]any {
 		if node.Status == internal.StatusActive {
 			healthyCount++
 		}
-		switch node.Role {
 
+		switch node.Role {
 		case internal.RoleLeader:
 			leaderCount++
 		case internal.RoleFollower:

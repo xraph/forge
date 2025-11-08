@@ -2,6 +2,7 @@ package election
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -315,15 +316,7 @@ func (cm *CampaignManager) getPriorityPeers(campaign *Campaign) []string {
 	// Add remaining peers
 	for _, peer := range campaign.TargetPeers {
 		if _, contacted := campaign.VoteResponses[peer]; !contacted {
-			isPriority := false
-
-			for _, pp := range cm.priorityPeers {
-				if peer == pp {
-					isPriority = true
-
-					break
-				}
-			}
+			isPriority := slices.Contains(cm.priorityPeers, peer)
 
 			if !isPriority {
 				result = append(result, peer)

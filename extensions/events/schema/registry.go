@@ -743,7 +743,6 @@ func (sr *SchemaRegistry) buildPath(basePath, name string) string {
 }
 
 func (sr *SchemaRegistry) isRequiredField(schema *Schema, path string) bool {
-
 	return slices.Contains(schema.Required, path)
 }
 

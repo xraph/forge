@@ -163,15 +163,12 @@ func (c *InferenceCache) Start(ctx context.Context) error {
 	// Start cleanup routine
 
 	c.wg.Go(func() {
-
 		c.runCleanupRoutine(ctx)
 	})
 
 	// Start persistence routine if enabled
 	if c.config.EnablePersistence {
-
 		c.wg.Go(func() {
-
 			c.runPersistenceRoutine(ctx)
 		})
 	}
@@ -179,7 +176,6 @@ func (c *InferenceCache) Start(ctx context.Context) error {
 	// Start stats collection
 
 	c.wg.Go(func() {
-
 		c.runStatsCollection(ctx)
 	})
 

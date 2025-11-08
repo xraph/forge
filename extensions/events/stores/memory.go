@@ -3,6 +3,7 @@ package stores
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -172,15 +173,7 @@ func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventC
 	for _, event := range mes.events {
 		// Apply filters
 		if len(criteria.EventTypes) > 0 {
-			found := false
-
-			for _, eventType := range criteria.EventTypes {
-				if event.Type == eventType {
-					found = true
-
-					break
-				}
-			}
+			found := slices.Contains(criteria.EventTypes, event.Type)
 
 			if !found {
 				continue
@@ -188,15 +181,7 @@ func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventC
 		}
 
 		if len(criteria.AggregateIDs) > 0 {
-			found := false
-
-			for _, aggregateID := range criteria.AggregateIDs {
-				if event.AggregateID == aggregateID {
-					found = true
-
-					break
-				}
-			}
+			found := slices.Contains(criteria.AggregateIDs, event.AggregateID)
 
 			if !found {
 				continue
@@ -230,10 +215,7 @@ func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventC
 	} else {
 		start := criteria.Offset
 
-		end := start + int64(criteria.Limit)
-		if end > int64(len(events)) {
-			end = int64(len(events))
-		}
+		end := min(start+int64(criteria.Limit), int64(len(events)))
 
 		events = events[start:end]
 	}
@@ -286,10 +268,7 @@ func (mes *MemoryEventStore) GetEventsByType(ctx context.Context, eventType stri
 
 	start := offset
 
-	end := start + int64(limit)
-	if end > int64(len(events)) {
-		end = int64(len(events))
-	}
+	end := min(start+int64(limit), int64(len(events)))
 
 	result := make([]*core.Event, end-start)
 	for i, event := range events[start:end] {
@@ -323,10 +302,7 @@ func (mes *MemoryEventStore) GetEventsSince(ctx context.Context, since time.Time
 
 	start := offset
 
-	end := start + int64(limit)
-	if end > int64(len(events)) {
-		end = int64(len(events))
-	}
+	end := min(start+int64(limit), int64(len(events)))
 
 	result := make([]*core.Event, end-start)
 	for i, event := range events[start:end] {
@@ -360,10 +336,7 @@ func (mes *MemoryEventStore) GetEventsInRange(ctx context.Context, start, end ti
 
 	startIdx := offset
 
-	endIdx := startIdx + int64(limit)
-	if endIdx > int64(len(events)) {
-		endIdx = int64(len(events))
-	}
+	endIdx := min(startIdx+int64(limit), int64(len(events)))
 
 	result := make([]*core.Event, endIdx-startIdx)
 	for i, event := range events[startIdx:endIdx] {

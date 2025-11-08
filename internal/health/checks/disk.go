@@ -622,8 +622,6 @@ func (ldhc *LogDirHealthCheck) checkLogDir(logDir string) map[string]any {
 		rotationIssues []string
 	)
 
-	//nolint:gosec // G104: filepath.Walk error is not critical, we still return info
-
 	if err := filepath.Walk(logDir, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access

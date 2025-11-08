@@ -3,6 +3,7 @@ package exporters
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -40,21 +41,21 @@ type JSONStats struct {
 
 // JSONMetric represents a metric in JSON format.
 type JSONMetric struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Value       interface{}            `json:"value"`
-	Tags        map[string]string      `json:"tags,omitempty"`
-	Timestamp   *time.Time             `json:"timestamp,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	Unit        string                 `json:"unit,omitempty"`
-	Description string                 `json:"description,omitempty"`
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
+	Value       any               `json:"value"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	Timestamp   *time.Time        `json:"timestamp,omitempty"`
+	Metadata    map[string]any    `json:"metadata,omitempty"`
+	Unit        string            `json:"unit,omitempty"`
+	Description string            `json:"description,omitempty"`
 }
 
 // JSONExport represents the complete JSON export.
 type JSONExport struct {
-	Metadata *ExportMetadata        `json:"metadata,omitempty"`
-	Metrics  map[string]interface{} `json:"metrics"`
-	Summary  *ExportSummary         `json:"summary,omitempty"`
+	Metadata *ExportMetadata `json:"metadata,omitempty"`
+	Metrics  map[string]any  `json:"metrics"`
+	Summary  *ExportSummary  `json:"summary,omitempty"`
 }
 
 // ExportMetadata contains metadata about the export.
@@ -104,13 +105,13 @@ func NewJSONExporterWithConfig(config *JSONConfig) shared.Exporter {
 // =============================================================================
 
 // Export exports metrics in JSON format.
-func (je *JSONExporter) Export(metrics map[string]interface{}) ([]byte, error) {
+func (je *JSONExporter) Export(metrics map[string]any) ([]byte, error) {
 	je.stats.ExportsTotal++
 	je.stats.LastExportTime = time.Now()
 
 	// Create export structure
 	export := &JSONExport{
-		Metrics: make(map[string]interface{}),
+		Metrics: make(map[string]any),
 	}
 
 	// Add metadata if enabled
@@ -176,7 +177,7 @@ func (je *JSONExporter) Format() string {
 }
 
 // Stats returns exporter statistics.
-func (je *JSONExporter) Stats() interface{} {
+func (je *JSONExporter) Stats() any {
 	return je.stats
 }
 
@@ -185,7 +186,7 @@ func (je *JSONExporter) Stats() interface{} {
 // =============================================================================
 
 // processMetric processes a single metric for JSON export.
-func (je *JSONExporter) processMetric(name string, value interface{}) interface{} {
+func (je *JSONExporter) processMetric(name string, value any) any {
 	// Parse metric name and tags
 	baseName, tags := je.parseMetricName(name)
 	metricType := je.inferMetricType(value)
@@ -215,9 +216,9 @@ func (je *JSONExporter) processMetric(name string, value interface{}) interface{
 }
 
 // processValue processes a metric value for JSON export.
-func (je *JSONExporter) processValue(value interface{}) interface{} {
+func (je *JSONExporter) processValue(value any) any {
 	switch v := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		// Process complex metrics (histogram, timer)
 		return je.processComplexValue(v)
 	case float64, int64, uint64, int, uint:
@@ -230,8 +231,8 @@ func (je *JSONExporter) processValue(value interface{}) interface{} {
 }
 
 // processComplexValue processes complex metric values.
-func (je *JSONExporter) processComplexValue(value map[string]interface{}) interface{} {
-	result := make(map[string]interface{})
+func (je *JSONExporter) processComplexValue(value map[string]any) any {
+	result := make(map[string]any)
 
 	// Copy all values
 	for k, v := range value {
@@ -249,7 +250,7 @@ func (je *JSONExporter) processComplexValue(value map[string]interface{}) interf
 		case "p50", "p95", "p99":
 			// Convert duration values to readable format
 			if duration, ok := v.(time.Duration); ok {
-				result[k] = map[string]interface{}{
+				result[k] = map[string]any{
 					"nanoseconds": duration.Nanoseconds(),
 					"seconds":     duration.Seconds(),
 					"readable":    duration.String(),
@@ -266,8 +267,8 @@ func (je *JSONExporter) processComplexValue(value map[string]interface{}) interf
 }
 
 // convertBuckets converts histogram buckets to JSON-friendly format.
-func (je *JSONExporter) convertBuckets(buckets map[float64]uint64) []map[string]interface{} {
-	result := make([]map[string]interface{}, 0, len(buckets))
+func (je *JSONExporter) convertBuckets(buckets map[float64]uint64) []map[string]any {
+	result := make([]map[string]any, 0, len(buckets))
 
 	// Sort buckets by upper bound
 	bounds := make([]float64, 0, len(buckets))
@@ -278,7 +279,7 @@ func (je *JSONExporter) convertBuckets(buckets map[float64]uint64) []map[string]
 	sort.Float64s(bounds)
 
 	for _, bound := range bounds {
-		result = append(result, map[string]interface{}{
+		result = append(result, map[string]any{
 			"upper_bound": bound,
 			"count":       buckets[bound],
 		})
@@ -312,8 +313,8 @@ func (je *JSONExporter) parseMetricName(fullName string) (string, map[string]str
 	tags := make(map[string]string)
 
 	if tagsStr != "" {
-		pairs := strings.Split(tagsStr, ",")
-		for _, pair := range pairs {
+		pairs := strings.SplitSeq(tagsStr, ",")
+		for pair := range pairs {
 			if kv := strings.SplitN(pair, "=", 2); len(kv) == 2 {
 				key := strings.TrimSpace(kv[0])
 				value := strings.TrimSpace(kv[1])
@@ -326,9 +327,9 @@ func (je *JSONExporter) parseMetricName(fullName string) (string, map[string]str
 }
 
 // inferMetricType infers the metric type from the value.
-func (je *JSONExporter) inferMetricType(value interface{}) string {
+func (je *JSONExporter) inferMetricType(value any) string {
 	switch v := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if _, ok := v["buckets"]; ok {
 			return "histogram"
 		}
@@ -412,8 +413,8 @@ func (je *JSONExporter) generateDescription(name, metricType string) string {
 }
 
 // generateMetadata generates metadata for a metric.
-func (je *JSONExporter) generateMetadata(name, metricType string) map[string]interface{} {
-	return map[string]interface{}{
+func (je *JSONExporter) generateMetadata(name, metricType string) map[string]any {
+	return map[string]any{
 		"created_at": time.Now().Format(je.config.TimestampFormat),
 		"type":       metricType,
 		"namespace":  je.config.Namespace,
@@ -422,7 +423,7 @@ func (je *JSONExporter) generateMetadata(name, metricType string) map[string]int
 }
 
 // updateSummary updates the export summary with metric information.
-func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metric interface{}) {
+func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metric any) {
 	// Extract metric type
 	var metricType string
 	if jsonMetric, ok := metric.(*JSONMetric); ok {
@@ -435,15 +436,7 @@ func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metri
 		for tagKey, tagValue := range jsonMetric.Tags {
 			if values, exists := summary.Tags[tagKey]; exists {
 				// Check if value already exists
-				found := false
-
-				for _, v := range values {
-					if v == tagValue {
-						found = true
-
-						break
-					}
-				}
+				found := slices.Contains(values, tagValue)
 
 				if !found {
 					summary.Tags[tagKey] = append(values, tagValue)
@@ -456,15 +449,7 @@ func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metri
 
 	// Update namespaces
 	if je.config.Namespace != "" {
-		found := false
-
-		for _, ns := range summary.Namespaces {
-			if ns == je.config.Namespace {
-				found = true
-
-				break
-			}
-		}
+		found := slices.Contains(summary.Namespaces, je.config.Namespace)
 
 		if !found {
 			summary.Namespaces = append(summary.Namespaces, je.config.Namespace)
@@ -477,21 +462,21 @@ func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metri
 // =============================================================================
 
 // ExportMetricsToJSON exports metrics to JSON format with default configuration.
-func ExportMetricsToJSON(metrics map[string]interface{}) ([]byte, error) {
+func ExportMetricsToJSON(metrics map[string]any) ([]byte, error) {
 	exporter := NewJSONExporter()
 
 	return exporter.Export(metrics)
 }
 
 // ExportMetricsToJSONWithConfig exports metrics to JSON format with custom configuration.
-func ExportMetricsToJSONWithConfig(metrics map[string]interface{}, config *JSONConfig) ([]byte, error) {
+func ExportMetricsToJSONWithConfig(metrics map[string]any, config *JSONConfig) ([]byte, error) {
 	exporter := NewJSONExporterWithConfig(config)
 
 	return exporter.Export(metrics)
 }
 
 // CompactJSONExport creates a compact JSON export without metadata.
-func CompactJSONExport(metrics map[string]interface{}) ([]byte, error) {
+func CompactJSONExport(metrics map[string]any) ([]byte, error) {
 	config := &JSONConfig{
 		Pretty:           false,
 		IncludeMetadata:  false,
@@ -502,7 +487,7 @@ func CompactJSONExport(metrics map[string]interface{}) ([]byte, error) {
 }
 
 // PrettyJSONExport creates a pretty-printed JSON export with full metadata.
-func PrettyJSONExport(metrics map[string]interface{}) ([]byte, error) {
+func PrettyJSONExport(metrics map[string]any) ([]byte, error) {
 	config := &JSONConfig{
 		Pretty:           true,
 		IncludeMetadata:  true,
@@ -514,7 +499,7 @@ func PrettyJSONExport(metrics map[string]interface{}) ([]byte, error) {
 }
 
 // JSONExportWithNamespace creates a JSON export with a specific namespace.
-func JSONExportWithNamespace(metrics map[string]interface{}, namespace string) ([]byte, error) {
+func JSONExportWithNamespace(metrics map[string]any, namespace string) ([]byte, error) {
 	config := &JSONConfig{
 		Pretty:           true,
 		IncludeMetadata:  true,

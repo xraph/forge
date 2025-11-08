@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -92,11 +93,11 @@ func DefaultJWTConfig() JWTConfig {
 
 // JWTClaims represents JWT claims.
 type JWTClaims struct {
-	UserID   string                 `json:"user_id"`
-	Username string                 `json:"username,omitempty"`
-	Email    string                 `json:"email,omitempty"`
-	Roles    []string               `json:"roles,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	UserID   string         `json:"user_id"`
+	Username string         `json:"username,omitempty"`
+	Email    string         `json:"email,omitempty"`
+	Roles    []string       `json:"roles,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -219,7 +220,7 @@ func (jm *JWTManager) GenerateRefreshToken(userID string) (string, error) {
 // ValidateToken validates a JWT token and returns the claims.
 func (jm *JWTManager) ValidateToken(tokenString string) (*JWTClaims, error) {
 	// Parse token
-	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (any, error) {
 		// Validate signing method
 		if token.Method != jm.signingMethod {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -247,15 +248,7 @@ func (jm *JWTManager) ValidateToken(tokenString string) (*JWTClaims, error) {
 
 	// Validate audience
 	if jm.config.Audience != "" {
-		validAudience := false
-
-		for _, aud := range claims.Audience {
-			if aud == jm.config.Audience {
-				validAudience = true
-
-				break
-			}
-		}
+		validAudience := slices.Contains(claims.Audience, jm.config.Audience)
 
 		if !validAudience {
 			return nil, ErrJWTInvalid
@@ -274,9 +267,9 @@ func (jm *JWTManager) ValidateToken(tokenString string) (*JWTClaims, error) {
 
 // extractTokenFromRequest extracts the JWT token from request based on TokenLookup config.
 func (jm *JWTManager) extractTokenFromRequest(r *http.Request) string {
-	lookups := strings.Split(jm.config.TokenLookup, ",")
+	lookups := strings.SplitSeq(jm.config.TokenLookup, ",")
 
-	for _, lookup := range lookups {
+	for lookup := range lookups {
 		parts := strings.Split(strings.TrimSpace(lookup), ":")
 		if len(parts) != 2 {
 			continue
@@ -294,8 +287,8 @@ func (jm *JWTManager) extractTokenFromRequest(r *http.Request) string {
 				// Remove prefix (e.g., "Bearer ")
 				if jm.config.TokenPrefix != "" {
 					prefix := jm.config.TokenPrefix + " "
-					if strings.HasPrefix(auth, prefix) {
-						token = strings.TrimPrefix(auth, prefix)
+					if after, ok := strings.CutPrefix(auth, prefix); ok {
+						token = after
 					}
 				} else {
 					token = auth
@@ -409,12 +402,8 @@ func RequireRoles(roles ...string) forge.Middleware {
 			hasRole := false
 
 			for _, requiredRole := range roles {
-				for _, userRole := range claims.Roles {
-					if userRole == requiredRole {
-						hasRole = true
-
-						break
-					}
+				if slices.Contains(claims.Roles, requiredRole) {
+					hasRole = true
 				}
 
 				if hasRole {

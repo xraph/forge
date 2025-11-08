@@ -5,7 +5,9 @@ package internal
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -68,7 +70,7 @@ type MetricMetadata struct {
 // MetricValue represents a metric value with metadata.
 type MetricValue struct {
 	Metadata  *MetricMetadata `json:"metadata"`
-	Value     interface{}     `json:"value"`
+	Value     any             `json:"value"`
 	Timestamp time.Time       `json:"timestamp"`
 }
 
@@ -183,6 +185,7 @@ func TagsToString(tags map[string]string) string {
 	sort.Strings(parts)
 
 	result := ""
+
 	var resultSb186 strings.Builder
 
 	for i, part := range parts {
@@ -192,6 +195,7 @@ func TagsToString(tags map[string]string) string {
 
 		resultSb186.WriteString(part)
 	}
+
 	result += resultSb186.String()
 
 	return result
@@ -215,9 +219,7 @@ func MergeTags(tagMaps ...map[string]string) map[string]string {
 	result := make(map[string]string)
 
 	for _, tags := range tagMaps {
-		for k, v := range tags {
-			result[k] = v
-		}
+		maps.Copy(result, tags)
 	}
 
 	return result
@@ -340,6 +342,7 @@ func SanitizeLabelKey(key string) string {
 
 	// Replace invalid characters with underscores
 	sanitized := ""
+
 	var sanitizedSb338 strings.Builder
 
 	for _, char := range key {
@@ -347,11 +350,12 @@ func SanitizeLabelKey(key string) string {
 			(char >= 'A' && char <= 'Z') ||
 			(char >= '0' && char <= '9') ||
 			char == '_' {
-			sanitizedSb338.WriteString(string(char))
+			sanitizedSb338.WriteRune(char)
 		} else {
 			sanitizedSb338.WriteString("_")
 		}
 	}
+
 	sanitized += sanitizedSb338.String()
 
 	// Truncate if too long
@@ -366,13 +370,15 @@ func SanitizeLabelKey(key string) string {
 func SanitizeLabelValue(value string) string {
 	// Remove null bytes and control characters
 	sanitized := ""
+
 	var sanitizedSb361 strings.Builder
 
 	for _, char := range value {
 		if char >= 32 || char == '\t' || char == '\n' || char == '\r' {
-			sanitizedSb361.WriteString(string(char))
+			sanitizedSb361.WriteRune(char)
 		}
 	}
+
 	sanitized += sanitizedSb361.String()
 
 	// Truncate if too long
@@ -390,9 +396,7 @@ func CopyLabels(labels map[string]string) map[string]string {
 	}
 
 	copied := make(map[string]string, len(labels))
-	for k, v := range labels {
-		copied[k] = v
-	}
+	maps.Copy(copied, labels)
 
 	return copied
 }
@@ -523,6 +527,7 @@ func ValidateMetricName(name string) bool {
 func NormalizeMetricName(name string) string {
 	// Replace invalid characters with underscore
 	normalized := ""
+
 	var normalizedSb503 strings.Builder
 
 	for _, char := range name {
@@ -530,11 +535,12 @@ func NormalizeMetricName(name string) string {
 			(char >= 'A' && char <= 'Z') ||
 			(char >= '0' && char <= '9') ||
 			char == '_' || char == '.' || char == '-' {
-			normalizedSb503.WriteString(string(char))
+			normalizedSb503.WriteRune(char)
 		} else {
 			normalizedSb503.WriteString("_")
 		}
 	}
+
 	normalized += normalizedSb503.String()
 
 	return normalized
@@ -746,9 +752,7 @@ func (h *histogramImpl) GetBuckets() map[float64]uint64 {
 	defer h.mu.RUnlock()
 
 	buckets := make(map[float64]uint64)
-	for k, v := range h.buckets {
-		buckets[k] = v
-	}
+	maps.Copy(buckets, h.buckets)
 
 	return buckets
 }
@@ -817,10 +821,7 @@ func (h *histogramImpl) GetPercentile(percentile float64) float64 {
 	copy(sortedValues, h.values)
 	sort.Float64s(sortedValues)
 
-	index := int(percentile/100*float64(len(sortedValues))) - 1
-	if index < 0 {
-		index = 0
-	}
+	index := max(int(percentile/100*float64(len(sortedValues)))-1, 0)
 
 	if index >= len(sortedValues) {
 		index = len(sortedValues) - 1
@@ -943,14 +944,9 @@ func (t *timerImpl) GetPercentile(percentile float64) time.Duration {
 	// Sort durations for percentile calculation
 	sortedDurations := make([]time.Duration, len(t.durations))
 	copy(sortedDurations, t.durations)
-	sort.Slice(sortedDurations, func(i, j int) bool {
-		return sortedDurations[i] < sortedDurations[j]
-	})
+	slices.Sort(sortedDurations)
 
-	index := int(percentile/100*float64(len(sortedDurations))) - 1
-	if index < 0 {
-		index = 0
-	}
+	index := max(int(percentile/100*float64(len(sortedDurations)))-1, 0)
 
 	if index >= len(sortedDurations) {
 		index = len(sortedDurations) - 1
@@ -1048,15 +1044,7 @@ func (lr *LabelRegistry) RecordLabel(key, value string) {
 
 	// Add sample value if not already present and room available
 	if len(meta.SampleValues) < lr.maxSamples {
-		found := false
-
-		for _, sample := range meta.SampleValues {
-			if sample == value {
-				found = true
-
-				break
-			}
-		}
+		found := slices.Contains(meta.SampleValues, value)
 
 		if !found {
 			meta.SampleValues = append(meta.SampleValues, value)
@@ -1088,9 +1076,7 @@ func (lr *LabelRegistry) GetLabelStats() map[string]*LabelMetadata {
 	defer lr.mu.RUnlock()
 
 	stats := make(map[string]*LabelMetadata, len(lr.labels))
-	for k, v := range lr.labels {
-		stats[k] = v
-	}
+	maps.Copy(stats, lr.labels)
 
 	return stats
 }
@@ -1297,13 +1283,9 @@ func formatLabels(labels map[string]string) string {
 
 func mergeMaps(m1, m2 map[string]string) map[string]string {
 	result := make(map[string]string, len(m1)+len(m2))
-	for k, v := range m1 {
-		result[k] = v
-	}
+	maps.Copy(result, m1)
 
-	for k, v := range m2 {
-		result[k] = v
-	}
+	maps.Copy(result, m2)
 
 	return result
 }

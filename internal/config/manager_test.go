@@ -72,12 +72,12 @@ func TestManager_Get(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
 
 	// Set some test data
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"string": "value",
 		"int":    42,
 		"bool":   true,
 		"float":  3.14,
-		"nested": map[string]interface{}{
+		"nested": map[string]any{
 			"key": "nested_value",
 		},
 	}
@@ -85,7 +85,7 @@ func TestManager_Get(t *testing.T) {
 	tests := []struct {
 		name string
 		key  string
-		want interface{}
+		want any
 	}{
 		{"string value", "string", "value"},
 		{"int value", "int", 42},
@@ -107,7 +107,7 @@ func TestManager_Get(t *testing.T) {
 
 func TestManager_GetString(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"string": "value",
 		"int":    42,
 		"empty":  "",
@@ -138,7 +138,7 @@ func TestManager_GetString(t *testing.T) {
 
 func TestManager_GetInt(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"int":     42,
 		"int8":    int8(10),
 		"int16":   int16(100),
@@ -177,7 +177,7 @@ func TestManager_GetInt(t *testing.T) {
 
 func TestManager_GetBool(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"bool_true":    true,
 		"bool_false":   false,
 		"string_true":  "true",
@@ -214,7 +214,7 @@ func TestManager_GetBool(t *testing.T) {
 
 func TestManager_GetDuration(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"duration": 5 * time.Second,
 		"string":   "10s",
 		"int":      30,
@@ -245,9 +245,9 @@ func TestManager_GetDuration(t *testing.T) {
 
 func TestManager_GetStringSlice(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"slice":     []string{"a", "b", "c"},
-		"interface": []interface{}{"x", "y", "z"},
+		"interface": []any{"x", "y", "z"},
 		"comma":     "one,two,three",
 	}
 
@@ -276,9 +276,9 @@ func TestManager_GetStringSlice(t *testing.T) {
 
 func TestManager_GetStringMap(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"map_string":    map[string]string{"key": "value"},
-		"map_interface": map[string]interface{}{"foo": "bar"},
+		"map_interface": map[string]any{"foo": "bar"},
 	}
 
 	tests := []struct {
@@ -305,7 +305,7 @@ func TestManager_GetStringMap(t *testing.T) {
 
 func TestManager_GetSizeInBytes(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"int":       1024,
 		"uint":      uint64(2048),
 		"string_kb": "10KB",
@@ -344,7 +344,7 @@ func TestManager_GetSizeInBytes(t *testing.T) {
 
 func TestManager_GetWithOptions(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"value": "test",
 		"empty": "",
 	}
@@ -379,7 +379,7 @@ func TestManager_GetWithOptions(t *testing.T) {
 	})
 
 	t.Run("with transform", func(t *testing.T) {
-		transform := func(v interface{}) interface{} {
+		transform := func(v any) any {
 			return "transformed"
 		}
 
@@ -394,7 +394,7 @@ func TestManager_GetWithOptions(t *testing.T) {
 	})
 
 	t.Run("with validator", func(t *testing.T) {
-		validator := func(v interface{}) error {
+		validator := func(v any) error {
 			if v == "" {
 				return ErrValidationError("empty", nil)
 			}
@@ -416,7 +416,7 @@ func TestManager_GetWithOptions(t *testing.T) {
 	})
 
 	t.Run("with onMissing callback", func(t *testing.T) {
-		onMissing := func(key string) interface{} {
+		onMissing := func(key string) any {
 			return "callback_value"
 		}
 
@@ -433,7 +433,7 @@ func TestManager_GetWithOptions(t *testing.T) {
 
 func TestManager_GetStringWithOptions(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"value": "test",
 		"empty": "",
 	}
@@ -471,7 +471,7 @@ func TestManager_Set(t *testing.T) {
 	tests := []struct {
 		name  string
 		key   string
-		value interface{}
+		value any
 	}{
 		{"set string", "key1", "value1"},
 		{"set int", "key2", 42},
@@ -496,7 +496,7 @@ func TestManager_Reset(t *testing.T) {
 
 	// Add some data
 	manager.data["key"] = "value"
-	manager.watchCallbacks["key"] = []func(string, interface{}){}
+	manager.watchCallbacks["key"] = []func(string, any){}
 
 	// Reset
 	manager.Reset()
@@ -521,9 +521,9 @@ func TestManager_Reset(t *testing.T) {
 
 func TestManager_GetKeys(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"key1": "value1",
-		"key2": map[string]interface{}{
+		"key2": map[string]any{
 			"nested": "value2",
 		},
 	}
@@ -552,9 +552,9 @@ func TestManager_GetKeys(t *testing.T) {
 
 func TestManager_HasKey(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"key1": "value1",
-		"nested": map[string]interface{}{
+		"nested": map[string]any{
 			"key2": "value2",
 		},
 	}
@@ -582,13 +582,13 @@ func TestManager_HasKey(t *testing.T) {
 
 func TestManager_IsSet(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"string":       "value",
 		"empty_string": "",
-		"slice":        []interface{}{"a", "b"},
-		"empty_slice":  []interface{}{},
-		"map":          map[string]interface{}{"key": "value"},
-		"empty_map":    map[string]interface{}{},
+		"slice":        []any{"a", "b"},
+		"empty_slice":  []any{},
+		"map":          map[string]any{"key": "value"},
+		"empty_map":    map[string]any{},
 	}
 
 	tests := []struct {
@@ -622,9 +622,9 @@ func TestManager_Size(t *testing.T) {
 		t.Errorf("Empty manager Size() = %v, want 0", size)
 	}
 
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"key1": "value1",
-		"key2": map[string]interface{}{
+		"key2": map[string]any{
 			"nested": "value2",
 		},
 	}
@@ -637,8 +637,8 @@ func TestManager_Size(t *testing.T) {
 
 func TestManager_GetSection(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
-		"section": map[string]interface{}{
+	manager.data = map[string]any{
+		"section": map[string]any{
 			"key1": "value1",
 			"key2": "value2",
 		},
@@ -680,8 +680,8 @@ func TestManager_GetSection(t *testing.T) {
 
 func TestManager_Sub(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
-		"section": map[string]interface{}{
+	manager.data = map[string]any{
+		"section": map[string]any{
 			"key1": "value1",
 			"key2": "value2",
 		},
@@ -710,9 +710,9 @@ func TestManager_Sub(t *testing.T) {
 
 func TestManager_Clone(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"key1": "value1",
-		"nested": map[string]interface{}{
+		"nested": map[string]any{
 			"key2": "value2",
 		},
 	}
@@ -737,7 +737,7 @@ func TestManager_Clone(t *testing.T) {
 
 func TestManager_GetAllSettings(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	testData := map[string]interface{}{
+	testData := map[string]any{
 		"key1": "value1",
 		"key2": 42,
 	}
@@ -781,15 +781,15 @@ type TestNestedConfig struct {
 
 func TestManager_Bind(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"string": "test",
 		"int":    42,
 		"bool":   true,
-		"slice":  []interface{}{"a", "b", "c"},
-		"map": map[string]interface{}{
+		"slice":  []any{"a", "b", "c"},
+		"map": map[string]any{
 			"key1": "value1",
 		},
-		"nested": map[string]interface{}{
+		"nested": map[string]any{
 			"key":   "nested_key",
 			"value": 100,
 		},
@@ -823,8 +823,8 @@ func TestManager_Bind(t *testing.T) {
 
 func TestManager_Bind_WithKey(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
-		"section": map[string]interface{}{
+	manager.data = map[string]any{
+		"section": map[string]any{
 			"key":   "value",
 			"value": 99,
 		},
@@ -848,14 +848,14 @@ func TestManager_Bind_WithKey(t *testing.T) {
 
 func TestManager_BindWithOptions(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"key": "value",
 	}
 
 	t.Run("with default value", func(t *testing.T) {
 		var config TestNestedConfig
 
-		defaultValue := map[string]interface{}{
+		defaultValue := map[string]any{
 			"key":   "default_key",
 			"value": 50,
 		}
@@ -891,7 +891,7 @@ func TestManager_BindWithOptions(t *testing.T) {
 
 func TestManager_WatchWithCallback(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"key": "initial",
 	}
 
@@ -901,10 +901,10 @@ func TestManager_WatchWithCallback(t *testing.T) {
 
 	var (
 		callbackKey   string
-		callbackValue interface{}
+		callbackValue any
 	)
 
-	manager.WatchWithCallback("key", func(key string, value interface{}) {
+	manager.WatchWithCallback("key", func(key string, value any) {
 		mu.Lock()
 		defer mu.Unlock()
 
@@ -984,7 +984,7 @@ func TestManager_WatchChanges(t *testing.T) {
 
 func TestManager_Validate(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"key": "value",
 	}
 
@@ -1026,7 +1026,7 @@ func TestManager_Stop(t *testing.T) {
 
 func TestManager_CompatibilityAliases(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
-	manager.data = map[string]interface{}{
+	manager.data = map[string]any{
 		"key": "value",
 	}
 
@@ -1082,7 +1082,7 @@ func TestManager_ConversionHelpers(t *testing.T) {
 
 	t.Run("convertToString", func(t *testing.T) {
 		tests := []struct {
-			input interface{}
+			input any
 			want  string
 		}{
 			{"string", "string"},
@@ -1161,7 +1161,7 @@ func TestManager_Concurrency(t *testing.T) {
 	done := make(chan bool)
 
 	// Writer goroutines
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(val int) {
 			manager.Set("key", val)
 
@@ -1170,7 +1170,7 @@ func TestManager_Concurrency(t *testing.T) {
 	}
 
 	// Reader goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			_ = manager.Get("key")
 
@@ -1179,7 +1179,7 @@ func TestManager_Concurrency(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):

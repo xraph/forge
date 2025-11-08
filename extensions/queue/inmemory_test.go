@@ -654,10 +654,12 @@ func TestInMemoryQueue_NotConnectedErrors(t *testing.T) {
 		{"DeleteQueue", func() error { return q.DeleteQueue(ctx, "test") }},
 		{"ListQueues", func() error {
 			_, err := q.ListQueues(ctx)
+
 			return err
 		}},
 		{"GetQueueInfo", func() error {
 			_, err := q.GetQueueInfo(ctx, "test")
+
 			return err
 		}},
 		{"PurgeQueue", func() error { return q.PurgeQueue(ctx, "test") }},
@@ -666,11 +668,13 @@ func TestInMemoryQueue_NotConnectedErrors(t *testing.T) {
 		{"Consume", func() error { return q.Consume(ctx, "test", nil, DefaultConsumeOptions()) }},
 		{"GetDeadLetterQueue", func() error {
 			_, err := q.GetDeadLetterQueue(ctx, "test")
+
 			return err
 		}},
 		{"RequeueDeadLetter", func() error { return q.RequeueDeadLetter(ctx, "test", "id") }},
 		{"Stats", func() error {
 			_, err := q.Stats(ctx)
+
 			return err
 		}},
 	}
@@ -704,9 +708,7 @@ func TestInMemoryQueue_ConcurrentAccess(t *testing.T) {
 	// Concurrent publishes
 	var wg sync.WaitGroup
 	for range 10 {
-
 		wg.Go(func() {
-
 			_ = q.Publish(ctx, "test", Message{Body: []byte("test")})
 		})
 	}
