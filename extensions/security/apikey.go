@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +16,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// API Key errors
+// API Key errors.
 var (
 	ErrAPIKeyMissing = errors.New("api key missing")
 	ErrAPIKeyInvalid = errors.New("api key invalid")
@@ -23,7 +24,7 @@ var (
 	ErrAPIKeyRevoked = errors.New("api key revoked")
 )
 
-// APIKeyConfig holds API key authentication configuration
+// APIKeyConfig holds API key authentication configuration.
 type APIKeyConfig struct {
 	// Enabled determines if API key authentication is enabled
 	Enabled bool
@@ -53,7 +54,7 @@ type APIKeyConfig struct {
 	Validator func(ctx context.Context, key string) (*APIKeyInfo, error)
 }
 
-// DefaultAPIKeyConfig returns the default API key configuration
+// DefaultAPIKeyConfig returns the default API key configuration.
 func DefaultAPIKeyConfig() APIKeyConfig {
 	return APIKeyConfig{
 		Enabled:             true,
@@ -68,46 +69,43 @@ func DefaultAPIKeyConfig() APIKeyConfig {
 	}
 }
 
-// APIKeyInfo represents information about an API key
+// APIKeyInfo represents information about an API key.
 type APIKeyInfo struct {
-	Key        string                 // The API key
-	Name       string                 // Friendly name for the key
-	UserID     string                 // Associated user ID
-	Scopes     []string               // Allowed scopes/permissions
-	RateLimit  int                    // Rate limit for this key
-	ExpiresAt  *time.Time             // Expiration time (nil = never expires)
-	CreatedAt  time.Time              // Creation time
-	LastUsedAt *time.Time             // Last usage time
-	Revoked    bool                   // Whether the key is revoked
-	Metadata   map[string]interface{} // Additional metadata
+	Key        string         // The API key
+	Name       string         // Friendly name for the key
+	UserID     string         // Associated user ID
+	Scopes     []string       // Allowed scopes/permissions
+	RateLimit  int            // Rate limit for this key
+	ExpiresAt  *time.Time     // Expiration time (nil = never expires)
+	CreatedAt  time.Time      // Creation time
+	LastUsedAt *time.Time     // Last usage time
+	Revoked    bool           // Whether the key is revoked
+	Metadata   map[string]any // Additional metadata
 }
 
-// IsExpired checks if the API key is expired
+// IsExpired checks if the API key is expired.
 func (info *APIKeyInfo) IsExpired() bool {
 	if info.ExpiresAt == nil {
 		return false
 	}
+
 	return time.Now().After(*info.ExpiresAt)
 }
 
-// HasScope checks if the API key has a specific scope
+// HasScope checks if the API key has a specific scope.
 func (info *APIKeyInfo) HasScope(scope string) bool {
-	for _, s := range info.Scopes {
-		if s == scope {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(info.Scopes, scope)
 }
 
-// APIKeyManager manages API keys
+// APIKeyManager manages API keys.
 type APIKeyManager struct {
 	config APIKeyConfig
 	keys   sync.Map // map[string]*APIKeyInfo
 	logger forge.Logger
 }
 
-// NewAPIKeyManager creates a new API key manager
+// NewAPIKeyManager creates a new API key manager.
 func NewAPIKeyManager(config APIKeyConfig, logger forge.Logger) *APIKeyManager {
 	if config.KeyLookup == "" {
 		config.KeyLookup = "header:X-API-Key"
@@ -119,7 +117,7 @@ func NewAPIKeyManager(config APIKeyConfig, logger forge.Logger) *APIKeyManager {
 	}
 }
 
-// GenerateAPIKey generates a new cryptographically secure API key
+// GenerateAPIKey generates a new cryptographically secure API key.
 func (m *APIKeyManager) GenerateAPIKey(prefix string) (string, error) {
 	// Generate random bytes
 	bytes := make([]byte, 32)
@@ -138,7 +136,7 @@ func (m *APIKeyManager) GenerateAPIKey(prefix string) (string, error) {
 	return key, nil
 }
 
-// CreateAPIKey creates and stores a new API key
+// CreateAPIKey creates and stores a new API key.
 func (m *APIKeyManager) CreateAPIKey(info *APIKeyInfo) (string, error) {
 	// Generate key if not provided
 	if info.Key == "" {
@@ -146,6 +144,7 @@ func (m *APIKeyManager) CreateAPIKey(info *APIKeyInfo) (string, error) {
 		if err != nil {
 			return "", err
 		}
+
 		info.Key = key
 	}
 
@@ -163,16 +162,17 @@ func (m *APIKeyManager) CreateAPIKey(info *APIKeyInfo) (string, error) {
 	return info.Key, nil
 }
 
-// GetAPIKey retrieves API key information
+// GetAPIKey retrieves API key information.
 func (m *APIKeyManager) GetAPIKey(key string) (*APIKeyInfo, bool) {
 	val, ok := m.keys.Load(key)
 	if !ok {
 		return nil, false
 	}
+
 	return val.(*APIKeyInfo), true
 }
 
-// UpdateLastUsed updates the last used timestamp for an API key
+// UpdateLastUsed updates the last used timestamp for an API key.
 func (m *APIKeyManager) UpdateLastUsed(key string) {
 	if val, ok := m.keys.Load(key); ok {
 		info := val.(*APIKeyInfo)
@@ -181,7 +181,7 @@ func (m *APIKeyManager) UpdateLastUsed(key string) {
 	}
 }
 
-// RevokeAPIKey revokes an API key
+// RevokeAPIKey revokes an API key.
 func (m *APIKeyManager) RevokeAPIKey(key string) error {
 	val, ok := m.keys.Load(key)
 	if !ok {
@@ -199,13 +199,13 @@ func (m *APIKeyManager) RevokeAPIKey(key string) error {
 	return nil
 }
 
-// DeleteAPIKey deletes an API key
+// DeleteAPIKey deletes an API key.
 func (m *APIKeyManager) DeleteAPIKey(key string) {
 	m.keys.Delete(key)
 	m.logger.Info("api key deleted", forge.F("key", key[:8]+"..."))
 }
 
-// ValidateAPIKey validates an API key
+// ValidateAPIKey validates an API key.
 func (m *APIKeyManager) ValidateAPIKey(ctx context.Context, key string) (*APIKeyInfo, error) {
 	// Use custom validator if provided
 	if m.config.Validator != nil {
@@ -234,24 +234,26 @@ func (m *APIKeyManager) ValidateAPIKey(ctx context.Context, key string) (*APIKey
 	return info, nil
 }
 
-// ListAPIKeys returns all API keys for a user
+// ListAPIKeys returns all API keys for a user.
 func (m *APIKeyManager) ListAPIKeys(userID string) []*APIKeyInfo {
 	var keys []*APIKeyInfo
-	m.keys.Range(func(key, value interface{}) bool {
+	m.keys.Range(func(key, value any) bool {
 		info := value.(*APIKeyInfo)
 		if info.UserID == userID {
 			keys = append(keys, info)
 		}
+
 		return true
 	})
+
 	return keys
 }
 
-// extractKeyFromRequest extracts the API key from request based on KeyLookup config
+// extractKeyFromRequest extracts the API key from request based on KeyLookup config.
 func (m *APIKeyManager) extractKeyFromRequest(r *http.Request) string {
-	lookups := strings.Split(m.config.KeyLookup, ",")
+	lookups := strings.SplitSeq(m.config.KeyLookup, ",")
 
-	for _, lookup := range lookups {
+	for lookup := range lookups {
 		parts := strings.Split(strings.TrimSpace(lookup), ":")
 		if len(parts) != 2 {
 			continue
@@ -261,6 +263,7 @@ func (m *APIKeyManager) extractKeyFromRequest(r *http.Request) string {
 		keyName := parts[1]
 
 		var key string
+
 		switch extractor {
 		case "header":
 			value := r.Header.Get(keyName)
@@ -268,8 +271,8 @@ func (m *APIKeyManager) extractKeyFromRequest(r *http.Request) string {
 				// Remove prefix if specified
 				if m.config.KeyPrefix != "" {
 					prefix := m.config.KeyPrefix + " "
-					if strings.HasPrefix(value, prefix) {
-						key = strings.TrimPrefix(value, prefix)
+					if after, ok := strings.CutPrefix(value, prefix); ok {
+						key = after
 					}
 				} else {
 					key = value
@@ -291,20 +294,21 @@ func (m *APIKeyManager) extractKeyFromRequest(r *http.Request) string {
 	return ""
 }
 
-// shouldSkipPath checks if the path should skip API key authentication
+// shouldSkipPath checks if the path should skip API key authentication.
 func (m *APIKeyManager) shouldSkipPath(path string) bool {
 	for _, skipPath := range m.config.SkipPaths {
 		if path == skipPath || strings.HasPrefix(path, skipPath) {
 			return true
 		}
 	}
+
 	return false
 }
 
-// apiKeyContextKey is the context key for API key info
+// apiKeyContextKey is the context key for API key info.
 type apiKeyContextKey struct{}
 
-// APIKeyMiddleware returns a middleware function for API key authentication
+// APIKeyMiddleware returns a middleware function for API key authentication.
 func APIKeyMiddleware(manager *APIKeyManager) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -325,6 +329,7 @@ func APIKeyMiddleware(manager *APIKeyManager) forge.Middleware {
 				manager.logger.Debug("api key missing",
 					forge.F("path", r.URL.Path),
 				)
+
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
@@ -337,6 +342,7 @@ func APIKeyMiddleware(manager *APIKeyManager) forge.Middleware {
 					forge.F("error", err),
 					forge.F("path", r.URL.Path),
 				)
+
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
@@ -353,23 +359,26 @@ func APIKeyMiddleware(manager *APIKeyManager) forge.Middleware {
 	}
 }
 
-// GetAPIKeyInfo retrieves API key info from Forge context
+// GetAPIKeyInfo retrieves API key info from Forge context.
 func GetAPIKeyInfo(ctx forge.Context) (*APIKeyInfo, bool) {
 	val := ctx.Get("apikey_info")
 	if val == nil {
 		return nil, false
 	}
+
 	info, ok := val.(*APIKeyInfo)
+
 	return info, ok
 }
 
-// GetAPIKeyInfoFromStdContext retrieves API key info from standard context (for backward compatibility)
+// GetAPIKeyInfoFromStdContext retrieves API key info from standard context (for backward compatibility).
 func GetAPIKeyInfoFromStdContext(ctx context.Context) (*APIKeyInfo, bool) {
 	info, ok := ctx.Value(apiKeyContextKey{}).(*APIKeyInfo)
+
 	return info, ok
 }
 
-// RequireScopes returns a middleware that checks if the API key has required scopes
+// RequireScopes returns a middleware that checks if the API key has required scopes.
 func RequireScopes(scopes ...string) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -381,7 +390,7 @@ func RequireScopes(scopes ...string) forge.Middleware {
 			// Check if API key has all required scopes
 			for _, requiredScope := range scopes {
 				if !info.HasScope(requiredScope) {
-					return ctx.String(http.StatusForbidden, fmt.Sprintf("Forbidden: missing scope %s", requiredScope))
+					return ctx.String(http.StatusForbidden, "Forbidden: missing scope "+requiredScope)
 				}
 			}
 
@@ -391,18 +400,18 @@ func RequireScopes(scopes ...string) forge.Middleware {
 }
 
 // HashAPIKey creates a hash of an API key for secure storage
-// This allows you to store hashed keys in a database
+// This allows you to store hashed keys in a database.
 func HashAPIKey(key string, hasher *PasswordHasher) (string, error) {
 	return hasher.Hash(key)
 }
 
-// VerifyAPIKeyHash verifies an API key against a hash
+// VerifyAPIKeyHash verifies an API key against a hash.
 func VerifyAPIKeyHash(key, hash string, hasher *PasswordHasher) (bool, error) {
 	return hasher.Verify(key, hash)
 }
 
 // ConstantTimeCompare performs constant-time comparison of two strings
-// Use this when comparing API keys to prevent timing attacks
+// Use this when comparing API keys to prevent timing attacks.
 func ConstantTimeCompare(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

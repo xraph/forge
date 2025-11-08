@@ -1,6 +1,7 @@
 package router
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -28,11 +29,13 @@ func TestRouter_EventStream_Basic(t *testing.T) {
 	// Verify route was registered
 	routes := router.Routes()
 	found := false
+
 	for _, route := range routes {
 		if route.Path == "/events" {
 			found = true
 		}
 	}
+
 	assert.True(t, found)
 }
 
@@ -45,6 +48,7 @@ func TestRouter_EventStream_MultipleMessages(t *testing.T) {
 		stream.Send("msg1", []byte("data1"))
 		stream.Send("msg2", []byte("data2"))
 		stream.Send("msg3", []byte("data3"))
+
 		return nil
 	})
 
@@ -57,6 +61,7 @@ func TestRouter_EventStream_JSON(t *testing.T) {
 
 	err := router.EventStream("/json", func(ctx Context, stream Stream) error {
 		data := map[string]string{"message": "hello"}
+
 		return stream.SendJSON("json-event", data)
 	})
 
@@ -96,6 +101,7 @@ func TestRouter_EventStream_ContextDone(t *testing.T) {
 			return nil
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("context not cancelled after close")
+
 			return nil
 		}
 	})
@@ -121,14 +127,17 @@ func TestRouter_EventStream_WithOptions(t *testing.T) {
 	// Check route was registered
 	routes := router.Routes()
 	found := false
+
 	for _, route := range routes {
 		if route.Path == "/opts" {
 			found = true
+
 			assert.Equal(t, "sse-endpoint", route.Name)
 			assert.Contains(t, route.Tags, "streaming")
 			assert.Equal(t, "SSE endpoint", route.Summary)
 		}
 	}
+
 	assert.True(t, found)
 }
 
@@ -138,6 +147,7 @@ func TestRouter_EventStream_ErrorHandling(t *testing.T) {
 
 	err := router.EventStream("/error", func(ctx Context, stream Stream) error {
 		stream.Send("before-error", []byte("data"))
+
 		return assert.AnError // Simulate error
 	})
 
@@ -161,12 +171,15 @@ func TestRouter_EventStream_Routes(t *testing.T) {
 
 	// Should have at least 2 SSE routes
 	sseCount := 0
+
 	for _, route := range routes {
 		if route.Path == "/events1" || route.Path == "/events2" {
 			sseCount++
+
 			assert.Equal(t, "GET", route.Method)
 		}
 	}
+
 	assert.Equal(t, 2, sseCount)
 }
 
@@ -198,6 +211,7 @@ func TestRouter_EventStream_Flush(t *testing.T) {
 
 	err := router.EventStream("/flush", func(ctx Context, stream Stream) error {
 		stream.Send("test", []byte("data"))
+
 		return stream.Flush()
 	})
 
@@ -212,6 +226,7 @@ func TestRouter_WebSocket_Basic(t *testing.T) {
 		assert.NotNil(t, ctx)
 		assert.NotNil(t, conn)
 		assert.NotEmpty(t, conn.ID())
+
 		return nil
 	})
 
@@ -236,14 +251,17 @@ func TestRouter_WebSocket_WithOptions(t *testing.T) {
 	// Check route was registered
 	routes := router.Routes()
 	found := false
+
 	for _, route := range routes {
 		if route.Path == "/ws" {
 			found = true
+
 			assert.Equal(t, "ws-endpoint", route.Name)
 			assert.Contains(t, route.Tags, "websocket")
 			assert.Equal(t, "WebSocket endpoint", route.Summary)
 		}
 	}
+
 	assert.True(t, found)
 }
 
@@ -293,12 +311,15 @@ func TestRouter_WebSocket_Routes(t *testing.T) {
 
 	// Should have at least 2 WebSocket routes
 	wsCount := 0
+
 	for _, route := range routes {
 		if route.Path == "/ws1" || route.Path == "/ws2" {
 			wsCount++
+
 			assert.Equal(t, "GET", route.Method)
 		}
 	}
+
 	assert.Equal(t, 2, wsCount)
 }
 
@@ -327,7 +348,7 @@ func TestUpgradeToWebSocket_MockRequest(t *testing.T) {
 	// This test would require actual WebSocket upgrade which is complex
 	// Just verify the function exists and can be called
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/ws", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
 
 	_, err := upgradeToWebSocket(w, req)
 	// Expected to fail with mock request (no upgrade header)

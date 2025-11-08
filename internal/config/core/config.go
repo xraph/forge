@@ -10,7 +10,7 @@ import (
 // CONFIGURATION MANAGEMENT
 // =============================================================================
 
-// ConfigManager defines the comprehensive interface for configuration management
+// ConfigManager defines the comprehensive interface for configuration management.
 type ConfigManager interface {
 	// Lifecycle
 	Name() string
@@ -25,7 +25,7 @@ type ConfigManager interface {
 	Stop() error
 
 	// Basic getters with optional variadic defaults
-	Get(key string) interface{}
+	Get(key string) any
 	GetString(key string, defaultValue ...string) string
 	GetInt(key string, defaultValue ...int) int
 	GetInt8(key string, defaultValue ...int8) int8
@@ -55,28 +55,28 @@ type ConfigManager interface {
 	GetStringMapStringSlice(key string, defaultValue ...map[string][]string) map[string][]string
 
 	// Advanced getters with functional options
-	GetWithOptions(key string, opts ...GetOption) (interface{}, error)
+	GetWithOptions(key string, opts ...GetOption) (any, error)
 	GetStringWithOptions(key string, opts ...GetOption) (string, error)
 	GetIntWithOptions(key string, opts ...GetOption) (int, error)
 	GetBoolWithOptions(key string, opts ...GetOption) (bool, error)
 	GetDurationWithOptions(key string, opts ...GetOption) (time.Duration, error)
 
 	// Configuration modification
-	Set(key string, value interface{})
+	Set(key string, value any)
 
 	// Binding methods
-	Bind(key string, target interface{}) error
-	BindWithDefault(key string, target interface{}, defaultValue interface{}) error
-	BindWithOptions(key string, target interface{}, options BindOptions) error
+	Bind(key string, target any) error
+	BindWithDefault(key string, target any, defaultValue any) error
+	BindWithOptions(key string, target any, options BindOptions) error
 
 	// Watching and callbacks
-	WatchWithCallback(key string, callback func(string, interface{}))
+	WatchWithCallback(key string, callback func(string, any))
 	WatchChanges(callback func(ConfigChange))
 
 	// Metadata and introspection
 	GetSourceMetadata() map[string]*SourceMetadata
 	GetKeys() []string
-	GetSection(key string) map[string]interface{}
+	GetSection(key string) map[string]any
 	HasKey(key string) bool
 	IsSet(key string) bool
 	Size() int
@@ -85,20 +85,20 @@ type ConfigManager interface {
 	Sub(key string) ConfigManager
 	MergeWith(other ConfigManager) error
 	Clone() ConfigManager
-	GetAllSettings() map[string]interface{}
+	GetAllSettings() map[string]any
 
 	// Utility methods
 	Reset()
 	ExpandEnvVars() error
-	SafeGet(key string, expectedType reflect.Type) (interface{}, error)
+	SafeGet(key string, expectedType reflect.Type) (any, error)
 
 	// Compatibility aliases
 	GetBytesSize(key string, defaultValue ...uint64) uint64
 	InConfig(key string) bool
-	UnmarshalKey(key string, rawVal interface{}) error
-	Unmarshal(rawVal interface{}) error
+	UnmarshalKey(key string, rawVal any) error
+	Unmarshal(rawVal any) error
 	AllKeys() []string
-	AllSettings() map[string]interface{}
+	AllSettings() map[string]any
 	ReadInConfig() error
 	SetConfigType(configType string)
 	SetConfigFile(filePath string) error
@@ -107,16 +107,16 @@ type ConfigManager interface {
 	OnConfigChange(callback func(ConfigChange))
 }
 
-// GetOption defines functional options for advanced get operations
+// GetOption defines functional options for advanced get operations.
 type GetOption func(*GetOptions)
 
-// GetOptions contains options for advanced get operations
+// GetOptions contains options for advanced get operations.
 type GetOptions struct {
-	Default    interface{}
+	Default    any
 	Required   bool
-	Validator  func(interface{}) error
-	Transform  func(interface{}) interface{}
-	OnMissing  func(string) interface{}
+	Validator  func(any) error
+	Transform  func(any) any
+	OnMissing  func(string) any
 	AllowEmpty bool
 	CacheKey   string
 }

@@ -10,14 +10,15 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements the database extension
+// Extension implements the database extension.
 type Extension struct {
 	*forge.BaseExtension
+
 	config  Config
 	manager *DatabaseManager
 }
 
-// NewExtension creates a new database extension with variadic options
+// NewExtension creates a new database extension with variadic options.
 func NewExtension(opts ...ConfigOption) forge.Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -25,31 +26,35 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("database", "2.0.0", "Multi-database support with SQL (Postgres, MySQL, SQLite) and NoSQL (MongoDB)")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
 	}
 }
 
-// NewExtensionWithConfig creates a new database extension with a complete config
+// NewExtensionWithConfig creates a new database extension with a complete config.
 func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the extension with the application
+// Register registers the extension with the application.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
 	}
 
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("database", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("database: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("database: using default/programmatic config", forge.F("error", err.Error()))
 	}
+
 	e.config = finalConfig
 
 	// Validate configuration
@@ -62,8 +67,10 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Register databases
 	for _, dbConfig := range e.config.Databases {
-		var db Database
-		var err error
+		var (
+			db  Database
+			err error
+		)
 
 		switch dbConfig.Type {
 		case TypePostgres, TypeMySQL, TypeSQLite:
@@ -106,9 +113,11 @@ func (e *Extension) Register(app forge.App) error {
 
 		// Get the default database config
 		var defaultConfig *DatabaseConfig
+
 		for i := range e.config.Databases {
 			if e.config.Databases[i].Name == defaultName {
 				defaultConfig = &e.config.Databases[i]
+
 				break
 			}
 		}
@@ -144,7 +153,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the extension
+// Start starts the extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting database extension")
 
@@ -155,10 +164,11 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	e.MarkStarted()
 	e.Logger().Info("database extension started")
+
 	return nil
 }
 
-// Stop stops the extension
+// Stop stops the extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping database extension")
 
@@ -169,18 +179,21 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 	e.MarkStopped()
 	e.Logger().Info("database extension stopped")
+
 	return nil
 }
 
-// Health checks the extension health
+// Health checks the extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	// Check all databases
 	statuses := e.manager.HealthCheckAll(ctx)
 
 	unhealthy := 0
+
 	for name, status := range statuses {
 		if !status.Healthy {
 			unhealthy++
+
 			e.Logger().Warn("database unhealthy", forge.F("name", name), forge.F("error", status.Message))
 		}
 	}

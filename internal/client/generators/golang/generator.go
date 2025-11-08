@@ -7,9 +7,10 @@ import (
 
 	"github.com/xraph/forge/internal/client"
 	"github.com/xraph/forge/internal/client/generators"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Generator generates Go clients
+// Generator generates Go clients.
 type Generator struct {
 	typesGen     *TypesGenerator
 	restGen      *RESTGenerator
@@ -17,7 +18,7 @@ type Generator struct {
 	sseGen       *SSEGenerator
 }
 
-// NewGenerator creates a new Go generator
+// NewGenerator creates a new Go generator.
 func NewGenerator() generators.LanguageGenerator {
 	return &Generator{
 		typesGen:     NewTypesGenerator(),
@@ -27,12 +28,12 @@ func NewGenerator() generators.LanguageGenerator {
 	}
 }
 
-// Name returns the generator name
+// Name returns the generator name.
 func (g *Generator) Name() string {
 	return "go"
 }
 
-// SupportedFeatures returns supported features
+// SupportedFeatures returns supported features.
 func (g *Generator) SupportedFeatures() []string {
 	return []string{
 		generators.FeatureREST,
@@ -50,31 +51,32 @@ func (g *Generator) SupportedFeatures() []string {
 	}
 }
 
-// Validate validates the spec for Go generation
+// Validate validates the spec for Go generation.
 func (g *Generator) Validate(specIface generators.APISpec) error {
 	spec, ok := specIface.(*client.APISpec)
 	if !ok || spec == nil {
-		return fmt.Errorf("spec is nil or invalid type")
+		return errors.New("spec is nil or invalid type")
 	}
 
 	if spec.Info.Title == "" {
-		return fmt.Errorf("API title is required")
+		return errors.New("API title is required")
 	}
 
 	return nil
 }
 
-// Generate generates the Go client
+// Generate generates the Go client.
 func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, configIface generators.GeneratorConfig) (*generators.GeneratedClient, error) {
 	spec, ok := specIface.(*client.APISpec)
 	if !ok || spec == nil {
-		return nil, fmt.Errorf("spec is nil or invalid type")
+		return nil, errors.New("spec is nil or invalid type")
 	}
 
 	config, ok := configIface.(client.GeneratorConfig)
 	if !ok {
-		return nil, fmt.Errorf("config is invalid type")
+		return nil, errors.New("config is invalid type")
 	}
+
 	genClient := &generators.GeneratedClient{
 		Files:        make(map[string]string),
 		Language:     "go",
@@ -131,7 +133,7 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	return genClient, nil
 }
 
-// generateClientFile generates the main client.go file
+// generateClientFile generates the main client.go file.
 func (g *Generator) generateClientFile(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -234,7 +236,7 @@ func (g *Generator) generateClientFile(spec *client.APISpec, config client.Gener
 	return buf.String()
 }
 
-// generateAuthConfig generates the auth configuration struct
+// generateAuthConfig generates the auth configuration struct.
 func (g *Generator) generateAuthConfig(spec *client.APISpec) string {
 	var buf strings.Builder
 
@@ -247,9 +249,10 @@ func (g *Generator) generateAuthConfig(spec *client.APISpec) string {
 	for _, scheme := range schemes {
 		switch scheme.Type {
 		case "http":
-			if scheme.Scheme == "bearer" {
+			switch scheme.Scheme {
+			case "bearer":
 				buf.WriteString("\tBearerToken string\n")
-			} else if scheme.Scheme == "basic" {
+			case "basic":
 				buf.WriteString("\tBasicUsername string\n")
 				buf.WriteString("\tBasicPassword string\n")
 			}
@@ -264,7 +267,7 @@ func (g *Generator) generateAuthConfig(spec *client.APISpec) string {
 	return buf.String()
 }
 
-// generateHelperMethods generates helper methods for the client
+// generateHelperMethods generates helper methods for the client.
 func (g *Generator) generateHelperMethods(config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -292,7 +295,7 @@ func (g *Generator) generateHelperMethods(config client.GeneratorConfig) string 
 	return buf.String()
 }
 
-// generateErrorsFile generates the errors.go file
+// generateErrorsFile generates the errors.go file.
 func (g *Generator) generateErrorsFile(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -328,7 +331,7 @@ func (g *Generator) generateErrorsFile(spec *client.APISpec, config client.Gener
 	return buf.String()
 }
 
-// generateGoMod generates the go.mod file
+// generateGoMod generates the go.mod file.
 func (g *Generator) generateGoMod(config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -344,7 +347,7 @@ func (g *Generator) generateGoMod(config client.GeneratorConfig) string {
 	return buf.String()
 }
 
-// getDependencies returns the list of dependencies
+// getDependencies returns the list of dependencies.
 func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.Dependency {
 	deps := []generators.Dependency{}
 
@@ -364,12 +367,13 @@ func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.
 	return deps
 }
 
-// generateInstructions generates setup instructions
+// generateInstructions generates setup instructions.
 func (g *Generator) generateInstructions(spec *client.APISpec, config client.GeneratorConfig) string {
 	outputMgr := client.NewOutputManager()
 	authGen := client.NewAuthCodeGenerator()
 
 	authDocs := ""
+
 	if config.IncludeAuth {
 		schemes := authGen.DetectAuthSchemes(spec)
 		authDocs = authGen.GenerateAuthDocumentation(schemes)

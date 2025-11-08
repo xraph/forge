@@ -3,24 +3,26 @@ package orpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge/farp"
 )
 
 // Provider generates oRPC (OpenAPI-based RPC) schemas from applications
-// oRPC is similar to OpenAPI but optimized for RPC-style calls
+// oRPC is similar to OpenAPI but optimized for RPC-style calls.
 type Provider struct {
 	specVersion string
 	endpoint    string
 }
 
 // NewProvider creates a new oRPC schema provider
-// specVersion should be the oRPC specification version (e.g., "1.0.0")
+// specVersion should be the oRPC specification version (e.g., "1.0.0").
 func NewProvider(specVersion string, endpoint string) *Provider {
 	if specVersion == "" {
 		specVersion = "1.0.0"
 	}
+
 	if endpoint == "" {
 		endpoint = "/orpc.json"
 	}
@@ -31,28 +33,28 @@ func NewProvider(specVersion string, endpoint string) *Provider {
 	}
 }
 
-// Type returns the schema type
+// Type returns the schema type.
 func (p *Provider) Type() farp.SchemaType {
 	return farp.SchemaTypeORPC
 }
 
-// SpecVersion returns the oRPC specification version
+// SpecVersion returns the oRPC specification version.
 func (p *Provider) SpecVersion() string {
 	return p.specVersion
 }
 
-// ContentType returns the content type
+// ContentType returns the content type.
 func (p *Provider) ContentType() string {
 	return "application/json"
 }
 
-// Endpoint returns the HTTP endpoint where the schema is served
+// Endpoint returns the HTTP endpoint where the schema is served.
 func (p *Provider) Endpoint() string {
 	return p.endpoint
 }
 
-// Generate generates an oRPC schema from the application
-func (p *Provider) Generate(ctx context.Context, app farp.Application) (interface{}, error) {
+// Generate generates an oRPC schema from the application.
+func (p *Provider) Generate(ctx context.Context, app farp.Application) (any, error) {
 	// oRPC schemas are similar to OpenAPI but with RPC-specific conventions:
 	// 1. Methods are typically POST endpoints
 	// 2. Request/response are structured as RPC calls
@@ -61,21 +63,20 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	//
 	// For now, generate a minimal oRPC schema
 	// This should integrate with Forge's router to extract RPC procedures
-
 	routes := app.Routes()
 	if routes == nil {
-		return nil, fmt.Errorf("application does not provide routes")
+		return nil, errors.New("application does not provide routes")
 	}
 
 	// Build oRPC spec (similar to OpenAPI but RPC-focused)
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"orpc": p.specVersion,
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":       app.Name(),
 			"version":     app.Version(),
-			"description": fmt.Sprintf("oRPC API for %s", app.Name()),
+			"description": "oRPC API for " + app.Name(),
 		},
-		"procedures": map[string]interface{}{
+		"procedures": map[string]any{
 			// Example procedure structure:
 			// "getProcedureName": {
 			//   "summary": "Description",
@@ -83,35 +84,35 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 			//   "output": {...schema...},
 			//   "errors": [...error codes...],
 			// }
-			"health": map[string]interface{}{
+			"health": map[string]any{
 				"summary": "Health check procedure",
-				"input": map[string]interface{}{
+				"input": map[string]any{
 					"type":       "object",
-					"properties": map[string]interface{}{},
+					"properties": map[string]any{},
 				},
-				"output": map[string]interface{}{
+				"output": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"status": map[string]interface{}{
+					"properties": map[string]any{
+						"status": map[string]any{
 							"type": "string",
 						},
-						"timestamp": map[string]interface{}{
+						"timestamp": map[string]any{
 							"type": "string",
 						},
 					},
 					"required": []string{"status", "timestamp"},
 				},
 			},
-			"version": map[string]interface{}{
+			"version": map[string]any{
 				"summary": "Get service version",
-				"input": map[string]interface{}{
+				"input": map[string]any{
 					"type":       "object",
-					"properties": map[string]interface{}{},
+					"properties": map[string]any{},
 				},
-				"output": map[string]interface{}{
+				"output": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"version": map[string]interface{}{
+					"properties": map[string]any{
+						"version": map[string]any{
 							"type": "string",
 						},
 					},
@@ -119,18 +120,18 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 				},
 			},
 		},
-		"components": map[string]interface{}{
-			"schemas": map[string]interface{}{
-				"Error": map[string]interface{}{
+		"components": map[string]any{
+			"schemas": map[string]any{
+				"Error": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"code": map[string]interface{}{
+					"properties": map[string]any{
+						"code": map[string]any{
 							"type": "integer",
 						},
-						"message": map[string]interface{}{
+						"message": map[string]any{
 							"type": "string",
 						},
-						"details": map[string]interface{}{
+						"details": map[string]any{
 							"type": "object",
 						},
 					},
@@ -138,7 +139,7 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 				},
 			},
 		},
-		"transport": map[string]interface{}{
+		"transport": map[string]any{
 			"protocol": "http",
 			"endpoint": "/rpc",
 			"encoding": "json",
@@ -151,10 +152,10 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	return spec, nil
 }
 
-// Validate validates an oRPC schema
-func (p *Provider) Validate(schema interface{}) error {
+// Validate validates an oRPC schema.
+func (p *Provider) Validate(schema any) error {
 	// Basic validation - check for required fields
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: schema must be a map", farp.ErrInvalidSchema)
 	}
@@ -175,14 +176,14 @@ func (p *Provider) Validate(schema interface{}) error {
 	}
 
 	// Validate procedures structure
-	procedures, ok := schemaMap["procedures"].(map[string]interface{})
+	procedures, ok := schemaMap["procedures"].(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: 'procedures' must be an object", farp.ErrInvalidSchema)
 	}
 
 	// Each procedure should have input/output
 	for procName, proc := range procedures {
-		procMap, ok := proc.(map[string]interface{})
+		procMap, ok := proc.(map[string]any)
 		if !ok {
 			return fmt.Errorf("%w: procedure '%s' must be an object", farp.ErrInvalidSchema, procName)
 		}
@@ -199,17 +200,17 @@ func (p *Provider) Validate(schema interface{}) error {
 	return nil
 }
 
-// Hash calculates SHA256 hash of the schema
-func (p *Provider) Hash(schema interface{}) (string, error) {
+// Hash calculates SHA256 hash of the schema.
+func (p *Provider) Hash(schema any) (string, error) {
 	return farp.CalculateSchemaChecksum(schema)
 }
 
-// Serialize converts schema to JSON bytes
-func (p *Provider) Serialize(schema interface{}) ([]byte, error) {
+// Serialize converts schema to JSON bytes.
+func (p *Provider) Serialize(schema any) ([]byte, error) {
 	return json.Marshal(schema)
 }
 
-// GenerateDescriptor generates a complete SchemaDescriptor for this schema
+// GenerateDescriptor generates a complete SchemaDescriptor for this schema.
 func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
 	// Generate schema
 	schema, err := p.Generate(ctx, app)
@@ -238,9 +239,11 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeHTTP:
 		url := locationConfig["url"]
 		if url == "" {
-			return nil, fmt.Errorf("url required for HTTP location")
+			return nil, errors.New("url required for HTTP location")
 		}
+
 		location.URL = url
+
 		if headers := locationConfig["headers"]; headers != "" {
 			var headersMap map[string]string
 			if err := json.Unmarshal([]byte(headers), &headersMap); err == nil {
@@ -251,8 +254,9 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeRegistry:
 		registryPath := locationConfig["registry_path"]
 		if registryPath == "" {
-			return nil, fmt.Errorf("registry_path required for registry location")
+			return nil, errors.New("registry_path required for registry location")
 		}
+
 		location.RegistryPath = registryPath
 
 	case farp.LocationTypeInline:
@@ -276,7 +280,7 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	return descriptor, nil
 }
 
-// SetEndpoint sets the HTTP endpoint for the oRPC schema
+// SetEndpoint sets the HTTP endpoint for the oRPC schema.
 func (p *Provider) SetEndpoint(endpoint string) {
 	p.endpoint = endpoint
 }

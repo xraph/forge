@@ -8,10 +8,11 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/models"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// InferenceHealthStatus represents the health status of the inference engine
+// InferenceHealthStatus represents the health status of the inference engine.
 type InferenceHealthStatus string
 
 const (
@@ -21,7 +22,7 @@ const (
 	InferenceHealthStatusUnknown   InferenceHealthStatus = "unknown"
 )
 
-// InferenceEngine handles high-performance ML inference with batching and caching
+// InferenceEngine handles high-performance ML inference with batching and caching.
 type InferenceEngine struct {
 	config    InferenceConfig
 	models    map[string]models.Model
@@ -41,26 +42,26 @@ type InferenceEngine struct {
 	wg        sync.WaitGroup
 }
 
-// InferenceConfig contains configuration for the inference engine
+// InferenceConfig contains configuration for the inference engine.
 type InferenceConfig struct {
-	Workers          int           `yaml:"workers" default:"4"`
-	BatchSize        int           `yaml:"batch_size" default:"10"`
-	BatchTimeout     time.Duration `yaml:"batch_timeout" default:"100ms"`
-	CacheSize        int           `yaml:"cache_size" default:"1000"`
-	CacheTTL         time.Duration `yaml:"cache_ttl" default:"1h"`
-	MaxQueueSize     int           `yaml:"max_queue_size" default:"10000"`
-	RequestTimeout   time.Duration `yaml:"request_timeout" default:"30s"`
-	EnableBatching   bool          `yaml:"enable_batching" default:"true"`
-	EnableCaching    bool          `yaml:"enable_caching" default:"true"`
-	EnableScaling    bool          `yaml:"enable_scaling" default:"true"`
-	ScalingThreshold float64       `yaml:"scaling_threshold" default:"0.8"`
-	MaxWorkers       int           `yaml:"max_workers" default:"20"`
-	MinWorkers       int           `yaml:"min_workers" default:"2"`
+	Workers          int           `default:"4"     yaml:"workers"`
+	BatchSize        int           `default:"10"    yaml:"batch_size"`
+	BatchTimeout     time.Duration `default:"100ms" yaml:"batch_timeout"`
+	CacheSize        int           `default:"1000"  yaml:"cache_size"`
+	CacheTTL         time.Duration `default:"1h"    yaml:"cache_ttl"`
+	MaxQueueSize     int           `default:"10000" yaml:"max_queue_size"`
+	RequestTimeout   time.Duration `default:"30s"   yaml:"request_timeout"`
+	EnableBatching   bool          `default:"true"  yaml:"enable_batching"`
+	EnableCaching    bool          `default:"true"  yaml:"enable_caching"`
+	EnableScaling    bool          `default:"true"  yaml:"enable_scaling"`
+	ScalingThreshold float64       `default:"0.8"   yaml:"scaling_threshold"`
+	MaxWorkers       int           `default:"20"    yaml:"max_workers"`
+	MinWorkers       int           `default:"2"     yaml:"min_workers"`
 	Logger           logger.Logger `yaml:"-"`
 	Metrics          forge.Metrics `yaml:"-"`
 }
 
-// InferenceStats contains statistics about the inference engine
+// InferenceStats contains statistics about the inference engine.
 type InferenceStats struct {
 	RequestsReceived  int64         `json:"requests_received"`
 	RequestsProcessed int64         `json:"requests_processed"`
@@ -79,88 +80,97 @@ type InferenceStats struct {
 	LastUpdated       time.Time     `json:"last_updated"`
 }
 
-// InferenceHealth represents the health status of the inference engine
+// InferenceHealth represents the health status of the inference engine.
 type InferenceHealth struct {
-	Status      InferenceHealthStatus  `json:"status"`
-	Message     string                 `json:"message"`
-	Details     map[string]interface{} `json:"details"`
-	CheckedAt   time.Time              `json:"checked_at"`
-	LastHealthy time.Time              `json:"last_healthy"`
+	Status      InferenceHealthStatus `json:"status"`
+	Message     string                `json:"message"`
+	Details     map[string]any        `json:"details"`
+	CheckedAt   time.Time             `json:"checked_at"`
+	LastHealthy time.Time             `json:"last_healthy"`
 }
 
-// InferenceRequest represents a request for inference
+// InferenceRequest represents a request for inference.
 type InferenceRequest struct {
 	ID        string                  `json:"id"`
 	ModelID   string                  `json:"model_id"`
 	Input     models.ModelInput       `json:"input"`
 	Options   InferenceOptions        `json:"options"`
-	Context   map[string]interface{}  `json:"context"`
+	Context   map[string]any          `json:"context"`
 	Timeout   time.Duration           `json:"timeout"`
 	Timestamp time.Time               `json:"timestamp"`
 	Priority  int                     `json:"priority"`
 	Callback  func(InferenceResponse) `json:"-"`
 }
 
-// InferenceResponse represents a response from inference
+// InferenceResponse represents a response from inference.
 type InferenceResponse struct {
-	ID         string                 `json:"id"`
-	ModelID    string                 `json:"model_id"`
-	Output     models.ModelOutput     `json:"output"`
-	Latency    time.Duration          `json:"latency"`
-	Confidence float64                `json:"confidence"`
-	ModelInfo  models.ModelInfo       `json:"model_info"`
-	Metadata   map[string]interface{} `json:"metadata"`
-	Error      error                  `json:"error,omitempty"`
-	Timestamp  time.Time              `json:"timestamp"`
-	FromCache  bool                   `json:"from_cache"`
-	BatchSize  int                    `json:"batch_size"`
-	WorkerID   string                 `json:"worker_id"`
+	ID         string             `json:"id"`
+	ModelID    string             `json:"model_id"`
+	Output     models.ModelOutput `json:"output"`
+	Latency    time.Duration      `json:"latency"`
+	Confidence float64            `json:"confidence"`
+	ModelInfo  models.ModelInfo   `json:"model_info"`
+	Metadata   map[string]any     `json:"metadata"`
+	Error      error              `json:"error,omitempty"`
+	Timestamp  time.Time          `json:"timestamp"`
+	FromCache  bool               `json:"from_cache"`
+	BatchSize  int                `json:"batch_size"`
+	WorkerID   string             `json:"worker_id"`
 }
 
-// InferenceOptions contains options for inference
+// InferenceOptions contains options for inference.
 type InferenceOptions struct {
-	Temperature   *float64               `json:"temperature,omitempty"`
-	MaxTokens     *int                   `json:"max_tokens,omitempty"`
-	TopP          *float64               `json:"top_p,omitempty"`
-	TopK          *int                   `json:"top_k,omitempty"`
-	BatchSize     int                    `json:"batch_size"`
-	Timeout       time.Duration          `json:"timeout"`
-	ReturnProbs   bool                   `json:"return_probs"`
-	Streaming     bool                   `json:"streaming"`
-	UseCache      bool                   `json:"use_cache"`
-	CacheTTL      time.Duration          `json:"cache_ttl"`
-	CustomOptions map[string]interface{} `json:"custom_options"`
+	Temperature   *float64       `json:"temperature,omitempty"`
+	MaxTokens     *int           `json:"max_tokens,omitempty"`
+	TopP          *float64       `json:"top_p,omitempty"`
+	TopK          *int           `json:"top_k,omitempty"`
+	BatchSize     int            `json:"batch_size"`
+	Timeout       time.Duration  `json:"timeout"`
+	ReturnProbs   bool           `json:"return_probs"`
+	Streaming     bool           `json:"streaming"`
+	UseCache      bool           `json:"use_cache"`
+	CacheTTL      time.Duration  `json:"cache_ttl"`
+	CustomOptions map[string]any `json:"custom_options"`
 }
 
-// NewInferenceEngine creates a new inference engine
+// NewInferenceEngine creates a new inference engine.
 func NewInferenceEngine(config InferenceConfig) (*InferenceEngine, error) {
 	if config.Workers <= 0 {
 		config.Workers = 4
 	}
+
 	if config.BatchSize <= 0 {
 		config.BatchSize = 10
 	}
+
 	if config.BatchTimeout == 0 {
 		config.BatchTimeout = 100 * time.Millisecond
 	}
+
 	if config.CacheSize <= 0 {
 		config.CacheSize = 1000
 	}
+
 	if config.CacheTTL == 0 {
 		config.CacheTTL = time.Hour
 	}
+
 	if config.MaxQueueSize <= 0 {
 		config.MaxQueueSize = 10000
 	}
+
 	if config.RequestTimeout == 0 {
 		config.RequestTimeout = 30 * time.Second
 	}
+
 	if config.ScalingThreshold <= 0 {
 		config.ScalingThreshold = 0.8
 	}
+
 	if config.MaxWorkers <= 0 {
 		config.MaxWorkers = 20
 	}
+
 	if config.MinWorkers <= 0 {
 		config.MinWorkers = 2
 	}
@@ -186,6 +196,7 @@ func NewInferenceEngine(config InferenceConfig) (*InferenceEngine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create inference pipeline: %w", err)
 	}
+
 	engine.pipeline = pipeline
 
 	// Initialize batcher if enabled
@@ -200,6 +211,7 @@ func NewInferenceEngine(config InferenceConfig) (*InferenceEngine, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request batcher: %w", err)
 		}
+
 		engine.batcher = batcher
 	}
 
@@ -214,6 +226,7 @@ func NewInferenceEngine(config InferenceConfig) (*InferenceEngine, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create inference cache: %w", err)
 		}
+
 		engine.cache = cache
 	}
 
@@ -229,13 +242,14 @@ func NewInferenceEngine(config InferenceConfig) (*InferenceEngine, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create inference scaler: %w", err)
 		}
+
 		engine.scaler = scaler
 	}
 
 	return engine, nil
 }
 
-// Initialize initializes the inference engine
+// Initialize initializes the inference engine.
 func (e *InferenceEngine) Initialize(ctx context.Context, config InferenceConfig) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -257,13 +271,13 @@ func (e *InferenceEngine) Initialize(ctx context.Context, config InferenceConfig
 	return nil
 }
 
-// Start starts the inference engine
+// Start starts the inference engine.
 func (e *InferenceEngine) Start(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if e.started {
-		return fmt.Errorf("inference engine already started")
+		return errors.New("inference engine already started")
 	}
 
 	// Start pipeline
@@ -294,7 +308,7 @@ func (e *InferenceEngine) Start(ctx context.Context) error {
 
 	// Start workers
 	e.workers = make([]*InferenceWorker, e.config.Workers)
-	for i := 0; i < e.config.Workers; i++ {
+	for i := range e.config.Workers {
 		worker := NewInferenceWorker(InferenceWorkerConfig{
 			ID:       fmt.Sprintf("worker-%d", i),
 			Engine:   e,
@@ -305,18 +319,20 @@ func (e *InferenceEngine) Start(ctx context.Context) error {
 		e.workers[i] = worker
 
 		e.wg.Add(1)
+
 		go func(w *InferenceWorker) {
 			defer e.wg.Done()
+
 			w.Run(ctx)
 		}(worker)
 	}
 
 	// Start stats collection
-	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
+
+	e.wg.Go(func() {
+
 		e.runStatsCollection(ctx)
-	}()
+	})
 
 	e.started = true
 	e.health.Status = InferenceHealthStatusHealthy
@@ -336,13 +352,13 @@ func (e *InferenceEngine) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the inference engine
+// Stop stops the inference engine.
 func (e *InferenceEngine) Stop(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
 	if !e.started {
-		return fmt.Errorf("inference engine not started")
+		return errors.New("inference engine not started")
 	}
 
 	// Signal shutdown
@@ -400,7 +416,7 @@ func (e *InferenceEngine) Stop(ctx context.Context) error {
 	return nil
 }
 
-// AddModel adds a model to the inference engine
+// AddModel adds a model to the inference engine.
 func (e *InferenceEngine) AddModel(model models.Model) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -427,7 +443,7 @@ func (e *InferenceEngine) AddModel(model models.Model) error {
 	return nil
 }
 
-// RemoveModel removes a model from the inference engine
+// RemoveModel removes a model from the inference engine.
 func (e *InferenceEngine) RemoveModel(modelID string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -452,10 +468,10 @@ func (e *InferenceEngine) RemoveModel(modelID string) error {
 	return nil
 }
 
-// Infer performs inference on a single request
+// Infer performs inference on a single request.
 func (e *InferenceEngine) Infer(ctx context.Context, request InferenceRequest) (InferenceResponse, error) {
 	if !e.started {
-		return InferenceResponse{}, fmt.Errorf("inference engine not started")
+		return InferenceResponse{}, errors.New("inference engine not started")
 	}
 
 	startTime := time.Now()
@@ -479,6 +495,7 @@ func (e *InferenceEngine) Infer(ctx context.Context, request InferenceRequest) (
 
 			return response, nil
 		}
+
 		e.updateStats(func(stats *InferenceStats) {
 			stats.CacheMisses++
 		})
@@ -504,6 +521,7 @@ func (e *InferenceEngine) Infer(ctx context.Context, request InferenceRequest) (
 
 		// Return response and put it back to pool after use
 		defer e.pool.PutResponse(response)
+
 		return *response, err
 	}
 
@@ -514,6 +532,7 @@ func (e *InferenceEngine) Infer(ctx context.Context, request InferenceRequest) (
 
 	// Update stats
 	latency := time.Since(startTime)
+
 	e.updateStats(func(stats *InferenceStats) {
 		stats.RequestsProcessed++
 		stats.TotalInferences++
@@ -528,10 +547,10 @@ func (e *InferenceEngine) Infer(ctx context.Context, request InferenceRequest) (
 	return response, nil
 }
 
-// BatchInfer performs inference on multiple requests
+// BatchInfer performs inference on multiple requests.
 func (e *InferenceEngine) BatchInfer(ctx context.Context, requests []InferenceRequest) ([]InferenceResponse, error) {
 	if !e.started {
-		return nil, fmt.Errorf("inference engine not started")
+		return nil, errors.New("inference engine not started")
 	}
 
 	if len(requests) == 0 {
@@ -551,8 +570,10 @@ func (e *InferenceEngine) BatchInfer(ctx context.Context, requests []InferenceRe
 					Timestamp: time.Now(),
 				}
 			}
+
 			responses[i] = response
 		}
+
 		return responses, nil
 	}
 
@@ -560,16 +581,16 @@ func (e *InferenceEngine) BatchInfer(ctx context.Context, requests []InferenceRe
 	return e.batcher.ProcessBatch(ctx, requests)
 }
 
-// Scale scales the inference engine workers
+// Scale scales the inference engine workers.
 func (e *InferenceEngine) Scale(ctx context.Context, replicas int) error {
 	if e.scaler == nil {
-		return fmt.Errorf("scaling not enabled")
+		return errors.New("scaling not enabled")
 	}
 
 	return e.scaler.Scale(ctx, replicas)
 }
 
-// GetStats returns inference engine statistics
+// GetStats returns inference engine statistics.
 func (e *InferenceEngine) GetStats() InferenceStats {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -582,9 +603,11 @@ func (e *InferenceEngine) GetStats() InferenceStats {
 	if stats.RequestsReceived > 0 {
 		stats.ErrorRate = float64(stats.RequestsError) / float64(stats.RequestsReceived)
 	}
+
 	if stats.CacheHits+stats.CacheMisses > 0 {
 		stats.CacheHitRate = float64(stats.CacheHits) / float64(stats.CacheHits+stats.CacheMisses)
 	}
+
 	if stats.BatchesProcessed > 0 {
 		stats.AverageBatchSize = float64(stats.RequestsProcessed) / float64(stats.BatchesProcessed)
 	}
@@ -592,14 +615,14 @@ func (e *InferenceEngine) GetStats() InferenceStats {
 	return stats
 }
 
-// GetHealth returns the health status of the inference engine
+// GetHealth returns the health status of the inference engine.
 func (e *InferenceEngine) GetHealth() InferenceHealth {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
 	health := e.health
 	health.CheckedAt = time.Now()
-	health.Details = map[string]interface{}{
+	health.Details = map[string]any{
 		"started":        e.started,
 		"active_workers": len(e.workers),
 		"models_loaded":  len(e.models),
@@ -625,14 +648,15 @@ func (e *InferenceEngine) GetHealth() InferenceHealth {
 	return health
 }
 
-// updateStats updates the inference engine statistics
+// updateStats updates the inference engine statistics.
 func (e *InferenceEngine) updateStats(fn func(*InferenceStats)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	fn(&e.stats)
 }
 
-// runStatsCollection runs the statistics collection loop
+// runStatsCollection runs the statistics collection loop.
 func (e *InferenceEngine) runStatsCollection(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -649,7 +673,7 @@ func (e *InferenceEngine) runStatsCollection(ctx context.Context) {
 	}
 }
 
-// collectStats collects and updates statistics
+// collectStats collects and updates statistics.
 func (e *InferenceEngine) collectStats() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -670,12 +694,12 @@ func (e *InferenceEngine) collectStats() {
 	e.stats.LastUpdated = time.Now()
 }
 
-// GetPoolStats returns object pool statistics
+// GetPoolStats returns object pool statistics.
 func (e *InferenceEngine) GetPoolStats() PoolStats {
 	return e.pool.GetStats()
 }
 
-// ResetPoolStats resets object pool statistics
+// ResetPoolStats resets object pool statistics.
 func (e *InferenceEngine) ResetPoolStats() {
 	e.pool.ResetStats()
 }

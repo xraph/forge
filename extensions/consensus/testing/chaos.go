@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// ChaosMonkey implements chaos engineering for consensus testing
+// ChaosMonkey implements chaos engineering for consensus testing.
 type ChaosMonkey struct {
 	cluster *TestCluster
 	logger  forge.Logger
@@ -18,7 +19,7 @@ type ChaosMonkey struct {
 	config  ChaosConfig
 }
 
-// ChaosConfig contains chaos testing configuration
+// ChaosConfig contains chaos testing configuration.
 type ChaosConfig struct {
 	// Node failure probability (0.0 to 1.0)
 	NodeFailureProbability float64
@@ -35,14 +36,16 @@ type ChaosConfig struct {
 	MaxLatency time.Duration
 }
 
-// NewChaosMonkey creates a new chaos monkey
+// NewChaosMonkey creates a new chaos monkey.
 func NewChaosMonkey(cluster *TestCluster, config ChaosConfig, logger forge.Logger) *ChaosMonkey {
 	if config.CheckInterval == 0 {
 		config.CheckInterval = 5 * time.Second
 	}
+
 	if config.MinLatency == 0 {
 		config.MinLatency = 100 * time.Millisecond
 	}
+
 	if config.MaxLatency == 0 {
 		config.MaxLatency = 1 * time.Second
 	}
@@ -54,7 +57,7 @@ func NewChaosMonkey(cluster *TestCluster, config ChaosConfig, logger forge.Logge
 	}
 }
 
-// Start starts the chaos monkey
+// Start starts the chaos monkey.
 func (cm *ChaosMonkey) Start(ctx context.Context) {
 	cm.ctx, cm.cancel = context.WithCancel(ctx)
 
@@ -66,7 +69,7 @@ func (cm *ChaosMonkey) Start(ctx context.Context) {
 	)
 }
 
-// Stop stops the chaos monkey
+// Stop stops the chaos monkey.
 func (cm *ChaosMonkey) Stop() {
 	if cm.cancel != nil {
 		cm.cancel()
@@ -75,7 +78,7 @@ func (cm *ChaosMonkey) Stop() {
 	cm.logger.Info("chaos monkey stopped")
 }
 
-// run runs the chaos monkey
+// run runs the chaos monkey.
 func (cm *ChaosMonkey) run() {
 	ticker := time.NewTicker(cm.config.CheckInterval)
 	defer ticker.Stop()
@@ -90,7 +93,7 @@ func (cm *ChaosMonkey) run() {
 	}
 }
 
-// applyChoas applies random chaos to the cluster
+// applyChoas applies random chaos to the cluster.
 func (cm *ChaosMonkey) applyChoas() {
 	// Randomly fail nodes
 	if rand.Float64() < cm.config.NodeFailureProbability {
@@ -113,7 +116,7 @@ func (cm *ChaosMonkey) applyChoas() {
 	}
 }
 
-// failRandomNode fails a random node
+// failRandomNode fails a random node.
 func (cm *ChaosMonkey) failRandomNode() {
 	nodes := cm.cluster.GetNodes()
 	if len(nodes) == 0 {
@@ -147,7 +150,7 @@ func (cm *ChaosMonkey) failRandomNode() {
 	}()
 }
 
-// createRandomPartition creates a random network partition
+// createRandomPartition creates a random network partition.
 func (cm *ChaosMonkey) createRandomPartition() {
 	nodes := cm.cluster.GetNodes()
 	if len(nodes) < 3 {
@@ -181,7 +184,7 @@ func (cm *ChaosMonkey) createRandomPartition() {
 	}()
 }
 
-// injectRandomLatency injects random network latency
+// injectRandomLatency injects random network latency.
 func (cm *ChaosMonkey) injectRandomLatency() {
 	nodes := cm.cluster.GetNodes()
 	if len(nodes) == 0 {
@@ -207,7 +210,7 @@ func (cm *ChaosMonkey) injectRandomLatency() {
 	}()
 }
 
-// dropRandomMessages drops random messages
+// dropRandomMessages drops random messages.
 func (cm *ChaosMonkey) dropRandomMessages() {
 	nodes := cm.cluster.GetNodes()
 	if len(nodes) == 0 {
@@ -228,7 +231,7 @@ func (cm *ChaosMonkey) dropRandomMessages() {
 	_ = dropRate
 }
 
-// ChaosScenario represents a specific chaos scenario
+// ChaosScenario represents a specific chaos scenario.
 type ChaosScenario struct {
 	Name        string
 	Description string
@@ -237,7 +240,7 @@ type ChaosScenario struct {
 	Duration    time.Duration
 }
 
-// PredefinedScenarios contains common chaos scenarios
+// PredefinedScenarios contains common chaos scenarios.
 var PredefinedScenarios = []ChaosScenario{
 	{
 		Name:        "LeaderFailure",
@@ -248,6 +251,7 @@ var PredefinedScenarios = []ChaosScenario{
 				return nil
 			}
 			cluster.StopNode(context.Background(), leaderID)
+
 			return nil
 		},
 		Verify: func(cluster *TestCluster) error {
@@ -255,6 +259,7 @@ var PredefinedScenarios = []ChaosScenario{
 			if err != nil {
 				return ErrNoLeader
 			}
+
 			return nil
 		},
 		Duration: 10 * time.Second,
@@ -269,6 +274,7 @@ var PredefinedScenarios = []ChaosScenario{
 			}
 			// Partition 1 node
 			cluster.CreatePartition([]string{nodes[0].ID})
+
 			return nil
 		},
 		Verify: func(cluster *TestCluster) error {
@@ -277,6 +283,7 @@ var PredefinedScenarios = []ChaosScenario{
 			if err != nil {
 				return ErrNoLeader
 			}
+
 			return nil
 		},
 		Duration: 10 * time.Second,
@@ -292,15 +299,17 @@ var PredefinedScenarios = []ChaosScenario{
 			// Partition majority
 			partitionSize := (len(nodes) / 2) + 1
 			partitionNodes := make([]string, partitionSize)
-			for i := 0; i < partitionSize; i++ {
+			for i := range partitionSize {
 				partitionNodes[i] = nodes[i].ID
 			}
 			cluster.CreatePartition(partitionNodes)
+
 			return nil
 		},
 		Verify: func(cluster *TestCluster) error {
 			// Should lose quorum
 			time.Sleep(5 * time.Second)
+
 			return nil
 		},
 		Duration: 10 * time.Second,
@@ -319,6 +328,7 @@ var PredefinedScenarios = []ChaosScenario{
 				cluster.StopNode(context.Background(), nodes[i].ID)
 				time.Sleep(2 * time.Second)
 			}
+
 			return nil
 		},
 		Verify: func(cluster *TestCluster) error {
@@ -327,6 +337,7 @@ var PredefinedScenarios = []ChaosScenario{
 			if err != nil {
 				return ErrNoLeader
 			}
+
 			return nil
 		},
 		Duration: 15 * time.Second,
@@ -342,12 +353,13 @@ var PredefinedScenarios = []ChaosScenario{
 
 			node := nodes[0]
 
-			for i := 0; i < 5; i++ {
+			for range 5 {
 				cluster.StopNode(context.Background(), node.ID)
 				time.Sleep(1 * time.Second)
 				cluster.StartNode(context.Background(), node.ID)
 				time.Sleep(1 * time.Second)
 			}
+
 			return nil
 		},
 		Verify: func(cluster *TestCluster) error {
@@ -356,18 +368,19 @@ var PredefinedScenarios = []ChaosScenario{
 			if err != nil {
 				return ErrNoLeader
 			}
+
 			return nil
 		},
 		Duration: 15 * time.Second,
 	},
 }
 
-// Predefined errors
+// Predefined errors.
 var (
-	ErrNoLeader = fmt.Errorf("no leader elected")
+	ErrNoLeader = errors.New("no leader elected")
 )
 
-// RunScenario runs a chaos scenario
+// RunScenario runs a chaos scenario.
 func (cm *ChaosMonkey) RunScenario(scenario ChaosScenario) error {
 	cm.logger.Info("running chaos scenario",
 		forge.F("name", scenario.Name),

@@ -9,13 +9,15 @@ import (
 	"time"
 
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// SecurityAgent monitors security threats and provides intelligent security recommendations
+// SecurityAgent monitors security threats and provides intelligent security recommendations.
 type SecurityAgent struct {
 	*ai.BaseAgent
-	securityManager  interface{} // Security manager from Phase 5
+
+	securityManager  any // Security manager from Phase 5
 	threatDatabase   ThreatDatabase
 	anomalyDetector  SecurityAnomalyDetector
 	riskThresholds   RiskThresholds
@@ -26,7 +28,7 @@ type SecurityAgent struct {
 	learningEnabled  bool
 }
 
-// ThreatDatabase contains known threats and attack patterns
+// ThreatDatabase contains known threats and attack patterns.
 type ThreatDatabase struct {
 	KnownThreats    []ThreatSignature `json:"known_threats"`
 	AttackPatterns  []AttackPattern   `json:"attack_patterns"`
@@ -35,82 +37,82 @@ type ThreatDatabase struct {
 	LastUpdated     time.Time         `json:"last_updated"`
 }
 
-// ThreatSignature represents a known threat signature
+// ThreatSignature represents a known threat signature.
 type ThreatSignature struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Severity    string                 `json:"severity"`
-	Pattern     string                 `json:"pattern"`
-	Description string                 `json:"description"`
-	Mitigation  string                 `json:"mitigation"`
-	Tags        []string               `json:"tags"`
-	CVE         string                 `json:"cve"`
-	References  []string               `json:"references"`
-	LastSeen    time.Time              `json:"last_seen"`
-	Confidence  float64                `json:"confidence"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	Severity    string         `json:"severity"`
+	Pattern     string         `json:"pattern"`
+	Description string         `json:"description"`
+	Mitigation  string         `json:"mitigation"`
+	Tags        []string       `json:"tags"`
+	CVE         string         `json:"cve"`
+	References  []string       `json:"references"`
+	LastSeen    time.Time      `json:"last_seen"`
+	Confidence  float64        `json:"confidence"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// AttackPattern represents an attack pattern
+// AttackPattern represents an attack pattern.
 type AttackPattern struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Category    string                 `json:"category"`
-	Technique   string                 `json:"technique"`
-	Description string                 `json:"description"`
-	Indicators  []string               `json:"indicators"`
-	Mitigation  []string               `json:"mitigation"`
-	Severity    string                 `json:"severity"`
-	Confidence  float64                `json:"confidence"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Category    string         `json:"category"`
+	Technique   string         `json:"technique"`
+	Description string         `json:"description"`
+	Indicators  []string       `json:"indicators"`
+	Mitigation  []string       `json:"mitigation"`
+	Severity    string         `json:"severity"`
+	Confidence  float64        `json:"confidence"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// IOCIndicator represents an Indicator of Compromise
+// IOCIndicator represents an Indicator of Compromise.
 type IOCIndicator struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"` // ip, domain, hash, url, email
-	Value       string                 `json:"value"`
-	Severity    string                 `json:"severity"`
-	Description string                 `json:"description"`
-	Source      string                 `json:"source"`
-	FirstSeen   time.Time              `json:"first_seen"`
-	LastSeen    time.Time              `json:"last_seen"`
-	Confidence  float64                `json:"confidence"`
-	Tags        []string               `json:"tags"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"` // ip, domain, hash, url, email
+	Value       string         `json:"value"`
+	Severity    string         `json:"severity"`
+	Description string         `json:"description"`
+	Source      string         `json:"source"`
+	FirstSeen   time.Time      `json:"first_seen"`
+	LastSeen    time.Time      `json:"last_seen"`
+	Confidence  float64        `json:"confidence"`
+	Tags        []string       `json:"tags"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// Vulnerability represents a security vulnerability
+// Vulnerability represents a security vulnerability.
 type Vulnerability struct {
-	ID            string                 `json:"id"`
-	CVE           string                 `json:"cve"`
-	Title         string                 `json:"title"`
-	Description   string                 `json:"description"`
-	Severity      string                 `json:"severity"`
-	Score         float64                `json:"score"`
-	Component     string                 `json:"component"`
-	Version       string                 `json:"version"`
-	FixedVersion  string                 `json:"fixed_version"`
-	PublishedDate time.Time              `json:"published_date"`
-	ModifiedDate  time.Time              `json:"modified_date"`
-	References    []string               `json:"references"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	ID            string         `json:"id"`
+	CVE           string         `json:"cve"`
+	Title         string         `json:"title"`
+	Description   string         `json:"description"`
+	Severity      string         `json:"severity"`
+	Score         float64        `json:"score"`
+	Component     string         `json:"component"`
+	Version       string         `json:"version"`
+	FixedVersion  string         `json:"fixed_version"`
+	PublishedDate time.Time      `json:"published_date"`
+	ModifiedDate  time.Time      `json:"modified_date"`
+	References    []string       `json:"references"`
+	Metadata      map[string]any `json:"metadata"`
 }
 
-// SecurityAnomalyDetector detects security anomalies
+// SecurityAnomalyDetector detects security anomalies.
 type SecurityAnomalyDetector struct {
-	Algorithms   []string               `json:"algorithms"`
-	Sensitivity  float64                `json:"sensitivity"`
-	WindowSize   time.Duration          `json:"window_size"`
-	Thresholds   map[string]float64     `json:"thresholds"`
-	BaselineData map[string]interface{} `json:"baseline_data"`
-	LastTraining time.Time              `json:"last_training"`
-	ModelVersion string                 `json:"model_version"`
-	Enabled      bool                   `json:"enabled"`
+	Algorithms   []string           `json:"algorithms"`
+	Sensitivity  float64            `json:"sensitivity"`
+	WindowSize   time.Duration      `json:"window_size"`
+	Thresholds   map[string]float64 `json:"thresholds"`
+	BaselineData map[string]any     `json:"baseline_data"`
+	LastTraining time.Time          `json:"last_training"`
+	ModelVersion string             `json:"model_version"`
+	Enabled      bool               `json:"enabled"`
 }
 
-// RiskThresholds defines risk assessment thresholds
+// RiskThresholds defines risk assessment thresholds.
 type RiskThresholds struct {
 	Critical float64 `json:"critical"`
 	High     float64 `json:"high"`
@@ -119,47 +121,47 @@ type RiskThresholds struct {
 	Minimal  float64 `json:"minimal"`
 }
 
-// SecurityPolicy defines security policies
+// SecurityPolicy defines security policies.
 type SecurityPolicy struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Rules       []SecurityRule         `json:"rules"`
-	Actions     []SecurityAction       `json:"actions"`
-	Enabled     bool                   `json:"enabled"`
-	Priority    int                    `json:"priority"`
-	LastUpdated time.Time              `json:"last_updated"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Type        string           `json:"type"`
+	Description string           `json:"description"`
+	Rules       []SecurityRule   `json:"rules"`
+	Actions     []SecurityAction `json:"actions"`
+	Enabled     bool             `json:"enabled"`
+	Priority    int              `json:"priority"`
+	LastUpdated time.Time        `json:"last_updated"`
+	Metadata    map[string]any   `json:"metadata"`
 }
 
-// SecurityRule defines a security rule
+// SecurityRule defines a security rule.
 type SecurityRule struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Condition   string                 `json:"condition"`
-	Pattern     string                 `json:"pattern"`
-	Severity    string                 `json:"severity"`
-	Description string                 `json:"description"`
-	Enabled     bool                   `json:"enabled"`
-	Tags        []string               `json:"tags"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Condition   string         `json:"condition"`
+	Pattern     string         `json:"pattern"`
+	Severity    string         `json:"severity"`
+	Description string         `json:"description"`
+	Enabled     bool           `json:"enabled"`
+	Tags        []string       `json:"tags"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// SecurityAction defines security actions
+// SecurityAction defines security actions.
 type SecurityAction struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Automatic   bool                   `json:"automatic"`
-	Severity    string                 `json:"severity"`
-	Timeout     time.Duration          `json:"timeout"`
-	Rollback    bool                   `json:"rollback"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+	Automatic   bool           `json:"automatic"`
+	Severity    string         `json:"severity"`
+	Timeout     time.Duration  `json:"timeout"`
+	Rollback    bool           `json:"rollback"`
 }
 
-// SecurityStats tracks security monitoring metrics
+// SecurityStats tracks security monitoring metrics.
 type SecurityStats struct {
 	TotalThreats         int64            `json:"total_threats"`
 	ThreatsBlocked       int64            `json:"threats_blocked"`
@@ -177,7 +179,7 @@ type SecurityStats struct {
 	Uptime               time.Duration    `json:"uptime"`
 }
 
-// SecurityInput represents security monitoring input
+// SecurityInput represents security monitoring input.
 type SecurityInput struct {
 	NetworkTraffic     []NetworkEvent        `json:"network_traffic"`
 	AccessLogs         []AccessEvent         `json:"access_logs"`
@@ -192,111 +194,111 @@ type SecurityInput struct {
 	Context            SecurityContext       `json:"context"`
 }
 
-// NetworkEvent represents a network event
+// NetworkEvent represents a network event.
 type NetworkEvent struct {
-	ID         string                 `json:"id"`
-	Timestamp  time.Time              `json:"timestamp"`
-	SourceIP   string                 `json:"source_ip"`
-	DestIP     string                 `json:"dest_ip"`
-	SourcePort int                    `json:"source_port"`
-	DestPort   int                    `json:"dest_port"`
-	Protocol   string                 `json:"protocol"`
-	Size       int64                  `json:"size"`
-	Direction  string                 `json:"direction"`
-	Status     string                 `json:"status"`
-	Headers    map[string]string      `json:"headers"`
-	Payload    string                 `json:"payload"`
-	Flags      []string               `json:"flags"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string            `json:"id"`
+	Timestamp  time.Time         `json:"timestamp"`
+	SourceIP   string            `json:"source_ip"`
+	DestIP     string            `json:"dest_ip"`
+	SourcePort int               `json:"source_port"`
+	DestPort   int               `json:"dest_port"`
+	Protocol   string            `json:"protocol"`
+	Size       int64             `json:"size"`
+	Direction  string            `json:"direction"`
+	Status     string            `json:"status"`
+	Headers    map[string]string `json:"headers"`
+	Payload    string            `json:"payload"`
+	Flags      []string          `json:"flags"`
+	Metadata   map[string]any    `json:"metadata"`
 }
 
-// AccessEvent represents an access event
+// AccessEvent represents an access event.
 type AccessEvent struct {
-	ID         string                 `json:"id"`
-	Timestamp  time.Time              `json:"timestamp"`
-	UserID     string                 `json:"user_id"`
-	SessionID  string                 `json:"session_id"`
-	Action     string                 `json:"action"`
-	Resource   string                 `json:"resource"`
-	Method     string                 `json:"method"`
-	StatusCode int                    `json:"status_code"`
-	UserAgent  string                 `json:"user_agent"`
-	IP         string                 `json:"ip"`
-	Location   string                 `json:"location"`
-	Success    bool                   `json:"success"`
-	Duration   time.Duration          `json:"duration"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Timestamp  time.Time      `json:"timestamp"`
+	UserID     string         `json:"user_id"`
+	SessionID  string         `json:"session_id"`
+	Action     string         `json:"action"`
+	Resource   string         `json:"resource"`
+	Method     string         `json:"method"`
+	StatusCode int            `json:"status_code"`
+	UserAgent  string         `json:"user_agent"`
+	IP         string         `json:"ip"`
+	Location   string         `json:"location"`
+	Success    bool           `json:"success"`
+	Duration   time.Duration  `json:"duration"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// SystemEvent represents a system event
+// SystemEvent represents a system event.
 type SystemEvent struct {
-	ID          string                 `json:"id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Level       string                 `json:"level"`
-	Source      string                 `json:"source"`
-	Category    string                 `json:"category"`
-	Message     string                 `json:"message"`
-	ProcessID   int                    `json:"process_id"`
-	ProcessName string                 `json:"process_name"`
-	UserID      string                 `json:"user_id"`
-	EventCode   int                    `json:"event_code"`
-	Computer    string                 `json:"computer"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Level       string         `json:"level"`
+	Source      string         `json:"source"`
+	Category    string         `json:"category"`
+	Message     string         `json:"message"`
+	ProcessID   int            `json:"process_id"`
+	ProcessName string         `json:"process_name"`
+	UserID      string         `json:"user_id"`
+	EventCode   int            `json:"event_code"`
+	Computer    string         `json:"computer"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// UserBehaviorEvent represents user behavior event
+// UserBehaviorEvent represents user behavior event.
 type UserBehaviorEvent struct {
-	ID        string                 `json:"id"`
-	Timestamp time.Time              `json:"timestamp"`
-	UserID    string                 `json:"user_id"`
-	SessionID string                 `json:"session_id"`
-	Action    string                 `json:"action"`
-	Resource  string                 `json:"resource"`
-	Pattern   string                 `json:"pattern"`
-	Anomaly   bool                   `json:"anomaly"`
-	RiskScore float64                `json:"risk_score"`
-	Location  string                 `json:"location"`
-	Device    string                 `json:"device"`
-	Frequency int                    `json:"frequency"`
-	Duration  time.Duration          `json:"duration"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	ID        string         `json:"id"`
+	Timestamp time.Time      `json:"timestamp"`
+	UserID    string         `json:"user_id"`
+	SessionID string         `json:"session_id"`
+	Action    string         `json:"action"`
+	Resource  string         `json:"resource"`
+	Pattern   string         `json:"pattern"`
+	Anomaly   bool           `json:"anomaly"`
+	RiskScore float64        `json:"risk_score"`
+	Location  string         `json:"location"`
+	Device    string         `json:"device"`
+	Frequency int            `json:"frequency"`
+	Duration  time.Duration  `json:"duration"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
-// ApplicationEvent represents application event
+// ApplicationEvent represents application event.
 type ApplicationEvent struct {
-	ID          string                 `json:"id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Level       string                 `json:"level"`
-	Application string                 `json:"application"`
-	Component   string                 `json:"component"`
-	Message     string                 `json:"message"`
-	Exception   string                 `json:"exception"`
-	StackTrace  string                 `json:"stack_trace"`
-	UserID      string                 `json:"user_id"`
-	SessionID   string                 `json:"session_id"`
-	RequestID   string                 `json:"request_id"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Level       string         `json:"level"`
+	Application string         `json:"application"`
+	Component   string         `json:"component"`
+	Message     string         `json:"message"`
+	Exception   string         `json:"exception"`
+	StackTrace  string         `json:"stack_trace"`
+	UserID      string         `json:"user_id"`
+	SessionID   string         `json:"session_id"`
+	RequestID   string         `json:"request_id"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// SecurityEvent represents a security event
+// SecurityEvent represents a security event.
 type SecurityEvent struct {
-	ID          string                 `json:"id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Type        string                 `json:"type"`
-	Severity    string                 `json:"severity"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	Source      string                 `json:"source"`
-	Target      string                 `json:"target"`
-	Action      string                 `json:"action"`
-	Result      string                 `json:"result"`
-	RiskScore   float64                `json:"risk_score"`
-	IOCs        []string               `json:"iocs"`
-	Mitigation  string                 `json:"mitigation"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Type        string         `json:"type"`
+	Severity    string         `json:"severity"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Source      string         `json:"source"`
+	Target      string         `json:"target"`
+	Action      string         `json:"action"`
+	Result      string         `json:"result"`
+	RiskScore   float64        `json:"risk_score"`
+	IOCs        []string       `json:"iocs"`
+	Mitigation  string         `json:"mitigation"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// VulnerabilityScan represents vulnerability scan results
+// VulnerabilityScan represents vulnerability scan results.
 type VulnerabilityScan struct {
 	ID        string                 `json:"id"`
 	Timestamp time.Time              `json:"timestamp"`
@@ -306,70 +308,70 @@ type VulnerabilityScan struct {
 	Duration  time.Duration          `json:"duration"`
 	Findings  []VulnerabilityFinding `json:"findings"`
 	Summary   ScanSummary            `json:"summary"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Metadata  map[string]any         `json:"metadata"`
 }
 
-// VulnerabilityFinding represents a vulnerability finding
+// VulnerabilityFinding represents a vulnerability finding.
 type VulnerabilityFinding struct {
-	ID          string                 `json:"id"`
-	CVE         string                 `json:"cve"`
-	Title       string                 `json:"title"`
-	Severity    string                 `json:"severity"`
-	Score       float64                `json:"score"`
-	Description string                 `json:"description"`
-	Solution    string                 `json:"solution"`
-	References  []string               `json:"references"`
-	Component   string                 `json:"component"`
-	Location    string                 `json:"location"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	CVE         string         `json:"cve"`
+	Title       string         `json:"title"`
+	Severity    string         `json:"severity"`
+	Score       float64        `json:"score"`
+	Description string         `json:"description"`
+	Solution    string         `json:"solution"`
+	References  []string       `json:"references"`
+	Component   string         `json:"component"`
+	Location    string         `json:"location"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// ScanSummary represents scan summary
+// ScanSummary represents scan summary.
 type ScanSummary struct {
-	Total     int                    `json:"total"`
-	Critical  int                    `json:"critical"`
-	High      int                    `json:"high"`
-	Medium    int                    `json:"medium"`
-	Low       int                    `json:"low"`
-	Info      int                    `json:"info"`
-	Fixed     int                    `json:"fixed"`
-	New       int                    `json:"new"`
-	RiskScore float64                `json:"risk_score"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Total     int            `json:"total"`
+	Critical  int            `json:"critical"`
+	High      int            `json:"high"`
+	Medium    int            `json:"medium"`
+	Low       int            `json:"low"`
+	Info      int            `json:"info"`
+	Fixed     int            `json:"fixed"`
+	New       int            `json:"new"`
+	RiskScore float64        `json:"risk_score"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
-// ThreatIntelligence represents threat intelligence data
+// ThreatIntelligence represents threat intelligence data.
 type ThreatIntelligence struct {
-	ID         string                 `json:"id"`
-	Timestamp  time.Time              `json:"timestamp"`
-	Source     string                 `json:"source"`
-	Type       string                 `json:"type"`
-	Indicators []IOCIndicator         `json:"indicators"`
-	Threats    []ThreatSignature      `json:"threats"`
-	Campaigns  []ThreatCampaign       `json:"campaigns"`
-	Confidence float64                `json:"confidence"`
-	Relevance  float64                `json:"relevance"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string            `json:"id"`
+	Timestamp  time.Time         `json:"timestamp"`
+	Source     string            `json:"source"`
+	Type       string            `json:"type"`
+	Indicators []IOCIndicator    `json:"indicators"`
+	Threats    []ThreatSignature `json:"threats"`
+	Campaigns  []ThreatCampaign  `json:"campaigns"`
+	Confidence float64           `json:"confidence"`
+	Relevance  float64           `json:"relevance"`
+	Metadata   map[string]any    `json:"metadata"`
 }
 
-// ThreatCampaign represents a threat campaign
+// ThreatCampaign represents a threat campaign.
 type ThreatCampaign struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Actor       string                 `json:"actor"`
-	Motivation  string                 `json:"motivation"`
-	Targets     []string               `json:"targets"`
-	TTPs        []string               `json:"ttps"`
-	IOCs        []string               `json:"iocs"`
-	FirstSeen   time.Time              `json:"first_seen"`
-	LastSeen    time.Time              `json:"last_seen"`
-	Active      bool                   `json:"active"`
-	Confidence  float64                `json:"confidence"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Actor       string         `json:"actor"`
+	Motivation  string         `json:"motivation"`
+	Targets     []string       `json:"targets"`
+	TTPs        []string       `json:"ttps"`
+	IOCs        []string       `json:"iocs"`
+	FirstSeen   time.Time      `json:"first_seen"`
+	LastSeen    time.Time      `json:"last_seen"`
+	Active      bool           `json:"active"`
+	Confidence  float64        `json:"confidence"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// SystemSecurityMetrics represents system security metrics
+// SystemSecurityMetrics represents system security metrics.
 type SystemSecurityMetrics struct {
 	CPU                float64   `json:"cpu"`
 	Memory             float64   `json:"memory"`
@@ -384,18 +386,18 @@ type SystemSecurityMetrics struct {
 	Timestamp          time.Time `json:"timestamp"`
 }
 
-// SecurityContext provides context for security analysis
+// SecurityContext provides context for security analysis.
 type SecurityContext struct {
-	Environment      string                 `json:"environment"`
-	ThreatLevel      string                 `json:"threat_level"`
-	ComplianceReqs   []string               `json:"compliance_reqs"`
-	AssetCriticality string                 `json:"asset_criticality"`
-	BusinessContext  string                 `json:"business_context"`
-	RiskTolerance    string                 `json:"risk_tolerance"`
-	Metadata         map[string]interface{} `json:"metadata"`
+	Environment      string         `json:"environment"`
+	ThreatLevel      string         `json:"threat_level"`
+	ComplianceReqs   []string       `json:"compliance_reqs"`
+	AssetCriticality string         `json:"asset_criticality"`
+	BusinessContext  string         `json:"business_context"`
+	RiskTolerance    string         `json:"risk_tolerance"`
+	Metadata         map[string]any `json:"metadata"`
 }
 
-// SecurityOutput represents security analysis output
+// SecurityOutput represents security analysis output.
 type SecurityOutput struct {
 	ThreatAnalysis   ThreatAnalysis           `json:"threat_analysis"`
 	RiskAssessment   RiskAssessment           `json:"risk_assessment"`
@@ -409,7 +411,7 @@ type SecurityOutput struct {
 	Summary          SecuritySummary          `json:"summary"`
 }
 
-// ThreatAnalysis contains threat analysis results
+// ThreatAnalysis contains threat analysis results.
 type ThreatAnalysis struct {
 	TotalThreats      int            `json:"total_threats"`
 	ActiveThreats     int            `json:"active_threats"`
@@ -424,175 +426,175 @@ type ThreatAnalysis struct {
 	Confidence        float64        `json:"confidence"`
 }
 
-// ThreatDetail contains detailed threat information
+// ThreatDetail contains detailed threat information.
 type ThreatDetail struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Severity    string                 `json:"severity"`
-	Count       int                    `json:"count"`
-	LastSeen    time.Time              `json:"last_seen"`
-	Status      string                 `json:"status"`
-	Description string                 `json:"description"`
-	Mitigation  string                 `json:"mitigation"`
-	RiskScore   float64                `json:"risk_score"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	Severity    string         `json:"severity"`
+	Count       int            `json:"count"`
+	LastSeen    time.Time      `json:"last_seen"`
+	Status      string         `json:"status"`
+	Description string         `json:"description"`
+	Mitigation  string         `json:"mitigation"`
+	RiskScore   float64        `json:"risk_score"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// ThreatTrend represents threat trends
+// ThreatTrend represents threat trends.
 type ThreatTrend struct {
-	Type        string                 `json:"type"`
-	Direction   string                 `json:"direction"`
-	Change      float64                `json:"change"`
-	Confidence  float64                `json:"confidence"`
-	StartTime   time.Time              `json:"start_time"`
-	EndTime     time.Time              `json:"end_time"`
-	Description string                 `json:"description"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Type        string         `json:"type"`
+	Direction   string         `json:"direction"`
+	Change      float64        `json:"change"`
+	Confidence  float64        `json:"confidence"`
+	StartTime   time.Time      `json:"start_time"`
+	EndTime     time.Time      `json:"end_time"`
+	Description string         `json:"description"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// IOCAnalysis contains IOC analysis results
+// IOCAnalysis contains IOC analysis results.
 type IOCAnalysis struct {
-	IOC        IOCIndicator           `json:"ioc"`
-	Matches    int                    `json:"matches"`
-	FirstSeen  time.Time              `json:"first_seen"`
-	LastSeen   time.Time              `json:"last_seen"`
-	Status     string                 `json:"status"`
-	Confidence float64                `json:"confidence"`
-	Context    string                 `json:"context"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	IOC        IOCIndicator   `json:"ioc"`
+	Matches    int            `json:"matches"`
+	FirstSeen  time.Time      `json:"first_seen"`
+	LastSeen   time.Time      `json:"last_seen"`
+	Status     string         `json:"status"`
+	Confidence float64        `json:"confidence"`
+	Context    string         `json:"context"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// AttackVector represents an attack vector
+// AttackVector represents an attack vector.
 type AttackVector struct {
-	Vector     string                 `json:"vector"`
-	Frequency  int                    `json:"frequency"`
-	Severity   string                 `json:"severity"`
-	Success    int                    `json:"success"`
-	Blocked    int                    `json:"blocked"`
-	Trend      string                 `json:"trend"`
-	Mitigation string                 `json:"mitigation"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Vector     string         `json:"vector"`
+	Frequency  int            `json:"frequency"`
+	Severity   string         `json:"severity"`
+	Success    int            `json:"success"`
+	Blocked    int            `json:"blocked"`
+	Trend      string         `json:"trend"`
+	Mitigation string         `json:"mitigation"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// RiskAssessment contains risk assessment results
+// RiskAssessment contains risk assessment results.
 type RiskAssessment struct {
-	OverallRisk    float64                `json:"overall_risk"`
-	RiskLevel      string                 `json:"risk_level"`
-	RiskFactors    []RiskFactor           `json:"risk_factors"`
-	RiskByCategory map[string]float64     `json:"risk_by_category"`
-	RiskTrends     []RiskTrend            `json:"risk_trends"`
-	CriticalRisks  []RiskFactor           `json:"critical_risks"`
-	RiskMitigation []RiskMitigation       `json:"risk_mitigation"`
-	RiskMetrics    map[string]interface{} `json:"risk_metrics"`
-	LastAssessment time.Time              `json:"last_assessment"`
-	NextAssessment time.Time              `json:"next_assessment"`
+	OverallRisk    float64            `json:"overall_risk"`
+	RiskLevel      string             `json:"risk_level"`
+	RiskFactors    []RiskFactor       `json:"risk_factors"`
+	RiskByCategory map[string]float64 `json:"risk_by_category"`
+	RiskTrends     []RiskTrend        `json:"risk_trends"`
+	CriticalRisks  []RiskFactor       `json:"critical_risks"`
+	RiskMitigation []RiskMitigation   `json:"risk_mitigation"`
+	RiskMetrics    map[string]any     `json:"risk_metrics"`
+	LastAssessment time.Time          `json:"last_assessment"`
+	NextAssessment time.Time          `json:"next_assessment"`
 }
 
-// RiskFactor represents a risk factor
+// RiskFactor represents a risk factor.
 type RiskFactor struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Category    string                 `json:"category"`
-	Severity    string                 `json:"severity"`
-	Score       float64                `json:"score"`
-	Impact      string                 `json:"impact"`
-	Likelihood  string                 `json:"likelihood"`
-	Description string                 `json:"description"`
-	Mitigation  string                 `json:"mitigation"`
-	Status      string                 `json:"status"`
-	Owner       string                 `json:"owner"`
-	DueDate     time.Time              `json:"due_date"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Category    string         `json:"category"`
+	Severity    string         `json:"severity"`
+	Score       float64        `json:"score"`
+	Impact      string         `json:"impact"`
+	Likelihood  string         `json:"likelihood"`
+	Description string         `json:"description"`
+	Mitigation  string         `json:"mitigation"`
+	Status      string         `json:"status"`
+	Owner       string         `json:"owner"`
+	DueDate     time.Time      `json:"due_date"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// RiskTrend represents risk trends
+// RiskTrend represents risk trends.
 type RiskTrend struct {
-	Category    string                 `json:"category"`
-	Direction   string                 `json:"direction"`
-	Change      float64                `json:"change"`
-	Confidence  float64                `json:"confidence"`
-	StartTime   time.Time              `json:"start_time"`
-	EndTime     time.Time              `json:"end_time"`
-	Description string                 `json:"description"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Category    string         `json:"category"`
+	Direction   string         `json:"direction"`
+	Change      float64        `json:"change"`
+	Confidence  float64        `json:"confidence"`
+	StartTime   time.Time      `json:"start_time"`
+	EndTime     time.Time      `json:"end_time"`
+	Description string         `json:"description"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// RiskMitigation represents risk mitigation strategies
+// RiskMitigation represents risk mitigation strategies.
 type RiskMitigation struct {
-	ID            string                 `json:"id"`
-	RiskID        string                 `json:"risk_id"`
-	Strategy      string                 `json:"strategy"`
-	Description   string                 `json:"description"`
-	Effectiveness float64                `json:"effectiveness"`
-	Cost          float64                `json:"cost"`
-	Timeline      time.Duration          `json:"timeline"`
-	Priority      int                    `json:"priority"`
-	Status        string                 `json:"status"`
-	Owner         string                 `json:"owner"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	ID            string         `json:"id"`
+	RiskID        string         `json:"risk_id"`
+	Strategy      string         `json:"strategy"`
+	Description   string         `json:"description"`
+	Effectiveness float64        `json:"effectiveness"`
+	Cost          float64        `json:"cost"`
+	Timeline      time.Duration  `json:"timeline"`
+	Priority      int            `json:"priority"`
+	Status        string         `json:"status"`
+	Owner         string         `json:"owner"`
+	Metadata      map[string]any `json:"metadata"`
 }
 
-// SecurityRecommendation contains security recommendations
+// SecurityRecommendation contains security recommendations.
 type SecurityRecommendation struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Priority    int                    `json:"priority"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	Rationale   string                 `json:"rationale"`
-	Impact      string                 `json:"impact"`
-	Effort      string                 `json:"effort"`
-	Timeline    time.Duration          `json:"timeline"`
-	Cost        float64                `json:"cost"`
-	Benefit     float64                `json:"benefit"`
-	Category    string                 `json:"category"`
-	Tags        []string               `json:"tags"`
-	References  []string               `json:"references"`
-	Status      string                 `json:"status"`
-	Confidence  float64                `json:"confidence"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Priority    int            `json:"priority"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Rationale   string         `json:"rationale"`
+	Impact      string         `json:"impact"`
+	Effort      string         `json:"effort"`
+	Timeline    time.Duration  `json:"timeline"`
+	Cost        float64        `json:"cost"`
+	Benefit     float64        `json:"benefit"`
+	Category    string         `json:"category"`
+	Tags        []string       `json:"tags"`
+	References  []string       `json:"references"`
+	Status      string         `json:"status"`
+	Confidence  float64        `json:"confidence"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// SecurityAlert represents security alerts
+// SecurityAlert represents security alerts.
 type SecurityAlert struct {
-	ID          string                 `json:"id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Type        string                 `json:"type"`
-	Severity    string                 `json:"severity"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	Source      string                 `json:"source"`
-	Target      string                 `json:"target"`
-	RiskScore   float64                `json:"risk_score"`
-	Confidence  float64                `json:"confidence"`
-	Status      string                 `json:"status"`
-	Assignee    string                 `json:"assignee"`
-	Tags        []string               `json:"tags"`
-	IOCs        []string               `json:"iocs"`
-	Actions     []string               `json:"actions"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Type        string         `json:"type"`
+	Severity    string         `json:"severity"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Source      string         `json:"source"`
+	Target      string         `json:"target"`
+	RiskScore   float64        `json:"risk_score"`
+	Confidence  float64        `json:"confidence"`
+	Status      string         `json:"status"`
+	Assignee    string         `json:"assignee"`
+	Tags        []string       `json:"tags"`
+	IOCs        []string       `json:"iocs"`
+	Actions     []string       `json:"actions"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// SecurityIncident represents security incidents
+// SecurityIncident represents security incidents.
 type SecurityIncident struct {
-	ID          string                 `json:"id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Type        string                 `json:"type"`
-	Severity    string                 `json:"severity"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	Status      string                 `json:"status"`
-	Impact      string                 `json:"impact"`
-	Scope       string                 `json:"scope"`
-	Timeline    IncidentTimeline       `json:"timeline"`
-	Response    IncidentResponse       `json:"response"`
-	Lessons     []string               `json:"lessons"`
-	Cost        float64                `json:"cost"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string           `json:"id"`
+	Timestamp   time.Time        `json:"timestamp"`
+	Type        string           `json:"type"`
+	Severity    string           `json:"severity"`
+	Title       string           `json:"title"`
+	Description string           `json:"description"`
+	Status      string           `json:"status"`
+	Impact      string           `json:"impact"`
+	Scope       string           `json:"scope"`
+	Timeline    IncidentTimeline `json:"timeline"`
+	Response    IncidentResponse `json:"response"`
+	Lessons     []string         `json:"lessons"`
+	Cost        float64          `json:"cost"`
+	Metadata    map[string]any   `json:"metadata"`
 }
 
-// IncidentTimeline represents incident timeline
+// IncidentTimeline represents incident timeline.
 type IncidentTimeline struct {
 	Discovery time.Time `json:"discovery"`
 	Reported  time.Time `json:"reported"`
@@ -602,7 +604,7 @@ type IncidentTimeline struct {
 	Closed    time.Time `json:"closed"`
 }
 
-// IncidentResponse represents incident response
+// IncidentResponse represents incident response.
 type IncidentResponse struct {
 	Team         string           `json:"team"`
 	Lead         string           `json:"lead"`
@@ -613,147 +615,147 @@ type IncidentResponse struct {
 	Improvements []string         `json:"improvements"`
 }
 
-// ResponseAction represents response actions
+// ResponseAction represents response actions.
 type ResponseAction struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Status      string                 `json:"status"`
-	Owner       string                 `json:"owner"`
-	Result      string                 `json:"result"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Status      string         `json:"status"`
+	Owner       string         `json:"owner"`
+	Result      string         `json:"result"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// SecurityMitigation represents security mitigations
+// SecurityMitigation represents security mitigations.
 type SecurityMitigation struct {
-	ID            string                 `json:"id"`
-	Type          string                 `json:"type"`
-	Name          string                 `json:"name"`
-	Description   string                 `json:"description"`
-	Target        string                 `json:"target"`
-	Status        string                 `json:"status"`
-	Effectiveness float64                `json:"effectiveness"`
-	Cost          float64                `json:"cost"`
-	Timeline      time.Duration          `json:"timeline"`
-	Priority      int                    `json:"priority"`
-	Owner         string                 `json:"owner"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	ID            string         `json:"id"`
+	Type          string         `json:"type"`
+	Name          string         `json:"name"`
+	Description   string         `json:"description"`
+	Target        string         `json:"target"`
+	Status        string         `json:"status"`
+	Effectiveness float64        `json:"effectiveness"`
+	Cost          float64        `json:"cost"`
+	Timeline      time.Duration  `json:"timeline"`
+	Priority      int            `json:"priority"`
+	Owner         string         `json:"owner"`
+	Metadata      map[string]any `json:"metadata"`
 }
 
-// ComplianceStatus represents compliance status
+// ComplianceStatus represents compliance status.
 type ComplianceStatus struct {
-	Framework string                 `json:"framework"`
-	Overall   float64                `json:"overall"`
-	Controls  []ComplianceControl    `json:"controls"`
-	Gaps      []ComplianceGap        `json:"gaps"`
-	Findings  []ComplianceFinding    `json:"findings"`
-	LastAudit time.Time              `json:"last_audit"`
-	NextAudit time.Time              `json:"next_audit"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Framework string              `json:"framework"`
+	Overall   float64             `json:"overall"`
+	Controls  []ComplianceControl `json:"controls"`
+	Gaps      []ComplianceGap     `json:"gaps"`
+	Findings  []ComplianceFinding `json:"findings"`
+	LastAudit time.Time           `json:"last_audit"`
+	NextAudit time.Time           `json:"next_audit"`
+	Metadata  map[string]any      `json:"metadata"`
 }
 
-// ComplianceControl represents compliance controls
+// ComplianceControl represents compliance controls.
 type ComplianceControl struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Category   string                 `json:"category"`
-	Status     string                 `json:"status"`
-	Score      float64                `json:"score"`
-	Evidence   []string               `json:"evidence"`
-	Gaps       []string               `json:"gaps"`
-	Owner      string                 `json:"owner"`
-	LastReview time.Time              `json:"last_review"`
-	NextReview time.Time              `json:"next_review"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Category   string         `json:"category"`
+	Status     string         `json:"status"`
+	Score      float64        `json:"score"`
+	Evidence   []string       `json:"evidence"`
+	Gaps       []string       `json:"gaps"`
+	Owner      string         `json:"owner"`
+	LastReview time.Time      `json:"last_review"`
+	NextReview time.Time      `json:"next_review"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// ComplianceGap represents compliance gaps
+// ComplianceGap represents compliance gaps.
 type ComplianceGap struct {
-	ID          string                 `json:"id"`
-	Control     string                 `json:"control"`
-	Description string                 `json:"description"`
-	Severity    string                 `json:"severity"`
-	Impact      string                 `json:"impact"`
-	Remediation string                 `json:"remediation"`
-	Timeline    time.Duration          `json:"timeline"`
-	Cost        float64                `json:"cost"`
-	Owner       string                 `json:"owner"`
-	Status      string                 `json:"status"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Control     string         `json:"control"`
+	Description string         `json:"description"`
+	Severity    string         `json:"severity"`
+	Impact      string         `json:"impact"`
+	Remediation string         `json:"remediation"`
+	Timeline    time.Duration  `json:"timeline"`
+	Cost        float64        `json:"cost"`
+	Owner       string         `json:"owner"`
+	Status      string         `json:"status"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// ComplianceFinding represents compliance findings
+// ComplianceFinding represents compliance findings.
 type ComplianceFinding struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Severity    string                 `json:"severity"`
-	Description string                 `json:"description"`
-	Evidence    string                 `json:"evidence"`
-	Remediation string                 `json:"remediation"`
-	Status      string                 `json:"status"`
-	Owner       string                 `json:"owner"`
-	DueDate     time.Time              `json:"due_date"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Severity    string         `json:"severity"`
+	Description string         `json:"description"`
+	Evidence    string         `json:"evidence"`
+	Remediation string         `json:"remediation"`
+	Status      string         `json:"status"`
+	Owner       string         `json:"owner"`
+	DueDate     time.Time      `json:"due_date"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// SecurityActionItem represents security action items
+// SecurityActionItem represents security action items.
 type SecurityActionItem struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Target      string                 `json:"target"`
-	Action      string                 `json:"action"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Priority    int                    `json:"priority"`
-	Condition   string                 `json:"condition"`
-	Timeout     time.Duration          `json:"timeout"`
-	Rollback    bool                   `json:"rollback"`
-	Automatic   bool                   `json:"automatic"`
-	Status      string                 `json:"status"`
-	Owner       string                 `json:"owner"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Target      string         `json:"target"`
+	Action      string         `json:"action"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+	Priority    int            `json:"priority"`
+	Condition   string         `json:"condition"`
+	Timeout     time.Duration  `json:"timeout"`
+	Rollback    bool           `json:"rollback"`
+	Automatic   bool           `json:"automatic"`
+	Status      string         `json:"status"`
+	Owner       string         `json:"owner"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// ThreatPrediction represents threat predictions
+// ThreatPrediction represents threat predictions.
 type ThreatPrediction struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Probability float64                `json:"probability"`
-	Confidence  float64                `json:"confidence"`
-	Timeframe   time.Duration          `json:"timeframe"`
-	Impact      string                 `json:"impact"`
-	Mitigation  string                 `json:"mitigation"`
-	Indicators  []string               `json:"indicators"`
-	Description string                 `json:"description"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Probability float64        `json:"probability"`
+	Confidence  float64        `json:"confidence"`
+	Timeframe   time.Duration  `json:"timeframe"`
+	Impact      string         `json:"impact"`
+	Mitigation  string         `json:"mitigation"`
+	Indicators  []string       `json:"indicators"`
+	Description string         `json:"description"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// SecuritySummary represents security summary
+// SecuritySummary represents security summary.
 type SecuritySummary struct {
-	SecurityScore          float64                `json:"security_score"`
-	ThreatLevel            string                 `json:"threat_level"`
-	RiskLevel              string                 `json:"risk_level"`
-	ComplianceScore        float64                `json:"compliance_score"`
-	ActiveThreats          int                    `json:"active_threats"`
-	CriticalAlerts         int                    `json:"critical_alerts"`
-	OpenIncidents          int                    `json:"open_incidents"`
-	VulnerabilitiesHigh    int                    `json:"vulnerabilities_high"`
-	RecommendationsPending int                    `json:"recommendations_pending"`
-	LastUpdate             time.Time              `json:"last_update"`
-	Trends                 map[string]string      `json:"trends"`
-	Metadata               map[string]interface{} `json:"metadata"`
+	SecurityScore          float64           `json:"security_score"`
+	ThreatLevel            string            `json:"threat_level"`
+	RiskLevel              string            `json:"risk_level"`
+	ComplianceScore        float64           `json:"compliance_score"`
+	ActiveThreats          int               `json:"active_threats"`
+	CriticalAlerts         int               `json:"critical_alerts"`
+	OpenIncidents          int               `json:"open_incidents"`
+	VulnerabilitiesHigh    int               `json:"vulnerabilities_high"`
+	RecommendationsPending int               `json:"recommendations_pending"`
+	LastUpdate             time.Time         `json:"last_update"`
+	Trends                 map[string]string `json:"trends"`
+	Metadata               map[string]any    `json:"metadata"`
 }
 
-// NewSecurityAgent creates a new security monitoring agent
+// NewSecurityAgent creates a new security monitoring agent.
 func NewSecurityAgent() ai.AIAgent {
 	capabilities := []ai.Capability{
 		{
 			Name:        "threat-detection",
 			Description: "Detect and analyze security threats in real-time",
-			InputType:   reflect.TypeOf(SecurityInput{}),
-			OutputType:  reflect.TypeOf(SecurityOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SecurityInput](),
+			OutputType:  reflect.TypeFor[SecurityOutput](),
+			Metadata: map[string]any{
 				"detection_accuracy": 0.92,
 				"response_time":      "< 1s",
 			},
@@ -761,9 +763,9 @@ func NewSecurityAgent() ai.AIAgent {
 		{
 			Name:        "behavioral-analysis",
 			Description: "Analyze user and system behavior for anomalies",
-			InputType:   reflect.TypeOf(SecurityInput{}),
-			OutputType:  reflect.TypeOf(SecurityOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SecurityInput](),
+			OutputType:  reflect.TypeFor[SecurityOutput](),
+			Metadata: map[string]any{
 				"anomaly_detection":   0.89,
 				"false_positive_rate": 0.05,
 			},
@@ -771,9 +773,9 @@ func NewSecurityAgent() ai.AIAgent {
 		{
 			Name:        "vulnerability-scanning",
 			Description: "Automated vulnerability scanning and assessment",
-			InputType:   reflect.TypeOf(SecurityInput{}),
-			OutputType:  reflect.TypeOf(SecurityOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SecurityInput](),
+			OutputType:  reflect.TypeFor[SecurityOutput](),
+			Metadata: map[string]any{
 				"coverage": 0.95,
 				"accuracy": 0.91,
 			},
@@ -781,9 +783,9 @@ func NewSecurityAgent() ai.AIAgent {
 		{
 			Name:        "risk-assessment",
 			Description: "Comprehensive security risk assessment and scoring",
-			InputType:   reflect.TypeOf(SecurityInput{}),
-			OutputType:  reflect.TypeOf(SecurityOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SecurityInput](),
+			OutputType:  reflect.TypeFor[SecurityOutput](),
+			Metadata: map[string]any{
 				"risk_accuracy":      0.87,
 				"prediction_horizon": "30d",
 			},
@@ -791,9 +793,9 @@ func NewSecurityAgent() ai.AIAgent {
 		{
 			Name:        "compliance-monitoring",
 			Description: "Monitor and assess compliance with security frameworks",
-			InputType:   reflect.TypeOf(SecurityInput{}),
-			OutputType:  reflect.TypeOf(SecurityOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SecurityInput](),
+			OutputType:  reflect.TypeFor[SecurityOutput](),
+			Metadata: map[string]any{
 				"frameworks": []string{"SOC2", "ISO27001", "NIST", "PCI-DSS"},
 				"coverage":   0.93,
 			},
@@ -827,7 +829,7 @@ func NewSecurityAgent() ai.AIAgent {
 	}
 }
 
-// Initialize initializes the security agent
+// Initialize initializes the security agent.
 func (a *SecurityAgent) Initialize(ctx context.Context, config ai.AgentConfig) error {
 	if err := a.BaseAgent.Initialize(ctx, config); err != nil {
 		return err
@@ -835,13 +837,15 @@ func (a *SecurityAgent) Initialize(ctx context.Context, config ai.AgentConfig) e
 
 	// Initialize security-specific configuration
 	if securityConfig, ok := config.Metadata["security"]; ok {
-		if configMap, ok := securityConfig.(map[string]interface{}); ok {
+		if configMap, ok := securityConfig.(map[string]any); ok {
 			if alerting, ok := configMap["alerting_enabled"].(bool); ok {
 				a.alertingEnabled = alerting
 			}
+
 			if autoMit, ok := configMap["auto_mitigation"].(bool); ok {
 				a.autoMitigation = autoMit
 			}
+
 			if learning, ok := configMap["learning_enabled"].(bool); ok {
 				a.learningEnabled = learning
 			}
@@ -855,7 +859,7 @@ func (a *SecurityAgent) Initialize(ctx context.Context, config ai.AgentConfig) e
 	a.initializeSecurityPolicies()
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Info("security agent initialized",
+		a.GetConfiguration().Logger.Info("security agent initialized",
 			logger.String("agent_id", a.ID()),
 			logger.Bool("alerting_enabled", a.alertingEnabled),
 			logger.Bool("auto_mitigation", a.autoMitigation),
@@ -868,14 +872,14 @@ func (a *SecurityAgent) Initialize(ctx context.Context, config ai.AgentConfig) e
 	return nil
 }
 
-// Process processes security monitoring input
+// Process processes security monitoring input.
 func (a *SecurityAgent) Process(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Convert input to security-specific input
 	securityInput, ok := input.Data.(SecurityInput)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input type for security agent")
+		return ai.AgentOutput{}, errors.New("invalid input type for security agent")
 	}
 
 	// Perform threat analysis
@@ -932,7 +936,7 @@ func (a *SecurityAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Ag
 		Confidence:  a.calculateSecurityConfidence(securityInput, threatAnalysis),
 		Explanation: a.generateSecurityExplanation(output),
 		Actions:     a.convertToAgentActions(actions),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"processing_time":   time.Since(startTime),
 			"threats_detected":  threatAnalysis.TotalThreats,
 			"alerts_generated":  len(alerts),
@@ -943,7 +947,7 @@ func (a *SecurityAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Ag
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Debug("security monitoring processed",
+		a.GetConfiguration().Logger.Debug("security monitoring processed",
 			logger.String("agent_id", a.ID()),
 			logger.String("request_id", input.RequestID),
 			logger.Int("threats_detected", threatAnalysis.TotalThreats),
@@ -956,7 +960,7 @@ func (a *SecurityAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Ag
 	return agentOutput, nil
 }
 
-// initializeThreatDatabase initializes the threat database
+// initializeThreatDatabase initializes the threat database.
 func (a *SecurityAgent) initializeThreatDatabase() {
 	a.threatDatabase = ThreatDatabase{
 		KnownThreats: []ThreatSignature{
@@ -1041,7 +1045,7 @@ func (a *SecurityAgent) initializeThreatDatabase() {
 	}
 }
 
-// initializeSecurityPolicies initializes security policies
+// initializeSecurityPolicies initializes security policies.
 func (a *SecurityAgent) initializeSecurityPolicies() {
 	a.securityPolicies = []SecurityPolicy{
 		{
@@ -1067,7 +1071,7 @@ func (a *SecurityAgent) initializeSecurityPolicies() {
 					Type:        "alert",
 					Name:        "Generate Alert",
 					Description: "Generate security alert for failed logins",
-					Parameters:  map[string]interface{}{"severity": "medium"},
+					Parameters:  map[string]any{"severity": "medium"},
 					Automatic:   true,
 					Timeout:     5 * time.Minute,
 				},
@@ -1099,7 +1103,7 @@ func (a *SecurityAgent) initializeSecurityPolicies() {
 					Type:        "investigate",
 					Name:        "Investigate Network Activity",
 					Description: "Investigate unusual network activity",
-					Parameters:  map[string]interface{}{"deep_inspection": true},
+					Parameters:  map[string]any{"deep_inspection": true},
 					Automatic:   false,
 					Timeout:     10 * time.Minute,
 				},
@@ -1111,7 +1115,7 @@ func (a *SecurityAgent) initializeSecurityPolicies() {
 	}
 }
 
-// analyzeThreat analyzes security threats
+// analyzeThreat analyzes security threats.
 func (a *SecurityAgent) analyzeThreat(input SecurityInput) ThreatAnalysis {
 	analysis := ThreatAnalysis{
 		TotalThreats:      0,
@@ -1154,7 +1158,7 @@ func (a *SecurityAgent) analyzeThreat(input SecurityInput) ThreatAnalysis {
 	return analysis
 }
 
-// analyzeNetworkThreats analyzes network threats
+// analyzeNetworkThreats analyzes network threats.
 func (a *SecurityAgent) analyzeNetworkThreats(events []NetworkEvent, analysis *ThreatAnalysis) {
 	for _, event := range events {
 		// Check against known malicious IPs
@@ -1164,14 +1168,14 @@ func (a *SecurityAgent) analyzeNetworkThreats(events []NetworkEvent, analysis *T
 			analysis.ThreatsBySeverity["high"]++
 
 			threatDetail := ThreatDetail{
-				ID:          fmt.Sprintf("network-threat-%s", event.ID),
+				ID:          "network-threat-" + event.ID,
 				Name:        "Malicious IP Communication",
 				Type:        "malicious-ip",
 				Severity:    "high",
 				Count:       1,
 				LastSeen:    event.Timestamp,
 				Status:      "active",
-				Description: fmt.Sprintf("Communication with malicious IP %s", event.SourceIP),
+				Description: "Communication with malicious IP " + event.SourceIP,
 				Mitigation:  "Block IP address",
 				RiskScore:   0.9,
 			}
@@ -1194,7 +1198,7 @@ func (a *SecurityAgent) analyzeNetworkThreats(events []NetworkEvent, analysis *T
 	}
 }
 
-// analyzeAccessThreats analyzes access-related threats
+// analyzeAccessThreats analyzes access-related threats.
 func (a *SecurityAgent) analyzeAccessThreats(events []AccessEvent, analysis *ThreatAnalysis) {
 	failedLogins := make(map[string]int)
 
@@ -1209,14 +1213,14 @@ func (a *SecurityAgent) analyzeAccessThreats(events []AccessEvent, analysis *Thr
 				analysis.ThreatsBySeverity["medium"]++
 
 				threatDetail := ThreatDetail{
-					ID:          fmt.Sprintf("access-threat-%s", event.ID),
+					ID:          "access-threat-" + event.ID,
 					Name:        "Brute Force Attack",
 					Type:        "brute-force",
 					Severity:    "medium",
 					Count:       failedLogins[event.IP],
 					LastSeen:    event.Timestamp,
 					Status:      "active",
-					Description: fmt.Sprintf("Multiple failed login attempts from %s", event.IP),
+					Description: "Multiple failed login attempts from " + event.IP,
 					Mitigation:  "Rate limiting and account lockout",
 					RiskScore:   0.7,
 				}
@@ -1233,7 +1237,7 @@ func (a *SecurityAgent) analyzeAccessThreats(events []AccessEvent, analysis *Thr
 	}
 }
 
-// analyzeSystemThreats analyzes system-level threats
+// analyzeSystemThreats analyzes system-level threats.
 func (a *SecurityAgent) analyzeSystemThreats(events []SystemEvent, analysis *ThreatAnalysis) {
 	for _, event := range events {
 		// Check for malware indicators
@@ -1243,7 +1247,7 @@ func (a *SecurityAgent) analyzeSystemThreats(events []SystemEvent, analysis *Thr
 			analysis.ThreatsBySeverity["high"]++
 
 			threatDetail := ThreatDetail{
-				ID:          fmt.Sprintf("system-threat-%s", event.ID),
+				ID:          "system-threat-" + event.ID,
 				Name:        "Malware Detection",
 				Type:        "malware",
 				Severity:    "high",
@@ -1266,7 +1270,7 @@ func (a *SecurityAgent) analyzeSystemThreats(events []SystemEvent, analysis *Thr
 	}
 }
 
-// analyzeUserBehaviorThreats analyzes user behavior threats
+// analyzeUserBehaviorThreats analyzes user behavior threats.
 func (a *SecurityAgent) analyzeUserBehaviorThreats(events []UserBehaviorEvent, analysis *ThreatAnalysis) {
 	for _, event := range events {
 		if event.Anomaly {
@@ -1283,14 +1287,14 @@ func (a *SecurityAgent) analyzeUserBehaviorThreats(events []UserBehaviorEvent, a
 			analysis.ThreatsBySeverity[severity]++
 
 			threatDetail := ThreatDetail{
-				ID:          fmt.Sprintf("behavior-threat-%s", event.ID),
+				ID:          "behavior-threat-" + event.ID,
 				Name:        "Behavioral Anomaly",
 				Type:        "behavioral-anomaly",
 				Severity:    severity,
 				Count:       1,
 				LastSeen:    event.Timestamp,
 				Status:      "active",
-				Description: fmt.Sprintf("Unusual behavior detected for user %s", event.UserID),
+				Description: "Unusual behavior detected for user " + event.UserID,
 				Mitigation:  "Monitor user activity",
 				RiskScore:   event.RiskScore,
 			}
@@ -1299,7 +1303,7 @@ func (a *SecurityAgent) analyzeUserBehaviorThreats(events []UserBehaviorEvent, a
 	}
 }
 
-// analyzeSecurityEvents analyzes security events
+// analyzeSecurityEvents analyzes security events.
 func (a *SecurityAgent) analyzeSecurityEvents(events []SecurityEvent, analysis *ThreatAnalysis) {
 	for _, event := range events {
 		analysis.TotalThreats++
@@ -1307,7 +1311,7 @@ func (a *SecurityAgent) analyzeSecurityEvents(events []SecurityEvent, analysis *
 		analysis.ThreatsBySeverity[event.Severity]++
 
 		threatDetail := ThreatDetail{
-			ID:          fmt.Sprintf("security-event-%s", event.ID),
+			ID:          "security-event-" + event.ID,
 			Name:        event.Title,
 			Type:        event.Type,
 			Severity:    event.Severity,
@@ -1322,7 +1326,7 @@ func (a *SecurityAgent) analyzeSecurityEvents(events []SecurityEvent, analysis *
 	}
 }
 
-// analyzeIOCs analyzes Indicators of Compromise
+// analyzeIOCs analyzes Indicators of Compromise.
 func (a *SecurityAgent) analyzeIOCs(intelligence []ThreatIntelligence, analysis *ThreatAnalysis) {
 	for _, intel := range intelligence {
 		for _, ioc := range intel.Indicators {
@@ -1340,7 +1344,7 @@ func (a *SecurityAgent) analyzeIOCs(intelligence []ThreatIntelligence, analysis 
 	}
 }
 
-// calculateThreatTrends calculates threat trends
+// calculateThreatTrends calculates threat trends.
 func (a *SecurityAgent) calculateThreatTrends(analysis *ThreatAnalysis) {
 	// Simple trend calculation - in real implementation, this would be more sophisticated
 	for threatType := range analysis.ThreatsByType {
@@ -1357,7 +1361,7 @@ func (a *SecurityAgent) calculateThreatTrends(analysis *ThreatAnalysis) {
 	}
 }
 
-// identifyAttackVectors identifies attack vectors
+// identifyAttackVectors identifies attack vectors.
 func (a *SecurityAgent) identifyAttackVectors(analysis *ThreatAnalysis) {
 	// Common attack vectors
 	vectors := []string{"network", "web", "email", "endpoint", "social-engineering"}
@@ -1376,7 +1380,7 @@ func (a *SecurityAgent) identifyAttackVectors(analysis *ThreatAnalysis) {
 	}
 }
 
-// Helper functions for threat analysis
+// Helper functions for threat analysis.
 func (a *SecurityAgent) isMaliciousIP(ip string) bool {
 	// Check against known malicious IPs
 	for _, ioc := range a.threatDatabase.Indicators {
@@ -1384,6 +1388,7 @@ func (a *SecurityAgent) isMaliciousIP(ip string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -1412,6 +1417,7 @@ func (a *SecurityAgent) containsMalwareIndicators(message string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
@@ -1420,14 +1426,14 @@ func (a *SecurityAgent) isPrivilegeEscalation(event SystemEvent) bool {
 	return strings.Contains(event.Message, "privilege") && strings.Contains(event.Message, "escalation")
 }
 
-// assessRisk assesses security risks
+// assessRisk assesses security risks.
 func (a *SecurityAgent) assessRisk(input SecurityInput, threatAnalysis ThreatAnalysis) RiskAssessment {
 	riskFactors := []RiskFactor{}
 
 	// Calculate risk factors based on threats
 	for _, threat := range threatAnalysis.TopThreats {
 		riskFactor := RiskFactor{
-			ID:          fmt.Sprintf("risk-%s", threat.ID),
+			ID:          "risk-" + threat.ID,
 			Name:        threat.Name,
 			Category:    threat.Type,
 			Severity:    threat.Severity,
@@ -1455,6 +1461,7 @@ func (a *SecurityAgent) assessRisk(input SecurityInput, threatAnalysis ThreatAna
 
 	// Identify critical risks
 	criticalRisks := []RiskFactor{}
+
 	for _, factor := range riskFactors {
 		if factor.Score >= a.riskThresholds.High {
 			criticalRisks = append(criticalRisks, factor)
@@ -1472,7 +1479,7 @@ func (a *SecurityAgent) assessRisk(input SecurityInput, threatAnalysis ThreatAna
 	}
 }
 
-// calculateImpact calculates impact based on severity
+// calculateImpact calculates impact based on severity.
 func (a *SecurityAgent) calculateImpact(severity string) string {
 	switch severity {
 	case "critical":
@@ -1488,7 +1495,7 @@ func (a *SecurityAgent) calculateImpact(severity string) string {
 	}
 }
 
-// calculateLikelihood calculates likelihood based on risk score
+// calculateLikelihood calculates likelihood based on risk score.
 func (a *SecurityAgent) calculateLikelihood(riskScore float64) string {
 	switch {
 	case riskScore >= 0.9:
@@ -1504,7 +1511,7 @@ func (a *SecurityAgent) calculateLikelihood(riskScore float64) string {
 	}
 }
 
-// calculateOverallRisk calculates overall risk from risk factors
+// calculateOverallRisk calculates overall risk from risk factors.
 func (a *SecurityAgent) calculateOverallRisk(riskFactors []RiskFactor) float64 {
 	if len(riskFactors) == 0 {
 		return 0.0
@@ -1515,6 +1522,7 @@ func (a *SecurityAgent) calculateOverallRisk(riskFactors []RiskFactor) float64 {
 
 	for _, factor := range riskFactors {
 		weight := 1.0
+
 		switch factor.Severity {
 		case "critical":
 			weight = 3.0
@@ -1537,7 +1545,7 @@ func (a *SecurityAgent) calculateOverallRisk(riskFactors []RiskFactor) float64 {
 	return weightedScore / totalScore
 }
 
-// determineRiskLevel determines risk level from overall risk score
+// determineRiskLevel determines risk level from overall risk score.
 func (a *SecurityAgent) determineRiskLevel(overallRisk float64) string {
 	switch {
 	case overallRisk >= a.riskThresholds.Critical:
@@ -1553,17 +1561,17 @@ func (a *SecurityAgent) determineRiskLevel(overallRisk float64) string {
 	}
 }
 
-// generateSecurityRecommendations generates security recommendations
+// generateSecurityRecommendations generates security recommendations.
 func (a *SecurityAgent) generateSecurityRecommendations(input SecurityInput, threatAnalysis ThreatAnalysis, riskAssessment RiskAssessment) []SecurityRecommendation {
 	recommendations := []SecurityRecommendation{}
 
 	// Generate recommendations based on threat analysis
 	for _, threat := range threatAnalysis.TopThreats {
 		recommendation := SecurityRecommendation{
-			ID:          fmt.Sprintf("rec-%s", threat.ID),
+			ID:          "rec-" + threat.ID,
 			Type:        "threat-mitigation",
 			Priority:    a.calculateRecommendationPriority(threat.Severity),
-			Title:       fmt.Sprintf("Mitigate %s", threat.Name),
+			Title:       "Mitigate " + threat.Name,
 			Description: fmt.Sprintf("Implement mitigation for %s threat", threat.Name),
 			Rationale:   fmt.Sprintf("Threat detected with severity %s and risk score %.2f", threat.Severity, threat.RiskScore),
 			Impact:      a.calculateImpact(threat.Severity),
@@ -1582,11 +1590,11 @@ func (a *SecurityAgent) generateSecurityRecommendations(input SecurityInput, thr
 	// Generate recommendations based on risk assessment
 	for _, risk := range riskAssessment.CriticalRisks {
 		recommendation := SecurityRecommendation{
-			ID:          fmt.Sprintf("rec-risk-%s", risk.ID),
+			ID:          "rec-risk-" + risk.ID,
 			Type:        "risk-mitigation",
 			Priority:    1, // Critical risks have highest priority
-			Title:       fmt.Sprintf("Address Critical Risk: %s", risk.Name),
-			Description: fmt.Sprintf("Implement mitigation for critical risk in %s", risk.Category),
+			Title:       "Address Critical Risk: " + risk.Name,
+			Description: "Implement mitigation for critical risk in " + risk.Category,
 			Rationale:   fmt.Sprintf("Critical risk identified with score %.2f", risk.Score),
 			Impact:      risk.Impact,
 			Effort:      "high",
@@ -1606,7 +1614,7 @@ func (a *SecurityAgent) generateSecurityRecommendations(input SecurityInput, thr
 		for _, scan := range input.VulnerabilityScans {
 			if scan.Summary.Critical > 0 || scan.Summary.High > 0 {
 				recommendation := SecurityRecommendation{
-					ID:          fmt.Sprintf("rec-vuln-%s", scan.ID),
+					ID:          "rec-vuln-" + scan.ID,
 					Type:        "vulnerability-remediation",
 					Priority:    2,
 					Title:       "Address Vulnerability Findings",
@@ -1630,7 +1638,7 @@ func (a *SecurityAgent) generateSecurityRecommendations(input SecurityInput, thr
 	return recommendations
 }
 
-// generateSecurityAlerts generates security alerts
+// generateSecurityAlerts generates security alerts.
 func (a *SecurityAgent) generateSecurityAlerts(input SecurityInput, threatAnalysis ThreatAnalysis, riskAssessment RiskAssessment) []SecurityAlert {
 	alerts := []SecurityAlert{}
 
@@ -1638,11 +1646,11 @@ func (a *SecurityAgent) generateSecurityAlerts(input SecurityInput, threatAnalys
 	for _, threat := range threatAnalysis.TopThreats {
 		if threat.Severity == "high" || threat.Severity == "critical" {
 			alert := SecurityAlert{
-				ID:          fmt.Sprintf("alert-%s", threat.ID),
+				ID:          "alert-" + threat.ID,
 				Timestamp:   time.Now(),
 				Type:        threat.Type,
 				Severity:    threat.Severity,
-				Title:       fmt.Sprintf("Security Threat Detected: %s", threat.Name),
+				Title:       "Security Threat Detected: " + threat.Name,
 				Description: threat.Description,
 				Source:      "security-agent",
 				Target:      "system",
@@ -1661,11 +1669,11 @@ func (a *SecurityAgent) generateSecurityAlerts(input SecurityInput, threatAnalys
 	// Generate alerts for critical risks
 	for _, risk := range riskAssessment.CriticalRisks {
 		alert := SecurityAlert{
-			ID:          fmt.Sprintf("alert-risk-%s", risk.ID),
+			ID:          "alert-risk-" + risk.ID,
 			Timestamp:   time.Now(),
 			Type:        "risk-alert",
 			Severity:    "high",
-			Title:       fmt.Sprintf("Critical Risk Identified: %s", risk.Name),
+			Title:       "Critical Risk Identified: " + risk.Name,
 			Description: fmt.Sprintf("Critical risk in %s category with score %.2f", risk.Category, risk.Score),
 			Source:      "security-agent",
 			Target:      risk.Category,
@@ -1684,6 +1692,7 @@ func (a *SecurityAgent) generateSecurityAlerts(input SecurityInput, threatAnalys
 		if !event.Success && event.Action == "login" {
 			// Count failed attempts from same IP
 			failedCount := 0
+
 			for _, e := range input.AccessLogs {
 				if e.IP == event.IP && !e.Success && e.Action == "login" {
 					failedCount++
@@ -1692,12 +1701,12 @@ func (a *SecurityAgent) generateSecurityAlerts(input SecurityInput, threatAnalys
 
 			if failedCount > 5 {
 				alert := SecurityAlert{
-					ID:          fmt.Sprintf("alert-brute-force-%s", event.IP),
+					ID:          "alert-brute-force-" + event.IP,
 					Timestamp:   time.Now(),
 					Type:        "brute-force",
 					Severity:    "medium",
 					Title:       "Brute Force Attack Detected",
-					Description: fmt.Sprintf("Multiple failed login attempts from IP %s", event.IP),
+					Description: "Multiple failed login attempts from IP " + event.IP,
 					Source:      "access-logs",
 					Target:      event.IP,
 					RiskScore:   0.7,
@@ -1715,7 +1724,7 @@ func (a *SecurityAgent) generateSecurityAlerts(input SecurityInput, threatAnalys
 	return alerts
 }
 
-// detectSecurityIncidents detects and creates security incidents
+// detectSecurityIncidents detects and creates security incidents.
 func (a *SecurityAgent) detectSecurityIncidents(input SecurityInput, threatAnalysis ThreatAnalysis, alerts []SecurityAlert) []SecurityIncident {
 	incidents := []SecurityIncident{}
 
@@ -1723,11 +1732,11 @@ func (a *SecurityAgent) detectSecurityIncidents(input SecurityInput, threatAnaly
 	for _, alert := range alerts {
 		if alert.Severity == "critical" || (alert.Severity == "high" && alert.RiskScore > 0.8) {
 			incident := SecurityIncident{
-				ID:          fmt.Sprintf("incident-%s", alert.ID),
+				ID:          "incident-" + alert.ID,
 				Timestamp:   time.Now(),
 				Type:        alert.Type,
 				Severity:    alert.Severity,
-				Title:       fmt.Sprintf("Security Incident: %s", alert.Title),
+				Title:       "Security Incident: " + alert.Title,
 				Description: alert.Description,
 				Status:      "open",
 				Impact:      a.calculateIncidentImpact(alert.Severity),
@@ -1753,11 +1762,11 @@ func (a *SecurityAgent) detectSecurityIncidents(input SecurityInput, threatAnaly
 	for groupType, threats := range threatGroups {
 		if len(threats) > 3 { // Multiple related threats indicate a campaign
 			incident := SecurityIncident{
-				ID:          fmt.Sprintf("incident-campaign-%s", groupType),
+				ID:          "incident-campaign-" + groupType,
 				Timestamp:   time.Now(),
 				Type:        "threat-campaign",
 				Severity:    "high",
-				Title:       fmt.Sprintf("Coordinated Attack Campaign: %s", groupType),
+				Title:       "Coordinated Attack Campaign: " + groupType,
 				Description: fmt.Sprintf("Multiple %s threats detected, indicating coordinated attack", groupType),
 				Status:      "open",
 				Impact:      "high",
@@ -1781,16 +1790,16 @@ func (a *SecurityAgent) detectSecurityIncidents(input SecurityInput, threatAnaly
 	return incidents
 }
 
-// generateSecurityMitigations generates security mitigations
+// generateSecurityMitigations generates security mitigations.
 func (a *SecurityAgent) generateSecurityMitigations(input SecurityInput, threatAnalysis ThreatAnalysis, riskAssessment RiskAssessment) []SecurityMitigation {
 	mitigations := []SecurityMitigation{}
 
 	// Generate mitigations for threats
 	for _, threat := range threatAnalysis.TopThreats {
 		mitigation := SecurityMitigation{
-			ID:            fmt.Sprintf("mitigation-%s", threat.ID),
+			ID:            "mitigation-" + threat.ID,
 			Type:          "threat-mitigation",
-			Name:          fmt.Sprintf("Mitigate %s", threat.Name),
+			Name:          "Mitigate " + threat.Name,
 			Description:   threat.Mitigation,
 			Target:        threat.Type,
 			Status:        "pending",
@@ -1806,9 +1815,9 @@ func (a *SecurityAgent) generateSecurityMitigations(input SecurityInput, threatA
 	// Generate mitigations for risks
 	for _, risk := range riskAssessment.CriticalRisks {
 		mitigation := SecurityMitigation{
-			ID:            fmt.Sprintf("mitigation-risk-%s", risk.ID),
+			ID:            "mitigation-risk-" + risk.ID,
 			Type:          "risk-mitigation",
-			Name:          fmt.Sprintf("Mitigate Risk: %s", risk.Name),
+			Name:          "Mitigate Risk: " + risk.Name,
 			Description:   risk.Mitigation,
 			Target:        risk.Category,
 			Status:        "pending",
@@ -1824,10 +1833,10 @@ func (a *SecurityAgent) generateSecurityMitigations(input SecurityInput, threatA
 	return mitigations
 }
 
-// assessComplianceStatus assesses compliance status
+// assessComplianceStatus assesses compliance status.
 func (a *SecurityAgent) assessComplianceStatus(input SecurityInput) ComplianceStatus {
 	// Default compliance frameworks
-	// frameworks := []string{"SOC2", "ISO27001", "NIST", "PCI-DSS"}
+	// := []string{"SOC2", "ISO27001", "NIST", "PCI-DSS"}
 
 	// For demonstration, we'll use SOC2 as the primary framework
 	framework := "SOC2"
@@ -1916,6 +1925,7 @@ func (a *SecurityAgent) assessComplianceStatus(input SecurityInput) ComplianceSt
 	for _, control := range controls {
 		totalScore += control.Score
 	}
+
 	overallScore := totalScore / float64(len(controls))
 
 	return ComplianceStatus{
@@ -1929,7 +1939,7 @@ func (a *SecurityAgent) assessComplianceStatus(input SecurityInput) ComplianceSt
 	}
 }
 
-// generateThreatPredictions generates threat predictions
+// generateThreatPredictions generates threat predictions.
 func (a *SecurityAgent) generateThreatPredictions(input SecurityInput, threatAnalysis ThreatAnalysis) []ThreatPrediction {
 	predictions := []ThreatPrediction{}
 
@@ -1937,14 +1947,14 @@ func (a *SecurityAgent) generateThreatPredictions(input SecurityInput, threatAna
 	for _, trend := range threatAnalysis.ThreatTrends {
 		if trend.Direction == "increasing" {
 			prediction := ThreatPrediction{
-				ID:          fmt.Sprintf("prediction-%s", trend.Type),
+				ID:          "prediction-" + trend.Type,
 				Type:        trend.Type,
 				Probability: trend.Confidence * 0.8, // Scale down confidence for prediction
 				Confidence:  trend.Confidence,
 				Timeframe:   7 * 24 * time.Hour,
 				Impact:      "medium",
 				Mitigation:  fmt.Sprintf("Implement preventive measures for %s threats", trend.Type),
-				Indicators:  []string{fmt.Sprintf("%s-activity-increase", trend.Type)},
+				Indicators:  []string{trend.Type + "-activity-increase"},
 				Description: fmt.Sprintf("Predicted increase in %s threats based on current trends", trend.Type),
 			}
 			predictions = append(predictions, prediction)
@@ -1955,14 +1965,14 @@ func (a *SecurityAgent) generateThreatPredictions(input SecurityInput, threatAna
 	for _, vector := range threatAnalysis.AttackVectors {
 		if vector.Trend == "increasing" {
 			prediction := ThreatPrediction{
-				ID:          fmt.Sprintf("prediction-vector-%s", vector.Vector),
-				Type:        fmt.Sprintf("%s-attack", vector.Vector),
+				ID:          "prediction-vector-" + vector.Vector,
+				Type:        vector.Vector + "-attack",
 				Probability: 0.6,
 				Confidence:  0.7,
 				Timeframe:   14 * 24 * time.Hour,
 				Impact:      vector.Severity,
 				Mitigation:  vector.Mitigation,
-				Indicators:  []string{fmt.Sprintf("%s-probing", vector.Vector)},
+				Indicators:  []string{vector.Vector + "-probing"},
 				Description: fmt.Sprintf("Predicted %s attack based on recent probing activity", vector.Vector),
 			}
 			predictions = append(predictions, prediction)
@@ -1973,8 +1983,8 @@ func (a *SecurityAgent) generateThreatPredictions(input SecurityInput, threatAna
 	for _, ioc := range threatAnalysis.IOCs {
 		if ioc.Confidence > 0.8 {
 			prediction := ThreatPrediction{
-				ID:          fmt.Sprintf("prediction-ioc-%s", ioc.IOC.ID),
-				Type:        fmt.Sprintf("%s-related-attack", ioc.IOC.Type),
+				ID:          "prediction-ioc-" + ioc.IOC.ID,
+				Type:        ioc.IOC.Type + "-related-attack",
 				Probability: ioc.Confidence * 0.7,
 				Confidence:  ioc.Confidence,
 				Timeframe:   3 * 24 * time.Hour,
@@ -1990,24 +2000,24 @@ func (a *SecurityAgent) generateThreatPredictions(input SecurityInput, threatAna
 	return predictions
 }
 
-// createSecurityActions creates security actions
+// createSecurityActions creates security actions.
 func (a *SecurityAgent) createSecurityActions(recommendations []SecurityRecommendation, alerts []SecurityAlert, incidents []SecurityIncident, mitigations []SecurityMitigation) []SecurityActionItem {
 	actions := []SecurityActionItem{}
 
 	// Create actions from recommendations
 	for _, rec := range recommendations {
 		action := SecurityActionItem{
-			ID:          fmt.Sprintf("action-rec-%s", rec.ID),
+			ID:          "action-rec-" + rec.ID,
 			Type:        "implement-recommendation",
 			Target:      rec.Category,
 			Action:      "implement",
 			Description: rec.Description,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"recommendation_id": rec.ID,
 				"priority":          rec.Priority,
 			},
 			Priority:  rec.Priority,
-			Condition: fmt.Sprintf("recommendation.status == 'pending'"),
+			Condition: "recommendation.status == 'pending'",
 			Timeout:   rec.Timeline,
 			Rollback:  false,
 			Automatic: false,
@@ -2021,18 +2031,18 @@ func (a *SecurityAgent) createSecurityActions(recommendations []SecurityRecommen
 	for _, alert := range alerts {
 		if alert.Severity == "critical" || alert.Severity == "high" {
 			action := SecurityActionItem{
-				ID:          fmt.Sprintf("action-alert-%s", alert.ID),
+				ID:          "action-alert-" + alert.ID,
 				Type:        "respond-to-alert",
 				Target:      alert.Target,
 				Action:      "investigate",
 				Description: fmt.Sprintf("Investigate %s alert", alert.Type),
-				Parameters: map[string]interface{}{
+				Parameters: map[string]any{
 					"alert_id":   alert.ID,
 					"severity":   alert.Severity,
 					"risk_score": alert.RiskScore,
 				},
 				Priority:  1,
-				Condition: fmt.Sprintf("alert.status == 'open'"),
+				Condition: "alert.status == 'open'",
 				Timeout:   1 * time.Hour,
 				Rollback:  false,
 				Automatic: alert.Severity == "critical",
@@ -2046,18 +2056,18 @@ func (a *SecurityAgent) createSecurityActions(recommendations []SecurityRecommen
 	// Create actions from incidents
 	for _, incident := range incidents {
 		action := SecurityActionItem{
-			ID:          fmt.Sprintf("action-incident-%s", incident.ID),
+			ID:          "action-incident-" + incident.ID,
 			Type:        "respond-to-incident",
 			Target:      incident.Type,
 			Action:      "respond",
 			Description: fmt.Sprintf("Respond to %s incident", incident.Type),
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"incident_id": incident.ID,
 				"severity":    incident.Severity,
 				"impact":      incident.Impact,
 			},
 			Priority:  1,
-			Condition: fmt.Sprintf("incident.status == 'open'"),
+			Condition: "incident.status == 'open'",
 			Timeout:   2 * time.Hour,
 			Rollback:  false,
 			Automatic: false,
@@ -2070,18 +2080,18 @@ func (a *SecurityAgent) createSecurityActions(recommendations []SecurityRecommen
 	// Create actions from mitigations
 	for _, mitigation := range mitigations {
 		action := SecurityActionItem{
-			ID:          fmt.Sprintf("action-mitigation-%s", mitigation.ID),
+			ID:          "action-mitigation-" + mitigation.ID,
 			Type:        "implement-mitigation",
 			Target:      mitigation.Target,
 			Action:      "mitigate",
 			Description: mitigation.Description,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"mitigation_id": mitigation.ID,
 				"effectiveness": mitigation.Effectiveness,
 				"cost":          mitigation.Cost,
 			},
 			Priority:  mitigation.Priority,
-			Condition: fmt.Sprintf("mitigation.status == 'pending'"),
+			Condition: "mitigation.status == 'pending'",
 			Timeout:   mitigation.Timeline,
 			Rollback:  true,
 			Automatic: mitigation.Priority == 1,
@@ -2094,7 +2104,7 @@ func (a *SecurityAgent) createSecurityActions(recommendations []SecurityRecommen
 	return actions
 }
 
-// generateSecuritySummary generates security summary
+// generateSecuritySummary generates security summary.
 func (a *SecurityAgent) generateSecuritySummary(threatAnalysis ThreatAnalysis, riskAssessment RiskAssessment, complianceStatus ComplianceStatus, alerts []SecurityAlert, incidents []SecurityIncident) SecuritySummary {
 	// Calculate security score based on multiple factors
 	threatScore := 1.0 - (float64(threatAnalysis.TotalThreats) / 100.0) // Normalize threats
@@ -2118,6 +2128,7 @@ func (a *SecurityAgent) generateSecuritySummary(threatAnalysis ThreatAnalysis, r
 
 	// Count critical alerts
 	criticalAlerts := 0
+
 	for _, alert := range alerts {
 		if alert.Severity == "critical" {
 			criticalAlerts++
@@ -2126,6 +2137,7 @@ func (a *SecurityAgent) generateSecuritySummary(threatAnalysis ThreatAnalysis, r
 
 	// Count open incidents
 	openIncidents := 0
+
 	for _, incident := range incidents {
 		if incident.Status == "open" {
 			openIncidents++
@@ -2134,6 +2146,7 @@ func (a *SecurityAgent) generateSecuritySummary(threatAnalysis ThreatAnalysis, r
 
 	// Count high vulnerabilities (simplified)
 	vulnerabilitiesHigh := 0
+
 	for _, threat := range threatAnalysis.TopThreats {
 		if threat.Severity == "high" {
 			vulnerabilitiesHigh++
@@ -2150,11 +2163,13 @@ func (a *SecurityAgent) generateSecuritySummary(threatAnalysis ThreatAnalysis, r
 	// Determine overall trend based on threat analysis
 	if len(threatAnalysis.ThreatTrends) > 0 {
 		increasingTrends := 0
+
 		for _, trend := range threatAnalysis.ThreatTrends {
 			if trend.Direction == "increasing" {
 				increasingTrends++
 			}
 		}
+
 		if increasingTrends > len(threatAnalysis.ThreatTrends)/2 {
 			trends["threats"] = "increasing"
 		} else {
@@ -2177,7 +2192,7 @@ func (a *SecurityAgent) generateSecuritySummary(threatAnalysis ThreatAnalysis, r
 	}
 }
 
-// updateSecurityStats updates security statistics
+// updateSecurityStats updates security statistics.
 func (a *SecurityAgent) updateSecurityStats(output SecurityOutput) {
 	a.securityStats.TotalThreats = int64(output.ThreatAnalysis.TotalThreats)
 	a.securityStats.ThreatsDetected = int64(output.ThreatAnalysis.TotalThreats)
@@ -2209,7 +2224,7 @@ func (a *SecurityAgent) updateSecurityStats(output SecurityOutput) {
 	a.securityStats.ResponseTime = 500 * time.Millisecond
 }
 
-// calculateSecurityConfidence calculates confidence in security analysis
+// calculateSecurityConfidence calculates confidence in security analysis.
 func (a *SecurityAgent) calculateSecurityConfidence(input SecurityInput, threatAnalysis ThreatAnalysis) float64 {
 	confidence := 0.0
 	factors := 0
@@ -2219,14 +2234,17 @@ func (a *SecurityAgent) calculateSecurityConfidence(input SecurityInput, threatA
 		confidence += 0.8
 		factors++
 	}
+
 	if len(input.AccessLogs) > 0 {
 		confidence += 0.9
 		factors++
 	}
+
 	if len(input.SystemLogs) > 0 {
 		confidence += 0.7
 		factors++
 	}
+
 	if len(input.SecurityEvents) > 0 {
 		confidence += 0.95
 		factors++
@@ -2246,6 +2264,7 @@ func (a *SecurityAgent) calculateSecurityConfidence(input SecurityInput, threatA
 		} else if input.TimeWindow.Duration >= 1*time.Hour {
 			timeFactor = 0.7
 		}
+
 		confidence += timeFactor
 		factors++
 	}
@@ -2257,14 +2276,15 @@ func (a *SecurityAgent) calculateSecurityConfidence(input SecurityInput, threatA
 	return confidence / float64(factors)
 }
 
-// generateSecurityExplanation generates explanation for security analysis
+// generateSecurityExplanation generates explanation for security analysis.
 func (a *SecurityAgent) generateSecurityExplanation(output SecurityOutput) string {
 	explanation := fmt.Sprintf("Security analysis identified %d threats with overall security score of %.1f. ",
 		output.ThreatAnalysis.TotalThreats, output.Summary.SecurityScore)
 
-	if output.Summary.ThreatLevel == "high" {
+	switch output.Summary.ThreatLevel {
+	case "high":
 		explanation += "High threat level detected requiring immediate attention. "
-	} else if output.Summary.ThreatLevel == "medium" {
+	case "medium":
 		explanation += "Medium threat level detected requiring monitoring. "
 	}
 
@@ -2286,7 +2306,7 @@ func (a *SecurityAgent) generateSecurityExplanation(output SecurityOutput) strin
 	return explanation
 }
 
-// convertToAgentActions converts security actions to agent actions
+// convertToAgentActions converts security actions to agent actions.
 func (a *SecurityAgent) convertToAgentActions(securityActions []SecurityActionItem) []ai.AgentAction {
 	actions := make([]ai.AgentAction, len(securityActions))
 
@@ -2311,7 +2331,7 @@ func (a *SecurityAgent) convertToAgentActions(securityActions []SecurityActionIt
 	return actions
 }
 
-// Helper methods for calculations
+// Helper methods for calculations.
 func (a *SecurityAgent) calculateRecommendationPriority(severity string) int {
 	switch severity {
 	case "critical":
@@ -2341,6 +2361,7 @@ func (a *SecurityAgent) calculateEffort(threatType string) string {
 	if effort, exists := effortMap[threatType]; exists {
 		return effort
 	}
+
 	return "medium"
 }
 
@@ -2373,6 +2394,7 @@ func (a *SecurityAgent) calculateCost(threatType string) float64 {
 	if cost, exists := costMap[threatType]; exists {
 		return cost
 	}
+
 	return 500.0
 }
 
@@ -2405,6 +2427,7 @@ func (a *SecurityAgent) calculateIncidentScope(threatType string) string {
 	if scope, exists := scopeMap[threatType]; exists {
 		return scope
 	}
+
 	return "localized"
 }
 
@@ -2447,6 +2470,7 @@ func (a *SecurityAgent) calculateMitigationEffectiveness(threatType string) floa
 	if effectiveness, exists := effectivenessMap[threatType]; exists {
 		return effectiveness
 	}
+
 	return 0.75
 }
 
@@ -2462,12 +2486,13 @@ func (a *SecurityAgent) calculateMitigationPriority(severity string) int {
 	return a.calculateRecommendationPriority(severity)
 }
 
-// GetStats returns security agent statistics
+// GetStats returns security agent statistics.
 func (a *SecurityAgent) GetStats() ai.AgentStats {
 	errorRate := 0.0
 	if a.securityStats.TotalThreats > 0 {
 		errorRate = float64(a.securityStats.FalsePositives) / float64(a.securityStats.TotalThreats)
 	}
+
 	return ai.AgentStats{
 		TotalProcessed: a.securityStats.TotalThreats,
 		TotalErrors:    a.securityStats.FalsePositives,
@@ -2479,63 +2504,64 @@ func (a *SecurityAgent) GetStats() ai.AgentStats {
 	}
 }
 
-// GetThreatDatabase returns the threat database
+// GetThreatDatabase returns the threat database.
 func (a *SecurityAgent) GetThreatDatabase() ThreatDatabase {
 	return a.threatDatabase
 }
 
-// UpdateThreatDatabase updates the threat database
+// UpdateThreatDatabase updates the threat database.
 func (a *SecurityAgent) UpdateThreatDatabase(database ThreatDatabase) {
 	a.threatDatabase = database
 	a.threatDatabase.LastUpdated = time.Now()
 }
 
-// GetSecurityPolicies returns security policies
+// GetSecurityPolicies returns security policies.
 func (a *SecurityAgent) GetSecurityPolicies() []SecurityPolicy {
 	return a.securityPolicies
 }
 
-// AddSecurityPolicy adds a security policy
+// AddSecurityPolicy adds a security policy.
 func (a *SecurityAgent) AddSecurityPolicy(policy SecurityPolicy) {
 	a.securityPolicies = append(a.securityPolicies, policy)
 }
 
-// RemoveSecurityPolicy removes a security policy
+// RemoveSecurityPolicy removes a security policy.
 func (a *SecurityAgent) RemoveSecurityPolicy(policyID string) {
 	for i, policy := range a.securityPolicies {
 		if policy.ID == policyID {
 			a.securityPolicies = append(a.securityPolicies[:i], a.securityPolicies[i+1:]...)
+
 			break
 		}
 	}
 }
 
-// SetAlertingEnabled enables/disables alerting
+// SetAlertingEnabled enables/disables alerting.
 func (a *SecurityAgent) SetAlertingEnabled(enabled bool) {
 	a.alertingEnabled = enabled
 }
 
-// SetAutoMitigation enables/disables auto-mitigation
+// SetAutoMitigation enables/disables auto-mitigation.
 func (a *SecurityAgent) SetAutoMitigation(enabled bool) {
 	a.autoMitigation = enabled
 }
 
-// SetLearningEnabled enables/disables learning
+// SetLearningEnabled enables/disables learning.
 func (a *SecurityAgent) SetLearningEnabled(enabled bool) {
 	a.learningEnabled = enabled
 }
 
-// IsAlertingEnabled returns alerting status
+// IsAlertingEnabled returns alerting status.
 func (a *SecurityAgent) IsAlertingEnabled() bool {
 	return a.alertingEnabled
 }
 
-// IsAutoMitigationEnabled returns auto-mitigation status
+// IsAutoMitigationEnabled returns auto-mitigation status.
 func (a *SecurityAgent) IsAutoMitigationEnabled() bool {
 	return a.autoMitigation
 }
 
-// IsLearningEnabled returns learning status
+// IsLearningEnabled returns learning status.
 func (a *SecurityAgent) IsLearningEnabled() bool {
 	return a.learningEnabled
 }

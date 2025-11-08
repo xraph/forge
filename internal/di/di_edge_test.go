@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Custom disposable that returns error
+// Custom disposable that returns error.
 type errorDisposable struct {
 	name string
 	err  error
@@ -73,8 +73,7 @@ func TestResolve_Singleton_RaceCondition(t *testing.T) {
 	// This test attempts to hit the double-check path in Resolve
 	// where a second goroutine finds the instance already created
 	// after acquiring the write lock
-
-	for attempt := 0; attempt < 10; attempt++ {
+	for range 10 {
 		c := NewContainer()
 
 		err := c.Register("test", func(c Container) (any, error) {
@@ -85,9 +84,10 @@ func TestResolve_Singleton_RaceCondition(t *testing.T) {
 
 		// Resolve many times concurrently
 		const goroutines = 100
+
 		done := make(chan any, goroutines)
 
-		for i := 0; i < goroutines; i++ {
+		for range goroutines {
 			go func() {
 				val, err := c.Resolve("test")
 				if err == nil {
@@ -106,6 +106,7 @@ func TestResolve_Singleton_RaceCondition(t *testing.T) {
 			if err, ok := val.(error); ok {
 				t.Fatalf("unexpected error: %v", err)
 			}
+
 			assert.Same(t, first, val)
 		}
 	}

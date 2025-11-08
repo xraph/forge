@@ -8,9 +8,10 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension for MCP (Model Context Protocol) server
+// Extension implements forge.Extension for MCP (Model Context Protocol) server.
 type Extension struct {
 	*forge.BaseExtension
+
 	config Config
 	server *Server
 	app    forge.App
@@ -39,6 +40,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("mcp", "2.0.0", "Model Context Protocol Server")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -51,7 +53,7 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the MCP extension with the app
+// Register registers the MCP extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
@@ -63,15 +65,18 @@ func (e *Extension) Register(app forge.App) error {
 	// Load config from ConfigManager with dual-key support
 	// Tries "extensions.mcp", then "mcp", with programmatic config overrides
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("mcp", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("mcp: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("mcp: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate config
@@ -81,6 +86,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("mcp extension disabled")
+
 		return nil
 	}
 
@@ -88,6 +94,7 @@ func (e *Extension) Register(app forge.App) error {
 	if e.config.ServerName == "" {
 		e.config.ServerName = app.Name()
 	}
+
 	if e.config.ServerVersion == "" {
 		e.config.ServerVersion = app.Version()
 	}
@@ -110,7 +117,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the MCP extension
+// Start starts the MCP extension.
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -134,7 +141,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the MCP extension
+// Stop stops the MCP extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -152,20 +159,20 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks if the MCP extension is healthy
+// Health checks if the MCP extension is healthy.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
 	if e.server == nil {
-		return fmt.Errorf("mcp server not initialized")
+		return errors.New("mcp server not initialized")
 	}
 
 	return nil
 }
 
-// registerEndpoints registers MCP HTTP endpoints
+// registerEndpoints registers MCP HTTP endpoints.
 func (e *Extension) registerEndpoints() {
 	router := e.app.Router()
 	basePath := e.config.BasePath
@@ -194,7 +201,7 @@ func (e *Extension) registerEndpoints() {
 	)
 }
 
-// exposeRoutesAsTools automatically exposes Forge routes as MCP tools
+// exposeRoutesAsTools automatically exposes Forge routes as MCP tools.
 func (e *Extension) exposeRoutesAsTools() {
 	routes := e.app.Router().Routes()
 
@@ -217,6 +224,7 @@ func (e *Extension) exposeRoutesAsTools() {
 				forge.F("path", route.Path),
 				forge.F("error", err),
 			)
+
 			continue
 		}
 
@@ -239,11 +247,13 @@ func (e *Extension) exposeRoutesAsTools() {
 
 func (e *Extension) handleInfo(ctx forge.Context) error {
 	info := e.server.GetServerInfo()
+
 	return ctx.JSON(http.StatusOK, info)
 }
 
 func (e *Extension) handleListTools(ctx forge.Context) error {
 	tools := e.server.ListTools()
+
 	return ctx.JSON(http.StatusOK, ListToolsResponse{
 		Tools: tools,
 	})
@@ -275,7 +285,7 @@ func (e *Extension) handleCallTool(ctx forge.Context) error {
 			Content: []Content{
 				{
 					Type: "text",
-					Text: fmt.Sprintf("Tool execution failed: %s", err.Error()),
+					Text: "Tool execution failed: " + err.Error(),
 				},
 			},
 			IsError: true,
@@ -307,6 +317,7 @@ func (e *Extension) handleCallTool(ctx forge.Context) error {
 
 func (e *Extension) handleListResources(ctx forge.Context) error {
 	resources := e.server.ListResources()
+
 	return ctx.JSON(http.StatusOK, ListResourcesResponse{
 		Resources: resources,
 	})
@@ -345,6 +356,7 @@ func (e *Extension) handleReadResource(ctx forge.Context) error {
 
 func (e *Extension) handleListPrompts(ctx forge.Context) error {
 	prompts := e.server.ListPrompts()
+
 	return ctx.JSON(http.StatusOK, ListPromptsResponse{
 		Prompts: prompts,
 	})
@@ -365,7 +377,7 @@ func (e *Extension) handleGetPrompt(ctx forge.Context) error {
 	var req GetPromptRequest
 	if err := ctx.Bind(&req); err != nil {
 		// Arguments are optional, continue with empty map
-		req.Arguments = make(map[string]interface{})
+		req.Arguments = make(map[string]any)
 	}
 
 	// Generate prompt messages
@@ -384,7 +396,7 @@ func (e *Extension) handleGetPrompt(ctx forge.Context) error {
 	return ctx.JSON(http.StatusOK, response)
 }
 
-// Server returns the MCP server instance
+// Server returns the MCP server instance.
 func (e *Extension) Server() *Server {
 	return e.server
 }

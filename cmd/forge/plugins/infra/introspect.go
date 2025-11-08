@@ -2,6 +2,7 @@
 package infra
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,32 +11,32 @@ import (
 	"github.com/xraph/forge/cmd/forge/config"
 )
 
-// Introspector handles application discovery and introspection
+// Introspector handles application discovery and introspection.
 type Introspector struct {
 	config *config.ForgeConfig
 }
 
-// AppInfo represents information about a discovered application
+// AppInfo represents information about a discovered application.
 type AppInfo struct {
-	Name        string   // Application name
-	Path        string   // Path to application directory
-	MainPath    string   // Path to main.go (relative to project root)
-	Module      string   // Go module path
-	Port        int      // Default port
-	HasDatabase bool     // Whether app uses database
-	HasCache    bool     // Whether app uses cache
+	Name         string   // Application name
+	Path         string   // Path to application directory
+	MainPath     string   // Path to main.go (relative to project root)
+	Module       string   // Go module path
+	Port         int      // Default port
+	HasDatabase  bool     // Whether app uses database
+	HasCache     bool     // Whether app uses cache
 	Dependencies []string // External dependencies
 }
 
-// NewIntrospector creates a new application introspector
+// NewIntrospector creates a new application introspector.
 func NewIntrospector(cfg *config.ForgeConfig) *Introspector {
 	return &Introspector{config: cfg}
 }
 
-// DiscoverApps discovers all applications in the project
+// DiscoverApps discovers all applications in the project.
 func (i *Introspector) DiscoverApps() ([]AppInfo, error) {
 	if i.config == nil {
-		return nil, fmt.Errorf("no forge config available")
+		return nil, errors.New("no forge config available")
 	}
 
 	var apps []AppInfo
@@ -46,6 +47,7 @@ func (i *Introspector) DiscoverApps() ([]AppInfo, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		apps = append(apps, discoveredApps...)
 	} else {
 		// Multi-module layout: discover from apps/ and services/
@@ -53,6 +55,7 @@ func (i *Introspector) DiscoverApps() ([]AppInfo, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		apps = append(apps, discoveredApps...)
 	}
 
@@ -64,12 +67,12 @@ func (i *Introspector) DiscoverApps() ([]AppInfo, error) {
 	return apps, nil
 }
 
-// discoverSingleModuleApps discovers apps in single-module layout
+// discoverSingleModuleApps discovers apps in single-module layout.
 func (i *Introspector) discoverSingleModuleApps() ([]AppInfo, error) {
 	var apps []AppInfo
 
 	cmdDir := filepath.Join(i.config.RootDir, i.config.Project.Structure.Cmd)
-	
+
 	// Check if cmd directory exists
 	if _, err := os.Stat(cmdDir); os.IsNotExist(err) {
 		return apps, nil
@@ -88,7 +91,7 @@ func (i *Introspector) discoverSingleModuleApps() ([]AppInfo, error) {
 
 		appName := entry.Name()
 		appPath := filepath.Join(cmdDir, appName)
-		
+
 		// Check if main.go exists
 		mainPath := filepath.Join(appPath, "main.go")
 		if _, err := os.Stat(mainPath); os.IsNotExist(err) {
@@ -113,7 +116,7 @@ func (i *Introspector) discoverSingleModuleApps() ([]AppInfo, error) {
 	return apps, nil
 }
 
-// discoverMultiModuleApps discovers apps in multi-module layout
+// discoverMultiModuleApps discovers apps in multi-module layout.
 func (i *Introspector) discoverMultiModuleApps() ([]AppInfo, error) {
 	var apps []AppInfo
 
@@ -121,7 +124,7 @@ func (i *Introspector) discoverMultiModuleApps() ([]AppInfo, error) {
 	if i.config.Project.Workspace.Apps != "" {
 		appsPattern := filepath.Join(i.config.RootDir, strings.TrimPrefix(i.config.Project.Workspace.Apps, "./"))
 		appsDir := filepath.Dir(appsPattern)
-		
+
 		if entries, err := os.ReadDir(appsDir); err == nil {
 			for _, entry := range entries {
 				if !entry.IsDir() {
@@ -129,7 +132,7 @@ func (i *Introspector) discoverMultiModuleApps() ([]AppInfo, error) {
 				}
 
 				appPath := filepath.Join(appsDir, entry.Name())
-				
+
 				// Check if cmd/main.go exists
 				mainPath := filepath.Join(appPath, "cmd", "main.go")
 				if _, err := os.Stat(mainPath); os.IsNotExist(err) {
@@ -158,7 +161,7 @@ func (i *Introspector) discoverMultiModuleApps() ([]AppInfo, error) {
 	if i.config.Project.Workspace.Services != "" {
 		servicesPattern := filepath.Join(i.config.RootDir, strings.TrimPrefix(i.config.Project.Workspace.Services, "./"))
 		servicesDir := filepath.Dir(servicesPattern)
-		
+
 		if entries, err := os.ReadDir(servicesDir); err == nil {
 			for _, entry := range entries {
 				if !entry.IsDir() {
@@ -166,7 +169,7 @@ func (i *Introspector) discoverMultiModuleApps() ([]AppInfo, error) {
 				}
 
 				servicePath := filepath.Join(servicesDir, entry.Name())
-				
+
 				// Check if cmd/main.go exists
 				mainPath := filepath.Join(servicePath, "cmd", "main.go")
 				if _, err := os.Stat(mainPath); os.IsNotExist(err) {
@@ -194,7 +197,7 @@ func (i *Introspector) discoverMultiModuleApps() ([]AppInfo, error) {
 	return apps, nil
 }
 
-// appsFromBuildConfig creates app info from build configuration
+// appsFromBuildConfig creates app info from build configuration.
 func (i *Introspector) appsFromBuildConfig() []AppInfo {
 	var apps []AppInfo
 
@@ -216,16 +219,16 @@ func (i *Introspector) appsFromBuildConfig() []AppInfo {
 	return apps
 }
 
-// getModuleForApp gets the Go module path for an app
+// getModuleForApp gets the Go module path for an app.
 func (i *Introspector) getModuleForApp(appPath string) string {
 	// Try to read go.mod in app directory
 	goModPath := filepath.Join(appPath, "go.mod")
 	if content, err := os.ReadFile(goModPath); err == nil {
-		lines := strings.Split(string(content), "\n")
-		for _, line := range lines {
+		lines := strings.SplitSeq(string(content), "\n")
+		for line := range lines {
 			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "module ") {
-				return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+			if after, ok := strings.CutPrefix(line, "module "); ok {
+				return strings.TrimSpace(after)
 			}
 		}
 	}
@@ -234,7 +237,7 @@ func (i *Introspector) getModuleForApp(appPath string) string {
 	return i.config.Project.Module
 }
 
-// introspectApp analyzes an application to gather more details
+// introspectApp analyzes an application to gather more details.
 func (i *Introspector) introspectApp(app *AppInfo) {
 	// Check if app uses database extension
 	if i.config.Database.Driver != "" {
@@ -246,6 +249,7 @@ func (i *Introspector) introspectApp(app *AppInfo) {
 		if _, ok := i.config.Extensions["cache"]; ok {
 			app.HasCache = true
 		}
+
 		if _, ok := i.config.Extensions["redis"]; ok {
 			app.HasCache = true
 		}
@@ -255,7 +259,7 @@ func (i *Introspector) introspectApp(app *AppInfo) {
 	mainPath := filepath.Join(i.config.RootDir, app.MainPath, "main.go")
 	if content, err := os.ReadFile(mainPath); err == nil {
 		contentStr := string(content)
-		
+
 		// Check for database imports
 		if strings.Contains(contentStr, "github.com/xraph/forge/extensions/database") ||
 			strings.Contains(contentStr, "database/sql") {
@@ -279,7 +283,7 @@ func (i *Introspector) introspectApp(app *AppInfo) {
 	app.Port = i.detectPort(app)
 }
 
-// detectPort tries to detect the port an app listens on
+// detectPort tries to detect the port an app listens on.
 func (i *Introspector) detectPort(app *AppInfo) int {
 	// Default port
 	defaultPort := 8080
@@ -291,14 +295,16 @@ func (i *Introspector) detectPort(app *AppInfo) int {
 	mainPath := filepath.Join(i.config.RootDir, app.MainPath, "main.go")
 	if content, err := os.ReadFile(mainPath); err == nil {
 		contentStr := string(content)
-		
+
 		// Look for common port patterns
 		if strings.Contains(contentStr, ":8080") {
 			return 8080
 		}
+
 		if strings.Contains(contentStr, ":3000") {
 			return 3000
 		}
+
 		if strings.Contains(contentStr, ":8000") {
 			return 8000
 		}
@@ -307,7 +313,7 @@ func (i *Introspector) detectPort(app *AppInfo) int {
 	return defaultPort
 }
 
-// GetAppByName retrieves information about a specific app
+// GetAppByName retrieves information about a specific app.
 func (i *Introspector) GetAppByName(name string) (*AppInfo, error) {
 	apps, err := i.DiscoverApps()
 	if err != nil {
@@ -322,4 +328,3 @@ func (i *Introspector) GetAppByName(name string) (*AppInfo, error) {
 
 	return nil, fmt.Errorf("app not found: %s", name)
 }
-

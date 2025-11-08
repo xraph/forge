@@ -5,11 +5,13 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Extension implements forge.Extension for cache functionality
+// Extension implements forge.Extension for cache functionality.
 type Extension struct {
 	*forge.BaseExtension
+
 	config Config
 	cache  Cache
 }
@@ -37,6 +39,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("cache", "2.0.0", "Caching with Redis/Memcached/In-Memory")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -49,7 +52,7 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the cache extension with the app
+// Register registers the cache extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
@@ -59,15 +62,18 @@ func (e *Extension) Register(app forge.App) error {
 	// Load config from ConfigManager with dual-key support
 	// Tries "extensions.cache", then "cache", with programmatic config overrides
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("cache", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("cache: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("cache: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate config
@@ -76,8 +82,10 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Create cache instance based on driver
-	var cache Cache
-	var err error
+	var (
+		cache Cache
+		err   error
+	)
 
 	switch e.config.Driver {
 	case "inmemory":
@@ -85,11 +93,11 @@ func (e *Extension) Register(app forge.App) error {
 
 	case "redis":
 		// TODO: Implement Redis backend
-		return fmt.Errorf("redis driver not yet implemented")
+		return errors.New("redis driver not yet implemented")
 
 	case "memcached":
 		// TODO: Implement Memcached backend
-		return fmt.Errorf("memcached driver not yet implemented")
+		return errors.New("memcached driver not yet implemented")
 
 	default:
 		return fmt.Errorf("unknown cache driver: %s", e.config.Driver)
@@ -124,7 +132,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the cache extension
+// Start starts the cache extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting cache extension",
 		forge.F("driver", e.config.Driver),
@@ -140,7 +148,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the cache extension
+// Stop stops the cache extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping cache extension")
 
@@ -158,10 +166,10 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks if the cache is healthy
+// Health checks if the cache is healthy.
 func (e *Extension) Health(ctx context.Context) error {
 	if e.cache == nil {
-		return fmt.Errorf("cache not initialized")
+		return errors.New("cache not initialized")
 	}
 
 	if err := e.cache.Ping(ctx); err != nil {
@@ -171,7 +179,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	return nil
 }
 
-// Cache returns the cache instance (for advanced usage)
+// Cache returns the cache instance (for advanced usage).
 func (e *Extension) Cache() Cache {
 	return e.cache
 }

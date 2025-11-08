@@ -14,9 +14,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/llm"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// MultiModalContentType represents the type of multi-modal content
+// MultiModalContentType represents the type of multi-modal content.
 type MultiModalContentType string
 
 const (
@@ -26,17 +27,17 @@ const (
 	ContentTypeVideo MultiModalContentType = "video"
 )
 
-// MultiModalContent represents a piece of content in a multi-modal request
+// MultiModalContent represents a piece of content in a multi-modal request.
 type MultiModalContent struct {
 	Type     MultiModalContentType
 	Text     string // For text content
 	Data     []byte // For binary content (images, audio, video)
 	MimeType string // MIME type of the content
 	URL      string // URL to the content (alternative to Data)
-	Metadata map[string]interface{}
+	Metadata map[string]any
 }
 
-// MultiModalBuilder provides a fluent API for multi-modal generation
+// MultiModalBuilder provides a fluent API for multi-modal generation.
 type MultiModalBuilder struct {
 	ctx         context.Context
 	llmManager  LLMManager
@@ -48,14 +49,14 @@ type MultiModalBuilder struct {
 	temperature *float64
 	maxTokens   *int
 	topP        *float64
-	
+
 	// Callbacks
 	onStart    func()
 	onComplete func(*MultiModalResult)
 	onError    func(error)
 }
 
-// MultiModalResult contains the result of a multi-modal generation
+// MultiModalResult contains the result of a multi-modal generation.
 type MultiModalResult struct {
 	Text         string
 	Reasoning    []string
@@ -63,15 +64,15 @@ type MultiModalResult struct {
 	Usage        Usage
 	Model        string
 	FinishReason string
-	Metadata     map[string]interface{}
+	Metadata     map[string]any
 }
 
-// NewMultiModalBuilder creates a new multi-modal builder
+// NewMultiModalBuilder creates a new multi-modal builder.
 func NewMultiModalBuilder(ctx context.Context, llmManager LLMManager, logger forge.Logger, metrics forge.Metrics) *MultiModalBuilder {
 	temp := 0.7
 	tokens := 1000
 	topP := 1.0
-	
+
 	return &MultiModalBuilder{
 		ctx:         ctx,
 		llmManager:  llmManager,
@@ -85,41 +86,45 @@ func NewMultiModalBuilder(ctx context.Context, llmManager LLMManager, logger for
 	}
 }
 
-// WithModel sets the model to use
+// WithModel sets the model to use.
 func (b *MultiModalBuilder) WithModel(model string) *MultiModalBuilder {
 	b.model = model
+
 	return b
 }
 
-// WithText adds text content
+// WithText adds text content.
 func (b *MultiModalBuilder) WithText(text string) *MultiModalBuilder {
 	b.contents = append(b.contents, MultiModalContent{
 		Type: ContentTypeText,
 		Text: text,
 	})
+
 	return b
 }
 
-// WithImage adds image content from bytes
+// WithImage adds image content from bytes.
 func (b *MultiModalBuilder) WithImage(data []byte, mimeType string) *MultiModalBuilder {
 	b.contents = append(b.contents, MultiModalContent{
 		Type:     ContentTypeImage,
 		Data:     data,
 		MimeType: mimeType,
 	})
+
 	return b
 }
 
-// WithImageURL adds image content from URL
+// WithImageURL adds image content from URL.
 func (b *MultiModalBuilder) WithImageURL(url string) *MultiModalBuilder {
 	b.contents = append(b.contents, MultiModalContent{
 		Type: ContentTypeImage,
 		URL:  url,
 	})
+
 	return b
 }
 
-// WithImageFile adds image content from file
+// WithImageFile adds image content from file.
 func (b *MultiModalBuilder) WithImageFile(path string) *MultiModalBuilder {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -129,6 +134,7 @@ func (b *MultiModalBuilder) WithImageFile(path string) *MultiModalBuilder {
 				F("error", err),
 			)
 		}
+
 		return b
 	}
 
@@ -140,17 +146,18 @@ func (b *MultiModalBuilder) WithImageFile(path string) *MultiModalBuilder {
 	return b.WithImage(data, mimeType)
 }
 
-// WithAudio adds audio content
+// WithAudio adds audio content.
 func (b *MultiModalBuilder) WithAudio(data []byte, mimeType string) *MultiModalBuilder {
 	b.contents = append(b.contents, MultiModalContent{
 		Type:     ContentTypeAudio,
 		Data:     data,
 		MimeType: mimeType,
 	})
+
 	return b
 }
 
-// WithAudioFile adds audio content from file
+// WithAudioFile adds audio content from file.
 func (b *MultiModalBuilder) WithAudioFile(path string) *MultiModalBuilder {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -160,6 +167,7 @@ func (b *MultiModalBuilder) WithAudioFile(path string) *MultiModalBuilder {
 				F("error", err),
 			)
 		}
+
 		return b
 	}
 
@@ -171,17 +179,18 @@ func (b *MultiModalBuilder) WithAudioFile(path string) *MultiModalBuilder {
 	return b.WithAudio(data, mimeType)
 }
 
-// WithVideo adds video content
+// WithVideo adds video content.
 func (b *MultiModalBuilder) WithVideo(data []byte, mimeType string) *MultiModalBuilder {
 	b.contents = append(b.contents, MultiModalContent{
 		Type:     ContentTypeVideo,
 		Data:     data,
 		MimeType: mimeType,
 	})
+
 	return b
 }
 
-// WithVideoFile adds video content from file
+// WithVideoFile adds video content from file.
 func (b *MultiModalBuilder) WithVideoFile(path string) *MultiModalBuilder {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -191,6 +200,7 @@ func (b *MultiModalBuilder) WithVideoFile(path string) *MultiModalBuilder {
 				F("error", err),
 			)
 		}
+
 		return b
 	}
 
@@ -202,59 +212,67 @@ func (b *MultiModalBuilder) WithVideoFile(path string) *MultiModalBuilder {
 	return b.WithVideo(data, mimeType)
 }
 
-// WithSystemMessage sets the system message
+// WithSystemMessage sets the system message.
 func (b *MultiModalBuilder) WithSystemMessage(msg string) *MultiModalBuilder {
 	b.systemMsg = msg
+
 	return b
 }
 
-// WithTemperature sets the temperature
+// WithTemperature sets the temperature.
 func (b *MultiModalBuilder) WithTemperature(temp float64) *MultiModalBuilder {
 	b.temperature = &temp
+
 	return b
 }
 
-// WithMaxTokens sets the max tokens
+// WithMaxTokens sets the max tokens.
 func (b *MultiModalBuilder) WithMaxTokens(tokens int) *MultiModalBuilder {
 	b.maxTokens = &tokens
+
 	return b
 }
 
-// WithTopP sets the top-p value
+// WithTopP sets the top-p value.
 func (b *MultiModalBuilder) WithTopP(topP float64) *MultiModalBuilder {
 	b.topP = &topP
+
 	return b
 }
 
-// OnStart sets the start callback
+// OnStart sets the start callback.
 func (b *MultiModalBuilder) OnStart(fn func()) *MultiModalBuilder {
 	b.onStart = fn
+
 	return b
 }
 
-// OnComplete sets the complete callback
+// OnComplete sets the complete callback.
 func (b *MultiModalBuilder) OnComplete(fn func(*MultiModalResult)) *MultiModalBuilder {
 	b.onComplete = fn
+
 	return b
 }
 
-// OnError sets the error callback
+// OnError sets the error callback.
 func (b *MultiModalBuilder) OnError(fn func(error)) *MultiModalBuilder {
 	b.onError = fn
+
 	return b
 }
 
-// Execute runs the multi-modal generation
+// Execute runs the multi-modal generation.
 func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 	if b.onStart != nil {
 		b.onStart()
 	}
 
 	if len(b.contents) == 0 {
-		err := fmt.Errorf("no content provided")
+		err := errors.New("no content provided")
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		return nil, err
 	}
 
@@ -265,6 +283,7 @@ func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		return nil, err
 	}
 
@@ -276,6 +295,7 @@ func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 			Content: b.systemMsg,
 		})
 	}
+
 	messages = append(messages, llm.ChatMessage{
 		Role:    "user",
 		Content: prompt,
@@ -296,13 +316,14 @@ func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		return nil, err
 	}
 
 	// Extract result
 	result := &MultiModalResult{
 		Model:    resp.Model,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	if len(resp.Choices) > 0 {
@@ -356,7 +377,7 @@ func (b *MultiModalBuilder) Execute() (*MultiModalResult, error) {
 	return result, nil
 }
 
-// buildPrompt builds the prompt from contents
+// buildPrompt builds the prompt from contents.
 func (b *MultiModalBuilder) buildPrompt() (string, error) {
 	var parts []string
 
@@ -399,9 +420,9 @@ func (b *MultiModalBuilder) buildPrompt() (string, error) {
 	return strings.Join(parts, "\n\n"), nil
 }
 
-// DownloadFromURL downloads content from a URL
+// DownloadFromURL downloads content from a URL.
 func DownloadFromURL(ctx context.Context, url string) ([]byte, string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -429,14 +450,14 @@ func DownloadFromURL(ctx context.Context, url string) ([]byte, string, error) {
 	return data, mimeType, nil
 }
 
-// VisionAnalyzer provides specialized vision analysis capabilities
+// VisionAnalyzer provides specialized vision analysis capabilities.
 type VisionAnalyzer struct {
 	llmManager LLMManager
 	logger     forge.Logger
 	metrics    forge.Metrics
 }
 
-// NewVisionAnalyzer creates a new vision analyzer
+// NewVisionAnalyzer creates a new vision analyzer.
 func NewVisionAnalyzer(llmManager LLMManager, logger forge.Logger, metrics forge.Metrics) *VisionAnalyzer {
 	return &VisionAnalyzer{
 		llmManager: llmManager,
@@ -445,9 +466,10 @@ func NewVisionAnalyzer(llmManager LLMManager, logger forge.Logger, metrics forge
 	}
 }
 
-// DescribeImage analyzes and describes an image
+// DescribeImage analyzes and describes an image.
 func (va *VisionAnalyzer) DescribeImage(ctx context.Context, imageData []byte, mimeType string) (string, error) {
 	builder := NewMultiModalBuilder(ctx, va.llmManager, va.logger, va.metrics)
+
 	result, err := builder.
 		WithImage(imageData, mimeType).
 		WithText("Please provide a detailed description of this image.").
@@ -455,12 +477,14 @@ func (va *VisionAnalyzer) DescribeImage(ctx context.Context, imageData []byte, m
 	if err != nil {
 		return "", err
 	}
+
 	return result.Text, nil
 }
 
-// DetectObjects detects objects in an image
+// DetectObjects detects objects in an image.
 func (va *VisionAnalyzer) DetectObjects(ctx context.Context, imageData []byte, mimeType string) ([]string, error) {
 	builder := NewMultiModalBuilder(ctx, va.llmManager, va.logger, va.metrics)
+
 	result, err := builder.
 		WithImage(imageData, mimeType).
 		WithText("List all the objects you can see in this image. Provide a comma-separated list.").
@@ -474,12 +498,14 @@ func (va *VisionAnalyzer) DetectObjects(ctx context.Context, imageData []byte, m
 	for i := range objects {
 		objects[i] = strings.TrimSpace(objects[i])
 	}
+
 	return objects, nil
 }
 
-// ReadText extracts text from an image (OCR)
+// ReadText extracts text from an image (OCR).
 func (va *VisionAnalyzer) ReadText(ctx context.Context, imageData []byte, mimeType string) (string, error) {
 	builder := NewMultiModalBuilder(ctx, va.llmManager, va.logger, va.metrics)
+
 	result, err := builder.
 		WithImage(imageData, mimeType).
 		WithText("Extract all text visible in this image. Provide only the extracted text.").
@@ -487,12 +513,14 @@ func (va *VisionAnalyzer) ReadText(ctx context.Context, imageData []byte, mimeTy
 	if err != nil {
 		return "", err
 	}
+
 	return result.Text, nil
 }
 
-// CompareImages compares two images and describes differences
+// CompareImages compares two images and describes differences.
 func (va *VisionAnalyzer) CompareImages(ctx context.Context, img1, img2 []byte, mimeType string) (string, error) {
 	builder := NewMultiModalBuilder(ctx, va.llmManager, va.logger, va.metrics)
+
 	result, err := builder.
 		WithImage(img1, mimeType).
 		WithImage(img2, mimeType).
@@ -501,17 +529,18 @@ func (va *VisionAnalyzer) CompareImages(ctx context.Context, img1, img2 []byte, 
 	if err != nil {
 		return "", err
 	}
+
 	return result.Text, nil
 }
 
-// AudioTranscriber provides audio transcription capabilities
+// AudioTranscriber provides audio transcription capabilities.
 type AudioTranscriber struct {
 	llmManager LLMManager
 	logger     forge.Logger
 	metrics    forge.Metrics
 }
 
-// NewAudioTranscriber creates a new audio transcriber
+// NewAudioTranscriber creates a new audio transcriber.
 func NewAudioTranscriber(llmManager LLMManager, logger forge.Logger, metrics forge.Metrics) *AudioTranscriber {
 	return &AudioTranscriber{
 		llmManager: llmManager,
@@ -520,23 +549,26 @@ func NewAudioTranscriber(llmManager LLMManager, logger forge.Logger, metrics for
 	}
 }
 
-// Transcribe transcribes audio to text
+// Transcribe transcribes audio to text.
 func (at *AudioTranscriber) Transcribe(ctx context.Context, audioData []byte, language string) (string, error) {
 	// This would integrate with Whisper or similar audio transcription models
 	builder := NewMultiModalBuilder(ctx, at.llmManager, at.logger, at.metrics)
+
 	result, err := builder.
 		WithAudio(audioData, "audio/mpeg").
-		WithText(fmt.Sprintf("Transcribe this audio to text. Language: %s", language)).
+		WithText("Transcribe this audio to text. Language: " + language).
 		Execute()
 	if err != nil {
 		return "", err
 	}
+
 	return result.Text, nil
 }
 
-// TranscribeWithTimestamps transcribes audio with timestamps
+// TranscribeWithTimestamps transcribes audio with timestamps.
 func (at *AudioTranscriber) TranscribeWithTimestamps(ctx context.Context, audioData []byte, language string) ([]TranscriptSegment, error) {
 	builder := NewMultiModalBuilder(ctx, at.llmManager, at.logger, at.metrics)
+
 	result, err := builder.
 		WithAudio(audioData, "audio/mpeg").
 		WithText(fmt.Sprintf("Transcribe this audio to text with timestamps. Language: %s. Format: [00:00] text", language)).
@@ -547,34 +579,35 @@ func (at *AudioTranscriber) TranscribeWithTimestamps(ctx context.Context, audioD
 
 	// Parse timestamped segments
 	segments := parseTimestampedTranscript(result.Text)
+
 	return segments, nil
 }
 
-// TranscriptSegment represents a segment of transcribed audio with timestamp
+// TranscriptSegment represents a segment of transcribed audio with timestamp.
 type TranscriptSegment struct {
 	Start time.Duration
 	End   time.Duration
 	Text  string
 }
 
-// parseTimestampedTranscript parses timestamped transcript text
+// parseTimestampedTranscript parses timestamped transcript text.
 func parseTimestampedTranscript(text string) []TranscriptSegment {
 	// Simple parser for [MM:SS] format
 	segments := []TranscriptSegment{}
-	lines := strings.Split(text, "\n")
-	
-	for _, line := range lines {
+	lines := strings.SplitSeq(text, "\n")
+
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		
+
 		// Look for [MM:SS] pattern
 		if strings.HasPrefix(line, "[") && strings.Contains(line, "]") {
 			endIdx := strings.Index(line, "]")
 			timestamp := line[1:endIdx]
 			text := strings.TrimSpace(line[endIdx+1:])
-			
+
 			// Parse timestamp (simple MM:SS format)
 			parts := strings.Split(timestamp, ":")
 			if len(parts) == 2 {
@@ -584,6 +617,6 @@ func parseTimestampedTranscript(text string) []TranscriptSegment {
 			}
 		}
 	}
-	
+
 	return segments
 }

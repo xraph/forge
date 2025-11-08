@@ -15,7 +15,7 @@ import (
 func BenchmarkRouter_Registration(b *testing.B) {
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		router := NewRouter()
 		_ = router.GET("/test", func(ctx Context) error {
 			return ctx.String(200, "ok")
@@ -26,15 +26,14 @@ func BenchmarkRouter_Registration(b *testing.B) {
 func BenchmarkRouter_StandardHandler(b *testing.B) {
 	router := NewRouter()
 	_ = router.GET("/test", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 	}
@@ -46,11 +45,10 @@ func BenchmarkRouter_ContextHandler(b *testing.B) {
 		return ctx.String(200, "ok")
 	})
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 	}
@@ -60,6 +58,7 @@ func BenchmarkRouter_OpinionatedHandler(b *testing.B) {
 	type TestRequest struct {
 		Name string `json:"name"`
 	}
+
 	type TestResponse struct {
 		Name string `json:"name"`
 	}
@@ -72,12 +71,12 @@ func BenchmarkRouter_OpinionatedHandler(b *testing.B) {
 	reqBody := TestRequest{Name: "test"}
 	body, _ := json.Marshal(reqBody)
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("POST", "/test", bytes.NewReader(body))
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
+
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 	}
@@ -92,14 +91,14 @@ func BenchmarkRouter_ServiceHandler(b *testing.B) {
 	router := NewRouter(WithContainer(container))
 	_ = router.GET("/test", func(ctx Context, svc *TestUserService) error {
 		users := svc.GetAll()
+
 		return ctx.JSON(200, users)
 	})
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 	}
@@ -119,11 +118,10 @@ func BenchmarkRouter_Middleware(b *testing.B) {
 		return ctx.String(200, "ok")
 	})
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 	}
@@ -133,7 +131,7 @@ func BenchmarkRouter_MiddlewareChain(b *testing.B) {
 	router := NewRouter()
 
 	// Add 5 middleware
-	for j := 0; j < 5; j++ {
+	for range 5 {
 		router.Use(func(next Handler) Handler {
 			return func(ctx Context) error {
 				return next(ctx)
@@ -145,11 +143,10 @@ func BenchmarkRouter_MiddlewareChain(b *testing.B) {
 		return ctx.String(200, "ok")
 	})
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 	}
@@ -158,11 +155,10 @@ func BenchmarkRouter_MiddlewareChain(b *testing.B) {
 func BenchmarkContext_JSON(b *testing.B) {
 	data := map[string]string{"message": "hello"}
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		ctx := di.NewContext(rec, req, nil)
 		_ = ctx.JSON(200, data)
@@ -172,8 +168,8 @@ func BenchmarkContext_JSON(b *testing.B) {
 func BenchmarkContext_String(b *testing.B) {
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
-		req := httptest.NewRequest("GET", "/test", nil)
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 		ctx := di.NewContext(rec, req, nil)
 		_ = ctx.String(200, "hello")
@@ -187,7 +183,7 @@ func BenchmarkHandler_PatternDetection(b *testing.B) {
 
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = detectHandlerPattern(handler)
 	}
 }
@@ -199,7 +195,7 @@ func BenchmarkHandler_Conversion(b *testing.B) {
 
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = convertHandler(handler, nil, nil)
 	}
 }

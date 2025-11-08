@@ -2,6 +2,7 @@ package backends
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -15,7 +16,7 @@ import (
 // This works natively on:
 // - macOS (Bonjour)
 // - Linux (Avahi)
-// - Windows (DNS-SD)
+// - Windows (DNS-SD).
 type MDNSBackend struct {
 	config   MDNSConfig
 	services map[string]*registeredService // service ID -> registered service
@@ -25,13 +26,13 @@ type MDNSBackend struct {
 	cancel   context.CancelFunc
 }
 
-// registeredService tracks a registered mDNS service
+// registeredService tracks a registered mDNS service.
 type registeredService struct {
 	instance *ServiceInstance
 	server   *zeroconf.Server
 }
 
-// serviceWatcher manages service watching
+// serviceWatcher manages service watching.
 type serviceWatcher struct {
 	serviceName string
 	entries     map[string]*zeroconf.ServiceEntry // service ID -> entry
@@ -41,18 +42,21 @@ type serviceWatcher struct {
 	mu          sync.RWMutex
 }
 
-// NewMDNSBackend creates a new mDNS service discovery backend
+// NewMDNSBackend creates a new mDNS service discovery backend.
 func NewMDNSBackend(config MDNSConfig) (*MDNSBackend, error) {
 	// Set defaults
 	if config.Domain == "" {
 		config.Domain = "local."
 	}
+
 	if config.BrowseTimeout == 0 {
 		config.BrowseTimeout = 3 * time.Second
 	}
+
 	if config.WatchInterval == 0 {
 		config.WatchInterval = 30 * time.Second
 	}
+
 	if config.TTL == 0 {
 		config.TTL = 120 // 2 minutes
 	}
@@ -68,12 +72,12 @@ func NewMDNSBackend(config MDNSConfig) (*MDNSBackend, error) {
 	}, nil
 }
 
-// Name returns the backend name
+// Name returns the backend name.
 func (b *MDNSBackend) Name() string {
 	return "mdns"
 }
 
-// Initialize initializes the backend
+// Initialize initializes the backend.
 func (b *MDNSBackend) Initialize(ctx context.Context) error {
 	// Test mDNS availability by creating a test resolver
 	_, err := zeroconf.NewResolver(nil)
@@ -84,16 +88,18 @@ func (b *MDNSBackend) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Register registers a service instance via mDNS
+// Register registers a service instance via mDNS.
 func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) error {
 	if instance.ID == "" {
-		return fmt.Errorf("service instance ID is required")
+		return errors.New("service instance ID is required")
 	}
+
 	if instance.Name == "" {
-		return fmt.Errorf("service name is required")
+		return errors.New("service name is required")
 	}
+
 	if instance.Port == 0 {
-		return fmt.Errorf("service port is required")
+		return errors.New("service port is required")
 	}
 
 	b.mu.Lock()
@@ -114,6 +120,7 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 		if err != nil {
 			return fmt.Errorf("failed to get interface addresses: %w", err)
 		}
+
 		for _, addr := range addrs {
 			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 				if ipnet.IP.To4() != nil {
@@ -126,18 +133,20 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 	}
 
 	if len(addresses) == 0 {
-		return fmt.Errorf("no valid addresses found for service registration")
+		return errors.New("no valid addresses found for service registration")
 	}
 
 	// Convert metadata to TXT records
 	txt := make([]string, 0, len(instance.Metadata)+len(instance.Tags)+2)
-	txt = append(txt, fmt.Sprintf("version=%s", instance.Version))
-	txt = append(txt, fmt.Sprintf("id=%s", instance.ID))
+	txt = append(txt, "version="+instance.Version)
+
+	txt = append(txt, "id="+instance.ID)
 	for k, v := range instance.Metadata {
 		txt = append(txt, fmt.Sprintf("%s=%s", k, v))
 	}
+
 	if len(instance.Tags) > 0 {
-		txt = append(txt, fmt.Sprintf("tags=%s", strings.Join(instance.Tags, ",")))
+		txt = append(txt, "tags="+strings.Join(instance.Tags, ","))
 	}
 
 	// Register mDNS service
@@ -149,16 +158,18 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 	}
 
 	// Add service type to metadata for gateway discovery
-	txt = append(txt, fmt.Sprintf("mdns.service_type=%s", serviceType))
+	txt = append(txt, "mdns.service_type="+serviceType)
 
 	// Get network interfaces for registration
 	// If Interface is specified, use only that one, otherwise use all
 	var ifaces []net.Interface
+
 	if b.config.Interface != "" {
 		iface, err := net.InterfaceByName(b.config.Interface)
 		if err != nil {
 			return fmt.Errorf("failed to get interface %s: %w", b.config.Interface, err)
 		}
+
 		ifaces = []net.Interface{*iface}
 	}
 
@@ -197,6 +208,7 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 	fmt.Printf("  - Domain: %s\n", b.config.Domain)
 	fmt.Printf("  - Address: %s:%d\n", addresses[0], instance.Port)
 	fmt.Printf("  - TXT Records: %d records\n", len(txt))
+
 	if b.config.Interface != "" {
 		fmt.Printf("  - Interface: %s\n", b.config.Interface)
 	} else {
@@ -212,7 +224,7 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 	return nil
 }
 
-// Deregister deregisters a service instance
+// Deregister deregisters a service instance.
 func (b *MDNSBackend) Deregister(ctx context.Context, serviceID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -231,7 +243,7 @@ func (b *MDNSBackend) Deregister(ctx context.Context, serviceID string) error {
 	return nil
 }
 
-// Discover discovers service instances by name via mDNS
+// Discover discovers service instances by name via mDNS.
 func (b *MDNSBackend) Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error) {
 	// Use configured service type or generate from service name
 	serviceType := b.config.ServiceType
@@ -242,7 +254,7 @@ func (b *MDNSBackend) Discover(ctx context.Context, serviceName string) ([]*Serv
 	return b.discoverByServiceType(ctx, serviceName, serviceType)
 }
 
-// discoverByServiceType discovers services by specific mDNS service type
+// discoverByServiceType discovers services by specific mDNS service type.
 func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, serviceType string) ([]*ServiceInstance, error) {
 	// Create resolver
 	resolver, err := zeroconf.NewResolver(nil)
@@ -257,9 +269,9 @@ func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, se
 
 	// Collect results in background
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+
+	wg.Go(func() {
+
 		for entry := range entries {
 			instance := convertEntryToInstance(serviceName, entry)
 			if instance != nil {
@@ -267,7 +279,7 @@ func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, se
 				instanceMap[instance.ID] = instance
 			}
 		}
-	}()
+	})
 
 	// Browse for services
 	browseCtx, cancel := context.WithTimeout(ctx, b.config.BrowseTimeout)
@@ -277,7 +289,7 @@ func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, se
 	// Note: Browse will close the entries channel when done
 	wg.Wait()
 
-	if err != nil && err != context.DeadlineExceeded {
+	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return nil, fmt.Errorf("failed to browse services: %w", err)
 	}
 
@@ -290,11 +302,11 @@ func (b *MDNSBackend) discoverByServiceType(ctx context.Context, serviceName, se
 }
 
 // DiscoverAllTypes discovers services across all configured service types
-// This is useful for gateways and service meshes that need to discover multiple service types
+// This is useful for gateways and service meshes that need to discover multiple service types.
 func (b *MDNSBackend) DiscoverAllTypes(ctx context.Context) ([]*ServiceInstance, error) {
 	serviceTypes := b.config.ServiceTypes
 	if len(serviceTypes) == 0 {
-		return nil, fmt.Errorf("no service types configured for discovery")
+		return nil, errors.New("no service types configured for discovery")
 	}
 
 	allInstances := make([]*ServiceInstance, 0)
@@ -324,7 +336,7 @@ func (b *MDNSBackend) DiscoverAllTypes(ctx context.Context) ([]*ServiceInstance,
 	return allInstances, nil
 }
 
-// DiscoverWithTags discovers service instances by name and tags
+// DiscoverWithTags discovers service instances by name and tags.
 func (b *MDNSBackend) DiscoverWithTags(ctx context.Context, serviceName string, tags []string) ([]*ServiceInstance, error) {
 	instances, err := b.Discover(ctx, serviceName)
 	if err != nil {
@@ -346,7 +358,7 @@ func (b *MDNSBackend) DiscoverWithTags(ctx context.Context, serviceName string, 
 	return filtered, nil
 }
 
-// Watch watches for changes to a service via mDNS
+// Watch watches for changes to a service via mDNS.
 func (b *MDNSBackend) Watch(ctx context.Context, serviceName string, onChange func([]*ServiceInstance)) error {
 	b.mu.Lock()
 
@@ -357,6 +369,7 @@ func (b *MDNSBackend) Watch(ctx context.Context, serviceName string, onChange fu
 		resolver, err := zeroconf.NewResolver(nil)
 		if err != nil {
 			b.mu.Unlock()
+
 			return fmt.Errorf("failed to create resolver: %w", err)
 		}
 
@@ -376,6 +389,7 @@ func (b *MDNSBackend) Watch(ctx context.Context, serviceName string, onChange fu
 
 	// Add callback
 	watcher.callbacks = append(watcher.callbacks, onChange)
+
 	b.mu.Unlock()
 
 	// Get initial instances and notify
@@ -387,7 +401,7 @@ func (b *MDNSBackend) Watch(ctx context.Context, serviceName string, onChange fu
 	return nil
 }
 
-// watchService continuously watches for service changes
+// watchService continuously watches for service changes.
 func (b *MDNSBackend) watchService(ctx context.Context, watcher *serviceWatcher) {
 	// Use configured service type or generate from service name
 	serviceType := b.config.ServiceType
@@ -409,30 +423,33 @@ func (b *MDNSBackend) watchService(ctx context.Context, watcher *serviceWatcher)
 
 			// Collect entries
 			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+
+			wg.Go(func() {
+
 				for entry := range entries {
 					// Use instance name as ID
 					id := entry.Instance
 					newEntries[id] = entry
 				}
-			}()
+			})
 
 			// Browse with timeout
 			browseCtx, cancel := context.WithTimeout(ctx, b.config.BrowseTimeout)
 			_ = watcher.resolver.Browse(browseCtx, serviceType, b.config.Domain, entries)
+
 			cancel()
 			// Note: Browse will close the entries channel when done
 			wg.Wait()
 
 			// Check for changes
 			watcher.mu.Lock()
+
 			changed := len(newEntries) != len(watcher.entries)
 			if !changed {
 				for id := range newEntries {
 					if _, exists := watcher.entries[id]; !exists {
 						changed = true
+
 						break
 					}
 				}
@@ -441,6 +458,7 @@ func (b *MDNSBackend) watchService(ctx context.Context, watcher *serviceWatcher)
 			// Update entries and notify if changed
 			if changed {
 				watcher.entries = newEntries
+
 				instances := make([]*ServiceInstance, 0, len(newEntries))
 				for _, entry := range newEntries {
 					if instance := convertEntryToInstance(watcher.serviceName, entry); instance != nil {
@@ -462,7 +480,7 @@ func (b *MDNSBackend) watchService(ctx context.Context, watcher *serviceWatcher)
 	}
 }
 
-// ListServices lists all registered services (local only)
+// ListServices lists all registered services (local only).
 func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -480,7 +498,7 @@ func (b *MDNSBackend) ListServices(ctx context.Context) ([]string, error) {
 	return result, nil
 }
 
-// Health checks backend health
+// Health checks backend health.
 func (b *MDNSBackend) Health(ctx context.Context) error {
 	// Test mDNS by creating a resolver
 	_, err := zeroconf.NewResolver(nil)
@@ -491,7 +509,7 @@ func (b *MDNSBackend) Health(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the backend
+// Close closes the backend.
 func (b *MDNSBackend) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -516,7 +534,7 @@ func (b *MDNSBackend) Close() error {
 	return nil
 }
 
-// convertEntryToInstance converts a zeroconf entry to a service instance
+// convertEntryToInstance converts a zeroconf entry to a service instance.
 func convertEntryToInstance(serviceName string, entry *zeroconf.ServiceEntry) *ServiceInstance {
 	if entry == nil {
 		return nil
@@ -571,16 +589,17 @@ func convertEntryToInstance(serviceName string, entry *zeroconf.ServiceEntry) *S
 }
 
 // sanitizeServiceName sanitizes a service name for mDNS
-// mDNS service names should be lowercase and contain only alphanumeric and hyphens
+// mDNS service names should be lowercase and contain only alphanumeric and hyphens.
 func sanitizeServiceName(name string) string {
 	name = strings.ToLower(name)
 	name = strings.ReplaceAll(name, "_", "-")
 	name = strings.ReplaceAll(name, " ", "-")
+
 	return name
 }
 
 // extractServiceNameFromType extracts service name from mDNS service type
-// Example: "_octopus._tcp" -> "octopus", "_http._tcp.local." -> "http"
+// Example: "_octopus._tcp" -> "octopus", "_http._tcp.local." -> "http".
 func extractServiceNameFromType(serviceType string) string {
 	// Remove leading underscore
 	name := strings.TrimPrefix(serviceType, "_")

@@ -5,45 +5,45 @@ import (
 	"time"
 )
 
-// NodeRole represents the role of a node in the consensus system
+// NodeRole represents the role of a node in the consensus system.
 type NodeRole string
 
 const (
-	// RoleFollower indicates the node is a follower
+	// RoleFollower indicates the node is a follower.
 	RoleFollower NodeRole = "follower"
-	// RoleCandidate indicates the node is a candidate in an election
+	// RoleCandidate indicates the node is a candidate in an election.
 	RoleCandidate NodeRole = "candidate"
-	// RoleLeader indicates the node is the leader
+	// RoleLeader indicates the node is the leader.
 	RoleLeader NodeRole = "leader"
 )
 
-// NodeStatus represents the status of a node
+// NodeStatus represents the status of a node.
 type NodeStatus string
 
 const (
-	// StatusActive indicates the node is active and healthy
+	// StatusActive indicates the node is active and healthy.
 	StatusActive NodeStatus = "active"
-	// StatusInactive indicates the node is inactive
+	// StatusInactive indicates the node is inactive.
 	StatusInactive NodeStatus = "inactive"
-	// StatusSuspected indicates the node is suspected of failure
+	// StatusSuspected indicates the node is suspected of failure.
 	StatusSuspected NodeStatus = "suspected"
-	// StatusFailed indicates the node has failed
+	// StatusFailed indicates the node has failed.
 	StatusFailed NodeStatus = "failed"
 )
 
-// NodeInfo represents information about a node
+// NodeInfo represents information about a node.
 type NodeInfo struct {
-	ID            string                 `json:"id"`
-	Address       string                 `json:"address"`
-	Port          int                    `json:"port"`
-	Role          NodeRole               `json:"role"`
-	Status        NodeStatus             `json:"status"`
-	Term          uint64                 `json:"term"`
-	LastHeartbeat time.Time              `json:"last_heartbeat"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	ID            string         `json:"id"`
+	Address       string         `json:"address"`
+	Port          int            `json:"port"`
+	Role          NodeRole       `json:"role"`
+	Status        NodeStatus     `json:"status"`
+	Term          uint64         `json:"term"`
+	LastHeartbeat time.Time      `json:"last_heartbeat"`
+	Metadata      map[string]any `json:"metadata"`
 }
 
-// ClusterInfo represents information about the cluster
+// ClusterInfo represents information about the cluster.
 type ClusterInfo struct {
 	ID          string     `json:"id"`
 	Leader      string     `json:"leader"`
@@ -56,7 +56,7 @@ type ClusterInfo struct {
 	LastApplied uint64     `json:"last_applied"`
 }
 
-// ConsensusStats represents consensus statistics
+// ConsensusStats represents consensus statistics.
 type ConsensusStats struct {
 	NodeID           string        `json:"node_id"`
 	ClusterID        string        `json:"cluster_id"`
@@ -85,20 +85,20 @@ type ConsensusStats struct {
 	StartTime        time.Time     `json:"start_time"`
 }
 
-// HealthStatus represents the health status of the consensus system
+// HealthStatus represents the health status of the consensus system.
 type HealthStatus struct {
-	Healthy     bool                   `json:"healthy"`
-	Status      string                 `json:"status"` // "healthy", "degraded", "unhealthy"
-	Leader      bool                   `json:"leader"`
-	HasQuorum   bool                   `json:"has_quorum"`
-	TotalNodes  int                    `json:"total_nodes"`
-	ActiveNodes int                    `json:"active_nodes"`
-	Details     []HealthCheck          `json:"details"`
-	LastCheck   time.Time              `json:"last_check"`
-	Checks      map[string]interface{} `json:"checks"`
+	Healthy     bool           `json:"healthy"`
+	Status      string         `json:"status"` // "healthy", "degraded", "unhealthy"
+	Leader      bool           `json:"leader"`
+	HasQuorum   bool           `json:"has_quorum"`
+	TotalNodes  int            `json:"total_nodes"`
+	ActiveNodes int            `json:"active_nodes"`
+	Details     []HealthCheck  `json:"details"`
+	LastCheck   time.Time      `json:"last_check"`
+	Checks      map[string]any `json:"checks"`
 }
 
-// HealthCheck represents a single health check result
+// HealthCheck represents a single health check result.
 type HealthCheck struct {
 	Name      string    `json:"name"`
 	Healthy   bool      `json:"healthy"`
@@ -107,7 +107,7 @@ type HealthCheck struct {
 	CheckedAt time.Time `json:"checked_at"`
 }
 
-// LogEntry represents a log entry in the replicated log
+// LogEntry represents a log entry in the replicated log.
 type LogEntry struct {
 	Index   uint64    `json:"index"`
 	Term    uint64    `json:"term"`
@@ -116,21 +116,21 @@ type LogEntry struct {
 	Created time.Time `json:"created"`
 }
 
-// EntryType represents the type of log entry
+// EntryType represents the type of log entry.
 type EntryType int
 
 const (
-	// EntryNormal is a normal command entry
+	// EntryNormal is a normal command entry.
 	EntryNormal EntryType = iota
-	// EntryConfig is a configuration change entry
+	// EntryConfig is a configuration change entry.
 	EntryConfig
-	// EntryBarrier is a barrier entry for read consistency
+	// EntryBarrier is a barrier entry for read consistency.
 	EntryBarrier
-	// EntryNoop is a no-op entry
+	// EntryNoop is a no-op entry.
 	EntryNoop
 )
 
-// Snapshot represents a point-in-time snapshot of the state machine
+// Snapshot represents a point-in-time snapshot of the state machine.
 type Snapshot struct {
 	Index    uint64    `json:"index"`
 	Term     uint64    `json:"term"`
@@ -140,7 +140,7 @@ type Snapshot struct {
 	Checksum string    `json:"checksum"`
 }
 
-// SnapshotMetadata contains metadata about a snapshot
+// SnapshotMetadata contains metadata about a snapshot.
 type SnapshotMetadata struct {
 	Index    uint64    `json:"index"`
 	Term     uint64    `json:"term"`
@@ -149,13 +149,13 @@ type SnapshotMetadata struct {
 	Checksum string    `json:"checksum"`
 }
 
-// Command represents a command to be applied to the state machine
+// Command represents a command to be applied to the state machine.
 type Command struct {
-	Type    string                 `json:"type"`
-	Payload map[string]interface{} `json:"payload"`
+	Type    string         `json:"type"`
+	Payload map[string]any `json:"payload"`
 }
 
-// ConsensusService defines the interface for the consensus service
+// ConsensusService defines the interface for the consensus service.
 type ConsensusService interface {
 	// Start starts the consensus service
 	Start(ctx context.Context) error
@@ -179,7 +179,7 @@ type ConsensusService interface {
 	Apply(ctx context.Context, cmd Command) error
 
 	// Read performs a consistent read operation
-	Read(ctx context.Context, query interface{}) (interface{}, error)
+	Read(ctx context.Context, query any) (any, error)
 
 	// GetStats returns consensus statistics
 	GetStats() ConsensusStats
@@ -212,7 +212,7 @@ type ConsensusService interface {
 	UpdateConfig(ctx context.Context, config Config) error
 }
 
-// RaftNode defines the interface for Raft node operations
+// RaftNode defines the interface for Raft node operations.
 type RaftNode interface {
 	// Start starts the Raft node
 	Start(ctx context.Context) error
@@ -257,7 +257,7 @@ type RaftNode interface {
 	AddPeer(peerID string)
 }
 
-// RaftStats represents Raft node statistics
+// RaftStats represents Raft node statistics.
 type RaftStats struct {
 	NodeID        string    `json:"node_id"`
 	Role          NodeRole  `json:"role"`
@@ -271,7 +271,7 @@ type RaftStats struct {
 	LastHeartbeat time.Time `json:"last_heartbeat"`
 }
 
-// AppendEntriesRequest represents an AppendEntries RPC request
+// AppendEntriesRequest represents an AppendEntries RPC request.
 type AppendEntriesRequest struct {
 	Term         uint64     `json:"term"`
 	LeaderID     string     `json:"leader_id"`
@@ -281,7 +281,7 @@ type AppendEntriesRequest struct {
 	LeaderCommit uint64     `json:"leader_commit"`
 }
 
-// AppendEntriesResponse represents an AppendEntries RPC response
+// AppendEntriesResponse represents an AppendEntries RPC response.
 type AppendEntriesResponse struct {
 	Term       uint64 `json:"term"`
 	Success    bool   `json:"success"`
@@ -289,7 +289,7 @@ type AppendEntriesResponse struct {
 	NodeID     string `json:"node_id"`
 }
 
-// RequestVoteRequest represents a RequestVote RPC request
+// RequestVoteRequest represents a RequestVote RPC request.
 type RequestVoteRequest struct {
 	Term         uint64 `json:"term"`
 	CandidateID  string `json:"candidate_id"`
@@ -298,14 +298,14 @@ type RequestVoteRequest struct {
 	PreVote      bool   `json:"pre_vote"`
 }
 
-// RequestVoteResponse represents a RequestVote RPC response
+// RequestVoteResponse represents a RequestVote RPC response.
 type RequestVoteResponse struct {
 	Term        uint64 `json:"term"`
 	VoteGranted bool   `json:"vote_granted"`
 	NodeID      string `json:"node_id"`
 }
 
-// InstallSnapshotRequest represents an InstallSnapshot RPC request
+// InstallSnapshotRequest represents an InstallSnapshot RPC request.
 type InstallSnapshotRequest struct {
 	Term              uint64 `json:"term"`
 	LeaderID          string `json:"leader_id"`
@@ -316,13 +316,13 @@ type InstallSnapshotRequest struct {
 	Done              bool   `json:"done"`
 }
 
-// InstallSnapshotResponse represents an InstallSnapshot RPC response
+// InstallSnapshotResponse represents an InstallSnapshot RPC response.
 type InstallSnapshotResponse struct {
 	Term   uint64 `json:"term"`
 	NodeID string `json:"node_id"`
 }
 
-// StateMachine defines the interface for the replicated state machine
+// StateMachine defines the interface for the replicated state machine.
 type StateMachine interface {
 	// Apply applies a log entry to the state machine
 	Apply(entry LogEntry) error
@@ -334,10 +334,10 @@ type StateMachine interface {
 	Restore(snapshot *Snapshot) error
 
 	// Query performs a read-only query
-	Query(query interface{}) (interface{}, error)
+	Query(query any) (any, error)
 }
 
-// ClusterManager defines the interface for cluster management
+// ClusterManager defines the interface for cluster management.
 type ClusterManager interface {
 	// GetNodes returns all nodes in the cluster
 	GetNodes() []NodeInfo
@@ -367,7 +367,7 @@ type ClusterManager interface {
 	GetHealthyNodes() int
 }
 
-// Transport defines the interface for network transport
+// Transport defines the interface for network transport.
 type Transport interface {
 	// Start starts the transport
 	Start(ctx context.Context) error
@@ -376,7 +376,7 @@ type Transport interface {
 	Stop(ctx context.Context) error
 
 	// Send sends a message to a peer
-	Send(ctx context.Context, target string, message interface{}) error
+	Send(ctx context.Context, target string, message any) error
 
 	// Receive returns a channel for receiving messages
 	Receive() <-chan Message
@@ -391,36 +391,36 @@ type Transport interface {
 	GetAddress() string
 }
 
-// Message represents a message sent between nodes
+// Message represents a message sent between nodes.
 type Message struct {
 	Type      MessageType `json:"type"`
 	From      string      `json:"from"`
 	To        string      `json:"to"`
-	Payload   interface{} `json:"payload"`
+	Payload   any         `json:"payload"`
 	Timestamp int64       `json:"timestamp"`
 }
 
-// MessageType represents the type of message
+// MessageType represents the type of message.
 type MessageType string
 
 const (
-	// MessageTypeAppendEntries is for AppendEntries RPC
+	// MessageTypeAppendEntries is for AppendEntries RPC.
 	MessageTypeAppendEntries MessageType = "append_entries"
-	// MessageTypeAppendEntriesResponse is for AppendEntries response
+	// MessageTypeAppendEntriesResponse is for AppendEntries response.
 	MessageTypeAppendEntriesResponse MessageType = "append_entries_response"
-	// MessageTypeRequestVote is for RequestVote RPC
+	// MessageTypeRequestVote is for RequestVote RPC.
 	MessageTypeRequestVote MessageType = "request_vote"
-	// MessageTypeRequestVoteResponse is for RequestVote response
+	// MessageTypeRequestVoteResponse is for RequestVote response.
 	MessageTypeRequestVoteResponse MessageType = "request_vote_response"
-	// MessageTypeInstallSnapshot is for InstallSnapshot RPC
+	// MessageTypeInstallSnapshot is for InstallSnapshot RPC.
 	MessageTypeInstallSnapshot MessageType = "install_snapshot"
-	// MessageTypeInstallSnapshotResponse is for InstallSnapshot response
+	// MessageTypeInstallSnapshotResponse is for InstallSnapshot response.
 	MessageTypeInstallSnapshotResponse MessageType = "install_snapshot_response"
-	// MessageTypeHeartbeat is for heartbeat messages
+	// MessageTypeHeartbeat is for heartbeat messages.
 	MessageTypeHeartbeat MessageType = "heartbeat"
 )
 
-// Discovery defines the interface for service discovery
+// Discovery defines the interface for service discovery.
 type Discovery interface {
 	// Start starts the discovery service
 	Start(ctx context.Context) error
@@ -441,25 +441,25 @@ type Discovery interface {
 	Watch(ctx context.Context) (<-chan NodeChangeEvent, error)
 }
 
-// NodeChangeEvent represents a node change event
+// NodeChangeEvent represents a node change event.
 type NodeChangeEvent struct {
 	Type NodeChangeType `json:"type"`
 	Node NodeInfo       `json:"node"`
 }
 
-// NodeChangeType represents the type of node change
+// NodeChangeType represents the type of node change.
 type NodeChangeType string
 
 const (
-	// NodeChangeTypeAdded indicates a node was added
+	// NodeChangeTypeAdded indicates a node was added.
 	NodeChangeTypeAdded NodeChangeType = "added"
-	// NodeChangeTypeRemoved indicates a node was removed
+	// NodeChangeTypeRemoved indicates a node was removed.
 	NodeChangeTypeRemoved NodeChangeType = "removed"
-	// NodeChangeTypeUpdated indicates a node was updated
+	// NodeChangeTypeUpdated indicates a node was updated.
 	NodeChangeTypeUpdated NodeChangeType = "updated"
 )
 
-// DiscoveryEvent represents a discovery event
+// DiscoveryEvent represents a discovery event.
 type DiscoveryEvent struct {
 	Type      DiscoveryEventType `json:"type"`
 	NodeID    string             `json:"node_id"`
@@ -468,19 +468,19 @@ type DiscoveryEvent struct {
 	Timestamp time.Time          `json:"timestamp"`
 }
 
-// DiscoveryEventType represents the type of discovery event
+// DiscoveryEventType represents the type of discovery event.
 type DiscoveryEventType string
 
 const (
-	// DiscoveryEventTypeJoin indicates a node joined
+	// DiscoveryEventTypeJoin indicates a node joined.
 	DiscoveryEventTypeJoin DiscoveryEventType = "join"
-	// DiscoveryEventTypeLeave indicates a node left
+	// DiscoveryEventTypeLeave indicates a node left.
 	DiscoveryEventTypeLeave DiscoveryEventType = "leave"
-	// DiscoveryEventTypeUpdate indicates a node updated
+	// DiscoveryEventTypeUpdate indicates a node updated.
 	DiscoveryEventTypeUpdate DiscoveryEventType = "update"
 )
 
-// Storage defines the interface for persistent storage
+// Storage defines the interface for persistent storage.
 type Storage interface {
 	// Start starts the storage backend
 	Start(ctx context.Context) error
@@ -507,24 +507,24 @@ type Storage interface {
 	Close() error
 }
 
-// BatchOp represents a batch operation
+// BatchOp represents a batch operation.
 type BatchOp struct {
 	Type  BatchOpType
 	Key   []byte
 	Value []byte
 }
 
-// BatchOpType represents the type of batch operation
+// BatchOpType represents the type of batch operation.
 type BatchOpType int
 
 const (
-	// BatchOpSet is a set operation
+	// BatchOpSet is a set operation.
 	BatchOpSet BatchOpType = iota
-	// BatchOpDelete is a delete operation
+	// BatchOpDelete is a delete operation.
 	BatchOpDelete
 )
 
-// KeyValue represents a key-value pair
+// KeyValue represents a key-value pair.
 type KeyValue struct {
 	Key   []byte
 	Value []byte

@@ -16,7 +16,7 @@ func TestLogging_Success(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	ctx := di.NewContext(rec, req, nil)
 
@@ -35,7 +35,7 @@ func TestLogging_ExcludePath(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest("GET", "/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	rec := httptest.NewRecorder()
 	ctx := di.NewContext(rec, req, nil)
 

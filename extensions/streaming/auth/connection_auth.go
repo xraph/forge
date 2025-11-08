@@ -26,21 +26,24 @@ func NewConnectionAuthenticator(registry auth.Registry, providers []string) Conn
 // AuthenticateConnection verifies the connection on WebSocket/SSE upgrade.
 func (ca *connectionAuthenticator) AuthenticateConnection(ctx context.Context, r *http.Request) (*auth.AuthContext, error) {
 	if len(ca.providers) == 0 {
-		return nil, fmt.Errorf("no auth providers configured")
+		return nil, errors.New("no auth providers configured")
 	}
 
 	// Try each provider (OR logic)
 	var lastErr error
+
 	for _, providerName := range ca.providers {
 		provider, err := ca.registry.Get(providerName)
 		if err != nil {
 			lastErr = fmt.Errorf("provider %s not found: %w", providerName, err)
+
 			continue
 		}
 
 		authCtx, err := provider.Authenticate(ctx, r)
 		if err != nil {
 			lastErr = err
+
 			continue
 		}
 
@@ -48,6 +51,7 @@ func (ca *connectionAuthenticator) AuthenticateConnection(ctx context.Context, r
 		if len(ca.scopes) > 0 {
 			if !authCtx.HasScopes(ca.scopes...) {
 				lastErr = fmt.Errorf("missing required scopes: %v", ca.scopes)
+
 				continue
 			}
 		}
@@ -59,20 +63,23 @@ func (ca *connectionAuthenticator) AuthenticateConnection(ctx context.Context, r
 		return nil, fmt.Errorf("authentication failed: %w", lastErr)
 	}
 
-	return nil, fmt.Errorf("no auth providers succeeded")
+	return nil, errors.New("no auth providers succeeded")
 }
 
 // RequireAuth sets the auth providers (OR logic).
 func (ca *connectionAuthenticator) RequireAuth(providers ...string) error {
 	if len(providers) == 0 {
-		return fmt.Errorf("at least one provider required")
+		return errors.New("at least one provider required")
 	}
+
 	ca.providers = providers
+
 	return nil
 }
 
 // RequireScopes sets required scopes (AND logic).
 func (ca *connectionAuthenticator) RequireScopes(scopes ...string) error {
 	ca.scopes = scopes
+
 	return nil
 }

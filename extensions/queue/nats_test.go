@@ -43,8 +43,10 @@ func TestNewNATSQueue(t *testing.T) {
 			queue, err := NewNATSQueue(tt.config, logger, metrics)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewNATSQueue() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if !tt.wantErr && queue == nil {
 				t.Error("NewNATSQueue() returned nil queue")
 			}
@@ -78,7 +80,7 @@ func TestNATSQueue_ConnectDisconnect(t *testing.T) {
 
 	// Test double connect
 	err = queue.Connect(ctx)
-	if err != ErrAlreadyConnected {
+	if !errors.Is(err, ErrAlreadyConnected) {
 		t.Errorf("Connect() second time should return ErrAlreadyConnected, got %v", err)
 	}
 
@@ -96,7 +98,7 @@ func TestNATSQueue_ConnectDisconnect(t *testing.T) {
 
 	// Test double disconnect
 	err = queue.Disconnect(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("Disconnect() second time should return ErrNotConnected, got %v", err)
 	}
 }
@@ -141,6 +143,7 @@ func TestNATSQueue_QueueOperations(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetQueueInfo() error = %v", err)
 	}
+
 	if info.Name != queueName {
 		t.Errorf("GetQueueInfo() name = %v, want %v", info.Name, queueName)
 	}
@@ -150,13 +153,17 @@ func TestNATSQueue_QueueOperations(t *testing.T) {
 	if err != nil {
 		t.Errorf("ListQueues() error = %v", err)
 	}
+
 	found := false
+
 	for _, q := range queues {
 		if q == queueName {
 			found = true
+
 			break
 		}
 	}
+
 	if !found {
 		t.Errorf("ListQueues() did not include %s", queueName)
 	}
@@ -210,7 +217,9 @@ func TestNATSQueue_PublishConsume(t *testing.T) {
 		if string(msg.Body) != "test message" {
 			t.Errorf("Received message body = %s, want 'test message'", string(msg.Body))
 		}
+
 		received <- true
+
 		return nil
 	}
 
@@ -279,6 +288,7 @@ func TestNATSQueue_PublishBatch(t *testing.T) {
 
 	// Clean up and declare queue
 	queue.DeleteQueue(ctx, queueName)
+
 	err = queue.DeclareQueue(ctx, queueName, QueueOptions{
 		Durable: true,
 	})
@@ -307,6 +317,7 @@ func TestNATSQueue_PublishBatch(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetQueueInfo() error = %v", err)
 	}
+
 	if info.Messages < int64(len(messages)) {
 		t.Logf("GetQueueInfo() messages = %d, expected >= %d", info.Messages, len(messages))
 	}
@@ -338,6 +349,7 @@ func TestNATSQueue_PurgeQueue(t *testing.T) {
 
 	// Clean up and declare queue
 	queue.DeleteQueue(ctx, queueName)
+
 	err = queue.DeclareQueue(ctx, queueName, QueueOptions{
 		Durable: true,
 	})
@@ -351,6 +363,7 @@ func TestNATSQueue_PurgeQueue(t *testing.T) {
 		{Body: []byte("message 1")},
 		{Body: []byte("message 2")},
 	}
+
 	err = queue.PublishBatch(ctx, queueName, messages)
 	if err != nil {
 		t.Errorf("PublishBatch() error = %v", err)
@@ -370,6 +383,7 @@ func TestNATSQueue_PurgeQueue(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetQueueInfo() error = %v", err)
 	}
+
 	if info.Messages != 0 {
 		t.Errorf("GetQueueInfo() after purge messages = %d, want 0", info.Messages)
 	}

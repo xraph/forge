@@ -8,10 +8,11 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// managerImpl provides centralized AI capabilities management
+// managerImpl provides centralized AI capabilities management.
 type managerImpl struct {
 	config    internal.AIConfig
 	logger    forge.Logger
@@ -30,10 +31,10 @@ type managerImpl struct {
 	teamsMu      sync.RWMutex
 }
 
-// AIManager type alias for backward compatibility
+// AIManager type alias for backward compatibility.
 type AIM = internal.AI
 
-// NewManager creates a new AI manager
+// NewManager creates a new AI manager.
 func NewManager(config internal.AIConfig, opts ...ManagerOption) (*managerImpl, error) {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -56,30 +57,30 @@ func NewManager(config internal.AIConfig, opts ...ManagerOption) (*managerImpl, 
 	return m, nil
 }
 
-// ManagerOption configures the manager
+// ManagerOption configures the manager.
 type ManagerOption func(*managerImpl)
 
-// WithStore sets the agent store
+// WithStore sets the agent store.
 func WithStore(store AgentStore) ManagerOption {
 	return func(m *managerImpl) {
 		m.store = store
 	}
 }
 
-// WithFactory sets the agent factory
+// WithFactory sets the agent factory.
 func WithFactory(factory *AgentFactory) ManagerOption {
 	return func(m *managerImpl) {
 		m.agentFactory = factory
 	}
 }
 
-// Start starts the AI manager
+// Start starts the AI manager.
 func (m *managerImpl) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.started {
-		return fmt.Errorf("AI manager already started")
+		return errors.New("AI manager already started")
 	}
 
 	m.started = true
@@ -96,7 +97,7 @@ func (m *managerImpl) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the AI manager
+// Stop stops the AI manager.
 func (m *managerImpl) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -118,13 +119,13 @@ func (m *managerImpl) Stop(ctx context.Context) error {
 	return nil
 }
 
-// HealthCheck performs health check on the AI manager
+// HealthCheck performs health check on the AI manager.
 func (m *managerImpl) HealthCheck(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if !m.started {
-		return fmt.Errorf("AI manager not started")
+		return errors.New("AI manager not started")
 	}
 
 	// Perform basic health checks
@@ -137,12 +138,12 @@ func (m *managerImpl) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// GetStats returns AI manager statistics
-func (m *managerImpl) GetStats() map[string]interface{} {
+// GetStats returns AI manager statistics.
+func (m *managerImpl) GetStats() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"started":              m.started,
 		"llm_enabled":          m.config.EnableLLM,
 		"agents_enabled":       m.config.EnableAgents,
@@ -157,53 +158,54 @@ func (m *managerImpl) GetStats() map[string]interface{} {
 	return stats
 }
 
-// IsLLMEnabled returns whether LLM capabilities are enabled
+// IsLLMEnabled returns whether LLM capabilities are enabled.
 func (m *managerImpl) IsLLMEnabled() bool {
 	return m.config.EnableLLM
 }
 
-// IsAgentsEnabled returns whether agent capabilities are enabled
+// IsAgentsEnabled returns whether agent capabilities are enabled.
 func (m *managerImpl) IsAgentsEnabled() bool {
 	return m.config.EnableAgents
 }
 
-// IsInferenceEnabled returns whether inference capabilities are enabled
+// IsInferenceEnabled returns whether inference capabilities are enabled.
 func (m *managerImpl) IsInferenceEnabled() bool {
 	return m.config.EnableInference
 }
 
-// IsCoordinationEnabled returns whether coordination capabilities are enabled
+// IsCoordinationEnabled returns whether coordination capabilities are enabled.
 func (m *managerImpl) IsCoordinationEnabled() bool {
 	return m.config.EnableCoordination
 }
 
-// IsTrainingEnabled returns whether training capabilities are enabled
+// IsTrainingEnabled returns whether training capabilities are enabled.
 func (m *managerImpl) IsTrainingEnabled() bool {
 	return m.config.EnableTraining
 }
 
-// GetConfig returns the current configuration
+// GetConfig returns the current configuration.
 func (m *managerImpl) GetConfig() internal.AIConfig {
 	return m.config
 }
 
-// UpdateConfig updates the configuration
+// UpdateConfig updates the configuration.
 func (m *managerImpl) UpdateConfig(config internal.AIConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.started {
-		return fmt.Errorf("cannot update config while manager is running")
+		return errors.New("cannot update config while manager is running")
 	}
 
 	m.config = config
+
 	return nil
 }
 
-// RegisterAgent registers a new agent with the manager
+// RegisterAgent registers a new agent with the manager.
 func (m *managerImpl) RegisterAgent(agent internal.AIAgent) error {
 	if agent == nil {
-		return fmt.Errorf("agent cannot be nil")
+		return errors.New("agent cannot be nil")
 	}
 
 	m.agentsMu.Lock()
@@ -227,7 +229,7 @@ func (m *managerImpl) RegisterAgent(agent internal.AIAgent) error {
 	return nil
 }
 
-// UnregisterAgent removes an agent from the manager
+// UnregisterAgent removes an agent from the manager.
 func (m *managerImpl) UnregisterAgent(id string) error {
 	m.agentsMu.Lock()
 	defer m.agentsMu.Unlock()
@@ -245,7 +247,7 @@ func (m *managerImpl) UnregisterAgent(id string) error {
 	return nil
 }
 
-// GetAgent retrieves an agent by ID
+// GetAgent retrieves an agent by ID.
 func (m *managerImpl) GetAgent(id string) (internal.AIAgent, error) {
 	m.agentsMu.RLock()
 	defer m.agentsMu.RUnlock()
@@ -258,7 +260,7 @@ func (m *managerImpl) GetAgent(id string) (internal.AIAgent, error) {
 	return agent, nil
 }
 
-// ListAgents returns all registered agents
+// ListAgents returns all registered agents.
 func (m *managerImpl) ListAgents() []internal.AIAgent {
 	m.agentsMu.RLock()
 	defer m.agentsMu.RUnlock()
@@ -271,7 +273,7 @@ func (m *managerImpl) ListAgents() []internal.AIAgent {
 	return agents
 }
 
-// ProcessAgentRequest processes a request through the appropriate agent
+// ProcessAgentRequest processes a request through the appropriate agent.
 func (m *managerImpl) ProcessAgentRequest(ctx context.Context, request AgentRequest) (*AgentResponse, error) {
 	// Find the best agent for this request type
 	agent, err := m.findBestAgent(request.Type)
@@ -312,7 +314,7 @@ func (m *managerImpl) ProcessAgentRequest(ctx context.Context, request AgentRequ
 	}, nil
 }
 
-// findBestAgent finds the best agent for a given request type
+// findBestAgent finds the best agent for a given request type.
 func (m *managerImpl) findBestAgent(requestType string) (internal.AIAgent, error) {
 	m.agentsMu.RLock()
 	defer m.agentsMu.RUnlock()
@@ -330,7 +332,7 @@ func (m *managerImpl) findBestAgent(requestType string) (internal.AIAgent, error
 	return nil, fmt.Errorf("no agent found for request type: %s", requestType)
 }
 
-// GetAgents returns all registered agents
+// GetAgents returns all registered agents.
 func (m *managerImpl) GetAgents() []internal.AIAgent {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -339,34 +341,35 @@ func (m *managerImpl) GetAgents() []internal.AIAgent {
 	for _, agent := range m.agents {
 		agents = append(agents, agent)
 	}
+
 	return agents
 }
 
-// GetInferenceEngine returns the inference engine (placeholder)
-func (m *managerImpl) GetInferenceEngine() interface{} {
+// GetInferenceEngine returns the inference engine (placeholder).
+func (m *managerImpl) GetInferenceEngine() any {
 	// Placeholder implementation
 	return nil
 }
 
-// GetModelServer returns the model server (placeholder)
-func (m *managerImpl) GetModelServer() interface{} {
+// GetModelServer returns the model server (placeholder).
+func (m *managerImpl) GetModelServer() any {
 	// Placeholder implementation
 	return nil
 }
 
-// GetLLMManager returns the LLM manager (placeholder)
-func (m *managerImpl) GetLLMManager() interface{} {
+// GetLLMManager returns the LLM manager (placeholder).
+func (m *managerImpl) GetLLMManager() any {
 	// Placeholder implementation
 	return nil
 }
 
-// GetCoordinator returns the coordinator (placeholder)
-func (m *managerImpl) GetCoordinator() interface{} {
+// GetCoordinator returns the coordinator (placeholder).
+func (m *managerImpl) GetCoordinator() any {
 	// Placeholder implementation
 	return nil
 }
 
-// OnHealthCheck handles health check requests (placeholder)
+// OnHealthCheck handles health check requests (placeholder).
 func (m *managerImpl) OnHealthCheck(ctx context.Context) error {
 	// Placeholder implementation
 	return nil

@@ -7,15 +7,15 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// RESTGenerator generates TypeScript REST client code
+// RESTGenerator generates TypeScript REST client code.
 type RESTGenerator struct{}
 
-// NewRESTGenerator creates a new REST generator
+// NewRESTGenerator creates a new REST generator.
 func NewRESTGenerator() *RESTGenerator {
 	return &RESTGenerator{}
 }
 
-// Generate generates the REST client methods
+// Generate generates the REST client methods.
 func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -38,7 +38,7 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 	return buf.String()
 }
 
-// generateEndpointMethod generates a TypeScript method for an endpoint
+// generateEndpointMethod generates a TypeScript method for an endpoint.
 func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *client.APISpec) string {
 	var buf strings.Builder
 
@@ -46,15 +46,19 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 
 	// JSDoc comment
 	buf.WriteString("  /**\n")
+
 	if endpoint.Summary != "" {
 		buf.WriteString(fmt.Sprintf("   * %s\n", endpoint.Summary))
 	}
+
 	if endpoint.Description != "" {
 		buf.WriteString(fmt.Sprintf("   * %s\n", endpoint.Description))
 	}
+
 	if endpoint.Deprecated {
 		buf.WriteString("   * @deprecated\n")
 	}
+
 	buf.WriteString("   */\n")
 
 	// Method signature
@@ -70,6 +74,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	// Add query parameters
 	if len(endpoint.QueryParams) > 0 {
 		buf.WriteString("    const queryParams: Record<string, any> = {};\n")
+
 		for _, param := range endpoint.QueryParams {
 			paramName := r.toTSParamName(param.Name)
 			if param.Required {
@@ -80,6 +85,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 				buf.WriteString("    }\n")
 			}
 		}
+
 		buf.WriteString("    const queryString = new URLSearchParams(queryParams).toString();\n")
 		buf.WriteString("    if (queryString) {\n")
 		buf.WriteString("      path += '?' + queryString;\n")
@@ -99,6 +105,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	// Add custom headers
 	if len(endpoint.HeaderParams) > 0 {
 		buf.WriteString("      headers: {\n")
+
 		for _, param := range endpoint.HeaderParams {
 			paramName := r.toTSParamName(param.Name)
 			if param.Required {
@@ -107,6 +114,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 				buf.WriteString(fmt.Sprintf("        ...(%s ? { '%s': %s } : {}),\n", paramName, param.Name, paramName))
 			}
 		}
+
 		buf.WriteString("      },\n")
 	}
 
@@ -126,7 +134,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	return buf.String()
 }
 
-// generateMethodName generates a method name from an endpoint
+// generateMethodName generates a method name from an endpoint.
 func (r *RESTGenerator) generateMethodName(endpoint client.Endpoint) string {
 	if endpoint.OperationID != "" {
 		return r.toCamelCase(endpoint.OperationID)
@@ -140,10 +148,11 @@ func (r *RESTGenerator) generateMethodName(endpoint client.Endpoint) string {
 	path = strings.ReplaceAll(path, "-", "_")
 
 	method := strings.ToLower(endpoint.Method)
+
 	return r.toCamelCase(method + "_" + path)
 }
 
-// generateParameters generates method parameters
+// generateParameters generates method parameters.
 func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *client.APISpec) string {
 	var params []string
 
@@ -157,20 +166,24 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 	// Query parameters
 	for _, param := range endpoint.QueryParams {
 		paramName := r.toTSParamName(param.Name)
+
 		tsType := r.schemaToTSType(param.Schema, spec)
 		if !param.Required {
 			tsType += " | undefined"
 		}
+
 		params = append(params, fmt.Sprintf("%s?: %s", paramName, tsType))
 	}
 
 	// Header parameters
 	for _, param := range endpoint.HeaderParams {
 		paramName := r.toTSParamName(param.Name)
+
 		tsType := r.schemaToTSType(param.Schema, spec)
 		if !param.Required {
 			tsType += " | undefined"
 		}
+
 		params = append(params, fmt.Sprintf("%s?: %s", paramName, tsType))
 	}
 
@@ -179,9 +192,9 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 		if media, ok := endpoint.RequestBody.Content["application/json"]; ok && media.Schema != nil {
 			typeName := r.getSchemaTypeName(media.Schema, spec)
 			if endpoint.RequestBody.Required {
-				params = append(params, fmt.Sprintf("body: %s", typeName))
+				params = append(params, "body: "+typeName)
 			} else {
-				params = append(params, fmt.Sprintf("body?: %s", typeName))
+				params = append(params, "body?: "+typeName)
 			}
 		}
 	}
@@ -189,7 +202,7 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 	return strings.Join(params, ", ")
 }
 
-// generateReturnType generates the return type for an endpoint
+// generateReturnType generates the return type for an endpoint.
 func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *client.APISpec) string {
 	// Look for 200 or 201 response
 	for _, statusCode := range []int{200, 201} {
@@ -208,7 +221,7 @@ func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *clien
 	return "any"
 }
 
-// generatePathExpression generates the path expression with parameters
+// generatePathExpression generates the path expression with parameters.
 func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string {
 	path := endpoint.Path
 
@@ -222,7 +235,7 @@ func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string 
 	return fmt.Sprintf("`%s`", path)
 }
 
-// getSchemaTypeName gets the type name for a schema
+// getSchemaTypeName gets the type name for a schema.
 func (r *RESTGenerator) getSchemaTypeName(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "any"
@@ -230,13 +243,14 @@ func (r *RESTGenerator) getSchemaTypeName(schema *client.Schema, spec *client.AP
 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
+
 		return parts[len(parts)-1]
 	}
 
 	return r.schemaToTSType(schema, spec)
 }
 
-// schemaToTSType converts a schema to TypeScript type
+// schemaToTSType converts a schema to TypeScript type.
 func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "any"
@@ -244,6 +258,7 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
+
 		return "types." + parts[len(parts)-1]
 	}
 
@@ -254,8 +269,10 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 			for _, v := range schema.Enum {
 				values = append(values, fmt.Sprintf("'%v'", v))
 			}
+
 			return strings.Join(values, " | ")
 		}
+
 		return "string"
 	case "integer", "number":
 		return "number"
@@ -265,6 +282,7 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 		if schema.Items != nil {
 			return r.schemaToTSType(schema.Items, spec) + "[]"
 		}
+
 		return "any[]"
 	case "object":
 		return "Record<string, any>"
@@ -273,12 +291,12 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 	return "any"
 }
 
-// toTSParamName converts a parameter name to TypeScript naming convention (camelCase)
+// toTSParamName converts a parameter name to TypeScript naming convention (camelCase).
 func (r *RESTGenerator) toTSParamName(name string) string {
 	return r.toCamelCase(name)
 }
 
-// toCamelCase converts a string to camelCase
+// toCamelCase converts a string to camelCase.
 func (r *RESTGenerator) toCamelCase(s string) string {
 	parts := strings.FieldsFunc(s, func(r rune) bool {
 		return r == '_' || r == '-' || r == ' '
@@ -289,11 +307,13 @@ func (r *RESTGenerator) toCamelCase(s string) string {
 	}
 
 	result := strings.ToLower(parts[0])
+	var resultSb292 strings.Builder
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
-			result += strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:])
+			resultSb292.WriteString(strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:]))
 		}
 	}
+	result += resultSb292.String()
 
 	return result
 }

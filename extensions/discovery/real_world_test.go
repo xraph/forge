@@ -8,7 +8,7 @@ import (
 )
 
 // TestRealWorldUsageWithAppConfigExtensions tests the exact scenario from user's code
-// where extensions are passed via AppConfig.Extensions without WithAppConfig
+// where extensions are passed via AppConfig.Extensions without WithAppConfig.
 func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 	// This mimics the user's actual usage pattern
 	app := forge.New(forge.WithConfig(forge.AppConfig{
@@ -94,7 +94,7 @@ func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 	t.Log("✅ Real-world usage test passed - Service config is truly optional!")
 }
 
-// TestMinimalAppConfig tests the absolute minimum configuration
+// TestMinimalAppConfig tests the absolute minimum configuration.
 func TestMinimalAppConfig(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "minimal-service",
@@ -149,7 +149,7 @@ func TestMinimalAppConfig(t *testing.T) {
 	t.Log("✅ Minimal config test passed!")
 }
 
-// TestComplexHTTPAddress tests various HTTPAddress formats
+// TestComplexHTTPAddress tests various HTTPAddress formats.
 func TestComplexHTTPAddress(t *testing.T) {
 	tests := []struct {
 		name        string

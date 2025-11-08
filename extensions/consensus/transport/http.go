@@ -14,7 +14,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// HTTPTransport implements HTTP-based network transport
+// HTTPTransport implements HTTP-based network transport.
 type HTTPTransport struct {
 	id      string
 	address string
@@ -34,13 +34,13 @@ type HTTPTransport struct {
 	mu      sync.RWMutex
 }
 
-// httpPeer represents an HTTP peer
+// httpPeer represents an HTTP peer.
 type httpPeer struct {
 	nodeID  string
 	baseURL string
 }
 
-// HTTPTransportConfig contains HTTP transport configuration
+// HTTPTransportConfig contains HTTP transport configuration.
 type HTTPTransportConfig struct {
 	NodeID              string
 	Address             string
@@ -52,20 +52,24 @@ type HTTPTransportConfig struct {
 	MaxIdleConnsPerHost int
 }
 
-// NewHTTPTransport creates a new HTTP transport
+// NewHTTPTransport creates a new HTTP transport.
 func NewHTTPTransport(config HTTPTransportConfig, logger forge.Logger) *HTTPTransport {
 	if config.BufferSize == 0 {
 		config.BufferSize = 100
 	}
+
 	if config.RequestTimeout == 0 {
 		config.RequestTimeout = 30 * time.Second
 	}
+
 	if config.IdleConnTimeout == 0 {
 		config.IdleConnTimeout = 90 * time.Second
 	}
+
 	if config.MaxIdleConns == 0 {
 		config.MaxIdleConns = 100
 	}
+
 	if config.MaxIdleConnsPerHost == 0 {
 		config.MaxIdleConnsPerHost = 10
 	}
@@ -91,7 +95,7 @@ func NewHTTPTransport(config HTTPTransportConfig, logger forge.Logger) *HTTPTran
 	}
 }
 
-// Start starts the HTTP transport
+// Start starts the HTTP transport.
 func (ht *HTTPTransport) Start(ctx context.Context) error {
 	ht.mu.Lock()
 	defer ht.mu.Unlock()
@@ -113,16 +117,15 @@ func (ht *HTTPTransport) Start(ctx context.Context) error {
 	}
 
 	// Start server in goroutine
-	ht.wg.Add(1)
-	go func() {
-		defer ht.wg.Done()
+
+	ht.wg.Go(func() {
 
 		if err := ht.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			ht.logger.Error("HTTP server error",
 				forge.F("error", err),
 			)
 		}
-	}()
+	})
 
 	ht.started = true
 
@@ -134,13 +137,16 @@ func (ht *HTTPTransport) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the HTTP transport
+// Stop stops the HTTP transport.
 func (ht *HTTPTransport) Stop(ctx context.Context) error {
 	ht.mu.Lock()
+
 	if !ht.started {
 		ht.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	ht.mu.Unlock()
 
 	if ht.cancel != nil {
@@ -161,6 +167,7 @@ func (ht *HTTPTransport) Stop(ctx context.Context) error {
 
 	// Wait for goroutines
 	done := make(chan struct{})
+
 	go func() {
 		ht.wg.Wait()
 		close(done)
@@ -176,8 +183,8 @@ func (ht *HTTPTransport) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Send sends a message to a peer
-func (ht *HTTPTransport) Send(ctx context.Context, target string, message interface{}) error {
+// Send sends a message to a peer.
+func (ht *HTTPTransport) Send(ctx context.Context, target string, message any) error {
 	ht.peersMu.RLock()
 	peer, exists := ht.peers[target]
 	ht.peersMu.RUnlock()
@@ -193,14 +200,15 @@ func (ht *HTTPTransport) Send(ctx context.Context, target string, message interf
 	}
 
 	// Create HTTP request
-	url := fmt.Sprintf("%s/raft/message", peer.baseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(data))
+	url := peer.baseURL + "/raft/message"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Node-ID", ht.id)
+	req.Header.Set("X-Node-Id", ht.id)
 
 	// Send request
 	resp, err := ht.client.Do(req)
@@ -211,6 +219,7 @@ func (ht *HTTPTransport) Send(ctx context.Context, target string, message interf
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+
 		return fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -222,12 +231,12 @@ func (ht *HTTPTransport) Send(ctx context.Context, target string, message interf
 	return nil
 }
 
-// Receive returns a channel for receiving messages
+// Receive returns a channel for receiving messages.
 func (ht *HTTPTransport) Receive() <-chan internal.Message {
 	return ht.inbox
 }
 
-// AddPeer adds a peer to the transport
+// AddPeer adds a peer to the transport.
 func (ht *HTTPTransport) AddPeer(nodeID, address string, port int) error {
 	ht.peersMu.Lock()
 	defer ht.peersMu.Unlock()
@@ -250,7 +259,7 @@ func (ht *HTTPTransport) AddPeer(nodeID, address string, port int) error {
 	return nil
 }
 
-// RemovePeer removes a peer from the transport
+// RemovePeer removes a peer from the transport.
 func (ht *HTTPTransport) RemovePeer(nodeID string) error {
 	ht.peersMu.Lock()
 	defer ht.peersMu.Unlock()
@@ -269,15 +278,16 @@ func (ht *HTTPTransport) RemovePeer(nodeID string) error {
 	return nil
 }
 
-// GetAddress returns the local address
+// GetAddress returns the local address.
 func (ht *HTTPTransport) GetAddress() string {
 	return fmt.Sprintf("%s:%d", ht.address, ht.port)
 }
 
-// handleMessage handles incoming Raft messages
+// handleMessage handles incoming Raft messages.
 func (ht *HTTPTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+
 		return
 	}
 
@@ -285,6 +295,7 @@ func (ht *HTTPTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
+
 		return
 	}
 	defer r.Body.Close()
@@ -293,6 +304,7 @@ func (ht *HTTPTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	var msg internal.Message
 	if err := json.Unmarshal(body, &msg); err != nil {
 		http.Error(w, "failed to unmarshal message", http.StatusBadRequest)
+
 		return
 	}
 
@@ -311,11 +323,11 @@ func (ht *HTTPTransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleHealth handles health check requests
+// handleHealth handles health check requests.
 func (ht *HTTPTransport) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	json.NewEncoder(w).Encode(map[string]any{
 		"status":  "healthy",
 		"node_id": ht.id,
 	})

@@ -3,10 +3,11 @@ package client
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
-// GeneratorConfig configures client generation
+// GeneratorConfig configures client generation.
 type GeneratorConfig struct {
 	// Language specifies the target language (go, typescript, rust)
 	Language string
@@ -39,7 +40,7 @@ type GeneratorConfig struct {
 	Version string
 }
 
-// Features contains feature flags for client generation
+// Features contains feature flags for client generation.
 type Features struct {
 	// Reconnection enables automatic reconnection for streaming endpoints
 	Reconnection bool
@@ -66,7 +67,7 @@ type Features struct {
 	Logging bool
 }
 
-// DefaultConfig returns a default generator configuration
+// DefaultConfig returns a default generator configuration.
 func DefaultConfig() GeneratorConfig {
 	return GeneratorConfig{
 		Language:         "go",
@@ -89,7 +90,7 @@ func DefaultConfig() GeneratorConfig {
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c *GeneratorConfig) Validate() error {
 	if c.Language == "" {
 		return errors.New("language is required")
@@ -129,7 +130,7 @@ func (c *GeneratorConfig) Validate() error {
 	return nil
 }
 
-// validatePackageName validates the package name format
+// validatePackageName validates the package name format.
 func (c *GeneratorConfig) validatePackageName() error {
 	switch c.Language {
 	case "go":
@@ -143,26 +144,30 @@ func (c *GeneratorConfig) validatePackageName() error {
 			return fmt.Errorf("invalid TypeScript package name: %s", c.PackageName)
 		}
 	}
+
 	return nil
 }
 
-// isValidGoPackageName checks if a string is a valid Go package name
+// isValidGoPackageName checks if a string is a valid Go package name.
 func isValidGoPackageName(name string) bool {
 	if name == "" {
 		return false
 	}
+
 	for i, c := range name {
 		if i == 0 && (c >= '0' && c <= '9') {
 			return false // Cannot start with digit
 		}
+
 		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_') {
 			return false
 		}
 	}
+
 	return true
 }
 
-// isValidTypeScriptPackageName checks if a string is a valid TypeScript package name
+// isValidTypeScriptPackageName checks if a string is a valid TypeScript package name.
 func isValidTypeScriptPackageName(name string) bool {
 	if name == "" {
 		return false
@@ -176,110 +181,110 @@ func isValidTypeScriptPackageName(name string) bool {
 		// Validate both parts
 		return isValidNPMName(parts[0][1:]) && isValidNPMName(parts[1])
 	}
+
 	return isValidNPMName(name)
 }
 
-// isValidNPMName checks basic NPM name validity
+// isValidNPMName checks basic NPM name validity.
 func isValidNPMName(name string) bool {
 	if name == "" {
 		return false
 	}
+
 	for _, c := range name {
 		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
 			return false
 		}
 	}
+
 	return true
 }
 
-// contains checks if a slice contains a string
+// contains checks if a slice contains a string.
 func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(slice, item)
 }
 
-// GeneratorOptions provides functional options for generator config
+// GeneratorOptions provides functional options for generator config.
 type GeneratorOption func(*GeneratorConfig)
 
-// WithLanguage sets the target language
+// WithLanguage sets the target language.
 func WithLanguage(lang string) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.Language = lang
 	}
 }
 
-// WithOutputDir sets the output directory
+// WithOutputDir sets the output directory.
 func WithOutputDir(dir string) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.OutputDir = dir
 	}
 }
 
-// WithPackageName sets the package name
+// WithPackageName sets the package name.
 func WithPackageName(name string) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.PackageName = name
 	}
 }
 
-// WithAPIName sets the API client name
+// WithAPIName sets the API client name.
 func WithAPIName(name string) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.APIName = name
 	}
 }
 
-// WithBaseURL sets the base URL
+// WithBaseURL sets the base URL.
 func WithBaseURL(url string) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.BaseURL = url
 	}
 }
 
-// WithAuth enables/disables auth generation
+// WithAuth enables/disables auth generation.
 func WithAuth(enabled bool) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.IncludeAuth = enabled
 	}
 }
 
-// WithStreaming enables/disables streaming generation
+// WithStreaming enables/disables streaming generation.
 func WithStreaming(enabled bool) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.IncludeStreaming = enabled
 	}
 }
 
-// WithFeatures sets the features
+// WithFeatures sets the features.
 func WithFeatures(features Features) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.Features = features
 	}
 }
 
-// WithModule sets the Go module path
+// WithModule sets the Go module path.
 func WithModule(module string) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.Module = module
 	}
 }
 
-// WithVersion sets the client version
+// WithVersion sets the client version.
 func WithVersion(version string) GeneratorOption {
 	return func(c *GeneratorConfig) {
 		c.Version = version
 	}
 }
 
-// NewConfig creates a new generator config with options
+// NewConfig creates a new generator config with options.
 func NewConfig(opts ...GeneratorOption) GeneratorConfig {
 	config := DefaultConfig()
 	for _, opt := range opts {
 		opt(&config)
 	}
+
 	return config
 }

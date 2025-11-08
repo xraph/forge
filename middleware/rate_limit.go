@@ -8,7 +8,7 @@ import (
 	forge "github.com/xraph/forge"
 )
 
-// RateLimiter implements token bucket algorithm for rate limiting
+// RateLimiter implements token bucket algorithm for rate limiting.
 type RateLimiter struct {
 	mu       sync.Mutex
 	buckets  map[string]*bucket
@@ -39,7 +39,7 @@ func NewRateLimiter(rate, burst int) *RateLimiter {
 	return rl
 }
 
-// Allow checks if a request from the given key should be allowed
+// Allow checks if a request from the given key should be allowed.
 func (rl *RateLimiter) Allow(key string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -54,45 +54,51 @@ func (rl *RateLimiter) Allow(key string) bool {
 			lastCheck: now,
 		}
 		rl.buckets[key] = b
+
 		return true
 	}
 
 	// Refill tokens based on time passed
 	elapsed := now.Sub(b.lastCheck)
 	tokensToAdd := int(elapsed.Seconds() * float64(rl.rate))
+
 	b.tokens += tokensToAdd
 	if b.tokens > rl.capacity {
 		b.tokens = rl.capacity
 	}
+
 	b.lastCheck = now
 
 	// Check if we have tokens available
 	if b.tokens > 0 {
 		b.tokens--
+
 		return true
 	}
 
 	return false
 }
 
-// cleanupLoop periodically removes old buckets
+// cleanupLoop periodically removes old buckets.
 func (rl *RateLimiter) cleanupLoop() {
 	ticker := time.NewTicker(rl.cleanup)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		rl.mu.Lock()
+
 		now := time.Now()
 		for key, b := range rl.buckets {
 			if now.Sub(b.lastCheck) > rl.cleanup {
 				delete(rl.buckets, key)
 			}
 		}
+
 		rl.mu.Unlock()
 	}
 }
 
-// RateLimit middleware enforces rate limiting per client
+// RateLimit middleware enforces rate limiting per client.
 func RateLimit(limiter *RateLimiter, logger forge.Logger) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -104,7 +110,8 @@ func RateLimit(limiter *RateLimiter, logger forge.Logger) forge.Middleware {
 					logger.Warn("rate limit exceeded")
 				}
 
-				ctx.Response().Header().Set("X-RateLimit-Limit", "exceeded")
+				ctx.Response().Header().Set("X-Ratelimit-Limit", "exceeded")
+
 				return ctx.String(http.StatusTooManyRequests, "Rate Limit Exceeded")
 			}
 

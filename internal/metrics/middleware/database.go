@@ -3,7 +3,6 @@ package middleware
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 // DATABASE METRICS MIDDLEWARE
 // =============================================================================
 
-// DatabaseMetricsMiddleware provides automatic database metrics collection
+// DatabaseMetricsMiddleware provides automatic database metrics collection.
 type DatabaseMetricsMiddleware struct {
 	name      string
 	collector shared.Metrics
@@ -55,24 +54,24 @@ type DatabaseMetricsMiddleware struct {
 	migrationErrors   shared.Counter
 }
 
-// DatabaseMetricsConfig contains configuration for database metrics middleware
+// DatabaseMetricsConfig contains configuration for database metrics middleware.
 type DatabaseMetricsConfig struct {
-	Enabled                 bool          `yaml:"enabled" json:"enabled"`
-	CollectConnectionStats  bool          `yaml:"collect_connection_stats" json:"collect_connection_stats"`
-	CollectQueryStats       bool          `yaml:"collect_query_stats" json:"collect_query_stats"`
-	CollectTransactionStats bool          `yaml:"collect_transaction_stats" json:"collect_transaction_stats"`
-	CollectMigrationStats   bool          `yaml:"collect_migration_stats" json:"collect_migration_stats"`
-	CollectSlowQueries      bool          `yaml:"collect_slow_queries" json:"collect_slow_queries"`
-	SlowQueryThreshold      time.Duration `yaml:"slow_query_threshold" json:"slow_query_threshold"`
-	GroupByTable            bool          `yaml:"group_by_table" json:"group_by_table"`
-	GroupByOperation        bool          `yaml:"group_by_operation" json:"group_by_operation"`
-	MaxTableNames           int           `yaml:"max_table_names" json:"max_table_names"`
-	NormalizeQueries        bool          `yaml:"normalize_queries" json:"normalize_queries"`
-	LogSlowQueries          bool          `yaml:"log_slow_queries" json:"log_slow_queries"`
-	StatsInterval           time.Duration `yaml:"stats_interval" json:"stats_interval"`
+	Enabled                 bool          `json:"enabled"                   yaml:"enabled"`
+	CollectConnectionStats  bool          `json:"collect_connection_stats"  yaml:"collect_connection_stats"`
+	CollectQueryStats       bool          `json:"collect_query_stats"       yaml:"collect_query_stats"`
+	CollectTransactionStats bool          `json:"collect_transaction_stats" yaml:"collect_transaction_stats"`
+	CollectMigrationStats   bool          `json:"collect_migration_stats"   yaml:"collect_migration_stats"`
+	CollectSlowQueries      bool          `json:"collect_slow_queries"      yaml:"collect_slow_queries"`
+	SlowQueryThreshold      time.Duration `json:"slow_query_threshold"      yaml:"slow_query_threshold"`
+	GroupByTable            bool          `json:"group_by_table"            yaml:"group_by_table"`
+	GroupByOperation        bool          `json:"group_by_operation"        yaml:"group_by_operation"`
+	MaxTableNames           int           `json:"max_table_names"           yaml:"max_table_names"`
+	NormalizeQueries        bool          `json:"normalize_queries"         yaml:"normalize_queries"`
+	LogSlowQueries          bool          `json:"log_slow_queries"          yaml:"log_slow_queries"`
+	StatsInterval           time.Duration `json:"stats_interval"            yaml:"stats_interval"`
 }
 
-// DefaultDatabaseMetricsConfig returns default configuration
+// DefaultDatabaseMetricsConfig returns default configuration.
 func DefaultDatabaseMetricsConfig() *DatabaseMetricsConfig {
 	return &DatabaseMetricsConfig{
 		Enabled:                 true,
@@ -91,12 +90,12 @@ func DefaultDatabaseMetricsConfig() *DatabaseMetricsConfig {
 	}
 }
 
-// NewDatabaseMetricsMiddleware creates a new database metrics middleware
+// NewDatabaseMetricsMiddleware creates a new database metrics middleware.
 func NewDatabaseMetricsMiddleware(collector shared.Metrics) *DatabaseMetricsMiddleware {
 	return NewDatabaseMetricsMiddlewareWithConfig(collector, DefaultDatabaseMetricsConfig())
 }
 
-// NewDatabaseMetricsMiddlewareWithConfig creates a new database metrics middleware with configuration
+// NewDatabaseMetricsMiddlewareWithConfig creates a new database metrics middleware with configuration.
 func NewDatabaseMetricsMiddlewareWithConfig(collector shared.Metrics, config *DatabaseMetricsConfig) *DatabaseMetricsMiddleware {
 	return &DatabaseMetricsMiddleware{
 		name:               "database-metrics",
@@ -111,17 +110,17 @@ func NewDatabaseMetricsMiddlewareWithConfig(collector shared.Metrics, config *Da
 // SERVICE IMPLEMENTATION
 // =============================================================================
 
-// Name returns the middleware name
+// Name returns the middleware name.
 func (m *DatabaseMetricsMiddleware) Name() string {
 	return m.name
 }
 
-// Dependencies returns the middleware dependencies
+// Dependencies returns the middleware dependencies.
 func (m *DatabaseMetricsMiddleware) Dependencies() []string {
 	return []string{}
 }
 
-// OnStart is called when the middleware starts
+// OnStart is called when the middleware starts.
 func (m *DatabaseMetricsMiddleware) Start(ctx context.Context) error {
 	if m.started {
 		return errors.ErrServiceAlreadyExists(m.name)
@@ -146,7 +145,7 @@ func (m *DatabaseMetricsMiddleware) Start(ctx context.Context) error {
 	return nil
 }
 
-// OnStop is called when the middleware stops
+// OnStop is called when the middleware stops.
 func (m *DatabaseMetricsMiddleware) Stop(ctx context.Context) error {
 	if !m.started {
 		return errors.ErrServiceNotFound(m.name)
@@ -161,10 +160,10 @@ func (m *DatabaseMetricsMiddleware) Stop(ctx context.Context) error {
 	return nil
 }
 
-// OnHealthCheck is called to check middleware health
+// OnHealthCheck is called to check middleware health.
 func (m *DatabaseMetricsMiddleware) OnHealthCheck(ctx context.Context) error {
 	if !m.started {
-		return errors.ErrHealthCheckFailed(m.name, fmt.Errorf("middleware not started"))
+		return errors.ErrHealthCheckFailed(m.name, errors.New("middleware not started"))
 	}
 
 	return nil
@@ -174,7 +173,7 @@ func (m *DatabaseMetricsMiddleware) OnHealthCheck(ctx context.Context) error {
 // METRICS COLLECTION METHODS
 // =============================================================================
 
-// RecordConnection records connection metrics
+// RecordConnection records connection metrics.
 func (m *DatabaseMetricsMiddleware) RecordConnection(dbName string, stats sql.DBStats) {
 	if !m.config.Enabled || !m.config.CollectConnectionStats {
 		return
@@ -197,7 +196,7 @@ func (m *DatabaseMetricsMiddleware) RecordConnection(dbName string, stats sql.DB
 	}
 }
 
-// RecordConnectionError records a connection error
+// RecordConnectionError records a connection error.
 func (m *DatabaseMetricsMiddleware) RecordConnectionError(dbName string, err error) {
 	if !m.config.Enabled || !m.config.CollectConnectionStats {
 		return
@@ -213,7 +212,7 @@ func (m *DatabaseMetricsMiddleware) RecordConnectionError(dbName string, err err
 	}
 }
 
-// RecordQuery records query metrics
+// RecordQuery records query metrics.
 func (m *DatabaseMetricsMiddleware) RecordQuery(query QueryInfo) {
 	if !m.config.Enabled || !m.config.CollectQueryStats {
 		return
@@ -272,7 +271,7 @@ func (m *DatabaseMetricsMiddleware) RecordQuery(query QueryInfo) {
 	}
 }
 
-// RecordTransaction records transaction metrics
+// RecordTransaction records transaction metrics.
 func (m *DatabaseMetricsMiddleware) RecordTransaction(tx TransactionInfo) {
 	if !m.config.Enabled || !m.config.CollectTransactionStats {
 		return
@@ -283,6 +282,7 @@ func (m *DatabaseMetricsMiddleware) RecordTransaction(tx TransactionInfo) {
 
 	if tx.Error != nil {
 		m.transactionErrors.Inc()
+
 		if tx.Rollback {
 			m.transactionRollbacks.Inc()
 		}
@@ -313,7 +313,7 @@ func (m *DatabaseMetricsMiddleware) RecordTransaction(tx TransactionInfo) {
 	}
 }
 
-// RecordMigration records migration metrics
+// RecordMigration records migration metrics.
 func (m *DatabaseMetricsMiddleware) RecordMigration(migration MigrationInfo) {
 	if !m.config.Enabled || !m.config.CollectMigrationStats {
 		return
@@ -350,7 +350,7 @@ func (m *DatabaseMetricsMiddleware) RecordMigration(migration MigrationInfo) {
 // PRIVATE METHODS
 // =============================================================================
 
-// initializeMetrics initializes the metrics
+// initializeMetrics initializes the metrics.
 func (m *DatabaseMetricsMiddleware) initializeMetrics() {
 	// Connection metrics
 	if m.config.CollectConnectionStats {
@@ -392,7 +392,7 @@ func (m *DatabaseMetricsMiddleware) initializeMetrics() {
 	}
 }
 
-// recordTableMetric records a table-specific metric
+// recordTableMetric records a table-specific metric.
 func (m *DatabaseMetricsMiddleware) recordTableMetric(table string) {
 	if len(m.queriesByTable) >= m.config.MaxTableNames {
 		return // Prevent unlimited metric creation
@@ -403,20 +403,22 @@ func (m *DatabaseMetricsMiddleware) recordTableMetric(table string) {
 		counter = m.collector.Counter("database_queries_by_table", "table", table)
 		m.queriesByTable[table] = counter
 	}
+
 	counter.Inc()
 }
 
-// recordOperationMetric records an operation-specific metric
+// recordOperationMetric records an operation-specific metric.
 func (m *DatabaseMetricsMiddleware) recordOperationMetric(operation string) {
 	counter, exists := m.queriesByOperation[operation]
 	if !exists {
 		counter = m.collector.Counter("database_queries_by_operation", "operation", operation)
 		m.queriesByOperation[operation] = counter
 	}
+
 	counter.Inc()
 }
 
-// SetLogger sets the logger
+// SetLogger sets the logger.
 func (m *DatabaseMetricsMiddleware) SetLogger(logger logger.Logger) {
 	m.logger = logger
 }
@@ -425,7 +427,7 @@ func (m *DatabaseMetricsMiddleware) SetLogger(logger logger.Logger) {
 // SUPPORTING TYPES
 // =============================================================================
 
-// QueryInfo contains information about a database query
+// QueryInfo contains information about a database query.
 type QueryInfo struct {
 	Database     string
 	Table        string
@@ -437,7 +439,7 @@ type QueryInfo struct {
 	Error        error
 }
 
-// TransactionInfo contains information about a database transaction
+// TransactionInfo contains information about a database transaction.
 type TransactionInfo struct {
 	Database string
 	Duration time.Duration
@@ -445,7 +447,7 @@ type TransactionInfo struct {
 	Error    error
 }
 
-// MigrationInfo contains information about a database migration
+// MigrationInfo contains information about a database migration.
 type MigrationInfo struct {
 	Database  string
 	Name      string
@@ -458,14 +460,15 @@ type MigrationInfo struct {
 // DATABASE WRAPPER IMPLEMENTATIONS
 // =============================================================================
 
-// MetricsDB wraps a database connection with metrics collection
+// MetricsDB wraps a database connection with metrics collection.
 type MetricsDB struct {
 	*sql.DB
+
 	middleware *DatabaseMetricsMiddleware
 	dbName     string
 }
 
-// NewMetricsDB creates a new metrics-enabled database wrapper
+// NewMetricsDB creates a new metrics-enabled database wrapper.
 func NewMetricsDB(db *sql.DB, middleware *DatabaseMetricsMiddleware, dbName string) *MetricsDB {
 	return &MetricsDB{
 		DB:         db,
@@ -474,8 +477,8 @@ func NewMetricsDB(db *sql.DB, middleware *DatabaseMetricsMiddleware, dbName stri
 	}
 }
 
-// Query executes a query with metrics collection
-func (db *MetricsDB) Query(query string, args ...interface{}) (*sql.Rows, error) {
+// Query executes a query with metrics collection.
+func (db *MetricsDB) Query(query string, args ...any) (*sql.Rows, error) {
 	start := time.Now()
 	rows, err := db.DB.Query(query, args...)
 	duration := time.Since(start)
@@ -500,8 +503,8 @@ func (db *MetricsDB) Query(query string, args ...interface{}) (*sql.Rows, error)
 	return rows, err
 }
 
-// Exec executes a query with metrics collection
-func (db *MetricsDB) Exec(query string, args ...interface{}) (sql.Result, error) {
+// Exec executes a query with metrics collection.
+func (db *MetricsDB) Exec(query string, args ...any) (sql.Result, error) {
 	start := time.Now()
 	result, err := db.DB.Exec(query, args...)
 	duration := time.Since(start)
@@ -510,6 +513,7 @@ func (db *MetricsDB) Exec(query string, args ...interface{}) (sql.Result, error)
 	table, operation := parseQuery(query)
 
 	var rowsAffected int64 = -1
+
 	if result != nil && err == nil {
 		if affected, affectedErr := result.RowsAffected(); affectedErr == nil {
 			rowsAffected = affected
@@ -533,7 +537,7 @@ func (db *MetricsDB) Exec(query string, args ...interface{}) (sql.Result, error)
 	return result, err
 }
 
-// Begin starts a transaction with metrics collection
+// Begin starts a transaction with metrics collection.
 func (db *MetricsDB) Begin() (*MetricsTx, error) {
 	start := time.Now()
 	tx, err := db.DB.Begin()
@@ -546,6 +550,7 @@ func (db *MetricsDB) Begin() (*MetricsTx, error) {
 			Rollback: false,
 			Error:    err,
 		})
+
 		return nil, err
 	}
 
@@ -557,22 +562,24 @@ func (db *MetricsDB) Begin() (*MetricsTx, error) {
 	}, nil
 }
 
-// Stats returns database statistics and records metrics
+// Stats returns database statistics and records metrics.
 func (db *MetricsDB) Stats() sql.DBStats {
 	stats := db.DB.Stats()
 	db.middleware.RecordConnection(db.dbName, stats)
+
 	return stats
 }
 
-// MetricsTx wraps a database transaction with metrics collection
+// MetricsTx wraps a database transaction with metrics collection.
 type MetricsTx struct {
 	*sql.Tx
+
 	middleware *DatabaseMetricsMiddleware
 	dbName     string
 	startTime  time.Time
 }
 
-// Commit commits the transaction with metrics collection
+// Commit commits the transaction with metrics collection.
 func (tx *MetricsTx) Commit() error {
 	err := tx.Tx.Commit()
 	duration := time.Since(tx.startTime)
@@ -587,7 +594,7 @@ func (tx *MetricsTx) Commit() error {
 	return err
 }
 
-// Rollback rolls back the transaction with metrics collection
+// Rollback rolls back the transaction with metrics collection.
 func (tx *MetricsTx) Rollback() error {
 	err := tx.Tx.Rollback()
 	duration := time.Since(tx.startTime)
@@ -606,7 +613,7 @@ func (tx *MetricsTx) Rollback() error {
 // UTILITY FUNCTIONS
 // =============================================================================
 
-// parseQuery extracts table and operation from a SQL query
+// parseQuery extracts table and operation from a SQL query.
 func parseQuery(query string) (table, operation string) {
 	// Simple SQL parsing - in a real implementation, this would be more sophisticated
 	query = strings.TrimSpace(strings.ToUpper(query))
@@ -625,6 +632,7 @@ func parseQuery(query string) (table, operation string) {
 		for i, part := range parts {
 			if part == "FROM" && i+1 < len(parts) {
 				table = parts[i+1]
+
 				break
 			}
 		}
@@ -633,6 +641,7 @@ func parseQuery(query string) (table, operation string) {
 		for i, part := range parts {
 			if part == "INTO" && i+1 < len(parts) {
 				table = parts[i+1]
+
 				break
 			}
 		}
@@ -646,6 +655,7 @@ func parseQuery(query string) (table, operation string) {
 		for i, part := range parts {
 			if part == "FROM" && i+1 < len(parts) {
 				table = parts[i+1]
+
 				break
 			}
 		}
@@ -662,12 +672,12 @@ func parseQuery(query string) (table, operation string) {
 	return table, operation
 }
 
-// CreateDatabaseMetricsMiddleware creates database metrics middleware
+// CreateDatabaseMetricsMiddleware creates database metrics middleware.
 func CreateDatabaseMetricsMiddleware(collector shared.Metrics) *DatabaseMetricsMiddleware {
 	return NewDatabaseMetricsMiddleware(collector)
 }
 
-// CreateDatabaseMetricsMiddlewareWithConfig creates database metrics middleware with custom config
+// CreateDatabaseMetricsMiddlewareWithConfig creates database metrics middleware with custom config.
 func CreateDatabaseMetricsMiddlewareWithConfig(collector shared.Metrics, config *DatabaseMetricsConfig) *DatabaseMetricsMiddleware {
 	return NewDatabaseMetricsMiddlewareWithConfig(collector, config)
 }

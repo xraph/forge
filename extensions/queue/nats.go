@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 
 	nats "github.com/nats-io/nats.go"
 	"github.com/xraph/forge"
 )
 
-// NATSQueue implements Queue interface using NATS JetStream
+// NATSQueue implements Queue interface using NATS JetStream.
 type NATSQueue struct {
 	config    Config
 	logger    forge.Logger
@@ -33,10 +36,10 @@ type natsConsumer struct {
 	active  bool
 }
 
-// NewNATSQueue creates a new NATS-backed queue instance
+// NewNATSQueue creates a new NATS-backed queue instance.
 func NewNATSQueue(config Config, logger forge.Logger, metrics forge.Metrics) (*NATSQueue, error) {
 	if config.URL == "" && len(config.Hosts) == 0 {
-		return nil, fmt.Errorf("nats requires URL or hosts")
+		return nil, errors.New("nats requires URL or hosts")
 	}
 
 	return &NATSQueue{
@@ -58,7 +61,7 @@ func (q *NATSQueue) Connect(ctx context.Context) error {
 	// Build connection URL
 	url := q.config.URL
 	if url == "" && len(q.config.Hosts) > 0 {
-		url = fmt.Sprintf("nats://%s", q.config.Hosts[0])
+		url = "nats://" + q.config.Hosts[0]
 	}
 
 	// Build NATS options
@@ -83,6 +86,7 @@ func (q *NATSQueue) Connect(ctx context.Context) error {
 	js, err := conn.JetStream()
 	if err != nil {
 		conn.Close()
+
 		return fmt.Errorf("failed to create jetstream context: %w", err)
 	}
 
@@ -109,6 +113,7 @@ func (q *NATSQueue) Disconnect(ctx context.Context) error {
 		if c.sub != nil {
 			c.sub.Unsubscribe()
 		}
+
 		if c.cancel != nil {
 			c.cancel()
 		}
@@ -151,7 +156,7 @@ func (q *NATSQueue) DeclareQueue(ctx context.Context, name string, opts QueueOpt
 	// Create stream (like a queue in NATS)
 	streamConfig := &nats.StreamConfig{
 		Name:     name,
-		Subjects: []string{fmt.Sprintf("%s.*", name)},
+		Subjects: []string{name + ".*"},
 		Storage:  nats.FileStorage,
 	}
 
@@ -175,6 +180,7 @@ func (q *NATSQueue) DeclareQueue(ctx context.Context, name string, opts QueueOpt
 	}
 
 	q.logger.Info("declared nats stream", forge.F("stream", name))
+
 	return nil
 }
 
@@ -191,6 +197,7 @@ func (q *NATSQueue) DeleteQueue(ctx context.Context, name string) error {
 	}
 
 	q.logger.Info("deleted nats stream", forge.F("stream", name))
+
 	return nil
 }
 
@@ -246,6 +253,7 @@ func (q *NATSQueue) PurgeQueue(ctx context.Context, name string) error {
 	}
 
 	q.logger.Info("purged nats stream", forge.F("stream", name))
+
 	return nil
 }
 
@@ -263,7 +271,7 @@ func (q *NATSQueue) Publish(ctx context.Context, queueName string, message Messa
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	subject := fmt.Sprintf("%s.messages", queueName)
+	subject := queueName + ".messages"
 
 	// Build NATS message options
 	var publishOpts []nats.PubOpt
@@ -300,6 +308,7 @@ func (q *NATSQueue) PublishBatch(ctx context.Context, queueName string, messages
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -316,6 +325,7 @@ func (q *NATSQueue) PublishDelayed(ctx context.Context, queueName string, messag
 	// We'll need to use a separate goroutine to delay publishing
 	go func() {
 		time.Sleep(delay)
+
 		if err := q.Publish(context.Background(), queueName, message); err != nil {
 			q.logger.Error("failed to publish delayed message",
 				forge.F("queue", queueName),
@@ -329,7 +339,8 @@ func (q *NATSQueue) PublishDelayed(ctx context.Context, queueName string, messag
 
 func (q *NATSQueue) Consume(ctx context.Context, queueName string, handler MessageHandler, opts ConsumeOptions) error {
 	q.mu.Lock()
-	subject := fmt.Sprintf("%s.messages", queueName)
+
+	subject := queueName + ".messages"
 	consumerName := fmt.Sprintf("consumer-%d", time.Now().UnixNano())
 
 	// Create durable consumer
@@ -346,6 +357,7 @@ func (q *NATSQueue) Consume(ctx context.Context, queueName string, handler Messa
 	_, err := q.js.AddConsumer(queueName, consumerConfig)
 	if err != nil {
 		q.mu.Unlock()
+
 		return fmt.Errorf("failed to add consumer: %w", err)
 	}
 
@@ -360,19 +372,22 @@ func (q *NATSQueue) Consume(ctx context.Context, queueName string, handler Messa
 				forge.F("error", err),
 			)
 			msg.Nak()
+
 			return
 		}
 
 		// Get message metadata
 		meta, err := msg.Metadata()
 		if err == nil {
-			queueMsg.ID = fmt.Sprintf("%d", meta.Sequence.Stream)
+			queueMsg.ID = strconv.FormatUint(meta.Sequence.Stream, 10)
 		}
 
 		// Handle message
 		handlerCtx := consumerCtx
+
 		if opts.Timeout > 0 {
 			var cancelTimeout context.CancelFunc
+
 			handlerCtx, cancelTimeout = context.WithTimeout(consumerCtx, opts.Timeout)
 			defer cancelTimeout()
 		}
@@ -397,10 +412,10 @@ func (q *NATSQueue) Consume(ctx context.Context, queueName string, handler Messa
 			}
 		}
 	}, nats.Durable(consumerName), nats.ManualAck())
-
 	if err != nil {
 		cancel()
 		q.mu.Unlock()
+
 		return fmt.Errorf("failed to subscribe: %w", err)
 	}
 
@@ -415,6 +430,7 @@ func (q *NATSQueue) Consume(ctx context.Context, queueName string, handler Messa
 	q.mu.Unlock()
 
 	q.logger.Info("started nats consumer", forge.F("stream", queueName))
+
 	return nil
 }
 
@@ -427,15 +443,19 @@ func (q *NATSQueue) StopConsuming(ctx context.Context, queueName string) error {
 			if c.sub != nil {
 				c.sub.Unsubscribe()
 			}
+
 			if c.cancel != nil {
 				c.cancel()
 			}
+
 			c.active = false
+
 			delete(q.consumers, id)
 		}
 	}
 
 	q.logger.Info("stopped nats consumer", forge.F("stream", queueName))
+
 	return nil
 }
 
@@ -464,7 +484,7 @@ func (q *NATSQueue) GetDeadLetterQueue(ctx context.Context, queueName string) ([
 
 	// NATS doesn't have a built-in DLQ concept in the same way
 	// We'd need to create a separate stream for dead letters
-	dlqName := fmt.Sprintf("%s-dlq", queueName)
+	dlqName := queueName + "-dlq"
 
 	info, err := q.js.StreamInfo(dlqName)
 	if err != nil {
@@ -503,11 +523,13 @@ func (q *NATSQueue) Stats(ctx context.Context) (*QueueStats, error) {
 	streams, _ := q.ListQueues(ctx)
 
 	var totalMessages int64
+
 	for _, streamName := range streams {
 		info, err := q.js.StreamInfo(streamName)
 		if err != nil {
 			continue
 		}
+
 		totalMessages += int64(info.State.Msgs)
 	}
 

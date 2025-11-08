@@ -12,6 +12,7 @@ func TestQualityMonitor(t *testing.T) {
 	// Create mock peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("test-peer", "test-user", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer connection: %v", err)
@@ -48,6 +49,7 @@ func TestQualityMonitor(t *testing.T) {
 
 	// Test quality change handler
 	qualityChanged := make(chan bool, 1)
+
 	monitor.OnQualityChange(func(peerID string, quality *ConnectionQuality) {
 		if peerID == "test-peer" {
 			select {
@@ -59,6 +61,7 @@ func TestQualityMonitor(t *testing.T) {
 
 	// Test monitoring (this will run in background)
 	ctx := context.Background()
+
 	err = monitor.Monitor(ctx, peer)
 	if err != nil {
 		t.Errorf("failed to start monitoring: %v", err)
@@ -85,6 +88,7 @@ func TestQualityMonitor(t *testing.T) {
 	// Test double start - should return error
 	// Wait a bit for the first monitor to fully initialize
 	time.Sleep(50 * time.Millisecond)
+
 	err = monitor.Monitor(ctx, peer)
 	if err == nil {
 		t.Log("second start returned nil (monitor already running)")
@@ -101,6 +105,7 @@ func TestQualityMonitor_ConfigValidation(t *testing.T) {
 
 	logger := forge.NewNoopLogger()
 	metrics := forge.NewNoOpMetrics()
+
 	peer, err := NewPeerConnection("test-peer", "test-user", DefaultConfig(), logger)
 	if err != nil {
 		t.Fatalf("failed to create peer: %v", err)
@@ -111,6 +116,7 @@ func TestQualityMonitor_ConfigValidation(t *testing.T) {
 
 	// Should not error even with disabled monitoring
 	ctx := context.Background()
+
 	err = monitor.Monitor(ctx, peer)
 	if err != nil {
 		t.Errorf("start should not error with disabled monitoring: %v", err)
@@ -123,6 +129,7 @@ func TestQualityMonitor_ConcurrentAccess(t *testing.T) {
 	// Create mock peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("concurrent-peer", "concurrent-user", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer connection: %v", err)
@@ -140,6 +147,7 @@ func TestQualityMonitor_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent access to GetQuality
 	ctx := context.Background()
+
 	err = monitor.Monitor(ctx, peer)
 	if err != nil {
 		t.Fatalf("failed to start monitoring: %v", err)
@@ -147,14 +155,17 @@ func TestQualityMonitor_ConcurrentAccess(t *testing.T) {
 
 	// Run concurrent quality checks
 	done := make(chan bool, 1)
+
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			_, err := monitor.GetQuality("concurrent-peer")
 			if err != nil {
 				t.Errorf("concurrent quality check failed: %v", err)
+
 				return
 			}
 		}
+
 		done <- true
 	}()
 
@@ -169,6 +180,7 @@ func TestQualityMonitor_EdgeCases(t *testing.T) {
 	// Create mock peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("edge-peer", "edge-user", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer connection: %v", err)
@@ -186,6 +198,7 @@ func TestQualityMonitor_EdgeCases(t *testing.T) {
 
 	// Should handle very fast intervals
 	ctx := context.Background()
+
 	err = monitor.Monitor(ctx, peer)
 	if err != nil {
 		t.Errorf("start should handle fast intervals: %v", err)
@@ -205,6 +218,7 @@ func TestQualityMonitor_EdgeCases(t *testing.T) {
 	}
 
 	zeroMonitor := NewQualityMonitor("zero-peer", peer, zeroConfig, logger, metrics)
+
 	err = zeroMonitor.Monitor(ctx, peer)
 	if err != nil {
 		t.Errorf("start should handle zero thresholds: %v", err)
@@ -249,6 +263,7 @@ func BenchmarkQualityMonitor_Checks(b *testing.B) {
 	// Create mock peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("bench-peer", "bench-user", config, logger)
 	if err != nil {
 		b.Fatalf("failed to create peer connection: %v", err)
@@ -265,14 +280,14 @@ func BenchmarkQualityMonitor_Checks(b *testing.B) {
 	monitor := NewQualityMonitor("bench-peer", peer, qualityConfig, logger, metrics)
 
 	ctx := context.Background()
+
 	err = monitor.Monitor(ctx, peer)
 	if err != nil {
 		b.Fatalf("failed to start monitoring: %v", err)
 	}
 	defer monitor.Stop("bench-peer")
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := monitor.GetQuality("bench-peer")
 		if err != nil {
 			b.Fatalf("failed to get quality in benchmark: %v", err)

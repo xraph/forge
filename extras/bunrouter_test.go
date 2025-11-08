@@ -12,13 +12,13 @@ func TestBunRouterAdapter_BasicRoute(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
 	adapter.Handle("GET", "/test", handler)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -32,13 +32,13 @@ func TestBunRouterAdapter_PathParams(t *testing.T) {
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Path params should be in context
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
 	adapter.Handle("GET", "/users/:id", handler)
 
-	req := httptest.NewRequest("GET", "/users/123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/123", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -48,11 +48,12 @@ func TestBunRouterAdapter_PathParams(t *testing.T) {
 
 func TestBunRouterAdapter_Mount(t *testing.T) {
 	t.Skip("BunRouter mount with wildcards is problematic, tested via main router")
+
 	adapter := NewBunRouterAdapter()
 
-	//Mount doesn't work properly with bunrouter wildcards
+	// Mount doesn't work properly with bunrouter wildcards
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("mounted"))
 	})
 
@@ -63,7 +64,7 @@ func TestBunRouterAdapter_Mount(t *testing.T) {
 func TestBunRouterAdapter_NotFound(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
-	req := httptest.NewRequest("GET", "/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)

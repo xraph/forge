@@ -1,6 +1,5 @@
 package sources
 
-//nolint:gosec // G104: Error handler invocations and StopWatch() are intentionally void
 // Kubernetes source operations use error handlers and stop methods without error returns.
 
 import (
@@ -26,7 +25,7 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
-// K8sSource represents a Kubernetes ConfigMap/Secret configuration source
+// K8sSource represents a Kubernetes ConfigMap/Secret configuration source.
 type K8sSource struct {
 	name           string
 	client         kubernetes.Interface
@@ -42,7 +41,7 @@ type K8sSource struct {
 	mu             sync.RWMutex
 }
 
-// K8sSourceOptions contains options for Kubernetes configuration sources
+// K8sSourceOptions contains options for Kubernetes configuration sources.
 type K8sSourceOptions struct {
 	Name           string
 	Namespace      string
@@ -60,22 +59,22 @@ type K8sSourceOptions struct {
 	ErrorHandler   shared.ErrorHandler
 }
 
-// K8sSourceConfig contains configuration for creating Kubernetes sources
+// K8sSourceConfig contains configuration for creating Kubernetes sources.
 type K8sSourceConfig struct {
-	Namespace      string        `yaml:"namespace" json:"namespace"`
-	ConfigMapNames []string      `yaml:"configmap_names" json:"configmap_names"`
-	SecretNames    []string      `yaml:"secret_names" json:"secret_names"`
-	Priority       int           `yaml:"priority" json:"priority"`
-	WatchEnabled   bool          `yaml:"watch_enabled" json:"watch_enabled"`
-	KubeConfig     string        `yaml:"kubeconfig" json:"kubeconfig"`
-	InCluster      bool          `yaml:"in_cluster" json:"in_cluster"`
-	LabelSelector  string        `yaml:"label_selector" json:"label_selector"`
-	FieldSelector  string        `yaml:"field_selector" json:"field_selector"`
-	RetryCount     int           `yaml:"retry_count" json:"retry_count"`
-	RetryDelay     time.Duration `yaml:"retry_delay" json:"retry_delay"`
+	Namespace      string        `json:"namespace"       yaml:"namespace"`
+	ConfigMapNames []string      `json:"configmap_names" yaml:"configmap_names"`
+	SecretNames    []string      `json:"secret_names"    yaml:"secret_names"`
+	Priority       int           `json:"priority"        yaml:"priority"`
+	WatchEnabled   bool          `json:"watch_enabled"   yaml:"watch_enabled"`
+	KubeConfig     string        `json:"kubeconfig"      yaml:"kubeconfig"`
+	InCluster      bool          `json:"in_cluster"      yaml:"in_cluster"`
+	LabelSelector  string        `json:"label_selector"  yaml:"label_selector"`
+	FieldSelector  string        `json:"field_selector"  yaml:"field_selector"`
+	RetryCount     int           `json:"retry_count"     yaml:"retry_count"`
+	RetryDelay     time.Duration `json:"retry_delay"     yaml:"retry_delay"`
 }
 
-// NewK8sSource creates a new Kubernetes configuration source
+// NewK8sSource creates a new Kubernetes configuration source.
 func NewK8sSource(options K8sSourceOptions) (configcore.ConfigSource, error) {
 	if options.Namespace == "" {
 		options.Namespace = "default"
@@ -91,12 +90,14 @@ func NewK8sSource(options K8sSourceOptions) (configcore.ConfigSource, error) {
 
 	name := options.Name
 	if name == "" {
-		name = fmt.Sprintf("k8s:%s", options.Namespace)
+		name = "k8s:" + options.Namespace
 	}
 
 	// Create Kubernetes client
-	var config *rest.Config
-	var err error
+	var (
+		config *rest.Config
+		err    error
+	)
 
 	if options.InCluster {
 		// Use in-cluster configuration
@@ -143,34 +144,34 @@ func NewK8sSource(options K8sSourceOptions) (configcore.ConfigSource, error) {
 	return source, nil
 }
 
-// Name returns the source name
+// Name returns the source name.
 func (ks *K8sSource) Name() string {
 	return ks.name
 }
 
-// GetName returns the source name (alias for Name)
+// GetName returns the source name (alias for Name).
 func (ks *K8sSource) GetName() string {
 	return ks.name
 }
 
-// GetType returns the source type
+// GetType returns the source type.
 func (ks *K8sSource) GetType() string {
 	return "kubernetes"
 }
 
-// IsAvailable checks if the source is available
+// IsAvailable checks if the source is available.
 func (ks *K8sSource) IsAvailable(ctx context.Context) bool {
 	// TODO: Implement actual Kubernetes availability check
 	return true
 }
 
-// Priority returns the source priority
+// Priority returns the source priority.
 func (ks *K8sSource) Priority() int {
 	return ks.priority
 }
 
-// Load loads configuration from Kubernetes ConfigMaps and Secrets
-func (ks *K8sSource) Load(ctx context.Context) (map[string]interface{}, error) {
+// Load loads configuration from Kubernetes ConfigMaps and Secrets.
+func (ks *K8sSource) Load(ctx context.Context) (map[string]any, error) {
 	if ks.logger != nil {
 		ks.logger.Debug("loading configuration from Kubernetes",
 			logger.String("namespace", ks.namespace),
@@ -179,7 +180,7 @@ func (ks *K8sSource) Load(ctx context.Context) (map[string]interface{}, error) {
 		)
 	}
 
-	config := make(map[string]interface{})
+	config := make(map[string]any)
 
 	// Load ConfigMaps
 	if err := ks.loadConfigMaps(ctx, config); err != nil {
@@ -201,8 +202,8 @@ func (ks *K8sSource) Load(ctx context.Context) (map[string]interface{}, error) {
 	return config, nil
 }
 
-// Watch starts watching Kubernetes ConfigMaps and Secrets for changes
-func (ks *K8sSource) Watch(ctx context.Context, callback func(map[string]interface{})) error {
+// Watch starts watching Kubernetes ConfigMaps and Secrets for changes.
+func (ks *K8sSource) Watch(ctx context.Context, callback func(map[string]any)) error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
 
@@ -230,7 +231,7 @@ func (ks *K8sSource) Watch(ctx context.Context, callback func(map[string]interfa
 	return nil
 }
 
-// StopWatch stops watching Kubernetes resources
+// StopWatch stops watching Kubernetes resources.
 func (ks *K8sSource) StopWatch() error {
 	ks.mu.Lock()
 	defer ks.mu.Unlock()
@@ -255,7 +256,7 @@ func (ks *K8sSource) StopWatch() error {
 	return nil
 }
 
-// Reload forces a reload of Kubernetes configuration
+// Reload forces a reload of Kubernetes configuration.
 func (ks *K8sSource) Reload(ctx context.Context) error {
 	if ks.logger != nil {
 		ks.logger.Info("reloading Kubernetes configuration",
@@ -265,20 +266,21 @@ func (ks *K8sSource) Reload(ctx context.Context) error {
 
 	// Just load again - the configuration will be updated
 	_, err := ks.Load(ctx)
+
 	return err
 }
 
-// IsWatchable returns true if Kubernetes watching is enabled
+// IsWatchable returns true if Kubernetes watching is enabled.
 func (ks *K8sSource) IsWatchable() bool {
 	return ks.options.WatchEnabled
 }
 
-// SupportsSecrets returns true (Kubernetes can store secrets)
+// SupportsSecrets returns true (Kubernetes can store secrets).
 func (ks *K8sSource) SupportsSecrets() bool {
 	return len(ks.secretNames) > 0
 }
 
-// GetSecret retrieves a secret from Kubernetes
+// GetSecret retrieves a secret from Kubernetes.
 func (ks *K8sSource) GetSecret(ctx context.Context, key string) (string, error) {
 	// Parse key format: secret-name/key or secret-name.key
 	parts := strings.SplitN(key, "/", 2)
@@ -298,7 +300,7 @@ func (ks *K8sSource) GetSecret(ctx context.Context, key string) (string, error) 
 	}
 
 	if secret.Data == nil {
-		return "", errors.ErrConfigError(fmt.Sprintf("secret data is nil: %s", secretName), nil)
+		return "", errors.ErrConfigError("secret data is nil: "+secretName, nil)
 	}
 
 	data, exists := secret.Data[secretKey]
@@ -309,8 +311,8 @@ func (ks *K8sSource) GetSecret(ctx context.Context, key string) (string, error) 
 	return string(data), nil
 }
 
-// loadConfigMaps loads configuration from ConfigMaps
-func (ks *K8sSource) loadConfigMaps(ctx context.Context, config map[string]interface{}) error {
+// loadConfigMaps loads configuration from ConfigMaps.
+func (ks *K8sSource) loadConfigMaps(ctx context.Context, config map[string]any) error {
 	if len(ks.configMapNames) == 0 {
 		// If no specific names, try to discover based on selectors
 		return ks.loadConfigMapsWithSelectors(ctx, config)
@@ -327,6 +329,7 @@ func (ks *K8sSource) loadConfigMaps(ctx context.Context, config map[string]inter
 					logger.Error(err),
 				)
 			}
+
 			continue
 		}
 
@@ -336,8 +339,8 @@ func (ks *K8sSource) loadConfigMaps(ctx context.Context, config map[string]inter
 	return nil
 }
 
-// loadConfigMapsWithSelectors loads ConfigMaps using label/field selectors
-func (ks *K8sSource) loadConfigMapsWithSelectors(ctx context.Context, config map[string]interface{}) error {
+// loadConfigMapsWithSelectors loads ConfigMaps using label/field selectors.
+func (ks *K8sSource) loadConfigMapsWithSelectors(ctx context.Context, config map[string]any) error {
 	listOptions := metav1.ListOptions{}
 
 	if ks.options.LabelSelector != "" {
@@ -360,8 +363,8 @@ func (ks *K8sSource) loadConfigMapsWithSelectors(ctx context.Context, config map
 	return nil
 }
 
-// loadSecrets loads configuration from Secrets
-func (ks *K8sSource) loadSecrets(ctx context.Context, config map[string]interface{}) error {
+// loadSecrets loads configuration from Secrets.
+func (ks *K8sSource) loadSecrets(ctx context.Context, config map[string]any) error {
 	for _, name := range ks.secretNames {
 		secret, err := ks.client.CoreV1().Secrets(ks.namespace).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
@@ -372,6 +375,7 @@ func (ks *K8sSource) loadSecrets(ctx context.Context, config map[string]interfac
 					logger.Error(err),
 				)
 			}
+
 			continue
 		}
 
@@ -381,14 +385,14 @@ func (ks *K8sSource) loadSecrets(ctx context.Context, config map[string]interfac
 	return nil
 }
 
-// parseConfigMap parses a ConfigMap into configuration data
-func (ks *K8sSource) parseConfigMap(configMap *corev1.ConfigMap, config map[string]interface{}) {
+// parseConfigMap parses a ConfigMap into configuration data.
+func (ks *K8sSource) parseConfigMap(configMap *corev1.ConfigMap, config map[string]any) {
 	if configMap.Data == nil {
 		return
 	}
 
 	// Use ConfigMap name as a namespace in the configuration
-	cmConfig := make(map[string]interface{})
+	cmConfig := make(map[string]any)
 
 	for key, value := range configMap.Data {
 		// Try to parse value as different formats
@@ -400,14 +404,14 @@ func (ks *K8sSource) parseConfigMap(configMap *corev1.ConfigMap, config map[stri
 	config[configMap.Name] = cmConfig
 }
 
-// parseSecret parses a Secret into configuration data
-func (ks *K8sSource) parseSecret(secret *corev1.Secret, config map[string]interface{}) {
+// parseSecret parses a Secret into configuration data.
+func (ks *K8sSource) parseSecret(secret *corev1.Secret, config map[string]any) {
 	if secret.Data == nil {
 		return
 	}
 
 	// Use Secret name as a namespace in the configuration
-	secretConfig := make(map[string]interface{})
+	secretConfig := make(map[string]any)
 
 	for key, value := range secret.Data {
 		// Secrets are binary data, convert to string
@@ -417,16 +421,16 @@ func (ks *K8sSource) parseSecret(secret *corev1.Secret, config map[string]interf
 
 	// Merge into main config under secrets namespace
 	if config["secrets"] == nil {
-		config["secrets"] = make(map[string]interface{})
+		config["secrets"] = make(map[string]any)
 	}
 
-	if secretsConfig, ok := config["secrets"].(map[string]interface{}); ok {
+	if secretsConfig, ok := config["secrets"].(map[string]any); ok {
 		secretsConfig[secret.Name] = secretConfig
 	}
 }
 
-// watchConfigMaps watches for ConfigMap changes
-func (ks *K8sSource) watchConfigMaps(ctx context.Context, callback func(map[string]interface{})) {
+// watchConfigMaps watches for ConfigMap changes.
+func (ks *K8sSource) watchConfigMaps(ctx context.Context, callback func(map[string]any)) {
 	defer func() {
 		if r := recover(); r != nil {
 			if ks.logger != nil {
@@ -488,6 +492,7 @@ func (ks *K8sSource) watchConfigMaps(ctx context.Context, callback func(map[stri
 				}
 			} else {
 				ks.handleWatchError(err)
+
 				return
 			}
 		}
@@ -500,9 +505,11 @@ func (ks *K8sSource) watchConfigMaps(ctx context.Context, callback func(map[stri
 			select {
 			case <-ctx.Done():
 				watcher.Stop()
+
 				return
 			case <-ks.watchStop:
 				watcher.Stop()
+
 				return
 			default:
 			}
@@ -545,8 +552,8 @@ func (ks *K8sSource) watchConfigMaps(ctx context.Context, callback func(map[stri
 	}
 }
 
-// watchSecrets watches for Secret changes
-func (ks *K8sSource) watchSecrets(ctx context.Context, callback func(map[string]interface{})) {
+// watchSecrets watches for Secret changes.
+func (ks *K8sSource) watchSecrets(ctx context.Context, callback func(map[string]any)) {
 	if len(ks.secretNames) == 0 {
 		return
 	}
@@ -602,6 +609,7 @@ func (ks *K8sSource) watchSecrets(ctx context.Context, callback func(map[string]
 				}
 			} else {
 				ks.handleWatchError(err)
+
 				return
 			}
 		}
@@ -614,9 +622,11 @@ func (ks *K8sSource) watchSecrets(ctx context.Context, callback func(map[string]
 			select {
 			case <-ctx.Done():
 				watcher.Stop()
+
 				return
 			case <-ks.watchStop:
 				watcher.Stop()
+
 				return
 			default:
 			}
@@ -659,14 +669,15 @@ func (ks *K8sSource) watchSecrets(ctx context.Context, callback func(map[string]
 	}
 }
 
-// testConnection tests the connection to Kubernetes
+// testConnection tests the connection to Kubernetes.
 func (ks *K8sSource) testConnection(ctx context.Context) error {
 	_, err := ks.client.CoreV1().Namespaces().Get(ctx, ks.namespace, metav1.GetOptions{})
+
 	return err
 }
 
-// parseValue parses a Kubernetes value, attempting JSON first, then treating as string
-func (ks *K8sSource) parseValue(data []byte) interface{} {
+// parseValue parses a Kubernetes value, attempting JSON first, then treating as string.
+func (ks *K8sSource) parseValue(data []byte) any {
 	if len(data) == 0 {
 		return ""
 	}
@@ -677,8 +688,7 @@ func (ks *K8sSource) parseValue(data []byte) interface{} {
 	// Try to parse as JSON if it looks like JSON
 	if (strings.HasPrefix(str, "{") && strings.HasSuffix(str, "}")) ||
 		(strings.HasPrefix(str, "[") && strings.HasSuffix(str, "]")) {
-
-		var jsonValue interface{}
+		var jsonValue any
 		if err := json.Unmarshal(data, &jsonValue); err == nil {
 			return jsonValue
 		}
@@ -695,8 +705,8 @@ func (ks *K8sSource) parseValue(data []byte) interface{} {
 	return str
 }
 
-// setNestedValue sets a nested configuration value using dot notation
-func (ks *K8sSource) setNestedValue(config map[string]interface{}, key string, value interface{}) {
+// setNestedValue sets a nested configuration value using dot notation.
+func (ks *K8sSource) setNestedValue(config map[string]any, key string, value any) {
 	keys := strings.Split(key, ".")
 	current := config
 
@@ -707,21 +717,21 @@ func (ks *K8sSource) setNestedValue(config map[string]interface{}, key string, v
 		} else {
 			// Intermediate key - ensure map exists
 			if _, exists := current[k]; !exists {
-				current[k] = make(map[string]interface{})
+				current[k] = make(map[string]any)
 			}
 
-			if nextMap, ok := current[k].(map[string]interface{}); ok {
+			if nextMap, ok := current[k].(map[string]any); ok {
 				current = nextMap
 			} else {
 				// Type conflict - create new map
-				current[k] = make(map[string]interface{})
-				current = current[k].(map[string]interface{})
+				current[k] = make(map[string]any)
+				current = current[k].(map[string]any)
 			}
 		}
 	}
 }
 
-// handleWatchError handles errors during watching
+// handleWatchError handles errors during watching.
 func (ks *K8sSource) handleWatchError(err error) {
 	if ks.logger != nil {
 		ks.logger.Error("Kubernetes watch error",
@@ -731,20 +741,20 @@ func (ks *K8sSource) handleWatchError(err error) {
 	}
 
 	if ks.errorHandler != nil {
-		ks.errorHandler.HandleError(nil, errors.ErrConfigError(fmt.Sprintf("Kubernetes watch error for namespace %s", ks.namespace), err))
+		ks.errorHandler.HandleError(nil, errors.ErrConfigError("Kubernetes watch error for namespace "+ks.namespace, err))
 	}
 
 	// Stop watching on persistent errors
 	ks.StopWatch()
 }
 
-// K8sSourceFactory creates Kubernetes configuration sources
+// K8sSourceFactory creates Kubernetes configuration sources.
 type K8sSourceFactory struct {
 	logger       logger.Logger
 	errorHandler shared.ErrorHandler
 }
 
-// NewK8sSourceFactory creates a new Kubernetes source factory
+// NewK8sSourceFactory creates a new Kubernetes source factory.
 func NewK8sSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler) *K8sSourceFactory {
 	return &K8sSourceFactory{
 		logger:       logger,
@@ -752,10 +762,10 @@ func NewK8sSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler)
 	}
 }
 
-// CreateFromConfig creates a Kubernetes source from configuration
+// CreateFromConfig creates a Kubernetes source from configuration.
 func (factory *K8sSourceFactory) CreateFromConfig(config K8sSourceConfig) (configcore.ConfigSource, error) {
 	options := K8sSourceOptions{
-		Name:           fmt.Sprintf("k8s:%s", config.Namespace),
+		Name:           "k8s:" + config.Namespace,
 		Namespace:      config.Namespace,
 		ConfigMapNames: config.ConfigMapNames,
 		SecretNames:    config.SecretNames,
@@ -774,7 +784,7 @@ func (factory *K8sSourceFactory) CreateFromConfig(config K8sSourceConfig) (confi
 	return NewK8sSource(options)
 }
 
-// CreateWithDefaults creates a Kubernetes source with default settings
+// CreateWithDefaults creates a Kubernetes source with default settings.
 func (factory *K8sSourceFactory) CreateWithDefaults(namespace string) (configcore.ConfigSource, error) {
 	options := K8sSourceOptions{
 		Namespace:    namespace,

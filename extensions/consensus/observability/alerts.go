@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// AlertManager manages alerts and notifications for consensus issues
+// AlertManager manages alerts and notifications for consensus issues.
 type AlertManager struct {
 	nodeID string
 	logger forge.Logger
@@ -37,7 +38,7 @@ type AlertManager struct {
 	handlers []AlertHandler
 }
 
-// AlertRule defines conditions for triggering alerts
+// AlertRule defines conditions for triggering alerts.
 type AlertRule struct {
 	Name        string
 	Condition   AlertCondition
@@ -48,13 +49,13 @@ type AlertRule struct {
 	lastFired   time.Time
 }
 
-// Alert represents an active alert
+// Alert represents an active alert.
 type Alert struct {
 	ID           string
 	Rule         string
 	Severity     AlertSeverity
 	Message      string
-	Details      map[string]interface{}
+	Details      map[string]any
 	StartTime    time.Time
 	LastUpdate   time.Time
 	FireCount    int
@@ -63,7 +64,7 @@ type Alert struct {
 	ResolvedAt   time.Time
 }
 
-// AlertEvent represents an alert event in history
+// AlertEvent represents an alert event in history.
 type AlertEvent struct {
 	Timestamp time.Time
 	Type      AlertEventType
@@ -73,46 +74,46 @@ type AlertEvent struct {
 	Message   string
 }
 
-// AlertCondition is a function that evaluates alert conditions
-type AlertCondition func(ctx context.Context, data map[string]interface{}) bool
+// AlertCondition is a function that evaluates alert conditions.
+type AlertCondition func(ctx context.Context, data map[string]any) bool
 
-// AlertHandler handles alert notifications
+// AlertHandler handles alert notifications.
 type AlertHandler func(alert *Alert)
 
-// AlertSeverity represents alert severity
+// AlertSeverity represents alert severity.
 type AlertSeverity string
 
 const (
-	// AlertSeverityCritical critical severity
+	// AlertSeverityCritical critical severity.
 	AlertSeverityCritical AlertSeverity = "critical"
-	// AlertSeverityHigh high severity
+	// AlertSeverityHigh high severity.
 	AlertSeverityHigh AlertSeverity = "high"
-	// AlertSeverityMedium medium severity
+	// AlertSeverityMedium medium severity.
 	AlertSeverityMedium AlertSeverity = "medium"
-	// AlertSeverityLow low severity
+	// AlertSeverityLow low severity.
 	AlertSeverityLow AlertSeverity = "low"
 )
 
-// AlertEventType represents alert event type
+// AlertEventType represents alert event type.
 type AlertEventType string
 
 const (
-	// AlertEventTypeFired alert fired
+	// AlertEventTypeFired alert fired.
 	AlertEventTypeFired AlertEventType = "fired"
-	// AlertEventTypeAcknowledged alert acknowledged
+	// AlertEventTypeAcknowledged alert acknowledged.
 	AlertEventTypeAcknowledged AlertEventType = "acknowledged"
-	// AlertEventTypeResolved alert resolved
+	// AlertEventTypeResolved alert resolved.
 	AlertEventTypeResolved AlertEventType = "resolved"
 )
 
-// AlertConfig contains alert configuration
+// AlertConfig contains alert configuration.
 type AlertConfig struct {
 	EnableAlerts    bool
 	MaxActiveAlerts int
 	MaxHistory      int
 }
 
-// AlertStatistics contains alert statistics
+// AlertStatistics contains alert statistics.
 type AlertStatistics struct {
 	TotalAlerts        int64
 	ActiveAlerts       int64
@@ -124,12 +125,13 @@ type AlertStatistics struct {
 	ResolvedAlerts     int64
 }
 
-// NewAlertManager creates a new alert manager
+// NewAlertManager creates a new alert manager.
 func NewAlertManager(nodeID string, config AlertConfig, logger forge.Logger) *AlertManager {
 	// Set defaults
 	if config.MaxActiveAlerts == 0 {
 		config.MaxActiveAlerts = 100
 	}
+
 	if config.MaxHistory == 0 {
 		config.MaxHistory = 1000
 	}
@@ -151,7 +153,7 @@ func NewAlertManager(nodeID string, config AlertConfig, logger forge.Logger) *Al
 	return am
 }
 
-// RegisterRule registers a new alert rule
+// RegisterRule registers a new alert rule.
 func (am *AlertManager) RegisterRule(rule *AlertRule) {
 	am.rulesMu.Lock()
 	defer am.rulesMu.Unlock()
@@ -164,7 +166,7 @@ func (am *AlertManager) RegisterRule(rule *AlertRule) {
 	)
 }
 
-// registerDefaultRules registers default consensus alert rules
+// registerDefaultRules registers default consensus alert rules.
 func (am *AlertManager) registerDefaultRules() {
 	// Leader election timeout
 	am.RegisterRule(&AlertRule{
@@ -173,8 +175,9 @@ func (am *AlertManager) registerDefaultRules() {
 		Description: "Leader election is taking too long",
 		Enabled:     true,
 		Cooldown:    1 * time.Minute,
-		Condition: func(ctx context.Context, data map[string]interface{}) bool {
+		Condition: func(ctx context.Context, data map[string]any) bool {
 			duration, ok := data["election_duration"].(time.Duration)
+
 			return ok && duration > 5*time.Second
 		},
 	})
@@ -186,8 +189,9 @@ func (am *AlertManager) registerDefaultRules() {
 		Description: "Replication lag is high",
 		Enabled:     true,
 		Cooldown:    5 * time.Minute,
-		Condition: func(ctx context.Context, data map[string]interface{}) bool {
+		Condition: func(ctx context.Context, data map[string]any) bool {
 			lag, ok := data["replication_lag"].(int64)
+
 			return ok && lag > 1000
 		},
 	})
@@ -199,8 +203,9 @@ func (am *AlertManager) registerDefaultRules() {
 		Description: "Cluster has lost quorum",
 		Enabled:     true,
 		Cooldown:    30 * time.Second,
-		Condition: func(ctx context.Context, data map[string]interface{}) bool {
+		Condition: func(ctx context.Context, data map[string]any) bool {
 			hasQuorum, ok := data["has_quorum"].(bool)
+
 			return ok && !hasQuorum
 		},
 	})
@@ -212,8 +217,9 @@ func (am *AlertManager) registerDefaultRules() {
 		Description: "Snapshot operation failed",
 		Enabled:     true,
 		Cooldown:    10 * time.Minute,
-		Condition: func(ctx context.Context, data map[string]interface{}) bool {
+		Condition: func(ctx context.Context, data map[string]any) bool {
 			failed, ok := data["snapshot_failed"].(bool)
+
 			return ok && failed
 		},
 	})
@@ -225,8 +231,9 @@ func (am *AlertManager) registerDefaultRules() {
 		Description: "Error rate is above threshold",
 		Enabled:     true,
 		Cooldown:    5 * time.Minute,
-		Condition: func(ctx context.Context, data map[string]interface{}) bool {
+		Condition: func(ctx context.Context, data map[string]any) bool {
 			errorRate, ok := data["error_rate"].(float64)
+
 			return ok && errorRate > 10.0 // 10% error rate
 		},
 	})
@@ -238,15 +245,16 @@ func (am *AlertManager) registerDefaultRules() {
 		Description: "Disk space is running low",
 		Enabled:     true,
 		Cooldown:    15 * time.Minute,
-		Condition: func(ctx context.Context, data map[string]interface{}) bool {
+		Condition: func(ctx context.Context, data map[string]any) bool {
 			freePercent, ok := data["disk_free_percent"].(float64)
+
 			return ok && freePercent < 10.0 // Less than 10% free
 		},
 	})
 }
 
-// EvaluateRule evaluates an alert rule
-func (am *AlertManager) EvaluateRule(ctx context.Context, ruleName string, data map[string]interface{}) {
+// EvaluateRule evaluates an alert rule.
+func (am *AlertManager) EvaluateRule(ctx context.Context, ruleName string, data map[string]any) {
 	if !am.config.EnableAlerts {
 		return
 	}
@@ -271,8 +279,8 @@ func (am *AlertManager) EvaluateRule(ctx context.Context, ruleName string, data 
 	}
 }
 
-// fireAlert fires a new alert
-func (am *AlertManager) fireAlert(rule *AlertRule, data map[string]interface{}) {
+// fireAlert fires a new alert.
+func (am *AlertManager) fireAlert(rule *AlertRule, data map[string]any) {
 	am.alertsMu.Lock()
 	defer am.alertsMu.Unlock()
 
@@ -336,7 +344,7 @@ func (am *AlertManager) fireAlert(rule *AlertRule, data map[string]interface{}) 
 	}
 }
 
-// AcknowledgeAlert acknowledges an alert
+// AcknowledgeAlert acknowledges an alert.
 func (am *AlertManager) AcknowledgeAlert(alertID string) error {
 	am.alertsMu.Lock()
 	defer am.alertsMu.Unlock()
@@ -347,7 +355,7 @@ func (am *AlertManager) AcknowledgeAlert(alertID string) error {
 	}
 
 	if alert.Acknowledged {
-		return fmt.Errorf("alert already acknowledged")
+		return errors.New("alert already acknowledged")
 	}
 
 	alert.Acknowledged = true
@@ -369,7 +377,7 @@ func (am *AlertManager) AcknowledgeAlert(alertID string) error {
 	return nil
 }
 
-// ResolveAlert resolves an alert
+// ResolveAlert resolves an alert.
 func (am *AlertManager) ResolveAlert(alertID string) error {
 	am.alertsMu.Lock()
 	defer am.alertsMu.Unlock()
@@ -380,7 +388,7 @@ func (am *AlertManager) ResolveAlert(alertID string) error {
 	}
 
 	if alert.Resolved {
-		return fmt.Errorf("alert already resolved")
+		return errors.New("alert already resolved")
 	}
 
 	alert.Resolved = true
@@ -408,7 +416,7 @@ func (am *AlertManager) ResolveAlert(alertID string) error {
 	return nil
 }
 
-// GetActiveAlerts returns all active alerts
+// GetActiveAlerts returns all active alerts.
 func (am *AlertManager) GetActiveAlerts() []*Alert {
 	am.alertsMu.RLock()
 	defer am.alertsMu.RUnlock()
@@ -423,7 +431,7 @@ func (am *AlertManager) GetActiveAlerts() []*Alert {
 	return alerts
 }
 
-// GetAlertsBySeverity returns alerts by severity
+// GetAlertsBySeverity returns alerts by severity.
 func (am *AlertManager) GetAlertsBySeverity(severity AlertSeverity) []*Alert {
 	am.alertsMu.RLock()
 	defer am.alertsMu.RUnlock()
@@ -438,17 +446,17 @@ func (am *AlertManager) GetAlertsBySeverity(severity AlertSeverity) []*Alert {
 	return alerts
 }
 
-// GetCriticalAlerts returns critical alerts
+// GetCriticalAlerts returns critical alerts.
 func (am *AlertManager) GetCriticalAlerts() []*Alert {
 	return am.GetAlertsBySeverity(AlertSeverityCritical)
 }
 
-// RegisterHandler registers an alert handler
+// RegisterHandler registers an alert handler.
 func (am *AlertManager) RegisterHandler(handler AlertHandler) {
 	am.handlers = append(am.handlers, handler)
 }
 
-// recordEvent records an alert event
+// recordEvent records an alert event.
 func (am *AlertManager) recordEvent(event AlertEvent) {
 	am.historyMu.Lock()
 	defer am.historyMu.Unlock()
@@ -461,7 +469,7 @@ func (am *AlertManager) recordEvent(event AlertEvent) {
 	}
 }
 
-// GetHistory returns alert history
+// GetHistory returns alert history.
 func (am *AlertManager) GetHistory(limit int) []AlertEvent {
 	am.historyMu.RLock()
 	defer am.historyMu.RUnlock()
@@ -477,22 +485,25 @@ func (am *AlertManager) GetHistory(limit int) []AlertEvent {
 	return result
 }
 
-// GetStatistics returns alert statistics
+// GetStatistics returns alert statistics.
 func (am *AlertManager) GetStatistics() AlertStatistics {
 	am.alertsMu.RLock()
 	defer am.alertsMu.RUnlock()
+
 	return am.stats
 }
 
-// ClearResolvedAlerts clears resolved alerts from memory
+// ClearResolvedAlerts clears resolved alerts from memory.
 func (am *AlertManager) ClearResolvedAlerts() int {
 	am.alertsMu.Lock()
 	defer am.alertsMu.Unlock()
 
 	cleared := 0
+
 	for alertID, alert := range am.alerts {
 		if alert.Resolved {
 			delete(am.alerts, alertID)
+
 			cleared++
 		}
 	}
@@ -504,8 +515,8 @@ func (am *AlertManager) ClearResolvedAlerts() int {
 	return cleared
 }
 
-// MonitorAlerts monitors and evaluates alert rules
-func (am *AlertManager) MonitorAlerts(ctx context.Context, interval time.Duration, dataProvider func() map[string]interface{}) {
+// MonitorAlerts monitors and evaluates alert rules.
+func (am *AlertManager) MonitorAlerts(ctx context.Context, interval time.Duration, dataProvider func() map[string]any) {
 	if !am.config.EnableAlerts {
 		return
 	}
@@ -521,12 +532,14 @@ func (am *AlertManager) MonitorAlerts(ctx context.Context, interval time.Duratio
 			data := dataProvider()
 
 			am.rulesMu.RLock()
+
 			rules := make([]*AlertRule, 0, len(am.rules))
 			for _, rule := range am.rules {
 				if rule.Enabled {
 					rules = append(rules, rule)
 				}
 			}
+
 			am.rulesMu.RUnlock()
 
 			// Evaluate all rules
@@ -537,7 +550,7 @@ func (am *AlertManager) MonitorAlerts(ctx context.Context, interval time.Duratio
 	}
 }
 
-// EnableRule enables an alert rule
+// EnableRule enables an alert rule.
 func (am *AlertManager) EnableRule(ruleName string) error {
 	am.rulesMu.Lock()
 	defer am.rulesMu.Unlock()
@@ -556,7 +569,7 @@ func (am *AlertManager) EnableRule(ruleName string) error {
 	return nil
 }
 
-// DisableRule disables an alert rule
+// DisableRule disables an alert rule.
 func (am *AlertManager) DisableRule(ruleName string) error {
 	am.rulesMu.Lock()
 	defer am.rulesMu.Unlock()

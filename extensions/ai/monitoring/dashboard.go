@@ -11,10 +11,11 @@ import (
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// AIDashboard provides comprehensive analytics and visualization for AI systems
+// AIDashboard provides comprehensive analytics and visualization for AI systems.
 type AIDashboard struct {
 	aiManager        ai.AI
 	healthMonitor    *AIHealthMonitor
@@ -41,21 +42,21 @@ type AIDashboard struct {
 	started bool
 }
 
-// DashboardConfig contains configuration for the AI dashboard
+// DashboardConfig contains configuration for the AI dashboard.
 type DashboardConfig struct {
-	Port                     int           `yaml:"port" default:"8090"`
-	RefreshInterval          time.Duration `yaml:"refresh_interval" default:"30s"`
-	DataRetentionPeriod      time.Duration `yaml:"data_retention_period" default:"24h"`
-	MaxDataPoints            int           `yaml:"max_data_points" default:"1000"`
-	EnableRealtime           bool          `yaml:"enable_realtime" default:"true"`
-	EnableAuthentication     bool          `yaml:"enable_authentication" default:"true"`
-	CustomDashboards         bool          `yaml:"custom_dashboards" default:"true"`
-	ExportFormats            []string      `yaml:"export_formats" default:"[\"json\",\"csv\",\"pdf\"]"`
-	WebSocketTimeout         time.Duration `yaml:"websocket_timeout" default:"5m"`
-	MaxConcurrentConnections int           `yaml:"max_concurrent_connections" default:"100"`
+	Port                     int           `default:"8090"                       yaml:"port"`
+	RefreshInterval          time.Duration `default:"30s"                        yaml:"refresh_interval"`
+	DataRetentionPeriod      time.Duration `default:"24h"                        yaml:"data_retention_period"`
+	MaxDataPoints            int           `default:"1000"                       yaml:"max_data_points"`
+	EnableRealtime           bool          `default:"true"                       yaml:"enable_realtime"`
+	EnableAuthentication     bool          `default:"true"                       yaml:"enable_authentication"`
+	CustomDashboards         bool          `default:"true"                       yaml:"custom_dashboards"`
+	ExportFormats            []string      `default:"[\"json\",\"csv\",\"pdf\"]" yaml:"export_formats"`
+	WebSocketTimeout         time.Duration `default:"5m"                         yaml:"websocket_timeout"`
+	MaxConcurrentConnections int           `default:"100"                        yaml:"max_concurrent_connections"`
 }
 
-// Widget represents a dashboard widget
+// Widget represents a dashboard widget.
 type Widget struct {
 	ID          string        `json:"id"`
 	Type        WidgetType    `json:"type"`
@@ -71,10 +72,10 @@ type Widget struct {
 	Permissions []string      `json:"permissions"`
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
-	Data        interface{}   `json:"data,omitempty"`
+	Data        any           `json:"data,omitempty"`
 }
 
-// WidgetType defines types of dashboard widgets
+// WidgetType defines types of dashboard widgets.
 type WidgetType string
 
 const (
@@ -91,42 +92,42 @@ const (
 	WidgetTypeCustom       WidgetType = "custom"
 )
 
-// Position defines widget position on dashboard
+// Position defines widget position on dashboard.
 type Position struct {
 	X int `json:"x"`
 	Y int `json:"y"`
 }
 
-// Size defines widget dimensions
+// Size defines widget dimensions.
 type Size struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
 }
 
-// WidgetConfig contains widget-specific configuration
+// WidgetConfig contains widget-specific configuration.
 type WidgetConfig struct {
-	ChartType   string                 `json:"chart_type,omitempty"`  // line, bar, pie, area, scatter
-	Aggregation string                 `json:"aggregation,omitempty"` // sum, avg, max, min, count
-	TimeWindow  string                 `json:"time_window,omitempty"` // 1h, 6h, 24h, 7d
-	Threshold   *ThresholdConfig       `json:"threshold,omitempty"`
-	Colors      []string               `json:"colors,omitempty"`
-	ShowLegend  bool                   `json:"show_legend"`
-	ShowGrid    bool                   `json:"show_grid"`
-	Stacked     bool                   `json:"stacked"`
-	Normalized  bool                   `json:"normalized"`
-	MaxRows     int                    `json:"max_rows,omitempty"`
-	Columns     []ColumnConfig         `json:"columns,omitempty"`
-	CustomHTML  string                 `json:"custom_html,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	ChartType   string           `json:"chart_type,omitempty"`  // line, bar, pie, area, scatter
+	Aggregation string           `json:"aggregation,omitempty"` // sum, avg, max, min, count
+	TimeWindow  string           `json:"time_window,omitempty"` // 1h, 6h, 24h, 7d
+	Threshold   *ThresholdConfig `json:"threshold,omitempty"`
+	Colors      []string         `json:"colors,omitempty"`
+	ShowLegend  bool             `json:"show_legend"`
+	ShowGrid    bool             `json:"show_grid"`
+	Stacked     bool             `json:"stacked"`
+	Normalized  bool             `json:"normalized"`
+	MaxRows     int              `json:"max_rows,omitempty"`
+	Columns     []ColumnConfig   `json:"columns,omitempty"`
+	CustomHTML  string           `json:"custom_html,omitempty"`
+	Parameters  map[string]any   `json:"parameters,omitempty"`
 }
 
-// ThresholdConfig defines threshold lines for charts
+// ThresholdConfig defines threshold lines for charts.
 type ThresholdConfig struct {
 	Warning  float64 `json:"warning"`
 	Critical float64 `json:"critical"`
 }
 
-// ColumnConfig defines table column configuration
+// ColumnConfig defines table column configuration.
 type ColumnConfig struct {
 	Name       string `json:"name"`
 	Field      string `json:"field"`
@@ -136,7 +137,7 @@ type ColumnConfig struct {
 	Filterable bool   `json:"filterable"`
 }
 
-// Layout represents a dashboard layout
+// Layout represents a dashboard layout.
 type Layout struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -150,50 +151,50 @@ type Layout struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// CustomQuery represents a custom data query
+// CustomQuery represents a custom data query.
 type CustomQuery struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Query       string                 `json:"query"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	DataSource  string                 `json:"data_source"`
-	Schedule    string                 `json:"schedule,omitempty"`
-	Enabled     bool                   `json:"enabled"`
-	CreatedAt   time.Time              `json:"created_at"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Query       string         `json:"query"`
+	Parameters  map[string]any `json:"parameters"`
+	DataSource  string         `json:"data_source"`
+	Schedule    string         `json:"schedule,omitempty"`
+	Enabled     bool           `json:"enabled"`
+	CreatedAt   time.Time      `json:"created_at"`
 }
 
-// RealtimeData manages real-time dashboard data
+// RealtimeData manages real-time dashboard data.
 type RealtimeData struct {
 	connections map[string]*WebSocketConnection
 	streams     map[string]*DataStream
 	mu          sync.RWMutex
 }
 
-// DataStream represents a real-time data stream
+// DataStream represents a real-time data stream.
 type DataStream struct {
 	ID             string                          `json:"id"`
 	Type           string                          `json:"type"`
 	Source         string                          `json:"source"`
 	UpdateInterval time.Duration                   `json:"update_interval"`
 	LastUpdate     time.Time                       `json:"last_update"`
-	Data           interface{}                     `json:"data"`
+	Data           any                             `json:"data"`
 	Subscribers    map[string]*WebSocketConnection `json:"-"`
 	Active         bool                            `json:"active"`
 	mu             sync.RWMutex
 }
 
-// WebSocketConnection represents a WebSocket connection for real-time updates
+// WebSocketConnection represents a WebSocket connection for real-time updates.
 type WebSocketConnection struct {
 	ID            string
 	UserID        string
 	ConnectedAt   time.Time
 	LastPing      time.Time
 	Subscriptions []string
-	Connection    interface{} // Would be *websocket.Conn in real implementation
+	Connection    any // Would be *websocket.Conn in real implementation
 }
 
-// DashboardData contains all dashboard data for API responses
+// DashboardData contains all dashboard data for API responses.
 type DashboardData struct {
 	Overview        *OverviewData      `json:"overview"`
 	SystemMetrics   *SystemMetricsData `json:"system_metrics"`
@@ -354,11 +355,11 @@ type HealthStatusData struct {
 }
 
 type ComponentHealth struct {
-	Name        string                 `json:"name"`
-	Status      string                 `json:"status"`
-	Message     string                 `json:"message"`
-	LastChecked time.Time              `json:"last_checked"`
-	Details     map[string]interface{} `json:"details"`
+	Name        string         `json:"name"`
+	Status      string         `json:"status"`
+	Message     string         `json:"message"`
+	LastChecked time.Time      `json:"last_checked"`
+	Details     map[string]any `json:"details"`
 }
 
 type HealthTimePoint struct {
@@ -465,33 +466,33 @@ type AnomalyData struct {
 }
 
 type TopologyData struct {
-	Nodes    []TopologyNode         `json:"nodes"`
-	Edges    []TopologyEdge         `json:"edges"`
-	Clusters []TopologyCluster      `json:"clusters"`
-	Layout   string                 `json:"layout"`
-	Metadata map[string]interface{} `json:"metadata"`
+	Nodes    []TopologyNode    `json:"nodes"`
+	Edges    []TopologyEdge    `json:"edges"`
+	Clusters []TopologyCluster `json:"clusters"`
+	Layout   string            `json:"layout"`
+	Metadata map[string]any    `json:"metadata"`
 }
 
 type TopologyNode struct {
-	ID       string                 `json:"id"`
-	Label    string                 `json:"label"`
-	Type     string                 `json:"type"`
-	Status   string                 `json:"status"`
-	Metrics  map[string]float64     `json:"metrics"`
-	Position *Position              `json:"position,omitempty"`
-	Size     int                    `json:"size"`
-	Color    string                 `json:"color"`
-	Metadata map[string]interface{} `json:"metadata"`
+	ID       string             `json:"id"`
+	Label    string             `json:"label"`
+	Type     string             `json:"type"`
+	Status   string             `json:"status"`
+	Metrics  map[string]float64 `json:"metrics"`
+	Position *Position          `json:"position,omitempty"`
+	Size     int                `json:"size"`
+	Color    string             `json:"color"`
+	Metadata map[string]any     `json:"metadata"`
 }
 
 type TopologyEdge struct {
-	ID       string                 `json:"id"`
-	Source   string                 `json:"source"`
-	Target   string                 `json:"target"`
-	Type     string                 `json:"type"`
-	Weight   float64                `json:"weight"`
-	Status   string                 `json:"status"`
-	Metadata map[string]interface{} `json:"metadata"`
+	ID       string         `json:"id"`
+	Source   string         `json:"source"`
+	Target   string         `json:"target"`
+	Type     string         `json:"type"`
+	Weight   float64        `json:"weight"`
+	Status   string         `json:"status"`
+	Metadata map[string]any `json:"metadata"`
 }
 
 type TopologyCluster struct {
@@ -511,14 +512,14 @@ type InsightsData struct {
 }
 
 type Insight struct {
-	ID          string                 `json:"id"`
-	Category    string                 `json:"category"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	Impact      string                 `json:"impact"`
-	Confidence  float64                `json:"confidence"`
-	CreatedAt   time.Time              `json:"created_at"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Category    string         `json:"category"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Impact      string         `json:"impact"`
+	Confidence  float64        `json:"confidence"`
+	CreatedAt   time.Time      `json:"created_at"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 type Recommendation struct {
@@ -570,7 +571,7 @@ type TrendInsight struct {
 	Forecast     string  `json:"forecast"`
 }
 
-// NewAIDashboard creates a new AI analytics dashboard
+// NewAIDashboard creates a new AI analytics dashboard.
 func NewAIDashboard(aiManager ai.AI, healthMonitor *AIHealthMonitor, metricsCollector *AIMetricsCollector, alertManager *AIAlertManager, logger forge.Logger, metrics forge.Metrics, config DashboardConfig) *AIDashboard {
 	dashboard := &AIDashboard{
 		aiManager:        aiManager,
@@ -602,13 +603,13 @@ func NewAIDashboard(aiManager ai.AI, healthMonitor *AIHealthMonitor, metricsColl
 	return dashboard
 }
 
-// Start starts the dashboard HTTP server
+// Start starts the dashboard HTTP server.
 func (d *AIDashboard) Start(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	if d.started {
-		return fmt.Errorf("AI dashboard already started")
+		return errors.New("AI dashboard already started")
 	}
 
 	// Create HTTP server
@@ -645,13 +646,13 @@ func (d *AIDashboard) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the dashboard HTTP server
+// Stop stops the dashboard HTTP server.
 func (d *AIDashboard) Stop(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	if !d.started {
-		return fmt.Errorf("AI dashboard not started")
+		return errors.New("AI dashboard not started")
 	}
 
 	// Shutdown HTTP server
@@ -673,7 +674,7 @@ func (d *AIDashboard) Stop(ctx context.Context) error {
 	return nil
 }
 
-// setupRoutes sets up HTTP routes for the dashboard
+// setupRoutes sets up HTTP routes for the dashboard.
 func (d *AIDashboard) setupRoutes() {
 	// API routes
 	d.router.HandleFunc("/api/dashboard", d.handleDashboardData)
@@ -696,7 +697,7 @@ func (d *AIDashboard) setupRoutes() {
 	d.router.HandleFunc("/static/", d.handleStaticFiles)
 }
 
-// handleDashboardData handles dashboard data API requests
+// handleDashboardData handles dashboard data API requests.
 func (d *AIDashboard) handleDashboardData(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -704,6 +705,7 @@ func (d *AIDashboard) handleDashboardData(w http.ResponseWriter, r *http.Request
 	dashboardData, err := d.collectDashboardData(ctx)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Failed to collect dashboard data: %v", err), http.StatusInternalServerError)
+
 		return
 	}
 
@@ -714,7 +716,9 @@ func (d *AIDashboard) handleDashboardData(w http.ResponseWriter, r *http.Request
 		if d.logger != nil {
 			d.logger.Error("failed to encode dashboard data", logger.Error(err))
 		}
+
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -724,11 +728,13 @@ func (d *AIDashboard) handleDashboardData(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// collectDashboardData collects all dashboard data
+// collectDashboardData collects all dashboard data.
 func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData, error) {
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var errs []error
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
 
 	data := &DashboardData{
 		LastUpdated: time.Now(),
@@ -740,9 +746,12 @@ func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData,
 	// Overview data
 	go func() {
 		defer wg.Done()
+
 		if overview, err := d.collectOverviewData(ctx); err != nil {
 			mu.Lock()
+
 			errs = append(errs, fmt.Errorf("overview data: %w", err))
+
 			mu.Unlock()
 		} else {
 			data.Overview = overview
@@ -752,9 +761,12 @@ func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData,
 	// System metrics
 	go func() {
 		defer wg.Done()
+
 		if systemMetrics, err := d.collectSystemMetricsData(ctx); err != nil {
 			mu.Lock()
+
 			errs = append(errs, fmt.Errorf("system metrics: %w", err))
+
 			mu.Unlock()
 		} else {
 			data.SystemMetrics = systemMetrics
@@ -764,9 +776,12 @@ func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData,
 	// Agent metrics
 	go func() {
 		defer wg.Done()
+
 		if agentMetrics, err := d.collectAgentMetricsData(ctx); err != nil {
 			mu.Lock()
+
 			errs = append(errs, fmt.Errorf("agent metrics: %w", err))
+
 			mu.Unlock()
 		} else {
 			data.AgentMetrics = agentMetrics
@@ -776,9 +791,12 @@ func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData,
 	// Model metrics
 	go func() {
 		defer wg.Done()
+
 		if modelMetrics, err := d.collectModelMetricsData(ctx); err != nil {
 			mu.Lock()
+
 			errs = append(errs, fmt.Errorf("model metrics: %w", err))
+
 			mu.Unlock()
 		} else {
 			data.ModelMetrics = modelMetrics
@@ -788,9 +806,12 @@ func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData,
 	// Health status
 	go func() {
 		defer wg.Done()
+
 		if healthStatus, err := d.collectHealthStatusData(ctx); err != nil {
 			mu.Lock()
+
 			errs = append(errs, fmt.Errorf("health status: %w", err))
+
 			mu.Unlock()
 		} else {
 			data.HealthStatus = healthStatus
@@ -800,9 +821,12 @@ func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData,
 	// Alerts data
 	go func() {
 		defer wg.Done()
+
 		if alertsData, err := d.collectAlertsData(ctx); err != nil {
 			mu.Lock()
+
 			errs = append(errs, fmt.Errorf("alerts data: %w", err))
+
 			mu.Unlock()
 		} else {
 			data.AlertsData = alertsData
@@ -812,9 +836,12 @@ func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData,
 	// Performance data
 	go func() {
 		defer wg.Done()
+
 		if performanceData, err := d.collectPerformanceData(ctx); err != nil {
 			mu.Lock()
+
 			errs = append(errs, fmt.Errorf("performance data: %w", err))
+
 			mu.Unlock()
 		} else {
 			data.PerformanceData = performanceData
@@ -824,9 +851,12 @@ func (d *AIDashboard) collectDashboardData(ctx context.Context) (*DashboardData,
 	// Insights
 	go func() {
 		defer wg.Done()
+
 		if insights, err := d.collectInsightsData(ctx); err != nil {
 			mu.Lock()
+
 			errs = append(errs, fmt.Errorf("insights: %w", err))
+
 			mu.Unlock()
 		} else {
 			data.Insights = insights
@@ -849,7 +879,8 @@ func (d *AIDashboard) collectOverviewData(ctx context.Context) (*OverviewData, e
 	stats := d.aiManager.GetStats()
 
 	// Get health data
-	var healthStatus string = "unknown"
+	var healthStatus = "unknown"
+
 	if d.healthMonitor != nil {
 		if healthReport, err := d.healthMonitor.GetHealthReport(ctx); err == nil {
 			healthStatus = string(healthReport.OverallStatus)
@@ -902,6 +933,7 @@ func (d *AIDashboard) collectSystemMetricsData(ctx context.Context) (*SystemMetr
 
 	// Create timeline data from historical metrics
 	timeline := make([]TimePoint, 0)
+
 	if metricsReport.HistoricalData != nil {
 		for _, point := range metricsReport.HistoricalData.DataPoints {
 			timeline = append(timeline, TimePoint{
@@ -1002,7 +1034,7 @@ func (d *AIDashboard) collectAgentMetricsData(ctx context.Context) (*AgentMetric
 // collectModelMetricsData, collectHealthStatusData, collectAlertsData,
 // collectPerformanceData, collectInsightsData
 
-// Helper methods for widget and layout management
+// Helper methods for widget and layout management.
 func (d *AIDashboard) initializeDefaults() {
 	// Create default widgets
 	defaultWidgets := []*Widget{
@@ -1102,7 +1134,7 @@ func (d *AIDashboard) initializeDefaults() {
 // handleAlertsData, handleTopologyData, handleInsightsData,
 // handleDataExport, handleWebSocket, handleDashboardUI, handleStaticFiles
 
-// Placeholder methods for handlers
+// Placeholder methods for handlers.
 func (d *AIDashboard) handleWidgets(w http.ResponseWriter, r *http.Request) {
 	// Implementation for widget management API
 	w.Header().Set("Content-Type", "application/json")
@@ -1118,6 +1150,7 @@ func (d *AIDashboard) handleLayouts(w http.ResponseWriter, r *http.Request) {
 func (d *AIDashboard) handleDashboardUI(w http.ResponseWriter, r *http.Request) {
 	// Serve dashboard HTML UI
 	html := d.generateDashboardHTML()
+
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
 }
@@ -1220,7 +1253,7 @@ func (d *AIDashboard) generateDashboardHTML() string {
 </html>`
 }
 
-// Real-time streaming methods
+// Real-time streaming methods.
 func (d *AIDashboard) startRealtimeStreams(ctx context.Context) {
 	// Start data streams for real-time updates
 	streams := []string{"system_metrics", "agent_status", "alerts", "health_status"}
@@ -1280,11 +1313,12 @@ func (d *AIDashboard) updateStreamData(stream *DataStream) {
 		}
 	case "agent_status":
 		agents := d.aiManager.GetAgents()
-		agentData := make([]map[string]interface{}, 0, len(agents))
+
+		agentData := make([]map[string]any, 0, len(agents))
 		for _, agent := range agents {
 			stats := agent.GetStats()
 			health := agent.GetHealth()
-			agentData = append(agentData, map[string]interface{}{
+			agentData = append(agentData, map[string]any{
 				"id":         agent.ID(),
 				"name":       agent.Name(),
 				"type":       string(agent.Type()),
@@ -1294,6 +1328,7 @@ func (d *AIDashboard) updateStreamData(stream *DataStream) {
 				"confidence": stats.Confidence,
 			})
 		}
+
 		stream.Data = agentData
 		stream.LastUpdate = time.Now()
 	}
@@ -1311,7 +1346,7 @@ func (d *AIDashboard) notifyStreamSubscribers(stream *DataStream) {
 	}
 }
 
-// Placeholder implementations for missing methods
+// Placeholder implementations for missing methods.
 func (d *AIDashboard) collectModelMetricsData(ctx context.Context) (*ModelMetricsData, error) {
 	return &ModelMetricsData{}, nil
 }
@@ -1332,7 +1367,7 @@ func (d *AIDashboard) collectInsightsData(ctx context.Context) (*InsightsData, e
 	return &InsightsData{}, nil
 }
 
-// handleHealthData handles health data requests
+// handleHealthData handles health data requests.
 func (d *AIDashboard) handleHealthData(w http.ResponseWriter, r *http.Request) {
 	// Implementation for handling health data requests
 	w.Header().Set("Content-Type", "application/json")
@@ -1340,7 +1375,7 @@ func (d *AIDashboard) handleHealthData(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"status": "healthy"}`))
 }
 
-// handleMetricsData handles metrics data requests
+// handleMetricsData handles metrics data requests.
 func (d *AIDashboard) handleMetricsData(w http.ResponseWriter, r *http.Request) {
 	// Implementation for handling metrics data requests
 	w.Header().Set("Content-Type", "application/json")
@@ -1348,7 +1383,7 @@ func (d *AIDashboard) handleMetricsData(w http.ResponseWriter, r *http.Request) 
 	w.Write([]byte(`{"metrics": []}`))
 }
 
-// handleAlertsData handles alerts data requests
+// handleAlertsData handles alerts data requests.
 func (d *AIDashboard) handleAlertsData(w http.ResponseWriter, r *http.Request) {
 	// Implementation for handling alerts data requests
 	w.Header().Set("Content-Type", "application/json")
@@ -1356,7 +1391,7 @@ func (d *AIDashboard) handleAlertsData(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"alerts": []}`))
 }
 
-// handleTopologyData handles topology data requests
+// handleTopologyData handles topology data requests.
 func (d *AIDashboard) handleTopologyData(w http.ResponseWriter, r *http.Request) {
 	// Implementation for handling topology data requests
 	w.Header().Set("Content-Type", "application/json")
@@ -1364,7 +1399,7 @@ func (d *AIDashboard) handleTopologyData(w http.ResponseWriter, r *http.Request)
 	w.Write([]byte(`{"topology": {}}`))
 }
 
-// handleInsightsData handles insights data requests
+// handleInsightsData handles insights data requests.
 func (d *AIDashboard) handleInsightsData(w http.ResponseWriter, r *http.Request) {
 	// Implementation for handling insights data requests
 	w.Header().Set("Content-Type", "application/json")
@@ -1372,7 +1407,7 @@ func (d *AIDashboard) handleInsightsData(w http.ResponseWriter, r *http.Request)
 	w.Write([]byte(`{"insights": []}`))
 }
 
-// handleDataExport handles data export requests
+// handleDataExport handles data export requests.
 func (d *AIDashboard) handleDataExport(w http.ResponseWriter, r *http.Request) {
 	// Implementation for handling data export requests
 	w.Header().Set("Content-Type", "application/json")
@@ -1380,31 +1415,35 @@ func (d *AIDashboard) handleDataExport(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"export": "data"}`))
 }
 
-// Helper functions for map access
-func getIntFromMap(data map[string]interface{}, key string) int {
+// Helper functions for map access.
+func getIntFromMap(data map[string]any, key string) int {
 	if val, ok := data[key].(int); ok {
 		return val
 	}
+
 	return 0
 }
 
-func getInt64FromMap(data map[string]interface{}, key string) int64 {
+func getInt64FromMap(data map[string]any, key string) int64 {
 	if val, ok := data[key].(int64); ok {
 		return val
 	}
+
 	return 0
 }
 
-func getFloat64FromMap(data map[string]interface{}, key string) float64 {
+func getFloat64FromMap(data map[string]any, key string) float64 {
 	if val, ok := data[key].(float64); ok {
 		return val
 	}
+
 	return 0.0
 }
 
-func getDurationFromMap(data map[string]interface{}, key string) time.Duration {
+func getDurationFromMap(data map[string]any, key string) time.Duration {
 	if val, ok := data[key].(time.Duration); ok {
 		return val
 	}
+
 	return 0
 }

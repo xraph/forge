@@ -51,9 +51,11 @@ func TestNewManager(t *testing.T) {
 				if m.data == nil {
 					t.Error("data map not initialized")
 				}
+
 				if m.watchCallbacks == nil {
 					t.Error("watchCallbacks map not initialized")
 				}
+
 				if m.changeCallbacks == nil {
 					t.Error("changeCallbacks slice not initialized")
 				}
@@ -352,6 +354,7 @@ func TestManager_GetWithOptions(t *testing.T) {
 		if err != nil {
 			t.Errorf("GetWithOptions() error = %v, want nil", err)
 		}
+
 		if val != "test" {
 			t.Errorf("GetWithOptions() = %v, want %v", val, "test")
 		}
@@ -369,6 +372,7 @@ func TestManager_GetWithOptions(t *testing.T) {
 		if err != nil {
 			t.Errorf("GetWithOptions() error = %v, want nil", err)
 		}
+
 		if val != "default" {
 			t.Errorf("GetWithOptions() = %v, want %v", val, "default")
 		}
@@ -378,10 +382,12 @@ func TestManager_GetWithOptions(t *testing.T) {
 		transform := func(v interface{}) interface{} {
 			return "transformed"
 		}
+
 		val, err := manager.GetWithOptions("value", WithTransform(transform))
 		if err != nil {
 			t.Errorf("GetWithOptions() error = %v, want nil", err)
 		}
+
 		if val != "transformed" {
 			t.Errorf("GetWithOptions() = %v, want %v", val, "transformed")
 		}
@@ -392,6 +398,7 @@ func TestManager_GetWithOptions(t *testing.T) {
 			if v == "" {
 				return ErrValidationError("empty", nil)
 			}
+
 			return nil
 		}
 
@@ -412,10 +419,12 @@ func TestManager_GetWithOptions(t *testing.T) {
 		onMissing := func(key string) interface{} {
 			return "callback_value"
 		}
+
 		val, err := manager.GetWithOptions("missing", WithOnMissing(onMissing))
 		if err != nil {
 			t.Errorf("GetWithOptions() error = %v, want nil", err)
 		}
+
 		if val != "callback_value" {
 			t.Errorf("GetWithOptions() = %v, want %v", val, "callback_value")
 		}
@@ -434,6 +443,7 @@ func TestManager_GetStringWithOptions(t *testing.T) {
 		if err != nil {
 			t.Errorf("GetStringWithOptions() error = %v, want nil", err)
 		}
+
 		if val != "" {
 			t.Errorf("GetStringWithOptions() = %v, want empty string", val)
 		}
@@ -444,6 +454,7 @@ func TestManager_GetStringWithOptions(t *testing.T) {
 		if err != nil {
 			t.Errorf("GetStringWithOptions() error = %v, want nil", err)
 		}
+
 		if val != "fallback" {
 			t.Errorf("GetStringWithOptions() = %v, want %v", val, "fallback")
 		}
@@ -494,9 +505,11 @@ func TestManager_Reset(t *testing.T) {
 	if len(manager.data) != 0 {
 		t.Errorf("After Reset(), data length = %v, want 0", len(manager.data))
 	}
+
 	if len(manager.watchCallbacks) != 0 {
 		t.Errorf("After Reset(), watchCallbacks length = %v, want 0", len(manager.watchCallbacks))
 	}
+
 	if len(manager.changeCallbacks) != 0 {
 		t.Errorf("After Reset(), changeCallbacks length = %v, want 0", len(manager.changeCallbacks))
 	}
@@ -528,6 +541,7 @@ func TestManager_GetKeys(t *testing.T) {
 		if !expectedKeys[key] {
 			t.Errorf("Unexpected key: %s", key)
 		}
+
 		delete(expectedKeys, key)
 	}
 
@@ -715,6 +729,7 @@ func TestManager_Clone(t *testing.T) {
 
 	// Verify modifications to clone don't affect original
 	clone.Set("key1", "modified")
+
 	if orig := manager.GetString("key1"); orig != "value1" {
 		t.Errorf("Original modified after clone Set(), got %v, want %v", orig, "value1")
 	}
@@ -739,6 +754,7 @@ func TestManager_GetAllSettings(t *testing.T) {
 
 	// Verify returned map is a copy
 	allSettings["key1"] = "modified"
+
 	if orig := manager.GetString("key1"); orig != "value1" {
 		t.Error("GetAllSettings() returned non-copied map")
 	}
@@ -781,6 +797,7 @@ func TestManager_Bind(t *testing.T) {
 	}
 
 	var config TestConfig
+
 	err := manager.Bind("", &config)
 	if err != nil {
 		t.Fatalf("Bind() error = %v", err)
@@ -790,12 +807,15 @@ func TestManager_Bind(t *testing.T) {
 	if config.String != "test" {
 		t.Errorf("config.String = %v, want %v", config.String, "test")
 	}
+
 	if config.Int != 42 {
 		t.Errorf("config.Int = %v, want %v", config.Int, 42)
 	}
+
 	if config.Bool != true {
 		t.Errorf("config.Bool = %v, want %v", config.Bool, true)
 	}
+
 	if config.Nested.Key != "nested_key" {
 		t.Errorf("config.Nested.Key = %v, want %v", config.Nested.Key, "nested_key")
 	}
@@ -811,6 +831,7 @@ func TestManager_Bind_WithKey(t *testing.T) {
 	}
 
 	var nested TestNestedConfig
+
 	err := manager.Bind("section", &nested)
 	if err != nil {
 		t.Fatalf("Bind() error = %v", err)
@@ -819,6 +840,7 @@ func TestManager_Bind_WithKey(t *testing.T) {
 	if nested.Key != "value" {
 		t.Errorf("nested.Key = %v, want %v", nested.Key, "value")
 	}
+
 	if nested.Value != 99 {
 		t.Errorf("nested.Value = %v, want %v", nested.Value, 99)
 	}
@@ -832,6 +854,7 @@ func TestManager_BindWithOptions(t *testing.T) {
 
 	t.Run("with default value", func(t *testing.T) {
 		var config TestNestedConfig
+
 		defaultValue := map[string]interface{}{
 			"key":   "default_key",
 			"value": 50,
@@ -852,6 +875,7 @@ func TestManager_BindWithOptions(t *testing.T) {
 
 	t.Run("error on missing", func(t *testing.T) {
 		var config TestConfig
+
 		err := manager.BindWithOptions("nonexistent", &config, configcore.BindOptions{
 			ErrorOnMissing: true,
 		})
@@ -872,13 +896,18 @@ func TestManager_WatchWithCallback(t *testing.T) {
 	}
 
 	var mu sync.Mutex
+
 	callbackCalled := false
-	var callbackKey string
-	var callbackValue interface{}
+
+	var (
+		callbackKey   string
+		callbackValue interface{}
+	)
 
 	manager.WatchWithCallback("key", func(key string, value interface{}) {
 		mu.Lock()
 		defer mu.Unlock()
+
 		callbackCalled = true
 		callbackKey = key
 		callbackValue = value
@@ -891,17 +920,21 @@ func TestManager_WatchWithCallback(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
+
 	called := callbackCalled
 	key := callbackKey
 	value := callbackValue
+
 	mu.Unlock()
 
 	if !called {
 		t.Error("Watch callback was not called")
 	}
+
 	if key != "key" {
 		t.Errorf("callback key = %v, want %v", key, "key")
 	}
+
 	if value != "changed" {
 		t.Errorf("callback value = %v, want %v", value, "changed")
 	}
@@ -911,12 +944,15 @@ func TestManager_WatchChanges(t *testing.T) {
 	manager := NewManager(ManagerConfig{}).(*Manager)
 
 	var mu sync.Mutex
+
 	callbackCalled := false
+
 	var change ConfigChange
 
 	manager.WatchChanges(func(c ConfigChange) {
 		mu.Lock()
 		defer mu.Unlock()
+
 		callbackCalled = true
 		change = c
 	})
@@ -927,13 +963,16 @@ func TestManager_WatchChanges(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	mu.Lock()
+
 	called := callbackCalled
 	changeData := change
+
 	mu.Unlock()
 
 	if !called {
 		t.Error("Change callback was not called")
 	}
+
 	if changeData.Key != "key" {
 		t.Errorf("change.Key = %v, want %v", changeData.Key, "key")
 	}
@@ -1015,6 +1054,7 @@ func TestManager_CompatibilityAliases(t *testing.T) {
 
 	// Test UnmarshalKey
 	var value string
+
 	err := manager.UnmarshalKey("key", &value)
 	if err != nil {
 		t.Errorf("UnmarshalKey() error = %v", err)
@@ -1124,6 +1164,7 @@ func TestManager_Concurrency(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(val int) {
 			manager.Set("key", val)
+
 			done <- true
 		}(i)
 	}
@@ -1132,6 +1173,7 @@ func TestManager_Concurrency(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			_ = manager.Get("key")
+
 			done <- true
 		}()
 	}

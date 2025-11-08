@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-// OverviewData contains dashboard overview information
+// OverviewData contains dashboard overview information.
 type OverviewData struct {
 	Timestamp       time.Time              `json:"timestamp"`
 	OverallHealth   string                 `json:"overall_health"`
@@ -17,7 +17,7 @@ type OverviewData struct {
 	Summary         map[string]interface{} `json:"summary"`
 }
 
-// HealthData contains health check results
+// HealthData contains health check results.
 type HealthData struct {
 	OverallStatus string                   `json:"overall_status"`
 	Services      map[string]ServiceHealth `json:"services"`
@@ -26,7 +26,7 @@ type HealthData struct {
 	Summary       HealthSummary            `json:"summary"`
 }
 
-// ServiceHealth contains individual service health information
+// ServiceHealth contains individual service health information.
 type ServiceHealth struct {
 	Name      string                 `json:"name"`
 	Status    string                 `json:"status"`
@@ -37,7 +37,7 @@ type ServiceHealth struct {
 	Details   map[string]interface{} `json:"details,omitempty"`
 }
 
-// HealthSummary provides count of services by status
+// HealthSummary provides count of services by status.
 type HealthSummary struct {
 	Healthy   int `json:"healthy"`
 	Degraded  int `json:"degraded"`
@@ -46,14 +46,14 @@ type HealthSummary struct {
 	Total     int `json:"total"`
 }
 
-// MetricsData contains current metrics information
+// MetricsData contains current metrics information.
 type MetricsData struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Metrics   map[string]interface{} `json:"metrics"`
 	Stats     MetricsStats           `json:"stats"`
 }
 
-// MetricsStats contains metrics statistics
+// MetricsStats contains metrics statistics.
 type MetricsStats struct {
 	TotalMetrics int       `json:"total_metrics"`
 	Counters     int       `json:"counters"`
@@ -62,7 +62,7 @@ type MetricsStats struct {
 	LastUpdate   time.Time `json:"last_update"`
 }
 
-// ServiceInfo contains information about a registered service
+// ServiceInfo contains information about a registered service.
 type ServiceInfo struct {
 	Name         string    `json:"name"`
 	Type         string    `json:"type"`
@@ -70,7 +70,7 @@ type ServiceInfo struct {
 	RegisteredAt time.Time `json:"registered_at,omitempty"`
 }
 
-// DataPoint represents a time-series data point
+// DataPoint represents a time-series data point.
 type DataPoint struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Value     float64                `json:"value"`
@@ -78,7 +78,7 @@ type DataPoint struct {
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// TimeSeriesData contains time-series data
+// TimeSeriesData contains time-series data.
 type TimeSeriesData struct {
 	Name        string      `json:"name"`
 	Points      []DataPoint `json:"points"`
@@ -86,14 +86,14 @@ type TimeSeriesData struct {
 	Aggregation string      `json:"aggregation,omitempty"`
 }
 
-// HistoryData contains historical dashboard data
+// HistoryData contains historical dashboard data.
 type HistoryData struct {
 	StartTime time.Time        `json:"start_time"`
 	EndTime   time.Time        `json:"end_time"`
 	Series    []TimeSeriesData `json:"series"`
 }
 
-// ExportFormat represents data export format
+// ExportFormat represents data export format.
 type ExportFormat string
 
 const (
@@ -102,7 +102,7 @@ const (
 	ExportFormatPrometheus ExportFormat = "prometheus"
 )
 
-// DashboardSnapshot contains complete dashboard state for export
+// DashboardSnapshot contains complete dashboard state for export.
 type DashboardSnapshot struct {
 	Timestamp   time.Time     `json:"timestamp"`
 	Overview    OverviewData  `json:"overview"`
@@ -112,7 +112,7 @@ type DashboardSnapshot struct {
 	GeneratedBy string        `json:"generated_by"`
 }
 
-// ServiceDetail contains detailed information about a specific service
+// ServiceDetail contains detailed information about a specific service.
 type ServiceDetail struct {
 	Name            string                 `json:"name"`
 	Type            string                 `json:"type"`
@@ -125,7 +125,7 @@ type ServiceDetail struct {
 	Uptime          time.Duration          `json:"uptime,omitempty"`
 }
 
-// MetricsReport contains comprehensive metrics information
+// MetricsReport contains comprehensive metrics information.
 type MetricsReport struct {
 	Timestamp      time.Time          `json:"timestamp"`
 	TotalMetrics   int                `json:"total_metrics"`
@@ -136,7 +136,7 @@ type MetricsReport struct {
 	RecentActivity []MetricActivity   `json:"recent_activity"`
 }
 
-// CollectorInfo contains information about a metrics collector
+// CollectorInfo contains information about a metrics collector.
 type CollectorInfo struct {
 	Name           string    `json:"name"`
 	Type           string    `json:"type"`
@@ -145,7 +145,7 @@ type CollectorInfo struct {
 	Status         string    `json:"status"`
 }
 
-// MetricsReportStats contains statistics about metrics
+// MetricsReportStats contains statistics about metrics.
 type MetricsReportStats struct {
 	CollectionInterval time.Duration `json:"collection_interval"`
 	LastCollection     time.Time     `json:"last_collection"`
@@ -154,7 +154,7 @@ type MetricsReportStats struct {
 	Uptime             time.Duration `json:"uptime"`
 }
 
-// MetricEntry represents a single metric entry
+// MetricEntry represents a single metric entry.
 type MetricEntry struct {
 	Name      string      `json:"name"`
 	Type      string      `json:"type"`
@@ -163,7 +163,7 @@ type MetricEntry struct {
 	Timestamp time.Time   `json:"timestamp"`
 }
 
-// MetricActivity represents recent metric activity
+// MetricActivity represents recent metric activity.
 type MetricActivity struct {
 	Metric    string    `json:"metric"`
 	Action    string    `json:"action"`

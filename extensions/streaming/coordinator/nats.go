@@ -49,7 +49,7 @@ func setupNATSStreams(js nats.JetStreamContext) error {
 		Subjects: []string{"streaming.broadcast.>"},
 		MaxAge:   time.Hour,
 	})
-	if err != nil && err != nats.ErrStreamNameAlreadyInUse {
+	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 		return fmt.Errorf("failed to create broadcast stream: %w", err)
 	}
 
@@ -59,7 +59,7 @@ func setupNATSStreams(js nats.JetStreamContext) error {
 		Subjects: []string{"streaming.presence.>"},
 		MaxAge:   time.Minute * 30,
 	})
-	if err != nil && err != nats.ErrStreamNameAlreadyInUse {
+	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 		return fmt.Errorf("failed to create presence stream: %w", err)
 	}
 
@@ -69,7 +69,7 @@ func setupNATSStreams(js nats.JetStreamContext) error {
 		Subjects: []string{"streaming.state.>"},
 		MaxAge:   time.Hour * 24,
 	})
-	if err != nil && err != nats.ErrStreamNameAlreadyInUse {
+	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
 		return fmt.Errorf("failed to create state stream: %w", err)
 	}
 
@@ -79,7 +79,7 @@ func setupNATSStreams(js nats.JetStreamContext) error {
 // Start starts the coordinator.
 func (nc *natsCoordinator) Start(ctx context.Context) error {
 	if nc.running {
-		return fmt.Errorf("coordinator already running")
+		return errors.New("coordinator already running")
 	}
 
 	// Subscribe to global broadcasts
@@ -92,11 +92,12 @@ func (nc *natsCoordinator) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to global broadcasts: %w", err)
 	}
+
 	nc.subs = append(nc.subs, sub1)
 
 	// Subscribe to node-specific broadcasts
 	sub2, err := nc.js.QueueSubscribe(
-		fmt.Sprintf("streaming.broadcast.node.%s", nc.nodeID),
+		"streaming.broadcast.node."+nc.nodeID,
 		"streaming-workers",
 		nc.messageHandler,
 		nats.ManualAck(),
@@ -104,6 +105,7 @@ func (nc *natsCoordinator) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to node broadcasts: %w", err)
 	}
+
 	nc.subs = append(nc.subs, sub2)
 
 	// Subscribe to presence updates
@@ -116,6 +118,7 @@ func (nc *natsCoordinator) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to presence updates: %w", err)
 	}
+
 	nc.subs = append(nc.subs, sub3)
 
 	// Subscribe to state updates
@@ -128,9 +131,11 @@ func (nc *natsCoordinator) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to state updates: %w", err)
 	}
+
 	nc.subs = append(nc.subs, sub4)
 
 	nc.running = true
+
 	return nil
 }
 
@@ -148,9 +153,11 @@ func (nc *natsCoordinator) Stop(ctx context.Context) error {
 			// Log error but continue
 		}
 	}
+
 	nc.subs = nil
 
 	nc.running = false
+
 	return nil
 }
 
@@ -168,8 +175,9 @@ func (nc *natsCoordinator) BroadcastToNode(ctx context.Context, nodeID string, m
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	subject := fmt.Sprintf("streaming.broadcast.node.%s", nodeID)
+	subject := "streaming.broadcast.node." + nodeID
 	_, err = nc.js.Publish(subject, data)
+
 	return err
 }
 
@@ -206,8 +214,9 @@ func (nc *natsCoordinator) BroadcastToRoom(ctx context.Context, roomID string, m
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	subject := fmt.Sprintf("streaming.broadcast.room.%s", roomID)
+	subject := "streaming.broadcast.room." + roomID
 	_, err = nc.js.Publish(subject, data)
+
 	return err
 }
 
@@ -225,6 +234,7 @@ func (nc *natsCoordinator) BroadcastGlobal(ctx context.Context, msg *streaming.M
 	}
 
 	_, err = nc.js.Publish("streaming.broadcast.global", data)
+
 	return err
 }
 
@@ -242,8 +252,9 @@ func (nc *natsCoordinator) SyncPresence(ctx context.Context, presence *streaming
 		return fmt.Errorf("failed to marshal presence: %w", err)
 	}
 
-	subject := fmt.Sprintf("streaming.presence.%s", presence.UserID)
+	subject := "streaming.presence." + presence.UserID
 	_, err = nc.js.Publish(subject, data)
+
 	return err
 }
 
@@ -280,8 +291,9 @@ func (nc *natsCoordinator) SyncRoomState(ctx context.Context, roomID string, sta
 	}
 
 	// Publish update
-	subject := fmt.Sprintf("streaming.state.rooms.%s", roomID)
+	subject := "streaming.state.rooms." + roomID
 	_, err = nc.js.Publish(subject, data)
+
 	return err
 }
 
@@ -294,9 +306,10 @@ func (nc *natsCoordinator) GetUserNodes(ctx context.Context, userID string) ([]s
 
 	entry, err := kv.Get(userID)
 	if err != nil {
-		if err == nats.ErrKeyNotFound {
+		if errors.Is(err, nats.ErrKeyNotFound) {
 			return []string{}, nil
 		}
+
 		return nil, err
 	}
 
@@ -317,9 +330,10 @@ func (nc *natsCoordinator) GetRoomNodes(ctx context.Context, roomID string) ([]s
 
 	entry, err := kv.Get(roomID)
 	if err != nil {
-		if err == nats.ErrKeyNotFound {
+		if errors.Is(err, nats.ErrKeyNotFound) {
 			return []string{}, nil
 		}
+
 		return nil, err
 	}
 
@@ -364,6 +378,7 @@ func (nc *natsCoordinator) RegisterNode(ctx context.Context, nodeID string, meta
 
 	data, _ := json.Marshal(coordMsg)
 	_, err = nc.js.Publish("streaming.broadcast.global", data)
+
 	return err
 }
 
@@ -388,30 +403,35 @@ func (nc *natsCoordinator) UnregisterNode(ctx context.Context, nodeID string) er
 
 	data, _ := json.Marshal(coordMsg)
 	_, err = nc.js.Publish("streaming.broadcast.global", data)
+
 	return err
 }
 
 // Subscribe subscribes to coordinator events.
 func (nc *natsCoordinator) Subscribe(ctx context.Context, handler MessageHandler) error {
 	nc.handler = handler
+
 	return nil
 }
 
 func (nc *natsCoordinator) messageHandler(msg *nats.Msg) {
 	if nc.handler == nil {
 		msg.Ack()
+
 		return
 	}
 
 	var coordMsg CoordinatorMessage
 	if err := json.Unmarshal(msg.Data, &coordMsg); err != nil {
 		msg.Nak()
+
 		return
 	}
 
 	// Skip messages from this node
 	if coordMsg.NodeID == nc.nodeID {
 		msg.Ack()
+
 		return
 	}
 
@@ -419,6 +439,7 @@ func (nc *natsCoordinator) messageHandler(msg *nats.Msg) {
 	ctx := context.Background()
 	if err := nc.handler(ctx, &coordMsg); err != nil {
 		msg.Nak()
+
 		return
 	}
 

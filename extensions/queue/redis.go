@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// RedisQueue implements Queue interface using Redis Streams
+// RedisQueue implements Queue interface using Redis Streams.
 type RedisQueue struct {
 	config    Config
 	logger    forge.Logger
@@ -31,10 +31,10 @@ type redisConsumer struct {
 	active  bool
 }
 
-// NewRedisQueue creates a new Redis-backed queue instance
+// NewRedisQueue creates a new Redis-backed queue instance.
 func NewRedisQueue(config Config, logger forge.Logger, metrics forge.Metrics) (*RedisQueue, error) {
 	if config.URL == "" && len(config.Hosts) == 0 {
-		return nil, fmt.Errorf("redis requires URL or hosts")
+		return nil, errors.New("redis requires URL or hosts")
 	}
 
 	return &RedisQueue{
@@ -138,7 +138,7 @@ func (q *RedisQueue) DeclareQueue(ctx context.Context, name string, opts QueueOp
 
 	// Store queue metadata
 	key := fmt.Sprintf("queue:%s:meta", name)
-	meta := map[string]interface{}{
+	meta := map[string]any{
 		"name":       name,
 		"durable":    opts.Durable,
 		"created_at": time.Now().Unix(),
@@ -154,6 +154,7 @@ func (q *RedisQueue) DeclareQueue(ctx context.Context, name string, opts QueueOp
 	if err != nil {
 		return fmt.Errorf("failed to check queue existence: %w", err)
 	}
+
 	if exists > 0 {
 		return ErrQueueAlreadyExists
 	}
@@ -167,6 +168,7 @@ func (q *RedisQueue) DeclareQueue(ctx context.Context, name string, opts QueueOp
 	q.client.XGroupCreateMkStream(ctx, streamKey, "consumers", "$")
 
 	q.logger.Info("declared redis queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -190,6 +192,7 @@ func (q *RedisQueue) DeleteQueue(ctx context.Context, name string) error {
 	}
 
 	q.logger.Info("deleted redis queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -226,20 +229,22 @@ func (q *RedisQueue) GetQueueInfo(ctx context.Context, name string) (*QueueInfo,
 
 	// Get queue metadata
 	metaKey := fmt.Sprintf("queue:%s:meta", name)
+
 	data, err := q.client.Get(ctx, metaKey).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, ErrQueueNotFound
 	} else if err != nil {
 		return nil, fmt.Errorf("failed to get queue info: %w", err)
 	}
 
-	var meta map[string]interface{}
+	var meta map[string]any
 	if err := json.Unmarshal([]byte(data), &meta); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal queue metadata: %w", err)
 	}
 
 	// Get stream length
 	streamKey := fmt.Sprintf("queue:%s:stream", name)
+
 	length, err := q.client.XLen(ctx, streamKey).Result()
 	if err != nil {
 		length = 0
@@ -274,6 +279,7 @@ func (q *RedisQueue) PurgeQueue(ctx context.Context, name string) error {
 	q.client.XGroupCreateMkStream(ctx, streamKey, "consumers", "$")
 
 	q.logger.Info("purged redis queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -296,7 +302,7 @@ func (q *RedisQueue) Publish(ctx context.Context, queueName string, message Mess
 	// Add to stream
 	args := &redis.XAddArgs{
 		Stream: streamKey,
-		Values: map[string]interface{}{
+		Values: map[string]any{
 			"data":      data,
 			"timestamp": time.Now().Unix(),
 		},
@@ -328,6 +334,7 @@ func (q *RedisQueue) PublishBatch(ctx context.Context, queueName string, message
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -364,6 +371,7 @@ func (q *RedisQueue) Consume(ctx context.Context, queueName string, handler Mess
 
 	if !q.connected {
 		q.mu.Unlock()
+
 		return ErrNotConnected
 	}
 
@@ -395,12 +403,13 @@ func (q *RedisQueue) Consume(ctx context.Context, queueName string, handler Mess
 					Block:    time.Second,
 				}).Result()
 
-				if err != nil && err != redis.Nil {
+				if err != nil && !errors.Is(err, redis.Nil) {
 					q.logger.Error("failed to read from stream",
 						forge.F("queue", queueName),
 						forge.F("error", err),
 					)
 					time.Sleep(time.Second)
+
 					continue
 				}
 
@@ -417,6 +426,7 @@ func (q *RedisQueue) Consume(ctx context.Context, queueName string, handler Mess
 							q.logger.Error("failed to unmarshal message",
 								forge.F("error", err),
 							)
+
 							continue
 						}
 
@@ -446,6 +456,7 @@ func (q *RedisQueue) Consume(ctx context.Context, queueName string, handler Mess
 	}()
 
 	q.logger.Info("started redis consumer", forge.F("queue", queueName))
+
 	return nil
 }
 
@@ -462,12 +473,15 @@ func (q *RedisQueue) StopConsuming(ctx context.Context, queueName string) error 
 			if c.cancel != nil {
 				c.cancel()
 			}
+
 			c.active = false
+
 			delete(q.consumers, id)
 		}
 	}
 
 	q.logger.Info("stopped redis consumer", forge.F("queue", queueName))
+
 	return nil
 }
 
@@ -495,6 +509,7 @@ func (q *RedisQueue) GetDeadLetterQueue(ctx context.Context, queueName string) (
 	}
 
 	dlqKey := fmt.Sprintf("queue:%s:dlq", queueName)
+
 	items, err := q.client.LRange(ctx, dlqKey, 0, -1).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get DLQ: %w", err)
@@ -506,6 +521,7 @@ func (q *RedisQueue) GetDeadLetterQueue(ctx context.Context, queueName string) (
 		if err := json.Unmarshal([]byte(item), &msg); err != nil {
 			continue
 		}
+
 		messages = append(messages, msg)
 	}
 
@@ -542,6 +558,7 @@ func (q *RedisQueue) Stats(ctx context.Context) (*QueueStats, error) {
 	queues, _ := q.ListQueues(ctx)
 
 	var totalMessages int64
+
 	for _, queueName := range queues {
 		streamKey := fmt.Sprintf("queue:%s:stream", queueName)
 		length, _ := q.client.XLen(ctx, streamKey).Result()
@@ -560,7 +577,7 @@ func (q *RedisQueue) Stats(ctx context.Context) (*QueueStats, error) {
 		Uptime:          uptime,
 		Version:         "redis-7.0.0",
 		ConnectionCount: 1,
-		Extra: map[string]interface{}{
+		Extra: map[string]any{
 			"info": info,
 		},
 	}, nil

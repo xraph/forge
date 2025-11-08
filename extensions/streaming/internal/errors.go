@@ -5,15 +5,15 @@ import (
 	"fmt"
 )
 
-// Common errors
+// Common errors.
 var (
-	// Connection errors
+	// Connection errors.
 	ErrConnectionNotFound     = errors.New("connection not found")
 	ErrConnectionClosed       = errors.New("connection closed")
 	ErrConnectionLimitReached = errors.New("connection limit reached")
 	ErrInvalidConnection      = errors.New("invalid connection")
 
-	// Room errors
+	// Room errors.
 	ErrRoomNotFound      = errors.New("room not found")
 	ErrRoomAlreadyExists = errors.New("room already exists")
 	ErrRoomFull          = errors.New("room is full")
@@ -22,41 +22,41 @@ var (
 	ErrInvalidRoom       = errors.New("invalid room")
 	ErrRoomLimitReached  = errors.New("room limit reached")
 
-	// Channel errors
+	// Channel errors.
 	ErrChannelNotFound      = errors.New("channel not found")
 	ErrChannelAlreadyExists = errors.New("channel already exists")
 	ErrNotSubscribed        = errors.New("not subscribed to channel")
 	ErrAlreadySubscribed    = errors.New("already subscribed to channel")
 	ErrInvalidChannel       = errors.New("invalid channel")
 
-	// Permission errors
+	// Permission errors.
 	ErrPermissionDenied  = errors.New("permission denied")
 	ErrInvalidPermission = errors.New("invalid permission")
 	ErrInsufficientRole  = errors.New("insufficient role")
 
-	// Message errors
+	// Message errors.
 	ErrMessageTooLarge = errors.New("message too large")
 	ErrInvalidMessage  = errors.New("invalid message")
 	ErrMessageNotFound = errors.New("message not found")
 
-	// Presence errors
+	// Presence errors.
 	ErrPresenceNotFound = errors.New("presence not found")
 	ErrInvalidStatus    = errors.New("invalid status")
 
-	// Invite errors
+	// Invite errors.
 	ErrInviteNotFound = errors.New("invite not found")
 	ErrInviteExpired  = errors.New("invite expired")
 
-	// Backend errors
+	// Backend errors.
 	ErrBackendNotConnected = errors.New("backend not connected")
 	ErrBackendTimeout      = errors.New("backend operation timeout")
 	ErrBackendUnavailable  = errors.New("backend unavailable")
 
-	// Configuration errors
+	// Configuration errors.
 	ErrInvalidConfig = errors.New("invalid configuration")
 	ErrMissingConfig = errors.New("missing required configuration")
 
-	// Distributed errors
+	// Distributed errors.
 	ErrNodeNotFound          = errors.New("node not found")
 	ErrLockAcquisitionFailed = errors.New("failed to acquire lock")
 	ErrLockNotHeld           = errors.New("lock not held")
@@ -89,6 +89,7 @@ func (e *RoomError) Error() string {
 	if e.UserID != "" {
 		return fmt.Sprintf("room %s (user %s): %s: %v", e.RoomID, e.UserID, e.Op, e.Err)
 	}
+
 	return fmt.Sprintf("room %s: %s: %v", e.RoomID, e.Op, e.Err)
 }
 

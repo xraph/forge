@@ -31,10 +31,11 @@ func NewTestAppWithConfig(config forge.AppConfig) forge.App {
 	if config.Logger == nil {
 		config.Logger = logger.NewNoopLogger()
 	}
+
 	return forge.NewApp(config)
 }
 
-// NewQuietApp is an alias for NewTestApp - creates a silent test app
+// NewQuietApp is an alias for NewTestApp - creates a silent test app.
 func NewQuietApp(name, version string) forge.App {
 	return NewTestApp(name, version)
 }

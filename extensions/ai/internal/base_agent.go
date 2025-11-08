@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// BaseAgent provides a base implementation for AI agents
+// BaseAgent provides a base implementation for AI agents.
 type BaseAgent struct {
 	id           string
 	name         string
@@ -33,7 +33,7 @@ type BaseAgent struct {
 	lastLearning time.Time
 }
 
-// NewBaseAgent creates a new base agent
+// NewBaseAgent creates a new base agent.
 func NewBaseAgent(id, name string, agentType AgentType, capabilities []Capability) *BaseAgent {
 	return &BaseAgent{
 		id:           id,
@@ -48,27 +48,27 @@ func NewBaseAgent(id, name string, agentType AgentType, capabilities []Capabilit
 	}
 }
 
-// ID returns the agent ID
+// ID returns the agent ID.
 func (a *BaseAgent) ID() string {
 	return a.id
 }
 
-// Name returns the agent name
+// Name returns the agent name.
 func (a *BaseAgent) Name() string {
 	return a.name
 }
 
-// Type returns the agent type
+// Type returns the agent type.
 func (a *BaseAgent) Type() AgentType {
 	return a.agentType
 }
 
-// Capabilities returns the agent capabilities
+// Capabilities returns the agent capabilities.
 func (a *BaseAgent) Capabilities() []Capability {
 	return a.capabilities
 }
 
-// Initialize initializes the agent
+// Initialize initializes the agent.
 func (a *BaseAgent) Initialize(ctx context.Context, config AgentConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -80,6 +80,7 @@ func (a *BaseAgent) Initialize(ctx context.Context, config AgentConfig) error {
 	if maxConcurrency <= 0 {
 		maxConcurrency = 10
 	}
+
 	a.processingSem = make(chan struct{}, maxConcurrency)
 
 	// Initialize learning data
@@ -97,7 +98,7 @@ func (a *BaseAgent) Initialize(ctx context.Context, config AgentConfig) error {
 	return nil
 }
 
-// Start starts the agent
+// Start starts the agent.
 func (a *BaseAgent) Start(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -126,7 +127,7 @@ func (a *BaseAgent) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the agent
+// Stop stops the agent.
 func (a *BaseAgent) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -154,7 +155,7 @@ func (a *BaseAgent) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Process processes input through the agent (base implementation)
+// Process processes input through the agent (base implementation).
 func (a *BaseAgent) Process(ctx context.Context, input AgentInput) (AgentOutput, error) {
 	// Acquire processing slot
 	select {
@@ -178,7 +179,7 @@ func (a *BaseAgent) Process(ctx context.Context, input AgentInput) (AgentOutput,
 		Confidence:  a.confidence,
 		Explanation: fmt.Sprintf("Processed by %s agent", a.name),
 		Actions:     []AgentAction{},
-		Metadata:    map[string]interface{}{},
+		Metadata:    map[string]any{},
 		Timestamp:   time.Now(),
 	}
 
@@ -202,7 +203,7 @@ func (a *BaseAgent) Process(ctx context.Context, input AgentInput) (AgentOutput,
 	return output, nil
 }
 
-// Learn learns from feedback (base implementation)
+// Learn learns from feedback (base implementation).
 func (a *BaseAgent) Learn(ctx context.Context, feedback AgentFeedback) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -251,7 +252,7 @@ func (a *BaseAgent) Learn(ctx context.Context, feedback AgentFeedback) error {
 	return nil
 }
 
-// GetStats returns agent statistics
+// GetStats returns agent statistics.
 func (a *BaseAgent) GetStats() AgentStats {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -269,6 +270,7 @@ func (a *BaseAgent) GetStats() AgentStats {
 	// Calculate learning metrics
 	positiveFeedback := int64(0)
 	negativeFeedback := int64(0)
+
 	for _, feedback := range a.learningData {
 		if feedback.Success {
 			positiveFeedback++
@@ -278,6 +280,7 @@ func (a *BaseAgent) GetStats() AgentStats {
 	}
 
 	var accuracyScore float64
+
 	totalFeedback := positiveFeedback + negativeFeedback
 	if totalFeedback > 0 {
 		accuracyScore = float64(positiveFeedback) / float64(totalFeedback)
@@ -302,7 +305,7 @@ func (a *BaseAgent) GetStats() AgentStats {
 	}
 }
 
-// GetHealth returns agent health status
+// GetHealth returns agent health status.
 func (a *BaseAgent) GetHealth() AgentHealth {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -324,7 +327,7 @@ func (a *BaseAgent) GetHealth() AgentHealth {
 	}
 
 	a.health.CheckedAt = time.Now()
-	a.health.Details = map[string]interface{}{
+	a.health.Details = map[string]any{
 		"requests_processed": a.requestCount,
 		"error_count":        a.errorCount,
 		"confidence":         a.confidence,
@@ -334,7 +337,7 @@ func (a *BaseAgent) GetHealth() AgentHealth {
 	return a.health
 }
 
-// updateStats updates agent statistics
+// updateStats updates agent statistics.
 func (a *BaseAgent) updateStats(latency time.Duration, err error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -346,44 +349,49 @@ func (a *BaseAgent) updateStats(latency time.Duration, err error) {
 	}
 }
 
-// HasCapability checks if the agent has a specific capability
+// HasCapability checks if the agent has a specific capability.
 func (a *BaseAgent) HasCapability(capabilityName string) bool {
 	for _, capability := range a.capabilities {
 		if capability.Name == capabilityName {
 			return true
 		}
 	}
+
 	return false
 }
 
-// GetCapability returns a specific capability
+// GetCapability returns a specific capability.
 func (a *BaseAgent) GetCapability(capabilityName string) (*Capability, error) {
 	for _, capability := range a.capabilities {
 		if capability.Name == capabilityName {
 			return &capability, nil
 		}
 	}
+
 	return nil, fmt.Errorf("capability %s not found", capabilityName)
 }
 
-// IsHealthy returns true if the agent is healthy
+// IsHealthy returns true if the agent is healthy.
 func (a *BaseAgent) IsHealthy() bool {
 	health := a.GetHealth()
+
 	return health.Status == AgentHealthStatusHealthy
 }
 
-// GetConfiguration returns the agent configuration
+// GetConfiguration returns the agent configuration.
 func (a *BaseAgent) GetConfiguration() AgentConfig {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+
 	return a.config
 }
 
-// SetConfiguration updates the agent configuration
+// SetConfiguration updates the agent configuration.
 func (a *BaseAgent) SetConfiguration(config AgentConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	a.config = config
+
 	return nil
 }

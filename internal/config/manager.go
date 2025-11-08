@@ -7,6 +7,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"strconv"
@@ -16,26 +17,27 @@ import (
 
 	configcore "github.com/xraph/forge/internal/config/core"
 	configformats "github.com/xraph/forge/internal/config/formats"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
 
-// ManagerKey is the DI key for the config manager service
+// ManagerKey is the DI key for the config manager service.
 const ManagerKey = shared.ConfigKey
 
 // =============================================================================
 // MANAGER IMPLEMENTATION
 // =============================================================================
 
-// Manager implements an enhanced configuration manager that extends ConfigManager
+// Manager implements an enhanced configuration manager that extends ConfigManager.
 type Manager struct {
 	sources         []ConfigSource
 	registry        SourceRegistry
 	loader          *configformats.Loader
 	validator       *Validator
 	watcher         *Watcher
-	data            map[string]interface{}
-	watchCallbacks  map[string][]func(string, interface{})
+	data            map[string]any
+	watchCallbacks  map[string][]func(string, any)
 	changeCallbacks []func(ConfigChange)
 	mu              sync.RWMutex
 	watchCtx        context.Context
@@ -47,38 +49,40 @@ type Manager struct {
 	secretsManager  configcore.SecretsManager
 }
 
-// ManagerConfig contains configuration for the config manager
+// ManagerConfig contains configuration for the config manager.
 type ManagerConfig struct {
-	DefaultSources  []SourceConfig      `yaml:"default_sources" json:"default_sources"`
-	WatchInterval   time.Duration       `yaml:"watch_interval" json:"watch_interval"`
-	ValidationMode  ValidationMode      `yaml:"validation_mode" json:"validation_mode"`
-	SecretsEnabled  bool                `yaml:"secrets_enabled" json:"secrets_enabled"`
-	CacheEnabled    bool                `yaml:"cache_enabled" json:"cache_enabled"`
-	ReloadOnChange  bool                `yaml:"reload_on_change" json:"reload_on_change"`
-	ErrorRetryCount int                 `yaml:"error_retry_count" json:"error_retry_count"`
-	ErrorRetryDelay time.Duration       `yaml:"error_retry_delay" json:"error_retry_delay"`
-	MetricsEnabled  bool                `yaml:"metrics_enabled" json:"metrics_enabled"`
-	Logger          logger.Logger       `yaml:"-" json:"-"`
-	Metrics         shared.Metrics      `yaml:"-" json:"-"`
-	ErrorHandler    shared.ErrorHandler `yaml:"-" json:"-"`
+	DefaultSources  []SourceConfig      `json:"default_sources"   yaml:"default_sources"`
+	WatchInterval   time.Duration       `json:"watch_interval"    yaml:"watch_interval"`
+	ValidationMode  ValidationMode      `json:"validation_mode"   yaml:"validation_mode"`
+	SecretsEnabled  bool                `json:"secrets_enabled"   yaml:"secrets_enabled"`
+	CacheEnabled    bool                `json:"cache_enabled"     yaml:"cache_enabled"`
+	ReloadOnChange  bool                `json:"reload_on_change"  yaml:"reload_on_change"`
+	ErrorRetryCount int                 `json:"error_retry_count" yaml:"error_retry_count"`
+	ErrorRetryDelay time.Duration       `json:"error_retry_delay" yaml:"error_retry_delay"`
+	MetricsEnabled  bool                `json:"metrics_enabled"   yaml:"metrics_enabled"`
+	Logger          logger.Logger       `json:"-"                 yaml:"-"`
+	Metrics         shared.Metrics      `json:"-"                 yaml:"-"`
+	ErrorHandler    shared.ErrorHandler `json:"-"                 yaml:"-"`
 }
 
-// NewManager creates a new enhanced configuration manager
+// NewManager creates a new enhanced configuration manager.
 func NewManager(config ManagerConfig) ConfigManager {
 	if config.WatchInterval == 0 {
 		config.WatchInterval = 30 * time.Second
 	}
+
 	if config.ErrorRetryCount == 0 {
 		config.ErrorRetryCount = 3
 	}
+
 	if config.ErrorRetryDelay == 0 {
 		config.ErrorRetryDelay = 5 * time.Second
 	}
 
 	manager := &Manager{
 		sources:         make([]ConfigSource, 0),
-		data:            make(map[string]interface{}),
-		watchCallbacks:  make(map[string][]func(string, interface{})),
+		data:            make(map[string]any),
+		watchCallbacks:  make(map[string][]func(string, any)),
 		changeCallbacks: make([]func(ConfigChange), 0),
 		logger:          config.Logger,
 		metrics:         config.Metrics,
@@ -127,32 +131,36 @@ func (m *Manager) SecretsManager() SecretsManager {
 // SIMPLE API - VARIADIC DEFAULTS
 // =============================================================================
 
-// Get returns a configuration value
-func (m *Manager) Get(key string) interface{} {
+// Get returns a configuration value.
+func (m *Manager) Get(key string) any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.getValue(key)
 }
 
-// GetString returns a string value with optional default
+// GetString returns a string value with optional default.
 func (m *Manager) GetString(key string, defaultValue ...string) string {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return ""
 	}
+
 	return m.convertToString(value)
 }
 
-// GetInt returns an int value with optional default
+// GetInt returns an int value with optional default.
 func (m *Manager) GetInt(key string, defaultValue ...int) int {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -190,16 +198,18 @@ func (m *Manager) GetInt(key string, defaultValue ...int) int {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetInt8 returns an int8 value with optional default
+// GetInt8 returns an int8 value with optional default.
 func (m *Manager) GetInt8(key string, defaultValue ...int8) int8 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -243,16 +253,18 @@ func (m *Manager) GetInt8(key string, defaultValue ...int8) int8 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetInt16 returns an int16 value with optional default
+// GetInt16 returns an int16 value with optional default.
 func (m *Manager) GetInt16(key string, defaultValue ...int16) int16 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -294,16 +306,18 @@ func (m *Manager) GetInt16(key string, defaultValue ...int16) int16 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetInt32 returns an int32 value with optional default
+// GetInt32 returns an int32 value with optional default.
 func (m *Manager) GetInt32(key string, defaultValue ...int32) int32 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -333,16 +347,18 @@ func (m *Manager) GetInt32(key string, defaultValue ...int32) int32 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetInt64 returns an int64 value with optional default
+// GetInt64 returns an int64 value with optional default.
 func (m *Manager) GetInt64(key string, defaultValue ...int64) int64 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -372,16 +388,18 @@ func (m *Manager) GetInt64(key string, defaultValue ...int64) int64 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetUint returns a uint value with optional default
+// GetUint returns a uint value with optional default.
 func (m *Manager) GetUint(key string, defaultValue ...uint) uint {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -417,16 +435,18 @@ func (m *Manager) GetUint(key string, defaultValue ...uint) uint {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetUint8 returns a uint8 value with optional default
+// GetUint8 returns a uint8 value with optional default.
 func (m *Manager) GetUint8(key string, defaultValue ...uint8) uint8 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -466,16 +486,18 @@ func (m *Manager) GetUint8(key string, defaultValue ...uint8) uint8 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetUint16 returns a uint16 value with optional default
+// GetUint16 returns a uint16 value with optional default.
 func (m *Manager) GetUint16(key string, defaultValue ...uint16) uint16 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -507,16 +529,18 @@ func (m *Manager) GetUint16(key string, defaultValue ...uint16) uint16 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetUint32 returns a uint32 value with optional default
+// GetUint32 returns a uint32 value with optional default.
 func (m *Manager) GetUint32(key string, defaultValue ...uint32) uint32 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -548,16 +572,18 @@ func (m *Manager) GetUint32(key string, defaultValue ...uint32) uint32 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetUint64 returns a uint64 value with optional default
+// GetUint64 returns a uint64 value with optional default.
 func (m *Manager) GetUint64(key string, defaultValue ...uint64) uint64 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -593,16 +619,18 @@ func (m *Manager) GetUint64(key string, defaultValue ...uint64) uint64 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetFloat32 returns a float32 value with optional default
+// GetFloat32 returns a float32 value with optional default.
 func (m *Manager) GetFloat32(key string, defaultValue ...float32) float32 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -628,16 +656,18 @@ func (m *Manager) GetFloat32(key string, defaultValue ...float32) float32 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetFloat64 returns a float64 value with optional default
+// GetFloat64 returns a float64 value with optional default.
 func (m *Manager) GetFloat64(key string, defaultValue ...float64) float64 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -663,16 +693,18 @@ func (m *Manager) GetFloat64(key string, defaultValue ...float64) float64 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetBool returns a bool value with optional default
+// GetBool returns a bool value with optional default.
 func (m *Manager) GetBool(key string, defaultValue ...bool) bool {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return false
 	}
 
@@ -692,16 +724,18 @@ func (m *Manager) GetBool(key string, defaultValue ...bool) bool {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return false
 }
 
-// GetDuration returns a duration value with optional default
+// GetDuration returns a duration value with optional default.
 func (m *Manager) GetDuration(key string, defaultValue ...time.Duration) time.Duration {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -721,16 +755,18 @@ func (m *Manager) GetDuration(key string, defaultValue ...time.Duration) time.Du
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetTime returns a time value with optional default
+// GetTime returns a time value with optional default.
 func (m *Manager) GetTime(key string, defaultValue ...time.Time) time.Time {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return time.Time{}
 	}
 
@@ -759,16 +795,18 @@ func (m *Manager) GetTime(key string, defaultValue ...time.Time) time.Time {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return time.Time{}
 }
 
-// GetSizeInBytes returns size in bytes with optional default
+// GetSizeInBytes returns size in bytes with optional default.
 func (m *Manager) GetSizeInBytes(key string, defaultValue ...uint64) uint64 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return 0
 	}
 
@@ -792,60 +830,68 @@ func (m *Manager) GetSizeInBytes(key string, defaultValue ...uint64) uint64 {
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return 0
 }
 
-// GetStringSlice returns a string slice with optional default
+// GetStringSlice returns a string slice with optional default.
 func (m *Manager) GetStringSlice(key string, defaultValue ...[]string) []string {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return nil
 	}
 
 	switch v := value.(type) {
 	case []string:
 		return v
-	case []interface{}:
+	case []any:
 		result := make([]string, len(v))
 		for i, item := range v {
 			result[i] = fmt.Sprintf("%v", item)
 		}
+
 		return result
 	case string:
 		if strings.Contains(v, ",") {
 			parts := strings.Split(v, ",")
+
 			result := make([]string, len(parts))
 			for i, part := range parts {
 				result[i] = strings.TrimSpace(part)
 			}
+
 			return result
 		}
+
 		return []string{v}
 	}
 
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return nil
 }
 
-// GetIntSlice returns an int slice with optional default
+// GetIntSlice returns an int slice with optional default.
 func (m *Manager) GetIntSlice(key string, defaultValue ...[]int) []int {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return nil
 	}
 
 	switch v := value.(type) {
 	case []int:
 		return v
-	case []interface{}:
+	case []any:
 		result := make([]int, 0, len(v))
 		for _, item := range v {
 			switch i := item.(type) {
@@ -859,29 +905,32 @@ func (m *Manager) GetIntSlice(key string, defaultValue ...[]int) []int {
 				}
 			}
 		}
+
 		return result
 	}
 
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return nil
 }
 
-// GetInt64Slice returns an int64 slice with optional default
+// GetInt64Slice returns an int64 slice with optional default.
 func (m *Manager) GetInt64Slice(key string, defaultValue ...[]int64) []int64 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return nil
 	}
 
 	switch v := value.(type) {
 	case []int64:
 		return v
-	case []interface{}:
+	case []any:
 		result := make([]int64, 0, len(v))
 		for _, item := range v {
 			switch i := item.(type) {
@@ -897,29 +946,32 @@ func (m *Manager) GetInt64Slice(key string, defaultValue ...[]int64) []int64 {
 				}
 			}
 		}
+
 		return result
 	}
 
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return nil
 }
 
-// GetFloat64Slice returns a float64 slice with optional default
+// GetFloat64Slice returns a float64 slice with optional default.
 func (m *Manager) GetFloat64Slice(key string, defaultValue ...[]float64) []float64 {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return nil
 	}
 
 	switch v := value.(type) {
 	case []float64:
 		return v
-	case []interface{}:
+	case []any:
 		result := make([]float64, 0, len(v))
 		for _, item := range v {
 			switch f := item.(type) {
@@ -935,29 +987,32 @@ func (m *Manager) GetFloat64Slice(key string, defaultValue ...[]float64) []float
 				}
 			}
 		}
+
 		return result
 	}
 
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return nil
 }
 
-// GetBoolSlice returns a bool slice with optional default
+// GetBoolSlice returns a bool slice with optional default.
 func (m *Manager) GetBoolSlice(key string, defaultValue ...[]bool) []bool {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return nil
 	}
 
 	switch v := value.(type) {
 	case []bool:
 		return v
-	case []interface{}:
+	case []any:
 		result := make([]bool, 0, len(v))
 		for _, item := range v {
 			switch b := item.(type) {
@@ -971,88 +1026,99 @@ func (m *Manager) GetBoolSlice(key string, defaultValue ...[]bool) []bool {
 				result = append(result, b != 0)
 			}
 		}
+
 		return result
 	}
 
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return nil
 }
 
-// GetStringMap returns a string map with optional default
+// GetStringMap returns a string map with optional default.
 func (m *Manager) GetStringMap(key string, defaultValue ...map[string]string) map[string]string {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return nil
 	}
 
 	switch v := value.(type) {
 	case map[string]string:
 		return v
-	case map[string]interface{}:
+	case map[string]any:
 		result := make(map[string]string)
 		for k, val := range v {
 			result[k] = fmt.Sprintf("%v", val)
 		}
+
 		return result
-	case map[interface{}]interface{}:
+	case map[any]any:
 		result := make(map[string]string)
 		for k, val := range v {
 			result[fmt.Sprintf("%v", k)] = fmt.Sprintf("%v", val)
 		}
+
 		return result
 	}
 
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return nil
 }
 
-// GetStringMapString is an alias for GetStringMap
+// GetStringMapString is an alias for GetStringMap.
 func (m *Manager) GetStringMapString(key string, defaultValue ...map[string]string) map[string]string {
 	return m.GetStringMap(key, defaultValue...)
 }
 
-// GetStringMapStringSlice returns a map of string slices with optional default
+// GetStringMapStringSlice returns a map of string slices with optional default.
 func (m *Manager) GetStringMapStringSlice(key string, defaultValue ...map[string][]string) map[string][]string {
 	value := m.Get(key)
 	if value == nil {
 		if len(defaultValue) > 0 {
 			return defaultValue[0]
 		}
+
 		return nil
 	}
 
 	switch v := value.(type) {
 	case map[string][]string:
 		return v
-	case map[string]interface{}:
+	case map[string]any:
 		result := make(map[string][]string)
+
 		for k, val := range v {
 			switch slice := val.(type) {
 			case []string:
 				result[k] = slice
-			case []interface{}:
+			case []any:
 				strSlice := make([]string, len(slice))
 				for i, item := range slice {
 					strSlice[i] = fmt.Sprintf("%v", item)
 				}
+
 				result[k] = strSlice
 			case string:
 				result[k] = []string{slice}
 			}
 		}
+
 		return result
 	}
 
 	if len(defaultValue) > 0 {
 		return defaultValue[0]
 	}
+
 	return nil
 }
 
@@ -1060,8 +1126,8 @@ func (m *Manager) GetStringMapStringSlice(key string, defaultValue ...map[string
 // ADVANCED API - FUNCTIONAL OPTIONS
 // =============================================================================
 
-// GetWithOptions returns a value with advanced options
-func (m *Manager) GetWithOptions(key string, opts ...configcore.GetOption) (interface{}, error) {
+// GetWithOptions returns a value with advanced options.
+func (m *Manager) GetWithOptions(key string, opts ...configcore.GetOption) (any, error) {
 	options := &configcore.GetOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -1074,6 +1140,7 @@ func (m *Manager) GetWithOptions(key string, opts ...configcore.GetOption) (inte
 		if options.Required {
 			return nil, ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
 		}
+
 		if options.OnMissing != nil {
 			value = options.OnMissing(key)
 		} else if options.Default != nil {
@@ -1098,7 +1165,7 @@ func (m *Manager) GetWithOptions(key string, opts ...configcore.GetOption) (inte
 	return value, nil
 }
 
-// GetStringWithOptions returns a string with advanced options
+// GetStringWithOptions returns a string with advanced options.
 func (m *Manager) GetStringWithOptions(key string, opts ...configcore.GetOption) (string, error) {
 	options := &configcore.GetOptions{}
 	for _, opt := range opts {
@@ -1112,6 +1179,7 @@ func (m *Manager) GetStringWithOptions(key string, opts ...configcore.GetOption)
 		if options.Required {
 			return "", ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
 		}
+
 		if options.OnMissing != nil {
 			value = options.OnMissing(key)
 		} else if options.Default != nil {
@@ -1134,6 +1202,7 @@ func (m *Manager) GetStringWithOptions(key string, opts ...configcore.GetOption)
 		if options.Required {
 			return "", ErrConfigError(fmt.Sprintf("key '%s' is empty", key), nil)
 		}
+
 		if options.Default != nil {
 			if defaultStr, ok := options.Default.(string); ok {
 				result = defaultStr
@@ -1151,7 +1220,7 @@ func (m *Manager) GetStringWithOptions(key string, opts ...configcore.GetOption)
 	return result, nil
 }
 
-// GetIntWithOptions returns an int with advanced options
+// GetIntWithOptions returns an int with advanced options.
 func (m *Manager) GetIntWithOptions(key string, opts ...configcore.GetOption) (int, error) {
 	options := &configcore.GetOptions{}
 	for _, opt := range opts {
@@ -1165,6 +1234,7 @@ func (m *Manager) GetIntWithOptions(key string, opts ...configcore.GetOption) (i
 		if options.Required {
 			return 0, ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
 		}
+
 		if options.OnMissing != nil {
 			value = options.OnMissing(key)
 		} else if options.Default != nil {
@@ -1203,7 +1273,7 @@ func (m *Manager) GetIntWithOptions(key string, opts ...configcore.GetOption) (i
 	return int(result), nil
 }
 
-// GetBoolWithOptions returns a bool with advanced options
+// GetBoolWithOptions returns a bool with advanced options.
 func (m *Manager) GetBoolWithOptions(key string, opts ...configcore.GetOption) (bool, error) {
 	options := &configcore.GetOptions{}
 	for _, opt := range opts {
@@ -1217,6 +1287,7 @@ func (m *Manager) GetBoolWithOptions(key string, opts ...configcore.GetOption) (
 		if options.Required {
 			return false, ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
 		}
+
 		if options.OnMissing != nil {
 			value = options.OnMissing(key)
 		} else if options.Default != nil {
@@ -1255,7 +1326,7 @@ func (m *Manager) GetBoolWithOptions(key string, opts ...configcore.GetOption) (
 	return result, nil
 }
 
-// GetDurationWithOptions returns a duration with advanced options
+// GetDurationWithOptions returns a duration with advanced options.
 func (m *Manager) GetDurationWithOptions(key string, opts ...configcore.GetOption) (time.Duration, error) {
 	options := &configcore.GetOptions{}
 	for _, opt := range opts {
@@ -1269,6 +1340,7 @@ func (m *Manager) GetDurationWithOptions(key string, opts ...configcore.GetOptio
 		if options.Required {
 			return 0, ErrConfigError(fmt.Sprintf("required key '%s' not found", key), nil)
 		}
+
 		if options.OnMissing != nil {
 			value = options.OnMissing(key)
 		} else if options.Default != nil {
@@ -1287,11 +1359,13 @@ func (m *Manager) GetDurationWithOptions(key string, opts ...configcore.GetOptio
 
 	// Convert to duration
 	var result time.Duration
+
 	switch v := value.(type) {
 	case time.Duration:
 		result = v
 	case string:
 		var err error
+
 		result, err = time.ParseDuration(v)
 		if err != nil {
 			if options.Default != nil {
@@ -1328,7 +1402,7 @@ func (m *Manager) GetDurationWithOptions(key string, opts ...configcore.GetOptio
 // LIFECYCLE METHODS (continuing from previous implementation)
 // =============================================================================
 
-// LoadFrom loads configuration from multiple sources
+// LoadFrom loads configuration from multiple sources.
 func (m *Manager) LoadFrom(sources ...ConfigSource) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1341,8 +1415,9 @@ func (m *Manager) LoadFrom(sources ...ConfigSource) error {
 
 	for _, source := range sources {
 		if err := m.registry.RegisterSource(source); err != nil {
-			return ErrConfigError(fmt.Sprintf("failed to register source %s", source.Name()), err)
+			return ErrConfigError("failed to register source "+source.Name(), err)
 		}
+
 		m.sources = append(m.sources, source)
 	}
 
@@ -1363,13 +1438,13 @@ func (m *Manager) LoadFrom(sources ...ConfigSource) error {
 	return nil
 }
 
-// Watch starts watching for configuration changes
+// Watch starts watching for configuration changes.
 func (m *Manager) Watch(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.started {
-		return ErrLifecycleError("watch", fmt.Errorf("configuration manager already watching"))
+		return ErrLifecycleError("watch", errors.New("configuration manager already watching"))
 	}
 
 	m.watchCtx, m.watchCancel = context.WithCancel(ctx)
@@ -1400,12 +1475,12 @@ func (m *Manager) Watch(ctx context.Context) error {
 	return nil
 }
 
-// Reload forces a reload of all configuration sources
+// Reload forces a reload of all configuration sources.
 func (m *Manager) Reload() error {
 	return m.ReloadContext(context.Background())
 }
 
-// ReloadContext forces a reload with context
+// ReloadContext forces a reload with context.
 func (m *Manager) ReloadContext(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1434,15 +1509,16 @@ func (m *Manager) ReloadContext(ctx context.Context) error {
 	return nil
 }
 
-// Validate validates the current configuration
+// Validate validates the current configuration.
 func (m *Manager) Validate() error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.validator.ValidateAll(m.data)
 }
 
-// Set sets a configuration value
-func (m *Manager) Set(key string, value interface{}) {
+// Set sets a configuration value.
+func (m *Manager) Set(key string, value any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1465,12 +1541,12 @@ func (m *Manager) Set(key string, value interface{}) {
 // BINDING METHODS
 // =============================================================================
 
-// Bind binds configuration to a struct
-func (m *Manager) Bind(key string, target interface{}) error {
+// Bind binds configuration to a struct.
+func (m *Manager) Bind(key string, target any) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var data interface{}
+	var data any
 	if key == "" {
 		data = m.data
 	} else {
@@ -1484,8 +1560,8 @@ func (m *Manager) Bind(key string, target interface{}) error {
 	return m.bindValue(data, target)
 }
 
-// BindWithDefault binds with a default value
-func (m *Manager) BindWithDefault(key string, target interface{}, defaultValue interface{}) error {
+// BindWithDefault binds with a default value.
+func (m *Manager) BindWithDefault(key string, target any, defaultValue any) error {
 	return m.BindWithOptions(key, target, configcore.BindOptions{
 		DefaultValue:   defaultValue,
 		UseDefaults:    true,
@@ -1495,12 +1571,12 @@ func (m *Manager) BindWithDefault(key string, target interface{}, defaultValue i
 	})
 }
 
-// BindWithOptions binds with flexible options
-func (m *Manager) BindWithOptions(key string, target interface{}, options configcore.BindOptions) error {
+// BindWithOptions binds with flexible options.
+func (m *Manager) BindWithOptions(key string, target any, options configcore.BindOptions) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var data interface{}
+	var data any
 	if key == "" {
 		data = m.data
 	} else {
@@ -1511,12 +1587,13 @@ func (m *Manager) BindWithOptions(key string, target interface{}, options config
 		if options.DefaultValue != nil {
 			data = options.DefaultValue
 		} else if options.UseDefaults {
-			data = make(map[string]interface{})
+			data = make(map[string]any)
 		} else {
 			if options.ErrorOnMissing {
 				return ErrConfigError(fmt.Sprintf("no configuration found for key '%s'", key), nil)
 			}
-			data = make(map[string]interface{})
+
+			data = make(map[string]any)
 		}
 	}
 
@@ -1527,21 +1604,23 @@ func (m *Manager) BindWithOptions(key string, target interface{}, options config
 // WATCH AND CHANGE CALLBACKS
 // =============================================================================
 
-// WatchWithCallback registers a callback for key changes
-func (m *Manager) WatchWithCallback(key string, callback func(string, interface{})) {
+// WatchWithCallback registers a callback for key changes.
+func (m *Manager) WatchWithCallback(key string, callback func(string, any)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.watchCallbacks[key] == nil {
-		m.watchCallbacks[key] = make([]func(string, interface{}), 0)
+		m.watchCallbacks[key] = make([]func(string, any), 0)
 	}
+
 	m.watchCallbacks[key] = append(m.watchCallbacks[key], callback)
 }
 
-// WatchChanges registers a callback for all changes
+// WatchChanges registers a callback for all changes.
 func (m *Manager) WatchChanges(callback func(ConfigChange)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.changeCallbacks = append(m.changeCallbacks, callback)
 }
 
@@ -1549,61 +1628,68 @@ func (m *Manager) WatchChanges(callback func(ConfigChange)) {
 // METADATA AND INTROSPECTION
 // =============================================================================
 
-// GetSourceMetadata returns metadata for all sources
+// GetSourceMetadata returns metadata for all sources.
 func (m *Manager) GetSourceMetadata() map[string]*SourceMetadata {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.registry.GetAllMetadata()
 }
 
-// GetKeys returns all configuration keys
+// GetKeys returns all configuration keys.
 func (m *Manager) GetKeys() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.getAllKeys(m.data, "")
 }
 
-// GetSection returns a configuration section
-func (m *Manager) GetSection(key string) map[string]interface{} {
+// GetSection returns a configuration section.
+func (m *Manager) GetSection(key string) map[string]any {
 	value := m.Get(key)
 	if value == nil {
 		return nil
 	}
-	if section, ok := value.(map[string]interface{}); ok {
+
+	if section, ok := value.(map[string]any); ok {
 		return section
 	}
+
 	return nil
 }
 
-// HasKey checks if a key exists
+// HasKey checks if a key exists.
 func (m *Manager) HasKey(key string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.getValue(key) != nil
 }
 
-// IsSet checks if a key is set and not empty
+// IsSet checks if a key is set and not empty.
 func (m *Manager) IsSet(key string) bool {
 	value := m.Get(key)
 	if value == nil {
 		return false
 	}
+
 	switch v := value.(type) {
 	case string:
 		return v != ""
-	case []interface{}:
+	case []any:
 		return len(v) > 0
-	case map[string]interface{}:
+	case map[string]any:
 		return len(v) > 0
 	default:
 		return true
 	}
 }
 
-// Size returns the number of keys
+// Size returns the number of keys.
 func (m *Manager) Size() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return len(m.getAllKeys(m.data, ""))
 }
 
@@ -1611,16 +1697,16 @@ func (m *Manager) Size() int {
 // STRUCTURE OPERATIONS
 // =============================================================================
 
-// Sub returns a sub-configuration manager
+// Sub returns a sub-configuration manager.
 func (m *Manager) Sub(key string) ConfigManager {
 	subData := m.GetSection(key)
 	if subData == nil {
-		subData = make(map[string]interface{})
+		subData = make(map[string]any)
 	}
 
 	subManager := &Manager{
 		data:            subData,
-		watchCallbacks:  make(map[string][]func(string, interface{})),
+		watchCallbacks:  make(map[string][]func(string, any)),
 		changeCallbacks: make([]func(ConfigChange), 0),
 		logger:          m.logger,
 		metrics:         m.metrics,
@@ -1637,7 +1723,7 @@ func (m *Manager) Sub(key string) ConfigManager {
 	return subManager
 }
 
-// MergeWith merges another config manager
+// MergeWith merges another config manager.
 func (m *Manager) MergeWith(other ConfigManager) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1645,14 +1731,16 @@ func (m *Manager) MergeWith(other ConfigManager) error {
 	if otherManager, ok := other.(*Manager); ok {
 		otherManager.mu.RLock()
 		defer otherManager.mu.RUnlock()
+
 		m.mergeData(m.data, otherManager.data)
+
 		return nil
 	}
 
-	return fmt.Errorf("merge not supported for this ConfigManager implementation")
+	return errors.New("merge not supported for this ConfigManager implementation")
 }
 
-// Clone creates a deep copy
+// Clone creates a deep copy.
 func (m *Manager) Clone() ConfigManager {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -1661,7 +1749,7 @@ func (m *Manager) Clone() ConfigManager {
 
 	cloned := &Manager{
 		data:            clonedData,
-		watchCallbacks:  make(map[string][]func(string, interface{})),
+		watchCallbacks:  make(map[string][]func(string, any)),
 		changeCallbacks: make([]func(ConfigChange), 0),
 		logger:          m.logger,
 		metrics:         m.metrics,
@@ -1678,10 +1766,11 @@ func (m *Manager) Clone() ConfigManager {
 	return cloned
 }
 
-// GetAllSettings returns all settings
-func (m *Manager) GetAllSettings() map[string]interface{} {
+// GetAllSettings returns all settings.
+func (m *Manager) GetAllSettings() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.deepCopyMap(m.data)
 }
 
@@ -1689,13 +1778,13 @@ func (m *Manager) GetAllSettings() map[string]interface{} {
 // UTILITY METHODS
 // =============================================================================
 
-// Reset clears all configuration
+// Reset clears all configuration.
 func (m *Manager) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.data = make(map[string]interface{})
-	m.watchCallbacks = make(map[string][]func(string, interface{}))
+	m.data = make(map[string]any)
+	m.watchCallbacks = make(map[string][]func(string, any))
 	m.changeCallbacks = make([]func(ConfigChange), 0)
 
 	if m.logger != nil {
@@ -1708,16 +1797,18 @@ func (m *Manager) Reset() {
 	}
 }
 
-// ExpandEnvVars expands environment variables
+// ExpandEnvVars expands environment variables.
 func (m *Manager) ExpandEnvVars() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.expandEnvInMap(m.data)
+
 	return nil
 }
 
-// SafeGet returns a value with type checking
-func (m *Manager) SafeGet(key string, expectedType reflect.Type) (interface{}, error) {
+// SafeGet returns a value with type checking.
+func (m *Manager) SafeGet(key string, expectedType reflect.Type) (any, error) {
 	value := m.Get(key)
 	if value == nil {
 		return nil, fmt.Errorf("key '%s' not found", key)
@@ -1731,7 +1822,7 @@ func (m *Manager) SafeGet(key string, expectedType reflect.Type) (interface{}, e
 	return value, nil
 }
 
-// Stop stops the configuration manager
+// Stop stops the configuration manager.
 func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1772,57 +1863,58 @@ func (m *Manager) Stop() error {
 // COMPATIBILITY ALIASES
 // =============================================================================
 
-// GetBytesSize is an alias for GetSizeInBytes
+// GetBytesSize is an alias for GetSizeInBytes.
 func (m *Manager) GetBytesSize(key string, defaultValue ...uint64) uint64 {
 	return m.GetSizeInBytes(key, defaultValue...)
 }
 
-// InConfig is an alias for HasKey
+// InConfig is an alias for HasKey.
 func (m *Manager) InConfig(key string) bool {
 	return m.HasKey(key)
 }
 
-// UnmarshalKey is an alias for Bind
-func (m *Manager) UnmarshalKey(key string, rawVal interface{}) error {
+// UnmarshalKey is an alias for Bind.
+func (m *Manager) UnmarshalKey(key string, rawVal any) error {
 	return m.Bind(key, rawVal)
 }
 
-// Unmarshal unmarshals entire configuration
-func (m *Manager) Unmarshal(rawVal interface{}) error {
+// Unmarshal unmarshals entire configuration.
+func (m *Manager) Unmarshal(rawVal any) error {
 	return m.Bind("", rawVal)
 }
 
-// AllKeys is an alias for GetKeys
+// AllKeys is an alias for GetKeys.
 func (m *Manager) AllKeys() []string {
 	return m.GetKeys()
 }
 
-// AllSettings is an alias for GetAllSettings
-func (m *Manager) AllSettings() map[string]interface{} {
+// AllSettings is an alias for GetAllSettings.
+func (m *Manager) AllSettings() map[string]any {
 	return m.GetAllSettings()
 }
 
-// ReadInConfig reads configuration
+// ReadInConfig reads configuration.
 func (m *Manager) ReadInConfig() error {
 	return m.ReloadContext(context.Background())
 }
 
-// SetConfigType sets the configuration type
+// SetConfigType sets the configuration type.
 func (m *Manager) SetConfigType(configType string) {
 	// Placeholder for loader configuration
 }
 
-// SetConfigFile sets the configuration file
+// SetConfigFile sets the configuration file.
 func (m *Manager) SetConfigFile(filePath string) error {
 	if m.logger != nil {
 		m.logger.Info("configuration file path set",
 			logger.String("file_path", filePath),
 		)
 	}
+
 	return nil
 }
 
-// ConfigFileUsed returns the config file path
+// ConfigFileUsed returns the config file path.
 func (m *Manager) ConfigFileUsed() string {
 	sources := m.registry.GetSources()
 	for _, source := range sources {
@@ -1832,15 +1924,16 @@ func (m *Manager) ConfigFileUsed() string {
 			return fileSource.FilePath()
 		}
 	}
+
 	return ""
 }
 
-// WatchConfig is an alias for Watch
+// WatchConfig is an alias for Watch.
 func (m *Manager) WatchConfig() error {
 	return m.Watch(context.Background())
 }
 
-// OnConfigChange is an alias for WatchChanges
+// OnConfigChange is an alias for WatchChanges.
 func (m *Manager) OnConfigChange(callback func(ConfigChange)) {
 	m.WatchChanges(callback)
 }
@@ -1850,7 +1943,7 @@ func (m *Manager) OnConfigChange(callback func(ConfigChange)) {
 // =============================================================================
 
 func (m *Manager) loadAllSources(ctx context.Context) error {
-	mergedData := make(map[string]interface{})
+	mergedData := make(map[string]any)
 
 	sources := m.registry.GetSources()
 
@@ -1886,16 +1979,19 @@ func (m *Manager) loadAllSources(ctx context.Context) error {
 				// nolint:gosec // G104: Error handler intentionally discards return value
 				m.errorHandler.HandleError(nil, err)
 			}
-			return ErrConfigError(fmt.Sprintf("failed to load source %s", ps.source.Name()), err)
+
+			return ErrConfigError("failed to load source "+ps.source.Name(), err)
 		}
+
 		m.mergeData(mergedData, data)
 	}
 
 	m.data = mergedData
+
 	return nil
 }
 
-func (m *Manager) handleConfigChange(source string, data map[string]interface{}) {
+func (m *Manager) handleConfigChange(source string, data map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1906,10 +2002,8 @@ func (m *Manager) handleConfigChange(source string, data map[string]interface{})
 		)
 	}
 
-	oldData := make(map[string]interface{})
-	for k, v := range m.data {
-		oldData[k] = v
-	}
+	oldData := make(map[string]any)
+	maps.Copy(oldData, m.data)
 
 	m.mergeData(m.data, data)
 
@@ -1920,8 +2014,10 @@ func (m *Manager) handleConfigChange(source string, data map[string]interface{})
 				logger.Error(err),
 			)
 		}
+
 		if m.validator.IsStrictMode() {
 			m.data = oldData
+
 			return
 		}
 	}
@@ -1939,9 +2035,9 @@ func (m *Manager) handleConfigChange(source string, data map[string]interface{})
 	}
 }
 
-func (m *Manager) getValue(key string) interface{} {
+func (m *Manager) getValue(key string) any {
 	keys := strings.Split(key, ".")
-	current := interface{}(m.data)
+	current := any(m.data)
 
 	for _, k := range keys {
 		if current == nil {
@@ -1949,9 +2045,9 @@ func (m *Manager) getValue(key string) interface{} {
 		}
 
 		switch v := current.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			current = v[k]
-		case map[interface{}]interface{}:
+		case map[any]any:
 			current = v[k]
 		default:
 			return nil
@@ -1961,7 +2057,7 @@ func (m *Manager) getValue(key string) interface{} {
 	return current
 }
 
-func (m *Manager) setValue(key string, value interface{}) {
+func (m *Manager) setValue(key string, value any) {
 	keys := strings.Split(key, ".")
 	current := m.data
 
@@ -1970,36 +2066,40 @@ func (m *Manager) setValue(key string, value interface{}) {
 			current[k] = value
 		} else {
 			if current[k] == nil {
-				current[k] = make(map[string]interface{})
+				current[k] = make(map[string]any)
 			}
-			if next, ok := current[k].(map[string]interface{}); ok {
+
+			if next, ok := current[k].(map[string]any); ok {
 				current = next
 			} else {
-				current[k] = make(map[string]interface{})
-				current = current[k].(map[string]interface{})
+				current[k] = make(map[string]any)
+				current = current[k].(map[string]any)
 			}
 		}
 	}
 }
 
-func (m *Manager) mergeData(target, source map[string]interface{}) {
+func (m *Manager) mergeData(target, source map[string]any) {
 	for key, value := range source {
 		if existingValue, exists := target[key]; exists {
-			if existingMap, ok := existingValue.(map[string]interface{}); ok {
-				if sourceMap, ok := value.(map[string]interface{}); ok {
+			if existingMap, ok := existingValue.(map[string]any); ok {
+				if sourceMap, ok := value.(map[string]any); ok {
 					m.mergeData(existingMap, sourceMap)
+
 					continue
 				}
 			}
 		}
+
 		target[key] = value
 	}
 }
 
-func (m *Manager) convertToString(value interface{}) string {
+func (m *Manager) convertToString(value any) string {
 	if value == nil {
 		return ""
 	}
+
 	switch v := value.(type) {
 	case string:
 		return v
@@ -2010,7 +2110,7 @@ func (m *Manager) convertToString(value interface{}) string {
 	}
 }
 
-func (m *Manager) convertToInt(value interface{}) (int64, error) {
+func (m *Manager) convertToInt(value any) (int64, error) {
 	switch v := value.(type) {
 	case int:
 		return int64(v), nil
@@ -2029,7 +2129,7 @@ func (m *Manager) convertToInt(value interface{}) (int64, error) {
 	}
 }
 
-func (m *Manager) convertToUint(value interface{}) (uint64, error) {
+func (m *Manager) convertToUint(value any) (uint64, error) {
 	switch v := value.(type) {
 	case uint:
 		return uint64(v), nil
@@ -2048,7 +2148,7 @@ func (m *Manager) convertToUint(value interface{}) (uint64, error) {
 	}
 }
 
-func (m *Manager) convertToFloat(value interface{}) (float64, error) {
+func (m *Manager) convertToFloat(value any) (float64, error) {
 	switch v := value.(type) {
 	case float32:
 		return float64(v), nil
@@ -2063,7 +2163,7 @@ func (m *Manager) convertToFloat(value interface{}) (float64, error) {
 	}
 }
 
-func (m *Manager) convertToBool(value interface{}) (bool, error) {
+func (m *Manager) convertToBool(value any) (bool, error) {
 	switch v := value.(type) {
 	case bool:
 		return v, nil
@@ -2099,8 +2199,8 @@ func (m *Manager) parseSizeInBytes(s string) uint64 {
 	}
 
 	for unit, multiplier := range units {
-		if strings.HasSuffix(s, unit) {
-			numberStr := strings.TrimSuffix(s, unit)
+		if before, ok := strings.CutSuffix(s, unit); ok {
+			numberStr := before
 			if number, err := strconv.ParseFloat(numberStr, 64); err == nil {
 				return uint64(number * float64(multiplier))
 			}
@@ -2114,7 +2214,7 @@ func (m *Manager) parseSizeInBytes(s string) uint64 {
 	return 0
 }
 
-func (m *Manager) bindValue(value interface{}, target interface{}) error {
+func (m *Manager) bindValue(value any, target any) error {
 	targetValue := reflect.ValueOf(target)
 	if targetValue.Kind() != reflect.Ptr {
 		return ErrConfigError("target must be a pointer", nil)
@@ -2127,13 +2227,16 @@ func (m *Manager) bindValue(value interface{}, target interface{}) error {
 	if targetElem.Kind() != reflect.Struct {
 		if sourceValue.Type().AssignableTo(targetElem.Type()) {
 			targetElem.Set(sourceValue)
+
 			return nil
 		}
 		// Try to convert if possible
 		if sourceValue.Type().ConvertibleTo(targetElem.Type()) {
 			targetElem.Set(sourceValue.Convert(targetElem.Type()))
+
 			return nil
 		}
+
 		return ErrConfigError(fmt.Sprintf("cannot convert %s to %s", sourceValue.Type(), targetElem.Type()), nil)
 	}
 
@@ -2180,12 +2283,15 @@ func (m *Manager) getFieldName(field reflect.StructField) string {
 	if tag := field.Tag.Get("yaml"); tag != "" && tag != "-" {
 		return strings.Split(tag, ",")[0]
 	}
+
 	if tag := field.Tag.Get("json"); tag != "" && tag != "-" {
 		return strings.Split(tag, ",")[0]
 	}
+
 	if tag := field.Tag.Get("config"); tag != "" && tag != "-" {
 		return strings.Split(tag, ",")[0]
 	}
+
 	return field.Name
 }
 
@@ -2216,39 +2322,42 @@ func (m *Manager) setFieldValue(field reflect.Value, value reflect.Value) error 
 			field.SetBool(boolVal)
 		}
 	case reflect.Slice:
-		if slice, ok := valueInterface.([]interface{}); ok {
+		if slice, ok := valueInterface.([]any); ok {
 			return m.setSliceValue(field, slice)
 		}
 	case reflect.Map:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+		if mapVal, ok := valueInterface.(map[string]any); ok {
 			return m.setMapValue(field, mapVal)
 		}
 	case reflect.Struct:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+		if mapVal, ok := valueInterface.(map[string]any); ok {
 			return m.bindMapToStruct(reflect.ValueOf(mapVal), field)
 		}
 	case reflect.Ptr:
 		if field.IsNil() {
 			field.Set(reflect.New(field.Type().Elem()))
 		}
+
 		return m.setFieldValue(field.Elem(), value)
 	}
 
 	return nil
 }
 
-func (m *Manager) setSliceValue(field reflect.Value, slice []interface{}) error {
+func (m *Manager) setSliceValue(field reflect.Value, slice []any) error {
 	sliceValue := reflect.MakeSlice(field.Type(), len(slice), len(slice))
 	for i, item := range slice {
 		if err := m.setFieldValue(sliceValue.Index(i), reflect.ValueOf(item)); err != nil {
 			return err
 		}
 	}
+
 	field.Set(sliceValue)
+
 	return nil
 }
 
-func (m *Manager) setMapValue(field reflect.Value, mapData map[string]interface{}) error {
+func (m *Manager) setMapValue(field reflect.Value, mapData map[string]any) error {
 	mapValue := reflect.MakeMap(field.Type())
 	mapValueType := field.Type().Elem()
 
@@ -2264,10 +2373,11 @@ func (m *Manager) setMapValue(field reflect.Value, mapData map[string]interface{
 			structInstance := reflect.New(mapValueType).Elem()
 
 			// If the value is a map[string]interface{}, bind it to the struct
-			if valueMap, ok := value.(map[string]interface{}); ok {
+			if valueMap, ok := value.(map[string]any); ok {
 				if err := m.bindMapToStruct(reflect.ValueOf(valueMap), structInstance); err != nil {
 					return fmt.Errorf("failed to bind map value for key '%s': %w", key, err)
 				}
+
 				convertedValue = structInstance
 			} else {
 				// Direct assignment if types match
@@ -2277,10 +2387,11 @@ func (m *Manager) setMapValue(field reflect.Value, mapData map[string]interface{
 			// Handle pointer to struct
 			structInstance := reflect.New(mapValueType.Elem())
 
-			if valueMap, ok := value.(map[string]interface{}); ok {
+			if valueMap, ok := value.(map[string]any); ok {
 				if err := m.bindMapToStruct(reflect.ValueOf(valueMap), structInstance.Elem()); err != nil {
 					return fmt.Errorf("failed to bind map value for key '%s': %w", key, err)
 				}
+
 				convertedValue = structInstance
 			} else {
 				convertedValue = reflect.ValueOf(value)
@@ -2297,11 +2408,12 @@ func (m *Manager) setMapValue(field reflect.Value, mapData map[string]interface{
 				} else {
 					// If it's still a map[string]interface{} and we need a different type,
 					// we need to recursively bind it
-					if _, ok := value.(map[string]interface{}); ok {
+					if _, ok := value.(map[string]any); ok {
 						newValue := reflect.New(mapValueType).Elem()
 						if err := m.setFieldValue(newValue, convertedValue); err != nil {
 							return fmt.Errorf("failed to convert map value for key '%s': %w", key, err)
 						}
+
 						convertedValue = newValue
 					}
 				}
@@ -2312,10 +2424,11 @@ func (m *Manager) setMapValue(field reflect.Value, mapData map[string]interface{
 	}
 
 	field.Set(mapValue)
+
 	return nil
 }
 
-func (m *Manager) bindValueWithOptions(value interface{}, target interface{}, options configcore.BindOptions) error {
+func (m *Manager) bindValueWithOptions(value any, target any, options configcore.BindOptions) error {
 	targetValue := reflect.ValueOf(target)
 	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
 		return ErrConfigError("target must be a pointer to struct", nil)
@@ -2330,7 +2443,7 @@ func (m *Manager) bindValueWithOptions(value interface{}, target interface{}, op
 
 	// Apply passed default value (medium precedence)
 	if options.DefaultValue != nil {
-		if defaultMap, ok := options.DefaultValue.(map[string]interface{}); ok {
+		if defaultMap, ok := options.DefaultValue.(map[string]any); ok {
 			if options.DeepMerge {
 				value = m.deepMergeValues(defaultMap, value)
 			}
@@ -2430,6 +2543,7 @@ func (m *Manager) getFieldNameWithOptions(field reflect.StructField, options con
 			return strings.Split(tag, ",")[0]
 		}
 	}
+
 	if tagName != "json" {
 		if tag := field.Tag.Get("json"); tag != "" && tag != "-" {
 			return strings.Split(tag, ",")[0]
@@ -2454,8 +2568,8 @@ func (m *Manager) findMapValueIgnoreCase(mapValue reflect.Value, fieldName strin
 }
 
 // deepMergeValues deeply merges two values with proper precedence
-// configValue (from file) takes precedence over defaultValue
-func (m *Manager) deepMergeValues(defaultValue, configValue interface{}) interface{} {
+// configValue (from file) takes precedence over defaultValue.
+func (m *Manager) deepMergeValues(defaultValue, configValue any) any {
 	// If config value is nil, use default
 	if configValue == nil {
 		return defaultValue
@@ -2467,16 +2581,14 @@ func (m *Manager) deepMergeValues(defaultValue, configValue interface{}) interfa
 	}
 
 	// Both are maps - deep merge
-	defaultMap, defaultIsMap := defaultValue.(map[string]interface{})
-	configMap, configIsMap := configValue.(map[string]interface{})
+	defaultMap, defaultIsMap := defaultValue.(map[string]any)
+	configMap, configIsMap := configValue.(map[string]any)
 
 	if defaultIsMap && configIsMap {
-		merged := make(map[string]interface{})
+		merged := make(map[string]any)
 
 		// Start with all default keys
-		for k, v := range defaultMap {
-			merged[k] = v
-		}
+		maps.Copy(merged, defaultMap)
 
 		// Override/merge with config values
 		for k, configVal := range configMap {
@@ -2495,7 +2607,7 @@ func (m *Manager) deepMergeValues(defaultValue, configValue interface{}) interfa
 	return configValue
 }
 
-// applyStructDefaults applies default values from struct tags
+// applyStructDefaults applies default values from struct tags.
 func (m *Manager) applyStructDefaults(structValue reflect.Value) error {
 	structType := structValue.Type()
 
@@ -2516,6 +2628,7 @@ func (m *Manager) applyStructDefaults(structValue reflect.Value) error {
 					return err
 				}
 			}
+
 			continue
 		}
 
@@ -2535,7 +2648,7 @@ func (m *Manager) applyStructDefaults(structValue reflect.Value) error {
 	return nil
 }
 
-// setDefaultValue sets a field value from a default tag string
+// setDefaultValue sets a field value from a default tag string.
 func (m *Manager) setDefaultValue(field reflect.Value, defaultTag string, fieldType reflect.StructField) error {
 	switch field.Kind() {
 	case reflect.String:
@@ -2543,7 +2656,7 @@ func (m *Manager) setDefaultValue(field reflect.Value, defaultTag string, fieldT
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		// Check if it's a duration
-		if field.Type() == reflect.TypeOf(time.Duration(0)) {
+		if field.Type() == reflect.TypeFor[time.Duration]() {
 			if d, err := time.ParseDuration(defaultTag); err == nil {
 				field.SetInt(int64(d))
 			} else {
@@ -2582,18 +2695,20 @@ func (m *Manager) setDefaultValue(field reflect.Value, defaultTag string, fieldT
 		// Handle slice defaults (comma-separated)
 		if field.Type().Elem().Kind() == reflect.String {
 			values := strings.Split(defaultTag, ",")
+
 			slice := reflect.MakeSlice(field.Type(), len(values), len(values))
 			for i, val := range values {
 				slice.Index(i).SetString(strings.TrimSpace(val))
 			}
+
 			field.Set(slice)
 		} else {
-			return fmt.Errorf("slice defaults only supported for []string")
+			return errors.New("slice defaults only supported for []string")
 		}
 
 	case reflect.Struct:
 		// Handle time.Time
-		if field.Type() == reflect.TypeOf(time.Time{}) {
+		if field.Type() == reflect.TypeFor[time.Time]() {
 			formats := []string{
 				time.RFC3339,
 				time.RFC3339Nano,
@@ -2604,9 +2719,11 @@ func (m *Manager) setDefaultValue(field reflect.Value, defaultTag string, fieldT
 			for _, format := range formats {
 				if t, err := time.Parse(format, defaultTag); err == nil {
 					field.Set(reflect.ValueOf(t))
+
 					return nil
 				}
 			}
+
 			return fmt.Errorf("invalid time default: %s", defaultTag)
 		}
 
@@ -2660,31 +2777,33 @@ func (m *Manager) setFieldValueWithOptions(field reflect.Value, value reflect.Va
 			return err
 		}
 	case reflect.Slice:
-		if slice, ok := valueInterface.([]interface{}); ok {
+		if slice, ok := valueInterface.([]any); ok {
 			return m.setSliceValue(field, slice)
 		}
 	case reflect.Map:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+		if mapVal, ok := valueInterface.(map[string]any); ok {
 			return m.setMapValue(field, mapVal)
 		}
 	case reflect.Struct:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+		if mapVal, ok := valueInterface.(map[string]any); ok {
 			if options.DeepMerge && !field.IsZero() {
 				return m.mergeStructValue(field, mapVal, options)
 			}
+
 			return m.bindMapToStructWithOptions(reflect.ValueOf(mapVal), field, options)
 		}
 	case reflect.Ptr:
 		if field.IsNil() {
 			field.Set(reflect.New(field.Type().Elem()))
 		}
+
 		return m.setFieldValueWithOptions(field.Elem(), value, options)
 	}
 
 	return nil
 }
 
-// setFieldValueWithDeepMerge sets field with deep merge support for nested structs
+// setFieldValueWithDeepMerge sets field with deep merge support for nested structs.
 func (m *Manager) setFieldValueWithDeepMerge(field reflect.Value, value reflect.Value, fieldType reflect.StructField, options configcore.BindOptions) error {
 	if !value.IsValid() {
 		return nil
@@ -2733,25 +2852,27 @@ func (m *Manager) setFieldValueWithDeepMerge(field reflect.Value, value reflect.
 		}
 
 	case reflect.Slice:
-		if slice, ok := valueInterface.([]interface{}); ok {
+		if slice, ok := valueInterface.([]any); ok {
 			return m.setSliceValue(field, slice)
 		}
 
 	case reflect.Map:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+		if mapVal, ok := valueInterface.(map[string]any); ok {
 			if options.DeepMerge && !field.IsZero() {
 				// Deep merge with existing map
 				return m.mergeMapValue(field, mapVal, options)
 			}
+
 			return m.setMapValue(field, mapVal)
 		}
 
 	case reflect.Struct:
-		if mapVal, ok := valueInterface.(map[string]interface{}); ok {
+		if mapVal, ok := valueInterface.(map[string]any); ok {
 			if options.DeepMerge && !field.IsZero() {
 				// Deep merge with existing struct
 				return m.mergeStructValue(field, mapVal, options)
 			}
+
 			return m.bindMapToStructWithOptions(reflect.ValueOf(mapVal), field, options)
 		}
 
@@ -2759,14 +2880,15 @@ func (m *Manager) setFieldValueWithDeepMerge(field reflect.Value, value reflect.
 		if field.IsNil() {
 			field.Set(reflect.New(field.Type().Elem()))
 		}
+
 		return m.setFieldValueWithDeepMerge(field.Elem(), value, fieldType, options)
 	}
 
 	return nil
 }
 
-// mergeMapValue deeply merges a map into an existing field
-func (m *Manager) mergeMapValue(field reflect.Value, newData map[string]interface{}, options configcore.BindOptions) error {
+// mergeMapValue deeply merges a map into an existing field.
+func (m *Manager) mergeMapValue(field reflect.Value, newData map[string]any, options configcore.BindOptions) error {
 	if field.IsNil() {
 		return m.setMapValue(field, newData)
 	}
@@ -2792,20 +2914,23 @@ func (m *Manager) mergeMapValue(field reflect.Value, newData map[string]interfac
 			// Create new struct instance
 			structInstance := reflect.New(mapValueType).Elem()
 
-			if valueMap, ok := value.(map[string]interface{}); ok {
+			if valueMap, ok := value.(map[string]any); ok {
 				// Check if we should deep merge with existing
 				if existingValue := field.MapIndex(keyValue); existingValue.IsValid() && options.DeepMerge {
 					// Deep merge existing struct with new data
 					if err := m.mergeStructValue(existingValue, valueMap, options); err != nil {
 						return err
 					}
+
 					merged.SetMapIndex(keyValue, existingValue)
+
 					continue
 				} else {
 					// Bind new struct
 					if err := m.bindMapToStructWithOptions(reflect.ValueOf(valueMap), structInstance, options); err != nil {
 						return fmt.Errorf("failed to bind map value for key '%v': %w", key, err)
 					}
+
 					convertedValue = structInstance
 				}
 			} else {
@@ -2826,12 +2951,13 @@ func (m *Manager) mergeMapValue(field reflect.Value, newData map[string]interfac
 	}
 
 	field.Set(merged)
+
 	return nil
 }
 
-func (m *Manager) mergeStructValue(structField reflect.Value, mapData map[string]interface{}, options configcore.BindOptions) error {
+func (m *Manager) mergeStructValue(structField reflect.Value, mapData map[string]any, options configcore.BindOptions) error {
 	// Extract current struct values to map
-	currentData := make(map[string]interface{})
+	currentData := make(map[string]any)
 	structType := structField.Type()
 
 	for i := 0; i < structField.NumField(); i++ {
@@ -2852,17 +2978,17 @@ func (m *Manager) mergeStructValue(structField reflect.Value, mapData map[string
 	mergedData := m.deepMergeValues(currentData, mapData)
 
 	// Bind merged data back to struct
-	if mergedMap, ok := mergedData.(map[string]interface{}); ok {
+	if mergedMap, ok := mergedData.(map[string]any); ok {
 		return m.bindMapToStructWithOptions(reflect.ValueOf(mergedMap), structField, options)
 	}
 
 	return nil
 }
 
-func (m *Manager) getAllKeys(data interface{}, prefix string) []string {
+func (m *Manager) getAllKeys(data any, prefix string) []string {
 	var keys []string
 
-	if mapData, ok := data.(map[string]interface{}); ok {
+	if mapData, ok := data.(map[string]any); ok {
 		for key, value := range mapData {
 			fullKey := key
 			if prefix != "" {
@@ -2878,14 +3004,14 @@ func (m *Manager) getAllKeys(data interface{}, prefix string) []string {
 	return keys
 }
 
-func (m *Manager) deepCopyMap(original map[string]interface{}) map[string]interface{} {
-	copy := make(map[string]interface{})
+func (m *Manager) deepCopyMap(original map[string]any) map[string]any {
+	copy := make(map[string]any)
 
 	for key, value := range original {
 		switch v := value.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			copy[key] = m.deepCopyMap(v)
-		case []interface{}:
+		case []any:
 			copy[key] = m.deepCopySlice(v)
 		default:
 			copy[key] = v
@@ -2895,14 +3021,14 @@ func (m *Manager) deepCopyMap(original map[string]interface{}) map[string]interf
 	return copy
 }
 
-func (m *Manager) deepCopySlice(original []interface{}) []interface{} {
-	copy := make([]interface{}, len(original))
+func (m *Manager) deepCopySlice(original []any) []any {
+	copy := make([]any, len(original))
 
 	for i, value := range original {
 		switch v := value.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			copy[i] = m.deepCopyMap(v)
-		case []interface{}:
+		case []any:
 			copy[i] = m.deepCopySlice(v)
 		default:
 			copy[i] = v
@@ -2912,27 +3038,27 @@ func (m *Manager) deepCopySlice(original []interface{}) []interface{} {
 	return copy
 }
 
-func (m *Manager) expandEnvInMap(data map[string]interface{}) {
+func (m *Manager) expandEnvInMap(data map[string]any) {
 	for key, value := range data {
 		switch v := value.(type) {
 		case string:
 			data[key] = m.expandEnvInString(v)
-		case map[string]interface{}:
+		case map[string]any:
 			m.expandEnvInMap(v)
-		case []interface{}:
+		case []any:
 			m.expandEnvInSlice(v)
 		}
 	}
 }
 
-func (m *Manager) expandEnvInSlice(slice []interface{}) {
+func (m *Manager) expandEnvInSlice(slice []any) {
 	for i, value := range slice {
 		switch v := value.(type) {
 		case string:
 			slice[i] = m.expandEnvInString(v)
-		case map[string]interface{}:
+		case map[string]any:
 			m.expandEnvInMap(v)
-		case []interface{}:
+		case []any:
 			m.expandEnvInSlice(v)
 		}
 	}

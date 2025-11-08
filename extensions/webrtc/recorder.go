@@ -15,7 +15,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// recorder implements Recorder for media recording
+// recorder implements Recorder for media recording.
 type recorder struct {
 	id      string
 	roomID  string
@@ -42,7 +42,7 @@ type recorder struct {
 	mu sync.RWMutex
 }
 
-// RecorderConfig holds recording configuration
+// RecorderConfig holds recording configuration.
 type RecorderConfig struct {
 	OutputDir      string
 	AudioCodec     string // opus, pcm
@@ -53,7 +53,7 @@ type RecorderConfig struct {
 	FileNamePrefix string
 }
 
-// DefaultRecorderConfig returns default recorder configuration
+// DefaultRecorderConfig returns default recorder configuration.
 func DefaultRecorderConfig() RecorderConfig {
 	return RecorderConfig{
 		OutputDir:      "./recordings",
@@ -66,7 +66,7 @@ func DefaultRecorderConfig() RecorderConfig {
 	}
 }
 
-// NewRecorder creates a new media recorder
+// NewRecorder creates a new media recorder.
 func NewRecorder(roomID string, config RecorderConfig, logger forge.Logger, metrics forge.Metrics) (Recorder, error) {
 	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(config.OutputDir, 0755); err != nil {
@@ -82,13 +82,13 @@ func NewRecorder(roomID string, config RecorderConfig, logger forge.Logger, metr
 	}, nil
 }
 
-// Start starts recording
+// Start starts recording.
 func (r *recorder) Start(ctx context.Context, roomID string, options *RecordingOptions) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.recording {
-		return fmt.Errorf("recorder: already recording")
+		return errors.New("recorder: already recording")
 	}
 
 	// Use roomID from parameter instead of stored roomID
@@ -101,25 +101,30 @@ func (r *recorder) Start(ctx context.Context, roomID string, options *RecordingO
 
 	// Create audio writer
 	if r.config.EnableAudio {
-		audioFile := fmt.Sprintf("%s-audio.ogg", baseFilename)
+		audioFile := baseFilename + "-audio.ogg"
+
 		writer, err := oggwriter.New(audioFile, 48000, 2)
 		if err != nil {
 			return fmt.Errorf("failed to create audio writer: %w", err)
 		}
+
 		r.audioWriter = &writeCloserWrapper{writer: writer}
 		r.logger.Info("recording audio to file", forge.F("file", audioFile))
 	}
 
 	// Create video writer
 	if r.config.EnableVideo {
-		videoFile := fmt.Sprintf("%s-video.ivf", baseFilename)
+		videoFile := baseFilename + "-video.ivf"
+
 		writer, err := ivfwriter.New(videoFile)
 		if err != nil {
 			if r.audioWriter != nil {
 				r.audioWriter.Close()
 			}
+
 			return fmt.Errorf("failed to create video writer: %w", err)
 		}
+
 		r.videoWriter = &writeCloserWrapper{writer: writer}
 		r.logger.Info("recording video to file", forge.F("file", videoFile))
 	}
@@ -144,13 +149,13 @@ func (r *recorder) Start(ctx context.Context, roomID string, options *RecordingO
 	return nil
 }
 
-// Stop stops recording
+// Stop stops recording.
 func (r *recorder) Stop(ctx context.Context, roomID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if !r.recording {
-		return fmt.Errorf("recorder: not recording")
+		return errors.New("recorder: not recording")
 	}
 
 	r.recording = false
@@ -161,6 +166,7 @@ func (r *recorder) Stop(ctx context.Context, roomID string) error {
 		if err := r.audioWriter.Close(); err != nil {
 			r.logger.Error("failed to close audio writer", forge.F("error", err))
 		}
+
 		r.audioWriter = nil
 	}
 
@@ -168,6 +174,7 @@ func (r *recorder) Stop(ctx context.Context, roomID string) error {
 		if err := r.videoWriter.Close(); err != nil {
 			r.logger.Error("failed to close video writer", forge.F("error", err))
 		}
+
 		r.videoWriter = nil
 	}
 
@@ -182,6 +189,7 @@ func (r *recorder) Stop(ctx context.Context, roomID string) error {
 	if r.metrics != nil {
 		counter := r.metrics.Counter("webrtc.recordings.stopped")
 		counter.Inc()
+
 		histogram := r.metrics.Histogram("webrtc.recordings.duration")
 		histogram.Observe(r.duration.Seconds())
 	}
@@ -189,13 +197,13 @@ func (r *recorder) Stop(ctx context.Context, roomID string) error {
 	return nil
 }
 
-// Pause pauses recording
+// Pause pauses recording.
 func (r *recorder) Pause(ctx context.Context, roomID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if !r.recording {
-		return fmt.Errorf("recording is not active")
+		return errors.New("recording is not active")
 	}
 
 	// TODO: Implement pause functionality
@@ -204,13 +212,13 @@ func (r *recorder) Pause(ctx context.Context, roomID string) error {
 	return nil
 }
 
-// Resume resumes recording
+// Resume resumes recording.
 func (r *recorder) Resume(ctx context.Context, roomID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if !r.recording {
-		return fmt.Errorf("recording is not active")
+		return errors.New("recording is not active")
 	}
 
 	// TODO: Implement resume functionality
@@ -219,14 +227,15 @@ func (r *recorder) Resume(ctx context.Context, roomID string) error {
 	return nil
 }
 
-// IsRecording returns whether recording is active
+// IsRecording returns whether recording is active.
 func (r *recorder) IsRecording() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.recording
 }
 
-// GetStats returns recording statistics
+// GetStats returns recording statistics.
 func (r *recorder) GetStats(ctx context.Context) (*RecordingStats, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -248,7 +257,7 @@ func (r *recorder) GetStats(ctx context.Context) (*RecordingStats, error) {
 	}, nil
 }
 
-// GetStatus returns recording status
+// GetStatus returns recording status.
 func (r *recorder) GetStatus(roomID string) (*RecordingStatus, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -259,6 +268,7 @@ func (r *recorder) GetStatus(roomID string) (*RecordingStatus, error) {
 	}
 
 	recording := status == "recording"
+
 	return &RecordingStatus{
 		RoomID:     roomID,
 		Recording:  recording,
@@ -270,7 +280,7 @@ func (r *recorder) GetStatus(roomID string) (*RecordingStatus, error) {
 	}, nil
 }
 
-// WriteAudioSample writes an audio sample
+// WriteAudioSample writes an audio sample.
 func (r *recorder) WriteAudioSample(sample media.Sample) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -282,11 +292,12 @@ func (r *recorder) WriteAudioSample(sample media.Sample) error {
 	// Write sample
 	wrapper, ok := r.audioWriter.(*writeCloserWrapper)
 	if !ok {
-		return fmt.Errorf("invalid audio writer type")
+		return errors.New("invalid audio writer type")
 	}
+
 	oggWriter, ok := wrapper.writer.(*oggwriter.OggWriter)
 	if !ok {
-		return fmt.Errorf("invalid audio writer type")
+		return errors.New("invalid audio writer type")
 	}
 
 	if err := oggWriter.WriteRTP(&rtp.Packet{
@@ -301,7 +312,7 @@ func (r *recorder) WriteAudioSample(sample media.Sample) error {
 	return nil
 }
 
-// WriteVideoSample writes a video sample
+// WriteVideoSample writes a video sample.
 func (r *recorder) WriteVideoSample(sample media.Sample) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -313,11 +324,12 @@ func (r *recorder) WriteVideoSample(sample media.Sample) error {
 	// Write sample
 	wrapper, ok := r.videoWriter.(*writeCloserWrapper)
 	if !ok {
-		return fmt.Errorf("invalid video writer type")
+		return errors.New("invalid video writer type")
 	}
+
 	ivfWriter, ok := wrapper.writer.(*ivfwriter.IVFWriter)
 	if !ok {
-		return fmt.Errorf("invalid video writer type")
+		return errors.New("invalid video writer type")
 	}
 
 	if err := ivfWriter.WriteRTP(&rtp.Packet{
@@ -339,22 +351,23 @@ func (r *recorder) WriteVideoSample(sample media.Sample) error {
 	return nil
 }
 
-// Close closes the recorder
+// Close closes the recorder.
 func (r *recorder) Close() error {
 	if r.IsRecording() {
 		return r.Stop(context.Background(), r.roomID)
 	}
+
 	return nil
 }
 
-// writeCloserWrapper wraps writers that don't implement io.WriteCloser
+// writeCloserWrapper wraps writers that don't implement io.WriteCloser.
 type writeCloserWrapper struct {
-	writer interface{}
+	writer any
 }
 
 func (w *writeCloserWrapper) Write(p []byte) (n int, err error) {
 	// This is a placeholder - the actual implementation would depend on the specific writer
-	return 0, fmt.Errorf("write not implemented")
+	return 0, errors.New("write not implemented")
 }
 
 func (w *writeCloserWrapper) Close() error {

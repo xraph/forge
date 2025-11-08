@@ -6,58 +6,58 @@ import (
 	"github.com/xraph/forge/extensions/events/core"
 )
 
-// Config defines the configuration for the events extension
+// Config defines the configuration for the events extension.
 type Config struct {
 	// Event Bus configuration
-	Bus BusConfig `yaml:"bus" json:"bus"`
+	Bus BusConfig `json:"bus" yaml:"bus"`
 
 	// Event Store configuration
-	Store StoreConfig `yaml:"store" json:"store"`
+	Store StoreConfig `json:"store" yaml:"store"`
 
 	// Message Brokers
-	Brokers []BrokerConfig `yaml:"brokers" json:"brokers"`
+	Brokers []BrokerConfig `json:"brokers" yaml:"brokers"`
 
 	// Metrics
-	Metrics MetricsConfig `yaml:"metrics" json:"metrics"`
+	Metrics MetricsConfig `json:"metrics" yaml:"metrics"`
 }
 
-// BusConfig defines configuration for the event bus
+// BusConfig defines configuration for the event bus.
 type BusConfig struct {
-	DefaultBroker     string        `yaml:"default_broker" json:"default_broker"`
-	MaxRetries        int           `yaml:"max_retries" json:"max_retries"`
-	RetryDelay        time.Duration `yaml:"retry_delay" json:"retry_delay"`
-	EnableMetrics     bool          `yaml:"enable_metrics" json:"enable_metrics"`
-	EnableTracing     bool          `yaml:"enable_tracing" json:"enable_tracing"`
-	BufferSize        int           `yaml:"buffer_size" json:"buffer_size"`
-	WorkerCount       int           `yaml:"worker_count" json:"worker_count"`
-	ProcessingTimeout time.Duration `yaml:"processing_timeout" json:"processing_timeout"`
+	DefaultBroker     string        `json:"default_broker"     yaml:"default_broker"`
+	MaxRetries        int           `json:"max_retries"        yaml:"max_retries"`
+	RetryDelay        time.Duration `json:"retry_delay"        yaml:"retry_delay"`
+	EnableMetrics     bool          `json:"enable_metrics"     yaml:"enable_metrics"`
+	EnableTracing     bool          `json:"enable_tracing"     yaml:"enable_tracing"`
+	BufferSize        int           `json:"buffer_size"        yaml:"buffer_size"`
+	WorkerCount       int           `json:"worker_count"       yaml:"worker_count"`
+	ProcessingTimeout time.Duration `json:"processing_timeout" yaml:"processing_timeout"`
 }
 
-// StoreConfig defines configuration for the event store
+// StoreConfig defines configuration for the event store.
 type StoreConfig struct {
-	Type     string `yaml:"type" json:"type"`         // memory, postgres, mongodb
-	Database string `yaml:"database" json:"database"` // Database connection name (from database extension)
-	Table    string `yaml:"table" json:"table"`
+	Type     string `json:"type"     yaml:"type"`     // memory, postgres, mongodb
+	Database string `json:"database" yaml:"database"` // Database connection name (from database extension)
+	Table    string `json:"table"    yaml:"table"`
 }
 
-// BrokerConfig defines configuration for message brokers
+// BrokerConfig defines configuration for message brokers.
 type BrokerConfig struct {
-	Name     string                 `yaml:"name" json:"name"`
-	Type     string                 `yaml:"type" json:"type"` // memory, nats, redis
-	Enabled  bool                   `yaml:"enabled" json:"enabled"`
-	Priority int                    `yaml:"priority" json:"priority"`
-	Config   map[string]interface{} `yaml:"config" json:"config"`
+	Name     string         `json:"name"     yaml:"name"`
+	Type     string         `json:"type"     yaml:"type"` // memory, nats, redis
+	Enabled  bool           `json:"enabled"  yaml:"enabled"`
+	Priority int            `json:"priority" yaml:"priority"`
+	Config   map[string]any `json:"config"   yaml:"config"`
 }
 
-// MetricsConfig defines configuration for event metrics
+// MetricsConfig defines configuration for event metrics.
 type MetricsConfig struct {
-	Enabled          bool          `yaml:"enabled" json:"enabled"`
-	PublishInterval  time.Duration `yaml:"publish_interval" json:"publish_interval"`
-	EnablePerType    bool          `yaml:"enable_per_type" json:"enable_per_type"`
-	EnablePerHandler bool          `yaml:"enable_per_handler" json:"enable_per_handler"`
+	Enabled          bool          `json:"enabled"            yaml:"enabled"`
+	PublishInterval  time.Duration `json:"publish_interval"   yaml:"publish_interval"`
+	EnablePerType    bool          `json:"enable_per_type"    yaml:"enable_per_type"`
+	EnablePerHandler bool          `json:"enable_per_handler" yaml:"enable_per_handler"`
 }
 
-// DefaultConfig returns default configuration
+// DefaultConfig returns default configuration.
 func DefaultConfig() Config {
 	return Config{
 		Bus: BusConfig{
@@ -81,7 +81,7 @@ func DefaultConfig() Config {
 				Type:     "memory",
 				Enabled:  true,
 				Priority: 1,
-				Config:   make(map[string]interface{}),
+				Config:   make(map[string]any),
 			},
 		},
 		Metrics: MetricsConfig{
@@ -93,7 +93,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// ToCoreStoreConfig converts to core.EventStoreConfig
+// ToCoreStoreConfig converts to core.EventStoreConfig.
 func (c *StoreConfig) ToCoreStoreConfig() *core.EventStoreConfig {
 	return &core.EventStoreConfig{
 		Type:           c.Type,

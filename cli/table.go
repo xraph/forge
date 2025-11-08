@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 )
 
-// TableWriter provides table formatting
+// TableWriter provides table formatting.
 type TableWriter interface {
 	SetHeader(headers []string)
 	AppendRow(row []string)
@@ -20,7 +20,7 @@ type TableWriter interface {
 	Render()
 }
 
-// TableAlignment defines column alignment
+// TableAlignment defines column alignment.
 type TableAlignment int
 
 const (
@@ -29,7 +29,7 @@ const (
 	AlignRight
 )
 
-// TableStyle defines the table border style
+// TableStyle defines the table border style.
 type TableStyle int
 
 const (
@@ -40,7 +40,7 @@ const (
 	StyleMarkdown
 )
 
-// table implements TableWriter
+// table implements TableWriter.
 type table struct {
 	output           io.Writer
 	headers          []string
@@ -53,7 +53,7 @@ type table struct {
 	minColumnWidth   int
 }
 
-// Border characters for different styles
+// Border characters for different styles.
 type borderChars struct {
 	topLeft     string
 	topRight    string
@@ -96,7 +96,7 @@ var borderStyles = map[TableStyle]borderChars{
 	},
 }
 
-// newTable creates a new table
+// newTable creates a new table.
 func newTable(output io.Writer, colors bool) TableWriter {
 	return &table{
 		output:           output,
@@ -111,42 +111,42 @@ func newTable(output io.Writer, colors bool) TableWriter {
 	}
 }
 
-// SetHeader sets the table headers
+// SetHeader sets the table headers.
 func (t *table) SetHeader(headers []string) {
 	t.headers = headers
 }
 
-// AppendRow appends a row to the table
+// AppendRow appends a row to the table.
 func (t *table) AppendRow(row []string) {
 	t.rows = append(t.rows, row)
 }
 
-// SetAlignment sets the default column alignment
+// SetAlignment sets the default column alignment.
 func (t *table) SetAlignment(alignment TableAlignment) {
 	t.alignment = alignment
 }
 
-// SetColumnAlignment sets alignment for a specific column
+// SetColumnAlignment sets alignment for a specific column.
 func (t *table) SetColumnAlignment(column int, alignment TableAlignment) {
 	t.columnAlignments[column] = alignment
 }
 
-// SetStyle sets the table border style
+// SetStyle sets the table border style.
 func (t *table) SetStyle(style TableStyle) {
 	t.style = style
 }
 
-// SetMaxColumnWidth sets the maximum width for columns
+// SetMaxColumnWidth sets the maximum width for columns.
 func (t *table) SetMaxColumnWidth(width int) {
 	t.maxColumnWidth = width
 }
 
-// SetMinColumnWidth sets the minimum width for columns
+// SetMinColumnWidth sets the minimum width for columns.
 func (t *table) SetMinColumnWidth(width int) {
 	t.minColumnWidth = width
 }
 
-// Render renders the table to the output
+// Render renders the table to the output.
 func (t *table) Render() {
 	if len(t.headers) == 0 && len(t.rows) == 0 {
 		return
@@ -190,7 +190,7 @@ func (t *table) Render() {
 	}
 }
 
-// calculateColumnWidths calculates the width of each column
+// calculateColumnWidths calculates the width of each column.
 func (t *table) calculateColumnWidths() []int {
 	numCols := len(t.headers)
 	for _, row := range t.rows {
@@ -226,16 +226,18 @@ func (t *table) calculateColumnWidths() []int {
 		if widths[i] < t.minColumnWidth {
 			widths[i] = t.minColumnWidth
 		}
+
 		if widths[i] > t.maxColumnWidth {
 			widths[i] = t.maxColumnWidth
 		}
+
 		widths[i] += 2 // 1 space padding on each side
 	}
 
 	return widths
 }
 
-// renderBorder renders a table border
+// renderBorder renders a table border.
 func (t *table) renderBorder(widths []int, left, middle, right, horizontal string) {
 	if left != "" {
 		fmt.Fprint(t.output, left)
@@ -243,6 +245,7 @@ func (t *table) renderBorder(widths []int, left, middle, right, horizontal strin
 
 	for i, width := range widths {
 		fmt.Fprint(t.output, strings.Repeat(horizontal, width))
+
 		if i < len(widths)-1 {
 			if middle != "" {
 				fmt.Fprint(t.output, middle)
@@ -257,9 +260,10 @@ func (t *table) renderBorder(widths []int, left, middle, right, horizontal strin
 	}
 }
 
-// renderMarkdownSeparator renders a markdown-style separator
+// renderMarkdownSeparator renders a markdown-style separator.
 func (t *table) renderMarkdownSeparator(widths []int) {
 	fmt.Fprint(t.output, "|")
+
 	for i, width := range widths {
 		// Get alignment for this column
 		align := t.alignment
@@ -286,10 +290,11 @@ func (t *table) renderMarkdownSeparator(widths []int) {
 			fmt.Fprint(t.output, "|")
 		}
 	}
+
 	fmt.Fprintln(t.output, "|")
 }
 
-// renderRow renders a table row
+// renderRow renders a table row.
 func (t *table) renderRow(row []string, widths []int, isHeader bool, vertical string) {
 	if vertical != "" {
 		fmt.Fprint(t.output, vertical)
@@ -329,7 +334,7 @@ func (t *table) renderRow(row []string, widths []int, isHeader bool, vertical st
 	}
 }
 
-// formatCell formats a cell with padding and alignment
+// formatCell formats a cell with padding and alignment.
 func (t *table) formatCell(cell string, width int, align TableAlignment) string {
 	// Truncate if too long
 	cellLen := visualLength(cell)
@@ -352,26 +357,27 @@ func (t *table) formatCell(cell string, width int, align TableAlignment) string 
 	case AlignCenter:
 		leftPad := padding / 2
 		rightPad := padding - leftPad
+
 		return strings.Repeat(" ", leftPad) + cell + strings.Repeat(" ", rightPad)
 	default:
 		return " " + cell + strings.Repeat(" ", padding-1)
 	}
 }
 
-// visualLength calculates the visual length of a string (excluding ANSI codes)
+// visualLength calculates the visual length of a string (excluding ANSI codes).
 func visualLength(s string) int {
 	return utf8.RuneCountInString(stripANSI(s))
 }
 
 // stripANSI removes ANSI color codes from a string for length calculation
-// Uses regex for more robust ANSI code removal
+// Uses regex for more robust ANSI code removal.
 var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 func stripANSI(s string) string {
 	return ansiRegex.ReplaceAllString(s, "")
 }
 
-// truncateString truncates a string to the specified visual length
+// truncateString truncates a string to the specified visual length.
 func truncateString(s string, maxLen int) string {
 	stripped := stripANSI(s)
 	if utf8.RuneCountInString(stripped) <= maxLen {
@@ -388,7 +394,9 @@ func truncateString(s string, maxLen int) string {
 		if len(ansiCodes) > 0 {
 			result = ansiCodes[0] + result + "\x1b[0m" // Reset
 		}
+
 		return result
 	}
+
 	return s
 }

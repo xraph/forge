@@ -5,16 +5,18 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Extension implements a simple health and metrics dashboard
+// Extension implements a simple health and metrics dashboard.
 type Extension struct {
 	*forge.BaseExtension
+
 	config Config
 	server *DashboardServer
 }
 
-// NewExtension creates a new dashboard extension
+// NewExtension creates a new dashboard extension.
 func NewExtension(opts ...ConfigOption) forge.Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -33,7 +35,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 }
 
-// Register registers the dashboard extension
+// Register registers the dashboard extension.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
@@ -41,15 +43,18 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Load config from ConfigManager with dual-key support
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("dashboard", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("dashboard: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("dashboard: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate config
@@ -83,7 +88,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the dashboard extension
+// Start starts the dashboard extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting dashboard extension")
 
@@ -99,7 +104,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the dashboard extension
+// Stop stops the dashboard extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping dashboard extension")
 
@@ -117,25 +122,25 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks if the dashboard is healthy
+// Health checks if the dashboard is healthy.
 func (e *Extension) Health(ctx context.Context) error {
 	if e.server == nil {
-		return fmt.Errorf("dashboard server not initialized")
+		return errors.New("dashboard server not initialized")
 	}
 
 	if !e.server.IsRunning() {
-		return fmt.Errorf("dashboard server not running")
+		return errors.New("dashboard server not running")
 	}
 
 	return nil
 }
 
-// Dependencies returns extension dependencies
+// Dependencies returns extension dependencies.
 func (e *Extension) Dependencies() []string {
 	return []string{} // No hard dependencies
 }
 
-// Server returns the dashboard server instance (for advanced usage)
+// Server returns the dashboard server instance (for advanced usage).
 func (e *Extension) Server() *DashboardServer {
 	return e.server
 }

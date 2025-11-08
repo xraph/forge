@@ -10,21 +10,24 @@ import (
 	"github.com/xraph/forge/extensions/ai/llm"
 )
 
-// AgentController provides REST API for agent management
+// AgentController provides REST API for agent management.
 type AgentController struct {
 	agentManager *managerImpl
 	agentFactory *AgentFactory
-	llm          interface{} // placeholder, not used
+	llm          any // placeholder, not used
 	logger       forge.Logger
 }
 
-// NewAgentController creates a new agent controller
+// NewAgentController creates a new agent controller.
 func NewAgentController(c forge.Container) *AgentController {
-	var aiManager *managerImpl
-	var agentFactory *AgentFactory
-	var logger forge.Logger
+	var (
+		aiManager    *managerImpl
+		agentFactory *AgentFactory
+		logger       forge.Logger
+	)
 
 	// Resolve dependencies using helper functions
+
 	if manager, err := GetAIManager(c); err == nil {
 		if impl, ok := manager.(*managerImpl); ok {
 			aiManager = impl
@@ -47,7 +50,7 @@ func NewAgentController(c forge.Container) *AgentController {
 	}
 }
 
-// Routes registers all agent management routes
+// Routes registers all agent management routes.
 func (ctrl *AgentController) Routes(r forge.Router) {
 	// Agent CRUD
 	r.GET("/agents", ctrl.ListAgents)
@@ -75,18 +78,18 @@ func (ctrl *AgentController) Routes(r forge.Router) {
 	r.POST("/agents/templates", ctrl.CreateTemplate)
 }
 
-// CreateAgent creates a new agent dynamically
+// CreateAgent creates a new agent dynamically.
 func (ctrl *AgentController) CreateAgent(c forge.Context) error {
 	var req struct {
-		Name         string                 `json:"name"`
-		Type         string                 `json:"type"`
-		SystemPrompt string                 `json:"system_prompt"`
-		Model        string                 `json:"model"`
-		Provider     string                 `json:"provider,omitempty"`
-		Temperature  *float64               `json:"temperature,omitempty"`
-		MaxTokens    *int                   `json:"max_tokens,omitempty"`
-		Tools        []llm.Tool             `json:"tools,omitempty"`
-		Config       map[string]interface{} `json:"config,omitempty"`
+		Name         string         `json:"name"`
+		Type         string         `json:"type"`
+		SystemPrompt string         `json:"system_prompt"`
+		Model        string         `json:"model"`
+		Provider     string         `json:"provider,omitempty"`
+		Temperature  *float64       `json:"temperature,omitempty"`
+		MaxTokens    *int           `json:"max_tokens,omitempty"`
+		Tools        []llm.Tool     `json:"tools,omitempty"`
+		Config       map[string]any `json:"config,omitempty"`
 	}
 
 	if err := c.BindJSON(&req); err != nil {
@@ -97,6 +100,7 @@ func (ctrl *AgentController) CreateAgent(c forge.Context) error {
 	if req.Model == "" {
 		req.Model = "gpt-4"
 	}
+
 	if req.Provider == "" {
 		req.Provider = "openai"
 	}
@@ -123,14 +127,14 @@ func (ctrl *AgentController) CreateAgent(c forge.Context) error {
 		return c.JSON(500, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(201, map[string]interface{}{
+	return c.JSON(201, map[string]any{
 		"id":   agent.ID(),
 		"name": agent.Name(),
 		"type": agent.Type(),
 	})
 }
 
-// GetAgent retrieves an agent by ID
+// GetAgent retrieves an agent by ID.
 func (ctrl *AgentController) GetAgent(c forge.Context) error {
 	agentID := c.Param("id")
 
@@ -139,24 +143,24 @@ func (ctrl *AgentController) GetAgent(c forge.Context) error {
 		return c.JSON(404, map[string]string{"error": "agent not found"})
 	}
 
-	return c.JSON(200, map[string]interface{}{
+	return c.JSON(200, map[string]any{
 		"id":   agent.ID(),
 		"name": agent.Name(),
 		"type": agent.Type(),
 	})
 }
 
-// UpdateAgent updates an existing agent
+// UpdateAgent updates an existing agent.
 func (ctrl *AgentController) UpdateAgent(c forge.Context) error {
 	agentID := c.Param("id")
 
 	var req struct {
-		Name         string                 `json:"name"`
-		SystemPrompt string                 `json:"system_prompt"`
-		Model        string                 `json:"model"`
-		Temperature  *float64               `json:"temperature,omitempty"`
-		MaxTokens    *int                   `json:"max_tokens,omitempty"`
-		Config       map[string]interface{} `json:"config,omitempty"`
+		Name         string         `json:"name"`
+		SystemPrompt string         `json:"system_prompt"`
+		Model        string         `json:"model"`
+		Temperature  *float64       `json:"temperature,omitempty"`
+		MaxTokens    *int           `json:"max_tokens,omitempty"`
+		Config       map[string]any `json:"config,omitempty"`
 	}
 
 	if err := c.BindJSON(&req); err != nil {
@@ -181,7 +185,7 @@ func (ctrl *AgentController) UpdateAgent(c forge.Context) error {
 	return c.JSON(200, map[string]string{"status": "updated"})
 }
 
-// DeleteAgent deletes an agent
+// DeleteAgent deletes an agent.
 func (ctrl *AgentController) DeleteAgent(c forge.Context) error {
 	agentID := c.Param("id")
 
@@ -192,7 +196,7 @@ func (ctrl *AgentController) DeleteAgent(c forge.Context) error {
 	return c.JSON(200, map[string]string{"status": "deleted"})
 }
 
-// ListAgents lists all agents with optional filters
+// ListAgents lists all agents with optional filters.
 func (ctrl *AgentController) ListAgents(c forge.Context) error {
 	// Parse query parameters
 	limitStr := c.Query("limit")
@@ -204,6 +208,7 @@ func (ctrl *AgentController) ListAgents(c forge.Context) error {
 	if limitStr != "" {
 		fmt.Sscanf(limitStr, "%d", &limit)
 	}
+
 	if offsetStr != "" {
 		fmt.Sscanf(offsetStr, "%d", &offset)
 	}
@@ -219,20 +224,20 @@ func (ctrl *AgentController) ListAgents(c forge.Context) error {
 		return c.JSON(500, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(200, map[string]interface{}{
+	return c.JSON(200, map[string]any{
 		"agents": agents,
 		"total":  len(agents),
 	})
 }
 
-// ExecuteAgent executes an agent task
+// ExecuteAgent executes an agent task.
 func (ctrl *AgentController) ExecuteAgent(c forge.Context) error {
 	agentID := c.Param("id")
 
 	var req struct {
-		Type    string                 `json:"type"`
-		Data    interface{}            `json:"data"`
-		Context map[string]interface{} `json:"context"`
+		Type    string         `json:"type"`
+		Data    any            `json:"data"`
+		Context map[string]any `json:"context"`
 	}
 
 	if err := c.BindJSON(&req); err != nil {
@@ -251,7 +256,6 @@ func (ctrl *AgentController) ExecuteAgent(c forge.Context) error {
 		Data:    req.Data,
 		Context: req.Context,
 	})
-
 	if err != nil {
 		return c.JSON(500, map[string]string{"error": err.Error()})
 	}
@@ -259,7 +263,7 @@ func (ctrl *AgentController) ExecuteAgent(c forge.Context) error {
 	return c.JSON(200, output)
 }
 
-// ChatWithAgent provides conversational interface with an agent
+// ChatWithAgent provides conversational interface with an agent.
 func (ctrl *AgentController) ChatWithAgent(c forge.Context) error {
 	agentID := c.Param("id")
 
@@ -282,22 +286,22 @@ func (ctrl *AgentController) ChatWithAgent(c forge.Context) error {
 		Type: "chat",
 		Data: req.Message,
 	})
-
 	if err != nil {
 		return c.JSON(500, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(200, map[string]interface{}{
+	return c.JSON(200, map[string]any{
 		"agent_id": agentID,
 		"message":  output.Data,
 	})
 }
 
-// GetAgentHistory retrieves execution history
+// GetAgentHistory retrieves execution history.
 func (ctrl *AgentController) GetAgentHistory(c forge.Context) error {
 	agentID := c.Param("id")
 
 	limitStr := c.Query("limit")
+
 	limit := 10 // default
 	if limitStr != "" {
 		fmt.Sscanf(limitStr, "%d", &limit)
@@ -308,14 +312,14 @@ func (ctrl *AgentController) GetAgentHistory(c forge.Context) error {
 		return c.JSON(500, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(200, map[string]interface{}{
+	return c.JSON(200, map[string]any{
 		"agent_id": agentID,
 		"history":  history,
 		"total":    len(history),
 	})
 }
 
-// CreateTeam creates a new agent team
+// CreateTeam creates a new agent team.
 func (ctrl *AgentController) CreateTeam(c forge.Context) error {
 	var req struct {
 		Name     string   `json:"name"`
@@ -336,6 +340,7 @@ func (ctrl *AgentController) CreateTeam(c forge.Context) error {
 		if err != nil {
 			return c.JSON(404, map[string]string{"error": fmt.Sprintf("agent %s not found", agentID)})
 		}
+
 		team.AddAgent(agent)
 	}
 
@@ -344,14 +349,14 @@ func (ctrl *AgentController) CreateTeam(c forge.Context) error {
 		return c.JSON(500, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(201, map[string]interface{}{
+	return c.JSON(201, map[string]any{
 		"id":     teamID,
 		"name":   req.Name,
 		"agents": len(req.AgentIDs),
 	})
 }
 
-// GetTeam retrieves a team by ID
+// GetTeam retrieves a team by ID.
 func (ctrl *AgentController) GetTeam(c forge.Context) error {
 	teamID := c.Param("id")
 
@@ -361,42 +366,43 @@ func (ctrl *AgentController) GetTeam(c forge.Context) error {
 	}
 
 	agents := team.Agents()
-	agentInfos := make([]map[string]interface{}, len(agents))
+
+	agentInfos := make([]map[string]any, len(agents))
 	for i, agent := range agents {
-		agentInfos[i] = map[string]interface{}{
+		agentInfos[i] = map[string]any{
 			"id":   agent.ID(),
 			"name": agent.Name(),
 			"type": agent.Type(),
 		}
 	}
 
-	return c.JSON(200, map[string]interface{}{
+	return c.JSON(200, map[string]any{
 		"id":     team.ID(),
 		"name":   team.Name(),
 		"agents": agentInfos,
 	})
 }
 
-// ListTeams lists all teams
+// ListTeams lists all teams.
 func (ctrl *AgentController) ListTeams(c forge.Context) error {
 	teams := ctrl.agentManager.ListTeams()
 
-	teamInfos := make([]map[string]interface{}, len(teams))
+	teamInfos := make([]map[string]any, len(teams))
 	for i, team := range teams {
-		teamInfos[i] = map[string]interface{}{
+		teamInfos[i] = map[string]any{
 			"id":          team.ID(),
 			"name":        team.Name(),
 			"agent_count": len(team.Agents()),
 		}
 	}
 
-	return c.JSON(200, map[string]interface{}{
+	return c.JSON(200, map[string]any{
 		"teams": teamInfos,
 		"total": len(teams),
 	})
 }
 
-// AddAgentToTeam adds an agent to a team
+// AddAgentToTeam adds an agent to a team.
 func (ctrl *AgentController) AddAgentToTeam(c forge.Context) error {
 	teamID := c.Param("id")
 	agentID := c.Param("agentId")
@@ -416,7 +422,7 @@ func (ctrl *AgentController) AddAgentToTeam(c forge.Context) error {
 	return c.JSON(200, map[string]string{"status": "agent added to team"})
 }
 
-// RemoveAgentFromTeam removes an agent from a team
+// RemoveAgentFromTeam removes an agent from a team.
 func (ctrl *AgentController) RemoveAgentFromTeam(c forge.Context) error {
 	teamID := c.Param("id")
 	agentID := c.Param("agentId")
@@ -433,7 +439,7 @@ func (ctrl *AgentController) RemoveAgentFromTeam(c forge.Context) error {
 	return c.JSON(200, map[string]string{"status": "agent removed from team"})
 }
 
-// DeleteTeam deletes a team
+// DeleteTeam deletes a team.
 func (ctrl *AgentController) DeleteTeam(c forge.Context) error {
 	teamID := c.Param("id")
 
@@ -444,15 +450,15 @@ func (ctrl *AgentController) DeleteTeam(c forge.Context) error {
 	return c.JSON(200, map[string]string{"status": "deleted"})
 }
 
-// ExecuteTeam executes a team task
+// ExecuteTeam executes a team task.
 func (ctrl *AgentController) ExecuteTeam(c forge.Context) error {
 	teamID := c.Param("id")
 
 	var req struct {
-		Type    string                 `json:"type"`
-		Data    interface{}            `json:"data"`
-		Mode    string                 `json:"mode"` // sequential, parallel, collaborative
-		Context map[string]interface{} `json:"context"`
+		Type    string         `json:"type"`
+		Data    any            `json:"data"`
+		Mode    string         `json:"mode"` // sequential, parallel, collaborative
+		Context map[string]any `json:"context"`
 	}
 
 	if err := c.BindJSON(&req); err != nil {
@@ -475,7 +481,8 @@ func (ctrl *AgentController) ExecuteTeam(c forge.Context) error {
 		Context: req.Context,
 	}
 
-	var output interface{}
+	var output any
+
 	switch req.Mode {
 	case "parallel":
 		output, err = team.ExecuteParallel(c.Context(), input)
@@ -489,14 +496,14 @@ func (ctrl *AgentController) ExecuteTeam(c forge.Context) error {
 		return c.JSON(500, map[string]string{"error": err.Error()})
 	}
 
-	return c.JSON(200, map[string]interface{}{
+	return c.JSON(200, map[string]any{
 		"team_id": teamID,
 		"mode":    req.Mode,
 		"output":  output,
 	})
 }
 
-// ListTemplates lists all available agent templates
+// ListTemplates lists all available agent templates.
 func (ctrl *AgentController) ListTemplates(c forge.Context) error {
 	if ctrl.agentFactory == nil {
 		return c.JSON(500, map[string]string{"error": "agent factory not configured"})
@@ -504,13 +511,13 @@ func (ctrl *AgentController) ListTemplates(c forge.Context) error {
 
 	templates := ctrl.agentFactory.ListTemplates()
 
-	return c.JSON(200, map[string]interface{}{
+	return c.JSON(200, map[string]any{
 		"templates": templates,
 		"total":     len(templates),
 	})
 }
 
-// CreateTemplate creates a new agent template
+// CreateTemplate creates a new agent template.
 func (ctrl *AgentController) CreateTemplate(c forge.Context) error {
 	var template AgentTemplate
 
@@ -524,7 +531,7 @@ func (ctrl *AgentController) CreateTemplate(c forge.Context) error {
 
 	ctrl.agentFactory.RegisterTemplate(template.Name, template)
 
-	return c.JSON(201, map[string]interface{}{
+	return c.JSON(201, map[string]any{
 		"name":   template.Name,
 		"type":   template.Type,
 		"status": "registered",

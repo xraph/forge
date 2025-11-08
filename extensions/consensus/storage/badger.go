@@ -8,9 +8,10 @@ import (
 	"github.com/dgraph-io/badger/v4"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// BadgerStorage implements BadgerDB-based persistent storage
+// BadgerStorage implements BadgerDB-based persistent storage.
 type BadgerStorage struct {
 	db      *badger.DB
 	path    string
@@ -19,7 +20,7 @@ type BadgerStorage struct {
 	mu      sync.RWMutex
 }
 
-// BadgerStorageConfig contains BadgerDB storage configuration
+// BadgerStorageConfig contains BadgerDB storage configuration.
 type BadgerStorageConfig struct {
 	Path               string
 	SyncWrites         bool
@@ -40,10 +41,10 @@ type BadgerStorageConfig struct {
 	CompactL0OnClose   bool
 }
 
-// NewBadgerStorage creates a new BadgerDB storage
+// NewBadgerStorage creates a new BadgerDB storage.
 func NewBadgerStorage(config BadgerStorageConfig, logger forge.Logger) (*BadgerStorage, error) {
 	if config.Path == "" {
-		return nil, fmt.Errorf("storage path is required")
+		return nil, errors.New("storage path is required")
 	}
 
 	return &BadgerStorage{
@@ -52,7 +53,7 @@ func NewBadgerStorage(config BadgerStorageConfig, logger forge.Logger) (*BadgerS
 	}, nil
 }
 
-// Start starts the storage backend
+// Start starts the storage backend.
 func (bs *BadgerStorage) Start(ctx context.Context) error {
 	bs.mu.Lock()
 	defer bs.mu.Unlock()
@@ -82,7 +83,7 @@ func (bs *BadgerStorage) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the storage backend
+// Stop stops the storage backend.
 func (bs *BadgerStorage) Stop(ctx context.Context) error {
 	bs.mu.Lock()
 	defer bs.mu.Unlock()
@@ -96,6 +97,7 @@ func (bs *BadgerStorage) Stop(ctx context.Context) error {
 			bs.logger.Error("failed to close badger database",
 				forge.F("error", err),
 			)
+
 			return err
 		}
 	}
@@ -106,14 +108,14 @@ func (bs *BadgerStorage) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Set stores a key-value pair
+// Set stores a key-value pair.
 func (bs *BadgerStorage) Set(key, value []byte) error {
 	return bs.db.Update(func(txn *badger.Txn) error {
 		return txn.Set(key, value)
 	})
 }
 
-// Get retrieves a value by key
+// Get retrieves a value by key.
 func (bs *BadgerStorage) Get(key []byte) ([]byte, error) {
 	var value []byte
 
@@ -124,31 +126,33 @@ func (bs *BadgerStorage) Get(key []byte) ([]byte, error) {
 		}
 
 		value, err = item.ValueCopy(nil)
+
 		return err
 	})
 
-	if err == badger.ErrKeyNotFound {
+	if errors.Is(err, badger.ErrKeyNotFound) {
 		return nil, internal.ErrNodeNotFound
 	}
 
 	return value, err
 }
 
-// Delete deletes a key
+// Delete deletes a key.
 func (bs *BadgerStorage) Delete(key []byte) error {
 	return bs.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(key)
 	})
 }
 
-// Exists checks if a key exists
+// Exists checks if a key exists.
 func (bs *BadgerStorage) Exists(key []byte) (bool, error) {
 	err := bs.db.View(func(txn *badger.Txn) error {
 		_, err := txn.Get(key)
+
 		return err
 	})
 
-	if err == badger.ErrKeyNotFound {
+	if errors.Is(err, badger.ErrKeyNotFound) {
 		return false, nil
 	}
 
@@ -159,13 +163,14 @@ func (bs *BadgerStorage) Exists(key []byte) (bool, error) {
 	return true, nil
 }
 
-// ListKeys lists all keys with a given prefix
+// ListKeys lists all keys with a given prefix.
 func (bs *BadgerStorage) ListKeys(prefix []byte) ([][]byte, error) {
 	var keys [][]byte
 
 	err := bs.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
 		opts.PrefetchValues = false
+
 		it := txn.NewIterator(opts)
 		defer it.Close()
 
@@ -181,7 +186,7 @@ func (bs *BadgerStorage) ListKeys(prefix []byte) ([][]byte, error) {
 	return keys, err
 }
 
-// WriteBatch writes a batch of operations atomically
+// WriteBatch writes a batch of operations atomically.
 func (bs *BadgerStorage) WriteBatch(ops []internal.BatchOp) error {
 	return bs.db.Update(func(txn *badger.Txn) error {
 		for i, op := range ops {
@@ -205,10 +210,11 @@ func (bs *BadgerStorage) WriteBatch(ops []internal.BatchOp) error {
 	})
 }
 
-// Iterate iterates over all key-value pairs with a given prefix
+// Iterate iterates over all key-value pairs with a given prefix.
 func (bs *BadgerStorage) Iterate(prefix []byte, fn func(key, value []byte) error) error {
 	return bs.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
+
 		it := txn.NewIterator(opts)
 		defer it.Close()
 
@@ -219,9 +225,9 @@ func (bs *BadgerStorage) Iterate(prefix []byte, fn func(key, value []byte) error
 			err := item.Value(func(val []byte) error {
 				valueCopy := make([]byte, len(val))
 				copy(valueCopy, val)
+
 				return fn(key, valueCopy)
 			})
-
 			if err != nil {
 				return err
 			}
@@ -231,12 +237,13 @@ func (bs *BadgerStorage) Iterate(prefix []byte, fn func(key, value []byte) error
 	})
 }
 
-// GetRange retrieves a range of key-value pairs
+// GetRange retrieves a range of key-value pairs.
 func (bs *BadgerStorage) GetRange(start, end []byte) ([]internal.KeyValue, error) {
 	var result []internal.KeyValue
 
 	err := bs.db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
+
 		it := txn.NewIterator(opts)
 		defer it.Close()
 
@@ -250,12 +257,13 @@ func (bs *BadgerStorage) GetRange(start, end []byte) ([]internal.KeyValue, error
 			}
 
 			var value []byte
+
 			err := item.Value(func(val []byte) error {
 				value = make([]byte, len(val))
 				copy(value, val)
+
 				return nil
 			})
-
 			if err != nil {
 				return err
 			}
@@ -272,24 +280,25 @@ func (bs *BadgerStorage) GetRange(start, end []byte) ([]internal.KeyValue, error
 	return result, err
 }
 
-// Compact triggers manual compaction
+// Compact triggers manual compaction.
 func (bs *BadgerStorage) Compact() error {
 	return bs.db.Flatten(1)
 }
 
-// Backup creates a backup of the database
-func (bs *BadgerStorage) Backup(writer interface{}) error {
+// Backup creates a backup of the database.
+func (bs *BadgerStorage) Backup(writer any) error {
 	// TODO: Implement backup
-	return fmt.Errorf("backup not yet implemented")
+	return errors.New("backup not yet implemented")
 }
 
-// Size returns the approximate size of the database in bytes
+// Size returns the approximate size of the database in bytes.
 func (bs *BadgerStorage) Size() (int64, error) {
 	lsm, vlog := bs.db.Size()
+
 	return lsm + vlog, nil
 }
 
-// RunGC runs garbage collection
+// RunGC runs garbage collection.
 func (bs *BadgerStorage) RunGC(discardRatio float64) error {
 	return bs.db.RunValueLogGC(discardRatio)
 }

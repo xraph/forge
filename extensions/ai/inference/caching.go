@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// InferenceCache handles caching of inference results
+// InferenceCache handles caching of inference results.
 type InferenceCache struct {
 	config    InferenceCacheConfig
 	cache     map[string]*CacheEntry
@@ -27,22 +28,22 @@ type InferenceCache struct {
 	wg        sync.WaitGroup
 }
 
-// InferenceCacheConfig contains configuration for inference caching
+// InferenceCacheConfig contains configuration for inference caching.
 type InferenceCacheConfig struct {
-	Size                int           `yaml:"size" default:"1000"`
-	TTL                 time.Duration `yaml:"ttl" default:"1h"`
-	MaxEntrySize        int           `yaml:"max_entry_size" default:"1048576"` // 1MB
-	CleanupInterval     time.Duration `yaml:"cleanup_interval" default:"5m"`
-	EnableCompression   bool          `yaml:"enable_compression" default:"true"`
-	EnablePersistence   bool          `yaml:"enable_persistence" default:"false"`
-	PersistenceFile     string        `yaml:"persistence_file" default:"inference_cache.json"`
-	PersistenceInterval time.Duration `yaml:"persistence_interval" default:"1m"`
-	HashFunction        string        `yaml:"hash_function" default:"sha256"`
+	Size                int           `default:"1000"                 yaml:"size"`
+	TTL                 time.Duration `default:"1h"                   yaml:"ttl"`
+	MaxEntrySize        int           `default:"1048576"              yaml:"max_entry_size"` // 1MB
+	CleanupInterval     time.Duration `default:"5m"                   yaml:"cleanup_interval"`
+	EnableCompression   bool          `default:"true"                 yaml:"enable_compression"`
+	EnablePersistence   bool          `default:"false"                yaml:"enable_persistence"`
+	PersistenceFile     string        `default:"inference_cache.json" yaml:"persistence_file"`
+	PersistenceInterval time.Duration `default:"1m"                   yaml:"persistence_interval"`
+	HashFunction        string        `default:"sha256"               yaml:"hash_function"`
 	Logger              logger.Logger `yaml:"-"`
 	Metrics             forge.Metrics `yaml:"-"`
 }
 
-// CacheEntry represents a cached inference result
+// CacheEntry represents a cached inference result.
 type CacheEntry struct {
 	Key         string
 	Request     InferenceRequest
@@ -59,7 +60,7 @@ type CacheEntry struct {
 	mu          sync.RWMutex
 }
 
-// CacheStats contains statistics for the inference cache
+// CacheStats contains statistics for the inference cache.
 type CacheStats struct {
 	Hits            int64         `json:"hits"`
 	Misses          int64         `json:"misses"`
@@ -79,7 +80,7 @@ type CacheStats struct {
 	LastUpdated     time.Time     `json:"last_updated"`
 }
 
-// LRUList implements a least-recently-used list
+// LRUList implements a least-recently-used list.
 type LRUList struct {
 	head *LRUNode
 	tail *LRUNode
@@ -87,7 +88,7 @@ type LRUList struct {
 	mu   sync.RWMutex
 }
 
-// LRUNode represents a node in the LRU list
+// LRUNode represents a node in the LRU list.
 type LRUNode struct {
 	key   string
 	prev  *LRUNode
@@ -95,30 +96,35 @@ type LRUNode struct {
 	entry *CacheEntry
 }
 
-// CacheEvictionStrategy defines different cache eviction strategies
+// CacheEvictionStrategy defines different cache eviction strategies.
 type CacheEvictionStrategy interface {
 	Name() string
 	ShouldEvict(entry *CacheEntry, cacheSize int, maxSize int) bool
 	SelectVictim(entries map[string]*CacheEntry) string
 }
 
-// NewInferenceCache creates a new inference cache
+// NewInferenceCache creates a new inference cache.
 func NewInferenceCache(config InferenceCacheConfig) (*InferenceCache, error) {
 	if config.Size <= 0 {
 		config.Size = 1000
 	}
+
 	if config.TTL == 0 {
 		config.TTL = time.Hour
 	}
+
 	if config.MaxEntrySize <= 0 {
 		config.MaxEntrySize = 1048576 // 1MB
 	}
+
 	if config.CleanupInterval == 0 {
 		config.CleanupInterval = 5 * time.Minute
 	}
+
 	if config.PersistenceInterval == 0 {
 		config.PersistenceInterval = time.Minute
 	}
+
 	if config.HashFunction == "" {
 		config.HashFunction = "sha256"
 	}
@@ -136,13 +142,13 @@ func NewInferenceCache(config InferenceCacheConfig) (*InferenceCache, error) {
 	return cache, nil
 }
 
-// Start starts the inference cache
+// Start starts the inference cache.
 func (c *InferenceCache) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.started {
-		return fmt.Errorf("inference cache already started")
+		return errors.New("inference cache already started")
 	}
 
 	// Load persistent cache if enabled
@@ -155,27 +161,27 @@ func (c *InferenceCache) Start(ctx context.Context) error {
 	}
 
 	// Start cleanup routine
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
+
+	c.wg.Go(func() {
+
 		c.runCleanupRoutine(ctx)
-	}()
+	})
 
 	// Start persistence routine if enabled
 	if c.config.EnablePersistence {
-		c.wg.Add(1)
-		go func() {
-			defer c.wg.Done()
+
+		c.wg.Go(func() {
+
 			c.runPersistenceRoutine(ctx)
-		}()
+		})
 	}
 
 	// Start stats collection
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
+
+	c.wg.Go(func() {
+
 		c.runStatsCollection(ctx)
-	}()
+	})
 
 	c.started = true
 
@@ -195,13 +201,13 @@ func (c *InferenceCache) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the inference cache
+// Stop stops the inference cache.
 func (c *InferenceCache) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if !c.started {
-		return fmt.Errorf("inference cache not started")
+		return errors.New("inference cache not started")
 	}
 
 	// Signal shutdown
@@ -232,7 +238,7 @@ func (c *InferenceCache) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Get retrieves a cached inference result
+// Get retrieves a cached inference result.
 func (c *InferenceCache) Get(request InferenceRequest) (InferenceResponse, bool) {
 	if !c.started {
 		return InferenceResponse{}, false
@@ -294,6 +300,7 @@ func (c *InferenceCache) Get(request InferenceRequest) (InferenceResponse, bool)
 			if c.logger != nil {
 				c.logger.Error("failed to decompress cache entry", logger.Error(err))
 			}
+
 			return InferenceResponse{}, false
 		}
 
@@ -324,7 +331,7 @@ func (c *InferenceCache) Get(request InferenceRequest) (InferenceResponse, bool)
 	return response, true
 }
 
-// Set stores an inference result in the cache
+// Set stores an inference result in the cache.
 func (c *InferenceCache) Set(request InferenceRequest, response InferenceResponse) {
 	if !c.started {
 		return
@@ -342,6 +349,7 @@ func (c *InferenceCache) Set(request InferenceRequest, response InferenceRespons
 				logger.Int("max_size", c.config.MaxEntrySize),
 			)
 		}
+
 		return
 	}
 
@@ -404,7 +412,7 @@ func (c *InferenceCache) Set(request InferenceRequest, response InferenceRespons
 	}
 }
 
-// Delete removes an entry from the cache
+// Delete removes an entry from the cache.
 func (c *InferenceCache) Delete(request InferenceRequest) {
 	if !c.started {
 		return
@@ -431,7 +439,7 @@ func (c *InferenceCache) Delete(request InferenceRequest) {
 	}
 }
 
-// Clear clears all entries from the cache
+// Clear clears all entries from the cache.
 func (c *InferenceCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -457,7 +465,7 @@ func (c *InferenceCache) Clear() {
 	}
 }
 
-// GetStats returns cache statistics
+// GetStats returns cache statistics.
 func (c *InferenceCache) GetStats() CacheStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -475,12 +483,12 @@ func (c *InferenceCache) GetStats() CacheStats {
 	return stats
 }
 
-// generateKey generates a cache key for a request
+// generateKey generates a cache key for a request.
 func (c *InferenceCache) generateKey(request InferenceRequest) string {
 	// Create a deterministic key based on request content
 	data := struct {
 		ModelID string
-		Input   interface{}
+		Input   any
 		Options InferenceOptions
 	}{
 		ModelID: request.ModelID,
@@ -496,23 +504,25 @@ func (c *InferenceCache) generateKey(request InferenceRequest) string {
 
 	// Generate hash
 	hash := sha256.Sum256(jsonData)
+
 	return hex.EncodeToString(hash[:])
 }
 
-// generateHash generates a hash for a request
+// generateHash generates a hash for a request.
 func (c *InferenceCache) generateHash(request InferenceRequest) string {
 	return c.generateKey(request)
 }
 
-// calculateEntrySize calculates the size of a cache entry
+// calculateEntrySize calculates the size of a cache entry.
 func (c *InferenceCache) calculateEntrySize(request InferenceRequest, response InferenceResponse) int {
 	// Simplified size calculation
 	requestSize := len(fmt.Sprintf("%+v", request))
 	responseSize := len(fmt.Sprintf("%+v", response))
+
 	return requestSize + responseSize
 }
 
-// compressEntry compresses a cache entry
+// compressEntry compresses a cache entry.
 func (c *InferenceCache) compressEntry(entry *CacheEntry) error {
 	// Simplified compression - in practice, would use gzip or similar
 	data, err := json.Marshal(entry.Response)
@@ -522,16 +532,17 @@ func (c *InferenceCache) compressEntry(entry *CacheEntry) error {
 
 	entry.Data = data
 	entry.Compressed = true
+
 	return nil
 }
 
-// decompressResponse decompresses a cached response
+// decompressResponse decompresses a cached response.
 func (c *InferenceCache) decompressResponse(response *InferenceResponse, data []byte) error {
 	// Simplified decompression
 	return json.Unmarshal(data, response)
 }
 
-// evictEntries evicts entries from the cache
+// evictEntries evicts entries from the cache.
 func (c *InferenceCache) evictEntries(count int) {
 	evicted := 0
 	for evicted < count && c.lru.Size() > 0 {
@@ -544,6 +555,7 @@ func (c *InferenceCache) evictEntries(count int) {
 					stats.Size -= entry.Size
 					stats.Evictions++
 				})
+
 				evicted++
 			}
 		}
@@ -554,7 +566,7 @@ func (c *InferenceCache) evictEntries(count int) {
 	}
 }
 
-// runCleanupRoutine runs the cache cleanup routine
+// runCleanupRoutine runs the cache cleanup routine.
 func (c *InferenceCache) runCleanupRoutine(ctx context.Context) {
 	ticker := time.NewTicker(c.config.CleanupInterval)
 	defer ticker.Stop()
@@ -571,7 +583,7 @@ func (c *InferenceCache) runCleanupRoutine(ctx context.Context) {
 	}
 }
 
-// runPersistenceRoutine runs the cache persistence routine
+// runPersistenceRoutine runs the cache persistence routine.
 func (c *InferenceCache) runPersistenceRoutine(ctx context.Context) {
 	ticker := time.NewTicker(c.config.PersistenceInterval)
 	defer ticker.Stop()
@@ -592,7 +604,7 @@ func (c *InferenceCache) runPersistenceRoutine(ctx context.Context) {
 	}
 }
 
-// runStatsCollection runs the statistics collection routine
+// runStatsCollection runs the statistics collection routine.
 func (c *InferenceCache) runStatsCollection(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -609,7 +621,7 @@ func (c *InferenceCache) runStatsCollection(ctx context.Context) {
 	}
 }
 
-// cleanup removes expired entries from the cache
+// cleanup removes expired entries from the cache.
 func (c *InferenceCache) cleanup() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -652,30 +664,32 @@ func (c *InferenceCache) cleanup() {
 	}
 }
 
-// loadPersistentCache loads the cache from persistent storage
+// loadPersistentCache loads the cache from persistent storage.
 func (c *InferenceCache) loadPersistentCache() error {
 	// Simplified persistence - in practice, would use proper serialization
 	return nil
 }
 
-// savePersistentCache saves the cache to persistent storage
+// savePersistentCache saves the cache to persistent storage.
 func (c *InferenceCache) savePersistentCache() error {
 	// Simplified persistence - in practice, would use proper serialization
 	c.updateStats(func(stats *CacheStats) {
 		stats.PersistenceOps++
 		stats.LastPersistence = time.Now()
 	})
+
 	return nil
 }
 
-// updateStats updates cache statistics
+// updateStats updates cache statistics.
 func (c *InferenceCache) updateStats(fn func(*CacheStats)) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	fn(&c.stats)
 }
 
-// collectStats collects and updates statistics
+// collectStats collects and updates statistics.
 func (c *InferenceCache) collectStats() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -686,12 +700,12 @@ func (c *InferenceCache) collectStats() {
 
 // LRU List implementation
 
-// NewLRUList creates a new LRU list
+// NewLRUList creates a new LRU list.
 func NewLRUList() *LRUList {
 	return &LRUList{}
 }
 
-// AddToFront adds an entry to the front of the LRU list
+// AddToFront adds an entry to the front of the LRU list.
 func (l *LRUList) AddToFront(key string, entry *CacheEntry) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -713,7 +727,7 @@ func (l *LRUList) AddToFront(key string, entry *CacheEntry) {
 	l.size++
 }
 
-// MoveToFront moves an entry to the front of the LRU list
+// MoveToFront moves an entry to the front of the LRU list.
 func (l *LRUList) MoveToFront(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -734,7 +748,7 @@ func (l *LRUList) MoveToFront(key string) {
 	l.head = node
 }
 
-// Remove removes an entry from the LRU list
+// Remove removes an entry from the LRU list.
 func (l *LRUList) Remove(key string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -746,7 +760,7 @@ func (l *LRUList) Remove(key string) {
 	}
 }
 
-// RemoveTail removes and returns the key of the tail entry
+// RemoveTail removes and returns the key of the tail entry.
 func (l *LRUList) RemoveTail() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -758,29 +772,33 @@ func (l *LRUList) RemoveTail() string {
 	key := l.tail.key
 	l.removeNode(l.tail)
 	l.size--
+
 	return key
 }
 
-// Size returns the size of the LRU list
+// Size returns the size of the LRU list.
 func (l *LRUList) Size() int {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+
 	return l.size
 }
 
-// findNode finds a node by key
+// findNode finds a node by key.
 func (l *LRUList) findNode(key string) *LRUNode {
 	current := l.head
 	for current != nil {
 		if current.key == key {
 			return current
 		}
+
 		current = current.next
 	}
+
 	return nil
 }
 
-// removeNode removes a node from the list
+// removeNode removes a node from the list.
 func (l *LRUList) removeNode(node *LRUNode) {
 	if node.prev != nil {
 		node.prev.next = node.next

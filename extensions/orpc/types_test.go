@@ -10,12 +10,15 @@ func TestNewErrorResponse(t *testing.T) {
 	if resp.JSONRPC != "2.0" {
 		t.Errorf("expected jsonrpc 2.0, got %s", resp.JSONRPC)
 	}
+
 	if resp.Error == nil {
 		t.Fatal("expected error to be set")
 	}
+
 	if resp.Error.Code != ErrMethodNotFound {
 		t.Errorf("expected code %d, got %d", ErrMethodNotFound, resp.Error.Code)
 	}
+
 	if resp.ID != 1 {
 		t.Errorf("expected id 1, got %v", resp.ID)
 	}
@@ -28,12 +31,15 @@ func TestNewErrorResponseWithData(t *testing.T) {
 	if resp.JSONRPC != "2.0" {
 		t.Errorf("expected jsonrpc 2.0, got %s", resp.JSONRPC)
 	}
+
 	if resp.Error == nil {
 		t.Fatal("expected error to be set")
 	}
+
 	if resp.Error.Data == nil {
 		t.Fatal("expected error data to be set")
 	}
+
 	if resp.ID != "req-123" {
 		t.Errorf("expected id 'req-123', got %v", resp.ID)
 	}
@@ -46,12 +52,15 @@ func TestNewSuccessResponse(t *testing.T) {
 	if resp.JSONRPC != "2.0" {
 		t.Errorf("expected jsonrpc 2.0, got %s", resp.JSONRPC)
 	}
+
 	if resp.Result == nil {
 		t.Fatal("expected result to be set")
 	}
+
 	if resp.Error != nil {
 		t.Fatal("expected no error")
 	}
+
 	if resp.ID != 42 {
 		t.Errorf("expected id 42, got %v", resp.ID)
 	}

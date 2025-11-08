@@ -7,14 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/llm"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// AnthropicProvider implements LLM provider for Anthropic
+// AnthropicProvider implements LLM provider for Anthropic.
 type AnthropicProvider struct {
 	name      string
 	apiKey    string
@@ -28,17 +30,17 @@ type AnthropicProvider struct {
 	rateLimit *RateLimiter
 }
 
-// AnthropicConfig contains configuration for Anthropic provider
+// AnthropicConfig contains configuration for Anthropic provider.
 type AnthropicConfig struct {
-	APIKey     string        `yaml:"api_key" env:"ANTHROPIC_API_KEY"`
-	BaseURL    string        `yaml:"base_url" default:"https://api.anthropic.com"`
-	Version    string        `yaml:"version" default:"2023-06-01"`
-	Timeout    time.Duration `yaml:"timeout" default:"30s"`
-	MaxRetries int           `yaml:"max_retries" default:"3"`
+	APIKey     string        `env:"ANTHROPIC_API_KEY"             yaml:"api_key"`
+	BaseURL    string        `default:"https://api.anthropic.com" yaml:"base_url"`
+	Version    string        `default:"2023-06-01"                yaml:"version"`
+	Timeout    time.Duration `default:"30s"                       yaml:"timeout"`
+	MaxRetries int           `default:"3"                         yaml:"max_retries"`
 	RateLimit  *RateLimit    `yaml:"rate_limit"`
 }
 
-// Anthropic API structures
+// Anthropic API structures.
 type anthropicChatRequest struct {
 	Model       string             `json:"model"`
 	Messages    []anthropicMessage `json:"messages"`
@@ -50,7 +52,7 @@ type anthropicChatRequest struct {
 	Stop        []string           `json:"stop_sequences,omitempty"`
 	System      string             `json:"system,omitempty"`
 	Tools       []anthropicTool    `json:"tools,omitempty"`
-	ToolChoice  interface{}        `json:"tool_choice,omitempty"`
+	ToolChoice  any                `json:"tool_choice,omitempty"`
 }
 
 type anthropicMessage struct {
@@ -66,9 +68,9 @@ type anthropicContent struct {
 }
 
 type anthropicToolUse struct {
-	ID    string                 `json:"id"`
-	Name  string                 `json:"name"`
-	Input map[string]interface{} `json:"input"`
+	ID    string         `json:"id"`
+	Name  string         `json:"name"`
+	Input map[string]any `json:"input"`
 }
 
 type anthropicToolResult struct {
@@ -78,9 +80,9 @@ type anthropicToolResult struct {
 }
 
 type anthropicTool struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"input_schema"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
 }
 
 type anthropicResponse struct {
@@ -99,10 +101,10 @@ type anthropicUsage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-// NewAnthropicProvider creates a new Anthropic provider
+// NewAnthropicProvider creates a new Anthropic provider.
 func NewAnthropicProvider(config AnthropicConfig, logger forge.Logger, metrics forge.Metrics) (*AnthropicProvider, error) {
 	if config.APIKey == "" {
-		return nil, fmt.Errorf("Anthropic API key is required")
+		return nil, errors.New("Anthropic API key is required")
 	}
 
 	if config.BaseURL == "" {
@@ -147,17 +149,17 @@ func NewAnthropicProvider(config AnthropicConfig, logger forge.Logger, metrics f
 	}, nil
 }
 
-// Name returns the provider name
+// Name returns the provider name.
 func (p *AnthropicProvider) Name() string {
 	return p.name
 }
 
-// Models returns the available models
+// Models returns the available models.
 func (p *AnthropicProvider) Models() []string {
 	return p.models
 }
 
-// Chat performs a chat completion request
+// Chat performs a chat completion request.
 func (p *AnthropicProvider) Chat(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	if err := p.checkRateLimit(ctx, request.Model); err != nil {
 		return llm.ChatResponse{}, err
@@ -176,7 +178,7 @@ func (p *AnthropicProvider) Chat(ctx context.Context, request llm.ChatRequest) (
 	return p.convertChatResponse(response, request.RequestID)
 }
 
-// Complete performs a text completion request (not supported by Anthropic)
+// Complete performs a text completion request (not supported by Anthropic).
 func (p *AnthropicProvider) Complete(ctx context.Context, request llm.CompletionRequest) (llm.CompletionResponse, error) {
 	// Convert completion to chat format
 	chatRequest := llm.ChatRequest{
@@ -208,17 +210,17 @@ func (p *AnthropicProvider) Complete(ctx context.Context, request llm.Completion
 	return p.convertToCompletionResponse(chatResponse), nil
 }
 
-// Embed performs an embedding request (not supported by Anthropic)
+// Embed performs an embedding request (not supported by Anthropic).
 func (p *AnthropicProvider) Embed(ctx context.Context, request llm.EmbeddingRequest) (llm.EmbeddingResponse, error) {
-	return llm.EmbeddingResponse{}, fmt.Errorf("embedding not supported by Anthropic provider")
+	return llm.EmbeddingResponse{}, errors.New("embedding not supported by Anthropic provider")
 }
 
-// GetUsage returns current usage statistics
+// GetUsage returns current usage statistics.
 func (p *AnthropicProvider) GetUsage() llm.LLMUsage {
 	return p.usage
 }
 
-// HealthCheck performs a health check
+// HealthCheck performs a health check.
 func (p *AnthropicProvider) HealthCheck(ctx context.Context) error {
 	// Simple health check - try to make a minimal request
 	testRequest := llm.ChatRequest{
@@ -230,11 +232,12 @@ func (p *AnthropicProvider) HealthCheck(ctx context.Context) error {
 	}
 
 	_, err := p.Chat(ctx, testRequest)
+
 	return err
 }
 
-// makeRequest makes an HTTP request to the Anthropic API
-func (p *AnthropicProvider) makeRequest(ctx context.Context, endpoint string, payload interface{}) (*anthropicResponse, error) {
+// makeRequest makes an HTTP request to the Anthropic API.
+func (p *AnthropicProvider) makeRequest(ctx context.Context, endpoint string, payload any) (*anthropicResponse, error) {
 	// Serialize payload
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
@@ -242,15 +245,15 @@ func (p *AnthropicProvider) makeRequest(ctx context.Context, endpoint string, pa
 	}
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-api-key", p.apiKey)
-	req.Header.Set("anthropic-version", p.version)
+	req.Header.Set("X-Api-Key", p.apiKey)
+	req.Header.Set("Anthropic-Version", p.version)
 
 	// Make request
 	resp, err := p.client.Do(req)
@@ -287,7 +290,7 @@ func (p *AnthropicProvider) makeRequest(ctx context.Context, endpoint string, pa
 	return &response, nil
 }
 
-// convertChatRequest converts a chat request to Anthropic format
+// convertChatRequest converts a chat request to Anthropic format.
 func (p *AnthropicProvider) convertChatRequest(request llm.ChatRequest) *anthropicChatRequest {
 	anthropicReq := &anthropicChatRequest{
 		Model:       request.Model,
@@ -308,6 +311,7 @@ func (p *AnthropicProvider) convertChatRequest(request llm.ChatRequest) *anthrop
 	for _, msg := range request.Messages {
 		if msg.Role == "system" {
 			anthropicReq.System = msg.Content
+
 			continue
 		}
 
@@ -325,7 +329,7 @@ func (p *AnthropicProvider) convertChatRequest(request llm.ChatRequest) *anthrop
 						ToolUse: &anthropicToolUse{
 							ID:    toolCall.ID,
 							Name:  toolCall.Function.Name,
-							Input: map[string]interface{}{},
+							Input: map[string]any{},
 						},
 					})
 				}
@@ -352,7 +356,7 @@ func (p *AnthropicProvider) convertChatRequest(request llm.ChatRequest) *anthrop
 	return anthropicReq
 }
 
-// convertChatResponse converts Anthropic chat response to standard format
+// convertChatResponse converts Anthropic chat response to standard format.
 func (p *AnthropicProvider) convertChatResponse(response *anthropicResponse, requestID string) (llm.ChatResponse, error) {
 	chatResponse := llm.ChatResponse{
 		ID:        response.ID,
@@ -407,7 +411,7 @@ func (p *AnthropicProvider) convertChatResponse(response *anthropicResponse, req
 	return chatResponse, nil
 }
 
-// convertToCompletionResponse converts chat response to completion response
+// convertToCompletionResponse converts chat response to completion response.
 func (p *AnthropicProvider) convertToCompletionResponse(chatResponse llm.ChatResponse) llm.CompletionResponse {
 	completionResponse := llm.CompletionResponse{
 		ID:        chatResponse.ID,
@@ -433,7 +437,7 @@ func (p *AnthropicProvider) convertToCompletionResponse(chatResponse llm.ChatRes
 	return completionResponse
 }
 
-// checkRateLimit checks if the request is within rate limits
+// checkRateLimit checks if the request is within rate limits.
 func (p *AnthropicProvider) checkRateLimit(ctx context.Context, model string) error {
 	if p.rateLimit == nil {
 		return nil
@@ -446,7 +450,7 @@ func (p *AnthropicProvider) checkRateLimit(ctx context.Context, model string) er
 
 	// Check request rate limit
 	if len(p.rateLimit.requestTokens) >= p.rateLimit.requestsPerMinute {
-		return fmt.Errorf("rate limit exceeded: too many requests per minute")
+		return errors.New("rate limit exceeded: too many requests per minute")
 	}
 
 	// Add current request
@@ -455,46 +459,46 @@ func (p *AnthropicProvider) checkRateLimit(ctx context.Context, model string) er
 	return nil
 }
 
-// cleanupRateLimit removes old entries from rate limit tracking
+// cleanupRateLimit removes old entries from rate limit tracking.
 func (p *AnthropicProvider) cleanupRateLimit(now time.Time) {
 	cutoff := now.Add(-time.Minute)
 
 	// Clean up request tokens
 	var newRequestTokens []time.Time
+
 	for _, timestamp := range p.rateLimit.requestTokens {
 		if timestamp.After(cutoff) {
 			newRequestTokens = append(newRequestTokens, timestamp)
 		}
 	}
+
 	p.rateLimit.requestTokens = newRequestTokens
 
 	// Clean up token usage
 	var newTokenUsage []TokenUsage
+
 	for _, usage := range p.rateLimit.tokenUsage {
 		if usage.timestamp.After(cutoff) {
 			newTokenUsage = append(newTokenUsage, usage)
 		}
 	}
+
 	p.rateLimit.tokenUsage = newTokenUsage
 }
 
-// IsModelSupported checks if a model is supported
+// IsModelSupported checks if a model is supported.
 func (p *AnthropicProvider) IsModelSupported(model string) bool {
-	for _, supportedModel := range p.models {
-		if supportedModel == model {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(p.models, model)
 }
 
-// GetModelInfo returns information about a model
-func (p *AnthropicProvider) GetModelInfo(model string) (map[string]interface{}, error) {
+// GetModelInfo returns information about a model.
+func (p *AnthropicProvider) GetModelInfo(model string) (map[string]any, error) {
 	if !p.IsModelSupported(model) {
 		return nil, fmt.Errorf("model %s is not supported", model)
 	}
 
-	info := map[string]interface{}{
+	info := map[string]any{
 		"name":     model,
 		"provider": p.name,
 		"type":     "chat",

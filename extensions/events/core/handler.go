@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// EventHandler defines the interface for handling events
+// EventHandler defines the interface for handling events.
 type EventHandler interface {
 	// Handle processes an event
 	Handle(ctx context.Context, event *Event) error
@@ -24,25 +25,25 @@ type EventHandler interface {
 	Name() string
 }
 
-// EventHandlerFunc is a function adapter for EventHandler
+// EventHandlerFunc is a function adapter for EventHandler.
 type EventHandlerFunc func(ctx context.Context, event *Event) error
 
-// Handle implements EventHandler
+// Handle implements EventHandler.
 func (f EventHandlerFunc) Handle(ctx context.Context, event *Event) error {
 	return f(ctx, event)
 }
 
-// CanHandle implements EventHandler - always returns true for function handlers
+// CanHandle implements EventHandler - always returns true for function handlers.
 func (f EventHandlerFunc) CanHandle(event *Event) bool {
 	return true
 }
 
-// Name implements EventHandler
+// Name implements EventHandler.
 func (f EventHandlerFunc) Name() string {
 	return "anonymous-handler"
 }
 
-// TypedEventHandler is a handler for specific event types
+// TypedEventHandler is a handler for specific event types.
 type TypedEventHandler struct {
 	name        string
 	eventTypes  map[string]bool
@@ -53,7 +54,7 @@ type TypedEventHandler struct {
 	logger      forge.Logger
 }
 
-// NewTypedEventHandler creates a new typed event handler
+// NewTypedEventHandler creates a new typed event handler.
 func NewTypedEventHandler(name string, eventTypes []string, handler EventHandlerFunc) *TypedEventHandler {
 	typeMap := make(map[string]bool)
 	for _, eventType := range eventTypes {
@@ -68,7 +69,7 @@ func NewTypedEventHandler(name string, eventTypes []string, handler EventHandler
 	}
 }
 
-// Handle implements EventHandler
+// Handle implements EventHandler.
 func (h *TypedEventHandler) Handle(ctx context.Context, event *Event) error {
 	if !h.CanHandle(event) {
 		return fmt.Errorf("handler %s cannot handle event type %s", h.name, event.Type)
@@ -125,41 +126,45 @@ func (h *TypedEventHandler) Handle(ctx context.Context, event *Event) error {
 	return err
 }
 
-// CanHandle implements EventHandler
+// CanHandle implements EventHandler.
 func (h *TypedEventHandler) CanHandle(event *Event) bool {
 	return h.eventTypes[event.Type]
 }
 
-// Name implements EventHandler
+// Name implements EventHandler.
 func (h *TypedEventHandler) Name() string {
 	return h.name
 }
 
-// WithMiddleware adds middleware to the handler
+// WithMiddleware adds middleware to the handler.
 func (h *TypedEventHandler) WithMiddleware(middleware ...HandlerMiddleware) *TypedEventHandler {
 	h.middleware = append(h.middleware, middleware...)
+
 	return h
 }
 
-// WithRetryPolicy sets the retry policy for the handler
+// WithRetryPolicy sets the retry policy for the handler.
 func (h *TypedEventHandler) WithRetryPolicy(policy *RetryPolicy) *TypedEventHandler {
 	h.retryPolicy = policy
+
 	return h
 }
 
-// WithMetrics sets the metrics collector for the handler
+// WithMetrics sets the metrics collector for the handler.
 func (h *TypedEventHandler) WithMetrics(metrics forge.Metrics) *TypedEventHandler {
 	h.metrics = metrics
+
 	return h
 }
 
-// WithLogger sets the logger for the handler
+// WithLogger sets the logger for the handler.
 func (h *TypedEventHandler) WithLogger(logger forge.Logger) *TypedEventHandler {
 	h.logger = logger
+
 	return h
 }
 
-// executeWithRetry executes the handler with retry logic
+// executeWithRetry executes the handler with retry logic.
 func (h *TypedEventHandler) executeWithRetry(ctx context.Context, event *Event, handler EventHandlerFunc) error {
 	var lastErr error
 
@@ -201,10 +206,10 @@ func (h *TypedEventHandler) executeWithRetry(ctx context.Context, event *Event, 
 	return lastErr
 }
 
-// HandlerMiddleware defines middleware for event handlers
+// HandlerMiddleware defines middleware for event handlers.
 type HandlerMiddleware func(next EventHandlerFunc) EventHandlerFunc
 
-// LoggingMiddleware creates logging middleware for handlers
+// LoggingMiddleware creates logging middleware for handlers.
 func LoggingMiddleware(l forge.Logger) HandlerMiddleware {
 	return func(next EventHandlerFunc) EventHandlerFunc {
 		return func(ctx context.Context, event *Event) error {
@@ -217,7 +222,6 @@ func LoggingMiddleware(l forge.Logger) HandlerMiddleware {
 			)
 
 			err := next(ctx, event)
-
 			if err != nil {
 				l.Error("event handling failed",
 					logger.String("event_type", event.Type),
@@ -238,7 +242,7 @@ func LoggingMiddleware(l forge.Logger) HandlerMiddleware {
 	}
 }
 
-// MetricsMiddleware creates metrics middleware for handlers
+// MetricsMiddleware creates metrics middleware for handlers.
 func MetricsMiddleware(metrics forge.Metrics) HandlerMiddleware {
 	return func(next EventHandlerFunc) EventHandlerFunc {
 		return func(ctx context.Context, event *Event) error {
@@ -260,19 +264,20 @@ func MetricsMiddleware(metrics forge.Metrics) HandlerMiddleware {
 	}
 }
 
-// ValidationMiddleware creates validation middleware for handlers
+// ValidationMiddleware creates validation middleware for handlers.
 func ValidationMiddleware() HandlerMiddleware {
 	return func(next EventHandlerFunc) EventHandlerFunc {
 		return func(ctx context.Context, event *Event) error {
 			if err := event.Validate(); err != nil {
 				return fmt.Errorf("invalid event: %w", err)
 			}
+
 			return next(ctx, event)
 		}
 	}
 }
 
-// RetryPolicy defines retry behavior for event handlers
+// RetryPolicy defines retry behavior for event handlers.
 type RetryPolicy struct {
 	MaxRetries      int
 	InitialDelay    time.Duration
@@ -282,7 +287,7 @@ type RetryPolicy struct {
 	ShouldRetryFunc func(error) bool
 }
 
-// NewRetryPolicy creates a new retry policy
+// NewRetryPolicy creates a new retry policy.
 func NewRetryPolicy(maxRetries int, initialDelay time.Duration) *RetryPolicy {
 	return &RetryPolicy{
 		MaxRetries:    maxRetries,
@@ -292,61 +297,65 @@ func NewRetryPolicy(maxRetries int, initialDelay time.Duration) *RetryPolicy {
 	}
 }
 
-// WithMaxDelay sets the maximum delay between retries
+// WithMaxDelay sets the maximum delay between retries.
 func (rp *RetryPolicy) WithMaxDelay(maxDelay time.Duration) *RetryPolicy {
 	rp.MaxDelay = maxDelay
+
 	return rp
 }
 
-// WithBackoffFactor sets the backoff factor
+// WithBackoffFactor sets the backoff factor.
 func (rp *RetryPolicy) WithBackoffFactor(factor float64) *RetryPolicy {
 	rp.BackoffFactor = factor
+
 	return rp
 }
 
-// WithRetryableErrors sets specific errors that should trigger retries
+// WithRetryableErrors sets specific errors that should trigger retries.
 func (rp *RetryPolicy) WithRetryableErrors(errors ...error) *RetryPolicy {
 	rp.RetryableErrors = errors
+
 	return rp
 }
 
-// WithShouldRetryFunc sets a custom function to determine if an error should trigger a retry
+// WithShouldRetryFunc sets a custom function to determine if an error should trigger a retry.
 func (rp *RetryPolicy) WithShouldRetryFunc(fn func(error) bool) *RetryPolicy {
 	rp.ShouldRetryFunc = fn
+
 	return rp
 }
 
-// CalculateDelay calculates the delay for a retry attempt
+// CalculateDelay calculates the delay for a retry attempt.
 func (rp *RetryPolicy) CalculateDelay(attempt int) time.Duration {
 	delay := rp.InitialDelay
 	for i := 1; i < attempt; i++ {
 		delay = time.Duration(float64(delay) * rp.BackoffFactor)
 		if delay > rp.MaxDelay {
 			delay = rp.MaxDelay
+
 			break
 		}
 	}
+
 	return delay
 }
 
-// ShouldRetry determines if an error should trigger a retry
+// ShouldRetry determines if an error should trigger a retry.
 func (rp *RetryPolicy) ShouldRetry(err error) bool {
 	if rp.ShouldRetryFunc != nil {
 		return rp.ShouldRetryFunc(err)
 	}
 
 	// Check for specific retryable errors
-	for _, retryableErr := range rp.RetryableErrors {
-		if err == retryableErr {
-			return true
-		}
+	if slices.Contains(rp.RetryableErrors, err) {
+		return true
 	}
 
 	// Default: retry on most errors except context cancellation
 	return err != context.Canceled && err != context.DeadlineExceeded
 }
 
-// HandlerRegistry manages event handlers
+// HandlerRegistry manages event handlers.
 type HandlerRegistry struct {
 	handlers map[string][]EventHandler
 	mu       sync.RWMutex
@@ -354,7 +363,7 @@ type HandlerRegistry struct {
 	metrics  forge.Metrics
 }
 
-// NewHandlerRegistry creates a new handler registry
+// NewHandlerRegistry creates a new handler registry.
 func NewHandlerRegistry(logger forge.Logger, metrics forge.Metrics) *HandlerRegistry {
 	return &HandlerRegistry{
 		handlers: make(map[string][]EventHandler),
@@ -363,7 +372,7 @@ func NewHandlerRegistry(logger forge.Logger, metrics forge.Metrics) *HandlerRegi
 	}
 }
 
-// Register registers a handler for specific event types
+// Register registers a handler for specific event types.
 func (hr *HandlerRegistry) Register(eventType string, handler EventHandler) error {
 	hr.mu.Lock()
 	defer hr.mu.Unlock()
@@ -388,7 +397,7 @@ func (hr *HandlerRegistry) Register(eventType string, handler EventHandler) erro
 	return nil
 }
 
-// Unregister removes a handler for an event type
+// Unregister removes a handler for an event type.
 func (hr *HandlerRegistry) Unregister(eventType string, handlerName string) error {
 	hr.mu.Lock()
 	defer hr.mu.Unlock()
@@ -420,7 +429,7 @@ func (hr *HandlerRegistry) Unregister(eventType string, handlerName string) erro
 	return fmt.Errorf("handler %s not found for event type %s", handlerName, eventType)
 }
 
-// GetHandlers returns all handlers for an event type
+// GetHandlers returns all handlers for an event type.
 func (hr *HandlerRegistry) GetHandlers(eventType string) []EventHandler {
 	hr.mu.RLock()
 	defer hr.mu.RUnlock()
@@ -433,10 +442,11 @@ func (hr *HandlerRegistry) GetHandlers(eventType string) []EventHandler {
 	// Return a copy to avoid concurrent modification
 	result := make([]EventHandler, len(handlers))
 	copy(result, handlers)
+
 	return result
 }
 
-// GetAllHandlers returns all registered handlers
+// GetAllHandlers returns all registered handlers.
 func (hr *HandlerRegistry) GetAllHandlers() map[string][]EventHandler {
 	hr.mu.RLock()
 	defer hr.mu.RUnlock()
@@ -446,10 +456,11 @@ func (hr *HandlerRegistry) GetAllHandlers() map[string][]EventHandler {
 		result[eventType] = make([]EventHandler, len(handlers))
 		copy(result[eventType], handlers)
 	}
+
 	return result
 }
 
-// HandleEvent dispatches an event to all registered handlers
+// HandleEvent dispatches an event to all registered handlers.
 func (hr *HandlerRegistry) HandleEvent(ctx context.Context, event *Event) error {
 	handlers := hr.GetHandlers(event.Type)
 	if len(handlers) == 0 {
@@ -459,10 +470,12 @@ func (hr *HandlerRegistry) HandleEvent(ctx context.Context, event *Event) error 
 				logger.String("event_id", event.ID),
 			)
 		}
+
 		return nil
 	}
 
 	var wg sync.WaitGroup
+
 	errorChan := make(chan error, len(handlers))
 
 	// Execute handlers concurrently
@@ -472,8 +485,10 @@ func (hr *HandlerRegistry) HandleEvent(ctx context.Context, event *Event) error 
 		}
 
 		wg.Add(1)
+
 		go func(h EventHandler) {
 			defer wg.Done()
+
 			if err := h.Handle(ctx, event); err != nil {
 				errorChan <- fmt.Errorf("handler %s failed: %w", h.Name(), err)
 			}
@@ -496,12 +511,12 @@ func (hr *HandlerRegistry) HandleEvent(ctx context.Context, event *Event) error 
 	return nil
 }
 
-// Stats returns handler registry statistics
-func (hr *HandlerRegistry) Stats() map[string]interface{} {
+// Stats returns handler registry statistics.
+func (hr *HandlerRegistry) Stats() map[string]any {
 	hr.mu.RLock()
 	defer hr.mu.RUnlock()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"total_event_types": len(hr.handlers),
 		"total_handlers":    0,
 		"handlers_by_type":  make(map[string]int),
@@ -522,22 +537,24 @@ func (hr *HandlerRegistry) Stats() map[string]interface{} {
 	return stats
 }
 
-// DomainEventHandler is a specialized handler for domain events
+// DomainEventHandler is a specialized handler for domain events.
 type DomainEventHandler struct {
 	*TypedEventHandler
+
 	aggregateType string
 }
 
-// NewDomainEventHandler creates a new domain event handler
+// NewDomainEventHandler creates a new domain event handler.
 func NewDomainEventHandler(name, aggregateType string, eventTypes []string, handler EventHandlerFunc) *DomainEventHandler {
 	typedHandler := NewTypedEventHandler(name, eventTypes, handler)
+
 	return &DomainEventHandler{
 		TypedEventHandler: typedHandler,
 		aggregateType:     aggregateType,
 	}
 }
 
-// CanHandle implements EventHandler with aggregate type checking
+// CanHandle implements EventHandler with aggregate type checking.
 func (dh *DomainEventHandler) CanHandle(event *Event) bool {
 	if !dh.TypedEventHandler.CanHandle(event) {
 		return false
@@ -549,23 +566,24 @@ func (dh *DomainEventHandler) CanHandle(event *Event) bool {
 		if !exists {
 			return false
 		}
+
 		return aggregateType == dh.aggregateType
 	}
 
 	return true
 }
 
-// ReflectionEventHandler uses reflection to call methods based on event type
+// ReflectionEventHandler uses reflection to call methods based on event type.
 type ReflectionEventHandler struct {
 	name    string
-	target  interface{}
+	target  any
 	methods map[string]reflect.Method
 	logger  logger.Logger
 	metrics shared.Metrics
 }
 
-// NewReflectionEventHandler creates a new reflection-based event handler
-func NewReflectionEventHandler(name string, target interface{}) *ReflectionEventHandler {
+// NewReflectionEventHandler creates a new reflection-based event handler.
+func NewReflectionEventHandler(name string, target any) *ReflectionEventHandler {
 	handler := &ReflectionEventHandler{
 		name:    name,
 		target:  target,
@@ -578,7 +596,7 @@ func NewReflectionEventHandler(name string, target interface{}) *ReflectionEvent
 	return handler
 }
 
-// discoverMethods discovers handler methods using reflection
+// discoverMethods discovers handler methods using reflection.
 func (rh *ReflectionEventHandler) discoverMethods() {
 	targetType := reflect.TypeOf(rh.target)
 	// targetValue := reflect.ValueOf(rh.target)
@@ -594,7 +612,7 @@ func (rh *ReflectionEventHandler) discoverMethods() {
 	}
 }
 
-// Handle implements EventHandler using reflection
+// Handle implements EventHandler using reflection.
 func (rh *ReflectionEventHandler) Handle(ctx context.Context, event *Event) error {
 	// Find method for event type
 	method, exists := rh.methods[event.Type]
@@ -621,13 +639,14 @@ func (rh *ReflectionEventHandler) Handle(ctx context.Context, event *Event) erro
 	return nil
 }
 
-// CanHandle implements EventHandler
+// CanHandle implements EventHandler.
 func (rh *ReflectionEventHandler) CanHandle(event *Event) bool {
 	_, exists := rh.methods[event.Type]
+
 	return exists
 }
 
-// Name implements EventHandler
+// Name implements EventHandler.
 func (rh *ReflectionEventHandler) Name() string {
 	return rh.name
 }

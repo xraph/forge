@@ -12,7 +12,7 @@ import (
 // =============================================================================
 
 // noOpHealthManager implements HealthManager interface with no-op operations
-// for testing and scenarios where health checking is disabled
+// for testing and scenarios where health checking is disabled.
 type noOpHealthManager struct{}
 
 // NewNoOpHealthManager creates a no-op health manager that implements the full

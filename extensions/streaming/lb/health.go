@@ -87,10 +87,13 @@ func (hc *healthChecker) Check(ctx context.Context, node *NodeInfo) error {
 // Start begins periodic health checks.
 func (hc *healthChecker) Start(ctx context.Context) {
 	hc.mu.Lock()
+
 	if hc.running {
 		hc.mu.Unlock()
+
 		return
 	}
+
 	hc.running = true
 	hc.stopCh = make(chan struct{})
 	hc.mu.Unlock()
@@ -145,10 +148,12 @@ func (hc *healthChecker) UnregisterNode(nodeID string) {
 
 func (hc *healthChecker) performHealthChecks(ctx context.Context) {
 	hc.mu.RLock()
+
 	nodes := make([]*nodeHealth, 0, len(hc.nodes))
 	for _, nh := range hc.nodes {
 		nodes = append(nodes, nh)
 	}
+
 	hc.mu.RUnlock()
 
 	// Check each node

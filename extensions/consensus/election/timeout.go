@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// TimeoutManager manages election timeout with adaptive algorithms
+// TimeoutManager manages election timeout with adaptive algorithms.
 type TimeoutManager struct {
 	nodeID string
 	logger forge.Logger
@@ -44,7 +44,7 @@ type TimeoutManager struct {
 	mu      sync.RWMutex
 }
 
-// TimeoutEvent represents a timeout event
+// TimeoutEvent represents a timeout event.
 type TimeoutEvent struct {
 	Timestamp time.Time
 	Timeout   time.Duration
@@ -52,7 +52,7 @@ type TimeoutEvent struct {
 	Reset     bool
 }
 
-// TimeoutManagerConfig contains timeout manager configuration
+// TimeoutManagerConfig contains timeout manager configuration.
 type TimeoutManagerConfig struct {
 	NodeID          string
 	MinTimeout      time.Duration
@@ -63,17 +63,20 @@ type TimeoutManagerConfig struct {
 	OnTimeout       func()
 }
 
-// NewTimeoutManager creates a new timeout manager
+// NewTimeoutManager creates a new timeout manager.
 func NewTimeoutManager(config TimeoutManagerConfig, logger forge.Logger) *TimeoutManager {
 	if config.MinTimeout == 0 {
 		config.MinTimeout = 150 * time.Millisecond
 	}
+
 	if config.MaxTimeout == 0 {
 		config.MaxTimeout = 300 * time.Millisecond
 	}
+
 	if config.Multiplier == 0 {
 		config.Multiplier = 1.5
 	}
+
 	if config.MaxHistorySize == 0 {
 		config.MaxHistorySize = 100
 	}
@@ -92,7 +95,7 @@ func NewTimeoutManager(config TimeoutManagerConfig, logger forge.Logger) *Timeou
 	}
 }
 
-// Start starts the timeout manager
+// Start starts the timeout manager.
 func (tm *TimeoutManager) Start(ctx context.Context) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -117,13 +120,16 @@ func (tm *TimeoutManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the timeout manager
+// Stop stops the timeout manager.
 func (tm *TimeoutManager) Stop(ctx context.Context) error {
 	tm.mu.Lock()
+
 	if !tm.started {
 		tm.mu.Unlock()
+
 		return nil
 	}
+
 	tm.mu.Unlock()
 
 	if tm.cancel != nil {
@@ -133,10 +139,11 @@ func (tm *TimeoutManager) Stop(ctx context.Context) error {
 	tm.StopTimer()
 
 	tm.logger.Info("timeout manager stopped")
+
 	return nil
 }
 
-// StartTimer starts the election timeout timer
+// StartTimer starts the election timeout timer.
 func (tm *TimeoutManager) StartTimer() {
 	tm.timerMu.Lock()
 	defer tm.timerMu.Unlock()
@@ -164,7 +171,7 @@ func (tm *TimeoutManager) StartTimer() {
 	)
 }
 
-// StopTimer stops the election timeout timer
+// StopTimer stops the election timeout timer.
 func (tm *TimeoutManager) StopTimer() {
 	tm.timerMu.Lock()
 	defer tm.timerMu.Unlock()
@@ -175,7 +182,7 @@ func (tm *TimeoutManager) StopTimer() {
 	}
 }
 
-// ResetTimer resets the election timeout timer
+// ResetTimer resets the election timeout timer.
 func (tm *TimeoutManager) ResetTimer() {
 	tm.timerMu.Lock()
 	defer tm.timerMu.Unlock()
@@ -203,7 +210,7 @@ func (tm *TimeoutManager) ResetTimer() {
 	)
 }
 
-// handleTimeout handles timeout expiration
+// handleTimeout handles timeout expiration.
 func (tm *TimeoutManager) handleTimeout() {
 	tm.logger.Debug("election timeout fired",
 		forge.F("node_id", tm.nodeID),
@@ -223,22 +230,24 @@ func (tm *TimeoutManager) handleTimeout() {
 	}
 }
 
-// getCurrentTimeout returns the current timeout value
+// getCurrentTimeout returns the current timeout value.
 func (tm *TimeoutManager) getCurrentTimeout() time.Duration {
 	if tm.adaptiveEnabled {
 		return tm.calculateAdaptiveTimeout()
 	}
+
 	return tm.randomTimeout()
 }
 
-// randomTimeout generates a random timeout between min and max
+// randomTimeout generates a random timeout between min and max.
 func (tm *TimeoutManager) randomTimeout() time.Duration {
 	diff := tm.maxTimeout - tm.minTimeout
 	random := time.Duration(rand.Int63n(int64(diff)))
+
 	return tm.minTimeout + random
 }
 
-// calculateAdaptiveTimeout calculates an adaptive timeout based on recent elections
+// calculateAdaptiveTimeout calculates an adaptive timeout based on recent elections.
 func (tm *TimeoutManager) calculateAdaptiveTimeout() time.Duration {
 	tm.electionsMu.RLock()
 	defer tm.electionsMu.RUnlock()
@@ -252,15 +261,14 @@ func (tm *TimeoutManager) calculateAdaptiveTimeout() time.Duration {
 	for _, duration := range tm.recentElections {
 		total += duration
 	}
+
 	average := total / time.Duration(len(tm.recentElections))
 
 	// Apply multiplier for safety margin
-	adaptive := time.Duration(float64(average) * tm.multiplier)
+	adaptive := max(
+		// Clamp to min/max bounds
+		time.Duration(float64(average)*tm.multiplier), tm.minTimeout)
 
-	// Clamp to min/max bounds
-	if adaptive < tm.minTimeout {
-		adaptive = tm.minTimeout
-	}
 	if adaptive > tm.maxTimeout {
 		adaptive = tm.maxTimeout
 	}
@@ -279,7 +287,7 @@ func (tm *TimeoutManager) calculateAdaptiveTimeout() time.Duration {
 	return adaptive
 }
 
-// RecordElectionDuration records an election duration for adaptive timeout
+// RecordElectionDuration records an election duration for adaptive timeout.
 func (tm *TimeoutManager) RecordElectionDuration(duration time.Duration) {
 	if !tm.adaptiveEnabled {
 		return
@@ -301,12 +309,12 @@ func (tm *TimeoutManager) RecordElectionDuration(duration time.Duration) {
 	)
 }
 
-// GetCurrentTimeout returns the current timeout value
+// GetCurrentTimeout returns the current timeout value.
 func (tm *TimeoutManager) GetCurrentTimeout() time.Duration {
 	return tm.currentTimeout
 }
 
-// SetTimeoutRange updates the timeout range
+// SetTimeoutRange updates the timeout range.
 func (tm *TimeoutManager) SetTimeoutRange(min, max time.Duration) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -320,7 +328,7 @@ func (tm *TimeoutManager) SetTimeoutRange(min, max time.Duration) {
 	)
 }
 
-// EnableAdaptive enables adaptive timeout
+// EnableAdaptive enables adaptive timeout.
 func (tm *TimeoutManager) EnableAdaptive(enable bool) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -332,14 +340,15 @@ func (tm *TimeoutManager) EnableAdaptive(enable bool) {
 	)
 }
 
-// IsAdaptiveEnabled returns whether adaptive timeout is enabled
+// IsAdaptiveEnabled returns whether adaptive timeout is enabled.
 func (tm *TimeoutManager) IsAdaptiveEnabled() bool {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
+
 	return tm.adaptiveEnabled
 }
 
-// GetTimeoutStatistics returns timeout statistics
+// GetTimeoutStatistics returns timeout statistics.
 func (tm *TimeoutManager) GetTimeoutStatistics() TimeoutStatistics {
 	tm.historyMu.RLock()
 	defer tm.historyMu.RUnlock()
@@ -352,6 +361,7 @@ func (tm *TimeoutManager) GetTimeoutStatistics() TimeoutStatistics {
 	}
 
 	var totalTimeout time.Duration
+
 	firedCount := 0
 	resetCount := 0
 
@@ -360,6 +370,7 @@ func (tm *TimeoutManager) GetTimeoutStatistics() TimeoutStatistics {
 		if event.Fired {
 			firedCount++
 		}
+
 		if event.Reset {
 			resetCount++
 		}
@@ -373,19 +384,22 @@ func (tm *TimeoutManager) GetTimeoutStatistics() TimeoutStatistics {
 	stats.ResetsCount = resetCount
 
 	tm.electionsMu.RLock()
+
 	if len(tm.recentElections) > 0 {
 		var total time.Duration
 		for _, d := range tm.recentElections {
 			total += d
 		}
+
 		stats.AverageElectionDuration = total / time.Duration(len(tm.recentElections))
 	}
+
 	tm.electionsMu.RUnlock()
 
 	return stats
 }
 
-// TimeoutStatistics contains timeout statistics
+// TimeoutStatistics contains timeout statistics.
 type TimeoutStatistics struct {
 	TotalEvents             int
 	TimeoutsFired           int
@@ -397,7 +411,7 @@ type TimeoutStatistics struct {
 	AverageElectionDuration time.Duration
 }
 
-// GetTimeoutHistory returns timeout history
+// GetTimeoutHistory returns timeout history.
 func (tm *TimeoutManager) GetTimeoutHistory(limit int) []TimeoutEvent {
 	tm.historyMu.RLock()
 	defer tm.historyMu.RUnlock()
@@ -413,7 +427,7 @@ func (tm *TimeoutManager) GetTimeoutHistory(limit int) []TimeoutEvent {
 	return result
 }
 
-// recordEvent records a timeout event
+// recordEvent records a timeout event.
 func (tm *TimeoutManager) recordEvent(event TimeoutEvent) {
 	tm.historyMu.Lock()
 	defer tm.historyMu.Unlock()
@@ -426,7 +440,7 @@ func (tm *TimeoutManager) recordEvent(event TimeoutEvent) {
 	}
 }
 
-// GetRecentElectionDurations returns recent election durations
+// GetRecentElectionDurations returns recent election durations.
 func (tm *TimeoutManager) GetRecentElectionDurations() []time.Duration {
 	tm.electionsMu.RLock()
 	defer tm.electionsMu.RUnlock()
@@ -437,7 +451,7 @@ func (tm *TimeoutManager) GetRecentElectionDurations() []time.Duration {
 	return result
 }
 
-// ClearHistory clears timeout history
+// ClearHistory clears timeout history.
 func (tm *TimeoutManager) ClearHistory() {
 	tm.historyMu.Lock()
 	defer tm.historyMu.Unlock()
@@ -447,7 +461,7 @@ func (tm *TimeoutManager) ClearHistory() {
 	tm.logger.Debug("cleared timeout history")
 }
 
-// GetTimeUntilTimeout returns time remaining until timeout
+// GetTimeUntilTimeout returns time remaining until timeout.
 func (tm *TimeoutManager) GetTimeUntilTimeout() time.Duration {
 	tm.timerMu.Lock()
 	defer tm.timerMu.Unlock()
@@ -457,7 +471,7 @@ func (tm *TimeoutManager) GetTimeUntilTimeout() time.Duration {
 	return tm.currentTimeout
 }
 
-// IsTimerActive returns whether the timer is active
+// IsTimerActive returns whether the timer is active.
 func (tm *TimeoutManager) IsTimerActive() bool {
 	tm.timerMu.Lock()
 	defer tm.timerMu.Unlock()

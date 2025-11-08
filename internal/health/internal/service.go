@@ -4,10 +4,10 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// HealthService defines the contract for health monitoring services
+// HealthService defines the contract for health monitoring services.
 type HealthService = shared.HealthManager
 
-// HealthMonitor defines methods for monitoring and reporting health status
+// HealthMonitor defines methods for monitoring and reporting health status.
 type HealthMonitor interface {
 	// Subscribe adds a callback for health status changes
 	Subscribe(callback HealthCallback) error
@@ -19,7 +19,7 @@ type HealthMonitor interface {
 	GetStats() *HealthCheckerStats
 }
 
-// HealthSummary provides a summary of health check results
+// HealthSummary provides a summary of health check results.
 type HealthSummary struct {
 	Total       int `json:"total"`
 	Healthy     int `json:"healthy"`
@@ -29,10 +29,10 @@ type HealthSummary struct {
 	NonCritical int `json:"non_critical"`
 }
 
-// HealthCheckFactory defines a factory function for creating health checks
+// HealthCheckFactory defines a factory function for creating health checks.
 type HealthCheckFactory func(config *HealthCheckConfig) (HealthCheck, error)
 
-// HealthServiceRegistry defines an interface for registering and discovering health services
+// HealthServiceRegistry defines an interface for registering and discovering health services.
 type HealthServiceRegistry interface {
 	// RegisterService registers a health service
 	RegisterService(name string, service HealthService) error

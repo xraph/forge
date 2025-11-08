@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// sfuRouter implements SFURouter for selective forwarding
+// sfuRouter implements SFURouter for selective forwarding.
 type sfuRouter struct {
 	id      string
 	roomID  string
@@ -29,21 +29,21 @@ type sfuRouter struct {
 	mu sync.RWMutex
 }
 
-// sfuPublisher represents a publishing peer
+// sfuPublisher represents a publishing peer.
 type sfuPublisher struct {
 	userID string
 	peer   PeerConnection
 	tracks map[string]*sfuTrack // trackID -> track
 }
 
-// sfuSubscriber represents a subscribing peer
+// sfuSubscriber represents a subscribing peer.
 type sfuSubscriber struct {
 	userID        string
 	peer          PeerConnection
 	subscriptions map[string]*sfuSubscription // trackID -> subscription
 }
 
-// sfuSubscription represents a track subscription
+// sfuSubscription represents a track subscription.
 type sfuSubscription struct {
 	trackID          string
 	publisherID      string
@@ -52,7 +52,7 @@ type sfuSubscription struct {
 	packetsForwarded uint64
 }
 
-// sfuTrack represents a track in the SFU
+// sfuTrack represents a track in the SFU.
 type sfuTrack struct {
 	id          string
 	publisherID string
@@ -74,10 +74,10 @@ type sfuTrack struct {
 	mu sync.RWMutex
 }
 
-// NewSFURouter creates a new SFU router
+// NewSFURouter creates a new SFU router.
 func NewSFURouter(roomID string, logger forge.Logger, metrics forge.Metrics) SFURouter {
 	return &sfuRouter{
-		id:              fmt.Sprintf("sfu-%s", roomID),
+		id:              "sfu-" + roomID,
 		roomID:          roomID,
 		logger:          logger,
 		metrics:         metrics,
@@ -88,7 +88,7 @@ func NewSFURouter(roomID string, logger forge.Logger, metrics forge.Metrics) SFU
 	}
 }
 
-// RouteTrack routes a track from sender to receivers
+// RouteTrack routes a track from sender to receivers.
 func (s *sfuRouter) RouteTrack(ctx context.Context, senderID string, track MediaTrack, receiverIDs []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -129,7 +129,7 @@ func (s *sfuRouter) RouteTrack(ctx context.Context, senderID string, track Media
 	return nil
 }
 
-// AddPublisher adds a publishing peer
+// AddPublisher adds a publishing peer.
 func (s *sfuRouter) AddPublisher(ctx context.Context, userID string, peer PeerConnection) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -164,7 +164,7 @@ func (s *sfuRouter) AddPublisher(ctx context.Context, userID string, peer PeerCo
 	return nil
 }
 
-// AddSubscriber adds a subscribing peer
+// AddSubscriber adds a subscribing peer.
 func (s *sfuRouter) AddSubscriber(ctx context.Context, userID string, peer PeerConnection) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -194,7 +194,7 @@ func (s *sfuRouter) AddSubscriber(ctx context.Context, userID string, peer PeerC
 	return nil
 }
 
-// RemovePublisher removes a publishing peer
+// RemovePublisher removes a publishing peer.
 func (s *sfuRouter) RemovePublisher(ctx context.Context, userID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -225,7 +225,7 @@ func (s *sfuRouter) RemovePublisher(ctx context.Context, userID string) error {
 	return nil
 }
 
-// RemoveSubscriber removes a subscribing peer
+// RemoveSubscriber removes a subscribing peer.
 func (s *sfuRouter) RemoveSubscriber(ctx context.Context, userID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -250,7 +250,7 @@ func (s *sfuRouter) RemoveSubscriber(ctx context.Context, userID string) error {
 	return nil
 }
 
-// SubscribeToTrack subscribes a peer to a publisher's track
+// SubscribeToTrack subscribes a peer to a publisher's track.
 func (s *sfuRouter) SubscribeToTrack(ctx context.Context, subscriberID, publisherID, trackID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -266,7 +266,7 @@ func (s *sfuRouter) SubscribeToTrack(ctx context.Context, subscriberID, publishe
 	}
 
 	if track.publisherID != publisherID {
-		return fmt.Errorf("track does not belong to publisher")
+		return errors.New("track does not belong to publisher")
 	}
 
 	// Check if already subscribed
@@ -287,6 +287,7 @@ func (s *sfuRouter) SubscribeToTrack(ctx context.Context, subscriberID, publishe
 	// Forward the track to the subscriber
 	if err := s.forwardTrack(ctx, track, subscriber.peer); err != nil {
 		delete(subscriber.subscriptions, trackID)
+
 		return fmt.Errorf("failed to forward track: %w", err)
 	}
 
@@ -303,7 +304,7 @@ func (s *sfuRouter) SubscribeToTrack(ctx context.Context, subscriberID, publishe
 	return nil
 }
 
-// UnsubscribeFromTrack unsubscribes a peer from a track
+// UnsubscribeFromTrack unsubscribes a peer from a track.
 func (s *sfuRouter) UnsubscribeFromTrack(ctx context.Context, subscriberID, trackID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -331,7 +332,7 @@ func (s *sfuRouter) UnsubscribeFromTrack(ctx context.Context, subscriberID, trac
 	return nil
 }
 
-// AddReceiver adds a receiver for a track
+// AddReceiver adds a receiver for a track.
 func (s *sfuRouter) AddReceiver(ctx context.Context, trackID, receiverID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -366,7 +367,7 @@ func (s *sfuRouter) AddReceiver(ctx context.Context, trackID, receiverID string)
 	return nil
 }
 
-// RemoveReceiver removes a receiver
+// RemoveReceiver removes a receiver.
 func (s *sfuRouter) RemoveReceiver(ctx context.Context, trackID, receiverID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -390,12 +391,13 @@ func (s *sfuRouter) RemoveReceiver(ctx context.Context, trackID, receiverID stri
 	return nil
 }
 
-// GetReceivers returns all receivers for a track
+// GetReceivers returns all receivers for a track.
 func (s *sfuRouter) GetReceivers(trackID string) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	var receivers []string
+
 	for subscriberID, subscriber := range s.subscribers {
 		if _, exists := subscriber.subscriptions[trackID]; exists {
 			receivers = append(receivers, subscriberID)
@@ -405,7 +407,7 @@ func (s *sfuRouter) GetReceivers(trackID string) []string {
 	return receivers
 }
 
-// SetQuality sets quality layer for receiver
+// SetQuality sets quality layer for receiver.
 func (s *sfuRouter) SetQuality(ctx context.Context, trackID, receiverID, quality string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -422,6 +424,7 @@ func (s *sfuRouter) SetQuality(ctx context.Context, trackID, receiverID, quality
 
 	// Map quality string to layer index
 	layerIndex := 0
+
 	switch quality {
 	case "low":
 		layerIndex = 0
@@ -444,7 +447,7 @@ func (s *sfuRouter) SetQuality(ctx context.Context, trackID, receiverID, quality
 	return nil
 }
 
-// GetAvailableTracks returns all available tracks
+// GetAvailableTracks returns all available tracks.
 func (s *sfuRouter) GetAvailableTracks() []TrackInfo {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -462,7 +465,7 @@ func (s *sfuRouter) GetAvailableTracks() []TrackInfo {
 	return tracks
 }
 
-// GetStats returns SFU statistics
+// GetStats returns SFU statistics.
 func (s *sfuRouter) GetStats(ctx context.Context) (*RouterStats, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -475,6 +478,7 @@ func (s *sfuRouter) GetStats(ctx context.Context) (*RouterStats, error) {
 
 	// Aggregate track stats
 	var totalBytesReceived uint64
+
 	for _, track := range s.tracks {
 		track.mu.RLock()
 		totalBytesReceived += track.bytesReceived
@@ -492,7 +496,7 @@ func (s *sfuRouter) GetStats(ctx context.Context) (*RouterStats, error) {
 	return stats, nil
 }
 
-// handlePublisherTrack handles a new track from a publisher
+// handlePublisherTrack handles a new track from a publisher.
 func (s *sfuRouter) handlePublisherTrack(ctx context.Context, userID string, track MediaTrack, receiver *TrackReceiver) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -503,6 +507,7 @@ func (s *sfuRouter) handlePublisherTrack(ctx context.Context, userID string, tra
 			forge.F("user_id", userID),
 			forge.F("track_id", track.ID()),
 		)
+
 		return
 	}
 
@@ -531,23 +536,25 @@ func (s *sfuRouter) handlePublisherTrack(ctx context.Context, userID string, tra
 	// This would read from track.ReadRTP() and forward to all subscribers
 }
 
-// forwardTrack forwards a track to a subscriber's peer connection
+// forwardTrack forwards a track to a subscriber's peer connection.
 func (s *sfuRouter) forwardTrack(ctx context.Context, track *sfuTrack, peer PeerConnection) error {
 	// Create a local track to send to the subscriber
-	var pionTrack webrtc.TrackLocal
-	var err error
+	var (
+		pionTrack webrtc.TrackLocal
+		err       error
+	)
 
 	if track.kind == TrackKindAudio {
 		pionTrack, err = webrtc.NewTrackLocalStaticRTP(
 			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeOpus},
 			track.id,
-			fmt.Sprintf("stream-%s", track.publisherID),
+			"stream-"+track.publisherID,
 		)
 	} else {
 		pionTrack, err = webrtc.NewTrackLocalStaticRTP(
 			webrtc.RTPCodecCapability{MimeType: webrtc.MimeTypeVP8},
 			track.id,
-			fmt.Sprintf("stream-%s", track.publisherID),
+			"stream-"+track.publisherID,
 		)
 	}
 
@@ -572,7 +579,7 @@ func (s *sfuRouter) forwardTrack(ctx context.Context, track *sfuTrack, peer Peer
 	return nil
 }
 
-// Close closes the SFU router
+// Close closes the SFU router.
 func (s *sfuRouter) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -592,7 +599,7 @@ func (s *sfuRouter) Close() error {
 	return nil
 }
 
-// Helper types for SFU stats
+// Helper types for SFU stats.
 type TrackInfo struct {
 	TrackID     string
 	PublisherID string

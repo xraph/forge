@@ -21,16 +21,19 @@ func TestCompress_WithGzipSupport(t *testing.T) {
 	// Convert to http.Handler for testing
 	httpHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := di.NewContext(w, r, nil)
+
 		defer func() {
 			if cleanup, ok := ctx.(interface{ Cleanup() }); ok {
 				cleanup.Cleanup()
 			}
 		}()
+
 		_ = handler(ctx)
 	}
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
+
 	rec := httptest.NewRecorder()
 
 	httpHandler(rec, req)
@@ -41,6 +44,7 @@ func TestCompress_WithGzipSupport(t *testing.T) {
 	// Decompress to verify content
 	gz, err := gzip.NewReader(rec.Body)
 	assert.NoError(t, err)
+
 	defer gz.Close()
 
 	content, err := io.ReadAll(gz)
@@ -57,15 +61,17 @@ func TestCompress_WithoutGzipSupport(t *testing.T) {
 	// Convert to http.Handler for testing
 	httpHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := di.NewContext(w, r, nil)
+
 		defer func() {
 			if cleanup, ok := ctx.(interface{ Cleanup() }); ok {
 				cleanup.Cleanup()
 			}
 		}()
+
 		_ = handler(ctx)
 	}
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	httpHandler(rec, req)
@@ -83,16 +89,19 @@ func TestCompressDefault(t *testing.T) {
 	// Convert to http.Handler for testing
 	httpHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := di.NewContext(w, r, nil)
+
 		defer func() {
 			if cleanup, ok := ctx.(interface{ Cleanup() }); ok {
 				cleanup.Cleanup()
 			}
 		}()
+
 		_ = handler(ctx)
 	}
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
+
 	rec := httptest.NewRecorder()
 
 	httpHandler(rec, req)
@@ -109,16 +118,19 @@ func TestCompress_InvalidLevel(t *testing.T) {
 	// Convert to http.Handler for testing
 	httpHandler := func(w http.ResponseWriter, r *http.Request) {
 		ctx := di.NewContext(w, r, nil)
+
 		defer func() {
 			if cleanup, ok := ctx.(interface{ Cleanup() }); ok {
 				cleanup.Cleanup()
 			}
 		}()
+
 		_ = handler(ctx)
 	}
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Accept-Encoding", "gzip")
+
 	rec := httptest.NewRecorder()
 
 	httpHandler(rec, req)

@@ -32,13 +32,13 @@ func NewRedisCoordinator(client *redis.Client, nodeID string) StreamCoordinator 
 // Start starts the coordinator.
 func (rc *redisCoordinator) Start(ctx context.Context) error {
 	if rc.running {
-		return fmt.Errorf("coordinator already running")
+		return errors.New("coordinator already running")
 	}
 
 	// Subscribe to channels
 	rc.pubsub = rc.client.Subscribe(ctx,
 		"streaming:broadcast:global",
-		fmt.Sprintf("streaming:broadcast:node:%s", rc.nodeID),
+		"streaming:broadcast:node:"+rc.nodeID,
 		"streaming:presence:updates",
 		"streaming:state:rooms",
 	)
@@ -47,6 +47,7 @@ func (rc *redisCoordinator) Start(ctx context.Context) error {
 	go rc.listen(ctx)
 
 	rc.running = true
+
 	return nil
 }
 
@@ -65,6 +66,7 @@ func (rc *redisCoordinator) Stop(ctx context.Context) error {
 	}
 
 	rc.running = false
+
 	return nil
 }
 
@@ -82,7 +84,8 @@ func (rc *redisCoordinator) BroadcastToNode(ctx context.Context, nodeID string, 
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	channel := fmt.Sprintf("streaming:broadcast:node:%s", nodeID)
+	channel := "streaming:broadcast:node:" + nodeID
+
 	return rc.client.Publish(ctx, channel, data).Err()
 }
 
@@ -119,7 +122,8 @@ func (rc *redisCoordinator) BroadcastToRoom(ctx context.Context, roomID string, 
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	channel := fmt.Sprintf("streaming:broadcast:room:%s", roomID)
+	channel := "streaming:broadcast:room:" + roomID
+
 	return rc.client.Publish(ctx, channel, data).Err()
 }
 
@@ -171,7 +175,8 @@ func (rc *redisCoordinator) SyncRoomState(ctx context.Context, roomID string, st
 	}
 
 	// Store state
-	stateKey := fmt.Sprintf("streaming:room:state:%s", roomID)
+	stateKey := "streaming:room:state:" + roomID
+
 	stateData, _ := json.Marshal(state)
 	if err := rc.client.Set(ctx, stateKey, stateData, time.Hour).Err(); err != nil {
 		return err
@@ -183,7 +188,8 @@ func (rc *redisCoordinator) SyncRoomState(ctx context.Context, roomID string, st
 
 // GetUserNodes returns nodes where user is connected.
 func (rc *redisCoordinator) GetUserNodes(ctx context.Context, userID string) ([]string, error) {
-	key := fmt.Sprintf("streaming:user:nodes:%s", userID)
+	key := "streaming:user:nodes:" + userID
+
 	members, err := rc.client.SMembers(ctx, key).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user nodes: %w", err)
@@ -194,7 +200,8 @@ func (rc *redisCoordinator) GetUserNodes(ctx context.Context, userID string) ([]
 
 // GetRoomNodes returns nodes serving room.
 func (rc *redisCoordinator) GetRoomNodes(ctx context.Context, roomID string) ([]string, error) {
-	key := fmt.Sprintf("streaming:room:nodes:%s", roomID)
+	key := "streaming:room:nodes:" + roomID
+
 	members, err := rc.client.SMembers(ctx, key).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get room nodes: %w", err)
@@ -206,7 +213,8 @@ func (rc *redisCoordinator) GetRoomNodes(ctx context.Context, roomID string) ([]
 // RegisterNode registers this node.
 func (rc *redisCoordinator) RegisterNode(ctx context.Context, nodeID string, metadata map[string]any) error {
 	// Store node info
-	nodeKey := fmt.Sprintf("streaming:node:%s", nodeID)
+	nodeKey := "streaming:node:" + nodeID
+
 	nodeData, err := json.Marshal(metadata)
 	if err != nil {
 		return err
@@ -230,13 +238,14 @@ func (rc *redisCoordinator) RegisterNode(ctx context.Context, nodeID string, met
 	}
 
 	data, _ := json.Marshal(coordMsg)
+
 	return rc.client.Publish(ctx, "streaming:broadcast:global", data).Err()
 }
 
 // UnregisterNode unregisters this node.
 func (rc *redisCoordinator) UnregisterNode(ctx context.Context, nodeID string) error {
 	// Remove node info
-	nodeKey := fmt.Sprintf("streaming:node:%s", nodeID)
+	nodeKey := "streaming:node:" + nodeID
 	if err := rc.client.Del(ctx, nodeKey).Err(); err != nil {
 		return err
 	}
@@ -254,12 +263,14 @@ func (rc *redisCoordinator) UnregisterNode(ctx context.Context, nodeID string) e
 	}
 
 	data, _ := json.Marshal(coordMsg)
+
 	return rc.client.Publish(ctx, "streaming:broadcast:global", data).Err()
 }
 
 // Subscribe subscribes to coordinator events.
 func (rc *redisCoordinator) Subscribe(ctx context.Context, handler MessageHandler) error {
 	rc.handler = handler
+
 	return nil
 }
 
@@ -302,24 +313,28 @@ func (rc *redisCoordinator) handleMessage(ctx context.Context, msg *redis.Messag
 
 // TrackUserNode tracks user connection to node.
 func (rc *redisCoordinator) TrackUserNode(ctx context.Context, userID, nodeID string) error {
-	key := fmt.Sprintf("streaming:user:nodes:%s", userID)
+	key := "streaming:user:nodes:" + userID
+
 	return rc.client.SAdd(ctx, key, nodeID).Err()
 }
 
 // UntrackUserNode removes user connection from node.
 func (rc *redisCoordinator) UntrackUserNode(ctx context.Context, userID, nodeID string) error {
-	key := fmt.Sprintf("streaming:user:nodes:%s", userID)
+	key := "streaming:user:nodes:" + userID
+
 	return rc.client.SRem(ctx, key, nodeID).Err()
 }
 
 // TrackRoomNode tracks room on node.
 func (rc *redisCoordinator) TrackRoomNode(ctx context.Context, roomID, nodeID string) error {
-	key := fmt.Sprintf("streaming:room:nodes:%s", roomID)
+	key := "streaming:room:nodes:" + roomID
+
 	return rc.client.SAdd(ctx, key, nodeID).Err()
 }
 
 // UntrackRoomNode removes room from node.
 func (rc *redisCoordinator) UntrackRoomNode(ctx context.Context, roomID, nodeID string) error {
-	key := fmt.Sprintf("streaming:room:nodes:%s", roomID)
+	key := "streaming:room:nodes:" + roomID
+
 	return rc.client.SRem(ctx, key, nodeID).Err()
 }

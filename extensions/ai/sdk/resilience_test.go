@@ -59,7 +59,6 @@ func TestCircuitBreaker_Success(t *testing.T) {
 	err := cb.Execute(context.Background(), func(ctx context.Context) error {
 		return nil
 	})
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -78,7 +77,7 @@ func TestCircuitBreaker_OpenAfterFailures(t *testing.T) {
 	testErr := errors.New("test error")
 
 	// Fail 3 times to open circuit
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		cb.Execute(context.Background(), func(ctx context.Context) error {
 			return testErr
 		})
@@ -91,9 +90,9 @@ func TestCircuitBreaker_OpenAfterFailures(t *testing.T) {
 	// Next call should be rejected
 	err := cb.Execute(context.Background(), func(ctx context.Context) error {
 		t.Error("function should not be called when circuit is open")
+
 		return nil
 	})
-
 	if err == nil {
 		t.Error("expected error when circuit is open")
 	}
@@ -110,7 +109,7 @@ func TestCircuitBreaker_HalfOpen(t *testing.T) {
 	testErr := errors.New("test error")
 
 	// Open the circuit
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		cb.Execute(context.Background(), func(ctx context.Context) error {
 			return testErr
 		})
@@ -142,7 +141,7 @@ func TestCircuitBreaker_HalfOpenToClosed(t *testing.T) {
 	}, nil, nil)
 
 	// Open the circuit
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		cb.Execute(context.Background(), func(ctx context.Context) error {
 			return errors.New("error")
 		})
@@ -152,7 +151,7 @@ func TestCircuitBreaker_HalfOpenToClosed(t *testing.T) {
 	time.Sleep(150 * time.Millisecond)
 
 	// Succeed twice to close
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		cb.Execute(context.Background(), func(ctx context.Context) error {
 			return nil
 		})
@@ -170,7 +169,7 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 	}, nil, nil)
 
 	// Open the circuit
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		cb.Execute(context.Background(), func(ctx context.Context) error {
 			return errors.New("error")
 		})
@@ -191,11 +190,12 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 
 func TestRetry_Success(t *testing.T) {
 	called := 0
+
 	err := Retry(context.Background(), DefaultRetryConfig(), nil, func(ctx context.Context) error {
 		called++
+
 		return nil
 	})
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -207,14 +207,15 @@ func TestRetry_Success(t *testing.T) {
 
 func TestRetry_EventualSuccess(t *testing.T) {
 	called := 0
+
 	err := Retry(context.Background(), DefaultRetryConfig(), nil, func(ctx context.Context) error {
 		called++
 		if called < 3 {
 			return errors.New("temporary error")
 		}
+
 		return nil
 	})
-
 	if err != nil {
 		t.Errorf("expected no error after retries, got %v", err)
 	}
@@ -237,9 +238,9 @@ func TestRetry_MaxAttemptsExceeded(t *testing.T) {
 
 	err := Retry(context.Background(), config, nil, func(ctx context.Context) error {
 		called++
+
 		return testErr
 	})
-
 	if err == nil {
 		t.Error("expected error after max retries")
 	}
@@ -251,7 +252,7 @@ func TestRetry_MaxAttemptsExceeded(t *testing.T) {
 
 func TestRetry_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	config := RetryConfig{
 		MaxAttempts:  5,
 		InitialDelay: 100 * time.Millisecond,
@@ -259,6 +260,7 @@ func TestRetry_ContextCancellation(t *testing.T) {
 	}
 
 	called := 0
+
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		cancel()
@@ -266,10 +268,11 @@ func TestRetry_ContextCancellation(t *testing.T) {
 
 	err := Retry(ctx, config, nil, func(ctx context.Context) error {
 		called++
+
 		return errors.New("error")
 	})
 
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
 
@@ -292,6 +295,7 @@ func TestRetry_RetryableErrors(t *testing.T) {
 	called := 0
 	err := Retry(context.Background(), config, nil, func(ctx context.Context) error {
 		called++
+
 		return nonRetryableErr
 	})
 
@@ -326,7 +330,7 @@ func TestRateLimiter_Allow(t *testing.T) {
 	rl := NewRateLimiter("test", 10, 5, nil, nil)
 
 	// Should allow up to burst size
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !rl.Allow() {
 			t.Errorf("expected request %d to be allowed", i+1)
 		}
@@ -376,7 +380,7 @@ func TestRateLimiter_WaitTimeout(t *testing.T) {
 	defer cancel()
 
 	err := rl.Wait(ctx)
-	if err != context.DeadlineExceeded {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("expected deadline exceeded, got %v", err)
 	}
 }
@@ -387,17 +391,19 @@ func TestFallbackChain_FirstSucceeds(t *testing.T) {
 	fc := NewFallbackChain("test", nil, nil)
 
 	called := []int{}
+
 	err := fc.Execute(context.Background(),
 		func(ctx context.Context) error {
 			called = append(called, 1)
+
 			return nil
 		},
 		func(ctx context.Context) error {
 			called = append(called, 2)
+
 			return nil
 		},
 	)
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -411,17 +417,19 @@ func TestFallbackChain_SecondSucceeds(t *testing.T) {
 	fc := NewFallbackChain("test", nil, nil)
 
 	called := []int{}
+
 	err := fc.Execute(context.Background(),
 		func(ctx context.Context) error {
 			called = append(called, 1)
+
 			return errors.New("error 1")
 		},
 		func(ctx context.Context) error {
 			called = append(called, 2)
+
 			return nil
 		},
 	)
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -442,7 +450,6 @@ func TestFallbackChain_AllFail(t *testing.T) {
 			return errors.New("error 2")
 		},
 	)
-
 	if err == nil {
 		t.Error("expected error when all fallbacks fail")
 	}
@@ -452,7 +459,6 @@ func TestFallbackChain_NoFunctions(t *testing.T) {
 	fc := NewFallbackChain("test", nil, nil)
 
 	err := fc.Execute(context.Background())
-
 	if err == nil {
 		t.Error("expected error when no functions provided")
 	}
@@ -475,26 +481,28 @@ func TestNewBulkhead(t *testing.T) {
 func TestBulkhead_ConcurrencyLimit(t *testing.T) {
 	bh := NewBulkhead("test", 2, nil, nil)
 
-	var wg sync.WaitGroup
-	var maxConcurrent int32
+	var (
+		wg            sync.WaitGroup
+		maxConcurrent int32
+	)
 
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			
+	for range 5 {
+
+		wg.Go(func() {
+
 			bh.Execute(context.Background(), func(ctx context.Context) error {
 				current := atomic.AddInt32(&maxConcurrent, 1)
 				defer atomic.AddInt32(&maxConcurrent, -1)
-				
+
 				if current > 2 {
 					t.Errorf("exceeded max concurrent: %d", current)
 				}
-				
+
 				time.Sleep(10 * time.Millisecond)
+
 				return nil
 			})
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -508,9 +516,11 @@ func TestBulkhead_GetActiveCount(t *testing.T) {
 	}
 
 	done := make(chan bool)
+
 	go func() {
 		bh.Execute(context.Background(), func(ctx context.Context) error {
 			<-done
+
 			return nil
 		})
 	}()
@@ -534,9 +544,11 @@ func TestBulkhead_Timeout(t *testing.T) {
 
 	// Fill the bulkhead
 	done := make(chan bool)
+
 	go func() {
 		bh.Execute(context.Background(), func(ctx context.Context) error {
 			<-done
+
 			return nil
 		})
 	}()
@@ -551,7 +563,7 @@ func TestBulkhead_Timeout(t *testing.T) {
 		return nil
 	})
 
-	if err != context.DeadlineExceeded {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("expected deadline exceeded, got %v", err)
 	}
 
@@ -564,7 +576,6 @@ func TestTimeout_Success(t *testing.T) {
 	err := Timeout(context.Background(), 100*time.Millisecond, func(ctx context.Context) error {
 		return nil
 	})
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -573,10 +584,11 @@ func TestTimeout_Success(t *testing.T) {
 func TestTimeout_Exceeded(t *testing.T) {
 	err := Timeout(context.Background(), 50*time.Millisecond, func(ctx context.Context) error {
 		time.Sleep(100 * time.Millisecond)
+
 		return nil
 	})
 
-	if err != context.DeadlineExceeded {
+	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("expected deadline exceeded, got %v", err)
 	}
 }
@@ -607,16 +619,18 @@ func TestCircuitBreakerWithRetry(t *testing.T) {
 	}
 
 	attempts := 0
+
 	err := Retry(context.Background(), config, nil, func(ctx context.Context) error {
 		attempts++
+
 		return cb.Execute(ctx, func(ctx context.Context) error {
 			if attempts < 2 {
 				return errors.New("temporary error")
 			}
+
 			return nil
 		})
 	})
-
 	if err != nil {
 		t.Errorf("expected success with retry, got %v", err)
 	}
@@ -631,21 +645,22 @@ func TestRateLimiterWithBulkhead(t *testing.T) {
 	bh := NewBulkhead("test", 1, nil, nil)
 
 	var wg sync.WaitGroup
+
 	successCount := int32(0)
 
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			
+	for range 3 {
+
+		wg.Go(func() {
+
 			if rl.Allow() {
 				bh.Execute(context.Background(), func(ctx context.Context) error {
 					atomic.AddInt32(&successCount, 1)
 					time.Sleep(10 * time.Millisecond)
+
 					return nil
 				})
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -655,4 +670,3 @@ func TestRateLimiterWithBulkhead(t *testing.T) {
 		t.Errorf("expected 2 successful executions, got %d", successCount)
 	}
 }
-

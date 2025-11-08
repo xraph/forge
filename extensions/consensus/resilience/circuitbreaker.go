@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/resilience"
 )
 
-// CircuitBreakerManager manages circuit breakers for peer communications
+// CircuitBreakerManager manages circuit breakers for peer communications.
 type CircuitBreakerManager struct {
 	nodeID string
 	logger forge.Logger
@@ -26,7 +26,7 @@ type CircuitBreakerManager struct {
 	stats CircuitBreakerStatistics
 }
 
-// PeerCircuitBreaker wraps a circuit breaker with peer-specific state
+// PeerCircuitBreaker wraps a circuit breaker with peer-specific state.
 type PeerCircuitBreaker struct {
 	PeerID  string
 	breaker *resilience.CircuitBreaker
@@ -42,19 +42,19 @@ type PeerCircuitBreaker struct {
 	failedRequests int64
 }
 
-// CircuitState represents circuit breaker state
+// CircuitState represents circuit breaker state.
 type CircuitState string
 
 const (
-	// CircuitStateClosed circuit is closed (normal operation)
+	// CircuitStateClosed circuit is closed (normal operation).
 	CircuitStateClosed CircuitState = "closed"
-	// CircuitStateOpen circuit is open (failing)
+	// CircuitStateOpen circuit is open (failing).
 	CircuitStateOpen CircuitState = "open"
-	// CircuitStateHalfOpen circuit is half-open (testing)
+	// CircuitStateHalfOpen circuit is half-open (testing).
 	CircuitStateHalfOpen CircuitState = "half-open"
 )
 
-// CircuitBreakerConfig contains circuit breaker configuration
+// CircuitBreakerConfig contains circuit breaker configuration.
 type CircuitBreakerConfig struct {
 	// Failure threshold before opening
 	FailureThreshold int
@@ -66,7 +66,7 @@ type CircuitBreakerConfig struct {
 	MaxHalfOpenRequests int
 }
 
-// CircuitBreakerStatistics contains circuit breaker statistics
+// CircuitBreakerStatistics contains circuit breaker statistics.
 type CircuitBreakerStatistics struct {
 	TotalBreakers    int
 	OpenBreakers     int
@@ -77,18 +77,21 @@ type CircuitBreakerStatistics struct {
 	RejectedRequests int64
 }
 
-// NewCircuitBreakerManager creates a new circuit breaker manager
+// NewCircuitBreakerManager creates a new circuit breaker manager.
 func NewCircuitBreakerManager(config CircuitBreakerConfig, logger forge.Logger) *CircuitBreakerManager {
 	// Set defaults
 	if config.FailureThreshold == 0 {
 		config.FailureThreshold = 5
 	}
+
 	if config.SuccessThreshold == 0 {
 		config.SuccessThreshold = 2
 	}
+
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
+
 	if config.MaxHalfOpenRequests == 0 {
 		config.MaxHalfOpenRequests = 3
 	}
@@ -100,7 +103,7 @@ func NewCircuitBreakerManager(config CircuitBreakerConfig, logger forge.Logger) 
 	}
 }
 
-// GetOrCreateBreaker gets or creates a circuit breaker for a peer
+// GetOrCreateBreaker gets or creates a circuit breaker for a peer.
 func (cbm *CircuitBreakerManager) GetOrCreateBreaker(peerID string) *PeerCircuitBreaker {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -135,7 +138,7 @@ func (cbm *CircuitBreakerManager) GetOrCreateBreaker(peerID string) *PeerCircuit
 	return breaker
 }
 
-// Execute executes an operation with circuit breaker protection
+// Execute executes an operation with circuit breaker protection.
 func (cbm *CircuitBreakerManager) Execute(
 	ctx context.Context,
 	peerID string,
@@ -145,13 +148,15 @@ func (cbm *CircuitBreakerManager) Execute(
 	breaker := cbm.GetOrCreateBreaker(peerID)
 
 	start := time.Now()
+
 	breaker.mu.Lock()
 	breaker.totalRequests++
 	cbm.stats.TotalRequests++
+
 	breaker.mu.Unlock()
 
 	// Execute through circuit breaker
-	result, err := breaker.breaker.Execute(ctx, func() (interface{}, error) {
+	result, err := breaker.breaker.Execute(ctx, func() (any, error) {
 		return nil, fn()
 	})
 
@@ -169,6 +174,7 @@ func (cbm *CircuitBreakerManager) Execute(
 		if breaker.failureCount >= cbm.config.FailureThreshold {
 			breaker.state = CircuitStateOpen
 		}
+
 		breaker.mu.Unlock()
 
 		cbm.logger.Warn("circuit breaker operation failed",
@@ -190,16 +196,18 @@ func (cbm *CircuitBreakerManager) Execute(
 	// Check if circuit should close
 	if breaker.state == CircuitStateHalfOpen && breaker.successCount >= cbm.config.SuccessThreshold {
 		breaker.state = CircuitStateClosed
+
 		cbm.logger.Info("circuit breaker closed",
 			forge.F("peer", peerID),
 		)
 	}
+
 	breaker.mu.Unlock()
 
 	return nil
 }
 
-// IsOpen checks if circuit breaker is open for a peer
+// IsOpen checks if circuit breaker is open for a peer.
 func (cbm *CircuitBreakerManager) IsOpen(peerID string) bool {
 	cbm.mu.RLock()
 	breaker, exists := cbm.breakers[peerID]
@@ -211,10 +219,11 @@ func (cbm *CircuitBreakerManager) IsOpen(peerID string) bool {
 
 	breaker.mu.RLock()
 	defer breaker.mu.RUnlock()
+
 	return breaker.state == CircuitStateOpen
 }
 
-// GetState gets the circuit breaker state for a peer
+// GetState gets the circuit breaker state for a peer.
 func (cbm *CircuitBreakerManager) GetState(peerID string) CircuitState {
 	cbm.mu.RLock()
 	breaker, exists := cbm.breakers[peerID]
@@ -226,10 +235,11 @@ func (cbm *CircuitBreakerManager) GetState(peerID string) CircuitState {
 
 	breaker.mu.RLock()
 	defer breaker.mu.RUnlock()
+
 	return breaker.state
 }
 
-// Reset resets a circuit breaker for a peer
+// Reset resets a circuit breaker for a peer.
 func (cbm *CircuitBreakerManager) Reset(peerID string) {
 	cbm.mu.Lock()
 	breaker, exists := cbm.breakers[peerID]
@@ -251,7 +261,7 @@ func (cbm *CircuitBreakerManager) Reset(peerID string) {
 	)
 }
 
-// ResetAll resets all circuit breakers
+// ResetAll resets all circuit breakers.
 func (cbm *CircuitBreakerManager) ResetAll() {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -269,7 +279,7 @@ func (cbm *CircuitBreakerManager) ResetAll() {
 	}
 }
 
-// GetPeerHealth returns health information for a peer
+// GetPeerHealth returns health information for a peer.
 func (cbm *CircuitBreakerManager) GetPeerHealth(peerID string) *PeerHealth {
 	cbm.mu.RLock()
 	breaker, exists := cbm.breakers[peerID]
@@ -305,7 +315,7 @@ func (cbm *CircuitBreakerManager) GetPeerHealth(peerID string) *PeerHealth {
 	}
 }
 
-// PeerHealth contains peer health information
+// PeerHealth contains peer health information.
 type PeerHealth struct {
 	PeerID         string
 	State          CircuitState
@@ -319,13 +329,15 @@ type PeerHealth struct {
 	LastSuccess    time.Time
 }
 
-// GetAllPeerHealth returns health for all peers
+// GetAllPeerHealth returns health for all peers.
 func (cbm *CircuitBreakerManager) GetAllPeerHealth() map[string]*PeerHealth {
 	cbm.mu.RLock()
+
 	peerIDs := make([]string, 0, len(cbm.breakers))
 	for peerID := range cbm.breakers {
 		peerIDs = append(peerIDs, peerID)
 	}
+
 	cbm.mu.RUnlock()
 
 	health := make(map[string]*PeerHealth)
@@ -336,7 +348,7 @@ func (cbm *CircuitBreakerManager) GetAllPeerHealth() map[string]*PeerHealth {
 	return health
 }
 
-// GetStatistics returns circuit breaker statistics
+// GetStatistics returns circuit breaker statistics.
 func (cbm *CircuitBreakerManager) GetStatistics() CircuitBreakerStatistics {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
@@ -346,6 +358,7 @@ func (cbm *CircuitBreakerManager) GetStatistics() CircuitBreakerStatistics {
 
 	for _, breaker := range cbm.breakers {
 		breaker.mu.RLock()
+
 		switch breaker.state {
 		case CircuitStateOpen:
 			stats.OpenBreakers++
@@ -354,30 +367,34 @@ func (cbm *CircuitBreakerManager) GetStatistics() CircuitBreakerStatistics {
 		case CircuitStateClosed:
 			stats.ClosedBreakers++
 		}
+
 		breaker.mu.RUnlock()
 	}
 
 	return stats
 }
 
-// GetUnhealthyPeers returns list of peers with open circuit breakers
+// GetUnhealthyPeers returns list of peers with open circuit breakers.
 func (cbm *CircuitBreakerManager) GetUnhealthyPeers() []string {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
 
 	var unhealthy []string
+
 	for peerID, breaker := range cbm.breakers {
 		breaker.mu.RLock()
+
 		if breaker.state == CircuitStateOpen {
 			unhealthy = append(unhealthy, peerID)
 		}
+
 		breaker.mu.RUnlock()
 	}
 
 	return unhealthy
 }
 
-// MonitorHealth monitors circuit breaker health
+// MonitorHealth monitors circuit breaker health.
 func (cbm *CircuitBreakerManager) MonitorHealth(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -409,21 +426,23 @@ func (cbm *CircuitBreakerManager) MonitorHealth(ctx context.Context, interval ti
 	}
 }
 
-// getOverallSuccessRate calculates overall success rate
+// getOverallSuccessRate calculates overall success rate.
 func (cbm *CircuitBreakerManager) getOverallSuccessRate() float64 {
 	if cbm.stats.TotalRequests == 0 {
 		return 100.0
 	}
+
 	successful := cbm.stats.TotalRequests - cbm.stats.FailedRequests
+
 	return float64(successful) / float64(cbm.stats.TotalRequests) * 100
 }
 
-// String returns string representation of circuit state
+// String returns string representation of circuit state.
 func (cs CircuitState) String() string {
 	return string(cs)
 }
 
-// RemoveBreaker removes a circuit breaker for a peer
+// RemoveBreaker removes a circuit breaker for a peer.
 func (cbm *CircuitBreakerManager) RemoveBreaker(peerID string) {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -435,7 +454,7 @@ func (cbm *CircuitBreakerManager) RemoveBreaker(peerID string) {
 	)
 }
 
-// TripBreaker manually trips (opens) a circuit breaker
+// TripBreaker manually trips (opens) a circuit breaker.
 func (cbm *CircuitBreakerManager) TripBreaker(peerID string) error {
 	cbm.mu.RLock()
 	breaker, exists := cbm.breakers[peerID]

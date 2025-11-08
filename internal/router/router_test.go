@@ -13,7 +13,7 @@ import (
 	"github.com/xraph/forge/internal/di"
 )
 
-// Test service for DI injection
+// Test service for DI injection.
 type TestUserService struct {
 	users []string
 }
@@ -28,10 +28,11 @@ func (s *TestUserService) GetByID(id string) string {
 			return user
 		}
 	}
+
 	return ""
 }
 
-// Test request/response types
+// Test request/response types.
 type CreateUserRequest struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
@@ -59,7 +60,7 @@ func TestNewRouter_WithOptions(t *testing.T) {
 	assert.NotNil(t, router)
 }
 
-// Pattern 1: Standard HTTP Handler Tests
+// Pattern 1: Standard HTTP Handler Tests.
 func TestRouter_StandardHandler(t *testing.T) {
 	router := NewRouter()
 
@@ -70,7 +71,7 @@ func TestRouter_StandardHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test request
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -79,7 +80,7 @@ func TestRouter_StandardHandler(t *testing.T) {
 	assert.Equal(t, "standard handler", rec.Body.String())
 }
 
-// Pattern 2: Context Handler Tests
+// Pattern 2: Context Handler Tests.
 func TestRouter_ContextHandler(t *testing.T) {
 	router := NewRouter()
 
@@ -88,7 +89,7 @@ func TestRouter_ContextHandler(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -105,7 +106,7 @@ func TestRouter_ContextHandler_Error(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -114,7 +115,7 @@ func TestRouter_ContextHandler_Error(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "not found")
 }
 
-// Pattern 3: Opinionated Handler Tests
+// Pattern 3: Opinionated Handler Tests.
 func TestRouter_OpinionatedHandler(t *testing.T) {
 	router := NewRouter()
 
@@ -131,8 +132,9 @@ func TestRouter_OpinionatedHandler(t *testing.T) {
 	reqBody := CreateUserRequest{Name: "John", Email: "john@example.com"}
 	body, _ := json.Marshal(reqBody)
 
-	req := httptest.NewRequest("POST", "/users", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -140,6 +142,7 @@ func TestRouter_OpinionatedHandler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp CreateUserResponse
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "123", resp.ID)
@@ -156,8 +159,9 @@ func TestRouter_OpinionatedHandler_BadRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send invalid JSON
-	req := httptest.NewRequest("POST", "/users", bytes.NewReader([]byte("invalid json")))
+	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader([]byte("invalid json")))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -165,7 +169,7 @@ func TestRouter_OpinionatedHandler_BadRequest(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// Pattern 4: Service Handler Tests
+// Pattern 4: Service Handler Tests.
 func TestRouter_ServiceHandler(t *testing.T) {
 	container := di.NewContainer()
 
@@ -179,11 +183,12 @@ func TestRouter_ServiceHandler(t *testing.T) {
 
 	err = router.GET("/users", func(ctx Context, svc *TestUserService) error {
 		users := svc.GetAll()
+
 		return ctx.JSON(http.StatusOK, users)
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/users", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -191,12 +196,13 @@ func TestRouter_ServiceHandler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var users []string
+
 	err = json.Unmarshal(rec.Body.Bytes(), &users)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"user1", "user2"}, users)
 }
 
-// Pattern 5: Combined Handler Tests
+// Pattern 5: Combined Handler Tests.
 func TestRouter_CombinedHandler(t *testing.T) {
 	container := di.NewContainer()
 
@@ -224,8 +230,9 @@ func TestRouter_CombinedHandler(t *testing.T) {
 	reqBody := CreateUserRequest{Name: "Jane", Email: "jane@example.com"}
 	body, _ := json.Marshal(reqBody)
 
-	req := httptest.NewRequest("POST", "/users", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/users", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -233,12 +240,13 @@ func TestRouter_CombinedHandler(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp CreateUserResponse
+
 	err = json.Unmarshal(rec.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "Jane", resp.Name)
 }
 
-// HTTP Methods Tests
+// HTTP Methods Tests.
 func TestRouter_AllHTTPMethods(t *testing.T) {
 	router := NewRouter()
 
@@ -246,6 +254,7 @@ func TestRouter_AllHTTPMethods(t *testing.T) {
 
 	for _, method := range methods {
 		var err error
+
 		handler := func(ctx Context) error {
 			return ctx.String(http.StatusOK, method)
 		}
@@ -278,7 +287,7 @@ func TestRouter_AllHTTPMethods(t *testing.T) {
 	}
 }
 
-// Route Options Tests
+// Route Options Tests.
 func TestRouter_WithName(t *testing.T) {
 	router := NewRouter()
 
@@ -326,6 +335,7 @@ func TestRouter_WithMiddleware(t *testing.T) {
 	middleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			called = true
+
 			return next(ctx)
 		}
 	}
@@ -335,7 +345,7 @@ func TestRouter_WithMiddleware(t *testing.T) {
 	}, WithMiddleware(middleware))
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -343,7 +353,7 @@ func TestRouter_WithMiddleware(t *testing.T) {
 	assert.True(t, called, "Middleware was not called")
 }
 
-// Route Groups Tests
+// Route Groups Tests.
 func TestRouter_Group(t *testing.T) {
 	router := NewRouter()
 
@@ -353,7 +363,7 @@ func TestRouter_Group(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -372,7 +382,7 @@ func TestRouter_NestedGroups(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/api/v1/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -387,6 +397,7 @@ func TestRouter_GroupWithMiddleware(t *testing.T) {
 	middleware := func(next Handler) Handler {
 		return func(ctx Context) error {
 			called = true
+
 			return next(ctx)
 		}
 	}
@@ -397,7 +408,7 @@ func TestRouter_GroupWithMiddleware(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -405,7 +416,7 @@ func TestRouter_GroupWithMiddleware(t *testing.T) {
 	assert.True(t, called, "Group middleware not called")
 }
 
-// Middleware Tests
+// Middleware Tests.
 func TestRouter_Use(t *testing.T) {
 	router := NewRouter()
 
@@ -415,7 +426,9 @@ func TestRouter_Use(t *testing.T) {
 		return func(ctx Context) error {
 			order = append(order, "mw1-before")
 			err := next(ctx)
+
 			order = append(order, "mw1-after")
+
 			return err
 		}
 	}
@@ -424,7 +437,9 @@ func TestRouter_Use(t *testing.T) {
 		return func(ctx Context) error {
 			order = append(order, "mw2-before")
 			err := next(ctx)
+
 			order = append(order, "mw2-after")
+
 			return err
 		}
 	}
@@ -433,11 +448,12 @@ func TestRouter_Use(t *testing.T) {
 
 	err := router.GET("/test", func(ctx Context) error {
 		order = append(order, "handler")
+
 		return ctx.String(200, "ok")
 	})
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -446,7 +462,7 @@ func TestRouter_Use(t *testing.T) {
 	assert.Equal(t, expected, order)
 }
 
-// Route Inspection Tests
+// Route Inspection Tests.
 func TestRouter_Routes(t *testing.T) {
 	router := NewRouter()
 
@@ -482,7 +498,7 @@ func TestRouter_RoutesByTag_Empty(t *testing.T) {
 	assert.Empty(t, routes)
 }
 
-// Lifecycle Tests
+// Lifecycle Tests.
 func TestRouter_StartStop(t *testing.T) {
 	router := NewRouter()
 
@@ -495,7 +511,7 @@ func TestRouter_StartStop(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// Handler Tests
+// Handler Tests.
 func TestRouter_Handler(t *testing.T) {
 	router := NewRouter()
 

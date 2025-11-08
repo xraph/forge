@@ -2,10 +2,11 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
-// command implements the Command interface
+// command implements the Command interface.
 type command struct {
 	name        string
 	description string
@@ -19,10 +20,10 @@ type command struct {
 	after       []MiddlewareFunc
 }
 
-// CommandOption is a functional option for configuring commands
+// CommandOption is a functional option for configuring commands.
 type CommandOption func(*command)
 
-// NewCommand creates a new command
+// NewCommand creates a new command.
 func NewCommand(name, description string, handler CommandHandler, opts ...CommandOption) Command {
 	cmd := &command{
 		name:        name,
@@ -49,11 +50,12 @@ func (c *command) Usage() string {
 	if c.usage != "" {
 		return c.usage
 	}
+
 	return c.generateUsage()
 }
 func (c *command) Aliases() []string { return c.aliases }
 
-// generateUsage generates a default usage string
+// generateUsage generates a default usage string.
 func (c *command) generateUsage() string {
 	parts := []string{c.name}
 
@@ -101,6 +103,7 @@ func (c *command) AddSubcommand(cmd Command) error {
 
 	cmd.SetParent(c)
 	c.subcommands = append(c.subcommands, cmd)
+
 	return nil
 }
 
@@ -114,12 +117,11 @@ func (c *command) FindSubcommand(name string) (Command, bool) {
 			return sub, true
 		}
 		// Check aliases
-		for _, alias := range sub.Aliases() {
-			if alias == name {
-				return sub, true
-			}
+		if slices.Contains(sub.Aliases(), name) {
+			return sub, true
 		}
 	}
+
 	return nil, false
 }
 
@@ -137,11 +139,13 @@ func (c *command) AddFlag(flag Flag) {
 
 func (c *command) Before(fn MiddlewareFunc) Command {
 	c.before = append(c.before, fn)
+
 	return c
 }
 
 func (c *command) After(fn MiddlewareFunc) Command {
 	c.after = append(c.after, fn)
+
 	return c
 }
 
@@ -157,35 +161,35 @@ func (c *command) Parent() Command {
 
 // Command options
 
-// WithUsage sets a custom usage string
+// WithUsage sets a custom usage string.
 func WithUsage(usage string) CommandOption {
 	return func(c *command) {
 		c.usage = usage
 	}
 }
 
-// WithAliases sets command aliases
+// WithAliases sets command aliases.
 func WithAliases(aliases ...string) CommandOption {
 	return func(c *command) {
 		c.aliases = aliases
 	}
 }
 
-// WithFlag adds a flag to the command
+// WithFlag adds a flag to the command.
 func WithFlag(flag Flag) CommandOption {
 	return func(c *command) {
 		c.flags = append(c.flags, flag)
 	}
 }
 
-// WithFlags adds multiple flags to the command
+// WithFlags adds multiple flags to the command.
 func WithFlags(flags ...Flag) CommandOption {
 	return func(c *command) {
 		c.flags = append(c.flags, flags...)
 	}
 }
 
-// WithSubcommand adds a subcommand
+// WithSubcommand adds a subcommand.
 func WithSubcommand(sub Command) CommandOption {
 	return func(c *command) {
 		sub.SetParent(c)
@@ -193,14 +197,14 @@ func WithSubcommand(sub Command) CommandOption {
 	}
 }
 
-// WithBefore adds a before middleware
+// WithBefore adds a before middleware.
 func WithBefore(fn MiddlewareFunc) CommandOption {
 	return func(c *command) {
 		c.before = append(c.before, fn)
 	}
 }
 
-// WithAfter adds an after middleware
+// WithAfter adds an after middleware.
 func WithAfter(fn MiddlewareFunc) CommandOption {
 	return func(c *command) {
 		c.after = append(c.after, fn)

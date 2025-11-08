@@ -280,7 +280,7 @@ func TestRouteOptionsOpenAPI(t *testing.T) {
 	t.Run("WithSecurity", func(t *testing.T) {
 		opt := WithSecurity("bearerAuth", "apiKey")
 		config := &RouteConfig{
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 		opt.Apply(config)
 
@@ -293,7 +293,7 @@ func TestRouteOptionsOpenAPI(t *testing.T) {
 	t.Run("WithResponse", func(t *testing.T) {
 		opt := WithResponse(200, "Success", map[string]string{"id": "123"})
 		config := &RouteConfig{
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 		opt.Apply(config)
 
@@ -307,7 +307,7 @@ func TestRouteOptionsOpenAPI(t *testing.T) {
 		example := map[string]string{"name": "John"}
 		opt := WithRequestBody("User data", true, example)
 		config := &RouteConfig{
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 		opt.Apply(config)
 
@@ -321,7 +321,7 @@ func TestRouteOptionsOpenAPI(t *testing.T) {
 	t.Run("WithParameter", func(t *testing.T) {
 		opt := WithParameter("id", "path", "User ID", true, "123")
 		config := &RouteConfig{
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 		opt.Apply(config)
 
@@ -336,7 +336,7 @@ func TestRouteOptionsOpenAPI(t *testing.T) {
 	t.Run("WithExternalDocs", func(t *testing.T) {
 		opt := WithExternalDocs("More info", "https://docs.example.com")
 		config := &RouteConfig{
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 		opt.Apply(config)
 

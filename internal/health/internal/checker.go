@@ -6,10 +6,10 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// HealthConfig contains configuration for the health checker
+// HealthConfig contains configuration for the health checker.
 type HealthConfig = shared.HealthConfig
 
-// DefaultHealthCheckerConfig returns default configuration
+// DefaultHealthCheckerConfig returns default configuration.
 func DefaultHealthCheckerConfig() *HealthConfig {
 	return &HealthConfig{
 		CheckInterval:          30 * time.Second,
@@ -29,5 +29,5 @@ func DefaultHealthCheckerConfig() *HealthConfig {
 	}
 }
 
-// HealthCheckerStats contains statistics about the health checker
+// HealthCheckerStats contains statistics about the health checker.
 type HealthCheckerStats = shared.HealthCheckerStats

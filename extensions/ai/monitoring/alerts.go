@@ -11,10 +11,11 @@ import (
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// AIAlertManager manages AI-powered alerting for the system
+// AIAlertManager manages AI-powered alerting for the system.
 type AIAlertManager struct {
 	aiManager        ai.AI
 	healthMonitor    *AIHealthMonitor
@@ -43,20 +44,20 @@ type AIAlertManager struct {
 	alertTicker *time.Ticker
 }
 
-// AIAlertConfig contains configuration for AI alerting
+// AIAlertConfig contains configuration for AI alerting.
 type AIAlertConfig struct {
-	CheckInterval          time.Duration `yaml:"check_interval" default:"60s"`
-	AlertRetention         time.Duration `yaml:"alert_retention" default:"7d"`
-	MaxActiveAlerts        int           `yaml:"max_active_alerts" default:"1000"`
-	EnablePredictiveAlerts bool          `yaml:"enable_predictive_alerts" default:"true"`
-	EnableAnomalyAlerts    bool          `yaml:"enable_anomaly_alerts" default:"true"`
-	EnableCorrelation      bool          `yaml:"enable_correlation" default:"true"`
-	AlertGroupingWindow    time.Duration `yaml:"alert_grouping_window" default:"5m"`
-	AlertSuppressionWindow time.Duration `yaml:"alert_suppression_window" default:"15m"`
-	MinConfidenceThreshold float64       `yaml:"min_confidence_threshold" default:"0.7"`
+	CheckInterval          time.Duration `default:"60s"  yaml:"check_interval"`
+	AlertRetention         time.Duration `default:"7d"   yaml:"alert_retention"`
+	MaxActiveAlerts        int           `default:"1000" yaml:"max_active_alerts"`
+	EnablePredictiveAlerts bool          `default:"true" yaml:"enable_predictive_alerts"`
+	EnableAnomalyAlerts    bool          `default:"true" yaml:"enable_anomaly_alerts"`
+	EnableCorrelation      bool          `default:"true" yaml:"enable_correlation"`
+	AlertGroupingWindow    time.Duration `default:"5m"   yaml:"alert_grouping_window"`
+	AlertSuppressionWindow time.Duration `default:"15m"  yaml:"alert_suppression_window"`
+	MinConfidenceThreshold float64       `default:"0.7"  yaml:"min_confidence_threshold"`
 }
 
-// AIAlert represents an intelligent alert with AI-powered analysis
+// AIAlert represents an intelligent alert with AI-powered analysis.
 type AIAlert struct {
 	ID        string        `json:"id"`
 	Title     string        `json:"title"`
@@ -91,12 +92,12 @@ type AIAlert struct {
 	OccurrenceCount int         `json:"occurrence_count"`
 
 	// Metadata
-	Tags     map[string]string      `json:"tags"`
-	Metadata map[string]interface{} `json:"metadata"`
-	RawData  interface{}            `json:"raw_data"`
+	Tags     map[string]string `json:"tags"`
+	Metadata map[string]any    `json:"metadata"`
+	RawData  any               `json:"raw_data"`
 }
 
-// AlertSeverity defines alert severity levels
+// AlertSeverity defines alert severity levels.
 type AlertSeverity string
 
 const (
@@ -107,7 +108,7 @@ const (
 	AlertSeverityFatal    AlertSeverity = "fatal"
 )
 
-// AlertPriority defines alert priority levels
+// AlertPriority defines alert priority levels.
 type AlertPriority string
 
 const (
@@ -118,7 +119,7 @@ const (
 	AlertPriorityEmergency AlertPriority = "emergency"
 )
 
-// AlertCategory defines categories of alerts
+// AlertCategory defines categories of alerts.
 type AlertCategory string
 
 const (
@@ -132,7 +133,7 @@ const (
 	AlertCategorySystem       AlertCategory = "system"
 )
 
-// AlertStatus defines alert states
+// AlertStatus defines alert states.
 type AlertStatus string
 
 const (
@@ -145,33 +146,33 @@ const (
 	AlertStatusEscalated     AlertStatus = "escalated"
 )
 
-// AlertImpact describes the impact of an alert
+// AlertImpact describes the impact of an alert.
 type AlertImpact struct {
-	Scope            string                 `json:"scope"` // "agent", "model", "system", "global"
-	AffectedUsers    int                    `json:"affected_users"`
-	AffectedServices []string               `json:"affected_services"`
-	BusinessImpact   string                 `json:"business_impact"`
-	TechnicalImpact  string                 `json:"technical_impact"`
-	EstimatedCost    float64                `json:"estimated_cost"`
-	SLA              map[string]interface{} `json:"sla"`
+	Scope            string         `json:"scope"` // "agent", "model", "system", "global"
+	AffectedUsers    int            `json:"affected_users"`
+	AffectedServices []string       `json:"affected_services"`
+	BusinessImpact   string         `json:"business_impact"`
+	TechnicalImpact  string         `json:"technical_impact"`
+	EstimatedCost    float64        `json:"estimated_cost"`
+	SLA              map[string]any `json:"sla"`
 }
 
-// AlertAction represents a recommended action
+// AlertAction represents a recommended action.
 type AlertAction struct {
-	ID            string                 `json:"id"`
-	Type          ActionType             `json:"type"`
-	Description   string                 `json:"description"`
-	Command       string                 `json:"command,omitempty"`
-	Parameters    map[string]interface{} `json:"parameters,omitempty"`
-	Automated     bool                   `json:"automated"`
-	Priority      int                    `json:"priority"`
-	EstimatedTime time.Duration          `json:"estimated_time"`
-	RequiredRole  string                 `json:"required_role,omitempty"`
-	Confirmation  bool                   `json:"confirmation"`
-	Rollback      bool                   `json:"rollback"`
+	ID            string         `json:"id"`
+	Type          ActionType     `json:"type"`
+	Description   string         `json:"description"`
+	Command       string         `json:"command,omitempty"`
+	Parameters    map[string]any `json:"parameters,omitempty"`
+	Automated     bool           `json:"automated"`
+	Priority      int            `json:"priority"`
+	EstimatedTime time.Duration  `json:"estimated_time"`
+	RequiredRole  string         `json:"required_role,omitempty"`
+	Confirmation  bool           `json:"confirmation"`
+	Rollback      bool           `json:"rollback"`
 }
 
-// ActionType defines types of alert actions
+// ActionType defines types of alert actions.
 type ActionType string
 
 const (
@@ -186,18 +187,18 @@ const (
 	ActionTypeCustom      ActionType = "custom"
 )
 
-// AlertCorrelation contains correlation information
+// AlertCorrelation contains correlation information.
 type AlertCorrelation struct {
-	CorrelationID   string                 `json:"correlation_id"`
-	RelatedAlerts   []string               `json:"related_alerts"`
-	RootCauseAlert  string                 `json:"root_cause_alert,omitempty"`
-	CorrelationType string                 `json:"correlation_type"`
-	Confidence      float64                `json:"confidence"`
-	Pattern         string                 `json:"pattern"`
-	Metadata        map[string]interface{} `json:"metadata"`
+	CorrelationID   string         `json:"correlation_id"`
+	RelatedAlerts   []string       `json:"related_alerts"`
+	RootCauseAlert  string         `json:"root_cause_alert,omitempty"`
+	CorrelationType string         `json:"correlation_type"`
+	Confidence      float64        `json:"confidence"`
+	Pattern         string         `json:"pattern"`
+	Metadata        map[string]any `json:"metadata"`
 }
 
-// AlertRule defines conditions for triggering alerts
+// AlertRule defines conditions for triggering alerts.
 type AlertRule struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -235,7 +236,7 @@ type AlertRule struct {
 	UpdatedAt time.Time         `json:"updated_at"`
 }
 
-// ComparisonOperator defines comparison operators for alert rules
+// ComparisonOperator defines comparison operators for alert rules.
 type ComparisonOperator string
 
 const (
@@ -247,7 +248,7 @@ const (
 	ComparisonOperatorNE  ComparisonOperator = "ne"  // not equal
 )
 
-// PredictiveThreshold defines AI-based predictive thresholds
+// PredictiveThreshold defines AI-based predictive thresholds.
 type PredictiveThreshold struct {
 	MetricName          string        `json:"metric_name"`
 	PredictionHorizon   time.Duration `json:"prediction_horizon"`
@@ -256,24 +257,24 @@ type PredictiveThreshold struct {
 	Model               string        `json:"model"`
 }
 
-// SuppressionRule defines conditions for suppressing alerts
+// SuppressionRule defines conditions for suppressing alerts.
 type SuppressionRule struct {
-	Condition  string                 `json:"condition"`
-	Duration   time.Duration          `json:"duration"`
-	Reason     string                 `json:"reason"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Condition  string         `json:"condition"`
+	Duration   time.Duration  `json:"duration"`
+	Reason     string         `json:"reason"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// AlertChannel defines how alerts are delivered
+// AlertChannel defines how alerts are delivered.
 type AlertChannel interface {
 	Name() string
 	Type() ChannelType
 	Send(ctx context.Context, alert *AIAlert) error
 	IsEnabled() bool
-	GetConfig() map[string]interface{}
+	GetConfig() map[string]any
 }
 
-// ChannelType defines types of alert channels
+// ChannelType defines types of alert channels.
 type ChannelType string
 
 const (
@@ -285,7 +286,7 @@ const (
 	ChannelTypeCustom    ChannelType = "custom"
 )
 
-// AlertPolicy defines policies for alert management
+// AlertPolicy defines policies for alert management.
 type AlertPolicy struct {
 	AutoAcknowledge    bool               `json:"auto_acknowledge"`
 	AutoResolve        bool               `json:"auto_resolve"`
@@ -295,7 +296,7 @@ type AlertPolicy struct {
 	NotificationRules  []NotificationRule `json:"notification_rules"`
 }
 
-// EscalationRule defines escalation conditions
+// EscalationRule defines escalation conditions.
 type EscalationRule struct {
 	Condition string        `json:"condition"`
 	Delay     time.Duration `json:"delay"`
@@ -303,7 +304,7 @@ type EscalationRule struct {
 	Action    string        `json:"action"`
 }
 
-// GroupingRule defines how alerts are grouped
+// GroupingRule defines how alerts are grouped.
 type GroupingRule struct {
 	Name          string        `json:"name"`
 	GroupBy       []string      `json:"group_by"`
@@ -311,18 +312,18 @@ type GroupingRule struct {
 	GroupWaitTime time.Duration `json:"group_wait_time"`
 }
 
-// NotificationRule defines notification conditions
+// NotificationRule defines notification conditions.
 type NotificationRule struct {
-	Condition  string                 `json:"condition"`
-	Channels   []string               `json:"channels"`
-	Template   string                 `json:"template"`
-	Throttle   time.Duration          `json:"throttle"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Condition  string         `json:"condition"`
+	Channels   []string       `json:"channels"`
+	Template   string         `json:"template"`
+	Throttle   time.Duration  `json:"throttle"`
+	Parameters map[string]any `json:"parameters"`
 }
 
 // AI-powered components
 
-// AnomalyDetector detects anomalies in metrics for alerting
+// AnomalyDetector detects anomalies in metrics for alerting.
 type AnomalyDetector struct {
 	models          map[string]AnomalyModel
 	threshold       float64
@@ -330,34 +331,34 @@ type AnomalyDetector struct {
 	learningEnabled bool
 }
 
-// AnomalyModel represents a model for detecting anomalies
+// AnomalyModel represents a model for detecting anomalies.
 type AnomalyModel interface {
 	Train(data []float64) error
 	Detect(value float64) (isAnomaly bool, score float64, err error)
 	Update(value float64, isAnomaly bool) error
 }
 
-// AlertPredictor predicts future alerts using ML
+// AlertPredictor predicts future alerts using ML.
 type AlertPredictor struct {
 	models         map[string]PredictionModel
 	enabled        bool
 	horizonDefault time.Duration
 }
 
-// PredictionModel represents a model for predicting alerts
+// PredictionModel represents a model for predicting alerts.
 type PredictionModel interface {
 	Predict(ctx context.Context, data []float64, horizon time.Duration) (prediction float64, confidence float64, err error)
 	Train(ctx context.Context, data []TrainingDataPoint) error
 }
 
-// TrainingDataPoint represents training data for prediction models
+// TrainingDataPoint represents training data for prediction models.
 type TrainingDataPoint struct {
 	Timestamp time.Time `json:"timestamp"`
 	Value     float64   `json:"value"`
 	Label     bool      `json:"label"` // true if an alert occurred
 }
 
-// AlertClassifier classifies alerts into categories using ML
+// AlertClassifier classifies alerts into categories using ML.
 type AlertClassifier struct {
 	model         ClassificationModel
 	enabled       bool
@@ -365,20 +366,20 @@ type AlertClassifier struct {
 	confidenceMin float64
 }
 
-// ClassificationModel represents a model for classifying alerts
+// ClassificationModel represents a model for classifying alerts.
 type ClassificationModel interface {
 	Classify(ctx context.Context, alert *AIAlert) (category AlertCategory, confidence float64, err error)
 	Train(ctx context.Context, trainingData []AlertTrainingData) error
 }
 
-// AlertTrainingData represents training data for alert classification
+// AlertTrainingData represents training data for alert classification.
 type AlertTrainingData struct {
 	Alert    *AIAlert      `json:"alert"`
 	Category AlertCategory `json:"category"`
 	Feedback bool          `json:"feedback"` // true if classification was correct
 }
 
-// NewAIAlertManager creates a new AI alert manager
+// NewAIAlertManager creates a new AI alert manager.
 func NewAIAlertManager(aiManager ai.AI, healthMonitor *AIHealthMonitor, metricsCollector *AIMetricsCollector, logger logger.Logger, metrics forge.Metrics, config AIAlertConfig) *AIAlertManager {
 	return &AIAlertManager{
 		aiManager:        aiManager,
@@ -401,13 +402,13 @@ func NewAIAlertManager(aiManager ai.AI, healthMonitor *AIHealthMonitor, metricsC
 	}
 }
 
-// Start starts the AI alert manager
+// Start starts the AI alert manager.
 func (m *AIAlertManager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.started {
-		return fmt.Errorf("AI alert manager already started")
+		return errors.New("AI alert manager already started")
 	}
 
 	// Initialize default alert rules
@@ -434,18 +435,19 @@ func (m *AIAlertManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the AI alert manager
+// Stop stops the AI alert manager.
 func (m *AIAlertManager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if !m.started {
-		return fmt.Errorf("AI alert manager not started")
+		return errors.New("AI alert manager not started")
 	}
 
 	if m.alertTicker != nil {
 		m.alertTicker.Stop()
 	}
+
 	m.started = false
 
 	if m.logger != nil {
@@ -455,8 +457,8 @@ func (m *AIAlertManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// CreateAlert creates a new alert with AI-powered analysis
-func (m *AIAlertManager) CreateAlert(ctx context.Context, title, message string, severity AlertSeverity, source, component string, metadata map[string]interface{}) (*AIAlert, error) {
+// CreateAlert creates a new alert with AI-powered analysis.
+func (m *AIAlertManager) CreateAlert(ctx context.Context, title, message string, severity AlertSeverity, source, component string, metadata map[string]any) (*AIAlert, error) {
 	alertID, err := generateAlertID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate alert ID: %w", err)
@@ -496,6 +498,7 @@ func (m *AIAlertManager) CreateAlert(ctx context.Context, title, message string,
 		// Update existing alert
 		existingAlert.LastOccurrence = time.Now()
 		existingAlert.OccurrenceCount++
+
 		return existingAlert, nil
 	}
 
@@ -521,7 +524,7 @@ func (m *AIAlertManager) CreateAlert(ctx context.Context, title, message string,
 	return alert, nil
 }
 
-// analyzeAlert performs AI-powered analysis on an alert
+// analyzeAlert performs AI-powered analysis on an alert.
 func (m *AIAlertManager) analyzeAlert(ctx context.Context, alert *AIAlert) error {
 	// Classify the alert
 	if m.classifier.enabled {
@@ -552,7 +555,7 @@ func (m *AIAlertManager) analyzeAlert(ctx context.Context, alert *AIAlert) error
 	return nil
 }
 
-// processAlerts runs the main alert processing loop
+// processAlerts runs the main alert processing loop.
 func (m *AIAlertManager) processAlerts(ctx context.Context) {
 	defer m.alertTicker.Stop()
 
@@ -570,15 +573,17 @@ func (m *AIAlertManager) processAlerts(ctx context.Context) {
 	}
 }
 
-// evaluateAlertRules evaluates all alert rules against current metrics
+// evaluateAlertRules evaluates all alert rules against current metrics.
 func (m *AIAlertManager) evaluateAlertRules(ctx context.Context) {
 	m.mu.RLock()
+
 	rules := make([]*AlertRule, 0, len(m.alertRules))
 	for _, rule := range m.alertRules {
 		if rule.Enabled {
 			rules = append(rules, rule)
 		}
 	}
+
 	m.mu.RUnlock()
 
 	metricsReport, err := m.metricsCollector.GetMetricsReport(ctx)
@@ -586,6 +591,7 @@ func (m *AIAlertManager) evaluateAlertRules(ctx context.Context) {
 		if m.logger != nil {
 			m.logger.Error("failed to get metrics report for alert evaluation", logger.Error(err))
 		}
+
 		return
 	}
 
@@ -611,16 +617,17 @@ func (m *AIAlertManager) evaluateAlertRules(ctx context.Context) {
 
 // Utility functions
 
-// generateAlertID generates a unique alert ID
+// generateAlertID generates a unique alert ID.
 func generateAlertID() (string, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("alert_%s", hex.EncodeToString(bytes)[:12]), nil
+
+	return "alert_" + hex.EncodeToString(bytes)[:12], nil
 }
 
-// initializeDefaultRules initializes default alert rules
+// initializeDefaultRules initializes default alert rules.
 func (m *AIAlertManager) initializeDefaultRules() error {
 	defaultRules := []*AlertRule{
 		{
@@ -702,7 +709,7 @@ func (m *AIAlertManager) initializeDefaultRules() error {
 
 // Placeholder implementations for AI components
 
-// NewAnomalyDetector creates a new anomaly detector
+// NewAnomalyDetector creates a new anomaly detector.
 func NewAnomalyDetector(threshold float64, windowSize time.Duration, learningEnabled bool) *AnomalyDetector {
 	return &AnomalyDetector{
 		models:          make(map[string]AnomalyModel),
@@ -712,7 +719,7 @@ func NewAnomalyDetector(threshold float64, windowSize time.Duration, learningEna
 	}
 }
 
-// NewAlertPredictor creates a new alert predictor
+// NewAlertPredictor creates a new alert predictor.
 func NewAlertPredictor(enabled bool, defaultHorizon time.Duration) *AlertPredictor {
 	return &AlertPredictor{
 		models:         make(map[string]PredictionModel),
@@ -721,7 +728,7 @@ func NewAlertPredictor(enabled bool, defaultHorizon time.Duration) *AlertPredict
 	}
 }
 
-// NewAlertClassifier creates a new alert classifier
+// NewAlertClassifier creates a new alert classifier.
 func NewAlertClassifier(confidenceMin float64) *AlertClassifier {
 	return &AlertClassifier{
 		enabled:       true,
@@ -746,8 +753,10 @@ func (m *AIAlertManager) shouldEvaluateRule(rule *AlertRule) bool {
 
 func (m *AIAlertManager) evaluateRule(ctx context.Context, rule *AlertRule, metricsReport *AIMetricsReport) {
 	// Extract metric value based on rule
-	var metricValue float64
-	var found bool
+	var (
+		metricValue float64
+		found       bool
+	)
 
 	switch rule.MetricName {
 	case "error_rate":
@@ -770,6 +779,7 @@ func (m *AIAlertManager) evaluateRule(ctx context.Context, rule *AlertRule, metr
 
 	// Evaluate condition
 	triggered := false
+
 	switch rule.Operator {
 	case ComparisonOperatorGT:
 		triggered = metricValue > rule.Threshold
@@ -790,7 +800,7 @@ func (m *AIAlertManager) evaluateRule(ctx context.Context, rule *AlertRule, metr
 		title := fmt.Sprintf("%s: %s", rule.Name, rule.MetricName)
 		message := fmt.Sprintf("Metric %s is %v %s %v", rule.MetricName, metricValue, rule.Operator, rule.Threshold)
 
-		metadata := map[string]interface{}{
+		metadata := map[string]any{
 			"rule_id":      rule.ID,
 			"metric_name":  rule.MetricName,
 			"metric_value": metricValue,
@@ -822,6 +832,7 @@ func (m *AIAlertManager) findSimilarAlert(alert *AIAlert) *AIAlert {
 			return existingAlert
 		}
 	}
+
 	return nil
 }
 
@@ -850,7 +861,7 @@ func (m *AIAlertManager) analyzeImpact(alert *AIAlert) AlertImpact {
 		BusinessImpact:   "Low",
 		TechnicalImpact:  "Component degradation",
 		EstimatedCost:    0.0,
-		SLA:              make(map[string]interface{}),
+		SLA:              make(map[string]any),
 	}
 
 	// Enhance impact analysis based on severity and component
@@ -898,6 +909,7 @@ func (m *AIAlertManager) generateRecommendedActions(alert *AIAlert) []AlertActio
 				Automated:   true,
 			})
 		}
+
 		actions = append(actions, AlertAction{
 			Type:        ActionTypeInvestigate,
 			Description: "Check logs and metrics for performance bottlenecks",
@@ -942,7 +954,7 @@ func (m *AIAlertManager) findAlertCorrelations(alert *AIAlert) *AlertCorrelation
 		CorrelationType: "temporal",
 		Confidence:      0.5,
 		Pattern:         "time-based",
-		Metadata:        make(map[string]interface{}),
+		Metadata:        make(map[string]any),
 	}
 
 	// Find alerts in the same time window
@@ -988,7 +1000,6 @@ func (m *AIAlertManager) cleanupResolvedAlerts() {
 		if alert.Status == AlertStatusResolved &&
 			alert.ResolvedAt != nil &&
 			alert.ResolvedAt.Before(cutoffTime) {
-
 			m.alertHistory = append(m.alertHistory, alert)
 			delete(m.activeAlerts, alertID)
 		}
@@ -1001,19 +1012,19 @@ func (m *AIAlertManager) cleanupResolvedAlerts() {
 	}
 }
 
-// processAnomalyAlerts processes anomaly-based alerts
+// processAnomalyAlerts processes anomaly-based alerts.
 func (m *AIAlertManager) processAnomalyAlerts(ctx context.Context) {
 	// Implementation for processing anomaly alerts
 	// This would analyze anomaly detection results and generate alerts
 }
 
-// processPredictiveAlerts processes predictive alerts
+// processPredictiveAlerts processes predictive alerts.
 func (m *AIAlertManager) processPredictiveAlerts(ctx context.Context) {
 	// Implementation for processing predictive alerts
 	// This would analyze predictive analytics results and generate alerts
 }
 
-// correlateAlerts correlates related alerts
+// correlateAlerts correlates related alerts.
 func (m *AIAlertManager) correlateAlerts(ctx context.Context) {
 	// Implementation for correlating alerts
 	// This would identify related alerts and group them together

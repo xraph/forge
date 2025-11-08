@@ -55,6 +55,7 @@ func (ma *messageAuthorizer) CanDelete(ctx context.Context, userID, messageID st
 		if err != nil {
 			return false, err
 		}
+
 		return canModerate, nil
 	}
 

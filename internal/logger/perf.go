@@ -4,14 +4,14 @@ import (
 	"time"
 )
 
-// PerformanceMonitor helps monitor performance metrics
+// PerformanceMonitor helps monitor performance metrics.
 type PerformanceMonitor struct {
 	logger Logger
 	start  time.Time
 	fields []Field
 }
 
-// NewPerformanceMonitor creates a new performance monitor
+// NewPerformanceMonitor creates a new performance monitor.
 func NewPerformanceMonitor(logger Logger, operation string) *PerformanceMonitor {
 	return &PerformanceMonitor{
 		logger: logger,
@@ -20,19 +20,21 @@ func NewPerformanceMonitor(logger Logger, operation string) *PerformanceMonitor 
 	}
 }
 
-// WithField adds a field to the performance monitor
+// WithField adds a field to the performance monitor.
 func (pm *PerformanceMonitor) WithField(field Field) *PerformanceMonitor {
 	pm.fields = append(pm.fields, field)
+
 	return pm
 }
 
-// WithFields adds multiple fields to the performance monitor
+// WithFields adds multiple fields to the performance monitor.
 func (pm *PerformanceMonitor) WithFields(fields ...Field) *PerformanceMonitor {
 	pm.fields = append(pm.fields, fields...)
+
 	return pm
 }
 
-// Finish logs the completion of the monitored operation
+// Finish logs the completion of the monitored operation.
 func (pm *PerformanceMonitor) Finish() {
 	duration := time.Since(pm.start)
 	allFields := append(pm.fields,
@@ -50,7 +52,7 @@ func (pm *PerformanceMonitor) Finish() {
 	}
 }
 
-// FinishWithError logs the completion of the monitored operation with an error
+// FinishWithError logs the completion of the monitored operation with an error.
 func (pm *PerformanceMonitor) FinishWithError(err error) {
 	duration := time.Since(pm.start)
 	allFields := append(pm.fields,

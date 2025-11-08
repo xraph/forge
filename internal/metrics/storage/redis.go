@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -18,7 +19,7 @@ import (
 // REDIS STORAGE
 // =============================================================================
 
-// RedisStorage provides Redis-backed storage for metrics
+// RedisStorage provides Redis-backed storage for metrics.
 type RedisStorage struct {
 	name            string
 	client          *redis.Client
@@ -32,24 +33,24 @@ type RedisStorage struct {
 	stats           *RedisStorageStats
 }
 
-// RedisStorageConfig contains configuration for Redis storage
+// RedisStorageConfig contains configuration for Redis storage.
 type RedisStorageConfig struct {
-	Address         string        `yaml:"address" json:"address"`
-	Password        string        `yaml:"password" json:"password"`
-	Database        int           `yaml:"database" json:"database"`
-	KeyPrefix       string        `yaml:"key_prefix" json:"key_prefix"`
-	PoolSize        int           `yaml:"pool_size" json:"pool_size"`
-	MinIdleConns    int           `yaml:"min_idle_conns" json:"min_idle_conns"`
-	MaxRetries      int           `yaml:"max_retries" json:"max_retries"`
-	DialTimeout     time.Duration `yaml:"dial_timeout" json:"dial_timeout"`
-	ReadTimeout     time.Duration `yaml:"read_timeout" json:"read_timeout"`
-	WriteTimeout    time.Duration `yaml:"write_timeout" json:"write_timeout"`
-	Retention       time.Duration `yaml:"retention" json:"retention"`
-	CleanupInterval time.Duration `yaml:"cleanup_interval" json:"cleanup_interval"`
-	EnableStats     bool          `yaml:"enable_stats" json:"enable_stats"`
+	Address         string        `json:"address"          yaml:"address"`
+	Password        string        `json:"password"         yaml:"password"`
+	Database        int           `json:"database"         yaml:"database"`
+	KeyPrefix       string        `json:"key_prefix"       yaml:"key_prefix"`
+	PoolSize        int           `json:"pool_size"        yaml:"pool_size"`
+	MinIdleConns    int           `json:"min_idle_conns"   yaml:"min_idle_conns"`
+	MaxRetries      int           `json:"max_retries"      yaml:"max_retries"`
+	DialTimeout     time.Duration `json:"dial_timeout"     yaml:"dial_timeout"`
+	ReadTimeout     time.Duration `json:"read_timeout"     yaml:"read_timeout"`
+	WriteTimeout    time.Duration `json:"write_timeout"    yaml:"write_timeout"`
+	Retention       time.Duration `json:"retention"        yaml:"retention"`
+	CleanupInterval time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
+	EnableStats     bool          `json:"enable_stats"     yaml:"enable_stats"`
 }
 
-// RedisStorageStats contains statistics about Redis storage
+// RedisStorageStats contains statistics about Redis storage.
 type RedisStorageStats struct {
 	Address          string        `json:"address"`
 	Connected        bool          `json:"connected"`
@@ -75,7 +76,7 @@ type RedisStorageStats struct {
 	misses           int64
 }
 
-// DefaultRedisStorageConfig returns default configuration
+// DefaultRedisStorageConfig returns default configuration.
 func DefaultRedisStorageConfig() *RedisStorageConfig {
 	return &RedisStorageConfig{
 		Address:         "localhost:6379",
@@ -94,12 +95,12 @@ func DefaultRedisStorageConfig() *RedisStorageConfig {
 	}
 }
 
-// NewRedisStorage creates a new Redis storage instance
+// NewRedisStorage creates a new Redis storage instance.
 func NewRedisStorage() MetricsStorage {
 	return NewRedisStorageWithConfig(DefaultRedisStorageConfig())
 }
 
-// NewRedisStorageWithConfig creates a new Redis storage instance with configuration
+// NewRedisStorageWithConfig creates a new Redis storage instance with configuration.
 func NewRedisStorageWithConfig(config *RedisStorageConfig) MetricsStorage {
 	// Create Redis client
 	client := redis.NewClient(&redis.Options{
@@ -133,7 +134,7 @@ func NewRedisStorageWithConfig(config *RedisStorageConfig) MetricsStorage {
 // METRICS STORAGE INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Store stores a metric entry in Redis
+// Store stores a metric entry in Redis.
 func (rs *RedisStorage) Store(ctx context.Context, entry *MetricEntry) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -145,6 +146,7 @@ func (rs *RedisStorage) Store(ctx context.Context, entry *MetricEntry) error {
 	data, err := rs.serializeEntry(entry)
 	if err != nil {
 		rs.stats.FailedWrites++
+
 		return fmt.Errorf("failed to serialize entry: %w", err)
 	}
 
@@ -152,6 +154,7 @@ func (rs *RedisStorage) Store(ctx context.Context, entry *MetricEntry) error {
 	err = rs.client.Set(ctx, key, data, rs.retention).Err()
 	if err != nil {
 		rs.stats.FailedWrites++
+
 		return fmt.Errorf("failed to store entry in Redis: %w", err)
 	}
 
@@ -167,7 +170,7 @@ func (rs *RedisStorage) Store(ctx context.Context, entry *MetricEntry) error {
 	return nil
 }
 
-// Retrieve retrieves a metric entry from Redis
+// Retrieve retrieves a metric entry from Redis.
 func (rs *RedisStorage) Retrieve(ctx context.Context, name string, tags map[string]string) (*MetricEntry, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
@@ -176,11 +179,13 @@ func (rs *RedisStorage) Retrieve(ctx context.Context, name string, tags map[stri
 
 	// Get from Redis
 	data, err := rs.client.Get(ctx, key).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		rs.stats.misses++
+
 		return nil, fmt.Errorf("metric not found: %s", key)
 	} else if err != nil {
 		rs.stats.FailedReads++
+
 		return nil, fmt.Errorf("failed to retrieve from Redis: %w", err)
 	}
 
@@ -188,6 +193,7 @@ func (rs *RedisStorage) Retrieve(ctx context.Context, name string, tags map[stri
 	entry, err := rs.deserializeEntry([]byte(data))
 	if err != nil {
 		rs.stats.FailedReads++
+
 		return nil, fmt.Errorf("failed to deserialize entry: %w", err)
 	}
 
@@ -198,7 +204,7 @@ func (rs *RedisStorage) Retrieve(ctx context.Context, name string, tags map[stri
 	return entry, nil
 }
 
-// Delete deletes a metric entry from Redis
+// Delete deletes a metric entry from Redis.
 func (rs *RedisStorage) Delete(ctx context.Context, name string, tags map[string]string) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -209,6 +215,7 @@ func (rs *RedisStorage) Delete(ctx context.Context, name string, tags map[string
 	result := rs.client.Del(ctx, key)
 	if result.Err() != nil {
 		rs.stats.FailedDeletes++
+
 		return fmt.Errorf("failed to delete from Redis: %w", result.Err())
 	}
 
@@ -227,7 +234,7 @@ func (rs *RedisStorage) Delete(ctx context.Context, name string, tags map[string
 	return nil
 }
 
-// List lists all metric entries matching filters
+// List lists all metric entries matching filters.
 func (rs *RedisStorage) List(ctx context.Context, filters map[string]string) ([]*MetricEntry, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
@@ -237,12 +244,14 @@ func (rs *RedisStorage) List(ctx context.Context, filters map[string]string) ([]
 	// Use index if available, otherwise scan all keys
 	if rs.canUseIndex(filters) {
 		var err error
+
 		entries, err = rs.listFromIndex(ctx, filters)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list from index: %w", err)
 		}
 	} else {
 		var err error
+
 		entries, err = rs.listFromScan(ctx, filters)
 		if err != nil {
 			return nil, fmt.Errorf("failed to list from scan: %w", err)
@@ -250,16 +259,18 @@ func (rs *RedisStorage) List(ctx context.Context, filters map[string]string) ([]
 	}
 
 	rs.stats.TotalReads += int64(len(entries))
+
 	return entries, nil
 }
 
-// Count returns the number of stored entries
+// Count returns the number of stored entries.
 func (rs *RedisStorage) Count(ctx context.Context) (int64, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
 	// Use SCAN to count all keys with our prefix
 	pattern := rs.keyPrefix + "*"
+
 	var count int64
 
 	iter := rs.client.Scan(ctx, 0, pattern, 0).Iterator()
@@ -274,13 +285,14 @@ func (rs *RedisStorage) Count(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// Clear clears all stored entries
+// Clear clears all stored entries.
 func (rs *RedisStorage) Clear(ctx context.Context) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
 	// Use SCAN to delete all keys with our prefix
 	pattern := rs.keyPrefix + "*"
+
 	var keys []string
 
 	iter := rs.client.Scan(ctx, 0, pattern, 0).Iterator()
@@ -295,10 +307,7 @@ func (rs *RedisStorage) Clear(ctx context.Context) error {
 	// Delete in batches
 	batchSize := 100
 	for i := 0; i < len(keys); i += batchSize {
-		end := i + batchSize
-		if end > len(keys) {
-			end = len(keys)
-		}
+		end := min(i+batchSize, len(keys))
 
 		if err := rs.client.Del(ctx, keys[i:end]...).Err(); err != nil {
 			return fmt.Errorf("failed to delete keys: %w", err)
@@ -315,13 +324,13 @@ func (rs *RedisStorage) Clear(ctx context.Context) error {
 	return nil
 }
 
-// Start starts the Redis storage system
+// Start starts the Redis storage system.
 func (rs *RedisStorage) Start(ctx context.Context) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
 	if rs.started {
-		return fmt.Errorf("Redis storage already started")
+		return errors.New("Redis storage already started")
 	}
 
 	// Test connection
@@ -342,13 +351,13 @@ func (rs *RedisStorage) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the Redis storage system
+// Stop stops the Redis storage system.
 func (rs *RedisStorage) Stop(ctx context.Context) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
 	if !rs.started {
-		return fmt.Errorf("Redis storage not started")
+		return errors.New("Redis storage not started")
 	}
 
 	rs.started = false
@@ -363,27 +372,29 @@ func (rs *RedisStorage) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks the health of the Redis storage system
+// Health checks the health of the Redis storage system.
 func (rs *RedisStorage) Health(ctx context.Context) error {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
 	if !rs.started {
-		return fmt.Errorf("Redis storage not started")
+		return errors.New("Redis storage not started")
 	}
 
 	// Test Redis connection
 	if err := rs.client.Ping(ctx).Err(); err != nil {
 		rs.stats.Connected = false
+
 		return fmt.Errorf("Redis connection failed: %w", err)
 	}
 
 	rs.stats.Connected = true
+
 	return nil
 }
 
-// Stats returns storage statistics
-func (rs *RedisStorage) Stats(ctx context.Context) (interface{}, error) {
+// Stats returns storage statistics.
+func (rs *RedisStorage) Stats(ctx context.Context) (any, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
 
@@ -409,7 +420,7 @@ func (rs *RedisStorage) Stats(ctx context.Context) (interface{}, error) {
 // ADVANCED OPERATIONS
 // =============================================================================
 
-// Query performs a query on stored metrics
+// Query performs a query on stored metrics.
 func (rs *RedisStorage) Query(ctx context.Context, query MetricsQuery) (*QueryResult, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
@@ -422,6 +433,7 @@ func (rs *RedisStorage) Query(ctx context.Context, query MetricsQuery) (*QueryRe
 
 	// Apply time filters
 	var filteredEntries []*MetricEntry
+
 	for _, entry := range entries {
 		if rs.matchesTimeRange(entry, query.StartTime, query.EndTime) {
 			filteredEntries = append(filteredEntries, entry)
@@ -441,6 +453,7 @@ func (rs *RedisStorage) Query(ctx context.Context, query MetricsQuery) (*QueryRe
 		if end > len(filteredEntries) {
 			end = len(filteredEntries)
 		}
+
 		filteredEntries = filteredEntries[start:end]
 	}
 
@@ -454,7 +467,7 @@ func (rs *RedisStorage) Query(ctx context.Context, query MetricsQuery) (*QueryRe
 	return result, nil
 }
 
-// Aggregate performs aggregation on stored metrics
+// Aggregate performs aggregation on stored metrics.
 func (rs *RedisStorage) Aggregate(ctx context.Context, aggregation MetricsAggregation) (*AggregationResult, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
@@ -466,6 +479,7 @@ func (rs *RedisStorage) Aggregate(ctx context.Context, aggregation MetricsAggreg
 	}
 
 	var values []float64
+
 	for _, entry := range entries {
 		if val, ok := rs.extractNumericValue(entry.Value); ok {
 			values = append(values, val)
@@ -498,7 +512,7 @@ func (rs *RedisStorage) Aggregate(ctx context.Context, aggregation MetricsAggreg
 	return result, nil
 }
 
-// Backup creates a backup of all stored metrics
+// Backup creates a backup of all stored metrics.
 func (rs *RedisStorage) Backup(ctx context.Context) ([]byte, error) {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
@@ -518,7 +532,7 @@ func (rs *RedisStorage) Backup(ctx context.Context) ([]byte, error) {
 	return rs.serializeBackup(backup)
 }
 
-// Restore restores metrics from a backup
+// Restore restores metrics from a backup.
 func (rs *RedisStorage) Restore(ctx context.Context, data []byte) error {
 	backup, err := rs.deserializeBackup(data)
 	if err != nil {
@@ -549,16 +563,17 @@ func (rs *RedisStorage) Restore(ctx context.Context, data []byte) error {
 // PRIVATE METHODS
 // =============================================================================
 
-// generateKey generates a unique key for a metric entry
+// generateKey generates a unique key for a metric entry.
 func (rs *RedisStorage) generateKey(name string, tags map[string]string) string {
 	key := rs.keyPrefix + name
 	if len(tags) > 0 {
 		key += "{" + metrics.TagsToString(tags) + "}"
 	}
+
 	return key
 }
 
-// serializeEntry serializes a metric entry to JSON
+// serializeEntry serializes a metric entry to JSON.
 func (rs *RedisStorage) serializeEntry(entry *MetricEntry) ([]byte, error) {
 	// Update metadata
 	entry.LastUpdated = time.Now()
@@ -567,16 +582,17 @@ func (rs *RedisStorage) serializeEntry(entry *MetricEntry) ([]byte, error) {
 	return json.Marshal(entry)
 }
 
-// deserializeEntry deserializes a metric entry from JSON
+// deserializeEntry deserializes a metric entry from JSON.
 func (rs *RedisStorage) deserializeEntry(data []byte) (*MetricEntry, error) {
 	var entry MetricEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return nil, err
 	}
+
 	return &entry, nil
 }
 
-// updateIndex updates the index for a metric entry
+// updateIndex updates the index for a metric entry.
 func (rs *RedisStorage) updateIndex(ctx context.Context, entry *MetricEntry) error {
 	// Add to name index
 	nameKey := rs.keyPrefix + "index:name:" + entry.Name
@@ -601,7 +617,7 @@ func (rs *RedisStorage) updateIndex(ctx context.Context, entry *MetricEntry) err
 	return nil
 }
 
-// removeFromIndex removes a metric entry from indexes
+// removeFromIndex removes a metric entry from indexes.
 func (rs *RedisStorage) removeFromIndex(ctx context.Context, name string, tags map[string]string) error {
 	key := rs.generateKey(name, tags)
 
@@ -618,7 +634,7 @@ func (rs *RedisStorage) removeFromIndex(ctx context.Context, name string, tags m
 	return nil
 }
 
-// canUseIndex determines if we can use indexes for filtering
+// canUseIndex determines if we can use indexes for filtering.
 func (rs *RedisStorage) canUseIndex(filters map[string]string) bool {
 	// We can use index if we have name or tag filters
 	if filters == nil {
@@ -630,9 +646,11 @@ func (rs *RedisStorage) canUseIndex(filters map[string]string) bool {
 
 	// Check for tag filters
 	hasTagFilters := false
+
 	for key := range filters {
 		if key != "name" && key != "type" {
 			hasTagFilters = true
+
 			break
 		}
 	}
@@ -640,13 +658,14 @@ func (rs *RedisStorage) canUseIndex(filters map[string]string) bool {
 	return hasName || hasType || hasTagFilters
 }
 
-// listFromIndex lists entries using indexes
+// listFromIndex lists entries using indexes.
 func (rs *RedisStorage) listFromIndex(ctx context.Context, filters map[string]string) ([]*MetricEntry, error) {
 	var keys []string
 
 	// Get keys from indexes
 	for filterKey, filterValue := range filters {
 		var indexKey string
+
 		switch filterKey {
 		case "name":
 			indexKey = rs.keyPrefix + "index:name:" + filterValue
@@ -674,9 +693,10 @@ func (rs *RedisStorage) listFromIndex(ctx context.Context, filters map[string]st
 
 	// Retrieve entries
 	var entries []*MetricEntry
+
 	for _, key := range keys {
 		data, err := rs.client.Get(ctx, key).Result()
-		if err == redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			continue // Key might have expired
 		} else if err != nil {
 			return nil, err
@@ -693,9 +713,10 @@ func (rs *RedisStorage) listFromIndex(ctx context.Context, filters map[string]st
 	return entries, nil
 }
 
-// listFromScan lists entries using SCAN
+// listFromScan lists entries using SCAN.
 func (rs *RedisStorage) listFromScan(ctx context.Context, filters map[string]string) ([]*MetricEntry, error) {
 	pattern := rs.keyPrefix + "*"
+
 	var entries []*MetricEntry
 
 	iter := rs.client.Scan(ctx, 0, pattern, 0).Iterator()
@@ -703,7 +724,7 @@ func (rs *RedisStorage) listFromScan(ctx context.Context, filters map[string]str
 		key := iter.Val()
 
 		data, err := rs.client.Get(ctx, key).Result()
-		if err == redis.Nil {
+		if errors.Is(err, redis.Nil) {
 			continue // Key might have expired
 		} else if err != nil {
 			return nil, err
@@ -727,7 +748,7 @@ func (rs *RedisStorage) listFromScan(ctx context.Context, filters map[string]str
 	return entries, nil
 }
 
-// clearIndexes clears all indexes
+// clearIndexes clears all indexes.
 func (rs *RedisStorage) clearIndexes(ctx context.Context) error {
 	pattern := rs.keyPrefix + "index:*"
 
@@ -741,7 +762,7 @@ func (rs *RedisStorage) clearIndexes(ctx context.Context) error {
 	return iter.Err()
 }
 
-// intersectKeys returns the intersection of two key slices
+// intersectKeys returns the intersection of two key slices.
 func (rs *RedisStorage) intersectKeys(keys1, keys2 []string) []string {
 	keySet := make(map[string]bool)
 	for _, key := range keys1 {
@@ -749,6 +770,7 @@ func (rs *RedisStorage) intersectKeys(keys1, keys2 []string) []string {
 	}
 
 	var intersection []string
+
 	for _, key := range keys2 {
 		if keySet[key] {
 			intersection = append(intersection, key)
@@ -758,7 +780,7 @@ func (rs *RedisStorage) intersectKeys(keys1, keys2 []string) []string {
 	return intersection
 }
 
-// matchesFilters checks if an entry matches the given filters
+// matchesFilters checks if an entry matches the given filters.
 func (rs *RedisStorage) matchesFilters(entry *MetricEntry, filters map[string]string) bool {
 	if filters == nil {
 		return true
@@ -785,7 +807,7 @@ func (rs *RedisStorage) matchesFilters(entry *MetricEntry, filters map[string]st
 	return true
 }
 
-// matchesTimeRange checks if an entry matches the time range
+// matchesTimeRange checks if an entry matches the time range.
 func (rs *RedisStorage) matchesTimeRange(entry *MetricEntry, startTime, endTime time.Time) bool {
 	if !startTime.IsZero() && entry.Timestamp.Before(startTime) {
 		return false
@@ -798,7 +820,7 @@ func (rs *RedisStorage) matchesTimeRange(entry *MetricEntry, startTime, endTime 
 	return true
 }
 
-// updateStorageStats updates storage statistics
+// updateStorageStats updates storage statistics.
 func (rs *RedisStorage) updateStorageStats(ctx context.Context) {
 	// Get keyspace info
 	info, err := rs.client.Info(ctx, "keyspace").Result()
@@ -812,15 +834,15 @@ func (rs *RedisStorage) updateStorageStats(ctx context.Context) {
 	}
 }
 
-// parseKeyspaceInfo parses keyspace information from Redis INFO command
+// parseKeyspaceInfo parses keyspace information from Redis INFO command.
 func (rs *RedisStorage) parseKeyspaceInfo(info string) {
-	lines := strings.Split(info, "\r\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(info, "\r\n")
+	for line := range lines {
 		if strings.HasPrefix(line, "db"+strconv.Itoa(rs.client.Options().DB)+":") {
 			parts := strings.Split(line, ":")
 			if len(parts) > 1 {
-				keyValues := strings.Split(parts[1], ",")
-				for _, kv := range keyValues {
+				keyValues := strings.SplitSeq(parts[1], ",")
+				for kv := range keyValues {
 					kvParts := strings.Split(kv, "=")
 					if len(kvParts) == 2 && kvParts[0] == "keys" {
 						if keyspaceSize, err := strconv.ParseInt(kvParts[1], 10, 64); err == nil {
@@ -833,7 +855,7 @@ func (rs *RedisStorage) parseKeyspaceInfo(info string) {
 	}
 }
 
-// cleanupLoop runs periodic cleanup
+// cleanupLoop runs periodic cleanup.
 func (rs *RedisStorage) cleanupLoop() {
 	ticker := time.NewTicker(rs.cleanupInterval)
 	defer ticker.Stop()
@@ -844,6 +866,7 @@ func (rs *RedisStorage) cleanupLoop() {
 			if !rs.started {
 				return
 			}
+
 			rs.cleanup()
 		case <-rs.stopCh:
 			return
@@ -851,9 +874,10 @@ func (rs *RedisStorage) cleanupLoop() {
 	}
 }
 
-// cleanup performs Redis cleanup
+// cleanup performs Redis cleanup.
 func (rs *RedisStorage) cleanup() {
 	ctx := context.Background()
+
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
@@ -864,7 +888,7 @@ func (rs *RedisStorage) cleanup() {
 	rs.stats.LastCleanup = time.Now()
 }
 
-// cleanupIndexes removes stale index entries
+// cleanupIndexes removes stale index entries.
 func (rs *RedisStorage) cleanupIndexes(ctx context.Context) {
 	// Get all index keys
 	pattern := rs.keyPrefix + "index:*"
@@ -894,7 +918,7 @@ func (rs *RedisStorage) cleanupIndexes(ctx context.Context) {
 	}
 }
 
-// statsLoop runs periodic stats collection
+// statsLoop runs periodic stats collection.
 func (rs *RedisStorage) statsLoop() {
 	ticker := time.NewTicker(time.Second * 30)
 	defer ticker.Stop()
@@ -905,6 +929,7 @@ func (rs *RedisStorage) statsLoop() {
 			if !rs.started {
 				return
 			}
+
 			rs.updateStorageStats(context.Background())
 		case <-rs.stopCh:
 			return
@@ -912,12 +937,12 @@ func (rs *RedisStorage) statsLoop() {
 	}
 }
 
-// Utility functions (same as memory storage)
+// Utility functions (same as memory storage).
 func (rs *RedisStorage) sortEntries(entries []*MetricEntry, sortBy, sortOrder string) {
 	// Implementation same as memory storage
 }
 
-func (rs *RedisStorage) extractNumericValue(value interface{}) (float64, bool) {
+func (rs *RedisStorage) extractNumericValue(value any) (float64, bool) {
 	// Implementation same as memory storage
 	switch v := value.(type) {
 	case int:
@@ -941,12 +966,13 @@ func (rs *RedisStorage) extractNumericValue(value interface{}) (float64, bool) {
 	}
 }
 
-// Aggregation functions (same as memory storage)
+// Aggregation functions (same as memory storage).
 func (rs *RedisStorage) sum(values []float64) float64 {
 	var sum float64
 	for _, v := range values {
 		sum += v
 	}
+
 	return sum
 }
 
@@ -954,6 +980,7 @@ func (rs *RedisStorage) avg(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	return rs.sum(values) / float64(len(values))
 }
 
@@ -961,12 +988,14 @@ func (rs *RedisStorage) min(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	min := values[0]
 	for _, v := range values[1:] {
 		if v < min {
 			min = v
 		}
 	}
+
 	return min
 }
 
@@ -974,26 +1003,29 @@ func (rs *RedisStorage) max(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	max := values[0]
 	for _, v := range values[1:] {
 		if v > max {
 			max = v
 		}
 	}
+
 	return max
 }
 
-// serializeBackup serializes a backup to JSON
+// serializeBackup serializes a backup to JSON.
 func (rs *RedisStorage) serializeBackup(backup *RedisStorageBackup) ([]byte, error) {
 	return json.Marshal(backup)
 }
 
-// deserializeBackup deserializes a backup from JSON
+// deserializeBackup deserializes a backup from JSON.
 func (rs *RedisStorage) deserializeBackup(data []byte) (*RedisStorageBackup, error) {
 	var backup RedisStorageBackup
 	if err := json.Unmarshal(data, &backup); err != nil {
 		return nil, err
 	}
+
 	return &backup, nil
 }
 
@@ -1001,14 +1033,14 @@ func (rs *RedisStorage) deserializeBackup(data []byte) (*RedisStorageBackup, err
 // SUPPORTING TYPES
 // =============================================================================
 
-// RedisStorageBackup represents a backup of Redis storage
+// RedisStorageBackup represents a backup of Redis storage.
 type RedisStorageBackup struct {
 	Timestamp time.Time         `json:"timestamp"`
 	Entries   []*MetricEntry    `json:"entries"`
 	Stats     RedisStorageStats `json:"stats"`
 }
 
-// SetLogger sets the logger for the Redis storage
+// SetLogger sets the logger for the Redis storage.
 func (rs *RedisStorage) SetLogger(logger logger.Logger) {
 	rs.logger = logger
 }

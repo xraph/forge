@@ -6,32 +6,33 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// ScikitAdapter implements ModelAdapter for Scikit-learn models
+// ScikitAdapter implements ModelAdapter for Scikit-learn models.
 type ScikitAdapter struct {
 	logger logger.Logger
 }
 
-// NewScikitAdapter creates a new Scikit-learn adapter
+// NewScikitAdapter creates a new Scikit-learn adapter.
 func NewScikitAdapter(logger logger.Logger) ModelAdapter {
 	return &ScikitAdapter{
 		logger: logger,
 	}
 }
 
-// Name returns the adapter name
+// Name returns the adapter name.
 func (a *ScikitAdapter) Name() string {
 	return "scikit"
 }
 
-// Framework returns the ML framework
+// Framework returns the ML framework.
 func (a *ScikitAdapter) Framework() MLFramework {
 	return MLFrameworkSciKit
 }
 
-// SupportsModel checks if this adapter supports the given model configuration
+// SupportsModel checks if this adapter supports the given model configuration.
 func (a *ScikitAdapter) SupportsModel(config ModelConfig) bool {
 	if config.Framework != MLFrameworkSciKit {
 		return false
@@ -53,7 +54,7 @@ func (a *ScikitAdapter) SupportsModel(config ModelConfig) bool {
 	return false
 }
 
-// CreateModel creates a new Scikit-learn model
+// CreateModel creates a new Scikit-learn model.
 func (a *ScikitAdapter) CreateModel(config ModelConfig) (Model, error) {
 	if err := a.ValidateConfig(config); err != nil {
 		return nil, err
@@ -82,22 +83,24 @@ func (a *ScikitAdapter) CreateModel(config ModelConfig) (Model, error) {
 	return model, nil
 }
 
-// ValidateConfig validates the model configuration
+// ValidateConfig validates the model configuration.
 func (a *ScikitAdapter) ValidateConfig(config ModelConfig) error {
 	if config.Framework != MLFrameworkSciKit {
 		return fmt.Errorf("invalid framework: expected %s, got %s", MLFrameworkSciKit, config.Framework)
 	}
 
 	if config.ModelPath == "" {
-		return fmt.Errorf("model path is required")
+		return errors.New("model path is required")
 	}
 
 	// Check for valid extensions
 	validExtensions := []string{".pkl", ".pickle", ".joblib"}
 	hasValidExtension := false
+
 	for _, ext := range validExtensions {
 		if strings.HasSuffix(config.ModelPath, ext) {
 			hasValidExtension = true
+
 			break
 		}
 	}
@@ -107,11 +110,11 @@ func (a *ScikitAdapter) ValidateConfig(config ModelConfig) error {
 	}
 
 	if config.ID == "" {
-		return fmt.Errorf("model ID is required")
+		return errors.New("model ID is required")
 	}
 
 	if config.Name == "" {
-		return fmt.Errorf("model name is required")
+		return errors.New("model name is required")
 	}
 
 	// Validate model type for Scikit-learn
@@ -123,9 +126,11 @@ func (a *ScikitAdapter) ValidateConfig(config ModelConfig) error {
 	}
 
 	isValidType := false
+
 	for _, validType := range validTypes {
 		if config.Type == validType {
 			isValidType = true
+
 			break
 		}
 	}
@@ -137,17 +142,18 @@ func (a *ScikitAdapter) ValidateConfig(config ModelConfig) error {
 	return nil
 }
 
-// detectModelFormat detects the Scikit-learn model format
+// detectModelFormat detects the Scikit-learn model format.
 func (a *ScikitAdapter) detectModelFormat(modelPath string) string {
 	if strings.HasSuffix(modelPath, ".joblib") {
 		return "joblib"
 	} else if strings.HasSuffix(modelPath, ".pkl") || strings.HasSuffix(modelPath, ".pickle") {
 		return "pickle"
 	}
+
 	return "unknown"
 }
 
-// getDefaultInputSchema returns default input schema for Scikit-learn models
+// getDefaultInputSchema returns default input schema for Scikit-learn models.
 func (a *ScikitAdapter) getDefaultInputSchema(config ModelConfig) InputSchema {
 	return InputSchema{
 		Type: "object",
@@ -179,7 +185,7 @@ func (a *ScikitAdapter) getDefaultInputSchema(config ModelConfig) InputSchema {
 	}
 }
 
-// getDefaultOutputSchema returns default output schema for Scikit-learn models
+// getDefaultOutputSchema returns default output schema for Scikit-learn models.
 func (a *ScikitAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema {
 	schema := OutputSchema{
 		Type: "object",
@@ -238,9 +244,10 @@ func (a *ScikitAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema 
 	return schema
 }
 
-// ScikitModel represents a Scikit-learn model
+// ScikitModel represents a Scikit-learn model.
 type ScikitModel struct {
 	*BaseModel
+
 	adapter *ScikitAdapter
 	model   interface{} // Scikit-learn model object
 
@@ -255,7 +262,7 @@ type ScikitModel struct {
 	parameters map[string]interface{}
 }
 
-// Load loads the Scikit-learn model
+// Load loads the Scikit-learn model.
 func (m *ScikitModel) Load(ctx context.Context) error {
 	// Call base load first
 	if err := m.BaseModel.Load(ctx); err != nil {
@@ -317,7 +324,7 @@ func (m *ScikitModel) Load(ctx context.Context) error {
 	return nil
 }
 
-// Unload unloads the Scikit-learn model
+// Unload unloads the Scikit-learn model.
 func (m *ScikitModel) Unload(ctx context.Context) error {
 	// Clean up model resources
 	if m.model != nil {
@@ -334,7 +341,7 @@ func (m *ScikitModel) Unload(ctx context.Context) error {
 	return m.BaseModel.Unload(ctx)
 }
 
-// Predict performs prediction using the Scikit-learn model
+// Predict performs prediction using the Scikit-learn model.
 func (m *ScikitModel) Predict(ctx context.Context, input ModelInput) (ModelOutput, error) {
 	startTime := time.Now()
 
@@ -346,6 +353,7 @@ func (m *ScikitModel) Predict(ctx context.Context, input ModelInput) (ModelOutpu
 	// Validate input
 	if err := m.ValidateInput(input); err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("invalid input: %w", err)
 	}
 
@@ -353,11 +361,13 @@ func (m *ScikitModel) Predict(ctx context.Context, input ModelInput) (ModelOutpu
 	features, err := m.prepareFeatures(input)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("failed to prepare features: %w", err)
 	}
 
 	// Run prediction based on model type
 	var output ModelOutput
+
 	switch m.modelType {
 	case ModelTypeClassification:
 		output, err = m.predictClassification(features, input.RequestID)
@@ -373,6 +383,7 @@ func (m *ScikitModel) Predict(ctx context.Context, input ModelInput) (ModelOutpu
 
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("prediction failed: %w", err)
 	}
 
@@ -395,7 +406,7 @@ func (m *ScikitModel) Predict(ctx context.Context, input ModelInput) (ModelOutpu
 	return output, nil
 }
 
-// BatchPredict performs batch prediction using the Scikit-learn model
+// BatchPredict performs batch prediction using the Scikit-learn model.
 func (m *ScikitModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]ModelOutput, error) {
 	if len(inputs) == 0 {
 		return []ModelOutput{}, nil
@@ -412,6 +423,7 @@ func (m *ScikitModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]
 	batchFeatures, err := m.prepareBatchFeatures(inputs)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("failed to prepare batch features: %w", err)
 	}
 
@@ -419,6 +431,7 @@ func (m *ScikitModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]
 	outputs, err := m.predictBatch(batchFeatures, inputs)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("batch prediction failed: %w", err)
 	}
 
@@ -444,7 +457,7 @@ func (m *ScikitModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]
 	return outputs, nil
 }
 
-// ValidateInput validates Scikit-learn-specific input
+// ValidateInput validates Scikit-learn-specific input.
 func (m *ScikitModel) ValidateInput(input ModelInput) error {
 	// Call base validation
 	if err := m.BaseModel.ValidateInput(input); err != nil {
@@ -453,15 +466,16 @@ func (m *ScikitModel) ValidateInput(input ModelInput) error {
 
 	// Scikit-learn-specific validation
 	if input.Data == nil {
-		return fmt.Errorf("input data is required")
+		return errors.New("input data is required")
 	}
 
 	// Validate input format
 	switch data := input.Data.(type) {
 	case []float64:
 		if len(data) == 0 {
-			return fmt.Errorf("feature array cannot be empty")
+			return errors.New("feature array cannot be empty")
 		}
+
 		if m.numFeatures > 0 && len(data) != m.numFeatures {
 			return fmt.Errorf("expected %d features, got %d", m.numFeatures, len(data))
 		}
@@ -469,16 +483,17 @@ func (m *ScikitModel) ValidateInput(input ModelInput) error {
 		if features, ok := data["features"]; ok {
 			if featureSlice, ok := features.([]interface{}); ok {
 				if len(featureSlice) == 0 {
-					return fmt.Errorf("feature array cannot be empty")
+					return errors.New("feature array cannot be empty")
 				}
+
 				if m.numFeatures > 0 && len(featureSlice) != m.numFeatures {
 					return fmt.Errorf("expected %d features, got %d", m.numFeatures, len(featureSlice))
 				}
 			} else {
-				return fmt.Errorf("features must be an array")
+				return errors.New("features must be an array")
 			}
 		} else {
-			return fmt.Errorf("input object must contain 'features' field")
+			return errors.New("input object must contain 'features' field")
 		}
 	default:
 		return fmt.Errorf("unsupported input type: %T", data)
@@ -487,7 +502,7 @@ func (m *ScikitModel) ValidateInput(input ModelInput) error {
 	return nil
 }
 
-// prepareFeatures prepares feature data for Scikit-learn
+// prepareFeatures prepares feature data for Scikit-learn.
 func (m *ScikitModel) prepareFeatures(input ModelInput) ([]float64, error) {
 	switch data := input.Data.(type) {
 	case []float64:
@@ -503,6 +518,7 @@ func (m *ScikitModel) prepareFeatures(input ModelInput) ([]float64, error) {
 				return nil, fmt.Errorf("feature at index %d is not a number", i)
 			}
 		}
+
 		return features, nil
 	case map[string]interface{}:
 		if featureData, ok := data["features"]; ok {
@@ -517,16 +533,18 @@ func (m *ScikitModel) prepareFeatures(input ModelInput) ([]float64, error) {
 						return nil, fmt.Errorf("feature at index %d is not a number", i)
 					}
 				}
+
 				return features, nil
 			}
 		}
-		return nil, fmt.Errorf("invalid feature format in input object")
+
+		return nil, errors.New("invalid feature format in input object")
 	default:
 		return nil, fmt.Errorf("unsupported input type: %T", data)
 	}
 }
 
-// prepareBatchFeatures prepares batch feature data
+// prepareBatchFeatures prepares batch feature data.
 func (m *ScikitModel) prepareBatchFeatures(inputs []ModelInput) ([][]float64, error) {
 	batchFeatures := make([][]float64, len(inputs))
 	for i, input := range inputs {
@@ -534,12 +552,14 @@ func (m *ScikitModel) prepareBatchFeatures(inputs []ModelInput) ([][]float64, er
 		if err != nil {
 			return nil, fmt.Errorf("failed to prepare features for input %d: %w", i, err)
 		}
+
 		batchFeatures[i] = features
 	}
+
 	return batchFeatures, nil
 }
 
-// predictClassification performs classification prediction
+// predictClassification performs classification prediction.
 func (m *ScikitModel) predictClassification(features []float64, requestID string) (ModelOutput, error) {
 	// Mock classification prediction
 	probabilities := []float64{0.8, 0.2} // Mock probabilities
@@ -570,7 +590,7 @@ func (m *ScikitModel) predictClassification(features []float64, requestID string
 	}, nil
 }
 
-// predictRegression performs regression prediction
+// predictRegression performs regression prediction.
 func (m *ScikitModel) predictRegression(features []float64, requestID string) (ModelOutput, error) {
 	// Mock regression prediction
 	prediction := 42.5 // Mock prediction value
@@ -596,7 +616,7 @@ func (m *ScikitModel) predictRegression(features []float64, requestID string) (M
 	}, nil
 }
 
-// predictClustering performs clustering prediction
+// predictClustering performs clustering prediction.
 func (m *ScikitModel) predictClustering(features []float64, requestID string) (ModelOutput, error) {
 	// Mock clustering prediction
 	cluster := 1     // Mock cluster assignment
@@ -624,7 +644,7 @@ func (m *ScikitModel) predictClustering(features []float64, requestID string) (M
 	}, nil
 }
 
-// predictAnomaly performs anomaly detection prediction
+// predictAnomaly performs anomaly detection prediction.
 func (m *ScikitModel) predictAnomaly(features []float64, requestID string) (ModelOutput, error) {
 	// Mock anomaly detection prediction
 	isAnomaly := false  // Mock anomaly detection
@@ -653,13 +673,15 @@ func (m *ScikitModel) predictAnomaly(features []float64, requestID string) (Mode
 	}, nil
 }
 
-// predictBatch performs batch prediction
+// predictBatch performs batch prediction.
 func (m *ScikitModel) predictBatch(batchFeatures [][]float64, inputs []ModelInput) ([]ModelOutput, error) {
 	outputs := make([]ModelOutput, len(inputs))
 
 	for i, features := range batchFeatures {
-		var output ModelOutput
-		var err error
+		var (
+			output ModelOutput
+			err    error
+		)
 
 		switch m.modelType {
 		case ModelTypeClassification:
@@ -684,7 +706,7 @@ func (m *ScikitModel) predictBatch(batchFeatures [][]float64, inputs []ModelInpu
 	return outputs, nil
 }
 
-// inferAlgorithm infers the algorithm from model name
+// inferAlgorithm infers the algorithm from model name.
 func (m *ScikitModel) inferAlgorithm(modelName string) string {
 	name := strings.ToLower(modelName)
 
@@ -709,7 +731,7 @@ func (m *ScikitModel) inferAlgorithm(modelName string) string {
 	return "unknown"
 }
 
-// getDefaultParameters returns default parameters for the model
+// getDefaultParameters returns default parameters for the model.
 func (m *ScikitModel) getDefaultParameters() map[string]interface{} {
 	return map[string]interface{}{
 		"n_estimators": 100,
@@ -718,27 +740,27 @@ func (m *ScikitModel) getDefaultParameters() map[string]interface{} {
 	}
 }
 
-// GetFeatureNames returns the feature names
+// GetFeatureNames returns the feature names.
 func (m *ScikitModel) GetFeatureNames() []string {
 	return m.featureNames
 }
 
-// GetClasses returns the class names for classification models
+// GetClasses returns the class names for classification models.
 func (m *ScikitModel) GetClasses() []string {
 	return m.classes
 }
 
-// GetAlgorithm returns the algorithm name
+// GetAlgorithm returns the algorithm name.
 func (m *ScikitModel) GetAlgorithm() string {
 	return m.algorithm
 }
 
-// GetParameters returns the model parameters
+// GetParameters returns the model parameters.
 func (m *ScikitModel) GetParameters() map[string]interface{} {
 	return m.parameters
 }
 
-// Mock Scikit-learn types for demonstration
+// Mock Scikit-learn types for demonstration.
 type scikitModel struct {
 	modelPath  string
 	modelType  ModelType

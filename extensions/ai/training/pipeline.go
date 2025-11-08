@@ -3,6 +3,7 @@ package training
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// TrainingPipeline defines the interface for training pipelines
+// TrainingPipeline defines the interface for training pipelines.
 type TrainingPipeline interface {
 	// Start begins the training pipeline execution using the provided context. Returns an error if the start operation fails.
 	Start(ctx context.Context) error
@@ -70,7 +71,7 @@ type TrainingPipeline interface {
 	GetHealth() PipelineHealth
 }
 
-// PipelineManager manages training pipelines
+// PipelineManager manages training pipelines.
 type PipelineManager interface {
 	// CreatePipeline initializes a new training pipeline based on the provided configuration and returns it or an error.
 	CreatePipeline(config PipelineConfig) (TrainingPipeline, error)
@@ -103,27 +104,27 @@ type PipelineManager interface {
 	ListTemplates() []PipelineTemplate
 
 	// CreateFromTemplate creates a new TrainingPipeline based on the specified templateID and configuration parameters.
-	CreateFromTemplate(templateID string, config map[string]interface{}) (TrainingPipeline, error)
+	CreateFromTemplate(templateID string, config map[string]any) (TrainingPipeline, error)
 }
 
-// PipelineConfig contains pipeline configuration
+// PipelineConfig contains pipeline configuration.
 type PipelineConfig struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Version     string                 `json:"version"`
-	Tags        map[string]string      `json:"tags"`
-	Schedule    ScheduleConfig         `json:"schedule"`
-	Stages      []StageConfig          `json:"stages"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Resources   ResourceConfig         `json:"resources"`
-	Timeouts    TimeoutConfig          `json:"timeouts"`
-	Retry       RetryConfig            `json:"retry"`
-	Triggers    []TriggerConfig        `json:"triggers"`
-	Outputs     []OutputConfig         `json:"outputs"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Version     string            `json:"version"`
+	Tags        map[string]string `json:"tags"`
+	Schedule    ScheduleConfig    `json:"schedule"`
+	Stages      []StageConfig     `json:"stages"`
+	Parameters  map[string]any    `json:"parameters"`
+	Resources   ResourceConfig    `json:"resources"`
+	Timeouts    TimeoutConfig     `json:"timeouts"`
+	Retry       RetryConfig       `json:"retry"`
+	Triggers    []TriggerConfig   `json:"triggers"`
+	Outputs     []OutputConfig    `json:"outputs"`
 }
 
-// PipelineStatus represents pipeline status
+// PipelineStatus represents pipeline status.
 type PipelineStatus string
 
 const (
@@ -135,7 +136,7 @@ const (
 	PipelineStatusCancelled PipelineStatus = "cancelled"
 )
 
-// PipelineStage represents a stage in the pipeline
+// PipelineStage represents a stage in the pipeline.
 type PipelineStage interface {
 	ID() string
 	Name() string
@@ -147,7 +148,7 @@ type PipelineStage interface {
 	GetMetrics() StageMetrics
 }
 
-// StageType defines the type of pipeline stage
+// StageType defines the type of pipeline stage.
 type StageType string
 
 const (
@@ -161,39 +162,39 @@ const (
 	StageTypeCustom            StageType = "custom"
 )
 
-// StageConfig contains stage configuration
+// StageConfig contains stage configuration.
 type StageConfig struct {
-	ID           string                 `json:"id"`
-	Name         string                 `json:"name"`
-	Type         StageType              `json:"type"`
-	Dependencies []string               `json:"dependencies"`
-	Parameters   map[string]interface{} `json:"parameters"`
-	Resources    ResourceConfig         `json:"resources"`
-	Timeout      time.Duration          `json:"timeout"`
-	Retry        RetryConfig            `json:"retry"`
-	Conditional  ConditionalConfig      `json:"conditional"`
-	Outputs      []string               `json:"outputs"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Type         StageType         `json:"type"`
+	Dependencies []string          `json:"dependencies"`
+	Parameters   map[string]any    `json:"parameters"`
+	Resources    ResourceConfig    `json:"resources"`
+	Timeout      time.Duration     `json:"timeout"`
+	Retry        RetryConfig       `json:"retry"`
+	Conditional  ConditionalConfig `json:"conditional"`
+	Outputs      []string          `json:"outputs"`
 }
 
-// PipelineInput represents input to a pipeline
+// PipelineInput represents input to a pipeline.
 type PipelineInput struct {
-	Data       interface{}            `json:"data"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Context    map[string]interface{} `json:"context"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Data       any            `json:"data"`
+	Parameters map[string]any `json:"parameters"`
+	Context    map[string]any `json:"context"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// PipelineOutput represents output from a pipeline
+// PipelineOutput represents output from a pipeline.
 type PipelineOutput struct {
-	Data      interface{}            `json:"data"`
-	Artifacts map[string]interface{} `json:"artifacts"`
-	Metrics   map[string]float64     `json:"metrics"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	Status    PipelineStatus         `json:"status"`
-	Error     error                  `json:"error,omitempty"`
+	Data      any                `json:"data"`
+	Artifacts map[string]any     `json:"artifacts"`
+	Metrics   map[string]float64 `json:"metrics"`
+	Metadata  map[string]any     `json:"metadata"`
+	Status    PipelineStatus     `json:"status"`
+	Error     error              `json:"error,omitempty"`
 }
 
-// PipelineExecution represents a pipeline execution
+// PipelineExecution represents a pipeline execution.
 type PipelineExecution interface {
 	ID() string
 	PipelineID() string
@@ -209,7 +210,7 @@ type PipelineExecution interface {
 	Cancel() error
 }
 
-// ExecutionProgress represents execution progress
+// ExecutionProgress represents execution progress.
 type ExecutionProgress struct {
 	Stage         string        `json:"stage"`
 	StageIndex    int           `json:"stage_index"`
@@ -219,24 +220,24 @@ type ExecutionProgress struct {
 	ElapsedTime   time.Duration `json:"elapsed_time"`
 }
 
-// StageInput represents input to a stage
+// StageInput represents input to a stage.
 type StageInput struct {
-	Data       interface{}            `json:"data"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Artifacts  map[string]interface{} `json:"artifacts"`
-	Context    map[string]interface{} `json:"context"`
+	Data       any            `json:"data"`
+	Parameters map[string]any `json:"parameters"`
+	Artifacts  map[string]any `json:"artifacts"`
+	Context    map[string]any `json:"context"`
 }
 
-// StageOutput represents output from a stage
+// StageOutput represents output from a stage.
 type StageOutput struct {
-	Data      interface{}            `json:"data"`
-	Artifacts map[string]interface{} `json:"artifacts"`
-	Metrics   map[string]float64     `json:"metrics"`
-	Status    StageStatus            `json:"status"`
-	Error     error                  `json:"error,omitempty"`
+	Data      any                `json:"data"`
+	Artifacts map[string]any     `json:"artifacts"`
+	Metrics   map[string]float64 `json:"metrics"`
+	Status    StageStatus        `json:"status"`
+	Error     error              `json:"error,omitempty"`
 }
 
-// StageStatus represents stage execution status
+// StageStatus represents stage execution status.
 type StageStatus string
 
 const (
@@ -247,7 +248,7 @@ const (
 	StageStatusSkipped   StageStatus = "skipped"
 )
 
-// StageExecution represents a stage execution
+// StageExecution represents a stage execution.
 type StageExecution interface {
 	ID() string
 	StageID() string
@@ -261,7 +262,7 @@ type StageExecution interface {
 	GetMetrics() StageMetrics
 }
 
-// ScheduleConfig contains pipeline scheduling configuration
+// ScheduleConfig contains pipeline scheduling configuration.
 type ScheduleConfig struct {
 	Enabled   bool            `json:"enabled"`
 	Cron      string          `json:"cron,omitempty"`
@@ -272,28 +273,28 @@ type ScheduleConfig struct {
 	Triggers  []TriggerConfig `json:"triggers"`
 }
 
-// TriggerConfig contains trigger configuration
+// TriggerConfig contains trigger configuration.
 type TriggerConfig struct {
-	Type       string                 `json:"type"` // cron, event, webhook, manual
-	Parameters map[string]interface{} `json:"parameters"`
-	Condition  string                 `json:"condition,omitempty"`
+	Type       string         `json:"type"` // cron, event, webhook, manual
+	Parameters map[string]any `json:"parameters"`
+	Condition  string         `json:"condition,omitempty"`
 }
 
-// OutputConfig contains output configuration
+// OutputConfig contains output configuration.
 type OutputConfig struct {
-	Type        string                 `json:"type"` // file, database, api, notification
-	Destination string                 `json:"destination"`
-	Format      string                 `json:"format"`
-	Parameters  map[string]interface{} `json:"parameters"`
+	Type        string         `json:"type"` // file, database, api, notification
+	Destination string         `json:"destination"`
+	Format      string         `json:"format"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
-// TimeoutConfig contains timeout configuration
+// TimeoutConfig contains timeout configuration.
 type TimeoutConfig struct {
 	Pipeline time.Duration            `json:"pipeline"`
 	Stages   map[string]time.Duration `json:"stages"`
 }
 
-// RetryConfig contains retry configuration
+// RetryConfig contains retry configuration.
 type RetryConfig struct {
 	Enabled     bool          `json:"enabled"`
 	MaxAttempts int           `json:"max_attempts"`
@@ -302,14 +303,14 @@ type RetryConfig struct {
 	MaxDelay    time.Duration `json:"max_delay"`
 }
 
-// ConditionalConfig contains conditional execution configuration
+// ConditionalConfig contains conditional execution configuration.
 type ConditionalConfig struct {
-	Condition string                 `json:"condition"`
-	OnTrue    map[string]interface{} `json:"on_true,omitempty"`
-	OnFalse   map[string]interface{} `json:"on_false,omitempty"`
+	Condition string         `json:"condition"`
+	OnTrue    map[string]any `json:"on_true,omitempty"`
+	OnFalse   map[string]any `json:"on_false,omitempty"`
 }
 
-// PipelineTemplate represents a pipeline template
+// PipelineTemplate represents a pipeline template.
 type PipelineTemplate struct {
 	ID          string               `json:"id"`
 	Name        string               `json:"name"`
@@ -323,17 +324,17 @@ type PipelineTemplate struct {
 	UpdatedAt   time.Time            `json:"updated_at"`
 }
 
-// Parameter represents a template parameter
+// Parameter represents a template parameter.
 type Parameter struct {
-	Name        string      `json:"name"`
-	Type        string      `json:"type"`
-	Description string      `json:"description"`
-	Default     interface{} `json:"default"`
-	Required    bool        `json:"required"`
-	Validation  string      `json:"validation,omitempty"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Default     any    `json:"default"`
+	Required    bool   `json:"required"`
+	Validation  string `json:"validation,omitempty"`
 }
 
-// PipelineMetrics contains pipeline metrics
+// PipelineMetrics contains pipeline metrics.
 type PipelineMetrics struct {
 	TotalExecutions int64                   `json:"total_executions"`
 	SuccessfulRuns  int64                   `json:"successful_runs"`
@@ -345,7 +346,7 @@ type PipelineMetrics struct {
 	StageMetrics    map[string]StageMetrics `json:"stage_metrics"`
 }
 
-// StageMetrics contains stage-specific metrics
+// StageMetrics contains stage-specific metrics.
 type StageMetrics struct {
 	ExecutionCount  int64         `json:"execution_count"`
 	SuccessCount    int64         `json:"success_count"`
@@ -356,16 +357,16 @@ type StageMetrics struct {
 	SuccessRate     float64       `json:"success_rate"`
 }
 
-// PipelineHealth represents pipeline health status
+// PipelineHealth represents pipeline health status.
 type PipelineHealth struct {
-	Status      HealthStatus           `json:"status"`
-	Message     string                 `json:"message"`
-	Details     map[string]interface{} `json:"details"`
-	CheckedAt   time.Time              `json:"checked_at"`
-	LastHealthy time.Time              `json:"last_healthy"`
+	Status      HealthStatus   `json:"status"`
+	Message     string         `json:"message"`
+	Details     map[string]any `json:"details"`
+	CheckedAt   time.Time      `json:"checked_at"`
+	LastHealthy time.Time      `json:"last_healthy"`
 }
 
-// HealthStatus represents health status
+// HealthStatus represents health status.
 type HealthStatus string
 
 const (
@@ -375,26 +376,26 @@ const (
 	HealthStatusUnknown   HealthStatus = "unknown"
 )
 
-// PipelineLogEntry represents a pipeline log entry
+// PipelineLogEntry represents a pipeline log entry.
 type PipelineLogEntry struct {
-	Timestamp   time.Time              `json:"timestamp"`
-	Level       string                 `json:"level"`
-	Stage       string                 `json:"stage,omitempty"`
-	Message     string                 `json:"message"`
-	ExecutionID string                 `json:"execution_id"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Level       string         `json:"level"`
+	Stage       string         `json:"stage,omitempty"`
+	Message     string         `json:"message"`
+	ExecutionID string         `json:"execution_id"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// StageLogEntry represents a stage log entry
+// StageLogEntry represents a stage log entry.
 type StageLogEntry struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Level     string                 `json:"level"`
-	Message   string                 `json:"message"`
-	StageID   string                 `json:"stage_id"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Timestamp time.Time      `json:"timestamp"`
+	Level     string         `json:"level"`
+	Message   string         `json:"message"`
+	StageID   string         `json:"stage_id"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
-// TrainingPipelineImpl implements the TrainingPipeline interface
+// TrainingPipelineImpl implements the TrainingPipeline interface.
 type TrainingPipelineImpl struct {
 	config     PipelineConfig
 	stages     map[string]PipelineStage
@@ -407,7 +408,7 @@ type TrainingPipelineImpl struct {
 	createdAt  time.Time
 }
 
-// NewTrainingPipeline creates a new training pipeline
+// NewTrainingPipeline creates a new training pipeline.
 func NewTrainingPipeline(config PipelineConfig, logger logger.Logger) TrainingPipeline {
 	return &TrainingPipelineImpl{
 		config:     config,
@@ -423,50 +424,53 @@ func NewTrainingPipeline(config PipelineConfig, logger logger.Logger) TrainingPi
 	}
 }
 
-// ID returns the pipeline ID
+// ID returns the pipeline ID.
 func (p *TrainingPipelineImpl) ID() string {
 	return p.config.ID
 }
 
-// Name returns the pipeline name
+// Name returns the pipeline name.
 func (p *TrainingPipelineImpl) Name() string {
 	return p.config.Name
 }
 
-// Status returns the pipeline status
+// Status returns the pipeline status.
 func (p *TrainingPipelineImpl) Status() PipelineStatus {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+
 	return p.status
 }
 
-// GetConfig returns the pipeline configuration
+// GetConfig returns the pipeline configuration.
 func (p *TrainingPipelineImpl) GetConfig() PipelineConfig {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+
 	return p.config
 }
 
-// UpdateConfig updates the pipeline configuration
+// UpdateConfig updates the pipeline configuration.
 func (p *TrainingPipelineImpl) UpdateConfig(config PipelineConfig) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.status == PipelineStatusRunning {
-		return fmt.Errorf("cannot update configuration while pipeline is running")
+		return errors.New("cannot update configuration while pipeline is running")
 	}
 
 	p.config = config
+
 	return nil
 }
 
-// Start starts the pipeline
+// Start starts the pipeline.
 func (p *TrainingPipelineImpl) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.status == PipelineStatusRunning {
-		return fmt.Errorf("pipeline is already running")
+		return errors.New("pipeline is already running")
 	}
 
 	p.status = PipelineStatusRunning
@@ -479,13 +483,13 @@ func (p *TrainingPipelineImpl) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the pipeline
+// Stop stops the pipeline.
 func (p *TrainingPipelineImpl) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.status != PipelineStatusRunning {
-		return fmt.Errorf("pipeline is not running")
+		return errors.New("pipeline is not running")
 	}
 
 	p.status = PipelineStatusCompleted
@@ -497,13 +501,13 @@ func (p *TrainingPipelineImpl) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Pause pauses the pipeline
+// Pause pauses the pipeline.
 func (p *TrainingPipelineImpl) Pause(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.status != PipelineStatusRunning {
-		return fmt.Errorf("pipeline is not running")
+		return errors.New("pipeline is not running")
 	}
 
 	p.status = PipelineStatusPaused
@@ -515,13 +519,13 @@ func (p *TrainingPipelineImpl) Pause(ctx context.Context) error {
 	return nil
 }
 
-// Resume resumes the pipeline
+// Resume resumes the pipeline.
 func (p *TrainingPipelineImpl) Resume(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.status != PipelineStatusPaused {
-		return fmt.Errorf("pipeline is not paused")
+		return errors.New("pipeline is not paused")
 	}
 
 	p.status = PipelineStatusRunning
@@ -533,33 +537,35 @@ func (p *TrainingPipelineImpl) Resume(ctx context.Context) error {
 	return nil
 }
 
-// AddStage adds a stage to the pipeline
+// AddStage adds a stage to the pipeline.
 func (p *TrainingPipelineImpl) AddStage(stage PipelineStage) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.status == PipelineStatusRunning {
-		return fmt.Errorf("cannot add stage while pipeline is running")
+		return errors.New("cannot add stage while pipeline is running")
 	}
 
 	p.stages[stage.ID()] = stage
+
 	return nil
 }
 
-// RemoveStage removes a stage from the pipeline
+// RemoveStage removes a stage from the pipeline.
 func (p *TrainingPipelineImpl) RemoveStage(stageID string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.status == PipelineStatusRunning {
-		return fmt.Errorf("cannot remove stage while pipeline is running")
+		return errors.New("cannot remove stage while pipeline is running")
 	}
 
 	delete(p.stages, stageID)
+
 	return nil
 }
 
-// GetStage returns a stage by ID
+// GetStage returns a stage by ID.
 func (p *TrainingPipelineImpl) GetStage(stageID string) (PipelineStage, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -572,7 +578,7 @@ func (p *TrainingPipelineImpl) GetStage(stageID string) (PipelineStage, error) {
 	return stage, nil
 }
 
-// GetStages returns all stages
+// GetStages returns all stages.
 func (p *TrainingPipelineImpl) GetStages() []PipelineStage {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -585,7 +591,7 @@ func (p *TrainingPipelineImpl) GetStages() []PipelineStage {
 	return stages
 }
 
-// Execute executes the pipeline with given input
+// Execute executes the pipeline with given input.
 func (p *TrainingPipelineImpl) Execute(ctx context.Context, input PipelineInput) (PipelineOutput, error) {
 	execution := NewPipelineExecution(p.config.ID, input, p.logger)
 
@@ -595,9 +601,9 @@ func (p *TrainingPipelineImpl) Execute(ctx context.Context, input PipelineInput)
 
 	// Execute stages in order
 	output := PipelineOutput{
-		Artifacts: make(map[string]interface{}),
+		Artifacts: make(map[string]any),
 		Metrics:   make(map[string]float64),
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	for _, stageConfig := range p.config.Stages {
@@ -605,6 +611,7 @@ func (p *TrainingPipelineImpl) Execute(ctx context.Context, input PipelineInput)
 		if !exists {
 			output.Status = PipelineStatusFailed
 			output.Error = fmt.Errorf("stage not found: %s", stageConfig.ID)
+
 			return output, output.Error
 		}
 
@@ -619,16 +626,14 @@ func (p *TrainingPipelineImpl) Execute(ctx context.Context, input PipelineInput)
 		if err != nil {
 			output.Status = PipelineStatusFailed
 			output.Error = err
+
 			return output, err
 		}
 
 		// Merge stage output into pipeline output
-		for k, v := range stageOutput.Artifacts {
-			output.Artifacts[k] = v
-		}
-		for k, v := range stageOutput.Metrics {
-			output.Metrics[k] = v
-		}
+		maps.Copy(output.Artifacts, stageOutput.Artifacts)
+
+		maps.Copy(output.Metrics, stageOutput.Metrics)
 
 		// Update data for next stage
 		input.Data = stageOutput.Data
@@ -645,7 +650,7 @@ func (p *TrainingPipelineImpl) Execute(ctx context.Context, input PipelineInput)
 	return output, nil
 }
 
-// GetExecution returns an execution by ID
+// GetExecution returns an execution by ID.
 func (p *TrainingPipelineImpl) GetExecution(executionID string) (PipelineExecution, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -658,7 +663,7 @@ func (p *TrainingPipelineImpl) GetExecution(executionID string) (PipelineExecuti
 	return execution, nil
 }
 
-// ListExecutions returns all executions
+// ListExecutions returns all executions.
 func (p *TrainingPipelineImpl) ListExecutions() []PipelineExecution {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -671,7 +676,7 @@ func (p *TrainingPipelineImpl) ListExecutions() []PipelineExecution {
 	return executions
 }
 
-// GetMetrics returns pipeline metrics
+// GetMetrics returns pipeline metrics.
 func (p *TrainingPipelineImpl) GetMetrics() PipelineMetrics {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -681,11 +686,13 @@ func (p *TrainingPipelineImpl) GetMetrics() PipelineMetrics {
 	successfulRuns := int64(0)
 	failedRuns := int64(0)
 	totalDuration := time.Duration(0)
+
 	var lastExecution, lastSuccess time.Time
 
 	for _, execution := range p.executions {
 		if execution.Status() == PipelineStatusCompleted {
 			successfulRuns++
+
 			if execution.CompletedAt().After(lastSuccess) {
 				lastSuccess = execution.CompletedAt()
 			}
@@ -700,8 +707,10 @@ func (p *TrainingPipelineImpl) GetMetrics() PipelineMetrics {
 		totalDuration += execution.Duration()
 	}
 
-	var averageDuration time.Duration
-	var successRate float64
+	var (
+		averageDuration time.Duration
+		successRate     float64
+	)
 
 	if totalExecutions > 0 {
 		averageDuration = totalDuration / time.Duration(totalExecutions)
@@ -720,13 +729,13 @@ func (p *TrainingPipelineImpl) GetMetrics() PipelineMetrics {
 	}
 }
 
-// GetLogs returns pipeline logs
+// GetLogs returns pipeline logs.
 func (p *TrainingPipelineImpl) GetLogs() []PipelineLogEntry {
 	// Implementation would collect logs from all executions
 	return []PipelineLogEntry{}
 }
 
-// GetHealth returns pipeline health
+// GetHealth returns pipeline health.
 func (p *TrainingPipelineImpl) GetHealth() PipelineHealth {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -746,7 +755,7 @@ func (p *TrainingPipelineImpl) GetHealth() PipelineHealth {
 	}
 
 	p.health.CheckedAt = time.Now()
-	p.health.Details = map[string]interface{}{
+	p.health.Details = map[string]any{
 		"total_executions": metrics.TotalExecutions,
 		"success_rate":     metrics.SuccessRate,
 		"last_execution":   metrics.LastExecution,
@@ -755,7 +764,7 @@ func (p *TrainingPipelineImpl) GetHealth() PipelineHealth {
 	return p.health
 }
 
-// Helper function to create pipeline execution
+// Helper function to create pipeline execution.
 func NewPipelineExecution(pipelineID string, input PipelineInput, logger logger.Logger) PipelineExecution {
 	return &PipelineExecutionImpl{
 		id:         generateExecutionID(),
@@ -767,7 +776,7 @@ func NewPipelineExecution(pipelineID string, input PipelineInput, logger logger.
 	}
 }
 
-// PipelineExecutionImpl implements PipelineExecution
+// PipelineExecutionImpl implements PipelineExecution.
 type PipelineExecutionImpl struct {
 	id          string
 	pipelineID  string
@@ -786,6 +795,7 @@ func (e *PipelineExecutionImpl) PipelineID() string { return e.pipelineID }
 func (e *PipelineExecutionImpl) Status() PipelineStatus {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+
 	return e.status
 }
 func (e *PipelineExecutionImpl) Progress() ExecutionProgress { return e.progress }
@@ -795,6 +805,7 @@ func (e *PipelineExecutionImpl) Duration() time.Duration {
 	if e.completedAt.IsZero() {
 		return time.Since(e.startedAt)
 	}
+
 	return e.completedAt.Sub(e.startedAt)
 }
 func (e *PipelineExecutionImpl) Input() PipelineInput   { return e.input }
@@ -806,8 +817,10 @@ func (e *PipelineExecutionImpl) GetStageExecutions() []StageExecution { return [
 func (e *PipelineExecutionImpl) Cancel() error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	e.status = PipelineStatusCancelled
 	e.completedAt = time.Now()
+
 	return nil
 }
 

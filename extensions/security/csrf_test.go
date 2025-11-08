@@ -35,12 +35,13 @@ func TestCSRFMiddleware_SafeMethods(t *testing.T) {
 			called := false
 			next := func(ctx forge.Context) error {
 				called = true
+
 				return ctx.String(http.StatusOK, "OK")
 			}
 
 			handler := middleware(next)
-			err := handler(ctx)
 
+			err := handler(ctx)
 			if err != nil {
 				t.Errorf("unexpected error for %s method: %v", method, err)
 			}
@@ -80,6 +81,7 @@ func TestCSRFMiddleware_UnsafeMethods_NoToken(t *testing.T) {
 			called := false
 			next := func(ctx forge.Context) error {
 				called = true
+
 				return ctx.String(http.StatusOK, "OK")
 			}
 
@@ -116,19 +118,20 @@ func TestCSRFMiddleware_SkipPaths(t *testing.T) {
 
 	for _, path := range skipPaths {
 		t.Run(path, func(t *testing.T) {
-			req := httptest.NewRequest("POST", path, nil)
+			req := httptest.NewRequest(http.MethodPost, path, nil)
 			w := httptest.NewRecorder()
 			ctx := di.NewContext(w, req, nil)
 
 			called := false
 			next := func(ctx forge.Context) error {
 				called = true
+
 				return ctx.String(http.StatusOK, "OK")
 			}
 
 			handler := middleware(next)
-			err := handler(ctx)
 
+			err := handler(ctx)
 			if err != nil {
 				t.Errorf("unexpected error for skipped path: %v", err)
 			}
@@ -159,19 +162,20 @@ func TestCSRFMiddleware_DisabledConfig(t *testing.T) {
 	middleware := CSRFMiddleware(csrf, cookieMgr)
 
 	// Test POST without token when CSRF is disabled - should pass
-	req := httptest.NewRequest("POST", "/api/test", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/test", nil)
 	w := httptest.NewRecorder()
 	ctx := di.NewContext(w, req, nil)
 
 	called := false
 	next := func(ctx forge.Context) error {
 		called = true
+
 		return ctx.String(http.StatusOK, "OK")
 	}
 
 	handler := middleware(next)
-	err := handler(ctx)
 
+	err := handler(ctx)
 	if err != nil {
 		t.Errorf("unexpected error when CSRF is disabled: %v", err)
 	}

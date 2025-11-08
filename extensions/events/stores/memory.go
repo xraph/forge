@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge/extensions/events/core"
 )
 
-// MemoryEventStore implements EventStore interface using in-memory storage
+// MemoryEventStore implements EventStore interface using in-memory storage.
 type MemoryEventStore struct {
 	events               map[string]*core.Event    // eventID -> Event
 	snapshots            map[string]*core.Snapshot // snapshotID -> Snapshot
@@ -24,7 +24,7 @@ type MemoryEventStore struct {
 	mu                   sync.RWMutex
 }
 
-// NewMemoryEventStore creates a new in-memory event store
+// NewMemoryEventStore creates a new in-memory event store.
 func NewMemoryEventStore(logger forge.Logger, metrics forge.Metrics) core.EventStore {
 	return &MemoryEventStore{
 		events:               make(map[string]*core.Event),
@@ -38,7 +38,7 @@ func NewMemoryEventStore(logger forge.Logger, metrics forge.Metrics) core.EventS
 	}
 }
 
-// SaveEvent saves a single event
+// SaveEvent saves a single event.
 func (mes *MemoryEventStore) SaveEvent(ctx context.Context, event *core.Event) error {
 	if err := event.Validate(); err != nil {
 		return fmt.Errorf("invalid event: %w", err)
@@ -64,12 +64,14 @@ func (mes *MemoryEventStore) SaveEvent(ctx context.Context, event *core.Event) e
 	if mes.eventsByAggregate[event.AggregateID] == nil {
 		mes.eventsByAggregate[event.AggregateID] = make([]*core.Event, 0)
 	}
+
 	mes.eventsByAggregate[event.AggregateID] = append(mes.eventsByAggregate[event.AggregateID], eventCopy)
 
 	// Index by type
 	if mes.eventsByType[event.Type] == nil {
 		mes.eventsByType[event.Type] = make([]*core.Event, 0)
 	}
+
 	mes.eventsByType[event.Type] = append(mes.eventsByType[event.Type], eventCopy)
 
 	// Update aggregate version
@@ -78,6 +80,7 @@ func (mes *MemoryEventStore) SaveEvent(ctx context.Context, event *core.Event) e
 	// Record metrics
 	if mes.metrics != nil {
 		duration := time.Since(start)
+
 		mes.metrics.Counter("forge.events.store.events_saved", "store", "memory").Inc()
 		mes.metrics.Histogram("forge.events.store.save_duration", "store", "memory").Observe(duration.Seconds())
 	}
@@ -89,7 +92,7 @@ func (mes *MemoryEventStore) SaveEvent(ctx context.Context, event *core.Event) e
 	return nil
 }
 
-// SaveEvents saves multiple events atomically
+// SaveEvents saves multiple events atomically.
 func (mes *MemoryEventStore) SaveEvents(ctx context.Context, events []*core.Event) error {
 	if len(events) == 0 {
 		return nil
@@ -119,11 +122,13 @@ func (mes *MemoryEventStore) SaveEvents(ctx context.Context, events []*core.Even
 		if mes.eventsByAggregate[event.AggregateID] == nil {
 			mes.eventsByAggregate[event.AggregateID] = make([]*core.Event, 0)
 		}
+
 		mes.eventsByAggregate[event.AggregateID] = append(mes.eventsByAggregate[event.AggregateID], eventCopy)
 
 		if mes.eventsByType[event.Type] == nil {
 			mes.eventsByType[event.Type] = make([]*core.Event, 0)
 		}
+
 		mes.eventsByType[event.Type] = append(mes.eventsByType[event.Type], eventCopy)
 
 		mes.aggregateVersions[event.AggregateID] = event.Version
@@ -132,6 +137,7 @@ func (mes *MemoryEventStore) SaveEvents(ctx context.Context, events []*core.Even
 	// Record metrics
 	if mes.metrics != nil {
 		duration := time.Since(start)
+
 		mes.metrics.Counter("forge.events.store.events_saved", "store", "memory").Add(float64(len(events)))
 		mes.metrics.Histogram("forge.events.store.batch_save_duration", "store", "memory").Observe(duration.Seconds())
 	}
@@ -139,7 +145,7 @@ func (mes *MemoryEventStore) SaveEvents(ctx context.Context, events []*core.Even
 	return nil
 }
 
-// GetEvent retrieves a single event by ID
+// GetEvent retrieves a single event by ID.
 func (mes *MemoryEventStore) GetEvent(ctx context.Context, eventID string) (*core.Event, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -152,7 +158,7 @@ func (mes *MemoryEventStore) GetEvent(ctx context.Context, eventID string) (*cor
 	return event.Clone(), nil
 }
 
-// GetEvents retrieves events by various criteria
+// GetEvents retrieves events by various criteria.
 func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventCriteria) (*core.EventCollection, error) {
 	if err := criteria.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid criteria: %w", err)
@@ -167,12 +173,15 @@ func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventC
 		// Apply filters
 		if len(criteria.EventTypes) > 0 {
 			found := false
+
 			for _, eventType := range criteria.EventTypes {
 				if event.Type == eventType {
 					found = true
+
 					break
 				}
 			}
+
 			if !found {
 				continue
 			}
@@ -180,12 +189,15 @@ func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventC
 
 		if len(criteria.AggregateIDs) > 0 {
 			found := false
+
 			for _, aggregateID := range criteria.AggregateIDs {
 				if event.AggregateID == aggregateID {
 					found = true
+
 					break
 				}
 			}
+
 			if !found {
 				continue
 			}
@@ -207,6 +219,7 @@ func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventC
 		if criteria.SortOrder == "desc" {
 			return events[i].Timestamp.After(events[j].Timestamp)
 		}
+
 		return events[i].Timestamp.Before(events[j].Timestamp)
 	})
 
@@ -216,10 +229,12 @@ func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventC
 		events = []*core.Event{}
 	} else {
 		start := criteria.Offset
+
 		end := start + int64(criteria.Limit)
 		if end > int64(len(events)) {
 			end = int64(len(events))
 		}
+
 		events = events[start:end]
 	}
 
@@ -232,7 +247,7 @@ func (mes *MemoryEventStore) GetEvents(ctx context.Context, criteria core.EventC
 	return core.NewEventCollection(eventList, total, criteria.Offset, criteria.Limit), nil
 }
 
-// GetEventsByAggregate retrieves all events for a specific aggregate
+// GetEventsByAggregate retrieves all events for a specific aggregate.
 func (mes *MemoryEventStore) GetEventsByAggregate(ctx context.Context, aggregateID string, fromVersion int) ([]*core.Event, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -244,6 +259,7 @@ func (mes *MemoryEventStore) GetEventsByAggregate(ctx context.Context, aggregate
 
 	// Filter by version
 	var filtered []*core.Event
+
 	for _, event := range events {
 		if event.Version >= fromVersion {
 			filtered = append(filtered, event.Clone())
@@ -253,7 +269,7 @@ func (mes *MemoryEventStore) GetEventsByAggregate(ctx context.Context, aggregate
 	return filtered, nil
 }
 
-// GetEventsByType retrieves events of a specific type
+// GetEventsByType retrieves events of a specific type.
 func (mes *MemoryEventStore) GetEventsByType(ctx context.Context, eventType string, limit int, offset int64) ([]*core.Event, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -269,6 +285,7 @@ func (mes *MemoryEventStore) GetEventsByType(ctx context.Context, eventType stri
 	}
 
 	start := offset
+
 	end := start + int64(limit)
 	if end > int64(len(events)) {
 		end = int64(len(events))
@@ -282,7 +299,7 @@ func (mes *MemoryEventStore) GetEventsByType(ctx context.Context, eventType stri
 	return result, nil
 }
 
-// GetEventsSince retrieves events since a specific timestamp
+// GetEventsSince retrieves events since a specific timestamp.
 func (mes *MemoryEventStore) GetEventsSince(ctx context.Context, since time.Time, limit int, offset int64) ([]*core.Event, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -305,6 +322,7 @@ func (mes *MemoryEventStore) GetEventsSince(ctx context.Context, since time.Time
 	}
 
 	start := offset
+
 	end := start + int64(limit)
 	if end > int64(len(events)) {
 		end = int64(len(events))
@@ -318,7 +336,7 @@ func (mes *MemoryEventStore) GetEventsSince(ctx context.Context, since time.Time
 	return result, nil
 }
 
-// GetEventsInRange retrieves events within a time range
+// GetEventsInRange retrieves events within a time range.
 func (mes *MemoryEventStore) GetEventsInRange(ctx context.Context, start, end time.Time, limit int, offset int64) ([]*core.Event, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -341,6 +359,7 @@ func (mes *MemoryEventStore) GetEventsInRange(ctx context.Context, start, end ti
 	}
 
 	startIdx := offset
+
 	endIdx := startIdx + int64(limit)
 	if endIdx > int64(len(events)) {
 		endIdx = int64(len(events))
@@ -354,7 +373,7 @@ func (mes *MemoryEventStore) GetEventsInRange(ctx context.Context, start, end ti
 	return result, nil
 }
 
-// GetLastEvent gets the last event for an aggregate
+// GetLastEvent gets the last event for an aggregate.
 func (mes *MemoryEventStore) GetLastEvent(ctx context.Context, aggregateID string) (*core.Event, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -367,7 +386,7 @@ func (mes *MemoryEventStore) GetLastEvent(ctx context.Context, aggregateID strin
 	return events[len(events)-1].Clone(), nil
 }
 
-// GetEventCount gets the total count of events
+// GetEventCount gets the total count of events.
 func (mes *MemoryEventStore) GetEventCount(ctx context.Context) (int64, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -375,7 +394,7 @@ func (mes *MemoryEventStore) GetEventCount(ctx context.Context) (int64, error) {
 	return int64(len(mes.events)), nil
 }
 
-// GetEventCountByType gets the count of events by type
+// GetEventCountByType gets the count of events by type.
 func (mes *MemoryEventStore) GetEventCountByType(ctx context.Context, eventType string) (int64, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -388,7 +407,7 @@ func (mes *MemoryEventStore) GetEventCountByType(ctx context.Context, eventType 
 	return int64(len(events)), nil
 }
 
-// CreateSnapshot creates a snapshot of an aggregate's state
+// CreateSnapshot creates a snapshot of an aggregate's state.
 func (mes *MemoryEventStore) CreateSnapshot(ctx context.Context, snapshot *core.Snapshot) error {
 	if err := snapshot.Validate(); err != nil {
 		return fmt.Errorf("invalid snapshot: %w", err)
@@ -407,7 +426,7 @@ func (mes *MemoryEventStore) CreateSnapshot(ctx context.Context, snapshot *core.
 	return nil
 }
 
-// GetSnapshot retrieves the latest snapshot for an aggregate
+// GetSnapshot retrieves the latest snapshot for an aggregate.
 func (mes *MemoryEventStore) GetSnapshot(ctx context.Context, aggregateID string) (*core.Snapshot, error) {
 	mes.mu.RLock()
 	defer mes.mu.RUnlock()
@@ -420,12 +439,12 @@ func (mes *MemoryEventStore) GetSnapshot(ctx context.Context, aggregateID string
 	return snapshot, nil
 }
 
-// Close closes the event store connection
+// Close closes the event store connection.
 func (mes *MemoryEventStore) Close(ctx context.Context) error {
 	return nil
 }
 
-// HealthCheck checks if the event store is healthy
+// HealthCheck checks if the event store is healthy.
 func (mes *MemoryEventStore) HealthCheck(ctx context.Context) error {
 	return nil
 }
@@ -447,6 +466,7 @@ func (mes *MemoryEventStore) DeleteEvent(ctx context.Context, eventID string) er
 	for i, e := range eventsAgg {
 		if e.ID == eventID {
 			mes.eventsByAggregate[event.AggregateID] = append(eventsAgg[:i], eventsAgg[i+1:]...)
+
 			break
 		}
 	}
@@ -456,6 +476,7 @@ func (mes *MemoryEventStore) DeleteEvent(ctx context.Context, eventID string) er
 	for i, e := range eventsType {
 		if e.ID == eventID {
 			mes.eventsByType[event.Type] = append(eventsType[:i], eventsType[i+1:]...)
+
 			break
 		}
 	}
@@ -489,6 +510,7 @@ func (mes *MemoryEventStore) DeleteEventsByAggregate(ctx context.Context, aggreg
 		for i, e := range eventsType {
 			if e.ID == event.ID {
 				mes.eventsByType[event.Type] = append(eventsType[:i], eventsType[i+1:]...)
+
 				break
 			}
 		}

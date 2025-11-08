@@ -9,18 +9,20 @@ import (
 	"github.com/xraph/forge/extensions/auth"
 )
 
-// mockRegistry implements auth.Registry for testing
+// mockRegistry implements auth.Registry for testing.
 type mockRegistry struct {
 	providers map[string]auth.AuthProvider
 }
 
 func (m *mockRegistry) Register(provider auth.AuthProvider) error {
 	m.providers[provider.Name()] = provider
+
 	return nil
 }
 
 func (m *mockRegistry) Unregister(name string) error {
 	delete(m.providers, name)
+
 	return nil
 }
 
@@ -28,6 +30,7 @@ func (m *mockRegistry) Get(name string) (auth.AuthProvider, error) {
 	if p, ok := m.providers[name]; ok {
 		return p, nil
 	}
+
 	return nil, auth.ErrProviderNotFound
 }
 
@@ -36,11 +39,13 @@ func (m *mockRegistry) List() []string {
 	for name := range m.providers {
 		names = append(names, name)
 	}
+
 	return names
 }
 
 func (m *mockRegistry) Has(name string) bool {
 	_, ok := m.providers[name]
+
 	return ok
 }
 
@@ -73,10 +78,11 @@ func (m *mockRegistry) OpenAPISchemes() map[string]auth.SecurityScheme {
 	for name, provider := range m.providers {
 		schemes[name] = provider.OpenAPIScheme()
 	}
+
 	return schemes
 }
 
-// mockProvider implements auth.AuthProvider for testing
+// mockProvider implements auth.AuthProvider for testing.
 type mockProvider struct {
 	shouldSucceed bool
 	authContext   *auth.AuthContext
@@ -86,6 +92,7 @@ func (m *mockProvider) Authenticate(ctx context.Context, r *http.Request) (*auth
 	if m.shouldSucceed {
 		return m.authContext, nil
 	}
+
 	return nil, auth.ErrAuthenticationFailed
 }
 
@@ -129,6 +136,7 @@ func TestConnectionAuthenticator_AuthenticateConnection(t *testing.T) {
 						Scopes:  []string{"read", "write"},
 					},
 				})
+
 				return reg
 			},
 			wantErr: false,
@@ -141,6 +149,7 @@ func TestConnectionAuthenticator_AuthenticateConnection(t *testing.T) {
 				reg.Register(&mockProvider{
 					shouldSucceed: false,
 				})
+
 				return reg
 			},
 			wantErr: true,
@@ -168,7 +177,7 @@ func TestConnectionAuthenticator_AuthenticateConnection(t *testing.T) {
 			registry := tt.setupRegistry()
 			authenticator := NewConnectionAuthenticator(registry, tt.providers)
 
-			req, _ := http.NewRequest("GET", "/", nil)
+			req, _ := http.NewRequest(http.MethodGet, "/", nil)
 			ctx := context.Background()
 
 			_, err := authenticator.AuthenticateConnection(ctx, req)
@@ -213,10 +222,11 @@ func TestConnectionAuthenticator_RequireScopes(t *testing.T) {
 			err := authenticator.RequireScopes(tt.scopes...)
 			if err != nil {
 				t.Errorf("RequireScopes() error = %v", err)
+
 				return
 			}
 
-			req, _ := http.NewRequest("GET", "/", nil)
+			req, _ := http.NewRequest(http.MethodGet, "/", nil)
 			ctx := context.Background()
 
 			authCtx, err := authenticator.AuthenticateConnection(ctx, req)
@@ -240,11 +250,10 @@ func BenchmarkConnectionAuthenticator_AuthenticateConnection(b *testing.B) {
 	})
 
 	authenticator := NewConnectionAuthenticator(registry, []string{"mock"})
-	req, _ := http.NewRequest("GET", "/", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = authenticator.AuthenticateConnection(ctx, req)
 	}
 }

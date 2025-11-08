@@ -5,241 +5,241 @@ import (
 	"time"
 )
 
-// Config contains all consensus configuration
+// Config contains all consensus configuration.
 type Config struct {
 	// Node configuration
-	NodeID    string `yaml:"node_id" json:"node_id"`
-	ClusterID string `yaml:"cluster_id" json:"cluster_id"`
-	BindAddr  string `yaml:"bind_addr" json:"bind_addr" default:"0.0.0.0"`
-	BindPort  int    `yaml:"bind_port" json:"bind_port" default:"7000"`
+	NodeID    string `json:"node_id"    yaml:"node_id"`
+	ClusterID string `json:"cluster_id" yaml:"cluster_id"`
+	BindAddr  string `default:"0.0.0.0" json:"bind_addr"  yaml:"bind_addr"`
+	BindPort  int    `default:"7000"    json:"bind_port"  yaml:"bind_port"`
 
 	// Peers - initial cluster members
-	Peers []PeerConfig `yaml:"peers" json:"peers"`
+	Peers []PeerConfig `json:"peers" yaml:"peers"`
 
 	// Raft configuration
-	Raft RaftConfig `yaml:"raft" json:"raft"`
+	Raft RaftConfig `json:"raft" yaml:"raft"`
 
 	// Transport configuration
-	Transport TransportConfig `yaml:"transport" json:"transport"`
+	Transport TransportConfig `json:"transport" yaml:"transport"`
 
 	// Discovery configuration
-	Discovery DiscoveryConfig `yaml:"discovery" json:"discovery"`
+	Discovery DiscoveryConfig `json:"discovery" yaml:"discovery"`
 
 	// Storage configuration
-	Storage StorageConfig `yaml:"storage" json:"storage"`
+	Storage StorageConfig `json:"storage" yaml:"storage"`
 
 	// Election configuration
-	Election ElectionConfig `yaml:"election" json:"election"`
+	Election ElectionConfig `json:"election" yaml:"election"`
 
 	// Health check configuration
-	Health HealthConfig `yaml:"health" json:"health"`
+	Health HealthConfig `json:"health" yaml:"health"`
 
 	// Observability configuration
-	Observability ObservabilityConfig `yaml:"observability" json:"observability"`
+	Observability ObservabilityConfig `json:"observability" yaml:"observability"`
 
 	// Security configuration
-	Security SecurityConfig `yaml:"security" json:"security"`
+	Security SecurityConfig `json:"security" yaml:"security"`
 
 	// Resilience configuration
-	Resilience ResilienceConfig `yaml:"resilience" json:"resilience"`
+	Resilience ResilienceConfig `json:"resilience" yaml:"resilience"`
 
 	// Admin API configuration
-	AdminAPI AdminAPIConfig `yaml:"admin_api" json:"admin_api"`
+	AdminAPI AdminAPIConfig `json:"admin_api" yaml:"admin_api"`
 
 	// Events configuration
-	Events EventsConfig `yaml:"events" json:"events"`
+	Events EventsConfig `json:"events" yaml:"events"`
 
 	// Advanced settings
-	Advanced AdvancedConfig `yaml:"advanced" json:"advanced"`
+	Advanced AdvancedConfig `json:"advanced" yaml:"advanced"`
 
 	// Internal flag
-	RequireConfig bool `yaml:"-" json:"-"`
+	RequireConfig bool `json:"-" yaml:"-"`
 }
 
-// PeerConfig represents a cluster peer
+// PeerConfig represents a cluster peer.
 type PeerConfig struct {
-	ID      string `yaml:"id" json:"id"`
-	Address string `yaml:"address" json:"address"`
-	Port    int    `yaml:"port" json:"port"`
+	ID      string `json:"id"      yaml:"id"`
+	Address string `json:"address" yaml:"address"`
+	Port    int    `json:"port"    yaml:"port"`
 }
 
-// RaftConfig contains Raft-specific configuration
+// RaftConfig contains Raft-specific configuration.
 type RaftConfig struct {
-	HeartbeatInterval    time.Duration `yaml:"heartbeat_interval" json:"heartbeat_interval" default:"1s"`
-	ElectionTimeoutMin   time.Duration `yaml:"election_timeout_min" json:"election_timeout_min" default:"5s"`
-	ElectionTimeoutMax   time.Duration `yaml:"election_timeout_max" json:"election_timeout_max" default:"10s"`
-	SnapshotInterval     time.Duration `yaml:"snapshot_interval" json:"snapshot_interval" default:"30m"`
-	SnapshotThreshold    uint64        `yaml:"snapshot_threshold" json:"snapshot_threshold" default:"10000"`
-	LogCacheSize         int           `yaml:"log_cache_size" json:"log_cache_size" default:"1024"`
-	MaxAppendEntries     int           `yaml:"max_append_entries" json:"max_append_entries" default:"64"`
-	TrailingLogs         uint64        `yaml:"trailing_logs" json:"trailing_logs" default:"10000"`
-	ReplicationBatchSize int           `yaml:"replication_batch_size" json:"replication_batch_size" default:"100"`
-	LeaderLeaseTimeout   time.Duration `yaml:"leader_lease_timeout" json:"leader_lease_timeout" default:"500ms"`
-	PreVote              bool          `yaml:"pre_vote" json:"pre_vote" default:"true"`
-	CheckQuorum          bool          `yaml:"check_quorum" json:"check_quorum" default:"true"`
-	DisablePipeline      bool          `yaml:"disable_pipeline" json:"disable_pipeline" default:"false"`
+	HeartbeatInterval    time.Duration `default:"1s"    json:"heartbeat_interval"     yaml:"heartbeat_interval"`
+	ElectionTimeoutMin   time.Duration `default:"5s"    json:"election_timeout_min"   yaml:"election_timeout_min"`
+	ElectionTimeoutMax   time.Duration `default:"10s"   json:"election_timeout_max"   yaml:"election_timeout_max"`
+	SnapshotInterval     time.Duration `default:"30m"   json:"snapshot_interval"      yaml:"snapshot_interval"`
+	SnapshotThreshold    uint64        `default:"10000" json:"snapshot_threshold"     yaml:"snapshot_threshold"`
+	LogCacheSize         int           `default:"1024"  json:"log_cache_size"         yaml:"log_cache_size"`
+	MaxAppendEntries     int           `default:"64"    json:"max_append_entries"     yaml:"max_append_entries"`
+	TrailingLogs         uint64        `default:"10000" json:"trailing_logs"          yaml:"trailing_logs"`
+	ReplicationBatchSize int           `default:"100"   json:"replication_batch_size" yaml:"replication_batch_size"`
+	LeaderLeaseTimeout   time.Duration `default:"500ms" json:"leader_lease_timeout"   yaml:"leader_lease_timeout"`
+	PreVote              bool          `default:"true"  json:"pre_vote"               yaml:"pre_vote"`
+	CheckQuorum          bool          `default:"true"  json:"check_quorum"           yaml:"check_quorum"`
+	DisablePipeline      bool          `default:"false" json:"disable_pipeline"       yaml:"disable_pipeline"`
 }
 
-// TransportConfig contains transport layer configuration
+// TransportConfig contains transport layer configuration.
 type TransportConfig struct {
-	Type               string        `yaml:"type" json:"type" default:"grpc"`                            // grpc, tcp
-	MaxMessageSize     int           `yaml:"max_message_size" json:"max_message_size" default:"4194304"` // 4MB
-	Timeout            time.Duration `yaml:"timeout" json:"timeout" default:"10s"`
-	KeepAlive          bool          `yaml:"keep_alive" json:"keep_alive" default:"true"`
-	KeepAliveInterval  time.Duration `yaml:"keep_alive_interval" json:"keep_alive_interval" default:"30s"`
-	KeepAliveTimeout   time.Duration `yaml:"keep_alive_timeout" json:"keep_alive_timeout" default:"10s"`
-	MaxConnections     int           `yaml:"max_connections" json:"max_connections" default:"100"`
-	ConnectionTimeout  time.Duration `yaml:"connection_timeout" json:"connection_timeout" default:"5s"`
-	IdleTimeout        time.Duration `yaml:"idle_timeout" json:"idle_timeout" default:"5m"`
-	EnableCompression  bool          `yaml:"enable_compression" json:"enable_compression" default:"true"`
-	CompressionLevel   int           `yaml:"compression_level" json:"compression_level" default:"6"`
-	EnableMultiplexing bool          `yaml:"enable_multiplexing" json:"enable_multiplexing" default:"true"`
+	Type               string        `default:"grpc"    json:"type"                yaml:"type"`             // grpc, tcp
+	MaxMessageSize     int           `default:"4194304" json:"max_message_size"    yaml:"max_message_size"` // 4MB
+	Timeout            time.Duration `default:"10s"     json:"timeout"             yaml:"timeout"`
+	KeepAlive          bool          `default:"true"    json:"keep_alive"          yaml:"keep_alive"`
+	KeepAliveInterval  time.Duration `default:"30s"     json:"keep_alive_interval" yaml:"keep_alive_interval"`
+	KeepAliveTimeout   time.Duration `default:"10s"     json:"keep_alive_timeout"  yaml:"keep_alive_timeout"`
+	MaxConnections     int           `default:"100"     json:"max_connections"     yaml:"max_connections"`
+	ConnectionTimeout  time.Duration `default:"5s"      json:"connection_timeout"  yaml:"connection_timeout"`
+	IdleTimeout        time.Duration `default:"5m"      json:"idle_timeout"        yaml:"idle_timeout"`
+	EnableCompression  bool          `default:"true"    json:"enable_compression"  yaml:"enable_compression"`
+	CompressionLevel   int           `default:"6"       json:"compression_level"   yaml:"compression_level"`
+	EnableMultiplexing bool          `default:"true"    json:"enable_multiplexing" yaml:"enable_multiplexing"`
 }
 
-// DiscoveryConfig contains service discovery configuration
+// DiscoveryConfig contains service discovery configuration.
 type DiscoveryConfig struct {
-	Type            string        `yaml:"type" json:"type" default:"static"` // static, dns, consul, etcd, kubernetes
-	Endpoints       []string      `yaml:"endpoints" json:"endpoints"`
-	Namespace       string        `yaml:"namespace" json:"namespace" default:"default"`
-	ServiceName     string        `yaml:"service_name" json:"service_name" default:"forge-consensus"`
-	RefreshInterval time.Duration `yaml:"refresh_interval" json:"refresh_interval" default:"30s"`
-	Timeout         time.Duration `yaml:"timeout" json:"timeout" default:"10s"`
-	TTL             time.Duration `yaml:"ttl" json:"ttl" default:"60s"`
-	EnableWatch     bool          `yaml:"enable_watch" json:"enable_watch" default:"true"`
+	Type            string        `default:"static"          json:"type"             yaml:"type"` // static, dns, consul, etcd, kubernetes
+	Endpoints       []string      `json:"endpoints"          yaml:"endpoints"`
+	Namespace       string        `default:"default"         json:"namespace"        yaml:"namespace"`
+	ServiceName     string        `default:"forge-consensus" json:"service_name"     yaml:"service_name"`
+	RefreshInterval time.Duration `default:"30s"             json:"refresh_interval" yaml:"refresh_interval"`
+	Timeout         time.Duration `default:"10s"             json:"timeout"          yaml:"timeout"`
+	TTL             time.Duration `default:"60s"             json:"ttl"              yaml:"ttl"`
+	EnableWatch     bool          `default:"true"            json:"enable_watch"     yaml:"enable_watch"`
 }
 
-// StorageConfig contains storage backend configuration
+// StorageConfig contains storage backend configuration.
 type StorageConfig struct {
-	Type           string        `yaml:"type" json:"type" default:"badger"` // badger, boltdb, pebble, postgres
-	Path           string        `yaml:"path" json:"path" default:"./data/consensus"`
-	SyncWrites     bool          `yaml:"sync_writes" json:"sync_writes" default:"true"`
-	MaxBatchSize   int           `yaml:"max_batch_size" json:"max_batch_size" default:"1000"`
-	MaxBatchDelay  time.Duration `yaml:"max_batch_delay" json:"max_batch_delay" default:"10ms"`
-	CompactOnStart bool          `yaml:"compact_on_start" json:"compact_on_start" default:"false"`
+	Type           string        `default:"badger"           json:"type"             yaml:"type"` // badger, boltdb, pebble, postgres
+	Path           string        `default:"./data/consensus" json:"path"             yaml:"path"`
+	SyncWrites     bool          `default:"true"             json:"sync_writes"      yaml:"sync_writes"`
+	MaxBatchSize   int           `default:"1000"             json:"max_batch_size"   yaml:"max_batch_size"`
+	MaxBatchDelay  time.Duration `default:"10ms"             json:"max_batch_delay"  yaml:"max_batch_delay"`
+	CompactOnStart bool          `default:"false"            json:"compact_on_start" yaml:"compact_on_start"`
 	// BadgerDB specific
-	BadgerOptions BadgerOptions `yaml:"badger_options" json:"badger_options"`
+	BadgerOptions BadgerOptions `json:"badger_options" yaml:"badger_options"`
 	// BoltDB specific
-	BoltOptions BoltOptions `yaml:"bolt_options" json:"bolt_options"`
+	BoltOptions BoltOptions `json:"bolt_options" yaml:"bolt_options"`
 }
 
-// BadgerOptions contains BadgerDB-specific options
+// BadgerOptions contains BadgerDB-specific options.
 type BadgerOptions struct {
-	ValueLogMaxEntries uint32 `yaml:"value_log_max_entries" json:"value_log_max_entries" default:"1000000"`
-	MemTableSize       int64  `yaml:"mem_table_size" json:"mem_table_size" default:"67108864"` // 64MB
-	NumMemTables       int    `yaml:"num_mem_tables" json:"num_mem_tables" default:"5"`
-	NumLevelZeroTables int    `yaml:"num_level_zero_tables" json:"num_level_zero_tables" default:"5"`
-	NumCompactors      int    `yaml:"num_compactors" json:"num_compactors" default:"4"`
+	ValueLogMaxEntries uint32 `default:"1000000"  json:"value_log_max_entries" yaml:"value_log_max_entries"`
+	MemTableSize       int64  `default:"67108864" json:"mem_table_size"        yaml:"mem_table_size"` // 64MB
+	NumMemTables       int    `default:"5"        json:"num_mem_tables"        yaml:"num_mem_tables"`
+	NumLevelZeroTables int    `default:"5"        json:"num_level_zero_tables" yaml:"num_level_zero_tables"`
+	NumCompactors      int    `default:"4"        json:"num_compactors"        yaml:"num_compactors"`
 }
 
-// BoltOptions contains BoltDB-specific options
+// BoltOptions contains BoltDB-specific options.
 type BoltOptions struct {
-	NoSync          bool          `yaml:"no_sync" json:"no_sync" default:"false"`
-	NoGrowSync      bool          `yaml:"no_grow_sync" json:"no_grow_sync" default:"false"`
-	InitialMmapSize int           `yaml:"initial_mmap_size" json:"initial_mmap_size" default:"0"`
-	Timeout         time.Duration `yaml:"timeout" json:"timeout" default:"1s"`
+	NoSync          bool          `default:"false" json:"no_sync"           yaml:"no_sync"`
+	NoGrowSync      bool          `default:"false" json:"no_grow_sync"      yaml:"no_grow_sync"`
+	InitialMmapSize int           `default:"0"     json:"initial_mmap_size" yaml:"initial_mmap_size"`
+	Timeout         time.Duration `default:"1s"    json:"timeout"           yaml:"timeout"`
 }
 
-// ElectionConfig contains leader election configuration
+// ElectionConfig contains leader election configuration.
 type ElectionConfig struct {
-	Enabled           bool          `yaml:"enabled" json:"enabled" default:"true"`
-	RandomizedTimeout bool          `yaml:"randomized_timeout" json:"randomized_timeout" default:"true"`
-	PreVote           bool          `yaml:"pre_vote" json:"pre_vote" default:"true"`
-	PriorityElection  bool          `yaml:"priority_election" json:"priority_election" default:"false"`
-	Priority          int           `yaml:"priority" json:"priority" default:"0"`
-	StepDownOnRemove  bool          `yaml:"step_down_on_remove" json:"step_down_on_remove" default:"true"`
-	LeaderStickiness  time.Duration `yaml:"leader_stickiness" json:"leader_stickiness" default:"10s"`
+	Enabled           bool          `default:"true"  json:"enabled"             yaml:"enabled"`
+	RandomizedTimeout bool          `default:"true"  json:"randomized_timeout"  yaml:"randomized_timeout"`
+	PreVote           bool          `default:"true"  json:"pre_vote"            yaml:"pre_vote"`
+	PriorityElection  bool          `default:"false" json:"priority_election"   yaml:"priority_election"`
+	Priority          int           `default:"0"     json:"priority"            yaml:"priority"`
+	StepDownOnRemove  bool          `default:"true"  json:"step_down_on_remove" yaml:"step_down_on_remove"`
+	LeaderStickiness  time.Duration `default:"10s"   json:"leader_stickiness"   yaml:"leader_stickiness"`
 }
 
-// HealthConfig contains health check configuration
+// HealthConfig contains health check configuration.
 type HealthConfig struct {
-	Enabled            bool          `yaml:"enabled" json:"enabled" default:"true"`
-	CheckInterval      time.Duration `yaml:"check_interval" json:"check_interval" default:"10s"`
-	Timeout            time.Duration `yaml:"timeout" json:"timeout" default:"5s"`
-	UnhealthyThreshold int           `yaml:"unhealthy_threshold" json:"unhealthy_threshold" default:"3"`
-	HealthyThreshold   int           `yaml:"healthy_threshold" json:"healthy_threshold" default:"2"`
+	Enabled            bool          `default:"true" json:"enabled"             yaml:"enabled"`
+	CheckInterval      time.Duration `default:"10s"  json:"check_interval"      yaml:"check_interval"`
+	Timeout            time.Duration `default:"5s"   json:"timeout"             yaml:"timeout"`
+	UnhealthyThreshold int           `default:"3"    json:"unhealthy_threshold" yaml:"unhealthy_threshold"`
+	HealthyThreshold   int           `default:"2"    json:"healthy_threshold"   yaml:"healthy_threshold"`
 }
 
-// ObservabilityConfig contains observability configuration
+// ObservabilityConfig contains observability configuration.
 type ObservabilityConfig struct {
-	Metrics MetricsConfig `yaml:"metrics" json:"metrics"`
-	Tracing TracingConfig `yaml:"tracing" json:"tracing"`
-	Logging LoggingConfig `yaml:"logging" json:"logging"`
+	Metrics MetricsConfig `json:"metrics" yaml:"metrics"`
+	Tracing TracingConfig `json:"tracing" yaml:"tracing"`
+	Logging LoggingConfig `json:"logging" yaml:"logging"`
 }
 
-// MetricsConfig contains metrics configuration
+// MetricsConfig contains metrics configuration.
 type MetricsConfig struct {
-	Enabled               bool          `yaml:"enabled" json:"enabled" default:"true"`
-	CollectionInterval    time.Duration `yaml:"collection_interval" json:"collection_interval" default:"15s"`
-	Namespace             string        `yaml:"namespace" json:"namespace" default:"forge_consensus"`
-	EnableDetailedMetrics bool          `yaml:"enable_detailed_metrics" json:"enable_detailed_metrics" default:"true"`
+	Enabled               bool          `default:"true"            json:"enabled"                 yaml:"enabled"`
+	CollectionInterval    time.Duration `default:"15s"             json:"collection_interval"     yaml:"collection_interval"`
+	Namespace             string        `default:"forge_consensus" json:"namespace"               yaml:"namespace"`
+	EnableDetailedMetrics bool          `default:"true"            json:"enable_detailed_metrics" yaml:"enable_detailed_metrics"`
 }
 
-// TracingConfig contains tracing configuration
+// TracingConfig contains tracing configuration.
 type TracingConfig struct {
-	Enabled     bool    `yaml:"enabled" json:"enabled" default:"false"`
-	ServiceName string  `yaml:"service_name" json:"service_name" default:"forge-consensus"`
-	SampleRate  float64 `yaml:"sample_rate" json:"sample_rate" default:"0.1"`
+	Enabled     bool    `default:"false"           json:"enabled"      yaml:"enabled"`
+	ServiceName string  `default:"forge-consensus" json:"service_name" yaml:"service_name"`
+	SampleRate  float64 `default:"0.1"             json:"sample_rate"  yaml:"sample_rate"`
 }
 
-// LoggingConfig contains logging configuration
+// LoggingConfig contains logging configuration.
 type LoggingConfig struct {
-	Level            string `yaml:"level" json:"level" default:"info"`
-	EnableStructured bool   `yaml:"enable_structured" json:"enable_structured" default:"true"`
-	LogRaftDetails   bool   `yaml:"log_raft_details" json:"log_raft_details" default:"false"`
+	Level            string `default:"info"  json:"level"             yaml:"level"`
+	EnableStructured bool   `default:"true"  json:"enable_structured" yaml:"enable_structured"`
+	LogRaftDetails   bool   `default:"false" json:"log_raft_details"  yaml:"log_raft_details"`
 }
 
-// SecurityConfig contains security configuration
+// SecurityConfig contains security configuration.
 type SecurityConfig struct {
-	EnableTLS        bool   `yaml:"enable_tls" json:"enable_tls" default:"false"`
-	EnableMTLS       bool   `yaml:"enable_mtls" json:"enable_mtls" default:"false"`
-	CertFile         string `yaml:"cert_file" json:"cert_file"`
-	KeyFile          string `yaml:"key_file" json:"key_file"`
-	CAFile           string `yaml:"ca_file" json:"ca_file"`
-	SkipVerify       bool   `yaml:"skip_verify" json:"skip_verify" default:"false"`
-	EnableEncryption bool   `yaml:"enable_encryption" json:"enable_encryption" default:"false"`
-	EncryptionKey    string `yaml:"encryption_key" json:"encryption_key"`
+	EnableTLS        bool   `default:"false"       json:"enable_tls"        yaml:"enable_tls"`
+	EnableMTLS       bool   `default:"false"       json:"enable_mtls"       yaml:"enable_mtls"`
+	CertFile         string `json:"cert_file"      yaml:"cert_file"`
+	KeyFile          string `json:"key_file"       yaml:"key_file"`
+	CAFile           string `json:"ca_file"        yaml:"ca_file"`
+	SkipVerify       bool   `default:"false"       json:"skip_verify"       yaml:"skip_verify"`
+	EnableEncryption bool   `default:"false"       json:"enable_encryption" yaml:"enable_encryption"`
+	EncryptionKey    string `json:"encryption_key" yaml:"encryption_key"`
 }
 
-// ResilienceConfig contains resilience configuration
+// ResilienceConfig contains resilience configuration.
 type ResilienceConfig struct {
-	EnableRetry             bool          `yaml:"enable_retry" json:"enable_retry" default:"true"`
-	MaxRetries              int           `yaml:"max_retries" json:"max_retries" default:"3"`
-	RetryDelay              time.Duration `yaml:"retry_delay" json:"retry_delay" default:"100ms"`
-	RetryBackoffFactor      float64       `yaml:"retry_backoff_factor" json:"retry_backoff_factor" default:"2.0"`
-	MaxRetryDelay           time.Duration `yaml:"max_retry_delay" json:"max_retry_delay" default:"5s"`
-	EnableCircuitBreaker    bool          `yaml:"enable_circuit_breaker" json:"enable_circuit_breaker" default:"true"`
-	CircuitBreakerThreshold int           `yaml:"circuit_breaker_threshold" json:"circuit_breaker_threshold" default:"5"`
-	CircuitBreakerTimeout   time.Duration `yaml:"circuit_breaker_timeout" json:"circuit_breaker_timeout" default:"30s"`
+	EnableRetry             bool          `default:"true"  json:"enable_retry"              yaml:"enable_retry"`
+	MaxRetries              int           `default:"3"     json:"max_retries"               yaml:"max_retries"`
+	RetryDelay              time.Duration `default:"100ms" json:"retry_delay"               yaml:"retry_delay"`
+	RetryBackoffFactor      float64       `default:"2.0"   json:"retry_backoff_factor"      yaml:"retry_backoff_factor"`
+	MaxRetryDelay           time.Duration `default:"5s"    json:"max_retry_delay"           yaml:"max_retry_delay"`
+	EnableCircuitBreaker    bool          `default:"true"  json:"enable_circuit_breaker"    yaml:"enable_circuit_breaker"`
+	CircuitBreakerThreshold int           `default:"5"     json:"circuit_breaker_threshold" yaml:"circuit_breaker_threshold"`
+	CircuitBreakerTimeout   time.Duration `default:"30s"   json:"circuit_breaker_timeout"   yaml:"circuit_breaker_timeout"`
 }
 
-// AdminAPIConfig contains admin API configuration
+// AdminAPIConfig contains admin API configuration.
 type AdminAPIConfig struct {
-	Enabled    bool   `yaml:"enabled" json:"enabled" default:"true"`
-	PathPrefix string `yaml:"path_prefix" json:"path_prefix" default:"/consensus"`
-	EnableAuth bool   `yaml:"enable_auth" json:"enable_auth" default:"false"`
-	APIKey     string `yaml:"api_key" json:"api_key"`
+	Enabled    bool   `default:"true"       json:"enabled"     yaml:"enabled"`
+	PathPrefix string `default:"/consensus" json:"path_prefix" yaml:"path_prefix"`
+	EnableAuth bool   `default:"false"      json:"enable_auth" yaml:"enable_auth"`
+	APIKey     string `json:"api_key"       yaml:"api_key"`
 }
 
-// EventsConfig contains events configuration
+// EventsConfig contains events configuration.
 type EventsConfig struct {
-	Enabled           bool `yaml:"enabled" json:"enabled" default:"true"`
-	EmitLeaderChange  bool `yaml:"emit_leader_change" json:"emit_leader_change" default:"true"`
-	EmitNodeEvents    bool `yaml:"emit_node_events" json:"emit_node_events" default:"true"`
-	EmitClusterEvents bool `yaml:"emit_cluster_events" json:"emit_cluster_events" default:"true"`
+	Enabled           bool `default:"true" json:"enabled"             yaml:"enabled"`
+	EmitLeaderChange  bool `default:"true" json:"emit_leader_change"  yaml:"emit_leader_change"`
+	EmitNodeEvents    bool `default:"true" json:"emit_node_events"    yaml:"emit_node_events"`
+	EmitClusterEvents bool `default:"true" json:"emit_cluster_events" yaml:"emit_cluster_events"`
 }
 
-// AdvancedConfig contains advanced settings
+// AdvancedConfig contains advanced settings.
 type AdvancedConfig struct {
-	EnableAutoSnapshot   bool          `yaml:"enable_auto_snapshot" json:"enable_auto_snapshot" default:"true"`
-	EnableAutoCompaction bool          `yaml:"enable_auto_compaction" json:"enable_auto_compaction" default:"true"`
-	CompactionInterval   time.Duration `yaml:"compaction_interval" json:"compaction_interval" default:"1h"`
-	MaxMemoryUsage       int64         `yaml:"max_memory_usage" json:"max_memory_usage" default:"1073741824"` // 1GB
-	GCInterval           time.Duration `yaml:"gc_interval" json:"gc_interval" default:"5m"`
-	EnableReadIndex      bool          `yaml:"enable_read_index" json:"enable_read_index" default:"true"`
-	EnableLeasedReads    bool          `yaml:"enable_leased_reads" json:"enable_leased_reads" default:"true"`
+	EnableAutoSnapshot   bool          `default:"true"       json:"enable_auto_snapshot"   yaml:"enable_auto_snapshot"`
+	EnableAutoCompaction bool          `default:"true"       json:"enable_auto_compaction" yaml:"enable_auto_compaction"`
+	CompactionInterval   time.Duration `default:"1h"         json:"compaction_interval"    yaml:"compaction_interval"`
+	MaxMemoryUsage       int64         `default:"1073741824" json:"max_memory_usage"       yaml:"max_memory_usage"` // 1GB
+	GCInterval           time.Duration `default:"5m"         json:"gc_interval"            yaml:"gc_interval"`
+	EnableReadIndex      bool          `default:"true"       json:"enable_read_index"      yaml:"enable_read_index"`
+	EnableLeasedReads    bool          `default:"true"       json:"enable_leased_reads"    yaml:"enable_leased_reads"`
 }
 
-// DefaultConfig returns default configuration
+// DefaultConfig returns default configuration.
 func DefaultConfig() Config {
 	return Config{
 		NodeID:    "",
@@ -381,7 +381,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c *Config) Validate() error {
 	if c.NodeID == "" {
 		return fmt.Errorf("%w: node_id is required", ErrInvalidConfig)
@@ -455,24 +455,24 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// ConfigOption is a functional option for Config
+// ConfigOption is a functional option for Config.
 type ConfigOption func(*Config)
 
-// WithNodeID sets the node ID
+// WithNodeID sets the node ID.
 func WithNodeID(id string) ConfigOption {
 	return func(c *Config) {
 		c.NodeID = id
 	}
 }
 
-// WithClusterID sets the cluster ID
+// WithClusterID sets the cluster ID.
 func WithClusterID(id string) ConfigOption {
 	return func(c *Config) {
 		c.ClusterID = id
 	}
 }
 
-// WithBindAddress sets the bind address and port
+// WithBindAddress sets the bind address and port.
 func WithBindAddress(addr string, port int) ConfigOption {
 	return func(c *Config) {
 		c.BindAddr = addr
@@ -480,42 +480,42 @@ func WithBindAddress(addr string, port int) ConfigOption {
 	}
 }
 
-// WithPeers sets the initial peer list
+// WithPeers sets the initial peer list.
 func WithPeers(peers []PeerConfig) ConfigOption {
 	return func(c *Config) {
 		c.Peers = peers
 	}
 }
 
-// WithTransportType sets the transport type
+// WithTransportType sets the transport type.
 func WithTransportType(transportType string) ConfigOption {
 	return func(c *Config) {
 		c.Transport.Type = transportType
 	}
 }
 
-// WithDiscoveryType sets the discovery type
+// WithDiscoveryType sets the discovery type.
 func WithDiscoveryType(discoveryType string) ConfigOption {
 	return func(c *Config) {
 		c.Discovery.Type = discoveryType
 	}
 }
 
-// WithStorageType sets the storage type
+// WithStorageType sets the storage type.
 func WithStorageType(storageType string) ConfigOption {
 	return func(c *Config) {
 		c.Storage.Type = storageType
 	}
 }
 
-// WithStoragePath sets the storage path
+// WithStoragePath sets the storage path.
 func WithStoragePath(path string) ConfigOption {
 	return func(c *Config) {
 		c.Storage.Path = path
 	}
 }
 
-// WithTLS enables TLS with the given cert and key files
+// WithTLS enables TLS with the given cert and key files.
 func WithTLS(certFile, keyFile string) ConfigOption {
 	return func(c *Config) {
 		c.Security.EnableTLS = true
@@ -524,7 +524,7 @@ func WithTLS(certFile, keyFile string) ConfigOption {
 	}
 }
 
-// WithMTLS enables mutual TLS with the given CA file
+// WithMTLS enables mutual TLS with the given CA file.
 func WithMTLS(caFile string) ConfigOption {
 	return func(c *Config) {
 		c.Security.EnableMTLS = true
@@ -532,14 +532,14 @@ func WithMTLS(caFile string) ConfigOption {
 	}
 }
 
-// WithConfig sets the entire config (for backward compatibility)
+// WithConfig sets the entire config (for backward compatibility).
 func WithConfig(cfg Config) ConfigOption {
 	return func(c *Config) {
 		*c = cfg
 	}
 }
 
-// WithRequireConfig sets whether config is required from ConfigManager
+// WithRequireConfig sets whether config is required from ConfigManager.
 func WithRequireConfig(require bool) ConfigOption {
 	return func(c *Config) {
 		c.RequireConfig = require

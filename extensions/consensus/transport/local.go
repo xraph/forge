@@ -8,9 +8,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// LocalTransport implements an in-memory transport for testing
+// LocalTransport implements an in-memory transport for testing.
 type LocalTransport struct {
 	id      string
 	address string
@@ -27,14 +28,14 @@ type LocalTransport struct {
 	mu      sync.RWMutex
 }
 
-// LocalTransportConfig contains configuration for local transport
+// LocalTransportConfig contains configuration for local transport.
 type LocalTransportConfig struct {
 	NodeID     string
 	Address    string
 	BufferSize int
 }
 
-// NewLocalTransport creates a new local transport
+// NewLocalTransport creates a new local transport.
 func NewLocalTransport(config LocalTransportConfig, logger forge.Logger) *LocalTransport {
 	if config.BufferSize == 0 {
 		config.BufferSize = 100
@@ -49,7 +50,7 @@ func NewLocalTransport(config LocalTransportConfig, logger forge.Logger) *LocalT
 	}
 }
 
-// Start starts the transport
+// Start starts the transport.
 func (t *LocalTransport) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -69,13 +70,16 @@ func (t *LocalTransport) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the transport
+// Stop stops the transport.
 func (t *LocalTransport) Stop(ctx context.Context) error {
 	t.mu.Lock()
+
 	if !t.started {
 		t.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	t.mu.Unlock()
 
 	if t.cancel != nil {
@@ -84,6 +88,7 @@ func (t *LocalTransport) Stop(ctx context.Context) error {
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		t.wg.Wait()
 		close(done)
@@ -99,8 +104,8 @@ func (t *LocalTransport) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Send sends a message to a peer
-func (t *LocalTransport) Send(ctx context.Context, target string, message interface{}) error {
+// Send sends a message to a peer.
+func (t *LocalTransport) Send(ctx context.Context, target string, message any) error {
 	t.peersMu.RLock()
 	peer, exists := t.peers[target]
 	t.peersMu.RUnlock()
@@ -111,7 +116,7 @@ func (t *LocalTransport) Send(ctx context.Context, target string, message interf
 
 	msg, ok := message.(internal.Message)
 	if !ok {
-		return fmt.Errorf("invalid message type")
+		return errors.New("invalid message type")
 	}
 
 	// Send to peer's inbox
@@ -125,12 +130,12 @@ func (t *LocalTransport) Send(ctx context.Context, target string, message interf
 	}
 }
 
-// Receive returns a channel for receiving messages
+// Receive returns a channel for receiving messages.
 func (t *LocalTransport) Receive() <-chan internal.Message {
 	return t.inbox
 }
 
-// AddPeer adds a peer to the transport
+// AddPeer adds a peer to the transport.
 func (t *LocalTransport) AddPeer(nodeID, address string, port int) error {
 	t.peersMu.Lock()
 	defer t.peersMu.Unlock()
@@ -148,7 +153,7 @@ func (t *LocalTransport) AddPeer(nodeID, address string, port int) error {
 	return nil
 }
 
-// RemovePeer removes a peer from the transport
+// RemovePeer removes a peer from the transport.
 func (t *LocalTransport) RemovePeer(nodeID string) error {
 	t.peersMu.Lock()
 	defer t.peersMu.Unlock()
@@ -163,13 +168,13 @@ func (t *LocalTransport) RemovePeer(nodeID string) error {
 	return nil
 }
 
-// GetAddress returns the local address
+// GetAddress returns the local address.
 func (t *LocalTransport) GetAddress() string {
 	return t.address
 }
 
 // Connect connects this transport to another local transport
-// This is used for testing to establish bidirectional communication
+// This is used for testing to establish bidirectional communication.
 func (t *LocalTransport) Connect(peer *LocalTransport) {
 	t.peersMu.Lock()
 	t.peers[peer.id] = peer
@@ -185,13 +190,15 @@ func (t *LocalTransport) Connect(peer *LocalTransport) {
 	)
 }
 
-// Disconnect disconnects this transport from a peer
+// Disconnect disconnects this transport from a peer.
 func (t *LocalTransport) Disconnect(peerID string) {
 	t.peersMu.Lock()
+
 	peer, exists := t.peers[peerID]
 	if exists {
 		delete(t.peers, peerID)
 	}
+
 	t.peersMu.Unlock()
 
 	if exists {
@@ -206,13 +213,15 @@ func (t *LocalTransport) Disconnect(peerID string) {
 	}
 }
 
-// DisconnectAll disconnects from all peers
+// DisconnectAll disconnects from all peers.
 func (t *LocalTransport) DisconnectAll() {
 	t.peersMu.Lock()
+
 	peers := make([]string, 0, len(t.peers))
 	for peerID := range t.peers {
 		peers = append(peers, peerID)
 	}
+
 	t.peersMu.Unlock()
 
 	for _, peerID := range peers {
@@ -220,7 +229,7 @@ func (t *LocalTransport) DisconnectAll() {
 	}
 }
 
-// GetPeers returns a list of connected peer IDs
+// GetPeers returns a list of connected peer IDs.
 func (t *LocalTransport) GetPeers() []string {
 	t.peersMu.RLock()
 	defer t.peersMu.RUnlock()
@@ -233,7 +242,7 @@ func (t *LocalTransport) GetPeers() []string {
 	return peers
 }
 
-// SetLatency sets artificial latency for testing
+// SetLatency sets artificial latency for testing.
 func (t *LocalTransport) SetLatency(latency time.Duration) {
 	// For local transport, latency is simulated by adding delays
 	// This is a placeholder implementation

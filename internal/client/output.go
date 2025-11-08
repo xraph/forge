@@ -9,15 +9,15 @@ import (
 	"github.com/xraph/forge/internal/client/generators"
 )
 
-// OutputManager handles writing generated client files to disk
+// OutputManager handles writing generated client files to disk.
 type OutputManager struct{}
 
-// NewOutputManager creates a new output manager
+// NewOutputManager creates a new output manager.
 func NewOutputManager() *OutputManager {
 	return &OutputManager{}
 }
 
-// WriteClient writes the generated client to disk
+// WriteClient writes the generated client to disk.
 func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDir string) error {
 	// Create output directory with restrictive permissions
 	if err := os.MkdirAll(outputDir, 0750); err != nil {
@@ -53,7 +53,7 @@ func (m *OutputManager) WriteClient(client *generators.GeneratedClient, outputDi
 	return nil
 }
 
-// GenerateREADME generates a README for the client
+// GenerateREADME generates a README for the client.
 func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, authDocs string) string {
 	var readme strings.Builder
 
@@ -90,24 +90,31 @@ func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, au
 	// Features
 	if config.Features.Reconnection || config.Features.Heartbeat || config.Features.StateManagement {
 		readme.WriteString("## Features\n\n")
+
 		if config.Features.Reconnection {
 			readme.WriteString("- ✓ Automatic reconnection with exponential backoff\n")
 		}
+
 		if config.Features.Heartbeat {
 			readme.WriteString("- ✓ Heartbeat/ping for connection health\n")
 		}
+
 		if config.Features.StateManagement {
 			readme.WriteString("- ✓ Connection state management\n")
 		}
+
 		if config.Features.TypedErrors {
 			readme.WriteString("- ✓ Typed error responses\n")
 		}
+
 		if config.Features.RequestRetry {
 			readme.WriteString("- ✓ Automatic request retry\n")
 		}
+
 		if config.Features.Timeout {
 			readme.WriteString("- ✓ Request timeout configuration\n")
 		}
+
 		readme.WriteString("\n")
 	}
 
@@ -120,19 +127,21 @@ func (m *OutputManager) GenerateREADME(config GeneratorConfig, spec *APISpec, au
 	return readme.String()
 }
 
-// generateInstallationInstructions generates installation instructions for the language
+// generateInstallationInstructions generates installation instructions for the language.
 func (m *OutputManager) generateInstallationInstructions(config GeneratorConfig) string {
 	switch config.Language {
 	case "go":
 		if config.Module != "" {
 			return fmt.Sprintf("```bash\ngo get %s\n```\n", config.Module)
 		}
+
 		return "```bash\n# Copy the generated files to your project\n```\n"
 
 	case "typescript":
 		if config.PackageName != "" {
 			return fmt.Sprintf("```bash\nnpm install %s\n# or\nyarn add %s\n```\n", config.PackageName, config.PackageName)
 		}
+
 		return "```bash\nnpm install\n```\n"
 
 	default:
@@ -140,7 +149,7 @@ func (m *OutputManager) generateInstallationInstructions(config GeneratorConfig)
 	}
 }
 
-// generateUsageExample generates a basic usage example
+// generateUsageExample generates a basic usage example.
 func (m *OutputManager) generateUsageExample(config GeneratorConfig, spec *APISpec) string {
 	switch config.Language {
 	case "go":
@@ -152,7 +161,7 @@ func (m *OutputManager) generateUsageExample(config GeneratorConfig, spec *APISp
 	}
 }
 
-// generateGoUsageExample generates a Go usage example
+// generateGoUsageExample generates a Go usage example.
 func (m *OutputManager) generateGoUsageExample(config GeneratorConfig, spec *APISpec) string {
 	var example strings.Builder
 
@@ -189,7 +198,7 @@ func (m *OutputManager) generateGoUsageExample(config GeneratorConfig, spec *API
 	return example.String()
 }
 
-// generateTypeScriptUsageExample generates a TypeScript usage example
+// generateTypeScriptUsageExample generates a TypeScript usage example.
 func (m *OutputManager) generateTypeScriptUsageExample(config GeneratorConfig, spec *APISpec) string {
 	var example strings.Builder
 
@@ -215,7 +224,7 @@ func (m *OutputManager) generateTypeScriptUsageExample(config GeneratorConfig, s
 	return example.String()
 }
 
-// generateAPIOverview generates an overview of the API
+// generateAPIOverview generates an overview of the API.
 func (m *OutputManager) generateAPIOverview(spec *APISpec) string {
 	var overview strings.Builder
 
@@ -242,11 +251,14 @@ func (m *OutputManager) generateAPIOverview(spec *APISpec) string {
 
 	if len(spec.Servers) > 0 {
 		overview.WriteString("\n### Servers\n\n")
+
 		for _, server := range spec.Servers {
 			overview.WriteString(fmt.Sprintf("- **%s**", server.URL))
+
 			if server.Description != "" {
-				overview.WriteString(fmt.Sprintf(": %s", server.Description))
+				overview.WriteString(": " + server.Description)
 			}
+
 			overview.WriteString("\n")
 		}
 	}
@@ -254,14 +266,15 @@ func (m *OutputManager) generateAPIOverview(spec *APISpec) string {
 	return overview.String()
 }
 
-// FormatCode formats generated code (basic formatting)
+// FormatCode formats generated code (basic formatting).
 func FormatCode(code string, language string) string {
 	// Basic formatting - in production, use language-specific formatters
 	// For Go: use gofmt
 	// For TypeScript: use prettier
-
 	lines := strings.Split(code, "\n")
+
 	var formatted []string
+
 	indent := 0
 
 	for _, line := range lines {
@@ -288,13 +301,14 @@ func FormatCode(code string, language string) string {
 	return strings.Join(formatted, "\n")
 }
 
-// EnsureDirectory ensures a directory exists
+// EnsureDirectory ensures a directory exists.
 func EnsureDirectory(path string) error {
 	return os.MkdirAll(path, 0755)
 }
 
-// FileExists checks if a file exists
+// FileExists checks if a file exists.
 func FileExists(path string) bool {
 	_, err := os.Stat(path)
+
 	return err == nil
 }

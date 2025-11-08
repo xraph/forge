@@ -4,22 +4,22 @@ import (
 	"github.com/xraph/forge/internal/config/core"
 )
 
-// ConfigSource represents a source of configuration data
+// ConfigSource represents a source of configuration data.
 type ConfigSource = core.ConfigSource
 
-// ConfigSourceOptions contains options for creating a configuration source
+// ConfigSourceOptions contains options for creating a configuration source.
 type ConfigSourceOptions = core.ConfigSourceOptions
 
-// ValidationOptions contains validation configuration
+// ValidationOptions contains validation configuration.
 type ValidationOptions = core.ValidationOptions
 
-// ValidationRule represents a custom validation rule
+// ValidationRule represents a custom validation rule.
 type ValidationRule = core.ValidationRule
 
-// SourceMetadata contains metadata about a configuration source
+// SourceMetadata contains metadata about a configuration source.
 type SourceMetadata = core.SourceMetadata
 
-// ChangeType represents the type of configuration change
+// ChangeType represents the type of configuration change.
 type ChangeType = core.ChangeType
 
 const (
@@ -29,26 +29,26 @@ const (
 	ChangeTypeReload ChangeType = core.ChangeTypeReload
 )
 
-// ConfigChange represents a configuration change event
+// ConfigChange represents a configuration change event.
 type ConfigChange = core.ConfigChange
 
-// ConfigSourceFactory creates configuration sources
+// ConfigSourceFactory creates configuration sources.
 type ConfigSourceFactory = core.ConfigSourceFactory
 
-// SourceConfig contains common configuration for all sources
+// SourceConfig contains common configuration for all sources.
 type SourceConfig = core.SourceConfig
 
-// ValidationConfig contains validation configuration for sources
+// ValidationConfig contains validation configuration for sources.
 type ValidationConfig = core.ValidationConfig
 
-// SourceRegistry manages registered configuration sources
+// SourceRegistry manages registered configuration sources.
 type SourceRegistry = core.SourceRegistry
 
-// SourceEvent represents an event from a configuration source
+// SourceEvent represents an event from a configuration source.
 type SourceEvent = core.SourceEvent
 
-// SourceEventHandler handles events from configuration sources
+// SourceEventHandler handles events from configuration sources.
 type SourceEventHandler = core.SourceEventHandler
 
-// WatchContext contains context for watching configuration changes
+// WatchContext contains context for watching configuration changes.
 type WatchContext = core.WatchContext

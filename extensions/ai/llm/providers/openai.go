@@ -7,14 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/llm"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// OpenAIProvider implements LLM provider for OpenAI
+// OpenAIProvider implements LLM provider for OpenAI.
 type OpenAIProvider struct {
 	name      string
 	apiKey    string
@@ -28,23 +30,23 @@ type OpenAIProvider struct {
 	rateLimit *RateLimiter
 }
 
-// OpenAIConfig contains configuration for OpenAI provider
+// OpenAIConfig contains configuration for OpenAI provider.
 type OpenAIConfig struct {
-	APIKey     string        `yaml:"api_key" env:"OPENAI_API_KEY"`
-	BaseURL    string        `yaml:"base_url" default:"https://api.openai.com/v1"`
-	OrgID      string        `yaml:"org_id" env:"OPENAI_ORG_ID"`
-	Timeout    time.Duration `yaml:"timeout" default:"30s"`
-	MaxRetries int           `yaml:"max_retries" default:"3"`
+	APIKey     string        `env:"OPENAI_API_KEY"                yaml:"api_key"`
+	BaseURL    string        `default:"https://api.openai.com/v1" yaml:"base_url"`
+	OrgID      string        `env:"OPENAI_ORG_ID"                 yaml:"org_id"`
+	Timeout    time.Duration `default:"30s"                       yaml:"timeout"`
+	MaxRetries int           `default:"3"                         yaml:"max_retries"`
 	RateLimit  *RateLimit    `yaml:"rate_limit"`
 }
 
-// RateLimit defines rate limiting configuration
+// RateLimit defines rate limiting configuration.
 type RateLimit struct {
-	RequestsPerMinute int `yaml:"requests_per_minute" default:"60"`
-	TokensPerMinute   int `yaml:"tokens_per_minute" default:"10000"`
+	RequestsPerMinute int `default:"60"    yaml:"requests_per_minute"`
+	TokensPerMinute   int `default:"10000" yaml:"tokens_per_minute"`
 }
 
-// RateLimiter handles rate limiting
+// RateLimiter handles rate limiting.
 type RateLimiter struct {
 	requestsPerMinute int
 	tokensPerMinute   int
@@ -52,13 +54,13 @@ type RateLimiter struct {
 	tokenUsage        []TokenUsage
 }
 
-// TokenUsage tracks token usage with timestamp
+// TokenUsage tracks token usage with timestamp.
 type TokenUsage struct {
 	tokens    int
 	timestamp time.Time
 }
 
-// OpenAI API structures
+// OpenAI API structures.
 type openAIRequest struct {
 	Model            string             `json:"model"`
 	Messages         []openAIMessage    `json:"messages,omitempty"`
@@ -74,8 +76,8 @@ type openAIRequest struct {
 	LogitBias        map[string]float64 `json:"logit_bias,omitempty"`
 	User             string             `json:"user,omitempty"`
 	Tools            []openAITool       `json:"tools,omitempty"`
-	ToolChoice       interface{}        `json:"tool_choice,omitempty"`
-	Input            interface{}        `json:"input,omitempty"`
+	ToolChoice       any                `json:"tool_choice,omitempty"`
+	Input            any                `json:"input,omitempty"`
 	EncodingFormat   string             `json:"encoding_format,omitempty"`
 	Dimensions       *int               `json:"dimensions,omitempty"`
 }
@@ -95,9 +97,9 @@ type openAITool struct {
 }
 
 type openAIFunctionDefinition struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description,omitempty"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
 }
 
 type openAIToolCall struct {
@@ -148,10 +150,10 @@ type openAIEmbedding struct {
 	Embedding []float64 `json:"embedding"`
 }
 
-// NewOpenAIProvider creates a new OpenAI provider
+// NewOpenAIProvider creates a new OpenAI provider.
 func NewOpenAIProvider(config OpenAIConfig, logger forge.Logger, metrics forge.Metrics) (*OpenAIProvider, error) {
 	if config.APIKey == "" {
-		return nil, fmt.Errorf("OpenAI API key is required")
+		return nil, errors.New("OpenAI API key is required")
 	}
 
 	if config.BaseURL == "" {
@@ -193,17 +195,17 @@ func NewOpenAIProvider(config OpenAIConfig, logger forge.Logger, metrics forge.M
 	}, nil
 }
 
-// Name returns the provider name
+// Name returns the provider name.
 func (p *OpenAIProvider) Name() string {
 	return p.name
 }
 
-// Models returns the available models
+// Models returns the available models.
 func (p *OpenAIProvider) Models() []string {
 	return p.models
 }
 
-// Chat performs a chat completion request
+// Chat performs a chat completion request.
 func (p *OpenAIProvider) Chat(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	if err := p.checkRateLimit(ctx, request.Model); err != nil {
 		return llm.ChatResponse{}, err
@@ -222,7 +224,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, request llm.ChatRequest) (llm
 	return p.convertChatResponse(response, request.RequestID)
 }
 
-// Complete performs a text completion request
+// Complete performs a text completion request.
 func (p *OpenAIProvider) Complete(ctx context.Context, request llm.CompletionRequest) (llm.CompletionResponse, error) {
 	if err := p.checkRateLimit(ctx, request.Model); err != nil {
 		return llm.CompletionResponse{}, err
@@ -241,7 +243,7 @@ func (p *OpenAIProvider) Complete(ctx context.Context, request llm.CompletionReq
 	return p.convertCompletionResponse(response, request.RequestID)
 }
 
-// Embed performs an embedding request
+// Embed performs an embedding request.
 func (p *OpenAIProvider) Embed(ctx context.Context, request llm.EmbeddingRequest) (llm.EmbeddingResponse, error) {
 	if err := p.checkRateLimit(ctx, request.Model); err != nil {
 		return llm.EmbeddingResponse{}, err
@@ -260,21 +262,22 @@ func (p *OpenAIProvider) Embed(ctx context.Context, request llm.EmbeddingRequest
 	return p.convertEmbeddingResponse(response, request.RequestID)
 }
 
-// GetUsage returns current usage statistics
+// GetUsage returns current usage statistics.
 func (p *OpenAIProvider) GetUsage() llm.LLMUsage {
 	return p.usage
 }
 
-// HealthCheck performs a health check
+// HealthCheck performs a health check.
 func (p *OpenAIProvider) HealthCheck(ctx context.Context) error {
 	// Simple health check - try to list models
 	req := &openAIRequest{}
 	_, err := p.makeRequest(ctx, "/models", req)
+
 	return err
 }
 
-// makeRequest makes an HTTP request to the OpenAI API
-func (p *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, payload interface{}) (*openAIResponse, error) {
+// makeRequest makes an HTTP request to the OpenAI API.
+func (p *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, payload any) (*openAIResponse, error) {
 	// Serialize payload
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
@@ -282,7 +285,7 @@ func (p *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, paylo
 	}
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -290,8 +293,9 @@ func (p *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, paylo
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
+
 	if p.orgID != "" {
-		req.Header.Set("OpenAI-Organization", p.orgID)
+		req.Header.Set("Openai-Organization", p.orgID)
 	}
 
 	// Make request
@@ -329,7 +333,7 @@ func (p *OpenAIProvider) makeRequest(ctx context.Context, endpoint string, paylo
 	return &response, nil
 }
 
-// convertChatRequest converts a chat request to OpenAI format
+// convertChatRequest converts a chat request to OpenAI format.
 func (p *OpenAIProvider) convertChatRequest(request llm.ChatRequest) *openAIRequest {
 	openAIReq := &openAIRequest{
 		Model:       request.Model,
@@ -402,7 +406,7 @@ func (p *OpenAIProvider) convertChatRequest(request llm.ChatRequest) *openAIRequ
 		if request.ToolChoice == "auto" || request.ToolChoice == "none" {
 			openAIReq.ToolChoice = request.ToolChoice
 		} else {
-			openAIReq.ToolChoice = map[string]interface{}{
+			openAIReq.ToolChoice = map[string]any{
 				"type": "function",
 				"function": map[string]string{
 					"name": request.ToolChoice,
@@ -414,7 +418,7 @@ func (p *OpenAIProvider) convertChatRequest(request llm.ChatRequest) *openAIRequ
 	return openAIReq
 }
 
-// convertCompletionRequest converts a completion request to OpenAI format
+// convertCompletionRequest converts a completion request to OpenAI format.
 func (p *OpenAIProvider) convertCompletionRequest(request llm.CompletionRequest) *openAIRequest {
 	return &openAIRequest{
 		Model:            request.Model,
@@ -431,7 +435,7 @@ func (p *OpenAIProvider) convertCompletionRequest(request llm.CompletionRequest)
 	}
 }
 
-// convertEmbeddingRequest converts an embedding request to OpenAI format
+// convertEmbeddingRequest converts an embedding request to OpenAI format.
 func (p *OpenAIProvider) convertEmbeddingRequest(request llm.EmbeddingRequest) *openAIRequest {
 	return &openAIRequest{
 		Model:          request.Model,
@@ -442,7 +446,7 @@ func (p *OpenAIProvider) convertEmbeddingRequest(request llm.EmbeddingRequest) *
 	}
 }
 
-// convertChatResponse converts OpenAI chat response to standard format
+// convertChatResponse converts OpenAI chat response to standard format.
 func (p *OpenAIProvider) convertChatResponse(response *openAIResponse, requestID string) (llm.ChatResponse, error) {
 	chatResponse := llm.ChatResponse{
 		ID:        response.ID,
@@ -517,7 +521,7 @@ func (p *OpenAIProvider) convertChatResponse(response *openAIResponse, requestID
 	return chatResponse, nil
 }
 
-// convertCompletionResponse converts OpenAI completion response to standard format
+// convertCompletionResponse converts OpenAI completion response to standard format.
 func (p *OpenAIProvider) convertCompletionResponse(response *openAIResponse, requestID string) (llm.CompletionResponse, error) {
 	completionResponse := llm.CompletionResponse{
 		ID:        response.ID,
@@ -559,7 +563,7 @@ func (p *OpenAIProvider) convertCompletionResponse(response *openAIResponse, req
 	return completionResponse, nil
 }
 
-// convertEmbeddingResponse converts OpenAI embedding response to standard format
+// convertEmbeddingResponse converts OpenAI embedding response to standard format.
 func (p *OpenAIProvider) convertEmbeddingResponse(response *openAIResponse, requestID string) (llm.EmbeddingResponse, error) {
 	embeddingResponse := llm.EmbeddingResponse{
 		Object:    response.Object,
@@ -590,7 +594,7 @@ func (p *OpenAIProvider) convertEmbeddingResponse(response *openAIResponse, requ
 	return embeddingResponse, nil
 }
 
-// checkRateLimit checks if the request is within rate limits
+// checkRateLimit checks if the request is within rate limits.
 func (p *OpenAIProvider) checkRateLimit(ctx context.Context, model string) error {
 	if p.rateLimit == nil {
 		return nil
@@ -603,7 +607,7 @@ func (p *OpenAIProvider) checkRateLimit(ctx context.Context, model string) error
 
 	// Check request rate limit
 	if len(p.rateLimit.requestTokens) >= p.rateLimit.requestsPerMinute {
-		return fmt.Errorf("rate limit exceeded: too many requests per minute")
+		return errors.New("rate limit exceeded: too many requests per minute")
 	}
 
 	// Add current request
@@ -612,72 +616,72 @@ func (p *OpenAIProvider) checkRateLimit(ctx context.Context, model string) error
 	return nil
 }
 
-// cleanupRateLimit removes old entries from rate limit tracking
+// cleanupRateLimit removes old entries from rate limit tracking.
 func (p *OpenAIProvider) cleanupRateLimit(now time.Time) {
 	cutoff := now.Add(-time.Minute)
 
 	// Clean up request tokens
 	var newRequestTokens []time.Time
+
 	for _, timestamp := range p.rateLimit.requestTokens {
 		if timestamp.After(cutoff) {
 			newRequestTokens = append(newRequestTokens, timestamp)
 		}
 	}
+
 	p.rateLimit.requestTokens = newRequestTokens
 
 	// Clean up token usage
 	var newTokenUsage []TokenUsage
+
 	for _, usage := range p.rateLimit.tokenUsage {
 		if usage.timestamp.After(cutoff) {
 			newTokenUsage = append(newTokenUsage, usage)
 		}
 	}
+
 	p.rateLimit.tokenUsage = newTokenUsage
 }
 
-// Stop stops the provider
+// Stop stops the provider.
 func (p *OpenAIProvider) Stop(ctx context.Context) error {
 	// Clean up resources if needed
 	return nil
 }
 
-// SetAPIKey updates the API key
+// SetAPIKey updates the API key.
 func (p *OpenAIProvider) SetAPIKey(apiKey string) {
 	p.apiKey = apiKey
 }
 
-// SetBaseURL updates the base URL
+// SetBaseURL updates the base URL.
 func (p *OpenAIProvider) SetBaseURL(baseURL string) {
 	p.baseURL = baseURL
 }
 
-// SetOrganization updates the organization ID
+// SetOrganization updates the organization ID.
 func (p *OpenAIProvider) SetOrganization(orgID string) {
 	p.orgID = orgID
 }
 
-// GetModels returns the list of available models
+// GetModels returns the list of available models.
 func (p *OpenAIProvider) GetModels() []string {
 	return p.models
 }
 
-// IsModelSupported checks if a model is supported
+// IsModelSupported checks if a model is supported.
 func (p *OpenAIProvider) IsModelSupported(model string) bool {
-	for _, supportedModel := range p.models {
-		if supportedModel == model {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(p.models, model)
 }
 
-// GetModelInfo returns information about a model
-func (p *OpenAIProvider) GetModelInfo(model string) (map[string]interface{}, error) {
+// GetModelInfo returns information about a model.
+func (p *OpenAIProvider) GetModelInfo(model string) (map[string]any, error) {
 	if !p.IsModelSupported(model) {
 		return nil, fmt.Errorf("model %s is not supported", model)
 	}
 
-	info := map[string]interface{}{
+	info := map[string]any{
 		"name":     model,
 		"provider": p.name,
 	}
@@ -685,12 +689,14 @@ func (p *OpenAIProvider) GetModelInfo(model string) (map[string]interface{}, err
 	// Add model-specific information
 	if strings.HasPrefix(model, "gpt-4") {
 		info["type"] = "chat"
+
 		info["max_tokens"] = 8192
 		if strings.Contains(model, "turbo") {
 			info["max_tokens"] = 4096
 		}
 	} else if strings.HasPrefix(model, "gpt-3.5") {
 		info["type"] = "chat"
+
 		info["max_tokens"] = 4096
 		if strings.Contains(model, "16k") {
 			info["max_tokens"] = 16384

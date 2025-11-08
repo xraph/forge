@@ -76,7 +76,7 @@ type TypingEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// Typing event types
+// Typing event types.
 const (
 	TypingEventStarted = "started"
 	TypingEventStopped = "stopped"

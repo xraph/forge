@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// MeilisearchSearch implements Search interface for Meilisearch
+// MeilisearchSearch implements Search interface for Meilisearch.
 type MeilisearchSearch struct {
 	config    Config
 	logger    forge.Logger
@@ -17,10 +17,10 @@ type MeilisearchSearch struct {
 	// client    *meilisearch.Client // TODO: Add when implementing
 }
 
-// NewMeilisearchSearch creates a new Meilisearch search instance
+// NewMeilisearchSearch creates a new Meilisearch search instance.
 func NewMeilisearchSearch(config Config, logger forge.Logger, metrics forge.Metrics) (*MeilisearchSearch, error) {
 	if config.URL == "" {
-		return nil, fmt.Errorf("meilisearch requires URL")
+		return nil, errors.New("meilisearch requires URL")
 	}
 
 	return &MeilisearchSearch{
@@ -30,7 +30,7 @@ func NewMeilisearchSearch(config Config, logger forge.Logger, metrics forge.Metr
 	}, nil
 }
 
-// Connect establishes connection to Meilisearch
+// Connect establishes connection to Meilisearch.
 func (s *MeilisearchSearch) Connect(ctx context.Context) error {
 	// TODO: Implement Meilisearch client connection
 	// Example:
@@ -39,22 +39,23 @@ func (s *MeilisearchSearch) Connect(ctx context.Context) error {
 	//     APIKey: s.config.APIKey,
 	// })
 	// s.client = client
-
 	s.connected = true
 	s.logger.Info("connected to meilisearch",
 		forge.F("url", s.config.URL),
 	)
+
 	return nil
 }
 
-// Disconnect closes the Meilisearch connection
+// Disconnect closes the Meilisearch connection.
 func (s *MeilisearchSearch) Disconnect(ctx context.Context) error {
 	s.connected = false
 	s.logger.Info("disconnected from meilisearch")
+
 	return nil
 }
 
-// Ping checks Meilisearch health
+// Ping checks Meilisearch health.
 func (s *MeilisearchSearch) Ping(ctx context.Context) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -64,27 +65,29 @@ func (s *MeilisearchSearch) Ping(ctx context.Context) error {
 	return nil
 }
 
-// CreateIndex creates a Meilisearch index
+// CreateIndex creates a Meilisearch index.
 func (s *MeilisearchSearch) CreateIndex(ctx context.Context, name string, schema IndexSchema) error {
 	if !s.connected {
 		return ErrNotConnected
 	}
 	// TODO: Convert schema to Meilisearch settings and create index
 	s.logger.Info("created meilisearch index", forge.F("index", name))
+
 	return nil
 }
 
-// DeleteIndex deletes a Meilisearch index
+// DeleteIndex deletes a Meilisearch index.
 func (s *MeilisearchSearch) DeleteIndex(ctx context.Context, name string) error {
 	if !s.connected {
 		return ErrNotConnected
 	}
 	// TODO: Implement index deletion
 	s.logger.Info("deleted meilisearch index", forge.F("index", name))
+
 	return nil
 }
 
-// ListIndexes lists all Meilisearch indexes
+// ListIndexes lists all Meilisearch indexes.
 func (s *MeilisearchSearch) ListIndexes(ctx context.Context) ([]string, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -93,7 +96,7 @@ func (s *MeilisearchSearch) ListIndexes(ctx context.Context) ([]string, error) {
 	return []string{}, nil
 }
 
-// GetIndexInfo returns Meilisearch index information
+// GetIndexInfo returns Meilisearch index information.
 func (s *MeilisearchSearch) GetIndexInfo(ctx context.Context, name string) (*IndexInfo, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -108,7 +111,7 @@ func (s *MeilisearchSearch) GetIndexInfo(ctx context.Context, name string) (*Ind
 	}, nil
 }
 
-// Index indexes a document in Meilisearch
+// Index indexes a document in Meilisearch.
 func (s *MeilisearchSearch) Index(ctx context.Context, index string, doc Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -117,7 +120,7 @@ func (s *MeilisearchSearch) Index(ctx context.Context, index string, doc Documen
 	return nil
 }
 
-// BulkIndex bulk indexes documents in Meilisearch
+// BulkIndex bulk indexes documents in Meilisearch.
 func (s *MeilisearchSearch) BulkIndex(ctx context.Context, index string, docs []Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -126,7 +129,7 @@ func (s *MeilisearchSearch) BulkIndex(ctx context.Context, index string, docs []
 	return nil
 }
 
-// Get retrieves a document from Meilisearch
+// Get retrieves a document from Meilisearch.
 func (s *MeilisearchSearch) Get(ctx context.Context, index string, id string) (*Document, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -135,7 +138,7 @@ func (s *MeilisearchSearch) Get(ctx context.Context, index string, id string) (*
 	return nil, ErrDocumentNotFound
 }
 
-// Delete deletes a document from Meilisearch
+// Delete deletes a document from Meilisearch.
 func (s *MeilisearchSearch) Delete(ctx context.Context, index string, id string) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -144,7 +147,7 @@ func (s *MeilisearchSearch) Delete(ctx context.Context, index string, id string)
 	return nil
 }
 
-// Update updates a document in Meilisearch
+// Update updates a document in Meilisearch.
 func (s *MeilisearchSearch) Update(ctx context.Context, index string, id string, doc Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -153,7 +156,7 @@ func (s *MeilisearchSearch) Update(ctx context.Context, index string, id string,
 	return nil
 }
 
-// Search performs a Meilisearch search
+// Search performs a Meilisearch search.
 func (s *MeilisearchSearch) Search(ctx context.Context, query SearchQuery) (*SearchResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -170,7 +173,7 @@ func (s *MeilisearchSearch) Search(ctx context.Context, query SearchQuery) (*Sea
 	}, nil
 }
 
-// Suggest returns Meilisearch suggestions
+// Suggest returns Meilisearch suggestions.
 func (s *MeilisearchSearch) Suggest(ctx context.Context, query SuggestQuery) (*SuggestResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -182,7 +185,7 @@ func (s *MeilisearchSearch) Suggest(ctx context.Context, query SuggestQuery) (*S
 	}, nil
 }
 
-// Autocomplete returns Meilisearch autocomplete results
+// Autocomplete returns Meilisearch autocomplete results.
 func (s *MeilisearchSearch) Autocomplete(ctx context.Context, query AutocompleteQuery) (*AutocompleteResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -194,7 +197,7 @@ func (s *MeilisearchSearch) Autocomplete(ctx context.Context, query Autocomplete
 	}, nil
 }
 
-// Stats returns Meilisearch statistics
+// Stats returns Meilisearch statistics.
 func (s *MeilisearchSearch) Stats(ctx context.Context) (*SearchStats, error) {
 	if !s.connected {
 		return nil, ErrNotConnected

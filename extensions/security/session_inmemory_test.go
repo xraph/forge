@@ -49,7 +49,7 @@ func TestInMemorySessionStore_GetNotFound(t *testing.T) {
 	store := NewInMemorySessionStore(log, met)
 
 	_, err := store.Get(ctx, "nonexistent")
-	if err != ErrSessionNotFound {
+	if !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("expected ErrSessionNotFound, got %v", err)
 	}
 }
@@ -75,7 +75,7 @@ func TestInMemorySessionStore_GetExpired(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	_, err = store.Get(ctx, session.ID)
-	if err != ErrSessionExpired {
+	if !errors.Is(err, ErrSessionExpired) {
 		t.Errorf("expected ErrSessionExpired, got %v", err)
 	}
 }
@@ -138,7 +138,7 @@ func TestInMemorySessionStore_Delete(t *testing.T) {
 
 	// Verify deletion
 	_, err = store.Get(ctx, session.ID)
-	if err != ErrSessionNotFound {
+	if !errors.Is(err, ErrSessionNotFound) {
 		t.Errorf("expected ErrSessionNotFound after delete, got %v", err)
 	}
 }
@@ -153,11 +153,13 @@ func TestInMemorySessionStore_DeleteByUserID(t *testing.T) {
 	// Create multiple sessions for the same user
 	userID := "user123"
 	sessions := make([]*Session, 3)
-	for i := 0; i < 3; i++ {
+
+	for i := range 3 {
 		session, err := NewSession(userID, 1*time.Hour)
 		if err != nil {
 			t.Fatalf("failed to create session %d: %v", i, err)
 		}
+
 		sessions[i] = session
 
 		if err := store.Create(ctx, session, 1*time.Hour); err != nil {
@@ -183,7 +185,7 @@ func TestInMemorySessionStore_DeleteByUserID(t *testing.T) {
 	// Verify user123 sessions are deleted
 	for i, session := range sessions {
 		_, err := store.Get(ctx, session.ID)
-		if err != ErrSessionNotFound {
+		if !errors.Is(err, ErrSessionNotFound) {
 			t.Errorf("expected session %d to be deleted, got error %v", i, err)
 		}
 	}
@@ -214,6 +216,7 @@ func TestInMemorySessionStore_Touch(t *testing.T) {
 
 	oldExpiry := session.ExpiresAt
 	oldLastAccessed := session.LastAccessedAt
+
 	time.Sleep(10 * time.Millisecond)
 
 	// Touch session
@@ -244,7 +247,7 @@ func TestInMemorySessionStore_Cleanup(t *testing.T) {
 	store := NewInMemorySessionStore(log, met)
 
 	// Create expired sessions
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		session, err := NewSession("user"+string(rune(i)), 1*time.Millisecond)
 		if err != nil {
 			t.Fatalf("failed to create session %d: %v", i, err)
@@ -303,7 +306,7 @@ func TestInMemorySessionStore_Count(t *testing.T) {
 	}
 
 	// Create sessions
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		session, err := NewSession("user"+string(rune(i)), 1*time.Hour)
 		if err != nil {
 			t.Fatalf("failed to create session %d: %v", i, err)

@@ -1,11 +1,11 @@
 package sources
 
-//nolint:gosec // G104: Error handler invocations are intentionally void
 // Environment source operations use error handlers without error returns.
 
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -18,26 +18,26 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// EnvSource represents an environment variable configuration source
+// EnvSource represents an environment variable configuration source.
 type EnvSource struct {
 	name          string
 	prefix        string
 	priority      int
 	separator     string
 	keyMapping    map[string]string
-	valueMapping  map[string]func(string) interface{}
+	valueMapping  map[string]func(string) any
 	watching      bool
 	lastEnv       map[string]string
 	watchTicker   *time.Ticker
 	watchStop     chan struct{}
-	watchCallback func(map[string]interface{})
+	watchCallback func(map[string]any)
 	mu            sync.RWMutex
 	logger        logger.Logger
 	errorHandler  shared.ErrorHandler
 	options       EnvSourceOptions
 }
 
-// EnvSourceOptions contains options for environment variable sources
+// EnvSourceOptions contains options for environment variable sources.
 type EnvSourceOptions struct {
 	Name           string
 	Prefix         string
@@ -51,35 +51,35 @@ type EnvSourceOptions struct {
 	KeyTransform   KeyTransformFunc
 	ValueTransform ValueTransformFunc
 	KeyMapping     map[string]string
-	ValueMapping   map[string]func(string) interface{}
+	ValueMapping   map[string]func(string) any
 	RequiredVars   []string
 	SecretVars     []string
 	Logger         logger.Logger
 	ErrorHandler   shared.ErrorHandler
 }
 
-// EnvSourceConfig contains configuration for creating environment variable sources
+// EnvSourceConfig contains configuration for creating environment variable sources.
 type EnvSourceConfig struct {
-	Prefix         string            `yaml:"prefix" json:"prefix"`
-	Priority       int               `yaml:"priority" json:"priority"`
-	Separator      string            `yaml:"separator" json:"separator"`
-	WatchEnabled   bool              `yaml:"watch_enabled" json:"watch_enabled"`
-	WatchInterval  time.Duration     `yaml:"watch_interval" json:"watch_interval"`
-	CaseSensitive  bool              `yaml:"case_sensitive" json:"case_sensitive"`
-	IgnoreEmpty    bool              `yaml:"ignore_empty" json:"ignore_empty"`
-	TypeConversion bool              `yaml:"type_conversion" json:"type_conversion"`
-	RequiredVars   []string          `yaml:"required_vars" json:"required_vars"`
-	SecretVars     []string          `yaml:"secret_vars" json:"secret_vars"`
-	KeyMapping     map[string]string `yaml:"key_mapping" json:"key_mapping"`
+	Prefix         string            `json:"prefix"          yaml:"prefix"`
+	Priority       int               `json:"priority"        yaml:"priority"`
+	Separator      string            `json:"separator"       yaml:"separator"`
+	WatchEnabled   bool              `json:"watch_enabled"   yaml:"watch_enabled"`
+	WatchInterval  time.Duration     `json:"watch_interval"  yaml:"watch_interval"`
+	CaseSensitive  bool              `json:"case_sensitive"  yaml:"case_sensitive"`
+	IgnoreEmpty    bool              `json:"ignore_empty"    yaml:"ignore_empty"`
+	TypeConversion bool              `json:"type_conversion" yaml:"type_conversion"`
+	RequiredVars   []string          `json:"required_vars"   yaml:"required_vars"`
+	SecretVars     []string          `json:"secret_vars"     yaml:"secret_vars"`
+	KeyMapping     map[string]string `json:"key_mapping"     yaml:"key_mapping"`
 }
 
-// KeyTransformFunc transforms environment variable keys
+// KeyTransformFunc transforms environment variable keys.
 type KeyTransformFunc func(string) string
 
-// ValueTransformFunc transforms environment variable values
-type ValueTransformFunc func(string, interface{}) interface{}
+// ValueTransformFunc transforms environment variable values.
+type ValueTransformFunc func(string, any) any
 
-// NewEnvSource creates a new environment variable configuration source
+// NewEnvSource creates a new environment variable configuration source.
 func NewEnvSource(prefix string, options EnvSourceOptions) (configcore.ConfigSource, error) {
 	if options.Separator == "" {
 		options.Separator = "_"
@@ -96,7 +96,7 @@ func NewEnvSource(prefix string, options EnvSourceOptions) (configcore.ConfigSou
 	name := options.Name
 	if name == "" {
 		if prefix != "" {
-			name = fmt.Sprintf("env:%s", prefix)
+			name = "env:" + prefix
 		} else {
 			name = "env"
 		}
@@ -122,7 +122,7 @@ func NewEnvSource(prefix string, options EnvSourceOptions) (configcore.ConfigSou
 
 	// Initialize value mapping if not provided
 	if source.valueMapping == nil {
-		source.valueMapping = make(map[string]func(string) interface{})
+		source.valueMapping = make(map[string]func(string) any)
 	}
 
 	// Set up default value transformations if type conversion is enabled
@@ -133,34 +133,34 @@ func NewEnvSource(prefix string, options EnvSourceOptions) (configcore.ConfigSou
 	return source, nil
 }
 
-// Name returns the source name
+// Name returns the source name.
 func (es *EnvSource) Name() string {
 	return es.name
 }
 
-// GetName returns the source name (alias for Name)
+// GetName returns the source name (alias for Name).
 func (es *EnvSource) GetName() string {
 	return es.name
 }
 
-// GetType returns the source type
+// GetType returns the source type.
 func (es *EnvSource) GetType() string {
 	return "environment"
 }
 
-// IsAvailable checks if the source is available
+// IsAvailable checks if the source is available.
 func (es *EnvSource) IsAvailable(ctx context.Context) bool {
 	// Environment variables are always available
 	return true
 }
 
-// Priority returns the source priority
+// Priority returns the source priority.
 func (es *EnvSource) Priority() int {
 	return es.priority
 }
 
-// Load loads configuration from environment variables
-func (es *EnvSource) Load(ctx context.Context) (map[string]interface{}, error) {
+// Load loads configuration from environment variables.
+func (es *EnvSource) Load(ctx context.Context) (map[string]any, error) {
 	if es.logger != nil {
 		es.logger.Debug("loading configuration from environment variables",
 			logger.String("prefix", es.prefix),
@@ -168,7 +168,7 @@ func (es *EnvSource) Load(ctx context.Context) (map[string]interface{}, error) {
 		)
 	}
 
-	config := make(map[string]interface{})
+	config := make(map[string]any)
 	envVars := os.Environ()
 
 	// Process each environment variable
@@ -221,8 +221,8 @@ func (es *EnvSource) Load(ctx context.Context) (map[string]interface{}, error) {
 	return config, nil
 }
 
-// Watch starts watching environment variables for changes
-func (es *EnvSource) Watch(ctx context.Context, callback func(map[string]interface{})) error {
+// Watch starts watching environment variables for changes.
+func (es *EnvSource) Watch(ctx context.Context, callback func(map[string]any)) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
 
@@ -252,7 +252,7 @@ func (es *EnvSource) Watch(ctx context.Context, callback func(map[string]interfa
 	return nil
 }
 
-// StopWatch stops watching environment variables
+// StopWatch stops watching environment variables.
 func (es *EnvSource) StopWatch() error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -283,7 +283,7 @@ func (es *EnvSource) StopWatch() error {
 	return nil
 }
 
-// Reload forces a reload of environment variables
+// Reload forces a reload of environment variables.
 func (es *EnvSource) Reload(ctx context.Context) error {
 	if es.logger != nil {
 		es.logger.Info("reloading environment variables",
@@ -293,28 +293,30 @@ func (es *EnvSource) Reload(ctx context.Context) error {
 
 	// Just load again - the environment state will be updated
 	_, err := es.Load(ctx)
+
 	return err
 }
 
-// IsWatchable returns true if environment watching is enabled
+// IsWatchable returns true if environment watching is enabled.
 func (es *EnvSource) IsWatchable() bool {
 	return es.options.WatchEnabled
 }
 
-// SupportsSecrets returns true if secret variables are configured
+// SupportsSecrets returns true if secret variables are configured.
 func (es *EnvSource) SupportsSecrets() bool {
 	return len(es.options.SecretVars) > 0
 }
 
-// GetSecret retrieves a secret environment variable
+// GetSecret retrieves a secret environment variable.
 func (es *EnvSource) GetSecret(ctx context.Context, key string) (string, error) {
 	// Check if the key is in the list of secret variables
 	for _, secretVar := range es.options.SecretVars {
 		if secretVar == key {
 			value := os.Getenv(key)
 			if value == "" {
-				return "", errors.ErrConfigError(fmt.Sprintf("secret environment variable not found: %s", key), nil)
+				return "", errors.ErrConfigError("secret environment variable not found: "+key, nil)
 			}
+
 			return value, nil
 		}
 	}
@@ -322,7 +324,7 @@ func (es *EnvSource) GetSecret(ctx context.Context, key string) (string, error) 
 	return "", errors.ErrConfigError(fmt.Sprintf("key %s is not configured as a secret variable", key), nil)
 }
 
-// matchesPrefix checks if an environment variable key matches our prefix
+// matchesPrefix checks if an environment variable key matches our prefix.
 func (es *EnvSource) matchesPrefix(key string) bool {
 	if es.prefix == "" {
 		return true // No prefix means all variables
@@ -335,7 +337,7 @@ func (es *EnvSource) matchesPrefix(key string) bool {
 	return strings.HasPrefix(strings.ToUpper(key), strings.ToUpper(es.prefix))
 }
 
-// transformKey transforms an environment variable key to a configuration key
+// transformKey transforms an environment variable key to a configuration key.
 func (es *EnvSource) transformKey(envKey string) string {
 	// Check for explicit key mapping first
 	if mappedKey, exists := es.keyMapping[envKey]; exists {
@@ -344,6 +346,7 @@ func (es *EnvSource) transformKey(envKey string) string {
 
 	// Remove prefix if present
 	key := envKey
+
 	if es.prefix != "" {
 		if es.options.CaseSensitive {
 			if strings.HasPrefix(key, es.prefix) {
@@ -351,6 +354,7 @@ func (es *EnvSource) transformKey(envKey string) string {
 			}
 		} else {
 			upperKey := strings.ToUpper(key)
+
 			upperPrefix := strings.ToUpper(es.prefix)
 			if strings.HasPrefix(upperKey, upperPrefix) {
 				key = key[len(es.prefix):]
@@ -374,8 +378,8 @@ func (es *EnvSource) transformKey(envKey string) string {
 	return key
 }
 
-// transformValue transforms an environment variable value
-func (es *EnvSource) transformValue(envKey, envValue string) interface{} {
+// transformValue transforms an environment variable value.
+func (es *EnvSource) transformValue(envKey, envValue string) any {
 	// Check for explicit value mapping first
 	if transform, exists := es.valueMapping[envKey]; exists {
 		return transform(envValue)
@@ -394,8 +398,8 @@ func (es *EnvSource) transformValue(envKey, envValue string) interface{} {
 	return envValue
 }
 
-// convertValue attempts to convert a string value to an appropriate type
-func (es *EnvSource) convertValue(value string) interface{} {
+// convertValue attempts to convert a string value to an appropriate type.
+func (es *EnvSource) convertValue(value string) any {
 	// Try boolean first
 	if boolVal, err := strconv.ParseBool(value); err == nil {
 		return boolVal
@@ -404,12 +408,15 @@ func (es *EnvSource) convertValue(value string) interface{} {
 	// Try integer
 	if intVal, err := strconv.ParseInt(value, 10, 64); err == nil {
 		// Return int if it fits, otherwise int64
-		const maxInt = int(^uint(0) >> 1)
-		const minInt = -maxInt - 1
+		const (
+			maxInt = int(^uint(0) >> 1)
+			minInt = -maxInt - 1
+		)
 
 		if intVal >= int64(minInt) && intVal <= int64(maxInt) {
 			return int(intVal)
 		}
+
 		return intVal
 	}
 
@@ -421,10 +428,12 @@ func (es *EnvSource) convertValue(value string) interface{} {
 	// Try comma-separated list
 	if strings.Contains(value, ",") {
 		parts := strings.Split(value, ",")
+
 		result := make([]string, len(parts))
 		for i, part := range parts {
 			result[i] = strings.TrimSpace(part)
 		}
+
 		return result
 	}
 
@@ -432,8 +441,8 @@ func (es *EnvSource) convertValue(value string) interface{} {
 	return value
 }
 
-// setNestedValue sets a nested configuration value using dot notation
-func (es *EnvSource) setNestedValue(config map[string]interface{}, key string, value interface{}) {
+// setNestedValue sets a nested configuration value using dot notation.
+func (es *EnvSource) setNestedValue(config map[string]any, key string, value any) {
 	keys := strings.Split(key, ".")
 	current := config
 
@@ -444,37 +453,38 @@ func (es *EnvSource) setNestedValue(config map[string]interface{}, key string, v
 		} else {
 			// Intermediate key - ensure map exists
 			if _, exists := current[k]; !exists {
-				current[k] = make(map[string]interface{})
+				current[k] = make(map[string]any)
 			}
 
-			if nextMap, ok := current[k].(map[string]interface{}); ok {
+			if nextMap, ok := current[k].(map[string]any); ok {
 				current = nextMap
 			} else {
 				// Type conflict - create new map
-				current[k] = make(map[string]interface{})
-				current = current[k].(map[string]interface{})
+				current[k] = make(map[string]any)
+				current = current[k].(map[string]any)
 			}
 		}
 	}
 }
 
-// checkRequiredVars checks that all required environment variables are present
-func (es *EnvSource) checkRequiredVars(config map[string]interface{}) error {
+// checkRequiredVars checks that all required environment variables are present.
+func (es *EnvSource) checkRequiredVars(config map[string]any) error {
 	for _, required := range es.options.RequiredVars {
 		if !es.hasNestedKey(config, required) {
-			return errors.ErrConfigError(fmt.Sprintf("required environment variable missing: %s", required), nil)
+			return errors.ErrConfigError("required environment variable missing: "+required, nil)
 		}
 	}
+
 	return nil
 }
 
-// hasNestedKey checks if a nested key exists in the configuration
-func (es *EnvSource) hasNestedKey(config map[string]interface{}, key string) bool {
+// hasNestedKey checks if a nested key exists in the configuration.
+func (es *EnvSource) hasNestedKey(config map[string]any, key string) bool {
 	keys := strings.Split(key, ".")
-	current := interface{}(config)
+	current := any(config)
 
 	for _, k := range keys {
-		if currentMap, ok := current.(map[string]interface{}); ok {
+		if currentMap, ok := current.(map[string]any); ok {
 			if value, exists := currentMap[k]; exists {
 				current = value
 			} else {
@@ -488,7 +498,7 @@ func (es *EnvSource) hasNestedKey(config map[string]interface{}, key string) boo
 	return true
 }
 
-// updateLastEnvState updates the last known environment state for change detection
+// updateLastEnvState updates the last known environment state for change detection.
 func (es *EnvSource) updateLastEnvState() {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -507,7 +517,7 @@ func (es *EnvSource) updateLastEnvState() {
 	}
 }
 
-// watchLoop is the main watching loop for environment variables
+// watchLoop is the main watching loop for environment variables.
 func (es *EnvSource) watchLoop(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -532,7 +542,7 @@ func (es *EnvSource) watchLoop(ctx context.Context) {
 	}
 }
 
-// checkForChanges checks for changes in environment variables
+// checkForChanges checks for changes in environment variables.
 func (es *EnvSource) checkForChanges(ctx context.Context) {
 	// Get current environment state
 	currentEnv := make(map[string]string)
@@ -550,10 +560,10 @@ func (es *EnvSource) checkForChanges(ctx context.Context) {
 
 	// Compare with last known state
 	es.mu.RLock()
+
 	lastEnv := make(map[string]string)
-	for k, v := range es.lastEnv {
-		lastEnv[k] = v
-	}
+	maps.Copy(lastEnv, es.lastEnv)
+
 	es.mu.RUnlock()
 
 	// Check for changes
@@ -563,6 +573,7 @@ func (es *EnvSource) checkForChanges(ctx context.Context) {
 	for key, value := range currentEnv {
 		if lastValue, exists := lastEnv[key]; !exists || lastValue != value {
 			hasChanges = true
+
 			break
 		}
 	}
@@ -572,6 +583,7 @@ func (es *EnvSource) checkForChanges(ctx context.Context) {
 		for key := range lastEnv {
 			if _, exists := currentEnv[key]; !exists {
 				hasChanges = true
+
 				break
 			}
 		}
@@ -595,7 +607,7 @@ func (es *EnvSource) checkForChanges(ctx context.Context) {
 	}
 }
 
-// handleWatchError handles errors during watching
+// handleWatchError handles errors during watching.
 func (es *EnvSource) handleWatchError(err error) {
 	if es.logger != nil {
 		es.logger.Error("environment variable watch error",
@@ -605,43 +617,47 @@ func (es *EnvSource) handleWatchError(err error) {
 	}
 
 	if es.errorHandler != nil {
-		es.errorHandler.HandleError(nil, errors.ErrConfigError(fmt.Sprintf("environment watch error for prefix %s", es.prefix), err))
+		es.errorHandler.HandleError(nil, errors.ErrConfigError("environment watch error for prefix "+es.prefix, err))
 	}
 }
 
-// setupDefaultValueTransforms sets up default value transformation functions
+// setupDefaultValueTransforms sets up default value transformation functions.
 func (es *EnvSource) setupDefaultValueTransforms() {
 	// Add common transformations for specific variable patterns
 
 	// Transform duration strings
-	es.addValueTransform("*TIMEOUT*", func(value string) interface{} {
+	es.addValueTransform("*TIMEOUT*", func(value string) any {
 		if duration, err := time.ParseDuration(value); err == nil {
 			return duration
 		}
+
 		return value
 	})
 
 	// Transform size strings (e.g., "1MB", "1GB")
-	es.addValueTransform("*SIZE*", func(value string) interface{} {
+	es.addValueTransform("*SIZE*", func(value string) any {
 		return es.parseSize(value)
 	})
 
 	// Transform URL lists
-	es.addValueTransform("*URLS*", func(value string) interface{} {
+	es.addValueTransform("*URLS*", func(value string) any {
 		if strings.Contains(value, ",") {
 			urls := strings.Split(value, ",")
+
 			result := make([]string, len(urls))
 			for i, url := range urls {
 				result[i] = strings.TrimSpace(url)
 			}
+
 			return result
 		}
+
 		return value
 	})
 }
 
-// addValueTransform adds a value transformation for keys matching a pattern
-func (es *EnvSource) addValueTransform(pattern string, transform func(string) interface{}) {
+// addValueTransform adds a value transformation for keys matching a pattern.
+func (es *EnvSource) addValueTransform(pattern string, transform func(string) any) {
 	// This is a simplified pattern matching - in production you might want regex
 	for envKey := range es.valueMapping {
 		if es.matchesPattern(envKey, pattern) {
@@ -650,7 +666,7 @@ func (es *EnvSource) addValueTransform(pattern string, transform func(string) in
 	}
 }
 
-// matchesPattern checks if a key matches a simple pattern (with * wildcards)
+// matchesPattern checks if a key matches a simple pattern (with * wildcards).
 func (es *EnvSource) matchesPattern(key, pattern string) bool {
 	if pattern == "*" {
 		return true
@@ -668,7 +684,7 @@ func (es *EnvSource) matchesPattern(key, pattern string) bool {
 }
 
 // parseSize parses size strings like "1MB", "1GB", etc.
-func (es *EnvSource) parseSize(value string) interface{} {
+func (es *EnvSource) parseSize(value string) any {
 	value = strings.ToUpper(strings.TrimSpace(value))
 
 	suffixes := map[string]int64{
@@ -680,8 +696,8 @@ func (es *EnvSource) parseSize(value string) interface{} {
 	}
 
 	for suffix, multiplier := range suffixes {
-		if strings.HasSuffix(value, suffix) {
-			numStr := strings.TrimSuffix(value, suffix)
+		if before, ok := strings.CutSuffix(value, suffix); ok {
+			numStr := before
 			if num, err := strconv.ParseInt(numStr, 10, 64); err == nil {
 				return num * multiplier
 			}
@@ -691,42 +707,42 @@ func (es *EnvSource) parseSize(value string) interface{} {
 	return value
 }
 
-// GetPrefix returns the environment variable prefix
+// GetPrefix returns the environment variable prefix.
 func (es *EnvSource) GetPrefix() string {
 	return es.prefix
 }
 
-// GetSeparator returns the key separator
+// GetSeparator returns the key separator.
 func (es *EnvSource) GetSeparator() string {
 	return es.separator
 }
 
-// IsWatching returns true if the source is watching for changes
+// IsWatching returns true if the source is watching for changes.
 func (es *EnvSource) IsWatching() bool {
 	es.mu.RLock()
 	defer es.mu.RUnlock()
+
 	return es.watching
 }
 
-// GetKeyMapping returns the key mapping configuration
+// GetKeyMapping returns the key mapping configuration.
 func (es *EnvSource) GetKeyMapping() map[string]string {
 	es.mu.RLock()
 	defer es.mu.RUnlock()
 
 	mapping := make(map[string]string)
-	for k, v := range es.keyMapping {
-		mapping[k] = v
-	}
+	maps.Copy(mapping, es.keyMapping)
+
 	return mapping
 }
 
-// EnvSourceFactory creates environment variable sources
+// EnvSourceFactory creates environment variable sources.
 type EnvSourceFactory struct {
 	logger       logger.Logger
 	errorHandler shared.ErrorHandler
 }
 
-// NewEnvSourceFactory creates a new environment variable source factory
+// NewEnvSourceFactory creates a new environment variable source factory.
 func NewEnvSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler) *EnvSourceFactory {
 	return &EnvSourceFactory{
 		logger:       logger,
@@ -734,10 +750,10 @@ func NewEnvSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler)
 	}
 }
 
-// CreateFromConfig creates an environment variable source from configuration
+// CreateFromConfig creates an environment variable source from configuration.
 func (factory *EnvSourceFactory) CreateFromConfig(config EnvSourceConfig) (configcore.ConfigSource, error) {
 	options := EnvSourceOptions{
-		Name:           fmt.Sprintf("env:%s", config.Prefix),
+		Name:           "env:" + config.Prefix,
 		Prefix:         config.Prefix,
 		Priority:       config.Priority,
 		Separator:      config.Separator,
@@ -756,7 +772,7 @@ func (factory *EnvSourceFactory) CreateFromConfig(config EnvSourceConfig) (confi
 	return NewEnvSource(config.Prefix, options)
 }
 
-// CreateWithDefaults creates an environment variable source with default settings
+// CreateWithDefaults creates an environment variable source with default settings.
 func (factory *EnvSourceFactory) CreateWithDefaults(prefix string) (configcore.ConfigSource, error) {
 	options := EnvSourceOptions{
 		Prefix:         prefix,

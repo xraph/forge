@@ -6,7 +6,7 @@ import "context"
 // Implementations store data in various backends (Consul, etcd, Kubernetes, Redis, etc.)
 type SchemaRegistry interface {
 	// Manifest operations
-	
+
 	// RegisterManifest registers a new schema manifest
 	RegisterManifest(ctx context.Context, manifest *SchemaManifest) error
 
@@ -24,21 +24,21 @@ type SchemaRegistry interface {
 	ListManifests(ctx context.Context, serviceName string) ([]*SchemaManifest, error)
 
 	// Schema operations
-	
+
 	// PublishSchema stores a schema in the registry
 	// path is the registry path (e.g., "/schemas/user-service/v1/openapi")
 	// schema is the schema content (typically map[string]interface{} or struct)
-	PublishSchema(ctx context.Context, path string, schema interface{}) error
+	PublishSchema(ctx context.Context, path string, schema any) error
 
 	// FetchSchema retrieves a schema from the registry
 	// Returns the schema as interface{} (must be type-asserted by caller)
-	FetchSchema(ctx context.Context, path string) (interface{}, error)
+	FetchSchema(ctx context.Context, path string) (any, error)
 
 	// DeleteSchema removes a schema from the registry
 	DeleteSchema(ctx context.Context, path string) error
 
 	// Watch operations
-	
+
 	// WatchManifests watches for manifest changes for a service
 	// onChange is called when a manifest is added, updated, or removed
 	// Returns an error if watch setup fails
@@ -50,7 +50,7 @@ type SchemaRegistry interface {
 	WatchSchemas(ctx context.Context, path string, onChange SchemaChangeHandler) error
 
 	// Lifecycle
-	
+
 	// Close closes the registry and cleans up resources
 	Close() error
 
@@ -58,13 +58,13 @@ type SchemaRegistry interface {
 	Health(ctx context.Context) error
 }
 
-// ManifestChangeHandler is called when a manifest changes
+// ManifestChangeHandler is called when a manifest changes.
 type ManifestChangeHandler func(event *ManifestEvent)
 
-// SchemaChangeHandler is called when a schema changes
+// SchemaChangeHandler is called when a schema changes.
 type SchemaChangeHandler func(event *SchemaEvent)
 
-// ManifestEvent represents a manifest change event
+// ManifestEvent represents a manifest change event.
 type ManifestEvent struct {
 	// Type of event (added, updated, removed)
 	Type EventType
@@ -76,7 +76,7 @@ type ManifestEvent struct {
 	Timestamp int64
 }
 
-// SchemaEvent represents a schema change event
+// SchemaEvent represents a schema change event.
 type SchemaEvent struct {
 	// Type of event (added, updated, removed)
 	Type EventType
@@ -85,32 +85,32 @@ type SchemaEvent struct {
 	Path string
 
 	// The schema content (nil for removed events)
-	Schema interface{}
+	Schema any
 
 	// Timestamp of the event (Unix timestamp)
 	Timestamp int64
 }
 
-// EventType represents the type of change event
+// EventType represents the type of change event.
 type EventType string
 
 const (
-	// EventTypeAdded indicates a resource was added
+	// EventTypeAdded indicates a resource was added.
 	EventTypeAdded EventType = "added"
 
-	// EventTypeUpdated indicates a resource was updated
+	// EventTypeUpdated indicates a resource was updated.
 	EventTypeUpdated EventType = "updated"
 
-	// EventTypeRemoved indicates a resource was removed
+	// EventTypeRemoved indicates a resource was removed.
 	EventTypeRemoved EventType = "removed"
 )
 
-// String returns the string representation of the event type
+// String returns the string representation of the event type.
 func (et EventType) String() string {
 	return string(et)
 }
 
-// RegistryConfig holds configuration for a schema registry
+// RegistryConfig holds configuration for a schema registry.
 type RegistryConfig struct {
 	// Backend type (consul, etcd, kubernetes, redis, memory)
 	Backend string
@@ -119,7 +119,7 @@ type RegistryConfig struct {
 	Namespace string
 
 	// Backend-specific configuration (varies by implementation)
-	BackendConfig map[string]interface{}
+	BackendConfig map[string]any
 
 	// Max schema size in bytes (default: 1MB)
 	MaxSchemaSize int64
@@ -131,25 +131,25 @@ type RegistryConfig struct {
 	TTL int64
 }
 
-// DefaultRegistryConfig returns default registry configuration
+// DefaultRegistryConfig returns default registry configuration.
 func DefaultRegistryConfig() RegistryConfig {
 	return RegistryConfig{
 		Backend:              "memory",
 		Namespace:            "farp",
-		BackendConfig:        make(map[string]interface{}),
-		MaxSchemaSize:        1024 * 1024,      // 1MB
-		CompressionThreshold: 100 * 1024,       // 100KB
-		TTL:                  0,                 // No expiry
+		BackendConfig:        make(map[string]any),
+		MaxSchemaSize:        1024 * 1024, // 1MB
+		CompressionThreshold: 100 * 1024,  // 100KB
+		TTL:                  0,           // No expiry
 	}
 }
 
-// SchemaCache provides caching for fetched schemas
+// SchemaCache provides caching for fetched schemas.
 type SchemaCache interface {
 	// Get retrieves a cached schema by hash
-	Get(hash string) (interface{}, bool)
+	Get(hash string) (any, bool)
 
 	// Set stores a schema in cache with its hash
-	Set(hash string, schema interface{}) error
+	Set(hash string, schema any) error
 
 	// Delete removes a schema from cache
 	Delete(hash string) error
@@ -161,7 +161,7 @@ type SchemaCache interface {
 	Size() int
 }
 
-// FetchOptions provides options for fetching schemas
+// FetchOptions provides options for fetching schemas.
 type FetchOptions struct {
 	// UseCache indicates whether to use cache
 	UseCache bool
@@ -176,7 +176,7 @@ type FetchOptions struct {
 	Timeout int64
 }
 
-// PublishOptions provides options for publishing schemas
+// PublishOptions provides options for publishing schemas.
 type PublishOptions struct {
 	// Compress indicates whether to compress the schema
 	Compress bool
@@ -187,4 +187,3 @@ type PublishOptions struct {
 	// OverwriteExisting allows overwriting existing schemas
 	OverwriteExisting bool
 }
-

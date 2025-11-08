@@ -76,10 +76,16 @@ func CreateStores(config BackendConfig) (
 		err = ErrUnsupportedBackend
 	}
 
-	return
+	return roomStore,
+		channelStore,
+		messageStore,
+		presenceStore,
+		typingStore,
+		distributed,
+		err
 }
 
-// Backend errors
+// Backend errors.
 var (
 	ErrBackendNotImplemented = streaming.ErrBackendNotConnected
 	ErrUnsupportedBackend    = streaming.ErrInvalidConfig

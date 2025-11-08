@@ -57,8 +57,10 @@ func TestCtx_ParamInt(t *testing.T) {
 			got, err := ctx.ParamInt(tt.paramName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParamInt() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf("ParamInt() = %v, want %v", got, tt.want)
 			}
@@ -103,8 +105,10 @@ func TestCtx_ParamInt64(t *testing.T) {
 			got, err := ctx.ParamInt64(tt.paramName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParamInt64() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf("ParamInt64() = %v, want %v", got, tt.want)
 			}
@@ -156,8 +160,10 @@ func TestCtx_ParamFloat64(t *testing.T) {
 			got, err := ctx.ParamFloat64(tt.paramName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParamFloat64() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf("ParamFloat64() = %v, want %v", got, tt.want)
 			}
@@ -223,8 +229,10 @@ func TestCtx_ParamBool(t *testing.T) {
 			got, err := ctx.ParamBool(tt.paramName)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ParamBool() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if got != tt.want {
 				t.Errorf("ParamBool() = %v, want %v", got, tt.want)
 			}
@@ -239,12 +247,14 @@ func TestCtx_ParamIntDefault(t *testing.T) {
 
 	// Test with valid value
 	ctx.setParam("id", "42")
+
 	if got := ctx.ParamIntDefault("id", 100); got != 42 {
 		t.Errorf("ParamIntDefault() = %v, want %v", got, 42)
 	}
 
 	// Test with invalid value (should return default)
 	ctx.setParam("invalid", "abc")
+
 	if got := ctx.ParamIntDefault("invalid", 100); got != 100 {
 		t.Errorf("ParamIntDefault() = %v, want %v", got, 100)
 	}
@@ -262,6 +272,7 @@ func TestCtx_ParamInt64Default(t *testing.T) {
 
 	// Test with valid value
 	ctx.setParam("id", "123456789012345")
+
 	if got := ctx.ParamInt64Default("id", 999); got != 123456789012345 {
 		t.Errorf("ParamInt64Default() = %v, want %v", got, 123456789012345)
 	}
@@ -279,6 +290,7 @@ func TestCtx_ParamFloat64Default(t *testing.T) {
 
 	// Test with valid value
 	ctx.setParam("price", "19.99")
+
 	if got := ctx.ParamFloat64Default("price", 0.0); got != 19.99 {
 		t.Errorf("ParamFloat64Default() = %v, want %v", got, 19.99)
 	}
@@ -296,6 +308,7 @@ func TestCtx_ParamBoolDefault(t *testing.T) {
 
 	// Test with valid value
 	ctx.setParam("enabled", "true")
+
 	if got := ctx.ParamBoolDefault("enabled", false); got != true {
 		t.Errorf("ParamBoolDefault() = %v, want %v", got, true)
 	}
@@ -305,4 +318,3 @@ func TestCtx_ParamBoolDefault(t *testing.T) {
 		t.Errorf("ParamBoolDefault() = %v, want %v", got, true)
 	}
 }
-

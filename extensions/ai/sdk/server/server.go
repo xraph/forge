@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/sdk"
 )
 
-// Server provides HTTP API endpoints for the SDK
+// Server provides HTTP API endpoints for the SDK.
 type Server struct {
 	llmManager sdk.LLMManager
 	logger     forge.Logger
@@ -29,7 +29,7 @@ type Server struct {
 	config ServerConfig
 }
 
-// ServerConfig configures the SDK API server
+// ServerConfig configures the SDK API server.
 type ServerConfig struct {
 	BasePath          string
 	EnableAuth        bool
@@ -42,7 +42,7 @@ type ServerConfig struct {
 	EnableHealthCheck bool
 }
 
-// DefaultServerConfig returns default configuration
+// DefaultServerConfig returns default configuration.
 func DefaultServerConfig() ServerConfig {
 	return ServerConfig{
 		BasePath:          "/api/ai/sdk",
@@ -56,7 +56,7 @@ func DefaultServerConfig() ServerConfig {
 	}
 }
 
-// NewServer creates a new SDK API server
+// NewServer creates a new SDK API server.
 func NewServer(llmManager sdk.LLMManager, logger forge.Logger, metrics forge.Metrics, config ServerConfig) *Server {
 	return &Server{
 		llmManager: llmManager,
@@ -66,31 +66,35 @@ func NewServer(llmManager sdk.LLMManager, logger forge.Logger, metrics forge.Met
 	}
 }
 
-// WithVectorStore adds vector store support
+// WithVectorStore adds vector store support.
 func (s *Server) WithVectorStore(store sdk.VectorStore) *Server {
 	s.vectorStore = store
+
 	return s
 }
 
-// WithStateStore adds state store support
+// WithStateStore adds state store support.
 func (s *Server) WithStateStore(store sdk.StateStore) *Server {
 	s.stateStore = store
+
 	return s
 }
 
-// WithCacheStore adds cache store support
+// WithCacheStore adds cache store support.
 func (s *Server) WithCacheStore(store sdk.CacheStore) *Server {
 	s.cacheStore = store
+
 	return s
 }
 
-// WithCostManager adds cost manager support
+// WithCostManager adds cost manager support.
 func (s *Server) WithCostManager(manager sdk.CostManager) *Server {
 	s.costManager = manager
+
 	return s
 }
 
-// MountRoutes mounts the SDK API routes to a Forge router
+// MountRoutes mounts the SDK API routes to a Forge router.
 func (s *Server) MountRoutes(router forge.Router) error {
 	s.router = router
 
@@ -201,7 +205,7 @@ func (s *Server) MountRoutes(router forge.Router) error {
 	return nil
 }
 
-// buildMiddleware creates middleware stack based on server configuration
+// buildMiddleware creates middleware stack based on server configuration.
 func (s *Server) buildMiddleware() []forge.Middleware {
 	middlewares := []forge.Middleware{}
 
@@ -237,8 +241,9 @@ func (s *Server) corsMiddleware(next forge.Handler) forge.Handler {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
+
 			return nil
 		}
 
@@ -250,7 +255,7 @@ func (s *Server) authMiddleware(next forge.Handler) forge.Handler {
 	return func(ctx forge.Context) error {
 		r := ctx.Request()
 
-		apiKey := r.Header.Get("X-API-Key")
+		apiKey := r.Header.Get("X-Api-Key")
 		if apiKey == "" {
 			apiKey = r.Header.Get("Authorization")
 			if len(apiKey) > 7 && apiKey[:7] == "Bearer " {
@@ -259,7 +264,7 @@ func (s *Server) authMiddleware(next forge.Handler) forge.Handler {
 		}
 
 		if s.config.APIKey != "" && apiKey != s.config.APIKey {
-			return ctx.Status(http.StatusUnauthorized).JSON(map[string]interface{}{
+			return ctx.Status(http.StatusUnauthorized).JSON(map[string]any{
 				"error":     "Invalid API key",
 				"status":    http.StatusUnauthorized,
 				"timestamp": time.Now().Format(time.RFC3339),
@@ -314,7 +319,7 @@ func (s *Server) metricsMiddleware(next forge.Handler) forge.Handler {
 // --- Handlers ---
 
 func (s *Server) handleHealth(ctx forge.Context) error {
-	return ctx.Status(http.StatusOK).JSON(map[string]interface{}{
+	return ctx.Status(http.StatusOK).JSON(map[string]any{
 		"status": "healthy",
 		"time":   time.Now().Format(time.RFC3339),
 	})
@@ -323,7 +328,7 @@ func (s *Server) handleHealth(ctx forge.Context) error {
 func (s *Server) handleGenerate(forgeCtx forge.Context) error {
 	var req GenerateRequest
 	if err := json.NewDecoder(forgeCtx.Request().Body).Decode(&req); err != nil {
-		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]any{
 			"error":     "Invalid request body",
 			"status":    http.StatusBadRequest,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -340,19 +345,22 @@ func (s *Server) handleGenerate(forgeCtx forge.Context) error {
 	if req.Model != "" {
 		builder.WithModel(req.Model)
 	}
+
 	if req.Temperature != nil {
 		builder.WithTemperature(*req.Temperature)
 	}
+
 	if req.MaxTokens != nil {
 		builder.WithMaxTokens(*req.MaxTokens)
 	}
+
 	if req.SystemPrompt != "" {
 		builder.WithSystemPrompt(req.SystemPrompt)
 	}
 
 	result, err := builder.Execute()
 	if err != nil {
-		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]any{
 			"error":     err.Error(),
 			"status":    http.StatusInternalServerError,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -368,7 +376,7 @@ func (s *Server) handleGenerate(forgeCtx forge.Context) error {
 func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 	var req GenerateRequest
 	if err := json.NewDecoder(forgeCtx.Request().Body).Decode(&req); err != nil {
-		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]any{
 			"error":     "Invalid request body",
 			"status":    http.StatusBadRequest,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -387,7 +395,7 @@ func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]any{
 			"error":     "Streaming not supported",
 			"status":    http.StatusInternalServerError,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -411,11 +419,12 @@ func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 	if err != nil {
 		fmt.Fprintf(w, "event: error\ndata: %s\n\n", err.Error())
 		flusher.Flush()
+
 		return nil
 	}
 
 	// Send final result
-	finalData, _ := json.Marshal(map[string]interface{}{
+	finalData, _ := json.Marshal(map[string]any{
 		"content": result.Content,
 		"usage":   result.Usage,
 	})
@@ -428,7 +437,7 @@ func (s *Server) handleGenerateStream(forgeCtx forge.Context) error {
 func (s *Server) handleGenerateObject(forgeCtx forge.Context) error {
 	var req GenerateObjectRequest
 	if err := json.NewDecoder(forgeCtx.Request().Body).Decode(&req); err != nil {
-		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]any{
 			"error":     "Invalid request body",
 			"status":    http.StatusBadRequest,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -436,7 +445,7 @@ func (s *Server) handleGenerateObject(forgeCtx forge.Context) error {
 	}
 
 	// For simplicity, return the schema - in production, you'd use reflection
-	return forgeCtx.Status(http.StatusOK).JSON(map[string]interface{}{
+	return forgeCtx.Status(http.StatusOK).JSON(map[string]any{
 		"message": "Structured output generation",
 		"schema":  req.Schema,
 	})
@@ -447,7 +456,7 @@ func (s *Server) handleMultiModal(forgeCtx forge.Context) error {
 
 	// Parse multipart form
 	if err := r.ParseMultipartForm(32 << 20); err != nil { // 32 MB max
-		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]any{
 			"error":     "Failed to parse form",
 			"status":    http.StatusBadRequest,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -456,7 +465,7 @@ func (s *Server) handleMultiModal(forgeCtx forge.Context) error {
 
 	prompt := r.FormValue("prompt")
 	if prompt == "" {
-		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusBadRequest).JSON(map[string]any{
 			"error":     "Prompt is required",
 			"status":    http.StatusBadRequest,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -504,14 +513,14 @@ func (s *Server) handleMultiModal(forgeCtx forge.Context) error {
 
 	result, err := builder.Execute()
 	if err != nil {
-		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusInternalServerError).JSON(map[string]any{
 			"error":     err.Error(),
 			"status":    http.StatusInternalServerError,
 			"timestamp": time.Now().Format(time.RFC3339),
 		})
 	}
 
-	return forgeCtx.Status(http.StatusOK).JSON(map[string]interface{}{
+	return forgeCtx.Status(http.StatusOK).JSON(map[string]any{
 		"text":  result.Text,
 		"usage": result.Usage,
 	})
@@ -537,6 +546,7 @@ func (s *Server) handleGetAgentState(ctx forge.Context) error {
 
 func (s *Server) handleDeleteAgent(ctx forge.Context) error {
 	ctx.Response().WriteHeader(http.StatusNoContent)
+
 	return nil
 }
 
@@ -554,7 +564,7 @@ func (s *Server) handleRAGQuery(ctx forge.Context) error {
 
 func (s *Server) handleCostInsights(ctx forge.Context) error {
 	if s.costManager == nil {
-		return ctx.Status(http.StatusNotImplemented).JSON(map[string]interface{}{
+		return ctx.Status(http.StatusNotImplemented).JSON(map[string]any{
 			"error":     "Cost manager not configured",
 			"status":    http.StatusNotImplemented,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -562,12 +572,13 @@ func (s *Server) handleCostInsights(ctx forge.Context) error {
 	}
 
 	insights := s.costManager.GetInsights()
+
 	return ctx.Status(http.StatusOK).JSON(insights)
 }
 
 func (s *Server) handleCheckBudget(forgeCtx forge.Context) error {
 	if s.costManager == nil {
-		return forgeCtx.Status(http.StatusNotImplemented).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusNotImplemented).JSON(map[string]any{
 			"error":     "Cost manager not configured",
 			"status":    http.StatusNotImplemented,
 			"timestamp": time.Now().Format(time.RFC3339),
@@ -576,13 +587,13 @@ func (s *Server) handleCheckBudget(forgeCtx forge.Context) error {
 
 	err := s.costManager.CheckBudget(forgeCtx.Context())
 	if err != nil {
-		return forgeCtx.Status(http.StatusOK).JSON(map[string]interface{}{
+		return forgeCtx.Status(http.StatusOK).JSON(map[string]any{
 			"within_budget": false,
 			"error":         err.Error(),
 		})
 	}
 
-	return forgeCtx.Status(http.StatusOK).JSON(map[string]interface{}{
+	return forgeCtx.Status(http.StatusOK).JSON(map[string]any{
 		"within_budget": true,
 	})
 }
@@ -595,7 +606,7 @@ func (s *Server) handleMetrics(ctx forge.Context) error {
 
 // --- Request/Response Types ---
 
-// GenerateRequest represents a generation request
+// GenerateRequest represents a generation request.
 type GenerateRequest struct {
 	Prompt       string   `json:"prompt"`
 	Model        string   `json:"model,omitempty"`
@@ -604,17 +615,17 @@ type GenerateRequest struct {
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 }
 
-// GenerateResponse represents a generation response
+// GenerateResponse represents a generation response.
 type GenerateResponse struct {
 	Content string     `json:"content"`
 	Usage   *sdk.Usage `json:"usage,omitempty"`
 }
 
-// GenerateObjectRequest represents a structured generation request
+// GenerateObjectRequest represents a structured generation request.
 type GenerateObjectRequest struct {
-	Prompt string                 `json:"prompt"`
-	Schema map[string]interface{} `json:"schema"`
-	Model  string                 `json:"model,omitempty"`
+	Prompt string         `json:"prompt"`
+	Schema map[string]any `json:"schema"`
+	Model  string         `json:"model,omitempty"`
 }
 
 // --- Helper Methods ---

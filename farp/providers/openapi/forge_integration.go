@@ -3,37 +3,39 @@ package openapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge/farp"
 )
 
-// OpenAPISpecProvider is an interface for types that can provide an OpenAPI spec
+// OpenAPISpecProvider is an interface for types that can provide an OpenAPI spec.
 type OpenAPISpecProvider interface {
-	OpenAPISpec() interface{}
+	OpenAPISpec() any
 }
 
 // ForgeProvider is a Forge-specific OpenAPI provider that generates schemas
-// from Forge's built-in OpenAPI generator
+// from Forge's built-in OpenAPI generator.
 type ForgeProvider struct {
 	*Provider
 }
 
-// NewForgeProvider creates a new Forge-integrated OpenAPI provider
+// NewForgeProvider creates a new Forge-integrated OpenAPI provider.
 func NewForgeProvider(specVersion string, endpoint string) *ForgeProvider {
 	return &ForgeProvider{
 		Provider: NewProvider(specVersion, endpoint),
 	}
 }
 
-// Generate generates OpenAPI schema from Forge application
-func (p *ForgeProvider) Generate(ctx context.Context, app farp.Application) (interface{}, error) {
+// Generate generates OpenAPI schema from Forge application.
+func (p *ForgeProvider) Generate(ctx context.Context, app farp.Application) (any, error) {
 	// Try to get OpenAPI spec provider interface
 	if provider, ok := app.(OpenAPISpecProvider); ok {
 		spec := provider.OpenAPISpec()
 		if spec == nil {
-			return nil, fmt.Errorf("OpenAPI spec not available (ensure OpenAPI is enabled in router)")
+			return nil, errors.New("OpenAPI spec not available (ensure OpenAPI is enabled in router)")
 		}
+
 		return spec, nil
 	}
 
@@ -42,31 +44,32 @@ func (p *ForgeProvider) Generate(ctx context.Context, app farp.Application) (int
 }
 
 // GenerateFromRouter generates OpenAPI schema directly from any type that provides OpenAPI specs
-// This is a convenience method for direct router access
-func (p *ForgeProvider) GenerateFromRouter(provider interface{}) (interface{}, error) {
+// This is a convenience method for direct router access.
+func (p *ForgeProvider) GenerateFromRouter(provider any) (any, error) {
 	if provider == nil {
-		return nil, fmt.Errorf("provider is nil")
+		return nil, errors.New("provider is nil")
 	}
 
 	// Use type assertion to get the spec
 	// This works with any type that has an OpenAPISpec() method
 	type hasOpenAPISpec interface {
-		OpenAPISpec() interface{}
+		OpenAPISpec() any
 	}
 
 	if specProvider, ok := provider.(hasOpenAPISpec); ok {
 		spec := specProvider.OpenAPISpec()
 		if spec == nil {
-			return nil, fmt.Errorf("OpenAPI spec not available")
+			return nil, errors.New("OpenAPI spec not available")
 		}
+
 		return spec, nil
 	}
 
-	return nil, fmt.Errorf("provider does not implement OpenAPISpec() method")
+	return nil, errors.New("provider does not implement OpenAPISpec() method")
 }
 
-// Validate validates an OpenAPI schema generated from Forge
-func (p *ForgeProvider) Validate(schema interface{}) error {
+// Validate validates an OpenAPI schema generated from Forge.
+func (p *ForgeProvider) Validate(schema any) error {
 	// Validate that it has the minimum required structure
 	if schema == nil {
 		return fmt.Errorf("%w: schema is nil", farp.ErrInvalidSchema)
@@ -75,13 +78,13 @@ func (p *ForgeProvider) Validate(schema interface{}) error {
 	// Try to marshal to JSON to ensure it's serializable
 	data, err := json.Marshal(schema)
 	if err != nil {
-		return fmt.Errorf("%w: schema is not JSON-serializable: %v", farp.ErrInvalidSchema, err)
+		return fmt.Errorf("%w: schema is not JSON-serializable: %w", farp.ErrInvalidSchema, err)
 	}
 
 	// Try to unmarshal to map to check structure
-	var schemaMap map[string]interface{}
+	var schemaMap map[string]any
 	if err := json.Unmarshal(data, &schemaMap); err != nil {
-		return fmt.Errorf("%w: schema is not a valid JSON object: %v", farp.ErrInvalidSchema, err)
+		return fmt.Errorf("%w: schema is not a valid JSON object: %w", farp.ErrInvalidSchema, err)
 	}
 
 	// Check for required OpenAPI fields
@@ -101,8 +104,8 @@ func (p *ForgeProvider) Validate(schema interface{}) error {
 }
 
 // CreateForgeDescriptor creates a schema descriptor from a Forge router
-// This is a helper method to simplify descriptor creation
-func CreateForgeDescriptor(router interface{}, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
+// This is a helper method to simplify descriptor creation.
+func CreateForgeDescriptor(router any, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
 	provider := NewForgeProvider("3.1.0", "/openapi.json")
 
 	// Generate schema from router
@@ -137,9 +140,11 @@ func CreateForgeDescriptor(router interface{}, locationType farp.LocationType, l
 	case farp.LocationTypeHTTP:
 		url := locationConfig["url"]
 		if url == "" {
-			return nil, fmt.Errorf("url required for HTTP location")
+			return nil, errors.New("url required for HTTP location")
 		}
+
 		location.URL = url
+
 		if headers := locationConfig["headers"]; headers != "" {
 			var headersMap map[string]string
 			if err := json.Unmarshal([]byte(headers), &headersMap); err == nil {
@@ -150,8 +155,9 @@ func CreateForgeDescriptor(router interface{}, locationType farp.LocationType, l
 	case farp.LocationTypeRegistry:
 		registryPath := locationConfig["registry_path"]
 		if registryPath == "" {
-			return nil, fmt.Errorf("registry_path required for registry location")
+			return nil, errors.New("registry_path required for registry location")
 		}
+
 		location.RegistryPath = registryPath
 
 	case farp.LocationTypeInline:
@@ -174,4 +180,3 @@ func CreateForgeDescriptor(router interface{}, locationType farp.LocationType, l
 
 	return descriptor, nil
 }
-

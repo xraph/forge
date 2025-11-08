@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,7 +11,7 @@ import (
 )
 
 // LoadForgeConfig searches for .forge.yaml up the directory tree and loads it
-// Returns the config, the path where it was found, and any error
+// Returns the config, the path where it was found, and any error.
 func LoadForgeConfig() (*ForgeConfig, string, error) {
 	// Start from current directory
 	dir, err := os.Getwd()
@@ -25,6 +26,7 @@ func LoadForgeConfig() (*ForgeConfig, string, error) {
 		if config, err := tryLoadConfig(configPath); err == nil {
 			config.RootDir = dir
 			config.ConfigPath = configPath
+
 			return config, configPath, nil
 		}
 
@@ -33,6 +35,7 @@ func LoadForgeConfig() (*ForgeConfig, string, error) {
 		if config, err := tryLoadConfig(configPath); err == nil {
 			config.RootDir = dir
 			config.ConfigPath = configPath
+
 			return config, configPath, nil
 		}
 
@@ -40,13 +43,14 @@ func LoadForgeConfig() (*ForgeConfig, string, error) {
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			// Reached root without finding config
-			return nil, "", fmt.Errorf("no .forge.yaml or .forge.yml found in current directory or any parent")
+			return nil, "", errors.New("no .forge.yaml or .forge.yml found in current directory or any parent")
 		}
+
 		dir = parent
 	}
 }
 
-// tryLoadConfig attempts to load config from a specific path
+// tryLoadConfig attempts to load config from a specific path.
 func tryLoadConfig(path string) (*ForgeConfig, error) {
 	// Check if file exists
 	if _, err := os.Stat(path); err != nil {
@@ -68,7 +72,7 @@ func tryLoadConfig(path string) (*ForgeConfig, error) {
 	return config, nil
 }
 
-// SaveForgeConfig saves the configuration to a file
+// SaveForgeConfig saves the configuration to a file.
 func SaveForgeConfig(config *ForgeConfig, path string) error {
 	// Marshal to YAML
 	data, err := yaml.Marshal(config)
@@ -84,7 +88,7 @@ func SaveForgeConfig(config *ForgeConfig, path string) error {
 	return nil
 }
 
-// CreateForgeConfig creates a new .forge.yaml file with default or provided config
+// CreateForgeConfig creates a new .forge.yaml file with default or provided config.
 func CreateForgeConfig(path string, config *ForgeConfig) error {
 	// Use default if config is nil
 	if config == nil {
@@ -99,24 +103,24 @@ func CreateForgeConfig(path string, config *ForgeConfig) error {
 	return SaveForgeConfig(config, path)
 }
 
-// ValidateConfig validates the configuration
+// ValidateConfig validates the configuration.
 func ValidateConfig(config *ForgeConfig) error {
 	if config.Project.Name == "" {
-		return fmt.Errorf("project.name is required")
+		return errors.New("project.name is required")
 	}
 
 	if config.Project.Layout != "" &&
 		config.Project.Layout != "single-module" &&
 		config.Project.Layout != "multi-module" {
-		return fmt.Errorf("project.layout must be 'single-module' or 'multi-module'")
+		return errors.New("project.layout must be 'single-module' or 'multi-module'")
 	}
 
 	if config.IsSingleModule() && config.Project.Module == "" {
-		return fmt.Errorf("project.module is required for single-module layout")
+		return errors.New("project.module is required for single-module layout")
 	}
 
 	if config.IsMultiModule() && !config.Project.Workspace.Enabled {
-		return fmt.Errorf("project.workspace.enabled must be true for multi-module layout")
+		return errors.New("project.workspace.enabled must be true for multi-module layout")
 	}
 
 	return nil

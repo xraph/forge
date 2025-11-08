@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// registerBuiltinChecks registers built-in health checks
+// registerBuiltinChecks registers built-in health checks.
 func (hc *ManagerImpl) registerBuiltinChecks() error {
 	// Register basic system health checks
 	if err := hc.registerSystemChecks(); err != nil {
@@ -25,7 +25,7 @@ func (hc *ManagerImpl) registerBuiltinChecks() error {
 	return nil
 }
 
-// registerSystemChecks registers basic system health checks
+// registerSystemChecks registers basic system health checks.
 func (hc *ManagerImpl) registerSystemChecks() error {
 	// Memory check
 	memoryCheck := NewSimpleHealthCheck(&HealthCheckConfig{
@@ -72,12 +72,12 @@ func (hc *ManagerImpl) registerSystemChecks() error {
 	return nil
 }
 
-// registerServiceChecks registers health checks for framework services
+// registerServiceChecks registers health checks for framework services.
 func (hc *ManagerImpl) registerServiceChecks() error {
 	hc.mu.RLock()
 	container := hc.container
 	hc.mu.RUnlock()
-	
+
 	if container == nil {
 		return nil
 	}
@@ -93,9 +93,11 @@ func (hc *ManagerImpl) registerServiceChecks() error {
 
 		// Check if service is marked as critical
 		critical := false
+
 		for _, criticalService := range hc.config.CriticalServices {
 			if criticalService == serviceName {
 				critical = true
+
 				break
 			}
 		}
@@ -120,6 +122,7 @@ func (hc *ManagerImpl) registerServiceChecks() error {
 					logger.Error(err),
 				)
 			}
+
 			continue
 		}
 
@@ -134,18 +137,18 @@ func (hc *ManagerImpl) registerServiceChecks() error {
 	return nil
 }
 
-// checkServiceHealth checks the health of a specific service
+// checkServiceHealth checks the health of a specific service.
 func (hc *ManagerImpl) checkServiceHealth(ctx context.Context, serviceName string) *HealthResult {
 	// Try to resolve the service from the container
 	hc.mu.RLock()
 	container := hc.container
 	hc.mu.RUnlock()
-	
+
 	if container == nil {
 		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "container not available").
 			WithDetail("service_name", serviceName)
 	}
-	
+
 	service, err := container.Resolve(serviceName)
 	if err != nil {
 		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "failed to resolve service").
@@ -166,7 +169,7 @@ func (hc *ManagerImpl) checkServiceHealth(ctx context.Context, serviceName strin
 		WithDetail("service_name", serviceName)
 }
 
-// registerEndpoints registers health endpoints with the router
+// registerEndpoints registers health endpoints with the router.
 func (hc *ManagerImpl) registerEndpoints() error {
 	// This would typically register endpoints with the router
 	// For now, we'll just log that endpoints would be registered

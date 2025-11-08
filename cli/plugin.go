@@ -1,6 +1,6 @@
 package cli
 
-// Plugin represents a CLI plugin that can provide commands
+// Plugin represents a CLI plugin that can provide commands.
 type Plugin interface {
 	// Name returns the unique name of the plugin
 	Name() string
@@ -22,7 +22,7 @@ type Plugin interface {
 	Initialize() error
 }
 
-// PluginMetadata contains information about a registered plugin
+// PluginMetadata contains information about a registered plugin.
 type PluginMetadata struct {
 	Name         string
 	Version      string

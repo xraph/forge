@@ -9,58 +9,59 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// MemoryTier represents the tier of memory
+// MemoryTier represents the tier of memory.
 type MemoryTier string
 
 const (
-	// MemoryTierWorking is immediate, volatile memory (limited capacity)
+	// MemoryTierWorking is immediate, volatile memory (limited capacity).
 	MemoryTierWorking MemoryTier = "working"
-	// MemoryTierShortTerm is recent memory (hours to days, medium capacity)
+	// MemoryTierShortTerm is recent memory (hours to days, medium capacity).
 	MemoryTierShortTerm MemoryTier = "short_term"
-	// MemoryTierLongTerm is persistent memory (permanent, unlimited capacity)
+	// MemoryTierLongTerm is persistent memory (permanent, unlimited capacity).
 	MemoryTierLongTerm MemoryTier = "long_term"
-	// MemoryTierEpisodic is event-based memory (specific experiences)
+	// MemoryTierEpisodic is event-based memory (specific experiences).
 	MemoryTierEpisodic MemoryTier = "episodic"
 )
 
-// MemoryEntry represents a single memory entry
+// MemoryEntry represents a single memory entry.
 type MemoryEntry struct {
-	ID          string                 `json:"id"`
-	Tier        MemoryTier             `json:"tier"`
-	Content     string                 `json:"content"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Embedding   []float64              `json:"embedding,omitempty"`
-	Importance  float64                `json:"importance"`  // 0.0 to 1.0
-	AccessCount int                    `json:"access_count"`
-	LastAccess  time.Time              `json:"last_access"`
-	CreatedAt   time.Time              `json:"created_at"`
-	ExpiresAt   *time.Time             `json:"expires_at,omitempty"`
+	ID          string         `json:"id"`
+	Tier        MemoryTier     `json:"tier"`
+	Content     string         `json:"content"`
+	Metadata    map[string]any `json:"metadata"`
+	Embedding   []float64      `json:"embedding,omitempty"`
+	Importance  float64        `json:"importance"` // 0.0 to 1.0
+	AccessCount int            `json:"access_count"`
+	LastAccess  time.Time      `json:"last_access"`
+	CreatedAt   time.Time      `json:"created_at"`
+	ExpiresAt   *time.Time     `json:"expires_at,omitempty"`
 }
 
-// EpisodicMemory represents a specific episode or event
+// EpisodicMemory represents a specific episode or event.
 type EpisodicMemory struct {
-	ID          string                 `json:"id"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	Participants []string               `json:"participants,omitempty"`
-	Location    string                 `json:"location,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Memories    []string               `json:"memories"` // Memory entry IDs
-	Timestamp   time.Time              `json:"timestamp"`
-	Duration    time.Duration          `json:"duration"`
-	Importance  float64                `json:"importance"`
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	Description  string         `json:"description"`
+	Participants []string       `json:"participants,omitempty"`
+	Location     string         `json:"location,omitempty"`
+	Metadata     map[string]any `json:"metadata"`
+	Memories     []string       `json:"memories"` // Memory entry IDs
+	Timestamp    time.Time      `json:"timestamp"`
+	Duration     time.Duration  `json:"duration"`
+	Importance   float64        `json:"importance"`
 }
 
-// MemoryManager manages multi-tier memory for agents
+// MemoryManager manages multi-tier memory for agents.
 type MemoryManager struct {
-	agentID  string
-	logger   forge.Logger
-	metrics  forge.Metrics
-	store    StateStore
-	vector   VectorStore
-	embedFn  func(context.Context, string) ([]float64, error)
+	agentID string
+	logger  forge.Logger
+	metrics forge.Metrics
+	store   StateStore
+	vector  VectorStore
+	embedFn func(context.Context, string) ([]float64, error)
 
 	// Memory storage
 	working  map[string]*MemoryEntry
@@ -75,7 +76,7 @@ type MemoryManager struct {
 	autoConsolidate   bool
 }
 
-// MemoryManagerOptions configures the memory manager
+// MemoryManagerOptions configures the memory manager.
 type MemoryManagerOptions struct {
 	AgentID           string
 	WorkingCapacity   int           // Max entries in working memory (default: 10)
@@ -85,7 +86,7 @@ type MemoryManagerOptions struct {
 	EmbeddingFunction func(context.Context, string) ([]float64, error)
 }
 
-// NewMemoryManager creates a new memory manager
+// NewMemoryManager creates a new memory manager.
 func NewMemoryManager(
 	store StateStore,
 	vector VectorStore,
@@ -112,12 +113,15 @@ func NewMemoryManager(
 		if opts.WorkingCapacity > 0 {
 			mm.workingCapacity = opts.WorkingCapacity
 		}
+
 		if opts.ShortTermTTL > 0 {
 			mm.shortTermTTL = opts.ShortTermTTL
 		}
+
 		if opts.ImportanceDecay > 0 {
 			mm.importanceDecay = opts.ImportanceDecay
 		}
+
 		mm.autoConsolidate = opts.AutoConsolidate
 		mm.embedFn = opts.EmbeddingFunction
 	}
@@ -125,8 +129,8 @@ func NewMemoryManager(
 	return mm
 }
 
-// Store adds a memory to the appropriate tier
-func (mm *MemoryManager) Store(ctx context.Context, content string, metadata map[string]interface{}, importance float64) (*MemoryEntry, error) {
+// Store adds a memory to the appropriate tier.
+func (mm *MemoryManager) Store(ctx context.Context, content string, metadata map[string]any, importance float64) (*MemoryEntry, error) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 
@@ -172,7 +176,7 @@ func (mm *MemoryManager) Store(ctx context.Context, content string, metadata map
 	return entry, nil
 }
 
-// Recall retrieves memories based on query and tier
+// Recall retrieves memories based on query and tier.
 func (mm *MemoryManager) Recall(ctx context.Context, query string, tier MemoryTier, limit int) ([]*MemoryEntry, error) {
 	mm.mu.RLock()
 	defer mm.mu.RUnlock()
@@ -194,7 +198,7 @@ func (mm *MemoryManager) Recall(ctx context.Context, query string, tier MemoryTi
 				return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 			}
 
-			filter := map[string]interface{}{
+			filter := map[string]any{
 				"tier":     string(tier),
 				"agent_id": mm.agentID,
 			}
@@ -215,9 +219,11 @@ func (mm *MemoryManager) Recall(ctx context.Context, query string, tier MemoryTi
 				if content, ok := match.Metadata["content"].(string); ok {
 					entry.Content = content
 				}
+
 				if importance, ok := match.Metadata["importance"].(float64); ok {
 					entry.Importance = importance
 				}
+
 				memories = append(memories, entry)
 			}
 		}
@@ -241,8 +247,9 @@ func (mm *MemoryManager) Recall(ctx context.Context, query string, tier MemoryTi
 	// Sort by importance and recency
 	sort.Slice(memories, func(i, j int) bool {
 		// Combine importance with recency
-		scoreI := memories[i].Importance * 0.7 + float64(memories[i].AccessCount)*0.3
-		scoreJ := memories[j].Importance * 0.7 + float64(memories[j].AccessCount)*0.3
+		scoreI := memories[i].Importance*0.7 + float64(memories[i].AccessCount)*0.3
+		scoreJ := memories[j].Importance*0.7 + float64(memories[j].AccessCount)*0.3
+
 		return scoreI > scoreJ
 	})
 
@@ -267,7 +274,7 @@ func (mm *MemoryManager) Recall(ctx context.Context, query string, tier MemoryTi
 	return memories, nil
 }
 
-// consolidateWorking moves less important memories from working to short-term
+// consolidateWorking moves less important memories from working to short-term.
 func (mm *MemoryManager) consolidateWorking(ctx context.Context) error {
 	// Sort memories by importance and access
 	type scoredEntry struct {
@@ -294,7 +301,7 @@ func (mm *MemoryManager) consolidateWorking(ctx context.Context) error {
 		return nil
 	}
 
-	for i := 0; i < toMove; i++ {
+	for i := range toMove {
 		entry := scored[i].entry
 
 		// Only consolidate if we have vector store and embedding
@@ -312,7 +319,7 @@ func (mm *MemoryManager) consolidateWorking(ctx context.Context) error {
 		vector := Vector{
 			ID:     entry.ID,
 			Values: entry.Embedding,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"tier":         string(MemoryTierShortTerm),
 				"content":      entry.Content,
 				"importance":   entry.Importance,
@@ -345,11 +352,11 @@ func (mm *MemoryManager) consolidateWorking(ctx context.Context) error {
 	return nil
 }
 
-// Promote elevates a memory from short-term to long-term
+// Promote elevates a memory from short-term to long-term.
 func (mm *MemoryManager) Promote(ctx context.Context, memoryID string) error {
 	// Update tier in vector store
 	if mm.vector == nil {
-		return fmt.Errorf("vector store not configured")
+		return errors.New("vector store not configured")
 	}
 
 	// Fetch the memory (without holding lock to avoid deadlock)
@@ -359,9 +366,11 @@ func (mm *MemoryManager) Promote(ctx context.Context, memoryID string) error {
 	}
 
 	var targetMemory *MemoryEntry
+
 	for _, mem := range memories {
 		if mem.ID == memoryID {
 			targetMemory = mem
+
 			break
 		}
 	}
@@ -383,7 +392,7 @@ func (mm *MemoryManager) Promote(ctx context.Context, memoryID string) error {
 		vector := Vector{
 			ID:     targetMemory.ID,
 			Values: targetMemory.Embedding,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"tier":         string(MemoryTierLongTerm),
 				"content":      targetMemory.Content,
 				"importance":   targetMemory.Importance,
@@ -408,8 +417,8 @@ func (mm *MemoryManager) Promote(ctx context.Context, memoryID string) error {
 	return nil
 }
 
-// CreateEpisode creates an episodic memory from multiple memories
-func (mm *MemoryManager) CreateEpisode(ctx context.Context, title, description string, memoryIDs []string, metadata map[string]interface{}) (*EpisodicMemory, error) {
+// CreateEpisode creates an episodic memory from multiple memories.
+func (mm *MemoryManager) CreateEpisode(ctx context.Context, title, description string, memoryIDs []string, metadata map[string]any) (*EpisodicMemory, error) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 
@@ -434,9 +443,9 @@ func (mm *MemoryManager) CreateEpisode(ctx context.Context, title, description s
 
 		episodeState := &AgentState{
 			AgentID:   mm.agentID,
-			SessionID: fmt.Sprintf("episode_%s", episode.ID),
+			SessionID: "episode_" + episode.ID,
 			Version:   1,
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"episode": string(data),
 			},
 			CreatedAt: time.Now(),
@@ -463,7 +472,7 @@ func (mm *MemoryManager) CreateEpisode(ctx context.Context, title, description s
 	return episode, nil
 }
 
-// GetEpisode retrieves an episodic memory by ID
+// GetEpisode retrieves an episodic memory by ID.
 func (mm *MemoryManager) GetEpisode(episodeID string) (*EpisodicMemory, error) {
 	mm.mu.RLock()
 	defer mm.mu.RUnlock()
@@ -476,7 +485,7 @@ func (mm *MemoryManager) GetEpisode(episodeID string) (*EpisodicMemory, error) {
 	return episode, nil
 }
 
-// Forget removes a memory by ID from all tiers
+// Forget removes a memory by ID from all tiers.
 func (mm *MemoryManager) Forget(ctx context.Context, memoryID string) error {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
@@ -502,7 +511,7 @@ func (mm *MemoryManager) Forget(ctx context.Context, memoryID string) error {
 	return nil
 }
 
-// PruneExpired removes expired short-term memories
+// PruneExpired removes expired short-term memories.
 func (mm *MemoryManager) PruneExpired(ctx context.Context) (int, error) {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
@@ -525,20 +534,20 @@ func (mm *MemoryManager) PruneExpired(ctx context.Context) (int, error) {
 	return pruned, nil
 }
 
-// GetStats returns memory statistics
+// GetStats returns memory statistics.
 func (mm *MemoryManager) GetStats() MemoryStats {
 	mm.mu.RLock()
 	defer mm.mu.RUnlock()
 
 	return MemoryStats{
-		WorkingCount:  len(mm.working),
-		EpisodicCount: len(mm.episodic),
-		WorkingCapacity: mm.workingCapacity,
+		WorkingCount:      len(mm.working),
+		EpisodicCount:     len(mm.episodic),
+		WorkingCapacity:   mm.workingCapacity,
 		LastConsolidation: mm.consolidationTime,
 	}
 }
 
-// MemoryStats represents memory statistics
+// MemoryStats represents memory statistics.
 type MemoryStats struct {
 	WorkingCount      int
 	ShortTermCount    int
@@ -548,7 +557,7 @@ type MemoryStats struct {
 	LastConsolidation time.Time
 }
 
-// Clear removes all memories from all tiers
+// Clear removes all memories from all tiers.
 func (mm *MemoryManager) Clear(ctx context.Context) error {
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
@@ -562,4 +571,3 @@ func (mm *MemoryManager) Clear(ctx context.Context) error {
 
 	return nil
 }
-

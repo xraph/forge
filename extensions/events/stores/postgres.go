@@ -10,9 +10,10 @@ import (
 	"github.com/lib/pq"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/events/core"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// PostgresEventStore implements EventStore using PostgreSQL
+// PostgresEventStore implements EventStore using PostgreSQL.
 type PostgresEventStore struct {
 	db      *sql.DB
 	logger  forge.Logger
@@ -21,7 +22,7 @@ type PostgresEventStore struct {
 	stats   *core.EventStoreStats
 }
 
-// PostgresEventRow represents an event row in PostgreSQL
+// PostgresEventRow represents an event row in PostgreSQL.
 type PostgresEventRow struct {
 	ID          string
 	AggregateID string
@@ -34,7 +35,7 @@ type PostgresEventRow struct {
 	CreatedAt   time.Time
 }
 
-// PostgresSnapshotRow represents a snapshot row in PostgreSQL
+// PostgresSnapshotRow represents a snapshot row in PostgreSQL.
 type PostgresSnapshotRow struct {
 	ID          string
 	AggregateID string
@@ -46,7 +47,7 @@ type PostgresSnapshotRow struct {
 	CreatedAt   time.Time
 }
 
-// NewPostgresEventStore creates a new PostgreSQL event store
+// NewPostgresEventStore creates a new PostgreSQL event store.
 func NewPostgresEventStore(db *sql.DB, config *core.EventStoreConfig, logger forge.Logger, metrics forge.Metrics) (*PostgresEventStore, error) {
 	store := &PostgresEventStore{
 		db:      db,
@@ -83,7 +84,7 @@ func NewPostgresEventStore(db *sql.DB, config *core.EventStoreConfig, logger for
 	return store, nil
 }
 
-// migrate creates necessary tables
+// migrate creates necessary tables.
 func (pes *PostgresEventStore) migrate() error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS forge_events (
@@ -124,7 +125,7 @@ func (pes *PostgresEventStore) migrate() error {
 	return nil
 }
 
-// initializeStats loads current statistics
+// initializeStats loads current statistics.
 func (pes *PostgresEventStore) initializeStats(ctx context.Context) error {
 	// Count total events
 	err := pes.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM forge_events").Scan(&pes.stats.TotalEvents)
@@ -140,11 +141,15 @@ func (pes *PostgresEventStore) initializeStats(ctx context.Context) error {
 	defer rows.Close()
 
 	for rows.Next() {
-		var eventType string
-		var count int64
+		var (
+			eventType string
+			count     int64
+		)
+
 		if err := rows.Scan(&eventType, &count); err != nil {
 			return err
 		}
+
 		pes.stats.EventsByType[eventType] = count
 	}
 
@@ -157,19 +162,21 @@ func (pes *PostgresEventStore) initializeStats(ctx context.Context) error {
 	return nil
 }
 
-// SaveEvent implements EventStore
+// SaveEvent implements EventStore.
 func (pes *PostgresEventStore) SaveEvent(ctx context.Context, event *core.Event) error {
 	start := time.Now()
 
 	data, err := json.Marshal(event.Data)
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return fmt.Errorf("failed to marshal event data: %w", err)
 	}
 
 	metadata, err := json.Marshal(event.Metadata)
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return fmt.Errorf("failed to marshal event metadata: %w", err)
 	}
 
@@ -183,6 +190,7 @@ func (pes *PostgresEventStore) SaveEvent(ctx context.Context, event *core.Event)
 		if pes.metrics != nil {
 			pes.metrics.Counter("forge.events.store.save_errors").Inc()
 		}
+
 		return fmt.Errorf("failed to save event: %w", err)
 	}
 
@@ -203,7 +211,7 @@ func (pes *PostgresEventStore) SaveEvent(ctx context.Context, event *core.Event)
 	return nil
 }
 
-// SaveEvents implements EventStore
+// SaveEvents implements EventStore.
 func (pes *PostgresEventStore) SaveEvents(ctx context.Context, events []*core.Event) error {
 	if len(events) == 0 {
 		return nil
@@ -226,12 +234,14 @@ func (pes *PostgresEventStore) SaveEvents(ctx context.Context, events []*core.Ev
 		data, err := json.Marshal(event.Data)
 		if err != nil {
 			pes.stats.Metrics.Errors++
+
 			return fmt.Errorf("failed to marshal event data: %w", err)
 		}
 
 		metadata, err := json.Marshal(event.Metadata)
 		if err != nil {
 			pes.stats.Metrics.Errors++
+
 			return fmt.Errorf("failed to marshal event metadata: %w", err)
 		}
 
@@ -239,6 +249,7 @@ func (pes *PostgresEventStore) SaveEvents(ctx context.Context, events []*core.Ev
 			data, metadata, event.Source, event.Timestamp)
 		if err != nil {
 			pes.stats.Metrics.Errors++
+
 			return fmt.Errorf("failed to save event: %w", err)
 		}
 
@@ -259,21 +270,24 @@ func (pes *PostgresEventStore) SaveEvents(ctx context.Context, events []*core.Ev
 	return nil
 }
 
-// GetEvent implements EventStore
+// GetEvent implements EventStore.
 func (pes *PostgresEventStore) GetEvent(ctx context.Context, eventID string) (*core.Event, error) {
 	query := `SELECT id, aggregate_id, type, version, data, metadata, source, timestamp
 			  FROM forge_events WHERE id = $1`
 
 	var row PostgresEventRow
+
 	err := pes.db.QueryRowContext(ctx, query, eventID).Scan(
 		&row.ID, &row.AggregateID, &row.Type, &row.Version,
 		&row.Data, &row.Metadata, &row.Source, &row.Timestamp)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("event not found: %s", eventID)
 	}
+
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to get event: %w", err)
 	}
 
@@ -283,10 +297,11 @@ func (pes *PostgresEventStore) GetEvent(ctx context.Context, eventID string) (*c
 	}
 
 	pes.stats.Metrics.EventsRead++
+
 	return event, nil
 }
 
-// GetEventsByAggregate implements EventStore
+// GetEventsByAggregate implements EventStore.
 func (pes *PostgresEventStore) GetEventsByAggregate(ctx context.Context, aggregateID string, fromVersion int) ([]*core.Event, error) {
 	query := `SELECT id, aggregate_id, type, version, data, metadata, source, timestamp
 			  FROM forge_events WHERE aggregate_id = $1 AND version >= $2 ORDER BY version ASC`
@@ -294,13 +309,16 @@ func (pes *PostgresEventStore) GetEventsByAggregate(ctx context.Context, aggrega
 	rows, err := pes.db.QueryContext(ctx, query, aggregateID, fromVersion)
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
 	defer rows.Close()
 
 	events := make([]*core.Event, 0)
+
 	for rows.Next() {
 		var row PostgresEventRow
+
 		err := rows.Scan(&row.ID, &row.AggregateID, &row.Type, &row.Version,
 			&row.Data, &row.Metadata, &row.Source, &row.Timestamp)
 		if err != nil {
@@ -311,14 +329,16 @@ func (pes *PostgresEventStore) GetEventsByAggregate(ctx context.Context, aggrega
 		if err != nil {
 			return nil, err
 		}
+
 		events = append(events, event)
 	}
 
 	pes.stats.Metrics.EventsRead += int64(len(events))
+
 	return events, nil
 }
 
-// GetEventsByType implements EventStore
+// GetEventsByType implements EventStore.
 func (pes *PostgresEventStore) GetEventsByType(ctx context.Context, eventType string, fromTime, toTime time.Time) ([]*core.Event, error) {
 	query := `SELECT id, aggregate_id, type, version, data, metadata, source, timestamp
 			  FROM forge_events WHERE type = $1 AND timestamp BETWEEN $2 AND $3 ORDER BY timestamp ASC`
@@ -326,13 +346,16 @@ func (pes *PostgresEventStore) GetEventsByType(ctx context.Context, eventType st
 	rows, err := pes.db.QueryContext(ctx, query, eventType, fromTime, toTime)
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
 	defer rows.Close()
 
 	events := make([]*core.Event, 0)
+
 	for rows.Next() {
 		var row PostgresEventRow
+
 		err := rows.Scan(&row.ID, &row.AggregateID, &row.Type, &row.Version,
 			&row.Data, &row.Metadata, &row.Source, &row.Timestamp)
 		if err != nil {
@@ -343,36 +366,45 @@ func (pes *PostgresEventStore) GetEventsByType(ctx context.Context, eventType st
 		if err != nil {
 			return nil, err
 		}
+
 		events = append(events, event)
 	}
 
 	pes.stats.Metrics.EventsRead += int64(len(events))
+
 	return events, nil
 }
 
-// QueryEvents implements EventStore
+// QueryEvents implements EventStore.
 func (pes *PostgresEventStore) QueryEvents(ctx context.Context, criteria *core.EventCriteria) ([]*core.Event, error) {
 	query := "SELECT id, aggregate_id, type, version, data, metadata, source, timestamp FROM forge_events WHERE 1=1"
-	args := make([]interface{}, 0)
+	args := make([]any, 0)
 	argPos := 1
 
 	if len(criteria.AggregateIDs) > 0 {
 		query += fmt.Sprintf(" AND aggregate_id = ANY($%d)", argPos)
+
 		args = append(args, pq.Array(criteria.AggregateIDs))
 		argPos++
 	}
+
 	if len(criteria.EventTypes) > 0 {
 		query += fmt.Sprintf(" AND type = ANY($%d)", argPos)
+
 		args = append(args, pq.Array(criteria.EventTypes))
 		argPos++
 	}
+
 	if !criteria.StartTime.IsZero() {
 		query += fmt.Sprintf(" AND timestamp >= $%d", argPos)
+
 		args = append(args, criteria.StartTime)
 		argPos++
 	}
+
 	if !criteria.EndTime.IsZero() {
 		query += fmt.Sprintf(" AND timestamp <= $%d", argPos)
+
 		args = append(args, criteria.EndTime)
 		argPos++
 	}
@@ -381,19 +413,23 @@ func (pes *PostgresEventStore) QueryEvents(ctx context.Context, criteria *core.E
 
 	if criteria.Limit > 0 {
 		query += fmt.Sprintf(" LIMIT $%d", argPos)
+
 		args = append(args, criteria.Limit)
 	}
 
 	rows, err := pes.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
 	defer rows.Close()
 
 	events := make([]*core.Event, 0)
+
 	for rows.Next() {
 		var row PostgresEventRow
+
 		err := rows.Scan(&row.ID, &row.AggregateID, &row.Type, &row.Version,
 			&row.Data, &row.Metadata, &row.Source, &row.Timestamp)
 		if err != nil {
@@ -404,24 +440,28 @@ func (pes *PostgresEventStore) QueryEvents(ctx context.Context, criteria *core.E
 		if err != nil {
 			return nil, err
 		}
+
 		events = append(events, event)
 	}
 
 	pes.stats.Metrics.EventsRead += int64(len(events))
+
 	return events, nil
 }
 
-// CreateSnapshot implements EventStore
+// CreateSnapshot implements EventStore.
 func (pes *PostgresEventStore) CreateSnapshot(ctx context.Context, snapshot *core.Snapshot) error {
 	data, err := json.Marshal(snapshot.Data)
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return fmt.Errorf("failed to marshal snapshot data: %w", err)
 	}
 
 	metadata, err := json.Marshal(snapshot.Metadata)
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return fmt.Errorf("failed to marshal snapshot metadata: %w", err)
 	}
 
@@ -434,6 +474,7 @@ func (pes *PostgresEventStore) CreateSnapshot(ctx context.Context, snapshot *cor
 		snapshot.Version, data, metadata, snapshot.Timestamp)
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
@@ -448,21 +489,24 @@ func (pes *PostgresEventStore) CreateSnapshot(ctx context.Context, snapshot *cor
 	return nil
 }
 
-// GetSnapshot implements EventStore
+// GetSnapshot implements EventStore.
 func (pes *PostgresEventStore) GetSnapshot(ctx context.Context, aggregateID string) (*core.Snapshot, error) {
 	query := `SELECT id, aggregate_id, type, version, data, metadata, timestamp
 			  FROM forge_snapshots WHERE aggregate_id = $1`
 
 	var row PostgresSnapshotRow
+
 	err := pes.db.QueryRowContext(ctx, query, aggregateID).Scan(
 		&row.ID, &row.AggregateID, &row.Type, &row.Version,
 		&row.Data, &row.Metadata, &row.Timestamp)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("snapshot not found: %s", aggregateID)
 	}
+
 	if err != nil {
 		pes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to get snapshot: %w", err)
 	}
 
@@ -472,28 +516,29 @@ func (pes *PostgresEventStore) GetSnapshot(ctx context.Context, aggregateID stri
 	}
 
 	pes.stats.Metrics.SnapshotsRead++
+
 	return snapshot, nil
 }
 
-// GetStats implements EventStore
+// GetStats implements EventStore.
 func (pes *PostgresEventStore) GetStats() *core.EventStoreStats {
 	return pes.stats
 }
 
-// Close implements EventStore
+// Close implements EventStore.
 func (pes *PostgresEventStore) Close(ctx context.Context) error {
 	// DB connection is managed externally
 	return nil
 }
 
-// rowToEvent converts a PostgresEventRow to Event
+// rowToEvent converts a PostgresEventRow to Event.
 func (pes *PostgresEventStore) rowToEvent(row *PostgresEventRow) (*core.Event, error) {
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json.Unmarshal(row.Data, &data); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal event data: %w", err)
 	}
 
-	var metadata map[string]interface{}
+	var metadata map[string]any
 	if len(row.Metadata) > 0 {
 		if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal event metadata: %w", err)
@@ -512,14 +557,14 @@ func (pes *PostgresEventStore) rowToEvent(row *PostgresEventRow) (*core.Event, e
 	}, nil
 }
 
-// rowToSnapshot converts a PostgresSnapshotRow to Snapshot
+// rowToSnapshot converts a PostgresSnapshotRow to Snapshot.
 func (pes *PostgresEventStore) rowToSnapshot(row *PostgresSnapshotRow) (*core.Snapshot, error) {
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json.Unmarshal(row.Data, &data); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal snapshot data: %w", err)
 	}
 
-	var metadata map[string]interface{}
+	var metadata map[string]any
 	if len(row.Metadata) > 0 {
 		if err := json.Unmarshal(row.Metadata, &metadata); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal snapshot metadata: %w", err)

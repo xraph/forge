@@ -1,6 +1,5 @@
 package collectors
 
-//nolint:gosec // G115: Integer conversions for runtime metrics are safe
 // These conversions are used for calculating runtime statistics and durations.
 
 import (
@@ -17,29 +16,29 @@ import (
 // RUNTIME COLLECTOR
 // =============================================================================
 
-// RuntimeCollector collects Go runtime metrics
+// RuntimeCollector collects Go runtime metrics.
 type RuntimeCollector struct {
 	name               string
 	interval           time.Duration
 	lastGCStats        *debug.GCStats
 	lastMemStats       *runtime.MemStats
 	lastCollectionTime time.Time
-	metrics            map[string]interface{}
+	metrics            map[string]any
 	enabled            bool
 }
 
-// RuntimeCollectorConfig contains configuration for the runtime collector
+// RuntimeCollectorConfig contains configuration for the runtime collector.
 type RuntimeCollectorConfig struct {
-	Interval          time.Duration `yaml:"interval" json:"interval"`
-	CollectGC         bool          `yaml:"collect_gc" json:"collect_gc"`
-	CollectMemory     bool          `yaml:"collect_memory" json:"collect_memory"`
-	CollectGoroutines bool          `yaml:"collect_goroutines" json:"collect_goroutines"`
-	CollectCGO        bool          `yaml:"collect_cgo" json:"collect_cgo"`
-	CollectBuildInfo  bool          `yaml:"collect_build_info" json:"collect_build_info"`
-	EnableGCStats     bool          `yaml:"enable_gc_stats" json:"enable_gc_stats"`
+	Interval          time.Duration `json:"interval"           yaml:"interval"`
+	CollectGC         bool          `json:"collect_gc"         yaml:"collect_gc"`
+	CollectMemory     bool          `json:"collect_memory"     yaml:"collect_memory"`
+	CollectGoroutines bool          `json:"collect_goroutines" yaml:"collect_goroutines"`
+	CollectCGO        bool          `json:"collect_cgo"        yaml:"collect_cgo"`
+	CollectBuildInfo  bool          `json:"collect_build_info" yaml:"collect_build_info"`
+	EnableGCStats     bool          `json:"enable_gc_stats"    yaml:"enable_gc_stats"`
 }
 
-// DefaultRuntimeCollectorConfig returns default configuration
+// DefaultRuntimeCollectorConfig returns default configuration.
 func DefaultRuntimeCollectorConfig() *RuntimeCollectorConfig {
 	return &RuntimeCollectorConfig{
 		Interval:          time.Second * 15,
@@ -52,17 +51,17 @@ func DefaultRuntimeCollectorConfig() *RuntimeCollectorConfig {
 	}
 }
 
-// NewRuntimeCollector creates a new runtime collector
+// NewRuntimeCollector creates a new runtime collector.
 func NewRuntimeCollector() metrics.CustomCollector {
 	return NewRuntimeCollectorWithConfig(DefaultRuntimeCollectorConfig())
 }
 
-// NewRuntimeCollectorWithConfig creates a new runtime collector with configuration
+// NewRuntimeCollectorWithConfig creates a new runtime collector with configuration.
 func NewRuntimeCollectorWithConfig(config *RuntimeCollectorConfig) metrics.CustomCollector {
 	collector := &RuntimeCollector{
 		name:     "runtime",
 		interval: config.Interval,
-		metrics:  make(map[string]interface{}),
+		metrics:  make(map[string]any),
 		enabled:  true,
 	}
 
@@ -79,13 +78,13 @@ func NewRuntimeCollectorWithConfig(config *RuntimeCollectorConfig) metrics.Custo
 // CUSTOM COLLECTOR INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Name returns the collector name
+// Name returns the collector name.
 func (rc *RuntimeCollector) Name() string {
 	return rc.name
 }
 
-// Collect collects runtime metrics
-func (rc *RuntimeCollector) Collect() map[string]interface{} {
+// Collect collects runtime metrics.
+func (rc *RuntimeCollector) Collect() map[string]any {
 	if !rc.enabled {
 		return rc.metrics
 	}
@@ -120,12 +119,13 @@ func (rc *RuntimeCollector) Collect() map[string]interface{} {
 	return rc.metrics
 }
 
-// Reset resets the collector
+// Reset resets the collector.
 func (rc *RuntimeCollector) Reset() error {
-	rc.metrics = make(map[string]interface{})
+	rc.metrics = make(map[string]any)
 	rc.lastGCStats = nil
 	rc.lastMemStats = nil
 	rc.lastCollectionTime = time.Time{}
+
 	return nil
 }
 
@@ -133,7 +133,7 @@ func (rc *RuntimeCollector) Reset() error {
 // MEMORY STATISTICS
 // =============================================================================
 
-// collectMemoryStats collects memory statistics
+// collectMemoryStats collects memory statistics.
 func (rc *RuntimeCollector) collectMemoryStats() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -181,6 +181,7 @@ func (rc *RuntimeCollector) collectMemoryStats() {
 	if rc.lastMemStats != nil {
 		// Calculate allocation rate
 		allocDiff := m.TotalAlloc - rc.lastMemStats.TotalAlloc
+
 		timeDiff := time.Since(rc.lastCollectionTime)
 		if timeDiff > 0 {
 			rc.metrics["runtime.memory.alloc_rate"] = float64(allocDiff) / timeDiff.Seconds()
@@ -207,7 +208,7 @@ func (rc *RuntimeCollector) collectMemoryStats() {
 // GC STATISTICS
 // =============================================================================
 
-// collectGCStats collects garbage collection statistics
+// collectGCStats collects garbage collection statistics.
 func (rc *RuntimeCollector) collectGCStats() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -225,6 +226,7 @@ func (rc *RuntimeCollector) collectGCStats() {
 	// Calculate GC frequency and pause statistics
 	if rc.lastMemStats != nil {
 		gcDiff := m.NumGC - rc.lastMemStats.NumGC
+
 		timeDiff := time.Since(rc.lastCollectionTime)
 		if timeDiff > 0 && gcDiff > 0 {
 			rc.metrics["runtime.gc.frequency"] = float64(gcDiff) / timeDiff.Seconds()
@@ -245,7 +247,7 @@ func (rc *RuntimeCollector) collectGCStats() {
 	rc.collectDetailedGCStats()
 }
 
-// collectDetailedGCStats collects detailed GC statistics
+// collectDetailedGCStats collects detailed GC statistics.
 func (rc *RuntimeCollector) collectDetailedGCStats() {
 	var gcStats debug.GCStats
 	debug.ReadGCStats(&gcStats)
@@ -275,6 +277,7 @@ func (rc *RuntimeCollector) collectDetailedGCStats() {
 
 		// Calculate statistics from pause history
 		var totalPause, maxPause, minPause time.Duration
+
 		minPause = gcStats.Pause[0]
 
 		for _, pause := range gcStats.Pause {
@@ -282,6 +285,7 @@ func (rc *RuntimeCollector) collectDetailedGCStats() {
 			if pause > maxPause {
 				maxPause = pause
 			}
+
 			if pause < minPause {
 				minPause = pause
 			}
@@ -289,6 +293,7 @@ func (rc *RuntimeCollector) collectDetailedGCStats() {
 
 		rc.metrics["runtime.gc.pause_history_total"] = totalPause
 		rc.metrics["runtime.gc.pause_history_max"] = maxPause
+
 		rc.metrics["runtime.gc.pause_history_min"] = minPause
 		if len(gcStats.Pause) > 0 {
 			rc.metrics["runtime.gc.pause_history_avg"] = totalPause / time.Duration(len(gcStats.Pause))
@@ -302,7 +307,7 @@ func (rc *RuntimeCollector) collectDetailedGCStats() {
 // GOROUTINE STATISTICS
 // =============================================================================
 
-// collectGoroutineStats collects goroutine statistics
+// collectGoroutineStats collects goroutine statistics.
 func (rc *RuntimeCollector) collectGoroutineStats() {
 	// Number of goroutines
 	numGoroutines := runtime.NumGoroutine()
@@ -325,7 +330,7 @@ func (rc *RuntimeCollector) collectGoroutineStats() {
 	rc.collectThreadStats()
 }
 
-// collectThreadStats collects thread statistics
+// collectThreadStats collects thread statistics.
 func (rc *RuntimeCollector) collectThreadStats() {
 	// This uses runtime internals that may not be available in all Go versions
 	// In a production implementation, you might use runtime/pprof or other methods
@@ -338,7 +343,7 @@ func (rc *RuntimeCollector) collectThreadStats() {
 // CGO STATISTICS
 // =============================================================================
 
-// collectCGOStats collects CGO statistics
+// collectCGOStats collects CGO statistics.
 func (rc *RuntimeCollector) collectCGOStats() {
 	// Number of cgo calls
 	numCgoCalls := runtime.NumCgoCall()
@@ -356,7 +361,7 @@ func (rc *RuntimeCollector) collectCGOStats() {
 // BUILD INFORMATION
 // =============================================================================
 
-// collectBuildInfo collects build information
+// collectBuildInfo collects build information.
 func (rc *RuntimeCollector) collectBuildInfo() {
 	// Go version
 	rc.metrics["runtime.build.go_version"] = runtime.Version()
@@ -380,6 +385,7 @@ func (rc *RuntimeCollector) collectBuildInfo() {
 		for _, setting := range info.Settings {
 			settings[setting.Key] = setting.Value
 		}
+
 		rc.metrics["runtime.build.settings"] = settings
 
 		// Dependencies count
@@ -391,7 +397,7 @@ func (rc *RuntimeCollector) collectBuildInfo() {
 // GENERAL STATISTICS
 // =============================================================================
 
-// collectGeneralStats collects general runtime statistics
+// collectGeneralStats collects general runtime statistics.
 func (rc *RuntimeCollector) collectGeneralStats() {
 	// Stack trace information
 	buf := make([]byte, 1024)
@@ -405,14 +411,14 @@ func (rc *RuntimeCollector) collectGeneralStats() {
 	rc.collectSchedulerStats()
 }
 
-// collectFinalizerStats collects finalizer statistics
+// collectFinalizerStats collects finalizer statistics.
 func (rc *RuntimeCollector) collectFinalizerStats() {
 	// This is a placeholder - finalizer statistics are not directly available
 	// In a production implementation, you might use runtime/pprof or custom tracking
 	rc.metrics["runtime.finalizers.count"] = 0
 }
 
-// collectSchedulerStats collects scheduler statistics
+// collectSchedulerStats collects scheduler statistics.
 func (rc *RuntimeCollector) collectSchedulerStats() {
 	// This is a placeholder - scheduler statistics are not directly available
 	// In a production implementation, you might use runtime/pprof or custom tracking
@@ -424,83 +430,89 @@ func (rc *RuntimeCollector) collectSchedulerStats() {
 // UTILITY METHODS
 // =============================================================================
 
-// Enable enables the collector
+// Enable enables the collector.
 func (rc *RuntimeCollector) Enable() {
 	rc.enabled = true
 }
 
-// Disable disables the collector
+// Disable disables the collector.
 func (rc *RuntimeCollector) Disable() {
 	rc.enabled = false
 }
 
-// IsEnabled returns whether the collector is enabled
+// IsEnabled returns whether the collector is enabled.
 func (rc *RuntimeCollector) IsEnabled() bool {
 	return rc.enabled
 }
 
-// SetInterval sets the collection interval
+// SetInterval sets the collection interval.
 func (rc *RuntimeCollector) SetInterval(interval time.Duration) {
 	rc.interval = interval
 }
 
-// GetInterval returns the collection interval
+// GetInterval returns the collection interval.
 func (rc *RuntimeCollector) GetInterval() time.Duration {
 	return rc.interval
 }
 
-// GetLastCollectionTime returns the last collection time
+// GetLastCollectionTime returns the last collection time.
 func (rc *RuntimeCollector) GetLastCollectionTime() time.Time {
 	return rc.lastCollectionTime
 }
 
-// GetMetricsCount returns the number of metrics collected
+// GetMetricsCount returns the number of metrics collected.
 func (rc *RuntimeCollector) GetMetricsCount() int {
 	return len(rc.metrics)
 }
 
-// TriggerGC triggers a garbage collection and collects immediate stats
+// TriggerGC triggers a garbage collection and collects immediate stats.
 func (rc *RuntimeCollector) TriggerGC() {
 	runtime.GC()
 	rc.collectGCStats()
 }
 
-// GetGCStats returns the current GC statistics
-func (rc *RuntimeCollector) GetGCStats() map[string]interface{} {
+// GetGCStats returns the current GC statistics.
+func (rc *RuntimeCollector) GetGCStats() map[string]any {
 	rc.collectGCStats()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
+
 	for key, value := range rc.metrics {
 		if strings.HasPrefix(key, "runtime.gc.") {
 			result[key] = value
 		}
 	}
+
 	return result
 }
 
-// GetMemoryStats returns the current memory statistics
-func (rc *RuntimeCollector) GetMemoryStats() map[string]interface{} {
+// GetMemoryStats returns the current memory statistics.
+func (rc *RuntimeCollector) GetMemoryStats() map[string]any {
 	rc.collectMemoryStats()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
+
 	for key, value := range rc.metrics {
 		if strings.HasPrefix(key, "runtime.memory.") {
 			result[key] = value
 		}
 	}
+
 	return result
 }
 
-// GetGoroutineStats returns the current goroutine statistics
-func (rc *RuntimeCollector) GetGoroutineStats() map[string]interface{} {
+// GetGoroutineStats returns the current goroutine statistics.
+func (rc *RuntimeCollector) GetGoroutineStats() map[string]any {
 	rc.collectGoroutineStats()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
+
 	for key, value := range rc.metrics {
 		if strings.HasPrefix(key, "runtime.goroutines.") {
 			result[key] = value
 		}
 	}
+
 	return result
 }
 
@@ -508,13 +520,14 @@ func (rc *RuntimeCollector) GetGoroutineStats() map[string]interface{} {
 // HELPER FUNCTIONS
 // =============================================================================
 
-// FormatDuration formats a duration in nanoseconds to a human-readable string
+// FormatDuration formats a duration in nanoseconds to a human-readable string.
 func FormatDuration(ns uint64) string {
 	d := time.Duration(ns)
+
 	return d.String()
 }
 
-// FormatBytes formats bytes to a human-readable string
+// FormatBytes formats bytes to a human-readable string.
 func FormatBytes(bytes uint64) string {
 	const unit = 1024
 	if bytes < unit {
@@ -532,10 +545,11 @@ func FormatBytes(bytes uint64) string {
 	if exp >= len(units) {
 		exp = len(units) - 1
 	}
+
 	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp])
 }
 
-// CalculateMemoryEfficiency calculates memory efficiency metrics
+// CalculateMemoryEfficiency calculates memory efficiency metrics.
 func CalculateMemoryEfficiency(m *runtime.MemStats) map[string]float64 {
 	efficiency := make(map[string]float64)
 

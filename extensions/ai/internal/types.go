@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// AI defines the contract for AI manager implementations
+// AI defines the contract for AI manager implementations.
 type AI interface {
 	// Lifecycle management
 	Start(ctx context.Context) error
@@ -21,7 +21,7 @@ type AI interface {
 	UpdateConfig(config AIConfig) error
 
 	// Status and statistics
-	GetStats() map[string]interface{}
+	GetStats() map[string]any
 	IsLLMEnabled() bool
 	IsAgentsEnabled() bool
 	IsInferenceEnabled() bool
@@ -37,13 +37,13 @@ type AI interface {
 	ProcessAgentRequest(ctx context.Context, request AgentRequest) (*AgentResponse, error)
 
 	// Component accessors
-	GetInferenceEngine() interface{}
-	GetModelServer() interface{}
-	GetLLMManager() interface{}
-	GetCoordinator() interface{}
+	GetInferenceEngine() any
+	GetModelServer() any
+	GetLLMManager() any
+	GetCoordinator() any
 }
 
-// AgentType defines the type of AI agent
+// AgentType defines the type of AI agent.
 type AgentType string
 
 const (
@@ -57,7 +57,7 @@ const (
 	AgentTypePredictor        AgentType = "predictor"         // Predictive analytics
 )
 
-// AgentHealthStatus represents the health status of an agent
+// AgentHealthStatus represents the health status of an agent.
 type AgentHealthStatus string
 
 const (
@@ -67,7 +67,7 @@ const (
 	AgentHealthStatusUnknown   AgentHealthStatus = "unknown"
 )
 
-// AIAgent interface defines the contract for AI agents
+// AIAgent interface defines the contract for AI agents.
 type AIAgent interface {
 	// Basic agent information
 	ID() string
@@ -89,78 +89,78 @@ type AIAgent interface {
 	GetHealth() AgentHealth
 }
 
-// Capability represents a capability that an agent can perform
+// Capability represents a capability that an agent can perform.
 type Capability struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputType   reflect.Type           `json:"-"`
-	OutputType  reflect.Type           `json:"-"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputType   reflect.Type   `json:"-"`
+	OutputType  reflect.Type   `json:"-"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// AgentConfig contains configuration for an AI agent
+// AgentConfig contains configuration for an AI agent.
 type AgentConfig struct {
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Logger          forge.Logger           `json:"-"`
-	Metrics         forge.Metrics          `json:"-"`
-	MaxConcurrency  int                    `json:"max_concurrency"`
-	Timeout         time.Duration          `json:"timeout"`
-	LearningEnabled bool                   `json:"learning_enabled"`
-	AutoApply       bool                   `json:"auto_apply"`
-	Metadata        map[string]interface{} `json:"metadata"`
+	ID              string         `json:"id"`
+	Name            string         `json:"name"`
+	Logger          forge.Logger   `json:"-"`
+	Metrics         forge.Metrics  `json:"-"`
+	MaxConcurrency  int            `json:"max_concurrency"`
+	Timeout         time.Duration  `json:"timeout"`
+	LearningEnabled bool           `json:"learning_enabled"`
+	AutoApply       bool           `json:"auto_apply"`
+	Metadata        map[string]any `json:"metadata"`
 }
 
-// AgentInput represents input data for an agent
+// AgentInput represents input data for an agent.
 type AgentInput struct {
-	Type      string                 `json:"type"`
-	Data      interface{}            `json:"data"`
-	Context   map[string]interface{} `json:"context"`
-	Timestamp time.Time              `json:"timestamp"`
-	RequestID string                 `json:"request_id"`
+	Type      string         `json:"type"`
+	Data      any            `json:"data"`
+	Context   map[string]any `json:"context"`
+	Timestamp time.Time      `json:"timestamp"`
+	RequestID string         `json:"request_id"`
 }
 
-// AgentOutput represents output from an agent
+// AgentOutput represents output from an agent.
 type AgentOutput struct {
-	Type        string                 `json:"type"`
-	Data        interface{}            `json:"data"`
-	Confidence  float64                `json:"confidence"`
-	Explanation string                 `json:"explanation"`
-	Actions     []AgentAction          `json:"actions"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Timestamp   time.Time              `json:"timestamp"`
+	Type        string         `json:"type"`
+	Data        any            `json:"data"`
+	Confidence  float64        `json:"confidence"`
+	Explanation string         `json:"explanation"`
+	Actions     []AgentAction  `json:"actions"`
+	Metadata    map[string]any `json:"metadata"`
+	Timestamp   time.Time      `json:"timestamp"`
 }
 
-// AgentAction represents an action recommended by an agent
+// AgentAction represents an action recommended by an agent.
 type AgentAction struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Target      string                 `json:"target"`
-	Action      string                 `json:"action"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Priority    int                    `json:"priority"`
-	Condition   string                 `json:"condition,omitempty"`
-	Rollback    bool                   `json:"rollback"`
-	Timeout     time.Duration          `json:"timeout"`
-	Automatic   bool                   `json:"automatic"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Owner       string                 `json:"owner"`
-	Status      string                 `json:"status"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Target      string         `json:"target"`
+	Action      string         `json:"action"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+	Priority    int            `json:"priority"`
+	Condition   string         `json:"condition,omitempty"`
+	Rollback    bool           `json:"rollback"`
+	Timeout     time.Duration  `json:"timeout"`
+	Automatic   bool           `json:"automatic"`
+	Metadata    map[string]any `json:"metadata"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Owner       string         `json:"owner"`
+	Status      string         `json:"status"`
 }
 
-// AgentFeedback represents feedback about an agent's performance
+// AgentFeedback represents feedback about an agent's performance.
 type AgentFeedback struct {
-	ActionID  string                 `json:"action_id"`
-	Success   bool                   `json:"success"`
-	Outcome   interface{}            `json:"outcome"`
-	Metrics   map[string]float64     `json:"metrics"`
-	Context   map[string]interface{} `json:"context"`
-	Timestamp time.Time              `json:"timestamp"`
+	ActionID  string             `json:"action_id"`
+	Success   bool               `json:"success"`
+	Outcome   any                `json:"outcome"`
+	Metrics   map[string]float64 `json:"metrics"`
+	Context   map[string]any     `json:"context"`
+	Timestamp time.Time          `json:"timestamp"`
 }
 
-// AgentStats contains statistics about an agent
+// AgentStats contains statistics about an agent.
 type AgentStats struct {
 	TotalProcessed  int64           `json:"total_processed"`
 	TotalErrors     int64           `json:"total_errors"`
@@ -172,7 +172,7 @@ type AgentStats struct {
 	LearningMetrics LearningMetrics `json:"learning_metrics"`
 }
 
-// LearningMetrics contains metrics about an agent's learning
+// LearningMetrics contains metrics about an agent's learning.
 type LearningMetrics struct {
 	TotalFeedback     int64     `json:"total_feedback"`
 	PositiveFeedback  int64     `json:"positive_feedback"`
@@ -182,24 +182,24 @@ type LearningMetrics struct {
 	LastLearningEvent time.Time `json:"last_learning_event"`
 }
 
-// AgentHealth represents the health status of an agent
+// AgentHealth represents the health status of an agent.
 type AgentHealth struct {
-	Status      AgentHealthStatus      `json:"status"`
-	Message     string                 `json:"message"`
-	Details     map[string]interface{} `json:"details"`
-	CheckedAt   time.Time              `json:"checked_at"`
-	LastHealthy time.Time              `json:"last_healthy"`
+	Status      AgentHealthStatus `json:"status"`
+	Message     string            `json:"message"`
+	Details     map[string]any    `json:"details"`
+	CheckedAt   time.Time         `json:"checked_at"`
+	LastHealthy time.Time         `json:"last_healthy"`
 }
 
-// AgentRequest represents a request to an agent
+// AgentRequest represents a request to an agent.
 type AgentRequest struct {
-	ID      string                 `json:"id"`
-	Type    string                 `json:"type"`
-	Data    interface{}            `json:"data"`
-	Context map[string]interface{} `json:"context"`
+	ID      string         `json:"id"`
+	Type    string         `json:"type"`
+	Data    any            `json:"data"`
+	Context map[string]any `json:"context"`
 }
 
-// AgentResponse represents a response from an agent
+// AgentResponse represents a response from an agent.
 type AgentResponse struct {
 	ID      string      `json:"id"`
 	AgentID string      `json:"agent_id"`

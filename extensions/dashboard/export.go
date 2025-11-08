@@ -5,18 +5,20 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/xraph/forge"
 )
 
-// handleExportJSON exports dashboard data as JSON
+// handleExportJSON exports dashboard data as JSON.
 func (ds *DashboardServer) handleExportJSON(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -33,12 +35,13 @@ func (ds *DashboardServer) handleExportJSON(w http.ResponseWriter, r *http.Reque
 	}
 }
 
-// handleExportCSV exports dashboard data as CSV
+// handleExportCSV exports dashboard data as CSV.
 func (ds *DashboardServer) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -54,9 +57,9 @@ func (ds *DashboardServer) handleExportCSV(w http.ResponseWriter, r *http.Reques
 	writer.Write([]string{"Section", "Key", "Value"})
 	writer.Write([]string{"Overview", "Timestamp", snapshot.Timestamp.Format(time.RFC3339)})
 	writer.Write([]string{"Overview", "Overall Health", snapshot.Overview.OverallHealth})
-	writer.Write([]string{"Overview", "Total Services", fmt.Sprintf("%d", snapshot.Overview.TotalServices)})
-	writer.Write([]string{"Overview", "Healthy Services", fmt.Sprintf("%d", snapshot.Overview.HealthyServices)})
-	writer.Write([]string{"Overview", "Total Metrics", fmt.Sprintf("%d", snapshot.Overview.TotalMetrics)})
+	writer.Write([]string{"Overview", "Total Services", strconv.Itoa(snapshot.Overview.TotalServices)})
+	writer.Write([]string{"Overview", "Healthy Services", strconv.Itoa(snapshot.Overview.HealthyServices)})
+	writer.Write([]string{"Overview", "Total Metrics", strconv.Itoa(snapshot.Overview.TotalMetrics)})
 	writer.Write([]string{"Overview", "Uptime", snapshot.Overview.Uptime.String()})
 	writer.Write([]string{"Overview", "Version", snapshot.Overview.Version})
 	writer.Write([]string{"Overview", "Environment", snapshot.Overview.Environment})
@@ -64,6 +67,7 @@ func (ds *DashboardServer) handleExportCSV(w http.ResponseWriter, r *http.Reques
 
 	// Write health section
 	writer.Write([]string{"Health Checks", "Service", "Status", "Message", "Duration"})
+
 	for name, service := range snapshot.Health.Services {
 		writer.Write([]string{
 			"Health",
@@ -73,10 +77,12 @@ func (ds *DashboardServer) handleExportCSV(w http.ResponseWriter, r *http.Reques
 			service.Duration.String(),
 		})
 	}
+
 	writer.Write([]string{})
 
 	// Write services section
 	writer.Write([]string{"Services", "Name", "Type", "Status"})
+
 	for _, service := range snapshot.Services {
 		writer.Write([]string{
 			"Services",
@@ -87,12 +93,13 @@ func (ds *DashboardServer) handleExportCSV(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-// handleExportPrometheus exports metrics in Prometheus format
+// handleExportPrometheus exports metrics in Prometheus format.
 func (ds *DashboardServer) handleExportPrometheus(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -122,13 +129,16 @@ func (ds *DashboardServer) handleExportPrometheus(w http.ResponseWriter, r *http
 	// Export health status
 	output.WriteString("# HELP forge_dashboard_health_status Service health status (1=healthy, 0=unhealthy)\n")
 	output.WriteString("# TYPE forge_dashboard_health_status gauge\n")
+
 	for name, service := range snapshot.Health.Services {
 		status := 0
 		if service.Status == "healthy" {
 			status = 1
 		}
+
 		output.WriteString(fmt.Sprintf("forge_dashboard_health_status{service=\"%s\"} %d\n", name, status))
 	}
+
 	output.WriteString("\n")
 
 	// Export metrics from the metrics data
@@ -149,8 +159,8 @@ func (ds *DashboardServer) handleExportPrometheus(w http.ResponseWriter, r *http
 	w.Write([]byte(output.String()))
 }
 
-// createSnapshot creates a complete dashboard snapshot
-func (ds *DashboardServer) createSnapshot(ctx interface{}) DashboardSnapshot {
+// createSnapshot creates a complete dashboard snapshot.
+func (ds *DashboardServer) createSnapshot(ctx any) DashboardSnapshot {
 	ctxTyped, ok := ctx.(interface {
 		Context() interface{ Done() <-chan struct{} }
 	})
@@ -161,22 +171,24 @@ func (ds *DashboardServer) createSnapshot(ctx interface{}) DashboardSnapshot {
 	}
 
 	// Use type assertion to get context.Context
-	var realCtx interface{}
+	var realCtx any
 	if actualCtx != nil {
 		realCtx = actualCtx
 	}
 
 	// Collect all data
-	var overview *OverviewData
-	var health *HealthData
-	var metrics *MetricsData
-	var services []ServiceInfo
+	var (
+		overview *OverviewData
+		health   *HealthData
+		metrics  *MetricsData
+		services []ServiceInfo
+	)
 
 	if ctxInterface, ok := realCtx.(interface {
 		Done() <-chan struct{}
 		Deadline() (time.Time, bool)
 		Err() error
-		Value(key interface{}) interface{}
+		Value(key any) any
 	}); ok {
 		overview = ds.collector.CollectOverview(ctxInterface)
 		health = ds.collector.CollectHealth(ctxInterface)
@@ -186,7 +198,7 @@ func (ds *DashboardServer) createSnapshot(ctx interface{}) DashboardSnapshot {
 		// Fallback: create empty snapshot
 		overview = &OverviewData{Timestamp: time.Now()}
 		health = &HealthData{CheckedAt: time.Now(), Services: make(map[string]ServiceHealth)}
-		metrics = &MetricsData{Timestamp: time.Now(), Metrics: make(map[string]interface{})}
+		metrics = &MetricsData{Timestamp: time.Now(), Metrics: make(map[string]any)}
 		services = []ServiceInfo{}
 	}
 
@@ -200,13 +212,14 @@ func (ds *DashboardServer) createSnapshot(ctx interface{}) DashboardSnapshot {
 	}
 }
 
-// sanitizeMetricName sanitizes a metric name for Prometheus format
+// sanitizeMetricName sanitizes a metric name for Prometheus format.
 func sanitizeMetricName(name string) string {
 	// Replace invalid characters with underscores
 	result := strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == ':' {
 			return r
 		}
+
 		return '_'
 	}, name)
 

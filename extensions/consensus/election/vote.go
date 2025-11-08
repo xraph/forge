@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// VoteManager manages vote collection and tracking
+// VoteManager manages vote collection and tracking.
 type VoteManager struct {
 	nodeID string
 	logger forge.Logger
@@ -29,7 +29,7 @@ type VoteManager struct {
 	maxHistorySize int
 }
 
-// VoteRecord represents a historical vote record
+// VoteRecord represents a historical vote record.
 type VoteRecord struct {
 	Term        uint64
 	CandidateID string
@@ -38,7 +38,7 @@ type VoteRecord struct {
 	Reason      string
 }
 
-// VoteResponse represents a vote response with metadata
+// VoteResponse represents a vote response with metadata.
 type VoteResponse struct {
 	NodeID    string
 	Term      uint64
@@ -47,13 +47,13 @@ type VoteResponse struct {
 	Latency   time.Duration
 }
 
-// VoteManagerConfig contains vote manager configuration
+// VoteManagerConfig contains vote manager configuration.
 type VoteManagerConfig struct {
 	NodeID         string
 	MaxHistorySize int
 }
 
-// NewVoteManager creates a new vote manager
+// NewVoteManager creates a new vote manager.
 func NewVoteManager(config VoteManagerConfig, logger forge.Logger) *VoteManager {
 	if config.MaxHistorySize == 0 {
 		config.MaxHistorySize = 100
@@ -68,7 +68,7 @@ func NewVoteManager(config VoteManagerConfig, logger forge.Logger) *VoteManager 
 	}
 }
 
-// CastVote casts a vote for a candidate
+// CastVote casts a vote for a candidate.
 func (vm *VoteManager) CastVote(term uint64, candidateID string, granted bool, reason string) error {
 	vm.historyMu.Lock()
 	defer vm.historyMu.Unlock()
@@ -115,7 +115,7 @@ func (vm *VoteManager) CastVote(term uint64, candidateID string, granted bool, r
 	return nil
 }
 
-// RecordVoteResponse records a vote response from a peer
+// RecordVoteResponse records a vote response from a peer.
 func (vm *VoteManager) RecordVoteResponse(response VoteResponse) {
 	vm.votesMu.Lock()
 	defer vm.votesMu.Unlock()
@@ -134,7 +134,7 @@ func (vm *VoteManager) RecordVoteResponse(response VoteResponse) {
 	)
 }
 
-// GetVoteCount returns vote counts for a term
+// GetVoteCount returns vote counts for a term.
 func (vm *VoteManager) GetVoteCount(term uint64) (granted, denied, total int) {
 	vm.votesMu.RLock()
 	defer vm.votesMu.RUnlock()
@@ -156,7 +156,7 @@ func (vm *VoteManager) GetVoteCount(term uint64) (granted, denied, total int) {
 	return granted, denied, total
 }
 
-// GetVotesForTerm returns all votes for a specific term
+// GetVotesForTerm returns all votes for a specific term.
 func (vm *VoteManager) GetVotesForTerm(term uint64) []*VoteResponse {
 	vm.votesMu.RLock()
 	defer vm.votesMu.RUnlock()
@@ -174,7 +174,7 @@ func (vm *VoteManager) GetVotesForTerm(term uint64) []*VoteResponse {
 	return result
 }
 
-// HasVotedInTerm checks if we voted in a specific term
+// HasVotedInTerm checks if we voted in a specific term.
 func (vm *VoteManager) HasVotedInTerm(term uint64) (bool, string) {
 	vm.historyMu.RLock()
 	defer vm.historyMu.RUnlock()
@@ -186,7 +186,7 @@ func (vm *VoteManager) HasVotedInTerm(term uint64) (bool, string) {
 	return false, ""
 }
 
-// GetCurrentVote returns current vote information
+// GetCurrentVote returns current vote information.
 func (vm *VoteManager) GetCurrentVote() (term uint64, votedFor string, votedAt time.Time) {
 	vm.historyMu.RLock()
 	defer vm.historyMu.RUnlock()
@@ -194,7 +194,7 @@ func (vm *VoteManager) GetCurrentVote() (term uint64, votedFor string, votedAt t
 	return vm.currentTerm, vm.votedFor, vm.votedAt
 }
 
-// GetVoteHistory returns vote history
+// GetVoteHistory returns vote history.
 func (vm *VoteManager) GetVoteHistory(limit int) []VoteRecord {
 	vm.historyMu.RLock()
 	defer vm.historyMu.RUnlock()
@@ -211,7 +211,7 @@ func (vm *VoteManager) GetVoteHistory(limit int) []VoteRecord {
 	return result
 }
 
-// ClearOldVotes clears vote records for old terms
+// ClearOldVotes clears vote records for old terms.
 func (vm *VoteManager) ClearOldVotes(keepTerms int) {
 	vm.votesMu.Lock()
 	defer vm.votesMu.Unlock()
@@ -236,7 +236,7 @@ func (vm *VoteManager) ClearOldVotes(keepTerms int) {
 	)
 }
 
-// GetVoteStatistics returns vote statistics
+// GetVoteStatistics returns vote statistics.
 func (vm *VoteManager) GetVoteStatistics() VoteStatistics {
 	vm.historyMu.RLock()
 	totalVotes := len(vm.voteHistory)
@@ -250,6 +250,7 @@ func (vm *VoteManager) GetVoteStatistics() VoteStatistics {
 			deniedCount++
 		}
 	}
+
 	vm.historyMu.RUnlock()
 
 	vm.votesMu.RLock()
@@ -265,7 +266,7 @@ func (vm *VoteManager) GetVoteStatistics() VoteStatistics {
 	}
 }
 
-// VoteStatistics contains vote statistics
+// VoteStatistics contains vote statistics.
 type VoteStatistics struct {
 	TotalVotesCast int
 	VotesGranted   int
@@ -274,7 +275,7 @@ type VoteStatistics struct {
 	GrantRate      float64
 }
 
-// ValidateVoteRequest validates a vote request
+// ValidateVoteRequest validates a vote request.
 func (vm *VoteManager) ValidateVoteRequest(req internal.RequestVoteRequest) (bool, string) {
 	vm.historyMu.RLock()
 	defer vm.historyMu.RUnlock()
@@ -295,7 +296,7 @@ func (vm *VoteManager) ValidateVoteRequest(req internal.RequestVoteRequest) (boo
 	return true, "validation passed"
 }
 
-// GetAverageVoteLatency returns average vote response latency
+// GetAverageVoteLatency returns average vote response latency.
 func (vm *VoteManager) GetAverageVoteLatency(term uint64) time.Duration {
 	vm.votesMu.RLock()
 	defer vm.votesMu.RUnlock()
@@ -313,7 +314,7 @@ func (vm *VoteManager) GetAverageVoteLatency(term uint64) time.Duration {
 	return totalLatency / time.Duration(len(votes))
 }
 
-// GetVoteResponseRate returns the vote response rate for a term
+// GetVoteResponseRate returns the vote response rate for a term.
 func (vm *VoteManager) GetVoteResponseRate(term uint64, totalPeers int) float64 {
 	vm.votesMu.RLock()
 	defer vm.votesMu.RUnlock()
@@ -326,7 +327,7 @@ func (vm *VoteManager) GetVoteResponseRate(term uint64, totalPeers int) float64 
 	return float64(len(votes)) / float64(totalPeers) * 100.0
 }
 
-// GetSlowVoters returns nodes that took longer than threshold to respond
+// GetSlowVoters returns nodes that took longer than threshold to respond.
 func (vm *VoteManager) GetSlowVoters(term uint64, threshold time.Duration) []string {
 	vm.votesMu.RLock()
 	defer vm.votesMu.RUnlock()
@@ -337,6 +338,7 @@ func (vm *VoteManager) GetSlowVoters(term uint64, threshold time.Duration) []str
 	}
 
 	var slowVoters []string
+
 	for _, vote := range votes {
 		if vote.Latency > threshold {
 			slowVoters = append(slowVoters, vote.NodeID)
@@ -346,7 +348,7 @@ func (vm *VoteManager) GetSlowVoters(term uint64, threshold time.Duration) []str
 	return slowVoters
 }
 
-// ResetForNewTerm resets vote state for a new term
+// ResetForNewTerm resets vote state for a new term.
 func (vm *VoteManager) ResetForNewTerm(term uint64) {
 	vm.historyMu.Lock()
 	defer vm.historyMu.Unlock()
@@ -362,8 +364,8 @@ func (vm *VoteManager) ResetForNewTerm(term uint64) {
 	}
 }
 
-// ExportVoteData exports vote data for analysis
-func (vm *VoteManager) ExportVoteData() map[string]interface{} {
+// ExportVoteData exports vote data for analysis.
+func (vm *VoteManager) ExportVoteData() map[string]any {
 	vm.historyMu.RLock()
 	history := make([]VoteRecord, len(vm.voteHistory))
 	copy(history, vm.voteHistory)
@@ -377,7 +379,7 @@ func (vm *VoteManager) ExportVoteData() map[string]interface{} {
 
 	stats := vm.GetVoteStatistics()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"current_term":   currentTerm,
 		"voted_for":      votedFor,
 		"vote_history":   history,

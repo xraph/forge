@@ -40,17 +40,17 @@ func NewOIDCProvider(name string, openIdConnectUrl string, opts ...OIDCOption) a
 
 type OIDCOption func(*OIDCProvider)
 
-// WithOIDCValidator sets the validator function
+// WithOIDCValidator sets the validator function.
 func WithOIDCValidator(validator OIDCTokenValidator) OIDCOption {
 	return func(p *OIDCProvider) { p.validator = validator }
 }
 
-// WithOIDCDescription sets the OpenAPI description
+// WithOIDCDescription sets the OpenAPI description.
 func WithOIDCDescription(desc string) OIDCOption {
 	return func(p *OIDCProvider) { p.description = desc }
 }
 
-// WithOIDCContainer sets the DI container (for accessing services)
+// WithOIDCContainer sets the DI container (for accessing services).
 func WithOIDCContainer(container forge.Container) OIDCOption {
 	return func(p *OIDCProvider) { p.container = container }
 }
@@ -70,9 +70,11 @@ func (p *OIDCProvider) Authenticate(ctx context.Context, r *http.Request) (*auth
 			if p.validator != nil {
 				return p.validator(ctx, token)
 			}
+
 			return nil, auth.ErrInvalidConfiguration
 		},
 	}
+
 	return bearer.Authenticate(ctx, r)
 }
 
@@ -93,6 +95,7 @@ func (p *OIDCProvider) Middleware() forge.Middleware {
 			}
 
 			ctx.Set("auth_context", authCtx)
+
 			return next(ctx)
 		}
 	}

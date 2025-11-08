@@ -97,6 +97,7 @@ func TestResponseWriter_Push_NotSupported(t *testing.T) {
 
 func TestGzipResponseWriter_Write(t *testing.T) {
 	rec := httptest.NewRecorder()
+
 	gz := gzip.NewWriter(rec)
 	defer gz.Close()
 
@@ -129,6 +130,7 @@ func TestGzipResponseWriter_WriteHeader(t *testing.T) {
 
 func TestGzipResponseWriter_Flush(t *testing.T) {
 	rec := httptest.NewRecorder()
+
 	gz := gzip.NewWriter(rec)
 	defer gz.Close()
 
@@ -141,7 +143,7 @@ func TestGzipResponseWriter_Flush(t *testing.T) {
 	gzw.Flush()
 }
 
-// Hijackable recorder for testing
+// Hijackable recorder for testing.
 type hijackableRecorder struct {
 	*httptest.ResponseRecorder
 }

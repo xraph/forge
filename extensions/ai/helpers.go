@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/sdk"
 )
 
-// GetAIService resolves the AI service from the container
+// GetAIService resolves the AI service from the container.
 func GetAIService(container forge.Container) (*service, error) {
 	instance, err := container.Resolve(ServiceKey)
 	if err != nil {
@@ -24,7 +24,7 @@ func GetAIService(container forge.Container) (*service, error) {
 	return svc, nil
 }
 
-// GetAIManager resolves the AI manager from the container
+// GetAIManager resolves the AI manager from the container.
 func GetAIManager(container forge.Container) (internal.AI, error) {
 	instance, err := container.Resolve(ManagerKey)
 	if err != nil {
@@ -39,7 +39,7 @@ func GetAIManager(container forge.Container) (internal.AI, error) {
 	return manager, nil
 }
 
-// GetAgentFactory resolves the agent factory from the container
+// GetAgentFactory resolves the agent factory from the container.
 func GetAgentFactory(container forge.Container) (*AgentFactory, error) {
 	instance, err := container.Resolve(AgentFactoryKey)
 	if err != nil {
@@ -54,7 +54,7 @@ func GetAgentFactory(container forge.Container) (*AgentFactory, error) {
 	return factory, nil
 }
 
-// GetLLMManager resolves the LLM manager from the container
+// GetLLMManager resolves the LLM manager from the container.
 func GetLLMManager(container forge.Container) (*llm.LLMManager, error) {
 	instance, err := container.Resolve(LLMManagerKey)
 	if err != nil {
@@ -69,7 +69,7 @@ func GetLLMManager(container forge.Container) (*llm.LLMManager, error) {
 	return manager, nil
 }
 
-// GetSDKLLMManager resolves the SDK LLM manager interface from the container
+// GetSDKLLMManager resolves the SDK LLM manager interface from the container.
 func GetSDKLLMManager(container forge.Container) (sdk.LLMManager, error) {
 	instance, err := container.Resolve(SDKLLMManagerKey)
 	if err != nil {
@@ -83,4 +83,3 @@ func GetSDKLLMManager(container forge.Container) (sdk.LLMManager, error) {
 
 	return manager, nil
 }
-

@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -20,29 +21,29 @@ import (
 // SYSTEM COLLECTOR
 // =============================================================================
 
-// SystemCollector collects system metrics (CPU, memory, disk)
+// SystemCollector collects system metrics (CPU, memory, disk).
 type SystemCollector struct {
 	name               string
 	interval           time.Duration
 	lastCPUStats       *CPUStats
 	lastCollectionTime time.Time
-	metrics            map[string]interface{}
+	metrics            map[string]any
 	enabled            bool
 }
 
-// SystemCollectorConfig contains configuration for the system collector
+// SystemCollectorConfig contains configuration for the system collector.
 type SystemCollectorConfig struct {
-	Interval          time.Duration `yaml:"interval" json:"interval"`
-	CollectCPU        bool          `yaml:"collect_cpu" json:"collect_cpu"`
-	CollectMemory     bool          `yaml:"collect_memory" json:"collect_memory"`
-	CollectDisk       bool          `yaml:"collect_disk" json:"collect_disk"`
-	CollectNetwork    bool          `yaml:"collect_network" json:"collect_network"`
-	CollectLoad       bool          `yaml:"collect_load" json:"collect_load"`
-	DiskMountPoints   []string      `yaml:"disk_mount_points" json:"disk_mount_points"`
-	NetworkInterfaces []string      `yaml:"network_interfaces" json:"network_interfaces"`
+	Interval          time.Duration `json:"interval"           yaml:"interval"`
+	CollectCPU        bool          `json:"collect_cpu"        yaml:"collect_cpu"`
+	CollectMemory     bool          `json:"collect_memory"     yaml:"collect_memory"`
+	CollectDisk       bool          `json:"collect_disk"       yaml:"collect_disk"`
+	CollectNetwork    bool          `json:"collect_network"    yaml:"collect_network"`
+	CollectLoad       bool          `json:"collect_load"       yaml:"collect_load"`
+	DiskMountPoints   []string      `json:"disk_mount_points"  yaml:"disk_mount_points"`
+	NetworkInterfaces []string      `json:"network_interfaces" yaml:"network_interfaces"`
 }
 
-// CPUStats represents CPU statistics
+// CPUStats represents CPU statistics.
 type CPUStats struct {
 	User      uint64
 	Nice      uint64
@@ -57,7 +58,7 @@ type CPUStats struct {
 	Total     uint64
 }
 
-// MemoryStats represents memory statistics
+// MemoryStats represents memory statistics.
 type MemoryStats struct {
 	Total     uint64
 	Available uint64
@@ -70,7 +71,7 @@ type MemoryStats struct {
 	SwapUsed  uint64
 }
 
-// DiskStats represents disk statistics
+// DiskStats represents disk statistics.
 type DiskStats struct {
 	MountPoint  string
 	Device      string
@@ -80,7 +81,7 @@ type DiskStats struct {
 	UsedPercent float64
 }
 
-// NetworkStats represents network interface statistics
+// NetworkStats represents network interface statistics.
 type NetworkStats struct {
 	Interface   string
 	BytesRecv   uint64
@@ -93,14 +94,14 @@ type NetworkStats struct {
 	DropsSent   uint64
 }
 
-// LoadStats represents system load statistics
+// LoadStats represents system load statistics.
 type LoadStats struct {
 	Load1  float64
 	Load5  float64
 	Load15 float64
 }
 
-// DefaultSystemCollectorConfig returns default configuration
+// DefaultSystemCollectorConfig returns default configuration.
 func DefaultSystemCollectorConfig() *SystemCollectorConfig {
 	return &SystemCollectorConfig{
 		Interval:          time.Second * 30,
@@ -114,17 +115,17 @@ func DefaultSystemCollectorConfig() *SystemCollectorConfig {
 	}
 }
 
-// NewSystemCollector creates a new system collector
+// NewSystemCollector creates a new system collector.
 func NewSystemCollector() metrics.CustomCollector {
 	return NewSystemCollectorWithConfig(DefaultSystemCollectorConfig())
 }
 
-// NewSystemCollectorWithConfig creates a new system collector with configuration
+// NewSystemCollectorWithConfig creates a new system collector with configuration.
 func NewSystemCollectorWithConfig(config *SystemCollectorConfig) metrics.CustomCollector {
 	return &SystemCollector{
 		name:     "system",
 		interval: config.Interval,
-		metrics:  make(map[string]interface{}),
+		metrics:  make(map[string]any),
 		enabled:  true,
 	}
 }
@@ -133,13 +134,13 @@ func NewSystemCollectorWithConfig(config *SystemCollectorConfig) metrics.CustomC
 // CUSTOM COLLECTOR INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Name returns the collector name
+// Name returns the collector name.
 func (sc *SystemCollector) Name() string {
 	return sc.name
 }
 
-// Collect collects system metrics
-func (sc *SystemCollector) Collect() map[string]interface{} {
+// Collect collects system metrics.
+func (sc *SystemCollector) Collect() map[string]any {
 	if !sc.enabled {
 		return sc.metrics
 	}
@@ -181,11 +182,12 @@ func (sc *SystemCollector) Collect() map[string]interface{} {
 	return sc.metrics
 }
 
-// Reset resets the collector
+// Reset resets the collector.
 func (sc *SystemCollector) Reset() error {
-	sc.metrics = make(map[string]interface{})
+	sc.metrics = make(map[string]any)
 	sc.lastCPUStats = nil
 	sc.lastCollectionTime = time.Time{}
+
 	return nil
 }
 
@@ -193,7 +195,7 @@ func (sc *SystemCollector) Reset() error {
 // CPU METRICS COLLECTION
 // =============================================================================
 
-// collectCPUStats collects CPU statistics
+// collectCPUStats collects CPU statistics.
 func (sc *SystemCollector) collectCPUStats() (*CPUStats, error) {
 	// Different implementations for different operating systems
 	switch runtime.GOOS {
@@ -208,7 +210,7 @@ func (sc *SystemCollector) collectCPUStats() (*CPUStats, error) {
 	}
 }
 
-// collectLinuxCPUStats collects CPU statistics on Linux
+// collectLinuxCPUStats collects CPU statistics on Linux.
 func (sc *SystemCollector) collectLinuxCPUStats() (*CPUStats, error) {
 	file, err := os.Open("/proc/stat")
 	if err != nil {
@@ -218,18 +220,18 @@ func (sc *SystemCollector) collectLinuxCPUStats() (*CPUStats, error) {
 
 	scanner := bufio.NewScanner(file)
 	if !scanner.Scan() {
-		return nil, fmt.Errorf("failed to read first line from /proc/stat")
+		return nil, errors.New("failed to read first line from /proc/stat")
 	}
 
 	line := scanner.Text()
 	if !strings.HasPrefix(line, "cpu ") {
-		return nil, fmt.Errorf("invalid format in /proc/stat")
+		return nil, errors.New("invalid format in /proc/stat")
 	}
 
 	// Parse CPU stats: cpu user nice system idle iowait irq softirq steal guest guest_nice
 	fields := strings.Fields(line)
 	if len(fields) < 5 {
-		return nil, fmt.Errorf("insufficient fields in /proc/stat")
+		return nil, errors.New("insufficient fields in /proc/stat")
 	}
 
 	stats := &CPUStats{}
@@ -240,6 +242,7 @@ func (sc *SystemCollector) collectLinuxCPUStats() (*CPUStats, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse CPU stat: %w", err)
 		}
+
 		values = append(values, val)
 	}
 
@@ -250,21 +253,27 @@ func (sc *SystemCollector) collectLinuxCPUStats() (*CPUStats, error) {
 		stats.System = values[2]
 		stats.Idle = values[3]
 	}
+
 	if len(values) >= 5 {
 		stats.IOWait = values[4]
 	}
+
 	if len(values) >= 6 {
 		stats.IRQ = values[5]
 	}
+
 	if len(values) >= 7 {
 		stats.SoftIRQ = values[6]
 	}
+
 	if len(values) >= 8 {
 		stats.Steal = values[7]
 	}
+
 	if len(values) >= 9 {
 		stats.Guest = values[8]
 	}
+
 	if len(values) >= 10 {
 		stats.GuestNice = values[9]
 	}
@@ -276,7 +285,7 @@ func (sc *SystemCollector) collectLinuxCPUStats() (*CPUStats, error) {
 	return stats, nil
 }
 
-// collectDarwinCPUStats collects CPU statistics on Darwin/macOS
+// collectDarwinCPUStats collects CPU statistics on Darwin/macOS.
 func (sc *SystemCollector) collectDarwinCPUStats() (*CPUStats, error) {
 	// Placeholder implementation for macOS
 	// In a real implementation, this would use system calls or parse system files
@@ -288,7 +297,7 @@ func (sc *SystemCollector) collectDarwinCPUStats() (*CPUStats, error) {
 	}, nil
 }
 
-// collectWindowsCPUStats collects CPU statistics on Windows
+// collectWindowsCPUStats collects CPU statistics on Windows.
 func (sc *SystemCollector) collectWindowsCPUStats() (*CPUStats, error) {
 	// Placeholder implementation for Windows
 	// In a real implementation, this would use Windows API calls
@@ -300,7 +309,7 @@ func (sc *SystemCollector) collectWindowsCPUStats() (*CPUStats, error) {
 	}, nil
 }
 
-// addCPUMetrics adds CPU metrics to the collection
+// addCPUMetrics adds CPU metrics to the collection.
 func (sc *SystemCollector) addCPUMetrics(stats *CPUStats) {
 	// Calculate CPU usage percentages
 	if sc.lastCPUStats != nil {
@@ -333,7 +342,7 @@ func (sc *SystemCollector) addCPUMetrics(stats *CPUStats) {
 // MEMORY METRICS COLLECTION
 // =============================================================================
 
-// collectMemoryStats collects memory statistics
+// collectMemoryStats collects memory statistics.
 func (sc *SystemCollector) collectMemoryStats() (*MemoryStats, error) {
 	switch runtime.GOOS {
 	case "linux":
@@ -347,7 +356,7 @@ func (sc *SystemCollector) collectMemoryStats() (*MemoryStats, error) {
 	}
 }
 
-// collectLinuxMemoryStats collects memory statistics on Linux
+// collectLinuxMemoryStats collects memory statistics on Linux.
 func (sc *SystemCollector) collectLinuxMemoryStats() (*MemoryStats, error) {
 	data, err := ioutil.ReadFile("/proc/meminfo")
 	if err != nil {
@@ -368,6 +377,7 @@ func (sc *SystemCollector) collectLinuxMemoryStats() (*MemoryStats, error) {
 		}
 
 		key := strings.TrimSuffix(fields[0], ":")
+
 		value, err := strconv.ParseUint(fields[1], 10, 64)
 		if err != nil {
 			continue
@@ -394,7 +404,7 @@ func (sc *SystemCollector) collectLinuxMemoryStats() (*MemoryStats, error) {
 	return stats, nil
 }
 
-// collectDarwinMemoryStats collects memory statistics on Darwin/macOS
+// collectDarwinMemoryStats collects memory statistics on Darwin/macOS.
 func (sc *SystemCollector) collectDarwinMemoryStats() (*MemoryStats, error) {
 	// Placeholder implementation for macOS
 	return &MemoryStats{
@@ -405,7 +415,7 @@ func (sc *SystemCollector) collectDarwinMemoryStats() (*MemoryStats, error) {
 	}, nil
 }
 
-// collectWindowsMemoryStats collects memory statistics on Windows
+// collectWindowsMemoryStats collects memory statistics on Windows.
 func (sc *SystemCollector) collectWindowsMemoryStats() (*MemoryStats, error) {
 	// Placeholder implementation for Windows
 	return &MemoryStats{
@@ -416,7 +426,7 @@ func (sc *SystemCollector) collectWindowsMemoryStats() (*MemoryStats, error) {
 	}, nil
 }
 
-// addMemoryMetrics adds memory metrics to the collection
+// addMemoryMetrics adds memory metrics to the collection.
 func (sc *SystemCollector) addMemoryMetrics(stats *MemoryStats) {
 	sc.metrics["system.memory.total"] = stats.Total
 	sc.metrics["system.memory.available"] = stats.Available
@@ -445,7 +455,7 @@ func (sc *SystemCollector) addMemoryMetrics(stats *MemoryStats) {
 // DISK METRICS COLLECTION
 // =============================================================================
 
-// collectDiskStats collects disk statistics
+// collectDiskStats collects disk statistics.
 func (sc *SystemCollector) collectDiskStats() ([]DiskStats, error) {
 	var allStats []DiskStats
 
@@ -461,7 +471,7 @@ func (sc *SystemCollector) collectDiskStats() ([]DiskStats, error) {
 	return allStats, nil
 }
 
-// collectDiskStatsForPath collects disk statistics for a specific path
+// collectDiskStatsForPath collects disk statistics for a specific path.
 func (sc *SystemCollector) collectDiskStatsForPath(path string) (*DiskStats, error) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(path, &stat); err != nil {
@@ -488,10 +498,10 @@ func (sc *SystemCollector) collectDiskStatsForPath(path string) (*DiskStats, err
 	}, nil
 }
 
-// addDiskMetrics adds disk metrics to the collection
+// addDiskMetrics adds disk metrics to the collection.
 func (sc *SystemCollector) addDiskMetrics(stats []DiskStats) {
 	for _, stat := range stats {
-		prefix := fmt.Sprintf("system.disk.%s", strings.ReplaceAll(stat.MountPoint, "/", "_"))
+		prefix := "system.disk." + strings.ReplaceAll(stat.MountPoint, "/", "_")
 		if prefix == "system.disk._" {
 			prefix = "system.disk.root"
 		}
@@ -507,7 +517,7 @@ func (sc *SystemCollector) addDiskMetrics(stats []DiskStats) {
 // NETWORK METRICS COLLECTION
 // =============================================================================
 
-// collectNetworkStats collects network statistics
+// collectNetworkStats collects network statistics.
 func (sc *SystemCollector) collectNetworkStats() ([]NetworkStats, error) {
 	// This is a simplified implementation
 	// In a real implementation, this would parse /proc/net/dev on Linux
@@ -522,10 +532,10 @@ func (sc *SystemCollector) collectNetworkStats() ([]NetworkStats, error) {
 	}, nil
 }
 
-// addNetworkMetrics adds network metrics to the collection
+// addNetworkMetrics adds network metrics to the collection.
 func (sc *SystemCollector) addNetworkMetrics(stats []NetworkStats) {
 	for _, stat := range stats {
-		prefix := fmt.Sprintf("system.network.%s", stat.Interface)
+		prefix := "system.network." + stat.Interface
 
 		sc.metrics[prefix+".bytes_recv"] = stat.BytesRecv
 		sc.metrics[prefix+".bytes_sent"] = stat.BytesSent
@@ -542,7 +552,7 @@ func (sc *SystemCollector) addNetworkMetrics(stats []NetworkStats) {
 // LOAD METRICS COLLECTION
 // =============================================================================
 
-// collectLoadStats collects system load statistics
+// collectLoadStats collects system load statistics.
 func (sc *SystemCollector) collectLoadStats() (*LoadStats, error) {
 	switch runtime.GOOS {
 	case "linux":
@@ -554,7 +564,7 @@ func (sc *SystemCollector) collectLoadStats() (*LoadStats, error) {
 	}
 }
 
-// collectLinuxLoadStats collects load statistics on Linux
+// collectLinuxLoadStats collects load statistics on Linux.
 func (sc *SystemCollector) collectLinuxLoadStats() (*LoadStats, error) {
 	data, err := ioutil.ReadFile("/proc/loadavg")
 	if err != nil {
@@ -563,7 +573,7 @@ func (sc *SystemCollector) collectLinuxLoadStats() (*LoadStats, error) {
 
 	fields := strings.Fields(string(data))
 	if len(fields) < 3 {
-		return nil, fmt.Errorf("invalid format in /proc/loadavg")
+		return nil, errors.New("invalid format in /proc/loadavg")
 	}
 
 	load1, err := strconv.ParseFloat(fields[0], 64)
@@ -588,7 +598,7 @@ func (sc *SystemCollector) collectLinuxLoadStats() (*LoadStats, error) {
 	}, nil
 }
 
-// collectDarwinLoadStats collects load statistics on Darwin/macOS
+// collectDarwinLoadStats collects load statistics on Darwin/macOS.
 func (sc *SystemCollector) collectDarwinLoadStats() (*LoadStats, error) {
 	// Placeholder implementation for macOS
 	return &LoadStats{
@@ -598,7 +608,7 @@ func (sc *SystemCollector) collectDarwinLoadStats() (*LoadStats, error) {
 	}, nil
 }
 
-// addLoadMetrics adds load metrics to the collection
+// addLoadMetrics adds load metrics to the collection.
 func (sc *SystemCollector) addLoadMetrics(stats *LoadStats) {
 	sc.metrics["system.load.1"] = stats.Load1
 	sc.metrics["system.load.5"] = stats.Load5
@@ -609,37 +619,37 @@ func (sc *SystemCollector) addLoadMetrics(stats *LoadStats) {
 // UTILITY METHODS
 // =============================================================================
 
-// Enable enables the collector
+// Enable enables the collector.
 func (sc *SystemCollector) Enable() {
 	sc.enabled = true
 }
 
-// Disable disables the collector
+// Disable disables the collector.
 func (sc *SystemCollector) Disable() {
 	sc.enabled = false
 }
 
-// IsEnabled returns whether the collector is enabled
+// IsEnabled returns whether the collector is enabled.
 func (sc *SystemCollector) IsEnabled() bool {
 	return sc.enabled
 }
 
-// SetInterval sets the collection interval
+// SetInterval sets the collection interval.
 func (sc *SystemCollector) SetInterval(interval time.Duration) {
 	sc.interval = interval
 }
 
-// GetInterval returns the collection interval
+// GetInterval returns the collection interval.
 func (sc *SystemCollector) GetInterval() time.Duration {
 	return sc.interval
 }
 
-// GetLastCollectionTime returns the last collection time
+// GetLastCollectionTime returns the last collection time.
 func (sc *SystemCollector) GetLastCollectionTime() time.Time {
 	return sc.lastCollectionTime
 }
 
-// GetMetricsCount returns the number of metrics collected
+// GetMetricsCount returns the number of metrics collected.
 func (sc *SystemCollector) GetMetricsCount() int {
 	return len(sc.metrics)
 }

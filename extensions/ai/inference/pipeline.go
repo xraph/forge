@@ -8,10 +8,11 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/models"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// InferencePipeline handles optimized inference processing
+// InferencePipeline handles optimized inference processing.
 type InferencePipeline struct {
 	config         InferencePipelineConfig
 	stages         []PipelineStage
@@ -30,49 +31,49 @@ type InferencePipeline struct {
 	wg             sync.WaitGroup
 }
 
-// InferencePipelineConfig contains configuration for the inference pipeline
+// InferencePipelineConfig contains configuration for the inference pipeline.
 type InferencePipelineConfig struct {
-	MaxConcurrency     int           `yaml:"max_concurrency" default:"10"`
-	QueueSize          int           `yaml:"queue_size" default:"1000"`
-	Timeout            time.Duration `yaml:"timeout" default:"30s"`
-	EnableOptimization bool          `yaml:"enable_optimization" default:"true"`
-	OptimizationLevel  int           `yaml:"optimization_level" default:"2"`
-	BatchingEnabled    bool          `yaml:"batching_enabled" default:"true"`
-	CachingEnabled     bool          `yaml:"caching_enabled" default:"true"`
+	MaxConcurrency     int           `default:"10"   yaml:"max_concurrency"`
+	QueueSize          int           `default:"1000" yaml:"queue_size"`
+	Timeout            time.Duration `default:"30s"  yaml:"timeout"`
+	EnableOptimization bool          `default:"true" yaml:"enable_optimization"`
+	OptimizationLevel  int           `default:"2"    yaml:"optimization_level"`
+	BatchingEnabled    bool          `default:"true" yaml:"batching_enabled"`
+	CachingEnabled     bool          `default:"true" yaml:"caching_enabled"`
 	Logger             logger.Logger `yaml:"-"`
 	Metrics            forge.Metrics `yaml:"-"`
 }
 
-// PipelineStage represents a stage in the inference pipeline
+// PipelineStage represents a stage in the inference pipeline.
 type PipelineStage interface {
 	Name() string
 	Process(ctx context.Context, request InferenceRequest) (InferenceRequest, error)
-	Initialize(ctx context.Context, config map[string]interface{}) error
+	Initialize(ctx context.Context, config map[string]any) error
 	GetStats() StageStats
 }
 
-// Preprocessor handles input preprocessing
+// Preprocessor handles input preprocessing.
 type Preprocessor interface {
 	Name() string
 	Process(ctx context.Context, input models.ModelInput) (models.ModelInput, error)
 	SupportedTypes() []models.ModelType
 }
 
-// Postprocessor handles output postprocessing
+// Postprocessor handles output postprocessing.
 type Postprocessor interface {
 	Name() string
 	Process(ctx context.Context, output models.ModelOutput) (models.ModelOutput, error)
 	SupportedTypes() []models.ModelType
 }
 
-// PipelineInterceptor can intercept and modify requests/responses
+// PipelineInterceptor can intercept and modify requests/responses.
 type PipelineInterceptor interface {
 	Name() string
 	BeforeInference(ctx context.Context, request *InferenceRequest) error
 	AfterInference(ctx context.Context, request *InferenceRequest, response *InferenceResponse) error
 }
 
-// WorkerPool manages a pool of inference workers
+// WorkerPool manages a pool of inference workers.
 type WorkerPool struct {
 	workers     []*PipelineWorker
 	requestChan chan InferenceRequest
@@ -81,7 +82,7 @@ type WorkerPool struct {
 	mu          sync.RWMutex
 }
 
-// PipelineWorker processes inference requests in the pipeline
+// PipelineWorker processes inference requests in the pipeline.
 type PipelineWorker struct {
 	id       string
 	pipeline *InferencePipeline
@@ -90,7 +91,7 @@ type PipelineWorker struct {
 	mu       sync.RWMutex
 }
 
-// PipelineStats contains statistics for the inference pipeline
+// PipelineStats contains statistics for the inference pipeline.
 type PipelineStats struct {
 	RequestsReceived  int64                 `json:"requests_received"`
 	RequestsProcessed int64                 `json:"requests_processed"`
@@ -103,7 +104,7 @@ type PipelineStats struct {
 	LastUpdated       time.Time             `json:"last_updated"`
 }
 
-// StageStats contains statistics for a pipeline stage
+// StageStats contains statistics for a pipeline stage.
 type StageStats struct {
 	Name              string        `json:"name"`
 	RequestsProcessed int64         `json:"requests_processed"`
@@ -114,7 +115,7 @@ type StageStats struct {
 	LastUpdated       time.Time     `json:"last_updated"`
 }
 
-// WorkerStats contains statistics for a pipeline worker
+// WorkerStats contains statistics for a pipeline worker.
 type WorkerStats struct {
 	WorkerID          string        `json:"worker_id"`
 	RequestsProcessed int64         `json:"requests_processed"`
@@ -125,14 +126,16 @@ type WorkerStats struct {
 	LastProcessed     time.Time     `json:"last_processed"`
 }
 
-// NewInferencePipeline creates a new inference pipeline
+// NewInferencePipeline creates a new inference pipeline.
 func NewInferencePipeline(config InferencePipelineConfig) (*InferencePipeline, error) {
 	if config.MaxConcurrency <= 0 {
 		config.MaxConcurrency = 10
 	}
+
 	if config.QueueSize <= 0 {
 		config.QueueSize = 1000
 	}
+
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
@@ -167,24 +170,24 @@ func NewInferencePipeline(config InferencePipelineConfig) (*InferencePipeline, e
 	return pipeline, nil
 }
 
-// Start starts the inference pipeline
+// Start starts the inference pipeline.
 func (p *InferencePipeline) Start(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.started {
-		return fmt.Errorf("inference pipeline already started")
+		return errors.New("inference pipeline already started")
 	}
 
 	// Initialize all stages
 	for _, stage := range p.stages {
-		if err := stage.Initialize(ctx, map[string]interface{}{}); err != nil {
+		if err := stage.Initialize(ctx, map[string]any{}); err != nil {
 			return fmt.Errorf("failed to initialize stage %s: %w", stage.Name(), err)
 		}
 	}
 
 	// Start worker pool
-	for i := 0; i < p.config.MaxConcurrency; i++ {
+	for i := range p.config.MaxConcurrency {
 		worker := &PipelineWorker{
 			id:       fmt.Sprintf("pipeline-worker-%d", i),
 			pipeline: p,
@@ -193,18 +196,20 @@ func (p *InferencePipeline) Start(ctx context.Context) error {
 		p.workerPool.workers = append(p.workerPool.workers, worker)
 
 		p.wg.Add(1)
+
 		go func(w *PipelineWorker) {
 			defer p.wg.Done()
+
 			w.run(ctx)
 		}(worker)
 	}
 
 	// Start stats collection
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
+
+	p.wg.Go(func() {
+
 		p.runStatsCollection(ctx)
-	}()
+	})
 
 	p.started = true
 
@@ -225,13 +230,13 @@ func (p *InferencePipeline) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the inference pipeline
+// Stop stops the inference pipeline.
 func (p *InferencePipeline) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if !p.started {
-		return fmt.Errorf("inference pipeline not started")
+		return errors.New("inference pipeline not started")
 	}
 
 	// Signal shutdown
@@ -253,10 +258,10 @@ func (p *InferencePipeline) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Process processes an inference request through the pipeline
+// Process processes an inference request through the pipeline.
 func (p *InferencePipeline) Process(ctx context.Context, request InferenceRequest) (InferenceResponse, error) {
 	if !p.started {
-		return InferenceResponse{}, fmt.Errorf("inference pipeline not started")
+		return InferenceResponse{}, errors.New("inference pipeline not started")
 	}
 
 	startTime := time.Now()
@@ -275,15 +280,18 @@ func (p *InferencePipeline) Process(ctx context.Context, request InferenceReques
 
 	// Process through stages
 	processedRequest := request
+
 	for _, stage := range p.stages {
 		stageStart := time.Now()
 
 		var err error
+
 		processedRequest, err = stage.Process(ctx, processedRequest)
 		if err != nil {
 			p.updateStats(func(stats *PipelineStats) {
 				stats.RequestsError++
 			})
+
 			return InferenceResponse{}, fmt.Errorf("stage %s failed: %w", stage.Name(), err)
 		}
 
@@ -298,6 +306,7 @@ func (p *InferencePipeline) Process(ctx context.Context, request InferenceReques
 		p.updateStats(func(stats *PipelineStats) {
 			stats.RequestsError++
 		})
+
 		return InferenceResponse{}, fmt.Errorf("inference failed: %w", err)
 	}
 
@@ -315,6 +324,7 @@ func (p *InferencePipeline) Process(ctx context.Context, request InferenceReques
 
 	// Update stats
 	latency := time.Since(startTime)
+
 	p.updateStats(func(stats *PipelineStats) {
 		stats.RequestsProcessed++
 		stats.TotalLatency += latency
@@ -329,13 +339,13 @@ func (p *InferencePipeline) Process(ctx context.Context, request InferenceReques
 	return response, nil
 }
 
-// AddStage adds a stage to the pipeline
+// AddStage adds a stage to the pipeline.
 func (p *InferencePipeline) AddStage(stage PipelineStage) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.started {
-		return fmt.Errorf("cannot add stage to running pipeline")
+		return errors.New("cannot add stage to running pipeline")
 	}
 
 	p.stages = append(p.stages, stage)
@@ -350,13 +360,13 @@ func (p *InferencePipeline) AddStage(stage PipelineStage) error {
 	return nil
 }
 
-// AddPreprocessor adds a preprocessor to the pipeline
+// AddPreprocessor adds a preprocessor to the pipeline.
 func (p *InferencePipeline) AddPreprocessor(preprocessor Preprocessor) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.started {
-		return fmt.Errorf("cannot add preprocessor to running pipeline")
+		return errors.New("cannot add preprocessor to running pipeline")
 	}
 
 	p.preprocessors = append(p.preprocessors, preprocessor)
@@ -370,13 +380,13 @@ func (p *InferencePipeline) AddPreprocessor(preprocessor Preprocessor) error {
 	return nil
 }
 
-// AddPostprocessor adds a postprocessor to the pipeline
+// AddPostprocessor adds a postprocessor to the pipeline.
 func (p *InferencePipeline) AddPostprocessor(postprocessor Postprocessor) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.started {
-		return fmt.Errorf("cannot add postprocessor to running pipeline")
+		return errors.New("cannot add postprocessor to running pipeline")
 	}
 
 	p.postprocessors = append(p.postprocessors, postprocessor)
@@ -390,13 +400,13 @@ func (p *InferencePipeline) AddPostprocessor(postprocessor Postprocessor) error 
 	return nil
 }
 
-// AddInterceptor adds an interceptor to the pipeline
+// AddInterceptor adds an interceptor to the pipeline.
 func (p *InferencePipeline) AddInterceptor(interceptor PipelineInterceptor) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.started {
-		return fmt.Errorf("cannot add interceptor to running pipeline")
+		return errors.New("cannot add interceptor to running pipeline")
 	}
 
 	p.interceptors = append(p.interceptors, interceptor)
@@ -410,7 +420,7 @@ func (p *InferencePipeline) AddInterceptor(interceptor PipelineInterceptor) erro
 	return nil
 }
 
-// GetStats returns pipeline statistics
+// GetStats returns pipeline statistics.
 func (p *InferencePipeline) GetStats() PipelineStats {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -423,14 +433,14 @@ func (p *InferencePipeline) GetStats() PipelineStats {
 	return stats
 }
 
-// performInference performs the actual inference
+// performInference performs the actual inference.
 func (p *InferencePipeline) performInference(ctx context.Context, request InferenceRequest) (InferenceResponse, error) {
 	// This is a simplified implementation - in practice, this would delegate to the actual model
 	// For now, we'll create a mock response
 	response := InferenceResponse{
 		ID:         request.ID,
 		ModelID:    request.ModelID,
-		Output:     models.ModelOutput{Metadata: map[string]interface{}{"result": "processed"}},
+		Output:     models.ModelOutput{Metadata: map[string]any{"result": "processed"}},
 		Latency:    time.Since(request.Timestamp),
 		Confidence: 0.95,
 		ModelInfo: models.ModelInfo{
@@ -438,7 +448,7 @@ func (p *InferencePipeline) performInference(ctx context.Context, request Infere
 			Name:    request.ModelID,
 			Version: "1.0.0",
 		},
-		Metadata:  map[string]interface{}{"pipeline": "inference"},
+		Metadata:  map[string]any{"pipeline": "inference"},
 		Timestamp: time.Now(),
 		FromCache: false,
 	}
@@ -446,7 +456,7 @@ func (p *InferencePipeline) performInference(ctx context.Context, request Infere
 	return response, nil
 }
 
-// initializeDefaultStages initializes default pipeline stages
+// initializeDefaultStages initializes default pipeline stages.
 func (p *InferencePipeline) initializeDefaultStages() error {
 	// Add default preprocessing stage
 	preprocessingStage := &PreprocessingStage{
@@ -474,14 +484,15 @@ func (p *InferencePipeline) initializeDefaultStages() error {
 	return nil
 }
 
-// updateStats updates pipeline statistics
+// updateStats updates pipeline statistics.
 func (p *InferencePipeline) updateStats(fn func(*PipelineStats)) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	fn(&p.stats)
 }
 
-// updateStageStats updates stage statistics
+// updateStageStats updates stage statistics.
 func (p *InferencePipeline) updateStageStats(stageName string, latency time.Duration, err error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -507,7 +518,7 @@ func (p *InferencePipeline) updateStageStats(stageName string, latency time.Dura
 	p.stats.StagesStats[stageName] = stats
 }
 
-// runStatsCollection runs the statistics collection loop
+// runStatsCollection runs the statistics collection loop.
 func (p *InferencePipeline) runStatsCollection(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -524,7 +535,7 @@ func (p *InferencePipeline) runStatsCollection(ctx context.Context) {
 	}
 }
 
-// collectStats collects and updates statistics
+// collectStats collects and updates statistics.
 func (p *InferencePipeline) collectStats() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -534,17 +545,19 @@ func (p *InferencePipeline) collectStats() {
 
 	// Update active workers
 	activeWorkers := 0
+
 	for _, worker := range p.workerPool.workers {
 		if worker.active {
 			activeWorkers++
 		}
 	}
+
 	p.stats.ActiveWorkers = activeWorkers
 
 	p.stats.LastUpdated = time.Now()
 }
 
-// run runs the pipeline worker
+// run runs the pipeline worker.
 func (w *PipelineWorker) run(ctx context.Context) {
 	for {
 		select {
@@ -560,7 +573,7 @@ func (w *PipelineWorker) run(ctx context.Context) {
 	}
 }
 
-// processRequest processes a single request
+// processRequest processes a single request.
 func (w *PipelineWorker) processRequest(ctx context.Context, request InferenceRequest) {
 	startTime := time.Now()
 
@@ -586,6 +599,7 @@ func (w *PipelineWorker) processRequest(ctx context.Context, request InferenceRe
 
 	// Update worker stats
 	latency := time.Since(startTime)
+
 	w.mu.Lock()
 	w.stats.TotalLatency += latency
 	w.stats.AverageLatency = w.stats.TotalLatency / time.Duration(w.stats.RequestsProcessed)
@@ -597,19 +611,20 @@ func (w *PipelineWorker) processRequest(ctx context.Context, request InferenceRe
 	}
 }
 
-// GetStats returns worker statistics
+// GetStats returns worker statistics.
 func (w *PipelineWorker) GetStats() WorkerStats {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
 	stats := w.stats
 	stats.IsActive = w.active
+
 	return stats
 }
 
 // Default stage implementations
 
-// PreprocessingStage handles preprocessing
+// PreprocessingStage handles preprocessing.
 type PreprocessingStage struct {
 	name          string
 	preprocessors []Preprocessor
@@ -626,6 +641,7 @@ func (s *PreprocessingStage) Process(ctx context.Context, request InferenceReque
 	// Apply preprocessors
 	for _, preprocessor := range s.preprocessors {
 		var err error
+
 		request.Input, err = preprocessor.Process(ctx, request.Input)
 		if err != nil {
 			return request, fmt.Errorf("preprocessor %s failed: %w", preprocessor.Name(), err)
@@ -635,18 +651,20 @@ func (s *PreprocessingStage) Process(ctx context.Context, request InferenceReque
 	return request, nil
 }
 
-func (s *PreprocessingStage) Initialize(ctx context.Context, config map[string]interface{}) error {
+func (s *PreprocessingStage) Initialize(ctx context.Context, config map[string]any) error {
 	s.stats = StageStats{Name: s.name}
+
 	return nil
 }
 
 func (s *PreprocessingStage) GetStats() StageStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.stats
 }
 
-// InferenceStage handles the main inference
+// InferenceStage handles the main inference.
 type InferenceStage struct {
 	name   string
 	stats  StageStats
@@ -664,18 +682,20 @@ func (s *InferenceStage) Process(ctx context.Context, request InferenceRequest) 
 	return request, nil
 }
 
-func (s *InferenceStage) Initialize(ctx context.Context, config map[string]interface{}) error {
+func (s *InferenceStage) Initialize(ctx context.Context, config map[string]any) error {
 	s.stats = StageStats{Name: s.name}
+
 	return nil
 }
 
 func (s *InferenceStage) GetStats() StageStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.stats
 }
 
-// PostprocessingStage handles postprocessing
+// PostprocessingStage handles postprocessing.
 type PostprocessingStage struct {
 	name           string
 	postprocessors []Postprocessor
@@ -693,13 +713,15 @@ func (s *PostprocessingStage) Process(ctx context.Context, request InferenceRequ
 	return request, nil
 }
 
-func (s *PostprocessingStage) Initialize(ctx context.Context, config map[string]interface{}) error {
+func (s *PostprocessingStage) Initialize(ctx context.Context, config map[string]any) error {
 	s.stats = StageStats{Name: s.name}
+
 	return nil
 }
 
 func (s *PostprocessingStage) GetStats() StageStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.stats
 }

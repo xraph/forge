@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge/farp"
 )
 
-// mockApp implements farp.Application for testing
+// mockApp implements farp.Application for testing.
 type mockApp struct {
 	name    string
 	version string
@@ -21,7 +21,7 @@ func (m *mockApp) Version() string {
 	return m.version
 }
 
-func (m *mockApp) Routes() interface{} {
+func (m *mockApp) Routes() any {
 	return []map[string]string{
 		{"method": "POST", "path": "/rpc"},
 	}
@@ -57,9 +57,11 @@ func TestNewProvider(t *testing.T) {
 			if p.SpecVersion() != tt.wantVersion {
 				t.Errorf("SpecVersion() = %v, want %v", p.SpecVersion(), tt.wantVersion)
 			}
+
 			if p.Endpoint() != tt.wantEndpoint {
 				t.Errorf("Endpoint() = %v, want %v", p.Endpoint(), tt.wantEndpoint)
 			}
+
 			if p.Type() != farp.SchemaTypeORPC {
 				t.Errorf("Type() = %v, want %v", p.Type(), farp.SchemaTypeORPC)
 			}
@@ -74,6 +76,7 @@ func TestProvider_Generate(t *testing.T) {
 	}
 
 	p := NewProvider("1.0.0", "/orpc.json")
+
 	schema, err := p.Generate(context.Background(), app)
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
@@ -89,7 +92,7 @@ func TestProvider_Generate(t *testing.T) {
 	}
 
 	// Check for expected fields
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		t.Fatal("schema is not a map")
 	}
@@ -112,23 +115,23 @@ func TestProvider_Validate(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		schema  interface{}
+		schema  any
 		wantErr bool
 	}{
 		{
 			name: "valid schema",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"orpc": "1.0.0",
-				"info": map[string]interface{}{
+				"info": map[string]any{
 					"title":   "Test API",
 					"version": "1.0.0",
 				},
-				"procedures": map[string]interface{}{
-					"getProcedure": map[string]interface{}{
-						"input": map[string]interface{}{
+				"procedures": map[string]any{
+					"getProcedure": map[string]any{
+						"input": map[string]any{
 							"type": "object",
 						},
-						"output": map[string]interface{}{
+						"output": map[string]any{
 							"type": "object",
 						},
 					},
@@ -143,45 +146,45 @@ func TestProvider_Validate(t *testing.T) {
 		},
 		{
 			name: "missing orpc field",
-			schema: map[string]interface{}{
-				"info":       map[string]interface{}{},
-				"procedures": map[string]interface{}{},
+			schema: map[string]any{
+				"info":       map[string]any{},
+				"procedures": map[string]any{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing info field",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"orpc":       "1.0.0",
-				"procedures": map[string]interface{}{},
+				"procedures": map[string]any{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing procedures field",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"orpc": "1.0.0",
-				"info": map[string]interface{}{},
+				"info": map[string]any{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "procedures not an object",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"orpc":       "1.0.0",
-				"info":       map[string]interface{}{},
+				"info":       map[string]any{},
 				"procedures": "not an object",
 			},
 			wantErr: true,
 		},
 		{
 			name: "procedure missing input",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"orpc": "1.0.0",
-				"info": map[string]interface{}{},
-				"procedures": map[string]interface{}{
-					"test": map[string]interface{}{
-						"output": map[string]interface{}{},
+				"info": map[string]any{},
+				"procedures": map[string]any{
+					"test": map[string]any{
+						"output": map[string]any{},
 					},
 				},
 			},
@@ -189,12 +192,12 @@ func TestProvider_Validate(t *testing.T) {
 		},
 		{
 			name: "procedure missing output",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"orpc": "1.0.0",
-				"info": map[string]interface{}{},
-				"procedures": map[string]interface{}{
-					"test": map[string]interface{}{
-						"input": map[string]interface{}{},
+				"info": map[string]any{},
+				"procedures": map[string]any{
+					"test": map[string]any{
+						"input": map[string]any{},
 					},
 				},
 			},
@@ -219,6 +222,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	}
 
 	p := NewProvider("1.0.0", "/orpc.json")
+
 	schema, err := p.Generate(context.Background(), app)
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
@@ -229,6 +233,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Hash() error = %v", err)
 	}
+
 	if hash == "" {
 		t.Error("Hash() returned empty string")
 	}
@@ -238,6 +243,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Hash() second call error = %v", err)
 	}
+
 	if hash != hash2 {
 		t.Error("Hash() is not deterministic")
 	}
@@ -247,6 +253,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Serialize() error = %v", err)
 	}
+
 	if len(data) == 0 {
 		t.Error("Serialize() returned empty data")
 	}
@@ -322,6 +329,7 @@ func TestProvider_GenerateDescriptor(t *testing.T) {
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GenerateDescriptor() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
 
@@ -329,15 +337,19 @@ func TestProvider_GenerateDescriptor(t *testing.T) {
 				if descriptor == nil {
 					t.Fatal("GenerateDescriptor() returned nil descriptor")
 				}
+
 				if descriptor.Type != farp.SchemaTypeORPC {
 					t.Errorf("descriptor.Type = %v, want %v", descriptor.Type, farp.SchemaTypeORPC)
 				}
+
 				if descriptor.Hash == "" {
 					t.Error("descriptor.Hash is empty")
 				}
+
 				if descriptor.Size == 0 {
 					t.Error("descriptor.Size is zero")
 				}
+
 				if tt.locationType == farp.LocationTypeInline && descriptor.InlineSchema == nil {
 					t.Error("descriptor.InlineSchema is nil for inline location")
 				}

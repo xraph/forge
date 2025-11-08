@@ -5,23 +5,25 @@ import (
 	"strings"
 )
 
-// AuthCodeGenerator generates authentication-related code
+// AuthCodeGenerator generates authentication-related code.
 type AuthCodeGenerator struct{}
 
-// NewAuthCodeGenerator creates a new auth code generator
+// NewAuthCodeGenerator creates a new auth code generator.
 func NewAuthCodeGenerator() *AuthCodeGenerator {
 	return &AuthCodeGenerator{}
 }
 
-// DetectAuthSchemes detects authentication schemes from the API spec
+// DetectAuthSchemes detects authentication schemes from the API spec.
 func (a *AuthCodeGenerator) DetectAuthSchemes(spec *APISpec) []DetectedAuthScheme {
 	var detected []DetectedAuthScheme
+
 	seenSchemes := make(map[string]bool)
 
 	for _, scheme := range spec.Security {
 		if seenSchemes[scheme.Name] {
 			continue
 		}
+
 		seenSchemes[scheme.Name] = true
 
 		detected = append(detected, DetectedAuthScheme{
@@ -37,7 +39,7 @@ func (a *AuthCodeGenerator) DetectAuthSchemes(spec *APISpec) []DetectedAuthSchem
 	return detected
 }
 
-// requiresScopes checks if any endpoint requires scopes for this auth scheme
+// requiresScopes checks if any endpoint requires scopes for this auth scheme.
 func (a *AuthCodeGenerator) requiresScopes(spec *APISpec, schemeName string) bool {
 	// Check REST endpoints
 	for _, endpoint := range spec.Endpoints {
@@ -69,7 +71,7 @@ func (a *AuthCodeGenerator) requiresScopes(spec *APISpec, schemeName string) boo
 	return false
 }
 
-// GetAuthConfigType determines the appropriate auth config type
+// GetAuthConfigType determines the appropriate auth config type.
 func (a *AuthCodeGenerator) GetAuthConfigType(schemes []DetectedAuthScheme) string {
 	if len(schemes) == 0 {
 		return "none"
@@ -84,9 +86,10 @@ func (a *AuthCodeGenerator) GetAuthConfigType(schemes []DetectedAuthScheme) stri
 	for _, scheme := range schemes {
 		switch scheme.Type {
 		case "http":
-			if scheme.Scheme == "bearer" {
+			switch scheme.Scheme {
+			case "bearer":
 				hasBearer = true
-			} else if scheme.Scheme == "basic" {
+			case "basic":
 				hasBasic = true
 			}
 		case "apiKey":
@@ -110,7 +113,7 @@ func (a *AuthCodeGenerator) GetAuthConfigType(schemes []DetectedAuthScheme) stri
 	}
 }
 
-// GetAuthHeaderName returns the header name for an auth scheme
+// GetAuthHeaderName returns the header name for an auth scheme.
 func (a *AuthCodeGenerator) GetAuthHeaderName(scheme DetectedAuthScheme) string {
 	switch scheme.Type {
 	case "http":
@@ -119,13 +122,14 @@ func (a *AuthCodeGenerator) GetAuthHeaderName(scheme DetectedAuthScheme) string 
 		if scheme.In == "header" {
 			return scheme.Name
 		}
+
 		return ""
 	default:
 		return ""
 	}
 }
 
-// GetAuthPrefix returns the prefix for an auth value (e.g., "Bearer ")
+// GetAuthPrefix returns the prefix for an auth value (e.g., "Bearer ").
 func (a *AuthCodeGenerator) GetAuthPrefix(scheme DetectedAuthScheme) string {
 	if scheme.Type == "http" {
 		switch scheme.Scheme {
@@ -135,10 +139,11 @@ func (a *AuthCodeGenerator) GetAuthPrefix(scheme DetectedAuthScheme) string {
 			return "Basic "
 		}
 	}
+
 	return ""
 }
 
-// DetectedAuthScheme represents a detected authentication scheme
+// DetectedAuthScheme represents a detected authentication scheme.
 type DetectedAuthScheme struct {
 	Name          string
 	Type          string
@@ -148,14 +153,14 @@ type DetectedAuthScheme struct {
 	RequiresScope bool
 }
 
-// AuthRequirement represents an authentication requirement for a specific endpoint
+// AuthRequirement represents an authentication requirement for a specific endpoint.
 type AuthRequirement struct {
 	SchemeName string
 	Required   bool
 	Scopes     []string
 }
 
-// GetEndpointAuthRequirements returns auth requirements for an endpoint
+// GetEndpointAuthRequirements returns auth requirements for an endpoint.
 func (a *AuthCodeGenerator) GetEndpointAuthRequirements(endpoint Endpoint, spec *APISpec) []AuthRequirement {
 	var requirements []AuthRequirement
 
@@ -170,7 +175,7 @@ func (a *AuthCodeGenerator) GetEndpointAuthRequirements(endpoint Endpoint, spec 
 	return requirements
 }
 
-// GenerateAuthDocumentation generates documentation for authentication
+// GenerateAuthDocumentation generates documentation for authentication.
 func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthScheme) string {
 	if len(schemes) == 0 {
 		return "No authentication required."
@@ -187,20 +192,25 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 		switch scheme.Type {
 		case "http":
 			doc.WriteString(fmt.Sprintf("- **Scheme**: %s\n", scheme.Scheme))
+
 			if scheme.BearerFormat != "" {
 				doc.WriteString(fmt.Sprintf("- **Bearer Format**: %s\n", scheme.BearerFormat))
 			}
-			if scheme.Scheme == "bearer" {
+
+			switch scheme.Scheme {
+			case "bearer":
 				doc.WriteString("- **Usage**: Pass the token in the `Authorization` header as `Bearer <token>`\n")
-			} else if scheme.Scheme == "basic" {
+			case "basic":
 				doc.WriteString("- **Usage**: Pass credentials in the `Authorization` header as `Basic <base64-encoded-credentials>`\n")
 			}
 
 		case "apiKey":
 			doc.WriteString(fmt.Sprintf("- **Location**: %s\n", scheme.In))
-			if scheme.In == "header" {
+
+			switch scheme.In {
+			case "header":
 				doc.WriteString(fmt.Sprintf("- **Header Name**: %s\n", scheme.Name))
-			} else if scheme.In == "query" {
+			case "query":
 				doc.WriteString(fmt.Sprintf("- **Query Parameter**: %s\n", scheme.Name))
 			}
 
@@ -218,7 +228,7 @@ func (a *AuthCodeGenerator) GenerateAuthDocumentation(schemes []DetectedAuthSche
 	return doc.String()
 }
 
-// NeedsAuthConfig determines if any endpoints need authentication
+// NeedsAuthConfig determines if any endpoints need authentication.
 func NeedsAuthConfig(spec *APISpec) bool {
 	// Check if there are any security schemes
 	if len(spec.Security) > 0 {
@@ -247,15 +257,17 @@ func NeedsAuthConfig(spec *APISpec) bool {
 	return false
 }
 
-// MergeAuthSchemes merges authentication schemes, removing duplicates
+// MergeAuthSchemes merges authentication schemes, removing duplicates.
 func MergeAuthSchemes(schemes []DetectedAuthScheme) []DetectedAuthScheme {
 	seen := make(map[string]bool)
+
 	var result []DetectedAuthScheme
 
 	for _, scheme := range schemes {
 		key := fmt.Sprintf("%s:%s", scheme.Type, scheme.Name)
 		if !seen[key] {
 			seen[key] = true
+
 			result = append(result, scheme)
 		}
 	}

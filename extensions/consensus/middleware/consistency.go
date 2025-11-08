@@ -8,19 +8,19 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// ConsistencyLevel represents the consistency level for reads
+// ConsistencyLevel represents the consistency level for reads.
 type ConsistencyLevel int
 
 const (
-	// ConsistencyLinearizable provides linearizable reads (strongest)
+	// ConsistencyLinearizable provides linearizable reads (strongest).
 	ConsistencyLinearizable ConsistencyLevel = iota
-	// ConsistencyBounded provides bounded staleness reads
+	// ConsistencyBounded provides bounded staleness reads.
 	ConsistencyBounded
-	// ConsistencyEventual allows eventually consistent reads (weakest)
+	// ConsistencyEventual allows eventually consistent reads (weakest).
 	ConsistencyEventual
 )
 
-// ConsistencyMiddleware enforces consistency guarantees
+// ConsistencyMiddleware enforces consistency guarantees.
 type ConsistencyMiddleware struct {
 	raftNode     internal.RaftNode
 	logger       forge.Logger
@@ -28,13 +28,13 @@ type ConsistencyMiddleware struct {
 	maxStaleness time.Duration
 }
 
-// ConsistencyConfig contains consistency middleware configuration
+// ConsistencyConfig contains consistency middleware configuration.
 type ConsistencyConfig struct {
 	DefaultLevel ConsistencyLevel
 	MaxStaleness time.Duration
 }
 
-// NewConsistencyMiddleware creates consistency middleware
+// NewConsistencyMiddleware creates consistency middleware.
 func NewConsistencyMiddleware(
 	raftNode internal.RaftNode,
 	config ConsistencyConfig,
@@ -52,7 +52,7 @@ func NewConsistencyMiddleware(
 	}
 }
 
-// Handle enforces consistency level
+// Handle enforces consistency level.
 func (cm *ConsistencyMiddleware) Handle() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// Determine requested consistency level
@@ -77,11 +77,11 @@ func (cm *ConsistencyMiddleware) Handle() func(forge.Context) error {
 	}
 }
 
-// enforceLinearizable enforces linearizable consistency
+// enforceLinearizable enforces linearizable consistency.
 func (cm *ConsistencyMiddleware) enforceLinearizable(ctx forge.Context) error {
 	// Linearizable reads must go to leader
 	if !cm.raftNode.IsLeader() {
-		return ctx.JSON(403, map[string]interface{}{
+		return ctx.JSON(403, map[string]any{
 			"error":             "linearizable reads require leader",
 			"consistency_level": "linearizable",
 			"is_leader":         false,
@@ -100,7 +100,7 @@ func (cm *ConsistencyMiddleware) enforceLinearizable(ctx forge.Context) error {
 	return nil
 }
 
-// enforceBounded enforces bounded staleness
+// enforceBounded enforces bounded staleness.
 func (cm *ConsistencyMiddleware) enforceBounded(ctx forge.Context) error {
 	// Get max staleness from request or use default
 	maxStaleness := cm.getMaxStaleness(ctx)
@@ -123,7 +123,7 @@ func (cm *ConsistencyMiddleware) enforceBounded(ctx forge.Context) error {
 	maxLag := uint64(maxStaleness.Seconds() * 100) // Rough approximation
 
 	if lag > maxLag {
-		return ctx.JSON(503, map[string]interface{}{
+		return ctx.JSON(503, map[string]any{
 			"error":             "node too far behind",
 			"consistency_level": "bounded",
 			"lag":               lag,
@@ -139,7 +139,7 @@ func (cm *ConsistencyMiddleware) enforceBounded(ctx forge.Context) error {
 	return nil
 }
 
-// enforceEventual allows eventual consistency (any node)
+// enforceEventual allows eventual consistency (any node).
 func (cm *ConsistencyMiddleware) enforceEventual(ctx forge.Context) error {
 	// Eventual consistency allows reads from any node
 	cm.logger.Debug("eventual consistency read allowed",
@@ -159,7 +159,7 @@ func (cm *ConsistencyMiddleware) enforceEventual(ctx forge.Context) error {
 	return nil
 }
 
-// getRequestedLevel determines the requested consistency level
+// getRequestedLevel determines the requested consistency level.
 func (cm *ConsistencyMiddleware) getRequestedLevel(ctx forge.Context) ConsistencyLevel {
 	// Check query parameter
 	levelStr := ctx.Query("consistency")
@@ -184,7 +184,7 @@ func (cm *ConsistencyMiddleware) getRequestedLevel(ctx forge.Context) Consistenc
 	}
 }
 
-// getMaxStaleness gets the max staleness from request
+// getMaxStaleness gets the max staleness from request.
 func (cm *ConsistencyMiddleware) getMaxStaleness(ctx forge.Context) time.Duration {
 	// Check query parameter
 	stalenessStr := ctx.Query("max_staleness")
@@ -204,6 +204,7 @@ func (cm *ConsistencyMiddleware) getMaxStaleness(ctx forge.Context) time.Duratio
 			forge.F("value", stalenessStr),
 			forge.F("error", err),
 		)
+
 		return cm.maxStaleness
 	}
 
@@ -220,7 +221,7 @@ func (cm *ConsistencyMiddleware) getMaxStaleness(ctx forge.Context) time.Duratio
 	return staleness
 }
 
-// String returns string representation of consistency level
+// String returns string representation of consistency level.
 func (cl ConsistencyLevel) String() string {
 	switch cl {
 	case ConsistencyLinearizable:

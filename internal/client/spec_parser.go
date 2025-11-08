@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,15 +13,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SpecParser parses OpenAPI and AsyncAPI specification files
+// SpecParser parses OpenAPI and AsyncAPI specification files.
 type SpecParser struct{}
 
-// NewSpecParser creates a new spec parser
+// NewSpecParser creates a new spec parser.
 func NewSpecParser() *SpecParser {
 	return &SpecParser{}
 }
 
-// ParseFile parses a specification file (OpenAPI or AsyncAPI)
+// ParseFile parses a specification file (OpenAPI or AsyncAPI).
 func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, error) {
 	// nolint:gosec // G304: Path is validated and controlled by application configuration
 	data, err := os.ReadFile(filePath)
@@ -48,9 +49,9 @@ func (p *SpecParser) ParseFile(ctx context.Context, filePath string) (*APISpec, 
 	}
 }
 
-// detectSpecType detects whether the spec is OpenAPI or AsyncAPI
+// detectSpecType detects whether the spec is OpenAPI or AsyncAPI.
 func (p *SpecParser) detectSpecType(data []byte, isYAML bool) (string, error) {
-	var raw map[string]interface{}
+	var raw map[string]any
 
 	if isYAML {
 		if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -72,10 +73,10 @@ func (p *SpecParser) detectSpecType(data []byte, isYAML bool) (string, error) {
 		return "asyncapi", nil
 	}
 
-	return "", fmt.Errorf("spec does not contain 'openapi' or 'asyncapi' version field")
+	return "", errors.New("spec does not contain 'openapi' or 'asyncapi' version field")
 }
 
-// parseOpenAPI parses an OpenAPI specification
+// parseOpenAPI parses an OpenAPI specification.
 func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 	var openAPISpec shared.OpenAPISpec
 
@@ -131,6 +132,7 @@ func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 				Enum:        v.Enum,
 			}
 		}
+
 		spec.Servers = append(spec.Servers, server)
 	}
 
@@ -199,7 +201,7 @@ func (p *SpecParser) parseOpenAPI(data []byte, isYAML bool) (*APISpec, error) {
 	return spec, nil
 }
 
-// parseAsyncAPI parses an AsyncAPI specification
+// parseAsyncAPI parses an AsyncAPI specification.
 func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 	var asyncAPISpec shared.AsyncAPISpec
 
@@ -261,7 +263,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 	// Extract operations and channels
 	wsEndpoints := make(map[string]*WebSocketEndpoint)
 	sseEndpoints := make(map[string]*SSEEndpoint)
-	
+
 	for opID, operation := range asyncAPISpec.Operations {
 		if operation == nil || operation.Channel == nil {
 			continue
@@ -273,6 +275,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 		}
 
 		channelName := strings.TrimPrefix(channelRef, "#/channels/")
+
 		channel := asyncAPISpec.Channels[channelName]
 		if channel == nil {
 			continue
@@ -303,6 +306,7 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 			} else {
 				// Merge event schemas
 				existing := sseEndpoints[channelName]
+
 				for msgName, msg := range channel.Messages {
 					if msg.Payload != nil {
 						existing.EventSchemas[msgName] = convertSchema(msg.Payload)
@@ -311,11 +315,12 @@ func (p *SpecParser) parseAsyncAPI(data []byte, isYAML bool) (*APISpec, error) {
 			}
 		}
 	}
-	
+
 	// Add merged endpoints to spec
 	for _, ws := range wsEndpoints {
 		spec.WebSockets = append(spec.WebSockets, *ws)
 	}
+
 	for _, sse := range sseEndpoints {
 		spec.SSEs = append(spec.SSEs, *sse)
 	}
@@ -331,6 +336,7 @@ func convertSchemaFromChannel(channel *shared.AsyncAPIChannel, operation *shared
 			return convertSchema(msg.Payload)
 		}
 	}
+
 	return nil
 }
 
@@ -344,7 +350,7 @@ func convertOperation(method, path string, op *shared.Operation) Endpoint {
 		OperationID: op.OperationID,
 		Deprecated:  op.Deprecated,
 		Responses:   make(map[int]*Response),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 
 	// Extract parameters
@@ -462,14 +468,17 @@ func convertSchema(s *shared.Schema) *Schema {
 		minLen := s.MinLength
 		schema.MinLength = &minLen
 	}
+
 	if s.MaxLength > 0 {
 		maxLen := s.MaxLength
 		schema.MaxLength = &maxLen
 	}
+
 	if s.Minimum != 0 {
 		min := s.Minimum
 		schema.Minimum = &min
 	}
+
 	if s.Maximum != 0 {
 		max := s.Maximum
 		schema.Maximum = &max
@@ -491,11 +500,13 @@ func convertSchema(s *shared.Schema) *Schema {
 			schema.OneOf = append(schema.OneOf, convertSchema(&s.OneOf[idx]))
 		}
 	}
+
 	if len(s.AnyOf) > 0 {
 		for idx := range s.AnyOf {
 			schema.AnyOf = append(schema.AnyOf, convertSchema(&s.AnyOf[idx]))
 		}
 	}
+
 	if len(s.AllOf) > 0 {
 		for idx := range s.AllOf {
 			schema.AllOf = append(schema.AllOf, convertSchema(&s.AllOf[idx]))
@@ -527,6 +538,7 @@ func convertOAuthFlows(flows *shared.OAuthFlows) *OAuthFlows {
 			Scopes:           flows.Implicit.Scopes,
 		}
 	}
+
 	if flows.Password != nil {
 		result.Password = &OAuthFlow{
 			AuthorizationURL: flows.Password.AuthorizationURL,
@@ -535,6 +547,7 @@ func convertOAuthFlows(flows *shared.OAuthFlows) *OAuthFlows {
 			Scopes:           flows.Password.Scopes,
 		}
 	}
+
 	if flows.ClientCredentials != nil {
 		result.ClientCredentials = &OAuthFlow{
 			AuthorizationURL: flows.ClientCredentials.AuthorizationURL,
@@ -543,6 +556,7 @@ func convertOAuthFlows(flows *shared.OAuthFlows) *OAuthFlows {
 			Scopes:           flows.ClientCredentials.Scopes,
 		}
 	}
+
 	if flows.AuthorizationCode != nil {
 		result.AuthorizationCode = &OAuthFlow{
 			AuthorizationURL: flows.AuthorizationCode.AuthorizationURL,
@@ -568,6 +582,7 @@ func convertExamples(examples map[string]*shared.Example) map[string]*Example {
 			Value:       v.Value,
 		}
 	}
+
 	return result
 }
 
@@ -578,22 +593,24 @@ func convertWebSocketChannel(opID string, channel *shared.AsyncAPIChannel, opera
 		Summary:     channel.Summary,
 		Description: channel.Description,
 		Tags:        extractAsyncTagNames(channel.Tags),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 
 	for msgName, msg := range channel.Messages {
 		if msg.Payload != nil {
 			schema := convertSchema(msg.Payload)
 
-			if operation.Action == "send" {
+			switch operation.Action {
+			case "send":
 				ws.SendSchema = schema
-			} else if operation.Action == "receive" {
+			case "receive":
 				ws.ReceiveSchema = schema
 			}
 
 			if ws.Metadata["messages"] == nil {
 				ws.Metadata["messages"] = make(map[string]string)
 			}
+
 			ws.Metadata["messages"].(map[string]string)[msgName] = operation.Action
 		}
 	}
@@ -609,7 +626,7 @@ func convertSSEChannel(opID string, channel *shared.AsyncAPIChannel, operation *
 		Description:  channel.Description,
 		Tags:         extractAsyncTagNames(channel.Tags),
 		EventSchemas: make(map[string]*Schema),
-		Metadata:     make(map[string]interface{}),
+		Metadata:     make(map[string]any),
 	}
 
 	for msgName, msg := range channel.Messages {
@@ -631,6 +648,7 @@ func detectWebSocketChannel(asyncAPI *shared.AsyncAPISpec, channel *shared.Async
 			}
 		}
 	}
+
 	return len(channel.Messages) > 0
 }
 
@@ -639,5 +657,6 @@ func extractAsyncTagNames(tags []shared.AsyncAPITag) []string {
 	for i, tag := range tags {
 		names[i] = tag.Name
 	}
+
 	return names
 }

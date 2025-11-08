@@ -2,13 +2,14 @@ package filters
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
 )
 
-// mockConnection implements streaming.EnhancedConnection for testing
+// mockConnection implements streaming.EnhancedConnection for testing.
 type mockConnection struct {
 	id       string
 	userID   string
@@ -27,12 +28,8 @@ func (m *mockConnection) GetJoinedRooms() []string           { return m.rooms }
 func (m *mockConnection) AddRoom(roomID string)              { m.rooms = append(m.rooms, roomID) }
 func (m *mockConnection) RemoveRoom(roomID string)           {}
 func (m *mockConnection) IsInRoom(roomID string) bool {
-	for _, r := range m.rooms {
-		if r == roomID {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(m.rooms, roomID)
 }
 func (m *mockConnection) GetSubscriptions() []string { return m.channels }
 func (m *mockConnection) AddSubscription(channelID string) {
@@ -40,12 +37,8 @@ func (m *mockConnection) AddSubscription(channelID string) {
 }
 func (m *mockConnection) RemoveSubscription(channelID string) {}
 func (m *mockConnection) IsSubscribed(channelID string) bool {
-	for _, c := range m.channels {
-		if c == channelID {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(m.channels, channelID)
 }
 func (m *mockConnection) Read() ([]byte, error)      { return nil, nil }
 func (m *mockConnection) ReadJSON(v any) error       { return nil }
@@ -60,7 +53,7 @@ func (m *mockConnection) UpdateActivity()            {}
 func (m *mockConnection) IsClosed() bool             { return false }
 func (m *mockConnection) MarkClosed()                {}
 
-// mockFilter is a simple filter for testing
+// mockFilter is a simple filter for testing.
 type mockFilter struct {
 	name        string
 	priority    int
@@ -73,6 +66,7 @@ func (m *mockFilter) Filter(ctx context.Context, msg *streaming.Message, recipie
 	if m.shouldBlock {
 		return nil, nil
 	}
+
 	return msg, nil
 }
 
@@ -157,9 +151,9 @@ func TestFilterChain_Apply(t *testing.T) {
 			ctx := context.Background()
 
 			result, err := chain.Apply(ctx, msg, conn)
-
 			if err != nil {
 				t.Errorf("Apply() error = %v", err)
+
 				return
 			}
 
@@ -179,6 +173,7 @@ func TestSimpleFilter(t *testing.T) {
 				return nil, nil
 			}
 		}
+
 		return msg, nil
 	}
 
@@ -205,7 +200,7 @@ func TestSimpleFilter(t *testing.T) {
 
 func BenchmarkFilterChain_Apply(b *testing.B) {
 	chain := NewFilterChain()
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		chain.Add(&mockFilter{
 			name:        string(rune('a' + i)),
 			priority:    i * 10,
@@ -222,8 +217,7 @@ func BenchmarkFilterChain_Apply(b *testing.B) {
 	conn := &mockConnection{id: "conn1", userID: "user1"}
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = chain.Apply(ctx, msg, conn)
 	}
 }

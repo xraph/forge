@@ -6,14 +6,14 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// ConfigManager interface (matches v2.ConfigManagerInterface)
+// ConfigManager interface (matches v2.ConfigManagerInterface).
 type ConfigManager = core.ConfigManager
 
 // =============================================================================
 // ERROR TYPES - Re-exported from internal/errors
 // =============================================================================
 
-// Re-export error types and constructors for backward compatibility
+// Re-export error types and constructors for backward compatibility.
 type ForgeError = errors.ForgeError
 
 var (
@@ -26,5 +26,5 @@ var (
 // CONSTANTS
 // =============================================================================
 
-// ConfigKey is the service key for configuration manager
+// ConfigKey is the service key for configuration manager.
 const ConfigKey = shared.ConfigKey

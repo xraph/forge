@@ -15,6 +15,7 @@ func TestFieldCreation(t *testing.T) {
 	if field.Key() != "key" {
 		t.Errorf("expected key 'key', got %s", field.Key())
 	}
+
 	if field.Value() != "value" {
 		t.Errorf("expected value 'value', got %v", field.Value())
 	}
@@ -44,7 +45,7 @@ func TestVector(t *testing.T) {
 	vec := Vector{
 		ID:       "vec-1",
 		Values:   []float64{0.1, 0.2, 0.3},
-		Metadata: map[string]interface{}{"type": "test"},
+		Metadata: map[string]any{"type": "test"},
 	}
 
 	if vec.ID != "vec-1" {
@@ -64,7 +65,7 @@ func TestVectorMatch(t *testing.T) {
 	match := VectorMatch{
 		ID:       "match-1",
 		Score:    0.95,
-		Metadata: map[string]interface{}{"source": "doc"},
+		Metadata: map[string]any{"source": "doc"},
 	}
 
 	if match.ID != "match-1" {
@@ -101,7 +102,7 @@ func TestUsage(t *testing.T) {
 func TestResult(t *testing.T) {
 	result := Result{
 		Content:      "test response",
-		Metadata:     map[string]interface{}{"model": "gpt-4"},
+		Metadata:     map[string]any{"model": "gpt-4"},
 		FinishReason: "stop",
 	}
 

@@ -77,7 +77,7 @@ type NodeChangeEvent struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
-// Node change event types
+// Node change event types.
 const (
 	NodeEventJoined  = "joined"
 	NodeEventLeft    = "left"

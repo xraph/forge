@@ -58,6 +58,7 @@ func TestEventsExtension_DIRegistration(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event service
@@ -87,6 +88,7 @@ func TestEventsExtension_PublishSubscribe(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event bus
@@ -96,6 +98,7 @@ func TestEventsExtension_PublishSubscribe(t *testing.T) {
 	received := make(chan *core.Event, 1)
 	handler := core.EventHandlerFunc(func(ctx context.Context, event *core.Event) error {
 		received <- event
+
 		return nil
 	})
 
@@ -134,13 +137,14 @@ func TestEventsExtension_EventStore(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event store
 	eventStore := forge.Must[core.EventStore](app.Container(), "eventStore")
 
 	// Save event
-	event := core.NewEvent("order.created", "order-123", map[string]interface{}{
+	event := core.NewEvent("order.created", "order-123", map[string]any{
 		"total":    100.00,
 		"currency": "USD",
 	})
@@ -176,6 +180,7 @@ func TestEventsExtension_TypedHandler(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event bus
@@ -188,6 +193,7 @@ func TestEventsExtension_TypedHandler(t *testing.T) {
 		[]string{"user.created", "user.updated"},
 		func(ctx context.Context, event *core.Event) error {
 			received <- event
+
 			return nil
 		},
 	)
@@ -225,6 +231,7 @@ func TestEventsExtension_MultipleHandlers(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event bus
@@ -234,12 +241,14 @@ func TestEventsExtension_MultipleHandlers(t *testing.T) {
 	received1 := make(chan *core.Event, 1)
 	handler1 := core.EventHandlerFunc(func(ctx context.Context, event *core.Event) error {
 		received1 <- event
+
 		return nil
 	})
 
 	received2 := make(chan *core.Event, 1)
 	handler2 := core.EventHandlerFunc(func(ctx context.Context, event *core.Event) error {
 		received2 <- event
+
 		return nil
 	})
 
@@ -253,7 +262,7 @@ func TestEventsExtension_MultipleHandlers(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Publish event
-	event := core.NewEvent("product.created", "product-123", map[string]interface{}{
+	event := core.NewEvent("product.created", "product-123", map[string]any{
 		"name":  "Widget",
 		"price": 29.99,
 	})
@@ -286,6 +295,7 @@ func TestEventsExtension_EventSourcing(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event store
@@ -295,10 +305,10 @@ func TestEventsExtension_EventSourcing(t *testing.T) {
 	aggregateID := "order-456"
 
 	events := []*core.Event{
-		core.NewEvent("order.created", aggregateID, map[string]interface{}{"status": "pending"}).WithVersion(1),
-		core.NewEvent("order.paid", aggregateID, map[string]interface{}{"amount": 50.00}).WithVersion(2),
-		core.NewEvent("order.shipped", aggregateID, map[string]interface{}{"tracking": "ABC123"}).WithVersion(3),
-		core.NewEvent("order.delivered", aggregateID, map[string]interface{}{"delivered_at": time.Now()}).WithVersion(4),
+		core.NewEvent("order.created", aggregateID, map[string]any{"status": "pending"}).WithVersion(1),
+		core.NewEvent("order.paid", aggregateID, map[string]any{"amount": 50.00}).WithVersion(2),
+		core.NewEvent("order.shipped", aggregateID, map[string]any{"tracking": "ABC123"}).WithVersion(3),
+		core.NewEvent("order.delivered", aggregateID, map[string]any{"delivered_at": time.Now()}).WithVersion(4),
 	}
 
 	// Save events
@@ -334,6 +344,7 @@ func TestEventsExtension_Snapshot(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event store
@@ -341,7 +352,7 @@ func TestEventsExtension_Snapshot(t *testing.T) {
 
 	// Create snapshot
 	aggregateID := "account-789"
-	snapshot := core.NewSnapshot(aggregateID, "Account", map[string]interface{}{
+	snapshot := core.NewSnapshot(aggregateID, "Account", map[string]any{
 		"balance": 1000.00,
 		"status":  "active",
 	}, 10)
@@ -398,6 +409,7 @@ func TestEventsExtension_CustomConfig(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Verify extension started with custom config
@@ -415,6 +427,7 @@ func TestEventsExtension_BusStats(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event bus
@@ -438,6 +451,7 @@ func TestEventsExtension_Unsubscribe(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event bus
@@ -471,6 +485,7 @@ func TestEventsExtension_BatchSave(t *testing.T) {
 	ctx := context.Background()
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	// Get event store

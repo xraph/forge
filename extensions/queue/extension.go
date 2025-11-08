@@ -7,14 +7,15 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension for queue functionality
+// Extension implements forge.Extension for queue functionality.
 type Extension struct {
 	*forge.BaseExtension
+
 	config Config
 	queue  Queue
 }
 
-// NewExtension creates a new queue extension with functional options
+// NewExtension creates a new queue extension with functional options.
 func NewExtension(opts ...ConfigOption) forge.Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -22,39 +23,45 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("queue", "2.0.0", "Message queue with Redis/RabbitMQ/NATS")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
 	}
 }
 
-// NewExtensionWithConfig creates a new queue extension with a complete config
+// NewExtensionWithConfig creates a new queue extension with a complete config.
 func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the queue extension with the app
+// Register registers the queue extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
 	}
 
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("queue", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("queue: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("queue: using default/programmatic config", forge.F("error", err.Error()))
 	}
+
 	e.config = finalConfig
 
 	if err := e.config.Validate(); err != nil {
 		return fmt.Errorf("queue config validation failed: %w", err)
 	}
 
-	var queue Queue
-	var err error
+	var (
+		queue Queue
+		err   error
+	)
 
 	switch e.config.Driver {
 	case "inmemory":
@@ -82,10 +89,11 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	e.Logger().Info("queue extension registered", forge.F("driver", e.config.Driver))
+
 	return nil
 }
 
-// Start starts the queue extension
+// Start starts the queue extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting queue extension", forge.F("driver", e.config.Driver))
 
@@ -95,10 +103,11 @@ func (e *Extension) Start(ctx context.Context) error {
 
 	e.MarkStarted()
 	e.Logger().Info("queue extension started")
+
 	return nil
 }
 
-// Stop stops the queue extension
+// Stop stops the queue extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping queue extension")
 
@@ -110,13 +119,14 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 	e.MarkStopped()
 	e.Logger().Info("queue extension stopped")
+
 	return nil
 }
 
-// Health checks if the queue is healthy
+// Health checks if the queue is healthy.
 func (e *Extension) Health(ctx context.Context) error {
 	if e.queue == nil {
-		return fmt.Errorf("queue not initialized")
+		return errors.New("queue not initialized")
 	}
 
 	if err := e.queue.Ping(ctx); err != nil {
@@ -126,7 +136,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	return nil
 }
 
-// Queue returns the queue instance
+// Queue returns the queue instance.
 func (e *Extension) Queue() Queue {
 	return e.queue
 }

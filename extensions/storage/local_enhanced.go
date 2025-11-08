@@ -16,7 +16,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// EnhancedLocalBackend implements enhanced local filesystem storage with proper locking and pooling
+// EnhancedLocalBackend implements enhanced local filesystem storage with proper locking and pooling.
 type EnhancedLocalBackend struct {
 	rootDir    string
 	baseURL    string
@@ -37,7 +37,7 @@ type EnhancedLocalBackend struct {
 	maxUploadSize int64
 }
 
-// EnhancedLocalConfig contains configuration for enhanced local backend
+// EnhancedLocalConfig contains configuration for enhanced local backend.
 type EnhancedLocalConfig struct {
 	RootDir       string
 	BaseURL       string
@@ -46,8 +46,8 @@ type EnhancedLocalConfig struct {
 	MaxUploadSize int64
 }
 
-// NewEnhancedLocalBackend creates a new enhanced local filesystem backend
-func NewEnhancedLocalBackend(config map[string]interface{}, logger forge.Logger, metrics forge.Metrics) (*EnhancedLocalBackend, error) {
+// NewEnhancedLocalBackend creates a new enhanced local filesystem backend.
+func NewEnhancedLocalBackend(config map[string]any, logger forge.Logger, metrics forge.Metrics) (*EnhancedLocalBackend, error) {
 	rootDir, ok := config["root_dir"].(string)
 	if !ok {
 		rootDir = "./storage"
@@ -65,7 +65,9 @@ func NewEnhancedLocalBackend(config map[string]interface{}, logger forge.Logger,
 		if _, err := rand.Read(secretBytes); err != nil {
 			return nil, fmt.Errorf("failed to generate secret: %w", err)
 		}
+
 		secret = hex.EncodeToString(secretBytes)
+
 		logger.Warn("generated random secret for local storage - configure a persistent secret in production")
 	}
 
@@ -101,7 +103,7 @@ func NewEnhancedLocalBackend(config map[string]interface{}, logger forge.Logger,
 	}, nil
 }
 
-// Upload uploads a file with proper locking and validation
+// Upload uploads a file with proper locking and validation.
 func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error {
 	start := time.Now()
 
@@ -127,6 +129,7 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 
 	// Get file lock (write lock)
 	lock := b.getFileLock(path)
+
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -134,21 +137,26 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "mkdir").Inc()
+
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	// Create temporary file first (atomic write)
 	tempPath := path + ".tmp." + b.generateRandomSuffix()
+
 	tempFile, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
 	if err != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "create").Inc()
+
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 
 	// Ensure cleanup on error
 	var uploadErr error
+
 	defer func() {
 		tempFile.Close()
+
 		if uploadErr != nil {
 			os.Remove(tempPath)
 		}
@@ -161,12 +169,14 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 	written, uploadErr := b.copyWithLimit(tempFile, data, b.maxUploadSize, buf)
 	if uploadErr != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "write").Inc()
+
 		return fmt.Errorf("failed to write data: %w", uploadErr)
 	}
 
 	// Sync to disk
 	if uploadErr = tempFile.Sync(); uploadErr != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "sync").Inc()
+
 		return fmt.Errorf("failed to sync file: %w", uploadErr)
 	}
 
@@ -175,6 +185,7 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 	// Atomic rename
 	if uploadErr = os.Rename(tempPath, path); uploadErr != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "local_enhanced", "error", "rename").Inc()
+
 		return fmt.Errorf("failed to rename file: %w", uploadErr)
 	}
 
@@ -205,7 +216,7 @@ func (b *EnhancedLocalBackend) Upload(ctx context.Context, key string, data io.R
 	return nil
 }
 
-// Download downloads a file with proper locking
+// Download downloads a file with proper locking.
 func (b *EnhancedLocalBackend) Download(ctx context.Context, key string) (io.ReadCloser, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -222,10 +233,13 @@ func (b *EnhancedLocalBackend) Download(ctx context.Context, key string) (io.Rea
 	file, err := os.Open(path)
 	if err != nil {
 		lock.RUnlock()
+
 		if os.IsNotExist(err) {
 			return nil, ErrObjectNotFound
 		}
+
 		b.metrics.Counter("storage_download_errors", "backend", "local_enhanced").Inc()
+
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
@@ -238,7 +252,7 @@ func (b *EnhancedLocalBackend) Download(ctx context.Context, key string) (io.Rea
 	}, nil
 }
 
-// Delete deletes a file with proper locking
+// Delete deletes a file with proper locking.
 func (b *EnhancedLocalBackend) Delete(ctx context.Context, key string) error {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -249,6 +263,7 @@ func (b *EnhancedLocalBackend) Delete(ctx context.Context, key string) error {
 
 	// Get file lock (write lock)
 	lock := b.getFileLock(path)
+
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -257,7 +272,9 @@ func (b *EnhancedLocalBackend) Delete(ctx context.Context, key string) error {
 		if os.IsNotExist(err) {
 			return ErrObjectNotFound
 		}
+
 		b.metrics.Counter("storage_delete_errors", "backend", "local_enhanced").Inc()
+
 		return fmt.Errorf("failed to delete file: %w", err)
 	}
 
@@ -274,7 +291,7 @@ func (b *EnhancedLocalBackend) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// List lists files with a prefix
+// List lists files with a prefix.
 func (b *EnhancedLocalBackend) List(ctx context.Context, prefix string, opts ...ListOption) ([]Object, error) {
 	options := applyListOptions(opts...)
 
@@ -287,8 +304,11 @@ func (b *EnhancedLocalBackend) List(ctx context.Context, prefix string, opts ...
 	}
 
 	basePath := filepath.Join(b.rootDir, prefix)
-	var objects []Object
-	var mu sync.Mutex
+
+	var (
+		objects []Object
+		mu      sync.Mutex
+	)
 
 	err := filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
 		// Check context cancellation
@@ -306,6 +326,7 @@ func (b *EnhancedLocalBackend) List(ctx context.Context, prefix string, opts ...
 			if !options.Recursive && path != basePath {
 				return filepath.SkipDir
 			}
+
 			return nil
 		}
 
@@ -324,6 +345,7 @@ func (b *EnhancedLocalBackend) List(ctx context.Context, prefix string, opts ...
 		etag := b.getCachedETag(path)
 
 		mu.Lock()
+
 		objects = append(objects, Object{
 			Key:          filepath.ToSlash(relPath),
 			Size:         info.Size(),
@@ -334,6 +356,7 @@ func (b *EnhancedLocalBackend) List(ctx context.Context, prefix string, opts ...
 
 		// Check limit
 		limitReached := options.Limit > 0 && len(objects) >= options.Limit
+
 		mu.Unlock()
 
 		if limitReached {
@@ -343,14 +366,14 @@ func (b *EnhancedLocalBackend) List(ctx context.Context, prefix string, opts ...
 		return nil
 	})
 
-	if err != nil && err != filepath.SkipAll {
+	if err != nil && !errors.Is(err, filepath.SkipAll) {
 		return nil, fmt.Errorf("failed to walk directory: %w", err)
 	}
 
 	return objects, nil
 }
 
-// Metadata retrieves object metadata
+// Metadata retrieves object metadata.
 func (b *EnhancedLocalBackend) Metadata(ctx context.Context, key string) (*ObjectMetadata, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -361,6 +384,7 @@ func (b *EnhancedLocalBackend) Metadata(ctx context.Context, key string) (*Objec
 
 	// Get file lock (read lock)
 	lock := b.getFileLock(path)
+
 	lock.RLock()
 	defer lock.RUnlock()
 
@@ -369,6 +393,7 @@ func (b *EnhancedLocalBackend) Metadata(ctx context.Context, key string) (*Objec
 		if os.IsNotExist(err) {
 			return nil, ErrObjectNotFound
 		}
+
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
 
@@ -384,7 +409,7 @@ func (b *EnhancedLocalBackend) Metadata(ctx context.Context, key string) (*Objec
 	return metadata, nil
 }
 
-// Exists checks if an object exists
+// Exists checks if an object exists.
 func (b *EnhancedLocalBackend) Exists(ctx context.Context, key string) (bool, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -392,22 +417,26 @@ func (b *EnhancedLocalBackend) Exists(ctx context.Context, key string) (bool, er
 	}
 
 	path := filepath.Join(b.rootDir, key)
+
 	_, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
+
 		return false, fmt.Errorf("failed to check existence: %w", err)
 	}
+
 	return true, nil
 }
 
-// Copy copies a file with proper locking
+// Copy copies a file with proper locking.
 func (b *EnhancedLocalBackend) Copy(ctx context.Context, srcKey, dstKey string) error {
 	// Validate keys
 	if err := b.validator.ValidateKey(srcKey); err != nil {
 		return fmt.Errorf("invalid source key: %w", err)
 	}
+
 	if err := b.validator.ValidateKey(dstKey); err != nil {
 		return fmt.Errorf("invalid destination key: %w", err)
 	}
@@ -421,6 +450,7 @@ func (b *EnhancedLocalBackend) Copy(ctx context.Context, srcKey, dstKey string) 
 
 	srcLock.RLock()
 	defer srcLock.RUnlock()
+
 	dstLock.Lock()
 	defer dstLock.Unlock()
 
@@ -436,6 +466,7 @@ func (b *EnhancedLocalBackend) Copy(ctx context.Context, srcKey, dstKey string) 
 		if os.IsNotExist(err) {
 			return ErrObjectNotFound
 		}
+
 		return fmt.Errorf("failed to open source: %w", err)
 	}
 	defer src.Close()
@@ -465,12 +496,13 @@ func (b *EnhancedLocalBackend) Copy(ctx context.Context, srcKey, dstKey string) 
 	return nil
 }
 
-// Move moves a file with proper locking
+// Move moves a file with proper locking.
 func (b *EnhancedLocalBackend) Move(ctx context.Context, srcKey, dstKey string) error {
 	// Validate keys
 	if err := b.validator.ValidateKey(srcKey); err != nil {
 		return fmt.Errorf("invalid source key: %w", err)
 	}
+
 	if err := b.validator.ValidateKey(dstKey); err != nil {
 		return fmt.Errorf("invalid destination key: %w", err)
 	}
@@ -484,6 +516,7 @@ func (b *EnhancedLocalBackend) Move(ctx context.Context, srcKey, dstKey string) 
 
 	srcLock.Lock()
 	defer srcLock.Unlock()
+
 	dstLock.Lock()
 	defer dstLock.Unlock()
 
@@ -500,6 +533,7 @@ func (b *EnhancedLocalBackend) Move(ctx context.Context, srcKey, dstKey string) 
 
 	// Move metadata file if exists
 	srcMetaPath := srcPath + ".meta"
+
 	dstMetaPath := dstPath + ".meta"
 	if _, err := os.Stat(srcMetaPath); err == nil {
 		os.Rename(srcMetaPath, dstMetaPath)
@@ -513,7 +547,7 @@ func (b *EnhancedLocalBackend) Move(ctx context.Context, srcKey, dstKey string) 
 	return nil
 }
 
-// PresignUpload generates a presigned URL for upload
+// PresignUpload generates a presigned URL for upload.
 func (b *EnhancedLocalBackend) PresignUpload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -531,7 +565,7 @@ func (b *EnhancedLocalBackend) PresignUpload(ctx context.Context, key string, ex
 	return url, nil
 }
 
-// PresignDownload generates a presigned URL for download
+// PresignDownload generates a presigned URL for download.
 func (b *EnhancedLocalBackend) PresignDownload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -549,26 +583,30 @@ func (b *EnhancedLocalBackend) PresignDownload(ctx context.Context, key string, 
 	return url, nil
 }
 
-// Helper: Get or create file lock
+// Helper: Get or create file lock.
 func (b *EnhancedLocalBackend) getFileLock(path string) *sync.RWMutex {
 	lock, _ := b.fileLocks.LoadOrStore(path, &sync.RWMutex{})
+
 	return lock.(*sync.RWMutex)
 }
 
-// Helper: Copy with size limit
+// Helper: Copy with size limit.
 func (b *EnhancedLocalBackend) copyWithLimit(dst io.Writer, src io.Reader, limit int64, buf []byte) (int64, error) {
 	limitedReader := io.LimitReader(src, limit+1)
+
 	written, err := io.CopyBuffer(dst, limitedReader, buf)
 	if err != nil {
 		return written, err
 	}
+
 	if written > limit {
 		return written, ErrFileTooLarge
 	}
+
 	return written, nil
 }
 
-// Helper: Get cached ETag or calculate
+// Helper: Get cached ETag or calculate.
 func (b *EnhancedLocalBackend) getCachedETag(path string) string {
 	// Check cache
 	if etag, ok := b.etagCache.Load(path); ok {
@@ -580,10 +618,11 @@ func (b *EnhancedLocalBackend) getCachedETag(path string) string {
 	if etag != "" {
 		b.etagCache.Store(path, etag)
 	}
+
 	return etag
 }
 
-// Helper: Calculate ETag (MD5 hash)
+// Helper: Calculate ETag (MD5 hash).
 func (b *EnhancedLocalBackend) calculateETag(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -592,6 +631,7 @@ func (b *EnhancedLocalBackend) calculateETag(path string) string {
 	defer file.Close()
 
 	hash := md5.New()
+
 	buf := b.bufferPool.Get()
 	defer b.bufferPool.Put(buf)
 
@@ -602,7 +642,7 @@ func (b *EnhancedLocalBackend) calculateETag(path string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// Helper: Get content type from file extension
+// Helper: Get content type from file extension.
 func (b *EnhancedLocalBackend) getContentType(path string) string {
 	ext := filepath.Ext(path)
 	contentTypes := map[string]string{
@@ -631,32 +671,36 @@ func (b *EnhancedLocalBackend) getContentType(path string) string {
 	if contentType, ok := contentTypes[ext]; ok {
 		return contentType
 	}
+
 	return "application/octet-stream"
 }
 
-// Helper: Generate signed token for presigned URLs
+// Helper: Generate signed token for presigned URLs.
 func (b *EnhancedLocalBackend) generateSignedToken(key string, expiry time.Duration) string {
 	expires := time.Now().Add(expiry).Unix()
 	data := fmt.Sprintf("%s:%d:%s", key, expires, b.secret)
 
 	hash := sha256.Sum256([]byte(data))
+
 	return hex.EncodeToString(hash[:])
 }
 
-// Helper: Generate random suffix for temp files
+// Helper: Generate random suffix for temp files.
 func (b *EnhancedLocalBackend) generateRandomSuffix() string {
 	bytes := make([]byte, 8)
 	rand.Read(bytes)
+
 	return hex.EncodeToString(bytes)
 }
 
-// Helper: Save metadata to file
+// Helper: Save metadata to file.
 func (b *EnhancedLocalBackend) saveMetadata(path string, metadata map[string]string) error {
 	if len(metadata) == 0 {
 		return nil
 	}
 
 	metaPath := path + ".meta"
+
 	file, err := os.OpenFile(metaPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0640)
 	if err != nil {
 		return fmt.Errorf("failed to create metadata file: %w", err)
@@ -672,11 +716,12 @@ func (b *EnhancedLocalBackend) saveMetadata(path string, metadata map[string]str
 	return file.Sync()
 }
 
-// Helper: Load metadata from file
+// Helper: Load metadata from file.
 func (b *EnhancedLocalBackend) loadMetadata(path string) map[string]string {
 	metadata := make(map[string]string)
 
 	metaPath := path + ".meta"
+
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		return metadata
@@ -695,12 +740,15 @@ func (b *EnhancedLocalBackend) loadMetadata(path string) map[string]string {
 		if len(line) > 0 {
 			// Find separator
 			sep := -1
-			for j := 0; j < len(line); j++ {
+
+			for j := range len(line) {
 				if line[j] == '=' {
 					sep = j
+
 					break
 				}
 			}
+
 			if sep > 0 && sep < len(line)-1 {
 				key := line[:sep]
 				value := line[sep+1:]
@@ -714,14 +762,16 @@ func (b *EnhancedLocalBackend) loadMetadata(path string) map[string]string {
 	return metadata
 }
 
-// lockedReadCloser wraps a ReadCloser with a lock that is released on Close
+// lockedReadCloser wraps a ReadCloser with a lock that is released on Close.
 type lockedReadCloser struct {
 	io.ReadCloser
+
 	lock *sync.RWMutex
 }
 
 func (lrc *lockedReadCloser) Close() error {
 	err := lrc.ReadCloser.Close()
 	lrc.lock.RUnlock()
+
 	return err
 }

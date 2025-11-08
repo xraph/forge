@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// OTelTracer provides OpenTelemetry-based distributed tracing
+// OTelTracer provides OpenTelemetry-based distributed tracing.
 type OTelTracer struct {
 	config         OTelTracingConfig
 	tracer         trace.Tracer
@@ -29,30 +30,30 @@ type OTelTracer struct {
 	shutdownC      chan struct{}
 }
 
-// OTelTracingConfig contains OpenTelemetry tracing configuration
+// OTelTracingConfig contains OpenTelemetry tracing configuration.
 type OTelTracingConfig struct {
-	ServiceName    string        `yaml:"service_name" default:"forge-service"`
-	ServiceVersion string        `yaml:"service_version" default:"1.0.0"`
-	Environment    string        `yaml:"environment" default:"development"`
-	SamplingRate   float64       `yaml:"sampling_rate" default:"1.0"`
-	MaxSpans       int           `yaml:"max_spans" default:"10000"`
-	FlushInterval  time.Duration `yaml:"flush_interval" default:"5s"`
+	ServiceName    string        `default:"forge-service" yaml:"service_name"`
+	ServiceVersion string        `default:"1.0.0"         yaml:"service_version"`
+	Environment    string        `default:"development"   yaml:"environment"`
+	SamplingRate   float64       `default:"1.0"           yaml:"sampling_rate"`
+	MaxSpans       int           `default:"10000"         yaml:"max_spans"`
+	FlushInterval  time.Duration `default:"5s"            yaml:"flush_interval"`
 
 	// Exporters
-	EnableJaeger   bool   `yaml:"enable_jaeger" default:"false"`
-	JaegerEndpoint string `yaml:"jaeger_endpoint" default:"http://localhost:14268/api/traces"`
-	EnableOTLP     bool   `yaml:"enable_otlp" default:"true"`
-	OTLPEndpoint   string `yaml:"otlp_endpoint" default:"http://localhost:4318/v1/traces"`
-	EnableConsole  bool   `yaml:"enable_console" default:"false"`
+	EnableJaeger   bool   `default:"false"                             yaml:"enable_jaeger"`
+	JaegerEndpoint string `default:"http://localhost:14268/api/traces" yaml:"jaeger_endpoint"`
+	EnableOTLP     bool   `default:"true"                              yaml:"enable_otlp"`
+	OTLPEndpoint   string `default:"http://localhost:4318/v1/traces"   yaml:"otlp_endpoint"`
+	EnableConsole  bool   `default:"false"                             yaml:"enable_console"`
 
 	// Propagation
-	EnableB3  bool `yaml:"enable_b3" default:"true"`
-	EnableW3C bool `yaml:"enable_w3c" default:"true"`
+	EnableB3  bool `default:"true" yaml:"enable_b3"`
+	EnableW3C bool `default:"true" yaml:"enable_w3c"`
 
 	Logger logger.Logger `yaml:"-"`
 }
 
-// contextKey is a typed context key to avoid collisions
+// contextKey is a typed context key to avoid collisions.
 type contextKey string
 
 const (
@@ -61,7 +62,7 @@ const (
 	spanIDKey      contextKey = "forge.span_id"
 )
 
-// NewOTelTracer creates a new OpenTelemetry tracer
+// NewOTelTracer creates a new OpenTelemetry tracer.
 func NewOTelTracer(config OTelTracingConfig) (*OTelTracer, error) {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -93,6 +94,7 @@ func NewOTelTracer(config OTelTracingConfig) (*OTelTracer, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Jaeger exporter: %w", err)
 		}
+
 		exporters = append(exporters, jaegerExporter)
 	}
 
@@ -104,6 +106,7 @@ func NewOTelTracer(config OTelTracingConfig) (*OTelTracer, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
 		}
+
 		exporters = append(exporters, otlpExporter)
 	}
 
@@ -113,7 +116,7 @@ func NewOTelTracer(config OTelTracingConfig) (*OTelTracer, error) {
 	}
 
 	if len(exporters) == 0 {
-		return nil, fmt.Errorf("no exporters configured")
+		return nil, errors.New("no exporters configured")
 	}
 
 	// Create batch span processor
@@ -144,6 +147,7 @@ func NewOTelTracer(config OTelTracingConfig) (*OTelTracer, error) {
 	if config.EnableW3C {
 		propagators = append(propagators, propagation.TraceContext{}, propagation.Baggage{})
 	}
+
 	if config.EnableB3 {
 		// B3 propagation would be added here if needed
 	}
@@ -156,7 +160,7 @@ func NewOTelTracer(config OTelTracingConfig) (*OTelTracer, error) {
 	return tracer, nil
 }
 
-// StartSpan starts a new span
+// StartSpan starts a new span.
 func (t *OTelTracer) StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	ctx, span := t.tracer.Start(ctx, name, opts...)
 
@@ -168,14 +172,14 @@ func (t *OTelTracer) StartSpan(ctx context.Context, name string, opts ...trace.S
 	return ctx, span
 }
 
-// EndSpan ends a span
+// EndSpan ends a span.
 func (t *OTelTracer) EndSpan(span trace.Span) {
 	if span != nil {
 		span.End()
 	}
 }
 
-// AddEvent adds an event to a span
+// AddEvent adds an event to a span.
 func (t *OTelTracer) AddEvent(span trace.Span, name string, attributes map[string]string) {
 	if span == nil {
 		return
@@ -189,7 +193,7 @@ func (t *OTelTracer) AddEvent(span trace.Span, name string, attributes map[strin
 	span.AddEvent(name, trace.WithAttributes(attrs...))
 }
 
-// SetAttribute sets an attribute on a span
+// SetAttribute sets an attribute on a span.
 func (t *OTelTracer) SetAttribute(span trace.Span, key, value string) {
 	if span == nil {
 		return
@@ -198,7 +202,7 @@ func (t *OTelTracer) SetAttribute(span trace.Span, key, value string) {
 	span.SetAttributes(attribute.String(key, value))
 }
 
-// SetStatus sets the status of a span
+// SetStatus sets the status of a span.
 func (t *OTelTracer) SetStatus(span trace.Span, code codes.Code, description string) {
 	if span == nil {
 		return
@@ -207,7 +211,7 @@ func (t *OTelTracer) SetStatus(span trace.Span, code codes.Code, description str
 	span.SetStatus(code, description)
 }
 
-// AddLink adds a link to another span
+// AddLink adds a link to another span.
 func (t *OTelTracer) AddLink(span trace.Span, traceID, spanID string, attributes map[string]string) {
 	if span == nil {
 		return
@@ -217,12 +221,14 @@ func (t *OTelTracer) AddLink(span trace.Span, traceID, spanID string, attributes
 	tID, err := trace.TraceIDFromHex(traceID)
 	if err != nil {
 		t.logger.Error("invalid trace ID", logger.String("trace_id", traceID), logger.String("error", err.Error()))
+
 		return
 	}
 
 	sID, err := trace.SpanIDFromHex(spanID)
 	if err != nil {
 		t.logger.Error("invalid span ID", logger.String("span_id", spanID), logger.String("error", err.Error()))
+
 		return
 	}
 
@@ -242,36 +248,39 @@ func (t *OTelTracer) AddLink(span trace.Span, traceID, spanID string, attributes
 	span.AddLink(link)
 }
 
-// GetSpanFromContext gets the current span from context
+// GetSpanFromContext gets the current span from context.
 func (t *OTelTracer) GetSpanFromContext(ctx context.Context) trace.Span {
 	span, ok := ctx.Value(spanContextKey).(trace.Span)
 	if !ok {
 		return trace.SpanFromContext(ctx)
 	}
+
 	return span
 }
 
-// GetTraceIDFromContext gets the trace ID from context
+// GetTraceIDFromContext gets the trace ID from context.
 func (t *OTelTracer) GetTraceIDFromContext(ctx context.Context) string {
 	if traceID, ok := ctx.Value(traceIDKey).(string); ok {
 		return traceID
 	}
 
 	span := trace.SpanFromContext(ctx)
+
 	return span.SpanContext().TraceID().String()
 }
 
-// GetSpanIDFromContext gets the span ID from context
+// GetSpanIDFromContext gets the span ID from context.
 func (t *OTelTracer) GetSpanIDFromContext(ctx context.Context) string {
 	if spanID, ok := ctx.Value(spanIDKey).(string); ok {
 		return spanID
 	}
 
 	span := trace.SpanFromContext(ctx)
+
 	return span.SpanContext().SpanID().String()
 }
 
-// InjectTraceContext injects trace context into headers
+// InjectTraceContext injects trace context into headers.
 func (t *OTelTracer) InjectTraceContext(ctx context.Context, headers map[string]string) {
 	if t.propagator == nil {
 		return
@@ -281,19 +290,20 @@ func (t *OTelTracer) InjectTraceContext(ctx context.Context, headers map[string]
 	t.propagator.Inject(ctx, carrier)
 }
 
-// ExtractTraceContext extracts trace context from headers
+// ExtractTraceContext extracts trace context from headers.
 func (t *OTelTracer) ExtractTraceContext(ctx context.Context, headers map[string]string) context.Context {
 	if t.propagator == nil {
 		return ctx
 	}
 
 	carrier := &headerCarrier{headers: headers}
+
 	return t.propagator.Extract(ctx, carrier)
 }
 
-// GetStats returns tracing statistics
-func (t *OTelTracer) GetStats() map[string]interface{} {
-	return map[string]interface{}{
+// GetStats returns tracing statistics.
+func (t *OTelTracer) GetStats() map[string]any {
+	return map[string]any{
 		"service_name":    t.config.ServiceName,
 		"service_version": t.config.ServiceVersion,
 		"environment":     t.config.Environment,
@@ -306,7 +316,7 @@ func (t *OTelTracer) GetStats() map[string]interface{} {
 	}
 }
 
-// Shutdown shuts down the tracer
+// Shutdown shuts down the tracer.
 func (t *OTelTracer) Shutdown(ctx context.Context) error {
 	close(t.shutdownC)
 
@@ -317,7 +327,7 @@ func (t *OTelTracer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// headerCarrier implements the TextMapCarrier interface for HTTP headers
+// headerCarrier implements the TextMapCarrier interface for HTTP headers.
 type headerCarrier struct {
 	headers map[string]string
 }
@@ -335,30 +345,33 @@ func (c *headerCarrier) Keys() []string {
 	for k := range c.headers {
 		keys = append(keys, k)
 	}
+
 	return keys
 }
 
 // Helper functions for span options
 
-// WithSpanKind sets the span kind
+// WithSpanKind sets the span kind.
 func WithSpanKind(kind trace.SpanKind) trace.SpanStartOption {
 	return trace.WithSpanKind(kind)
 }
 
-// WithAttributes sets span attributes
+// WithAttributes sets span attributes.
 func WithAttributes(attributes map[string]string) trace.SpanStartOption {
 	attrs := make([]attribute.KeyValue, 0, len(attributes))
 	for k, v := range attributes {
 		attrs = append(attrs, attribute.String(k, v))
 	}
+
 	return trace.WithAttributes(attrs...)
 }
 
-// WithResource sets span resource attributes
+// WithResource sets span resource attributes.
 func WithResource(resource map[string]string) trace.SpanStartOption {
 	attrs := make([]attribute.KeyValue, 0, len(resource))
 	for k, v := range resource {
 		attrs = append(attrs, attribute.String(k, v))
 	}
+
 	return trace.WithAttributes(attrs...)
 }

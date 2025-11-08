@@ -3,14 +3,16 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Registry manages node registration and discovery with centralized coordination
+// Registry manages node registration and discovery with centralized coordination.
 type Registry struct {
 	nodeID string
 	logger forge.Logger
@@ -32,16 +34,16 @@ type Registry struct {
 	cancel  context.CancelFunc
 }
 
-// RegisteredNode represents a registered node
+// RegisteredNode represents a registered node.
 type RegisteredNode struct {
 	Info         *internal.NodeInfo
 	RegisteredAt time.Time
 	LastSeen     time.Time
 	Healthy      bool
-	Metadata     map[string]interface{}
+	Metadata     map[string]any
 }
 
-// RegistryConfig contains registry configuration
+// RegistryConfig contains registry configuration.
 type RegistryConfig struct {
 	NodeID              string
 	HealthCheckInterval time.Duration
@@ -49,12 +51,13 @@ type RegistryConfig struct {
 	EnableAutoCleanup   bool
 }
 
-// NewRegistry creates a new registry
+// NewRegistry creates a new registry.
 func NewRegistry(config RegistryConfig, logger forge.Logger) *Registry {
 	// Set defaults
 	if config.HealthCheckInterval == 0 {
 		config.HealthCheckInterval = 10 * time.Second
 	}
+
 	if config.NodeTimeout == 0 {
 		config.NodeTimeout = 30 * time.Second
 	}
@@ -68,7 +71,7 @@ func NewRegistry(config RegistryConfig, logger forge.Logger) *Registry {
 	}
 }
 
-// Start starts the registry
+// Start starts the registry.
 func (r *Registry) Start(ctx context.Context) error {
 	if r.started {
 		return nil
@@ -89,7 +92,7 @@ func (r *Registry) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the registry
+// Stop stops the registry.
 func (r *Registry) Stop(ctx context.Context) error {
 	if !r.started {
 		return nil
@@ -103,17 +106,20 @@ func (r *Registry) Stop(ctx context.Context) error {
 
 	// Close all event channels
 	r.subsMu.Lock()
+
 	for _, ch := range r.subscribers {
 		close(ch)
 	}
+
 	r.subscribers = nil
 	r.subsMu.Unlock()
 
 	r.logger.Info("registry stopped")
+
 	return nil
 }
 
-// Register registers a node
+// Register registers a node.
 func (r *Registry) Register(node *internal.NodeInfo) error {
 	r.nodesMu.Lock()
 	defer r.nodesMu.Unlock()
@@ -125,7 +131,7 @@ func (r *Registry) Register(node *internal.NodeInfo) error {
 		RegisteredAt: time.Now(),
 		LastSeen:     time.Now(),
 		Healthy:      true,
-		Metadata:     make(map[string]interface{}),
+		Metadata:     make(map[string]any),
 	}
 
 	if exists {
@@ -160,13 +166,15 @@ func (r *Registry) Register(node *internal.NodeInfo) error {
 	return nil
 }
 
-// Deregister removes a node from the registry
+// Deregister removes a node from the registry.
 func (r *Registry) Deregister(nodeID string) error {
 	r.nodesMu.Lock()
+
 	registered, exists := r.nodes[nodeID]
 	if exists {
 		delete(r.nodes, nodeID)
 	}
+
 	r.nodesMu.Unlock()
 
 	if !exists {
@@ -189,7 +197,7 @@ func (r *Registry) Deregister(nodeID string) error {
 	return nil
 }
 
-// GetPeers returns all registered peers
+// GetPeers returns all registered peers.
 func (r *Registry) GetPeers() ([]*internal.NodeInfo, error) {
 	r.nodesMu.RLock()
 	defer r.nodesMu.RUnlock()
@@ -204,7 +212,7 @@ func (r *Registry) GetPeers() ([]*internal.NodeInfo, error) {
 	return peers, nil
 }
 
-// GetNodeInfo returns information about a node
+// GetNodeInfo returns information about a node.
 func (r *Registry) GetNodeInfo(nodeID string) (*internal.NodeInfo, error) {
 	r.nodesMu.RLock()
 	defer r.nodesMu.RUnlock()
@@ -217,17 +225,20 @@ func (r *Registry) GetNodeInfo(nodeID string) (*internal.NodeInfo, error) {
 	return registered.Info, nil
 }
 
-// UpdateNodeInfo updates node information
+// UpdateNodeInfo updates node information.
 func (r *Registry) UpdateNodeInfo(info *internal.NodeInfo) error {
 	r.nodesMu.Lock()
+
 	registered, exists := r.nodes[info.ID]
 	if !exists {
 		r.nodesMu.Unlock()
+
 		return fmt.Errorf("node not registered: %s", info.ID)
 	}
 
 	registered.Info = info
 	registered.LastSeen = time.Now()
+
 	r.nodesMu.Unlock()
 
 	// Notify subscribers
@@ -246,7 +257,7 @@ func (r *Registry) UpdateNodeInfo(info *internal.NodeInfo) error {
 	return nil
 }
 
-// Heartbeat updates the last seen time for a node
+// Heartbeat updates the last seen time for a node.
 func (r *Registry) Heartbeat(nodeID string) error {
 	r.nodesMu.Lock()
 	defer r.nodesMu.Unlock()
@@ -262,7 +273,7 @@ func (r *Registry) Heartbeat(nodeID string) error {
 	return nil
 }
 
-// Watch watches for node changes
+// Watch watches for node changes.
 func (r *Registry) Watch(ctx context.Context) (<-chan internal.DiscoveryEvent, error) {
 	eventChan := make(chan internal.DiscoveryEvent, 10)
 
@@ -273,6 +284,7 @@ func (r *Registry) Watch(ctx context.Context) (<-chan internal.DiscoveryEvent, e
 	// Send current nodes as join events
 	go func() {
 		r.nodesMu.RLock()
+
 		for _, registered := range r.nodes {
 			if registered.Info.ID != r.nodeID {
 				select {
@@ -285,17 +297,19 @@ func (r *Registry) Watch(ctx context.Context) (<-chan internal.DiscoveryEvent, e
 				}:
 				case <-ctx.Done():
 					r.nodesMu.RUnlock()
+
 					return
 				}
 			}
 		}
+
 		r.nodesMu.RUnlock()
 	}()
 
 	return eventChan, nil
 }
 
-// notifySubscribers notifies all subscribers of an event
+// notifySubscribers notifies all subscribers of an event.
 func (r *Registry) notifySubscribers(event internal.DiscoveryEvent) {
 	r.subsMu.RLock()
 	defer r.subsMu.RUnlock()
@@ -309,7 +323,7 @@ func (r *Registry) notifySubscribers(event internal.DiscoveryEvent) {
 	}
 }
 
-// monitorHealth monitors node health
+// monitorHealth monitors node health.
 func (r *Registry) monitorHealth() {
 	ticker := time.NewTicker(r.config.HealthCheckInterval)
 	defer ticker.Stop()
@@ -324,7 +338,7 @@ func (r *Registry) monitorHealth() {
 	}
 }
 
-// checkNodeHealth checks health of all nodes
+// checkNodeHealth checks health of all nodes.
 func (r *Registry) checkNodeHealth() {
 	r.nodesMu.Lock()
 	defer r.nodesMu.Unlock()
@@ -341,6 +355,7 @@ func (r *Registry) checkNodeHealth() {
 		if now.Sub(registered.LastSeen) > r.config.NodeTimeout {
 			if registered.Healthy {
 				registered.Healthy = false
+
 				unhealthy = append(unhealthy, nodeID)
 
 				r.logger.Warn("node marked unhealthy",
@@ -367,20 +382,18 @@ func (r *Registry) checkNodeHealth() {
 	}
 }
 
-// GetAllNodes returns all registered nodes including unhealthy
+// GetAllNodes returns all registered nodes including unhealthy.
 func (r *Registry) GetAllNodes() map[string]*RegisteredNode {
 	r.nodesMu.RLock()
 	defer r.nodesMu.RUnlock()
 
 	result := make(map[string]*RegisteredNode)
-	for id, node := range r.nodes {
-		result[id] = node
-	}
+	maps.Copy(result, r.nodes)
 
 	return result
 }
 
-// GetHealthyNodes returns only healthy nodes
+// GetHealthyNodes returns only healthy nodes.
 func (r *Registry) GetHealthyNodes() []*internal.NodeInfo {
 	r.nodesMu.RLock()
 	defer r.nodesMu.RUnlock()
@@ -395,7 +408,7 @@ func (r *Registry) GetHealthyNodes() []*internal.NodeInfo {
 	return nodes
 }
 
-// GetUnhealthyNodes returns unhealthy nodes
+// GetUnhealthyNodes returns unhealthy nodes.
 func (r *Registry) GetUnhealthyNodes() []*internal.NodeInfo {
 	r.nodesMu.RLock()
 	defer r.nodesMu.RUnlock()
@@ -410,8 +423,8 @@ func (r *Registry) GetUnhealthyNodes() []*internal.NodeInfo {
 	return nodes
 }
 
-// SetNodeMetadata sets metadata for a node
-func (r *Registry) SetNodeMetadata(nodeID string, key string, value interface{}) error {
+// SetNodeMetadata sets metadata for a node.
+func (r *Registry) SetNodeMetadata(nodeID string, key string, value any) error {
 	r.nodesMu.Lock()
 	defer r.nodesMu.Unlock()
 
@@ -421,7 +434,7 @@ func (r *Registry) SetNodeMetadata(nodeID string, key string, value interface{})
 	}
 
 	if registered.Metadata == nil {
-		registered.Metadata = make(map[string]interface{})
+		registered.Metadata = make(map[string]any)
 	}
 
 	registered.Metadata[key] = value
@@ -429,8 +442,8 @@ func (r *Registry) SetNodeMetadata(nodeID string, key string, value interface{})
 	return nil
 }
 
-// GetNodeMetadata gets metadata for a node
-func (r *Registry) GetNodeMetadata(nodeID string, key string) (interface{}, error) {
+// GetNodeMetadata gets metadata for a node.
+func (r *Registry) GetNodeMetadata(nodeID string, key string) (any, error) {
 	r.nodesMu.RLock()
 	defer r.nodesMu.RUnlock()
 
@@ -447,15 +460,16 @@ func (r *Registry) GetNodeMetadata(nodeID string, key string) (interface{}, erro
 	return value, nil
 }
 
-// Health checks registry health
+// Health checks registry health.
 func (r *Registry) Health() error {
 	if !r.started {
-		return fmt.Errorf("registry not started")
+		return errors.New("registry not started")
 	}
+
 	return nil
 }
 
-// GetStatistics returns registry statistics
+// GetStatistics returns registry statistics.
 func (r *Registry) GetStatistics() RegistryStatistics {
 	r.nodesMu.RLock()
 	defer r.nodesMu.RUnlock()
@@ -475,7 +489,7 @@ func (r *Registry) GetStatistics() RegistryStatistics {
 	return stats
 }
 
-// RegistryStatistics contains registry statistics
+// RegistryStatistics contains registry statistics.
 type RegistryStatistics struct {
 	TotalNodes     int
 	HealthyNodes   int

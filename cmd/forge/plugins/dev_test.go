@@ -18,12 +18,13 @@ func TestDebouncer(t *testing.T) {
 	debouncer := newDebouncer(100 * time.Millisecond)
 
 	var callCount atomic.Int32
+
 	fn := func() {
 		callCount.Add(1)
 	}
 
 	// Call multiple times rapidly
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		debouncer.Debounce(fn)
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -39,6 +40,7 @@ func TestDebouncerMultipleCalls(t *testing.T) {
 	debouncer := newDebouncer(50 * time.Millisecond)
 
 	var callCount atomic.Int32
+
 	fn := func() {
 		callCount.Add(1)
 	}
@@ -151,6 +153,7 @@ func TestAddWatchRecursive(t *testing.T) {
 	// Create temporary directory structure
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	// Create test directories
@@ -162,6 +165,7 @@ func TestAddWatchRecursive(t *testing.T) {
 
 	watcher, err := fsnotify.NewWatcher()
 	require.NoError(t, err)
+
 	defer watcher.Close()
 
 	aw := &appWatcher{
@@ -187,15 +191,19 @@ func TestAddWatchRecursive(t *testing.T) {
 		if filepath.Base(dir) == "cmd" {
 			hasCmd = true
 		}
+
 		if filepath.Base(dir) == "internal" {
 			hasInternal = true
 		}
+
 		if filepath.Base(dir) == "vendor" {
 			hasVendor = true
 		}
+
 		if filepath.Base(dir) == ".git" {
 			hasGit = true
 		}
+
 		if filepath.Base(dir) == "bin" {
 			hasBin = true
 		}
@@ -212,6 +220,7 @@ func TestFindMainFile(t *testing.T) {
 	// Create temporary directory structure
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	tests := []struct {
@@ -226,6 +235,7 @@ func TestFindMainFile(t *testing.T) {
 				content := `package main
 func main() {}`
 				require.NoError(t, os.WriteFile(mainPath, []byte(content), 0644))
+
 				return mainPath
 			},
 			expectError: false,
@@ -239,6 +249,7 @@ func main() {}`
 				content := `package main
 func main() {}`
 				require.NoError(t, os.WriteFile(mainPath, []byte(content), 0644))
+
 				return mainPath
 			},
 			expectError: false,
@@ -248,6 +259,7 @@ func main() {}`
 			setup: func(dir string) string {
 				// Create non-main file
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "util.go"), []byte("package util"), 0644))
+
 				return ""
 			},
 			expectError: true,
@@ -258,6 +270,7 @@ func main() {}`
 		t.Run(tt.name, func(t *testing.T) {
 			// Create test-specific directory
 			testDir := filepath.Join(tmpDir, tt.name)
+
 			require.NoError(t, os.MkdirAll(testDir, 0755))
 			defer os.RemoveAll(testDir)
 
@@ -280,6 +293,7 @@ func TestDiscoverApps(t *testing.T) {
 	// Create temporary directory structure
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	// Create cmd directory with apps

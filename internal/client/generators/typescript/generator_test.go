@@ -30,12 +30,15 @@ func TestTypeScriptGenerator(t *testing.T) {
 
 	for _, expected := range expectedFeatures {
 		found := false
+
 		for _, feature := range features {
 			if feature == expected {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected feature '%s' not found", expected)
 		}
@@ -54,8 +57,8 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 		},
 		Security: []client.SecurityScheme{
 			{
-				Type:        "http",
-				Scheme:      "bearer",
+				Type:         "http",
+				Scheme:       "bearer",
 				BearerFormat: "JWT",
 			},
 		},
@@ -151,6 +154,7 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 	}
 
 	gen := typescript.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -173,10 +177,12 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 
 	// Validate package.json
 	packageJSON := result.Files["package.json"]
+
 	var pkg map[string]interface{}
 	if err := json.Unmarshal([]byte(packageJSON), &pkg); err != nil {
 		t.Errorf("Invalid package.json: %v", err)
 	}
+
 	if pkg["name"] != "@example/testclient" {
 		t.Errorf("Expected package name '@example/testclient', got '%v'", pkg["name"])
 	}
@@ -186,9 +192,11 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 	if !strings.Contains(typesCode, "interface User") {
 		t.Error("types.ts should contain User interface")
 	}
+
 	if !strings.Contains(typesCode, "interface CreateUserRequest") {
 		t.Error("types.ts should contain CreateUserRequest interface")
 	}
+
 	if !strings.Contains(typesCode, "interface AuthConfig") {
 		t.Logf("types.ts content: %s", typesCode)
 		t.Error("types.ts should contain AuthConfig interface")
@@ -199,6 +207,7 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 	if !strings.Contains(clientCode, "class APIClient") {
 		t.Error("client.ts should contain APIClient class")
 	}
+
 	if !strings.Contains(clientCode, "axios") {
 		t.Error("client.ts should use axios")
 	}
@@ -208,9 +217,11 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 	if !strings.Contains(restCode, "listusers") {
 		t.Error("rest.ts should contain listusers method")
 	}
+
 	if !strings.Contains(restCode, "createuser") {
 		t.Error("rest.ts should contain createuser method")
 	}
+
 	if !strings.Contains(restCode, "async") {
 		t.Error("rest.ts should use async/await")
 	}
@@ -266,6 +277,7 @@ func TestTypeScriptGeneratorWebSocket(t *testing.T) {
 	}
 
 	gen := typescript.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -311,12 +323,15 @@ func TestTypeScriptGeneratorWebSocket(t *testing.T) {
 
 	// Check dependencies include ws
 	foundWS := false
+
 	for _, dep := range result.Dependencies {
 		if strings.Contains(dep.Name, "ws") {
 			foundWS = true
+
 			break
 		}
 	}
+
 	if !foundWS {
 		t.Error("Dependencies should include 'ws' package")
 	}
@@ -367,6 +382,7 @@ func TestTypeScriptGeneratorSSE(t *testing.T) {
 	}
 
 	gen := typescript.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -396,12 +412,15 @@ func TestTypeScriptGeneratorSSE(t *testing.T) {
 
 	// Check dependencies include eventsource
 	foundES := false
+
 	for _, dep := range result.Dependencies {
 		if strings.Contains(dep.Name, "eventsource") {
 			foundES = true
+
 			break
 		}
 	}
+
 	if !foundES {
 		t.Error("Dependencies should include 'eventsource' package")
 	}
@@ -446,6 +465,7 @@ func TestTypeScriptGeneratorTypeConversion(t *testing.T) {
 	}
 
 	gen := typescript.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -581,6 +601,7 @@ func TestTypeScriptGeneratorWebTransport(t *testing.T) {
 	}
 
 	gen := typescript.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -630,6 +651,7 @@ func TestTypeScriptGeneratorWebTransport(t *testing.T) {
 	if !strings.Contains(wtCode, "class BiDiStream") {
 		t.Error("webtransport.ts should contain BiDiStream class")
 	}
+
 	if !strings.Contains(wtCode, "class UniStream") {
 		t.Error("webtransport.ts should contain UniStream class")
 	}

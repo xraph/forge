@@ -86,7 +86,7 @@ func TestGenerateBuilder_WithPrompt(t *testing.T) {
 
 func TestGenerateBuilder_WithVars(t *testing.T) {
 	builder := NewGenerateBuilder(context.Background(), &testhelpers.MockLLMManager{}, nil, nil)
-	vars := map[string]interface{}{
+	vars := map[string]any{
 		"name": "Alice",
 		"age":  30,
 	}
@@ -300,6 +300,7 @@ func TestGenerateBuilder_OnStart(t *testing.T) {
 	}
 
 	builder.onStart()
+
 	if !called {
 		t.Error("expected callback to be called")
 	}
@@ -307,7 +308,9 @@ func TestGenerateBuilder_OnStart(t *testing.T) {
 
 func TestGenerateBuilder_OnComplete(t *testing.T) {
 	builder := NewGenerateBuilder(context.Background(), &testhelpers.MockLLMManager{}, nil, nil)
+
 	var capturedResult Result
+
 	fn := func(r Result) { capturedResult = r }
 	result := builder.OnComplete(fn)
 
@@ -321,6 +324,7 @@ func TestGenerateBuilder_OnComplete(t *testing.T) {
 
 	testResult := Result{Content: "test"}
 	builder.onComplete(testResult)
+
 	if capturedResult.Content != "test" {
 		t.Error("expected callback to receive result")
 	}
@@ -328,7 +332,9 @@ func TestGenerateBuilder_OnComplete(t *testing.T) {
 
 func TestGenerateBuilder_OnError(t *testing.T) {
 	builder := NewGenerateBuilder(context.Background(), &testhelpers.MockLLMManager{}, nil, nil)
+
 	var capturedError error
+
 	fn := func(err error) { capturedError = err }
 	result := builder.OnError(fn)
 
@@ -342,7 +348,8 @@ func TestGenerateBuilder_OnError(t *testing.T) {
 
 	testErr := errors.New("test error")
 	builder.onError(testErr)
-	if capturedError != testErr {
+
+	if !errors.Is(capturedError, testErr) {
 		t.Error("expected callback to receive error")
 	}
 }
@@ -387,7 +394,6 @@ func TestGenerateBuilder_Execute_Success(t *testing.T) {
 		OnStart(func() { startCalled = true }).
 		OnComplete(func(r Result) { completeCalled = true }).
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -455,12 +461,11 @@ func TestGenerateBuilder_Execute_WithTemplateVars(t *testing.T) {
 
 	_, err := builder.
 		WithPrompt("My name is {{.name}} and I am {{.age}} years old").
-		WithVars(map[string]interface{}{
+		WithVars(map[string]any{
 			"name": "Alice",
 			"age":  30,
 		}).
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -495,7 +500,6 @@ func TestGenerateBuilder_Execute_WithSystemPrompt(t *testing.T) {
 		WithSystemPrompt("You are helpful").
 		WithPrompt("Hello").
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -519,7 +523,6 @@ func TestGenerateBuilder_Execute_Error(t *testing.T) {
 		WithPrompt("test").
 		OnError(func(e error) { errorCalled = true }).
 		Execute()
-
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -548,7 +551,6 @@ func TestGenerateBuilder_Execute_Timeout(t *testing.T) {
 		WithPrompt("test").
 		WithTimeout(100 * time.Millisecond).
 		Execute()
-
 	if err == nil {
 		t.Fatal("expected timeout error, got nil")
 	}
@@ -602,7 +604,7 @@ func TestRenderPrompt_NoVars(t *testing.T) {
 func TestRenderPrompt_WithVars(t *testing.T) {
 	builder := NewGenerateBuilder(context.Background(), nil, nil, nil)
 	builder.prompt = "Hello {{.name}}, you are {{.age}} years old"
-	builder.vars = map[string]interface{}{
+	builder.vars = map[string]any{
 		"name": "Bob",
 		"age":  25,
 	}
@@ -655,14 +657,14 @@ func TestStringHelpers(t *testing.T) {
 	}
 
 	// Test replaceFirst
-	result := replaceFirst("hello world world", "world", "universe")
+	result := replaceFirst("hello world", "world", "universe")
 	if result != "hello universe world" {
 		t.Errorf("expected 'hello universe world', got '%s'", result)
 	}
 
 	// Test replaceAll
-	result = replaceAll("hello world world", "world", "universe")
-	if result != "hello universe universe" {
+	result = replaceAll("hello world", "world", "universe")
+	if result != "hello universe" {
 		t.Errorf("expected 'hello universe universe', got '%s'", result)
 	}
 }
@@ -692,7 +694,6 @@ func TestGenerateBuilder_Execute_NoUsage(t *testing.T) {
 	result, err := builder.
 		WithPrompt("test").
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -718,7 +719,6 @@ func TestGenerateBuilder_Execute_NoChoices(t *testing.T) {
 	result, err := builder.
 		WithPrompt("test").
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}

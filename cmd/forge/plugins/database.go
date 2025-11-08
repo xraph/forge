@@ -16,14 +16,15 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/extensions/database"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// DatabasePlugin handles database operations
+// DatabasePlugin handles database operations.
 type DatabasePlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewDatabasePlugin creates a new database plugin
+// NewDatabasePlugin creates a new database plugin.
 func NewDatabasePlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &DatabasePlugin{config: cfg}
 }
@@ -147,7 +148,7 @@ func (p *DatabasePlugin) Commands() []cli.Command {
 
 func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	// Ensure migrations directory and migrations.go exist
@@ -162,11 +163,12 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 		if err := p.createMigrationsGoFile(migrationsGoPath); err != nil {
 			return fmt.Errorf("failed to create migrations.go: %w", err)
 		}
+
 		ctx.Println("")
-		ctx.Success(fmt.Sprintf("✓ Created: %s", migrationsGoPath))
+		ctx.Success("✓ Created: " + migrationsGoPath)
 	} else {
 		ctx.Println("")
-		ctx.Info(fmt.Sprintf("✓ Migration structure already exists: %s", migrationPath))
+		ctx.Info("✓ Migration structure already exists: " + migrationPath)
 	}
 
 	ctx.Println("")
@@ -180,7 +182,7 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 
 func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	// Check if there are Go migrations
@@ -202,6 +204,7 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 	migrations, err := p.loadMigrations()
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
 
@@ -209,6 +212,7 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 	db, err := p.getDatabaseConnection(ctx)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -218,16 +222,18 @@ func (p *DatabasePlugin) runMigrations(ctx cli.CommandContext) error {
 	// Run migrations
 	if err := manager.Migrate(context.Background()); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green("✓ Migrations completed!"))
+
 	return nil
 }
 
 func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	dbName := ctx.String("database")
@@ -236,6 +242,7 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	confirm, err := ctx.Confirm(fmt.Sprintf("Rollback last migration group on %s?", dbName))
 	if err != nil || !confirm {
 		ctx.Info("Rollback cancelled")
+
 		return nil
 	}
 
@@ -257,6 +264,7 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	migrations, err := p.loadMigrations()
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
 
@@ -264,6 +272,7 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	db, err := p.getDatabaseConnection(ctx)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -273,16 +282,18 @@ func (p *DatabasePlugin) rollbackMigrations(ctx cli.CommandContext) error {
 	// Rollback migrations
 	if err := manager.Rollback(context.Background()); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green("✓ Rollback completed!"))
+
 	return nil
 }
 
 func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	// Check if there are Go migrations
@@ -327,6 +338,7 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 
 	if len(status.Applied) > 0 {
 		ctx.Info(fmt.Sprintf("Applied Migrations (%d):", len(status.Applied)))
+
 		for _, mig := range status.Applied {
 			ctx.Println(fmt.Sprintf("  ✓ %s (Group: %d, Applied: %s)",
 				mig.Name,
@@ -334,14 +346,17 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 				mig.AppliedAt.Format("2006-01-02 15:04:05"),
 			))
 		}
+
 		ctx.Println("")
 	}
 
 	if len(status.Pending) > 0 {
 		ctx.Info(fmt.Sprintf("Pending Migrations (%d):", len(status.Pending)))
+
 		for _, name := range status.Pending {
-			ctx.Println(fmt.Sprintf("  ⏸ %s", name))
+			ctx.Println("  ⏸ " + name)
 		}
+
 		ctx.Println("")
 		ctx.Info("Run 'forge db migrate' to apply pending migrations")
 	} else {
@@ -353,7 +368,7 @@ func (p *DatabasePlugin) migrationStatus(ctx cli.CommandContext) error {
 
 func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	dbName := ctx.String("database")
@@ -361,13 +376,14 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 
 	// Confirm reset
 	if !force {
-		ctx.Error(fmt.Errorf("⚠️  WARNING: This will rollback ALL migrations and re-run them"))
-		ctx.Error(fmt.Errorf("⚠️  This is a DESTRUCTIVE operation"))
+		ctx.Error(errors.New("⚠️  WARNING: This will rollback ALL migrations and re-run them"))
+		ctx.Error(errors.New("⚠️  This is a DESTRUCTIVE operation"))
 		ctx.Println("")
 
 		confirm, err := ctx.Confirm(fmt.Sprintf("Reset database %s?", dbName))
 		if err != nil || !confirm {
 			ctx.Info("Reset cancelled")
+
 			return nil
 		}
 	}
@@ -378,6 +394,7 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 	migrations, err := p.loadMigrations()
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
 
@@ -385,6 +402,7 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 	db, err := p.getDatabaseConnection(ctx)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -394,22 +412,24 @@ func (p *DatabasePlugin) resetDatabase(ctx cli.CommandContext) error {
 	// Reset database
 	if err := manager.Reset(context.Background()); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green("✓ Database reset completed!"))
+
 	return nil
 }
 
 func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	// Get migration name from args
 	args := ctx.Args()
 	if len(args) == 0 {
-		return fmt.Errorf("migration name required. Usage: forge db create-sql <name>")
+		return errors.New("migration name required. Usage: forge db create-sql <name>")
 	}
 
 	name := strings.Join(args, "_")
@@ -438,13 +458,15 @@ func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
 
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green("✓ Migration files created!"))
 	ctx.Println("")
+
 	for _, mf := range files {
-		ctx.Success(fmt.Sprintf("Created: %s", mf.Path))
+		ctx.Success("Created: " + mf.Path)
 	}
 
 	return nil
@@ -452,13 +474,13 @@ func (p *DatabasePlugin) createSQLMigration(ctx cli.CommandContext) error {
 
 func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	// Get migration name from args
 	args := ctx.Args()
 	if len(args) == 0 {
-		return fmt.Errorf("migration name required. Usage: forge db create-go <name>")
+		return errors.New("migration name required. Usage: forge db create-go <name>")
 	}
 
 	name := strings.Join(args, "_")
@@ -480,19 +502,20 @@ func (p *DatabasePlugin) createGoMigration(ctx cli.CommandContext) error {
 	mf, err := migrator.CreateGoMigration(context.Background(), name)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green("✓ Migration file created!"))
 	ctx.Println("")
-	ctx.Success(fmt.Sprintf("Created: %s", mf.Path))
+	ctx.Success("Created: " + mf.Path)
 
 	return nil
 }
 
 func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	spinner := ctx.Spinner("Locking migrations...")
@@ -501,6 +524,7 @@ func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 	migrations, err := p.loadMigrations()
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
 
@@ -508,6 +532,7 @@ func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 	db, err := p.getDatabaseConnection(ctx)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -516,16 +541,18 @@ func (p *DatabasePlugin) lockMigrations(ctx cli.CommandContext) error {
 	// Lock migrations
 	if err := migrator.Lock(context.Background()); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green("✓ Migrations locked!"))
+
 	return nil
 }
 
 func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	spinner := ctx.Spinner("Unlocking migrations...")
@@ -534,6 +561,7 @@ func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 	migrations, err := p.loadMigrations()
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
 
@@ -541,6 +569,7 @@ func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 	db, err := p.getDatabaseConnection(ctx)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -549,16 +578,18 @@ func (p *DatabasePlugin) unlockMigrations(ctx cli.CommandContext) error {
 	// Unlock migrations
 	if err := migrator.Unlock(context.Background()); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green("✓ Migrations unlocked!"))
+
 	return nil
 }
 
 func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 	if p.config == nil {
-		return fmt.Errorf("not a forge project")
+		return errors.New("not a forge project")
 	}
 
 	dbName := ctx.String("database")
@@ -572,6 +603,7 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 	confirm, err := ctx.Confirm("Mark pending migrations as applied?")
 	if err != nil || !confirm {
 		ctx.Info("Operation cancelled")
+
 		return nil
 	}
 
@@ -581,6 +613,7 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 	migrations, err := p.loadMigrations()
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to load migrations: %w", err)
 	}
 
@@ -588,6 +621,7 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 	db, err := p.getDatabaseConnection(ctx)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -597,17 +631,20 @@ func (p *DatabasePlugin) markApplied(ctx cli.CommandContext) error {
 	group, err := migrator.Migrate(context.Background(), migrate.WithNopMigration())
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	if group.IsZero() {
 		spinner.Stop(cli.Green("✓ No pending migrations"))
 		ctx.Info("All migrations are already applied")
+
 		return nil
 	}
 
 	spinner.Stop(cli.Green("✓ Migrations marked as applied!"))
 	ctx.Success(fmt.Sprintf("Marked group %s as applied", group))
+
 	return nil
 }
 
@@ -621,9 +658,11 @@ func (p *DatabasePlugin) loadMigrations() (*migrate.Migrations, error) {
 	}
 
 	var migrationPath string
+
 	for _, path := range possiblePaths {
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
 			migrationPath = path
+
 			break
 		}
 	}
@@ -686,6 +725,7 @@ func init() {
 	}
 }
 `
+
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
@@ -705,6 +745,7 @@ func (p *DatabasePlugin) getDatabaseConnection(ctx cli.CommandContext) (*bun.DB,
 	if customDSN != "" {
 		dbConfig.DSN = customDSN
 	}
+
 	if customType != "" {
 		dbConfig.Type = database.DatabaseType(customType)
 	}
@@ -724,18 +765,20 @@ func (p *DatabasePlugin) getDatabaseConnection(ctx cli.CommandContext) (*bun.DB,
 		if err != nil {
 			return nil, fmt.Errorf("failed to create database: %w", err)
 		}
+
 		if err := sqlDB.Open(context.Background()); err != nil {
 			return nil, fmt.Errorf("failed to connect to database: %w", err)
 		}
+
 		return sqlDB.Bun(), nil
 	case database.TypeMongoDB:
-		return nil, fmt.Errorf("mongodb migrations not supported via CLI yet - use application context")
+		return nil, errors.New("mongodb migrations not supported via CLI yet - use application context")
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", dbConfig.Type)
 	}
 }
 
-// loadDatabaseConfig loads database configuration from the forge config hierarchy
+// loadDatabaseConfig loads database configuration from the forge config hierarchy.
 func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.DatabaseConfig, error) {
 	var dbConfig database.DatabaseConfig
 
@@ -757,6 +800,7 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 
 	// Load and merge configs
 	found := false
+
 	for _, path := range configPaths {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			continue
@@ -794,27 +838,35 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 					if db.DSN != "" {
 						dbConfig.DSN = db.DSN
 					}
+
 					if db.Type != "" {
 						dbConfig.Type = db.Type
 					}
+
 					if db.MaxOpenConns > 0 {
 						dbConfig.MaxOpenConns = db.MaxOpenConns
 					}
+
 					if db.MaxIdleConns > 0 {
 						dbConfig.MaxIdleConns = db.MaxIdleConns
 					}
+
 					if db.MaxRetries > 0 {
 						dbConfig.MaxRetries = db.MaxRetries
 					}
+
 					if db.ConnectionTimeout > 0 {
 						dbConfig.ConnectionTimeout = db.ConnectionTimeout
 					}
+
 					if db.QueryTimeout > 0 {
 						dbConfig.QueryTimeout = db.QueryTimeout
 					}
+
 					if db.SlowQueryThreshold > 0 {
 						dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
 					}
+
 					found = true
 				}
 			}
@@ -828,27 +880,35 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 				if db.DSN != "" {
 					dbConfig.DSN = db.DSN
 				}
+
 				if db.Type != "" {
 					dbConfig.Type = db.Type
 				}
+
 				if db.MaxOpenConns > 0 {
 					dbConfig.MaxOpenConns = db.MaxOpenConns
 				}
+
 				if db.MaxIdleConns > 0 {
 					dbConfig.MaxIdleConns = db.MaxIdleConns
 				}
+
 				if db.MaxRetries > 0 {
 					dbConfig.MaxRetries = db.MaxRetries
 				}
+
 				if db.ConnectionTimeout > 0 {
 					dbConfig.ConnectionTimeout = db.ConnectionTimeout
 				}
+
 				if db.QueryTimeout > 0 {
 					dbConfig.QueryTimeout = db.QueryTimeout
 				}
+
 				if db.SlowQueryThreshold > 0 {
 					dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
 				}
+
 				found = true
 			}
 		}
@@ -865,27 +925,35 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 							if db.DSN != "" {
 								dbConfig.DSN = db.DSN
 							}
+
 							if db.Type != "" {
 								dbConfig.Type = db.Type
 							}
+
 							if db.MaxOpenConns > 0 {
 								dbConfig.MaxOpenConns = db.MaxOpenConns
 							}
+
 							if db.MaxIdleConns > 0 {
 								dbConfig.MaxIdleConns = db.MaxIdleConns
 							}
+
 							if db.MaxRetries > 0 {
 								dbConfig.MaxRetries = db.MaxRetries
 							}
+
 							if db.ConnectionTimeout > 0 {
 								dbConfig.ConnectionTimeout = db.ConnectionTimeout
 							}
+
 							if db.QueryTimeout > 0 {
 								dbConfig.QueryTimeout = db.QueryTimeout
 							}
+
 							if db.SlowQueryThreshold > 0 {
 								dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
 							}
+
 							found = true
 						}
 					}
@@ -899,27 +967,35 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 						if db.DSN != "" {
 							dbConfig.DSN = db.DSN
 						}
+
 						if db.Type != "" {
 							dbConfig.Type = db.Type
 						}
+
 						if db.MaxOpenConns > 0 {
 							dbConfig.MaxOpenConns = db.MaxOpenConns
 						}
+
 						if db.MaxIdleConns > 0 {
 							dbConfig.MaxIdleConns = db.MaxIdleConns
 						}
+
 						if db.MaxRetries > 0 {
 							dbConfig.MaxRetries = db.MaxRetries
 						}
+
 						if db.ConnectionTimeout > 0 {
 							dbConfig.ConnectionTimeout = db.ConnectionTimeout
 						}
+
 						if db.QueryTimeout > 0 {
 							dbConfig.QueryTimeout = db.QueryTimeout
 						}
+
 						if db.SlowQueryThreshold > 0 {
 							dbConfig.SlowQueryThreshold = db.SlowQueryThreshold
 						}
+
 						found = true
 					}
 				}
@@ -935,9 +1011,11 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 	if dbConfig.MaxOpenConns == 0 {
 		dbConfig.MaxOpenConns = 25
 	}
+
 	if dbConfig.MaxIdleConns == 0 {
 		dbConfig.MaxIdleConns = 25
 	}
+
 	if dbConfig.MaxRetries == 0 {
 		dbConfig.MaxRetries = 3
 	}
@@ -948,7 +1026,7 @@ func (p *DatabasePlugin) loadDatabaseConfig(dbName, appName string) (database.Da
 	return dbConfig, nil
 }
 
-// expandEnvVars expands environment variables in format ${VAR} or ${VAR:default}
+// expandEnvVars expands environment variables in format ${VAR} or ${VAR:default}.
 func expandEnvVars(s string) string {
 	// Pattern matches ${VAR} or ${VAR:default}
 	pattern := regexp.MustCompile(`\$\{([^}:]+)(?::([^}]*))?\}`)
@@ -961,6 +1039,7 @@ func expandEnvVars(s string) string {
 		}
 
 		varName := parts[1]
+
 		defaultValue := ""
 		if len(parts) > 2 {
 			defaultValue = parts[2]
@@ -975,19 +1054,19 @@ func expandEnvVars(s string) string {
 	})
 }
 
-// cliLoggerAdapter adapts CLI context to database.Logger interface
+// cliLoggerAdapter adapts CLI context to database.Logger interface.
 type cliLoggerAdapter struct {
 	ctx cli.CommandContext
 }
 
-func (l *cliLoggerAdapter) Info(msg string, fields ...interface{}) {
+func (l *cliLoggerAdapter) Info(msg string, fields ...any) {
 	l.ctx.Info(msg)
 }
 
-func (l *cliLoggerAdapter) Error(msg string, fields ...interface{}) {
+func (l *cliLoggerAdapter) Error(msg string, fields ...any) {
 	l.ctx.Error(fmt.Errorf("%s", msg))
 }
 
-func (l *cliLoggerAdapter) Warn(msg string, fields ...interface{}) {
-	l.ctx.Info(fmt.Sprintf("⚠️  %s", msg))
+func (l *cliLoggerAdapter) Warn(msg string, fields ...any) {
+	l.ctx.Info("⚠️  " + msg)
 }

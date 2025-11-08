@@ -2,7 +2,7 @@ package queue
 
 import "errors"
 
-// Common queue errors
+// Common queue errors.
 var (
 	ErrNotConnected       = errors.New("queue: not connected")
 	ErrAlreadyConnected   = errors.New("queue: already connected")

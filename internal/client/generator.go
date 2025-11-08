@@ -2,26 +2,27 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/xraph/forge/internal/client/generators"
 )
 
-// Generator orchestrates client code generation
+// Generator orchestrates client code generation.
 type Generator struct {
 	mu         sync.RWMutex
 	generators map[string]generators.LanguageGenerator
 }
 
-// NewGenerator creates a new generator with registered language generators
+// NewGenerator creates a new generator with registered language generators.
 func NewGenerator() *Generator {
 	return &Generator{
 		generators: make(map[string]generators.LanguageGenerator),
 	}
 }
 
-// Register registers a language generator
+// Register registers a language generator.
 func (g *Generator) Register(gen generators.LanguageGenerator) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -32,10 +33,11 @@ func (g *Generator) Register(gen generators.LanguageGenerator) error {
 	}
 
 	g.generators[name] = gen
+
 	return nil
 }
 
-// Generate generates a client for the specified language
+// Generate generates a client for the specified language.
 func (g *Generator) Generate(ctx context.Context, spec *APISpec, config GeneratorConfig) (*generators.GeneratedClient, error) {
 	// Validate config
 	if err := config.Validate(); err != nil {
@@ -62,21 +64,22 @@ func (g *Generator) Generate(ctx context.Context, spec *APISpec, config Generato
 	return client, nil
 }
 
-// GenerateFromRouter generates a client by introspecting a router
-func (g *Generator) GenerateFromRouter(ctx context.Context, r interface{}, config GeneratorConfig) (*generators.GeneratedClient, error) {
+// GenerateFromRouter generates a client by introspecting a router.
+func (g *Generator) GenerateFromRouter(ctx context.Context, r any, config GeneratorConfig) (*generators.GeneratedClient, error) {
 	// Import router package would cause import cycle, so we use interface assertion
 	// The router must implement the Router interface from router package
 
 	// Type assert to the router interface (commented out to avoid import cycle)
 	// For now, this method should not be used directly
 	// Use GenerateFromFile instead
-	return nil, fmt.Errorf("GenerateFromRouter is not yet implemented - use GenerateFromFile instead")
+	return nil, errors.New("GenerateFromRouter is not yet implemented - use GenerateFromFile instead")
 }
 
-// GenerateFromFile generates a client from a spec file
+// GenerateFromFile generates a client from a spec file.
 func (g *Generator) GenerateFromFile(ctx context.Context, filePath string, config GeneratorConfig) (*generators.GeneratedClient, error) {
 	// Parse spec file
 	parser := NewSpecParser()
+
 	spec, err := parser.ParseFile(ctx, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("parse spec file: %w", err)
@@ -86,7 +89,7 @@ func (g *Generator) GenerateFromFile(ctx context.Context, filePath string, confi
 	return g.Generate(ctx, spec, config)
 }
 
-// getGenerator retrieves a registered generator by language
+// getGenerator retrieves a registered generator by language.
 func (g *Generator) getGenerator(language string) (generators.LanguageGenerator, error) {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -99,7 +102,7 @@ func (g *Generator) getGenerator(language string) (generators.LanguageGenerator,
 	return gen, nil
 }
 
-// ListGenerators returns all registered generators
+// ListGenerators returns all registered generators.
 func (g *Generator) ListGenerators() []string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
@@ -108,10 +111,11 @@ func (g *Generator) ListGenerators() []string {
 	for name := range g.generators {
 		names = append(names, name)
 	}
+
 	return names
 }
 
-// GetGeneratorInfo returns information about a specific generator
+// GetGeneratorInfo returns information about a specific generator.
 func (g *Generator) GetGeneratorInfo(language string) (GeneratorInfo, error) {
 	gen, err := g.getGenerator(language)
 	if err != nil {
@@ -124,13 +128,13 @@ func (g *Generator) GetGeneratorInfo(language string) (GeneratorInfo, error) {
 	}, nil
 }
 
-// GeneratorInfo provides information about a language generator
+// GeneratorInfo provides information about a language generator.
 type GeneratorInfo struct {
 	Name              string
 	SupportedFeatures []string
 }
 
-// DefaultGenerator returns a generator with all built-in generators registered
+// DefaultGenerator returns a generator with all built-in generators registered.
 func DefaultGenerator() *Generator {
 	gen := NewGenerator()
 

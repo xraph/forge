@@ -6,40 +6,40 @@ import (
 	"time"
 )
 
-// Test types for nested struct schema generation
+// Test types for nested struct schema generation.
 type testAddress struct {
-	Street  string `json:"street" description:"Street address"`
-	City    string `json:"city" description:"City name"`
-	ZipCode string `json:"zipCode" description:"Postal code"`
+	Street  string `description:"Street address" json:"street"`
+	City    string `description:"City name"      json:"city"`
+	ZipCode string `description:"Postal code"    json:"zipCode"`
 }
 
 type testMetadata struct {
-	CreatedAt time.Time         `json:"created_at" description:"Creation timestamp"`
-	UpdatedAt time.Time         `json:"updated_at" description:"Update timestamp"`
-	Tags      []string          `json:"tags,omitempty" description:"Tags"`
-	Custom    map[string]string `json:"custom,omitempty" description:"Custom fields"`
+	CreatedAt time.Time         `description:"Creation timestamp" json:"created_at"`
+	UpdatedAt time.Time         `description:"Update timestamp"   json:"updated_at"`
+	Tags      []string          `description:"Tags"               json:"tags,omitempty"`
+	Custom    map[string]string `description:"Custom fields"      json:"custom,omitempty"`
 }
 
 type testAuthFactor struct {
-	FactorID int          `json:"factor_id" description:"Factor ID"`
-	Type     string       `json:"type" description:"Factor type"`
-	Name     string       `json:"name" description:"Factor name"`
-	Metadata testMetadata `json:"metadata,omitempty" description:"Metadata"`
+	FactorID int          `description:"Factor ID"   json:"factor_id"`
+	Type     string       `description:"Factor type" json:"type"`
+	Name     string       `description:"Factor name" json:"name"`
+	Metadata testMetadata `description:"Metadata"    json:"metadata,omitempty"`
 }
 
 type testUserProfile struct {
-	UserID         string           `json:"user_id" description:"User ID"`
-	Name           string           `json:"name" description:"User name"`
-	Address        testAddress      `json:"address" description:"Primary address"`
-	BillingAddress *testAddress     `json:"billing_address,omitempty" description:"Billing address"`
-	Factors        []testAuthFactor `json:"factors,omitempty" description:"Auth factors"`
+	UserID         string           `description:"User ID"         json:"user_id"`
+	Name           string           `description:"User name"       json:"name"`
+	Address        testAddress      `description:"Primary address" json:"address"`
+	BillingAddress *testAddress     `description:"Billing address" json:"billing_address,omitempty"`
+	Factors        []testAuthFactor `description:"Auth factors"    json:"factors,omitempty"`
 }
 
 type testChallengeResponse struct {
-	ChallengeID      int              `json:"challenge_id" description:"Challenge ID"`
-	SessionID        string           `json:"session_id" description:"Session ID"`
-	AvailableFactors []testAuthFactor `json:"available_factors" description:"Available factors"`
-	ExpiresAt        time.Time        `json:"expires_at" description:"Expiration time"`
+	ChallengeID      int              `description:"Challenge ID"      json:"challenge_id"`
+	SessionID        string           `description:"Session ID"        json:"session_id"`
+	AvailableFactors []testAuthFactor `description:"Available factors" json:"available_factors"`
+	ExpiresAt        time.Time        `description:"Expiration time"   json:"expires_at"`
 }
 
 func TestNestedStructComponentGeneration(t *testing.T) {
@@ -137,7 +137,7 @@ func TestChallengeResponseNestedStructs(t *testing.T) {
 	}
 
 	if availableFactorsField.Items.Ref != "#/components/schemas/testAuthFactor" {
-		t.Errorf("Expected available_factors items to be a component ref to testAuthFactor, got Ref=%s", 
+		t.Errorf("Expected available_factors items to be a component ref to testAuthFactor, got Ref=%s",
 			availableFactorsField.Items.Ref)
 	}
 

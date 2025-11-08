@@ -6,14 +6,14 @@ import (
 	"time"
 )
 
-// BackoffStrategy defines a backoff strategy for retries
+// BackoffStrategy defines a backoff strategy for retries.
 type BackoffStrategy interface {
 	// NextDelay returns the next delay duration for the given attempt
 	// Returns 0 if max attempts reached
 	NextDelay(attempt int) time.Duration
 }
 
-// ExponentialBackoff implements exponential backoff strategy
+// ExponentialBackoff implements exponential backoff strategy.
 type ExponentialBackoff struct {
 	InitialDelay time.Duration
 	MaxDelay     time.Duration
@@ -22,7 +22,7 @@ type ExponentialBackoff struct {
 	Jitter       bool
 }
 
-// NextDelay returns the next delay with exponential backoff
+// NextDelay returns the next delay with exponential backoff.
 func (eb *ExponentialBackoff) NextDelay(attempt int) time.Duration {
 	if eb.MaxAttempts > 0 && attempt > eb.MaxAttempts {
 		return 0
@@ -45,7 +45,7 @@ func (eb *ExponentialBackoff) NextDelay(attempt int) time.Duration {
 	return time.Duration(delay)
 }
 
-// LinearBackoff implements linear backoff strategy
+// LinearBackoff implements linear backoff strategy.
 type LinearBackoff struct {
 	InitialDelay time.Duration
 	Increment    time.Duration
@@ -53,59 +53,52 @@ type LinearBackoff struct {
 	MaxAttempts  int
 }
 
-// NextDelay returns the next delay with linear backoff
+// NextDelay returns the next delay with linear backoff.
 func (lb *LinearBackoff) NextDelay(attempt int) time.Duration {
 	if lb.MaxAttempts > 0 && attempt > lb.MaxAttempts {
 		return 0
 	}
 
-	delay := lb.InitialDelay + (lb.Increment * time.Duration(attempt-1))
-
-	if delay > lb.MaxDelay {
-		delay = lb.MaxDelay
-	}
+	delay := min(lb.InitialDelay+(lb.Increment*time.Duration(attempt-1)), lb.MaxDelay)
 
 	return delay
 }
 
-// ConstantBackoff implements constant backoff strategy
+// ConstantBackoff implements constant backoff strategy.
 type ConstantBackoff struct {
 	Delay       time.Duration
 	MaxAttempts int
 }
 
-// NextDelay returns constant delay
+// NextDelay returns constant delay.
 func (cb *ConstantBackoff) NextDelay(attempt int) time.Duration {
 	if cb.MaxAttempts > 0 && attempt > cb.MaxAttempts {
 		return 0
 	}
+
 	return cb.Delay
 }
 
-// FibonacciBackoff implements Fibonacci backoff strategy
+// FibonacciBackoff implements Fibonacci backoff strategy.
 type FibonacciBackoff struct {
 	InitialDelay time.Duration
 	MaxDelay     time.Duration
 	MaxAttempts  int
 }
 
-// NextDelay returns the next delay using Fibonacci sequence
+// NextDelay returns the next delay using Fibonacci sequence.
 func (fb *FibonacciBackoff) NextDelay(attempt int) time.Duration {
 	if fb.MaxAttempts > 0 && attempt > fb.MaxAttempts {
 		return 0
 	}
 
 	fib := fibonacci(attempt)
-	delay := fb.InitialDelay * time.Duration(fib)
-
-	if delay > fb.MaxDelay {
-		delay = fb.MaxDelay
-	}
+	delay := min(fb.InitialDelay*time.Duration(fib), fb.MaxDelay)
 
 	return delay
 }
 
-// fibonacci calculates the nth Fibonacci number
+// fibonacci calculates the nth Fibonacci number.
 func fibonacci(n int) int {
 	if n <= 1 {
 		return 1
@@ -119,7 +112,7 @@ func fibonacci(n int) int {
 	return b
 }
 
-// DecorrelatedJitterBackoff implements AWS's decorrelated jitter backoff
+// DecorrelatedJitterBackoff implements AWS's decorrelated jitter backoff.
 type DecorrelatedJitterBackoff struct {
 	BaseDelay     time.Duration
 	MaxDelay      time.Duration
@@ -127,7 +120,7 @@ type DecorrelatedJitterBackoff struct {
 	previousDelay time.Duration
 }
 
-// NextDelay returns the next delay with decorrelated jitter
+// NextDelay returns the next delay with decorrelated jitter.
 func (djb *DecorrelatedJitterBackoff) NextDelay(attempt int) time.Duration {
 	if djb.MaxAttempts > 0 && attempt > djb.MaxAttempts {
 		return 0
@@ -135,14 +128,12 @@ func (djb *DecorrelatedJitterBackoff) NextDelay(attempt int) time.Duration {
 
 	if attempt == 1 {
 		djb.previousDelay = djb.BaseDelay
+
 		return djb.BaseDelay
 	}
 
 	// Random between base and 3x previous delay
-	maxNext := djb.previousDelay * 3
-	if maxNext > djb.MaxDelay {
-		maxNext = djb.MaxDelay
-	}
+	maxNext := min(djb.previousDelay*3, djb.MaxDelay)
 
 	delay := djb.BaseDelay + time.Duration(rand.Int63n(int64(maxNext-djb.BaseDelay)))
 	djb.previousDelay = delay
@@ -150,7 +141,7 @@ func (djb *DecorrelatedJitterBackoff) NextDelay(attempt int) time.Duration {
 	return delay
 }
 
-// AdaptiveBackoff adapts delay based on success rate
+// AdaptiveBackoff adapts delay based on success rate.
 type AdaptiveBackoff struct {
 	InitialDelay time.Duration
 	MaxDelay     time.Duration
@@ -159,7 +150,7 @@ type AdaptiveBackoff struct {
 	Multiplier   float64
 }
 
-// NextDelay returns adaptive delay based on success rate
+// NextDelay returns adaptive delay based on success rate.
 func (ab *AdaptiveBackoff) NextDelay(attempt int) time.Duration {
 	if ab.MaxAttempts > 0 && attempt > ab.MaxAttempts {
 		return 0
@@ -183,15 +174,15 @@ func (ab *AdaptiveBackoff) NextDelay(attempt int) time.Duration {
 	return time.Duration(baseDelay)
 }
 
-// UpdateSuccessRate updates the success rate for adaptive backoff
+// UpdateSuccessRate updates the success rate for adaptive backoff.
 func (ab *AdaptiveBackoff) UpdateSuccessRate(rate float64) {
 	ab.SuccessRate = rate
 }
 
-// BackoffFactory creates backoff strategies
+// BackoffFactory creates backoff strategies.
 type BackoffFactory struct{}
 
-// NewExponentialBackoff creates exponential backoff with defaults
+// NewExponentialBackoff creates exponential backoff with defaults.
 func (BackoffFactory) NewExponentialBackoff() BackoffStrategy {
 	return &ExponentialBackoff{
 		InitialDelay: 100 * time.Millisecond,
@@ -202,7 +193,7 @@ func (BackoffFactory) NewExponentialBackoff() BackoffStrategy {
 	}
 }
 
-// NewLinearBackoff creates linear backoff with defaults
+// NewLinearBackoff creates linear backoff with defaults.
 func (BackoffFactory) NewLinearBackoff() BackoffStrategy {
 	return &LinearBackoff{
 		InitialDelay: 100 * time.Millisecond,
@@ -212,7 +203,7 @@ func (BackoffFactory) NewLinearBackoff() BackoffStrategy {
 	}
 }
 
-// NewConstantBackoff creates constant backoff with defaults
+// NewConstantBackoff creates constant backoff with defaults.
 func (BackoffFactory) NewConstantBackoff() BackoffStrategy {
 	return &ConstantBackoff{
 		Delay:       500 * time.Millisecond,
@@ -220,7 +211,7 @@ func (BackoffFactory) NewConstantBackoff() BackoffStrategy {
 	}
 }
 
-// NewFibonacciBackoff creates Fibonacci backoff with defaults
+// NewFibonacciBackoff creates Fibonacci backoff with defaults.
 func (BackoffFactory) NewFibonacciBackoff() BackoffStrategy {
 	return &FibonacciBackoff{
 		InitialDelay: 100 * time.Millisecond,
@@ -229,7 +220,7 @@ func (BackoffFactory) NewFibonacciBackoff() BackoffStrategy {
 	}
 }
 
-// NewDecorrelatedJitterBackoff creates decorrelated jitter backoff
+// NewDecorrelatedJitterBackoff creates decorrelated jitter backoff.
 func (BackoffFactory) NewDecorrelatedJitterBackoff() BackoffStrategy {
 	return &DecorrelatedJitterBackoff{
 		BaseDelay:   100 * time.Millisecond,
@@ -238,7 +229,7 @@ func (BackoffFactory) NewDecorrelatedJitterBackoff() BackoffStrategy {
 	}
 }
 
-// NewAdaptiveBackoff creates adaptive backoff
+// NewAdaptiveBackoff creates adaptive backoff.
 func (BackoffFactory) NewAdaptiveBackoff() BackoffStrategy {
 	return &AdaptiveBackoff{
 		InitialDelay: 100 * time.Millisecond,
@@ -249,7 +240,7 @@ func (BackoffFactory) NewAdaptiveBackoff() BackoffStrategy {
 	}
 }
 
-// BackoffPresets provides preset backoff strategies
+// BackoffPresets provides preset backoff strategies.
 var BackoffPresets = struct {
 	// Fast for low-latency networks
 	Fast BackoffStrategy

@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// MemoryStorage implements an in-memory storage backend
+// MemoryStorage implements an in-memory storage backend.
 type MemoryStorage struct {
 	data    map[string][]byte
 	mu      sync.RWMutex
@@ -20,12 +20,12 @@ type MemoryStorage struct {
 	cancel  context.CancelFunc
 }
 
-// MemoryStorageConfig contains configuration for memory storage
+// MemoryStorageConfig contains configuration for memory storage.
 type MemoryStorageConfig struct {
 	InitialCapacity int
 }
 
-// NewMemoryStorage creates a new memory storage
+// NewMemoryStorage creates a new memory storage.
 func NewMemoryStorage(config MemoryStorageConfig, logger forge.Logger) *MemoryStorage {
 	capacity := config.InitialCapacity
 	if capacity == 0 {
@@ -38,7 +38,7 @@ func NewMemoryStorage(config MemoryStorageConfig, logger forge.Logger) *MemorySt
 	}
 }
 
-// Start starts the storage backend
+// Start starts the storage backend.
 func (s *MemoryStorage) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -51,10 +51,11 @@ func (s *MemoryStorage) Start(ctx context.Context) error {
 	s.started = true
 
 	s.logger.Info("memory storage started")
+
 	return nil
 }
 
-// Stop stops the storage backend
+// Stop stops the storage backend.
 func (s *MemoryStorage) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -68,10 +69,11 @@ func (s *MemoryStorage) Stop(ctx context.Context) error {
 	}
 
 	s.logger.Info("memory storage stopped")
+
 	return nil
 }
 
-// Set stores a key-value pair
+// Set stores a key-value pair.
 func (s *MemoryStorage) Set(key, value []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -81,10 +83,11 @@ func (s *MemoryStorage) Set(key, value []byte) error {
 	copy(valueCopy, value)
 
 	s.data[string(key)] = valueCopy
+
 	return nil
 }
 
-// Get retrieves a value by key
+// Get retrieves a value by key.
 func (s *MemoryStorage) Get(key []byte) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -101,25 +104,27 @@ func (s *MemoryStorage) Get(key []byte) ([]byte, error) {
 	return valueCopy, nil
 }
 
-// Delete deletes a key
+// Delete deletes a key.
 func (s *MemoryStorage) Delete(key []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	delete(s.data, string(key))
+
 	return nil
 }
 
-// Exists checks if a key exists
+// Exists checks if a key exists.
 func (s *MemoryStorage) Exists(key []byte) (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	_, exists := s.data[string(key)]
+
 	return exists, nil
 }
 
-// ListKeys lists all keys with a given prefix
+// ListKeys lists all keys with a given prefix.
 func (s *MemoryStorage) ListKeys(prefix []byte) ([][]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -138,7 +143,7 @@ func (s *MemoryStorage) ListKeys(prefix []byte) ([][]byte, error) {
 	return keys, nil
 }
 
-// WriteBatch writes a batch of operations atomically
+// WriteBatch writes a batch of operations atomically.
 func (s *MemoryStorage) WriteBatch(ops []internal.BatchOp) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -169,7 +174,7 @@ func (s *MemoryStorage) WriteBatch(ops []internal.BatchOp) error {
 	return nil
 }
 
-// Iterate iterates over all key-value pairs
+// Iterate iterates over all key-value pairs.
 func (s *MemoryStorage) Iterate(prefix []byte, fn func(key, value []byte) error) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -193,7 +198,7 @@ func (s *MemoryStorage) Iterate(prefix []byte, fn func(key, value []byte) error)
 	return nil
 }
 
-// GetRange retrieves a range of key-value pairs
+// GetRange retrieves a range of key-value pairs.
 func (s *MemoryStorage) GetRange(start, end []byte) ([]internal.KeyValue, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -218,12 +223,12 @@ func (s *MemoryStorage) GetRange(start, end []byte) ([]internal.KeyValue, error)
 	return result, nil
 }
 
-// Batch executes a batch of operations
+// Batch executes a batch of operations.
 func (s *MemoryStorage) Batch(ops []internal.BatchOp) error {
 	return s.WriteBatch(ops)
 }
 
-// Close closes the storage backend
+// Close closes the storage backend.
 func (s *MemoryStorage) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -233,17 +238,19 @@ func (s *MemoryStorage) Close() error {
 	}
 
 	s.logger.Info("memory storage closed")
+
 	return nil
 }
 
-// Size returns the number of stored keys
+// Size returns the number of stored keys.
 func (s *MemoryStorage) Size() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return len(s.data)
 }
 
-// Clear removes all stored data
+// Clear removes all stored data.
 func (s *MemoryStorage) Clear() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

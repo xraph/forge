@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// ConnectionPool manages connection pooling for transports
+// ConnectionPool manages connection pooling for transports.
 type ConnectionPool struct {
 	nodeID string
 	logger forge.Logger
@@ -26,10 +27,10 @@ type ConnectionPool struct {
 	stats PoolStatistics
 }
 
-// PooledConnection represents a pooled connection
+// PooledConnection represents a pooled connection.
 type PooledConnection struct {
 	PeerID     string
-	Connection interface{}
+	Connection any
 	Created    time.Time
 	LastUsed   time.Time
 	UseCount   int64
@@ -38,7 +39,7 @@ type PooledConnection struct {
 	mu         sync.RWMutex
 }
 
-// PoolConfig contains pool configuration
+// PoolConfig contains pool configuration.
 type PoolConfig struct {
 	MaxConnections      int
 	MaxIdleTime         time.Duration
@@ -47,7 +48,7 @@ type PoolConfig struct {
 	ConnectTimeout      time.Duration
 }
 
-// PoolStatistics contains pool statistics
+// PoolStatistics contains pool statistics.
 type PoolStatistics struct {
 	TotalConnections   int64
 	ActiveConnections  int64
@@ -58,21 +59,25 @@ type PoolStatistics struct {
 	TotalUses          int64
 }
 
-// NewConnectionPool creates a new connection pool
+// NewConnectionPool creates a new connection pool.
 func NewConnectionPool(nodeID string, config PoolConfig, logger forge.Logger) *ConnectionPool {
 	// Set defaults
 	if config.MaxConnections == 0 {
 		config.MaxConnections = 100
 	}
+
 	if config.MaxIdleTime == 0 {
 		config.MaxIdleTime = 5 * time.Minute
 	}
+
 	if config.MaxConnectionAge == 0 {
 		config.MaxConnectionAge = 30 * time.Minute
 	}
+
 	if config.HealthCheckInterval == 0 {
 		config.HealthCheckInterval = 30 * time.Second
 	}
+
 	if config.ConnectTimeout == 0 {
 		config.ConnectTimeout = 5 * time.Second
 	}
@@ -85,8 +90,8 @@ func NewConnectionPool(nodeID string, config PoolConfig, logger forge.Logger) *C
 	}
 }
 
-// Get gets or creates a connection for a peer
-func (cp *ConnectionPool) Get(ctx context.Context, peerID string, creator func() (interface{}, error)) (*PooledConnection, error) {
+// Get gets or creates a connection for a peer.
+func (cp *ConnectionPool) Get(ctx context.Context, peerID string, creator func() (any, error)) (*PooledConnection, error) {
 	cp.connMu.Lock()
 	defer cp.connMu.Unlock()
 
@@ -129,6 +134,7 @@ func (cp *ConnectionPool) Get(ctx context.Context, peerID string, creator func()
 	conn, err := cp.createConnection(ctx, peerID, creator)
 	if err != nil {
 		cp.stats.FailedConnections++
+
 		return nil, err
 	}
 
@@ -143,7 +149,7 @@ func (cp *ConnectionPool) Get(ctx context.Context, peerID string, creator func()
 	return conn, nil
 }
 
-// Release releases a connection back to the pool
+// Release releases a connection back to the pool.
 func (cp *ConnectionPool) Release(peerID string) {
 	cp.connMu.RLock()
 	conn, exists := cp.connections[peerID]
@@ -164,7 +170,7 @@ func (cp *ConnectionPool) Release(peerID string) {
 	)
 }
 
-// Close closes a connection
+// Close closes a connection.
 func (cp *ConnectionPool) Close(peerID string) error {
 	cp.connMu.Lock()
 	defer cp.connMu.Unlock()
@@ -194,7 +200,7 @@ func (cp *ConnectionPool) Close(peerID string) error {
 	return nil
 }
 
-// CloseAll closes all connections
+// CloseAll closes all connections.
 func (cp *ConnectionPool) CloseAll() {
 	cp.connMu.Lock()
 	defer cp.connMu.Unlock()
@@ -209,21 +215,23 @@ func (cp *ConnectionPool) CloseAll() {
 	)
 }
 
-// createConnection creates a new connection
-func (cp *ConnectionPool) createConnection(ctx context.Context, peerID string, creator func() (interface{}, error)) (*PooledConnection, error) {
+// createConnection creates a new connection.
+func (cp *ConnectionPool) createConnection(ctx context.Context, peerID string, creator func() (any, error)) (*PooledConnection, error) {
 	// Create with timeout
 	timeoutCtx, cancel := context.WithTimeout(ctx, cp.config.ConnectTimeout)
 	defer cancel()
 
-	connChan := make(chan interface{}, 1)
+	connChan := make(chan any, 1)
 	errChan := make(chan error, 1)
 
 	go func() {
 		conn, err := creator()
 		if err != nil {
 			errChan <- err
+
 			return
 		}
+
 		connChan <- conn
 	}()
 
@@ -247,7 +255,7 @@ func (cp *ConnectionPool) createConnection(ctx context.Context, peerID string, c
 	}
 }
 
-// isExpired checks if a connection is expired
+// isExpired checks if a connection is expired.
 func (cp *ConnectionPool) isExpired(conn *PooledConnection) bool {
 	// Check age
 	if time.Since(conn.Created) > cp.config.MaxConnectionAge {
@@ -262,7 +270,7 @@ func (cp *ConnectionPool) isExpired(conn *PooledConnection) bool {
 	return false
 }
 
-// removeIdleConnection removes an idle connection
+// removeIdleConnection removes an idle connection.
 func (cp *ConnectionPool) removeIdleConnection() bool {
 	for peerID, conn := range cp.connections {
 		conn.mu.RLock()
@@ -272,18 +280,21 @@ func (cp *ConnectionPool) removeIdleConnection() bool {
 		if idle {
 			delete(cp.connections, peerID)
 			cp.stats.ClosedConnections++
+
 			return true
 		}
 	}
+
 	return false
 }
 
-// Cleanup removes expired connections
+// Cleanup removes expired connections.
 func (cp *ConnectionPool) Cleanup() int {
 	cp.connMu.Lock()
 	defer cp.connMu.Unlock()
 
 	removed := 0
+
 	for peerID, conn := range cp.connections {
 		conn.mu.RLock()
 		expired := cp.isExpired(conn)
@@ -306,7 +317,7 @@ func (cp *ConnectionPool) Cleanup() int {
 	return removed
 }
 
-// MonitorHealth monitors connection health
+// MonitorHealth monitors connection health.
 func (cp *ConnectionPool) MonitorHealth(ctx context.Context) {
 	ticker := time.NewTicker(cp.config.HealthCheckInterval)
 	defer ticker.Stop()
@@ -322,7 +333,7 @@ func (cp *ConnectionPool) MonitorHealth(ctx context.Context) {
 	}
 }
 
-// updateStatistics updates pool statistics
+// updateStatistics updates pool statistics.
 func (cp *ConnectionPool) updateStatistics() {
 	cp.connMu.RLock()
 	defer cp.connMu.RUnlock()
@@ -333,44 +344,46 @@ func (cp *ConnectionPool) updateStatistics() {
 
 	for _, conn := range cp.connections {
 		conn.mu.RLock()
+
 		if conn.InUse {
 			cp.stats.ActiveConnections++
 		} else {
 			cp.stats.IdleConnections++
 		}
+
 		conn.mu.RUnlock()
 	}
 }
 
-// GetStatistics returns pool statistics
+// GetStatistics returns pool statistics.
 func (cp *ConnectionPool) GetStatistics() PoolStatistics {
 	cp.updateStatistics()
+
 	return cp.stats
 }
 
-// GetConnection returns a connection for a peer
+// GetConnection returns a connection for a peer.
 func (cp *ConnectionPool) GetConnection(peerID string) (*PooledConnection, bool) {
 	cp.connMu.RLock()
 	defer cp.connMu.RUnlock()
 
 	conn, exists := cp.connections[peerID]
+
 	return conn, exists
 }
 
-// GetAllConnections returns all connections
+// GetAllConnections returns all connections.
 func (cp *ConnectionPool) GetAllConnections() map[string]*PooledConnection {
 	cp.connMu.RLock()
 	defer cp.connMu.RUnlock()
 
 	result := make(map[string]*PooledConnection)
-	for peerID, conn := range cp.connections {
-		result[peerID] = conn
-	}
+	maps.Copy(result, cp.connections)
 
 	return result
 }
 
-// MarkUnhealthy marks a connection as unhealthy
+// MarkUnhealthy marks a connection as unhealthy.
 func (cp *ConnectionPool) MarkUnhealthy(peerID string) {
 	cp.connMu.RLock()
 	conn, exists := cp.connections[peerID]
@@ -390,7 +403,7 @@ func (cp *ConnectionPool) MarkUnhealthy(peerID string) {
 	)
 }
 
-// MarkHealthy marks a connection as healthy
+// MarkHealthy marks a connection as healthy.
 func (cp *ConnectionPool) MarkHealthy(peerID string) {
 	cp.connMu.RLock()
 	conn, exists := cp.connections[peerID]
@@ -410,16 +423,18 @@ func (cp *ConnectionPool) MarkHealthy(peerID string) {
 	)
 }
 
-// Size returns the current pool size
+// Size returns the current pool size.
 func (cp *ConnectionPool) Size() int {
 	cp.connMu.RLock()
 	defer cp.connMu.RUnlock()
+
 	return len(cp.connections)
 }
 
-// Available returns the number of available connection slots
+// Available returns the number of available connection slots.
 func (cp *ConnectionPool) Available() int {
 	cp.connMu.RLock()
 	defer cp.connMu.RUnlock()
+
 	return cp.config.MaxConnections - len(cp.connections)
 }

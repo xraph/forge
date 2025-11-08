@@ -8,7 +8,7 @@ import (
 	"github.com/fatih/color"
 )
 
-// BannerConfig configures the startup banner
+// BannerConfig configures the startup banner.
 type BannerConfig struct {
 	AppName     string
 	Version     string
@@ -24,7 +24,7 @@ type BannerConfig struct {
 	MetricsPath string
 }
 
-// PrintStartupBanner prints a styled startup banner to stdout
+// PrintStartupBanner prints a styled startup banner to stdout.
 func PrintStartupBanner(cfg BannerConfig) {
 	// Color definitions (avoiding CLI package import)
 	cyan := color.New(color.FgCyan).SprintFunc()
@@ -75,16 +75,19 @@ func PrintStartupBanner(cfg BannerConfig) {
 	hasAPIDocs := cfg.OpenAPISpec != "" || cfg.OpenAPIUI != "" || cfg.AsyncAPIUI != ""
 	if hasAPIDocs {
 		banner.WriteString(fmt.Sprintf("  %s\n", bold("API Documentation:")))
-		
+
 		if cfg.OpenAPISpec != "" {
 			banner.WriteString(fmt.Sprintf("    %s %s\n", gray("├─"), formatEndpoint("OpenAPI Spec", cfg.OpenAPISpec, yellow)))
 		}
+
 		if cfg.OpenAPIUI != "" {
 			banner.WriteString(fmt.Sprintf("    %s %s\n", gray("├─"), formatEndpoint("Swagger UI", cfg.OpenAPIUI, yellow)))
 		}
+
 		if cfg.AsyncAPIUI != "" {
 			banner.WriteString(fmt.Sprintf("    %s %s\n", gray("└─"), formatEndpoint("AsyncAPI UI", cfg.AsyncAPIUI, yellow)))
 		}
+
 		banner.WriteString("\n")
 	}
 
@@ -92,7 +95,7 @@ func PrintStartupBanner(cfg BannerConfig) {
 	hasObservability := cfg.HealthPath != "" || cfg.MetricsPath != ""
 	if hasObservability {
 		banner.WriteString(fmt.Sprintf("  %s\n", bold("Observability:")))
-		
+
 		if cfg.HealthPath != "" {
 			if cfg.MetricsPath != "" {
 				banner.WriteString(fmt.Sprintf("    %s %s\n", gray("├─"), formatEndpoint("Health", cfg.HealthPath, green)))
@@ -100,9 +103,11 @@ func PrintStartupBanner(cfg BannerConfig) {
 				banner.WriteString(fmt.Sprintf("    %s %s\n", gray("└─"), formatEndpoint("Health", cfg.HealthPath, green)))
 			}
 		}
+
 		if cfg.MetricsPath != "" {
 			banner.WriteString(fmt.Sprintf("    %s %s\n", gray("└─"), formatEndpoint("Metrics", cfg.MetricsPath, green)))
 		}
+
 		banner.WriteString("\n")
 	}
 
@@ -117,14 +122,15 @@ func PrintStartupBanner(cfg BannerConfig) {
 	fmt.Print(banner.String())
 }
 
-// formatEndpoint formats an endpoint line with name and URL
+// formatEndpoint formats an endpoint line with name and URL.
 func formatEndpoint(name, path string, colorFunc func(...any) string) string {
 	// Pad name to align URLs
 	paddedName := fmt.Sprintf("%-14s", name+":")
+
 	return fmt.Sprintf("%s %s", paddedName, colorFunc(path))
 }
 
-// getEnvColor returns the appropriate color function for the environment
+// getEnvColor returns the appropriate color function for the environment.
 func getEnvColor(env string) func(...any) string {
 	switch env {
 	case "production":
@@ -137,5 +143,3 @@ func getEnvColor(env string) func(...any) string {
 		return color.New(color.FgWhite).SprintFunc()
 	}
 }
-
-

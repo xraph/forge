@@ -11,9 +11,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/events/core"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// MongoEventStore implements EventStore using MongoDB
+// MongoEventStore implements EventStore using MongoDB.
 type MongoEventStore struct {
 	client       *mongo.Client
 	database     *mongo.Database
@@ -25,32 +26,32 @@ type MongoEventStore struct {
 	stats        *core.EventStoreStats
 }
 
-// MongoEvent represents an event document in MongoDB
+// MongoEvent represents an event document in MongoDB.
 type MongoEvent struct {
-	ID          string                 `bson:"_id"`
-	AggregateID string                 `bson:"aggregate_id"`
-	Type        string                 `bson:"type"`
-	Version     int                    `bson:"version"`
-	Data        any                    `bson:"data"`
-	Metadata    map[string]interface{} `bson:"metadata,omitempty"`
-	Source      string                 `bson:"source,omitempty"`
-	Timestamp   time.Time              `bson:"timestamp"`
-	CreatedAt   time.Time              `bson:"created_at"`
+	ID          string         `bson:"_id"`
+	AggregateID string         `bson:"aggregate_id"`
+	Type        string         `bson:"type"`
+	Version     int            `bson:"version"`
+	Data        any            `bson:"data"`
+	Metadata    map[string]any `bson:"metadata,omitempty"`
+	Source      string         `bson:"source,omitempty"`
+	Timestamp   time.Time      `bson:"timestamp"`
+	CreatedAt   time.Time      `bson:"created_at"`
 }
 
-// MongoSnapshot represents a snapshot document in MongoDB
+// MongoSnapshot represents a snapshot document in MongoDB.
 type MongoSnapshot struct {
-	ID          string                 `bson:"_id"`
-	AggregateID string                 `bson:"aggregate_id"`
-	Type        string                 `bson:"type"`
-	Version     int                    `bson:"version"`
-	Data        any                    `bson:"data"`
-	Metadata    map[string]interface{} `bson:"metadata,omitempty"`
-	Timestamp   time.Time              `bson:"timestamp"`
-	CreatedAt   time.Time              `bson:"created_at"`
+	ID          string         `bson:"_id"`
+	AggregateID string         `bson:"aggregate_id"`
+	Type        string         `bson:"type"`
+	Version     int            `bson:"version"`
+	Data        any            `bson:"data"`
+	Metadata    map[string]any `bson:"metadata,omitempty"`
+	Timestamp   time.Time      `bson:"timestamp"`
+	CreatedAt   time.Time      `bson:"created_at"`
 }
 
-// NewMongoEventStore creates a new MongoDB event store
+// NewMongoEventStore creates a new MongoDB event store.
 func NewMongoEventStore(client *mongo.Client, dbName string, config *core.EventStoreConfig, logger forge.Logger, metrics forge.Metrics) (*MongoEventStore, error) {
 	database := client.Database(dbName)
 	eventsCol := database.Collection("events")
@@ -94,7 +95,7 @@ func NewMongoEventStore(client *mongo.Client, dbName string, config *core.EventS
 	return store, nil
 }
 
-// createIndexes creates necessary indexes
+// createIndexes creates necessary indexes.
 func (mes *MongoEventStore) createIndexes(ctx context.Context) error {
 	// Events indexes
 	eventIndexes := []mongo.IndexModel{
@@ -140,13 +141,14 @@ func (mes *MongoEventStore) createIndexes(ctx context.Context) error {
 	return nil
 }
 
-// initializeStats loads current statistics
+// initializeStats loads current statistics.
 func (mes *MongoEventStore) initializeStats(ctx context.Context) error {
 	// Count total events
 	count, err := mes.eventsCol.CountDocuments(ctx, bson.D{})
 	if err != nil {
 		return err
 	}
+
 	mes.stats.TotalEvents = count
 
 	// Count events by type
@@ -171,6 +173,7 @@ func (mes *MongoEventStore) initializeStats(ctx context.Context) error {
 		if err := cursor.Decode(&result); err != nil {
 			return err
 		}
+
 		mes.stats.EventsByType[result.ID] = result.Count
 	}
 
@@ -179,12 +182,13 @@ func (mes *MongoEventStore) initializeStats(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	mes.stats.TotalSnapshots = count
 
 	return nil
 }
 
-// SaveEvent implements EventStore
+// SaveEvent implements EventStore.
 func (mes *MongoEventStore) SaveEvent(ctx context.Context, event *core.Event) error {
 	start := time.Now()
 
@@ -206,6 +210,7 @@ func (mes *MongoEventStore) SaveEvent(ctx context.Context, event *core.Event) er
 		if mes.metrics != nil {
 			mes.metrics.Counter("forge.events.store.save_errors").Inc()
 		}
+
 		return fmt.Errorf("failed to save event: %w", err)
 	}
 
@@ -226,13 +231,13 @@ func (mes *MongoEventStore) SaveEvent(ctx context.Context, event *core.Event) er
 	return nil
 }
 
-// SaveEvents implements EventStore
+// SaveEvents implements EventStore.
 func (mes *MongoEventStore) SaveEvents(ctx context.Context, events []*core.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
 
-	docs := make([]interface{}, len(events))
+	docs := make([]any, len(events))
 	for i, event := range events {
 		docs[i] = MongoEvent{
 			ID:          event.ID,
@@ -251,6 +256,7 @@ func (mes *MongoEventStore) SaveEvents(ctx context.Context, events []*core.Event
 	_, err := mes.eventsCol.InsertMany(ctx, docs)
 	if err != nil {
 		mes.stats.Metrics.Errors++
+
 		return fmt.Errorf("failed to save events: %w", err)
 	}
 
@@ -264,24 +270,28 @@ func (mes *MongoEventStore) SaveEvents(ctx context.Context, events []*core.Event
 	return nil
 }
 
-// GetEvent implements EventStore
+// GetEvent implements EventStore.
 func (mes *MongoEventStore) GetEvent(ctx context.Context, eventID string) (*core.Event, error) {
 	var doc MongoEvent
+
 	err := mes.eventsCol.FindOne(ctx, bson.D{{Key: "_id", Value: eventID}}).Decode(&doc)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, fmt.Errorf("event not found: %s", eventID)
 	}
+
 	if err != nil {
 		mes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to get event: %w", err)
 	}
 
 	event := mes.docToEvent(&doc)
 	mes.stats.Metrics.EventsRead++
+
 	return event, nil
 }
 
-// GetEventsByAggregate implements EventStore
+// GetEventsByAggregate implements EventStore.
 func (mes *MongoEventStore) GetEventsByAggregate(ctx context.Context, aggregateID string, fromVersion int) ([]*core.Event, error) {
 	filter := bson.D{
 		{Key: "aggregate_id", Value: aggregateID},
@@ -289,27 +299,32 @@ func (mes *MongoEventStore) GetEventsByAggregate(ctx context.Context, aggregateI
 	}
 
 	opts := options.Find().SetSort(bson.D{{Key: "version", Value: 1}})
+
 	cursor, err := mes.eventsCol.Find(ctx, filter, opts)
 	if err != nil {
 		mes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	events := make([]*core.Event, 0)
+
 	for cursor.Next(ctx) {
 		var doc MongoEvent
 		if err := cursor.Decode(&doc); err != nil {
 			return nil, fmt.Errorf("failed to decode event: %w", err)
 		}
+
 		events = append(events, mes.docToEvent(&doc))
 	}
 
 	mes.stats.Metrics.EventsRead += int64(len(events))
+
 	return events, nil
 }
 
-// GetEventsByType implements EventStore
+// GetEventsByType implements EventStore.
 func (mes *MongoEventStore) GetEventsByType(ctx context.Context, eventType string, fromTime, toTime time.Time) ([]*core.Event, error) {
 	filter := bson.D{
 		{Key: "type", Value: eventType},
@@ -320,44 +335,53 @@ func (mes *MongoEventStore) GetEventsByType(ctx context.Context, eventType strin
 	}
 
 	opts := options.Find().SetSort(bson.D{{Key: "timestamp", Value: 1}})
+
 	cursor, err := mes.eventsCol.Find(ctx, filter, opts)
 	if err != nil {
 		mes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	events := make([]*core.Event, 0)
+
 	for cursor.Next(ctx) {
 		var doc MongoEvent
 		if err := cursor.Decode(&doc); err != nil {
 			return nil, fmt.Errorf("failed to decode event: %w", err)
 		}
+
 		events = append(events, mes.docToEvent(&doc))
 	}
 
 	mes.stats.Metrics.EventsRead += int64(len(events))
+
 	return events, nil
 }
 
-// QueryEvents implements EventStore
+// QueryEvents implements EventStore.
 func (mes *MongoEventStore) QueryEvents(ctx context.Context, criteria *core.EventCriteria) ([]*core.Event, error) {
 	filter := bson.D{}
 
 	if len(criteria.AggregateIDs) > 0 {
 		filter = append(filter, bson.E{Key: "aggregate_id", Value: bson.D{{Key: "$in", Value: criteria.AggregateIDs}}})
 	}
+
 	if len(criteria.EventTypes) > 0 {
 		filter = append(filter, bson.E{Key: "type", Value: bson.D{{Key: "$in", Value: criteria.EventTypes}}})
 	}
+
 	if !criteria.StartTime.IsZero() || !criteria.StartTime.IsZero() {
 		timeFilter := bson.D{}
 		if !criteria.StartTime.IsZero() {
 			timeFilter = append(timeFilter, bson.E{Key: "$gte", Value: criteria.StartTime})
 		}
+
 		if !criteria.EndTime.IsZero() {
 			timeFilter = append(timeFilter, bson.E{Key: "$lte", Value: criteria.EndTime})
 		}
+
 		filter = append(filter, bson.E{Key: "timestamp", Value: timeFilter})
 	}
 
@@ -369,24 +393,28 @@ func (mes *MongoEventStore) QueryEvents(ctx context.Context, criteria *core.Even
 	cursor, err := mes.eventsCol.Find(ctx, filter, opts)
 	if err != nil {
 		mes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to query events: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	events := make([]*core.Event, 0)
+
 	for cursor.Next(ctx) {
 		var doc MongoEvent
 		if err := cursor.Decode(&doc); err != nil {
 			return nil, fmt.Errorf("failed to decode event: %w", err)
 		}
+
 		events = append(events, mes.docToEvent(&doc))
 	}
 
 	mes.stats.Metrics.EventsRead += int64(len(events))
+
 	return events, nil
 }
 
-// CreateSnapshot implements EventStore
+// CreateSnapshot implements EventStore.
 func (mes *MongoEventStore) CreateSnapshot(ctx context.Context, snapshot *core.Snapshot) error {
 	doc := MongoSnapshot{
 		ID:          snapshot.ID,
@@ -400,9 +428,11 @@ func (mes *MongoEventStore) CreateSnapshot(ctx context.Context, snapshot *core.S
 	}
 
 	opts := options.Replace().SetUpsert(true)
+
 	_, err := mes.snapshotsCol.ReplaceOne(ctx, bson.D{{Key: "aggregate_id", Value: snapshot.AggregateID}}, doc, opts)
 	if err != nil {
 		mes.stats.Metrics.Errors++
+
 		return fmt.Errorf("failed to create snapshot: %w", err)
 	}
 
@@ -417,35 +447,39 @@ func (mes *MongoEventStore) CreateSnapshot(ctx context.Context, snapshot *core.S
 	return nil
 }
 
-// GetSnapshot implements EventStore
+// GetSnapshot implements EventStore.
 func (mes *MongoEventStore) GetSnapshot(ctx context.Context, aggregateID string) (*core.Snapshot, error) {
 	var doc MongoSnapshot
+
 	err := mes.snapshotsCol.FindOne(ctx, bson.D{{Key: "aggregate_id", Value: aggregateID}}).Decode(&doc)
-	if err == mongo.ErrNoDocuments {
+	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil, fmt.Errorf("snapshot not found: %s", aggregateID)
 	}
+
 	if err != nil {
 		mes.stats.Metrics.Errors++
+
 		return nil, fmt.Errorf("failed to get snapshot: %w", err)
 	}
 
 	snapshot := mes.docToSnapshot(&doc)
 	mes.stats.Metrics.SnapshotsRead++
+
 	return snapshot, nil
 }
 
-// GetStats implements EventStore
+// GetStats implements EventStore.
 func (mes *MongoEventStore) GetStats() *core.EventStoreStats {
 	return mes.stats
 }
 
-// Close implements EventStore
+// Close implements EventStore.
 func (mes *MongoEventStore) Close(ctx context.Context) error {
 	// Client is managed externally
 	return nil
 }
 
-// docToEvent converts a MongoEvent to Event
+// docToEvent converts a MongoEvent to Event.
 func (mes *MongoEventStore) docToEvent(doc *MongoEvent) *core.Event {
 	return &core.Event{
 		ID:          doc.ID,
@@ -459,7 +493,7 @@ func (mes *MongoEventStore) docToEvent(doc *MongoEvent) *core.Event {
 	}
 }
 
-// docToSnapshot converts a MongoSnapshot to Snapshot
+// docToSnapshot converts a MongoSnapshot to Snapshot.
 func (mes *MongoEventStore) docToSnapshot(doc *MongoSnapshot) *core.Snapshot {
 	return &core.Snapshot{
 		ID:          doc.ID,

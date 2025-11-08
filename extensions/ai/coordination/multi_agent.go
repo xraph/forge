@@ -8,26 +8,27 @@ import (
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
 // Removed duplicate declarations - they're defined in coordination.go
 
-// MultiAgentCoordinatorConfig contains configuration for multi-agent coordination
+// MultiAgentCoordinatorConfig contains configuration for multi-agent coordination.
 type MultiAgentCoordinatorConfig struct {
-	Strategy              CoordinationStrategy     `yaml:"strategy" default:"distributed"`
-	MaxAgents             int                      `yaml:"max_agents" default:"50"`
-	CoordinationInterval  time.Duration            `yaml:"coordination_interval" default:"5s"`
-	ConsensusTimeout      time.Duration            `yaml:"consensus_timeout" default:"30s"`
-	HealthCheckInterval   time.Duration            `yaml:"health_check_interval" default:"10s"`
-	ConflictResolution    ConflictResolutionPolicy `yaml:"conflict_resolution" default:"majority_wins"`
-	EnableLoadBalancing   bool                     `yaml:"enable_load_balancing" default:"true"`
-	EnableFailover        bool                     `yaml:"enable_failover" default:"true"`
-	CommunicationProtocol CommunicationProtocol    `yaml:"communication_protocol" default:"direct"`
-	LogLevel              string                   `yaml:"log_level" default:"info"`
+	Strategy              CoordinationStrategy     `default:"distributed"   yaml:"strategy"`
+	MaxAgents             int                      `default:"50"            yaml:"max_agents"`
+	CoordinationInterval  time.Duration            `default:"5s"            yaml:"coordination_interval"`
+	ConsensusTimeout      time.Duration            `default:"30s"           yaml:"consensus_timeout"`
+	HealthCheckInterval   time.Duration            `default:"10s"           yaml:"health_check_interval"`
+	ConflictResolution    ConflictResolutionPolicy `default:"majority_wins" yaml:"conflict_resolution"`
+	EnableLoadBalancing   bool                     `default:"true"          yaml:"enable_load_balancing"`
+	EnableFailover        bool                     `default:"true"          yaml:"enable_failover"`
+	CommunicationProtocol CommunicationProtocol    `default:"direct"        yaml:"communication_protocol"`
+	LogLevel              string                   `default:"info"          yaml:"log_level"`
 }
 
-// ConflictResolutionPolicy defines how conflicts between agents are resolved
+// ConflictResolutionPolicy defines how conflicts between agents are resolved.
 type ConflictResolutionPolicy string
 
 const (
@@ -39,7 +40,7 @@ const (
 
 // Removed duplicate CommunicationProtocol - defined in communication.go
 
-// AgentRole defines the role of an agent in the coordination
+// AgentRole defines the role of an agent in the coordination.
 type AgentRole string
 
 const (
@@ -49,7 +50,7 @@ const (
 	AgentRoleObserver AgentRole = "observer" // Monitoring only
 )
 
-// CoordinatedAgent wraps an AI agent with coordination capabilities
+// CoordinatedAgent wraps an AI agent with coordination capabilities.
 type CoordinatedAgent struct {
 	Agent         ai.AIAgent
 	ID            string
@@ -66,7 +67,7 @@ type CoordinatedAgent struct {
 	mu            sync.RWMutex
 }
 
-// AgentHealth represents agent health status
+// AgentHealth represents agent health status.
 type AgentHealth struct {
 	Status      string    `json:"status"`
 	LastCheck   time.Time `json:"last_check"`
@@ -74,7 +75,7 @@ type AgentHealth struct {
 	SuccessRate float64   `json:"success_rate"`
 }
 
-// AgentStatistics tracks agent performance
+// AgentStatistics tracks agent performance.
 type AgentStatistics struct {
 	TasksCompleted    int64         `json:"tasks_completed"`
 	TasksFailed       int64         `json:"tasks_failed"`
@@ -84,7 +85,7 @@ type AgentStatistics struct {
 	ConflictsResolved int64         `json:"conflicts_resolved"`
 }
 
-// CoordinationTask represents a task that requires coordination
+// CoordinationTask represents a task that requires coordination.
 type CoordinationTask struct {
 	ID            string                 `json:"id"`
 	Type          string                 `json:"type"`
@@ -101,7 +102,7 @@ type CoordinationTask struct {
 	Metadata      map[string]interface{} `json:"metadata"`
 }
 
-// TaskStatus represents the status of a coordination task
+// TaskStatus represents the status of a coordination task.
 type TaskStatus string
 
 const (
@@ -113,7 +114,7 @@ const (
 	TaskStatusCancelled  TaskStatus = "cancelled"
 )
 
-// CoordinationDecision represents a decision made through coordination
+// CoordinationDecision represents a decision made through coordination.
 type CoordinationDecision struct {
 	ID           string                 `json:"id"`
 	Type         string                 `json:"type"`
@@ -126,7 +127,7 @@ type CoordinationDecision struct {
 	Metadata     map[string]interface{} `json:"metadata"`
 }
 
-// MultiAgentCoordinator manages coordination between multiple AI agents
+// MultiAgentCoordinator manages coordination between multiple AI agents.
 type MultiAgentCoordinator struct {
 	config       MultiAgentCoordinatorConfig
 	agents       map[string]*CoordinatedAgent
@@ -142,7 +143,7 @@ type MultiAgentCoordinator struct {
 	mu           sync.RWMutex
 }
 
-// CoordinationStats contains statistics about the coordination system
+// CoordinationStats contains statistics about the coordination system.
 type CoordinationStats struct {
 	TotalAgents       int                        `json:"total_agents"`
 	ActiveAgents      int                        `json:"active_agents"`
@@ -157,7 +158,7 @@ type CoordinationStats struct {
 	LastUpdated       time.Time                  `json:"last_updated"`
 }
 
-// NewMultiAgentCoordinator creates a new multi-agent coordinator
+// NewMultiAgentCoordinator creates a new multi-agent coordinator.
 func NewMultiAgentCoordinator(config MultiAgentCoordinatorConfig, logger logger.Logger, metrics forge.Metrics) *MultiAgentCoordinator {
 	coordinator := &MultiAgentCoordinator{
 		config:    config,
@@ -178,13 +179,13 @@ func NewMultiAgentCoordinator(config MultiAgentCoordinatorConfig, logger logger.
 	return coordinator
 }
 
-// Start starts the multi-agent coordinator
+// Start starts the multi-agent coordinator.
 func (mac *MultiAgentCoordinator) Start(ctx context.Context) error {
 	mac.mu.Lock()
 	defer mac.mu.Unlock()
 
 	if mac.started {
-		return fmt.Errorf("multi-agent coordinator already started")
+		return errors.New("multi-agent coordinator already started")
 	}
 
 	// Start communication manager
@@ -219,13 +220,13 @@ func (mac *MultiAgentCoordinator) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the multi-agent coordinator
+// Stop stops the multi-agent coordinator.
 func (mac *MultiAgentCoordinator) Stop(ctx context.Context) error {
 	mac.mu.Lock()
 	defer mac.mu.Unlock()
 
 	if !mac.started {
-		return fmt.Errorf("multi-agent coordinator not started")
+		return errors.New("multi-agent coordinator not started")
 	}
 
 	// Stop all agents
@@ -267,13 +268,13 @@ func (mac *MultiAgentCoordinator) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RegisterAgent registers a new agent with the coordinator
+// RegisterAgent registers a new agent with the coordinator.
 func (mac *MultiAgentCoordinator) RegisterAgent(agent ai.AIAgent) error {
 	mac.mu.Lock()
 	defer mac.mu.Unlock()
 
 	if !mac.started {
-		return fmt.Errorf("coordinator not started")
+		return errors.New("coordinator not started")
 	}
 
 	agentID := agent.ID()
@@ -334,7 +335,7 @@ func (mac *MultiAgentCoordinator) RegisterAgent(agent ai.AIAgent) error {
 	return nil
 }
 
-// UnregisterAgent removes an agent from the coordinator
+// UnregisterAgent removes an agent from the coordinator.
 func (mac *MultiAgentCoordinator) UnregisterAgent(agentID string) error {
 	mac.mu.Lock()
 	defer mac.mu.Unlock()
@@ -388,13 +389,13 @@ func (mac *MultiAgentCoordinator) UnregisterAgent(agentID string) error {
 	return nil
 }
 
-// SubmitTask submits a task for coordination
+// SubmitTask submits a task for coordination.
 func (mac *MultiAgentCoordinator) SubmitTask(task *CoordinationTask) error {
 	mac.mu.Lock()
 	defer mac.mu.Unlock()
 
 	if !mac.started {
-		return fmt.Errorf("coordinator not started")
+		return errors.New("coordinator not started")
 	}
 
 	task.ID = mac.generateTaskID()
@@ -422,10 +423,10 @@ func (mac *MultiAgentCoordinator) SubmitTask(task *CoordinationTask) error {
 	return nil
 }
 
-// MakeDecision coordinates a decision among agents
+// MakeDecision coordinates a decision among agents.
 func (mac *MultiAgentCoordinator) MakeDecision(ctx context.Context, decision *CoordinationDecision) error {
 	if !mac.started {
-		return fmt.Errorf("coordinator not started")
+		return errors.New("coordinator not started")
 	}
 
 	decision.ID = mac.generateDecisionID()
@@ -453,7 +454,7 @@ func (mac *MultiAgentCoordinator) MakeDecision(ctx context.Context, decision *Co
 	}
 }
 
-// GetStats returns coordination statistics
+// GetStats returns coordination statistics.
 func (mac *MultiAgentCoordinator) GetStats() CoordinationStats {
 	mac.mu.RLock()
 	defer mac.mu.RUnlock()
@@ -469,10 +470,12 @@ func (mac *MultiAgentCoordinator) GetStats() CoordinationStats {
 	}
 
 	var tasksCompleted, tasksFailed int64
+
 	for _, task := range mac.tasks {
-		if task.Status == TaskStatusCompleted {
+		switch task.Status {
+		case TaskStatusCompleted:
 			tasksCompleted++
-		} else if task.Status == TaskStatusFailed {
+		case TaskStatusFailed:
 			tasksFailed++
 		}
 	}
@@ -640,11 +643,13 @@ func (mac *MultiAgentCoordinator) extractCapabilities(agent ai.AIAgent) []string
 	for _, cap := range agent.Capabilities() {
 		capabilities = append(capabilities, cap.Name)
 	}
+
 	return capabilities
 }
 
 func (mac *MultiAgentCoordinator) electLeader() {
 	var leader *CoordinatedAgent
+
 	highestPriority := -1
 
 	for _, agent := range mac.agents {
@@ -695,6 +700,7 @@ func (mac *MultiAgentCoordinator) assignTask(task *CoordinationTask) error {
 
 func (mac *MultiAgentCoordinator) findBestAgentForTask(task *CoordinationTask) *CoordinatedAgent {
 	var bestAgent *CoordinatedAgent
+
 	bestScore := -1.0
 
 	for _, agent := range mac.agents {
@@ -717,10 +723,12 @@ func (mac *MultiAgentCoordinator) calculateTaskScore(agent *CoordinatedAgent, ta
 
 	// Check capability match
 	capabilityMatch := 0
+
 	for _, requirement := range task.Requirements {
 		for _, capability := range agent.Capabilities {
 			if requirement == capability {
 				capabilityMatch++
+
 				break
 			}
 		}
@@ -794,6 +802,7 @@ func (mac *MultiAgentCoordinator) checkForRebalancing() {
 				for _, other := range mac.agents {
 					if other.Load < avgLoad*0.5 && other.ID != agent.ID {
 						mac.redistributeTasks(agent, other)
+
 						break
 					}
 				}
@@ -850,7 +859,7 @@ func (mac *MultiAgentCoordinator) getDecisionParticipants(decision *Coordination
 	return participants
 }
 
-// Decision-making strategies - simplified implementations
+// Decision-making strategies - simplified implementations.
 func (mac *MultiAgentCoordinator) consensusDecision(ctx context.Context, decision *CoordinationDecision) error {
 	return mac.consensus.ReachConsensus(ctx, decision)
 }
@@ -863,10 +872,12 @@ func (mac *MultiAgentCoordinator) hierarchicalDecision(ctx context.Context, deci
 			decision.Result = "approved_by_leader"
 			decision.Confidence = 0.9
 			mac.decisions[decision.ID] = decision
+
 			return nil
 		}
 	}
-	return fmt.Errorf("no leader available for hierarchical decision")
+
+	return errors.New("no leader available for hierarchical decision")
 }
 
 func (mac *MultiAgentCoordinator) distributedDecision(ctx context.Context, decision *CoordinationDecision) error {
@@ -894,6 +905,7 @@ func (mac *MultiAgentCoordinator) marketDecision(ctx context.Context, decision *
 	decision.Result = "market_based_result"
 	decision.Confidence = 0.6
 	mac.decisions[decision.ID] = decision
+
 	return nil
 }
 
@@ -902,6 +914,7 @@ func (mac *MultiAgentCoordinator) swarmDecision(ctx context.Context, decision *C
 	decision.Result = "swarm_based_result"
 	decision.Confidence = 0.8
 	mac.decisions[decision.ID] = decision
+
 	return nil
 }
 
@@ -930,7 +943,9 @@ func (mac *MultiAgentCoordinator) tallyVotes(votes map[string]interface{}) inter
 
 	// Return majority vote
 	maxVotes := 0
+
 	var result string
+
 	for vote, count := range voteCounts {
 		if count > maxVotes {
 			maxVotes = count

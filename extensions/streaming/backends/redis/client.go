@@ -27,7 +27,7 @@ type ClientConfig struct {
 // NewClient creates a new Redis client from configuration.
 func NewClient(config ClientConfig) (*redis.Client, error) {
 	if len(config.URLs) == 0 {
-		return nil, fmt.Errorf("no Redis URLs provided")
+		return nil, errors.New("no Redis URLs provided")
 	}
 
 	// Parse first URL (for now, simple single-node setup)
@@ -52,6 +52,7 @@ func NewClient(config ClientConfig) (*redis.Client, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to load TLS certificates: %w", err)
 			}
+
 			tlsConfig.Certificates = []tls.Certificate{cert}
 		}
 
@@ -63,12 +64,12 @@ func NewClient(config ClientConfig) (*redis.Client, error) {
 
 // CreateStores creates all Redis-backed stores from a single client.
 func CreateStores(client *redis.Client, prefix string) (
-	roomStore interface{},
-	channelStore interface{},
-	messageStore interface{},
-	presenceStore interface{},
-	typingStore interface{},
-	distributed interface{},
+	roomStore any,
+	channelStore any,
+	messageStore any,
+	presenceStore any,
+	typingStore any,
+	distributed any,
 ) {
 	if prefix == "" {
 		prefix = "streaming"

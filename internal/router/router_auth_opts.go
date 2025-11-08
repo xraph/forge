@@ -54,8 +54,9 @@ type routeAuth struct {
 
 func (o *routeAuth) Apply(config *RouteConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
+
 	config.Metadata["auth.providers"] = o.providers
 	config.Metadata["auth.scopes"] = o.scopes
 	config.Metadata["auth.mode"] = o.mode
@@ -96,8 +97,9 @@ type groupAuth struct {
 
 func (o *groupAuth) Apply(config *GroupConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
+
 	config.Metadata["auth.providers"] = o.providers
 	config.Metadata["auth.mode"] = o.mode
 }
@@ -108,7 +110,8 @@ type groupScopes struct {
 
 func (o *groupScopes) Apply(config *GroupConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
+
 	config.Metadata["auth.scopes"] = o.scopes
 }

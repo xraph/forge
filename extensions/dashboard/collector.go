@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// DataCollector collects dashboard data periodically
+// DataCollector collects dashboard data periodically.
 type DataCollector struct {
 	healthManager forge.HealthManager
 	metrics       forge.Metrics
@@ -22,7 +22,7 @@ type DataCollector struct {
 	mu     sync.RWMutex
 }
 
-// NewDataCollector creates a new data collector
+// NewDataCollector creates a new data collector.
 func NewDataCollector(
 	healthManager forge.HealthManager,
 	metrics forge.Metrics,
@@ -40,7 +40,7 @@ func NewDataCollector(
 	}
 }
 
-// Start starts periodic data collection
+// Start starts periodic data collection.
 func (dc *DataCollector) Start(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -60,12 +60,12 @@ func (dc *DataCollector) Start(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// Stop stops data collection
+// Stop stops data collection.
 func (dc *DataCollector) Stop() {
 	close(dc.stopCh)
 }
 
-// CollectOverview collects overview data
+// CollectOverview collects overview data.
 func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -101,7 +101,7 @@ func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 		Uptime:          uptime,
 		Version:         dc.healthManager.Version(),
 		Environment:     dc.healthManager.Environment(),
-		Summary: map[string]interface{}{
+		Summary: map[string]any{
 			"health_status": healthStatus,
 			"services":      services,
 			"metrics_count": len(metrics),
@@ -109,7 +109,7 @@ func (dc *DataCollector) CollectOverview(ctx context.Context) *OverviewData {
 	}
 }
 
-// CollectHealth collects health check data
+// CollectHealth collects health check data.
 func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -166,7 +166,7 @@ func (dc *DataCollector) CollectHealth(ctx context.Context) *HealthData {
 	}
 }
 
-// CollectMetrics collects current metrics
+// CollectMetrics collects current metrics.
 func (dc *DataCollector) CollectMetrics(ctx context.Context) *MetricsData {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -196,7 +196,7 @@ func (dc *DataCollector) CollectMetrics(ctx context.Context) *MetricsData {
 	}
 }
 
-// CollectServices collects service information with health status
+// CollectServices collects service information with health status.
 func (dc *DataCollector) CollectServices(ctx context.Context) []ServiceInfo {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -230,7 +230,7 @@ func (dc *DataCollector) CollectServices(ctx context.Context) []ServiceInfo {
 	return services
 }
 
-// collect performs periodic data collection and stores in history
+// collect performs periodic data collection and stores in history.
 func (dc *DataCollector) collect(ctx context.Context) {
 	// Collect overview
 	overview := dc.CollectOverview(ctx)
@@ -267,15 +267,18 @@ func (dc *DataCollector) collect(ctx context.Context) {
 	}
 }
 
-// CollectServiceDetail collects detailed information about a specific service
+// CollectServiceDetail collects detailed information about a specific service.
 func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName string) *ServiceDetail {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
 
 	// Get health information
 	healthReport := dc.healthManager.GetLastReport()
-	var serviceHealth *ServiceHealth
-	var lastHealthCheck time.Time
+
+	var (
+		serviceHealth   *ServiceHealth
+		lastHealthCheck time.Time
+	)
 
 	if healthReport != nil {
 		if result, ok := healthReport.Services[serviceName]; ok {
@@ -293,7 +296,7 @@ func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName s
 
 	// Get service-specific metrics
 	allMetrics := dc.metrics.GetMetrics()
-	serviceMetrics := make(map[string]interface{})
+	serviceMetrics := make(map[string]any)
 
 	// Filter metrics by service name prefix
 	for key, value := range allMetrics {
@@ -319,7 +322,7 @@ func (dc *DataCollector) CollectServiceDetail(ctx context.Context, serviceName s
 	}
 }
 
-// CollectMetricsReport collects comprehensive metrics report
+// CollectMetricsReport collects comprehensive metrics report.
 func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsReport {
 	dc.mu.RLock()
 	defer dc.mu.RUnlock()
@@ -351,6 +354,7 @@ func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsRepor
 
 	// Get top metrics (by value, limited to numeric)
 	topMetrics := make([]MetricEntry, 0)
+
 	for name, value := range allMetrics {
 		var ok bool
 
@@ -387,40 +391,46 @@ func (dc *DataCollector) CollectMetricsReport(ctx context.Context) *MetricsRepor
 
 // countMetricsByType counts metrics by their type (DEPRECATED - use Metrics.GetMetricsByType directly)
 // This function is kept for backward compatibility but always returns 0
-// Use the proper Metrics.GetMetricsByType() API instead
-func countMetricsByType(metrics map[string]interface{}, metricType string) int {
+// Use the proper Metrics.GetMetricsByType() API instead.
+func countMetricsByType(metrics map[string]any, metricType string) int {
 	return 0
 }
 
-// countMetricsByTypeFromMap counts metrics containing specific suffixes
-func countMetricsByTypeFromMap(metrics map[string]interface{}, suffixes ...string) int {
+// countMetricsByTypeFromMap counts metrics containing specific suffixes.
+func countMetricsByTypeFromMap(metrics map[string]any, suffixes ...string) int {
 	count := 0
+
 	for name := range metrics {
 		for _, suffix := range suffixes {
 			if contains(name, suffix) {
 				count++
+
 				break
 			}
 		}
 	}
+
 	return count
 }
 
-// inferMetricType infers metric type from name
+// inferMetricType infers metric type from name.
 func inferMetricType(name string) string {
 	if contains(name, "_total") || contains(name, "_count") {
 		return "counter"
 	}
+
 	if contains(name, "_bucket") || contains(name, "_histogram") {
 		return "histogram"
 	}
+
 	if contains(name, "_duration") || contains(name, "_latency") {
 		return "timer"
 	}
+
 	return "gauge"
 }
 
-// contains checks if a string contains a substring (case-insensitive)
+// contains checks if a string contains a substring (case-insensitive).
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) &&
 		(s == substr ||
@@ -436,13 +446,14 @@ func findSubstring(s, substr string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
 // sanitizeMetricsForJSON converts metrics to JSON-serializable format
-// This handles histograms with map[float64]uint64 buckets which JSON can't serialize
-func sanitizeMetricsForJSON(metrics map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(metrics))
+// This handles histograms with map[float64]uint64 buckets which JSON can't serialize.
+func sanitizeMetricsForJSON(metrics map[string]any) map[string]any {
+	result := make(map[string]any, len(metrics))
 
 	for key, value := range metrics {
 		result[key] = sanitizeValue(value)
@@ -451,8 +462,8 @@ func sanitizeMetricsForJSON(metrics map[string]interface{}) map[string]interface
 	return result
 }
 
-// sanitizeValue recursively sanitizes a value for JSON serialization
-func sanitizeValue(value interface{}) interface{} {
+// sanitizeValue recursively sanitizes a value for JSON serialization.
+func sanitizeValue(value any) any {
 	switch v := value.(type) {
 	case map[float64]uint64:
 		// Convert map[float64]uint64 to map[string]uint64 for JSON
@@ -460,30 +471,34 @@ func sanitizeValue(value interface{}) interface{} {
 		for k, val := range v {
 			stringMap[fmt.Sprintf("%.6f", k)] = val
 		}
+
 		return stringMap
 
-	case map[string]interface{}:
+	case map[string]any:
 		// Recursively sanitize nested maps
-		sanitized := make(map[string]interface{}, len(v))
+		sanitized := make(map[string]any, len(v))
 		for k, val := range v {
 			sanitized[k] = sanitizeValue(val)
 		}
+
 		return sanitized
 
-	case map[interface{}]interface{}:
+	case map[any]any:
 		// Convert generic maps to string-keyed maps
-		sanitized := make(map[string]interface{}, len(v))
+		sanitized := make(map[string]any, len(v))
 		for k, val := range v {
 			sanitized[fmt.Sprintf("%v", k)] = sanitizeValue(val)
 		}
+
 		return sanitized
 
-	case []interface{}:
+	case []any:
 		// Recursively sanitize slices
-		sanitized := make([]interface{}, len(v))
+		sanitized := make([]any, len(v))
 		for i, val := range v {
 			sanitized[i] = sanitizeValue(val)
 		}
+
 		return sanitized
 
 	default:

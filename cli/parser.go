@@ -1,10 +1,11 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 )
 
-// isFlag checks if an argument is a flag
+// isFlag checks if an argument is a flag.
 func isFlag(arg string) bool {
 	return strings.HasPrefix(arg, "-")
 }
@@ -14,7 +15,7 @@ func isFlag(arg string) bool {
 // - Long flags: --name=value, --name value
 // - Short flags: -n value, -n=value
 // - Boolean flags: --verbose, -v
-// - Combined short flags: -vvv (treated as separate -v -v -v)
+// - Combined short flags: -vvv (treated as separate -v -v -v).
 func parseFlag(arg string) (name, value string, hasValue bool) {
 	// Remove leading dashes
 	arg = strings.TrimLeft(arg, "-")
@@ -28,14 +29,15 @@ func parseFlag(arg string) (name, value string, hasValue bool) {
 	return arg, "", false
 }
 
-// splitArgs splits arguments into flags and positional arguments
+// splitArgs splits arguments into flags and positional arguments.
 func splitArgs(args []string) (flags []string, positional []string) {
-	for i := 0; i < len(args); i++ {
+	for i := range args {
 		arg := args[i]
 
 		// Check for -- separator (everything after is positional)
 		if arg == "--" {
 			positional = append(positional, args[i+1:]...)
+
 			break
 		}
 
@@ -55,7 +57,7 @@ func splitArgs(args []string) (flags []string, positional []string) {
 	return flags, positional
 }
 
-// expandShortFlags expands combined short flags like -abc into -a -b -c
+// expandShortFlags expands combined short flags like -abc into -a -b -c.
 func expandShortFlags(args []string) []string {
 	expanded := []string{}
 
@@ -77,7 +79,7 @@ func expandShortFlags(args []string) []string {
 	return expanded
 }
 
-// findCommand finds a command by name or alias, traversing subcommands
+// findCommand finds a command by name or alias, traversing subcommands.
 func findCommand(root Command, path []string) (Command, []string, error) {
 	if len(path) == 0 {
 		return root, path, nil
@@ -94,7 +96,7 @@ func findCommand(root Command, path []string) (Command, []string, error) {
 }
 
 // parseCommandPath parses the command path from arguments
-// Returns the command name and remaining arguments
+// Returns the command name and remaining arguments.
 func parseCommandPath(args []string) ([]string, []string) {
 	commandPath := []string{}
 	remainingArgs := []string{}
@@ -103,8 +105,10 @@ func parseCommandPath(args []string) ([]string, []string) {
 		if isFlag(arg) {
 			// Hit a flag, everything from here is arguments
 			remainingArgs = args[i:]
+
 			break
 		}
+
 		commandPath = append(commandPath, arg)
 	}
 
@@ -118,17 +122,13 @@ func parseCommandPath(args []string) ([]string, []string) {
 	return commandPath, remainingArgs
 }
 
-// isHelpFlag checks if an argument is a help flag
+// isHelpFlag checks if an argument is a help flag.
 func isHelpFlag(arg string) bool {
 	return arg == "-h" || arg == "--help" || arg == "help"
 }
 
-// hasHelpFlag checks if arguments contain a help flag
+// hasHelpFlag checks if arguments contain a help flag.
 func hasHelpFlag(args []string) bool {
-	for _, arg := range args {
-		if isHelpFlag(arg) {
-			return true
-		}
-	}
-	return false
+
+	return slices.ContainsFunc(args, isHelpFlag)
 }

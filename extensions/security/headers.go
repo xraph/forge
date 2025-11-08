@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// SecurityHeadersConfig holds security headers configuration
+// SecurityHeadersConfig holds security headers configuration.
 type SecurityHeadersConfig struct {
 	// Enabled determines if security headers are enabled
 	Enabled bool
@@ -87,7 +87,7 @@ type SecurityHeadersConfig struct {
 	AutoApplyMiddleware bool
 }
 
-// DefaultSecurityHeadersConfig returns the default security headers configuration
+// DefaultSecurityHeadersConfig returns the default security headers configuration.
 func DefaultSecurityHeadersConfig() SecurityHeadersConfig {
 	return SecurityHeadersConfig{
 		Enabled:                 true,
@@ -104,7 +104,7 @@ func DefaultSecurityHeadersConfig() SecurityHeadersConfig {
 	}
 }
 
-// SecureHeadersPreset returns a preset configuration for secure headers
+// SecureHeadersPreset returns a preset configuration for secure headers.
 func SecureHeadersPreset() SecurityHeadersConfig {
 	return SecurityHeadersConfig{
 		Enabled:                   true,
@@ -125,13 +125,13 @@ func SecureHeadersPreset() SecurityHeadersConfig {
 	}
 }
 
-// SecurityHeadersManager manages security headers
+// SecurityHeadersManager manages security headers.
 type SecurityHeadersManager struct {
 	config SecurityHeadersConfig
 	logger forge.Logger
 }
 
-// NewSecurityHeadersManager creates a new security headers manager
+// NewSecurityHeadersManager creates a new security headers manager.
 func NewSecurityHeadersManager(config SecurityHeadersConfig, logger forge.Logger) *SecurityHeadersManager {
 	return &SecurityHeadersManager{
 		config: config,
@@ -139,17 +139,18 @@ func NewSecurityHeadersManager(config SecurityHeadersConfig, logger forge.Logger
 	}
 }
 
-// shouldSkipPath checks if the path should skip security headers
+// shouldSkipPath checks if the path should skip security headers.
 func (m *SecurityHeadersManager) shouldSkipPath(path string) bool {
 	for _, skipPath := range m.config.SkipPaths {
 		if path == skipPath || strings.HasPrefix(path, skipPath) {
 			return true
 		}
 	}
+
 	return false
 }
 
-// SecurityHeadersMiddleware returns a middleware function for setting security headers
+// SecurityHeadersMiddleware returns a middleware function for setting security headers.
 func SecurityHeadersMiddleware(manager *SecurityHeadersManager) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -239,129 +240,148 @@ func SecurityHeadersMiddleware(manager *SecurityHeadersManager) forge.Middleware
 	}
 }
 
-// CSPBuilder helps build Content Security Policy directives
+// CSPBuilder helps build Content Security Policy directives.
 type CSPBuilder struct {
 	directives map[string][]string
 }
 
-// NewCSPBuilder creates a new CSP builder
+// NewCSPBuilder creates a new CSP builder.
 func NewCSPBuilder() *CSPBuilder {
 	return &CSPBuilder{
 		directives: make(map[string][]string),
 	}
 }
 
-// DefaultSrc sets the default source directive
+// DefaultSrc sets the default source directive.
 func (b *CSPBuilder) DefaultSrc(sources ...string) *CSPBuilder {
 	b.directives["default-src"] = sources
+
 	return b
 }
 
-// ScriptSrc sets the script source directive
+// ScriptSrc sets the script source directive.
 func (b *CSPBuilder) ScriptSrc(sources ...string) *CSPBuilder {
 	b.directives["script-src"] = sources
+
 	return b
 }
 
-// StyleSrc sets the style source directive
+// StyleSrc sets the style source directive.
 func (b *CSPBuilder) StyleSrc(sources ...string) *CSPBuilder {
 	b.directives["style-src"] = sources
+
 	return b
 }
 
-// ImgSrc sets the image source directive
+// ImgSrc sets the image source directive.
 func (b *CSPBuilder) ImgSrc(sources ...string) *CSPBuilder {
 	b.directives["img-src"] = sources
+
 	return b
 }
 
-// FontSrc sets the font source directive
+// FontSrc sets the font source directive.
 func (b *CSPBuilder) FontSrc(sources ...string) *CSPBuilder {
 	b.directives["font-src"] = sources
+
 	return b
 }
 
-// ConnectSrc sets the connect source directive
+// ConnectSrc sets the connect source directive.
 func (b *CSPBuilder) ConnectSrc(sources ...string) *CSPBuilder {
 	b.directives["connect-src"] = sources
+
 	return b
 }
 
-// FrameSrc sets the frame source directive
+// FrameSrc sets the frame source directive.
 func (b *CSPBuilder) FrameSrc(sources ...string) *CSPBuilder {
 	b.directives["frame-src"] = sources
+
 	return b
 }
 
-// FrameAncestors sets the frame-ancestors directive
+// FrameAncestors sets the frame-ancestors directive.
 func (b *CSPBuilder) FrameAncestors(sources ...string) *CSPBuilder {
 	b.directives["frame-ancestors"] = sources
+
 	return b
 }
 
-// ObjectSrc sets the object source directive
+// ObjectSrc sets the object source directive.
 func (b *CSPBuilder) ObjectSrc(sources ...string) *CSPBuilder {
 	b.directives["object-src"] = sources
+
 	return b
 }
 
-// MediaSrc sets the media source directive
+// MediaSrc sets the media source directive.
 func (b *CSPBuilder) MediaSrc(sources ...string) *CSPBuilder {
 	b.directives["media-src"] = sources
+
 	return b
 }
 
-// WorkerSrc sets the worker source directive
+// WorkerSrc sets the worker source directive.
 func (b *CSPBuilder) WorkerSrc(sources ...string) *CSPBuilder {
 	b.directives["worker-src"] = sources
+
 	return b
 }
 
-// ChildSrc sets the child source directive
+// ChildSrc sets the child source directive.
 func (b *CSPBuilder) ChildSrc(sources ...string) *CSPBuilder {
 	b.directives["child-src"] = sources
+
 	return b
 }
 
-// FormAction sets the form-action directive
+// FormAction sets the form-action directive.
 func (b *CSPBuilder) FormAction(sources ...string) *CSPBuilder {
 	b.directives["form-action"] = sources
+
 	return b
 }
 
-// BaseURI sets the base-uri directive
+// BaseURI sets the base-uri directive.
 func (b *CSPBuilder) BaseURI(sources ...string) *CSPBuilder {
 	b.directives["base-uri"] = sources
+
 	return b
 }
 
-// UpgradeInsecureRequests adds the upgrade-insecure-requests directive
+// UpgradeInsecureRequests adds the upgrade-insecure-requests directive.
 func (b *CSPBuilder) UpgradeInsecureRequests() *CSPBuilder {
 	b.directives["upgrade-insecure-requests"] = nil
+
 	return b
 }
 
-// BlockAllMixedContent adds the block-all-mixed-content directive
+// BlockAllMixedContent adds the block-all-mixed-content directive.
 func (b *CSPBuilder) BlockAllMixedContent() *CSPBuilder {
 	b.directives["block-all-mixed-content"] = nil
+
 	return b
 }
 
-// ReportURI sets the report-uri directive
+// ReportURI sets the report-uri directive.
 func (b *CSPBuilder) ReportURI(uri string) *CSPBuilder {
 	b.directives["report-uri"] = []string{uri}
+
 	return b
 }
 
-// ReportTo sets the report-to directive
+// ReportTo sets the report-to directive.
 func (b *CSPBuilder) ReportTo(group string) *CSPBuilder {
 	b.directives["report-to"] = []string{group}
+
 	return b
 }
 
-// Build constructs the CSP header value
+// Build constructs the CSP header value.
 func (b *CSPBuilder) Build() string {
 	var parts []string
+
 	for directive, sources := range b.directives {
 		if sources == nil {
 			parts = append(parts, directive)
@@ -369,10 +389,11 @@ func (b *CSPBuilder) Build() string {
 			parts = append(parts, fmt.Sprintf("%s %s", directive, strings.Join(sources, " ")))
 		}
 	}
+
 	return strings.Join(parts, "; ")
 }
 
-// Common CSP source values
+// Common CSP source values.
 const (
 	CSPSelf          = "'self'"
 	CSPNone          = "'none'"

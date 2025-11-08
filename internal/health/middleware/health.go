@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// HealthMiddleware provides health check middleware functionality
+// HealthMiddleware provides health check middleware functionality.
 type HealthMiddleware struct {
 	healthService health.HealthService
 	config        *HealthMiddlewareConfig
@@ -20,55 +21,55 @@ type HealthMiddleware struct {
 	metrics       shared.Metrics
 }
 
-// HealthMiddlewareConfig contains configuration for health middleware
+// HealthMiddlewareConfig contains configuration for health middleware.
 type HealthMiddlewareConfig struct {
 	// Skip health checks for specific paths
-	SkipPaths []string `yaml:"skip_paths" json:"skip_paths"`
+	SkipPaths []string `json:"skip_paths" yaml:"skip_paths"`
 
 	// Skip health checks for specific methods
-	SkipMethods []string `yaml:"skip_methods" json:"skip_methods"`
+	SkipMethods []string `json:"skip_methods" yaml:"skip_methods"`
 
 	// Skip health checks for specific headers
-	SkipHeaders map[string]string `yaml:"skip_headers" json:"skip_headers"`
+	SkipHeaders map[string]string `json:"skip_headers" yaml:"skip_headers"`
 
 	// Perform health check on every request
-	CheckOnEveryRequest bool `yaml:"check_on_every_request" json:"check_on_every_request"`
+	CheckOnEveryRequest bool `json:"check_on_every_request" yaml:"check_on_every_request"`
 
 	// Minimum interval between health checks
-	CheckInterval time.Duration `yaml:"check_interval" json:"check_interval"`
+	CheckInterval time.Duration `json:"check_interval" yaml:"check_interval"`
 
 	// Return 503 if unhealthy
-	FailOnUnhealthy bool `yaml:"fail_on_unhealthy" json:"fail_on_unhealthy"`
+	FailOnUnhealthy bool `json:"fail_on_unhealthy" yaml:"fail_on_unhealthy"`
 
 	// Return 503 if degraded
-	FailOnDegraded bool `yaml:"fail_on_degraded" json:"fail_on_degraded"`
+	FailOnDegraded bool `json:"fail_on_degraded" yaml:"fail_on_degraded"`
 
 	// Custom response for unhealthy status
-	UnhealthyResponse string `yaml:"unhealthy_response" json:"unhealthy_response"`
+	UnhealthyResponse string `json:"unhealthy_response" yaml:"unhealthy_response"`
 
 	// Custom response for degraded status
-	DegradedResponse string `yaml:"degraded_response" json:"degraded_response"`
+	DegradedResponse string `json:"degraded_response" yaml:"degraded_response"`
 
 	// Include health status in response headers
-	IncludeHealthHeaders bool `yaml:"include_health_headers" json:"include_health_headers"`
+	IncludeHealthHeaders bool `json:"include_health_headers" yaml:"include_health_headers"`
 
 	// Health header name
-	HealthHeaderName string `yaml:"health_header_name" json:"health_header_name"`
+	HealthHeaderName string `json:"health_header_name" yaml:"health_header_name"`
 
 	// Include detailed health information
-	IncludeDetailedHealth bool `yaml:"include_detailed_health" json:"include_detailed_health"`
+	IncludeDetailedHealth bool `json:"include_detailed_health" yaml:"include_detailed_health"`
 
 	// Timeout for health checks
-	HealthCheckTimeout time.Duration `yaml:"health_check_timeout" json:"health_check_timeout"`
+	HealthCheckTimeout time.Duration `json:"health_check_timeout" yaml:"health_check_timeout"`
 
 	// Enable request tracking
-	TrackRequests bool `yaml:"track_requests" json:"track_requests"`
+	TrackRequests bool `json:"track_requests" yaml:"track_requests"`
 
 	// Enable performance monitoring
-	MonitorPerformance bool `yaml:"monitor_performance" json:"monitor_performance"`
+	MonitorPerformance bool `json:"monitor_performance" yaml:"monitor_performance"`
 }
 
-// DefaultHealthMiddlewareConfig returns default configuration
+// DefaultHealthMiddlewareConfig returns default configuration.
 func DefaultHealthMiddlewareConfig() *HealthMiddlewareConfig {
 	return &HealthMiddlewareConfig{
 		SkipPaths:             []string{"/health", "/metrics", "/favicon.ico"},
@@ -89,7 +90,7 @@ func DefaultHealthMiddlewareConfig() *HealthMiddlewareConfig {
 	}
 }
 
-// NewHealthMiddleware creates a new health middleware
+// NewHealthMiddleware creates a new health middleware.
 func NewHealthMiddleware(healthService health.HealthService, config *HealthMiddlewareConfig, logger logger.Logger, metrics shared.Metrics) *HealthMiddleware {
 	if config == nil {
 		config = DefaultHealthMiddlewareConfig()
@@ -103,10 +104,12 @@ func NewHealthMiddleware(healthService health.HealthService, config *HealthMiddl
 	}
 }
 
-// Handler returns the middleware handler function
+// Handler returns the middleware handler function.
 func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
-	var lastHealthCheck time.Time
-	var lastHealthStatus health.HealthStatus
+	var (
+		lastHealthCheck  time.Time
+		lastHealthStatus health.HealthStatus
+	)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,12 +118,15 @@ func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
 			// Check if we should skip health checks for this request
 			if hm.shouldSkipHealthCheck(r) {
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
 			// Get current health status
-			var currentStatus health.HealthStatus
-			var shouldPerformCheck bool
+			var (
+				currentStatus      health.HealthStatus
+				shouldPerformCheck bool
+			)
 
 			if hm.config.CheckOnEveryRequest {
 				shouldPerformCheck = true
@@ -164,6 +170,7 @@ func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
 			// Check if we should fail the request based on health status
 			if hm.shouldFailRequest(currentStatus) {
 				hm.handleUnhealthyRequest(w, r, currentStatus)
+
 				return
 			}
 
@@ -173,7 +180,7 @@ func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
 			}
 
 			// Wrap response writer for monitoring
-			var wrappedWriter http.ResponseWriter = w
+			var wrappedWriter = w
 			if hm.config.MonitorPerformance {
 				wrappedWriter = &responseWriterWrapper{
 					ResponseWriter: w,
@@ -187,6 +194,7 @@ func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
 			// Record performance metrics
 			if hm.config.MonitorPerformance {
 				duration := time.Since(start)
+
 				if hm.metrics != nil {
 					hm.metrics.Counter("forge.health.middleware_requests").Inc()
 					hm.metrics.Histogram("forge.health.middleware_duration").Observe(duration.Seconds())
@@ -200,7 +208,7 @@ func (hm *HealthMiddleware) Handler() func(http.Handler) http.Handler {
 	}
 }
 
-// shouldSkipHealthCheck determines if health check should be skipped
+// shouldSkipHealthCheck determines if health check should be skipped.
 func (hm *HealthMiddleware) shouldSkipHealthCheck(r *http.Request) bool {
 	// Check skip paths
 	for _, path := range hm.config.SkipPaths {
@@ -210,10 +218,8 @@ func (hm *HealthMiddleware) shouldSkipHealthCheck(r *http.Request) bool {
 	}
 
 	// Check skip methods
-	for _, method := range hm.config.SkipMethods {
-		if r.Method == method {
-			return true
-		}
+	if slices.Contains(hm.config.SkipMethods, r.Method) {
+		return true
 	}
 
 	// Check skip headers
@@ -226,7 +232,7 @@ func (hm *HealthMiddleware) shouldSkipHealthCheck(r *http.Request) bool {
 	return false
 }
 
-// shouldFailRequest determines if request should fail based on health status
+// shouldFailRequest determines if request should fail based on health status.
 func (hm *HealthMiddleware) shouldFailRequest(status health.HealthStatus) bool {
 	switch status {
 	case health.HealthStatusUnhealthy:
@@ -238,7 +244,7 @@ func (hm *HealthMiddleware) shouldFailRequest(status health.HealthStatus) bool {
 	}
 }
 
-// handleUnhealthyRequest handles requests when service is unhealthy
+// handleUnhealthyRequest handles requests when service is unhealthy.
 func (hm *HealthMiddleware) handleUnhealthyRequest(w http.ResponseWriter, r *http.Request, status health.HealthStatus) {
 	var message string
 
@@ -254,7 +260,7 @@ func (hm *HealthMiddleware) handleUnhealthyRequest(w http.ResponseWriter, r *htt
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"error":     message,
 		"status":    string(status),
 		"timestamp": time.Now().Format(time.RFC3339),
@@ -291,7 +297,7 @@ func (hm *HealthMiddleware) handleUnhealthyRequest(w http.ResponseWriter, r *htt
 	}
 }
 
-// trackRequest tracks request information
+// trackRequest tracks request information.
 func (hm *HealthMiddleware) trackRequest(r *http.Request, status health.HealthStatus) {
 	if hm.logger != nil {
 		hm.logger.Debug("request tracked",
@@ -304,9 +310,10 @@ func (hm *HealthMiddleware) trackRequest(r *http.Request, status health.HealthSt
 	}
 }
 
-// responseWriterWrapper wraps http.ResponseWriter to capture status code
+// responseWriterWrapper wraps http.ResponseWriter to capture status code.
 type responseWriterWrapper struct {
 	http.ResponseWriter
+
 	statusCode int
 }
 
@@ -319,7 +326,7 @@ func (rw *responseWriterWrapper) Write(b []byte) (int, error) {
 	return rw.ResponseWriter.Write(b)
 }
 
-// ReadinessMiddleware provides readiness check middleware
+// ReadinessMiddleware provides readiness check middleware.
 type ReadinessMiddleware struct {
 	healthService health.HealthService
 	config        *ReadinessMiddlewareConfig
@@ -327,25 +334,25 @@ type ReadinessMiddleware struct {
 	metrics       shared.Metrics
 }
 
-// ReadinessMiddlewareConfig contains configuration for readiness middleware
+// ReadinessMiddlewareConfig contains configuration for readiness middleware.
 type ReadinessMiddlewareConfig struct {
 	// Only allow requests when service is ready
-	StrictReadiness bool `yaml:"strict_readiness" json:"strict_readiness"`
+	StrictReadiness bool `json:"strict_readiness" yaml:"strict_readiness"`
 
 	// Grace period after startup before enforcing readiness
-	GracePeriod time.Duration `yaml:"grace_period" json:"grace_period"`
+	GracePeriod time.Duration `json:"grace_period" yaml:"grace_period"`
 
 	// Custom response for not ready status
-	NotReadyResponse string `yaml:"not_ready_response" json:"not_ready_response"`
+	NotReadyResponse string `json:"not_ready_response" yaml:"not_ready_response"`
 
 	// Paths to check readiness for
-	CheckPaths []string `yaml:"check_paths" json:"check_paths"`
+	CheckPaths []string `json:"check_paths" yaml:"check_paths"`
 
 	// Skip readiness check for specific paths
-	SkipPaths []string `yaml:"skip_paths" json:"skip_paths"`
+	SkipPaths []string `json:"skip_paths" yaml:"skip_paths"`
 }
 
-// DefaultReadinessMiddlewareConfig returns default configuration
+// DefaultReadinessMiddlewareConfig returns default configuration.
 func DefaultReadinessMiddlewareConfig() *ReadinessMiddlewareConfig {
 	return &ReadinessMiddlewareConfig{
 		StrictReadiness:  true,
@@ -356,7 +363,7 @@ func DefaultReadinessMiddlewareConfig() *ReadinessMiddlewareConfig {
 	}
 }
 
-// NewReadinessMiddleware creates a new readiness middleware
+// NewReadinessMiddleware creates a new readiness middleware.
 func NewReadinessMiddleware(healthService health.HealthService, config *ReadinessMiddlewareConfig, logger logger.Logger, metrics shared.Metrics) *ReadinessMiddleware {
 	if config == nil {
 		config = DefaultReadinessMiddlewareConfig()
@@ -370,7 +377,7 @@ func NewReadinessMiddleware(healthService health.HealthService, config *Readines
 	}
 }
 
-// Handler returns the readiness middleware handler function
+// Handler returns the readiness middleware handler function.
 func (rm *ReadinessMiddleware) Handler() func(http.Handler) http.Handler {
 	startTime := time.Now()
 
@@ -379,12 +386,14 @@ func (rm *ReadinessMiddleware) Handler() func(http.Handler) http.Handler {
 			// Check if we should skip readiness check
 			if rm.shouldSkipReadinessCheck(r) {
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
 			// Check if we're in grace period
 			if time.Since(startTime) < rm.config.GracePeriod {
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
@@ -393,6 +402,7 @@ func (rm *ReadinessMiddleware) Handler() func(http.Handler) http.Handler {
 				status := rm.healthService.GetStatus()
 				if status != health.HealthStatusHealthy {
 					rm.handleNotReadyRequest(w, r, status)
+
 					return
 				}
 			}
@@ -402,7 +412,7 @@ func (rm *ReadinessMiddleware) Handler() func(http.Handler) http.Handler {
 	}
 }
 
-// shouldSkipReadinessCheck determines if readiness check should be skipped
+// shouldSkipReadinessCheck determines if readiness check should be skipped.
 func (rm *ReadinessMiddleware) shouldSkipReadinessCheck(r *http.Request) bool {
 	// Check skip paths
 	for _, path := range rm.config.SkipPaths {
@@ -414,24 +424,27 @@ func (rm *ReadinessMiddleware) shouldSkipReadinessCheck(r *http.Request) bool {
 	// Check if path is in check paths
 	if len(rm.config.CheckPaths) > 0 {
 		found := false
+
 		for _, path := range rm.config.CheckPaths {
 			if strings.HasPrefix(r.URL.Path, path) {
 				found = true
+
 				break
 			}
 		}
+
 		return !found
 	}
 
 	return false
 }
 
-// handleNotReadyRequest handles requests when service is not ready
+// handleNotReadyRequest handles requests when service is not ready.
 func (rm *ReadinessMiddleware) handleNotReadyRequest(w http.ResponseWriter, r *http.Request, status health.HealthStatus) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusServiceUnavailable)
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"error":     rm.config.NotReadyResponse,
 		"status":    string(status),
 		"ready":     false,
@@ -462,29 +475,29 @@ func (rm *ReadinessMiddleware) handleNotReadyRequest(w http.ResponseWriter, r *h
 	}
 }
 
-// LivenessMiddleware provides liveness check middleware
+// LivenessMiddleware provides liveness check middleware.
 type LivenessMiddleware struct {
 	config  *LivenessMiddlewareConfig
 	logger  logger.Logger
 	metrics shared.Metrics
 }
 
-// LivenessMiddlewareConfig contains configuration for liveness middleware
+// LivenessMiddlewareConfig contains configuration for liveness middleware.
 type LivenessMiddlewareConfig struct {
 	// Add liveness headers to responses
-	AddLivenessHeaders bool `yaml:"add_liveness_headers" json:"add_liveness_headers"`
+	AddLivenessHeaders bool `json:"add_liveness_headers" yaml:"add_liveness_headers"`
 
 	// Liveness header name
-	LivenessHeaderName string `yaml:"liveness_header_name" json:"liveness_header_name"`
+	LivenessHeaderName string `json:"liveness_header_name" yaml:"liveness_header_name"`
 
 	// Include uptime in headers
-	IncludeUptime bool `yaml:"include_uptime" json:"include_uptime"`
+	IncludeUptime bool `json:"include_uptime" yaml:"include_uptime"`
 
 	// Uptime header name
-	UptimeHeaderName string `yaml:"uptime_header_name" json:"uptime_header_name"`
+	UptimeHeaderName string `json:"uptime_header_name" yaml:"uptime_header_name"`
 }
 
-// DefaultLivenessMiddlewareConfig returns default configuration
+// DefaultLivenessMiddlewareConfig returns default configuration.
 func DefaultLivenessMiddlewareConfig() *LivenessMiddlewareConfig {
 	return &LivenessMiddlewareConfig{
 		AddLivenessHeaders: true,
@@ -494,7 +507,7 @@ func DefaultLivenessMiddlewareConfig() *LivenessMiddlewareConfig {
 	}
 }
 
-// NewLivenessMiddleware creates a new liveness middleware
+// NewLivenessMiddleware creates a new liveness middleware.
 func NewLivenessMiddleware(config *LivenessMiddlewareConfig, logger logger.Logger, metrics shared.Metrics) *LivenessMiddleware {
 	if config == nil {
 		config = DefaultLivenessMiddlewareConfig()
@@ -507,7 +520,7 @@ func NewLivenessMiddleware(config *LivenessMiddlewareConfig, logger logger.Logge
 	}
 }
 
-// Handler returns the liveness middleware handler function
+// Handler returns the liveness middleware handler function.
 func (lm *LivenessMiddleware) Handler() func(http.Handler) http.Handler {
 	startTime := time.Now()
 
@@ -529,23 +542,24 @@ func (lm *LivenessMiddleware) Handler() func(http.Handler) http.Handler {
 	}
 }
 
-// writeJSON writes JSON response
-func writeJSON(w http.ResponseWriter, data interface{}) error {
+// writeJSON writes JSON response.
+func writeJSON(w http.ResponseWriter, data any) error {
 	w.Header().Set("Content-Type", "application/json")
+
 	return json.NewEncoder(w).Encode(data)
 }
 
-// CreateHealthMiddleware creates a health middleware with default configuration
+// CreateHealthMiddleware creates a health middleware with default configuration.
 func CreateHealthMiddleware(healthService health.HealthService, logger logger.Logger, metrics shared.Metrics) *HealthMiddleware {
 	return NewHealthMiddleware(healthService, DefaultHealthMiddlewareConfig(), logger, metrics)
 }
 
-// CreateReadinessMiddleware creates a readiness middleware with default configuration
+// CreateReadinessMiddleware creates a readiness middleware with default configuration.
 func CreateReadinessMiddleware(healthService health.HealthService, logger logger.Logger, metrics shared.Metrics) *ReadinessMiddleware {
 	return NewReadinessMiddleware(healthService, DefaultReadinessMiddlewareConfig(), logger, metrics)
 }
 
-// CreateLivenessMiddleware creates a liveness middleware with default configuration
+// CreateLivenessMiddleware creates a liveness middleware with default configuration.
 func CreateLivenessMiddleware(logger logger.Logger, metrics shared.Metrics) *LivenessMiddleware {
 	return NewLivenessMiddleware(DefaultLivenessMiddlewareConfig(), logger, metrics)
 }

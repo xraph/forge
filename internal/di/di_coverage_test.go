@@ -394,6 +394,7 @@ func TestScope_ResolveScoped_Cached(t *testing.T) {
 
 	err := c.Register("test", func(c Container) (any, error) {
 		callCount++
+
 		return &mockService{name: "test"}, nil
 	}, Scoped())
 	require.NoError(t, err)
@@ -457,12 +458,16 @@ func TestScope_End_WithDisposableInstance(t *testing.T) {
 func TestResolve_Singleton_DoubleCheckPath(t *testing.T) {
 	c := NewContainer()
 	callCount := 0
+
 	var mu sync.Mutex
 
 	err := c.Register("test", func(c Container) (any, error) {
 		mu.Lock()
+
 		callCount++
+
 		mu.Unlock()
+
 		return &mockService{name: "test"}, nil
 	}, Singleton())
 	require.NoError(t, err)

@@ -6,28 +6,31 @@ import (
 	"strings"
 )
 
-// GenerateBashCompletion generates bash completion script
+// GenerateBashCompletion generates bash completion script.
 func GenerateBashCompletion(cli CLI, w io.Writer) error {
 	script := bashCompletionTemplate(cli)
 	_, err := w.Write([]byte(script))
+
 	return err
 }
 
-// GenerateZshCompletion generates zsh completion script
+// GenerateZshCompletion generates zsh completion script.
 func GenerateZshCompletion(cli CLI, w io.Writer) error {
 	script := zshCompletionTemplate(cli)
 	_, err := w.Write([]byte(script))
+
 	return err
 }
 
-// GenerateFishCompletion generates fish completion script
+// GenerateFishCompletion generates fish completion script.
 func GenerateFishCompletion(cli CLI, w io.Writer) error {
 	script := fishCompletionTemplate(cli)
 	_, err := w.Write([]byte(script))
+
 	return err
 }
 
-// bashCompletionTemplate generates a bash completion script
+// bashCompletionTemplate generates a bash completion script.
 func bashCompletionTemplate(cli CLI) string {
 	var sb strings.Builder
 
@@ -40,12 +43,15 @@ func bashCompletionTemplate(cli CLI) string {
 
 	// Generate command list
 	sb.WriteString("    commands=\"")
+
 	for i, cmd := range cli.Commands() {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
+
 		sb.WriteString(cmd.Name())
 	}
+
 	sb.WriteString("\"\n\n")
 
 	// Completion logic
@@ -55,25 +61,31 @@ func bashCompletionTemplate(cli CLI) string {
 	sb.WriteString("    fi\n\n")
 
 	sb.WriteString("    case \"${prev}\" in\n")
+
 	for _, cmd := range cli.Commands() {
 		if len(cmd.Flags()) > 0 {
 			sb.WriteString(fmt.Sprintf("        %s)\n", cmd.Name()))
 			sb.WriteString("            local flags=\"")
+
 			for i, flag := range cmd.Flags() {
 				if i > 0 {
 					sb.WriteString(" ")
 				}
-				sb.WriteString(fmt.Sprintf("--%s", flag.Name()))
+
+				sb.WriteString("--" + flag.Name())
+
 				if flag.ShortName() != "" {
-					sb.WriteString(fmt.Sprintf(" -%s", flag.ShortName()))
+					sb.WriteString(" -" + flag.ShortName())
 				}
 			}
+
 			sb.WriteString("\"\n")
 			sb.WriteString("            COMPREPLY=($(compgen -W \"${flags}\" -- ${cur}))\n")
 			sb.WriteString("            return 0\n")
 			sb.WriteString("            ;;\n")
 		}
 	}
+
 	sb.WriteString("    esac\n")
 	sb.WriteString("}\n\n")
 
@@ -82,7 +94,7 @@ func bashCompletionTemplate(cli CLI) string {
 	return sb.String()
 }
 
-// zshCompletionTemplate generates a zsh completion script
+// zshCompletionTemplate generates a zsh completion script.
 func zshCompletionTemplate(cli CLI) string {
 	var sb strings.Builder
 
@@ -111,14 +123,17 @@ func zshCompletionTemplate(cli CLI) string {
 		if len(cmd.Flags()) > 0 {
 			sb.WriteString(fmt.Sprintf("                %s)\n", cmd.Name()))
 			sb.WriteString("                    _arguments \\\n")
+
 			for _, flag := range cmd.Flags() {
 				shortOpt := ""
 				if flag.ShortName() != "" {
-					shortOpt = fmt.Sprintf("'-%s", flag.ShortName())
+					shortOpt = "'-" + flag.ShortName()
 				}
+
 				sb.WriteString(fmt.Sprintf("                        '%s[--%s]%s[%s]' \\\n",
 					shortOpt, flag.Name(), shortOpt, flag.Description()))
 			}
+
 			sb.WriteString("                    ;;\n")
 		}
 	}
@@ -132,7 +147,7 @@ func zshCompletionTemplate(cli CLI) string {
 	return sb.String()
 }
 
-// fishCompletionTemplate generates a fish completion script
+// fishCompletionTemplate generates a fish completion script.
 func fishCompletionTemplate(cli CLI) string {
 	var sb strings.Builder
 
@@ -153,6 +168,7 @@ func fishCompletionTemplate(cli CLI) string {
 			if flag.ShortName() != "" {
 				shortOpt = fmt.Sprintf("-s %s ", flag.ShortName())
 			}
+
 			sb.WriteString(fmt.Sprintf("complete -c %s -f -n '__fish_seen_subcommand_from %s' %s-l %s -d '%s'\n",
 				cli.Name(), cmd.Name(), shortOpt, flag.Name(), flag.Description()))
 		}

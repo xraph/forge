@@ -7,22 +7,23 @@ import (
 
 	"github.com/xraph/forge/internal/client"
 	"github.com/xraph/forge/internal/client/generators"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Generator generates TypeScript clients
+// Generator generates TypeScript clients.
 type Generator struct{}
 
-// NewGenerator creates a new TypeScript generator
+// NewGenerator creates a new TypeScript generator.
 func NewGenerator() generators.LanguageGenerator {
 	return &Generator{}
 }
 
-// Name returns the generator name
+// Name returns the generator name.
 func (g *Generator) Name() string {
 	return "typescript"
 }
 
-// SupportedFeatures returns supported features
+// SupportedFeatures returns supported features.
 func (g *Generator) SupportedFeatures() []string {
 	return []string{
 		generators.FeatureREST,
@@ -37,31 +38,32 @@ func (g *Generator) SupportedFeatures() []string {
 	}
 }
 
-// Validate validates the spec for TypeScript generation
+// Validate validates the spec for TypeScript generation.
 func (g *Generator) Validate(specIface generators.APISpec) error {
 	spec, ok := specIface.(*client.APISpec)
 	if !ok || spec == nil {
-		return fmt.Errorf("spec is nil or invalid type")
+		return errors.New("spec is nil or invalid type")
 	}
 
 	if spec.Info.Title == "" {
-		return fmt.Errorf("API title is required")
+		return errors.New("API title is required")
 	}
 
 	return nil
 }
 
-// Generate generates the TypeScript client
+// Generate generates the TypeScript client.
 func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, configIface generators.GeneratorConfig) (*generators.GeneratedClient, error) {
 	spec, ok := specIface.(*client.APISpec)
 	if !ok || spec == nil {
-		return nil, fmt.Errorf("spec is nil or invalid type")
+		return nil, errors.New("spec is nil or invalid type")
 	}
 
 	config, ok := configIface.(client.GeneratorConfig)
 	if !ok {
-		return nil, fmt.Errorf("config is invalid type")
+		return nil, errors.New("config is invalid type")
 	}
+
 	genClient := &generators.GeneratedClient{
 		Files:        make(map[string]string),
 		Language:     "typescript",
@@ -123,7 +125,7 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	return genClient, nil
 }
 
-// generatePackageJSON generates package.json
+// generatePackageJSON generates package.json.
 func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.GeneratorConfig) string {
 	packageName := config.PackageName
 	if packageName == "" {
@@ -139,14 +141,19 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 	}
 
 	depsJSON := "{\n"
+
 	first := true
+	var depsJSONSb143 strings.Builder
 	for name, version := range deps {
 		if !first {
-			depsJSON += ",\n"
+			depsJSONSb143.WriteString(",\n")
 		}
-		depsJSON += fmt.Sprintf("    \"%s\": \"%s\"", name, version)
+
+		depsJSONSb143.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, version))
 		first = false
 	}
+	depsJSON += depsJSONSb143.String()
+
 	depsJSON += "\n  }"
 
 	return fmt.Sprintf(`{
@@ -169,7 +176,7 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 `, packageName, config.Version, spec.Info.Description, depsJSON)
 }
 
-// generateTSConfig generates tsconfig.json
+// generateTSConfig generates tsconfig.json.
 func (g *Generator) generateTSConfig() string {
 	return `{
   "compilerOptions": {
@@ -191,7 +198,7 @@ func (g *Generator) generateTSConfig() string {
 `
 }
 
-// generateTypes generates types.ts
+// generateTypes generates types.ts.
 func (g *Generator) generateTypes(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -216,16 +223,18 @@ func (g *Generator) generateTypes(spec *client.APISpec, config client.GeneratorC
 	// Client config interface
 	buf.WriteString("export interface ClientConfig {\n")
 	buf.WriteString("  baseURL: string;\n")
+
 	if config.IncludeAuth {
 		buf.WriteString("  auth?: AuthConfig;\n")
 	}
+
 	buf.WriteString("  timeout?: number;\n")
 	buf.WriteString("}\n\n")
 
 	return buf.String()
 }
 
-// schemaToTypeScript converts a schema to TypeScript
+// schemaToTypeScript converts a schema to TypeScript.
 func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return ""
@@ -236,15 +245,19 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 	switch schema.Type {
 	case "object":
 		buf.WriteString(fmt.Sprintf("export interface %s {\n", name))
+
 		for propName, prop := range schema.Properties {
 			required := contains(schema.Required, propName)
+
 			optional := ""
 			if !required {
 				optional = "?"
 			}
+
 			tsType := g.schemaToTSType(prop, spec)
 			buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", propName, optional, tsType))
 		}
+
 		buf.WriteString("}\n")
 
 	case "array":
@@ -261,7 +274,7 @@ func (g *Generator) schemaToTypeScript(name string, schema *client.Schema, spec 
 	return buf.String()
 }
 
-// schemaToTSType converts a schema to a TypeScript type string
+// schemaToTSType converts a schema to a TypeScript type string.
 func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "any"
@@ -269,6 +282,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
+
 		return parts[len(parts)-1]
 	}
 
@@ -279,8 +293,10 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 			for _, v := range schema.Enum {
 				values = append(values, fmt.Sprintf("'%v'", v))
 			}
+
 			return strings.Join(values, " | ")
 		}
+
 		return "string"
 	case "integer", "number":
 		return "number"
@@ -290,6 +306,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 		if schema.Items != nil {
 			return g.schemaToTSType(schema.Items, spec) + "[]"
 		}
+
 		return "any[]"
 	case "object":
 		return "Record<string, any>"
@@ -298,7 +315,7 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 	return "any"
 }
 
-// generateClient generates client.ts
+// generateClient generates client.ts.
 func (g *Generator) generateClient(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -343,7 +360,7 @@ func (g *Generator) generateClient(spec *client.APISpec, config client.Generator
 	return buf.String()
 }
 
-// generateIndex generates index.ts
+// generateIndex generates index.ts.
 func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -365,7 +382,7 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 	return buf.String()
 }
 
-// getDependencies returns the list of dependencies
+// getDependencies returns the list of dependencies.
 func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.Dependency {
 	deps := []generators.Dependency{
 		{Name: "axios", Version: "^1.6.0", Type: "direct"},
@@ -382,12 +399,13 @@ func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.
 	return deps
 }
 
-// generateInstructions generates setup instructions
+// generateInstructions generates setup instructions.
 func (g *Generator) generateInstructions(spec *client.APISpec, config client.GeneratorConfig) string {
 	outputMgr := client.NewOutputManager()
 	authGen := client.NewAuthCodeGenerator()
 
 	authDocs := ""
+
 	if config.IncludeAuth {
 		schemes := authGen.DetectAuthSchemes(spec)
 		authDocs = authGen.GenerateAuthDocumentation(schemes)
@@ -396,12 +414,13 @@ func (g *Generator) generateInstructions(spec *client.APISpec, config client.Gen
 	return outputMgr.GenerateREADME(config, spec, authDocs)
 }
 
-// Helper function
+// Helper function.
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
 			return true
 		}
 	}
+
 	return false
 }

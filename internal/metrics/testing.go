@@ -6,7 +6,9 @@ package metrics
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,7 +27,7 @@ import (
 // MOCK IMPLEMENTATIONS
 // =============================================================================
 
-// MockMetricsCollector implements MetricsCollector interface for testing
+// MockMetricsCollector implements MetricsCollector interface for testing.
 type MockMetricsCollector struct {
 	mu                sync.RWMutex
 	counters          map[string]*MockCounter
@@ -41,7 +43,7 @@ type MockMetricsCollector struct {
 	resetMetricCalled map[string]bool
 }
 
-// NewMockMetricsCollector creates a new mock metrics collector
+// NewMockMetricsCollector creates a new mock metrics collector.
 func NewMockMetricsCollector() *MockMetricsCollector {
 	return &MockMetricsCollector{
 		counters:          make(map[string]*MockCounter),
@@ -54,7 +56,7 @@ func NewMockMetricsCollector() *MockMetricsCollector {
 	}
 }
 
-// Service lifecycle methods
+// Service lifecycle methods.
 func (m *MockMetricsCollector) Name() string {
 	return "mock-metrics-collector"
 }
@@ -66,24 +68,29 @@ func (m *MockMetricsCollector) Dependencies() []string {
 func (m *MockMetricsCollector) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.started = true
+
 	return nil
 }
 
 func (m *MockMetricsCollector) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.started = false
+
 	return nil
 }
 
 func (m *MockMetricsCollector) Health(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.healthCheckError
 }
 
-// Mock metric creation methods
+// Mock metric creation methods.
 func (m *MockMetricsCollector) Counter(name string, tags ...string) internal.Counter {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -95,6 +102,7 @@ func (m *MockMetricsCollector) Counter(name string, tags ...string) internal.Cou
 
 	counter := NewMockCounter(name, internal.ParseTags(tags...))
 	m.counters[key] = counter
+
 	return counter
 }
 
@@ -109,6 +117,7 @@ func (m *MockMetricsCollector) Gauge(name string, tags ...string) internal.Gauge
 
 	gauge := NewMockGauge(name, internal.ParseTags(tags...))
 	m.gauges[key] = gauge
+
 	return gauge
 }
 
@@ -123,6 +132,7 @@ func (m *MockMetricsCollector) Histogram(name string, tags ...string) internal.H
 
 	histogram := NewMockHistogram(name, internal.ParseTags(tags...))
 	m.histograms[key] = histogram
+
 	return histogram
 }
 
@@ -137,10 +147,11 @@ func (m *MockMetricsCollector) Timer(name string, tags ...string) internal.Timer
 
 	timer := NewMockTimer(name, internal.ParseTags(tags...))
 	m.timers[key] = timer
+
 	return timer
 }
 
-// Custom collector management
+// Custom collector management.
 func (m *MockMetricsCollector) RegisterCollector(collector internal.CustomCollector) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -151,6 +162,7 @@ func (m *MockMetricsCollector) RegisterCollector(collector internal.CustomCollec
 	}
 
 	m.customCollectors[name] = collector
+
 	return nil
 }
 
@@ -163,6 +175,7 @@ func (m *MockMetricsCollector) UnregisterCollector(name string) error {
 	}
 
 	delete(m.customCollectors, name)
+
 	return nil
 }
 
@@ -174,15 +187,16 @@ func (m *MockMetricsCollector) GetCollectors() []internal.CustomCollector {
 	for _, collector := range m.customCollectors {
 		collectors = append(collectors, collector)
 	}
+
 	return collectors
 }
 
-// Metrics retrieval
-func (m *MockMetricsCollector) GetMetrics() map[string]interface{} {
+// Metrics retrieval.
+func (m *MockMetricsCollector) GetMetrics() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	metrics := make(map[string]interface{})
+	metrics := make(map[string]any)
 
 	// Add counters
 	for key, counter := range m.counters {
@@ -196,7 +210,7 @@ func (m *MockMetricsCollector) GetMetrics() map[string]interface{} {
 
 	// Add histograms
 	for key, histogram := range m.histograms {
-		metrics[key] = map[string]interface{}{
+		metrics[key] = map[string]any{
 			"count": histogram.GetCount(),
 			"sum":   histogram.GetSum(),
 			"mean":  histogram.GetMean(),
@@ -205,7 +219,7 @@ func (m *MockMetricsCollector) GetMetrics() map[string]interface{} {
 
 	// Add timers
 	for key, timer := range m.timers {
-		metrics[key] = map[string]interface{}{
+		metrics[key] = map[string]any{
 			"count": timer.GetCount(),
 			"mean":  timer.GetMean(),
 		}
@@ -213,19 +227,17 @@ func (m *MockMetricsCollector) GetMetrics() map[string]interface{} {
 
 	// Add custom collector metrics
 	for _, collector := range m.customCollectors {
-		for k, v := range collector.Collect() {
-			metrics[k] = v
-		}
+		maps.Copy(metrics, collector.Collect())
 	}
 
 	return metrics
 }
 
-func (m *MockMetricsCollector) GetMetricsByType(metricType internal.MetricType) map[string]interface{} {
+func (m *MockMetricsCollector) GetMetricsByType(metricType internal.MetricType) map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	metrics := make(map[string]interface{})
+	metrics := make(map[string]any)
 
 	switch metricType {
 	case internal.MetricTypeCounter:
@@ -238,7 +250,7 @@ func (m *MockMetricsCollector) GetMetricsByType(metricType internal.MetricType) 
 		}
 	case internal.MetricTypeHistogram:
 		for key, histogram := range m.histograms {
-			metrics[key] = map[string]interface{}{
+			metrics[key] = map[string]any{
 				"count": histogram.GetCount(),
 				"sum":   histogram.GetSum(),
 				"mean":  histogram.GetMean(),
@@ -246,7 +258,7 @@ func (m *MockMetricsCollector) GetMetricsByType(metricType internal.MetricType) 
 		}
 	case internal.MetricTypeTimer:
 		for key, timer := range m.timers {
-			metrics[key] = map[string]interface{}{
+			metrics[key] = map[string]any{
 				"count": timer.GetCount(),
 				"mean":  timer.GetMean(),
 			}
@@ -256,12 +268,12 @@ func (m *MockMetricsCollector) GetMetricsByType(metricType internal.MetricType) 
 	return metrics
 }
 
-func (m *MockMetricsCollector) GetMetricsByTag(tagKey, tagValue string) map[string]interface{} {
+func (m *MockMetricsCollector) GetMetricsByTag(tagKey, tagValue string) map[string]any {
 	// Simplified implementation for testing
 	return m.GetMetrics()
 }
 
-// Export functionality
+// Export functionality.
 func (m *MockMetricsCollector) Export(format internal.ExportFormat) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -275,15 +287,16 @@ func (m *MockMetricsCollector) Export(format internal.ExportFormat) ([]byte, err
 	}
 
 	// Default export
-	return []byte(fmt.Sprintf("# %s format export\n", format)), nil
+	return fmt.Appendf(nil, "# %s format export\n", format), nil
 }
 
 func (m *MockMetricsCollector) ExportToFile(format internal.ExportFormat, filename string) error {
 	_, err := m.Export(format)
+
 	return err
 }
 
-// Management
+// Management.
 func (m *MockMetricsCollector) Reset() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -294,12 +307,15 @@ func (m *MockMetricsCollector) Reset() error {
 	for _, counter := range m.counters {
 		counter.Reset()
 	}
+
 	for _, gauge := range m.gauges {
 		gauge.Reset()
 	}
+
 	for _, histogram := range m.histograms {
 		histogram.Reset()
 	}
+
 	for _, timer := range m.timers {
 		timer.Reset()
 	}
@@ -312,10 +328,11 @@ func (m *MockMetricsCollector) ResetMetric(name string) error {
 	defer m.mu.Unlock()
 
 	m.resetMetricCalled[name] = true
+
 	return nil
 }
 
-// Statistics
+// Statistics.
 func (m *MockMetricsCollector) GetStats() internal.CollectorStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -336,34 +353,39 @@ func (m *MockMetricsCollector) Reload(config *shared.MetricsConfig) error {
 	return nil
 }
 
-// Test helper methods
+// Test helper methods.
 func (m *MockMetricsCollector) SetHealthCheckError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.healthCheckError = err
 }
 
 func (m *MockMetricsCollector) SetExportError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.exportError = err
 }
 
 func (m *MockMetricsCollector) SetExportData(format internal.ExportFormat, data []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.exportFormats[format] = data
 }
 
 func (m *MockMetricsCollector) WasResetCalled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.resetCalled
 }
 
 func (m *MockMetricsCollector) WasResetMetricCalled(name string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.resetMetricCalled[name]
 }
 
@@ -371,7 +393,7 @@ func (m *MockMetricsCollector) WasResetMetricCalled(name string) bool {
 // MOCK METRIC IMPLEMENTATIONS
 // =============================================================================
 
-// MockCounter implements Counter interface
+// MockCounter implements Counter interface.
 type MockCounter struct {
 	name        string
 	tags        map[string]string
@@ -390,6 +412,7 @@ func (c *MockCounter) WithLabels(labels map[string]string) shared.Counter {
 func (c *MockCounter) Dec() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.value--
 	c.decCalled++
 }
@@ -404,6 +427,7 @@ func NewMockCounter(name string, tags map[string]string) *MockCounter {
 func (c *MockCounter) Inc() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.value++
 	c.incCalled++
 }
@@ -411,6 +435,7 @@ func (c *MockCounter) Inc() {
 func (c *MockCounter) Add(value float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.value += value
 	c.addCalled++
 }
@@ -418,14 +443,17 @@ func (c *MockCounter) Add(value float64) {
 func (c *MockCounter) Get() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.value
 }
 
 func (c *MockCounter) Reset() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.value = 0
 	c.resetCalled = true
+
 	return nil
 }
 
@@ -434,20 +462,23 @@ func (c *MockCounter) Tags() map[string]string { return c.tags }
 func (c *MockCounter) IncCallCount() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.incCalled
 }
 func (c *MockCounter) AddCallCount() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.addCalled
 }
 func (c *MockCounter) WasResetCalled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.resetCalled
 }
 
-// MockGauge implements Gauge interface
+// MockGauge implements Gauge interface.
 type MockGauge struct {
 	name        string
 	tags        map[string]string
@@ -471,6 +502,7 @@ func NewMockGauge(name string, tags map[string]string) *MockGauge {
 func (g *MockGauge) Set(value float64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.value = value
 	g.setCalled++
 }
@@ -478,32 +510,38 @@ func (g *MockGauge) Set(value float64) {
 func (g *MockGauge) Inc() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.value++
 }
 
 func (g *MockGauge) Dec() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.value--
 }
 
 func (g *MockGauge) Add(value float64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.value += value
 }
 
 func (g *MockGauge) Get() float64 {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.value
 }
 
 func (g *MockGauge) Reset() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+
 	g.value = 0
 	g.resetCalled = true
+
 	return nil
 }
 
@@ -512,15 +550,17 @@ func (g *MockGauge) Tags() map[string]string { return g.tags }
 func (g *MockGauge) SetCallCount() int {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.setCalled
 }
 func (g *MockGauge) WasResetCalled() bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
+
 	return g.resetCalled
 }
 
-// MockHistogram implements Histogram interface
+// MockHistogram implements Histogram interface.
 type MockHistogram struct {
 	name          string
 	tags          map[string]string
@@ -549,6 +589,7 @@ func NewMockHistogram(name string, tags map[string]string) *MockHistogram {
 func (h *MockHistogram) Observe(value float64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
 	h.count++
 	h.sum += value
 	h.observeCalled++
@@ -557,6 +598,7 @@ func (h *MockHistogram) Observe(value float64) {
 func (h *MockHistogram) GetBuckets() map[float64]uint64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return map[float64]uint64{
 		1:   h.count / 4,
 		10:  h.count / 2,
@@ -567,21 +609,25 @@ func (h *MockHistogram) GetBuckets() map[float64]uint64 {
 func (h *MockHistogram) GetCount() uint64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return h.count
 }
 
 func (h *MockHistogram) GetSum() float64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return h.sum
 }
 
 func (h *MockHistogram) GetMean() float64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	if h.count == 0 {
 		return 0
 	}
+
 	return h.sum / float64(h.count)
 }
 
@@ -595,9 +641,11 @@ func (h *MockHistogram) GetPercentile(percentile float64) float64 {
 func (h *MockHistogram) Reset() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
 	h.count = 0
 	h.sum = 0
 	h.resetCalled = true
+
 	return nil
 }
 
@@ -606,15 +654,17 @@ func (h *MockHistogram) Tags() map[string]string { return h.tags }
 func (h *MockHistogram) ObserveCallCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return h.observeCalled
 }
 func (h *MockHistogram) WasResetCalled() bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return h.resetCalled
 }
 
-// MockTimer implements Timer interface
+// MockTimer implements Timer interface.
 type MockTimer struct {
 	name          string
 	tags          map[string]string
@@ -639,6 +689,7 @@ func NewMockTimer(name string, tags map[string]string) *MockTimer {
 func (t *MockTimer) Record(duration time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	t.count++
 	t.totalDuration += duration
 	t.recordCalled++
@@ -646,6 +697,7 @@ func (t *MockTimer) Record(duration time.Duration) {
 
 func (t *MockTimer) Time() func() {
 	start := time.Now()
+
 	return func() {
 		t.Record(time.Since(start))
 	}
@@ -654,12 +706,14 @@ func (t *MockTimer) Time() func() {
 func (t *MockTimer) GetCount() uint64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.count
 }
 
 func (t *MockTimer) GetMean() time.Duration {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	if t.count == 0 {
 		return 0
 	}
@@ -667,6 +721,7 @@ func (t *MockTimer) GetMean() time.Duration {
 	if t.count > 9223372036854775807 { // math.MaxInt64
 		return 0 // Return 0 for overflow case
 	}
+
 	return t.totalDuration / time.Duration(t.count)
 }
 
@@ -680,18 +735,21 @@ func (t *MockTimer) GetPercentile(percentile float64) time.Duration {
 func (t *MockTimer) GetMin() time.Duration {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.GetMean() / 2
 }
 
 func (t *MockTimer) GetMax() time.Duration {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.GetMean() * 2
 }
 
 func (t *MockTimer) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	t.count = 0
 	t.totalDuration = 0
 	t.resetCalled = true
@@ -702,11 +760,13 @@ func (t *MockTimer) Tags() map[string]string { return t.tags }
 func (t *MockTimer) RecordCallCount() int {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.recordCalled
 }
 func (t *MockTimer) WasResetCalled() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.resetCalled
 }
 
@@ -714,10 +774,10 @@ func (t *MockTimer) WasResetCalled() bool {
 // MOCK CUSTOM COLLECTOR
 // =============================================================================
 
-// MockCustomCollector implements CustomCollector interface
+// MockCustomCollector implements CustomCollector interface.
 type MockCustomCollector struct {
 	name          string
-	metrics       map[string]interface{}
+	metrics       map[string]any
 	collectCalled int
 	resetCalled   bool
 	mu            sync.RWMutex
@@ -730,7 +790,7 @@ func (c *MockCustomCollector) IsEnabled() bool {
 func NewMockCustomCollector(name string) *MockCustomCollector {
 	return &MockCustomCollector{
 		name:    name,
-		metrics: make(map[string]interface{}),
+		metrics: make(map[string]any),
 	}
 }
 
@@ -738,41 +798,46 @@ func (c *MockCustomCollector) Name() string {
 	return c.name
 }
 
-func (c *MockCustomCollector) Collect() map[string]interface{} {
+func (c *MockCustomCollector) Collect() map[string]any {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.collectCalled++
 
-	result := make(map[string]interface{})
-	for k, v := range c.metrics {
-		result[k] = v
-	}
+	result := make(map[string]any)
+	maps.Copy(result, c.metrics)
+
 	return result
 }
 
 func (c *MockCustomCollector) Reset() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.metrics = make(map[string]interface{})
+
+	c.metrics = make(map[string]any)
 	c.resetCalled = true
+
 	return nil
 }
 
-func (c *MockCustomCollector) SetMetric(key string, value interface{}) {
+func (c *MockCustomCollector) SetMetric(key string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.metrics[key] = value
 }
 
 func (c *MockCustomCollector) CollectCallCount() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.collectCalled
 }
 
 func (c *MockCustomCollector) WasResetCalled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.resetCalled
 }
 
@@ -780,7 +845,7 @@ func (c *MockCustomCollector) WasResetCalled() bool {
 // MOCK EXPORTER
 // =============================================================================
 
-// MockExporter implements Exporter interface
+// MockExporter implements Exporter interface.
 type MockExporter struct {
 	format       string
 	exportData   []byte
@@ -795,9 +860,10 @@ func NewMockExporter(format string) *MockExporter {
 	}
 }
 
-func (e *MockExporter) Export(metrics map[string]interface{}) ([]byte, error) {
+func (e *MockExporter) Export(metrics map[string]any) ([]byte, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	e.exportCalled++
 
 	if e.exportError != nil {
@@ -808,17 +874,18 @@ func (e *MockExporter) Export(metrics map[string]interface{}) ([]byte, error) {
 		return e.exportData, nil
 	}
 
-	return []byte(fmt.Sprintf("# %s export\n", e.format)), nil
+	return fmt.Appendf(nil, "# %s export\n", e.format), nil
 }
 
 func (e *MockExporter) Format() string {
 	return e.format
 }
 
-func (e *MockExporter) Stats() interface{} {
+func (e *MockExporter) Stats() any {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return map[string]interface{}{
+
+	return map[string]any{
 		"export_called": e.exportCalled,
 		"format":        e.format,
 	}
@@ -827,18 +894,21 @@ func (e *MockExporter) Stats() interface{} {
 func (e *MockExporter) SetExportData(data []byte) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	e.exportData = data
 }
 
 func (e *MockExporter) SetExportError(err error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	e.exportError = err
 }
 
 func (e *MockExporter) ExportCallCount() int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+
 	return e.exportCalled
 }
 
@@ -846,7 +916,7 @@ func (e *MockExporter) ExportCallCount() int {
 // TEST UTILITIES
 // =============================================================================
 
-// MetricsTestFixture provides a complete test environment for metrics
+// MetricsTestFixture provides a complete test environment for metrics.
 type MetricsTestFixture struct {
 	Collector *MockMetricsCollector
 	Registry  Registry
@@ -856,7 +926,7 @@ type MetricsTestFixture struct {
 	cancel    context.CancelFunc
 }
 
-// NewMetricsTestFixture creates a new test fixture
+// NewMetricsTestFixture creates a new test fixture.
 func NewMetricsTestFixture() *MetricsTestFixture {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -875,24 +945,24 @@ func NewMetricsTestFixture() *MetricsTestFixture {
 	}
 }
 
-// Cleanup cleans up the test fixture
+// Cleanup cleans up the test fixture.
 func (f *MetricsTestFixture) Cleanup() {
 	f.cancel()
 	f.Collector.Stop(f.ctx)
 	f.Registry.Stop()
 }
 
-// Context returns the test context
+// Context returns the test context.
 func (f *MetricsTestFixture) Context() context.Context {
 	return f.ctx
 }
 
-// StartCollector starts the mock collector
+// StartCollector starts the mock collector.
 func (f *MetricsTestFixture) StartCollector() error {
 	return f.Collector.Start(f.ctx)
 }
 
-// CreateTestMetrics creates a set of test metrics
+// CreateTestMetrics creates a set of test metrics.
 func (f *MetricsTestFixture) CreateTestMetrics() {
 	// Create test counters
 	counter1 := f.Collector.Counter("test_counter_1", "service", "test", "env", "dev")
@@ -927,22 +997,22 @@ func (f *MetricsTestFixture) CreateTestMetrics() {
 // TEST DATA GENERATORS
 // =============================================================================
 
-// MetricsDataGenerator generates test metrics data
+// MetricsDataGenerator generates test metrics data.
 type MetricsDataGenerator struct {
 	rand *rand.Rand // nolint:gosec // G404: Used only for deterministic test data generation
 }
 
-// NewMetricsDataGenerator creates a new data generator
+// NewMetricsDataGenerator creates a new data generator.
 func NewMetricsDataGenerator(seed int64) *MetricsDataGenerator {
 	return &MetricsDataGenerator{
 		rand: rand.New(rand.NewSource(seed)), // nolint:gosec // G404: Used only for deterministic test data generation
 	}
 }
 
-// GenerateCounterData generates counter test data
+// GenerateCounterData generates counter test data.
 func (g *MetricsDataGenerator) GenerateCounterData(count int) []CounterData {
 	data := make([]CounterData, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		data[i] = CounterData{
 			Name:  fmt.Sprintf("test_counter_%d", i),
 			Value: g.rand.Float64() * 1000,
@@ -952,13 +1022,14 @@ func (g *MetricsDataGenerator) GenerateCounterData(count int) []CounterData {
 			},
 		}
 	}
+
 	return data
 }
 
-// GenerateGaugeData generates gauge test data
+// GenerateGaugeData generates gauge test data.
 func (g *MetricsDataGenerator) GenerateGaugeData(count int) []GaugeData {
 	data := make([]GaugeData, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		data[i] = GaugeData{
 			Name:  fmt.Sprintf("test_gauge_%d", i),
 			Value: g.rand.Float64() * 100,
@@ -968,13 +1039,14 @@ func (g *MetricsDataGenerator) GenerateGaugeData(count int) []GaugeData {
 			},
 		}
 	}
+
 	return data
 }
 
-// GenerateHistogramData generates histogram test data
+// GenerateHistogramData generates histogram test data.
 func (g *MetricsDataGenerator) GenerateHistogramData(count int) []HistogramData {
 	data := make([]HistogramData, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		values := make([]float64, 10+g.rand.Intn(90))
 		for j := range values {
 			values[j] = g.rand.Float64() * 10
@@ -989,13 +1061,14 @@ func (g *MetricsDataGenerator) GenerateHistogramData(count int) []HistogramData 
 			},
 		}
 	}
+
 	return data
 }
 
-// GenerateTimerData generates timer test data
+// GenerateTimerData generates timer test data.
 func (g *MetricsDataGenerator) GenerateTimerData(count int) []TimerData {
 	data := make([]TimerData, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		durations := make([]time.Duration, 10+g.rand.Intn(90))
 		for j := range durations {
 			durations[j] = time.Duration(g.rand.Intn(1000)) * time.Millisecond
@@ -1010,10 +1083,11 @@ func (g *MetricsDataGenerator) GenerateTimerData(count int) []TimerData {
 			},
 		}
 	}
+
 	return data
 }
 
-// Test data structures
+// Test data structures.
 type CounterData struct {
 	Name  string
 	Value float64
@@ -1042,14 +1116,14 @@ type TimerData struct {
 // PERFORMANCE TEST UTILITIES
 // =============================================================================
 
-// PerformanceTestRunner runs performance tests on metrics
+// PerformanceTestRunner runs performance tests on metrics.
 type PerformanceTestRunner struct {
 	collector metrics.Metrics
 	duration  time.Duration
 	workers   int
 }
 
-// NewPerformanceTestRunner creates a new performance test runner
+// NewPerformanceTestRunner creates a new performance test runner.
 func NewPerformanceTestRunner(collector metrics.Metrics, duration time.Duration, workers int) *PerformanceTestRunner {
 	return &PerformanceTestRunner{
 		collector: collector,
@@ -1058,20 +1132,21 @@ func NewPerformanceTestRunner(collector metrics.Metrics, duration time.Duration,
 	}
 }
 
-// RunCounterTest runs a performance test on counters
+// RunCounterTest runs a performance test on counters.
 func (r *PerformanceTestRunner) RunCounterTest() PerformanceResult {
 	return r.runTest(func(worker int) {
-		counter := r.collector.Counter(fmt.Sprintf("perf_counter_%d", worker), "worker", fmt.Sprintf("%d", worker))
+		counter := r.collector.Counter(fmt.Sprintf("perf_counter_%d", worker), "worker", strconv.Itoa(worker))
 		for {
 			counter.Inc()
 		}
 	})
 }
 
-// RunGaugeTest runs a performance test on gauges
+// RunGaugeTest runs a performance test on gauges.
 func (r *PerformanceTestRunner) RunGaugeTest() PerformanceResult {
 	return r.runTest(func(worker int) {
-		gauge := r.collector.Gauge(fmt.Sprintf("perf_gauge_%d", worker), "worker", fmt.Sprintf("%d", worker))
+		gauge := r.collector.Gauge(fmt.Sprintf("perf_gauge_%d", worker), "worker", strconv.Itoa(worker))
+
 		value := 0.0
 		for {
 			gauge.Set(value)
@@ -1080,10 +1155,11 @@ func (r *PerformanceTestRunner) RunGaugeTest() PerformanceResult {
 	})
 }
 
-// RunHistogramTest runs a performance test on histograms
+// RunHistogramTest runs a performance test on histograms.
 func (r *PerformanceTestRunner) RunHistogramTest() PerformanceResult {
 	return r.runTest(func(worker int) {
-		histogram := r.collector.Histogram(fmt.Sprintf("perf_histogram_%d", worker), "worker", fmt.Sprintf("%d", worker))
+		histogram := r.collector.Histogram(fmt.Sprintf("perf_histogram_%d", worker), "worker", strconv.Itoa(worker))
+
 		value := 0.0
 		for {
 			histogram.Observe(value)
@@ -1092,10 +1168,11 @@ func (r *PerformanceTestRunner) RunHistogramTest() PerformanceResult {
 	})
 }
 
-// RunTimerTest runs a performance test on timers
+// RunTimerTest runs a performance test on timers.
 func (r *PerformanceTestRunner) RunTimerTest() PerformanceResult {
 	return r.runTest(func(worker int) {
-		timer := r.collector.Timer(fmt.Sprintf("perf_timer_%d", worker), "worker", fmt.Sprintf("%d", worker))
+		timer := r.collector.Timer(fmt.Sprintf("perf_timer_%d", worker), "worker", strconv.Itoa(worker))
+
 		duration := time.Millisecond
 		for {
 			timer.Record(duration)
@@ -1104,10 +1181,12 @@ func (r *PerformanceTestRunner) RunTimerTest() PerformanceResult {
 	})
 }
 
-// runTest runs a performance test with the given worker function
+// runTest runs a performance test with the given worker function.
 func (r *PerformanceTestRunner) runTest(workerFn func(int)) PerformanceResult {
-	var operations int64
-	var wg sync.WaitGroup
+	var (
+		operations int64
+		wg         sync.WaitGroup
+	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), r.duration)
 	defer cancel()
@@ -1117,17 +1196,21 @@ func (r *PerformanceTestRunner) runTest(workerFn func(int)) PerformanceResult {
 	// Start workers
 	for i := 0; i < r.workers; i++ {
 		wg.Add(1)
+
 		go func(worker int) {
 			defer wg.Done()
+
 			workerOps := int64(0)
 
 			for {
 				select {
 				case <-ctx.Done():
 					atomic.AddInt64(&operations, workerOps)
+
 					return
 				default:
 					workerFn(worker)
+
 					workerOps++
 				}
 			}
@@ -1135,6 +1218,7 @@ func (r *PerformanceTestRunner) runTest(workerFn func(int)) PerformanceResult {
 	}
 
 	wg.Wait()
+
 	elapsed := time.Since(start)
 
 	return PerformanceResult{
@@ -1146,7 +1230,7 @@ func (r *PerformanceTestRunner) runTest(workerFn func(int)) PerformanceResult {
 	}
 }
 
-// PerformanceResult contains performance test results
+// PerformanceResult contains performance test results.
 type PerformanceResult struct {
 	Operations   int64         `json:"operations"`
 	Duration     time.Duration `json:"duration"`
@@ -1159,7 +1243,7 @@ type PerformanceResult struct {
 // INTEGRATION TEST UTILITIES
 // =============================================================================
 
-// IntegrationTestEnvironment provides a complete integration test environment
+// IntegrationTestEnvironment provides a complete integration test environment.
 type IntegrationTestEnvironment struct {
 	Collector metrics.Metrics
 	Registry  Registry
@@ -1169,13 +1253,15 @@ type IntegrationTestEnvironment struct {
 	cancel    context.CancelFunc
 }
 
-// NewIntegrationTestEnvironment creates a new integration test environment
+// NewIntegrationTestEnvironment creates a new integration test environment.
 func NewIntegrationTestEnvironment(useRealImplementations bool) *IntegrationTestEnvironment {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	var collector metrics.Metrics
-	var registry Registry
-	var exporterz map[internal.ExportFormat]internal.Exporter
+	var (
+		collector metrics.Metrics
+		registry  Registry
+		exporterz map[internal.ExportFormat]internal.Exporter
+	)
 
 	if useRealImplementations {
 		// Use real implementations for integration tests
@@ -1209,7 +1295,7 @@ func NewIntegrationTestEnvironment(useRealImplementations bool) *IntegrationTest
 	}
 }
 
-// Setup sets up the integration test environment
+// Setup sets up the integration test environment.
 func (e *IntegrationTestEnvironment) Setup() error {
 	// Start registry
 	if err := e.Registry.Start(); err != nil {
@@ -1224,14 +1310,14 @@ func (e *IntegrationTestEnvironment) Setup() error {
 	return nil
 }
 
-// Cleanup cleans up the integration test environment
+// Cleanup cleans up the integration test environment.
 func (e *IntegrationTestEnvironment) Cleanup() {
 	e.cancel()
 	e.Collector.Stop(e.ctx)
 	e.Registry.Stop()
 }
 
-// RunFullIntegrationTest runs a complete integration test
+// RunFullIntegrationTest runs a complete integration test.
 func (e *IntegrationTestEnvironment) RunFullIntegrationTest() error {
 	// Create various metrics
 	counter := e.Collector.Counter("integration_counter", "test", "full")
@@ -1264,7 +1350,7 @@ func (e *IntegrationTestEnvironment) RunFullIntegrationTest() error {
 	// Test metrics retrieval
 	metrics := e.Collector.GetMetrics()
 	if len(metrics) == 0 {
-		return fmt.Errorf("no metrics collected")
+		return errors.New("no metrics collected")
 	}
 
 	// Test export
@@ -1286,18 +1372,19 @@ func (e *IntegrationTestEnvironment) RunFullIntegrationTest() error {
 // HELPER FUNCTIONS
 // =============================================================================
 
-// buildTestKey builds a test key for metrics
+// buildTestKey builds a test key for metrics.
 func buildTestKey(name string, tags []string) string {
 	if len(tags) == 0 {
 		return name
 	}
 
 	parsedTags := internal.ParseTags(tags...)
+
 	return name + "{" + internal.TagsToString(parsedTags) + "}"
 }
 
-// AssertMetricValue asserts that a metric has the expected value
-func AssertMetricValue(t interface{}, collector metrics.Metrics, name string, expected float64, tags ...string) {
+// AssertMetricValue asserts that a metric has the expected value.
+func AssertMetricValue(t any, collector metrics.Metrics, name string, expected float64, tags ...string) {
 	// This would use a proper testing framework like testify
 	// For now, this is a placeholder
 	metrics := collector.GetMetrics()
@@ -1312,8 +1399,8 @@ func AssertMetricValue(t interface{}, collector metrics.Metrics, name string, ex
 	}
 }
 
-// AssertMetricExists asserts that a metric exists
-func AssertMetricExists(t interface{}, collector metrics.Metrics, name string, tags ...string) {
+// AssertMetricExists asserts that a metric exists.
+func AssertMetricExists(t any, collector metrics.Metrics, name string, tags ...string) {
 	metrics := collector.GetMetrics()
 	key := buildTestKey(name, tags)
 
@@ -1322,8 +1409,8 @@ func AssertMetricExists(t interface{}, collector metrics.Metrics, name string, t
 	}
 }
 
-// AssertMetricDoesNotExist asserts that a metric does not exist
-func AssertMetricDoesNotExist(t interface{}, collector metrics.Metrics, name string, tags ...string) {
+// AssertMetricDoesNotExist asserts that a metric does not exist.
+func AssertMetricDoesNotExist(t any, collector metrics.Metrics, name string, tags ...string) {
 	metrics := collector.GetMetrics()
 	key := buildTestKey(name, tags)
 
@@ -1332,7 +1419,7 @@ func AssertMetricDoesNotExist(t interface{}, collector metrics.Metrics, name str
 	}
 }
 
-// WaitForMetricValue waits for a metric to reach the expected value
+// WaitForMetricValue waits for a metric to reach the expected value.
 func WaitForMetricValue(collector metrics.Metrics, name string, expected float64, timeout time.Duration, tags ...string) error {
 	key := buildTestKey(name, tags)
 
@@ -1357,7 +1444,7 @@ func WaitForMetricValue(collector metrics.Metrics, name string, expected float64
 	}
 }
 
-// ValidateExportFormat validates that export format is valid
+// ValidateExportFormat validates that export format is valid.
 func ValidateExportFormat(data []byte, format internal.ExportFormat) error {
 	switch format {
 	case internal.ExportFormatPrometheus:
@@ -1373,38 +1460,42 @@ func ValidateExportFormat(data []byte, format internal.ExportFormat) error {
 	}
 }
 
-// validatePrometheusFormat validates Prometheus format
+// validatePrometheusFormat validates Prometheus format.
 func validatePrometheusFormat(data []byte) error {
 	// Simple validation - would use proper Prometheus parser in real implementation
 	content := string(data)
 	if !strings.Contains(content, "# HELP") && !strings.Contains(content, "# TYPE") {
-		return fmt.Errorf("invalid Prometheus format")
+		return errors.New("invalid Prometheus format")
 	}
+
 	return nil
 }
 
-// validateJSONFormat validates JSON format
+// validateJSONFormat validates JSON format.
 func validateJSONFormat(data []byte) error {
-	var result map[string]interface{}
+	var result map[string]any
+
 	return json.Unmarshal(data, &result)
 }
 
-// validateInfluxFormat validates InfluxDB format
+// validateInfluxFormat validates InfluxDB format.
 func validateInfluxFormat(data []byte) error {
 	// Simple validation - would use proper InfluxDB parser in real implementation
 	content := string(data)
 	if len(content) == 0 {
-		return fmt.Errorf("empty InfluxDB format")
+		return errors.New("empty InfluxDB format")
 	}
+
 	return nil
 }
 
-// validateStatsDFormat validates StatsD format
+// validateStatsDFormat validates StatsD format.
 func validateStatsDFormat(data []byte) error {
 	// Simple validation - would use proper StatsD parser in real implementation
 	content := string(data)
 	if len(content) == 0 {
-		return fmt.Errorf("empty StatsD format")
+		return errors.New("empty StatsD format")
 	}
+
 	return nil
 }

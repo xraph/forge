@@ -4,7 +4,7 @@ import (
 	"time"
 )
 
-// Config holds WebRTC extension configuration
+// Config holds WebRTC extension configuration.
 type Config struct {
 	// Signaling
 	SignalingEnabled bool
@@ -40,21 +40,21 @@ type Config struct {
 	AllowGuests bool
 }
 
-// Topology represents the WebRTC connection topology
+// Topology represents the WebRTC connection topology.
 type Topology string
 
 const (
-	// TopologyMesh - Peer-to-peer mesh (each peer connects to all others)
+	// TopologyMesh - Peer-to-peer mesh (each peer connects to all others).
 	TopologyMesh Topology = "mesh"
 
-	// TopologySFU - Selective Forwarding Unit (server routes media)
+	// TopologySFU - Selective Forwarding Unit (server routes media).
 	TopologySFU Topology = "sfu"
 
-	// TopologyMCU - Multipoint Control Unit (server mixes media)
+	// TopologyMCU - Multipoint Control Unit (server mixes media).
 	TopologyMCU Topology = "mcu"
 )
 
-// TURNConfig holds TURN server configuration
+// TURNConfig holds TURN server configuration.
 type TURNConfig struct {
 	URLs       []string
 	Username   string
@@ -66,7 +66,7 @@ type TURNConfig struct {
 	TLSKeyFile  string
 }
 
-// MediaConfig holds media stream configuration
+// MediaConfig holds media stream configuration.
 type MediaConfig struct {
 	// Audio
 	AudioEnabled bool
@@ -93,7 +93,7 @@ type MediaConfig struct {
 	MaxFPS    int
 }
 
-// SFUConfig holds SFU-specific configuration
+// SFUConfig holds SFU-specific configuration.
 type SFUConfig struct {
 	// Worker configuration
 	WorkerCount int
@@ -111,7 +111,7 @@ type SFUConfig struct {
 	RecordingFormat  string // "webm", "mp4"
 }
 
-// QualityLayer represents a simulcast quality layer
+// QualityLayer represents a simulcast quality layer.
 type QualityLayer struct {
 	RID       string // "f" (full), "h" (half), "q" (quarter)
 	MaxWidth  int
@@ -120,7 +120,7 @@ type QualityLayer struct {
 	Bitrate   int
 }
 
-// QualityConfig holds quality monitoring configuration
+// QualityConfig holds quality monitoring configuration.
 type QualityConfig struct {
 	// Monitoring
 	MonitorEnabled  bool
@@ -136,7 +136,7 @@ type QualityConfig struct {
 	QualityCheckInterval time.Duration
 }
 
-// DefaultConfig returns default WebRTC configuration
+// DefaultConfig returns default WebRTC configuration.
 func DefaultConfig() Config {
 	return Config{
 		SignalingEnabled: true,
@@ -176,45 +176,45 @@ func DefaultConfig() Config {
 	}
 }
 
-// ConfigOption is a functional option for Config
+// ConfigOption is a functional option for Config.
 type ConfigOption func(*Config)
 
-// WithTopology sets the connection topology
+// WithTopology sets the connection topology.
 func WithTopology(topology Topology) ConfigOption {
 	return func(c *Config) {
 		c.Topology = topology
 	}
 }
 
-// WithSTUNServers sets STUN servers
+// WithSTUNServers sets STUN servers.
 func WithSTUNServers(servers ...string) ConfigOption {
 	return func(c *Config) {
 		c.STUNServers = servers
 	}
 }
 
-// WithTURNServer adds a TURN server
+// WithTURNServer adds a TURN server.
 func WithTURNServer(turn TURNConfig) ConfigOption {
 	return func(c *Config) {
 		c.TURNServers = append(c.TURNServers, turn)
 	}
 }
 
-// WithAudioCodecs sets audio codecs
+// WithAudioCodecs sets audio codecs.
 func WithAudioCodecs(codecs ...string) ConfigOption {
 	return func(c *Config) {
 		c.MediaConfig.AudioCodecs = codecs
 	}
 }
 
-// WithVideoCodecs sets video codecs
+// WithVideoCodecs sets video codecs.
 func WithVideoCodecs(codecs ...string) ConfigOption {
 	return func(c *Config) {
 		c.MediaConfig.VideoCodecs = codecs
 	}
 }
 
-// WithSFU enables SFU mode with configuration
+// WithSFU enables SFU mode with configuration.
 func WithSFU(config SFUConfig) ConfigOption {
 	return func(c *Config) {
 		c.Topology = TopologySFU
@@ -222,7 +222,7 @@ func WithSFU(config SFUConfig) ConfigOption {
 	}
 }
 
-// WithRecording enables recording
+// WithRecording enables recording.
 func WithRecording(path string) ConfigOption {
 	return func(c *Config) {
 		c.RecordingEnabled = true
@@ -230,14 +230,14 @@ func WithRecording(path string) ConfigOption {
 	}
 }
 
-// WithQualityMonitoring enables quality monitoring
+// WithQualityMonitoring enables quality monitoring.
 func WithQualityMonitoring(config QualityConfig) ConfigOption {
 	return func(c *Config) {
 		c.QualityConfig = config
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c *Config) Validate() error {
 	if c.Topology == TopologySFU && c.SFUConfig == nil {
 		return ErrInvalidConfig
@@ -254,7 +254,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// GetICEServers returns all configured ICE servers
+// GetICEServers returns all configured ICE servers.
 func (c *Config) GetICEServers() []ICEServer {
 	servers := make([]ICEServer, 0, len(c.STUNServers)+len(c.TURNServers))
 

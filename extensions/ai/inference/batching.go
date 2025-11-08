@@ -8,10 +8,11 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/models"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// RequestBatcher handles batching of inference requests for improved efficiency
+// RequestBatcher handles batching of inference requests for improved efficiency.
 type RequestBatcher struct {
 	config        RequestBatcherConfig
 	requestQueue  chan InferenceRequest
@@ -26,21 +27,21 @@ type RequestBatcher struct {
 	wg            sync.WaitGroup
 }
 
-// RequestBatcherConfig contains configuration for request batching
+// RequestBatcherConfig contains configuration for request batching.
 type RequestBatcherConfig struct {
-	BatchSize     int           `yaml:"batch_size" default:"10"`
-	BatchTimeout  time.Duration `yaml:"batch_timeout" default:"100ms"`
-	MaxQueueSize  int           `yaml:"max_queue_size" default:"10000"`
-	MaxBatchAge   time.Duration `yaml:"max_batch_age" default:"5s"`
-	Workers       int           `yaml:"workers" default:"4"`
-	EnableDynamic bool          `yaml:"enable_dynamic" default:"true"`
-	MinBatchSize  int           `yaml:"min_batch_size" default:"1"`
-	MaxBatchSize  int           `yaml:"max_batch_size" default:"100"`
+	BatchSize     int           `default:"10"    yaml:"batch_size"`
+	BatchTimeout  time.Duration `default:"100ms" yaml:"batch_timeout"`
+	MaxQueueSize  int           `default:"10000" yaml:"max_queue_size"`
+	MaxBatchAge   time.Duration `default:"5s"    yaml:"max_batch_age"`
+	Workers       int           `default:"4"     yaml:"workers"`
+	EnableDynamic bool          `default:"true"  yaml:"enable_dynamic"`
+	MinBatchSize  int           `default:"1"     yaml:"min_batch_size"`
+	MaxBatchSize  int           `default:"100"   yaml:"max_batch_size"`
 	Logger        logger.Logger `yaml:"-"`
 	Metrics       forge.Metrics `yaml:"-"`
 }
 
-// RequestBatch represents a batch of inference requests
+// RequestBatch represents a batch of inference requests.
 type RequestBatch struct {
 	ID          string
 	ModelID     string
@@ -57,7 +58,7 @@ type RequestBatch struct {
 	mu          sync.RWMutex
 }
 
-// BatchStatus represents the status of a batch
+// BatchStatus represents the status of a batch.
 type BatchStatus string
 
 const (
@@ -68,7 +69,7 @@ const (
 	BatchStatusTimeout    BatchStatus = "timeout"
 )
 
-// BatcherStats contains statistics for the request batcher
+// BatcherStats contains statistics for the request batcher.
 type BatcherStats struct {
 	BatchesCreated     int64         `json:"batches_created"`
 	BatchesProcessed   int64         `json:"batches_processed"`
@@ -85,7 +86,7 @@ type BatcherStats struct {
 	LastUpdated        time.Time     `json:"last_updated"`
 }
 
-// BatchingStrategy defines different batching strategies
+// BatchingStrategy defines different batching strategies.
 type BatchingStrategy interface {
 	Name() string
 	ShouldBatch(request InferenceRequest, currentBatch *RequestBatch) bool
@@ -93,7 +94,7 @@ type BatchingStrategy interface {
 	BatchTimeout(modelID string, batchSize int) time.Duration
 }
 
-// DynamicBatchingStrategy implements dynamic batching based on queue size and model characteristics
+// DynamicBatchingStrategy implements dynamic batching based on queue size and model characteristics.
 type DynamicBatchingStrategy struct {
 	name         string
 	modelMetrics map[string]*ModelBatchingMetrics
@@ -101,7 +102,7 @@ type DynamicBatchingStrategy struct {
 	mu           sync.RWMutex
 }
 
-// ModelBatchingMetrics contains metrics for model-specific batching
+// ModelBatchingMetrics contains metrics for model-specific batching.
 type ModelBatchingMetrics struct {
 	ModelID            string
 	OptimalBatchSize   int
@@ -112,26 +113,32 @@ type ModelBatchingMetrics struct {
 	mu                 sync.RWMutex
 }
 
-// NewRequestBatcher creates a new request batcher
+// NewRequestBatcher creates a new request batcher.
 func NewRequestBatcher(config RequestBatcherConfig) (*RequestBatcher, error) {
 	if config.BatchSize <= 0 {
 		config.BatchSize = 10
 	}
+
 	if config.BatchTimeout == 0 {
 		config.BatchTimeout = 100 * time.Millisecond
 	}
+
 	if config.MaxQueueSize <= 0 {
 		config.MaxQueueSize = 10000
 	}
+
 	if config.MaxBatchAge == 0 {
 		config.MaxBatchAge = 5 * time.Second
 	}
+
 	if config.Workers <= 0 {
 		config.Workers = 4
 	}
+
 	if config.MinBatchSize <= 0 {
 		config.MinBatchSize = 1
 	}
+
 	if config.MaxBatchSize <= 0 {
 		config.MaxBatchSize = 100
 	}
@@ -150,46 +157,50 @@ func NewRequestBatcher(config RequestBatcherConfig) (*RequestBatcher, error) {
 	return batcher, nil
 }
 
-// Start starts the request batcher
+// Start starts the request batcher.
 func (b *RequestBatcher) Start(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if b.started {
-		return fmt.Errorf("request batcher already started")
+		return errors.New("request batcher already started")
 	}
 
 	// Start batch creation workers
-	for i := 0; i < b.config.Workers; i++ {
+	for i := range b.config.Workers {
 		b.wg.Add(1)
+
 		go func(workerID int) {
 			defer b.wg.Done()
+
 			b.runBatchCreationWorker(ctx, workerID)
 		}(i)
 	}
 
 	// Start batch processing workers
-	for i := 0; i < b.config.Workers; i++ {
+	for i := range b.config.Workers {
 		b.wg.Add(1)
+
 		go func(workerID int) {
 			defer b.wg.Done()
+
 			b.runBatchProcessingWorker(ctx, workerID)
 		}(i)
 	}
 
 	// Start batch timeout monitor
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
+
+	b.wg.Go(func() {
+
 		b.runBatchTimeoutMonitor(ctx)
-	}()
+	})
 
 	// Start stats collection
-	b.wg.Add(1)
-	go func() {
-		defer b.wg.Done()
+
+	b.wg.Go(func() {
+
 		b.runStatsCollection(ctx)
-	}()
+	})
 
 	b.started = true
 
@@ -208,13 +219,13 @@ func (b *RequestBatcher) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the request batcher
+// Stop stops the request batcher.
 func (b *RequestBatcher) Stop(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	if !b.started {
-		return fmt.Errorf("request batcher not started")
+		return errors.New("request batcher not started")
 	}
 
 	// Signal shutdown
@@ -239,10 +250,10 @@ func (b *RequestBatcher) Stop(ctx context.Context) error {
 	return nil
 }
 
-// QueueRequest queues a request for batching
+// QueueRequest queues a request for batching.
 func (b *RequestBatcher) QueueRequest(ctx context.Context, request InferenceRequest) error {
 	if !b.started {
-		return fmt.Errorf("request batcher not started")
+		return errors.New("request batcher not started")
 	}
 
 	select {
@@ -259,11 +270,11 @@ func (b *RequestBatcher) QueueRequest(ctx context.Context, request InferenceRequ
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		return fmt.Errorf("request queue full")
+		return errors.New("request queue full")
 	}
 }
 
-// ProcessBatch processes a batch of requests
+// ProcessBatch processes a batch of requests.
 func (b *RequestBatcher) ProcessBatch(ctx context.Context, requests []InferenceRequest) ([]InferenceResponse, error) {
 	if len(requests) == 0 {
 		return []InferenceResponse{}, nil
@@ -290,12 +301,12 @@ func (b *RequestBatcher) ProcessBatch(ctx context.Context, requests []InferenceR
 	return batch.Responses, nil
 }
 
-// QueueSize returns the current queue size
+// QueueSize returns the current queue size.
 func (b *RequestBatcher) QueueSize() int {
 	return len(b.requestQueue)
 }
 
-// GetStats returns batcher statistics
+// GetStats returns batcher statistics.
 func (b *RequestBatcher) GetStats() BatcherStats {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -308,9 +319,10 @@ func (b *RequestBatcher) GetStats() BatcherStats {
 	return stats
 }
 
-// runBatchCreationWorker runs a batch creation worker
+// runBatchCreationWorker runs a batch creation worker.
 func (b *RequestBatcher) runBatchCreationWorker(ctx context.Context, workerID int) {
 	var currentBatch *RequestBatch
+
 	batchTimer := time.NewTimer(b.config.BatchTimeout)
 	batchTimer.Stop()
 
@@ -351,6 +363,7 @@ func (b *RequestBatcher) runBatchCreationWorker(ctx context.Context, workerID in
 			if currentBatch.Size >= b.config.BatchSize {
 				b.submitBatch(currentBatch)
 				currentBatch = nil
+
 				batchTimer.Stop()
 			}
 
@@ -364,7 +377,7 @@ func (b *RequestBatcher) runBatchCreationWorker(ctx context.Context, workerID in
 	}
 }
 
-// runBatchProcessingWorker runs a batch processing worker
+// runBatchProcessingWorker runs a batch processing worker.
 func (b *RequestBatcher) runBatchProcessingWorker(ctx context.Context, workerID int) {
 	for {
 		select {
@@ -386,7 +399,7 @@ func (b *RequestBatcher) runBatchProcessingWorker(ctx context.Context, workerID 
 	}
 }
 
-// runBatchTimeoutMonitor monitors batch timeouts
+// runBatchTimeoutMonitor monitors batch timeouts.
 func (b *RequestBatcher) runBatchTimeoutMonitor(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -403,7 +416,7 @@ func (b *RequestBatcher) runBatchTimeoutMonitor(ctx context.Context) {
 	}
 }
 
-// runStatsCollection runs the statistics collection loop
+// runStatsCollection runs the statistics collection loop.
 func (b *RequestBatcher) runStatsCollection(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -420,7 +433,7 @@ func (b *RequestBatcher) runStatsCollection(ctx context.Context) {
 	}
 }
 
-// canAddToBatch checks if a request can be added to the current batch
+// canAddToBatch checks if a request can be added to the current batch.
 func (b *RequestBatcher) canAddToBatch(request InferenceRequest, batch *RequestBatch) bool {
 	// Check if batch is full
 	if batch.Size >= batch.MaxSize {
@@ -440,7 +453,7 @@ func (b *RequestBatcher) canAddToBatch(request InferenceRequest, batch *RequestB
 	return true
 }
 
-// submitBatch submits a batch for processing
+// submitBatch submits a batch for processing.
 func (b *RequestBatcher) submitBatch(batch *RequestBatch) {
 	b.mu.Lock()
 	b.activeBatches[batch.ID] = batch
@@ -462,12 +475,13 @@ func (b *RequestBatcher) submitBatch(batch *RequestBatch) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), b.config.BatchTimeout)
 			defer cancel()
+
 			b.processBatch(ctx, batch)
 		}()
 	}
 }
 
-// processBatch processes a single batch
+// processBatch processes a single batch.
 func (b *RequestBatcher) processBatch(ctx context.Context, batch *RequestBatch) error {
 	startTime := time.Now()
 
@@ -493,7 +507,7 @@ func (b *RequestBatcher) processBatch(ctx context.Context, batch *RequestBatch) 
 					},
 				},
 				Confidence: 0.95,
-				Metadata:   make(map[string]interface{}),
+				Metadata:   make(map[string]any),
 				RequestID:  request.ID,
 				Timestamp:  time.Now(),
 			}, // Convert input to output
@@ -502,7 +516,7 @@ func (b *RequestBatcher) processBatch(ctx context.Context, batch *RequestBatch) 
 			Timestamp:  time.Now(),
 			FromCache:  false,
 			BatchSize:  batch.Size,
-			WorkerID:   fmt.Sprintf("batcher-%s", batch.ID),
+			WorkerID:   "batcher-" + batch.ID,
 		}
 		responses[i] = response
 	}
@@ -556,15 +570,18 @@ func (b *RequestBatcher) processBatch(ctx context.Context, batch *RequestBatch) 
 	return nil
 }
 
-// checkBatchTimeouts checks for and handles batch timeouts
+// checkBatchTimeouts checks for and handles batch timeouts.
 func (b *RequestBatcher) checkBatchTimeouts() {
 	b.mu.RLock()
+
 	timeoutBatches := make([]*RequestBatch, 0)
+
 	for _, batch := range b.activeBatches {
 		if batch.Status == BatchStatusPending && time.Since(batch.CreatedAt) > b.config.MaxBatchAge {
 			timeoutBatches = append(timeoutBatches, batch)
 		}
 	}
+
 	b.mu.RUnlock()
 
 	for _, batch := range timeoutBatches {
@@ -589,7 +606,7 @@ func (b *RequestBatcher) checkBatchTimeouts() {
 	}
 }
 
-// processRemainingBatches processes any remaining batches during shutdown
+// processRemainingBatches processes any remaining batches during shutdown.
 func (b *RequestBatcher) processRemainingBatches(ctx context.Context) {
 	// Process remaining batches in queue
 	for {
@@ -609,14 +626,15 @@ func (b *RequestBatcher) processRemainingBatches(ctx context.Context) {
 	}
 }
 
-// updateStats updates batcher statistics
+// updateStats updates batcher statistics.
 func (b *RequestBatcher) updateStats(fn func(*BatcherStats)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
 	fn(&b.stats)
 }
 
-// collectStats collects and updates statistics
+// collectStats collects and updates statistics.
 func (b *RequestBatcher) collectStats() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -632,7 +650,7 @@ func (b *RequestBatcher) collectStats() {
 
 // Dynamic batching strategy implementation
 
-// NewDynamicBatchingStrategy creates a new dynamic batching strategy
+// NewDynamicBatchingStrategy creates a new dynamic batching strategy.
 func NewDynamicBatchingStrategy(logger logger.Logger) *DynamicBatchingStrategy {
 	return &DynamicBatchingStrategy{
 		name:         "dynamic",
@@ -641,18 +659,18 @@ func NewDynamicBatchingStrategy(logger logger.Logger) *DynamicBatchingStrategy {
 	}
 }
 
-// Name returns the strategy name
+// Name returns the strategy name.
 func (s *DynamicBatchingStrategy) Name() string {
 	return s.name
 }
 
-// ShouldBatch determines if a request should be batched
+// ShouldBatch determines if a request should be batched.
 func (s *DynamicBatchingStrategy) ShouldBatch(request InferenceRequest, currentBatch *RequestBatch) bool {
 	// Always batch requests for the same model
 	return request.ModelID == currentBatch.ModelID
 }
 
-// OptimalBatchSize determines the optimal batch size for a model
+// OptimalBatchSize determines the optimal batch size for a model.
 func (s *DynamicBatchingStrategy) OptimalBatchSize(modelID string, queueSize int) int {
 	s.mu.RLock()
 	metrics, exists := s.modelMetrics[modelID]
@@ -671,6 +689,7 @@ func (s *DynamicBatchingStrategy) OptimalBatchSize(modelID string, queueSize int
 	if queueSize > optimalSize*2 {
 		return optimalSize * 2
 	}
+
 	if queueSize < optimalSize/2 {
 		return optimalSize / 2
 	}
@@ -678,7 +697,7 @@ func (s *DynamicBatchingStrategy) OptimalBatchSize(modelID string, queueSize int
 	return optimalSize
 }
 
-// BatchTimeout determines the optimal timeout for a batch
+// BatchTimeout determines the optimal timeout for a batch.
 func (s *DynamicBatchingStrategy) BatchTimeout(modelID string, batchSize int) time.Duration {
 	s.mu.RLock()
 	metrics, exists := s.modelMetrics[modelID]
@@ -694,10 +713,8 @@ func (s *DynamicBatchingStrategy) BatchTimeout(modelID string, batchSize int) ti
 	metrics.mu.RUnlock()
 
 	// Timeout should be proportional to expected latency
-	timeout := avgLatency / 10
-	if timeout < 50*time.Millisecond {
-		timeout = 50 * time.Millisecond
-	}
+	timeout := max(avgLatency/10, 50*time.Millisecond)
+
 	if timeout > 500*time.Millisecond {
 		timeout = 500 * time.Millisecond
 	}
@@ -705,7 +722,7 @@ func (s *DynamicBatchingStrategy) BatchTimeout(modelID string, batchSize int) ti
 	return timeout
 }
 
-// UpdateModelMetrics updates metrics for a model
+// UpdateModelMetrics updates metrics for a model.
 func (s *DynamicBatchingStrategy) UpdateModelMetrics(modelID string, batchSize int, latency time.Duration, throughput float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -720,6 +737,7 @@ func (s *DynamicBatchingStrategy) UpdateModelMetrics(modelID string, batchSize i
 			LastOptimization:   time.Now(),
 		}
 		s.modelMetrics[modelID] = metrics
+
 		return
 	}
 
@@ -740,18 +758,12 @@ func (s *DynamicBatchingStrategy) UpdateModelMetrics(modelID string, batchSize i
 	}
 }
 
-// optimizeBatchSize optimizes the batch size for a model
+// optimizeBatchSize optimizes the batch size for a model.
 func (s *DynamicBatchingStrategy) optimizeBatchSize(metrics *ModelBatchingMetrics) {
 	// Simple optimization: increase batch size if throughput is good, decrease if latency is high
 	if metrics.ThroughputPerBatch > 100 && metrics.AverageLatency < 100*time.Millisecond {
-		metrics.OptimalBatchSize = int(float64(metrics.OptimalBatchSize) * 1.2)
-		if metrics.OptimalBatchSize > 100 {
-			metrics.OptimalBatchSize = 100
-		}
+		metrics.OptimalBatchSize = min(int(float64(metrics.OptimalBatchSize)*1.2), 100)
 	} else if metrics.AverageLatency > 500*time.Millisecond {
-		metrics.OptimalBatchSize = int(float64(metrics.OptimalBatchSize) * 0.8)
-		if metrics.OptimalBatchSize < 1 {
-			metrics.OptimalBatchSize = 1
-		}
+		metrics.OptimalBatchSize = max(int(float64(metrics.OptimalBatchSize)*0.8), 1)
 	}
 }

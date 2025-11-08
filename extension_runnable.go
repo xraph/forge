@@ -8,6 +8,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // RunnableExtension is an optional interface for extensions that need to run
@@ -52,7 +54,7 @@ type RunnableExtension interface {
 	Shutdown(ctx context.Context) error
 }
 
-// ExternalAppConfig configures an external application
+// ExternalAppConfig configures an external application.
 type ExternalAppConfig struct {
 	// Name is a unique identifier for this external app
 	Name string
@@ -85,7 +87,7 @@ type ExternalAppConfig struct {
 	LogOutput bool
 }
 
-// DefaultExternalAppConfig returns default configuration
+// DefaultExternalAppConfig returns default configuration.
 func DefaultExternalAppConfig() ExternalAppConfig {
 	return ExternalAppConfig{
 		RestartOnFailure: false,
@@ -111,6 +113,7 @@ func DefaultExternalAppConfig() ExternalAppConfig {
 //	}
 type ExternalAppExtension struct {
 	*BaseExtension
+
 	config  ExternalAppConfig
 	process *exec.Cmd
 	running bool
@@ -118,14 +121,16 @@ type ExternalAppExtension struct {
 	mu      sync.RWMutex
 }
 
-// NewExternalAppExtension creates a new external app extension
+// NewExternalAppExtension creates a new external app extension.
 func NewExternalAppExtension(config ExternalAppConfig) *ExternalAppExtension {
 	if config.Name == "" {
 		config.Name = "external-app"
 	}
+
 	if config.RestartDelay == 0 {
 		config.RestartDelay = 5 * time.Second
 	}
+
 	if config.ShutdownTimeout == 0 {
 		config.ShutdownTimeout = 30 * time.Second
 	}
@@ -134,14 +139,14 @@ func NewExternalAppExtension(config ExternalAppConfig) *ExternalAppExtension {
 		BaseExtension: NewBaseExtension(
 			config.Name,
 			"1.0.0",
-			fmt.Sprintf("External app: %s", config.Command),
+			"External app: "+config.Command,
 		),
 		config:  config,
 		stopped: make(chan struct{}),
 	}
 }
 
-// Run starts the external application
+// Run starts the external application.
 func (e *ExternalAppExtension) Run(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -167,7 +172,7 @@ func (e *ExternalAppExtension) Run(ctx context.Context) error {
 	return nil
 }
 
-// startProcess starts the external process
+// startProcess starts the external process.
 func (e *ExternalAppExtension) startProcess(ctx context.Context) error {
 	// Create command
 	e.process = exec.CommandContext(ctx, e.config.Command, e.config.Args...)
@@ -208,7 +213,7 @@ func (e *ExternalAppExtension) startProcess(ctx context.Context) error {
 	return nil
 }
 
-// monitor watches the process and optionally restarts it
+// monitor watches the process and optionally restarts it.
 func (e *ExternalAppExtension) monitor(ctx context.Context) {
 	for {
 		// Wait for process to exit
@@ -256,14 +261,17 @@ func (e *ExternalAppExtension) monitor(ctx context.Context) {
 				return
 			case <-time.After(e.config.RestartDelay):
 				e.mu.Lock()
+
 				if err := e.startProcess(ctx); err != nil {
 					e.Logger().Error("failed to restart external app",
 						F("name", e.config.Name),
 						F("error", err),
 					)
 					e.mu.Unlock()
+
 					return
 				}
+
 				e.mu.Unlock()
 			}
 		} else {
@@ -272,7 +280,7 @@ func (e *ExternalAppExtension) monitor(ctx context.Context) {
 	}
 }
 
-// Shutdown gracefully stops the external application
+// Shutdown gracefully stops the external application.
 func (e *ExternalAppExtension) Shutdown(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -290,6 +298,7 @@ func (e *ExternalAppExtension) Shutdown(ctx context.Context) error {
 
 	if e.process == nil || e.process.Process == nil {
 		e.running = false
+
 		return nil
 	}
 
@@ -300,17 +309,20 @@ func (e *ExternalAppExtension) Shutdown(ctx context.Context) error {
 			F("error", err),
 		)
 		e.running = false
+
 		return e.process.Process.Kill()
 	}
 
 	// Wait for process to exit with timeout
 	done := make(chan error, 1)
+
 	go func() {
 		done <- e.process.Wait()
 	}()
 
 	// Use configured timeout or context deadline
 	timeout := e.config.ShutdownTimeout
+
 	shutdownCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -320,14 +332,17 @@ func (e *ExternalAppExtension) Shutdown(ctx context.Context) error {
 			F("name", e.config.Name),
 			F("timeout", timeout),
 		)
+
 		if err := e.process.Process.Kill(); err != nil {
 			e.Logger().Error("failed to kill external app",
 				F("name", e.config.Name),
 				F("error", err),
 			)
 		}
+
 		e.running = false
-		return fmt.Errorf("shutdown timeout exceeded")
+
+		return errors.New("shutdown timeout exceeded")
 	case err := <-done:
 		if err != nil {
 			e.Logger().Warn("external app exited with error during shutdown",
@@ -339,19 +354,22 @@ func (e *ExternalAppExtension) Shutdown(ctx context.Context) error {
 				F("name", e.config.Name),
 			)
 		}
+
 		e.running = false
+
 		return nil
 	}
 }
 
-// IsRunning returns whether the external app is running
+// IsRunning returns whether the external app is running.
 func (e *ExternalAppExtension) IsRunning() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+
 	return e.running
 }
 
-// Health checks if the external app is healthy
+// Health checks if the external app is healthy.
 func (e *ExternalAppExtension) Health(ctx context.Context) error {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -372,4 +390,3 @@ func (e *ExternalAppExtension) Health(ctx context.Context) error {
 
 	return nil
 }
-

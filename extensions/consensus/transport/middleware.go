@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -10,19 +11,19 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// TransportMiddleware represents transport-level middleware
+// TransportMiddleware represents transport-level middleware.
 type TransportMiddleware func(next TransportHandler) TransportHandler
 
-// TransportHandler handles transport operations
+// TransportHandler handles transport operations.
 type TransportHandler func(ctx context.Context, msg *internal.Message) error
 
-// MiddlewareChain chains multiple middleware
+// MiddlewareChain chains multiple middleware.
 type MiddlewareChain struct {
 	middlewares []TransportMiddleware
 	logger      forge.Logger
 }
 
-// NewMiddlewareChain creates a new middleware chain
+// NewMiddlewareChain creates a new middleware chain.
 func NewMiddlewareChain(logger forge.Logger) *MiddlewareChain {
 	return &MiddlewareChain{
 		middlewares: make([]TransportMiddleware, 0),
@@ -30,21 +31,22 @@ func NewMiddlewareChain(logger forge.Logger) *MiddlewareChain {
 	}
 }
 
-// Use adds middleware to the chain
+// Use adds middleware to the chain.
 func (mc *MiddlewareChain) Use(middleware TransportMiddleware) {
 	mc.middlewares = append(mc.middlewares, middleware)
 }
 
-// Execute executes the middleware chain
+// Execute executes the middleware chain.
 func (mc *MiddlewareChain) Execute(handler TransportHandler) TransportHandler {
 	// Build chain in reverse order
 	for i := len(mc.middlewares) - 1; i >= 0; i-- {
 		handler = mc.middlewares[i](handler)
 	}
+
 	return handler
 }
 
-// RateLimitMiddleware creates rate limiting middleware
+// RateLimitMiddleware creates rate limiting middleware.
 func RateLimitMiddleware(maxRate int, window time.Duration, logger forge.Logger) TransportMiddleware {
 	type rateLimiter struct {
 		tokens    int
@@ -53,6 +55,7 @@ func RateLimitMiddleware(maxRate int, window time.Duration, logger forge.Logger)
 	}
 
 	limiters := make(map[string]*rateLimiter)
+
 	var limitersMu sync.RWMutex
 
 	return func(next TransportHandler) TransportHandler {
@@ -62,6 +65,7 @@ func RateLimitMiddleware(maxRate int, window time.Duration, logger forge.Logger)
 
 			// Get or create rate limiter for peer
 			limitersMu.Lock()
+
 			limiter, exists := limiters[peerID]
 			if !exists {
 				limiter = &rateLimiter{
@@ -70,10 +74,12 @@ func RateLimitMiddleware(maxRate int, window time.Duration, logger forge.Logger)
 				}
 				limiters[peerID] = limiter
 			}
+
 			limitersMu.Unlock()
 
 			// Check rate limit
 			limiter.mu.Lock()
+
 			now := time.Now()
 
 			// Reset tokens if window passed
@@ -90,6 +96,7 @@ func RateLimitMiddleware(maxRate int, window time.Duration, logger forge.Logger)
 					forge.F("max_rate", maxRate),
 					forge.F("window", window),
 				)
+
 				return internal.ErrRateLimitExceeded.
 					WithContext("peer", peerID).
 					WithContext("max_rate", maxRate)
@@ -103,7 +110,7 @@ func RateLimitMiddleware(maxRate int, window time.Duration, logger forge.Logger)
 	}
 }
 
-// CompressionMiddleware creates compression middleware
+// CompressionMiddleware creates compression middleware.
 func CompressionMiddleware(minSize int, logger forge.Logger) TransportMiddleware {
 	return func(next TransportHandler) TransportHandler {
 		return func(ctx context.Context, msg *internal.Message) error {
@@ -123,7 +130,7 @@ func CompressionMiddleware(minSize int, logger forge.Logger) TransportMiddleware
 	}
 }
 
-// AuthenticationMiddleware creates authentication middleware
+// AuthenticationMiddleware creates authentication middleware.
 func AuthenticationMiddleware(verifyFunc func(string) bool, logger forge.Logger) TransportMiddleware {
 	return func(next TransportHandler) TransportHandler {
 		return func(ctx context.Context, msg *internal.Message) error {
@@ -132,6 +139,7 @@ func AuthenticationMiddleware(verifyFunc func(string) bool, logger forge.Logger)
 				logger.Warn("authentication failed",
 					forge.F("peer", msg.From),
 				)
+
 				return internal.ErrAuthenticationFailed.
 					WithContext("peer", msg.From)
 			}
@@ -141,7 +149,7 @@ func AuthenticationMiddleware(verifyFunc func(string) bool, logger forge.Logger)
 	}
 }
 
-// MetricsMiddleware creates metrics collection middleware
+// MetricsMiddleware creates metrics collection middleware.
 func MetricsMiddleware(collector MetricsCollector, logger forge.Logger) TransportMiddleware {
 	return func(next TransportHandler) TransportHandler {
 		return func(ctx context.Context, msg *internal.Message) error {
@@ -159,12 +167,12 @@ func MetricsMiddleware(collector MetricsCollector, logger forge.Logger) Transpor
 	}
 }
 
-// MetricsCollector collects transport metrics
+// MetricsCollector collects transport metrics.
 type MetricsCollector interface {
 	RecordMessage(msg *internal.Message, duration time.Duration, success bool)
 }
 
-// RetryMiddleware creates retry middleware
+// RetryMiddleware creates retry middleware.
 func RetryMiddleware(maxRetries int, backoff time.Duration, logger forge.Logger) TransportMiddleware {
 	return func(next TransportHandler) TransportHandler {
 		return func(ctx context.Context, msg *internal.Message) error {
@@ -205,18 +213,20 @@ func RetryMiddleware(maxRetries int, backoff time.Duration, logger forge.Logger)
 	}
 }
 
-// isRetryable checks if an error is retryable
+// isRetryable checks if an error is retryable.
 func isRetryable(err error) bool {
 	if internal.Is(err, internal.ErrTimeout) {
 		return true
 	}
+
 	if internal.Is(err, internal.ErrConnectionFailed) {
 		return true
 	}
+
 	return false
 }
 
-// TimeoutMiddleware creates timeout middleware
+// TimeoutMiddleware creates timeout middleware.
 func TimeoutMiddleware(timeout time.Duration, logger forge.Logger) TransportMiddleware {
 	return func(next TransportHandler) TransportHandler {
 		return func(ctx context.Context, msg *internal.Message) error {
@@ -237,13 +247,14 @@ func TimeoutMiddleware(timeout time.Duration, logger forge.Logger) TransportMidd
 					forge.F("timeout", timeout),
 					forge.F("peer", msg.From),
 				)
+
 				return internal.ErrTimeout
 			}
 		}
 	}
 }
 
-// LoggingMiddleware creates logging middleware
+// LoggingMiddleware creates logging middleware.
 func LoggingMiddleware(logger forge.Logger) TransportMiddleware {
 	return func(next TransportHandler) TransportHandler {
 		return func(ctx context.Context, msg *internal.Message) error {
@@ -254,7 +265,6 @@ func LoggingMiddleware(logger forge.Logger) TransportMiddleware {
 			)
 
 			err := next(ctx, msg)
-
 			if err != nil {
 				logger.Warn("message handling failed",
 					forge.F("type", msg.Type),
@@ -273,7 +283,7 @@ func LoggingMiddleware(logger forge.Logger) TransportMiddleware {
 	}
 }
 
-// CircuitBreakerMiddleware creates circuit breaker middleware
+// CircuitBreakerMiddleware creates circuit breaker middleware.
 func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger forge.Logger) TransportMiddleware {
 	type circuitState struct {
 		failures int
@@ -283,6 +293,7 @@ func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger 
 	}
 
 	circuits := make(map[string]*circuitState)
+
 	var circuitsMu sync.RWMutex
 
 	return func(next TransportHandler) TransportHandler {
@@ -291,6 +302,7 @@ func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger 
 
 			// Get or create circuit
 			circuitsMu.Lock()
+
 			circuit, exists := circuits[peerID]
 			if !exists {
 				circuit = &circuitState{
@@ -298,6 +310,7 @@ func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger 
 				}
 				circuits[peerID] = circuit
 			}
+
 			circuitsMu.Unlock()
 
 			circuit.mu.Lock()
@@ -308,6 +321,7 @@ func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger 
 				if time.Since(circuit.lastFail) >= resetTimeout {
 					circuit.state = "half-open"
 					circuit.failures = 0
+
 					logger.Info("circuit breaker half-open",
 						forge.F("peer", peerID),
 					)
@@ -316,6 +330,7 @@ func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger 
 					logger.Warn("circuit breaker open",
 						forge.F("peer", peerID),
 					)
+
 					return fmt.Errorf("circuit breaker open for peer: %s", peerID)
 				}
 			}
@@ -344,6 +359,7 @@ func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger 
 				if circuit.state == "half-open" {
 					circuit.state = "closed"
 					circuit.failures = 0
+
 					logger.Info("circuit breaker closed",
 						forge.F("peer", peerID),
 					)
@@ -355,7 +371,7 @@ func CircuitBreakerMiddleware(threshold int, resetTimeout time.Duration, logger 
 	}
 }
 
-// DeduplicationMiddleware creates message deduplication middleware
+// DeduplicationMiddleware creates message deduplication middleware.
 func DeduplicationMiddleware(window time.Duration, logger forge.Logger) TransportMiddleware {
 	type msgKey struct {
 		from string
@@ -363,6 +379,7 @@ func DeduplicationMiddleware(window time.Duration, logger forge.Logger) Transpor
 	}
 
 	seen := make(map[msgKey]time.Time)
+
 	var seenMu sync.RWMutex
 
 	// Cleanup goroutine
@@ -372,12 +389,14 @@ func DeduplicationMiddleware(window time.Duration, logger forge.Logger) Transpor
 
 		for range ticker.C {
 			seenMu.Lock()
+
 			now := time.Now()
 			for key, timestamp := range seen {
 				if now.Sub(timestamp) > window {
 					delete(seen, key)
 				}
 			}
+
 			seenMu.Unlock()
 		}
 	}()
@@ -387,14 +406,16 @@ func DeduplicationMiddleware(window time.Duration, logger forge.Logger) Transpor
 			// Use timestamp as message ID since Index field doesn't exist
 			key := msgKey{
 				from: msg.From,
-				id:   fmt.Sprintf("%d", msg.Timestamp),
+				id:   strconv.FormatInt(msg.Timestamp, 10),
 			}
 
 			seenMu.Lock()
+
 			_, duplicate := seen[key]
 			if !duplicate {
 				seen[key] = time.Now()
 			}
+
 			seenMu.Unlock()
 
 			if duplicate {
@@ -402,6 +423,7 @@ func DeduplicationMiddleware(window time.Duration, logger forge.Logger) Transpor
 					forge.F("from", msg.From),
 					forge.F("id", key.id),
 				)
+
 				return nil // Silently drop duplicates
 			}
 

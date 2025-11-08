@@ -2,7 +2,7 @@ package search
 
 import "errors"
 
-// Common search errors
+// Common search errors.
 var (
 	ErrNotConnected       = errors.New("search: not connected")
 	ErrAlreadyConnected   = errors.New("search: already connected")

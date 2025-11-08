@@ -31,7 +31,6 @@ func TestCostTracker_RecordUsage(t *testing.T) {
 	}
 
 	err := ct.RecordUsage(context.Background(), usage)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -68,7 +67,7 @@ func TestCostTracker_GetInsights(t *testing.T) {
 	ct := NewCostTracker(nil, nil, nil)
 
 	// Record some usage
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		ct.RecordUsage(context.Background(), UsageRecord{
 			Provider:     "openai",
 			Model:        "gpt-4",
@@ -246,7 +245,7 @@ func TestCostTracker_GetOptimizationRecommendations(t *testing.T) {
 	ct := NewCostTracker(nil, nil, nil)
 
 	// Simulate expensive usage with low cache hit rate (>$100)
-	for i := 0; i < 5000; i++ {
+	for i := range 5000 {
 		ct.RecordUsage(context.Background(), UsageRecord{
 			Provider:     "openai",
 			Model:        "gpt-4",
@@ -260,14 +259,17 @@ func TestCostTracker_GetOptimizationRecommendations(t *testing.T) {
 
 	if len(recommendations) == 0 {
 		t.Log("No recommendations generated - this is acceptable if cost thresholds not met")
+
 		return
 	}
 
 	// Should recommend caching
 	foundCaching := false
+
 	for _, rec := range recommendations {
 		if rec.Type == "model_switch" {
 			foundCaching = true
+
 			break
 		}
 	}
@@ -317,8 +319,8 @@ func TestModelPricing_Calculation(t *testing.T) {
 	usage := UsageRecord{
 		Provider:     "openai",
 		Model:        "gpt-4",
-		InputTokens:  1000,  // 1K tokens
-		OutputTokens: 500,   // 0.5K tokens
+		InputTokens:  1000, // 1K tokens
+		OutputTokens: 500,  // 0.5K tokens
 	}
 
 	ct.RecordUsage(context.Background(), usage)
@@ -402,7 +404,7 @@ func TestCostInsights_ProjectedMonthly(t *testing.T) {
 	ct := NewCostTracker(nil, nil, nil)
 
 	// Simulate daily usage - record costs for this month
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		ct.RecordUsage(context.Background(), UsageRecord{
 			Provider: "openai",
 			Model:    "gpt-4",
@@ -429,36 +431,37 @@ func TestCostTracker_ThreadSafety(t *testing.T) {
 	done := make(chan bool)
 
 	// Concurrent writes
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				ct.RecordUsage(context.Background(), UsageRecord{
 					Provider: "test",
 					Model:    "test",
 					Cost:     0.1,
 				})
 			}
+
 			done <- true
 		}()
 	}
 
 	// Concurrent reads
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
-			for j := 0; j < 10; j++ {
+			for range 10 {
 				ct.GetInsights()
 				ct.GetBudgetStatus()
 				ct.GetUsageByModel(time.Now().Add(-1 * time.Hour))
 			}
+
 			done <- true
 		}()
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
 	// If we get here without data races, test passes
 }
-

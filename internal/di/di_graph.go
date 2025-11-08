@@ -4,7 +4,7 @@ import (
 	errors2 "github.com/xraph/forge/internal/errors"
 )
 
-// DependencyGraph manages service dependencies
+// DependencyGraph manages service dependencies.
 type DependencyGraph struct {
 	nodes map[string]*node
 }
@@ -14,14 +14,14 @@ type node struct {
 	dependencies []string
 }
 
-// NewDependencyGraph creates a new dependency graph
+// NewDependencyGraph creates a new dependency graph.
 func NewDependencyGraph() *DependencyGraph {
 	return &DependencyGraph{
 		nodes: make(map[string]*node),
 	}
 }
 
-// AddNode adds a node with its dependencies
+// AddNode adds a node with its dependencies.
 func (g *DependencyGraph) AddNode(name string, dependencies []string) {
 	g.nodes[name] = &node{
 		name:         name,
@@ -30,7 +30,7 @@ func (g *DependencyGraph) AddNode(name string, dependencies []string) {
 }
 
 // TopologicalSort returns nodes in dependency order
-// Returns error if circular dependency detected
+// Returns error if circular dependency detected.
 func (g *DependencyGraph) TopologicalSort() ([]string, error) {
 	// Track visited nodes
 	visited := make(map[string]bool)
@@ -47,7 +47,7 @@ func (g *DependencyGraph) TopologicalSort() ([]string, error) {
 	return result, nil
 }
 
-// visit performs DFS traversal
+// visit performs DFS traversal.
 func (g *DependencyGraph) visit(name string, visited, visiting map[string]bool, result *[]string) error {
 	if visited[name] {
 		return nil
@@ -56,6 +56,7 @@ func (g *DependencyGraph) visit(name string, visited, visiting map[string]bool, 
 	if visiting[name] {
 		// Build the cycle chain for better error message
 		cycle := []string{name}
+
 		return errors2.ErrCircularDependency(cycle)
 	}
 

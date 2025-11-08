@@ -3,10 +3,12 @@ package redis
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // TypingStore implements streaming.TypingStore with Redis backend.
@@ -20,6 +22,7 @@ func NewTypingStore(client *redis.Client, prefix string) streaming.TypingStore {
 	if prefix == "" {
 		prefix = "streaming:typing"
 	}
+
 	return &TypingStore{
 		client: client,
 		prefix: prefix,
@@ -38,6 +41,7 @@ func (s *TypingStore) SetTyping(ctx context.Context, userID, roomID string, expi
 
 func (s *TypingStore) RemoveTyping(ctx context.Context, userID, roomID string) error {
 	key := fmt.Sprintf("%s:%s", s.prefix, roomID)
+
 	return s.client.ZRem(ctx, key, userID).Err()
 }
 
@@ -46,11 +50,11 @@ func (s *TypingStore) GetTypingUsers(ctx context.Context, roomID string) ([]stri
 
 	// Get all users with expiration time > now
 	now := time.Now().Unix()
+
 	users, err := s.client.ZRangeByScore(ctx, key, &redis.ZRangeBy{
-		Min: fmt.Sprintf("%d", now),
+		Min: strconv.FormatInt(now, 10),
 		Max: "+inf",
 	}).Result()
-
 	if err != nil {
 		return nil, err
 	}
@@ -62,9 +66,10 @@ func (s *TypingStore) IsTyping(ctx context.Context, userID, roomID string) (bool
 	key := fmt.Sprintf("%s:%s", s.prefix, roomID)
 
 	score, err := s.client.ZScore(ctx, key, userID).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return false, nil
 	}
+
 	if err != nil {
 		return false, err
 	}
@@ -76,6 +81,7 @@ func (s *TypingStore) IsTyping(ctx context.Context, userID, roomID string) (bool
 func (s *TypingStore) CleanupExpired(ctx context.Context) error {
 	// Use SCAN to find all typing keys
 	var cursor uint64
+
 	now := time.Now().Unix()
 
 	for {

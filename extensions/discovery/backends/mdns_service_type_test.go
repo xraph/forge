@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMDNSCustomServiceType tests registration and discovery with custom service type
+// TestMDNSCustomServiceType tests registration and discovery with custom service type.
 func TestMDNSCustomServiceType(t *testing.T) {
 	// Create backend with custom service type
 	backend, err := NewMDNSBackend(MDNSConfig{
@@ -22,6 +22,7 @@ func TestMDNSCustomServiceType(t *testing.T) {
 	ctx := context.Background()
 	err = backend.Initialize(ctx)
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	// Register a service
@@ -62,7 +63,7 @@ func TestMDNSCustomServiceType(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestMDNSMultiTypeDiscovery tests discovering multiple service types (gateway use case)
+// TestMDNSMultiTypeDiscovery tests discovering multiple service types (gateway use case).
 func TestMDNSMultiTypeDiscovery(t *testing.T) {
 	// Create backend with multiple service types
 	backend, err := NewMDNSBackend(MDNSConfig{
@@ -79,6 +80,7 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 	ctx := context.Background()
 	err = backend.Initialize(ctx)
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	// Register services with different types
@@ -87,6 +89,7 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 		Domain:      "local.",
 		ServiceType: "_octopus._tcp",
 	})
+
 	backend1.Initialize(ctx)
 	defer backend1.Close()
 
@@ -94,6 +97,7 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 		Domain:      "local.",
 		ServiceType: "_farp._tcp",
 	})
+
 	backend2.Initialize(ctx)
 	defer backend2.Close()
 
@@ -107,6 +111,7 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 	}
 	err = backend1.Register(ctx, service1)
 	require.NoError(t, err)
+
 	defer backend1.Deregister(ctx, service1.ID)
 
 	// Register service 2 with _farp._tcp
@@ -119,6 +124,7 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 	}
 	err = backend2.Register(ctx, service2)
 	require.NoError(t, err)
+
 	defer backend2.Deregister(ctx, service2.ID)
 
 	// Give mDNS time to propagate
@@ -133,6 +139,7 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 
 	// Verify we have both service types
 	serviceTypes := make(map[string]bool)
+
 	for _, svc := range allServices {
 		if svcType, ok := svc.Metadata["mdns.service_type"]; ok {
 			serviceTypes[svcType] = true
@@ -143,7 +150,7 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 	assert.NotEmpty(t, serviceTypes, "should have service types in metadata")
 }
 
-// TestExtractServiceNameFromType tests the service name extraction helper
+// TestExtractServiceNameFromType tests the service name extraction helper.
 func TestExtractServiceNameFromType(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -185,7 +192,7 @@ func TestExtractServiceNameFromType(t *testing.T) {
 	}
 }
 
-// TestMDNSDefaultServiceType tests that service type defaults to service name
+// TestMDNSDefaultServiceType tests that service type defaults to service name.
 func TestMDNSDefaultServiceType(t *testing.T) {
 	// Create backend without custom service type
 	backend, err := NewMDNSBackend(MDNSConfig{
@@ -197,6 +204,7 @@ func TestMDNSDefaultServiceType(t *testing.T) {
 	ctx := context.Background()
 	err = backend.Initialize(ctx)
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	// Register a service (should use _my-service._tcp as default)
@@ -210,6 +218,7 @@ func TestMDNSDefaultServiceType(t *testing.T) {
 
 	err = backend.Register(ctx, instance)
 	require.NoError(t, err)
+
 	defer backend.Deregister(ctx, instance.ID)
 
 	// Give mDNS time to propagate
@@ -227,7 +236,7 @@ func TestMDNSDefaultServiceType(t *testing.T) {
 	}
 }
 
-// TestMDNSWatchIntervalConfig tests watch interval configuration
+// TestMDNSWatchIntervalConfig tests watch interval configuration.
 func TestMDNSWatchIntervalConfig(t *testing.T) {
 	customInterval := 45 * time.Second
 
@@ -240,7 +249,7 @@ func TestMDNSWatchIntervalConfig(t *testing.T) {
 	assert.Equal(t, customInterval, backend.config.WatchInterval)
 }
 
-// TestMDNSConfigDefaults tests that defaults are applied correctly
+// TestMDNSConfigDefaults tests that defaults are applied correctly.
 func TestMDNSConfigDefaults(t *testing.T) {
 	backend, err := NewMDNSBackend(MDNSConfig{})
 	require.NoError(t, err)

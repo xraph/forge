@@ -9,28 +9,29 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// AIAgent interface to break circular dependency
+// AIAgent interface to break circular dependency.
 type AIAgent interface {
 	ID() string
 	Name() string
 	Type() string
 	Capabilities() []Capability
-	Process(ctx context.Context, input interface{}) (interface{}, error)
-	GetStats() interface{}
-	GetHealth() interface{}
+	Process(ctx context.Context, input any) (any, error)
+	GetStats() any
+	GetHealth() any
 }
 
-// Capability represents a capability that an agent can perform
+// Capability represents a capability that an agent can perform.
 type Capability struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// CoordinationStrategy defines different coordination strategies
+// CoordinationStrategy defines different coordination strategies.
 type CoordinationStrategy string
 
 const (
@@ -43,7 +44,7 @@ const (
 	CoordinationStrategyHybrid       CoordinationStrategy = "hybrid"       // Hybrid approach
 )
 
-// CoordinationObjective defines what the coordination is trying to achieve
+// CoordinationObjective defines what the coordination is trying to achieve.
 type CoordinationObjective string
 
 const (
@@ -56,7 +57,7 @@ const (
 	CoordinationObjectiveHealthManage   CoordinationObjective = "health_manage"   // Health management
 )
 
-// CoordinationPlan represents a coordination plan
+// CoordinationPlan represents a coordination plan.
 type CoordinationPlan struct {
 	ID           string                   `json:"id"`
 	Objective    CoordinationObjective    `json:"objective"`
@@ -70,58 +71,58 @@ type CoordinationPlan struct {
 	CreatedAt    time.Time                `json:"created_at"`
 	StartedAt    time.Time                `json:"started_at"`
 	CompletedAt  time.Time                `json:"completed_at"`
-	Metadata     map[string]interface{}   `json:"metadata"`
+	Metadata     map[string]any           `json:"metadata"`
 }
 
-// CoordinationAction represents an action within a coordination plan
+// CoordinationAction represents an action within a coordination plan.
 type CoordinationAction struct {
-	ID           string                 `json:"id"`
-	Type         string                 `json:"type"`
-	Agent        string                 `json:"agent"`
-	Description  string                 `json:"description"`
-	Parameters   map[string]interface{} `json:"parameters"`
-	Dependencies []string               `json:"dependencies"`
-	Priority     int                    `json:"priority"`
-	Timeout      time.Duration          `json:"timeout"`
-	Retries      int                    `json:"retries"`
-	Status       ActionStatus           `json:"status"`
-	Result       interface{}            `json:"result"`
-	StartedAt    time.Time              `json:"started_at"`
-	CompletedAt  time.Time              `json:"completed_at"`
-	Error        string                 `json:"error,omitempty"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Agent        string         `json:"agent"`
+	Description  string         `json:"description"`
+	Parameters   map[string]any `json:"parameters"`
+	Dependencies []string       `json:"dependencies"`
+	Priority     int            `json:"priority"`
+	Timeout      time.Duration  `json:"timeout"`
+	Retries      int            `json:"retries"`
+	Status       ActionStatus   `json:"status"`
+	Result       any            `json:"result"`
+	StartedAt    time.Time      `json:"started_at"`
+	CompletedAt  time.Time      `json:"completed_at"`
+	Error        string         `json:"error,omitempty"`
 }
 
-// CoordinationPhase represents a phase in the coordination timeline
+// CoordinationPhase represents a phase in the coordination timeline.
 type CoordinationPhase struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Actions     []string               `json:"actions"` // Action IDs
-	StartTime   time.Time              `json:"start_time"`
-	EndTime     time.Time              `json:"end_time"`
-	Status      PhaseStatus            `json:"status"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Actions     []string       `json:"actions"` // Action IDs
+	StartTime   time.Time      `json:"start_time"`
+	EndTime     time.Time      `json:"end_time"`
+	Status      PhaseStatus    `json:"status"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// CoordinationConstraint represents a constraint on the coordination
+// CoordinationConstraint represents a constraint on the coordination.
 type CoordinationConstraint struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Violations  int                    `json:"violations"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+	Violations  int            `json:"violations"`
 }
 
-// SuccessMetrics defines success criteria for coordination
+// SuccessMetrics defines success criteria for coordination.
 type SuccessMetrics struct {
-	TargetLatency     time.Duration          `json:"target_latency"`
-	MinSuccessRate    float64                `json:"min_success_rate"`
-	MaxResourceUsage  float64                `json:"max_resource_usage"`
-	RequiredConsensus float64                `json:"required_consensus"`
-	CustomMetrics     map[string]interface{} `json:"custom_metrics"`
+	TargetLatency     time.Duration  `json:"target_latency"`
+	MinSuccessRate    float64        `json:"min_success_rate"`
+	MaxResourceUsage  float64        `json:"max_resource_usage"`
+	RequiredConsensus float64        `json:"required_consensus"`
+	CustomMetrics     map[string]any `json:"custom_metrics"`
 }
 
-// Enum types for statuses
+// Enum types for statuses.
 type PlanStatus string
 
 const (
@@ -152,7 +153,7 @@ const (
 	PhaseStatusFailed    PhaseStatus = "failed"
 )
 
-// CoordinationExecutor executes coordination plans using different strategies
+// CoordinationExecutor executes coordination plans using different strategies.
 type CoordinationExecutor struct {
 	strategy     CoordinationStrategy
 	communicator *CommunicationManager
@@ -166,7 +167,7 @@ type CoordinationExecutor struct {
 	mu           sync.RWMutex
 }
 
-// StrategyHandler defines the interface for coordination strategy implementations
+// StrategyHandler defines the interface for coordination strategy implementations.
 type StrategyHandler interface {
 	Name() string
 	Execute(ctx context.Context, plan *CoordinationPlan, executor *CoordinationExecutor) error
@@ -175,7 +176,7 @@ type StrategyHandler interface {
 	CalculateResourceRequirements(plan *CoordinationPlan) ResourceRequirements
 }
 
-// ResourceRequirements represents the resources needed for coordination
+// ResourceRequirements represents the resources needed for coordination.
 type ResourceRequirements struct {
 	CPUCores    float64       `json:"cpu_cores"`
 	MemoryMB    int64         `json:"memory_mb"`
@@ -184,7 +185,7 @@ type ResourceRequirements struct {
 	Duration    time.Duration `json:"duration"`
 }
 
-// NewCoordinationExecutor creates a new coordination executor
+// NewCoordinationExecutor creates a new coordination executor.
 func NewCoordinationExecutor(
 	strategy CoordinationStrategy,
 	communicator *CommunicationManager,
@@ -210,7 +211,7 @@ func NewCoordinationExecutor(
 	return executor
 }
 
-// registerStrategies registers all available coordination strategies
+// registerStrategies registers all available coordination strategies.
 func (ce *CoordinationExecutor) registerStrategies() {
 	ce.strategies[CoordinationStrategyHierarchical] = &HierarchicalStrategy{}
 	ce.strategies[CoordinationStrategyDistributed] = &DistributedStrategy{}
@@ -221,7 +222,7 @@ func (ce *CoordinationExecutor) registerStrategies() {
 	ce.strategies[CoordinationStrategyHybrid] = &HybridStrategy{}
 }
 
-// RegisterAgent registers an agent for coordination
+// RegisterAgent registers an agent for coordination.
 func (ce *CoordinationExecutor) RegisterAgent(agent AIAgent) error {
 	ce.mu.Lock()
 	defer ce.mu.Unlock()
@@ -238,7 +239,7 @@ func (ce *CoordinationExecutor) RegisterAgent(agent AIAgent) error {
 	return nil
 }
 
-// CreatePlan creates a new coordination plan
+// CreatePlan creates a new coordination plan.
 func (ce *CoordinationExecutor) CreatePlan(objective CoordinationObjective, participants []string) (*CoordinationPlan, error) {
 	plan := &CoordinationPlan{
 		ID:           ce.generatePlanID(),
@@ -251,7 +252,7 @@ func (ce *CoordinationExecutor) CreatePlan(objective CoordinationObjective, part
 		Success:      SuccessMetrics{},
 		Status:       PlanStatusDraft,
 		CreatedAt:    time.Now(),
-		Metadata:     make(map[string]interface{}),
+		Metadata:     make(map[string]any),
 	}
 
 	// Generate plan based on objective and strategy
@@ -262,13 +263,16 @@ func (ce *CoordinationExecutor) CreatePlan(objective CoordinationObjective, part
 	return plan, nil
 }
 
-// ExecutePlan executes a coordination plan
+// ExecutePlan executes a coordination plan.
 func (ce *CoordinationExecutor) ExecutePlan(ctx context.Context, plan *CoordinationPlan) error {
 	ce.mu.Lock()
+
 	if _, exists := ce.activePlans[plan.ID]; exists {
 		ce.mu.Unlock()
+
 		return fmt.Errorf("plan %s is already executing", plan.ID)
 	}
+
 	ce.activePlans[plan.ID] = plan
 	ce.mu.Unlock()
 
@@ -287,6 +291,7 @@ func (ce *CoordinationExecutor) ExecutePlan(ctx context.Context, plan *Coordinat
 
 	if err := strategy.ValidatePlan(plan); err != nil {
 		plan.Status = PlanStatusFailed
+
 		return fmt.Errorf("plan validation failed: %w", err)
 	}
 
@@ -335,7 +340,7 @@ func (ce *CoordinationExecutor) ExecutePlan(ctx context.Context, plan *Coordinat
 	return nil
 }
 
-// generatePlan generates a coordination plan based on objective and strategy
+// generatePlan generates a coordination plan based on objective and strategy.
 func (ce *CoordinationExecutor) generatePlan(plan *CoordinationPlan) error {
 	switch plan.Objective {
 	case CoordinationObjectiveOptimization:
@@ -397,7 +402,7 @@ func (ce *CoordinationExecutor) generateOptimizationPlan(plan *CoordinationPlan)
 			Type:        "optimize",
 			Agent:       participant,
 			Description: "Analyze and optimize assigned components",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"scope":       "assigned_components",
 				"max_changes": 5,
 				"safe_mode":   true,
@@ -428,7 +433,7 @@ func (ce *CoordinationExecutor) generateLoadBalancePlan(plan *CoordinationPlan) 
 			Type:        "balance_load",
 			Agent:       participant,
 			Description: "Participate in load balancing coordination",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"strategy":      "weighted_round_robin",
 				"health_check":  true,
 				"gradual_shift": true,
@@ -457,7 +462,7 @@ func (ce *CoordinationExecutor) generateResourceAllocationPlan(plan *Coordinatio
 			Type:        "allocate_resources",
 			Agent:       participant,
 			Description: "Negotiate and allocate system resources",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"resource_types": []string{"cpu", "memory", "network"},
 				"priority":       "medium",
 				"flexible":       true,
@@ -480,7 +485,7 @@ func (ce *CoordinationExecutor) generateThreatResponsePlan(plan *CoordinationPla
 			Type:        "threat_response",
 			Agent:       participant,
 			Description: "Coordinate security threat response",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"response_mode": "defensive",
 				"isolate":       true,
 				"alert_level":   "high",
@@ -509,7 +514,7 @@ func (ce *CoordinationExecutor) generateFailoverPlan(plan *CoordinationPlan) err
 			Type:        "failover",
 			Agent:       participant,
 			Description: "Coordinate service failover",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"backup_services": true,
 				"data_sync":       true,
 				"health_check":    true,
@@ -532,7 +537,7 @@ func (ce *CoordinationExecutor) generateScalingPlan(plan *CoordinationPlan) erro
 			Type:        "auto_scale",
 			Agent:       participant,
 			Description: "Coordinate auto-scaling decisions",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"scale_direction": "up",
 				"max_instances":   10,
 				"gradual":         true,
@@ -555,7 +560,7 @@ func (ce *CoordinationExecutor) generateHealthManagementPlan(plan *CoordinationP
 			Type:        "health_management",
 			Agent:       participant,
 			Description: "Coordinate health monitoring and recovery",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"monitoring_level": "detailed",
 				"auto_recovery":    true,
 				"escalation":       true,
@@ -576,7 +581,7 @@ func (ce *CoordinationExecutor) generatePlanID() string {
 
 // Strategy Implementations
 
-// HierarchicalStrategy implements top-down hierarchical coordination
+// HierarchicalStrategy implements top-down hierarchical coordination.
 type HierarchicalStrategy struct{}
 
 func (hs *HierarchicalStrategy) Name() string {
@@ -604,8 +609,9 @@ func (hs *HierarchicalStrategy) Execute(ctx context.Context, plan *CoordinationP
 
 func (hs *HierarchicalStrategy) ValidatePlan(plan *CoordinationPlan) error {
 	if len(plan.Participants) < 1 {
-		return fmt.Errorf("hierarchical strategy requires at least 1 participant")
+		return errors.New("hierarchical strategy requires at least 1 participant")
 	}
+
 	return nil
 }
 
@@ -614,6 +620,7 @@ func (hs *HierarchicalStrategy) EstimateDuration(plan *CoordinationPlan) time.Du
 	for _, action := range plan.Actions {
 		total += action.Timeout
 	}
+
 	return total
 }
 
@@ -627,7 +634,7 @@ func (hs *HierarchicalStrategy) CalculateResourceRequirements(plan *Coordination
 	}
 }
 
-// DistributedStrategy implements peer-to-peer distributed coordination
+// DistributedStrategy implements peer-to-peer distributed coordination.
 type DistributedStrategy struct{}
 
 func (ds *DistributedStrategy) Name() string {
@@ -643,11 +650,12 @@ func (ds *DistributedStrategy) Execute(ctx context.Context, plan *CoordinationPl
 	for _, action := range plan.Actions {
 		actionCh <- action
 	}
+
 	close(actionCh)
 
 	// Process actions concurrently
 	workers := int(math.Min(float64(len(plan.Actions)), 5)) // Max 5 concurrent actions
-	for i := 0; i < workers; i++ {
+	for range workers {
 		go func() {
 			for action := range actionCh {
 				err := executor.executeAction(ctx, &action)
@@ -669,8 +677,9 @@ func (ds *DistributedStrategy) Execute(ctx context.Context, plan *CoordinationPl
 
 func (ds *DistributedStrategy) ValidatePlan(plan *CoordinationPlan) error {
 	if len(plan.Participants) < 2 {
-		return fmt.Errorf("distributed strategy requires at least 2 participants")
+		return errors.New("distributed strategy requires at least 2 participants")
 	}
+
 	return nil
 }
 
@@ -681,6 +690,7 @@ func (ds *DistributedStrategy) EstimateDuration(plan *CoordinationPlan) time.Dur
 			maxTimeout = action.Timeout
 		}
 	}
+
 	return maxTimeout // Parallel execution
 }
 
@@ -695,7 +705,7 @@ func (ds *DistributedStrategy) CalculateResourceRequirements(plan *CoordinationP
 	}
 }
 
-// ConsensusStrategy implements consensus-based coordination
+// ConsensusStrategy implements consensus-based coordination.
 type ConsensusStrategy struct {
 	consensus *ConsensusManager
 }
@@ -710,7 +720,7 @@ func (cs *ConsensusStrategy) Execute(ctx context.Context, plan *CoordinationPlan
 		Type:         "execute_plan",
 		Description:  "Execute coordination plan through consensus",
 		Participants: plan.Participants,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"plan_id":   plan.ID,
 			"objective": plan.Objective,
 		},
@@ -732,17 +742,20 @@ func (cs *ConsensusStrategy) Execute(ctx context.Context, plan *CoordinationPlan
 
 func (cs *ConsensusStrategy) ValidatePlan(plan *CoordinationPlan) error {
 	if len(plan.Participants) < 3 {
-		return fmt.Errorf("consensus strategy requires at least 3 participants")
+		return errors.New("consensus strategy requires at least 3 participants")
 	}
+
 	return nil
 }
 
 func (cs *ConsensusStrategy) EstimateDuration(plan *CoordinationPlan) time.Duration {
 	consensusTime := 30 * time.Second // Estimated consensus time
+
 	executionTime := time.Duration(0)
 	for _, action := range plan.Actions {
 		executionTime += action.Timeout
 	}
+
 	return consensusTime + executionTime
 }
 
@@ -757,7 +770,7 @@ func (cs *ConsensusStrategy) CalculateResourceRequirements(plan *CoordinationPla
 	}
 }
 
-// MarketStrategy implements market-based coordination
+// MarketStrategy implements market-based coordination.
 type MarketStrategy struct{}
 
 func (ms *MarketStrategy) Name() string {
@@ -772,6 +785,7 @@ func (ms *MarketStrategy) Execute(ctx context.Context, plan *CoordinationPlan, e
 			return fmt.Errorf("market execution failed: %w", err)
 		}
 	}
+
 	return nil
 }
 
@@ -793,7 +807,7 @@ func (ms *MarketStrategy) CalculateResourceRequirements(plan *CoordinationPlan) 
 	}
 }
 
-// SwarmStrategy implements swarm intelligence coordination
+// SwarmStrategy implements swarm intelligence coordination.
 type SwarmStrategy struct{}
 
 func (ss *SwarmStrategy) Name() string {
@@ -808,19 +822,22 @@ func (ss *SwarmStrategy) Execute(ctx context.Context, plan *CoordinationPlan, ex
 			return fmt.Errorf("swarm execution failed: %w", err)
 		}
 	}
+
 	return nil
 }
 
 func (ss *SwarmStrategy) ValidatePlan(plan *CoordinationPlan) error {
 	if len(plan.Participants) < 4 {
-		return fmt.Errorf("swarm strategy works best with at least 4 participants")
+		return errors.New("swarm strategy works best with at least 4 participants")
 	}
+
 	return nil
 }
 
 func (ss *SwarmStrategy) EstimateDuration(plan *CoordinationPlan) time.Duration {
 	// Swarm behavior can be unpredictable
 	baseTime := time.Duration(len(plan.Actions)) * 20 * time.Second
+
 	return baseTime + time.Duration(float64(baseTime)*0.2) // Add 20% variance
 }
 
@@ -834,7 +851,7 @@ func (ss *SwarmStrategy) CalculateResourceRequirements(plan *CoordinationPlan) R
 	}
 }
 
-// FederatedStrategy implements federated coordination
+// FederatedStrategy implements federated coordination.
 type FederatedStrategy struct{}
 
 func (fs *FederatedStrategy) Name() string {
@@ -848,6 +865,7 @@ func (fs *FederatedStrategy) Execute(ctx context.Context, plan *CoordinationPlan
 			return fmt.Errorf("federated execution failed: %w", err)
 		}
 	}
+
 	return nil
 }
 
@@ -869,7 +887,7 @@ func (fs *FederatedStrategy) CalculateResourceRequirements(plan *CoordinationPla
 	}
 }
 
-// HybridStrategy combines multiple strategies
+// HybridStrategy combines multiple strategies.
 type HybridStrategy struct{}
 
 func (hs *HybridStrategy) Name() string {
@@ -903,10 +921,11 @@ func (hs *HybridStrategy) Execute(ctx context.Context, plan *CoordinationPlan, e
 	for _, action := range normalActions {
 		actionCh <- action
 	}
+
 	close(actionCh)
 
 	workers := int(math.Min(float64(len(normalActions)), 3))
-	for i := 0; i < workers; i++ {
+	for range workers {
 		go func() {
 			for action := range actionCh {
 				err := executor.executeAction(ctx, &action)
@@ -954,7 +973,7 @@ func (hs *HybridStrategy) CalculateResourceRequirements(plan *CoordinationPlan) 
 	}
 }
 
-// executeAction executes a single coordination action
+// executeAction executes a single coordination action.
 func (ce *CoordinationExecutor) executeAction(ctx context.Context, action *CoordinationAction) error {
 	// Find the agent for this action
 	agent, exists := ce.agents[action.Agent]
@@ -967,7 +986,7 @@ func (ce *CoordinationExecutor) executeAction(ctx context.Context, action *Coord
 	action.StartedAt = time.Now()
 
 	// Create input for the agent
-	input := map[string]interface{}{
+	input := map[string]any{
 		"action_type": action.Type,
 		"parameters":  action.Parameters,
 		"timeout":     action.Timeout,
@@ -979,6 +998,7 @@ func (ce *CoordinationExecutor) executeAction(ctx context.Context, action *Coord
 		action.Status = ActionStatusFailed
 		action.Error = err.Error()
 		action.CompletedAt = time.Now()
+
 		return err
 	}
 

@@ -13,7 +13,7 @@ import (
 func TestWithDefault(t *testing.T) {
 	tests := []struct {
 		name         string
-		defaultValue interface{}
+		defaultValue any
 	}{
 		{"string default", "default_value"},
 		{"int default", 42},
@@ -62,10 +62,11 @@ func TestWithRequired(t *testing.T) {
 // =============================================================================
 
 func TestWithValidator(t *testing.T) {
-	validator := func(v interface{}) error {
+	validator := func(v any) error {
 		if v == nil {
 			return ErrValidationError("nil value", nil)
 		}
+
 		return nil
 	}
 
@@ -113,10 +114,11 @@ func TestWithValidator_Nil(t *testing.T) {
 // =============================================================================
 
 func TestWithTransform(t *testing.T) {
-	transform := func(v interface{}) interface{} {
+	transform := func(v any) any {
 		if str, ok := v.(string); ok {
 			return str + "_transformed"
 		}
+
 		return v
 	}
 
@@ -165,7 +167,7 @@ func TestWithTransform_Nil(t *testing.T) {
 // =============================================================================
 
 func TestWithOnMissing(t *testing.T) {
-	onMissing := func(key string) interface{} {
+	onMissing := func(key string) any {
 		return "fallback_" + key
 	}
 
@@ -267,23 +269,26 @@ func TestMultipleOptions(t *testing.T) {
 		if opts.Default == nil {
 			t.Error("Default should be set")
 		}
+
 		if opts.Default != "default_value" {
 			t.Errorf("DefaultValue = %v, want %v", opts.Default, "default_value")
 		}
+
 		if !opts.Required {
 			t.Error("Required should be true")
 		}
 	})
 
 	t.Run("combine validator and transform", func(t *testing.T) {
-		validator := func(v interface{}) error {
+		validator := func(v any) error {
 			if v == nil {
 				return ErrValidationError("nil", nil)
 			}
+
 			return nil
 		}
 
-		transform := func(v interface{}) interface{} {
+		transform := func(v any) any {
 			return "transformed"
 		}
 
@@ -295,6 +300,7 @@ func TestMultipleOptions(t *testing.T) {
 		if opts.Validator == nil {
 			t.Error("Validator should not be nil")
 		}
+
 		if opts.Transform == nil {
 			t.Error("Transform should not be nil")
 		}
@@ -316,9 +322,9 @@ func TestMultipleOptions(t *testing.T) {
 
 		WithDefault("default")(opts)
 		WithRequired()(opts)
-		WithValidator(func(v interface{}) error { return nil })(opts)
-		WithTransform(func(v interface{}) interface{} { return v })(opts)
-		WithOnMissing(func(key string) interface{} { return "missing" })(opts)
+		WithValidator(func(v any) error { return nil })(opts)
+		WithTransform(func(v any) any { return v })(opts)
+		WithOnMissing(func(key string) any { return "missing" })(opts)
 		AllowEmpty()(opts)
 		WithCacheKey("cache")(opts)
 
@@ -326,21 +332,27 @@ func TestMultipleOptions(t *testing.T) {
 		if opts.Default == nil {
 			t.Error("Default should be set")
 		}
+
 		if !opts.Required {
 			t.Error("Required should be true")
 		}
+
 		if opts.Validator == nil {
 			t.Error("Validator should not be nil")
 		}
+
 		if opts.Transform == nil {
 			t.Error("Transform should not be nil")
 		}
+
 		if opts.OnMissing == nil {
 			t.Error("OnMissing should not be nil")
 		}
+
 		if !opts.AllowEmpty {
 			t.Error("AllowEmpty should be true")
 		}
+
 		if opts.CacheKey != "cache" {
 			t.Errorf("CacheKey = %v, want cache", opts.CacheKey)
 		}
@@ -393,10 +405,11 @@ func TestOptionPrecedence(t *testing.T) {
 
 func TestValidatorFunctions(t *testing.T) {
 	t.Run("type validator", func(t *testing.T) {
-		validator := func(v interface{}) error {
+		validator := func(v any) error {
 			if _, ok := v.(string); !ok {
 				return ErrValidationError("not a string", nil)
 			}
+
 			return nil
 		}
 
@@ -418,14 +431,16 @@ func TestValidatorFunctions(t *testing.T) {
 	})
 
 	t.Run("range validator", func(t *testing.T) {
-		validator := func(v interface{}) error {
+		validator := func(v any) error {
 			num, ok := v.(int)
 			if !ok {
 				return ErrValidationError("not an int", nil)
 			}
+
 			if num < 0 || num > 100 {
 				return ErrValidationError("out of range", nil)
 			}
+
 			return nil
 		}
 
@@ -451,14 +466,16 @@ func TestValidatorFunctions(t *testing.T) {
 	})
 
 	t.Run("pattern validator", func(t *testing.T) {
-		validator := func(v interface{}) error {
+		validator := func(v any) error {
 			str, ok := v.(string)
 			if !ok {
 				return ErrValidationError("not a string", nil)
 			}
+
 			if len(str) < 3 {
 				return ErrValidationError("too short", nil)
 			}
+
 			return nil
 		}
 
@@ -484,10 +501,11 @@ func TestValidatorFunctions(t *testing.T) {
 
 func TestTransformFunctions(t *testing.T) {
 	t.Run("uppercase transform", func(t *testing.T) {
-		transform := func(v interface{}) interface{} {
+		transform := func(v any) any {
 			if str, ok := v.(string); ok {
 				return str + "_UPPER"
 			}
+
 			return v
 		}
 
@@ -508,13 +526,14 @@ func TestTransformFunctions(t *testing.T) {
 	})
 
 	t.Run("type conversion transform", func(t *testing.T) {
-		transform := func(v interface{}) interface{} {
+		transform := func(v any) any {
 			if str, ok := v.(string); ok {
 				// Try to convert to int
 				if str == "42" {
 					return 42
 				}
 			}
+
 			return v
 		}
 
@@ -534,10 +553,11 @@ func TestTransformFunctions(t *testing.T) {
 	})
 
 	t.Run("nil handling transform", func(t *testing.T) {
-		transform := func(v interface{}) interface{} {
+		transform := func(v any) any {
 			if v == nil {
 				return "default"
 			}
+
 			return v
 		}
 
@@ -563,7 +583,7 @@ func TestTransformFunctions(t *testing.T) {
 
 func TestOnMissingFunctions(t *testing.T) {
 	t.Run("static fallback", func(t *testing.T) {
-		onMissing := func(key string) interface{} {
+		onMissing := func(key string) any {
 			return "fallback"
 		}
 
@@ -578,14 +598,15 @@ func TestOnMissingFunctions(t *testing.T) {
 	})
 
 	t.Run("key-based fallback", func(t *testing.T) {
-		onMissing := func(key string) interface{} {
-			defaults := map[string]interface{}{
+		onMissing := func(key string) any {
+			defaults := map[string]any{
 				"host": "localhost",
 				"port": 8080,
 			}
 			if val, ok := defaults[key]; ok {
 				return val
 			}
+
 			return nil
 		}
 
@@ -610,7 +631,7 @@ func TestOnMissingFunctions(t *testing.T) {
 	})
 
 	t.Run("computed fallback", func(t *testing.T) {
-		onMissing := func(key string) interface{} {
+		onMissing := func(key string) any {
 			// Generate value based on key
 			return key + "_generated"
 		}
@@ -639,6 +660,7 @@ func TestOptionsEdgeCases(t *testing.T) {
 		if opts.Default != "" {
 			t.Errorf("DefaultValue = %v, want empty string", opts.Default)
 		}
+
 		if opts.Default == nil {
 			t.Error("Default should be set even for empty string")
 		}
@@ -652,6 +674,7 @@ func TestOptionsEdgeCases(t *testing.T) {
 		if opts.Default != 0 {
 			t.Errorf("DefaultValue = %v, want 0", opts.Default)
 		}
+
 		if opts.Default == nil {
 			t.Error("Default should be set even for zero value")
 		}
@@ -665,6 +688,7 @@ func TestOptionsEdgeCases(t *testing.T) {
 		if opts.Default != false {
 			t.Errorf("DefaultValue = %v, want false", opts.Default)
 		}
+
 		if opts.Default == nil {
 			t.Error("Default should be set even for false")
 		}
@@ -687,21 +711,24 @@ func TestOptionsEdgeCases(t *testing.T) {
 
 func TestComplexScenarios(t *testing.T) {
 	t.Run("validated and transformed value", func(t *testing.T) {
-		validator := func(v interface{}) error {
+		validator := func(v any) error {
 			str, ok := v.(string)
 			if !ok {
 				return ErrValidationError("not a string", nil)
 			}
+
 			if len(str) < 3 {
 				return ErrValidationError("too short", nil)
 			}
+
 			return nil
 		}
 
-		transform := func(v interface{}) interface{} {
+		transform := func(v any) any {
 			if str, ok := v.(string); ok {
 				return str + "_transformed"
 			}
+
 			return v
 		}
 
@@ -733,7 +760,7 @@ func TestComplexScenarios(t *testing.T) {
 
 		WithRequired()(opts)
 		WithDefault("default_value")(opts)
-		WithOnMissing(func(key string) interface{} {
+		WithOnMissing(func(key string) any {
 			return "missing_value"
 		})(opts)
 
@@ -741,9 +768,11 @@ func TestComplexScenarios(t *testing.T) {
 		if !opts.Required {
 			t.Error("Required should be true")
 		}
+
 		if opts.Default == nil {
 			t.Error("Default should be set")
 		}
+
 		if opts.OnMissing == nil {
 			t.Error("OnMissing should not be nil")
 		}
@@ -773,6 +802,7 @@ func TestOptionReusability(t *testing.T) {
 		if opts1.Default != "value" {
 			t.Errorf("opts1.Default = %v, want value", opts1.Default)
 		}
+
 		if opts2.Default != "value" {
 			t.Errorf("opts2.Default = %v, want value", opts2.Default)
 		}
@@ -788,6 +818,7 @@ func TestOptionReusability(t *testing.T) {
 		if opts1.Default != "value1" {
 			t.Errorf("opts1.Default = %v, want value1", opts1.Default)
 		}
+
 		if opts2.Default != "value2" {
 			t.Errorf("opts2.Default = %v, want value2", opts2.Default)
 		}

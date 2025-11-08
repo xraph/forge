@@ -15,7 +15,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// MongoDatabase wraps MongoDB client
+// MongoDatabase wraps MongoDB client.
 type MongoDatabase struct {
 	name   string
 	config DatabaseConfig
@@ -31,7 +31,7 @@ type MongoDatabase struct {
 	metrics forge.Metrics
 }
 
-// NewMongoDatabase creates a new MongoDB database instance
+// NewMongoDatabase creates a new MongoDB database instance.
 func NewMongoDatabase(config DatabaseConfig, logger forge.Logger, metrics forge.Metrics) (*MongoDatabase, error) {
 	db := &MongoDatabase{
 		name:    config.Name,
@@ -40,22 +40,21 @@ func NewMongoDatabase(config DatabaseConfig, logger forge.Logger, metrics forge.
 		metrics: metrics,
 	}
 	db.state.Store(int32(StateDisconnected))
+
 	return db, nil
 }
 
-// Open establishes the MongoDB connection with retry logic
+// Open establishes the MongoDB connection with retry logic.
 func (d *MongoDatabase) Open(ctx context.Context) error {
 	d.state.Store(int32(StateConnecting))
 
 	var lastErr error
+
 	for attempt := 0; attempt <= d.config.MaxRetries; attempt++ {
 		if attempt > 0 {
 			d.state.Store(int32(StateReconnecting))
 			// Apply exponential backoff
-			delay := d.config.RetryDelay * time.Duration(1<<uint(attempt-1))
-			if delay > 30*time.Second {
-				delay = 30 * time.Second
-			}
+			delay := min(d.config.RetryDelay*time.Duration(1<<uint(attempt-1)), 30*time.Second)
 
 			d.logger.Info("retrying mongodb connection",
 				logger.String("name", d.name),
@@ -68,6 +67,7 @@ func (d *MongoDatabase) Open(ctx context.Context) error {
 			case <-time.After(delay):
 			case <-ctx.Done():
 				d.state.Store(int32(StateError))
+
 				return ctx.Err()
 			}
 		}
@@ -79,6 +79,7 @@ func (d *MongoDatabase) Open(ctx context.Context) error {
 				logger.Int("attempt", attempt+1),
 				logger.Error(err),
 			)
+
 			continue
 		}
 
@@ -90,19 +91,23 @@ func (d *MongoDatabase) Open(ctx context.Context) error {
 			logger.String("dsn", MaskDSN(d.config.DSN, TypeMongoDB)),
 			logger.Int("attempts", attempt+1),
 		)
+
 		return nil
 	}
 
 	d.state.Store(int32(StateError))
+
 	return ErrConnectionFailed(d.name, TypeMongoDB, fmt.Errorf("failed after %d attempts: %w", d.config.MaxRetries+1, lastErr))
 }
 
-// openAttempt performs a single connection attempt
+// openAttempt performs a single connection attempt.
 func (d *MongoDatabase) openAttempt(ctx context.Context) error {
 	// Add timeout for connection
 	connectCtx := ctx
+
 	if d.config.ConnectionTimeout > 0 {
 		var cancel context.CancelFunc
+
 		connectCtx, cancel = context.WithTimeout(ctx, d.config.ConnectionTimeout)
 		defer cancel()
 	}
@@ -137,6 +142,7 @@ func (d *MongoDatabase) openAttempt(ctx context.Context) error {
 	// Verify connection
 	if err := client.Ping(connectCtx, nil); err != nil {
 		client.Disconnect(ctx)
+
 		return fmt.Errorf("failed to ping MongoDB: %w", err)
 	}
 
@@ -149,22 +155,26 @@ func (d *MongoDatabase) openAttempt(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the MongoDB connection
+// Close closes the MongoDB connection.
 func (d *MongoDatabase) Close(ctx context.Context) error {
 	if d.client != nil {
 		err := d.client.Disconnect(ctx)
 		if err != nil {
 			d.state.Store(int32(StateError))
+
 			return ErrConnectionFailed(d.name, TypeMongoDB, fmt.Errorf("failed to close: %w", err))
 		}
+
 		d.state.Store(int32(StateDisconnected))
 		d.logger.Info("mongodb closed", logger.String("name", d.name))
+
 		return nil
 	}
+
 	return nil
 }
 
-// Ping checks MongoDB connectivity
+// Ping checks MongoDB connectivity.
 func (d *MongoDatabase) Ping(ctx context.Context) error {
 	if d.client == nil {
 		return ErrDatabaseNotOpened(d.name)
@@ -172,8 +182,10 @@ func (d *MongoDatabase) Ping(ctx context.Context) error {
 
 	// Add timeout if configured
 	pingCtx := ctx
+
 	if d.config.ConnectionTimeout > 0 {
 		var cancel context.CancelFunc
+
 		pingCtx, cancel = context.WithTimeout(ctx, d.config.ConnectionTimeout)
 		defer cancel()
 	}
@@ -181,47 +193,47 @@ func (d *MongoDatabase) Ping(ctx context.Context) error {
 	return d.client.Ping(pingCtx, nil)
 }
 
-// IsOpen returns whether the database is connected
+// IsOpen returns whether the database is connected.
 func (d *MongoDatabase) IsOpen() bool {
 	return d.State() == StateConnected
 }
 
-// State returns the current connection state
+// State returns the current connection state.
 func (d *MongoDatabase) State() ConnectionState {
 	return ConnectionState(d.state.Load())
 }
 
-// Name returns the database name
+// Name returns the database name.
 func (d *MongoDatabase) Name() string {
 	return d.name
 }
 
-// Type returns the database type
+// Type returns the database type.
 func (d *MongoDatabase) Type() DatabaseType {
 	return TypeMongoDB
 }
 
-// Driver returns the *mongo.Client for native driver access
-func (d *MongoDatabase) Driver() interface{} {
+// Driver returns the *mongo.Client for native driver access.
+func (d *MongoDatabase) Driver() any {
 	return d.client
 }
 
-// Client returns the MongoDB client
+// Client returns the MongoDB client.
 func (d *MongoDatabase) Client() *mongo.Client {
 	return d.client
 }
 
-// Database returns the MongoDB database
+// Database returns the MongoDB database.
 func (d *MongoDatabase) Database() *mongo.Database {
 	return d.database
 }
 
-// Collection returns a MongoDB collection
+// Collection returns a MongoDB collection.
 func (d *MongoDatabase) Collection(name string) *mongo.Collection {
 	return d.database.Collection(name)
 }
 
-// Health returns the health status
+// Health returns the health status.
 func (d *MongoDatabase) Health(ctx context.Context) HealthStatus {
 	start := time.Now()
 
@@ -232,6 +244,7 @@ func (d *MongoDatabase) Health(ctx context.Context) HealthStatus {
 	if err := d.Ping(ctx); err != nil {
 		status.Healthy = false
 		status.Message = err.Error()
+
 		return status
 	}
 
@@ -242,7 +255,7 @@ func (d *MongoDatabase) Health(ctx context.Context) HealthStatus {
 	return status
 }
 
-// Stats returns MongoDB statistics
+// Stats returns MongoDB statistics.
 func (d *MongoDatabase) Stats() DatabaseStats {
 	if d.client == nil || d.database == nil {
 		return DatabaseStats{}
@@ -260,7 +273,7 @@ func (d *MongoDatabase) Stats() DatabaseStats {
 		} `bson:"connections"`
 	}
 
-	err := d.database.RunCommand(ctx, map[string]interface{}{"serverStatus": 1}).Decode(&result)
+	err := d.database.RunCommand(ctx, map[string]any{"serverStatus": 1}).Decode(&result)
 	if err != nil {
 		// Return empty stats if we can't get server status
 		return DatabaseStats{}
@@ -273,7 +286,7 @@ func (d *MongoDatabase) Stats() DatabaseStats {
 	}
 }
 
-// Transaction executes a function in a MongoDB transaction with panic recovery
+// Transaction executes a function in a MongoDB transaction with panic recovery.
 func (d *MongoDatabase) Transaction(ctx context.Context, fn func(sessCtx mongo.SessionContext) error) (err error) {
 	session, err := d.client.StartSession()
 	if err != nil {
@@ -281,7 +294,7 @@ func (d *MongoDatabase) Transaction(ctx context.Context, fn func(sessCtx mongo.S
 	}
 	defer session.EndSession(ctx)
 
-	_, err = session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (interface{}, error) {
+	_, err = session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		defer func() {
 			if r := recover(); r != nil {
 				err = ErrPanicRecovered(d.name, TypeMongoDB, r)
@@ -289,6 +302,7 @@ func (d *MongoDatabase) Transaction(ctx context.Context, fn func(sessCtx mongo.S
 					logger.String("db", d.name),
 					logger.Any("panic", r),
 				)
+
 				if d.metrics != nil {
 					d.metrics.Counter("db_transaction_panics",
 						"db", d.name,
@@ -296,13 +310,14 @@ func (d *MongoDatabase) Transaction(ctx context.Context, fn func(sessCtx mongo.S
 				}
 			}
 		}()
+
 		return nil, fn(sessCtx)
 	})
 
 	return err
 }
 
-// TransactionWithOptions executes a function in a MongoDB transaction with options and panic recovery
+// TransactionWithOptions executes a function in a MongoDB transaction with options and panic recovery.
 func (d *MongoDatabase) TransactionWithOptions(ctx context.Context, opts *options.TransactionOptions, fn func(sessCtx mongo.SessionContext) error) (err error) {
 	session, err := d.client.StartSession()
 	if err != nil {
@@ -310,7 +325,7 @@ func (d *MongoDatabase) TransactionWithOptions(ctx context.Context, opts *option
 	}
 	defer session.EndSession(ctx)
 
-	_, err = session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (interface{}, error) {
+	_, err = session.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		defer func() {
 			if r := recover(); r != nil {
 				err = ErrPanicRecovered(d.name, TypeMongoDB, r)
@@ -318,6 +333,7 @@ func (d *MongoDatabase) TransactionWithOptions(ctx context.Context, opts *option
 					logger.String("db", d.name),
 					logger.Any("panic", r),
 				)
+
 				if d.metrics != nil {
 					d.metrics.Counter("db_transaction_panics",
 						"db", d.name,
@@ -325,13 +341,14 @@ func (d *MongoDatabase) TransactionWithOptions(ctx context.Context, opts *option
 				}
 			}
 		}()
+
 		return nil, fn(sessCtx)
 	}, opts)
 
 	return err
 }
 
-// Helper: Get database name from config or DSN
+// Helper: Get database name from config or DSN.
 func (d *MongoDatabase) getDatabaseName() string {
 	if dbName, ok := d.config.Config["database"].(string); ok {
 		return dbName
@@ -344,6 +361,7 @@ func (d *MongoDatabase) getDatabaseName() string {
 		if idx := strings.Index(dbName, "?"); idx != -1 {
 			dbName = dbName[:idx]
 		}
+
 		if dbName != "" {
 			return dbName
 		}
@@ -352,7 +370,7 @@ func (d *MongoDatabase) getDatabaseName() string {
 	return "default"
 }
 
-// Helper: Command monitor for observability
+// Helper: Command monitor for observability.
 func (d *MongoDatabase) commandMonitor() *event.CommandMonitor {
 	return &event.CommandMonitor{
 		Started: func(ctx context.Context, evt *event.CommandStartedEvent) {

@@ -21,6 +21,7 @@ func NewChannelStore(client *redis.Client, prefix string) streaming.ChannelStore
 	if prefix == "" {
 		prefix = "streaming:channels"
 	}
+
 	return &ChannelStore{
 		client: client,
 		prefix: prefix,
@@ -30,7 +31,7 @@ func NewChannelStore(client *redis.Client, prefix string) streaming.ChannelStore
 func (s *ChannelStore) Create(ctx context.Context, channel streaming.Channel) error {
 	key := fmt.Sprintf("%s:%s", s.prefix, channel.GetID())
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"id":            channel.GetID(),
 		"name":          channel.GetName(),
 		"created":       channel.GetCreated().Unix(),
@@ -47,6 +48,7 @@ func (s *ChannelStore) Create(ctx context.Context, channel streaming.Channel) er
 	if err != nil {
 		return err
 	}
+
 	if exists > 0 {
 		return streaming.ErrChannelAlreadyExists
 	}
@@ -64,14 +66,15 @@ func (s *ChannelStore) Get(ctx context.Context, channelID string) (streaming.Cha
 	key := fmt.Sprintf("%s:%s", s.prefix, channelID)
 
 	data, err := s.client.Get(ctx, key).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, streaming.ErrChannelNotFound
 	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	var channelData map[string]interface{}
+	var channelData map[string]any
 	if err := json.Unmarshal([]byte(data), &channelData); err != nil {
 		return nil, err
 	}
@@ -110,6 +113,7 @@ func (s *ChannelStore) List(ctx context.Context) ([]streaming.Channel, error) {
 		if err != nil {
 			continue
 		}
+
 		channels = append(channels, channel)
 	}
 
@@ -119,6 +123,7 @@ func (s *ChannelStore) List(ctx context.Context) ([]streaming.Channel, error) {
 func (s *ChannelStore) Exists(ctx context.Context, channelID string) (bool, error) {
 	key := fmt.Sprintf("%s:%s", s.prefix, channelID)
 	exists, err := s.client.Exists(ctx, key).Result()
+
 	return exists > 0, err
 }
 
@@ -130,6 +135,7 @@ func (s *ChannelStore) AddSubscription(ctx context.Context, channelID string, su
 	if err != nil {
 		return err
 	}
+
 	if !exists {
 		return streaming.ErrChannelNotFound
 	}
@@ -139,12 +145,13 @@ func (s *ChannelStore) AddSubscription(ctx context.Context, channelID string, su
 	if err != nil {
 		return err
 	}
+
 	if isSub {
 		return streaming.ErrAlreadySubscribed
 	}
 
 	// Serialize subscription
-	subData := map[string]interface{}{
+	subData := map[string]any{
 		"conn_id":       sub.GetConnID(),
 		"user_id":       sub.GetUserID(),
 		"subscribed_at": sub.GetSubscribedAt().Unix(),
@@ -166,6 +173,7 @@ func (s *ChannelStore) RemoveSubscription(ctx context.Context, channelID, connID
 	if err != nil {
 		return err
 	}
+
 	if !exists {
 		return streaming.ErrNotSubscribed
 	}
@@ -183,7 +191,7 @@ func (s *ChannelStore) GetSubscriptions(ctx context.Context, channelID string) (
 
 	subs := make([]streaming.Subscription, 0, len(subData))
 	for _, data := range subData {
-		var subInfo map[string]interface{}
+		var subInfo map[string]any
 		if err := json.Unmarshal([]byte(data), &subInfo); err != nil {
 			continue
 		}
@@ -202,11 +210,13 @@ func (s *ChannelStore) GetSubscriptions(ctx context.Context, channelID string) (
 func (s *ChannelStore) GetSubscriberCount(ctx context.Context, channelID string) (int, error) {
 	subsKey := fmt.Sprintf("%s:%s:subs", s.prefix, channelID)
 	count, err := s.client.HLen(ctx, subsKey).Result()
+
 	return int(count), err
 }
 
 func (s *ChannelStore) IsSubscribed(ctx context.Context, channelID, connID string) (bool, error) {
 	subsKey := fmt.Sprintf("%s:%s:subs", s.prefix, channelID)
+
 	return s.client.HExists(ctx, subsKey, connID).Result()
 }
 
@@ -221,7 +231,7 @@ func (s *ChannelStore) Publish(ctx context.Context, channelID string, message *s
 	}
 
 	// Update message count
-	data := map[string]interface{}{
+	data := map[string]any{
 		"id":            channel.GetID(),
 		"name":          channel.GetName(),
 		"created":       channel.GetCreated().Unix(),
@@ -244,6 +254,7 @@ func (s *ChannelStore) GetUserChannels(ctx context.Context, userID string) ([]st
 	}
 
 	channels := make([]streaming.Channel, 0)
+
 	for _, channelID := range channelIDs {
 		subsKey := fmt.Sprintf("%s:%s:subs", s.prefix, channelID)
 
@@ -254,7 +265,7 @@ func (s *ChannelStore) GetUserChannels(ctx context.Context, userID string) ([]st
 		}
 
 		for _, subData := range subs {
-			var subInfo map[string]interface{}
+			var subInfo map[string]any
 			if err := json.Unmarshal([]byte(subData), &subInfo); err != nil {
 				continue
 			}
@@ -264,6 +275,7 @@ func (s *ChannelStore) GetUserChannels(ctx context.Context, userID string) ([]st
 				if err == nil {
 					channels = append(channels, channel)
 				}
+
 				break
 			}
 		}
@@ -284,7 +296,7 @@ func (s *ChannelStore) Ping(ctx context.Context) error {
 	return s.client.Ping(ctx).Err()
 }
 
-// redisChannel implements streaming.Channel
+// redisChannel implements streaming.Channel.
 type redisChannel struct {
 	store        *ChannelStore
 	id           string
@@ -326,7 +338,7 @@ func (c *redisChannel) Delete(ctx context.Context) error {
 	return streaming.ErrInvalidChannel
 }
 
-// redisSubscription implements streaming.Subscription
+// redisSubscription implements streaming.Subscription.
 type redisSubscription struct {
 	connID       string
 	userID       string
@@ -349,6 +361,7 @@ func (s *redisSubscription) MatchesFilter(message *streaming.Message) bool {
 		if message.Metadata == nil {
 			return false
 		}
+
 		msgValue, exists := message.Metadata[key]
 		if !exists || msgValue != filterValue {
 			return false

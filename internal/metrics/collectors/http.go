@@ -1,11 +1,12 @@
 package collectors
 
-//nolint:gosec // G104: Collector Reset() methods are intentionally void
 // HTTP collector Reset() methods don't return errors by design.
 
 import (
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -18,10 +19,10 @@ import (
 // HTTP COLLECTOR
 // =============================================================================
 
-// HTTPCollector collects HTTP request/response metrics
+// HTTPCollector collects HTTP request/response metrics.
 type HTTPCollector struct {
 	name    string
-	metrics map[string]interface{}
+	metrics map[string]any
 	mu      sync.RWMutex
 	enabled bool
 
@@ -42,21 +43,21 @@ type HTTPCollector struct {
 	config *HTTPCollectorConfig
 }
 
-// HTTPCollectorConfig contains configuration for the HTTP collector
+// HTTPCollectorConfig contains configuration for the HTTP collector.
 type HTTPCollectorConfig struct {
-	TrackPaths         bool     `yaml:"track_paths" json:"track_paths"`
-	TrackUserAgents    bool     `yaml:"track_user_agents" json:"track_user_agents"`
-	TrackStatusCodes   bool     `yaml:"track_status_codes" json:"track_status_codes"`
-	TrackMethods       bool     `yaml:"track_methods" json:"track_methods"`
-	TrackSizes         bool     `yaml:"track_sizes" json:"track_sizes"`
-	PathWhitelist      []string `yaml:"path_whitelist" json:"path_whitelist"`
-	PathBlacklist      []string `yaml:"path_blacklist" json:"path_blacklist"`
-	MaxPathsTracked    int      `yaml:"max_paths_tracked" json:"max_paths_tracked"`
-	GroupSimilarPaths  bool     `yaml:"group_similar_paths" json:"group_similar_paths"`
-	IncludeQueryParams bool     `yaml:"include_query_params" json:"include_query_params"`
+	TrackPaths         bool     `json:"track_paths"          yaml:"track_paths"`
+	TrackUserAgents    bool     `json:"track_user_agents"    yaml:"track_user_agents"`
+	TrackStatusCodes   bool     `json:"track_status_codes"   yaml:"track_status_codes"`
+	TrackMethods       bool     `json:"track_methods"        yaml:"track_methods"`
+	TrackSizes         bool     `json:"track_sizes"          yaml:"track_sizes"`
+	PathWhitelist      []string `json:"path_whitelist"       yaml:"path_whitelist"`
+	PathBlacklist      []string `json:"path_blacklist"       yaml:"path_blacklist"`
+	MaxPathsTracked    int      `json:"max_paths_tracked"    yaml:"max_paths_tracked"`
+	GroupSimilarPaths  bool     `json:"group_similar_paths"  yaml:"group_similar_paths"`
+	IncludeQueryParams bool     `json:"include_query_params" yaml:"include_query_params"`
 }
 
-// HTTPRequestMetrics represents metrics for a single HTTP request
+// HTTPRequestMetrics represents metrics for a single HTTP request.
 type HTTPRequestMetrics struct {
 	Method        string
 	Path          string
@@ -68,7 +69,7 @@ type HTTPRequestMetrics struct {
 	Timestamp     time.Time
 }
 
-// DefaultHTTPCollectorConfig returns default configuration
+// DefaultHTTPCollectorConfig returns default configuration.
 func DefaultHTTPCollectorConfig() *HTTPCollectorConfig {
 	return &HTTPCollectorConfig{
 		TrackPaths:         true,
@@ -84,16 +85,16 @@ func DefaultHTTPCollectorConfig() *HTTPCollectorConfig {
 	}
 }
 
-// NewHTTPCollector creates a new HTTP collector
+// NewHTTPCollector creates a new HTTP collector.
 func NewHTTPCollector() metrics.CustomCollector {
 	return NewHTTPCollectorWithConfig(DefaultHTTPCollectorConfig())
 }
 
-// NewHTTPCollectorWithConfig creates a new HTTP collector with configuration
+// NewHTTPCollectorWithConfig creates a new HTTP collector with configuration.
 func NewHTTPCollectorWithConfig(config *HTTPCollectorConfig) metrics.CustomCollector {
 	collector := &HTTPCollector{
 		name:             "http",
-		metrics:          make(map[string]interface{}),
+		metrics:          make(map[string]any),
 		enabled:          true,
 		requestsByStatus: make(map[int]int64),
 		requestsByMethod: make(map[string]int64),
@@ -115,13 +116,13 @@ func NewHTTPCollectorWithConfig(config *HTTPCollectorConfig) metrics.CustomColle
 // CUSTOM COLLECTOR INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Name returns the collector name
+// Name returns the collector name.
 func (hc *HTTPCollector) Name() string {
 	return hc.name
 }
 
-// Collect collects HTTP metrics
-func (hc *HTTPCollector) Collect() map[string]interface{} {
+// Collect collects HTTP metrics.
+func (hc *HTTPCollector) Collect() map[string]any {
 	if !hc.enabled {
 		return hc.metrics
 	}
@@ -134,7 +135,7 @@ func (hc *HTTPCollector) Collect() map[string]interface{} {
 	hc.metrics["http.requests.active"] = hc.activeRequests.Get()
 
 	// Request duration metrics
-	hc.metrics["http.request.duration"] = map[string]interface{}{
+	hc.metrics["http.request.duration"] = map[string]any{
 		"count":   hc.requestDuration.GetCount(),
 		"sum":     hc.requestDuration.GetSum(),
 		"mean":    hc.requestDuration.GetMean(),
@@ -143,14 +144,14 @@ func (hc *HTTPCollector) Collect() map[string]interface{} {
 
 	// Request size metrics
 	if hc.config.TrackSizes {
-		hc.metrics["http.request.size"] = map[string]interface{}{
+		hc.metrics["http.request.size"] = map[string]any{
 			"count":   hc.requestSize.GetCount(),
 			"sum":     hc.requestSize.GetSum(),
 			"mean":    hc.requestSize.GetMean(),
 			"buckets": hc.requestSize.GetBuckets(),
 		}
 
-		hc.metrics["http.response.size"] = map[string]interface{}{
+		hc.metrics["http.response.size"] = map[string]any{
 			"count":   hc.responseSize.GetCount(),
 			"sum":     hc.responseSize.GetSum(),
 			"mean":    hc.responseSize.GetMean(),
@@ -168,14 +169,14 @@ func (hc *HTTPCollector) Collect() map[string]interface{} {
 	// Method metrics
 	if hc.config.TrackMethods {
 		for method, count := range hc.requestsByMethod {
-			hc.metrics[fmt.Sprintf("http.requests.method.%s", method)] = count
+			hc.metrics["http.requests.method."+method] = count
 		}
 	}
 
 	// Path metrics
 	if hc.config.TrackPaths {
 		for path, count := range hc.requestsByPath {
-			hc.metrics[fmt.Sprintf("http.requests.path.%s", hc.sanitizePath(path))] = count
+			hc.metrics["http.requests.path."+hc.sanitizePath(path)] = count
 		}
 	}
 
@@ -185,12 +186,12 @@ func (hc *HTTPCollector) Collect() map[string]interface{} {
 	return hc.metrics
 }
 
-// Reset resets the collector
+// Reset resets the collector.
 func (hc *HTTPCollector) Reset() error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 
-	hc.metrics = make(map[string]interface{})
+	hc.metrics = make(map[string]any)
 	hc.requestsByStatus = make(map[int]int64)
 	hc.requestsByMethod = make(map[string]int64)
 	hc.requestsByPath = make(map[string]int64)
@@ -210,7 +211,7 @@ func (hc *HTTPCollector) Reset() error {
 // HTTP METRICS RECORDING
 // =============================================================================
 
-// RecordRequest records metrics for an HTTP request
+// RecordRequest records metrics for an HTTP request.
 func (hc *HTTPCollector) RecordRequest(reqMetrics HTTPRequestMetrics) {
 	if !hc.enabled {
 		return
@@ -228,6 +229,7 @@ func (hc *HTTPCollector) RecordRequest(reqMetrics HTTPRequestMetrics) {
 		if reqMetrics.ContentLength > 0 {
 			hc.requestSize.Observe(float64(reqMetrics.ContentLength))
 		}
+
 		if reqMetrics.ResponseSize > 0 {
 			hc.responseSize.Observe(float64(reqMetrics.ResponseSize))
 		}
@@ -255,7 +257,7 @@ func (hc *HTTPCollector) RecordRequest(reqMetrics HTTPRequestMetrics) {
 	}
 }
 
-// StartRequest records the start of an HTTP request
+// StartRequest records the start of an HTTP request.
 func (hc *HTTPCollector) StartRequest() {
 	if !hc.enabled {
 		return
@@ -268,7 +270,7 @@ func (hc *HTTPCollector) StartRequest() {
 	hc.activeRequests.Set(float64(hc.activeRequestsCount))
 }
 
-// EndRequest records the end of an HTTP request
+// EndRequest records the end of an HTTP request.
 func (hc *HTTPCollector) EndRequest() {
 	if !hc.enabled {
 		return
@@ -281,6 +283,7 @@ func (hc *HTTPCollector) EndRequest() {
 	if hc.activeRequestsCount < 0 {
 		hc.activeRequestsCount = 0
 	}
+
 	hc.activeRequests.Set(float64(hc.activeRequestsCount))
 }
 
@@ -288,7 +291,7 @@ func (hc *HTTPCollector) EndRequest() {
 // MIDDLEWARE INTEGRATION
 // =============================================================================
 
-// Middleware returns HTTP middleware that automatically records metrics
+// Middleware returns HTTP middleware that automatically records metrics.
 func (hc *HTTPCollector) Middleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -327,9 +330,10 @@ func (hc *HTTPCollector) Middleware() func(http.Handler) http.Handler {
 	}
 }
 
-// httpResponseWrapper wraps http.ResponseWriter to capture metrics
+// httpResponseWrapper wraps http.ResponseWriter to capture metrics.
 type httpResponseWrapper struct {
 	http.ResponseWriter
+
 	statusCode   int
 	bytesWritten int
 }
@@ -342,6 +346,7 @@ func (w *httpResponseWrapper) WriteHeader(code int) {
 func (w *httpResponseWrapper) Write(b []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(b)
 	w.bytesWritten += n
+
 	return n, err
 }
 
@@ -349,29 +354,23 @@ func (w *httpResponseWrapper) Write(b []byte) (int, error) {
 // PATH HANDLING
 // =============================================================================
 
-// shouldTrackPath determines if a path should be tracked
+// shouldTrackPath determines if a path should be tracked.
 func (hc *HTTPCollector) shouldTrackPath(path string) bool {
 	// Check blacklist
-	for _, blacklistedPath := range hc.config.PathBlacklist {
-		if path == blacklistedPath {
-			return false
-		}
+	if slices.Contains(hc.config.PathBlacklist, path) {
+		return false
 	}
 
 	// Check whitelist (if configured)
 	if len(hc.config.PathWhitelist) > 0 {
-		for _, whitelistedPath := range hc.config.PathWhitelist {
-			if path == whitelistedPath {
-				return true
-			}
-		}
-		return false
+
+		return slices.Contains(hc.config.PathWhitelist, path)
 	}
 
 	return true
 }
 
-// normalizePath normalizes a path for tracking
+// normalizePath normalizes a path for tracking.
 func (hc *HTTPCollector) normalizePath(path string) string {
 	if !hc.config.IncludeQueryParams {
 		if idx := strings.Index(path, "?"); idx != -1 {
@@ -386,7 +385,7 @@ func (hc *HTTPCollector) normalizePath(path string) string {
 	return path
 }
 
-// groupSimilarPath groups similar paths together
+// groupSimilarPath groups similar paths together.
 func (hc *HTTPCollector) groupSimilarPath(path string) string {
 	// Replace numeric IDs with placeholders
 	segments := strings.Split(path, "/")
@@ -401,7 +400,7 @@ func (hc *HTTPCollector) groupSimilarPath(path string) string {
 	return strings.Join(segments, "/")
 }
 
-// isNumericID checks if a segment is a numeric ID
+// isNumericID checks if a segment is a numeric ID.
 func (hc *HTTPCollector) isNumericID(segment string) bool {
 	if len(segment) == 0 {
 		return false
@@ -416,7 +415,7 @@ func (hc *HTTPCollector) isNumericID(segment string) bool {
 	return true
 }
 
-// isUUID checks if a segment is a UUID
+// isUUID checks if a segment is a UUID.
 func (hc *HTTPCollector) isUUID(segment string) bool {
 	if len(segment) != 36 {
 		return false
@@ -426,10 +425,11 @@ func (hc *HTTPCollector) isUUID(segment string) bool {
 	return len(strings.Split(segment, "-")) == 5
 }
 
-// sanitizePath sanitizes a path for use as a metric name
+// sanitizePath sanitizes a path for use as a metric name.
 func (hc *HTTPCollector) sanitizePath(path string) string {
 	// Replace invalid characters with underscores
 	result := strings.Builder{}
+
 	for _, char := range path {
 		if (char >= 'a' && char <= 'z') ||
 			(char >= 'A' && char <= 'Z') ||
@@ -440,10 +440,11 @@ func (hc *HTTPCollector) sanitizePath(path string) string {
 			result.WriteRune('_')
 		}
 	}
+
 	return result.String()
 }
 
-// pruneOldPaths removes old paths to keep within limits
+// pruneOldPaths removes old paths to keep within limits.
 func (hc *HTTPCollector) pruneOldPaths() {
 	if len(hc.requestsByPath) <= hc.config.MaxPathsTracked {
 		return
@@ -478,7 +479,7 @@ func (hc *HTTPCollector) pruneOldPaths() {
 // DERIVED METRICS
 // =============================================================================
 
-// calculateDerivedMetrics calculates derived metrics
+// calculateDerivedMetrics calculates derived metrics.
 func (hc *HTTPCollector) calculateDerivedMetrics() {
 	// Calculate error rate
 	var totalRequests, errorRequests int64
@@ -506,6 +507,7 @@ func (hc *HTTPCollector) calculateDerivedMetrics() {
 		if hc.requestSize.GetCount() > 0 {
 			hc.metrics["http.request.avg_size"] = hc.requestSize.GetMean()
 		}
+
 		if hc.responseSize.GetCount() > 0 {
 			hc.metrics["http.response.avg_size"] = hc.responseSize.GetMean()
 		}
@@ -516,65 +518,63 @@ func (hc *HTTPCollector) calculateDerivedMetrics() {
 // UTILITY METHODS
 // =============================================================================
 
-// Enable enables the collector
+// Enable enables the collector.
 func (hc *HTTPCollector) Enable() {
 	hc.enabled = true
 }
 
-// Disable disables the collector
+// Disable disables the collector.
 func (hc *HTTPCollector) Disable() {
 	hc.enabled = false
 }
 
-// IsEnabled returns whether the collector is enabled
+// IsEnabled returns whether the collector is enabled.
 func (hc *HTTPCollector) IsEnabled() bool {
 	return hc.enabled
 }
 
-// GetActiveRequests returns the number of active requests
+// GetActiveRequests returns the number of active requests.
 func (hc *HTTPCollector) GetActiveRequests() int64 {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
+
 	return hc.activeRequestsCount
 }
 
-// GetRequestsByStatus returns requests grouped by status code
+// GetRequestsByStatus returns requests grouped by status code.
 func (hc *HTTPCollector) GetRequestsByStatus() map[int]int64 {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	result := make(map[int]int64)
-	for status, count := range hc.requestsByStatus {
-		result[status] = count
-	}
+	maps.Copy(result, hc.requestsByStatus)
+
 	return result
 }
 
-// GetRequestsByMethod returns requests grouped by method
+// GetRequestsByMethod returns requests grouped by method.
 func (hc *HTTPCollector) GetRequestsByMethod() map[string]int64 {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	result := make(map[string]int64)
-	for method, count := range hc.requestsByMethod {
-		result[method] = count
-	}
+	maps.Copy(result, hc.requestsByMethod)
+
 	return result
 }
 
-// GetRequestsByPath returns requests grouped by path
+// GetRequestsByPath returns requests grouped by path.
 func (hc *HTTPCollector) GetRequestsByPath() map[string]int64 {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	result := make(map[string]int64)
-	for path, count := range hc.requestsByPath {
-		result[path] = count
-	}
+	maps.Copy(result, hc.requestsByPath)
+
 	return result
 }
 
-// GetTopPaths returns the top N paths by request count
+// GetTopPaths returns the top N paths by request count.
 func (hc *HTTPCollector) GetTopPaths(n int) []string {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
@@ -606,12 +606,12 @@ func (hc *HTTPCollector) GetTopPaths(n int) []string {
 // HELPER FUNCTIONS
 // =============================================================================
 
-// CreateHTTPMetricsMiddleware creates HTTP metrics middleware
+// CreateHTTPMetricsMiddleware creates HTTP metrics middleware.
 func CreateHTTPMetricsMiddleware(collector *HTTPCollector) func(http.Handler) http.Handler {
 	return collector.Middleware()
 }
 
-// RecordHTTPRequestMetrics records HTTP request metrics
+// RecordHTTPRequestMetrics records HTTP request metrics.
 func RecordHTTPRequestMetrics(collector *HTTPCollector, method, path string, statusCode int, duration time.Duration) {
 	metrics := HTTPRequestMetrics{
 		Method:     method,
@@ -624,11 +624,11 @@ func RecordHTTPRequestMetrics(collector *HTTPCollector, method, path string, sta
 	collector.RecordRequest(metrics)
 }
 
-// CreateHTTPCollectorWithMetrics creates an HTTP collector with pre-configured metrics
+// CreateHTTPCollectorWithMetrics creates an HTTP collector with pre-configured metrics.
 func CreateHTTPCollectorWithMetrics(metricsCollector metrics.Metrics, config *HTTPCollectorConfig) *HTTPCollector {
 	collector := &HTTPCollector{
 		name:             "http",
-		metrics:          make(map[string]interface{}),
+		metrics:          make(map[string]any),
 		enabled:          true,
 		requestsByStatus: make(map[int]int64),
 		requestsByMethod: make(map[string]int64),

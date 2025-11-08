@@ -49,7 +49,7 @@ type registry struct {
 	mu        sync.RWMutex
 }
 
-// NewRegistry creates a new auth provider registry
+// NewRegistry creates a new auth provider registry.
 func NewRegistry(container forge.Container, logger forge.Logger) Registry {
 	return &registry{
 		providers: make(map[string]AuthProvider),
@@ -73,6 +73,7 @@ func (r *registry) Register(provider AuthProvider) error {
 
 	r.providers[name] = provider
 	r.logger.Info("auth provider registered")
+
 	return nil
 }
 
@@ -86,6 +87,7 @@ func (r *registry) Unregister(name string) error {
 
 	delete(r.providers, name)
 	r.logger.Info("auth provider unregistered")
+
 	return nil
 }
 
@@ -97,13 +99,16 @@ func (r *registry) Get(name string) (AuthProvider, error) {
 	if !exists {
 		return nil, fmt.Errorf("%w: provider %q", ErrProviderNotFound, name)
 	}
+
 	return provider, nil
 }
 
 func (r *registry) Has(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	_, exists := r.providers[name]
+
 	return exists
 }
 
@@ -115,10 +120,11 @@ func (r *registry) List() []string {
 	for name := range r.providers {
 		names = append(names, name)
 	}
+
 	return names
 }
 
-// Middleware creates combined middleware for multiple providers (OR logic)
+// Middleware creates combined middleware for multiple providers (OR logic).
 func (r *registry) Middleware(providerNames ...string) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -134,12 +140,14 @@ func (r *registry) Middleware(providerNames ...string) forge.Middleware {
 				provider, err := r.Get(name)
 				if err != nil {
 					r.logger.Debug("auth provider not found")
+
 					continue
 				}
 
 				authCtx, err := provider.Authenticate(ctx.Context(), req)
 				if err != nil {
 					r.logger.Debug("authentication failed")
+
 					continue
 				}
 
@@ -154,12 +162,13 @@ func (r *registry) Middleware(providerNames ...string) forge.Middleware {
 
 			// All providers failed
 			r.logger.Warn("authentication failed for all providers")
+
 			return ctx.String(http.StatusUnauthorized, "Unauthorized")
 		}
 	}
 }
 
-// MiddlewareAnd creates middleware requiring ALL providers to succeed
+// MiddlewareAnd creates middleware requiring ALL providers to succeed.
 func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -171,16 +180,19 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 
 			// All providers must succeed
 			var combinedAuthCtx *AuthContext
+
 			for i, name := range providerNames {
 				provider, err := r.Get(name)
 				if err != nil {
 					r.logger.Warn("auth provider not found")
+
 					return ctx.String(http.StatusUnauthorized, "Unauthorized")
 				}
 
 				authCtx, err := provider.Authenticate(ctx.Context(), req)
 				if err != nil {
 					r.logger.Warn("authentication failed")
+
 					return ctx.String(http.StatusUnauthorized, "Unauthorized")
 				}
 
@@ -192,10 +204,12 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 					// Merge claims and scopes
 					for k, v := range authCtx.Claims {
 						if combinedAuthCtx.Claims == nil {
-							combinedAuthCtx.Claims = make(map[string]interface{})
+							combinedAuthCtx.Claims = make(map[string]any)
 						}
+
 						combinedAuthCtx.Claims[k] = v
 					}
+
 					combinedAuthCtx.Scopes = append(combinedAuthCtx.Scopes, authCtx.Scopes...)
 				}
 			}
@@ -210,26 +224,30 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 	}
 }
 
-// MiddlewareWithScopes creates middleware with required scopes
+// MiddlewareWithScopes creates middleware with required scopes.
 func (r *registry) MiddlewareWithScopes(providerName string, scopes ...string) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
 			provider, err := r.Get(providerName)
 			if err != nil {
 				r.logger.Warn("auth provider not found")
+
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			req := ctx.Request()
+
 			authCtx, err := provider.Authenticate(ctx.Context(), req)
 			if err != nil {
 				r.logger.Warn("authentication failed")
+
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			// Check required scopes
 			if len(scopes) > 0 && !authCtx.HasScopes(scopes...) {
 				r.logger.Warn("insufficient scopes")
+
 				return ctx.String(http.StatusForbidden, "Forbidden")
 			}
 
@@ -244,7 +262,7 @@ func (r *registry) MiddlewareWithScopes(providerName string, scopes ...string) f
 	}
 }
 
-// OpenAPISchemes returns all security schemes for OpenAPI generation
+// OpenAPISchemes returns all security schemes for OpenAPI generation.
 func (r *registry) OpenAPISchemes() map[string]SecurityScheme {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -253,5 +271,6 @@ func (r *registry) OpenAPISchemes() map[string]SecurityScheme {
 	for name, provider := range r.providers {
 		schemes[name] = provider.OpenAPIScheme()
 	}
+
 	return schemes
 }

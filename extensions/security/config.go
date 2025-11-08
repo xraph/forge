@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Config holds the security extension configuration
+// Config holds the security extension configuration.
 type Config struct {
 	// Enabled determines if the security extension is enabled
 	Enabled bool `json:"enabled" yaml:"enabled"`
@@ -44,7 +44,7 @@ type Config struct {
 	RequireConfig bool `json:"-" yaml:"-"`
 }
 
-// SessionConfig holds session-specific configuration
+// SessionConfig holds session-specific configuration.
 type SessionConfig struct {
 	// Enabled determines if session management is enabled
 	Enabled bool `json:"enabled" yaml:"enabled"`
@@ -80,7 +80,7 @@ type SessionConfig struct {
 	Redis RedisConfig `json:"redis" yaml:"redis"`
 }
 
-// RedisConfig holds Redis-specific configuration
+// RedisConfig holds Redis-specific configuration.
 type RedisConfig struct {
 	// Address is the Redis server address
 	Address string `json:"address" yaml:"address"`
@@ -95,7 +95,7 @@ type RedisConfig struct {
 	PoolSize int `json:"pool_size" yaml:"pool_size"`
 }
 
-// CookieConfig holds cookie-specific configuration
+// CookieConfig holds cookie-specific configuration.
 type CookieConfig struct {
 	// Enabled determines if cookie management is enabled
 	Enabled bool `json:"enabled" yaml:"enabled"`
@@ -119,7 +119,7 @@ type CookieConfig struct {
 	MaxAge int `json:"max_age" yaml:"max_age"`
 }
 
-// DefaultConfig returns the default security configuration
+// DefaultConfig returns the default security configuration.
 func DefaultConfig() Config {
 	return Config{
 		Enabled: true,
@@ -158,7 +158,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// Validate validates the security configuration
+// Validate validates the security configuration.
 func (c *Config) Validate() error {
 	if !c.Enabled {
 		return nil
@@ -201,283 +201,283 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// ConfigOption configures the security extension
+// ConfigOption configures the security extension.
 type ConfigOption func(*Config)
 
-// WithEnabled sets whether the security extension is enabled
+// WithEnabled sets whether the security extension is enabled.
 func WithEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.Enabled = enabled
 	}
 }
 
-// WithSessionEnabled sets whether session management is enabled
+// WithSessionEnabled sets whether session management is enabled.
 func WithSessionEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.Session.Enabled = enabled
 	}
 }
 
-// WithSessionStore sets the session store backend
+// WithSessionStore sets the session store backend.
 func WithSessionStore(store string) ConfigOption {
 	return func(c *Config) {
 		c.Session.Store = store
 	}
 }
 
-// WithSessionCookieName sets the session cookie name
+// WithSessionCookieName sets the session cookie name.
 func WithSessionCookieName(name string) ConfigOption {
 	return func(c *Config) {
 		c.Session.CookieName = name
 	}
 }
 
-// WithSessionTTL sets the session TTL
+// WithSessionTTL sets the session TTL.
 func WithSessionTTL(ttl time.Duration) ConfigOption {
 	return func(c *Config) {
 		c.Session.TTL = ttl
 	}
 }
 
-// WithSessionIdleTimeout sets the session idle timeout
+// WithSessionIdleTimeout sets the session idle timeout.
 func WithSessionIdleTimeout(timeout time.Duration) ConfigOption {
 	return func(c *Config) {
 		c.Session.IdleTimeout = timeout
 	}
 }
 
-// WithSessionAutoRenew enables or disables automatic session renewal
+// WithSessionAutoRenew enables or disables automatic session renewal.
 func WithSessionAutoRenew(autoRenew bool) ConfigOption {
 	return func(c *Config) {
 		c.Session.AutoRenew = autoRenew
 	}
 }
 
-// WithAutoApplyMiddleware enables or disables automatic global middleware application
+// WithAutoApplyMiddleware enables or disables automatic global middleware application.
 func WithAutoApplyMiddleware(autoApply bool) ConfigOption {
 	return func(c *Config) {
 		c.Session.AutoApplyMiddleware = autoApply
 	}
 }
 
-// WithSkipPaths sets the paths to skip session handling
+// WithSkipPaths sets the paths to skip session handling.
 func WithSkipPaths(paths []string) ConfigOption {
 	return func(c *Config) {
 		c.Session.SkipPaths = paths
 	}
 }
 
-// WithRedisAddress sets the Redis server address
+// WithRedisAddress sets the Redis server address.
 func WithRedisAddress(address string) ConfigOption {
 	return func(c *Config) {
 		c.Session.Redis.Address = address
 	}
 }
 
-// WithRedisPassword sets the Redis password
+// WithRedisPassword sets the Redis password.
 func WithRedisPassword(password string) ConfigOption {
 	return func(c *Config) {
 		c.Session.Redis.Password = password
 	}
 }
 
-// WithRedisDB sets the Redis database number
+// WithRedisDB sets the Redis database number.
 func WithRedisDB(db int) ConfigOption {
 	return func(c *Config) {
 		c.Session.Redis.DB = db
 	}
 }
 
-// WithCookieEnabled sets whether cookie management is enabled
+// WithCookieEnabled sets whether cookie management is enabled.
 func WithCookieEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.Cookie.Enabled = enabled
 	}
 }
 
-// WithCookieSecure sets whether cookies should only be sent over HTTPS
+// WithCookieSecure sets whether cookies should only be sent over HTTPS.
 func WithCookieSecure(secure bool) ConfigOption {
 	return func(c *Config) {
 		c.Cookie.Secure = secure
 	}
 }
 
-// WithCookieHttpOnly sets whether cookies should be inaccessible to JavaScript
+// WithCookieHttpOnly sets whether cookies should be inaccessible to JavaScript.
 func WithCookieHttpOnly(httpOnly bool) ConfigOption {
 	return func(c *Config) {
 		c.Cookie.HttpOnly = httpOnly
 	}
 }
 
-// WithCookieSameSite sets the SameSite attribute for cookies
+// WithCookieSameSite sets the SameSite attribute for cookies.
 func WithCookieSameSite(sameSite string) ConfigOption {
 	return func(c *Config) {
 		c.Cookie.SameSite = sameSite
 	}
 }
 
-// WithCookiePath sets the cookie path
+// WithCookiePath sets the cookie path.
 func WithCookiePath(path string) ConfigOption {
 	return func(c *Config) {
 		c.Cookie.Path = path
 	}
 }
 
-// WithCookieDomain sets the cookie domain
+// WithCookieDomain sets the cookie domain.
 func WithCookieDomain(domain string) ConfigOption {
 	return func(c *Config) {
 		c.Cookie.Domain = domain
 	}
 }
 
-// WithRequireConfig requires config from ConfigManager
+// WithRequireConfig requires config from ConfigManager.
 func WithRequireConfig(require bool) ConfigOption {
 	return func(c *Config) {
 		c.RequireConfig = require
 	}
 }
 
-// WithConfig sets the complete config
+// WithConfig sets the complete config.
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) {
 		*c = config
 	}
 }
 
-// WithCSRFEnabled enables or disables CSRF protection
+// WithCSRFEnabled enables or disables CSRF protection.
 func WithCSRFEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.CSRF.Enabled = enabled
 	}
 }
 
-// WithCSRFConfig sets the complete CSRF config
+// WithCSRFConfig sets the complete CSRF config.
 func WithCSRFConfig(config CSRFConfig) ConfigOption {
 	return func(c *Config) {
 		c.CSRF = config
 	}
 }
 
-// WithRateLimitEnabled enables or disables rate limiting
+// WithRateLimitEnabled enables or disables rate limiting.
 func WithRateLimitEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.RateLimit.Enabled = enabled
 	}
 }
 
-// WithRateLimitConfig sets the complete rate limit config
+// WithRateLimitConfig sets the complete rate limit config.
 func WithRateLimitConfig(config RateLimitConfig) ConfigOption {
 	return func(c *Config) {
 		c.RateLimit = config
 	}
 }
 
-// WithSecurityHeadersEnabled enables or disables security headers
+// WithSecurityHeadersEnabled enables or disables security headers.
 func WithSecurityHeadersEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.SecurityHeaders.Enabled = enabled
 	}
 }
 
-// WithSecurityHeadersConfig sets the complete security headers config
+// WithSecurityHeadersConfig sets the complete security headers config.
 func WithSecurityHeadersConfig(config SecurityHeadersConfig) ConfigOption {
 	return func(c *Config) {
 		c.SecurityHeaders = config
 	}
 }
 
-// WithSecureHeaders applies secure header presets
+// WithSecureHeaders applies secure header presets.
 func WithSecureHeaders() ConfigOption {
 	return func(c *Config) {
 		c.SecurityHeaders = SecureHeadersPreset()
 	}
 }
 
-// WithPasswordHasherConfig sets the complete password hasher config
+// WithPasswordHasherConfig sets the complete password hasher config.
 func WithPasswordHasherConfig(config PasswordHasherConfig) ConfigOption {
 	return func(c *Config) {
 		c.PasswordHasher = config
 	}
 }
 
-// WithSecurePasswordHasher applies secure password hashing settings
+// WithSecurePasswordHasher applies secure password hashing settings.
 func WithSecurePasswordHasher() ConfigOption {
 	return func(c *Config) {
 		c.PasswordHasher = SecurePasswordHasherConfig()
 	}
 }
 
-// WithJWTEnabled enables or disables JWT authentication
+// WithJWTEnabled enables or disables JWT authentication.
 func WithJWTEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.JWT.Enabled = enabled
 	}
 }
 
-// WithJWTConfig sets the complete JWT config
+// WithJWTConfig sets the complete JWT config.
 func WithJWTConfig(config JWTConfig) ConfigOption {
 	return func(c *Config) {
 		c.JWT = config
 	}
 }
 
-// WithJWTSigningKey sets the JWT signing key
+// WithJWTSigningKey sets the JWT signing key.
 func WithJWTSigningKey(key string) ConfigOption {
 	return func(c *Config) {
 		c.JWT.SigningKey = key
 	}
 }
 
-// WithCORSEnabled enables or disables CORS
+// WithCORSEnabled enables or disables CORS.
 func WithCORSEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.CORS.Enabled = enabled
 	}
 }
 
-// WithCORSConfig sets the complete CORS config
+// WithCORSConfig sets the complete CORS config.
 func WithCORSConfig(config CORSConfig) ConfigOption {
 	return func(c *Config) {
 		c.CORS = config
 	}
 }
 
-// WithCORSOrigins sets the allowed CORS origins
+// WithCORSOrigins sets the allowed CORS origins.
 func WithCORSOrigins(origins []string) ConfigOption {
 	return func(c *Config) {
 		c.CORS.AllowOrigins = origins
 	}
 }
 
-// WithAPIKeyEnabled enables or disables API key authentication
+// WithAPIKeyEnabled enables or disables API key authentication.
 func WithAPIKeyEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.APIKey.Enabled = enabled
 	}
 }
 
-// WithAPIKeyConfig sets the complete API key config
+// WithAPIKeyConfig sets the complete API key config.
 func WithAPIKeyConfig(config APIKeyConfig) ConfigOption {
 	return func(c *Config) {
 		c.APIKey = config
 	}
 }
 
-// WithAuditEnabled enables or disables audit logging
+// WithAuditEnabled enables or disables audit logging.
 func WithAuditEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.Audit.Enabled = enabled
 	}
 }
 
-// WithAuditConfig sets the complete audit config
+// WithAuditConfig sets the complete audit config.
 func WithAuditConfig(config AuditConfig) ConfigOption {
 	return func(c *Config) {
 		c.Audit = config
 	}
 }
 
-// WithAuditLevel sets the audit logging level
+// WithAuditLevel sets the audit logging level.
 func WithAuditLevel(level string) ConfigOption {
 	return func(c *Config) {
 		c.Audit.Level = level
@@ -486,52 +486,51 @@ func WithAuditLevel(level string) ConfigOption {
 
 // Auto-Apply Middleware Options
 
-// WithAutoApplyCSRF enables or disables automatic global CSRF middleware application
+// WithAutoApplyCSRF enables or disables automatic global CSRF middleware application.
 func WithAutoApplyCSRF(autoApply bool) ConfigOption {
 	return func(c *Config) {
 		c.CSRF.AutoApplyMiddleware = autoApply
 	}
 }
 
-// WithAutoApplyRateLimit enables or disables automatic global rate limiting middleware application
+// WithAutoApplyRateLimit enables or disables automatic global rate limiting middleware application.
 func WithAutoApplyRateLimit(autoApply bool) ConfigOption {
 	return func(c *Config) {
 		c.RateLimit.AutoApplyMiddleware = autoApply
 	}
 }
 
-// WithAutoApplySecurityHeaders enables or disables automatic global security headers middleware application
+// WithAutoApplySecurityHeaders enables or disables automatic global security headers middleware application.
 func WithAutoApplySecurityHeaders(autoApply bool) ConfigOption {
 	return func(c *Config) {
 		c.SecurityHeaders.AutoApplyMiddleware = autoApply
 	}
 }
 
-// WithAutoApplyJWT enables or disables automatic global JWT middleware application
+// WithAutoApplyJWT enables or disables automatic global JWT middleware application.
 func WithAutoApplyJWT(autoApply bool) ConfigOption {
 	return func(c *Config) {
 		c.JWT.AutoApplyMiddleware = autoApply
 	}
 }
 
-// WithAutoApplyCORS enables or disables automatic global CORS middleware application
+// WithAutoApplyCORS enables or disables automatic global CORS middleware application.
 func WithAutoApplyCORS(autoApply bool) ConfigOption {
 	return func(c *Config) {
 		c.CORS.AutoApplyMiddleware = autoApply
 	}
 }
 
-// WithAutoApplyAPIKey enables or disables automatic global API key middleware application
+// WithAutoApplyAPIKey enables or disables automatic global API key middleware application.
 func WithAutoApplyAPIKey(autoApply bool) ConfigOption {
 	return func(c *Config) {
 		c.APIKey.AutoApplyMiddleware = autoApply
 	}
 }
 
-// WithAutoApplyAudit enables or disables automatic global audit middleware application
+// WithAutoApplyAudit enables or disables automatic global audit middleware application.
 func WithAutoApplyAudit(autoApply bool) ConfigOption {
 	return func(c *Config) {
 		c.Audit.AutoApplyMiddleware = autoApply
 	}
 }
-

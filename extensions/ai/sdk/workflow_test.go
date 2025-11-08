@@ -36,7 +36,6 @@ func TestWorkflow_AddNode(t *testing.T) {
 	}
 
 	err := wf.AddNode(node)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -58,7 +57,6 @@ func TestWorkflow_AddNode_NoID(t *testing.T) {
 	}
 
 	err := wf.AddNode(node)
-
 	if err == nil {
 		t.Error("expected error for node without ID")
 	}
@@ -73,8 +71,8 @@ func TestWorkflow_AddNode_Duplicate(t *testing.T) {
 	}
 
 	wf.AddNode(node)
-	err := wf.AddNode(node)
 
+	err := wf.AddNode(node)
 	if err == nil {
 		t.Error("expected error for duplicate node")
 	}
@@ -92,7 +90,6 @@ func TestWorkflow_AddEdge(t *testing.T) {
 	wf.AddNode(node2)
 
 	err := wf.AddEdge("node1", "node2")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -109,7 +106,6 @@ func TestWorkflow_AddEdge_NonexistentNode(t *testing.T) {
 	wf.AddNode(node1)
 
 	err := wf.AddEdge("node1", "nonexistent")
-
 	if err == nil {
 		t.Error("expected error for nonexistent target node")
 	}
@@ -131,7 +127,6 @@ func TestWorkflow_AddEdge_Cycle(t *testing.T) {
 
 	// This would create a cycle
 	err := wf.AddEdge("node3", "node1")
-
 	if err == nil {
 		t.Error("expected error for edge creating cycle")
 	}
@@ -146,7 +141,6 @@ func TestWorkflow_SetStartNode(t *testing.T) {
 	wf.AddNode(node)
 
 	err := wf.SetStartNode("node1")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -160,7 +154,6 @@ func TestWorkflow_SetStartNode_Nonexistent(t *testing.T) {
 	wf := NewWorkflow("test", "Test", nil, nil)
 
 	err := wf.SetStartNode("nonexistent")
-
 	if err == nil {
 		t.Error("expected error for nonexistent node")
 	}
@@ -172,18 +165,17 @@ func TestWorkflow_Execute_Simple(t *testing.T) {
 	wf := NewWorkflow("test", "Test", nil, nil)
 
 	node := &WorkflowNode{
-		ID:       "wait_node",
-		Type:     NodeTypeWait,
-		Name:     "Wait Node",
-		Timeout:  1 * time.Second,
-		Config:   map[string]interface{}{"duration": 10 * time.Millisecond},
+		ID:      "wait_node",
+		Type:    NodeTypeWait,
+		Name:    "Wait Node",
+		Timeout: 1 * time.Second,
+		Config:  map[string]any{"duration": 10 * time.Millisecond},
 	}
 
 	wf.AddNode(node)
 	wf.SetStartNode("wait_node")
 
-	execution, err := wf.Execute(context.Background(), map[string]interface{}{})
-
+	execution, err := wf.Execute(context.Background(), map[string]any{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -199,8 +191,7 @@ func TestWorkflow_Execute_NoStartNodes(t *testing.T) {
 	node := &WorkflowNode{ID: "node1", Type: NodeTypeTool}
 	wf.AddNode(node)
 
-	_, err := wf.Execute(context.Background(), map[string]interface{}{})
-
+	_, err := wf.Execute(context.Background(), map[string]any{})
 	if err == nil {
 		t.Error("expected error for workflow without start nodes")
 	}
@@ -212,13 +203,13 @@ func TestWorkflow_Execute_Sequence(t *testing.T) {
 	node1 := &WorkflowNode{
 		ID:      "node1",
 		Type:    NodeTypeWait,
-		Config:  map[string]interface{}{"duration": 10 * time.Millisecond},
+		Config:  map[string]any{"duration": 10 * time.Millisecond},
 		Timeout: 1 * time.Second,
 	}
 	node2 := &WorkflowNode{
 		ID:      "node2",
 		Type:    NodeTypeWait,
-		Config:  map[string]interface{}{"duration": 10 * time.Millisecond},
+		Config:  map[string]any{"duration": 10 * time.Millisecond},
 		Timeout: 1 * time.Second,
 	}
 
@@ -227,8 +218,7 @@ func TestWorkflow_Execute_Sequence(t *testing.T) {
 	wf.AddEdge("node1", "node2")
 	wf.SetStartNode("node1")
 
-	execution, err := wf.Execute(context.Background(), map[string]interface{}{})
-
+	execution, err := wf.Execute(context.Background(), map[string]any{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -248,19 +238,19 @@ func TestWorkflow_Execute_Parallel(t *testing.T) {
 	start := &WorkflowNode{
 		ID:      "start",
 		Type:    NodeTypeWait,
-		Config:  map[string]interface{}{"duration": 10 * time.Millisecond},
+		Config:  map[string]any{"duration": 10 * time.Millisecond},
 		Timeout: 1 * time.Second,
 	}
 	parallel1 := &WorkflowNode{
 		ID:      "parallel1",
 		Type:    NodeTypeWait,
-		Config:  map[string]interface{}{"duration": 10 * time.Millisecond},
+		Config:  map[string]any{"duration": 10 * time.Millisecond},
 		Timeout: 1 * time.Second,
 	}
 	parallel2 := &WorkflowNode{
 		ID:      "parallel2",
 		Type:    NodeTypeWait,
-		Config:  map[string]interface{}{"duration": 10 * time.Millisecond},
+		Config:  map[string]any{"duration": 10 * time.Millisecond},
 		Timeout: 1 * time.Second,
 	}
 
@@ -271,8 +261,7 @@ func TestWorkflow_Execute_Parallel(t *testing.T) {
 	wf.AddEdge("start", "parallel2")
 	wf.SetStartNode("start")
 
-	execution, err := wf.Execute(context.Background(), map[string]interface{}{})
-
+	execution, err := wf.Execute(context.Background(), map[string]any{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -292,7 +281,7 @@ func TestWorkflow_Execute_ContextCancellation(t *testing.T) {
 	node := &WorkflowNode{
 		ID:      "slow_node",
 		Type:    NodeTypeWait,
-		Config:  map[string]interface{}{"duration": 1 * time.Second},
+		Config:  map[string]any{"duration": 1 * time.Second},
 		Timeout: 5 * time.Second,
 	}
 
@@ -302,8 +291,7 @@ func TestWorkflow_Execute_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	execution, err := wf.Execute(ctx, map[string]interface{}{})
-
+	execution, err := wf.Execute(ctx, map[string]any{})
 	if err == nil {
 		t.Error("expected error from context cancellation")
 	}
@@ -328,7 +316,6 @@ func TestWorkflow_Validate_Success(t *testing.T) {
 	wf.SetStartNode("tool_node")
 
 	err := wf.validate()
-
 	if err != nil {
 		t.Errorf("expected no validation error, got %v", err)
 	}
@@ -345,7 +332,6 @@ func TestWorkflow_Validate_MissingToolName(t *testing.T) {
 	wf.AddNode(node)
 
 	err := wf.validate()
-
 	if err == nil {
 		t.Error("expected validation error for tool node without tool name")
 	}
@@ -362,7 +348,6 @@ func TestWorkflow_Validate_MissingAgentID(t *testing.T) {
 	wf.AddNode(node)
 
 	err := wf.validate()
-
 	if err == nil {
 		t.Error("expected validation error for agent node without agent ID")
 	}
@@ -398,7 +383,7 @@ func TestWorkflow_HasCycle_WithCycle(t *testing.T) {
 	wf.AddNode(node1)
 	wf.AddNode(node2)
 	wf.AddNode(node3)
-	
+
 	// Manually create a cycle (bypassing AddEdge validation)
 	wf.Edges["node1"] = []string{"node2"}
 	wf.Edges["node2"] = []string{"node3"}
@@ -423,7 +408,6 @@ func TestWorkflow_GetNode(t *testing.T) {
 	wf.AddNode(original)
 
 	retrieved, err := wf.GetNode("node1")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -437,7 +421,6 @@ func TestWorkflow_GetNode_NotFound(t *testing.T) {
 	wf := NewWorkflow("test", "Test", nil, nil)
 
 	_, err := wf.GetNode("nonexistent")
-
 	if err == nil {
 		t.Error("expected error for nonexistent node")
 	}
@@ -455,7 +438,6 @@ func TestWorkflow_RemoveNode(t *testing.T) {
 	wf.SetStartNode("node1")
 
 	err := wf.RemoveNode("node1")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -473,7 +455,6 @@ func TestWorkflow_RemoveNode_NotFound(t *testing.T) {
 	wf := NewWorkflow("test", "Test", nil, nil)
 
 	err := wf.RemoveNode("nonexistent")
-
 	if err == nil {
 		t.Error("expected error for nonexistent node")
 	}
@@ -491,7 +472,6 @@ func TestWorkflow_ExecuteToolNode(t *testing.T) {
 	}
 
 	result, err := wf.executeToolNode(context.Background(), node)
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -511,7 +491,6 @@ func TestWorkflow_ExecuteAgentNode(t *testing.T) {
 	}
 
 	result, err := wf.executeAgentNode(context.Background(), node)
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -535,7 +514,6 @@ func TestWorkflow_ExecuteConditionNode(t *testing.T) {
 	}
 
 	result, err := wf.executeConditionNode(context.Background(), node, execution)
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -559,7 +537,6 @@ func TestWorkflow_ExecuteTransformNode(t *testing.T) {
 	}
 
 	result, err := wf.executeTransformNode(context.Background(), node, execution)
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -575,7 +552,7 @@ func TestWorkflow_ExecuteWaitNode(t *testing.T) {
 	node := &WorkflowNode{
 		ID:     "wait_node",
 		Type:   NodeTypeWait,
-		Config: map[string]interface{}{"duration": 10 * time.Millisecond},
+		Config: map[string]any{"duration": 10 * time.Millisecond},
 	}
 
 	start := time.Now()
@@ -677,28 +654,30 @@ func TestWorkflow_ThreadSafety(t *testing.T) {
 	done := make(chan bool)
 
 	// Concurrent node additions
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		go func(index int) {
 			node := &WorkflowNode{
-				ID:   string(rune('a' + index)),
-				Type: NodeTypeTool,
+				ID:       string(rune('a' + index)),
+				Type:     NodeTypeTool,
 				ToolName: "tool",
 			}
 			wf.AddNode(node)
+
 			done <- true
 		}(i)
 	}
 
 	// Concurrent reads
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
 			wf.GetNode("a")
+
 			done <- true
 		}()
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -707,4 +686,3 @@ func TestWorkflow_ThreadSafety(t *testing.T) {
 		t.Errorf("expected 5 nodes, got %d", len(wf.Nodes))
 	}
 }
-

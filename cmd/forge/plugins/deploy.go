@@ -7,14 +7,15 @@ import (
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// DeployPlugin handles deployment operations
+// DeployPlugin handles deployment operations.
 type DeployPlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewDeployPlugin creates a new deploy plugin
+// NewDeployPlugin creates a new deploy plugin.
 func NewDeployPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &DeployPlugin{config: cfg}
 }
@@ -66,12 +67,13 @@ func (p *DeployPlugin) Commands() []cli.Command {
 
 func (p *DeployPlugin) deploy(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	appName := ctx.String("app")
@@ -79,48 +81,53 @@ func (p *DeployPlugin) deploy(ctx cli.CommandContext) error {
 	tag := ctx.String("tag")
 
 	if appName == "" {
-		return fmt.Errorf("--app flag is required")
+		return errors.New("--app flag is required")
 	}
 
 	ctx.Info(fmt.Sprintf("Deploying %s to %s environment...", appName, env))
 
 	// Build Docker image
 	ctx.Info("Step 1: Building Docker image...")
+
 	if err := p.buildDockerImage(ctx, appName, tag); err != nil {
 		return err
 	}
 
 	// Push to registry
 	ctx.Info("Step 2: Pushing to registry...")
+
 	if err := p.pushDockerImage(ctx, appName, tag); err != nil {
 		return err
 	}
 
 	// Deploy to Kubernetes
 	ctx.Info("Step 3: Deploying to Kubernetes...")
+
 	if err := p.deployToKubernetes(ctx, appName, env); err != nil {
 		return err
 	}
 
 	ctx.Success(fmt.Sprintf("✓ Deployed %s to %s!", appName, env))
+
 	return nil
 }
 
 func (p *DeployPlugin) deployDocker(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	appName := ctx.String("app")
 	tag := ctx.String("tag")
 
 	if appName == "" {
-		return fmt.Errorf("--app flag is required")
+		return errors.New("--app flag is required")
 	}
 
 	// Build
@@ -134,17 +141,19 @@ func (p *DeployPlugin) deployDocker(ctx cli.CommandContext) error {
 	}
 
 	ctx.Success("✓ Docker image built and pushed!")
+
 	return nil
 }
 
 func (p *DeployPlugin) deployKubernetes(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	env := ctx.String("env")
@@ -154,7 +163,7 @@ func (p *DeployPlugin) deployKubernetes(ctx cli.CommandContext) error {
 
 	// Check if kubectl is available
 	if _, err := exec.LookPath("kubectl"); err != nil {
-		return fmt.Errorf("kubectl not found. Please install kubectl")
+		return errors.New("kubectl not found. Please install kubectl")
 	}
 
 	if namespace == "" {
@@ -162,9 +171,11 @@ func (p *DeployPlugin) deployKubernetes(ctx cli.CommandContext) error {
 		for _, envConfig := range p.config.Deploy.Environments {
 			if envConfig.Name == env {
 				namespace = envConfig.Namespace
+
 				break
 			}
 		}
+
 		if namespace == "" {
 			namespace = "default"
 		}
@@ -175,21 +186,23 @@ func (p *DeployPlugin) deployKubernetes(ctx cli.CommandContext) error {
 	// Simulate kubectl apply
 	// In real implementation, would run: kubectl apply -f ./deployments/kubernetes/overlays/{env}
 	ctx.Println("")
-	ctx.Info(fmt.Sprintf("  Namespace: %s", namespace))
+	ctx.Info("  Namespace: " + namespace)
 	ctx.Info("  Manifests: ./deployments/kubernetes/overlays/" + env)
 
 	spinner.Stop(cli.Green("✓ Deployed to Kubernetes!"))
+
 	return nil
 }
 
 func (p *DeployPlugin) deployStatus(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	env := ctx.String("env")
@@ -206,6 +219,7 @@ func (p *DeployPlugin) deployStatus(ctx cli.CommandContext) error {
 	table.AppendRow([]string{"worker-service", cli.Yellow("⚠ Degraded"), "1/2", "v0.9.0", "3 days ago"})
 
 	table.Render()
+
 	return nil
 }
 
@@ -216,9 +230,10 @@ func (p *DeployPlugin) buildDockerImage(ctx cli.CommandContext, appName, tag str
 	imageTag := fmt.Sprintf("%s/%s:%s", p.config.Deploy.Registry, appName, tag)
 
 	// Simulate docker build
-	ctx.Info(fmt.Sprintf("  Image: %s", imageTag))
+	ctx.Info("  Image: " + imageTag)
 
 	spinner.Stop(cli.Green("✓ Image built"))
+
 	return nil
 }
 
@@ -226,18 +241,20 @@ func (p *DeployPlugin) pushDockerImage(ctx cli.CommandContext, appName, tag stri
 	spinner := ctx.Spinner("Pushing Docker image...")
 
 	imageTag := fmt.Sprintf("%s/%s:%s", p.config.Deploy.Registry, appName, tag)
-	ctx.Info(fmt.Sprintf("  Pushing: %s", imageTag))
+	ctx.Info("  Pushing: " + imageTag)
 
 	spinner.Stop(cli.Green("✓ Image pushed"))
+
 	return nil
 }
 
 func (p *DeployPlugin) deployToKubernetes(ctx cli.CommandContext, appName, env string) error {
 	spinner := ctx.Spinner("Deploying to Kubernetes...")
 
-	ctx.Info(fmt.Sprintf("  App: %s", appName))
-	ctx.Info(fmt.Sprintf("  Environment: %s", env))
+	ctx.Info("  App: " + appName)
+	ctx.Info("  Environment: " + env)
 
 	spinner.Stop(cli.Green("✓ Deployed"))
+
 	return nil
 }

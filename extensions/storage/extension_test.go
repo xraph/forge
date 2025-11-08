@@ -56,7 +56,7 @@ func TestExtension_Lifecycle(t *testing.T) {
 		Backends: map[string]BackendConfig{
 			"local": {
 				Type: "local",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"root_dir": testDir,
 					"base_url": "http://localhost:8080/files",
 				},
@@ -92,6 +92,7 @@ func TestExtension_Lifecycle(t *testing.T) {
 
 	// Test upload
 	content := []byte("test content")
+
 	err := manager.Upload(ctx, "test/file.txt", bytes.NewReader(content))
 	if err != nil {
 		t.Fatalf("failed to upload: %v", err)
@@ -126,7 +127,7 @@ func TestLocalBackend_Upload(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 
-	backend, err := NewLocalBackend(map[string]interface{}{
+	backend, err := NewLocalBackend(map[string]any{
 		"root_dir": testDir,
 		"base_url": "http://localhost:8080/files",
 	}, log, metrics)
@@ -138,6 +139,7 @@ func TestLocalBackend_Upload(t *testing.T) {
 
 	// Test upload
 	content := []byte("hello world")
+
 	err = backend.Upload(ctx, "test/file.txt", bytes.NewReader(content))
 	if err != nil {
 		t.Fatalf("failed to upload: %v", err)
@@ -167,7 +169,7 @@ func TestLocalBackend_Download(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 
-	backend, err := NewLocalBackend(map[string]interface{}{
+	backend, err := NewLocalBackend(map[string]any{
 		"root_dir": testDir,
 	}, log, metrics)
 	if err != nil {
@@ -199,7 +201,7 @@ func TestLocalBackend_Download(t *testing.T) {
 
 	// Test download non-existent file
 	_, err = backend.Download(ctx, "nonexistent.txt")
-	if err != ErrObjectNotFound {
+	if !errors.Is(err, ErrObjectNotFound) {
 		t.Errorf("expected ErrObjectNotFound, got %v", err)
 	}
 }
@@ -211,7 +213,7 @@ func TestLocalBackend_Delete(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 
-	backend, err := NewLocalBackend(map[string]interface{}{
+	backend, err := NewLocalBackend(map[string]any{
 		"root_dir": testDir,
 	}, log, metrics)
 	if err != nil {
@@ -228,6 +230,7 @@ func TestLocalBackend_Delete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to check existence: %v", err)
 	}
+
 	if !exists {
 		t.Error("file should exist before delete")
 	}
@@ -243,13 +246,14 @@ func TestLocalBackend_Delete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to check existence: %v", err)
 	}
+
 	if exists {
 		t.Error("file should not exist after delete")
 	}
 
 	// Test delete non-existent file
 	err = backend.Delete(ctx, "nonexistent.txt")
-	if err != ErrObjectNotFound {
+	if !errors.Is(err, ErrObjectNotFound) {
 		t.Errorf("expected ErrObjectNotFound, got %v", err)
 	}
 }
@@ -261,7 +265,7 @@ func TestLocalBackend_List(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 
-	backend, err := NewLocalBackend(map[string]interface{}{
+	backend, err := NewLocalBackend(map[string]any{
 		"root_dir": testDir,
 	}, log, metrics)
 	if err != nil {
@@ -320,7 +324,7 @@ func TestLocalBackend_Metadata(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 
-	backend, err := NewLocalBackend(map[string]interface{}{
+	backend, err := NewLocalBackend(map[string]any{
 		"root_dir": testDir,
 	}, log, metrics)
 	if err != nil {
@@ -362,7 +366,7 @@ func TestLocalBackend_Metadata(t *testing.T) {
 
 	// Test metadata non-existent file
 	_, err = backend.Metadata(ctx, "nonexistent.txt")
-	if err != ErrObjectNotFound {
+	if !errors.Is(err, ErrObjectNotFound) {
 		t.Errorf("expected ErrObjectNotFound, got %v", err)
 	}
 }
@@ -374,7 +378,7 @@ func TestLocalBackend_CopyMove(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 
-	backend, err := NewLocalBackend(map[string]interface{}{
+	backend, err := NewLocalBackend(map[string]any{
 		"root_dir": testDir,
 	}, log, metrics)
 	if err != nil {
@@ -429,7 +433,7 @@ func TestLocalBackend_PresignedURLs(t *testing.T) {
 	log := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 
-	backend, err := NewLocalBackend(map[string]interface{}{
+	backend, err := NewLocalBackend(map[string]any{
 		"root_dir": testDir,
 		"base_url": "http://localhost:8080/files",
 	}, log, metrics)
@@ -497,7 +501,7 @@ func TestConfig_Validate(t *testing.T) {
 				Backends: map[string]BackendConfig{
 					"local": {
 						Type:   "local",
-						Config: map[string]interface{}{},
+						Config: map[string]any{},
 					},
 				},
 			},
@@ -532,7 +536,7 @@ func TestConfig_Validate(t *testing.T) {
 				Default: "local",
 				Backends: map[string]BackendConfig{
 					"local": {
-						Config: map[string]interface{}{},
+						Config: map[string]any{},
 					},
 				},
 			},
@@ -570,6 +574,7 @@ func TestDefaultConfig(t *testing.T) {
 func TestStorageManager_MultipleBackends(t *testing.T) {
 	testDir1 := filepath.Join(os.TempDir(), "storage-backend1")
 	testDir2 := filepath.Join(os.TempDir(), "storage-backend2")
+
 	defer func() {
 		os.RemoveAll(testDir1)
 		os.RemoveAll(testDir2)
@@ -583,13 +588,13 @@ func TestStorageManager_MultipleBackends(t *testing.T) {
 		Backends: map[string]BackendConfig{
 			"backend1": {
 				Type: "local",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"root_dir": testDir1,
 				},
 			},
 			"backend2": {
 				Type: "local",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"root_dir": testDir2,
 				},
 			},

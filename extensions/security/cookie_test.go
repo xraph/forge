@@ -125,7 +125,7 @@ func TestCookieManager_GetCookie_NotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	_, err := cm.GetCookie(req, "nonexistent")
-	if err != ErrCookieNotFound {
+	if !errors.Is(err, ErrCookieNotFound) {
 		t.Errorf("expected ErrCookieNotFound, got %v", err)
 	}
 }
@@ -234,8 +234,8 @@ func TestCookieOptions_WithExpires(t *testing.T) {
 	if diff < 0 {
 		diff = -diff
 	}
+
 	if diff > time.Second {
 		t.Errorf("expected expires %v, got %v (diff: %v)", expires, cookie.Expires, diff)
 	}
 }
-

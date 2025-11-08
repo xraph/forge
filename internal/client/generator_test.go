@@ -43,6 +43,7 @@ func TestGeneratorRegistry(t *testing.T) {
 	if err != nil {
 		t.Errorf("Failed to get Go generator info: %v", err)
 	}
+
 	if info.Name != "go" {
 		t.Errorf("Expected generator name 'go', got '%s'", info.Name)
 	}
@@ -117,6 +118,7 @@ components:
 	defer os.RemoveAll(tmpDir)
 
 	specFile := filepath.Join(tmpDir, "openapi.yaml")
+
 	err = os.WriteFile(specFile, []byte(testSpec), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write spec file: %v", err)
@@ -198,6 +200,7 @@ components:
 
 			// Write to disk and verify
 			outputMgr := client.NewOutputManager()
+
 			err = outputMgr.WriteClient(generatedClient, outputDir)
 			if err != nil {
 				t.Errorf("Failed to write client: %v", err)
@@ -266,6 +269,7 @@ operations:
 	defer os.RemoveAll(tmpDir)
 
 	specFile := filepath.Join(tmpDir, "asyncapi.yaml")
+
 	err = os.WriteFile(specFile, []byte(testSpec), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write spec file: %v", err)
@@ -408,7 +412,7 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-// Helper function
+// Helper function.
 func contains(s, substr string) bool {
 	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) && containsSubstring(s, substr))
 }
@@ -419,5 +423,6 @@ func containsSubstring(s, substr string) bool {
 			return true
 		}
 	}
+
 	return false
 }

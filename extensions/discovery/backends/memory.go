@@ -2,20 +2,21 @@ package backends
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 )
 
 // MemoryBackend is an in-memory service discovery backend
-// This is useful for local development and testing
+// This is useful for local development and testing.
 type MemoryBackend struct {
 	services map[string]map[string]*ServiceInstance // service name -> instance ID -> instance
 	watchers map[string][]func([]*ServiceInstance)  // service name -> watchers
 	mu       sync.RWMutex
 }
 
-// NewMemoryBackend creates a new memory backend
+// NewMemoryBackend creates a new memory backend.
 func NewMemoryBackend() (*MemoryBackend, error) {
 	return &MemoryBackend{
 		services: make(map[string]map[string]*ServiceInstance),
@@ -23,23 +24,24 @@ func NewMemoryBackend() (*MemoryBackend, error) {
 	}, nil
 }
 
-// Name returns the backend name
+// Name returns the backend name.
 func (b *MemoryBackend) Name() string {
 	return "memory"
 }
 
-// Initialize initializes the backend
+// Initialize initializes the backend.
 func (b *MemoryBackend) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Register registers a service instance
+// Register registers a service instance.
 func (b *MemoryBackend) Register(ctx context.Context, instance *ServiceInstance) error {
 	if instance.ID == "" {
-		return fmt.Errorf("service instance ID is required")
+		return errors.New("service instance ID is required")
 	}
+
 	if instance.Name == "" {
-		return fmt.Errorf("service name is required")
+		return errors.New("service name is required")
 	}
 
 	b.mu.Lock()
@@ -61,20 +63,24 @@ func (b *MemoryBackend) Register(ctx context.Context, instance *ServiceInstance)
 	return nil
 }
 
-// Deregister deregisters a service instance
+// Deregister deregisters a service instance.
 func (b *MemoryBackend) Deregister(ctx context.Context, serviceID string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
 	// Find and remove the service instance
-	var found bool
-	var serviceName string
+	var (
+		found       bool
+		serviceName string
+	)
 
 	for name, instances := range b.services {
 		if _, ok := instances[serviceID]; ok {
 			delete(instances, serviceID)
+
 			found = true
 			serviceName = name
+
 			break
 		}
 	}
@@ -89,7 +95,7 @@ func (b *MemoryBackend) Deregister(ctx context.Context, serviceID string) error 
 	return nil
 }
 
-// Discover discovers service instances by name
+// Discover discovers service instances by name.
 func (b *MemoryBackend) Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -109,7 +115,7 @@ func (b *MemoryBackend) Discover(ctx context.Context, serviceName string) ([]*Se
 	return result, nil
 }
 
-// DiscoverWithTags discovers service instances by name and tags
+// DiscoverWithTags discovers service instances by name and tags.
 func (b *MemoryBackend) DiscoverWithTags(ctx context.Context, serviceName string, tags []string) ([]*ServiceInstance, error) {
 	instances, err := b.Discover(ctx, serviceName)
 	if err != nil {
@@ -131,7 +137,7 @@ func (b *MemoryBackend) DiscoverWithTags(ctx context.Context, serviceName string
 	return filtered, nil
 }
 
-// Watch watches for changes to a service
+// Watch watches for changes to a service.
 func (b *MemoryBackend) Watch(ctx context.Context, serviceName string, onChange func([]*ServiceInstance)) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -146,6 +152,7 @@ func (b *MemoryBackend) Watch(ctx context.Context, serviceName string, onChange 
 			instanceCopy := *instance
 			current = append(current, &instanceCopy)
 		}
+
 		go onChange(current)
 	} else {
 		go onChange([]*ServiceInstance{})
@@ -154,7 +161,7 @@ func (b *MemoryBackend) Watch(ctx context.Context, serviceName string, onChange 
 	return nil
 }
 
-// ListServices lists all registered services
+// ListServices lists all registered services.
 func (b *MemoryBackend) ListServices(ctx context.Context) ([]string, error) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -167,12 +174,12 @@ func (b *MemoryBackend) ListServices(ctx context.Context) ([]string, error) {
 	return services, nil
 }
 
-// Health checks backend health
+// Health checks backend health.
 func (b *MemoryBackend) Health(ctx context.Context) error {
 	return nil // Memory backend is always healthy
 }
 
-// Close closes the backend
+// Close closes the backend.
 func (b *MemoryBackend) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -184,7 +191,7 @@ func (b *MemoryBackend) Close() error {
 	return nil
 }
 
-// notifyWatchers notifies all watchers for a service (must be called with lock held)
+// notifyWatchers notifies all watchers for a service (must be called with lock held).
 func (b *MemoryBackend) notifyWatchers(serviceName string) {
 	watchers, ok := b.watchers[serviceName]
 	if !ok || len(watchers) == 0 {
@@ -211,7 +218,7 @@ func (b *MemoryBackend) notifyWatchers(serviceName string) {
 	}
 }
 
-// GetInstanceCount returns the number of instances for a service
+// GetInstanceCount returns the number of instances for a service.
 func (b *MemoryBackend) GetInstanceCount(serviceName string) int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -223,7 +230,7 @@ func (b *MemoryBackend) GetInstanceCount(serviceName string) int {
 	return 0
 }
 
-// GetTotalServiceCount returns the total number of registered services
+// GetTotalServiceCount returns the total number of registered services.
 func (b *MemoryBackend) GetTotalServiceCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()

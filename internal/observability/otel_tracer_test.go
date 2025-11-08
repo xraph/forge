@@ -25,6 +25,7 @@ func TestNewOTelTracer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOTelTracer() error = %v", err)
 	}
+
 	if tracer == nil {
 		t.Fatal("NewOTelTracer() returned nil")
 	}
@@ -56,6 +57,7 @@ func TestOTelTracer_StartSpan(t *testing.T) {
 	defer tracer.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := tracer.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Error("StartSpan() returned nil span")
@@ -93,6 +95,7 @@ func TestOTelTracer_EndSpan(t *testing.T) {
 	defer tracer.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := tracer.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
@@ -122,6 +125,7 @@ func TestOTelTracer_AddEvent(t *testing.T) {
 	defer tracer.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := tracer.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
@@ -155,6 +159,7 @@ func TestOTelTracer_SetAttribute(t *testing.T) {
 	defer tracer.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := tracer.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
@@ -185,6 +190,7 @@ func TestOTelTracer_SetStatus(t *testing.T) {
 	defer tracer.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := tracer.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
@@ -214,6 +220,7 @@ func TestOTelTracer_AddLink(t *testing.T) {
 	defer tracer.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := tracer.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
@@ -247,6 +254,7 @@ func TestOTelTracer_InjectTraceContext(t *testing.T) {
 	defer tracer.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := tracer.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
@@ -317,6 +325,7 @@ func TestOTelTracer_GetSpanFromContext(t *testing.T) {
 	defer tracer.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := tracer.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Fatalf("StartSpan() returned nil span")
@@ -384,19 +393,22 @@ func TestOTelTracer_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent span creation
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+
+	for i := range 10 {
 		go func(i int) {
 			ctx := context.Background()
+
 			ctx, span := tracer.StartSpan(ctx, "concurrent-operation")
 			if span != nil {
 				tracer.EndSpan(span)
 			}
+
 			done <- true
 		}(i)
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }

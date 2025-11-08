@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -12,7 +13,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// HealthEndpointManager manages HTTP endpoints for health checks
+// HealthEndpointManager manages HTTP endpoints for health checks.
 type HealthEndpointManager struct {
 	healthService HealthService
 	logger        logger.Logger
@@ -20,25 +21,25 @@ type HealthEndpointManager struct {
 	config        *EndpointConfig
 }
 
-// EndpointConfig contains configuration for health endpoints
+// EndpointConfig contains configuration for health endpoints.
 type EndpointConfig struct {
-	PathPrefix        string            `yaml:"path_prefix" json:"path_prefix"`
-	EnableDetailed    bool              `yaml:"enable_detailed" json:"enable_detailed"`
-	EnableMetrics     bool              `yaml:"enable_metrics" json:"enable_metrics"`
-	EnableLiveness    bool              `yaml:"enable_liveness" json:"enable_liveness"`
-	EnableReadiness   bool              `yaml:"enable_readiness" json:"enable_readiness"`
-	EnableInfo        bool              `yaml:"enable_info" json:"enable_info"`
-	CacheMaxAge       int               `yaml:"cache_max_age" json:"cache_max_age"`
-	Headers           map[string]string `yaml:"headers" json:"headers"`
-	EnableCORS        bool              `yaml:"enable_cors" json:"enable_cors"`
-	CORSOrigins       []string          `yaml:"cors_origins" json:"cors_origins"`
-	AuthEnabled       bool              `yaml:"auth_enabled" json:"auth_enabled"`
-	AuthToken         string            `yaml:"auth_token" json:"auth_token"`
-	EnableCompression bool              `yaml:"enable_compression" json:"enable_compression"`
-	ResponseTimeout   time.Duration     `yaml:"response_timeout" json:"response_timeout"`
+	PathPrefix        string            `json:"path_prefix"        yaml:"path_prefix"`
+	EnableDetailed    bool              `json:"enable_detailed"    yaml:"enable_detailed"`
+	EnableMetrics     bool              `json:"enable_metrics"     yaml:"enable_metrics"`
+	EnableLiveness    bool              `json:"enable_liveness"    yaml:"enable_liveness"`
+	EnableReadiness   bool              `json:"enable_readiness"   yaml:"enable_readiness"`
+	EnableInfo        bool              `json:"enable_info"        yaml:"enable_info"`
+	CacheMaxAge       int               `json:"cache_max_age"      yaml:"cache_max_age"`
+	Headers           map[string]string `json:"headers"            yaml:"headers"`
+	EnableCORS        bool              `json:"enable_cors"        yaml:"enable_cors"`
+	CORSOrigins       []string          `json:"cors_origins"       yaml:"cors_origins"`
+	AuthEnabled       bool              `json:"auth_enabled"       yaml:"auth_enabled"`
+	AuthToken         string            `json:"auth_token"         yaml:"auth_token"`
+	EnableCompression bool              `json:"enable_compression" yaml:"enable_compression"`
+	ResponseTimeout   time.Duration     `json:"response_timeout"   yaml:"response_timeout"`
 }
 
-// DefaultEndpointConfig returns default configuration for health endpoints
+// DefaultEndpointConfig returns default configuration for health endpoints.
 func DefaultEndpointConfig() *EndpointConfig {
 	return &EndpointConfig{
 		PathPrefix:        "/health",
@@ -58,7 +59,7 @@ func DefaultEndpointConfig() *EndpointConfig {
 	}
 }
 
-// NewHealthEndpointManager creates a new health endpoint manager
+// NewHealthEndpointManager creates a new health endpoint manager.
 func NewHealthEndpointManager(healthService HealthService, logger logger.Logger, metrics shared.Metrics, config *EndpointConfig) *HealthEndpointManager {
 	if config == nil {
 		config = DefaultEndpointConfig()
@@ -72,7 +73,7 @@ func NewHealthEndpointManager(healthService HealthService, logger logger.Logger,
 	}
 }
 
-// RegisterEndpoints registers health endpoints with the router
+// RegisterEndpoints registers health endpoints with the router.
 func (hem *HealthEndpointManager) RegisterEndpoints(r shared.Router) error {
 	// group := r.Group(hem.config.PathPrefix)
 	// group.UseMiddleware(hem.wrapHandler)
@@ -136,7 +137,6 @@ func (hem *HealthEndpointManager) RegisterEndpoints(r shared.Router) error {
 	// 		return fmt.Errorf("failed to register stats endpoint: %w", err)
 	// 	}
 	// }
-
 	if hem.logger != nil {
 		hem.logger.Info("health endpoints registered",
 			logger.String("path_prefix", hem.config.PathPrefix),
@@ -151,7 +151,7 @@ func (hem *HealthEndpointManager) RegisterEndpoints(r shared.Router) error {
 	return nil
 }
 
-// wrapHandler wraps health handlers with common functionality
+// wrapHandler wraps health handlers with common functionality.
 func (hem *HealthEndpointManager) wrapHandler(handler func(http.ResponseWriter, *http.Request)) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -162,8 +162,10 @@ func (hem *HealthEndpointManager) wrapHandler(handler func(http.ResponseWriter, 
 		// Handle CORS
 		if hem.config.EnableCORS {
 			hem.handleCORS(w, r)
-			if r.Method == "OPTIONS" {
+
+			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusOK)
+
 				return
 			}
 		}
@@ -172,6 +174,7 @@ func (hem *HealthEndpointManager) wrapHandler(handler func(http.ResponseWriter, 
 		if hem.config.AuthEnabled {
 			if !hem.authenticateRequest(r) {
 				hem.sendError(w, http.StatusUnauthorized, "unauthorized")
+
 				return
 			}
 		}
@@ -189,13 +192,14 @@ func (hem *HealthEndpointManager) wrapHandler(handler func(http.ResponseWriter, 
 		// Record metrics
 		if hem.metrics != nil {
 			duration := time.Since(start)
+
 			hem.metrics.Counter("forge.health.endpoint_requests").Inc()
 			hem.metrics.Histogram("forge.health.endpoint_duration").Observe(duration.Seconds())
 		}
 	}
 }
 
-// setCommonHeaders sets common HTTP headers
+// setCommonHeaders sets common HTTP headers.
 func (hem *HealthEndpointManager) setCommonHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -214,7 +218,7 @@ func (hem *HealthEndpointManager) setCommonHeaders(w http.ResponseWriter) {
 	}
 }
 
-// handleCORS handles CORS headers
+// handleCORS handles CORS headers.
 func (hem *HealthEndpointManager) handleCORS(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -223,9 +227,11 @@ func (hem *HealthEndpointManager) handleCORS(w http.ResponseWriter, r *http.Requ
 
 	// Check if origin is allowed
 	allowed := false
+
 	for _, allowedOrigin := range hem.config.CORSOrigins {
 		if allowedOrigin == "*" || allowedOrigin == origin {
 			allowed = true
+
 			break
 		}
 	}
@@ -238,7 +244,7 @@ func (hem *HealthEndpointManager) handleCORS(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-// authenticateRequest authenticates the request
+// authenticateRequest authenticates the request.
 func (hem *HealthEndpointManager) authenticateRequest(r *http.Request) bool {
 	if hem.config.AuthToken == "" {
 		return true
@@ -251,8 +257,9 @@ func (hem *HealthEndpointManager) authenticateRequest(r *http.Request) bool {
 	}
 
 	// Check Bearer token
-	if strings.HasPrefix(authHeader, "Bearer ") {
-		token := strings.TrimPrefix(authHeader, "Bearer ")
+	if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+		token := after
+
 		return token == hem.config.AuthToken
 	}
 
@@ -273,7 +280,7 @@ type HealthStatusInput struct {
 	Timestamp string       `json:"timestamp"`
 }
 
-// healthHandler handles the basic health endpoint
+// healthHandler handles the basic health endpoint.
 func (hem *HealthEndpointManager) healthHandler(ctx shared.Context, input HealthStatusInput) (*HealthStatusOutput, error) {
 	status := hem.healthService.GetStatus()
 
@@ -299,11 +306,12 @@ type DetailedHealthStatusOutput struct {
 
 type DetailedHealthHandler = func(ctx context.Context, input DetailedHealthStatusInput) (*DetailedHealthStatusOutput, error)
 
-// detailedHealthHandler handles the detailed health endpoint
+// detailedHealthHandler handles the detailed health endpoint.
 func (hem *HealthEndpointManager) detailedHealthHandler(ctx context.Context, input DetailedHealthStatusInput) (*DetailedHealthStatusOutput, error) {
 	report := hem.healthService.Check(ctx)
 
 	statusCode := hem.getStatusCode(report.Overall)
+
 	return &DetailedHealthStatusOutput{
 		Body:       report,
 		StatusCode: statusCode,
@@ -318,11 +326,11 @@ type ServiceHealthOutput struct {
 	Body *HealthResult
 }
 
-// serviceHealthHandler handles individual service health checks
+// serviceHealthHandler handles individual service health checks.
 func (hem *HealthEndpointManager) serviceHealthHandler(ctx shared.Context, input ServiceHealthInput) (*ServiceHealthOutput, error) {
 	serviceName := input.Name
 	if serviceName == "" {
-		return nil, fmt.Errorf("service name is required")
+		return nil, errors.New("service name is required")
 	}
 
 	result := hem.healthService.CheckOne(ctx.Context(), serviceName)
@@ -340,13 +348,14 @@ type LivenessOutput struct {
 	Uptime    string `json:"uptime"`
 }
 
-// livenessHandler handles the liveness endpoint
+// livenessHandler handles the liveness endpoint.
 func (hem *HealthEndpointManager) livenessHandler(ctx shared.Context, input LivenessInput) (*LivenessOutput, error) {
 	output := &LivenessOutput{
 		Status:    "alive",
 		Timestamp: time.Now().Format(time.RFC3339),
 		Uptime:    time.Since(hem.healthService.StartTime()).String(),
 	}
+
 	return output, nil
 }
 
@@ -358,7 +367,7 @@ type ReadinessOutput struct {
 	Timestamp string       `json:"timestamp"`
 }
 
-// readinessHandler handles the readiness endpoint
+// readinessHandler handles the readiness endpoint.
 func (hem *HealthEndpointManager) readinessHandler(ctx shared.Context, input ReadinessInput) (*ReadinessOutput, error) {
 	status := hem.healthService.GetStatus()
 	output := &ReadinessOutput{
@@ -368,7 +377,7 @@ func (hem *HealthEndpointManager) readinessHandler(ctx shared.Context, input Rea
 	}
 
 	if status != HealthStatusHealthy {
-		return output, fmt.Errorf("service not ready")
+		return output, errors.New("service not ready")
 	}
 
 	return output, nil
@@ -389,7 +398,7 @@ type InfoOutput struct {
 	Timestamp        string       `json:"timestamp"`
 }
 
-// infoHandler handles the info endpoint
+// infoHandler handles the info endpoint.
 func (hem *HealthEndpointManager) infoHandler(ctx shared.Context, input InfoInput) (*InfoOutput, error) {
 	stats := hem.healthService.GetStats()
 
@@ -426,7 +435,7 @@ type StatsOutput struct {
 	Summary *HealthStatusSummary `json:"summary"`
 }
 
-// statsHandler handles the stats endpoint
+// statsHandler handles the stats endpoint.
 func (hem *HealthEndpointManager) statsHandler(ctx shared.Context, input StatsInput) (*StatsOutput, error) {
 	stats := hem.healthService.GetStats()
 	report := hem.healthService.GetLastReport()
@@ -450,7 +459,7 @@ func (hem *HealthEndpointManager) statsHandler(ctx shared.Context, input StatsIn
 	return output, nil
 }
 
-// getStatusCode converts health status to HTTP status code
+// getStatusCode converts health status to HTTP status code.
 func (hem *HealthEndpointManager) getStatusCode(status HealthStatus) int {
 	switch status {
 	case HealthStatusHealthy:
@@ -466,8 +475,8 @@ func (hem *HealthEndpointManager) getStatusCode(status HealthStatus) int {
 	}
 }
 
-// sendJSON sends a JSON response
-func (hem *HealthEndpointManager) sendJSON(w http.ResponseWriter, statusCode int, data interface{}) {
+// sendJSON sends a JSON response.
+func (hem *HealthEndpointManager) sendJSON(w http.ResponseWriter, statusCode int, data any) {
 	w.WriteHeader(statusCode)
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
@@ -483,9 +492,9 @@ func (hem *HealthEndpointManager) sendJSON(w http.ResponseWriter, statusCode int
 	}
 }
 
-// sendError sends an error response
+// sendError sends an error response.
 func (hem *HealthEndpointManager) sendError(w http.ResponseWriter, statusCode int, message string) {
-	response := map[string]interface{}{
+	response := map[string]any{
 		"error":     message,
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
@@ -493,7 +502,7 @@ func (hem *HealthEndpointManager) sendError(w http.ResponseWriter, statusCode in
 	hem.sendJSON(w, statusCode, response)
 }
 
-// getPathParam extracts a path parameter from the request
+// getPathParam extracts a path parameter from the request.
 func (hem *HealthEndpointManager) getPathParam(r *http.Request, param string) string {
 	// This is a simplified implementation
 	// In a real implementation, you would use the router's parameter extraction
@@ -510,54 +519,54 @@ func (hem *HealthEndpointManager) getPathParam(r *http.Request, param string) st
 	return ""
 }
 
-// HealthEndpointHandlers provides direct handler functions for integration
+// HealthEndpointHandlers provides direct handler functions for integration.
 type HealthEndpointHandlers struct {
 	manager *HealthEndpointManager
 }
 
-// NewHealthEndpointHandlers creates new health endpoint handlers
+// NewHealthEndpointHandlers creates new health endpoint handlers.
 func NewHealthEndpointHandlers(manager *HealthEndpointManager) *HealthEndpointHandlers {
 	return &HealthEndpointHandlers{
 		manager: manager,
 	}
 }
 
-// HealthHandler returns the health handler function
+// HealthHandler returns the health handler function.
 func (heh *HealthEndpointHandlers) HealthHandler() func(ctx shared.Context, input HealthStatusInput) (*HealthStatusOutput, error) {
 	return heh.manager.healthHandler
 }
 
-// DetailedHealthHandler returns the detailed health handler function
+// DetailedHealthHandler returns the detailed health handler function.
 func (heh *HealthEndpointHandlers) DetailedHealthHandler() DetailedHealthHandler {
 	return heh.manager.detailedHealthHandler
 }
 
-// ServiceHealthHandler returns the service health handler function
+// ServiceHealthHandler returns the service health handler function.
 func (heh *HealthEndpointHandlers) ServiceHealthHandler() func(ctx shared.Context, input ServiceHealthInput) (*ServiceHealthOutput, error) {
 	return heh.manager.serviceHealthHandler
 }
 
-// LivenessHandler returns the liveness handler function
+// LivenessHandler returns the liveness handler function.
 func (heh *HealthEndpointHandlers) LivenessHandler() func(ctx shared.Context, input LivenessInput) (*LivenessOutput, error) {
 	return heh.manager.livenessHandler
 }
 
-// ReadinessHandler returns the readiness handler function
+// ReadinessHandler returns the readiness handler function.
 func (heh *HealthEndpointHandlers) ReadinessHandler() func(ctx shared.Context, input ReadinessInput) (*ReadinessOutput, error) {
 	return heh.manager.readinessHandler
 }
 
-// InfoHandler returns the info handler function
+// InfoHandler returns the info handler function.
 func (heh *HealthEndpointHandlers) InfoHandler() func(ctx shared.Context, input InfoInput) (*InfoOutput, error) {
 	return heh.manager.infoHandler
 }
 
-// StatsHandler returns the stats handler function
+// StatsHandler returns the stats handler function.
 func (heh *HealthEndpointHandlers) StatsHandler() func(ctx shared.Context, input StatsInput) (*StatsOutput, error) {
 	return heh.manager.statsHandler
 }
 
-// CreateHealthEndpoints creates health endpoints for a router
+// CreateHealthEndpoints creates health endpoints for a router.
 func CreateHealthEndpoints(router shared.Router, healthService shared.HealthManager, logger logger.Logger, metrics shared.Metrics) error {
 	config := DefaultEndpointConfig()
 	manager := NewHealthEndpointManager(healthService, logger, metrics, config)
@@ -565,7 +574,7 @@ func CreateHealthEndpoints(router shared.Router, healthService shared.HealthMana
 	return manager.RegisterEndpoints(router)
 }
 
-// CreateHealthEndpointsWithConfig creates health endpoints with custom configuration
+// CreateHealthEndpointsWithConfig creates health endpoints with custom configuration.
 func CreateHealthEndpointsWithConfig(router shared.Router, healthService shared.HealthManager, logger logger.Logger, metrics shared.Metrics, config *EndpointConfig) error {
 	manager := NewHealthEndpointManager(healthService, logger, metrics, config)
 

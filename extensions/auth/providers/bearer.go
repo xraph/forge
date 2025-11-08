@@ -42,22 +42,22 @@ func NewBearerTokenProvider(name string, opts ...BearerTokenOption) auth.AuthPro
 
 type BearerTokenOption func(*BearerTokenProvider)
 
-// WithBearerFormat sets the bearer token format (e.g., "JWT", "token")
+// WithBearerFormat sets the bearer token format (e.g., "JWT", "token").
 func WithBearerFormat(format string) BearerTokenOption {
 	return func(p *BearerTokenProvider) { p.bearerFormat = format }
 }
 
-// WithBearerValidator sets the validator function
+// WithBearerValidator sets the validator function.
 func WithBearerValidator(validator BearerTokenValidator) BearerTokenOption {
 	return func(p *BearerTokenProvider) { p.validator = validator }
 }
 
-// WithBearerDescription sets the OpenAPI description
+// WithBearerDescription sets the OpenAPI description.
 func WithBearerDescription(desc string) BearerTokenOption {
 	return func(p *BearerTokenProvider) { p.description = desc }
 }
 
-// WithBearerContainer sets the DI container (for accessing services)
+// WithBearerContainer sets the DI container (for accessing services).
 func WithBearerContainer(container forge.Container) BearerTokenOption {
 	return func(p *BearerTokenProvider) { p.container = container }
 }
@@ -113,6 +113,7 @@ func (p *BearerTokenProvider) Middleware() forge.Middleware {
 			}
 
 			ctx.Set("auth_context", authCtx)
+
 			return next(ctx)
 		}
 	}

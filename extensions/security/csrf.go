@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -14,14 +15,14 @@ import (
 	"github.com/xraph/forge"
 )
 
-// CSRF errors
+// CSRF errors.
 var (
 	ErrCSRFTokenMissing = errors.New("csrf token missing")
 	ErrCSRFTokenInvalid = errors.New("csrf token invalid")
 	ErrCSRFTokenExpired = errors.New("csrf token expired")
 )
 
-// CSRFConfig holds CSRF protection configuration
+// CSRFConfig holds CSRF protection configuration.
 type CSRFConfig struct {
 	// Enabled determines if CSRF protection is enabled
 	Enabled bool
@@ -72,7 +73,7 @@ type CSRFConfig struct {
 	ErrorHandler func(forge.Context, error) error
 }
 
-// DefaultCSRFConfig returns the default CSRF configuration
+// DefaultCSRFConfig returns the default CSRF configuration.
 func DefaultCSRFConfig() CSRFConfig {
 	return CSRFConfig{
 		Enabled:             true,
@@ -95,33 +96,37 @@ func DefaultCSRFConfig() CSRFConfig {
 	}
 }
 
-// csrfToken represents a CSRF token with metadata
+// csrfToken represents a CSRF token with metadata.
 type csrfToken struct {
 	Value     string
 	ExpiresAt time.Time
 }
 
-// CSRFProtection manages CSRF token generation and validation
+// CSRFProtection manages CSRF token generation and validation.
 type CSRFProtection struct {
 	config CSRFConfig
 	tokens sync.Map // map[string]*csrfToken - session ID -> token
 	logger forge.Logger
 }
 
-// NewCSRFProtection creates a new CSRF protection instance
+// NewCSRFProtection creates a new CSRF protection instance.
 func NewCSRFProtection(config CSRFConfig, logger forge.Logger) *CSRFProtection {
 	if config.TokenLength <= 0 {
 		config.TokenLength = 32
 	}
+
 	if config.TokenLookup == "" {
 		config.TokenLookup = "header:X-CSRF-Token"
 	}
+
 	if config.CookieName == "" {
 		config.CookieName = "csrf_token"
 	}
+
 	if config.TTL <= 0 {
 		config.TTL = 12 * time.Hour
 	}
+
 	if len(config.SafeMethods) == 0 {
 		config.SafeMethods = []string{"GET", "HEAD", "OPTIONS", "TRACE"}
 	}
@@ -132,16 +137,17 @@ func NewCSRFProtection(config CSRFConfig, logger forge.Logger) *CSRFProtection {
 	}
 }
 
-// GenerateToken generates a new CSRF token
+// GenerateToken generates a new CSRF token.
 func (c *CSRFProtection) GenerateToken() (string, error) {
 	bytes := make([]byte, c.config.TokenLength)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", fmt.Errorf("failed to generate csrf token: %w", err)
 	}
+
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }
 
-// SetToken stores a CSRF token for a session
+// SetToken stores a CSRF token for a session.
 func (c *CSRFProtection) SetToken(sessionID, token string) {
 	c.tokens.Store(sessionID, &csrfToken{
 		Value:     token,
@@ -149,20 +155,23 @@ func (c *CSRFProtection) SetToken(sessionID, token string) {
 	})
 }
 
-// GetToken retrieves the CSRF token for a session
+// GetToken retrieves the CSRF token for a session.
 func (c *CSRFProtection) GetToken(sessionID string) (string, bool) {
 	if val, ok := c.tokens.Load(sessionID); ok {
 		token := val.(*csrfToken)
 		if time.Now().After(token.ExpiresAt) {
 			c.tokens.Delete(sessionID)
+
 			return "", false
 		}
+
 		return token.Value, true
 	}
+
 	return "", false
 }
 
-// ValidateToken validates a CSRF token against the stored token
+// ValidateToken validates a CSRF token against the stored token.
 func (c *CSRFProtection) ValidateToken(sessionID, providedToken string) error {
 	if providedToken == "" {
 		return ErrCSRFTokenMissing
@@ -181,12 +190,12 @@ func (c *CSRFProtection) ValidateToken(sessionID, providedToken string) error {
 	return nil
 }
 
-// DeleteToken removes a CSRF token for a session
+// DeleteToken removes a CSRF token for a session.
 func (c *CSRFProtection) DeleteToken(sessionID string) {
 	c.tokens.Delete(sessionID)
 }
 
-// extractTokenFromRequest extracts the token from request based on TokenLookup config
+// extractTokenFromRequest extracts the token from request based on TokenLookup config.
 func (c *CSRFProtection) extractTokenFromRequest(r *http.Request) string {
 	parts := strings.Split(c.config.TokenLookup, ":")
 	if len(parts) != 2 {
@@ -208,27 +217,24 @@ func (c *CSRFProtection) extractTokenFromRequest(r *http.Request) string {
 	}
 }
 
-// isSafeMethod checks if the HTTP method is safe (doesn't require CSRF protection)
+// isSafeMethod checks if the HTTP method is safe (doesn't require CSRF protection).
 func (c *CSRFProtection) isSafeMethod(method string) bool {
-	for _, safeMethod := range c.config.SafeMethods {
-		if safeMethod == method {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(c.config.SafeMethods, method)
 }
 
-// shouldSkipPath checks if the path should skip CSRF protection
+// shouldSkipPath checks if the path should skip CSRF protection.
 func (c *CSRFProtection) shouldSkipPath(path string) bool {
 	for _, skipPath := range c.config.SkipPaths {
 		if path == skipPath || strings.HasPrefix(path, skipPath) {
 			return true
 		}
 	}
+
 	return false
 }
 
-// CSRFMiddleware returns a middleware function for CSRF protection
+// CSRFMiddleware returns a middleware function for CSRF protection.
 func CSRFMiddleware(csrf *CSRFProtection, cookieManager *CookieManager) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -275,6 +281,7 @@ func (c *CSRFProtection) handleSafeMethod(ctx forge.Context, cookieManager *Cook
 	token, err := c.GenerateToken()
 	if err != nil {
 		c.logger.Error("failed to generate csrf token", forge.F("error", err))
+
 		return ctx.String(http.StatusInternalServerError, "Internal Server Error")
 	}
 
@@ -297,7 +304,7 @@ func (c *CSRFProtection) handleSafeMethod(ctx forge.Context, cookieManager *Cook
 	})
 
 	// Set token in response header so client can read it
-	w.Header().Set("X-CSRF-Token", token)
+	w.Header().Set("X-Csrf-Token", token)
 
 	return next(ctx)
 }
@@ -310,6 +317,7 @@ func (c *CSRFProtection) handleUnsafeMethod(ctx forge.Context, cookieManager *Co
 	sessionID, _ := cookieManager.GetCookie(r, c.config.CookieName)
 	if sessionID == "" {
 		c.logger.Warn("csrf validation failed: no session cookie")
+
 		return ctx.String(http.StatusForbidden, "CSRF token validation failed")
 	}
 
@@ -320,6 +328,7 @@ func (c *CSRFProtection) handleUnsafeMethod(ctx forge.Context, cookieManager *Co
 			forge.F("method", r.Method),
 			forge.F("path", r.URL.Path),
 		)
+
 		return ctx.String(http.StatusForbidden, "CSRF token validation failed")
 	}
 
@@ -330,6 +339,7 @@ func (c *CSRFProtection) handleUnsafeMethod(ctx forge.Context, cookieManager *Co
 			forge.F("method", r.Method),
 			forge.F("path", r.URL.Path),
 		)
+
 		return ctx.String(http.StatusForbidden, "CSRF token validation failed")
 	}
 
@@ -337,11 +347,12 @@ func (c *CSRFProtection) handleUnsafeMethod(ctx forge.Context, cookieManager *Co
 	return next(ctx)
 }
 
-// GetCSRFToken retrieves the CSRF token from response header (helper for templates/responses)
+// GetCSRFToken retrieves the CSRF token from response header (helper for templates/responses).
 func GetCSRFToken(w http.ResponseWriter) (string, bool) {
-	token := w.Header().Get("X-CSRF-Token")
+	token := w.Header().Get("X-Csrf-Token")
 	if token != "" {
 		return token, true
 	}
+
 	return "", false
 }

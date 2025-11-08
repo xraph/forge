@@ -12,7 +12,7 @@ import (
 	errors2 "github.com/xraph/forge/internal/errors"
 )
 
-// Mock service for testing
+// Mock service for testing.
 type mockService struct {
 	name       string
 	started    bool
@@ -33,7 +33,9 @@ func (m *mockService) Start(ctx context.Context) error {
 	if m.startErr != nil {
 		return m.startErr
 	}
+
 	m.started = true
+
 	return nil
 }
 
@@ -41,7 +43,9 @@ func (m *mockService) Stop(ctx context.Context) error {
 	if m.stopErr != nil {
 		return m.stopErr
 	}
+
 	m.stopped = true
+
 	return nil
 }
 
@@ -49,37 +53,43 @@ func (m *mockService) Health(ctx context.Context) error {
 	if m.healthErr != nil {
 		return m.healthErr
 	}
+
 	if !m.healthy {
 		return errors.New("unhealthy")
 	}
+
 	return nil
 }
 
 func (m *mockService) Configure(config any) error {
 	m.configured = true
+
 	return nil
 }
 
 func (m *mockService) Dispose() error {
 	m.disposed = true
+
 	return nil
 }
 
-// Mock service with callback for testing lifecycle order
+// Mock service with callback for testing lifecycle order.
 type mockServiceWithCallback struct {
 	mockService
+
 	onStart func()
 	onStop  func()
 }
 
 func (m *mockServiceWithCallback) Name() string {
-	return m.mockService.name
+	return m.name
 }
 
 func (m *mockServiceWithCallback) Start(ctx context.Context) error {
 	if m.onStart != nil {
 		m.onStart()
 	}
+
 	return m.mockService.Start(ctx)
 }
 
@@ -87,6 +97,7 @@ func (m *mockServiceWithCallback) Stop(ctx context.Context) error {
 	if m.onStop != nil {
 		m.onStop()
 	}
+
 	return m.mockService.Stop(ctx)
 }
 
@@ -167,6 +178,7 @@ func TestResolve_Singleton(t *testing.T) {
 
 	err := c.Register("test", func(c Container) (any, error) {
 		callCount++
+
 		return &mockService{name: "singleton"}, nil
 	}, Singleton())
 	require.NoError(t, err)
@@ -191,6 +203,7 @@ func TestResolve_Transient(t *testing.T) {
 
 	err := c.Register("test", func(c Container) (any, error) {
 		callCount++
+
 		return &mockService{name: "test"}, nil
 	}, Transient())
 	require.NoError(t, err)
@@ -241,8 +254,9 @@ func TestResolve_FactoryError(t *testing.T) {
 
 	_, err = c.Resolve("test")
 	assert.Error(t, err)
+
 	var serviceErr *errors2.ServiceError
-	assert.True(t, errors.As(err, &serviceErr))
+	assert.ErrorAs(t, err, &serviceErr)
 	assert.Equal(t, "test", serviceErr.Service)
 	assert.ErrorIs(t, serviceErr.Err, expectedErr)
 }
@@ -303,6 +317,7 @@ func TestStart_WithDependencies(t *testing.T) {
 			name: "dep1",
 			startErr: func() error {
 				startOrder = append(startOrder, "dep1")
+
 				return nil
 			}(),
 		}, nil
@@ -314,6 +329,7 @@ func TestStart_WithDependencies(t *testing.T) {
 			name: "dep2",
 			startErr: func() error {
 				startOrder = append(startOrder, "dep2")
+
 				return nil
 			}(),
 		}, nil
@@ -325,6 +341,7 @@ func TestStart_WithDependencies(t *testing.T) {
 			name: "main",
 			startErr: func() error {
 				startOrder = append(startOrder, "main")
+
 				return nil
 			}(),
 		}, nil
@@ -371,7 +388,7 @@ func TestStart_ServiceError(t *testing.T) {
 	assert.Error(t, err)
 
 	var serviceErr *errors2.ServiceError
-	assert.True(t, errors.As(err, &serviceErr))
+	assert.ErrorAs(t, err, &serviceErr)
 	assert.Equal(t, "svc2", serviceErr.Service)
 }
 
@@ -404,6 +421,7 @@ func TestStop_NotStarted(t *testing.T) {
 func TestStop_ReverseOrder(t *testing.T) {
 	c := NewContainer()
 	stopOrder := []string{}
+
 	var mu sync.Mutex
 
 	// Register services with dependencies that track stop order
@@ -412,7 +430,9 @@ func TestStop_ReverseOrder(t *testing.T) {
 			mockService: mockService{name: "dep1"},
 			onStop: func() {
 				mu.Lock()
+
 				stopOrder = append(stopOrder, "dep1")
+
 				mu.Unlock()
 			},
 		}, nil
@@ -424,7 +444,9 @@ func TestStop_ReverseOrder(t *testing.T) {
 			mockService: mockService{name: "main"},
 			onStop: func() {
 				mu.Lock()
+
 				stopOrder = append(stopOrder, "main")
+
 				mu.Unlock()
 			},
 		}, nil
@@ -481,7 +503,7 @@ func TestHealth_Failed(t *testing.T) {
 	assert.Error(t, err)
 
 	var serviceErr *errors2.ServiceError
-	assert.True(t, errors.As(err, &serviceErr))
+	assert.ErrorAs(t, err, &serviceErr)
 	assert.Equal(t, "test", serviceErr.Service)
 }
 
@@ -559,25 +581,29 @@ func TestConcurrentResolve(t *testing.T) {
 
 	err := c.Register("test", func(c Container) (any, error) {
 		time.Sleep(10 * time.Millisecond)
+
 		callCount++
+
 		return "value", nil
 	}, Singleton())
 	require.NoError(t, err)
 
 	// Resolve concurrently
 	const goroutines = 10
+
 	done := make(chan bool, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			_, err := c.Resolve("test")
 			assert.NoError(t, err)
+
 			done <- true
 		}()
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		<-done
 	}
 

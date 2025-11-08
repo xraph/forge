@@ -7,13 +7,13 @@ import (
 	"time"
 )
 
-// schemaGenerator generates JSON schemas from Go types
+// schemaGenerator generates JSON schemas from Go types.
 type schemaGenerator struct {
 	schemas    map[string]*Schema
 	components map[string]*Schema // Reference to spec components for registering nested types
 }
 
-// newSchemaGenerator creates a new schema generator
+// newSchemaGenerator creates a new schema generator.
 func newSchemaGenerator(components map[string]*Schema) *schemaGenerator {
 	return &schemaGenerator{
 		schemas:    make(map[string]*Schema),
@@ -21,8 +21,8 @@ func newSchemaGenerator(components map[string]*Schema) *schemaGenerator {
 	}
 }
 
-// GenerateSchema generates a JSON schema from a Go type
-func (g *schemaGenerator) GenerateSchema(t interface{}) *Schema {
+// GenerateSchema generates a JSON schema from a Go type.
+func (g *schemaGenerator) GenerateSchema(t any) *Schema {
 	if t == nil {
 		return nil
 	}
@@ -41,9 +41,10 @@ func (g *schemaGenerator) generateSchemaFromType(typ reflect.Type) *Schema {
 	schema := &Schema{}
 
 	// Handle time.Time specially before switch
-	if typ == reflect.TypeOf(time.Time{}) {
+	if typ == reflect.TypeFor[time.Time]() {
 		schema.Type = "string"
 		schema.Format = "date-time"
+
 		return schema
 	}
 
@@ -158,15 +159,15 @@ func (g *schemaGenerator) generateFieldSchema(field reflect.StructField) *Schema
 	return schema
 }
 
-// shouldBeComponentRef determines if a type should be extracted as a component
+// shouldBeComponentRef determines if a type should be extracted as a component.
 func (g *schemaGenerator) shouldBeComponentRef(typ reflect.Type) bool {
 	// Only named struct types (not time.Time or anonymous structs)
 	return typ.Kind() == reflect.Struct &&
 		typ.Name() != "" &&
-		typ != reflect.TypeOf(time.Time{})
+		typ != reflect.TypeFor[time.Time]()
 }
 
-// createOrReuseComponentRef creates or reuses a component reference for a struct type
+// createOrReuseComponentRef creates or reuses a component reference for a struct type.
 func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field reflect.StructField) *Schema {
 	typeName := GetTypeName(typ)
 
@@ -174,6 +175,7 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 	if _, exists := g.schemas[typeName]; !exists {
 		// Create placeholder BEFORE recursing to break circular references
 		placeholder := &Schema{Type: "object"}
+
 		g.schemas[typeName] = placeholder
 		if g.components != nil {
 			g.components[typeName] = placeholder
@@ -201,6 +203,7 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 	if desc := field.Tag.Get("description"); desc != "" {
 		refSchema.Description = desc
 	}
+
 	if title := field.Tag.Get("title"); title != "" {
 		refSchema.Title = title
 	}
@@ -208,7 +211,7 @@ func (g *schemaGenerator) createOrReuseComponentRef(typ reflect.Type, field refl
 	return refSchema
 }
 
-// createArrayWithComponentRef creates an array schema with component reference for elements
+// createArrayWithComponentRef creates an array schema with component reference for elements.
 func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, field reflect.StructField) *Schema {
 	typeName := GetTypeName(elemType)
 
@@ -216,6 +219,7 @@ func (g *schemaGenerator) createArrayWithComponentRef(elemType reflect.Type, fie
 	if _, exists := g.schemas[typeName]; !exists {
 		// Create placeholder BEFORE recursing to break circular references
 		placeholder := &Schema{Type: "object"}
+
 		g.schemas[typeName] = placeholder
 		if g.components != nil {
 			g.components[typeName] = placeholder
@@ -277,7 +281,7 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 
 	// Const value (for discriminator types)
 	if constVal := field.Tag.Get("const"); constVal != "" {
-		schema.Enum = []interface{}{constVal}
+		schema.Enum = []any{constVal}
 	}
 
 	// Pattern
@@ -288,7 +292,8 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 	// Enum
 	if enum := field.Tag.Get("enum"); enum != "" {
 		enumValues := strings.Split(enum, ",")
-		schema.Enum = make([]interface{}, len(enumValues))
+
+		schema.Enum = make([]any, len(enumValues))
 		for i, v := range enumValues {
 			schema.Enum[i] = strings.TrimSpace(v)
 		}
@@ -300,6 +305,7 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 			schema.MinLength = val
 		}
 	}
+
 	if maxLength := field.Tag.Get("maxLength"); maxLength != "" {
 		if val, err := strconv.Atoi(maxLength); err == nil {
 			schema.MaxLength = val
@@ -312,11 +318,13 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 			schema.Minimum = val
 		}
 	}
+
 	if maximum := field.Tag.Get("maximum"); maximum != "" {
 		if val, err := strconv.ParseFloat(maximum, 64); err == nil {
 			schema.Maximum = val
 		}
 	}
+
 	if multipleOf := field.Tag.Get("multipleOf"); multipleOf != "" {
 		if val, err := strconv.ParseFloat(multipleOf, 64); err == nil {
 			schema.MultipleOf = val
@@ -327,6 +335,7 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 	if exclusiveMin := field.Tag.Get("exclusiveMinimum"); exclusiveMin == "true" {
 		schema.ExclusiveMinimum = true
 	}
+
 	if exclusiveMax := field.Tag.Get("exclusiveMaximum"); exclusiveMax == "true" {
 		schema.ExclusiveMaximum = true
 	}
@@ -337,11 +346,13 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 			schema.MinItems = val
 		}
 	}
+
 	if maxItems := field.Tag.Get("maxItems"); maxItems != "" {
 		if val, err := strconv.Atoi(maxItems); err == nil {
 			schema.MaxItems = val
 		}
 	}
+
 	if uniqueItems := field.Tag.Get("uniqueItems"); uniqueItems == "true" {
 		schema.UniqueItems = true
 	}
@@ -352,6 +363,7 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 			schema.MinProperties = val
 		}
 	}
+
 	if maxProps := field.Tag.Get("maxProperties"); maxProps != "" {
 		if val, err := strconv.Atoi(maxProps); err == nil {
 			schema.MaxProperties = val
@@ -362,18 +374,21 @@ func (g *schemaGenerator) applyStructTags(schema *Schema, field reflect.StructFi
 	if nullable := field.Tag.Get("nullable"); nullable == "true" {
 		schema.Nullable = true
 	}
+
 	if readOnly := field.Tag.Get("readOnly"); readOnly == "true" {
 		schema.ReadOnly = true
 	}
+
 	if writeOnly := field.Tag.Get("writeOnly"); writeOnly == "true" {
 		schema.WriteOnly = true
 	}
+
 	if deprecated := field.Tag.Get("deprecated"); deprecated == "true" {
 		schema.Deprecated = true
 	}
 }
 
-// parseJSONTag parses a JSON struct tag
+// parseJSONTag parses a JSON struct tag.
 func parseJSONTag(tag string) (name string, omitempty bool) {
 	if tag == "" {
 		return "", false
@@ -385,6 +400,7 @@ func parseJSONTag(tag string) (name string, omitempty bool) {
 	for i := 1; i < len(parts); i++ {
 		if parts[i] == "omitempty" {
 			omitempty = true
+
 			break
 		}
 	}
@@ -392,8 +408,8 @@ func parseJSONTag(tag string) (name string, omitempty bool) {
 	return name, omitempty
 }
 
-// parseExample converts string example to appropriate type
-func parseExample(example, schemaType string) interface{} {
+// parseExample converts string example to appropriate type.
+func parseExample(example, schemaType string) any {
 	switch schemaType {
 	case "integer":
 		if val, err := strconv.Atoi(example); err == nil {
@@ -415,7 +431,7 @@ func parseExample(example, schemaType string) interface{} {
 	return example
 }
 
-// GetTypeName returns a qualified type name for schema references
+// GetTypeName returns a qualified type name for schema references.
 func GetTypeName(t reflect.Type) string {
 	// Handle pointer types
 	if t.Kind() == reflect.Ptr {

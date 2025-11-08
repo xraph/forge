@@ -3,13 +3,15 @@ package ai
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// AgentTeam represents a group of agents working together
+// AgentTeam represents a group of agents working together.
 type AgentTeam struct {
 	id     string
 	name   string
@@ -18,7 +20,7 @@ type AgentTeam struct {
 	mu     sync.RWMutex
 }
 
-// NewAgentTeam creates a new agent team
+// NewAgentTeam creates a new agent team.
 func NewAgentTeam(id, name string, logger forge.Logger) *AgentTeam {
 	return &AgentTeam{
 		id:     id,
@@ -28,20 +30,21 @@ func NewAgentTeam(id, name string, logger forge.Logger) *AgentTeam {
 	}
 }
 
-// ID returns the team ID
+// ID returns the team ID.
 func (t *AgentTeam) ID() string {
 	return t.id
 }
 
-// Name returns the team name
+// Name returns the team name.
 func (t *AgentTeam) Name() string {
 	return t.name
 }
 
-// AddAgent adds an agent to the team
+// AddAgent adds an agent to the team.
 func (t *AgentTeam) AddAgent(agent internal.AIAgent) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
 	t.agents = append(t.agents, agent)
 
 	if t.logger != nil {
@@ -52,7 +55,7 @@ func (t *AgentTeam) AddAgent(agent internal.AIAgent) {
 	}
 }
 
-// RemoveAgent removes an agent from the team
+// RemoveAgent removes an agent from the team.
 func (t *AgentTeam) RemoveAgent(agentID string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -66,6 +69,7 @@ func (t *AgentTeam) RemoveAgent(agentID string) error {
 					forge.F("agent_id", agentID),
 				)
 			}
+
 			return nil
 		}
 	}
@@ -73,15 +77,16 @@ func (t *AgentTeam) RemoveAgent(agentID string) error {
 	return fmt.Errorf("agent %s not found in team", agentID)
 }
 
-// Agents returns all agents in the team
+// Agents returns all agents in the team.
 func (t *AgentTeam) Agents() []internal.AIAgent {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.agents
 }
 
 // Execute executes a task sequentially across all agents
-// Each agent receives the output of the previous agent as input
+// Each agent receives the output of the previous agent as input.
 func (t *AgentTeam) Execute(ctx context.Context, input internal.AgentInput) (internal.AgentOutput, error) {
 	t.mu.RLock()
 	agents := make([]internal.AIAgent, len(t.agents))
@@ -103,6 +108,7 @@ func (t *AgentTeam) Execute(ctx context.Context, input internal.AgentInput) (int
 
 	// Sequential execution with output passing
 	var output internal.AgentOutput
+
 	currentInput := input
 
 	for i, agent := range agents {
@@ -110,8 +116,9 @@ func (t *AgentTeam) Execute(ctx context.Context, input internal.AgentInput) (int
 		if i > 0 && output.Data != nil {
 			currentInput.Data = output.Data
 			if currentInput.Context == nil {
-				currentInput.Context = make(map[string]interface{})
+				currentInput.Context = make(map[string]any)
 			}
+
 			currentInput.Context["previous_agent"] = agents[i-1].ID()
 			currentInput.Context["previous_output"] = output.Data
 		}
@@ -137,7 +144,7 @@ func (t *AgentTeam) Execute(ctx context.Context, input internal.AgentInput) (int
 }
 
 // ExecuteParallel executes a task in parallel across all agents
-// All agents receive the same input and work simultaneously
+// All agents receive the same input and work simultaneously.
 func (t *AgentTeam) ExecuteParallel(ctx context.Context, input internal.AgentInput) ([]internal.AgentOutput, error) {
 	t.mu.RLock()
 	agents := make([]internal.AIAgent, len(t.agents))
@@ -163,8 +170,10 @@ func (t *AgentTeam) ExecuteParallel(ctx context.Context, input internal.AgentInp
 	var wg sync.WaitGroup
 	for i, agent := range agents {
 		wg.Add(1)
+
 		go func(idx int, a internal.AIAgent) {
 			defer wg.Done()
+
 			outputs[idx], errors[idx] = a.Process(ctx, input)
 
 			if t.logger != nil && errors[idx] == nil {
@@ -190,7 +199,7 @@ func (t *AgentTeam) ExecuteParallel(ctx context.Context, input internal.AgentInp
 }
 
 // ExecuteCollaborative executes a task with agents collaborating
-// Agents share context and can communicate through shared memory
+// Agents share context and can communicate through shared memory.
 func (t *AgentTeam) ExecuteCollaborative(ctx context.Context, input internal.AgentInput) (internal.AgentOutput, error) {
 	t.mu.RLock()
 	agents := make([]internal.AIAgent, len(t.agents))
@@ -212,7 +221,7 @@ func (t *AgentTeam) ExecuteCollaborative(ctx context.Context, input internal.Age
 
 	// Create shared context for communication
 	sharedContext := &CollaborationContext{
-		SharedMemory: make(map[string]interface{}),
+		SharedMemory: make(map[string]any),
 		Messages:     make(chan AgentMessage, 100),
 		Results:      make(chan internal.AgentOutput, 1),
 		Done:         make(chan struct{}),
@@ -220,15 +229,14 @@ func (t *AgentTeam) ExecuteCollaborative(ctx context.Context, input internal.Age
 
 	// Initialize shared memory with input context
 	if input.Context != nil {
-		for k, v := range input.Context {
-			sharedContext.SharedMemory[k] = v
-		}
+		maps.Copy(sharedContext.SharedMemory, input.Context)
 	}
 
 	// Start all agents in goroutines
 	var wg sync.WaitGroup
 	for _, agent := range agents {
 		wg.Add(1)
+
 		go t.runCollaborativeAgent(ctx, agent, input, sharedContext, &wg)
 	}
 
@@ -245,11 +253,11 @@ func (t *AgentTeam) ExecuteCollaborative(ctx context.Context, input internal.Age
 		return internal.AgentOutput{}, ctx.Err()
 	case <-sharedContext.Done:
 		// All agents finished but no result was sent
-		return internal.AgentOutput{}, fmt.Errorf("no agent produced a final result")
+		return internal.AgentOutput{}, errors.New("no agent produced a final result")
 	}
 }
 
-// runCollaborativeAgent runs a single agent in collaborative mode
+// runCollaborativeAgent runs a single agent in collaborative mode.
 func (t *AgentTeam) runCollaborativeAgent(
 	ctx context.Context,
 	agent internal.AIAgent,
@@ -261,8 +269,9 @@ func (t *AgentTeam) runCollaborativeAgent(
 
 	// Add shared context to input
 	if input.Context == nil {
-		input.Context = make(map[string]interface{})
+		input.Context = make(map[string]any)
 	}
+
 	input.Context["shared_memory"] = collab.SharedMemory
 	input.Context["collaboration_mode"] = true
 
@@ -276,6 +285,7 @@ func (t *AgentTeam) runCollaborativeAgent(
 				forge.F("error", err.Error()),
 			)
 		}
+
 		return
 	}
 
@@ -298,19 +308,19 @@ func (t *AgentTeam) runCollaborativeAgent(
 	}
 }
 
-// CollaborationContext holds shared state for collaborative execution
+// CollaborationContext holds shared state for collaborative execution.
 type CollaborationContext struct {
-	SharedMemory map[string]interface{}
+	SharedMemory map[string]any
 	Messages     chan AgentMessage
 	Results      chan internal.AgentOutput
 	Done         chan struct{}
 	mu           sync.RWMutex
 }
 
-// AgentMessage represents a message between agents
+// AgentMessage represents a message between agents.
 type AgentMessage struct {
 	From    string
 	To      string
 	Type    string
-	Content interface{}
+	Content any
 }

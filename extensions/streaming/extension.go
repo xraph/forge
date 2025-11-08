@@ -13,6 +13,7 @@ import (
 // Extension implements forge.Extension for streaming functionality.
 type Extension struct {
 	*forge.BaseExtension
+
 	config  Config
 	manager Manager
 }
@@ -25,6 +26,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("streaming", "2.0.0", "Real-time streaming with WebSocket/SSE, rooms, channels, presence")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -45,15 +47,18 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Load config from ConfigManager
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("streaming", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("streaming: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("streaming: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate config
@@ -186,7 +191,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 // Health checks if the streaming extension is healthy.
 func (e *Extension) Health(ctx context.Context) error {
 	if e.manager == nil {
-		return fmt.Errorf("streaming manager not initialized")
+		return errors.New("streaming manager not initialized")
 	}
 
 	if err := e.manager.Health(ctx); err != nil {
@@ -225,6 +230,7 @@ func (e *Extension) RegisterRoutes(router forge.Router, wsPath, ssePath string) 
 func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) error {
 	// Get user ID from context (set by auth middleware)
 	var userID string
+
 	if uid := ctx.Get("user_id"); uid != nil {
 		if uidStr, ok := uid.(string); ok {
 			userID = uidStr
@@ -242,6 +248,7 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 			forge.F("conn_id", conn.ID()),
 			forge.F("error", err),
 		)
+
 		return err
 	}
 	defer e.manager.Unregister(conn.ID())
@@ -262,6 +269,7 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 
 		// Update activity
 		enhanced.UpdateActivity()
+
 		if userID != "" && e.config.EnablePresence {
 			_ = e.manager.TrackActivity(ctx.Request().Context(), userID)
 		}
@@ -284,6 +292,7 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 
 	// Get user ID from context
 	var userID string
+
 	if uid := ctx.Get("user_id"); uid != nil {
 		if uidStr, ok := uid.(string); ok {
 			userID = uidStr
@@ -296,6 +305,7 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 
 	// Keep connection alive
 	<-stream.Context().Done()
+
 	return stream.Context().Err()
 }
 
@@ -333,7 +343,7 @@ func (e *Extension) handleMessage(ctx context.Context, conn Connection, msg *Mes
 		if msg.RoomID != "" && e.config.EnableTypingIndicators {
 			isTyping, ok := msg.Data.(bool)
 			if !ok {
-				return fmt.Errorf("invalid typing data")
+				return errors.New("invalid typing data")
 			}
 
 			userID := conn.GetUserID()
@@ -349,10 +359,11 @@ func (e *Extension) handleMessage(ctx context.Context, conn Connection, msg *Mes
 		if e.config.EnablePresence {
 			status, ok := msg.Data.(string)
 			if !ok {
-				return fmt.Errorf("invalid presence data")
+				return errors.New("invalid presence data")
 			}
 
 			userID := conn.GetUserID()
+
 			return e.manager.SetPresence(ctx, userID, status)
 		}
 	}

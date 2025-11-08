@@ -3,6 +3,7 @@ package forge
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,13 +14,14 @@ import (
 
 	configM "github.com/xraph/forge/internal/config"
 	"github.com/xraph/forge/internal/di"
+	"github.com/xraph/forge/internal/errors"
 	healthinternal "github.com/xraph/forge/internal/health"
 	"github.com/xraph/forge/internal/logger"
 	metricsinternal "github.com/xraph/forge/internal/metrics"
 	"github.com/xraph/forge/internal/shared"
 )
 
-// app implements the App interface
+// app implements the App interface.
 type app struct {
 	// Configuration
 	config AppConfig
@@ -45,27 +47,33 @@ type app struct {
 	started   bool
 }
 
-// newApp creates a new app instance
+// newApp creates a new app instance.
 func newApp(config AppConfig) *app {
 	// Apply defaults
 	if config.Name == "" {
 		config.Name = "forge-app"
 	}
+
 	if config.Version == "" {
 		config.Version = "1.0.0"
 	}
+
 	if config.Environment == "" {
 		config.Environment = "development"
 	}
+
 	if config.HTTPAddress == "" {
 		config.HTTPAddress = ":8080"
 	}
+
 	if config.HTTPTimeout == 0 {
 		config.HTTPTimeout = 30 * time.Second
 	}
+
 	if config.ShutdownTimeout == 0 {
 		config.ShutdownTimeout = 30 * time.Second
 	}
+
 	if len(config.ShutdownSignals) == 0 {
 		config.ShutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
 	}
@@ -121,11 +129,13 @@ func newApp(config AppConfig) *app {
 						F("path", result.BaseConfigPath),
 					)
 				}
+
 				if result.LocalConfigPath != "" {
 					logger.Info("auto-discovered local config",
 						F("path", result.LocalConfigPath),
 					)
 				}
+
 				if result.IsMonorepo {
 					logger.Info("detected monorepo layout",
 						F("app", config.Name),
@@ -145,6 +155,7 @@ func newApp(config AppConfig) *app {
 
 	// Create metrics with full config support
 	var metrics Metrics
+
 	metricsConfig := &config.MetricsConfig
 
 	// Apply defaults if metrics config is empty (not explicitly disabled)
@@ -183,6 +194,7 @@ func newApp(config AppConfig) *app {
 
 	// Create health manager with full config support
 	var healthManager HealthManager
+
 	healthConfig := &config.HealthConfig
 
 	// Apply defaults if health config is empty (not explicitly disabled)
@@ -227,9 +239,11 @@ func newApp(config AppConfig) *app {
 	if config.MetricsConfig.Enabled {
 		routerOpts = append(routerOpts, WithMetrics(config.MetricsConfig))
 	}
+
 	if config.HealthConfig.Enabled {
 		routerOpts = append(routerOpts, WithHealth(config.HealthConfig))
 	}
+
 	router := NewRouter(routerOpts...)
 
 	// Register core services with DI
@@ -286,58 +300,58 @@ func newApp(config AppConfig) *app {
 	return a
 }
 
-// Container returns the DI container
+// Container returns the DI container.
 func (a *app) Container() Container {
 	return a.container
 }
 
-// Router returns the router
+// Router returns the router.
 func (a *app) Router() Router {
 	return a.router
 }
 
-// Config returns the config manager
+// Config returns the config manager.
 func (a *app) Config() ConfigManager {
 	return a.configManager
 }
 
-// Logger returns the logger
+// Logger returns the logger.
 func (a *app) Logger() Logger {
 	return a.logger
 }
 
-// Metrics returns the metrics collector
+// Metrics returns the metrics collector.
 func (a *app) Metrics() Metrics {
 	return a.metrics
 }
 
-// HealthManager returns the health manager
+// HealthManager returns the health manager.
 func (a *app) HealthManager() HealthManager {
 	return a.healthManager
 }
 
-// LifecycleManager returns the lifecycle manager
+// LifecycleManager returns the lifecycle manager.
 func (a *app) LifecycleManager() LifecycleManager {
 	return a.lifecycleManager
 }
 
 // GetHTTPAddress returns the configured HTTP address
-// This is a helper method for extensions that need to know the server address
+// This is a helper method for extensions that need to know the server address.
 func (a *app) GetHTTPAddress() string {
 	return a.config.HTTPAddress
 }
 
-// RegisterService registers a service with the DI container
+// RegisterService registers a service with the DI container.
 func (a *app) RegisterService(name string, factory Factory, opts ...RegisterOption) error {
 	return a.container.Register(name, factory, opts...)
 }
 
-// RegisterController registers a controller with the router
+// RegisterController registers a controller with the router.
 func (a *app) RegisterController(controller Controller) error {
 	return a.router.RegisterController(controller)
 }
 
-// RegisterExtension registers an extension with the app
+// RegisterExtension registers an extension with the app.
 func (a *app) RegisterExtension(ext Extension) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -358,7 +372,7 @@ func (a *app) RegisterExtension(ext Extension) error {
 		)
 
 		// Register Run() hook in PhaseAfterRun
-		runOpts := DefaultLifecycleHookOptions(fmt.Sprintf("run-%s", ext.Name()))
+		runOpts := DefaultLifecycleHookOptions("run-" + ext.Name())
 		if err := a.lifecycleManager.RegisterHook(PhaseAfterRun, func(ctx context.Context, app App) error {
 			return runnableExt.Run(ctx)
 		}, runOpts); err != nil {
@@ -366,7 +380,7 @@ func (a *app) RegisterExtension(ext Extension) error {
 		}
 
 		// Register Shutdown() hook in PhaseBeforeStop
-		shutdownOpts := DefaultLifecycleHookOptions(fmt.Sprintf("shutdown-%s", ext.Name()))
+		shutdownOpts := DefaultLifecycleHookOptions("shutdown-" + ext.Name())
 		if err := a.lifecycleManager.RegisterHook(PhaseBeforeStop, func(ctx context.Context, app App) error {
 			return runnableExt.Shutdown(ctx)
 		}, shutdownOpts); err != nil {
@@ -381,17 +395,17 @@ func (a *app) RegisterExtension(ext Extension) error {
 	return nil
 }
 
-// RegisterHook registers a lifecycle hook
+// RegisterHook registers a lifecycle hook.
 func (a *app) RegisterHook(phase LifecyclePhase, hook LifecycleHook, opts LifecycleHookOptions) error {
 	return a.lifecycleManager.RegisterHook(phase, hook, opts)
 }
 
-// RegisterHookFn is a convenience method to register a hook with default options
+// RegisterHookFn is a convenience method to register a hook with default options.
 func (a *app) RegisterHookFn(phase LifecyclePhase, name string, hook LifecycleHook) error {
 	return a.lifecycleManager.RegisterHookFn(phase, name, hook)
 }
 
-// Extensions returns all registered extensions
+// Extensions returns all registered extensions.
 func (a *app) Extensions() []Extension {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -399,10 +413,11 @@ func (a *app) Extensions() []Extension {
 	// Return a copy to prevent modification
 	extensions := make([]Extension, len(a.extensions))
 	copy(extensions, a.extensions)
+
 	return extensions
 }
 
-// GetExtension returns an extension by name
+// GetExtension returns an extension by name.
 func (a *app) GetExtension(name string) (Extension, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -416,42 +431,44 @@ func (a *app) GetExtension(name string) (Extension, error) {
 	return nil, fmt.Errorf("extension %s not found", name)
 }
 
-// Name returns the application name
+// Name returns the application name.
 func (a *app) Name() string {
 	return a.config.Name
 }
 
-// Version returns the application version
+// Version returns the application version.
 func (a *app) Version() string {
 	return a.config.Version
 }
 
-// Environment returns the application environment
+// Environment returns the application environment.
 func (a *app) Environment() string {
 	return a.config.Environment
 }
 
-// StartTime returns the application start time
+// StartTime returns the application start time.
 func (a *app) StartTime() time.Time {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+
 	return a.startTime
 }
 
-// Uptime returns the application uptime
+// Uptime returns the application uptime.
 func (a *app) Uptime() time.Duration {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
+
 	return time.Since(a.startTime)
 }
 
-// Start starts the application
+// Start starts the application.
 func (a *app) Start(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	if a.started {
-		return fmt.Errorf("app already started")
+		return errors.New("app already started")
 	}
 
 	a.logger.Info("starting application",
@@ -472,6 +489,7 @@ func (a *app) Start(ctx context.Context) error {
 			F("extension", ext.Name()),
 			F("version", ext.Version()),
 		)
+
 		if err := ext.Register(a); err != nil {
 			return fmt.Errorf("failed to register extension %s: %w", ext.Name(), err)
 		}
@@ -484,16 +502,20 @@ func (a *app) Start(ctx context.Context) error {
 
 	// 1.5 Apply global middleware from extensions
 	a.logger.Debug("applying extension middlewares")
+
 	if err := a.applyExtensionMiddlewares(); err != nil {
 		return fmt.Errorf("failed to apply extension middlewares: %w", err)
 	}
+
 	a.logger.Debug("extension middlewares applied")
 
 	// 2. Start DI container (starts all registered services)
 	a.logger.Debug("starting DI container")
+
 	if err := a.container.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start container: %w", err)
 	}
+
 	a.logger.Debug("DI container started")
 
 	// 2.5 Set container reference for health manager (but don't start yet)
@@ -505,9 +527,11 @@ func (a *app) Start(ctx context.Context) error {
 
 	// 2.6 Reload configs from ConfigManager (hot-reload support)
 	a.logger.Debug("reloading configs from ConfigManager")
+
 	if err := a.reloadConfigsFromManager(); err != nil {
 		a.logger.Warn("failed to reload configs from ConfigManager", F("error", err))
 	}
+
 	a.logger.Debug("configs reloaded")
 
 	// 3. Start extensions in dependency order
@@ -519,6 +543,7 @@ func (a *app) Start(ctx context.Context) error {
 	if err := a.setupObservabilityEndpoints(); err != nil {
 		return fmt.Errorf("failed to setup observability endpoints: %w", err)
 	}
+
 	a.registerExtensionHealthChecks()
 
 	// Note: Health manager is already started by container.Start()
@@ -537,7 +562,7 @@ func (a *app) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the application
+// Stop stops the application.
 func (a *app) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -580,7 +605,7 @@ func (a *app) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Run starts the HTTP server and blocks until a shutdown signal is received
+// Run starts the HTTP server and blocks until a shutdown signal is received.
 func (a *app) Run() error {
 	// Start the application
 	if err := a.Start(context.Background()); err != nil {
@@ -638,7 +663,7 @@ func (a *app) Run() error {
 	return a.gracefulShutdown()
 }
 
-// gracefulShutdown performs a graceful shutdown
+// gracefulShutdown performs a graceful shutdown.
 func (a *app) gracefulShutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), a.config.ShutdownTimeout)
 	defer cancel()
@@ -658,10 +683,11 @@ func (a *app) gracefulShutdown() error {
 	}
 
 	a.logger.Info("graceful shutdown complete")
+
 	return nil
 }
 
-// printStartupBanner prints a styled startup banner with app info and endpoints
+// printStartupBanner prints a styled startup banner with app info and endpoints.
 func (a *app) printStartupBanner() {
 	bannerCfg := shared.BannerConfig{
 		AppName:     a.config.Name,
@@ -688,6 +714,7 @@ func (a *app) printStartupBanner() {
 	if a.config.HealthConfig.Enabled {
 		bannerCfg.HealthPath = "/_/health"
 	}
+
 	if a.config.MetricsConfig.Enabled {
 		bannerCfg.MetricsPath = "/_/metrics"
 	}
@@ -696,16 +723,17 @@ func (a *app) printStartupBanner() {
 	shared.PrintStartupBanner(bannerCfg)
 }
 
-// setupBuiltinEndpoints sets up built-in endpoints
+// setupBuiltinEndpoints sets up built-in endpoints.
 func (a *app) setupBuiltinEndpoints() error {
 	// Info endpoint
 	if err := a.router.GET("/_/info", a.handleInfo); err != nil {
 		return fmt.Errorf("failed to register info endpoint: %w", err)
 	}
+
 	return nil
 }
 
-// setupObservabilityEndpoints sets up observability endpoints
+// setupObservabilityEndpoints sets up observability endpoints.
 func (a *app) setupObservabilityEndpoints() error {
 	// Setup metrics endpoint if enabled
 	if a.config.MetricsConfig.Enabled {
@@ -719,17 +747,20 @@ func (a *app) setupObservabilityEndpoints() error {
 		if err := a.router.GET("/_/health", a.handleHealth); err != nil {
 			return fmt.Errorf("failed to register health endpoint: %w", err)
 		}
+
 		if err := a.router.GET("/_/health/live", a.handleHealthLive); err != nil {
 			return fmt.Errorf("failed to register live health endpoint: %w", err)
 		}
+
 		if err := a.router.GET("/_/health/ready", a.handleHealthReady); err != nil {
 			return fmt.Errorf("failed to register ready health endpoint: %w", err)
 		}
 	}
+
 	return nil
 }
 
-// handleInfo handles the /_/info endpoint
+// handleInfo handles the /_/info endpoint.
 func (a *app) handleInfo(ctx Context) error {
 	// Get service names from container
 	services := a.container.Services()
@@ -741,6 +772,7 @@ func (a *app) handleInfo(ctx Context) error {
 	extensionInfo := make([]ExtensionInfo, 0, len(a.extensions))
 	for _, ext := range a.extensions {
 		status := "stopped"
+
 		if baseExt, ok := ext.(*BaseExtension); ok {
 			if baseExt.IsStarted() {
 				status = "started"
@@ -777,7 +809,7 @@ func (a *app) handleInfo(ctx Context) error {
 	return ctx.JSON(200, info)
 }
 
-// startExtensions starts all extensions in dependency order
+// startExtensions starts all extensions in dependency order.
 func (a *app) startExtensions(ctx context.Context) error {
 	// Build dependency graph
 	graph := di.NewDependencyGraph()
@@ -821,7 +853,7 @@ func (a *app) startExtensions(ctx context.Context) error {
 	return nil
 }
 
-// stopExtensions stops all extensions in reverse order
+// stopExtensions stops all extensions in reverse order.
 func (a *app) stopExtensions(ctx context.Context) {
 	// Stop in reverse order
 	for i := len(a.extensions) - 1; i >= 0; i-- {
@@ -840,9 +872,10 @@ func (a *app) stopExtensions(ctx context.Context) {
 	}
 }
 
-// applyExtensionMiddlewares applies global middlewares from extensions that implement MiddlewareExtension
+// applyExtensionMiddlewares applies global middlewares from extensions that implement MiddlewareExtension.
 func (a *app) applyExtensionMiddlewares() error {
 	middlewareCount := 0
+
 	for _, ext := range a.extensions {
 		// Check if extension implements MiddlewareExtension
 		if mwExt, ok := ext.(MiddlewareExtension); ok {
@@ -873,7 +906,7 @@ func (a *app) applyExtensionMiddlewares() error {
 	return nil
 }
 
-// registerExtensionHealthChecks registers health checks for all extensions
+// registerExtensionHealthChecks registers health checks for all extensions.
 func (a *app) registerExtensionHealthChecks() {
 	for _, ext := range a.extensions {
 		// Create local copies for closure capture (avoid loop variable capture bug)
@@ -885,13 +918,14 @@ func (a *app) registerExtensionHealthChecks() {
 			if err := extRef.Health(ctx); err != nil {
 				return &HealthResult{
 					Status:  HealthStatusUnhealthy,
-					Message: fmt.Sprintf("%s extension unhealthy", extName),
+					Message: extName + " extension unhealthy",
 					Details: map[string]any{"error": err.Error()},
 				}
 			}
+
 			return &HealthResult{
 				Status:  HealthStatusHealthy,
-				Message: fmt.Sprintf("%s extension healthy", extName),
+				Message: extName + " extension healthy",
 			}
 		}); err != nil {
 			a.logger.Warn("failed to register health check for extension", F("extension", extName), F("error", err))
@@ -899,7 +933,7 @@ func (a *app) registerExtensionHealthChecks() {
 	}
 }
 
-// Helper to create a default config manager (stub for now)
+// Helper to create a default config manager (stub for now).
 func NewDefaultConfigManager(
 	l logger.Logger,
 	m Metrics,
@@ -916,10 +950,10 @@ func NewDefaultConfigManager(
 	})
 }
 
-// defaultConfigManager is a stub config manager
+// defaultConfigManager is a stub config manager.
 type defaultConfigManager struct{}
 
-func (c *defaultConfigManager) Get(key string) (interface{}, error) {
+func (c *defaultConfigManager) Get(key string) (any, error) {
 	return nil, fmt.Errorf("config not found: %s", key)
 }
 func (c *defaultConfigManager) GetString(key string) (string, error) {
@@ -931,10 +965,10 @@ func (c *defaultConfigManager) GetInt(key string) (int, error) {
 func (c *defaultConfigManager) GetBool(key string) (bool, error) {
 	return false, fmt.Errorf("config not found: %s", key)
 }
-func (c *defaultConfigManager) Set(key string, value interface{}) error {
+func (c *defaultConfigManager) Set(key string, value any) error {
 	return nil
 }
-func (c *defaultConfigManager) Bind(key string, target interface{}) error {
+func (c *defaultConfigManager) Bind(key string, target any) error {
 	return fmt.Errorf("config not found: %s", key)
 }
 
@@ -945,7 +979,7 @@ func (c *defaultConfigManager) Bind(key string, target interface{}) error {
 // =============================================================================
 
 // mergeMetricsConfig merges runtime and programmatic configs
-// Programmatic non-zero values take precedence over runtime values
+// Programmatic non-zero values take precedence over runtime values.
 func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.MetricsConfig {
 	result := *runtime // Start with runtime
 
@@ -953,15 +987,19 @@ func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.Met
 	if programmatic.Namespace != "" {
 		result.Namespace = programmatic.Namespace
 	}
+
 	if programmatic.MetricsPath != "" {
 		result.MetricsPath = programmatic.MetricsPath
 	}
+
 	if programmatic.CollectionInterval > 0 {
 		result.CollectionInterval = programmatic.CollectionInterval
 	}
+
 	if programmatic.MaxMetrics > 0 {
 		result.MaxMetrics = programmatic.MaxMetrics
 	}
+
 	if programmatic.BufferSize > 0 {
 		result.BufferSize = programmatic.BufferSize
 	}
@@ -972,9 +1010,11 @@ func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.Met
 	if programmatic.EnableSystemMetrics {
 		result.EnableSystemMetrics = true
 	}
+
 	if programmatic.EnableRuntimeMetrics {
 		result.EnableRuntimeMetrics = true
 	}
+
 	if programmatic.EnableHTTPMetrics {
 		result.EnableHTTPMetrics = true
 	}
@@ -984,25 +1024,23 @@ func mergeMetricsConfig(runtime, programmatic *shared.MetricsConfig) *shared.Met
 		if result.DefaultTags == nil {
 			result.DefaultTags = make(map[string]string)
 		}
-		for k, v := range programmatic.DefaultTags {
-			result.DefaultTags[k] = v
-		}
+
+		maps.Copy(result.DefaultTags, programmatic.DefaultTags)
 	}
 
 	if len(programmatic.Exporters) > 0 {
 		if result.Exporters == nil {
-			result.Exporters = make(map[string]shared.MetricsExporterConfig[map[string]interface{}])
+			result.Exporters = make(map[string]shared.MetricsExporterConfig[map[string]any])
 		}
-		for k, v := range programmatic.Exporters {
-			result.Exporters[k] = v
-		}
+
+		maps.Copy(result.Exporters, programmatic.Exporters)
 	}
 
 	return &result
 }
 
 // mergeHealthConfig merges runtime and programmatic configs
-// Programmatic non-zero values take precedence over runtime values
+// Programmatic non-zero values take precedence over runtime values.
 func mergeHealthConfig(runtime, programmatic *shared.HealthConfig) *shared.HealthConfig {
 	result := *runtime // Start with runtime
 
@@ -1010,30 +1048,39 @@ func mergeHealthConfig(runtime, programmatic *shared.HealthConfig) *shared.Healt
 	if programmatic.CheckInterval > 0 {
 		result.CheckInterval = programmatic.CheckInterval
 	}
+
 	if programmatic.ReportInterval > 0 {
 		result.ReportInterval = programmatic.ReportInterval
 	}
+
 	if programmatic.DefaultTimeout > 0 {
 		result.DefaultTimeout = programmatic.DefaultTimeout
 	}
+
 	if programmatic.MaxConcurrentChecks > 0 {
 		result.MaxConcurrentChecks = programmatic.MaxConcurrentChecks
 	}
+
 	if programmatic.DegradedThreshold > 0 {
 		result.DegradedThreshold = programmatic.DegradedThreshold
 	}
+
 	if programmatic.UnhealthyThreshold > 0 {
 		result.UnhealthyThreshold = programmatic.UnhealthyThreshold
 	}
+
 	if programmatic.HistorySize > 0 {
 		result.HistorySize = programmatic.HistorySize
 	}
+
 	if programmatic.EndpointPrefix != "" {
 		result.EndpointPrefix = programmatic.EndpointPrefix
 	}
+
 	if programmatic.Version != "" {
 		result.Version = programmatic.Version
 	}
+
 	if programmatic.Environment != "" {
 		result.Environment = programmatic.Environment
 	}
@@ -1042,27 +1089,35 @@ func mergeHealthConfig(runtime, programmatic *shared.HealthConfig) *shared.Healt
 	if programmatic.EnableAutoDiscovery {
 		result.EnableAutoDiscovery = true
 	}
+
 	if programmatic.EnablePersistence {
 		result.EnablePersistence = true
 	}
+
 	if programmatic.EnableAlerting {
 		result.EnableAlerting = true
 	}
+
 	if programmatic.EnableSmartAggregation {
 		result.EnableSmartAggregation = true
 	}
+
 	if programmatic.EnablePrediction {
 		result.EnablePrediction = true
 	}
+
 	if programmatic.EnableEndpoints {
 		result.EnableEndpoints = true
 	}
+
 	if programmatic.AutoRegister {
 		result.AutoRegister = true
 	}
+
 	if programmatic.ExposeEndpoints {
 		result.ExposeEndpoints = true
 	}
+
 	if programmatic.EnableMetrics {
 		result.EnableMetrics = true
 	}
@@ -1077,15 +1132,14 @@ func mergeHealthConfig(runtime, programmatic *shared.HealthConfig) *shared.Healt
 		if result.Tags == nil {
 			result.Tags = make(map[string]string)
 		}
-		for k, v := range programmatic.Tags {
-			result.Tags[k] = v
-		}
+
+		maps.Copy(result.Tags, programmatic.Tags)
 	}
 
 	return &result
 }
 
-// reloadConfigsFromManager reloads metrics and health configs from ConfigManager
+// reloadConfigsFromManager reloads metrics and health configs from ConfigManager.
 func (a *app) reloadConfigsFromManager() error {
 	if a.configManager == nil {
 		return nil
@@ -1118,7 +1172,7 @@ func (a *app) reloadConfigsFromManager() error {
 	return nil
 }
 
-// handleMetrics handles the /_/metrics endpoint
+// handleMetrics handles the /_/metrics endpoint.
 func (a *app) handleMetrics(ctx Context) error {
 	if a.metrics == nil {
 		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
@@ -1136,13 +1190,15 @@ func (a *app) handleMetrics(ctx Context) error {
 
 	ctx.Response().Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 	ctx.Response().WriteHeader(http.StatusOK)
+
 	if _, err := ctx.Response().Write(data); err != nil {
 		return fmt.Errorf("failed to write metrics data: %w", err)
 	}
+
 	return nil
 }
 
-// handleHealth handles the /_/health endpoint
+// handleHealth handles the /_/health endpoint.
 func (a *app) handleHealth(ctx Context) error {
 	if a.healthManager == nil {
 		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
@@ -1161,7 +1217,7 @@ func (a *app) handleHealth(ctx Context) error {
 	return ctx.JSON(statusCode, report)
 }
 
-// handleHealthLive handles the /_/health/live endpoint
+// handleHealthLive handles the /_/health/live endpoint.
 func (a *app) handleHealthLive(ctx Context) error {
 	// Liveness probe - always returns 200 if server is up
 	return ctx.JSON(http.StatusOK, map[string]string{
@@ -1169,7 +1225,7 @@ func (a *app) handleHealthLive(ctx Context) error {
 	})
 }
 
-// handleHealthReady handles the /_/health/ready endpoint
+// handleHealthReady handles the /_/health/ready endpoint.
 func (a *app) handleHealthReady(ctx Context) error {
 	if a.healthManager == nil {
 		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{

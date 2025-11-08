@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// InMemorySearch implements Search interface with an in-memory store
+// InMemorySearch implements Search interface with an in-memory store.
 type InMemorySearch struct {
 	config     Config
 	logger     forge.Logger
@@ -22,7 +22,7 @@ type InMemorySearch struct {
 	queryCount int64
 }
 
-// memoryIndex represents an in-memory search index
+// memoryIndex represents an in-memory search index.
 type memoryIndex struct {
 	name      string
 	schema    IndexSchema
@@ -32,7 +32,7 @@ type memoryIndex struct {
 	mu        sync.RWMutex
 }
 
-// NewInMemorySearch creates a new in-memory search instance
+// NewInMemorySearch creates a new in-memory search instance.
 func NewInMemorySearch(config Config, logger forge.Logger, metrics forge.Metrics) *InMemorySearch {
 	return &InMemorySearch{
 		config:  config,
@@ -42,7 +42,7 @@ func NewInMemorySearch(config Config, logger forge.Logger, metrics forge.Metrics
 	}
 }
 
-// Connect establishes connection to the search backend
+// Connect establishes connection to the search backend.
 func (s *InMemorySearch) Connect(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -58,7 +58,7 @@ func (s *InMemorySearch) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Disconnect closes the connection to the search backend
+// Disconnect closes the connection to the search backend.
 func (s *InMemorySearch) Disconnect(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,7 +74,7 @@ func (s *InMemorySearch) Disconnect(ctx context.Context) error {
 	return nil
 }
 
-// Ping checks if the search backend is responsive
+// Ping checks if the search backend is responsive.
 func (s *InMemorySearch) Ping(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -86,7 +86,7 @@ func (s *InMemorySearch) Ping(ctx context.Context) error {
 	return nil
 }
 
-// CreateIndex creates a new search index
+// CreateIndex creates a new search index.
 func (s *InMemorySearch) CreateIndex(ctx context.Context, name string, schema IndexSchema) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,7 +116,7 @@ func (s *InMemorySearch) CreateIndex(ctx context.Context, name string, schema In
 	return nil
 }
 
-// DeleteIndex deletes a search index
+// DeleteIndex deletes a search index.
 func (s *InMemorySearch) DeleteIndex(ctx context.Context, name string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -138,7 +138,7 @@ func (s *InMemorySearch) DeleteIndex(ctx context.Context, name string) error {
 	return nil
 }
 
-// ListIndexes returns a list of all indexes
+// ListIndexes returns a list of all indexes.
 func (s *InMemorySearch) ListIndexes(ctx context.Context) ([]string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -155,7 +155,7 @@ func (s *InMemorySearch) ListIndexes(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
-// GetIndexInfo returns information about an index
+// GetIndexInfo returns information about an index.
 func (s *InMemorySearch) GetIndexInfo(ctx context.Context, name string) (*IndexInfo, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -182,7 +182,7 @@ func (s *InMemorySearch) GetIndexInfo(ctx context.Context, name string) (*IndexI
 	}, nil
 }
 
-// Index adds or updates a document in the index
+// Index adds or updates a document in the index.
 func (s *InMemorySearch) Index(ctx context.Context, indexName string, doc Document) error {
 	s.mu.RLock()
 	idx, exists := s.indexes[indexName]
@@ -210,7 +210,7 @@ func (s *InMemorySearch) Index(ctx context.Context, indexName string, doc Docume
 	return nil
 }
 
-// BulkIndex adds or updates multiple documents
+// BulkIndex adds or updates multiple documents.
 func (s *InMemorySearch) BulkIndex(ctx context.Context, indexName string, docs []Document) error {
 	s.mu.RLock()
 	idx, exists := s.indexes[indexName]
@@ -230,6 +230,7 @@ func (s *InMemorySearch) BulkIndex(ctx context.Context, indexName string, docs [
 	for _, doc := range docs {
 		idx.documents[doc.ID] = doc
 	}
+
 	idx.updatedAt = time.Now()
 
 	s.logger.Info("bulk indexed documents",
@@ -240,7 +241,7 @@ func (s *InMemorySearch) BulkIndex(ctx context.Context, indexName string, docs [
 	return nil
 }
 
-// Get retrieves a document by ID
+// Get retrieves a document by ID.
 func (s *InMemorySearch) Get(ctx context.Context, indexName string, id string) (*Document, error) {
 	s.mu.RLock()
 	idx, exists := s.indexes[indexName]
@@ -265,7 +266,7 @@ func (s *InMemorySearch) Get(ctx context.Context, indexName string, id string) (
 	return &doc, nil
 }
 
-// Delete removes a document from the index
+// Delete removes a document from the index.
 func (s *InMemorySearch) Delete(ctx context.Context, indexName string, id string) error {
 	s.mu.RLock()
 	idx, exists := s.indexes[indexName]
@@ -297,7 +298,7 @@ func (s *InMemorySearch) Delete(ctx context.Context, indexName string, id string
 	return nil
 }
 
-// Update updates a document in the index
+// Update updates a document in the index.
 func (s *InMemorySearch) Update(ctx context.Context, indexName string, id string, doc Document) error {
 	s.mu.RLock()
 	idx, exists := s.indexes[indexName]
@@ -330,7 +331,7 @@ func (s *InMemorySearch) Update(ctx context.Context, indexName string, id string
 	return nil
 }
 
-// Search performs a search query
+// Search performs a search query.
 func (s *InMemorySearch) Search(ctx context.Context, query SearchQuery) (*SearchResults, error) {
 	startTime := time.Now()
 
@@ -351,6 +352,7 @@ func (s *InMemorySearch) Search(ctx context.Context, query SearchQuery) (*Search
 
 	// Simple full-text search implementation
 	var hits []Hit
+
 	queryLower := strings.ToLower(query.Query)
 
 	for _, doc := range idx.documents {
@@ -382,23 +384,19 @@ func (s *InMemorySearch) Search(ctx context.Context, query SearchQuery) (*Search
 
 	// Apply pagination
 	total := int64(len(hits))
-	offset := query.Offset
-	if offset > len(hits) {
-		offset = len(hits)
-	}
+
+	offset := min(query.Offset, len(hits))
 
 	limit := query.Limit
 	if limit == 0 {
 		limit = s.config.DefaultLimit
 	}
+
 	if limit > s.config.MaxLimit {
 		limit = s.config.MaxLimit
 	}
 
-	end := offset + limit
-	if end > len(hits) {
-		end = len(hits)
-	}
+	end := min(offset+limit, len(hits))
 
 	if offset < len(hits) {
 		hits = hits[offset:end]
@@ -422,7 +420,7 @@ func (s *InMemorySearch) Search(ctx context.Context, query SearchQuery) (*Search
 	}, nil
 }
 
-// matchesQuery checks if a document matches the search query
+// matchesQuery checks if a document matches the search query.
 func (s *InMemorySearch) matchesQuery(doc Document, queryLower string, query SearchQuery) bool {
 	if queryLower == "" {
 		return true
@@ -439,7 +437,7 @@ func (s *InMemorySearch) matchesQuery(doc Document, queryLower string, query Sea
 	return false
 }
 
-// calculateScore calculates relevance score for a document
+// calculateScore calculates relevance score for a document.
 func (s *InMemorySearch) calculateScore(doc Document, queryLower string, query SearchQuery) float64 {
 	score := 0.0
 
@@ -466,18 +464,21 @@ func (s *InMemorySearch) calculateScore(doc Document, queryLower string, query S
 	return score
 }
 
-// applyFilters filters hits based on filter criteria
+// applyFilters filters hits based on filter criteria.
 func (s *InMemorySearch) applyFilters(hits []Hit, filters []Filter) []Hit {
 	filtered := make([]Hit, 0, len(hits))
 
 	for _, hit := range hits {
 		matches := true
+
 		for _, filter := range filters {
 			if !s.matchesFilter(hit.Document, filter) {
 				matches = false
+
 				break
 			}
 		}
+
 		if matches {
 			filtered = append(filtered, hit)
 		}
@@ -486,8 +487,8 @@ func (s *InMemorySearch) applyFilters(hits []Hit, filters []Filter) []Hit {
 	return filtered
 }
 
-// matchesFilter checks if a document matches a filter
-func (s *InMemorySearch) matchesFilter(doc map[string]interface{}, filter Filter) bool {
+// matchesFilter checks if a document matches a filter.
+func (s *InMemorySearch) matchesFilter(doc map[string]any, filter Filter) bool {
 	value, exists := doc[filter.Field]
 	if !exists {
 		return filter.Operator == "NOT EXISTS"
@@ -507,7 +508,7 @@ func (s *InMemorySearch) matchesFilter(doc map[string]interface{}, filter Filter
 	}
 }
 
-// sortHits sorts hits by specified fields
+// sortHits sorts hits by specified fields.
 func (s *InMemorySearch) sortHits(hits []Hit, sortFields []SortField) {
 	// Simple implementation - sort by first field only
 	if len(sortFields) == 0 {
@@ -518,12 +519,12 @@ func (s *InMemorySearch) sortHits(hits []Hit, sortFields []SortField) {
 	// For production, use a proper sorting algorithm
 }
 
-// sortHitsByScore sorts hits by score in descending order
+// sortHitsByScore sorts hits by score in descending order.
 func (s *InMemorySearch) sortHitsByScore(hits []Hit) {
 	// Bubble sort for simplicity
 	n := len(hits)
-	for i := 0; i < n-1; i++ {
-		for j := 0; j < n-i-1; j++ {
+	for i := range n - 1 {
+		for j := range n - i - 1 {
 			if hits[j].Score < hits[j+1].Score {
 				hits[j], hits[j+1] = hits[j+1], hits[j]
 			}
@@ -531,7 +532,7 @@ func (s *InMemorySearch) sortHitsByScore(hits []Hit) {
 	}
 }
 
-// Suggest returns search suggestions
+// Suggest returns search suggestions.
 func (s *InMemorySearch) Suggest(ctx context.Context, query SuggestQuery) (*SuggestResults, error) {
 	startTime := time.Now()
 
@@ -584,7 +585,7 @@ func (s *InMemorySearch) Suggest(ctx context.Context, query SuggestQuery) (*Sugg
 	}, nil
 }
 
-// Autocomplete returns autocomplete results
+// Autocomplete returns autocomplete results.
 func (s *InMemorySearch) Autocomplete(ctx context.Context, query AutocompleteQuery) (*AutocompleteResults, error) {
 	startTime := time.Now()
 
@@ -637,7 +638,7 @@ func (s *InMemorySearch) Autocomplete(ctx context.Context, query AutocompleteQue
 	}, nil
 }
 
-// Stats returns search engine statistics
+// Stats returns search engine statistics.
 func (s *InMemorySearch) Stats(ctx context.Context) (*SearchStats, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -647,6 +648,7 @@ func (s *InMemorySearch) Stats(ctx context.Context) (*SearchStats, error) {
 	}
 
 	totalDocs := int64(0)
+
 	for _, idx := range s.indexes {
 		idx.mu.RLock()
 		totalDocs += int64(len(idx.documents))

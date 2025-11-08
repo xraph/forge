@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Server represents an MCP server that exposes tools, resources, and prompts
+// Server represents an MCP server that exposes tools, resources, and prompts.
 type Server struct {
 	config  Config
 	logger  forge.Logger
@@ -38,13 +38,13 @@ type Server struct {
 	schemaCacheLock sync.RWMutex
 }
 
-// ResourceReader is a function that reads resource content
+// ResourceReader is a function that reads resource content.
 type ResourceReader func(ctx context.Context, resource *Resource) (Content, error)
 
-// PromptGenerator is a function that generates prompt messages
-type PromptGenerator func(ctx context.Context, prompt *Prompt, args map[string]interface{}) ([]PromptMessage, error)
+// PromptGenerator is a function that generates prompt messages.
+type PromptGenerator func(ctx context.Context, prompt *Prompt, args map[string]any) ([]PromptMessage, error)
 
-// NewServer creates a new MCP server
+// NewServer creates a new MCP server.
 func NewServer(config Config, logger forge.Logger, metrics forge.Metrics) *Server {
 	return &Server{
 		config:           config,
@@ -60,10 +60,10 @@ func NewServer(config Config, logger forge.Logger, metrics forge.Metrics) *Serve
 	}
 }
 
-// RegisterTool registers a new MCP tool
+// RegisterTool registers a new MCP tool.
 func (s *Server) RegisterTool(tool *Tool) error {
 	if tool.Name == "" {
-		return fmt.Errorf("mcp: tool name cannot be empty")
+		return errors.New("mcp: tool name cannot be empty")
 	}
 
 	// Validate tool name length
@@ -93,7 +93,7 @@ func (s *Server) RegisterTool(tool *Tool) error {
 	return nil
 }
 
-// GetTool retrieves a tool by name
+// GetTool retrieves a tool by name.
 func (s *Server) GetTool(name string) (*Tool, error) {
 	s.toolsLock.RLock()
 	defer s.toolsLock.RUnlock()
@@ -106,7 +106,7 @@ func (s *Server) GetTool(name string) (*Tool, error) {
 	return tool, nil
 }
 
-// ListTools returns all registered tools
+// ListTools returns all registered tools.
 func (s *Server) ListTools() []Tool {
 	s.toolsLock.RLock()
 	defer s.toolsLock.RUnlock()
@@ -119,10 +119,10 @@ func (s *Server) ListTools() []Tool {
 	return tools
 }
 
-// RegisterResource registers a new MCP resource
+// RegisterResource registers a new MCP resource.
 func (s *Server) RegisterResource(resource *Resource) error {
 	if resource.URI == "" {
-		return fmt.Errorf("mcp: resource URI cannot be empty")
+		return errors.New("mcp: resource URI cannot be empty")
 	}
 
 	s.resourcesLock.Lock()
@@ -141,7 +141,7 @@ func (s *Server) RegisterResource(resource *Resource) error {
 	return nil
 }
 
-// GetResource retrieves a resource by URI
+// GetResource retrieves a resource by URI.
 func (s *Server) GetResource(uri string) (*Resource, error) {
 	s.resourcesLock.RLock()
 	defer s.resourcesLock.RUnlock()
@@ -154,7 +154,7 @@ func (s *Server) GetResource(uri string) (*Resource, error) {
 	return resource, nil
 }
 
-// ListResources returns all registered resources
+// ListResources returns all registered resources.
 func (s *Server) ListResources() []Resource {
 	s.resourcesLock.RLock()
 	defer s.resourcesLock.RUnlock()
@@ -167,10 +167,10 @@ func (s *Server) ListResources() []Resource {
 	return resources
 }
 
-// RegisterPrompt registers a new MCP prompt
+// RegisterPrompt registers a new MCP prompt.
 func (s *Server) RegisterPrompt(prompt *Prompt) error {
 	if prompt.Name == "" {
-		return fmt.Errorf("mcp: prompt name cannot be empty")
+		return errors.New("mcp: prompt name cannot be empty")
 	}
 
 	s.promptsLock.Lock()
@@ -189,7 +189,7 @@ func (s *Server) RegisterPrompt(prompt *Prompt) error {
 	return nil
 }
 
-// GetPrompt retrieves a prompt by name
+// GetPrompt retrieves a prompt by name.
 func (s *Server) GetPrompt(name string) (*Prompt, error) {
 	s.promptsLock.RLock()
 	defer s.promptsLock.RUnlock()
@@ -202,7 +202,7 @@ func (s *Server) GetPrompt(name string) (*Prompt, error) {
 	return prompt, nil
 }
 
-// ListPrompts returns all registered prompts
+// ListPrompts returns all registered prompts.
 func (s *Server) ListPrompts() []Prompt {
 	s.promptsLock.RLock()
 	defer s.promptsLock.RUnlock()
@@ -215,7 +215,7 @@ func (s *Server) ListPrompts() []Prompt {
 	return prompts
 }
 
-// GetServerInfo returns information about the MCP server
+// GetServerInfo returns information about the MCP server.
 func (s *Server) GetServerInfo() ServerInfo {
 	return ServerInfo{
 		Name:    s.config.ServerName,
@@ -231,6 +231,7 @@ func (s *Server) GetServerInfo() ServerInfo {
 						ListChanged: false,
 					}
 				}
+
 				return nil
 			}(),
 			Prompts: func() *PromptsCapability {
@@ -239,13 +240,14 @@ func (s *Server) GetServerInfo() ServerInfo {
 						ListChanged: false,
 					}
 				}
+
 				return nil
 			}(),
 		},
 	}
 }
 
-// GenerateToolFromRoute generates an MCP tool from a Forge route
+// GenerateToolFromRoute generates an MCP tool from a Forge route.
 func (s *Server) GenerateToolFromRoute(route forge.RouteInfo) (*Tool, error) {
 	// Generate tool name from route
 	toolName := s.generateToolName(route.Method, route.Path)
@@ -278,7 +280,7 @@ func (s *Server) GenerateToolFromRoute(route forge.RouteInfo) (*Tool, error) {
 	return tool, nil
 }
 
-// generateInputSchema generates JSON schema from route metadata
+// generateInputSchema generates JSON schema from route metadata.
 func (s *Server) generateInputSchema(route forge.RouteInfo) *JSONSchema {
 	schema := &JSONSchema{
 		Type:       "object",
@@ -292,13 +294,13 @@ func (s *Server) generateInputSchema(route forge.RouteInfo) *JSONSchema {
 	for _, param := range pathParams {
 		schema.Properties[param] = &JSONSchema{
 			Type:        "string",
-			Description: fmt.Sprintf("Path parameter: %s", param),
+			Description: "Path parameter: " + param,
 		}
 		schema.Required = append(schema.Required, param)
 	}
 
 	// For POST/PUT/PATCH, add body schema if available
-	if route.Method == "POST" || route.Method == "PUT" || route.Method == "PATCH" {
+	if route.Method == http.MethodPost || route.Method == http.MethodPut || route.Method == http.MethodPatch {
 		schema.Properties["body"] = &JSONSchema{
 			Type:        "object",
 			Description: "Request body",
@@ -315,14 +317,15 @@ func (s *Server) generateInputSchema(route forge.RouteInfo) *JSONSchema {
 	return schema
 }
 
-// extractPathParams extracts parameter names from path
+// extractPathParams extracts parameter names from path.
 func extractPathParams(path string) []string {
 	var params []string
-	parts := strings.Split(path, "/")
-	for _, part := range parts {
+
+	parts := strings.SplitSeq(path, "/")
+	for part := range parts {
 		// Handle :param style
-		if strings.HasPrefix(part, ":") {
-			params = append(params, strings.TrimPrefix(part, ":"))
+		if after, ok := strings.CutPrefix(part, ":"); ok {
+			params = append(params, after)
 		}
 		// Handle {param} style
 		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
@@ -330,10 +333,11 @@ func extractPathParams(path string) []string {
 			params = append(params, param)
 		}
 	}
+
 	return params
 }
 
-// generateToolName generates a tool name from HTTP method and path
+// generateToolName generates a tool name from HTTP method and path.
 func (s *Server) generateToolName(method, path string) string {
 	// Remove leading slash and convert to snake_case
 	path = strings.TrimPrefix(path, "/")
@@ -346,6 +350,7 @@ func (s *Server) generateToolName(method, path string) string {
 
 	// Add method prefix
 	var prefix string
+
 	switch method {
 	case "POST":
 		prefix = "create"
@@ -369,7 +374,7 @@ func (s *Server) generateToolName(method, path string) string {
 	return prefix + "_" + path
 }
 
-// CacheSchema caches a generated JSON schema
+// CacheSchema caches a generated JSON schema.
 func (s *Server) CacheSchema(key string, schema *JSONSchema) {
 	if !s.config.SchemaCache {
 		return
@@ -381,7 +386,7 @@ func (s *Server) CacheSchema(key string, schema *JSONSchema) {
 	s.schemaCache[key] = schema
 }
 
-// GetCachedSchema retrieves a cached schema
+// GetCachedSchema retrieves a cached schema.
 func (s *Server) GetCachedSchema(key string) (*JSONSchema, bool) {
 	if !s.config.SchemaCache {
 		return nil, false
@@ -391,10 +396,11 @@ func (s *Server) GetCachedSchema(key string) (*JSONSchema, bool) {
 	defer s.schemaCacheLock.RUnlock()
 
 	schema, exists := s.schemaCache[key]
+
 	return schema, exists
 }
 
-// Clear clears all registered tools, resources, and prompts
+// Clear clears all registered tools, resources, and prompts.
 func (s *Server) Clear() {
 	s.toolsLock.Lock()
 	s.tools = make(map[string]*Tool)
@@ -415,8 +421,8 @@ func (s *Server) Clear() {
 	s.logger.Info("mcp: server cleared")
 }
 
-// Stats returns statistics about the MCP server
-func (s *Server) Stats() map[string]interface{} {
+// Stats returns statistics about the MCP server.
+func (s *Server) Stats() map[string]any {
 	s.toolsLock.RLock()
 	toolCount := len(s.tools)
 	s.toolsLock.RUnlock()
@@ -429,7 +435,7 @@ func (s *Server) Stats() map[string]interface{} {
 	promptCount := len(s.prompts)
 	s.promptsLock.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"tools":     toolCount,
 		"resources": resourceCount,
 		"prompts":   promptCount,
@@ -437,8 +443,8 @@ func (s *Server) Stats() map[string]interface{} {
 	}
 }
 
-// ExecuteTool executes a tool by calling its underlying route
-func (s *Server) ExecuteTool(ctx context.Context, tool *Tool, arguments map[string]interface{}) (string, error) {
+// ExecuteTool executes a tool by calling its underlying route.
+func (s *Server) ExecuteTool(ctx context.Context, tool *Tool, arguments map[string]any) (string, error) {
 	s.toolsLock.RLock()
 	route, exists := s.toolRoutes[tool.Name]
 	s.toolsLock.RUnlock()
@@ -449,6 +455,7 @@ func (s *Server) ExecuteTool(ctx context.Context, tool *Tool, arguments map[stri
 
 	// Build the request path with parameters
 	path := route.Path
+
 	pathParams := extractPathParams(route.Path)
 	for _, param := range pathParams {
 		if val, ok := arguments[param]; ok {
@@ -456,17 +463,20 @@ func (s *Server) ExecuteTool(ctx context.Context, tool *Tool, arguments map[stri
 			if !strings.Contains(path, placeholder) {
 				placeholder = "{" + param + "}"
 			}
+
 			path = strings.ReplaceAll(path, placeholder, fmt.Sprintf("%v", val))
 		}
 	}
 
 	// Build query string
 	query := ""
-	if queryArgs, ok := arguments["query"].(map[string]interface{}); ok {
+
+	if queryArgs, ok := arguments["query"].(map[string]any); ok {
 		var queryParts []string
 		for k, v := range queryArgs {
 			queryParts = append(queryParts, fmt.Sprintf("%s=%v", k, v))
 		}
+
 		if len(queryParts) > 0 {
 			query = "?" + strings.Join(queryParts, "&")
 		}
@@ -474,8 +484,10 @@ func (s *Server) ExecuteTool(ctx context.Context, tool *Tool, arguments map[stri
 
 	// Extract body
 	var bodyData []byte
+
 	if body, ok := arguments["body"]; ok {
 		var err error
+
 		bodyData, err = json.Marshal(body)
 		if err != nil {
 			return "", fmt.Errorf("mcp: failed to marshal request body: %w", err)
@@ -509,7 +521,7 @@ func (s *Server) ExecuteTool(ctx context.Context, tool *Tool, arguments map[stri
 	return result, nil
 }
 
-// RegisterResourceReader registers a custom reader for a resource
+// RegisterResourceReader registers a custom reader for a resource.
 func (s *Server) RegisterResourceReader(uri string, reader ResourceReader) error {
 	s.resourcesLock.Lock()
 	defer s.resourcesLock.Unlock()
@@ -520,7 +532,7 @@ func (s *Server) RegisterResourceReader(uri string, reader ResourceReader) error
 	return nil
 }
 
-// ReadResource reads resource content using registered reader or default
+// ReadResource reads resource content using registered reader or default.
 func (s *Server) ReadResource(ctx context.Context, resource *Resource) (Content, error) {
 	s.resourcesLock.RLock()
 	reader, hasReader := s.resourceReaders[resource.URI]
@@ -539,7 +551,7 @@ func (s *Server) ReadResource(ctx context.Context, resource *Resource) (Content,
 	}, nil
 }
 
-// RegisterPromptGenerator registers a custom generator for a prompt
+// RegisterPromptGenerator registers a custom generator for a prompt.
 func (s *Server) RegisterPromptGenerator(name string, generator PromptGenerator) error {
 	s.promptsLock.Lock()
 	defer s.promptsLock.Unlock()
@@ -550,8 +562,8 @@ func (s *Server) RegisterPromptGenerator(name string, generator PromptGenerator)
 	return nil
 }
 
-// GeneratePrompt generates prompt messages using registered generator or default
-func (s *Server) GeneratePrompt(ctx context.Context, prompt *Prompt, args map[string]interface{}) ([]PromptMessage, error) {
+// GeneratePrompt generates prompt messages using registered generator or default.
+func (s *Server) GeneratePrompt(ctx context.Context, prompt *Prompt, args map[string]any) ([]PromptMessage, error) {
 	s.promptsLock.RLock()
 	generator, hasGenerator := s.promptGenerators[prompt.Name]
 	s.promptsLock.RUnlock()
@@ -563,11 +575,13 @@ func (s *Server) GeneratePrompt(ctx context.Context, prompt *Prompt, args map[st
 
 	// Default implementation: generate simple message with arguments
 	var argText string
+
 	if len(args) > 0 {
 		argsParts := []string{}
 		for k, v := range args {
 			argsParts = append(argsParts, fmt.Sprintf("%s=%v", k, v))
 		}
+
 		argText = " with arguments: " + strings.Join(argsParts, ", ")
 	}
 

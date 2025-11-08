@@ -12,29 +12,30 @@ import (
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// AdaptiveLoadBalanceConfig contains configuration for AI-powered load balancing
+// AdaptiveLoadBalanceConfig contains configuration for AI-powered load balancing.
 type AdaptiveLoadBalanceConfig struct {
-	Algorithm           string        `yaml:"algorithm" default:"ai_weighted"`        // Load balancing algorithm
-	HealthCheckEnabled  bool          `yaml:"health_check_enabled" default:"true"`    // Enable health checks
-	HealthCheckInterval time.Duration `yaml:"health_check_interval" default:"30s"`    // Health check interval
-	HealthCheckTimeout  time.Duration `yaml:"health_check_timeout" default:"5s"`      // Health check timeout
-	LearningEnabled     bool          `yaml:"learning_enabled" default:"true"`        // Enable learning from performance
-	AdaptiveEnabled     bool          `yaml:"adaptive_enabled" default:"true"`        // Enable adaptive weight adjustment
-	WeightAdjustment    float64       `yaml:"weight_adjustment" default:"0.1"`        // Weight adjustment factor
-	MinWeight           float64       `yaml:"min_weight" default:"0.1"`               // Minimum weight for a backend
-	MaxWeight           float64       `yaml:"max_weight" default:"2.0"`               // Maximum weight for a backend
-	ResponseTimeWeight  float64       `yaml:"response_time_weight" default:"0.4"`     // Weight for response time factor
-	ErrorRateWeight     float64       `yaml:"error_rate_weight" default:"0.3"`        // Weight for error rate factor
-	CapacityWeight      float64       `yaml:"capacity_weight" default:"0.3"`          // Weight for capacity factor
-	PredictionWindow    time.Duration `yaml:"prediction_window" default:"5m"`         // Window for performance prediction
-	StickySessions      bool          `yaml:"sticky_sessions" default:"false"`        // Enable sticky sessions
-	SessionCookie       string        `yaml:"session_cookie" default:"forge_session"` // Session cookie name
+	Algorithm           string        `default:"ai_weighted"   yaml:"algorithm"`             // Load balancing algorithm
+	HealthCheckEnabled  bool          `default:"true"          yaml:"health_check_enabled"`  // Enable health checks
+	HealthCheckInterval time.Duration `default:"30s"           yaml:"health_check_interval"` // Health check interval
+	HealthCheckTimeout  time.Duration `default:"5s"            yaml:"health_check_timeout"`  // Health check timeout
+	LearningEnabled     bool          `default:"true"          yaml:"learning_enabled"`      // Enable learning from performance
+	AdaptiveEnabled     bool          `default:"true"          yaml:"adaptive_enabled"`      // Enable adaptive weight adjustment
+	WeightAdjustment    float64       `default:"0.1"           yaml:"weight_adjustment"`     // Weight adjustment factor
+	MinWeight           float64       `default:"0.1"           yaml:"min_weight"`            // Minimum weight for a backend
+	MaxWeight           float64       `default:"2.0"           yaml:"max_weight"`            // Maximum weight for a backend
+	ResponseTimeWeight  float64       `default:"0.4"           yaml:"response_time_weight"`  // Weight for response time factor
+	ErrorRateWeight     float64       `default:"0.3"           yaml:"error_rate_weight"`     // Weight for error rate factor
+	CapacityWeight      float64       `default:"0.3"           yaml:"capacity_weight"`       // Weight for capacity factor
+	PredictionWindow    time.Duration `default:"5m"            yaml:"prediction_window"`     // Window for performance prediction
+	StickySessions      bool          `default:"false"         yaml:"sticky_sessions"`       // Enable sticky sessions
+	SessionCookie       string        `default:"forge_session" yaml:"session_cookie"`        // Session cookie name
 }
 
-// BackendServer represents a backend server
+// BackendServer represents a backend server.
 type BackendServer struct {
 	ID                string                 `json:"id"`
 	URL               *url.URL               `json:"url"`
@@ -49,12 +50,12 @@ type BackendServer struct {
 	Capacity          float64                `json:"capacity"`       // Server capacity (0.0-1.0)
 	LoadScore         float64                `json:"load_score"`     // Current load score
 	PredictedLoad     float64                `json:"predicted_load"` // Predicted load
-	Metadata          map[string]interface{} `json:"metadata"`
+	Metadata          map[string]any         `json:"metadata"`
 	Proxy             *httputil.ReverseProxy `json:"-"`
 	mu                sync.RWMutex           `json:"-"`
 }
 
-// LoadBalancingStats contains statistics for load balancing
+// LoadBalancingStats contains statistics for load balancing.
 type LoadBalancingStats struct {
 	TotalRequests      int64                    `json:"total_requests"`
 	BackendStats       map[string]*BackendStats `json:"backend_stats"`
@@ -67,7 +68,7 @@ type LoadBalancingStats struct {
 	LastUpdated        time.Time                `json:"last_updated"`
 }
 
-// BackendStats contains statistics for a backend server
+// BackendStats contains statistics for a backend server.
 type BackendStats struct {
 	RequestCount   int64         `json:"request_count"`
 	ErrorCount     int64         `json:"error_count"`
@@ -78,7 +79,7 @@ type BackendStats struct {
 	LastUsed       time.Time     `json:"last_used"`
 }
 
-// LoadBalancingDecision represents a load balancing decision
+// LoadBalancingDecision represents a load balancing decision.
 type LoadBalancingDecision struct {
 	SelectedBackend  *BackendServer     `json:"selected_backend"`
 	Algorithm        string             `json:"algorithm"`
@@ -89,7 +90,7 @@ type LoadBalancingDecision struct {
 	Timestamp        time.Time          `json:"timestamp"`
 }
 
-// AdaptiveLoadBalance implements AI-powered adaptive load balancing
+// AdaptiveLoadBalance implements AI-powered adaptive load balancing.
 type AdaptiveLoadBalance struct {
 	config       AdaptiveLoadBalanceConfig
 	agent        ai.AIAgent
@@ -103,14 +104,14 @@ type AdaptiveLoadBalance struct {
 	started      bool
 }
 
-// NewAdaptiveLoadBalance creates a new adaptive load balancing middleware
+// NewAdaptiveLoadBalance creates a new adaptive load balancing middleware.
 func NewAdaptiveLoadBalance(config AdaptiveLoadBalanceConfig, backends []string, logger logger.Logger, metrics forge.Metrics) (*AdaptiveLoadBalance, error) {
 	// Create load balancing agent
 	capabilities := []ai.Capability{
 		{
 			Name:        "predict_backend_performance",
 			Description: "Predict backend server performance metrics",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":              "prediction",
 				"accuracy":          0.85,
 				"prediction_window": config.PredictionWindow,
@@ -119,7 +120,7 @@ func NewAdaptiveLoadBalance(config AdaptiveLoadBalanceConfig, backends []string,
 		{
 			Name:        "optimize_weights",
 			Description: "Optimize backend server weights based on performance",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":       "optimization",
 				"min_weight": config.MinWeight,
 				"max_weight": config.MaxWeight,
@@ -128,7 +129,7 @@ func NewAdaptiveLoadBalance(config AdaptiveLoadBalanceConfig, backends []string,
 		{
 			Name:        "select_optimal_backend",
 			Description: "Select optimal backend server for request routing",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "decision_making",
 				"algorithm": config.Algorithm,
 			},
@@ -153,7 +154,7 @@ func NewAdaptiveLoadBalance(config AdaptiveLoadBalanceConfig, backends []string,
 			IsHealthy:     true,
 			ResponseTimes: make([]time.Duration, 0, 100),
 			Capacity:      1.0,
-			Metadata:      make(map[string]interface{}),
+			Metadata:      make(map[string]any),
 			Proxy:         httputil.NewSingleHostReverseProxy(parsedURL),
 		}
 
@@ -189,23 +190,23 @@ func NewAdaptiveLoadBalance(config AdaptiveLoadBalanceConfig, backends []string,
 	}, nil
 }
 
-// Name returns the middleware name
+// Name returns the middleware name.
 func (alb *AdaptiveLoadBalance) Name() string {
 	return "adaptive-load-balance"
 }
 
-// Type returns the middleware type
+// Type returns the middleware type.
 func (alb *AdaptiveLoadBalance) Type() ai.AIMiddlewareType {
 	return ai.AIMiddlewareTypeLoadBalance
 }
 
-// Initialize initializes the middleware
+// Initialize initializes the middleware.
 func (alb *AdaptiveLoadBalance) Initialize(ctx context.Context, config ai.AIMiddlewareConfig) error {
 	alb.mu.Lock()
 	defer alb.mu.Unlock()
 
 	if alb.started {
-		return fmt.Errorf("adaptive load balance middleware already initialized")
+		return errors.New("adaptive load balance middleware already initialized")
 	}
 
 	// Initialize the AI agent
@@ -238,6 +239,7 @@ func (alb *AdaptiveLoadBalance) Initialize(ctx context.Context, config ai.AIMidd
 	if alb.config.HealthCheckEnabled {
 		go alb.healthCheckLoop(ctx)
 	}
+
 	go alb.performanceMonitorLoop(ctx)
 	go alb.weightOptimizationLoop(ctx)
 
@@ -254,7 +256,7 @@ func (alb *AdaptiveLoadBalance) Initialize(ctx context.Context, config ai.AIMidd
 	return nil
 }
 
-// Process processes HTTP requests with adaptive load balancing
+// Process processes HTTP requests with adaptive load balancing.
 func (alb *AdaptiveLoadBalance) Process(ctx context.Context, req *http.Request, resp http.ResponseWriter, next http.HandlerFunc) error {
 	start := time.Now()
 
@@ -264,12 +266,13 @@ func (alb *AdaptiveLoadBalance) Process(ctx context.Context, req *http.Request, 
 		if alb.logger != nil {
 			alb.logger.Error("failed to select backend", logger.Error(err))
 		}
+
 		return err
 	}
 
 	backend := decision.SelectedBackend
 	if backend == nil {
-		return fmt.Errorf("no healthy backend available")
+		return errors.New("no healthy backend available")
 	}
 
 	// Update backend connection count
@@ -305,7 +308,7 @@ func (alb *AdaptiveLoadBalance) Process(ctx context.Context, req *http.Request, 
 	return nil
 }
 
-// selectOptimalBackend selects the optimal backend using AI
+// selectOptimalBackend selects the optimal backend using AI.
 func (alb *AdaptiveLoadBalance) selectOptimalBackend(ctx context.Context, req *http.Request) (*LoadBalancingDecision, error) {
 	// Check for sticky session first
 	if alb.config.StickySessions {
@@ -323,20 +326,20 @@ func (alb *AdaptiveLoadBalance) selectOptimalBackend(ctx context.Context, req *h
 	// Get healthy backends
 	healthyBackends := alb.getHealthyBackends()
 	if len(healthyBackends) == 0 {
-		return nil, fmt.Errorf("no healthy backends available")
+		return nil, errors.New("no healthy backends available")
 	}
 
 	// Use AI to select optimal backend
 	input := ai.AgentInput{
 		Type: "select_optimal_backend",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"backends":  healthyBackends,
 			"request":   alb.extractRequestFeatures(req),
 			"algorithm": alb.config.Algorithm,
 			"weights":   alb.getBackendWeights(),
 		},
-		Context: map[string]interface{}{
-			"selection_criteria": map[string]interface{}{
+		Context: map[string]any{
+			"selection_criteria": map[string]any{
 				"response_time_weight": alb.config.ResponseTimeWeight,
 				"error_rate_weight":    alb.config.ErrorRateWeight,
 				"capacity_weight":      alb.config.CapacityWeight,
@@ -353,11 +356,12 @@ func (alb *AdaptiveLoadBalance) selectOptimalBackend(ctx context.Context, req *h
 	}
 
 	// Parse AI output
-	if selectionData, ok := output.Data.(map[string]interface{}); ok {
+	if selectionData, ok := output.Data.(map[string]any); ok {
 		if backendID, exists := selectionData["backend_id"].(string); exists {
 			if backend := alb.getBackendByID(backendID); backend != nil {
 				factors := make(map[string]float64)
-				if factorData, ok := selectionData["factors"].(map[string]interface{}); ok {
+
+				if factorData, ok := selectionData["factors"].(map[string]any); ok {
 					for k, v := range factorData {
 						if score, ok := v.(float64); ok {
 							factors[k] = score
@@ -387,7 +391,7 @@ func (alb *AdaptiveLoadBalance) selectOptimalBackend(ctx context.Context, req *h
 	return alb.roundRobinSelection(), nil
 }
 
-// getStickyBackend gets the backend for sticky session
+// getStickyBackend gets the backend for sticky session.
 func (alb *AdaptiveLoadBalance) getStickyBackend(req *http.Request) *BackendServer {
 	sessionID := alb.extractSessionID(req)
 	if sessionID == "" {
@@ -405,7 +409,7 @@ func (alb *AdaptiveLoadBalance) getStickyBackend(req *http.Request) *BackendServ
 	return alb.getBackendByID(backendID)
 }
 
-// extractSessionID extracts session ID from request
+// extractSessionID extracts session ID from request.
 func (alb *AdaptiveLoadBalance) extractSessionID(req *http.Request) string {
 	// Try cookie first
 	if cookie, err := req.Cookie(alb.config.SessionCookie); err == nil {
@@ -413,10 +417,10 @@ func (alb *AdaptiveLoadBalance) extractSessionID(req *http.Request) string {
 	}
 
 	// Try header
-	return req.Header.Get("X-Session-ID")
+	return req.Header.Get("X-Session-Id")
 }
 
-// getHealthyBackends returns list of healthy backends
+// getHealthyBackends returns list of healthy backends.
 func (alb *AdaptiveLoadBalance) getHealthyBackends() []*BackendServer {
 	alb.mu.RLock()
 	defer alb.mu.RUnlock()
@@ -435,28 +439,31 @@ func (alb *AdaptiveLoadBalance) getHealthyBackends() []*BackendServer {
 	return healthy
 }
 
-// getBackendWeights returns current backend weights
+// getBackendWeights returns current backend weights.
 func (alb *AdaptiveLoadBalance) getBackendWeights() map[string]float64 {
 	weights := make(map[string]float64)
+
 	for _, backend := range alb.backends {
 		backend.mu.RLock()
 		weights[backend.ID] = backend.Weight
 		backend.mu.RUnlock()
 	}
+
 	return weights
 }
 
-// getBackendByID finds backend by ID
+// getBackendByID finds backend by ID.
 func (alb *AdaptiveLoadBalance) getBackendByID(backendID string) *BackendServer {
 	for _, backend := range alb.backends {
 		if backend.ID == backendID {
 			return backend
 		}
 	}
+
 	return nil
 }
 
-// roundRobinSelection provides fallback round-robin selection
+// roundRobinSelection provides fallback round-robin selection.
 func (alb *AdaptiveLoadBalance) roundRobinSelection() *LoadBalancingDecision {
 	healthyBackends := alb.getHealthyBackends()
 	if len(healthyBackends) == 0 {
@@ -477,9 +484,9 @@ func (alb *AdaptiveLoadBalance) roundRobinSelection() *LoadBalancingDecision {
 	}
 }
 
-// extractRequestFeatures extracts features from HTTP request for AI analysis
-func (alb *AdaptiveLoadBalance) extractRequestFeatures(req *http.Request) map[string]interface{} {
-	return map[string]interface{}{
+// extractRequestFeatures extracts features from HTTP request for AI analysis.
+func (alb *AdaptiveLoadBalance) extractRequestFeatures(req *http.Request) map[string]any {
+	return map[string]any{
 		"method":         req.Method,
 		"path":           req.URL.Path,
 		"content_length": req.ContentLength,
@@ -490,7 +497,7 @@ func (alb *AdaptiveLoadBalance) extractRequestFeatures(req *http.Request) map[st
 	}
 }
 
-// recordBackendPerformance records performance metrics for a backend
+// recordBackendPerformance records performance metrics for a backend.
 func (alb *AdaptiveLoadBalance) recordBackendPerformance(backend *BackendServer, latency time.Duration, success bool) {
 	backend.mu.Lock()
 	defer backend.mu.Unlock()
@@ -512,7 +519,7 @@ func (alb *AdaptiveLoadBalance) recordBackendPerformance(backend *BackendServer,
 	backend.LoadScore = alb.calculateLoadScore(backend)
 }
 
-// calculateLoadScore calculates load score for a backend
+// calculateLoadScore calculates load score for a backend.
 func (alb *AdaptiveLoadBalance) calculateLoadScore(backend *BackendServer) float64 {
 	if backend.RequestCount == 0 {
 		return 0.0
@@ -520,11 +527,13 @@ func (alb *AdaptiveLoadBalance) calculateLoadScore(backend *BackendServer) float
 
 	// Calculate average response time
 	var avgResponseTime time.Duration
+
 	if len(backend.ResponseTimes) > 0 {
 		var total time.Duration
 		for _, rt := range backend.ResponseTimes {
 			total += rt
 		}
+
 		avgResponseTime = total / time.Duration(len(backend.ResponseTimes))
 	}
 
@@ -546,7 +555,7 @@ func (alb *AdaptiveLoadBalance) calculateLoadScore(backend *BackendServer) float
 	return math.Min(loadScore, 1.0)
 }
 
-// healthCheckLoop performs periodic health checks
+// healthCheckLoop performs periodic health checks.
 func (alb *AdaptiveLoadBalance) healthCheckLoop(ctx context.Context) {
 	ticker := time.NewTicker(alb.config.HealthCheckInterval)
 	defer ticker.Stop()
@@ -561,14 +570,14 @@ func (alb *AdaptiveLoadBalance) healthCheckLoop(ctx context.Context) {
 	}
 }
 
-// performHealthChecks checks health of all backends
+// performHealthChecks checks health of all backends.
 func (alb *AdaptiveLoadBalance) performHealthChecks() {
 	for _, backend := range alb.backends {
 		go alb.checkBackendHealth(backend)
 	}
 }
 
-// checkBackendHealth checks health of a single backend
+// checkBackendHealth checks health of a single backend.
 func (alb *AdaptiveLoadBalance) checkBackendHealth(backend *BackendServer) {
 	start := time.Now()
 
@@ -593,6 +602,7 @@ func (alb *AdaptiveLoadBalance) checkBackendHealth(backend *BackendServer) {
 		if alb.stats.BackendStats[backend.ID] != nil {
 			alb.stats.BackendStats[backend.ID].HealthStatus = "unhealthy"
 		}
+
 		alb.mu.Lock()
 		alb.stats.HealthChecksFailed++
 		alb.mu.Unlock()
@@ -619,7 +629,7 @@ func (alb *AdaptiveLoadBalance) checkBackendHealth(backend *BackendServer) {
 	}
 }
 
-// performanceMonitorLoop monitors backend performance
+// performanceMonitorLoop monitors backend performance.
 func (alb *AdaptiveLoadBalance) performanceMonitorLoop(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -634,7 +644,7 @@ func (alb *AdaptiveLoadBalance) performanceMonitorLoop(ctx context.Context) {
 	}
 }
 
-// updatePerformanceMetrics updates performance metrics
+// updatePerformanceMetrics updates performance metrics.
 func (alb *AdaptiveLoadBalance) updatePerformanceMetrics(ctx context.Context) {
 	for _, backend := range alb.backends {
 		stats := alb.stats.BackendStats[backend.ID]
@@ -645,14 +655,17 @@ func (alb *AdaptiveLoadBalance) updatePerformanceMetrics(ctx context.Context) {
 		backend.mu.RLock()
 		stats.RequestCount = backend.RequestCount
 		stats.ErrorCount = backend.ErrorCount
+
 		stats.CurrentWeight = backend.Weight
 		if len(backend.ResponseTimes) > 0 {
 			var total time.Duration
 			for _, rt := range backend.ResponseTimes {
 				total += rt
 			}
+
 			stats.AverageLatency = total / time.Duration(len(backend.ResponseTimes))
 		}
+
 		backend.mu.RUnlock()
 
 		// Calculate load percentage
@@ -665,7 +678,7 @@ func (alb *AdaptiveLoadBalance) updatePerformanceMetrics(ctx context.Context) {
 	alb.stats.LastUpdated = time.Now()
 }
 
-// weightOptimizationLoop optimizes backend weights using AI
+// weightOptimizationLoop optimizes backend weights using AI.
 func (alb *AdaptiveLoadBalance) weightOptimizationLoop(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
@@ -682,13 +695,14 @@ func (alb *AdaptiveLoadBalance) weightOptimizationLoop(ctx context.Context) {
 	}
 }
 
-// optimizeWeights optimizes backend weights using AI
+// optimizeWeights optimizes backend weights using AI.
 func (alb *AdaptiveLoadBalance) optimizeWeights(ctx context.Context) {
 	// Prepare performance data
-	performanceData := make(map[string]interface{})
+	performanceData := make(map[string]any)
+
 	for _, backend := range alb.backends {
 		backend.mu.RLock()
-		performanceData[backend.ID] = map[string]interface{}{
+		performanceData[backend.ID] = map[string]any{
 			"current_weight":     backend.Weight,
 			"load_score":         backend.LoadScore,
 			"request_count":      backend.RequestCount,
@@ -701,15 +715,15 @@ func (alb *AdaptiveLoadBalance) optimizeWeights(ctx context.Context) {
 
 	input := ai.AgentInput{
 		Type: "optimize_weights",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"performance_data": performanceData,
 			"current_weights":  alb.getBackendWeights(),
-			"constraints": map[string]interface{}{
+			"constraints": map[string]any{
 				"min_weight": alb.config.MinWeight,
 				"max_weight": alb.config.MaxWeight,
 			},
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"optimization_goal": "minimize_latency_and_errors",
 		},
 		RequestID: fmt.Sprintf("optimize-%d", time.Now().UnixNano()),
@@ -721,22 +735,24 @@ func (alb *AdaptiveLoadBalance) optimizeWeights(ctx context.Context) {
 		if alb.logger != nil {
 			alb.logger.Error("failed to optimize weights", logger.Error(err))
 		}
+
 		return
 	}
 
 	// Apply weight optimizations
-	if optimizedWeights, ok := output.Data.(map[string]interface{}); ok {
+	if optimizedWeights, ok := output.Data.(map[string]any); ok {
 		alb.applyWeightOptimizations(optimizedWeights, output.Confidence)
 	}
 }
 
-// applyWeightOptimizations applies AI-recommended weight optimizations
-func (alb *AdaptiveLoadBalance) applyWeightOptimizations(optimizedWeights map[string]interface{}, confidence float64) {
+// applyWeightOptimizations applies AI-recommended weight optimizations.
+func (alb *AdaptiveLoadBalance) applyWeightOptimizations(optimizedWeights map[string]any, confidence float64) {
 	if confidence < 0.7 {
 		return // Only apply high-confidence optimizations
 	}
 
 	adjustmentsMade := 0
+
 	for backendID, weightValue := range optimizedWeights {
 		if weight, ok := weightValue.(float64); ok {
 			if backend := alb.getBackendByID(backendID); backend != nil {
@@ -751,6 +767,7 @@ func (alb *AdaptiveLoadBalance) applyWeightOptimizations(optimizedWeights map[st
 				if newWeight < alb.config.MinWeight {
 					newWeight = alb.config.MinWeight
 				}
+
 				if newWeight > alb.config.MaxWeight {
 					newWeight = alb.config.MaxWeight
 				}
@@ -779,7 +796,7 @@ func (alb *AdaptiveLoadBalance) applyWeightOptimizations(optimizedWeights map[st
 	}
 }
 
-// learnFromRequest learns from request outcome
+// learnFromRequest learns from request outcome.
 func (alb *AdaptiveLoadBalance) learnFromRequest(ctx context.Context, decision *LoadBalancingDecision, actualLatency time.Duration, resp http.ResponseWriter) {
 	// Create feedback based on actual vs predicted performance
 	success := resp.Header().Get("Status") == "" // No error status
@@ -788,7 +805,7 @@ func (alb *AdaptiveLoadBalance) learnFromRequest(ctx context.Context, decision *
 	feedback := ai.AgentFeedback{
 		ActionID: fmt.Sprintf("routing-%s-%d", decision.SelectedBackend.ID, time.Now().UnixNano()),
 		Success:  success && latencyDiff < 1.0, // Success if no errors and latency prediction was close
-		Outcome: map[string]interface{}{
+		Outcome: map[string]any{
 			"actual_latency":    actualLatency.Seconds(),
 			"predicted_latency": decision.PredictedLatency.Seconds(),
 			"latency_diff":      latencyDiff,
@@ -798,7 +815,7 @@ func (alb *AdaptiveLoadBalance) learnFromRequest(ctx context.Context, decision *
 			"prediction_accuracy": 1.0 - math.Min(latencyDiff, 1.0),
 			"routing_success":     map[bool]float64{true: 1.0, false: 0.0}[success],
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"algorithm":  decision.Algorithm,
 			"confidence": decision.Confidence,
 		},
@@ -812,7 +829,7 @@ func (alb *AdaptiveLoadBalance) learnFromRequest(ctx context.Context, decision *
 	}
 }
 
-// updateStats updates load balancing statistics
+// updateStats updates load balancing statistics.
 func (alb *AdaptiveLoadBalance) updateStats(backend *BackendServer, latency time.Duration) {
 	alb.mu.Lock()
 	defer alb.mu.Unlock()
@@ -841,19 +858,22 @@ func (alb *AdaptiveLoadBalance) updateStats(backend *BackendServer, latency time
 	}
 }
 
-// GetStats returns middleware statistics
+// GetStats returns middleware statistics.
 func (alb *AdaptiveLoadBalance) GetStats() ai.AIMiddlewareStats {
 	alb.mu.RLock()
 	defer alb.mu.RUnlock()
 
 	backendHealthCounts := make(map[string]int)
+
 	for _, backend := range alb.backends {
 		backend.mu.RLock()
+
 		if backend.IsHealthy {
 			backendHealthCounts["healthy"]++
 		} else {
 			backendHealthCounts["unhealthy"]++
 		}
+
 		backend.mu.RUnlock()
 	}
 
@@ -866,7 +886,7 @@ func (alb *AdaptiveLoadBalance) GetStats() ai.AIMiddlewareStats {
 		LearningEnabled: alb.config.LearningEnabled,
 		AdaptiveChanges: alb.stats.WeightAdjustments,
 		LastUpdated:     alb.stats.LastUpdated,
-		CustomMetrics: map[string]interface{}{
+		CustomMetrics: map[string]any{
 			"backends_total":       len(alb.backends),
 			"backends_healthy":     backendHealthCounts["healthy"],
 			"backends_unhealthy":   backendHealthCounts["unhealthy"],

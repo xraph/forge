@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/shared"
 )
 
-// DashboardServer serves the dashboard HTTP interface
+// DashboardServer serves the dashboard HTTP interface.
 type DashboardServer struct {
 	config        Config
 	healthManager forge.HealthManager
@@ -31,7 +32,7 @@ type DashboardServer struct {
 	mu sync.RWMutex
 }
 
-// NewDashboardServer creates a new dashboard server
+// NewDashboardServer creates a new dashboard server.
 func NewDashboardServer(
 	config Config,
 	healthManager forge.HealthManager,
@@ -65,13 +66,13 @@ func NewDashboardServer(
 	return ds
 }
 
-// Start starts the dashboard server
+// Start starts the dashboard server.
 func (ds *DashboardServer) Start(ctx context.Context) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
 
 	if ds.running {
-		return fmt.Errorf("dashboard server already running")
+		return errors.New("dashboard server already running")
 	}
 
 	// Create HTTP server
@@ -105,10 +106,11 @@ func (ds *DashboardServer) Start(ctx context.Context) error {
 
 	ds.running = true
 	ds.startTime = time.Now()
+
 	return nil
 }
 
-// Stop stops the dashboard server
+// Stop stops the dashboard server.
 func (ds *DashboardServer) Stop(ctx context.Context) error {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
@@ -134,14 +136,15 @@ func (ds *DashboardServer) Stop(ctx context.Context) error {
 	return nil
 }
 
-// IsRunning returns true if the server is running
+// IsRunning returns true if the server is running.
 func (ds *DashboardServer) IsRunning() bool {
 	ds.mu.RLock()
 	defer ds.mu.RUnlock()
+
 	return ds.running
 }
 
-// setupRoutes configures HTTP routes
+// setupRoutes configures HTTP routes.
 func (ds *DashboardServer) setupRoutes() {
 	base := ds.config.BasePath
 
@@ -170,7 +173,7 @@ func (ds *DashboardServer) setupRoutes() {
 	}
 }
 
-// broadcastUpdates periodically broadcasts updates to WebSocket clients
+// broadcastUpdates periodically broadcasts updates to WebSocket clients.
 func (ds *DashboardServer) broadcastUpdates(ctx context.Context) {
 	ticker := time.NewTicker(ds.config.RefreshInterval)
 	defer ticker.Stop()
@@ -186,6 +189,7 @@ func (ds *DashboardServer) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast overview data
 			overview := ds.collector.CollectOverview(ctx)
+
 			msg := NewWSMessage("overview", overview)
 			if err := ds.hub.Broadcast(msg); err != nil {
 				ds.logger.Error("failed to broadcast overview",
@@ -195,6 +199,7 @@ func (ds *DashboardServer) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast health data
 			health := ds.collector.CollectHealth(ctx)
+
 			healthMsg := NewWSMessage("health", health)
 			if err := ds.hub.Broadcast(healthMsg); err != nil {
 				ds.logger.Error("failed to broadcast health",
@@ -204,6 +209,7 @@ func (ds *DashboardServer) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast metrics data
 			metrics := ds.collector.CollectMetrics(ctx)
+
 			metricsMsg := NewWSMessage("metrics", metrics)
 			if err := ds.hub.Broadcast(metricsMsg); err != nil {
 				ds.logger.Error("failed to broadcast metrics",
@@ -213,6 +219,7 @@ func (ds *DashboardServer) broadcastUpdates(ctx context.Context) {
 
 			// Collect and broadcast services data
 			services := ds.collector.CollectServices(ctx)
+
 			servicesMsg := NewWSMessage("services", services)
 			if err := ds.hub.Broadcast(servicesMsg); err != nil {
 				ds.logger.Error("failed to broadcast services",
@@ -223,12 +230,12 @@ func (ds *DashboardServer) broadcastUpdates(ctx context.Context) {
 	}
 }
 
-// GetHistory returns the data history
+// GetHistory returns the data history.
 func (ds *DashboardServer) GetHistory() *DataHistory {
 	return ds.history
 }
 
-// GetCollector returns the data collector
+// GetCollector returns the data collector.
 func (ds *DashboardServer) GetCollector() *DataCollector {
 	return ds.collector
 }

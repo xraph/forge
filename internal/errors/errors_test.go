@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestForgeErrorIs tests the Is implementation for ForgeError
+// TestForgeErrorIs tests the Is implementation for ForgeError.
 func TestForgeErrorIs(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -49,7 +49,7 @@ func TestForgeErrorIs(t *testing.T) {
 	}
 }
 
-// TestServiceErrorIs tests the Is implementation for ServiceError
+// TestServiceErrorIs tests the Is implementation for ServiceError.
 func TestServiceErrorIs(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -92,7 +92,7 @@ func TestServiceErrorIs(t *testing.T) {
 	}
 }
 
-// TestHTTPErrorIs tests the Is implementation for HTTPError
+// TestHTTPErrorIs tests the Is implementation for HTTPError.
 func TestHTTPErrorIs(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -129,14 +129,16 @@ func TestHTTPErrorIs(t *testing.T) {
 	}
 }
 
-// TestErrorAs tests the As wrapper function
+// TestErrorAs tests the As wrapper function.
 func TestErrorAs(t *testing.T) {
 	t.Run("extract ForgeError", func(t *testing.T) {
 		err := ErrServiceNotFound("test-service")
+
 		var forgeErr *ForgeError
 		if !As(err, &forgeErr) {
 			t.Error("As() failed to extract ForgeError")
 		}
+
 		if forgeErr.Code != CodeServiceNotFound {
 			t.Errorf("extracted error code = %s, want %s", forgeErr.Code, CodeServiceNotFound)
 		}
@@ -144,10 +146,12 @@ func TestErrorAs(t *testing.T) {
 
 	t.Run("extract HTTPError", func(t *testing.T) {
 		err := BadRequest("invalid")
+
 		var httpErr *HTTPError
 		if !As(err, &httpErr) {
 			t.Error("As() failed to extract HTTPError")
 		}
+
 		if httpErr.Code != http.StatusBadRequest {
 			t.Errorf("extracted status code = %d, want %d", httpErr.Code, http.StatusBadRequest)
 		}
@@ -161,13 +165,14 @@ func TestErrorAs(t *testing.T) {
 		if !As(wrappedErr, &httpErr) {
 			t.Error("As() failed to extract HTTPError from wrapped error")
 		}
+
 		if httpErr.Code != http.StatusBadRequest {
 			t.Errorf("extracted status code = %d, want %d", httpErr.Code, http.StatusBadRequest)
 		}
 	})
 }
 
-// TestHelperFunctions tests the convenience helper functions
+// TestHelperFunctions tests the convenience helper functions.
 func TestHelperFunctions(t *testing.T) {
 	t.Run("IsServiceNotFound", func(t *testing.T) {
 		err := ErrServiceNotFound("test")
@@ -191,7 +196,7 @@ func TestHelperFunctions(t *testing.T) {
 	})
 }
 
-// TestGetHTTPStatusCode tests the status code extraction helper
+// TestGetHTTPStatusCode tests the status code extraction helper.
 func TestGetHTTPStatusCode(t *testing.T) {
 	tests := []struct {
 		name string
@@ -229,18 +234,18 @@ func TestGetHTTPStatusCode(t *testing.T) {
 	}
 }
 
-// TestUnwrap tests the Unwrap wrapper function
+// TestUnwrap tests the Unwrap wrapper function.
 func TestUnwrap(t *testing.T) {
 	innerErr := errors.New("inner error")
 	wrappedErr := ErrConfigError("config failed", innerErr)
 
 	unwrapped := Unwrap(wrappedErr)
-	if unwrapped != innerErr {
+	if !errors.Is(unwrapped, innerErr) {
 		t.Errorf("Unwrap() returned wrong error: got %v, want %v", unwrapped, innerErr)
 	}
 }
 
-// TestJoin tests the Join wrapper function
+// TestJoin tests the Join wrapper function.
 func TestJoin(t *testing.T) {
 	err1 := errors.New("error 1")
 	err2 := errors.New("error 2")
@@ -255,15 +260,17 @@ func TestJoin(t *testing.T) {
 	if !errors.Is(joined, err1) {
 		t.Error("joined error does not contain err1")
 	}
+
 	if !errors.Is(joined, err2) {
 		t.Error("joined error does not contain err2")
 	}
+
 	if !errors.Is(joined, err3) {
 		t.Error("joined error does not contain err3")
 	}
 }
 
-// TestWithContext tests the WithContext method
+// TestWithContext tests the WithContext method.
 func TestWithContext(t *testing.T) {
 	err := ErrServiceNotFound("test").
 		WithContext("user_id", "123").
@@ -272,12 +279,13 @@ func TestWithContext(t *testing.T) {
 	if err.Context["user_id"] != "123" {
 		t.Error("context user_id not set correctly")
 	}
+
 	if err.Context["request_id"] != "abc" {
 		t.Error("context request_id not set correctly")
 	}
 }
 
-// Example usage demonstrating the new Is functionality
+// Example usage demonstrating the new Is functionality.
 func ExampleIs() {
 	// Create an error
 	err := ErrServiceNotFound("database")
@@ -293,7 +301,7 @@ func ExampleIs() {
 	}
 }
 
-// Example showing error unwrapping
+// Example showing error unwrapping.
 func ExampleAs() {
 	// Create a wrapped error
 	innerErr := BadRequest("invalid input")

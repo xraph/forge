@@ -5,16 +5,18 @@ import (
 	"strings"
 )
 
-// generateHelp generates help text for a CLI or command
+// generateHelp generates help text for a CLI or command.
 func generateHelp(cli CLI, cmd Command) string {
 	var sb strings.Builder
 
 	if cmd == nil {
 		// Generate main CLI help
 		sb.WriteString(fmt.Sprintf("%s v%s\n", Bold(cli.Name()), cli.Version()))
+
 		if cli.Description() != "" {
-			sb.WriteString(fmt.Sprintf("%s\n", cli.Description()))
+			sb.WriteString(cli.Description() + "\n")
 		}
+
 		sb.WriteString("\n")
 
 		// Usage
@@ -24,9 +26,11 @@ func generateHelp(cli CLI, cmd Command) string {
 		// Commands
 		if len(cli.Commands()) > 0 {
 			sb.WriteString(Bold("COMMANDS:\n"))
+
 			for _, c := range cli.Commands() {
 				sb.WriteString(fmt.Sprintf("  %-15s %s\n", c.Name(), c.Description()))
 			}
+
 			sb.WriteString("\n")
 		}
 
@@ -39,10 +43,12 @@ func generateHelp(cli CLI, cmd Command) string {
 		sb.WriteString(fmt.Sprintf("Use \"%s [command] --help\" for more information about a command.\n", cli.Name()))
 	} else {
 		// Generate command help
-		sb.WriteString(fmt.Sprintf("%s\n", Bold(cmd.Description())))
+		sb.WriteString(Bold(cmd.Description()) + "\n")
+
 		if cmd.Description() == "" {
-			sb.WriteString(fmt.Sprintf("%s\n", Bold(cmd.Name())))
+			sb.WriteString(Bold(cmd.Name()) + "\n")
 		}
+
 		sb.WriteString("\n")
 
 		// Usage
@@ -58,19 +64,23 @@ func generateHelp(cli CLI, cmd Command) string {
 		// Subcommands
 		if len(cmd.Subcommands()) > 0 {
 			sb.WriteString(Bold("SUBCOMMANDS:\n"))
+
 			for _, sub := range cmd.Subcommands() {
 				sb.WriteString(fmt.Sprintf("  %-15s %s\n", sub.Name(), sub.Description()))
 			}
+
 			sb.WriteString("\n")
 		}
 
 		// Flags
 		if len(cmd.Flags()) > 0 {
 			sb.WriteString(Bold("FLAGS:\n"))
+
 			for _, flag := range cmd.Flags() {
 				flagLine := formatFlagHelp(flag)
 				sb.WriteString(flagLine)
 			}
+
 			sb.WriteString("\n")
 		}
 
@@ -82,7 +92,7 @@ func generateHelp(cli CLI, cmd Command) string {
 	return sb.String()
 }
 
-// formatFlagHelp formats help text for a flag
+// formatFlagHelp formats help text for a flag.
 func formatFlagHelp(flag Flag) string {
 	var sb strings.Builder
 
@@ -96,7 +106,7 @@ func formatFlagHelp(flag Flag) string {
 	}
 
 	// Long name
-	sb.WriteString(fmt.Sprintf("--%s", flag.Name()))
+	sb.WriteString("--" + flag.Name())
 
 	// Type hint
 	switch flag.Type() {
@@ -111,10 +121,10 @@ func formatFlagHelp(flag Flag) string {
 	}
 
 	// Padding for description
-	padding := 30 - sb.Len() + 2 // 2 spaces at start
-	if padding < 2 {
-		padding = 2
-	}
+	padding := max(
+		// 2 spaces at start
+		30-sb.Len()+2, 2)
+
 	sb.WriteString(strings.Repeat(" ", padding))
 
 	// Description
@@ -135,17 +145,19 @@ func formatFlagHelp(flag Flag) string {
 	return sb.String()
 }
 
-// generateUsageLine generates a usage line for a command
+// generateUsageLine generates a usage line for a command.
 func generateUsageLine(cliName string, cmd Command) string {
 	parts := []string{cliName}
 
 	// Add command path
 	cmdPath := []string{}
+
 	current := cmd
 	for current != nil {
 		cmdPath = append([]string{current.Name()}, cmdPath...)
 		current = current.Parent()
 	}
+
 	parts = append(parts, cmdPath...)
 
 	// Add flags indicator

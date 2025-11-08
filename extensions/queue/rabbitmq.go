@@ -4,14 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// RabbitMQQueue implements Queue interface using RabbitMQ
+// RabbitMQQueue implements Queue interface using RabbitMQ.
 type RabbitMQQueue struct {
 	config    Config
 	logger    forge.Logger
@@ -32,10 +34,10 @@ type rabbitConsumer struct {
 	active  bool
 }
 
-// NewRabbitMQQueue creates a new RabbitMQ-backed queue instance
+// NewRabbitMQQueue creates a new RabbitMQ-backed queue instance.
 func NewRabbitMQQueue(config Config, logger forge.Logger, metrics forge.Metrics) (*RabbitMQQueue, error) {
 	if config.URL == "" && len(config.Hosts) == 0 {
-		return nil, fmt.Errorf("rabbitmq requires URL or hosts")
+		return nil, errors.New("rabbitmq requires URL or hosts")
 	}
 
 	return &RabbitMQQueue{
@@ -76,6 +78,7 @@ func (q *RabbitMQQueue) Connect(ctx context.Context) error {
 	ch, err := conn.Channel()
 	if err != nil {
 		conn.Close()
+
 		return fmt.Errorf("failed to open channel: %w", err)
 	}
 
@@ -84,6 +87,7 @@ func (q *RabbitMQQueue) Connect(ctx context.Context) error {
 		if err := ch.Qos(q.config.DefaultPrefetch, 0, false); err != nil {
 			ch.Close()
 			conn.Close()
+
 			return fmt.Errorf("failed to set QoS: %w", err)
 		}
 	}
@@ -156,12 +160,15 @@ func (q *RabbitMQQueue) DeclareQueue(ctx context.Context, name string, opts Queu
 	if opts.MessageTTL > 0 {
 		args["x-message-ttl"] = int64(opts.MessageTTL.Milliseconds())
 	}
+
 	if opts.MaxLength > 0 {
 		args["x-max-length"] = opts.MaxLength
 	}
+
 	if opts.MaxPriority > 0 {
 		args["x-max-priority"] = opts.MaxPriority
 	}
+
 	if opts.DeadLetterQueue != "" {
 		args["x-dead-letter-exchange"] = ""
 		args["x-dead-letter-routing-key"] = opts.DeadLetterQueue
@@ -180,6 +187,7 @@ func (q *RabbitMQQueue) DeclareQueue(ctx context.Context, name string, opts Queu
 	}
 
 	q.logger.Info("declared rabbitmq queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -197,6 +205,7 @@ func (q *RabbitMQQueue) DeleteQueue(ctx context.Context, name string) error {
 	}
 
 	q.logger.Info("deleted rabbitmq queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -252,6 +261,7 @@ func (q *RabbitMQQueue) PurgeQueue(ctx context.Context, name string) error {
 	}
 
 	q.logger.Info("purged rabbitmq queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -288,7 +298,7 @@ func (q *RabbitMQQueue) Publish(ctx context.Context, queueName string, message M
 	}
 
 	if message.Expiration > 0 {
-		publishing.Expiration = fmt.Sprintf("%d", message.Expiration.Milliseconds())
+		publishing.Expiration = strconv.FormatInt(message.Expiration.Milliseconds(), 10)
 	}
 
 	err = q.channel.PublishWithContext(
@@ -299,7 +309,6 @@ func (q *RabbitMQQueue) Publish(ctx context.Context, queueName string, message M
 		false,     // immediate
 		publishing,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to publish message: %w", err)
 	}
@@ -326,13 +335,14 @@ func (q *RabbitMQQueue) PublishBatch(ctx context.Context, queueName string, mess
 			return err
 		}
 	}
+
 	return nil
 }
 
 func (q *RabbitMQQueue) PublishDelayed(ctx context.Context, queueName string, message Message, delay time.Duration) error {
 	// RabbitMQ delayed messages require a plugin or TTL+DLX pattern
 	// For simplicity, we'll use a delayed queue with TTL
-	delayedQueueName := fmt.Sprintf("%s.delayed", queueName)
+	delayedQueueName := queueName + ".delayed"
 
 	// Declare delayed queue with TTL and DLX to original queue
 	opts := QueueOptions{
@@ -351,6 +361,7 @@ func (q *RabbitMQQueue) PublishDelayed(ctx context.Context, queueName string, me
 
 func (q *RabbitMQQueue) Consume(ctx context.Context, queueName string, handler MessageHandler, opts ConsumeOptions) error {
 	q.mu.Lock()
+
 	consumerID := fmt.Sprintf("consumer-%d", time.Now().UnixNano())
 	consumerCtx, cancel := context.WithCancel(ctx)
 
@@ -379,12 +390,12 @@ func (q *RabbitMQQueue) Consume(ctx context.Context, queueName string, handler M
 			false, // no-wait
 			nil,   // args
 		)
-
 		if err != nil {
 			q.logger.Error("failed to start consumer",
 				forge.F("queue", queueName),
 				forge.F("error", err),
 			)
+
 			return
 		}
 
@@ -404,15 +415,18 @@ func (q *RabbitMQQueue) Consume(ctx context.Context, queueName string, handler M
 						forge.F("error", err),
 					)
 					delivery.Nack(false, false)
+
 					continue
 				}
 
-				msg.ID = fmt.Sprintf("%d", delivery.DeliveryTag)
+				msg.ID = strconv.FormatUint(delivery.DeliveryTag, 10)
 
 				// Handle message
 				handlerCtx := consumerCtx
+
 				if opts.Timeout > 0 {
 					var cancelTimeout context.CancelFunc
+
 					handlerCtx, cancelTimeout = context.WithTimeout(consumerCtx, opts.Timeout)
 					defer cancelTimeout()
 				}
@@ -438,6 +452,7 @@ func (q *RabbitMQQueue) Consume(ctx context.Context, queueName string, handler M
 	}()
 
 	q.logger.Info("started rabbitmq consumer", forge.F("queue", queueName))
+
 	return nil
 }
 
@@ -457,11 +472,13 @@ func (q *RabbitMQQueue) StopConsuming(ctx context.Context, queueName string) err
 			}
 
 			c.active = false
+
 			delete(q.consumers, id)
 		}
 	}
 
 	q.logger.Info("stopped rabbitmq consumer", forge.F("queue", queueName))
+
 	return nil
 }
 

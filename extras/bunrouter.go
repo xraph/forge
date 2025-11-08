@@ -8,16 +8,17 @@ import (
 	"github.com/xraph/forge"
 )
 
-// BunRouterAdapter wraps uptrace/bunrouter
+// BunRouterAdapter wraps uptrace/bunrouter.
 type BunRouterAdapter struct {
 	router *bunrouter.Router
 }
 
-// NewBunRouterAdapter creates a BunRouter adapter (default)
+// NewBunRouterAdapter creates a BunRouter adapter (default).
 func NewBunRouterAdapter() forge.RouterAdapter {
 	router := bunrouter.New(
 		bunrouter.WithNotFoundHandler(func(w http.ResponseWriter, req bunrouter.Request) error {
 			http.NotFound(w, req.Request)
+
 			return nil
 		}),
 	)
@@ -27,7 +28,7 @@ func NewBunRouterAdapter() forge.RouterAdapter {
 	}
 }
 
-// Handle registers a route
+// Handle registers a route.
 func (a *BunRouterAdapter) Handle(method, path string, handler http.Handler) {
 	// Convert path format from :param to {param} for bunrouter
 	bunPath := convertPathToBunRouter(path)
@@ -39,32 +40,34 @@ func (a *BunRouterAdapter) Handle(method, path string, handler http.Handler) {
 
 		// Call the handler
 		handler.ServeHTTP(w, httpReq)
+
 		return nil
 	})
 }
 
-// Mount registers a sub-handler
+// Mount registers a sub-handler.
 func (a *BunRouterAdapter) Mount(path string, handler http.Handler) {
 	// Ensure path ends with a named wildcard parameter for bunrouter
 	mountPath := strings.TrimSuffix(path, "/") + "/*filepath"
 
 	a.router.Handle("*", mountPath, func(w http.ResponseWriter, req bunrouter.Request) error {
 		handler.ServeHTTP(w, req.Request)
+
 		return nil
 	})
 }
 
-// ServeHTTP dispatches requests
+// ServeHTTP dispatches requests.
 func (a *BunRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.router.ServeHTTP(w, r)
 }
 
-// Close cleans up resources
+// Close cleans up resources.
 func (a *BunRouterAdapter) Close() error {
 	return nil
 }
 
-// convertPathToBunRouter converts :param to {param}
+// convertPathToBunRouter converts :param to {param}.
 func convertPathToBunRouter(path string) string {
 	// BunRouter uses :param format (same as our format)
 	// But for wildcards, we need to handle them

@@ -9,7 +9,7 @@ import (
 )
 
 // TestNoOpMetrics verifies that no-op metrics collector implements the interface
-// correctly and all operations are safe no-ops
+// correctly and all operations are safe no-ops.
 func TestNoOpMetrics(t *testing.T) {
 	ctx := context.Background()
 	m := NewNoOpMetrics()
@@ -32,7 +32,7 @@ func TestNoOpMetrics(t *testing.T) {
 	}
 }
 
-// TestNoOpCounter verifies no-op counter operations
+// TestNoOpCounter verifies no-op counter operations.
 func TestNoOpCounter(t *testing.T) {
 	m := NewNoOpMetrics()
 	counter := m.Counter("test_counter", "env", "test")
@@ -55,7 +55,7 @@ func TestNoOpCounter(t *testing.T) {
 	}
 }
 
-// TestNoOpGauge verifies no-op gauge operations
+// TestNoOpGauge verifies no-op gauge operations.
 func TestNoOpGauge(t *testing.T) {
 	m := NewNoOpMetrics()
 	gauge := m.Gauge("test_gauge", "env", "test")
@@ -80,7 +80,7 @@ func TestNoOpGauge(t *testing.T) {
 	}
 }
 
-// TestNoOpHistogram verifies no-op histogram operations
+// TestNoOpHistogram verifies no-op histogram operations.
 func TestNoOpHistogram(t *testing.T) {
 	m := NewNoOpMetrics()
 	histogram := m.Histogram("test_histogram", "env", "test")
@@ -120,7 +120,7 @@ func TestNoOpHistogram(t *testing.T) {
 	}
 }
 
-// TestNoOpTimer verifies no-op timer operations
+// TestNoOpTimer verifies no-op timer operations.
 func TestNoOpTimer(t *testing.T) {
 	m := NewNoOpMetrics()
 	timer := m.Timer("test_timer", "env", "test")
@@ -132,6 +132,7 @@ func TestNoOpTimer(t *testing.T) {
 	if stopFunc == nil {
 		t.Error("Time() should return a function")
 	}
+
 	stopFunc() // Should be safe to call
 
 	if count := timer.GetCount(); count != 0 {
@@ -161,7 +162,7 @@ func TestNoOpTimer(t *testing.T) {
 	timer.Reset() // Should be safe
 }
 
-// TestNoOpExport verifies no-op export operations
+// TestNoOpExport verifies no-op export operations.
 func TestNoOpExport(t *testing.T) {
 	m := NewNoOpMetrics()
 
@@ -181,6 +182,7 @@ func TestNoOpExport(t *testing.T) {
 			if err != nil {
 				t.Errorf("Export(%q) error = %v, want nil", tc.format, err)
 			}
+
 			if len(data) != 0 {
 				t.Errorf("Export(%q) = %d bytes, want empty", tc.format, len(data))
 			}
@@ -193,7 +195,7 @@ func TestNoOpExport(t *testing.T) {
 	}
 }
 
-// TestNoOpCollectorManagement verifies custom collector management
+// TestNoOpCollectorManagement verifies custom collector management.
 func TestNoOpCollectorManagement(t *testing.T) {
 	m := NewNoOpMetrics()
 
@@ -215,7 +217,7 @@ func TestNoOpCollectorManagement(t *testing.T) {
 	}
 }
 
-// TestNoOpMetricsRetrieval verifies metrics retrieval operations
+// TestNoOpMetricsRetrieval verifies metrics retrieval operations.
 func TestNoOpMetricsRetrieval(t *testing.T) {
 	m := NewNoOpMetrics()
 
@@ -244,7 +246,7 @@ func TestNoOpMetricsRetrieval(t *testing.T) {
 	}
 }
 
-// TestNoOpManagement verifies management operations
+// TestNoOpManagement verifies management operations.
 func TestNoOpManagement(t *testing.T) {
 	m := NewNoOpMetrics()
 
@@ -259,7 +261,7 @@ func TestNoOpManagement(t *testing.T) {
 	}
 }
 
-// TestNoOpStats verifies statistics retrieval
+// TestNoOpStats verifies statistics retrieval.
 func TestNoOpStats(t *testing.T) {
 	m := NewNoOpMetrics()
 
@@ -298,54 +300,50 @@ func TestNoOpStats(t *testing.T) {
 	}
 }
 
-// BenchmarkNoOpCounter benchmarks no-op counter operations
+// BenchmarkNoOpCounter benchmarks no-op counter operations.
 func BenchmarkNoOpCounter(b *testing.B) {
 	m := NewNoOpMetrics()
 	counter := m.Counter("benchmark_counter")
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		counter.Inc()
 	}
 }
 
-// BenchmarkNoOpGauge benchmarks no-op gauge operations
+// BenchmarkNoOpGauge benchmarks no-op gauge operations.
 func BenchmarkNoOpGauge(b *testing.B) {
 	m := NewNoOpMetrics()
 	gauge := m.Gauge("benchmark_gauge")
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		gauge.Set(float64(i))
 	}
 }
 
-// BenchmarkNoOpHistogram benchmarks no-op histogram operations
+// BenchmarkNoOpHistogram benchmarks no-op histogram operations.
 func BenchmarkNoOpHistogram(b *testing.B) {
 	m := NewNoOpMetrics()
 	histogram := m.Histogram("benchmark_histogram")
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		histogram.Observe(float64(i))
 	}
 }
 
-// BenchmarkNoOpTimer benchmarks no-op timer operations
+// BenchmarkNoOpTimer benchmarks no-op timer operations.
 func BenchmarkNoOpTimer(b *testing.B) {
 	m := NewNoOpMetrics()
 	timer := m.Timer("benchmark_timer")
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		timer.Record(time.Duration(i) * time.Millisecond)
 	}
 }

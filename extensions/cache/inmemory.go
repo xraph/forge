@@ -12,22 +12,23 @@ import (
 	"github.com/xraph/forge"
 )
 
-// cacheItem represents a single cache entry
+// cacheItem represents a single cache entry.
 type cacheItem struct {
 	value      []byte
 	expiration time.Time
 	hasExpiry  bool
 }
 
-// isExpired checks if the item has expired
+// isExpired checks if the item has expired.
 func (item *cacheItem) isExpired() bool {
 	if !item.hasExpiry {
 		return false
 	}
+
 	return time.Now().After(item.expiration)
 }
 
-// InMemoryCache implements Cache interface using an in-memory store
+// InMemoryCache implements Cache interface using an in-memory store.
 type InMemoryCache struct {
 	config  Config
 	logger  forge.Logger
@@ -41,11 +42,12 @@ type InMemoryCache struct {
 	cleanupDone chan struct{}
 }
 
-// NewInMemoryCache creates a new in-memory cache
+// NewInMemoryCache creates a new in-memory cache.
 func NewInMemoryCache(config Config, logger forge.Logger, metrics forge.Metrics) *InMemoryCache {
 	if config.DefaultTTL == 0 {
 		config.DefaultTTL = 5 * time.Minute
 	}
+
 	if config.CleanupInterval == 0 {
 		config.CleanupInterval = 1 * time.Minute
 	}
@@ -60,7 +62,7 @@ func NewInMemoryCache(config Config, logger forge.Logger, metrics forge.Metrics)
 	}
 }
 
-// Connect initializes the cache and starts the cleanup goroutine
+// Connect initializes the cache and starts the cleanup goroutine.
 func (c *InMemoryCache) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -81,13 +83,16 @@ func (c *InMemoryCache) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Disconnect stops the cache and cleans up resources
+// Disconnect stops the cache and cleans up resources.
 func (c *InMemoryCache) Disconnect(ctx context.Context) error {
 	c.mu.Lock()
+
 	if !c.connected {
 		c.mu.Unlock()
+
 		return nil
 	}
+
 	c.connected = false
 	c.mu.Unlock()
 
@@ -100,10 +105,11 @@ func (c *InMemoryCache) Disconnect(ctx context.Context) error {
 	c.mu.Unlock()
 
 	c.logger.Info("in-memory cache disconnected")
+
 	return nil
 }
 
-// Ping checks if the cache is connected
+// Ping checks if the cache is connected.
 func (c *InMemoryCache) Ping(ctx context.Context) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -111,10 +117,11 @@ func (c *InMemoryCache) Ping(ctx context.Context) error {
 	if !c.connected {
 		return ErrNotConnected
 	}
+
 	return nil
 }
 
-// Get retrieves a value from the cache
+// Get retrieves a value from the cache.
 func (c *InMemoryCache) Get(ctx context.Context, key string) ([]byte, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -128,6 +135,7 @@ func (c *InMemoryCache) Get(ctx context.Context, key string) ([]byte, error) {
 	item, exists := c.items[key]
 	if !exists {
 		c.recordMetric("cache_miss")
+
 		return nil, ErrNotFound
 	}
 
@@ -138,14 +146,16 @@ func (c *InMemoryCache) Get(ctx context.Context, key string) ([]byte, error) {
 		c.mu.Unlock()
 		c.mu.RLock()
 		c.recordMetric("cache_miss")
+
 		return nil, ErrNotFound
 	}
 
 	c.recordMetric("cache_hit")
+
 	return item.value, nil
 }
 
-// Set stores a value in the cache
+// Set stores a value in the cache.
 func (c *InMemoryCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -191,7 +201,7 @@ func (c *InMemoryCache) Set(ctx context.Context, key string, value []byte, ttl t
 	return nil
 }
 
-// Delete removes a key from the cache
+// Delete removes a key from the cache.
 func (c *InMemoryCache) Delete(ctx context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -207,7 +217,7 @@ func (c *InMemoryCache) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// Exists checks if a key exists in the cache
+// Exists checks if a key exists in the cache.
 func (c *InMemoryCache) Exists(ctx context.Context, key string) (bool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -217,6 +227,7 @@ func (c *InMemoryCache) Exists(ctx context.Context, key string) (bool, error) {
 	}
 
 	key = c.prefixedKey(key)
+
 	item, exists := c.items[key]
 	if !exists {
 		return false, nil
@@ -229,7 +240,7 @@ func (c *InMemoryCache) Exists(ctx context.Context, key string) (bool, error) {
 	return true, nil
 }
 
-// Clear removes all keys from the cache
+// Clear removes all keys from the cache.
 func (c *InMemoryCache) Clear(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -245,7 +256,7 @@ func (c *InMemoryCache) Clear(ctx context.Context) error {
 	return nil
 }
 
-// Keys returns all keys matching the pattern
+// Keys returns all keys matching the pattern.
 func (c *InMemoryCache) Keys(ctx context.Context, pattern string) ([]string, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -255,6 +266,7 @@ func (c *InMemoryCache) Keys(ctx context.Context, pattern string) ([]string, err
 	}
 
 	pattern = c.prefixedKey(pattern)
+
 	var keys []string
 
 	for key, item := range c.items {
@@ -263,6 +275,7 @@ func (c *InMemoryCache) Keys(ctx context.Context, pattern string) ([]string, err
 			if c.config.Prefix != "" && strings.HasPrefix(key, c.config.Prefix) {
 				key = strings.TrimPrefix(key, c.config.Prefix)
 			}
+
 			keys = append(keys, key)
 		}
 	}
@@ -270,7 +283,7 @@ func (c *InMemoryCache) Keys(ctx context.Context, pattern string) ([]string, err
 	return keys, nil
 }
 
-// TTL returns the remaining time-to-live for a key
+// TTL returns the remaining time-to-live for a key.
 func (c *InMemoryCache) TTL(ctx context.Context, key string) (time.Duration, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -280,6 +293,7 @@ func (c *InMemoryCache) TTL(ctx context.Context, key string) (time.Duration, err
 	}
 
 	key = c.prefixedKey(key)
+
 	item, exists := c.items[key]
 	if !exists {
 		return 0, ErrNotFound
@@ -296,7 +310,7 @@ func (c *InMemoryCache) TTL(ctx context.Context, key string) (time.Duration, err
 	return time.Until(item.expiration), nil
 }
 
-// Expire sets a new TTL for a key
+// Expire sets a new TTL for a key.
 func (c *InMemoryCache) Expire(ctx context.Context, key string, ttl time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -306,6 +320,7 @@ func (c *InMemoryCache) Expire(ctx context.Context, key string, ttl time.Duratio
 	}
 
 	key = c.prefixedKey(key)
+
 	item, exists := c.items[key]
 	if !exists {
 		return ErrNotFound
@@ -327,6 +342,7 @@ func (c *InMemoryCache) prefixedKey(key string) string {
 	if c.config.Prefix == "" {
 		return key
 	}
+
 	return c.config.Prefix + key
 }
 
@@ -334,9 +350,11 @@ func (c *InMemoryCache) validateKey(key string) error {
 	if key == "" {
 		return errors.New("cache: key cannot be empty")
 	}
+
 	if c.config.MaxKeySize > 0 && len(key) > c.config.MaxKeySize {
 		return ErrKeyTooLarge
 	}
+
 	return nil
 }
 
@@ -344,6 +362,7 @@ func (c *InMemoryCache) validateValue(value []byte) error {
 	if c.config.MaxValueSize > 0 && len(value) > c.config.MaxValueSize {
 		return ErrValueTooLarge
 	}
+
 	return nil
 }
 
@@ -380,6 +399,7 @@ func (c *InMemoryCache) evictOne() {
 		if item.isExpired() {
 			delete(c.items, key)
 			c.recordMetric("cache_evict")
+
 			return
 		}
 	}
@@ -388,6 +408,7 @@ func (c *InMemoryCache) evictOne() {
 	for key := range c.items {
 		delete(c.items, key)
 		c.recordMetric("cache_evict")
+
 		return
 	}
 }
@@ -417,6 +438,7 @@ func (c *InMemoryCache) cleanup() {
 			delete(c.items, key)
 		}
 	}
+
 	after := len(c.items)
 
 	if before != after {
@@ -440,6 +462,7 @@ func (c *InMemoryCache) GetString(ctx context.Context, key string) (string, erro
 	if err != nil {
 		return "", err
 	}
+
 	return string(data), nil
 }
 
@@ -447,18 +470,20 @@ func (c *InMemoryCache) SetString(ctx context.Context, key string, value string,
 	return c.Set(ctx, key, []byte(value), ttl)
 }
 
-func (c *InMemoryCache) GetJSON(ctx context.Context, key string, target interface{}) error {
+func (c *InMemoryCache) GetJSON(ctx context.Context, key string, target any) error {
 	data, err := c.Get(ctx, key)
 	if err != nil {
 		return err
 	}
+
 	return json.Unmarshal(data, target)
 }
 
-func (c *InMemoryCache) SetJSON(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+func (c *InMemoryCache) SetJSON(ctx context.Context, key string, value any, ttl time.Duration) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("cache: failed to marshal JSON: %w", err)
 	}
+
 	return c.Set(ctx, key, data, ttl)
 }

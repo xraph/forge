@@ -15,7 +15,7 @@ func TestHTTPError_Error(t *testing.T) {
 
 func TestHTTPError_Error_NoMessage(t *testing.T) {
 	err := &HTTPError{Code: 500}
-	assert.Equal(t, http.StatusText(500), err.Error())
+	assert.Equal(t, http.StatusText(http.StatusInternalServerError), err.Error())
 }
 
 func TestHTTPError_Error_WithErr(t *testing.T) {

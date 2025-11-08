@@ -6,16 +6,18 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// SecurityThreatLevel represents the severity of a security threat
+// SecurityThreatLevel represents the severity of a security threat.
 type SecurityThreatLevel string
 
 const (
@@ -25,34 +27,34 @@ const (
 	SecurityThreatLevelCritical SecurityThreatLevel = "critical"
 )
 
-// SecurityThreat represents a detected security threat
+// SecurityThreat represents a detected security threat.
 type SecurityThreat struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Level       SecurityThreatLevel    `json:"level"`
-	Description string                 `json:"description"`
-	Source      string                 `json:"source"`
-	Indicators  []string               `json:"indicators"`
-	Confidence  float64                `json:"confidence"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Blocked     bool                   `json:"blocked"`
-	Action      string                 `json:"action"`
+	ID          string              `json:"id"`
+	Type        string              `json:"type"`
+	Level       SecurityThreatLevel `json:"level"`
+	Description string              `json:"description"`
+	Source      string              `json:"source"`
+	Indicators  []string            `json:"indicators"`
+	Confidence  float64             `json:"confidence"`
+	Timestamp   time.Time           `json:"timestamp"`
+	Metadata    map[string]any      `json:"metadata"`
+	Blocked     bool                `json:"blocked"`
+	Action      string              `json:"action"`
 }
 
-// SecurityScannerConfig contains configuration for the AI security scanner
+// SecurityScannerConfig contains configuration for the AI security scanner.
 type SecurityScannerConfig struct {
-	Enabled                  bool                `yaml:"enabled" default:"true"`
-	BlockThreshold           SecurityThreatLevel `yaml:"block_threshold" default:"high"`
-	ScanHeaders              bool                `yaml:"scan_headers" default:"true"`
-	ScanBody                 bool                `yaml:"scan_body" default:"true"`
-	ScanParams               bool                `yaml:"scan_params" default:"true"`
-	MaxBodySize              int64               `yaml:"max_body_size" default:"10485760"` // 10MB
-	Timeout                  time.Duration       `yaml:"timeout" default:"5s"`
-	EnableMLDetection        bool                `yaml:"enable_ml_detection" default:"true"`
-	EnableRuleBasedDetection bool                `yaml:"enable_rule_based_detection" default:"true"`
-	EnableBehavioralAnalysis bool                `yaml:"enable_behavioral_analysis" default:"true"`
-	LogLevel                 string              `yaml:"log_level" default:"info"`
+	Enabled                  bool                `default:"true"       yaml:"enabled"`
+	BlockThreshold           SecurityThreatLevel `default:"high"       yaml:"block_threshold"`
+	ScanHeaders              bool                `default:"true"       yaml:"scan_headers"`
+	ScanBody                 bool                `default:"true"       yaml:"scan_body"`
+	ScanParams               bool                `default:"true"       yaml:"scan_params"`
+	MaxBodySize              int64               `default:"10485760"   yaml:"max_body_size"` // 10MB
+	Timeout                  time.Duration       `default:"5s"         yaml:"timeout"`
+	EnableMLDetection        bool                `default:"true"       yaml:"enable_ml_detection"`
+	EnableRuleBasedDetection bool                `default:"true"       yaml:"enable_rule_based_detection"`
+	EnableBehavioralAnalysis bool                `default:"true"       yaml:"enable_behavioral_analysis"`
+	LogLevel                 string              `default:"info"       yaml:"log_level"`
 	AlertWebhook             string              `yaml:"alert_webhook"`
 	WhitelistIPs             []string            `yaml:"whitelist_ips"`
 	BlacklistIPs             []string            `yaml:"blacklist_ips"`
@@ -60,7 +62,7 @@ type SecurityScannerConfig struct {
 	MLModelPath              string              `yaml:"ml_model_path"`
 }
 
-// SecurityRule represents a custom security rule
+// SecurityRule represents a custom security rule.
 type SecurityRule struct {
 	ID          string              `yaml:"id"`
 	Name        string              `yaml:"name"`
@@ -69,10 +71,10 @@ type SecurityRule struct {
 	Target      SecurityRuleTarget  `yaml:"target"`
 	Level       SecurityThreatLevel `yaml:"level"`
 	Action      SecurityRuleAction  `yaml:"action"`
-	Enabled     bool                `yaml:"enabled" default:"true"`
+	Enabled     bool                `default:"true"     yaml:"enabled"`
 }
 
-// SecurityRuleTarget defines what to scan
+// SecurityRuleTarget defines what to scan.
 type SecurityRuleTarget string
 
 const (
@@ -84,7 +86,7 @@ const (
 	SecurityRuleTargetAll    SecurityRuleTarget = "all"
 )
 
-// SecurityRuleAction defines what action to take
+// SecurityRuleAction defines what action to take.
 type SecurityRuleAction string
 
 const (
@@ -93,7 +95,7 @@ const (
 	SecurityRuleActionAlert SecurityRuleAction = "alert"
 )
 
-// SecurityScannerStats contains statistics about the security scanner
+// SecurityScannerStats contains statistics about the security scanner.
 type SecurityScannerStats struct {
 	RequestsScanned int64                           `json:"requests_scanned"`
 	ThreatsDetected int64                           `json:"threats_detected"`
@@ -109,7 +111,7 @@ type SecurityScannerStats struct {
 	Performance     SecurityScannerPerformanceStats `json:"performance"`
 }
 
-// ThreatSummary provides a summary of threat types
+// ThreatSummary provides a summary of threat types.
 type ThreatSummary struct {
 	Type     string              `json:"type"`
 	Count    int64               `json:"count"`
@@ -117,7 +119,7 @@ type ThreatSummary struct {
 	Severity SecurityThreatLevel `json:"severity"`
 }
 
-// SecurityScannerPerformanceStats tracks scanner performance
+// SecurityScannerPerformanceStats tracks scanner performance.
 type SecurityScannerPerformanceStats struct {
 	MinScanTime   time.Duration `json:"min_scan_time"`
 	MaxScanTime   time.Duration `json:"max_scan_time"`
@@ -128,7 +130,7 @@ type SecurityScannerPerformanceStats struct {
 	MemoryUsage   int64         `json:"memory_usage"`
 }
 
-// AISecurityScanner implements AI-powered security scanning middleware
+// AISecurityScanner implements AI-powered security scanning middleware.
 type AISecurityScanner struct {
 	config          SecurityScannerConfig
 	agent           ai.AIAgent
@@ -142,7 +144,7 @@ type AISecurityScanner struct {
 	started         bool
 }
 
-// BehaviorProfile tracks behavioral patterns for IPs
+// BehaviorProfile tracks behavioral patterns for IPs.
 type BehaviorProfile struct {
 	IP              string            `json:"ip"`
 	RequestCount    int64             `json:"request_count"`
@@ -155,16 +157,16 @@ type BehaviorProfile struct {
 	IsBot           bool              `json:"is_bot"`
 }
 
-// BehaviorAnomaly represents a behavioral anomaly
+// BehaviorAnomaly represents a behavioral anomaly.
 type BehaviorAnomaly struct {
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Confidence  float64                `json:"confidence"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Confidence  float64        `json:"confidence"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// NewAISecurityScanner creates a new AI security scanner middleware
+// NewAISecurityScanner creates a new AI security scanner middleware.
 func NewAISecurityScanner(config SecurityScannerConfig, agent ai.AIAgent, logger forge.Logger, metrics forge.Metrics) *AISecurityScanner {
 	scanner := &AISecurityScanner{
 		config:          config,
@@ -187,23 +189,23 @@ func NewAISecurityScanner(config SecurityScannerConfig, agent ai.AIAgent, logger
 	return scanner
 }
 
-// Name returns the middleware name
+// Name returns the middleware name.
 func (s *AISecurityScanner) Name() string {
 	return "ai-security-scanner"
 }
 
-// Type returns the middleware type
+// Type returns the middleware type.
 func (s *AISecurityScanner) Type() ai.AIMiddlewareType {
 	return ai.AIMiddlewareTypeSecurity
 }
 
-// Initialize initializes the security scanner
+// Initialize initializes the security scanner.
 func (s *AISecurityScanner) Initialize(ctx context.Context, config ai.AIMiddlewareConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.started {
-		return fmt.Errorf("security scanner already initialized")
+		return errors.New("security scanner already initialized")
 	}
 
 	// Initialize the AI agent if provided
@@ -215,7 +217,7 @@ func (s *AISecurityScanner) Initialize(ctx context.Context, config ai.AIMiddlewa
 			Timeout:         s.config.Timeout,
 			LearningEnabled: true,
 			AutoApply:       true,
-			Metadata:        map[string]interface{}{"type": "security_scanner"},
+			Metadata:        map[string]any{"type": "security_scanner"},
 		}
 
 		if err := s.agent.Initialize(ctx, agentConfig); err != nil {
@@ -245,10 +247,11 @@ func (s *AISecurityScanner) Initialize(ctx context.Context, config ai.AIMiddlewa
 	return nil
 }
 
-// Process processes HTTP requests through the security scanner
+// Process processes HTTP requests through the security scanner.
 func (s *AISecurityScanner) Process(ctx context.Context, request *http.Request, response http.ResponseWriter, next http.HandlerFunc) error {
 	if !s.config.Enabled {
 		next.ServeHTTP(response, request)
+
 		return nil
 	}
 
@@ -276,6 +279,7 @@ func (s *AISecurityScanner) Process(ctx context.Context, request *http.Request, 
 		}
 		// Continue processing on scan failure
 		next.ServeHTTP(response, request)
+
 		return nil
 	}
 
@@ -289,6 +293,7 @@ func (s *AISecurityScanner) Process(ctx context.Context, request *http.Request, 
 
 		// Block the request
 		s.blockRequest(response, request, threats)
+
 		return nil
 	}
 
@@ -299,6 +304,7 @@ func (s *AISecurityScanner) Process(ctx context.Context, request *http.Request, 
 	if s.metrics != nil {
 		s.metrics.Counter("forge.ai.security.requests_scanned").Inc()
 		s.metrics.Histogram("forge.ai.security.scan_duration").Observe(scanDuration.Seconds())
+
 		if len(threats) > 0 {
 			s.metrics.Counter("forge.ai.security.threats_detected").Inc()
 		}
@@ -306,10 +312,11 @@ func (s *AISecurityScanner) Process(ctx context.Context, request *http.Request, 
 
 	// Continue with request processing
 	next.ServeHTTP(response, request)
+
 	return nil
 }
 
-// scanRequest performs comprehensive security scanning of the request
+// scanRequest performs comprehensive security scanning of the request.
 func (s *AISecurityScanner) scanRequest(ctx context.Context, request *http.Request) ([]*SecurityThreat, error) {
 	var threats []*SecurityThreat
 
@@ -326,6 +333,7 @@ func (s *AISecurityScanner) scanRequest(ctx context.Context, request *http.Reque
 			Timestamp:   time.Now(),
 			Blocked:     true,
 		})
+
 		return threats, nil
 	}
 
@@ -361,7 +369,7 @@ func (s *AISecurityScanner) scanRequest(ctx context.Context, request *http.Reque
 	return threats, nil
 }
 
-// performRuleBasedScanning performs rule-based security scanning
+// performRuleBasedScanning performs rule-based security scanning.
 func (s *AISecurityScanner) performRuleBasedScanning(request *http.Request) []*SecurityThreat {
 	var threats []*SecurityThreat
 
@@ -403,7 +411,7 @@ func (s *AISecurityScanner) performRuleBasedScanning(request *http.Request) []*S
 					Indicators:  []string{pattern},
 					Confidence:  0.8,
 					Timestamp:   time.Now(),
-					Metadata:    map[string]interface{}{"url": fullURL},
+					Metadata:    map[string]any{"url": fullURL},
 				})
 			}
 		}
@@ -419,12 +427,12 @@ func (s *AISecurityScanner) performRuleBasedScanning(request *http.Request) []*S
 							ID:          s.generateThreatID(),
 							Type:        s.identifyThreatType(pattern),
 							Level:       level,
-							Description: fmt.Sprintf("Suspicious pattern detected in header %s", name),
+							Description: "Suspicious pattern detected in header " + name,
 							Source:      s.getClientIP(request),
 							Indicators:  []string{pattern},
 							Confidence:  0.8,
 							Timestamp:   time.Now(),
-							Metadata:    map[string]interface{}{"header": name, "value": value},
+							Metadata:    map[string]any{"header": name, "value": value},
 						})
 					}
 				}
@@ -450,7 +458,7 @@ func (s *AISecurityScanner) performRuleBasedScanning(request *http.Request) []*S
 					Indicators:  []string{rule.Pattern},
 					Confidence:  0.9,
 					Timestamp:   time.Now(),
-					Metadata:    map[string]interface{}{"rule_id": rule.ID, "target": string(rule.Target)},
+					Metadata:    map[string]any{"rule_id": rule.ID, "target": string(rule.Target)},
 				})
 			}
 		}
@@ -459,12 +467,12 @@ func (s *AISecurityScanner) performRuleBasedScanning(request *http.Request) []*S
 	return threats
 }
 
-// performMLDetection performs ML-based threat detection
+// performMLDetection performs ML-based threat detection.
 func (s *AISecurityScanner) performMLDetection(ctx context.Context, request *http.Request) ([]*SecurityThreat, error) {
 	// Prepare input for AI agent
 	input := ai.AgentInput{
 		Type: "security_scan",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"method":     request.Method,
 			"url":        request.URL.String(),
 			"headers":    request.Header,
@@ -472,7 +480,7 @@ func (s *AISecurityScanner) performMLDetection(ctx context.Context, request *htt
 			"ip":         s.getClientIP(request),
 			"timestamp":  time.Now(),
 		},
-		Context:   map[string]interface{}{"source": "security_scanner"},
+		Context:   map[string]any{"source": "security_scanner"},
 		Timestamp: time.Now(),
 		RequestID: s.generateThreatID(),
 	}
@@ -485,6 +493,7 @@ func (s *AISecurityScanner) performMLDetection(ctx context.Context, request *htt
 
 	// Parse AI output
 	var threats []*SecurityThreat
+
 	if output.Confidence > 0.5 {
 		// Convert agent actions to security threats
 		for _, action := range output.Actions {
@@ -505,7 +514,7 @@ func (s *AISecurityScanner) performMLDetection(ctx context.Context, request *htt
 				Source:      s.getClientIP(request),
 				Confidence:  output.Confidence,
 				Timestamp:   time.Now(),
-				Metadata: map[string]interface{}{
+				Metadata: map[string]any{
 					"ai_explanation": output.Explanation,
 					"action_id":      action.ID,
 				},
@@ -516,9 +525,10 @@ func (s *AISecurityScanner) performMLDetection(ctx context.Context, request *htt
 	return threats, nil
 }
 
-// performBehavioralAnalysis performs behavioral threat analysis
+// performBehavioralAnalysis performs behavioral threat analysis.
 func (s *AISecurityScanner) performBehavioralAnalysis(request *http.Request) []*SecurityThreat {
 	var threats []*SecurityThreat
+
 	clientIP := s.getClientIP(request)
 
 	s.mu.RLock()
@@ -539,7 +549,7 @@ func (s *AISecurityScanner) performBehavioralAnalysis(request *http.Request) []*
 			Source:      clientIP,
 			Confidence:  0.7,
 			Timestamp:   time.Now(),
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"request_count": profile.RequestCount,
 				"time_window":   time.Since(profile.FirstSeen),
 			},
@@ -556,7 +566,7 @@ func (s *AISecurityScanner) performBehavioralAnalysis(request *http.Request) []*
 			Source:      clientIP,
 			Confidence:  0.8,
 			Timestamp:   time.Now(),
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"threat_ratio":  float64(profile.ThreatCount) / float64(profile.RequestCount),
 				"total_threats": profile.ThreatCount,
 			},
@@ -573,7 +583,7 @@ func (s *AISecurityScanner) performBehavioralAnalysis(request *http.Request) []*
 			Source:      clientIP,
 			Confidence:  profile.RiskScore,
 			Timestamp:   time.Now(),
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"risk_score": profile.RiskScore,
 				"is_bot":     profile.IsBot,
 			},
@@ -583,7 +593,7 @@ func (s *AISecurityScanner) performBehavioralAnalysis(request *http.Request) []*
 	return threats
 }
 
-// processThreats processes detected threats and determines if request should be blocked
+// processThreats processes detected threats and determines if request should be blocked.
 func (s *AISecurityScanner) processThreats(ctx context.Context, request *http.Request, threats []*SecurityThreat) bool {
 	if len(threats) == 0 {
 		return false
@@ -641,12 +651,12 @@ func (s *AISecurityScanner) processThreats(ctx context.Context, request *http.Re
 	return shouldBlock
 }
 
-// shouldBlockThreat determines if a threat should result in blocking the request
+// shouldBlockThreat determines if a threat should result in blocking the request.
 func (s *AISecurityScanner) shouldBlockThreat(threat *SecurityThreat) bool {
 	return s.compareThreatLevels(threat.Level, s.config.BlockThreshold) >= 0
 }
 
-// compareThreatLevels compares two threat levels (-1: a < b, 0: a == b, 1: a > b)
+// compareThreatLevels compares two threat levels (-1: a < b, 0: a == b, 1: a > b).
 func (s *AISecurityScanner) compareThreatLevels(a, b SecurityThreatLevel) int {
 	levels := map[SecurityThreatLevel]int{
 		SecurityThreatLevelLow:      1,
@@ -663,18 +673,19 @@ func (s *AISecurityScanner) compareThreatLevels(a, b SecurityThreatLevel) int {
 	} else if levelA > levelB {
 		return 1
 	}
+
 	return 0
 }
 
-// blockRequest blocks a request and sends appropriate response
+// blockRequest blocks a request and sends appropriate response.
 func (s *AISecurityScanner) blockRequest(response http.ResponseWriter, request *http.Request, threats []*SecurityThreat) {
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(http.StatusForbidden)
 
-	errorResponse := map[string]interface{}{
+	errorResponse := map[string]any{
 		"error": "Security threat detected",
 		"code":  "SECURITY_THREAT_DETECTED",
-		"details": map[string]interface{}{
+		"details": map[string]any{
 			"threats":    len(threats),
 			"client_ip":  s.getClientIP(request),
 			"timestamp":  time.Now().Format(time.RFC3339),
@@ -733,21 +744,13 @@ func (s *AISecurityScanner) getClientIP(request *http.Request) string {
 }
 
 func (s *AISecurityScanner) isBlacklisted(ip string) bool {
-	for _, blacklistedIP := range s.config.BlacklistIPs {
-		if ip == blacklistedIP {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(s.config.BlacklistIPs, ip)
 }
 
 func (s *AISecurityScanner) isWhitelisted(ip string) bool {
-	for _, whitelistedIP := range s.config.WhitelistIPs {
-		if ip == whitelistedIP {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(s.config.WhitelistIPs, ip)
 }
 
 func (s *AISecurityScanner) identifyThreatType(pattern string) string {
@@ -778,6 +781,7 @@ func (s *AISecurityScanner) extractTargetContent(request *http.Request, target S
 		for name, values := range request.Header {
 			headers = append(headers, fmt.Sprintf("%s: %s", name, strings.Join(values, ", ")))
 		}
+
 		return strings.Join(headers, "\n")
 	case SecurityRuleTargetParam:
 		return request.URL.RawQuery
@@ -859,9 +863,9 @@ func (s *AISecurityScanner) sendAlert(ctx context.Context, threat *SecurityThrea
 		return
 	}
 
-	alertData := map[string]interface{}{
+	alertData := map[string]any{
 		"threat": threat,
-		"request": map[string]interface{}{
+		"request": map[string]any{
 			"method":     request.Method,
 			"url":        request.URL.String(),
 			"user_agent": request.UserAgent(),
@@ -895,6 +899,7 @@ func (s *AISecurityScanner) updatePerformanceStats(duration time.Duration) {
 	if perf.MinScanTime == 0 || duration < perf.MinScanTime {
 		perf.MinScanTime = duration
 	}
+
 	if duration > perf.MaxScanTime {
 		perf.MaxScanTime = duration
 	}
@@ -990,7 +995,7 @@ func (s *AISecurityScanner) analyzeBehaviorPatterns() {
 	// unusual geographic distributions, etc.
 }
 
-// GetStats returns the current security scanner statistics
+// GetStats returns the current security scanner statistics.
 func (s *AISecurityScanner) GetStats() ai.AIMiddlewareStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -1001,7 +1006,7 @@ func (s *AISecurityScanner) GetStats() ai.AIMiddlewareStats {
 		RequestsProcessed: s.stats.RequestsScanned,
 		AverageLatency:    s.stats.AverageScanTime,
 		ErrorRate:         0.0, // Security scanner doesn't have traditional "errors"
-		CustomMetrics: map[string]interface{}{
+		CustomMetrics: map[string]any{
 			"threats_detected":  s.stats.ThreatsDetected,
 			"requests_blocked":  s.stats.RequestsBlocked,
 			"threats_by_level":  s.stats.ThreatsByLevel,

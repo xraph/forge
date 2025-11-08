@@ -3,10 +3,11 @@ package llm
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
-// CompletionRequest represents a text completion request
+// CompletionRequest represents a text completion request.
 type CompletionRequest struct {
 	Provider         string                 `json:"provider"`
 	Model            string                 `json:"model"`
@@ -29,7 +30,7 @@ type CompletionRequest struct {
 	RequestID        string                 `json:"request_id"`
 }
 
-// CompletionResponse represents a text completion response
+// CompletionResponse represents a text completion response.
 type CompletionResponse struct {
 	ID        string                 `json:"id"`
 	Object    string                 `json:"object"`
@@ -42,7 +43,7 @@ type CompletionResponse struct {
 	RequestID string                 `json:"request_id"`
 }
 
-// CompletionChoice represents a completion choice
+// CompletionChoice represents a completion choice.
 type CompletionChoice struct {
 	Index        int        `json:"index"`
 	Text         string     `json:"text"`
@@ -51,12 +52,12 @@ type CompletionChoice struct {
 	Delta        *TextDelta `json:"delta,omitempty"`
 }
 
-// TextDelta represents a text delta for streaming
+// TextDelta represents a text delta for streaming.
 type TextDelta struct {
 	Text string `json:"text"`
 }
 
-// CompletionStreamEvent represents a streaming completion event
+// CompletionStreamEvent represents a streaming completion event.
 type CompletionStreamEvent struct {
 	Type      string                 `json:"type"` // text, error, done
 	ID        string                 `json:"id"`
@@ -71,10 +72,10 @@ type CompletionStreamEvent struct {
 	RequestID string                 `json:"request_id"`
 }
 
-// CompletionStreamHandler handles streaming completion events
+// CompletionStreamHandler handles streaming completion events.
 type CompletionStreamHandler func(event CompletionStreamEvent) error
 
-// CompletionTemplate represents a completion template
+// CompletionTemplate represents a completion template.
 type CompletionTemplate struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
@@ -85,7 +86,7 @@ type CompletionTemplate struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// TemplateVariable represents a template variable
+// TemplateVariable represents a template variable.
 type TemplateVariable struct {
 	Name        string                 `json:"name"`
 	Type        string                 `json:"type"` // string, number, boolean, array, object
@@ -97,7 +98,7 @@ type TemplateVariable struct {
 	Constraints map[string]interface{} `json:"constraints,omitempty"`
 }
 
-// CompletionSettings represents settings for completion
+// CompletionSettings represents settings for completion.
 type CompletionSettings struct {
 	Temperature      *float64 `json:"temperature,omitempty"`
 	MaxTokens        *int     `json:"max_tokens,omitempty"`
@@ -111,19 +112,19 @@ type CompletionSettings struct {
 	Echo             bool     `json:"echo"`
 }
 
-// CompletionExample represents an example for the template
+// CompletionExample represents an example for the template.
 type CompletionExample struct {
 	Input       map[string]interface{} `json:"input"`
 	Output      string                 `json:"output"`
 	Description string                 `json:"description"`
 }
 
-// CompletionBuilder provides a fluent interface for building completion requests
+// CompletionBuilder provides a fluent interface for building completion requests.
 type CompletionBuilder struct {
 	request CompletionRequest
 }
 
-// NewCompletionBuilder creates a new completion builder
+// NewCompletionBuilder creates a new completion builder.
 func NewCompletionBuilder() *CompletionBuilder {
 	return &CompletionBuilder{
 		request: CompletionRequest{
@@ -133,131 +134,150 @@ func NewCompletionBuilder() *CompletionBuilder {
 	}
 }
 
-// WithProvider sets the provider
+// WithProvider sets the provider.
 func (b *CompletionBuilder) WithProvider(provider string) *CompletionBuilder {
 	b.request.Provider = provider
+
 	return b
 }
 
-// WithModel sets the model
+// WithModel sets the model.
 func (b *CompletionBuilder) WithModel(model string) *CompletionBuilder {
 	b.request.Model = model
+
 	return b
 }
 
-// WithPrompt sets the prompt
+// WithPrompt sets the prompt.
 func (b *CompletionBuilder) WithPrompt(prompt string) *CompletionBuilder {
 	b.request.Prompt = prompt
+
 	return b
 }
 
-// WithTemperature sets the temperature
+// WithTemperature sets the temperature.
 func (b *CompletionBuilder) WithTemperature(temperature float64) *CompletionBuilder {
 	b.request.Temperature = &temperature
+
 	return b
 }
 
-// WithMaxTokens sets the maximum tokens
+// WithMaxTokens sets the maximum tokens.
 func (b *CompletionBuilder) WithMaxTokens(maxTokens int) *CompletionBuilder {
 	b.request.MaxTokens = &maxTokens
+
 	return b
 }
 
-// WithTopP sets the top-p parameter
+// WithTopP sets the top-p parameter.
 func (b *CompletionBuilder) WithTopP(topP float64) *CompletionBuilder {
 	b.request.TopP = &topP
+
 	return b
 }
 
-// WithTopK sets the top-k parameter
+// WithTopK sets the top-k parameter.
 func (b *CompletionBuilder) WithTopK(topK int) *CompletionBuilder {
 	b.request.TopK = &topK
+
 	return b
 }
 
-// WithStop sets the stop sequences
+// WithStop sets the stop sequences.
 func (b *CompletionBuilder) WithStop(stop ...string) *CompletionBuilder {
 	b.request.Stop = stop
+
 	return b
 }
 
-// WithStream enables or disables streaming
+// WithStream enables or disables streaming.
 func (b *CompletionBuilder) WithStream(stream bool) *CompletionBuilder {
 	b.request.Stream = stream
+
 	return b
 }
 
-// WithN sets the number of completions to generate
+// WithN sets the number of completions to generate.
 func (b *CompletionBuilder) WithN(n int) *CompletionBuilder {
 	b.request.N = &n
+
 	return b
 }
 
-// WithLogProbs sets the log probabilities
+// WithLogProbs sets the log probabilities.
 func (b *CompletionBuilder) WithLogProbs(logProbs int) *CompletionBuilder {
 	b.request.LogProbs = &logProbs
+
 	return b
 }
 
-// WithEcho enables or disables echo
+// WithEcho enables or disables echo.
 func (b *CompletionBuilder) WithEcho(echo bool) *CompletionBuilder {
 	b.request.Echo = echo
+
 	return b
 }
 
-// WithPresencePenalty sets the presence penalty
+// WithPresencePenalty sets the presence penalty.
 func (b *CompletionBuilder) WithPresencePenalty(penalty float64) *CompletionBuilder {
 	b.request.PresencePenalty = &penalty
+
 	return b
 }
 
-// WithFrequencyPenalty sets the frequency penalty
+// WithFrequencyPenalty sets the frequency penalty.
 func (b *CompletionBuilder) WithFrequencyPenalty(penalty float64) *CompletionBuilder {
 	b.request.FrequencyPenalty = &penalty
+
 	return b
 }
 
-// WithBestOf sets the best of parameter
+// WithBestOf sets the best of parameter.
 func (b *CompletionBuilder) WithBestOf(bestOf int) *CompletionBuilder {
 	b.request.BestOf = &bestOf
+
 	return b
 }
 
-// WithSuffix sets the suffix
+// WithSuffix sets the suffix.
 func (b *CompletionBuilder) WithSuffix(suffix string) *CompletionBuilder {
 	b.request.Suffix = suffix
+
 	return b
 }
 
-// WithContext adds context data
+// WithContext adds context data.
 func (b *CompletionBuilder) WithContext(key string, value interface{}) *CompletionBuilder {
 	b.request.Context[key] = value
+
 	return b
 }
 
-// WithMetadata adds metadata
+// WithMetadata adds metadata.
 func (b *CompletionBuilder) WithMetadata(key string, value interface{}) *CompletionBuilder {
 	b.request.Metadata[key] = value
+
 	return b
 }
 
-// WithRequestID sets the request ID
+// WithRequestID sets the request ID.
 func (b *CompletionBuilder) WithRequestID(id string) *CompletionBuilder {
 	b.request.RequestID = id
+
 	return b
 }
 
-// Build returns the built completion request
+// Build returns the built completion request.
 func (b *CompletionBuilder) Build() CompletionRequest {
 	return b.request
 }
 
-// Execute executes the completion request using the provided LLM manager
+// Execute executes the completion request using the provided LLM manager.
 func (b *CompletionBuilder) Execute(ctx context.Context, manager *LLMManager) (CompletionResponse, error) {
 	return manager.Complete(ctx, b.request)
 }
 
-// NewCompletionTemplate creates a new completion template
+// NewCompletionTemplate creates a new completion template.
 func NewCompletionTemplate(name, description, template string) *CompletionTemplate {
 	return &CompletionTemplate{
 		Name:        name,
@@ -270,17 +290,17 @@ func NewCompletionTemplate(name, description, template string) *CompletionTempla
 	}
 }
 
-// AddVariable adds a variable to the template
+// AddVariable adds a variable to the template.
 func (t *CompletionTemplate) AddVariable(variable TemplateVariable) {
 	t.Variables = append(t.Variables, variable)
 }
 
-// AddExample adds an example to the template
+// AddExample adds an example to the template.
 func (t *CompletionTemplate) AddExample(example CompletionExample) {
 	t.Examples = append(t.Examples, example)
 }
 
-// Render renders the template with the provided variables
+// Render renders the template with the provided variables.
 func (t *CompletionTemplate) Render(variables map[string]interface{}) (string, error) {
 	result := t.Template
 
@@ -300,7 +320,7 @@ func (t *CompletionTemplate) Render(variables map[string]interface{}) (string, e
 	return result, nil
 }
 
-// CreateCompletionRequest creates a completion request from the template
+// CreateCompletionRequest creates a completion request from the template.
 func (t *CompletionTemplate) CreateCompletionRequest(variables map[string]interface{}) (CompletionRequest, error) {
 	prompt, err := t.Render(variables)
 	if err != nil {
@@ -324,7 +344,7 @@ func (t *CompletionTemplate) CreateCompletionRequest(variables map[string]interf
 	}, nil
 }
 
-// ValidateVariables validates the provided variables against the template
+// ValidateVariables validates the provided variables against the template.
 func (t *CompletionTemplate) ValidateVariables(variables map[string]interface{}) error {
 	for _, variable := range t.Variables {
 		value, exists := variables[variable.Name]
@@ -333,6 +353,7 @@ func (t *CompletionTemplate) ValidateVariables(variables map[string]interface{})
 			if variable.Required {
 				return fmt.Errorf("required variable '%s' not provided", variable.Name)
 			}
+
 			continue
 		}
 
@@ -350,7 +371,7 @@ func (t *CompletionTemplate) ValidateVariables(variables map[string]interface{})
 	return nil
 }
 
-// validateVariableType validates the type of a variable
+// validateVariableType validates the type of a variable.
 func validateVariableType(variable TemplateVariable, value interface{}) error {
 	switch variable.Type {
 	case "string":
@@ -381,7 +402,7 @@ func validateVariableType(variable TemplateVariable, value interface{}) error {
 	return nil
 }
 
-// validateVariableConstraints validates the constraints of a variable
+// validateVariableConstraints validates the constraints of a variable.
 func validateVariableConstraints(variable TemplateVariable, value interface{}) error {
 	if variable.Constraints == nil {
 		return nil
@@ -394,6 +415,7 @@ func validateVariableConstraints(variable TemplateVariable, value interface{}) e
 				return fmt.Errorf("string length %d is less than minimum %d", len(strValue), min)
 			}
 		}
+
 		if maxLen, exists := variable.Constraints["max_length"]; exists {
 			if max, ok := maxLen.(int); ok && len(strValue) > max {
 				return fmt.Errorf("string length %d is greater than maximum %d", len(strValue), max)
@@ -408,6 +430,7 @@ func validateVariableConstraints(variable TemplateVariable, value interface{}) e
 				return fmt.Errorf("value %f is less than minimum %f", numValue, min)
 			}
 		}
+
 		if maxVal, exists := variable.Constraints["max"]; exists {
 			if max, ok := maxVal.(float64); ok && numValue > max {
 				return fmt.Errorf("value %f is greater than maximum %f", numValue, max)
@@ -419,12 +442,15 @@ func validateVariableConstraints(variable TemplateVariable, value interface{}) e
 	if enumValues, exists := variable.Constraints["enum"]; exists {
 		if enum, ok := enumValues.([]interface{}); ok {
 			found := false
+
 			for _, enumValue := range enum {
 				if value == enumValue {
 					found = true
+
 					break
 				}
 			}
+
 			if !found {
 				return fmt.Errorf("value %v is not in allowed enum values %v", value, enum)
 			}
@@ -434,29 +460,29 @@ func validateVariableConstraints(variable TemplateVariable, value interface{}) e
 	return nil
 }
 
-// toString converts an interface{} to string
+// toString converts an interface{} to string.
 func toString(value interface{}) string {
 	switch v := value.(type) {
 	case string:
 		return v
 	case int:
-		return fmt.Sprintf("%d", v)
+		return strconv.Itoa(v)
 	case int32:
-		return fmt.Sprintf("%d", v)
+		return strconv.Itoa(int(v))
 	case int64:
-		return fmt.Sprintf("%d", v)
+		return strconv.FormatInt(v, 10)
 	case float32:
 		return fmt.Sprintf("%f", v)
 	case float64:
 		return fmt.Sprintf("%f", v)
 	case bool:
-		return fmt.Sprintf("%t", v)
+		return strconv.FormatBool(v)
 	default:
 		return fmt.Sprintf("%v", v)
 	}
 }
 
-// CreateSimpleTemplate creates a simple completion template
+// CreateSimpleTemplate creates a simple completion template.
 func CreateSimpleTemplate(name, template string, variables ...string) *CompletionTemplate {
 	tmpl := NewCompletionTemplate(name, "", template)
 
@@ -471,7 +497,7 @@ func CreateSimpleTemplate(name, template string, variables ...string) *Completio
 	return tmpl
 }
 
-// CreateCodeTemplate creates a template for code generation
+// CreateCodeTemplate creates a template for code generation.
 func CreateCodeTemplate(name, language, description string) *CompletionTemplate {
 	template := fmt.Sprintf(`Generate %s code for the following task:
 
@@ -509,7 +535,7 @@ Code:`, language)
 	return tmpl
 }
 
-// CreateSummaryTemplate creates a template for text summarization
+// CreateSummaryTemplate creates a template for text summarization.
 func CreateSummaryTemplate(name string) *CompletionTemplate {
 	template := `Summarize the following text:
 

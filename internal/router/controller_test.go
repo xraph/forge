@@ -1,6 +1,7 @@
 package router
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -8,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Test controller
+// Test controller.
 type testController struct{}
 
 func (c *testController) Name() string {
@@ -21,7 +22,7 @@ func (c *testController) Routes(r Router) error {
 	})
 }
 
-// Controller with prefix
+// Controller with prefix.
 type testControllerWithPrefix struct{}
 
 func (c *testControllerWithPrefix) Name() string {
@@ -38,7 +39,7 @@ func (c *testControllerWithPrefix) Routes(r Router) error {
 	})
 }
 
-// Controller with middleware
+// Controller with middleware.
 type testControllerWithMiddleware struct {
 	middlewareCalled bool
 }
@@ -52,6 +53,7 @@ func (c *testControllerWithMiddleware) Middleware() []Middleware {
 		func(next Handler) Handler {
 			return func(ctx Context) error {
 				c.middlewareCalled = true
+
 				return next(ctx)
 			}
 		},
@@ -71,7 +73,7 @@ func TestRouter_RegisterController(t *testing.T) {
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -87,7 +89,7 @@ func TestRouter_RegisterController_WithPrefix(t *testing.T) {
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)
@@ -103,7 +105,7 @@ func TestRouter_RegisterController_WithMiddleware(t *testing.T) {
 	err := router.RegisterController(controller)
 	require.NoError(t, err)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	router.ServeHTTP(rec, req)

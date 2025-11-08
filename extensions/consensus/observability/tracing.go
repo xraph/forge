@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// TracingManager manages distributed tracing for consensus operations
+// TracingManager manages distributed tracing for consensus operations.
 type TracingManager struct {
 	nodeID string
 	logger forge.Logger
@@ -25,7 +25,7 @@ type TracingManager struct {
 	stats TracingStatistics
 }
 
-// Trace represents a distributed trace
+// Trace represents a distributed trace.
 type Trace struct {
 	TraceID     string
 	OperationID string
@@ -34,12 +34,12 @@ type Trace struct {
 	EndTime     time.Time
 	Duration    time.Duration
 	Spans       []*Span
-	Tags        map[string]interface{}
+	Tags        map[string]any
 	Status      TraceStatus
 	mu          sync.RWMutex
 }
 
-// Span represents a span within a trace
+// Span represents a span within a trace.
 type Span struct {
 	SpanID    string
 	ParentID  string
@@ -48,43 +48,43 @@ type Span struct {
 	StartTime time.Time
 	EndTime   time.Time
 	Duration  time.Duration
-	Tags      map[string]interface{}
+	Tags      map[string]any
 	Logs      []SpanLog
 	Status    SpanStatus
 }
 
-// SpanLog represents a log entry within a span
+// SpanLog represents a log entry within a span.
 type SpanLog struct {
 	Timestamp time.Time
 	Message   string
-	Fields    map[string]interface{}
+	Fields    map[string]any
 }
 
-// TraceStatus represents trace status
+// TraceStatus represents trace status.
 type TraceStatus string
 
 const (
-	// TraceStatusActive trace is active
+	// TraceStatusActive trace is active.
 	TraceStatusActive TraceStatus = "active"
-	// TraceStatusComplete trace completed successfully
+	// TraceStatusComplete trace completed successfully.
 	TraceStatusComplete TraceStatus = "complete"
-	// TraceStatusError trace completed with error
+	// TraceStatusError trace completed with error.
 	TraceStatusError TraceStatus = "error"
 )
 
-// SpanStatus represents span status
+// SpanStatus represents span status.
 type SpanStatus string
 
 const (
-	// SpanStatusActive span is active
+	// SpanStatusActive span is active.
 	SpanStatusActive SpanStatus = "active"
-	// SpanStatusComplete span completed successfully
+	// SpanStatusComplete span completed successfully.
 	SpanStatusComplete SpanStatus = "complete"
-	// SpanStatusError span completed with error
+	// SpanStatusError span completed with error.
 	SpanStatusError SpanStatus = "error"
 )
 
-// TracingConfig contains tracing configuration
+// TracingConfig contains tracing configuration.
 type TracingConfig struct {
 	Enabled          bool
 	SampleRate       float64 // 0.0 to 1.0
@@ -92,7 +92,7 @@ type TracingConfig struct {
 	MaxSpansPerTrace int
 }
 
-// TracingStatistics contains tracing statistics
+// TracingStatistics contains tracing statistics.
 type TracingStatistics struct {
 	TotalTraces     int64
 	ActiveTraces    int64
@@ -102,15 +102,17 @@ type TracingStatistics struct {
 	AverageDuration time.Duration
 }
 
-// NewTracingManager creates a new tracing manager
+// NewTracingManager creates a new tracing manager.
 func NewTracingManager(config TracingConfig, logger forge.Logger) *TracingManager {
 	// Set defaults
 	if config.MaxTraces == 0 {
 		config.MaxTraces = 1000
 	}
+
 	if config.MaxSpansPerTrace == 0 {
 		config.MaxSpansPerTrace = 100
 	}
+
 	if config.SampleRate == 0 {
 		config.SampleRate = 1.0 // Trace everything by default
 	}
@@ -122,7 +124,7 @@ func NewTracingManager(config TracingConfig, logger forge.Logger) *TracingManage
 	}
 }
 
-// StartTrace starts a new trace
+// StartTrace starts a new trace.
 func (tm *TracingManager) StartTrace(ctx context.Context, operation string) (*Trace, context.Context) {
 	if !tm.config.Enabled {
 		return nil, ctx
@@ -142,7 +144,7 @@ func (tm *TracingManager) StartTrace(ctx context.Context, operation string) (*Tr
 		Operation:   operation,
 		StartTime:   time.Now(),
 		Status:      TraceStatusActive,
-		Tags:        make(map[string]interface{}),
+		Tags:        make(map[string]any),
 		Spans:       make([]*Span, 0),
 	}
 
@@ -164,7 +166,7 @@ func (tm *TracingManager) StartTrace(ctx context.Context, operation string) (*Tr
 	return trace, ctx
 }
 
-// EndTrace ends a trace
+// EndTrace ends a trace.
 func (tm *TracingManager) EndTrace(trace *Trace, err error) {
 	if !tm.config.Enabled || trace == nil {
 		return
@@ -182,6 +184,7 @@ func (tm *TracingManager) EndTrace(trace *Trace, err error) {
 		trace.Status = TraceStatusComplete
 		tm.stats.CompletedTraces++
 	}
+
 	trace.mu.Unlock()
 
 	tm.tracesMu.Lock()
@@ -193,6 +196,7 @@ func (tm *TracingManager) EndTrace(trace *Trace, err error) {
 		totalDuration += trace.Duration
 		tm.stats.AverageDuration = totalDuration / time.Duration(tm.stats.CompletedTraces)
 	}
+
 	tm.tracesMu.Unlock()
 
 	tm.logger.Debug("trace ended",
@@ -204,7 +208,7 @@ func (tm *TracingManager) EndTrace(trace *Trace, err error) {
 	)
 }
 
-// StartSpan starts a new span within a trace
+// StartSpan starts a new span within a trace.
 func (tm *TracingManager) StartSpan(ctx context.Context, operation string) (*Span, context.Context) {
 	if !tm.config.Enabled {
 		return nil, ctx
@@ -231,15 +235,17 @@ func (tm *TracingManager) StartSpan(ctx context.Context, operation string) (*Spa
 		Operation: operation,
 		StartTime: time.Now(),
 		Status:    SpanStatusActive,
-		Tags:      make(map[string]interface{}),
+		Tags:      make(map[string]any),
 		Logs:      make([]SpanLog, 0),
 	}
 
 	trace.mu.Lock()
+
 	if len(trace.Spans) < tm.config.MaxSpansPerTrace {
 		trace.Spans = append(trace.Spans, span)
 		tm.stats.TotalSpans++
 	}
+
 	trace.mu.Unlock()
 
 	// Store span in context
@@ -249,7 +255,7 @@ func (tm *TracingManager) StartSpan(ctx context.Context, operation string) (*Spa
 	return span, ctx
 }
 
-// EndSpan ends a span
+// EndSpan ends a span.
 func (tm *TracingManager) EndSpan(span *Span, err error) {
 	if !tm.config.Enabled || span == nil {
 		return
@@ -266,8 +272,8 @@ func (tm *TracingManager) EndSpan(span *Span, err error) {
 	}
 }
 
-// AddSpanLog adds a log to a span
-func (tm *TracingManager) AddSpanLog(span *Span, message string, fields map[string]interface{}) {
+// AddSpanLog adds a log to a span.
+func (tm *TracingManager) AddSpanLog(span *Span, message string, fields map[string]any) {
 	if !tm.config.Enabled || span == nil {
 		return
 	}
@@ -279,19 +285,20 @@ func (tm *TracingManager) AddSpanLog(span *Span, message string, fields map[stri
 	})
 }
 
-// SetTraceTag sets a tag on a trace
-func (tm *TracingManager) SetTraceTag(trace *Trace, key string, value interface{}) {
+// SetTraceTag sets a tag on a trace.
+func (tm *TracingManager) SetTraceTag(trace *Trace, key string, value any) {
 	if !tm.config.Enabled || trace == nil {
 		return
 	}
 
 	trace.mu.Lock()
 	defer trace.mu.Unlock()
+
 	trace.Tags[key] = value
 }
 
-// SetSpanTag sets a tag on a span
-func (tm *TracingManager) SetSpanTag(span *Span, key string, value interface{}) {
+// SetSpanTag sets a tag on a span.
+func (tm *TracingManager) SetSpanTag(span *Span, key string, value any) {
 	if !tm.config.Enabled || span == nil {
 		return
 	}
@@ -299,7 +306,7 @@ func (tm *TracingManager) SetSpanTag(span *Span, key string, value interface{}) 
 	span.Tags[key] = value
 }
 
-// GetTrace retrieves a trace by ID
+// GetTrace retrieves a trace by ID.
 func (tm *TracingManager) GetTrace(traceID string) (*Trace, error) {
 	tm.tracesMu.RLock()
 	defer tm.tracesMu.RUnlock()
@@ -312,31 +319,35 @@ func (tm *TracingManager) GetTrace(traceID string) (*Trace, error) {
 	return trace, nil
 }
 
-// GetActiveTraces returns all active traces
+// GetActiveTraces returns all active traces.
 func (tm *TracingManager) GetActiveTraces() []*Trace {
 	tm.tracesMu.RLock()
 	defer tm.tracesMu.RUnlock()
 
 	var active []*Trace
+
 	for _, trace := range tm.traces {
 		trace.mu.RLock()
+
 		if trace.Status == TraceStatusActive {
 			active = append(active, trace)
 		}
+
 		trace.mu.RUnlock()
 	}
 
 	return active
 }
 
-// GetStatistics returns tracing statistics
+// GetStatistics returns tracing statistics.
 func (tm *TracingManager) GetStatistics() TracingStatistics {
 	tm.tracesMu.RLock()
 	defer tm.tracesMu.RUnlock()
+
 	return tm.stats
 }
 
-// ClearOldTraces clears traces older than duration
+// ClearOldTraces clears traces older than duration.
 func (tm *TracingManager) ClearOldTraces(olderThan time.Duration) int {
 	tm.tracesMu.Lock()
 	defer tm.tracesMu.Unlock()
@@ -346,10 +357,13 @@ func (tm *TracingManager) ClearOldTraces(olderThan time.Duration) int {
 
 	for traceID, trace := range tm.traces {
 		trace.mu.RLock()
+
 		if trace.EndTime.Before(cutoff) && trace.Status != TraceStatusActive {
 			delete(tm.traces, traceID)
+
 			cleared++
 		}
+
 		trace.mu.RUnlock()
 	}
 
@@ -361,8 +375,8 @@ func (tm *TracingManager) ClearOldTraces(olderThan time.Duration) int {
 	return cleared
 }
 
-// ExportTrace exports a trace in a structured format
-func (tm *TracingManager) ExportTrace(traceID string) (map[string]interface{}, error) {
+// ExportTrace exports a trace in a structured format.
+func (tm *TracingManager) ExportTrace(traceID string) (map[string]any, error) {
 	trace, err := tm.GetTrace(traceID)
 	if err != nil {
 		return nil, err
@@ -371,9 +385,9 @@ func (tm *TracingManager) ExportTrace(traceID string) (map[string]interface{}, e
 	trace.mu.RLock()
 	defer trace.mu.RUnlock()
 
-	spans := make([]map[string]interface{}, len(trace.Spans))
+	spans := make([]map[string]any, len(trace.Spans))
 	for i, span := range trace.Spans {
-		spans[i] = map[string]interface{}{
+		spans[i] = map[string]any{
 			"span_id":    span.SpanID,
 			"parent_id":  span.ParentID,
 			"operation":  span.Operation,
@@ -386,7 +400,7 @@ func (tm *TracingManager) ExportTrace(traceID string) (map[string]interface{}, e
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"trace_id":     trace.TraceID,
 		"operation_id": trace.OperationID,
 		"operation":    trace.Operation,
@@ -399,12 +413,13 @@ func (tm *TracingManager) ExportTrace(traceID string) (map[string]interface{}, e
 	}, nil
 }
 
-// shouldSample determines if an operation should be sampled
+// shouldSample determines if an operation should be sampled.
 func (tm *TracingManager) shouldSample() bool {
 	// Simple implementation - can be enhanced with more sophisticated sampling
 	if tm.config.SampleRate >= 1.0 {
 		return true
 	}
+
 	if tm.config.SampleRate <= 0.0 {
 		return false
 	}
@@ -413,24 +428,26 @@ func (tm *TracingManager) shouldSample() bool {
 	return (time.Now().UnixNano() % 100) < int64(tm.config.SampleRate*100)
 }
 
-// generateTraceID generates a unique trace ID
+// generateTraceID generates a unique trace ID.
 func (tm *TracingManager) generateTraceID() string {
 	return fmt.Sprintf("trace-%d-%d", time.Now().UnixNano(), time.Now().Unix())
 }
 
-// generateSpanID generates a unique span ID
+// generateSpanID generates a unique span ID.
 func (tm *TracingManager) generateSpanID() string {
 	return fmt.Sprintf("span-%d", time.Now().UnixNano())
 }
 
-// GetTraceContext retrieves trace context from context.Context
+// GetTraceContext retrieves trace context from context.Context.
 func GetTraceContext(ctx context.Context) (string, bool) {
 	traceID, ok := ctx.Value("trace_id").(string)
+
 	return traceID, ok
 }
 
-// GetSpanContext retrieves span context from context.Context
+// GetSpanContext retrieves span context from context.Context.
 func GetSpanContext(ctx context.Context) (string, bool) {
 	spanID, ok := ctx.Value("span_id").(string)
+
 	return spanID, ok
 }

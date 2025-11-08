@@ -43,6 +43,7 @@ func TestHelpers_Manager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetManager failed: %v", err)
 		}
+
 		if manager == nil {
 			t.Fatal("manager is nil")
 		}
@@ -66,6 +67,7 @@ func TestHelpers_Manager(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetManagerFromApp failed: %v", err)
 		}
+
 		if manager == nil {
 			t.Fatal("manager is nil")
 		}
@@ -137,9 +139,11 @@ func TestHelpers_Database(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetDatabase failed: %v", err)
 		}
+
 		if db == nil {
 			t.Fatal("database is nil")
 		}
+
 		if db.Name() != "default" {
 			t.Errorf("expected name 'default', got %s", db.Name())
 		}
@@ -163,6 +167,7 @@ func TestHelpers_Database(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetDatabaseFromApp failed: %v", err)
 		}
+
 		if db == nil {
 			t.Fatal("database is nil")
 		}
@@ -217,6 +222,7 @@ func TestHelpers_SQL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetSQL failed: %v", err)
 		}
+
 		if db == nil {
 			t.Fatal("SQL database is nil")
 		}
@@ -240,6 +246,7 @@ func TestHelpers_SQL(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetSQLFromApp failed: %v", err)
 		}
+
 		if db == nil {
 			t.Fatal("SQL database is nil")
 		}
@@ -308,9 +315,11 @@ func TestHelpers_NamedDatabases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetNamedDatabase failed: %v", err)
 		}
+
 		if db == nil {
 			t.Fatal("database is nil")
 		}
+
 		if db.Name() != "secondary" {
 			t.Errorf("expected name 'secondary', got %s", db.Name())
 		}
@@ -327,6 +336,7 @@ func TestHelpers_NamedDatabases(t *testing.T) {
 		if db == nil {
 			t.Fatal("database is nil")
 		}
+
 		if db.Name() != "primary" {
 			t.Errorf("expected name 'primary', got %s", db.Name())
 		}
@@ -337,6 +347,7 @@ func TestHelpers_NamedDatabases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetNamedSQL failed: %v", err)
 		}
+
 		if db == nil {
 			t.Fatal("SQL database is nil")
 		}
@@ -360,6 +371,7 @@ func TestHelpers_NamedDatabases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetNamedDatabaseFromApp failed: %v", err)
 		}
+
 		if db == nil {
 			t.Fatal("database is nil")
 		}
@@ -435,7 +447,7 @@ func TestHelpers_NotRegistered(t *testing.T) {
 	})
 }
 
-// BenchmarkHelpers tests the performance of helper functions
+// BenchmarkHelpers tests the performance of helper functions.
 func BenchmarkHelpers(b *testing.B) {
 	app := forge.NewApp(forge.AppConfig{
 		Name:    "bench-helpers",
@@ -466,25 +478,25 @@ func BenchmarkHelpers(b *testing.B) {
 	}
 
 	b.Run("GetManager", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			_, _ = GetManager(app.Container())
 		}
 	})
 
 	b.Run("MustGetManager", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			_ = MustGetManager(app.Container())
 		}
 	})
 
 	b.Run("GetDatabase", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			_, _ = GetDatabase(app.Container())
 		}
 	})
 
 	b.Run("MustGetDatabase", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for range b.N {
 			_ = MustGetDatabase(app.Container())
 		}
 	})

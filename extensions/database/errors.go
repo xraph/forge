@@ -6,21 +6,21 @@ import (
 	ierrors "github.com/xraph/forge/internal/errors"
 )
 
-// Error codes for database operations
+// Error codes for database operations.
 const (
-	CodeDatabaseError        = "DATABASE_ERROR"
-	CodeDatabaseNotFound     = "DATABASE_NOT_FOUND"
-	CodeDatabaseExists       = "DATABASE_ALREADY_EXISTS"
-	CodeDatabaseNotOpened    = "DATABASE_NOT_OPENED"
-	CodeDatabaseInvalidType  = "DATABASE_INVALID_TYPE"
-	CodeDatabaseConnection   = "DATABASE_CONNECTION_ERROR"
-	CodeDatabaseQuery        = "DATABASE_QUERY_ERROR"
-	CodeDatabaseTransaction  = "DATABASE_TRANSACTION_ERROR"
-	CodeDatabasePanic        = "DATABASE_PANIC_RECOVERED"
-	CodeDatabaseConfig       = "DATABASE_CONFIG_ERROR"
+	CodeDatabaseError       = "DATABASE_ERROR"
+	CodeDatabaseNotFound    = "DATABASE_NOT_FOUND"
+	CodeDatabaseExists      = "DATABASE_ALREADY_EXISTS"
+	CodeDatabaseNotOpened   = "DATABASE_NOT_OPENED"
+	CodeDatabaseInvalidType = "DATABASE_INVALID_TYPE"
+	CodeDatabaseConnection  = "DATABASE_CONNECTION_ERROR"
+	CodeDatabaseQuery       = "DATABASE_QUERY_ERROR"
+	CodeDatabaseTransaction = "DATABASE_TRANSACTION_ERROR"
+	CodeDatabasePanic       = "DATABASE_PANIC_RECOVERED"
+	CodeDatabaseConfig      = "DATABASE_CONFIG_ERROR"
 )
 
-// DatabaseError wraps database-specific errors with context
+// DatabaseError wraps database-specific errors with context.
 type DatabaseError struct {
 	DBName    string
 	DBType    DatabaseType
@@ -33,6 +33,7 @@ func (e *DatabaseError) Error() string {
 	if e.DBName != "" {
 		return fmt.Sprintf("database %s (%s): %s: %v", e.DBName, e.DBType, e.Operation, e.Err)
 	}
+
 	return fmt.Sprintf("database (%s): %s: %v", e.DBType, e.Operation, e.Err)
 }
 
@@ -40,7 +41,7 @@ func (e *DatabaseError) Unwrap() error {
 	return e.Err
 }
 
-// NewDatabaseError creates a new database error with context
+// NewDatabaseError creates a new database error with context.
 func NewDatabaseError(dbName string, dbType DatabaseType, operation string, err error) *DatabaseError {
 	return &DatabaseError{
 		DBName:    dbName,
@@ -51,7 +52,7 @@ func NewDatabaseError(dbName string, dbType DatabaseType, operation string, err 
 	}
 }
 
-// Error constructors for common database errors
+// Error constructors for common database errors.
 func ErrNoDatabasesConfigured() error {
 	return ierrors.ErrConfigError("no databases configured", nil)
 }
@@ -65,7 +66,7 @@ func ErrInvalidDatabaseType(dbType string) error {
 }
 
 func ErrInvalidDSN(dsn string) error {
-	return ierrors.ErrValidationError("database.dsn", fmt.Errorf("invalid or empty DSN"))
+	return ierrors.ErrValidationError("database.dsn", ierrors.New("invalid or empty DSN"))
 }
 
 func ErrInvalidPoolConfig(reason string) error {
@@ -139,7 +140,7 @@ func ErrTransactionFailed(dbName string, dbType DatabaseType, cause error) error
 	}
 }
 
-func ErrPanicRecovered(dbName string, dbType DatabaseType, panicValue interface{}) error {
+func ErrPanicRecovered(dbName string, dbType DatabaseType, panicValue any) error {
 	return &DatabaseError{
 		DBName:    dbName,
 		DBType:    dbType,

@@ -2,7 +2,7 @@ package features
 
 import "context"
 
-// Provider defines the interface for feature flag providers
+// Provider defines the interface for feature flag providers.
 type Provider interface {
 	// Name returns the provider name
 	Name() string
@@ -23,10 +23,10 @@ type Provider interface {
 	GetFloat(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue float64) (float64, error)
 
 	// GetJSON gets a JSON flag value
-	GetJSON(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue interface{}) (interface{}, error)
+	GetJSON(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue any) (any, error)
 
 	// GetAllFlags gets all flags for a user/context
-	GetAllFlags(ctx context.Context, userCtx *UserContext) (map[string]interface{}, error)
+	GetAllFlags(ctx context.Context, userCtx *UserContext) (map[string]any, error)
 
 	// Refresh refreshes flags from remote source
 	Refresh(ctx context.Context) error
@@ -38,7 +38,7 @@ type Provider interface {
 	Health(ctx context.Context) error
 }
 
-// UserContext holds user/context information for flag evaluation
+// UserContext holds user/context information for flag evaluation.
 type UserContext struct {
 	// UserID is the unique user identifier
 	UserID string `json:"user_id"`
@@ -53,7 +53,7 @@ type UserContext struct {
 	Groups []string `json:"groups,omitempty"`
 
 	// Attributes are custom attributes for targeting
-	Attributes map[string]interface{} `json:"attributes,omitempty"`
+	Attributes map[string]any `json:"attributes,omitempty"`
 
 	// IP is the user IP address
 	IP string `json:"ip,omitempty"`
@@ -62,13 +62,13 @@ type UserContext struct {
 	Country string `json:"country,omitempty"`
 }
 
-// FlagValue represents a feature flag value with metadata
+// FlagValue represents a feature flag value with metadata.
 type FlagValue struct {
 	// Key is the flag key
 	Key string `json:"key"`
 
 	// Value is the flag value
-	Value interface{} `json:"value"`
+	Value any `json:"value"`
 
 	// Enabled indicates if the flag is enabled (for boolean flags)
 	Enabled bool `json:"enabled"`
@@ -80,13 +80,13 @@ type FlagValue struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// EvaluationResult holds the result of a flag evaluation
+// EvaluationResult holds the result of a flag evaluation.
 type EvaluationResult struct {
 	// FlagKey is the flag key
 	FlagKey string `json:"flag_key"`
 
 	// Value is the evaluated value
-	Value interface{} `json:"value"`
+	Value any `json:"value"`
 
 	// VariationIndex is the variation index (if applicable)
 	VariationIndex int `json:"variation_index,omitempty"`
@@ -98,7 +98,7 @@ type EvaluationResult struct {
 	RuleID string `json:"rule_id,omitempty"`
 }
 
-// FlagEvaluationEvent represents a flag evaluation event for analytics
+// FlagEvaluationEvent represents a flag evaluation event for analytics.
 type FlagEvaluationEvent struct {
 	// FlagKey is the flag key
 	FlagKey string `json:"flag_key"`
@@ -107,7 +107,7 @@ type FlagEvaluationEvent struct {
 	UserContext *UserContext `json:"user_context"`
 
 	// Value is the evaluated value
-	Value interface{} `json:"value"`
+	Value any `json:"value"`
 
 	// Default indicates if the default value was used
 	Default bool `json:"default"`
@@ -118,4 +118,3 @@ type FlagEvaluationEvent struct {
 	// Timestamp is when the evaluation occurred
 	Timestamp int64 `json:"timestamp"`
 }
-

@@ -8,9 +8,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// replicateToPeer replicates log entries to a single peer
+// replicateToPeer replicates log entries to a single peer.
 func (n *Node) replicateToPeer(peer *PeerState) {
 	// Try to acquire lock, skip if already replicating
 	if !peer.ReplicationMu.TryLock() {
@@ -20,8 +21,10 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 
 	// Read node state (release lock immediately)
 	n.mu.RLock()
+
 	if !n.IsLeader() {
 		n.mu.RUnlock()
+
 		return
 	}
 
@@ -52,17 +55,20 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 			// TODO: Send snapshot if needed
 			return
 		}
+
 		prevLogTerm = entry.Term
 	}
 
 	// Get entries to replicate
 	maxEntries := n.config.MaxAppendEntries
+
 	entries, err := n.log.GetEntriesAfter(prevLogIndex, maxEntries)
 	if err != nil {
 		n.logger.Error("failed to get log entries",
 			forge.F("peer", peer.ID),
 			forge.F("error", err),
 		)
+
 		return
 	}
 
@@ -82,6 +88,7 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 			forge.F("peer", peer.ID),
 			forge.F("error", err),
 		)
+
 		return
 	}
 
@@ -89,14 +96,14 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 	n.handleAppendEntriesResponse(peer, req, resp)
 }
 
-// sendAppendEntries sends an AppendEntries RPC to a peer
+// sendAppendEntries sends an AppendEntries RPC to a peer.
 func (n *Node) sendAppendEntries(peer *PeerState, req *internal.AppendEntriesRequest) (*internal.AppendEntriesResponse, error) {
 	ctx, cancel := context.WithTimeout(n.ctx, 5*time.Second)
 	defer cancel()
 
 	// Generate unique request ID
 	requestID := fmt.Sprintf("append_entries_%s_%s", n.id, peer.ID)
-	responseCh := make(chan interface{}, 1)
+	responseCh := make(chan any, 1)
 
 	// Register pending request
 	n.requestMu.Lock()
@@ -117,6 +124,7 @@ func (n *Node) sendAppendEntries(peer *PeerState, req *internal.AppendEntriesReq
 		n.requestMu.Lock()
 		delete(n.pendingRequests, requestID)
 		n.requestMu.Unlock()
+
 		return nil, err
 	}
 
@@ -133,18 +141,20 @@ func (n *Node) sendAppendEntries(peer *PeerState, req *internal.AppendEntriesReq
 		if resp, ok := response.(*internal.AppendEntriesResponse); ok {
 			return resp, nil
 		}
-		return nil, fmt.Errorf("invalid response type")
+
+		return nil, errors.New("invalid response type")
 
 	case <-ctx.Done():
 		// Clean up
 		n.requestMu.Lock()
 		delete(n.pendingRequests, requestID)
 		n.requestMu.Unlock()
+
 		return nil, ctx.Err()
 	}
 }
 
-// handleAppendEntriesResponse handles the response from an AppendEntries RPC
+// handleAppendEntriesResponse handles the response from an AppendEntries RPC.
 func (n *Node) handleAppendEntriesResponse(peer *PeerState, req *internal.AppendEntriesRequest, resp *internal.AppendEntriesResponse) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -157,6 +167,7 @@ func (n *Node) handleAppendEntriesResponse(peer *PeerState, req *internal.Append
 	// If term in response is higher, step down
 	if resp.Term > n.currentTerm {
 		n.stepDownLocked(resp.Term)
+
 		return
 	}
 
@@ -191,7 +202,7 @@ func (n *Node) handleAppendEntriesResponse(peer *PeerState, req *internal.Append
 	}
 }
 
-// AppendEntries handles an AppendEntries RPC from the leader
+// AppendEntries handles an AppendEntries RPC from the leader.
 func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesRequest) (*internal.AppendEntriesResponse, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -234,6 +245,7 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 				forge.F("prev_index", req.PrevLogIndex),
 				forge.F("prev_term", req.PrevLogTerm),
 			)
+
 			return resp, nil
 		}
 	}
@@ -248,8 +260,10 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 				n.logger.Error("failed to truncate log",
 					forge.F("error", err),
 				)
+
 				return resp, nil
 			}
+
 			break
 		}
 	}
@@ -263,6 +277,7 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 				n.logger.Error("failed to append entry",
 					forge.F("error", err),
 				)
+
 				return resp, nil
 			}
 		}
@@ -271,11 +286,7 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 	// Update commit index
 	if req.LeaderCommit > n.commitIndex {
 		lastNewIndex := n.log.LastIndex()
-		if req.LeaderCommit < lastNewIndex {
-			n.commitIndex = req.LeaderCommit
-		} else {
-			n.commitIndex = lastNewIndex
-		}
+		n.commitIndex = min(req.LeaderCommit, lastNewIndex)
 
 		n.logger.Debug("updated commit index",
 			forge.F("commit_index", n.commitIndex),
@@ -295,7 +306,7 @@ func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesReq
 	return resp, nil
 }
 
-// advanceCommitIndex tries to advance the commit index based on matchIndex of peers
+// advanceCommitIndex tries to advance the commit index based on matchIndex of peers.
 func (n *Node) advanceCommitIndex() {
 	// Find the highest index that a majority of nodes have replicated
 	lastLogIndex := n.log.LastIndex()
@@ -336,17 +347,20 @@ func (n *Node) advanceCommitIndex() {
 	}
 }
 
-// applyCommitted applies committed log entries to the state machine
+// applyCommitted applies committed log entries to the state machine.
 func (n *Node) applyCommitted() {
 	for {
 		n.mu.Lock()
+
 		if n.lastApplied >= n.commitIndex {
 			n.mu.Unlock()
+
 			return
 		}
 
 		// Apply next entry
 		applyIndex := n.lastApplied + 1
+
 		entry, err := n.log.Get(applyIndex)
 		if err != nil {
 			n.logger.Error("failed to get log entry for apply",
@@ -354,6 +368,7 @@ func (n *Node) applyCommitted() {
 				forge.F("error", err),
 			)
 			n.mu.Unlock()
+
 			return
 		}
 
@@ -365,6 +380,7 @@ func (n *Node) applyCommitted() {
 				forge.F("index", applyIndex),
 				forge.F("error", err),
 			)
+
 			return
 		}
 
@@ -389,7 +405,7 @@ func (n *Node) applyCommitted() {
 	}
 }
 
-// InstallSnapshot handles an InstallSnapshot RPC
+// InstallSnapshot handles an InstallSnapshot RPC.
 func (n *Node) InstallSnapshot(ctx context.Context, req *internal.InstallSnapshotRequest) (*internal.InstallSnapshotResponse, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()

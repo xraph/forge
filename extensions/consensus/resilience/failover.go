@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// FailoverManager manages automatic failover between nodes
+// FailoverManager manages automatic failover between nodes.
 type FailoverManager struct {
 	nodeID string
 	logger forge.Logger
@@ -31,7 +31,7 @@ type FailoverManager struct {
 	stats FailoverStatistics
 }
 
-// PeerStatus represents peer status for failover
+// PeerStatus represents peer status for failover.
 type PeerStatus struct {
 	PeerID        string
 	Available     bool
@@ -43,7 +43,7 @@ type PeerStatus struct {
 	HealthScore   float64
 }
 
-// FailoverEvent represents a failover event
+// FailoverEvent represents a failover event.
 type FailoverEvent struct {
 	Timestamp time.Time
 	FromPeer  string
@@ -53,7 +53,7 @@ type FailoverEvent struct {
 	Duration  time.Duration
 }
 
-// FailoverConfig contains failover configuration
+// FailoverConfig contains failover configuration.
 type FailoverConfig struct {
 	// Enable automatic failover
 	AutoFailoverEnabled bool
@@ -67,7 +67,7 @@ type FailoverConfig struct {
 	UsePriority bool
 }
 
-// FailoverStatistics contains failover statistics
+// FailoverStatistics contains failover statistics.
 type FailoverStatistics struct {
 	TotalFailovers      int64
 	SuccessfulFailovers int64
@@ -75,15 +75,17 @@ type FailoverStatistics struct {
 	AverageFailoverTime time.Duration
 }
 
-// NewFailoverManager creates a new failover manager
+// NewFailoverManager creates a new failover manager.
 func NewFailoverManager(config FailoverConfig, logger forge.Logger) *FailoverManager {
 	// Set defaults
 	if config.HealthCheckInterval == 0 {
 		config.HealthCheckInterval = 5 * time.Second
 	}
+
 	if config.FailureThreshold == 0 {
 		config.FailureThreshold = 3
 	}
+
 	if config.CooldownPeriod == 0 {
 		config.CooldownPeriod = 30 * time.Second
 	}
@@ -97,7 +99,7 @@ func NewFailoverManager(config FailoverConfig, logger forge.Logger) *FailoverMan
 	}
 }
 
-// RegisterPeer registers a peer for failover
+// RegisterPeer registers a peer for failover.
 func (fm *FailoverManager) RegisterPeer(peerID string, priority int) {
 	fm.peersMu.Lock()
 	defer fm.peersMu.Unlock()
@@ -116,7 +118,7 @@ func (fm *FailoverManager) RegisterPeer(peerID string, priority int) {
 	)
 }
 
-// UnregisterPeer unregisters a peer
+// UnregisterPeer unregisters a peer.
 func (fm *FailoverManager) UnregisterPeer(peerID string) {
 	fm.peersMu.Lock()
 	defer fm.peersMu.Unlock()
@@ -128,17 +130,20 @@ func (fm *FailoverManager) UnregisterPeer(peerID string) {
 	)
 }
 
-// MarkPeerUnavailable marks a peer as unavailable
+// MarkPeerUnavailable marks a peer as unavailable.
 func (fm *FailoverManager) MarkPeerUnavailable(peerID string, reason string) {
 	fm.peersMu.Lock()
+
 	peer, exists := fm.peers[peerID]
 	if !exists {
 		fm.peersMu.Unlock()
+
 		return
 	}
 
 	peer.Available = false
 	peer.HealthScore = 0.0
+
 	fm.peersMu.Unlock()
 
 	fm.logger.Warn("peer marked unavailable",
@@ -147,18 +152,21 @@ func (fm *FailoverManager) MarkPeerUnavailable(peerID string, reason string) {
 	)
 }
 
-// MarkPeerAvailable marks a peer as available
+// MarkPeerAvailable marks a peer as available.
 func (fm *FailoverManager) MarkPeerAvailable(peerID string) {
 	fm.peersMu.Lock()
+
 	peer, exists := fm.peers[peerID]
 	if !exists {
 		fm.peersMu.Unlock()
+
 		return
 	}
 
 	peer.Available = true
 	peer.LastSeen = time.Now()
 	peer.HealthScore = 100.0
+
 	fm.peersMu.Unlock()
 
 	fm.logger.Info("peer marked available",
@@ -166,7 +174,7 @@ func (fm *FailoverManager) MarkPeerAvailable(peerID string) {
 	)
 }
 
-// UpdatePeerHealth updates peer health metrics
+// UpdatePeerHealth updates peer health metrics.
 func (fm *FailoverManager) UpdatePeerHealth(peerID string, responseTime time.Duration, success bool) {
 	fm.peersMu.Lock()
 	defer fm.peersMu.Unlock()
@@ -192,12 +200,13 @@ func (fm *FailoverManager) UpdatePeerHealth(peerID string, responseTime time.Dur
 	}
 }
 
-// SelectPeer selects the best available peer
+// SelectPeer selects the best available peer.
 func (fm *FailoverManager) SelectPeer(excludePeers []string) (string, error) {
 	fm.peersMu.RLock()
 	defer fm.peersMu.RUnlock()
 
 	var bestPeer *PeerStatus
+
 	excludeMap := make(map[string]bool)
 	for _, p := range excludePeers {
 		excludeMap[p] = true
@@ -217,6 +226,7 @@ func (fm *FailoverManager) SelectPeer(excludePeers []string) (string, error) {
 		// Select best peer
 		if bestPeer == nil {
 			bestPeer = peer
+
 			continue
 		}
 
@@ -224,8 +234,10 @@ func (fm *FailoverManager) SelectPeer(excludePeers []string) (string, error) {
 		if fm.config.UsePriority {
 			if peer.Priority > bestPeer.Priority {
 				bestPeer = peer
+
 				continue
 			}
+
 			if peer.Priority < bestPeer.Priority {
 				continue
 			}
@@ -244,7 +256,7 @@ func (fm *FailoverManager) SelectPeer(excludePeers []string) (string, error) {
 	return bestPeer.PeerID, nil
 }
 
-// Failover performs failover from one peer to another
+// Failover performs failover from one peer to another.
 func (fm *FailoverManager) Failover(
 	ctx context.Context,
 	fromPeer string,
@@ -275,10 +287,12 @@ func (fm *FailoverManager) Failover(
 
 	// Update peer status
 	fm.peersMu.Lock()
+
 	if peer, exists := fm.peers[toPeer]; exists {
 		peer.LastFailover = time.Now()
 		peer.FailoverCount++
 	}
+
 	fm.peersMu.Unlock()
 
 	// Record event
@@ -310,7 +324,7 @@ func (fm *FailoverManager) Failover(
 	return err
 }
 
-// AutoFailover automatically fails over with retry
+// AutoFailover automatically fails over with retry.
 func (fm *FailoverManager) AutoFailover(
 	ctx context.Context,
 	fromPeer string,
@@ -319,10 +333,11 @@ func (fm *FailoverManager) AutoFailover(
 	maxAttempts int,
 ) error {
 	if !fm.config.AutoFailoverEnabled {
-		return fmt.Errorf("auto failover disabled")
+		return errors.New("auto failover disabled")
 	}
 
 	excludePeers := []string{fromPeer}
+
 	var lastErr error
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
@@ -336,12 +351,12 @@ func (fm *FailoverManager) AutoFailover(
 		err = fm.Failover(ctx, fromPeer, reason, func(peer string) error {
 			return fn(toPeer)
 		})
-
 		if err == nil {
 			return nil
 		}
 
 		lastErr = err
+
 		excludePeers = append(excludePeers, toPeer)
 
 		fm.logger.Warn("failover attempt failed",
@@ -355,12 +370,13 @@ func (fm *FailoverManager) AutoFailover(
 	return lastErr
 }
 
-// GetAvailablePeers returns list of available peers
+// GetAvailablePeers returns list of available peers.
 func (fm *FailoverManager) GetAvailablePeers() []string {
 	fm.peersMu.RLock()
 	defer fm.peersMu.RUnlock()
 
 	var available []string
+
 	for _, peer := range fm.peers {
 		if peer.Available && time.Since(peer.LastFailover) >= fm.config.CooldownPeriod {
 			available = append(available, peer.PeerID)
@@ -370,7 +386,7 @@ func (fm *FailoverManager) GetAvailablePeers() []string {
 	return available
 }
 
-// GetPeerStatus returns status for a peer
+// GetPeerStatus returns status for a peer.
 func (fm *FailoverManager) GetPeerStatus(peerID string) (*PeerStatus, error) {
 	fm.peersMu.RLock()
 	defer fm.peersMu.RUnlock()
@@ -382,15 +398,17 @@ func (fm *FailoverManager) GetPeerStatus(peerID string) (*PeerStatus, error) {
 
 	// Return copy
 	status := *peer
+
 	return &status, nil
 }
 
-// GetAllPeerStatus returns status for all peers
+// GetAllPeerStatus returns status for all peers.
 func (fm *FailoverManager) GetAllPeerStatus() map[string]*PeerStatus {
 	fm.peersMu.RLock()
 	defer fm.peersMu.RUnlock()
 
 	status := make(map[string]*PeerStatus)
+
 	for peerID, peer := range fm.peers {
 		peerCopy := *peer
 		status[peerID] = &peerCopy
@@ -399,7 +417,7 @@ func (fm *FailoverManager) GetAllPeerStatus() map[string]*PeerStatus {
 	return status
 }
 
-// recordFailoverEvent records a failover event
+// recordFailoverEvent records a failover event.
 func (fm *FailoverManager) recordFailoverEvent(event FailoverEvent) {
 	fm.historyMu.Lock()
 	defer fm.historyMu.Unlock()
@@ -427,7 +445,7 @@ func (fm *FailoverManager) recordFailoverEvent(event FailoverEvent) {
 	}
 }
 
-// GetFailoverHistory returns failover history
+// GetFailoverHistory returns failover history.
 func (fm *FailoverManager) GetFailoverHistory(limit int) []FailoverEvent {
 	fm.historyMu.RLock()
 	defer fm.historyMu.RUnlock()
@@ -443,12 +461,12 @@ func (fm *FailoverManager) GetFailoverHistory(limit int) []FailoverEvent {
 	return result
 }
 
-// GetStatistics returns failover statistics
+// GetStatistics returns failover statistics.
 func (fm *FailoverManager) GetStatistics() FailoverStatistics {
 	return fm.stats
 }
 
-// MonitorHealth monitors peer health and triggers auto-failover
+// MonitorHealth monitors peer health and triggers auto-failover.
 func (fm *FailoverManager) MonitorHealth(ctx context.Context) {
 	if !fm.config.AutoFailoverEnabled {
 		return
@@ -467,14 +485,16 @@ func (fm *FailoverManager) MonitorHealth(ctx context.Context) {
 	}
 }
 
-// checkPeerHealth checks health of all peers
+// checkPeerHealth checks health of all peers.
 func (fm *FailoverManager) checkPeerHealth() {
 	fm.peersMu.RLock()
+
 	peers := make([]*PeerStatus, 0, len(fm.peers))
 	for _, peer := range fm.peers {
 		peerCopy := *peer
 		peers = append(peers, &peerCopy)
 	}
+
 	fm.peersMu.RUnlock()
 
 	for _, peer := range peers {
@@ -493,7 +513,7 @@ func (fm *FailoverManager) checkPeerHealth() {
 	}
 }
 
-// ResetPeerMetrics resets metrics for a peer
+// ResetPeerMetrics resets metrics for a peer.
 func (fm *FailoverManager) ResetPeerMetrics(peerID string) {
 	fm.peersMu.Lock()
 	defer fm.peersMu.Unlock()

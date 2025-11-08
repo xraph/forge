@@ -10,9 +10,11 @@ func TestDefaultConfig(t *testing.T) {
 	if config.Endpoint != "/rpc" {
 		t.Errorf("expected endpoint /rpc, got %s", config.Endpoint)
 	}
+
 	if !config.Enabled {
 		t.Error("expected enabled true")
 	}
+
 	if config.BatchLimit != 10 {
 		t.Errorf("expected batch limit 10, got %d", config.BatchLimit)
 	}
@@ -116,101 +118,121 @@ func TestConfigOptions(t *testing.T) {
 	config := DefaultConfig()
 
 	WithEnabled(false)(&config)
+
 	if config.Enabled {
 		t.Error("WithEnabled failed")
 	}
 
 	WithEndpoint("/api/rpc")(&config)
+
 	if config.Endpoint != "/api/rpc" {
 		t.Error("WithEndpoint failed")
 	}
 
 	WithOpenRPCEndpoint("/api/schema")(&config)
+
 	if config.OpenRPCEndpoint != "/api/schema" {
 		t.Error("WithOpenRPCEndpoint failed")
 	}
 
 	WithServerInfo("my-app", "2.0.0")(&config)
+
 	if config.ServerName != "my-app" || config.ServerVersion != "2.0.0" {
 		t.Error("WithServerInfo failed")
 	}
 
 	WithAutoExposeRoutes(false)(&config)
+
 	if config.AutoExposeRoutes {
 		t.Error("WithAutoExposeRoutes failed")
 	}
 
 	WithMethodPrefix("api.")(&config)
+
 	if config.MethodPrefix != "api." {
 		t.Error("WithMethodPrefix failed")
 	}
 
 	WithExcludePatterns([]string{"/test"})(&config)
+
 	if len(config.ExcludePatterns) != 1 || config.ExcludePatterns[0] != "/test" {
 		t.Error("WithExcludePatterns failed")
 	}
 
 	WithIncludePatterns([]string{"/api/*"})(&config)
+
 	if len(config.IncludePatterns) != 1 || config.IncludePatterns[0] != "/api/*" {
 		t.Error("WithIncludePatterns failed")
 	}
 
 	WithOpenRPC(false)(&config)
+
 	if config.EnableOpenRPC {
 		t.Error("WithOpenRPC failed")
 	}
 
 	WithDiscovery(false)(&config)
+
 	if config.EnableDiscovery {
 		t.Error("WithDiscovery failed")
 	}
 
 	WithBatch(false)(&config)
+
 	if config.EnableBatch {
 		t.Error("WithBatch failed")
 	}
 
 	WithBatchLimit(20)(&config)
+
 	if config.BatchLimit != 20 {
 		t.Error("WithBatchLimit failed")
 	}
 
 	WithNamingStrategy("method")(&config)
+
 	if config.NamingStrategy != "method" {
 		t.Error("WithNamingStrategy failed")
 	}
 
 	WithAuth("X-API-Key", []string{"token1"})(&config)
+
 	if !config.RequireAuth || config.AuthHeader != "X-API-Key" || len(config.AuthTokens) != 1 {
 		t.Error("WithAuth failed")
 	}
 
 	WithRateLimit(100)(&config)
+
 	if config.RateLimitPerMinute != 100 {
 		t.Error("WithRateLimit failed")
 	}
 
 	WithMaxRequestSize(2048)(&config)
+
 	if config.MaxRequestSize != 2048 {
 		t.Error("WithMaxRequestSize failed")
 	}
 
 	WithRequestTimeout(60)(&config)
+
 	if config.RequestTimeout != 60 {
 		t.Error("WithRequestTimeout failed")
 	}
 
 	WithSchemaCache(false)(&config)
+
 	if config.SchemaCache {
 		t.Error("WithSchemaCache failed")
 	}
 
 	WithMetrics(false)(&config)
+
 	if config.EnableMetrics {
 		t.Error("WithMetrics failed")
 	}
 
 	WithRequireConfig(true)(&config)
+
 	if !config.RequireConfig {
 		t.Error("WithRequireConfig failed")
 	}

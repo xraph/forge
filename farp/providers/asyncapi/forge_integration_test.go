@@ -7,27 +7,27 @@ import (
 	"github.com/xraph/forge/farp"
 )
 
-// Mock router that implements AsyncAPISpec()
+// Mock router that implements AsyncAPISpec().
 type mockAsyncAPIRouter struct {
-	spec interface{}
+	spec any
 }
 
-func (m *mockAsyncAPIRouter) AsyncAPISpec() interface{} {
+func (m *mockAsyncAPIRouter) AsyncAPISpec() any {
 	return m.spec
 }
 
 func TestForgeProvider_GenerateFromRouter(t *testing.T) {
 	provider := NewForgeProvider("3.0.0", "/asyncapi.json")
 
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"asyncapi": "3.0.0",
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   "Test Event API",
 			"version": "1.0.0",
 		},
-		"channels": map[string]interface{}{
-			"user/signedup": map[string]interface{}{
-				"publish": map[string]interface{}{
+		"channels": map[string]any{
+			"user/signedup": map[string]any{
+				"publish": map[string]any{
 					"summary": "User signed up event",
 				},
 			},
@@ -46,7 +46,7 @@ func TestForgeProvider_GenerateFromRouter(t *testing.T) {
 	}
 
 	// Verify it's the same spec
-	generatedMap, ok := generated.(map[string]interface{})
+	generatedMap, ok := generated.(map[string]any)
 	if !ok {
 		t.Fatal("Generated spec is not a map")
 	}
@@ -79,13 +79,13 @@ func TestForgeProvider_GenerateFromRouter_InvalidType(t *testing.T) {
 func TestForgeProvider_Validate(t *testing.T) {
 	provider := NewForgeProvider("3.0.0", "/asyncapi.json")
 
-	validSpec := map[string]interface{}{
+	validSpec := map[string]any{
 		"asyncapi": "3.0.0",
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   "Test Event API",
 			"version": "1.0.0",
 		},
-		"channels": map[string]interface{}{},
+		"channels": map[string]any{},
 	}
 
 	err := provider.Validate(validSpec)
@@ -99,27 +99,27 @@ func TestForgeProvider_Validate_MissingFields(t *testing.T) {
 
 	tests := []struct {
 		name string
-		spec map[string]interface{}
+		spec map[string]any
 	}{
 		{
 			name: "missing asyncapi field",
-			spec: map[string]interface{}{
-				"info":     map[string]interface{}{"title": "Test"},
-				"channels": map[string]interface{}{},
+			spec: map[string]any{
+				"info":     map[string]any{"title": "Test"},
+				"channels": map[string]any{},
 			},
 		},
 		{
 			name: "missing info field",
-			spec: map[string]interface{}{
+			spec: map[string]any{
 				"asyncapi": "3.0.0",
-				"channels": map[string]interface{}{},
+				"channels": map[string]any{},
 			},
 		},
 		{
 			name: "missing channels field (required for 3.x)",
-			spec: map[string]interface{}{
+			spec: map[string]any{
 				"asyncapi": "3.0.0",
-				"info":     map[string]interface{}{"title": "Test"},
+				"info":     map[string]any{"title": "Test"},
 			},
 		},
 	}
@@ -143,28 +143,28 @@ func TestForgeProvider_Validate_NilSpec(t *testing.T) {
 	}
 }
 
-// Mock application that implements farp.Application and AsyncAPISpecProvider
+// Mock application that implements farp.Application and AsyncAPISpecProvider.
 type mockApp struct {
 	name    string
 	version string
-	spec    interface{}
+	spec    any
 }
 
-func (m *mockApp) Name() string               { return m.name }
-func (m *mockApp) Version() string            { return m.version }
-func (m *mockApp) Routes() interface{}        { return nil } // Required by farp.Application
-func (m *mockApp) AsyncAPISpec() interface{}  { return m.spec }
+func (m *mockApp) Name() string      { return m.name }
+func (m *mockApp) Version() string   { return m.version }
+func (m *mockApp) Routes() any       { return nil } // Required by farp.Application
+func (m *mockApp) AsyncAPISpec() any { return m.spec }
 
 func TestForgeProvider_Generate_WithSpecProvider(t *testing.T) {
 	provider := NewForgeProvider("3.0.0", "/asyncapi.json")
 
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"asyncapi": "3.0.0",
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   "App Event API",
 			"version": "2.0.0",
 		},
-		"channels": map[string]interface{}{},
+		"channels": map[string]any{},
 	}
 
 	app := &mockApp{
@@ -174,6 +174,7 @@ func TestForgeProvider_Generate_WithSpecProvider(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	generated, err := provider.Generate(ctx, app)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -185,13 +186,13 @@ func TestForgeProvider_Generate_WithSpecProvider(t *testing.T) {
 }
 
 func TestCreateForgeDescriptor(t *testing.T) {
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"asyncapi": "3.0.0",
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   "Test Event API",
 			"version": "1.0.0",
 		},
-		"channels": map[string]interface{}{},
+		"channels": map[string]any{},
 	}
 
 	router := &mockAsyncAPIRouter{spec: spec}
@@ -231,13 +232,13 @@ func TestCreateForgeDescriptor(t *testing.T) {
 }
 
 func TestCreateForgeDescriptor_InlineLocation(t *testing.T) {
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"asyncapi": "3.0.0",
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   "Test Event API",
 			"version": "1.0.0",
 		},
-		"channels": map[string]interface{}{},
+		"channels": map[string]any{},
 	}
 
 	router := &mockAsyncAPIRouter{spec: spec}
@@ -255,4 +256,3 @@ func TestCreateForgeDescriptor_InlineLocation(t *testing.T) {
 		t.Error("Expected inline schema to be set")
 	}
 }
-

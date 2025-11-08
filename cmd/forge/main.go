@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	// Version information (set by ldflags during build)
+	// Version information (set by ldflags during build).
 	version   = "dev"
 	commit    = "unknown"
 	buildDate = "unknown"
@@ -63,9 +63,10 @@ func main() {
 		"version",
 		"Show version information",
 		func(ctx cli.CommandContext) error {
-			ctx.Println(fmt.Sprintf("Forge v%s", version))
-			ctx.Println(fmt.Sprintf("Commit: %s", commit))
-			ctx.Println(fmt.Sprintf("Built: %s", buildDate))
+			ctx.Println("Forge v" + version)
+			ctx.Println("Commit: " + commit)
+			ctx.Println("Built: " + buildDate)
+
 			return nil
 		},
 	))

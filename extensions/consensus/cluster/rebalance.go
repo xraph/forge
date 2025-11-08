@@ -8,9 +8,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// RebalanceManager manages cluster rebalancing operations
+// RebalanceManager manages cluster rebalancing operations.
 type RebalanceManager struct {
 	manager  *Manager
 	topology *TopologyManager
@@ -24,7 +25,7 @@ type RebalanceManager struct {
 	rebalanceCheckInterval time.Duration
 }
 
-// RebalanceConfig contains rebalance configuration
+// RebalanceConfig contains rebalance configuration.
 type RebalanceConfig struct {
 	Enabled       bool
 	AutoRebalance bool
@@ -32,7 +33,7 @@ type RebalanceConfig struct {
 	CheckInterval time.Duration
 }
 
-// RebalanceResult contains the result of a rebalance operation
+// RebalanceResult contains the result of a rebalance operation.
 type RebalanceResult struct {
 	StartTime    time.Time
 	EndTime      time.Time
@@ -43,7 +44,7 @@ type RebalanceResult struct {
 	Actions      []RebalanceAction
 }
 
-// RebalanceAction represents a single rebalance action
+// RebalanceAction represents a single rebalance action.
 type RebalanceAction struct {
 	Type        RebalanceActionType
 	SourceNode  string
@@ -53,21 +54,21 @@ type RebalanceAction struct {
 	Error       error
 }
 
-// RebalanceActionType represents the type of rebalance action
+// RebalanceActionType represents the type of rebalance action.
 type RebalanceActionType int
 
 const (
-	// RebalanceActionMoveLeader moves leadership
+	// RebalanceActionMoveLeader moves leadership.
 	RebalanceActionMoveLeader RebalanceActionType = iota
-	// RebalanceActionAddReplica adds a replica
+	// RebalanceActionAddReplica adds a replica.
 	RebalanceActionAddReplica
-	// RebalanceActionRemoveReplica removes a replica
+	// RebalanceActionRemoveReplica removes a replica.
 	RebalanceActionRemoveReplica
-	// RebalanceActionTransferSnapshot transfers a snapshot
+	// RebalanceActionTransferSnapshot transfers a snapshot.
 	RebalanceActionTransferSnapshot
 )
 
-// NewRebalanceManager creates a new rebalance manager
+// NewRebalanceManager creates a new rebalance manager.
 func NewRebalanceManager(
 	manager *Manager,
 	topology *TopologyManager,
@@ -78,6 +79,7 @@ func NewRebalanceManager(
 	if config.Threshold == 0 {
 		config.Threshold = 0.2 // 20% default
 	}
+
 	if config.CheckInterval == 0 {
 		config.CheckInterval = 5 * time.Minute
 	}
@@ -94,16 +96,18 @@ func NewRebalanceManager(
 	}
 }
 
-// Start starts the rebalance manager
+// Start starts the rebalance manager.
 func (rm *RebalanceManager) Start(ctx context.Context) error {
 	if !rm.enabled {
 		rm.logger.Info("rebalance manager disabled")
+
 		return nil
 	}
 
 	if rm.autoRebalance {
 		// Start auto-rebalance goroutine
 		go rm.autoRebalanceLoop(ctx)
+
 		rm.logger.Info("auto-rebalance enabled",
 			forge.F("check_interval", rm.rebalanceCheckInterval),
 		)
@@ -112,7 +116,7 @@ func (rm *RebalanceManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// AnalyzeBalance analyzes cluster balance
+// AnalyzeBalance analyzes cluster balance.
 func (rm *RebalanceManager) AnalyzeBalance() BalanceAnalysis {
 	nodes := rm.manager.GetNodes()
 
@@ -137,6 +141,7 @@ func (rm *RebalanceManager) AnalyzeBalance() BalanceAnalysis {
 		if node.Role == internal.RoleLeader {
 			load = 3.0 // Leader has more load
 		}
+
 		loadPerNode[node.ID] = load
 		totalLoad += load
 	}
@@ -147,12 +152,14 @@ func (rm *RebalanceManager) AnalyzeBalance() BalanceAnalysis {
 
 	// Calculate average and variance
 	avgLoad := totalLoad / float64(len(nodes))
+
 	var variance float64
 
 	for _, load := range loadPerNode {
 		diff := load - avgLoad
 		variance += diff * diff
 	}
+
 	variance /= float64(len(nodes))
 
 	// Calculate imbalance factor
@@ -165,14 +172,17 @@ func (rm *RebalanceManager) AnalyzeBalance() BalanceAnalysis {
 			fmt.Sprintf("Cluster is imbalanced (factor: %.2f)", analysis.Imbalance))
 
 		// Find most and least loaded nodes
-		var maxLoad, minLoad float64
-		var maxNode, minNode string
+		var (
+			maxLoad, minLoad float64
+			maxNode, minNode string
+		)
 
 		for nodeID, load := range loadPerNode {
 			if maxLoad == 0 || load > maxLoad {
 				maxLoad = load
 				maxNode = nodeID
 			}
+
 			if minLoad == 0 || load < minLoad {
 				minLoad = load
 				minNode = nodeID
@@ -194,6 +204,7 @@ func (rm *RebalanceManager) AnalyzeBalance() BalanceAnalysis {
 			for _, region := range view.Regions {
 				regionLoads = append(regionLoads, region.NodeCount)
 			}
+
 			sort.Ints(regionLoads)
 
 			if len(regionLoads) > 1 {
@@ -212,7 +223,7 @@ func (rm *RebalanceManager) AnalyzeBalance() BalanceAnalysis {
 	return analysis
 }
 
-// BalanceAnalysis contains balance analysis results
+// BalanceAnalysis contains balance analysis results.
 type BalanceAnalysis struct {
 	TotalNodes  int
 	Balanced    bool
@@ -220,10 +231,10 @@ type BalanceAnalysis struct {
 	Suggestions []string
 }
 
-// Rebalance performs a rebalance operation
+// Rebalance performs a rebalance operation.
 func (rm *RebalanceManager) Rebalance(ctx context.Context) (*RebalanceResult, error) {
 	if !rm.enabled {
-		return nil, fmt.Errorf("rebalancing is disabled")
+		return nil, errors.New("rebalancing is disabled")
 	}
 
 	rm.logger.Info("starting cluster rebalance")
@@ -236,9 +247,10 @@ func (rm *RebalanceManager) Rebalance(ctx context.Context) (*RebalanceResult, er
 	// Check if we have quorum
 	if !rm.quorum.HasQuorum() {
 		result.Success = false
-		result.Error = fmt.Errorf("cannot rebalance without quorum")
+		result.Error = errors.New("cannot rebalance without quorum")
 		result.EndTime = time.Now()
 		result.Duration = result.EndTime.Sub(result.StartTime)
+
 		return result, result.Error
 	}
 
@@ -247,9 +259,11 @@ func (rm *RebalanceManager) Rebalance(ctx context.Context) (*RebalanceResult, er
 
 	if analysis.Balanced {
 		rm.logger.Info("cluster is already balanced")
+
 		result.Success = true
 		result.EndTime = time.Now()
 		result.Duration = result.EndTime.Sub(result.StartTime)
+
 		return result, nil
 	}
 
@@ -289,7 +303,7 @@ func (rm *RebalanceManager) Rebalance(ctx context.Context) (*RebalanceResult, er
 	return result, nil
 }
 
-// generateRebalanceActions generates rebalance actions
+// generateRebalanceActions generates rebalance actions.
 func (rm *RebalanceManager) generateRebalanceActions(analysis BalanceAnalysis) []RebalanceAction {
 	var actions []RebalanceAction
 
@@ -300,11 +314,13 @@ func (rm *RebalanceManager) generateRebalanceActions(analysis BalanceAnalysis) [
 
 	// Find overloaded and underloaded nodes
 	loadMap := make(map[string]float64)
+
 	for _, node := range nodes {
 		load := 1.0
 		if node.Role == internal.RoleLeader {
 			load = 3.0
 		}
+
 		loadMap[node.ID] = load
 	}
 
@@ -341,7 +357,7 @@ func (rm *RebalanceManager) generateRebalanceActions(analysis BalanceAnalysis) [
 	return actions
 }
 
-// executeAction executes a rebalance action
+// executeAction executes a rebalance action.
 func (rm *RebalanceManager) executeAction(ctx context.Context, action RebalanceAction) error {
 	switch action.Type {
 	case RebalanceActionMoveLeader:
@@ -350,18 +366,21 @@ func (rm *RebalanceManager) executeAction(ctx context.Context, action RebalanceA
 			forge.F("from", action.SourceNode),
 			forge.F("to", action.TargetNode),
 		)
+
 		return nil
 
 	case RebalanceActionAddReplica:
 		rm.logger.Info("would add replica",
 			forge.F("to", action.TargetNode),
 		)
+
 		return nil
 
 	case RebalanceActionRemoveReplica:
 		rm.logger.Info("would remove replica",
 			forge.F("from", action.SourceNode),
 		)
+
 		return nil
 
 	default:
@@ -369,7 +388,7 @@ func (rm *RebalanceManager) executeAction(ctx context.Context, action RebalanceA
 	}
 }
 
-// autoRebalanceLoop runs automatic rebalancing
+// autoRebalanceLoop runs automatic rebalancing.
 func (rm *RebalanceManager) autoRebalanceLoop(ctx context.Context) {
 	ticker := time.NewTicker(rm.rebalanceCheckInterval)
 	defer ticker.Stop()
@@ -397,24 +416,24 @@ func (rm *RebalanceManager) autoRebalanceLoop(ctx context.Context) {
 	}
 }
 
-// Enable enables rebalancing
+// Enable enables rebalancing.
 func (rm *RebalanceManager) Enable() {
 	rm.enabled = true
 	rm.logger.Info("rebalancing enabled")
 }
 
-// Disable disables rebalancing
+// Disable disables rebalancing.
 func (rm *RebalanceManager) Disable() {
 	rm.enabled = false
 	rm.logger.Info("rebalancing disabled")
 }
 
-// IsEnabled returns whether rebalancing is enabled
+// IsEnabled returns whether rebalancing is enabled.
 func (rm *RebalanceManager) IsEnabled() bool {
 	return rm.enabled
 }
 
-// String returns string representation of action type
+// String returns string representation of action type.
 func (t RebalanceActionType) String() string {
 	switch t {
 	case RebalanceActionMoveLeader:

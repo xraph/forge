@@ -3,12 +3,13 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
 )
 
-// sseStream implements Stream for Server-Sent Events
+// sseStream implements Stream for Server-Sent Events.
 type sseStream struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -19,12 +20,12 @@ type sseStream struct {
 	retryInterval int
 }
 
-// newSSEStream creates a new SSE stream
+// newSSEStream creates a new SSE stream.
 func newSSEStream(w http.ResponseWriter, r *http.Request, retryInterval int) (*sseStream, error) {
 	// Check if ResponseWriter supports flushing
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		return nil, fmt.Errorf("streaming not supported")
+		return nil, errors.New("streaming not supported")
 	}
 
 	// Set SSE headers
@@ -53,13 +54,13 @@ func newSSEStream(w http.ResponseWriter, r *http.Request, retryInterval int) (*s
 	return stream, nil
 }
 
-// Send sends an event to the stream
+// Send sends an event to the stream.
 func (s *sseStream) Send(event string, data []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.closed {
-		return fmt.Errorf("stream closed")
+		return errors.New("stream closed")
 	}
 
 	// Write event
@@ -76,32 +77,35 @@ func (s *sseStream) Send(event string, data []byte) error {
 
 	// Flush
 	s.flusher.Flush()
+
 	return nil
 }
 
-// SendJSON sends JSON event to the stream
+// SendJSON sends JSON event to the stream.
 func (s *sseStream) SendJSON(event string, v any) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
+
 	return s.Send(event, data)
 }
 
-// Flush flushes any buffered data
+// Flush flushes any buffered data.
 func (s *sseStream) Flush() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.closed {
-		return fmt.Errorf("stream closed")
+		return errors.New("stream closed")
 	}
 
 	s.flusher.Flush()
+
 	return nil
 }
 
-// Close closes the stream
+// Close closes the stream.
 func (s *sseStream) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -112,21 +116,22 @@ func (s *sseStream) Close() error {
 
 	s.closed = true
 	s.cancel()
+
 	return nil
 }
 
-// Context returns the stream context
+// Context returns the stream context.
 func (s *sseStream) Context() context.Context {
 	return s.ctx
 }
 
-// SetRetry sets the retry timeout for SSE
+// SetRetry sets the retry timeout for SSE.
 func (s *sseStream) SetRetry(milliseconds int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.closed {
-		return fmt.Errorf("stream closed")
+		return errors.New("stream closed")
 	}
 
 	if _, err := fmt.Fprintf(s.writer, "retry: %d\n\n", milliseconds); err != nil {
@@ -135,16 +140,17 @@ func (s *sseStream) SetRetry(milliseconds int) error {
 
 	s.flusher.Flush()
 	s.retryInterval = milliseconds
+
 	return nil
 }
 
-// SendComment sends a comment (keeps connection alive)
+// SendComment sends a comment (keeps connection alive).
 func (s *sseStream) SendComment(comment string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.closed {
-		return fmt.Errorf("stream closed")
+		return errors.New("stream closed")
 	}
 
 	if _, err := fmt.Fprintf(s.writer, ": %s\n\n", comment); err != nil {
@@ -152,5 +158,6 @@ func (s *sseStream) SendComment(comment string) error {
 	}
 
 	s.flusher.Flush()
+
 	return nil
 }

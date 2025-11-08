@@ -14,17 +14,17 @@ import (
 // =============================================================================
 
 // ConfigKey is the service key for configuration manager
-// Use config.ManagerKey or shared.ConfigKey for consistency
+// Use config.ManagerKey or shared.ConfigKey for consistency.
 const ConfigKey = "config"
 
 // =============================================================================
 // RE-EXPORT CONFIG TYPES
 // =============================================================================
 
-// Configuration Manager
+// Configuration Manager.
 type ConfigManager = configcore.ConfigManager
 
-// Configuration Sources
+// Configuration Sources.
 type (
 	ConfigSource        = config.ConfigSource
 	ConfigSourceOptions = config.ConfigSourceOptions
@@ -37,20 +37,20 @@ type (
 	WatchContext        = config.WatchContext
 )
 
-// Configuration Options
+// Configuration Options.
 type (
 	GetOption   = configcore.GetOption
 	GetOptions  = configcore.GetOptions
 	BindOptions = configcore.BindOptions
 )
 
-// Configuration Changes
+// Configuration Changes.
 type (
 	ConfigChange = config.ConfigChange
 	ChangeType   = config.ChangeType
 )
 
-// Constants
+// Constants.
 const (
 	ChangeTypeSet    = config.ChangeTypeSet
 	ChangeTypeUpdate = config.ChangeTypeUpdate
@@ -58,7 +58,7 @@ const (
 	ChangeTypeReload = config.ChangeTypeReload
 )
 
-// Validation
+// Validation.
 type (
 	ValidationOptions = config.ValidationOptions
 	ValidationRule    = config.ValidationRule
@@ -73,19 +73,19 @@ const (
 	ValidationModeLoose      = config.ValidationModeLoose
 )
 
-// Secrets
+// Secrets.
 type (
 	SecretsManager = config.SecretsManager
 	SecretProvider = config.SecretProvider
 	SecretsConfig  = config.SecretsConfig
 )
 
-// Manager Configuration
+// Manager Configuration.
 type (
 	ManagerConfig = config.ManagerConfig
 )
 
-// Watcher
+// Watcher.
 type (
 	Watcher       = config.Watcher
 	WatcherConfig = config.WatcherConfig
@@ -121,7 +121,7 @@ var (
 // DEFAULT BIND OPTIONS
 // =============================================================================
 
-// DefaultBindOptions returns default bind options
+// DefaultBindOptions returns default bind options.
 func DefaultBindOptions() BindOptions {
 	return BindOptions{
 		UseDefaults:    true,
@@ -137,7 +137,7 @@ func DefaultBindOptions() BindOptions {
 // ERROR HANDLER FOR CONFIG
 // =============================================================================
 
-// ConfigErrorHandler defines how errors should be handled in the config system
+// ConfigErrorHandler defines how errors should be handled in the config system.
 type ConfigErrorHandler interface {
 	// HandleError handles an error
 	HandleError(ctx Context, err error) error
@@ -149,34 +149,35 @@ type ConfigErrorHandler interface {
 	GetRetryDelay(attempt int, err error) time.Duration
 }
 
-// DefaultConfigErrorHandler is the default error handler for config
+// DefaultConfigErrorHandler is the default error handler for config.
 type DefaultConfigErrorHandler struct {
 	logger Logger
 }
 
-// NewDefaultConfigErrorHandler creates a new default config error handler
+// NewDefaultConfigErrorHandler creates a new default config error handler.
 func NewDefaultConfigErrorHandler(logger Logger) *DefaultConfigErrorHandler {
 	return &DefaultConfigErrorHandler{
 		logger: logger,
 	}
 }
 
-// HandleError handles an error
+// HandleError handles an error.
 func (h *DefaultConfigErrorHandler) HandleError(ctx Context, err error) error {
 	if h.logger != nil {
 		h.logger.Error("config error occurred",
 			Error(err),
 		)
 	}
+
 	return err
 }
 
-// ShouldRetry determines if an operation should be retried
+// ShouldRetry determines if an operation should be retried.
 func (h *DefaultConfigErrorHandler) ShouldRetry(err error) bool {
 	return false // Config errors generally shouldn't auto-retry
 }
 
-// GetRetryDelay returns the delay before retrying
+// GetRetryDelay returns the delay before retrying.
 func (h *DefaultConfigErrorHandler) GetRetryDelay(attempt int, err error) time.Duration {
 	return time.Duration(100*attempt*attempt) * time.Millisecond
 }
@@ -185,9 +186,10 @@ func (h *DefaultConfigErrorHandler) GetRetryDelay(attempt int, err error) time.D
 // HELPER FUNCTIONS
 // =============================================================================
 
-// SafeGet returns a value with type checking
+// SafeGet returns a value with type checking.
 func SafeGet[T any](cm ConfigManager, key string) (T, error) {
 	var zero T
+
 	value := cm.Get(key)
 	if value == nil {
 		return zero, fmt.Errorf("config not found: %s", key)
@@ -201,17 +203,18 @@ func SafeGet[T any](cm ConfigManager, key string) (T, error) {
 	return result, nil
 }
 
-// MustGet returns a value or panics if not found
+// MustGet returns a value or panics if not found.
 func MustGet[T any](cm ConfigManager, key string) T {
 	value, err := SafeGet[T](cm, key)
 	if err != nil {
 		panic(err)
 	}
+
 	return value
 }
 
 // GetConfigManager resolves the config manager from the container
-// Returns the config manager instance and an error if resolution fails
+// Returns the config manager instance and an error if resolution fails.
 func GetConfigManager(c Container) (ConfigManager, error) {
 	return config.GetConfigManager(c)
 }

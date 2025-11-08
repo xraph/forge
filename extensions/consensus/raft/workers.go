@@ -8,9 +8,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// runMessageProcessor processes incoming messages from the transport layer
+// runMessageProcessor processes incoming messages from the transport layer.
 func (n *Node) runMessageProcessor() {
 	defer n.wg.Done()
 
@@ -28,7 +29,7 @@ func (n *Node) runMessageProcessor() {
 	}
 }
 
-// handleMessage handles incoming messages
+// handleMessage handles incoming messages.
 func (n *Node) handleMessage(msg internal.Message) {
 	n.logger.Debug("received message",
 		forge.F("from", msg.From),
@@ -132,7 +133,7 @@ func (n *Node) handleMessage(msg internal.Message) {
 	}
 }
 
-// runStateMachine processes apply messages and applies them to the state machine
+// runStateMachine processes apply messages and applies them to the state machine.
 func (n *Node) runStateMachine() {
 	defer n.wg.Done()
 
@@ -152,8 +153,9 @@ func (n *Node) runStateMachine() {
 				select {
 				case n.applyCh <- msg:
 				case <-time.After(1 * time.Second):
-					msg.ResultCh <- fmt.Errorf("timeout waiting for commit")
+					msg.ResultCh <- errors.New("timeout waiting for commit")
 				}
+
 				continue
 			}
 
@@ -164,15 +166,19 @@ func (n *Node) runStateMachine() {
 					forge.F("index", msg.Index),
 					forge.F("error", err),
 				)
+
 				msg.ResultCh <- err
+
 				continue
 			}
 
 			// Update lastApplied
 			n.mu.Lock()
+
 			if msg.Index > n.lastApplied {
 				n.lastApplied = msg.Index
 			}
+
 			n.mu.Unlock()
 
 			n.logger.Debug("applied entry to state machine",
@@ -186,7 +192,7 @@ func (n *Node) runStateMachine() {
 	}
 }
 
-// runSnapshotManager manages snapshot creation
+// runSnapshotManager manages snapshot creation.
 func (n *Node) runSnapshotManager() {
 	defer n.wg.Done()
 
@@ -232,6 +238,7 @@ func (n *Node) runSnapshotManager() {
 				n.logger.Error("failed to create snapshot",
 					forge.F("error", err),
 				)
+
 				msg.ResultCh <- err
 			} else {
 				msg.ResultCh <- nil
@@ -240,21 +247,26 @@ func (n *Node) runSnapshotManager() {
 	}
 }
 
-// createSnapshot creates a snapshot up to the given index
+// createSnapshot creates a snapshot up to the given index.
 func (n *Node) createSnapshot(index uint64) error {
 	n.mu.RLock()
+
 	if index > n.lastApplied {
 		n.mu.RUnlock()
-		return fmt.Errorf("cannot snapshot beyond last applied index")
+
+		return errors.New("cannot snapshot beyond last applied index")
 	}
 
 	// Get the entry at the snapshot index to get its term
 	entry, err := n.log.Get(index)
 	if err != nil {
 		n.mu.RUnlock()
+
 		return fmt.Errorf("failed to get log entry at index %d: %w", index, err)
 	}
+
 	term := entry.Term
+
 	n.mu.RUnlock()
 
 	n.logger.Info("creating snapshot",
@@ -279,10 +291,13 @@ func (n *Node) createSnapshot(index uint64) error {
 
 	// Compact the log
 	n.mu.Lock()
+
 	if err := n.log.Compact(index, term); err != nil {
 		n.mu.Unlock()
+
 		return fmt.Errorf("failed to compact log: %w", err)
 	}
+
 	n.mu.Unlock()
 
 	atomic.AddInt64(&n.snapshotCount, 1)
@@ -296,16 +311,17 @@ func (n *Node) createSnapshot(index uint64) error {
 	return nil
 }
 
-// saveSnapshot saves a snapshot to storage
+// saveSnapshot saves a snapshot to storage.
 func (n *Node) saveSnapshot(snapshot *internal.Snapshot) error {
 	// Save snapshot data
-	snapshotKey := []byte(fmt.Sprintf("snapshot_%d", snapshot.Index))
+	snapshotKey := fmt.Appendf(nil, "snapshot_%d", snapshot.Index)
 	if err := n.storage.Set(snapshotKey, snapshot.Data); err != nil {
 		return fmt.Errorf("failed to save snapshot data: %w", err)
 	}
 
 	// Save snapshot metadata
 	metaKey := []byte("snapshot_meta")
+
 	metaValue := fmt.Sprintf(`{"index":%d,"term":%d}`, snapshot.Index, snapshot.Term)
 	if err := n.storage.Set(metaKey, []byte(metaValue)); err != nil {
 		return fmt.Errorf("failed to save snapshot metadata: %w", err)
@@ -314,7 +330,7 @@ func (n *Node) saveSnapshot(snapshot *internal.Snapshot) error {
 	return nil
 }
 
-// runConfigChangeProcessor processes configuration changes
+// runConfigChangeProcessor processes configuration changes.
 func (n *Node) runConfigChangeProcessor() {
 	defer n.wg.Done()
 
@@ -330,6 +346,7 @@ func (n *Node) runConfigChangeProcessor() {
 					forge.F("node_id", msg.NodeID),
 					forge.F("error", err),
 				)
+
 				msg.ResultCh <- err
 			} else {
 				msg.ResultCh <- nil
@@ -338,10 +355,11 @@ func (n *Node) runConfigChangeProcessor() {
 	}
 }
 
-// processConfigChange processes a configuration change
+// processConfigChange processes a configuration change.
 func (n *Node) processConfigChange(msg ConfigChangeMsg) error {
 	// Configuration changes must go through Raft consensus
 	var configEntry internal.LogEntry
+
 	configEntry.Type = internal.EntryConfig
 
 	switch msg.Type {
@@ -380,7 +398,7 @@ func (n *Node) processConfigChange(msg ConfigChangeMsg) error {
 	return nil
 }
 
-// AddNode adds a node to the cluster (must be called on leader)
+// AddNode adds a node to the cluster (must be called on leader).
 func (n *Node) AddNode(ctx context.Context, nodeID, address string, port int) error {
 	if !n.IsLeader() {
 		return internal.NewNotLeaderError(n.id, n.GetLeader())
@@ -409,7 +427,7 @@ func (n *Node) AddNode(ctx context.Context, nodeID, address string, port int) er
 	}
 }
 
-// RemoveNode removes a node from the cluster (must be called on leader)
+// RemoveNode removes a node from the cluster (must be called on leader).
 func (n *Node) RemoveNode(ctx context.Context, nodeID string) error {
 	if !n.IsLeader() {
 		return internal.NewNotLeaderError(n.id, n.GetLeader())
@@ -436,7 +454,7 @@ func (n *Node) RemoveNode(ctx context.Context, nodeID string) error {
 	}
 }
 
-// TransferLeadership transfers leadership to another node
+// TransferLeadership transfers leadership to another node.
 func (n *Node) TransferLeadership(ctx context.Context, targetNodeID string) error {
 	if !n.IsLeader() {
 		return internal.NewNotLeaderError(n.id, n.GetLeader())
@@ -457,7 +475,7 @@ func (n *Node) TransferLeadership(ctx context.Context, targetNodeID string) erro
 	return nil
 }
 
-// StepDown causes the leader to step down
+// StepDown causes the leader to step down.
 func (n *Node) StepDown(ctx context.Context) error {
 	if !n.IsLeader() {
 		return internal.NewNotLeaderError(n.id, n.GetLeader())

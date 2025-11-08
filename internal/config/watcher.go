@@ -1,6 +1,5 @@
 package config
 
-//nolint:gosec // G104: Error handler invocations don't return values
 // Config watcher and source files use error handlers that don't return errors.
 
 import (
@@ -13,7 +12,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Watcher handles watching configuration sources for changes
+// Watcher handles watching configuration sources for changes.
 type Watcher struct {
 	interval       time.Duration
 	sources        map[string]*WatchContext
@@ -27,7 +26,7 @@ type Watcher struct {
 	stopped        bool
 }
 
-// WatcherConfig contains configuration for the watcher
+// WatcherConfig contains configuration for the watcher.
 type WatcherConfig struct {
 	Interval       time.Duration
 	BufferSize     int
@@ -40,7 +39,7 @@ type WatcherConfig struct {
 	DebounceTime   time.Duration
 }
 
-// WatchEvent represents a configuration change event
+// WatchEvent represents a configuration change event.
 type WatchEvent struct {
 	SourceName string                 `json:"source_name"`
 	EventType  WatchEventType         `json:"event_type"`
@@ -50,7 +49,7 @@ type WatchEvent struct {
 	Error      error                  `json:"error,omitempty"`
 }
 
-// WatchEventType represents the type of watch event
+// WatchEventType represents the type of watch event.
 type WatchEventType string
 
 const (
@@ -61,35 +60,39 @@ const (
 	WatchEventTypeReload WatchEventType = "reload"
 )
 
-// WatchCallback represents a callback function for configuration changes
+// WatchCallback represents a callback function for configuration changes.
 type WatchCallback func(string, map[string]interface{})
 
-// ChangeDetector detects changes in configuration data
+// ChangeDetector detects changes in configuration data.
 type ChangeDetector interface {
 	DetectChanges(old, new map[string]interface{}) []ConfigChange
 	CalculateChecksum(data map[string]interface{}) string
 }
 
-// FileWatcher represents a file system watcher
+// FileWatcher represents a file system watcher.
 type FileWatcher interface {
 	Watch(path string, callback func(string)) error
 	Stop() error
 }
 
-// NewWatcher creates a new configuration watcher
+// NewWatcher creates a new configuration watcher.
 func NewWatcher(config WatcherConfig) *Watcher {
 	if config.Interval == 0 {
 		config.Interval = 30 * time.Second
 	}
+
 	if config.BufferSize == 0 {
 		config.BufferSize = 100
 	}
+
 	if config.MaxRetries == 0 {
 		config.MaxRetries = 3
 	}
+
 	if config.RetryInterval == 0 {
 		config.RetryInterval = 5 * time.Second
 	}
+
 	if config.DebounceTime == 0 {
 		config.DebounceTime = 1 * time.Second
 	}
@@ -107,7 +110,7 @@ func NewWatcher(config WatcherConfig) *Watcher {
 	}
 }
 
-// WatchSource starts watching a configuration source
+// WatchSource starts watching a configuration source.
 func (w *Watcher) WatchSource(ctx context.Context, source ConfigSource, callback WatchCallback) error {
 	if !source.IsWatchable() {
 		return ErrConfigError(fmt.Sprintf("source %s is not watchable", source.Name()), nil)
@@ -124,7 +127,7 @@ func (w *Watcher) WatchSource(ctx context.Context, source ConfigSource, callback
 
 	// Check if already watching
 	if _, exists := w.sources[sourceName]; exists {
-		return ErrConfigError(fmt.Sprintf("already watching source %s", sourceName), nil)
+		return ErrConfigError("already watching source "+sourceName, nil)
 	}
 
 	// Create watch context
@@ -162,14 +165,14 @@ func (w *Watcher) WatchSource(ctx context.Context, source ConfigSource, callback
 	return nil
 }
 
-// StopWatching stops watching a specific source
+// StopWatching stops watching a specific source.
 func (w *Watcher) StopWatching(sourceName string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	watchCtx, exists := w.sources[sourceName]
 	if !exists {
-		return ErrConfigError(fmt.Sprintf("not watching source %s", sourceName), nil)
+		return ErrConfigError("not watching source "+sourceName, nil)
 	}
 
 	// Signal stop
@@ -199,7 +202,7 @@ func (w *Watcher) StopWatching(sourceName string) error {
 	return nil
 }
 
-// StopAll stops watching all sources
+// StopAll stops watching all sources.
 func (w *Watcher) StopAll() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -230,7 +233,7 @@ func (w *Watcher) StopAll() error {
 	return nil
 }
 
-// GetWatchedSources returns the list of currently watched sources
+// GetWatchedSources returns the list of currently watched sources.
 func (w *Watcher) GetWatchedSources() []string {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
@@ -243,7 +246,7 @@ func (w *Watcher) GetWatchedSources() []string {
 	return sources
 }
 
-// GetSourceStats returns statistics for a watched source
+// GetSourceStats returns statistics for a watched source.
 func (w *Watcher) GetSourceStats(sourceName string) (*WatchStats, error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
@@ -264,7 +267,7 @@ func (w *Watcher) GetSourceStats(sourceName string) (*WatchStats, error) {
 	}, nil
 }
 
-// GetAllStats returns statistics for all watched sources
+// GetAllStats returns statistics for all watched sources.
 func (w *Watcher) GetAllStats() map[string]*WatchStats {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
@@ -285,16 +288,20 @@ func (w *Watcher) GetAllStats() map[string]*WatchStats {
 	return stats
 }
 
-// watchSourceLoop is the main watching loop for a source
+// watchSourceLoop is the main watching loop for a source.
 func (w *Watcher) watchSourceLoop(ctx context.Context, source ConfigSource, callback WatchCallback, stopChan chan struct{}) {
 	sourceName := source.Name()
+
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	var lastData map[string]interface{}
-	var lastChecksum string
+	var (
+		lastData     map[string]interface{}
+		lastChecksum string
+	)
 
 	// Initial load
+
 	if data, err := source.Load(ctx); err == nil {
 		lastData = data
 		lastChecksum = w.calculateChecksum(data)
@@ -314,21 +321,24 @@ func (w *Watcher) watchSourceLoop(ctx context.Context, source ConfigSource, call
 	}
 }
 
-// checkForChanges checks for changes in a configuration source
+// checkForChanges checks for changes in a configuration source.
 func (w *Watcher) checkForChanges(ctx context.Context, source ConfigSource, lastData *map[string]interface{}, lastChecksum *string, callback WatchCallback) {
 	sourceName := source.Name()
 
 	// Update last check time
 	w.mu.Lock()
+
 	if watchCtx, exists := w.sources[sourceName]; exists {
 		watchCtx.LastCheck = time.Now()
 	}
+
 	w.mu.Unlock()
 
 	// Load current data
 	currentData, err := source.Load(ctx)
 	if err != nil {
 		w.handleWatchError(sourceName, err)
+
 		return
 	}
 
@@ -342,9 +352,11 @@ func (w *Watcher) checkForChanges(ctx context.Context, source ConfigSource, last
 
 		// Update change count
 		w.mu.Lock()
+
 		if watchCtx, exists := w.sources[sourceName]; exists {
 			watchCtx.ChangeCount++
 		}
+
 		w.mu.Unlock()
 
 		if w.metrics != nil {
@@ -357,7 +369,7 @@ func (w *Watcher) checkForChanges(ctx context.Context, source ConfigSource, last
 	*lastChecksum = currentChecksum
 }
 
-// handleChange handles a configuration change
+// handleChange handles a configuration change.
 func (w *Watcher) handleChange(sourceName string, oldData, newData map[string]interface{}, callback WatchCallback) {
 	if w.logger != nil {
 		w.logger.Info("configuration change detected",
@@ -398,13 +410,15 @@ func (w *Watcher) handleChange(sourceName string, oldData, newData map[string]in
 	w.notifyEventHandlers(sourceName, event)
 }
 
-// handleWatchError handles errors during watching
+// handleWatchError handles errors during watching.
 func (w *Watcher) handleWatchError(sourceName string, err error) {
 	// Update error count
 	w.mu.Lock()
+
 	if watchCtx, exists := w.sources[sourceName]; exists {
 		watchCtx.ErrorCount++
 	}
+
 	w.mu.Unlock()
 
 	if w.logger != nil {
@@ -415,7 +429,7 @@ func (w *Watcher) handleWatchError(sourceName string, err error) {
 	}
 
 	if w.errorHandler != nil {
-		w.errorHandler.HandleError(nil, ErrConfigError(fmt.Sprintf("watch error for source %s", sourceName), err))
+		w.errorHandler.HandleError(nil, ErrConfigError("watch error for source "+sourceName, err))
 	}
 
 	if w.metrics != nil {
@@ -434,7 +448,7 @@ func (w *Watcher) handleWatchError(sourceName string, err error) {
 	w.notifyEventHandlers(sourceName, event)
 }
 
-// RegisterEventHandler registers an event handler for a source
+// RegisterEventHandler registers an event handler for a source.
 func (w *Watcher) RegisterEventHandler(sourceName string, handler SourceEventHandler) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -442,6 +456,7 @@ func (w *Watcher) RegisterEventHandler(sourceName string, handler SourceEventHan
 	if w.callbacks[sourceName] == nil {
 		w.callbacks[sourceName] = make([]SourceEventHandler, 0)
 	}
+
 	w.callbacks[sourceName] = append(w.callbacks[sourceName], handler)
 
 	if w.logger != nil {
@@ -451,7 +466,7 @@ func (w *Watcher) RegisterEventHandler(sourceName string, handler SourceEventHan
 	}
 }
 
-// UnregisterEventHandler unregisters an event handler for a source
+// UnregisterEventHandler unregisters an event handler for a source.
 func (w *Watcher) UnregisterEventHandler(sourceName string, handler SourceEventHandler) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -460,6 +475,7 @@ func (w *Watcher) UnregisterEventHandler(sourceName string, handler SourceEventH
 	for i, h := range handlers {
 		if h == handler {
 			w.callbacks[sourceName] = append(handlers[:i], handlers[i+1:]...)
+
 			break
 		}
 	}
@@ -471,7 +487,7 @@ func (w *Watcher) UnregisterEventHandler(sourceName string, handler SourceEventH
 	}
 }
 
-// notifyEventHandlers notifies all registered event handlers
+// notifyEventHandlers notifies all registered event handlers.
 func (w *Watcher) notifyEventHandlers(sourceName string, event WatchEvent) {
 	w.mu.RLock()
 	handlers := w.callbacks[sourceName]
@@ -510,16 +526,17 @@ func (w *Watcher) notifyEventHandlers(sourceName string, event WatchEvent) {
 	}
 }
 
-// calculateChecksum calculates a simple checksum for configuration data
+// calculateChecksum calculates a simple checksum for configuration data.
 func (w *Watcher) calculateChecksum(data map[string]interface{}) string {
 	// Simple checksum based on string representation
 	// In production, you might want to use a proper hash function
 	return fmt.Sprintf("%x", fmt.Sprintf("%v", data))
 }
 
-// detectChanges detects specific changes between old and new configuration
+// detectChanges detects specific changes between old and new configuration.
 func (w *Watcher) detectChanges(oldData, newData map[string]interface{}) []ConfigChange {
 	var changes []ConfigChange
+
 	timestamp := time.Now()
 
 	// Check for added/modified keys
@@ -561,14 +578,14 @@ func (w *Watcher) detectChanges(oldData, newData map[string]interface{}) []Confi
 	return changes
 }
 
-// deepEqual compares two values for deep equality
+// deepEqual compares two values for deep equality.
 func (w *Watcher) deepEqual(a, b interface{}) bool {
 	// Simple deep equality check
 	// In production, you might want a more sophisticated comparison
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
-// WatchStats contains statistics about a watched source
+// WatchStats contains statistics about a watched source.
 type WatchStats struct {
 	SourceName  string        `json:"source_name"`
 	Active      bool          `json:"active"`
@@ -579,11 +596,12 @@ type WatchStats struct {
 	Uptime      time.Duration `json:"uptime"`
 }
 
-// DefaultChangeDetector is a simple implementation of ChangeDetector
+// DefaultChangeDetector is a simple implementation of ChangeDetector.
 type DefaultChangeDetector struct{}
 
 func (d *DefaultChangeDetector) DetectChanges(old, new map[string]interface{}) []ConfigChange {
 	var changes []ConfigChange
+
 	timestamp := time.Now()
 
 	// Check for added/modified keys
@@ -627,15 +645,16 @@ func (d *DefaultChangeDetector) CalculateChecksum(data map[string]interface{}) s
 	return fmt.Sprintf("%x", fmt.Sprintf("%v", data))
 }
 
-// DebounceWatcher wraps another watcher with debouncing functionality
+// DebounceWatcher wraps another watcher with debouncing functionality.
 type DebounceWatcher struct {
 	*Watcher
+
 	debounceTime time.Duration
 	timers       map[string]*time.Timer
 	mu           sync.Mutex
 }
 
-// NewDebounceWatcher creates a watcher with debouncing
+// NewDebounceWatcher creates a watcher with debouncing.
 func NewDebounceWatcher(config WatcherConfig, debounceTime time.Duration) *DebounceWatcher {
 	return &DebounceWatcher{
 		Watcher:      NewWatcher(config),
@@ -644,7 +663,7 @@ func NewDebounceWatcher(config WatcherConfig, debounceTime time.Duration) *Debou
 	}
 }
 
-// WatchSource starts watching with debouncing
+// WatchSource starts watching with debouncing.
 func (dw *DebounceWatcher) WatchSource(ctx context.Context, source ConfigSource, callback WatchCallback) error {
 	// Wrap the callback with debouncing
 	debouncedCallback := func(sourceName string, data map[string]interface{}) {
@@ -654,7 +673,7 @@ func (dw *DebounceWatcher) WatchSource(ctx context.Context, source ConfigSource,
 	return dw.Watcher.WatchSource(ctx, source, debouncedCallback)
 }
 
-// debounceCallback implements debouncing for configuration changes
+// debounceCallback implements debouncing for configuration changes.
 func (dw *DebounceWatcher) debounceCallback(sourceName string, data map[string]interface{}, callback WatchCallback) {
 	dw.mu.Lock()
 	defer dw.mu.Unlock()

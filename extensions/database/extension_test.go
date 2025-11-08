@@ -250,9 +250,11 @@ func TestSQLDatabase_Stats(t *testing.T) {
 	if stats.OpenConnections < 0 {
 		t.Error("open connections should be non-negative")
 	}
+
 	if stats.InUse < 0 {
 		t.Error("in use connections should be non-negative")
 	}
+
 	if stats.Idle < 0 {
 		t.Error("idle connections should be non-negative")
 	}

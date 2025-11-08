@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -34,7 +35,7 @@ type StreamBuilder struct {
 
 	// Prompt configuration
 	prompt       string
-	vars         map[string]interface{}
+	vars         map[string]any
 	systemPrompt string
 	messages     []llm.ChatMessage
 
@@ -60,12 +61,12 @@ type StreamBuilder struct {
 	onStart     func()
 	onToken     func(token string)
 	onReasoning func(reasoning string)
-	onToolCall  func(toolName string, args map[string]interface{})
+	onToolCall  func(toolName string, args map[string]any)
 	onComplete  func(StreamResult)
 	onError     func(error)
 }
 
-// StreamResult contains the complete result of a streaming operation
+// StreamResult contains the complete result of a streaming operation.
 type StreamResult struct {
 	// Content is the full generated text
 	Content string
@@ -80,20 +81,20 @@ type StreamResult struct {
 	Usage *Usage
 
 	// Metadata contains additional information
-	Metadata map[string]interface{}
+	Metadata map[string]any
 
 	// Duration is the total time taken
 	Duration time.Duration
 }
 
-// ToolCall represents a function/tool call made by the LLM
+// ToolCall represents a function/tool call made by the LLM.
 type ToolCall struct {
 	Name      string
-	Arguments map[string]interface{}
-	Result    interface{}
+	Arguments map[string]any
+	Result    any
 }
 
-// NewStreamBuilder creates a new builder for streaming operations
+// NewStreamBuilder creates a new builder for streaming operations.
 func NewStreamBuilder(
 	ctx context.Context,
 	llmManager LLMManager,
@@ -101,157 +102,178 @@ func NewStreamBuilder(
 	metrics forge.Metrics,
 ) *StreamBuilder {
 	return &StreamBuilder{
-		ctx:         ctx,
-		llmManager:  llmManager,
-		logger:      logger,
-		metrics:     metrics,
-		vars:        make(map[string]interface{}),
-		timeout:     60 * time.Second,
-		bufferSize:  100,
+		ctx:        ctx,
+		llmManager: llmManager,
+		logger:     logger,
+		metrics:    metrics,
+		vars:       make(map[string]any),
+		timeout:    60 * time.Second,
+		bufferSize: 100,
 	}
 }
 
-// WithProvider sets the LLM provider
+// WithProvider sets the LLM provider.
 func (b *StreamBuilder) WithProvider(provider string) *StreamBuilder {
 	b.provider = provider
+
 	return b
 }
 
-// WithModel sets the model to use
+// WithModel sets the model to use.
 func (b *StreamBuilder) WithModel(model string) *StreamBuilder {
 	b.model = model
+
 	return b
 }
 
-// WithPrompt sets the prompt template
+// WithPrompt sets the prompt template.
 func (b *StreamBuilder) WithPrompt(prompt string) *StreamBuilder {
 	b.prompt = prompt
+
 	return b
 }
 
-// WithVars sets multiple template variables
-func (b *StreamBuilder) WithVars(vars map[string]interface{}) *StreamBuilder {
-	for k, v := range vars {
-		b.vars[k] = v
-	}
+// WithVars sets multiple template variables.
+func (b *StreamBuilder) WithVars(vars map[string]any) *StreamBuilder {
+	maps.Copy(b.vars, vars)
+
 	return b
 }
 
-// WithVar sets a single template variable
-func (b *StreamBuilder) WithVar(key string, value interface{}) *StreamBuilder {
+// WithVar sets a single template variable.
+func (b *StreamBuilder) WithVar(key string, value any) *StreamBuilder {
 	b.vars[key] = value
+
 	return b
 }
 
-// WithSystemPrompt sets the system prompt
+// WithSystemPrompt sets the system prompt.
 func (b *StreamBuilder) WithSystemPrompt(prompt string) *StreamBuilder {
 	b.systemPrompt = prompt
+
 	return b
 }
 
-// WithMessages sets conversation history
+// WithMessages sets conversation history.
 func (b *StreamBuilder) WithMessages(messages []llm.ChatMessage) *StreamBuilder {
 	b.messages = messages
+
 	return b
 }
 
-// WithTemperature sets the temperature parameter
+// WithTemperature sets the temperature parameter.
 func (b *StreamBuilder) WithTemperature(temp float64) *StreamBuilder {
 	b.temperature = &temp
+
 	return b
 }
 
-// WithMaxTokens sets the maximum tokens to generate
+// WithMaxTokens sets the maximum tokens to generate.
 func (b *StreamBuilder) WithMaxTokens(tokens int) *StreamBuilder {
 	b.maxTokens = &tokens
+
 	return b
 }
 
-// WithTopP sets the top-p sampling parameter
+// WithTopP sets the top-p sampling parameter.
 func (b *StreamBuilder) WithTopP(topP float64) *StreamBuilder {
 	b.topP = &topP
+
 	return b
 }
 
-// WithTopK sets the top-k sampling parameter
+// WithTopK sets the top-k sampling parameter.
 func (b *StreamBuilder) WithTopK(topK int) *StreamBuilder {
 	b.topK = &topK
+
 	return b
 }
 
-// WithStop sets stop sequences
+// WithStop sets stop sequences.
 func (b *StreamBuilder) WithStop(sequences ...string) *StreamBuilder {
 	b.stop = sequences
+
 	return b
 }
 
-// WithTools sets available tools/functions
+// WithTools sets available tools/functions.
 func (b *StreamBuilder) WithTools(tools ...llm.Tool) *StreamBuilder {
 	b.tools = tools
+
 	return b
 }
 
-// WithToolChoice sets tool selection strategy
+// WithToolChoice sets tool selection strategy.
 func (b *StreamBuilder) WithToolChoice(choice string) *StreamBuilder {
 	b.toolChoice = choice
+
 	return b
 }
 
-// WithReasoning enables reasoning step extraction
+// WithReasoning enables reasoning step extraction.
 func (b *StreamBuilder) WithReasoning(enabled bool) *StreamBuilder {
 	b.includeReasoning = enabled
+
 	return b
 }
 
-// WithBufferSize sets the token buffer size
+// WithBufferSize sets the token buffer size.
 func (b *StreamBuilder) WithBufferSize(size int) *StreamBuilder {
 	b.bufferSize = size
+
 	return b
 }
 
-// WithTimeout sets the execution timeout
+// WithTimeout sets the execution timeout.
 func (b *StreamBuilder) WithTimeout(timeout time.Duration) *StreamBuilder {
 	b.timeout = timeout
+
 	return b
 }
 
-// OnStart registers a callback to run before streaming starts
+// OnStart registers a callback to run before streaming starts.
 func (b *StreamBuilder) OnStart(fn func()) *StreamBuilder {
 	b.onStart = fn
+
 	return b
 }
 
-// OnToken registers a callback for each generated token
+// OnToken registers a callback for each generated token.
 func (b *StreamBuilder) OnToken(fn func(token string)) *StreamBuilder {
 	b.onToken = fn
+
 	return b
 }
 
-// OnReasoning registers a callback for reasoning steps
+// OnReasoning registers a callback for reasoning steps.
 func (b *StreamBuilder) OnReasoning(fn func(reasoning string)) *StreamBuilder {
 	b.onReasoning = fn
+
 	return b
 }
 
-// OnToolCall registers a callback for tool invocations
-func (b *StreamBuilder) OnToolCall(fn func(toolName string, args map[string]interface{})) *StreamBuilder {
+// OnToolCall registers a callback for tool invocations.
+func (b *StreamBuilder) OnToolCall(fn func(toolName string, args map[string]any)) *StreamBuilder {
 	b.onToolCall = fn
+
 	return b
 }
 
-// OnComplete registers a callback to run after streaming completes
+// OnComplete registers a callback to run after streaming completes.
 func (b *StreamBuilder) OnComplete(fn func(StreamResult)) *StreamBuilder {
 	b.onComplete = fn
+
 	return b
 }
 
-// OnError registers a callback to run on error
+// OnError registers a callback to run on error.
 func (b *StreamBuilder) OnError(fn func(error)) *StreamBuilder {
 	b.onError = fn
+
 	return b
 }
 
-// Stream executes the streaming generation
+// Stream executes the streaming generation.
 func (b *StreamBuilder) Stream() (*StreamResult, error) {
 	startTime := time.Now()
 
@@ -270,9 +292,11 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		if b.metrics != nil {
 			b.metrics.Counter("forge.ai.sdk.stream.errors", "error", "prompt_render").Inc()
 		}
+
 		return nil, fmt.Errorf("prompt rendering failed: %w", err)
 	}
 
@@ -299,18 +323,23 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 	if b.temperature != nil {
 		request.Temperature = b.temperature
 	}
+
 	if b.maxTokens != nil {
 		request.MaxTokens = b.maxTokens
 	}
+
 	if b.topP != nil {
 		request.TopP = b.topP
 	}
+
 	if b.topK != nil {
 		request.TopK = b.topK
 	}
+
 	if len(b.stop) > 0 {
 		request.Stop = b.stop
 	}
+
 	if len(b.tools) > 0 {
 		request.Tools = b.tools
 		if b.toolChoice != "" {
@@ -322,11 +351,14 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 	result := &StreamResult{
 		ReasoningSteps: make([]string, 0),
 		ToolCalls:      make([]ToolCall, 0),
-		Metadata:       make(map[string]interface{}),
+		Metadata:       make(map[string]any),
 	}
 
-	var fullContent strings.Builder
-	var currentReasoning strings.Builder
+	var (
+		fullContent      strings.Builder
+		currentReasoning strings.Builder
+	)
+
 	inReasoningBlock := false
 
 	// Define stream handler
@@ -344,6 +376,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 			if b.includeReasoning {
 				if strings.Contains(token, "<thinking>") || strings.Contains(token, "[REASONING]") {
 					inReasoningBlock = true
+
 					currentReasoning.Reset()
 				}
 
@@ -367,16 +400,19 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 								b.onReasoning(reasoning)
 							}
 						}
+
 						currentReasoning.Reset()
 					}
 				} else {
 					fullContent.WriteString(token)
+
 					if b.onToken != nil {
 						b.onToken(token)
 					}
 				}
 			} else {
 				fullContent.WriteString(token)
+
 				if b.onToken != nil {
 					b.onToken(token)
 				}
@@ -388,7 +424,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 			for _, tc := range event.Choices[0].Message.ToolCalls {
 				toolCall := ToolCall{
 					Name:      tc.Function.Name,
-					Arguments: make(map[string]interface{}),
+					Arguments: make(map[string]any),
 				}
 
 				// Parse arguments (simplified - in production would use proper JSON parsing)
@@ -422,9 +458,11 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		if b.metrics != nil {
 			b.metrics.Counter("forge.ai.sdk.stream.errors", "error", "llm_request").Inc()
 		}
+
 		return nil, fmt.Errorf("LLM request failed: %w", err)
 	}
 
@@ -455,6 +493,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 		if result.Usage != nil {
 			totalTokens = result.Usage.InputTokens + result.Usage.OutputTokens
 		}
+
 		b.logger.Info("Streaming generation completed",
 			F("tokens", totalTokens),
 			F("duration", result.Duration),
@@ -466,6 +505,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 	if b.metrics != nil {
 		b.metrics.Counter("forge.ai.sdk.stream.success").Inc()
 		b.metrics.Histogram("forge.ai.sdk.stream.duration").Observe(result.Duration.Seconds())
+
 		if result.Usage != nil {
 			totalTokens := result.Usage.InputTokens + result.Usage.OutputTokens
 			b.metrics.Histogram("forge.ai.sdk.stream.tokens").Observe(float64(totalTokens))
@@ -482,7 +522,7 @@ func (b *StreamBuilder) Stream() (*StreamResult, error) {
 	return result, nil
 }
 
-// renderPrompt renders the prompt template with variables
+// renderPrompt renders the prompt template with variables.
 func (b *StreamBuilder) renderPrompt() (string, error) {
 	if len(b.vars) == 0 {
 		return b.prompt, nil
@@ -497,7 +537,7 @@ func (b *StreamBuilder) renderPrompt() (string, error) {
 	return result, nil
 }
 
-// buildMessages constructs the message array for the LLM request
+// buildMessages constructs the message array for the LLM request.
 func (b *StreamBuilder) buildMessages(prompt string) []llm.ChatMessage {
 	messages := make([]llm.ChatMessage, 0)
 
@@ -524,4 +564,3 @@ func (b *StreamBuilder) buildMessages(prompt string) []llm.ChatMessage {
 
 	return messages
 }
-

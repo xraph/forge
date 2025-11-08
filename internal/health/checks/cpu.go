@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -13,9 +14,10 @@ import (
 	health "github.com/xraph/forge/internal/health/internal"
 )
 
-// CPUHealthCheck performs health checks on CPU usage
+// CPUHealthCheck performs health checks on CPU usage.
 type CPUHealthCheck struct {
 	*health.BaseHealthCheck
+
 	warningThreshold  float64 // Percentage (0-100)
 	criticalThreshold float64 // Percentage (0-100)
 	loadAvgThreshold  float64 // Load average threshold
@@ -26,7 +28,7 @@ type CPUHealthCheck struct {
 	mu                sync.RWMutex
 }
 
-// CPUHealthCheckConfig contains configuration for CPU health checks
+// CPUHealthCheckConfig contains configuration for CPU health checks.
 type CPUHealthCheckConfig struct {
 	Name              string
 	WarningThreshold  float64 // Percentage (0-100)
@@ -41,7 +43,7 @@ type CPUHealthCheckConfig struct {
 	Tags              map[string]string
 }
 
-// NewCPUHealthCheck creates a new CPU health check
+// NewCPUHealthCheck creates a new CPU health check.
 func NewCPUHealthCheck(config *CPUHealthCheckConfig) *CPUHealthCheck {
 	if config == nil {
 		config = &CPUHealthCheckConfig{}
@@ -100,7 +102,7 @@ func NewCPUHealthCheck(config *CPUHealthCheckConfig) *CPUHealthCheck {
 	}
 }
 
-// Check performs the CPU health check
+// Check performs the CPU health check.
 func (chc *CPUHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -157,10 +159,11 @@ func (chc *CPUHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// getCPUUsage calculates CPU usage percentage
+// getCPUUsage calculates CPU usage percentage.
 func (chc *CPUHealthCheck) getCPUUsage(ctx context.Context) (float64, error) {
 	chc.mu.RLock()
 	defer chc.mu.RUnlock()
@@ -169,12 +172,13 @@ func (chc *CPUHealthCheck) getCPUUsage(ctx context.Context) (float64, error) {
 	// In a real implementation, you would read from /proc/stat or use a system library
 
 	var totalUsage float64
+
 	samples := chc.samples
 	if samples <= 0 {
 		samples = 1
 	}
 
-	for i := 0; i < samples; i++ {
+	for i := range samples {
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
@@ -198,12 +202,11 @@ func (chc *CPUHealthCheck) getCPUUsage(ctx context.Context) (float64, error) {
 	return totalUsage / float64(samples), nil
 }
 
-// sampleCPUUsage samples CPU usage for a single measurement
+// sampleCPUUsage samples CPU usage for a single measurement.
 func (chc *CPUHealthCheck) sampleCPUUsage() float64 {
 	// This is a placeholder implementation
 	// In a real implementation, you would read from /proc/stat
 	// For now, we'll return a simulated value based on goroutine count
-
 	goroutines := runtime.NumGoroutine()
 	cpuCount := runtime.NumCPU()
 
@@ -216,8 +219,8 @@ func (chc *CPUHealthCheck) sampleCPUUsage() float64 {
 	return baseUsage
 }
 
-// getLoadAverage gets system load average
-func (chc *CPUHealthCheck) getLoadAverage() map[string]interface{} {
+// getLoadAverage gets system load average.
+func (chc *CPUHealthCheck) getLoadAverage() map[string]any {
 	// Try to read from /proc/loadavg on Linux
 	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
 		fields := strings.Fields(string(data))
@@ -226,7 +229,7 @@ func (chc *CPUHealthCheck) getLoadAverage() map[string]interface{} {
 			load5, _ := strconv.ParseFloat(fields[1], 64)
 			load15, _ := strconv.ParseFloat(fields[2], 64)
 
-			return map[string]interface{}{
+			return map[string]any{
 				"load_1m":        load1,
 				"load_5m":        load5,
 				"load_15m":       load15,
@@ -236,7 +239,7 @@ func (chc *CPUHealthCheck) getLoadAverage() map[string]interface{} {
 	}
 
 	// Fallback: simulate load average
-	return map[string]interface{}{
+	return map[string]any{
 		"load_1m":        0.5,
 		"load_5m":        0.3,
 		"load_15m":       0.2,
@@ -245,9 +248,9 @@ func (chc *CPUHealthCheck) getLoadAverage() map[string]interface{} {
 	}
 }
 
-// getCPUInfo gets CPU information
-func (chc *CPUHealthCheck) getCPUInfo() map[string]interface{} {
-	return map[string]interface{}{
+// getCPUInfo gets CPU information.
+func (chc *CPUHealthCheck) getCPUInfo() map[string]any {
+	return map[string]any{
 		"cpu_count":    runtime.NumCPU(),
 		"gomaxprocs":   runtime.GOMAXPROCS(0),
 		"architecture": runtime.GOARCH,
@@ -255,16 +258,17 @@ func (chc *CPUHealthCheck) getCPUInfo() map[string]interface{} {
 	}
 }
 
-// CPULoadHealthCheck performs health checks on CPU load
+// CPULoadHealthCheck performs health checks on CPU load.
 type CPULoadHealthCheck struct {
 	*health.BaseHealthCheck
+
 	load1Threshold  float64
 	load5Threshold  float64
 	load15Threshold float64
 	cpuCount        int
 }
 
-// NewCPULoadHealthCheck creates a new CPU load health check
+// NewCPULoadHealthCheck creates a new CPU load health check.
 func NewCPULoadHealthCheck(config *CPUHealthCheckConfig) *CPULoadHealthCheck {
 	if config == nil {
 		config = &CPUHealthCheckConfig{}
@@ -298,7 +302,7 @@ func NewCPULoadHealthCheck(config *CPUHealthCheckConfig) *CPULoadHealthCheck {
 	}
 }
 
-// Check performs the CPU load health check
+// Check performs the CPU load health check.
 func (clhc *CPULoadHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -318,14 +322,17 @@ func (clhc *CPULoadHealthCheck) Check(ctx context.Context) *health.HealthResult 
 		WithDetail("load15_threshold", clhc.load15Threshold)
 
 	// Check thresholds
-	var warnings []string
-	var critical bool
+	var (
+		warnings []string
+		critical bool
+	)
 
 	if load1, ok := loadStats["load_1m"].(float64); ok {
 		if load1 > clhc.load1Threshold {
 			if load1 > clhc.load1Threshold*1.5 {
 				critical = true
 			}
+
 			warnings = append(warnings, fmt.Sprintf("1m load %.2f exceeds threshold %.2f", load1, clhc.load1Threshold))
 		}
 	}
@@ -343,7 +350,7 @@ func (clhc *CPULoadHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	}
 
 	if critical {
-		result = result.WithError(fmt.Errorf("CPU load is critically high")).
+		result = result.WithError(errors.New("CPU load is critically high")).
 			WithDetail("warnings", warnings)
 	} else if len(warnings) > 0 {
 		result.Status = health.HealthStatusDegraded
@@ -352,11 +359,12 @@ func (clhc *CPULoadHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// getLoadAverage gets system load average
-func (clhc *CPULoadHealthCheck) getLoadAverage() map[string]interface{} {
+// getLoadAverage gets system load average.
+func (clhc *CPULoadHealthCheck) getLoadAverage() map[string]any {
 	// Try to read from /proc/loadavg on Linux
 	if data, err := os.ReadFile("/proc/loadavg"); err == nil {
 		fields := strings.Fields(string(data))
@@ -365,7 +373,7 @@ func (clhc *CPULoadHealthCheck) getLoadAverage() map[string]interface{} {
 			load5, _ := strconv.ParseFloat(fields[1], 64)
 			load15, _ := strconv.ParseFloat(fields[2], 64)
 
-			return map[string]interface{}{
+			return map[string]any{
 				"load_1m":  load1,
 				"load_5m":  load5,
 				"load_15m": load15,
@@ -374,7 +382,7 @@ func (clhc *CPULoadHealthCheck) getLoadAverage() map[string]interface{} {
 	}
 
 	// Fallback: simulate load average
-	return map[string]interface{}{
+	return map[string]any{
 		"load_1m":   0.5,
 		"load_5m":   0.3,
 		"load_15m":  0.2,
@@ -382,14 +390,15 @@ func (clhc *CPULoadHealthCheck) getLoadAverage() map[string]interface{} {
 	}
 }
 
-// CPUContextSwitchHealthCheck performs health checks on CPU context switches
+// CPUContextSwitchHealthCheck performs health checks on CPU context switches.
 type CPUContextSwitchHealthCheck struct {
 	*health.BaseHealthCheck
+
 	contextSwitchThreshold uint64
 	interruptThreshold     uint64
 }
 
-// NewCPUContextSwitchHealthCheck creates a new CPU context switch health check
+// NewCPUContextSwitchHealthCheck creates a new CPU context switch health check.
 func NewCPUContextSwitchHealthCheck(config *CPUHealthCheckConfig) *CPUContextSwitchHealthCheck {
 	if config == nil {
 		config = &CPUHealthCheckConfig{}
@@ -419,7 +428,7 @@ func NewCPUContextSwitchHealthCheck(config *CPUHealthCheckConfig) *CPUContextSwi
 	}
 }
 
-// Check performs the CPU context switch health check
+// Check performs the CPU context switch health check.
 func (ccshc *CPUContextSwitchHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -458,15 +467,16 @@ func (ccshc *CPUContextSwitchHealthCheck) Check(ctx context.Context) *health.Hea
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// getContextSwitchStats gets context switch and interrupt statistics
-func (ccshc *CPUContextSwitchHealthCheck) getContextSwitchStats() map[string]interface{} {
+// getContextSwitchStats gets context switch and interrupt statistics.
+func (ccshc *CPUContextSwitchHealthCheck) getContextSwitchStats() map[string]any {
 	// Try to read from /proc/stat on Linux
 	if data, err := os.ReadFile("/proc/stat"); err == nil {
 		lines := strings.Split(string(data), "\n")
-		stats := make(map[string]interface{})
+		stats := make(map[string]any)
 
 		for _, line := range lines {
 			fields := strings.Fields(line)
@@ -490,7 +500,7 @@ func (ccshc *CPUContextSwitchHealthCheck) getContextSwitchStats() map[string]int
 	}
 
 	// Fallback: simulate context switch stats
-	return map[string]interface{}{
+	return map[string]any{
 		"context_switches_total":   uint64(1000000),
 		"context_switches_per_sec": uint64(50000),
 		"interrupts_total":         uint64(500000),
@@ -499,13 +509,14 @@ func (ccshc *CPUContextSwitchHealthCheck) getContextSwitchStats() map[string]int
 	}
 }
 
-// CPUThrottlingHealthCheck performs health checks on CPU throttling
+// CPUThrottlingHealthCheck performs health checks on CPU throttling.
 type CPUThrottlingHealthCheck struct {
 	*health.BaseHealthCheck
+
 	throttlingThreshold float64
 }
 
-// NewCPUThrottlingHealthCheck creates a new CPU throttling health check
+// NewCPUThrottlingHealthCheck creates a new CPU throttling health check.
 func NewCPUThrottlingHealthCheck(config *CPUHealthCheckConfig) *CPUThrottlingHealthCheck {
 	if config == nil {
 		config = &CPUHealthCheckConfig{}
@@ -534,7 +545,7 @@ func NewCPUThrottlingHealthCheck(config *CPUHealthCheckConfig) *CPUThrottlingHea
 	}
 }
 
-// Check performs the CPU throttling health check
+// Check performs the CPU throttling health check.
 func (cthc *CPUThrottlingHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -560,14 +571,15 @@ func (cthc *CPUThrottlingHealthCheck) Check(ctx context.Context) *health.HealthR
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// getThrottlingStats gets CPU throttling statistics
-func (cthc *CPUThrottlingHealthCheck) getThrottlingStats() map[string]interface{} {
+// getThrottlingStats gets CPU throttling statistics.
+func (cthc *CPUThrottlingHealthCheck) getThrottlingStats() map[string]any {
 	// In a real implementation, this would read from cgroup or thermal files
 	// For now, return simulated data
-	return map[string]interface{}{
+	return map[string]any{
 		"throttling_percent":    2.5,
 		"thermal_throttling":    false,
 		"power_throttling":      false,
@@ -578,7 +590,7 @@ func (cthc *CPUThrottlingHealthCheck) getThrottlingStats() map[string]interface{
 	}
 }
 
-// RegisterCPUHealthChecks registers CPU health checks with the health service
+// RegisterCPUHealthChecks registers CPU health checks with the health service.
 func RegisterCPUHealthChecks(healthService health.HealthService) error {
 	// Register main CPU health check
 	cpuCheck := NewCPUHealthCheck(&CPUHealthCheckConfig{
@@ -629,13 +641,14 @@ func RegisterCPUHealthChecks(healthService health.HealthService) error {
 	return nil
 }
 
-// CPUHealthCheckComposite combines multiple CPU health checks
+// CPUHealthCheckComposite combines multiple CPU health checks.
 type CPUHealthCheckComposite struct {
 	*health.CompositeHealthCheck
+
 	cpuChecks []health.HealthCheck
 }
 
-// NewCPUHealthCheckComposite creates a composite CPU health check
+// NewCPUHealthCheckComposite creates a composite CPU health check.
 func NewCPUHealthCheckComposite(name string, checks ...health.HealthCheck) *CPUHealthCheckComposite {
 	config := &health.HealthCheckConfig{
 		Name:     name,
@@ -651,18 +664,18 @@ func NewCPUHealthCheckComposite(name string, checks ...health.HealthCheck) *CPUH
 	}
 }
 
-// GetCPUChecks returns the individual CPU checks
+// GetCPUChecks returns the individual CPU checks.
 func (chcc *CPUHealthCheckComposite) GetCPUChecks() []health.HealthCheck {
 	return chcc.cpuChecks
 }
 
-// AddCPUCheck adds a CPU check to the composite
+// AddCPUCheck adds a CPU check to the composite.
 func (chcc *CPUHealthCheckComposite) AddCPUCheck(check health.HealthCheck) {
 	chcc.cpuChecks = append(chcc.cpuChecks, check)
-	chcc.CompositeHealthCheck.AddCheck(check)
+	chcc.AddCheck(check)
 }
 
-// CreateCPUHealthCheckComposite creates a composite CPU health check with all sub-checks
+// CreateCPUHealthCheckComposite creates a composite CPU health check with all sub-checks.
 func CreateCPUHealthCheckComposite() *CPUHealthCheckComposite {
 	cpuCheck := NewCPUHealthCheck(&CPUHealthCheckConfig{
 		Name:              "cpu",

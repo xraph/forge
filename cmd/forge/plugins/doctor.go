@@ -2,7 +2,6 @@
 package plugins
 
 import (
-	"fmt"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -11,12 +10,12 @@ import (
 	"github.com/xraph/forge/cmd/forge/config"
 )
 
-// DoctorPlugin provides system diagnostics
+// DoctorPlugin provides system diagnostics.
 type DoctorPlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewDoctorPlugin creates a new doctor plugin
+// NewDoctorPlugin creates a new doctor plugin.
 func NewDoctorPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &DoctorPlugin{config: cfg}
 }
@@ -47,9 +46,9 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 
 	// System checks
 	ctx.Info("System Information:")
-	ctx.Println(fmt.Sprintf("  OS: %s", runtime.GOOS))
-	ctx.Println(fmt.Sprintf("  Arch: %s", runtime.GOARCH))
-	ctx.Println(fmt.Sprintf("  Go Version: %s", runtime.Version()))
+	ctx.Println("  OS: " + runtime.GOOS)
+	ctx.Println("  Arch: " + runtime.GOARCH)
+	ctx.Println("  Go Version: " + runtime.Version())
 	ctx.Println("")
 
 	// Environment checks
@@ -103,10 +102,10 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 	// Project checks
 	if p.config != nil {
 		ctx.Info("Project Configuration:")
-		ctx.Println(fmt.Sprintf("  Name: %s", p.config.Project.Name))
-		ctx.Println(fmt.Sprintf("  Layout: %s", p.config.Project.Layout))
-		ctx.Println(fmt.Sprintf("  Type: %s", p.config.Project.Type))
-		ctx.Println(fmt.Sprintf("  Config: %s", p.config.ConfigPath))
+		ctx.Println("  Name: " + p.config.Project.Name)
+		ctx.Println("  Layout: " + p.config.Project.Layout)
+		ctx.Println("  Type: " + p.config.Project.Type)
+		ctx.Println("  Config: " + p.config.ConfigPath)
 		ctx.Println("")
 
 		// Check project structure
@@ -136,6 +135,7 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 
 	// Summary
 	ctx.Info("Summary:")
+
 	if goOk {
 		ctx.Println(cli.Green("  ✓ Your system is ready for Forge development!"))
 	} else {
@@ -148,6 +148,7 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 
 	ctx.Println("")
 	ctx.Info("Next Steps:")
+
 	if p.config == nil {
 		ctx.Println("  1. Run: forge init")
 		ctx.Println("  2. Run: forge generate:app --name=my-app")
@@ -163,51 +164,62 @@ func (p *DoctorPlugin) runDoctor(ctx cli.CommandContext) error {
 
 func (p *DoctorPlugin) checkGo() (string, bool) {
 	cmd := exec.Command("go", "version")
+
 	output, err := cmd.Output()
 	if err != nil {
 		return "", false
 	}
+
 	return strings.TrimSpace(string(output)), true
 }
 
 func (p *DoctorPlugin) checkGit() (string, bool) {
 	cmd := exec.Command("git", "--version")
+
 	output, err := cmd.Output()
 	if err != nil {
 		return "", false
 	}
+
 	return strings.TrimSpace(string(output)), true
 }
 
 func (p *DoctorPlugin) checkDocker() (string, bool) {
 	cmd := exec.Command("docker", "--version")
+
 	output, err := cmd.Output()
 	if err != nil {
 		return "", false
 	}
+
 	return strings.TrimSpace(string(output)), true
 }
 
 func (p *DoctorPlugin) checkDockerCompose() (string, bool) {
 	cmd := exec.Command("docker", "compose", "version")
+
 	output, err := cmd.Output()
 	if err != nil {
 		// Try old docker-compose
 		cmd = exec.Command("docker-compose", "--version")
+
 		output, err = cmd.Output()
 		if err != nil {
 			return "", false
 		}
 	}
+
 	return strings.TrimSpace(string(output)), true
 }
 
 func (p *DoctorPlugin) checkKubectl() (string, bool) {
 	cmd := exec.Command("kubectl", "version", "--client", "--short")
+
 	output, err := cmd.Output()
 	if err != nil {
 		return "", false
 	}
+
 	return strings.TrimSpace(string(output)), true
 }
 
@@ -222,5 +234,6 @@ func (p *DoctorPlugin) checkDirectory(table cli.TableWriter, name, path string) 
 
 func (p *DoctorPlugin) directoryExists(path string) bool {
 	cmd := exec.Command("test", "-d", path)
+
 	return cmd.Run() == nil
 }

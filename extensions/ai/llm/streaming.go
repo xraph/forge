@@ -6,13 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
-// StreamingClient handles streaming responses from LLM providers
+// StreamingClient handles streaming responses from LLM providers.
 type StreamingClient struct {
 	client   *http.Client
 	buffers  map[string]*StreamBuffer
@@ -20,25 +23,25 @@ type StreamingClient struct {
 	mu       sync.RWMutex
 }
 
-// StreamHandler handles streaming events
+// StreamHandler handles streaming events.
 type StreamHandler interface {
 	OnData(event StreamEvent) error
 	OnError(err error)
 	OnComplete()
 }
 
-// StreamEvent represents a streaming event
+// StreamEvent represents a streaming event.
 type StreamEvent struct {
-	Type      string                 `json:"type"` // chat, completion, embedding, error, done
-	ID        string                 `json:"id"`
-	Timestamp time.Time              `json:"timestamp"`
-	Data      interface{}            `json:"data"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	RequestID string                 `json:"request_id"`
-	Provider  string                 `json:"provider"`
+	Type      string         `json:"type"` // chat, completion, embedding, error, done
+	ID        string         `json:"id"`
+	Timestamp time.Time      `json:"timestamp"`
+	Data      any            `json:"data"`
+	Metadata  map[string]any `json:"metadata"`
+	RequestID string         `json:"request_id"`
+	Provider  string         `json:"provider"`
 }
 
-// StreamBuffer buffers streaming data
+// StreamBuffer buffers streaming data.
 type StreamBuffer struct {
 	data      []byte
 	events    []StreamEvent
@@ -47,19 +50,21 @@ type StreamBuffer struct {
 	mu        sync.RWMutex
 }
 
-// ChatStreamClient handles chat streaming
+// ChatStreamClient handles chat streaming.
 type ChatStreamClient struct {
 	*StreamingClient
+
 	session *ChatSession
 }
 
-// CompletionStreamClient handles completion streaming
+// CompletionStreamClient handles completion streaming.
 type CompletionStreamClient struct {
 	*StreamingClient
+
 	currentText strings.Builder
 }
 
-// NewStreamingClient creates a new streaming client
+// NewStreamingClient creates a new streaming client.
 func NewStreamingClient() *StreamingClient {
 	return &StreamingClient{
 		client: &http.Client{
@@ -70,7 +75,7 @@ func NewStreamingClient() *StreamingClient {
 	}
 }
 
-// NewChatStreamClient creates a new chat streaming client
+// NewChatStreamClient creates a new chat streaming client.
 func NewChatStreamClient(session *ChatSession) *ChatStreamClient {
 	return &ChatStreamClient{
 		StreamingClient: NewStreamingClient(),
@@ -78,7 +83,7 @@ func NewChatStreamClient(session *ChatSession) *ChatStreamClient {
 	}
 }
 
-// NewCompletionStreamClient creates a new completion streaming client
+// NewCompletionStreamClient creates a new completion streaming client.
 func NewCompletionStreamClient() *CompletionStreamClient {
 	return &CompletionStreamClient{
 		StreamingClient: NewStreamingClient(),
@@ -86,23 +91,26 @@ func NewCompletionStreamClient() *CompletionStreamClient {
 	}
 }
 
-// RegisterHandler registers a stream handler
+// RegisterHandler registers a stream handler.
 func (sc *StreamingClient) RegisterHandler(id string, handler StreamHandler) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+
 	sc.handlers[id] = handler
 }
 
-// UnregisterHandler unregisters a stream handler
+// UnregisterHandler unregisters a stream handler.
 func (sc *StreamingClient) UnregisterHandler(id string) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+
 	delete(sc.handlers, id)
 }
 
-// StartStream starts a streaming request
+// StartStream starts a streaming request.
 func (sc *StreamingClient) StartStream(ctx context.Context, request *http.Request, requestID string) error {
 	sc.mu.Lock()
+
 	buffer := &StreamBuffer{
 		data:   make([]byte, 0),
 		events: make([]StreamEvent, 0),
@@ -113,6 +121,7 @@ func (sc *StreamingClient) StartStream(ctx context.Context, request *http.Reques
 	response, err := sc.client.Do(request.WithContext(ctx))
 	if err != nil {
 		sc.notifyError(requestID, err)
+
 		return err
 	}
 	defer response.Body.Close()
@@ -120,13 +129,14 @@ func (sc *StreamingClient) StartStream(ctx context.Context, request *http.Reques
 	if response.StatusCode != http.StatusOK {
 		err := fmt.Errorf("HTTP %d: %s", response.StatusCode, response.Status)
 		sc.notifyError(requestID, err)
+
 		return err
 	}
 
 	return sc.processStream(ctx, response.Body, requestID)
 }
 
-// processStream processes the streaming response
+// processStream processes the streaming response.
 func (sc *StreamingClient) processStream(ctx context.Context, reader io.Reader, requestID string) error {
 	scanner := bufio.NewScanner(reader)
 
@@ -143,17 +153,19 @@ func (sc *StreamingClient) processStream(ctx context.Context, reader io.Reader, 
 		}
 
 		// Handle Server-Sent Events format
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
+		if after, ok := strings.CutPrefix(line, "data: "); ok {
+			data := after
 
 			if data == "[DONE]" {
 				sc.notifyComplete(requestID)
+
 				break
 			}
 
 			event, err := sc.parseStreamData(data, requestID)
 			if err != nil {
 				sc.notifyError(requestID, err)
+
 				continue
 			}
 
@@ -164,15 +176,16 @@ func (sc *StreamingClient) processStream(ctx context.Context, reader io.Reader, 
 
 	if err := scanner.Err(); err != nil {
 		sc.notifyError(requestID, err)
+
 		return err
 	}
 
 	return nil
 }
 
-// parseStreamData parses streaming data into an event
+// parseStreamData parses streaming data into an event.
 func (sc *StreamingClient) parseStreamData(data, requestID string) (StreamEvent, error) {
-	var rawEvent map[string]interface{}
+	var rawEvent map[string]any
 	if err := json.Unmarshal([]byte(data), &rawEvent); err != nil {
 		return StreamEvent{}, fmt.Errorf("failed to parse stream data: %w", err)
 	}
@@ -180,14 +193,14 @@ func (sc *StreamingClient) parseStreamData(data, requestID string) (StreamEvent,
 	event := StreamEvent{
 		Timestamp: time.Now(),
 		RequestID: requestID,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	// Determine event type based on content
-	if choices, ok := rawEvent["choices"].([]interface{}); ok && len(choices) > 0 {
-		choice := choices[0].(map[string]interface{})
+	if choices, ok := rawEvent["choices"].([]any); ok && len(choices) > 0 {
+		choice := choices[0].(map[string]any)
 
-		if delta, ok := choice["delta"].(map[string]interface{}); ok {
+		if delta, ok := choice["delta"].(map[string]any); ok {
 			if content, ok := delta["content"].(string); ok {
 				event.Type = "chat"
 				event.Data = ChatStreamEvent{
@@ -225,9 +238,11 @@ func (sc *StreamingClient) parseStreamData(data, requestID string) (StreamEvent,
 	if id, ok := rawEvent["id"].(string); ok {
 		event.ID = id
 	}
+
 	if model, ok := rawEvent["model"].(string); ok {
 		event.Metadata["model"] = model
 	}
+
 	if created, ok := rawEvent["created"].(float64); ok {
 		event.Metadata["created"] = int64(created)
 	}
@@ -235,26 +250,29 @@ func (sc *StreamingClient) parseStreamData(data, requestID string) (StreamEvent,
 	return event, nil
 }
 
-// parseToolCalls parses tool calls from raw data
-func parseToolCalls(rawToolCalls interface{}) []ToolCall {
-	if toolCallsArray, ok := rawToolCalls.([]interface{}); ok {
+// parseToolCalls parses tool calls from raw data.
+func parseToolCalls(rawToolCalls any) []ToolCall {
+	if toolCallsArray, ok := rawToolCalls.([]any); ok {
 		toolCalls := make([]ToolCall, 0, len(toolCallsArray))
 
 		for _, rawToolCall := range toolCallsArray {
-			if toolCallMap, ok := rawToolCall.(map[string]interface{}); ok {
+			if toolCallMap, ok := rawToolCall.(map[string]any); ok {
 				toolCall := ToolCall{}
 
 				if id, ok := toolCallMap["id"].(string); ok {
 					toolCall.ID = id
 				}
+
 				if tcType, ok := toolCallMap["type"].(string); ok {
 					toolCall.Type = tcType
 				}
-				if function, ok := toolCallMap["function"].(map[string]interface{}); ok {
+
+				if function, ok := toolCallMap["function"].(map[string]any); ok {
 					toolCall.Function = &FunctionCall{}
 					if name, ok := function["name"].(string); ok {
 						toolCall.Function.Name = name
 					}
+
 					if args, ok := function["arguments"].(string); ok {
 						toolCall.Function.Arguments = args
 					}
@@ -270,7 +288,7 @@ func parseToolCalls(rawToolCalls interface{}) []ToolCall {
 	return nil
 }
 
-// addEvent adds an event to the buffer
+// addEvent adds an event to the buffer.
 func (sc *StreamingClient) addEvent(requestID string, event StreamEvent) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
@@ -282,13 +300,13 @@ func (sc *StreamingClient) addEvent(requestID string, event StreamEvent) {
 	}
 }
 
-// notifyData notifies handlers of new data
+// notifyData notifies handlers of new data.
 func (sc *StreamingClient) notifyData(requestID string, event StreamEvent) {
 	sc.mu.RLock()
+
 	handlers := make(map[string]StreamHandler)
-	for id, handler := range sc.handlers {
-		handlers[id] = handler
-	}
+	maps.Copy(handlers, sc.handlers)
+
 	sc.mu.RUnlock()
 
 	for _, handler := range handlers {
@@ -298,21 +316,23 @@ func (sc *StreamingClient) notifyData(requestID string, event StreamEvent) {
 	}
 }
 
-// notifyError notifies handlers of errors
+// notifyError notifies handlers of errors.
 func (sc *StreamingClient) notifyError(requestID string, err error) {
 	sc.mu.Lock()
+
 	if buffer, exists := sc.buffers[requestID]; exists {
 		buffer.mu.Lock()
 		buffer.error = err
 		buffer.mu.Unlock()
 	}
+
 	sc.mu.Unlock()
 
 	sc.mu.RLock()
+
 	handlers := make(map[string]StreamHandler)
-	for id, handler := range sc.handlers {
-		handlers[id] = handler
-	}
+	maps.Copy(handlers, sc.handlers)
+
 	sc.mu.RUnlock()
 
 	for _, handler := range handlers {
@@ -320,21 +340,23 @@ func (sc *StreamingClient) notifyError(requestID string, err error) {
 	}
 }
 
-// notifyComplete notifies handlers of completion
+// notifyComplete notifies handlers of completion.
 func (sc *StreamingClient) notifyComplete(requestID string) {
 	sc.mu.Lock()
+
 	if buffer, exists := sc.buffers[requestID]; exists {
 		buffer.mu.Lock()
 		buffer.completed = true
 		buffer.mu.Unlock()
 	}
+
 	sc.mu.Unlock()
 
 	sc.mu.RLock()
+
 	handlers := make(map[string]StreamHandler)
-	for id, handler := range sc.handlers {
-		handlers[id] = handler
-	}
+	maps.Copy(handlers, sc.handlers)
+
 	sc.mu.RUnlock()
 
 	for _, handler := range handlers {
@@ -342,7 +364,7 @@ func (sc *StreamingClient) notifyComplete(requestID string) {
 	}
 }
 
-// GetEvents returns all events for a request
+// GetEvents returns all events for a request.
 func (sc *StreamingClient) GetEvents(requestID string) ([]StreamEvent, error) {
 	sc.mu.RLock()
 	buffer, exists := sc.buffers[requestID]
@@ -361,7 +383,7 @@ func (sc *StreamingClient) GetEvents(requestID string) ([]StreamEvent, error) {
 	return events, nil
 }
 
-// IsComplete checks if streaming is complete
+// IsComplete checks if streaming is complete.
 func (sc *StreamingClient) IsComplete(requestID string) bool {
 	sc.mu.RLock()
 	buffer, exists := sc.buffers[requestID]
@@ -377,7 +399,7 @@ func (sc *StreamingClient) IsComplete(requestID string) bool {
 	return buffer.completed
 }
 
-// GetError returns any error for a request
+// GetError returns any error for a request.
 func (sc *StreamingClient) GetError(requestID string) error {
 	sc.mu.RLock()
 	buffer, exists := sc.buffers[requestID]
@@ -393,14 +415,15 @@ func (sc *StreamingClient) GetError(requestID string) error {
 	return buffer.error
 }
 
-// CleanupBuffer removes a request buffer
+// CleanupBuffer removes a request buffer.
 func (sc *StreamingClient) CleanupBuffer(requestID string) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
+
 	delete(sc.buffers, requestID)
 }
 
-// StreamChatWithSession streams chat with session management
+// StreamChatWithSession streams chat with session management.
 func (csc *ChatStreamClient) StreamChatWithSession(ctx context.Context, message string, handler ChatStreamHandler) error {
 	// Add user message to session
 	csc.session.AddMessage(ChatMessage{
@@ -439,7 +462,7 @@ func (csc *ChatStreamClient) StreamChatWithSession(ctx context.Context, message 
 	return csc.StartStream(ctx, httpReq, requestID)
 }
 
-// StreamCompletion streams text completion
+// StreamCompletion streams text completion.
 func (csc *CompletionStreamClient) StreamCompletion(ctx context.Context, request CompletionRequest, handler CompletionStreamHandler) error {
 	request.Stream = true
 
@@ -466,18 +489,18 @@ func (csc *CompletionStreamClient) StreamCompletion(ctx context.Context, request
 	return csc.StartStream(ctx, httpReq, requestID)
 }
 
-// createHTTPRequest creates an HTTP request for streaming (placeholder implementation)
+// createHTTPRequest creates an HTTP request for streaming (placeholder implementation).
 func (csc *ChatStreamClient) createHTTPRequest(ctx context.Context, request ChatRequest) (*http.Request, error) {
 	// This would be implemented by specific providers (OpenAI, Anthropic, etc.)
-	return nil, fmt.Errorf("createHTTPRequest not implemented for chat")
+	return nil, errors.New("createHTTPRequest not implemented for chat")
 }
 
 func (csc *CompletionStreamClient) createHTTPRequest(ctx context.Context, request CompletionRequest) (*http.Request, error) {
 	// This would be implemented by specific providers (OpenAI, Anthropic, etc.)
-	return nil, fmt.Errorf("createHTTPRequest not implemented for completion")
+	return nil, errors.New("createHTTPRequest not implemented for completion")
 }
 
-// chatSessionHandler handles chat streaming with session management
+// chatSessionHandler handles chat streaming with session management.
 type chatSessionHandler struct {
 	originalHandler ChatStreamHandler
 	session         *ChatSession
@@ -495,6 +518,7 @@ func (h *chatSessionHandler) OnData(event StreamEvent) error {
 
 		return h.originalHandler(chatEvent)
 	}
+
 	return nil
 }
 
@@ -512,7 +536,7 @@ func (h *chatSessionHandler) OnComplete() {
 	}
 }
 
-// completionHandler handles completion streaming
+// completionHandler handles completion streaming.
 type completionHandler struct {
 	originalHandler CompletionStreamHandler
 	textBuilder     *strings.Builder
@@ -527,6 +551,7 @@ func (h *completionHandler) OnData(event StreamEvent) error {
 
 		return h.originalHandler(completionEvent)
 	}
+
 	return nil
 }
 
@@ -538,20 +563,20 @@ func (h *completionHandler) OnComplete() {
 	// Completion finished
 }
 
-// StreamingManager manages multiple streaming requests
+// StreamingManager manages multiple streaming requests.
 type StreamingManager struct {
 	clients map[string]*StreamingClient
 	mu      sync.RWMutex
 }
 
-// NewStreamingManager creates a new streaming manager
+// NewStreamingManager creates a new streaming manager.
 func NewStreamingManager() *StreamingManager {
 	return &StreamingManager{
 		clients: make(map[string]*StreamingClient),
 	}
 }
 
-// CreateChatStream creates a new chat streaming client
+// CreateChatStream creates a new chat streaming client.
 func (sm *StreamingManager) CreateChatStream(sessionID string, session *ChatSession) *ChatStreamClient {
 	client := NewChatStreamClient(session)
 
@@ -562,7 +587,7 @@ func (sm *StreamingManager) CreateChatStream(sessionID string, session *ChatSess
 	return client
 }
 
-// CreateCompletionStream creates a new completion streaming client
+// CreateCompletionStream creates a new completion streaming client.
 func (sm *StreamingManager) CreateCompletionStream(requestID string) *CompletionStreamClient {
 	client := NewCompletionStreamClient()
 
@@ -573,16 +598,17 @@ func (sm *StreamingManager) CreateCompletionStream(requestID string) *Completion
 	return client
 }
 
-// GetClient returns a streaming client by ID
+// GetClient returns a streaming client by ID.
 func (sm *StreamingManager) GetClient(id string) (*StreamingClient, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
 	client, exists := sm.clients[id]
+
 	return client, exists
 }
 
-// RemoveClient removes a streaming client
+// RemoveClient removes a streaming client.
 func (sm *StreamingManager) RemoveClient(id string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -590,7 +616,7 @@ func (sm *StreamingManager) RemoveClient(id string) {
 	delete(sm.clients, id)
 }
 
-// CleanupExpired removes expired streaming clients
+// CleanupExpired removes expired streaming clients.
 func (sm *StreamingManager) CleanupExpired(maxAge time.Duration) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -599,7 +625,7 @@ func (sm *StreamingManager) CleanupExpired(maxAge time.Duration) {
 	// For now, this is a placeholder
 }
 
-// GetActiveStreams returns the number of active streams
+// GetActiveStreams returns the number of active streams.
 func (sm *StreamingManager) GetActiveStreams() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

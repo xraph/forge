@@ -3,16 +3,18 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// AIMetricsCollector collects and analyzes AI system performance metrics
+// AIMetricsCollector collects and analyzes AI system performance metrics.
 type AIMetricsCollector struct {
 	aiManager        ai.AI
 	metricsCollector forge.Metrics
@@ -32,32 +34,32 @@ type AIMetricsCollector struct {
 	started bool
 }
 
-// AIMetricsConfig contains configuration for AI metrics collection
+// AIMetricsConfig contains configuration for AI metrics collection.
 type AIMetricsConfig struct {
-	CollectionInterval     time.Duration   `yaml:"collection_interval" default:"30s"`
-	RetentionPeriod        time.Duration   `yaml:"retention_period" default:"24h"`
-	HistoricalPoints       int             `yaml:"historical_points" default:"1000"`
-	EnablePredictive       bool            `yaml:"enable_predictive" default:"true"`
-	EnableAnomalyDetection bool            `yaml:"enable_anomaly_detection" default:"true"`
-	MetricsBatchSize       int             `yaml:"metrics_batch_size" default:"100"`
+	CollectionInterval     time.Duration   `default:"30s"           yaml:"collection_interval"`
+	RetentionPeriod        time.Duration   `default:"24h"           yaml:"retention_period"`
+	HistoricalPoints       int             `default:"1000"          yaml:"historical_points"`
+	EnablePredictive       bool            `default:"true"          yaml:"enable_predictive"`
+	EnableAnomalyDetection bool            `default:"true"          yaml:"enable_anomaly_detection"`
+	MetricsBatchSize       int             `default:"100"           yaml:"metrics_batch_size"`
 	AlertThresholds        AlertThresholds `yaml:"alert_thresholds"`
 }
 
-// AlertThresholds defines thresholds for metric-based alerting
+// AlertThresholds defines thresholds for metric-based alerting.
 type AlertThresholds struct {
-	ErrorRateWarning    float64       `yaml:"error_rate_warning" default:"0.05"`
-	ErrorRateCritical   float64       `yaml:"error_rate_critical" default:"0.15"`
-	LatencyWarning      time.Duration `yaml:"latency_warning" default:"1s"`
-	LatencyCritical     time.Duration `yaml:"latency_critical" default:"5s"`
-	ThroughputWarning   float64       `yaml:"throughput_warning" default:"100"`
-	ThroughputCritical  float64       `yaml:"throughput_critical" default:"50"`
-	CPUUsageWarning     float64       `yaml:"cpu_usage_warning" default:"80"`
-	CPUUsageCritical    float64       `yaml:"cpu_usage_critical" default:"95"`
-	MemoryUsageWarning  float64       `yaml:"memory_usage_warning" default:"85"`
-	MemoryUsageCritical float64       `yaml:"memory_usage_critical" default:"95"`
+	ErrorRateWarning    float64       `default:"0.05" yaml:"error_rate_warning"`
+	ErrorRateCritical   float64       `default:"0.15" yaml:"error_rate_critical"`
+	LatencyWarning      time.Duration `default:"1s"   yaml:"latency_warning"`
+	LatencyCritical     time.Duration `default:"5s"   yaml:"latency_critical"`
+	ThroughputWarning   float64       `default:"100"  yaml:"throughput_warning"`
+	ThroughputCritical  float64       `default:"50"   yaml:"throughput_critical"`
+	CPUUsageWarning     float64       `default:"80"   yaml:"cpu_usage_warning"`
+	CPUUsageCritical    float64       `default:"95"   yaml:"cpu_usage_critical"`
+	MemoryUsageWarning  float64       `default:"85"   yaml:"memory_usage_warning"`
+	MemoryUsageCritical float64       `default:"95"   yaml:"memory_usage_critical"`
 }
 
-// AgentMetrics contains performance metrics for an AI agent
+// AgentMetrics contains performance metrics for an AI agent.
 type AgentMetrics struct {
 	AgentID   string `json:"agent_id"`
 	AgentName string `json:"agent_name"`
@@ -106,7 +108,7 @@ type AgentMetrics struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
-// ModelMetrics contains performance metrics for ML models
+// ModelMetrics contains performance metrics for ML models.
 type ModelMetrics struct {
 	ModelID   string `json:"model_id"`
 	ModelName string `json:"model_name"`
@@ -139,7 +141,7 @@ type ModelMetrics struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
-// SystemMetrics contains system-wide AI performance metrics
+// SystemMetrics contains system-wide AI performance metrics.
 type SystemMetrics struct {
 	// Overall performance
 	TotalRequests     int64         `json:"total_requests"`
@@ -176,7 +178,7 @@ type SystemMetrics struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
-// HistoricalMetrics stores historical performance data for analysis
+// HistoricalMetrics stores historical performance data for analysis.
 type HistoricalMetrics struct {
 	DataPoints  []MetricDataPoint     `json:"data_points"`
 	Trends      map[string]Trend      `json:"trends"`
@@ -185,19 +187,19 @@ type HistoricalMetrics struct {
 	mu          sync.RWMutex
 }
 
-// MetricDataPoint represents a single point in time with multiple metrics
+// MetricDataPoint represents a single point in time with multiple metrics.
 type MetricDataPoint struct {
-	Timestamp      time.Time              `json:"timestamp"`
-	ErrorRate      float64                `json:"error_rate"`
-	AverageLatency float64                `json:"average_latency"`
-	Throughput     float64                `json:"throughput"`
-	CPUUsage       float64                `json:"cpu_usage"`
-	MemoryUsage    float64                `json:"memory_usage"`
-	ActiveAgents   int                    `json:"active_agents"`
-	Metadata       map[string]interface{} `json:"metadata"`
+	Timestamp      time.Time      `json:"timestamp"`
+	ErrorRate      float64        `json:"error_rate"`
+	AverageLatency float64        `json:"average_latency"`
+	Throughput     float64        `json:"throughput"`
+	CPUUsage       float64        `json:"cpu_usage"`
+	MemoryUsage    float64        `json:"memory_usage"`
+	ActiveAgents   int            `json:"active_agents"`
+	Metadata       map[string]any `json:"metadata"`
 }
 
-// Trend represents a trend in metric data
+// Trend represents a trend in metric data.
 type Trend struct {
 	MetricName string         `json:"metric_name"`
 	Direction  TrendDirection `json:"direction"`
@@ -208,7 +210,7 @@ type Trend struct {
 	DataPoints int            `json:"data_points"`
 }
 
-// TrendDirection represents the direction of a trend
+// TrendDirection represents the direction of a trend.
 type TrendDirection string
 
 const (
@@ -218,7 +220,7 @@ const (
 	TrendDirectionVolatile   TrendDirection = "volatile"
 )
 
-// Prediction represents a predicted future value
+// Prediction represents a predicted future value.
 type Prediction struct {
 	MetricName       string        `json:"metric_name"`
 	PredictedValue   float64       `json:"predicted_value"`
@@ -228,7 +230,7 @@ type Prediction struct {
 	CreatedAt        time.Time     `json:"created_at"`
 }
 
-// MetricAnomaly represents an anomaly detected in metrics
+// MetricAnomaly represents an anomaly detected in metrics.
 type MetricAnomaly struct {
 	ID            string          `json:"id"`
 	MetricName    string          `json:"metric_name"`
@@ -243,7 +245,7 @@ type MetricAnomaly struct {
 	ResolvedAt    *time.Time      `json:"resolved_at,omitempty"`
 }
 
-// AnomalyType defines types of anomalies
+// AnomalyType defines types of anomalies.
 type AnomalyType string
 
 const (
@@ -254,7 +256,7 @@ const (
 	AnomalyTypePattern     AnomalyType = "pattern"
 )
 
-// AnomalySeverity defines anomaly severity levels
+// AnomalySeverity defines anomaly severity levels.
 type AnomalySeverity string
 
 const (
@@ -264,7 +266,7 @@ const (
 	AnomalySeverityCritical AnomalySeverity = "critical"
 )
 
-// AIMetricsReport contains comprehensive AI metrics analysis
+// AIMetricsReport contains comprehensive AI metrics analysis.
 type AIMetricsReport struct {
 	SystemMetrics      *SystemMetrics              `json:"system_metrics"`
 	AgentMetrics       map[string]*AgentMetrics    `json:"agent_metrics"`
@@ -279,7 +281,7 @@ type AIMetricsReport struct {
 	ReportDuration     time.Duration               `json:"report_duration"`
 }
 
-// PerformanceSummary provides high-level performance insights
+// PerformanceSummary provides high-level performance insights.
 type PerformanceSummary struct {
 	OverallHealth     string            `json:"overall_health"`
 	PerformanceScore  float64           `json:"performance_score"`
@@ -291,7 +293,7 @@ type PerformanceSummary struct {
 	PerformanceTrends map[string]string `json:"performance_trends"`
 }
 
-// PerformanceRecommendation provides actionable performance recommendations
+// PerformanceRecommendation provides actionable performance recommendations.
 type PerformanceRecommendation struct {
 	ID                   string                 `json:"id"`
 	Category             string                 `json:"category"`
@@ -305,7 +307,7 @@ type PerformanceRecommendation struct {
 	Deadline             *time.Time             `json:"deadline,omitempty"`
 }
 
-// NewAIMetricsCollector creates a new AI metrics collector
+// NewAIMetricsCollector creates a new AI metrics collector.
 func NewAIMetricsCollector(aiManager ai.AI, metricsCollector forge.Metrics, logger forge.Logger, config AIMetricsConfig) *AIMetricsCollector {
 	return &AIMetricsCollector{
 		aiManager:        aiManager,
@@ -324,13 +326,13 @@ func NewAIMetricsCollector(aiManager ai.AI, metricsCollector forge.Metrics, logg
 	}
 }
 
-// Start begins metrics collection
+// Start begins metrics collection.
 func (c *AIMetricsCollector) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.started {
-		return fmt.Errorf("AI metrics collector already started")
+		return errors.New("AI metrics collector already started")
 	}
 
 	c.collectionTicker = time.NewTicker(c.config.CollectionInterval)
@@ -350,18 +352,19 @@ func (c *AIMetricsCollector) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops metrics collection
+// Stop stops metrics collection.
 func (c *AIMetricsCollector) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if !c.started {
-		return fmt.Errorf("AI metrics collector not started")
+		return errors.New("AI metrics collector not started")
 	}
 
 	if c.collectionTicker != nil {
 		c.collectionTicker.Stop()
 	}
+
 	c.started = false
 
 	if c.logger != nil {
@@ -371,7 +374,7 @@ func (c *AIMetricsCollector) Stop(ctx context.Context) error {
 	return nil
 }
 
-// GetMetricsReport returns comprehensive AI metrics report
+// GetMetricsReport returns comprehensive AI metrics report.
 func (c *AIMetricsCollector) GetMetricsReport(ctx context.Context) (*AIMetricsReport, error) {
 	startTime := time.Now()
 
@@ -426,7 +429,7 @@ func (c *AIMetricsCollector) GetMetricsReport(ctx context.Context) (*AIMetricsRe
 	return report, nil
 }
 
-// collectMetrics runs the periodic metrics collection
+// collectMetrics runs the periodic metrics collection.
 func (c *AIMetricsCollector) collectMetrics(ctx context.Context) {
 	defer c.collectionTicker.Stop()
 
@@ -443,7 +446,7 @@ func (c *AIMetricsCollector) collectMetrics(ctx context.Context) {
 	}
 }
 
-// collectCurrentMetrics collects current performance metrics
+// collectCurrentMetrics collects current performance metrics.
 func (c *AIMetricsCollector) collectCurrentMetrics() {
 	// Collect system-wide metrics
 	c.collectSystemMetrics()
@@ -455,7 +458,7 @@ func (c *AIMetricsCollector) collectCurrentMetrics() {
 	c.collectModelMetrics()
 }
 
-// collectSystemMetrics collects system-wide metrics
+// collectSystemMetrics collects system-wide metrics.
 func (c *AIMetricsCollector) collectSystemMetrics() {
 	stats := c.aiManager.GetStats()
 
@@ -484,6 +487,7 @@ func (c *AIMetricsCollector) collectSystemMetrics() {
 
 	// Capacity metrics
 	c.systemMetrics.CurrentCapacity = float64(getIntFromMap(stats, "ActiveAgents"))
+
 	c.systemMetrics.MaxCapacity = float64(getIntFromMap(stats, "TotalAgents"))
 	if c.systemMetrics.MaxCapacity > 0 {
 		c.systemMetrics.CapacityUtilization = c.systemMetrics.CurrentCapacity / c.systemMetrics.MaxCapacity
@@ -502,7 +506,7 @@ func (c *AIMetricsCollector) collectSystemMetrics() {
 	}
 }
 
-// collectAgentMetrics collects metrics for all agents
+// collectAgentMetrics collects metrics for all agents.
 func (c *AIMetricsCollector) collectAgentMetrics() {
 	agents := c.aiManager.GetAgents()
 
@@ -580,7 +584,7 @@ func (c *AIMetricsCollector) collectAgentMetrics() {
 	}
 }
 
-// collectModelMetrics collects metrics for all models
+// collectModelMetrics collects metrics for all models.
 func (c *AIMetricsCollector) collectModelMetrics() {
 	modelServer := c.aiManager.GetModelServer()
 	if modelServer == nil {
@@ -600,7 +604,7 @@ func (c *AIMetricsCollector) collectModelMetrics() {
 
 // Helper methods for metrics analysis
 
-// calculatePercentile calculates the percentile value from a slice of floats
+// calculatePercentile calculates the percentile value from a slice of floats.
 func (c *AIMetricsCollector) calculatePercentile(values []float64, percentile float64) float64 {
 	if len(values) == 0 {
 		return 0
@@ -611,8 +615,8 @@ func (c *AIMetricsCollector) calculatePercentile(values []float64, percentile fl
 	copy(sorted, values)
 
 	// Basic sorting for percentile calculation
-	for i := 0; i < len(sorted)-1; i++ {
-		for j := 0; j < len(sorted)-i-1; j++ {
+	for i := range len(sorted) - 1 {
+		for j := range len(sorted) - i - 1 {
 			if sorted[j] > sorted[j+1] {
 				sorted[j], sorted[j+1] = sorted[j+1], sorted[j]
 			}
@@ -626,10 +630,11 @@ func (c *AIMetricsCollector) calculatePercentile(values []float64, percentile fl
 
 	lower := sorted[int(index)]
 	upper := sorted[int(index)+1]
+
 	return lower + (upper-lower)*(index-float64(int(index)))
 }
 
-// updateHistoricalData updates the historical metrics data
+// updateHistoricalData updates the historical metrics data.
 func (c *AIMetricsCollector) updateHistoricalData() {
 	c.historicalData.mu.Lock()
 	defer c.historicalData.mu.Unlock()
@@ -642,7 +647,7 @@ func (c *AIMetricsCollector) updateHistoricalData() {
 		CPUUsage:       c.systemMetrics.SystemCPUUsage,
 		MemoryUsage:    c.systemMetrics.SystemMemoryUsage,
 		ActiveAgents:   c.systemMetrics.ActiveAgents,
-		Metadata:       make(map[string]interface{}),
+		Metadata:       make(map[string]any),
 	}
 
 	c.historicalData.DataPoints = append(c.historicalData.DataPoints, dataPoint)
@@ -655,7 +660,7 @@ func (c *AIMetricsCollector) updateHistoricalData() {
 
 // Additional methods for trend analysis, predictions, anomaly detection, etc. would be implemented here...
 
-// Placeholder methods for the report generation functionality
+// Placeholder methods for the report generation functionality.
 func (c *AIMetricsCollector) analyzeTrends() map[string]Trend {
 	// Implement trend analysis logic
 	return make(map[string]Trend)
@@ -697,22 +702,20 @@ func (c *AIMetricsCollector) generatePerformanceRecommendations() []PerformanceR
 	return make([]PerformanceRecommendation, 0)
 }
 
-// Helper methods for copying data structures to avoid race conditions
+// Helper methods for copying data structures to avoid race conditions.
 func (c *AIMetricsCollector) copyAgentMetrics() map[string]*AgentMetrics {
 	result := make(map[string]*AgentMetrics)
-	for k, v := range c.agentMetrics {
-		// Deep copy would be implemented here
-		result[k] = v
-	}
+	// Deep copy would be implemented here
+	maps.Copy(result, c.agentMetrics)
+
 	return result
 }
 
 func (c *AIMetricsCollector) copyModelMetrics() map[string]*ModelMetrics {
 	result := make(map[string]*ModelMetrics)
-	for k, v := range c.modelMetrics {
-		// Deep copy would be implemented here
-		result[k] = v
-	}
+	// Deep copy would be implemented here
+	maps.Copy(result, c.modelMetrics)
+
 	return result
 }
 
@@ -721,7 +724,7 @@ func (c *AIMetricsCollector) copyHistoricalData() *HistoricalMetrics {
 	return c.historicalData
 }
 
-// Additional helper methods
+// Additional helper methods.
 func (c *AIMetricsCollector) determineOverallHealth(score float64) string {
 	if score >= 0.8 {
 		return "excellent"
@@ -732,6 +735,7 @@ func (c *AIMetricsCollector) determineOverallHealth(score float64) string {
 	} else if score >= 0.2 {
 		return "poor"
 	}
+
 	return "critical"
 }
 

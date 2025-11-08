@@ -16,7 +16,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-// handleIndex serves the main dashboard HTML
+// handleIndex serves the main dashboard HTML.
 func (ds *DashboardServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -25,12 +25,13 @@ func (ds *DashboardServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(html))
 }
 
-// handleAPIOverview returns overview data as JSON
+// handleAPIOverview returns overview data as JSON.
 func (ds *DashboardServer) handleAPIOverview(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -38,12 +39,13 @@ func (ds *DashboardServer) handleAPIOverview(w http.ResponseWriter, r *http.Requ
 	ds.respondJSON(w, overview)
 }
 
-// handleAPIHealth returns health check data as JSON
+// handleAPIHealth returns health check data as JSON.
 func (ds *DashboardServer) handleAPIHealth(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -51,12 +53,13 @@ func (ds *DashboardServer) handleAPIHealth(w http.ResponseWriter, r *http.Reques
 	ds.respondJSON(w, health)
 }
 
-// handleAPIMetrics returns metrics data as JSON
+// handleAPIMetrics returns metrics data as JSON.
 func (ds *DashboardServer) handleAPIMetrics(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -64,12 +67,13 @@ func (ds *DashboardServer) handleAPIMetrics(w http.ResponseWriter, r *http.Reque
 	ds.respondJSON(w, metrics)
 }
 
-// handleAPIServices returns service list as JSON
+// handleAPIServices returns service list as JSON.
 func (ds *DashboardServer) handleAPIServices(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -77,12 +81,13 @@ func (ds *DashboardServer) handleAPIServices(w http.ResponseWriter, r *http.Requ
 	ds.respondJSON(w, services)
 }
 
-// handleAPIHistory returns historical data as JSON
+// handleAPIHistory returns historical data as JSON.
 func (ds *DashboardServer) handleAPIHistory(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -90,12 +95,13 @@ func (ds *DashboardServer) handleAPIHistory(w http.ResponseWriter, r *http.Reque
 	ds.respondJSON(w, history)
 }
 
-// handleAPIServiceDetail returns detailed information about a specific service
+// handleAPIServiceDetail returns detailed information about a specific service.
 func (ds *DashboardServer) handleAPIServiceDetail(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -103,6 +109,7 @@ func (ds *DashboardServer) handleAPIServiceDetail(w http.ResponseWriter, r *http
 	serviceName := r.URL.Query().Get("name")
 	if serviceName == "" {
 		ds.respondError(w, http.StatusBadRequest, "service name is required")
+
 		return
 	}
 
@@ -110,12 +117,13 @@ func (ds *DashboardServer) handleAPIServiceDetail(w http.ResponseWriter, r *http
 	ds.respondJSON(w, detail)
 }
 
-// handleAPIMetricsReport returns comprehensive metrics report
+// handleAPIMetricsReport returns comprehensive metrics report.
 func (ds *DashboardServer) handleAPIMetricsReport(w http.ResponseWriter, r *http.Request) {
 	ds.setCORSHeaders(w)
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
+
 		return
 	}
 
@@ -123,10 +131,11 @@ func (ds *DashboardServer) handleAPIMetricsReport(w http.ResponseWriter, r *http
 	ds.respondJSON(w, report)
 }
 
-// handleWebSocket handles WebSocket connections
+// handleWebSocket handles WebSocket connections.
 func (ds *DashboardServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if ds.hub == nil {
 		http.Error(w, "WebSocket not enabled", http.StatusServiceUnavailable)
+
 		return
 	}
 
@@ -135,6 +144,7 @@ func (ds *DashboardServer) handleWebSocket(w http.ResponseWriter, r *http.Reques
 		ds.logger.Error("websocket upgrade failed",
 			forge.F("error", err),
 		)
+
 		return
 	}
 
@@ -145,7 +155,7 @@ func (ds *DashboardServer) handleWebSocket(w http.ResponseWriter, r *http.Reques
 	client.Start()
 }
 
-// setCORSHeaders sets CORS headers for API responses
+// setCORSHeaders sets CORS headers for API responses.
 func (ds *DashboardServer) setCORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -153,8 +163,8 @@ func (ds *DashboardServer) setCORSHeaders(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Max-Age", "86400")
 }
 
-// respondJSON writes a JSON response
-func (ds *DashboardServer) respondJSON(w http.ResponseWriter, data interface{}) {
+// respondJSON writes a JSON response.
+func (ds *DashboardServer) respondJSON(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
@@ -165,12 +175,12 @@ func (ds *DashboardServer) respondJSON(w http.ResponseWriter, data interface{}) 
 	}
 }
 
-// respondError writes an error response
+// respondError writes an error response.
 func (ds *DashboardServer) respondError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"error":  message,
 		"status": status,
 	}

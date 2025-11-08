@@ -22,6 +22,7 @@ func NewRoomStore(client *redis.Client, prefix string) streaming.RoomStore {
 	if prefix == "" {
 		prefix = "streaming:rooms"
 	}
+
 	return &RoomStore{
 		client: client,
 		prefix: prefix,
@@ -52,6 +53,7 @@ func (s *RoomStore) Create(ctx context.Context, room streaming.Room) error {
 	if err != nil {
 		return err
 	}
+
 	if exists > 0 {
 		return streaming.ErrRoomAlreadyExists
 	}
@@ -69,9 +71,10 @@ func (s *RoomStore) Get(ctx context.Context, roomID string) (streaming.Room, err
 	key := fmt.Sprintf("%s:%s", s.prefix, roomID)
 
 	data, err := s.client.Get(ctx, key).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, streaming.ErrRoomNotFound
 	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -116,9 +119,11 @@ func (s *RoomStore) Update(ctx context.Context, roomID string, updates map[strin
 	if name, ok := updates["name"].(string); ok {
 		data["name"] = name
 	}
+
 	if desc, ok := updates["description"].(string); ok {
 		data["description"] = desc
 	}
+
 	if metadata, ok := updates["metadata"].(map[string]any); ok {
 		data["metadata"] = metadata
 	}
@@ -157,6 +162,7 @@ func (s *RoomStore) List(ctx context.Context, filters map[string]any) ([]streami
 		if err != nil {
 			continue // Skip invalid rooms
 		}
+
 		rooms = append(rooms, room)
 	}
 
@@ -166,6 +172,7 @@ func (s *RoomStore) List(ctx context.Context, filters map[string]any) ([]streami
 func (s *RoomStore) Exists(ctx context.Context, roomID string) (bool, error) {
 	key := fmt.Sprintf("%s:%s", s.prefix, roomID)
 	exists, err := s.client.Exists(ctx, key).Result()
+
 	return exists > 0, err
 }
 
@@ -177,6 +184,7 @@ func (s *RoomStore) AddMember(ctx context.Context, roomID string, member streami
 	if err != nil {
 		return err
 	}
+
 	if !exists {
 		return streaming.ErrRoomNotFound
 	}
@@ -186,6 +194,7 @@ func (s *RoomStore) AddMember(ctx context.Context, roomID string, member streami
 	if err != nil {
 		return err
 	}
+
 	if isMember {
 		return streaming.ErrAlreadyRoomMember
 	}
@@ -215,6 +224,7 @@ func (s *RoomStore) RemoveMember(ctx context.Context, roomID, userID string) err
 	if err != nil {
 		return err
 	}
+
 	if !exists {
 		return streaming.ErrNotRoomMember
 	}
@@ -253,9 +263,10 @@ func (s *RoomStore) GetMember(ctx context.Context, roomID, userID string) (strea
 	membersKey := fmt.Sprintf("%s:%s:members", s.prefix, roomID)
 
 	data, err := s.client.HGet(ctx, membersKey, userID).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, streaming.ErrNotRoomMember
 	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -276,12 +287,14 @@ func (s *RoomStore) GetMember(ctx context.Context, roomID, userID string) (strea
 
 func (s *RoomStore) IsMember(ctx context.Context, roomID, userID string) (bool, error) {
 	membersKey := fmt.Sprintf("%s:%s:members", s.prefix, roomID)
+
 	return s.client.HExists(ctx, membersKey, userID).Result()
 }
 
 func (s *RoomStore) MemberCount(ctx context.Context, roomID string) (int, error) {
 	membersKey := fmt.Sprintf("%s:%s:members", s.prefix, roomID)
 	count, err := s.client.HLen(ctx, membersKey).Result()
+
 	return int(count), err
 }
 
@@ -293,6 +306,7 @@ func (s *RoomStore) GetUserRooms(ctx context.Context, userID string) ([]streamin
 	}
 
 	rooms := make([]streaming.Room, 0)
+
 	for _, roomID := range roomIDs {
 		isMember, err := s.IsMember(ctx, roomID, userID)
 		if err != nil || !isMember {
@@ -325,10 +339,10 @@ func (s *RoomStore) Ping(ctx context.Context) error {
 // CreateMany creates multiple rooms in a batch.
 func (s *RoomStore) CreateMany(ctx context.Context, rooms []streaming.Room) error {
 	pipe := s.client.Pipeline()
-	
+
 	for _, room := range rooms {
 		key := fmt.Sprintf("%s:%s", s.prefix, room.GetID())
-		
+
 		data := map[string]interface{}{
 			"id":          room.GetID(),
 			"name":        room.GetName(),
@@ -338,35 +352,37 @@ func (s *RoomStore) CreateMany(ctx context.Context, rooms []streaming.Room) erro
 			"updated":     room.GetUpdated().Unix(),
 			"metadata":    room.GetMetadata(),
 		}
-		
+
 		dataJSON, err := json.Marshal(data)
 		if err != nil {
 			return err
 		}
-		
+
 		pipe.Set(ctx, key, dataJSON, 0)
 		pipe.SAdd(ctx, s.prefix+":list", room.GetID())
 	}
-	
+
 	_, err := pipe.Exec(ctx)
+
 	return err
 }
 
 // DeleteMany deletes multiple rooms by their IDs.
 func (s *RoomStore) DeleteMany(ctx context.Context, roomIDs []string) error {
 	pipe := s.client.Pipeline()
-	
+
 	for _, roomID := range roomIDs {
 		key := fmt.Sprintf("%s:%s", s.prefix, roomID)
 		membersKey := fmt.Sprintf("%s:%s:members", s.prefix, roomID)
 		bansKey := fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
 		invitesKey := fmt.Sprintf("%s:%s:invites", s.prefix, roomID)
-		
+
 		pipe.Del(ctx, key, membersKey, bansKey, invitesKey)
 		pipe.SRem(ctx, s.prefix+":list", roomID)
 	}
-	
+
 	_, err := pipe.Exec(ctx)
+
 	return err
 }
 
@@ -378,6 +394,7 @@ func (s *RoomStore) GetUserRoomsByRole(ctx context.Context, userID, role string)
 	}
 
 	rooms := make([]streaming.Room, 0)
+
 	for _, roomID := range roomIDs {
 		member, err := s.GetMember(ctx, roomID, userID)
 		if err != nil || member.GetRole() != role {
@@ -403,10 +420,11 @@ func (s *RoomStore) GetCommonRooms(ctx context.Context, userID1, userID2 string)
 	}
 
 	rooms := make([]streaming.Room, 0)
+
 	for _, roomID := range roomIDs {
 		isMember1, err1 := s.IsMember(ctx, roomID, userID1)
 		isMember2, err2 := s.IsMember(ctx, roomID, userID2)
-		
+
 		if err1 != nil || err2 != nil || !isMember1 || !isMember2 {
 			continue
 		}
@@ -431,6 +449,7 @@ func (s *RoomStore) Search(ctx context.Context, query string, filters map[string
 	}
 
 	rooms := make([]streaming.Room, 0)
+
 	for _, roomID := range roomIDs {
 		room, err := s.Get(ctx, roomID)
 		if err != nil {
@@ -479,6 +498,7 @@ func (s *RoomStore) GetArchivedRooms(ctx context.Context, userID string) ([]stre
 // GetRoomCount gets the total number of rooms.
 func (s *RoomStore) GetRoomCount(ctx context.Context) (int, error) {
 	count, err := s.client.SCard(ctx, s.prefix+":list").Result()
+
 	return int(count), err
 }
 
@@ -490,11 +510,13 @@ func (s *RoomStore) GetTotalMembers(ctx context.Context) (int, error) {
 	}
 
 	total := 0
+
 	for _, roomID := range roomIDs {
 		count, err := s.MemberCount(ctx, roomID)
 		if err != nil {
 			continue
 		}
+
 		total += count
 	}
 
@@ -504,39 +526,41 @@ func (s *RoomStore) GetTotalMembers(ctx context.Context) (int, error) {
 // BanMember bans a member from a room.
 func (s *RoomStore) BanMember(ctx context.Context, roomID, userID string, ban streaming.RoomBan) error {
 	bansKey := fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
-	
+
 	banData, err := json.Marshal(ban)
 	if err != nil {
 		return err
 	}
-	
+
 	return s.client.HSet(ctx, bansKey, userID, banData).Err()
 }
 
 // UnbanMember removes a ban from a member.
 func (s *RoomStore) UnbanMember(ctx context.Context, roomID, userID string) error {
 	bansKey := fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
+
 	return s.client.HDel(ctx, bansKey, userID).Err()
 }
 
 // GetBans gets all bans for a room.
 func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.RoomBan, error) {
 	bansKey := fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
-	
+
 	bansData, err := s.client.HGetAll(ctx, bansKey).Result()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	bans := make([]streaming.RoomBan, 0, len(bansData))
 	for _, banJSON := range bansData {
 		var ban streaming.RoomBan
 		if err := json.Unmarshal([]byte(banJSON), &ban); err != nil {
 			continue
 		}
+
 		bans = append(bans, ban)
 	}
-	
+
 	return bans, nil
 }
 
@@ -544,6 +568,7 @@ func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.Roo
 func (s *RoomStore) IsBanned(ctx context.Context, roomID, userID string) (bool, error) {
 	bansKey := fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
 	exists, err := s.client.HExists(ctx, bansKey, userID).Result()
+
 	return exists, err
 }
 
@@ -551,82 +576,86 @@ func (s *RoomStore) IsBanned(ctx context.Context, roomID, userID string) (bool, 
 func (s *RoomStore) SaveInvite(ctx context.Context, roomID string, invite *streaming.Invite) error {
 	invitesKey := fmt.Sprintf("%s:%s:invites", s.prefix, roomID)
 	inviteKey := fmt.Sprintf("%s:invite:%s", s.prefix, invite.Code)
-	
+
 	inviteData, err := json.Marshal(invite)
 	if err != nil {
 		return err
 	}
-	
+
 	pipe := s.client.Pipeline()
 	pipe.HSet(ctx, invitesKey, invite.Code, inviteData)
 	pipe.Set(ctx, inviteKey, inviteData, 0)
-	
+
 	_, err = pipe.Exec(ctx)
+
 	return err
 }
 
 // GetInvite gets an invite by its code.
 func (s *RoomStore) GetInvite(ctx context.Context, inviteCode string) (*streaming.Invite, error) {
 	inviteKey := fmt.Sprintf("%s:invite:%s", s.prefix, inviteCode)
-	
+
 	inviteData, err := s.client.Get(ctx, inviteKey).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, streaming.ErrInviteNotFound
 	}
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var invite streaming.Invite
 	if err := json.Unmarshal([]byte(inviteData), &invite); err != nil {
 		return nil, err
 	}
-	
+
 	return &invite, nil
 }
 
 // DeleteInvite deletes an invite by its code.
 func (s *RoomStore) DeleteInvite(ctx context.Context, inviteCode string) error {
 	inviteKey := fmt.Sprintf("%s:invite:%s", s.prefix, inviteCode)
-	
+
 	// Get the invite to find the room ID
 	invite, err := s.GetInvite(ctx, inviteCode)
 	if err != nil {
 		return err
 	}
-	
+
 	invitesKey := fmt.Sprintf("%s:%s:invites", s.prefix, invite.RoomID)
-	
+
 	pipe := s.client.Pipeline()
 	pipe.HDel(ctx, invitesKey, inviteCode)
 	pipe.Del(ctx, inviteKey)
-	
+
 	_, err = pipe.Exec(ctx)
+
 	return err
 }
 
 // ListInvites lists all invites for a room.
 func (s *RoomStore) ListInvites(ctx context.Context, roomID string) ([]*streaming.Invite, error) {
 	invitesKey := fmt.Sprintf("%s:%s:invites", s.prefix, roomID)
-	
+
 	invitesData, err := s.client.HGetAll(ctx, invitesKey).Result()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	invites := make([]*streaming.Invite, 0, len(invitesData))
 	for _, inviteJSON := range invitesData {
 		var invite streaming.Invite
 		if err := json.Unmarshal([]byte(inviteJSON), &invite); err != nil {
 			continue
 		}
+
 		invites = append(invites, &invite)
 	}
-	
+
 	return invites, nil
 }
 
-// redisRoom implements streaming.Room
+// redisRoom implements streaming.Room.
 type redisRoom struct {
 	store       *RoomStore
 	id          string
@@ -694,7 +723,7 @@ func (r *redisRoom) Delete(ctx context.Context) error {
 	return streaming.ErrInvalidRoom
 }
 
-// Advanced Membership Management
+// Advanced Membership Management.
 func (r *redisRoom) GetMembersByRole(ctx context.Context, role string) ([]streaming.Member, error) {
 	return nil, streaming.ErrInvalidRoom
 }
@@ -735,7 +764,7 @@ func (r *redisRoom) IsMuted(ctx context.Context, userID string) (bool, error) {
 	return false, streaming.ErrInvalidRoom
 }
 
-// Invitations
+// Invitations.
 func (r *redisRoom) CreateInvite(ctx context.Context, opts streaming.InviteOptions) (*streaming.Invite, error) {
 	return nil, streaming.ErrInvalidRoom
 }
@@ -756,7 +785,7 @@ func (r *redisRoom) JoinWithInvite(ctx context.Context, userID, inviteCode strin
 	return streaming.ErrInvalidRoom
 }
 
-// Room Settings
+// Room Settings.
 func (r *redisRoom) IsPrivate() bool {
 	return false // Default implementation
 }
@@ -797,7 +826,7 @@ func (r *redisRoom) Unlock(ctx context.Context) error {
 	return streaming.ErrInvalidRoom
 }
 
-// Moderation
+// Moderation.
 func (r *redisRoom) GetModerationLog(ctx context.Context, limit int) ([]streaming.ModerationEvent, error) {
 	return nil, streaming.ErrInvalidRoom
 }
@@ -810,7 +839,7 @@ func (r *redisRoom) GetSlowMode(ctx context.Context) int {
 	return 0 // Default implementation
 }
 
-// Pinned Messages
+// Pinned Messages.
 func (r *redisRoom) PinMessage(ctx context.Context, messageID string) error {
 	return streaming.ErrInvalidRoom
 }
@@ -823,7 +852,7 @@ func (r *redisRoom) GetPinnedMessages(ctx context.Context) ([]string, error) {
 	return nil, streaming.ErrInvalidRoom
 }
 
-// Categories/Tags
+// Categories/Tags.
 func (r *redisRoom) AddTag(ctx context.Context, tag string) error {
 	return streaming.ErrInvalidRoom
 }
@@ -844,7 +873,7 @@ func (r *redisRoom) GetCategory() string {
 	return "" // Default implementation
 }
 
-// Statistics
+// Statistics.
 func (r *redisRoom) GetMessageCount(ctx context.Context) (int64, error) {
 	return 0, streaming.ErrInvalidRoom
 }
@@ -853,7 +882,7 @@ func (r *redisRoom) GetActiveMembers(ctx context.Context, since time.Duration) (
 	return nil, streaming.ErrInvalidRoom
 }
 
-// Messaging
+// Messaging.
 func (r *redisRoom) BroadcastExcept(ctx context.Context, message *streaming.Message, excludeUserIDs []string) error {
 	return streaming.ErrInvalidRoom
 }
@@ -862,7 +891,7 @@ func (r *redisRoom) BroadcastToRole(ctx context.Context, message *streaming.Mess
 	return streaming.ErrInvalidRoom
 }
 
-// Read Receipts
+// Read Receipts.
 func (r *redisRoom) MarkAsRead(ctx context.Context, userID, messageID string) error {
 	return streaming.ErrInvalidRoom
 }
@@ -875,7 +904,7 @@ func (r *redisRoom) GetLastReadMessage(ctx context.Context, userID string) (stri
 	return "", streaming.ErrInvalidRoom
 }
 
-// redisMember implements streaming.Member
+// redisMember implements streaming.Member.
 type redisMember struct {
 	userID      string
 	role        string
@@ -894,6 +923,7 @@ func (m *redisMember) SetMetadata(key string, val any) {
 	if m.metadata == nil {
 		m.metadata = make(map[string]any)
 	}
+
 	m.metadata[key] = val
 }
 
@@ -903,6 +933,7 @@ func (m *redisMember) HasPermission(permission string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -916,6 +947,7 @@ func (m *redisMember) RevokePermission(permission string) {
 	for i, p := range m.permissions {
 		if p == permission {
 			m.permissions = append(m.permissions[:i], m.permissions[i+1:]...)
+
 			break
 		}
 	}
@@ -929,6 +961,7 @@ func getString(m map[string]interface{}, key string) string {
 			return str
 		}
 	}
+
 	return ""
 }
 
@@ -938,6 +971,7 @@ func getMap(m map[string]interface{}, key string) map[string]any {
 			return mapVal
 		}
 	}
+
 	return make(map[string]any)
 }
 
@@ -950,9 +984,11 @@ func getStringSlice(m map[string]interface{}, key string) []string {
 					result = append(result, str)
 				}
 			}
+
 			return result
 		}
 	}
+
 	return []string{}
 }
 
@@ -988,12 +1024,15 @@ func matchesFilters(room streaming.Room, filters map[string]any) bool {
 
 	if tag, ok := filters["tag"].(string); ok {
 		found := false
+
 		for _, roomTag := range room.GetTags() {
 			if roomTag == tag {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			return false
 		}

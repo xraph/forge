@@ -7,13 +7,13 @@ import (
 	forge "github.com/xraph/forge"
 )
 
-// RequestIDContextKey is the context key for storing request ID
+// RequestIDContextKey is the context key for storing request ID.
 type RequestIDContextKey string
 
 const requestIDKey RequestIDContextKey = "request_id"
 
 // RequestID middleware adds a unique request ID to each request
-// If X-Request-ID header is present, it uses that, otherwise generates a new UUID
+// If X-Request-ID header is present, it uses that, otherwise generates a new UUID.
 func RequestID() forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -35,22 +35,25 @@ func RequestID() forge.Middleware {
 	}
 }
 
-// GetRequestID retrieves the request ID from standard context
+// GetRequestID retrieves the request ID from standard context.
 func GetRequestID(ctx context.Context) string {
 	if requestID, ok := ctx.Value(requestIDKey).(string); ok {
 		return requestID
 	}
+
 	return ""
 }
 
-// GetRequestIDFromForgeContext retrieves the request ID from Forge context
+// GetRequestIDFromForgeContext retrieves the request ID from Forge context.
 func GetRequestIDFromForgeContext(ctx forge.Context) string {
 	val := ctx.Get("request_id")
 	if val == nil {
 		return ""
 	}
+
 	if requestID, ok := val.(string); ok {
 		return requestID
 	}
+
 	return ""
 }

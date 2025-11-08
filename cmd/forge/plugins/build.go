@@ -10,14 +10,15 @@ import (
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// BuildPlugin handles build operations
+// BuildPlugin handles build operations.
 type BuildPlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewBuildPlugin creates a new build plugin
+// NewBuildPlugin creates a new build plugin.
 func NewBuildPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &BuildPlugin{config: cfg}
 }
@@ -44,12 +45,13 @@ func (p *BuildPlugin) Commands() []cli.Command {
 
 func (p *BuildPlugin) build(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	appName := ctx.String("app")
@@ -68,12 +70,14 @@ func (p *BuildPlugin) build(ctx cli.CommandContext) error {
 
 	// Get apps to build
 	var apps []config.BuildApp
+
 	if appName != "" {
 		// Build specific app
 		app, err := p.findBuildApp(appName)
 		if err != nil {
 			return err
 		}
+
 		apps = append(apps, *app)
 	} else {
 		// Build all apps
@@ -99,6 +103,7 @@ func (p *BuildPlugin) build(ctx cli.CommandContext) error {
 
 	if len(apps) == 0 {
 		ctx.Warning("No apps to build")
+
 		return nil
 	}
 
@@ -114,7 +119,7 @@ func (p *BuildPlugin) build(ctx cli.CommandContext) error {
 
 	ctx.Println("")
 	ctx.Success(fmt.Sprintf("✓ Built %d app(s) successfully!", len(apps)))
-	ctx.Info(fmt.Sprintf("  Output: %s", outputDir))
+	ctx.Info("  Output: " + outputDir)
 
 	return nil
 }
@@ -131,6 +136,7 @@ func (p *BuildPlugin) buildApp(ctx cli.CommandContext, app config.BuildApp, plat
 		if ldflags == "" {
 			ldflags = "-s -w"
 		}
+
 		args = append(args, "-ldflags", ldflags)
 	}
 
@@ -144,6 +150,7 @@ func (p *BuildPlugin) buildApp(ctx cli.CommandContext, app config.BuildApp, plat
 	if outputName == "" {
 		outputName = app.Name
 	}
+
 	outputPath := filepath.Join(outputDir, outputName)
 	args = append(args, "-o", outputPath)
 
@@ -159,8 +166,8 @@ func (p *BuildPlugin) buildApp(ctx cli.CommandContext, app config.BuildApp, plat
 		parts := strings.Split(platform, "/")
 		if len(parts) == 2 {
 			cmd.Env = append(os.Environ(),
-				fmt.Sprintf("GOOS=%s", parts[0]),
-				fmt.Sprintf("GOARCH=%s", parts[1]),
+				"GOOS="+parts[0],
+				"GOARCH="+parts[1],
 			)
 			outputPath = fmt.Sprintf("%s-%s-%s", outputPath, parts[0], parts[1])
 		}
@@ -171,10 +178,12 @@ func (p *BuildPlugin) buildApp(ctx cli.CommandContext, app config.BuildApp, plat
 	if err != nil {
 		spinner.Stop(cli.Red(fmt.Sprintf("✗ %s failed", app.Name)))
 		ctx.Error(fmt.Errorf("build error: %s", string(output)))
+
 		return err
 	}
 
-	spinner.Stop(cli.Green(fmt.Sprintf("✓ %s", app.Name)))
+	spinner.Stop(cli.Green("✓ " + app.Name))
+
 	return nil
 }
 

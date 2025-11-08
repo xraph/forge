@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// CampaignManager manages election campaigns with strategies
+// CampaignManager manages election campaigns with strategies.
 type CampaignManager struct {
 	nodeID string
 	logger forge.Logger
@@ -30,7 +31,7 @@ type CampaignManager struct {
 	preVoteEnabled bool
 }
 
-// Campaign represents an active election campaign
+// Campaign represents an active election campaign.
 type Campaign struct {
 	CampaignID    string
 	Term          uint64
@@ -47,7 +48,7 @@ type Campaign struct {
 	mu            sync.RWMutex
 }
 
-// CampaignRecord represents a historical campaign record
+// CampaignRecord represents a historical campaign record.
 type CampaignRecord struct {
 	CampaignID   string
 	Term         uint64
@@ -60,37 +61,37 @@ type CampaignRecord struct {
 	TotalPeers   int
 }
 
-// CampaignStatus represents campaign status
+// CampaignStatus represents campaign status.
 type CampaignStatus int
 
 const (
-	// CampaignStatusActive campaign is active
+	// CampaignStatusActive campaign is active.
 	CampaignStatusActive CampaignStatus = iota
-	// CampaignStatusWon campaign was won
+	// CampaignStatusWon campaign was won.
 	CampaignStatusWon
-	// CampaignStatusLost campaign was lost
+	// CampaignStatusLost campaign was lost.
 	CampaignStatusLost
-	// CampaignStatusAborted campaign was aborted
+	// CampaignStatusAborted campaign was aborted.
 	CampaignStatusAborted
-	// CampaignStatusTimeout campaign timed out
+	// CampaignStatusTimeout campaign timed out.
 	CampaignStatusTimeout
 )
 
-// CampaignStrategy represents campaign strategy
+// CampaignStrategy represents campaign strategy.
 type CampaignStrategy int
 
 const (
-	// CampaignStrategySequential votes sequentially
+	// CampaignStrategySequential votes sequentially.
 	CampaignStrategySequential CampaignStrategy = iota
-	// CampaignStrategyParallel votes in parallel
+	// CampaignStrategyParallel votes in parallel.
 	CampaignStrategyParallel
-	// CampaignStrategyPriority votes priority peers first
+	// CampaignStrategyPriority votes priority peers first.
 	CampaignStrategyPriority
-	// CampaignStrategyAdaptive adapts based on responses
+	// CampaignStrategyAdaptive adapts based on responses.
 	CampaignStrategyAdaptive
 )
 
-// CampaignManagerConfig contains campaign manager configuration
+// CampaignManagerConfig contains campaign manager configuration.
 type CampaignManagerConfig struct {
 	NodeID         string
 	Strategy       CampaignStrategy
@@ -101,7 +102,7 @@ type CampaignManagerConfig struct {
 	MaxHistorySize int
 }
 
-// NewCampaignManager creates a new campaign manager
+// NewCampaignManager creates a new campaign manager.
 func NewCampaignManager(config CampaignManagerConfig, logger forge.Logger) *CampaignManager {
 	if config.MaxHistorySize == 0 {
 		config.MaxHistorySize = 50
@@ -120,7 +121,7 @@ func NewCampaignManager(config CampaignManagerConfig, logger forge.Logger) *Camp
 	}
 }
 
-// StartCampaign starts a new election campaign
+// StartCampaign starts a new election campaign.
 func (cm *CampaignManager) StartCampaign(term uint64, peers []string) (*Campaign, error) {
 	cm.campaignMu.Lock()
 	defer cm.campaignMu.Unlock()
@@ -158,14 +159,14 @@ func (cm *CampaignManager) StartCampaign(term uint64, peers []string) (*Campaign
 	return campaign, nil
 }
 
-// RecordVoteResponse records a vote response for the active campaign
+// RecordVoteResponse records a vote response for the active campaign.
 func (cm *CampaignManager) RecordVoteResponse(response *VoteResponse) error {
 	cm.campaignMu.RLock()
 	campaign := cm.activeCampaign
 	cm.campaignMu.RUnlock()
 
 	if campaign == nil {
-		return fmt.Errorf("no active campaign")
+		return errors.New("no active campaign")
 	}
 
 	campaign.mu.Lock()
@@ -173,7 +174,7 @@ func (cm *CampaignManager) RecordVoteResponse(response *VoteResponse) error {
 
 	// Check if response is for current campaign
 	if response.Term != campaign.Term {
-		return fmt.Errorf("vote response for different term")
+		return errors.New("vote response for different term")
 	}
 
 	// Record response
@@ -206,14 +207,15 @@ func (cm *CampaignManager) RecordVoteResponse(response *VoteResponse) error {
 	return nil
 }
 
-// GetActiveCampaign returns the active campaign
+// GetActiveCampaign returns the active campaign.
 func (cm *CampaignManager) GetActiveCampaign() *Campaign {
 	cm.campaignMu.RLock()
 	defer cm.campaignMu.RUnlock()
+
 	return cm.activeCampaign
 }
 
-// EndCampaign ends the active campaign with a status
+// EndCampaign ends the active campaign with a status.
 func (cm *CampaignManager) EndCampaign(status CampaignStatus) {
 	cm.campaignMu.Lock()
 	defer cm.campaignMu.Unlock()
@@ -243,7 +245,7 @@ func (cm *CampaignManager) EndCampaign(status CampaignStatus) {
 	)
 }
 
-// campaignWon marks campaign as won
+// campaignWon marks campaign as won.
 func (cm *CampaignManager) campaignWon(campaign *Campaign) {
 	campaign.Status = CampaignStatusWon
 	campaign.EndTime = time.Now()
@@ -256,7 +258,7 @@ func (cm *CampaignManager) campaignWon(campaign *Campaign) {
 	)
 }
 
-// campaignLost marks campaign as lost
+// campaignLost marks campaign as lost.
 func (cm *CampaignManager) campaignLost(campaign *Campaign) {
 	campaign.Status = CampaignStatusLost
 	campaign.EndTime = time.Now()
@@ -269,7 +271,7 @@ func (cm *CampaignManager) campaignLost(campaign *Campaign) {
 	)
 }
 
-// shouldAbort checks if campaign should be aborted early
+// shouldAbort checks if campaign should be aborted early.
 func (cm *CampaignManager) shouldAbort(campaign *Campaign) bool {
 	// Calculate maximum possible votes
 	totalPeers := len(campaign.TargetPeers)
@@ -281,7 +283,7 @@ func (cm *CampaignManager) shouldAbort(campaign *Campaign) bool {
 	return maxPossibleVotes < campaign.VotesNeeded
 }
 
-// GetPeersToContact returns peers to contact based on strategy
+// GetPeersToContact returns peers to contact based on strategy.
 func (cm *CampaignManager) GetPeersToContact(campaign *Campaign) []string {
 	campaign.mu.RLock()
 	defer campaign.mu.RUnlock()
@@ -298,7 +300,7 @@ func (cm *CampaignManager) GetPeersToContact(campaign *Campaign) []string {
 	}
 }
 
-// getPriorityPeers returns peers in priority order
+// getPriorityPeers returns peers in priority order.
 func (cm *CampaignManager) getPriorityPeers(campaign *Campaign) []string {
 	// Contacted priority peers first, then others
 	var result []string
@@ -314,12 +316,15 @@ func (cm *CampaignManager) getPriorityPeers(campaign *Campaign) []string {
 	for _, peer := range campaign.TargetPeers {
 		if _, contacted := campaign.VoteResponses[peer]; !contacted {
 			isPriority := false
+
 			for _, pp := range cm.priorityPeers {
 				if peer == pp {
 					isPriority = true
+
 					break
 				}
 			}
+
 			if !isPriority {
 				result = append(result, peer)
 			}
@@ -329,7 +334,7 @@ func (cm *CampaignManager) getPriorityPeers(campaign *Campaign) []string {
 	return result
 }
 
-// getAdaptivePeers returns peers using adaptive strategy
+// getAdaptivePeers returns peers using adaptive strategy.
 func (cm *CampaignManager) getAdaptivePeers(campaign *Campaign) []string {
 	// Contact fast responders first based on historical data
 	// For now, just return all uncontacted peers
@@ -344,7 +349,7 @@ func (cm *CampaignManager) getAdaptivePeers(campaign *Campaign) []string {
 	return result
 }
 
-// GetCampaignProgress returns campaign progress information
+// GetCampaignProgress returns campaign progress information.
 func (cm *CampaignManager) GetCampaignProgress() *CampaignProgress {
 	cm.campaignMu.RLock()
 	campaign := cm.activeCampaign
@@ -376,7 +381,7 @@ func (cm *CampaignManager) GetCampaignProgress() *CampaignProgress {
 	return progress
 }
 
-// CampaignProgress represents campaign progress
+// CampaignProgress represents campaign progress.
 type CampaignProgress struct {
 	CampaignID        string
 	Term              uint64
@@ -390,7 +395,7 @@ type CampaignProgress struct {
 	ProgressPercent   float64
 }
 
-// recordCampaign records a campaign in history
+// recordCampaign records a campaign in history.
 func (cm *CampaignManager) recordCampaign(campaign *Campaign) {
 	cm.historyMu.Lock()
 	defer cm.historyMu.Unlock()
@@ -415,7 +420,7 @@ func (cm *CampaignManager) recordCampaign(campaign *Campaign) {
 	}
 }
 
-// GetCampaignHistory returns campaign history
+// GetCampaignHistory returns campaign history.
 func (cm *CampaignManager) GetCampaignHistory(limit int) []CampaignRecord {
 	cm.historyMu.RLock()
 	defer cm.historyMu.RUnlock()
@@ -431,7 +436,7 @@ func (cm *CampaignManager) GetCampaignHistory(limit int) []CampaignRecord {
 	return result
 }
 
-// GetCampaignStatistics returns campaign statistics
+// GetCampaignStatistics returns campaign statistics.
 func (cm *CampaignManager) GetCampaignStatistics() CampaignStatistics {
 	cm.historyMu.RLock()
 	defer cm.historyMu.RUnlock()
@@ -445,6 +450,7 @@ func (cm *CampaignManager) GetCampaignStatistics() CampaignStatistics {
 	}
 
 	var totalDuration time.Duration
+
 	wonCount := 0
 	lostCount := 0
 	abortedCount := 0
@@ -474,7 +480,7 @@ func (cm *CampaignManager) GetCampaignStatistics() CampaignStatistics {
 	return stats
 }
 
-// CampaignStatistics contains campaign statistics
+// CampaignStatistics contains campaign statistics.
 type CampaignStatistics struct {
 	TotalCampaigns   int
 	CampaignsWon     int
@@ -484,7 +490,7 @@ type CampaignStatistics struct {
 	WinRate          float64
 }
 
-// String returns string representation of campaign status
+// String returns string representation of campaign status.
 func (cs CampaignStatus) String() string {
 	switch cs {
 	case CampaignStatusActive:
@@ -502,7 +508,7 @@ func (cs CampaignStatus) String() string {
 	}
 }
 
-// String returns string representation of campaign strategy
+// String returns string representation of campaign strategy.
 func (cs CampaignStrategy) String() string {
 	switch cs {
 	case CampaignStrategySequential:

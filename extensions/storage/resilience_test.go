@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forge/internal/metrics"
 )
 
-// Mock storage for testing
+// Mock storage for testing.
 type mockStorage struct {
 	failCount    int
 	callCount    int
@@ -30,9 +30,11 @@ func (m *mockStorage) Upload(ctx context.Context, key string, data io.Reader, op
 			return ctx.Err()
 		}
 	}
+
 	if m.shouldFail {
 		return errors.New("mock upload error")
 	}
+
 	return nil
 }
 
@@ -41,6 +43,7 @@ func (m *mockStorage) Download(ctx context.Context, key string) (io.ReadCloser, 
 	if m.shouldFail {
 		return nil, errors.New("mock download error")
 	}
+
 	return nil, nil
 }
 
@@ -49,6 +52,7 @@ func (m *mockStorage) Delete(ctx context.Context, key string) error {
 	if m.shouldFail {
 		return errors.New("mock delete error")
 	}
+
 	return nil
 }
 
@@ -57,6 +61,7 @@ func (m *mockStorage) List(ctx context.Context, prefix string, opts ...ListOptio
 	if m.shouldFail {
 		return nil, errors.New("mock list error")
 	}
+
 	return []Object{}, nil
 }
 
@@ -65,6 +70,7 @@ func (m *mockStorage) Metadata(ctx context.Context, key string) (*ObjectMetadata
 	if m.shouldFail {
 		return nil, errors.New("mock metadata error")
 	}
+
 	return &ObjectMetadata{}, nil
 }
 
@@ -73,6 +79,7 @@ func (m *mockStorage) Exists(ctx context.Context, key string) (bool, error) {
 	if m.shouldFail {
 		return false, errors.New("mock exists error")
 	}
+
 	return true, nil
 }
 
@@ -81,6 +88,7 @@ func (m *mockStorage) Copy(ctx context.Context, srcKey, dstKey string) error {
 	if m.shouldFail {
 		return errors.New("mock copy error")
 	}
+
 	return nil
 }
 
@@ -89,6 +97,7 @@ func (m *mockStorage) Move(ctx context.Context, srcKey, dstKey string) error {
 	if m.shouldFail {
 		return errors.New("mock move error")
 	}
+
 	return nil
 }
 
@@ -97,6 +106,7 @@ func (m *mockStorage) PresignUpload(ctx context.Context, key string, expiry time
 	if m.shouldFail {
 		return "", errors.New("mock presign upload error")
 	}
+
 	return "https://example.com/upload", nil
 }
 
@@ -105,10 +115,11 @@ func (m *mockStorage) PresignDownload(ctx context.Context, key string, expiry ti
 	if m.shouldFail {
 		return "", errors.New("mock presign download error")
 	}
+
 	return "https://example.com/download", nil
 }
 
-// Helper functions to create test dependencies
+// Helper functions to create test dependencies.
 func newTestLogger() forge.Logger {
 	return logger.NewTestLogger()
 }
@@ -133,7 +144,7 @@ func TestCircuitBreaker(t *testing.T) {
 	}
 
 	// Test: Should open after threshold failures
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		cb.RecordFailure()
 	}
 
@@ -171,7 +182,7 @@ func TestRateLimiter(t *testing.T) {
 	rl := NewRateLimiter(config, testMetrics)
 
 	// Test: Should allow up to burst
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if !rl.Allow() {
 			t.Errorf("Rate limiter should allow request %d", i+1)
 		}
@@ -322,8 +333,7 @@ func BenchmarkResilientStorage_Upload(b *testing.B) {
 
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		rs.Upload(ctx, "test.txt", nil)
 	}
 }

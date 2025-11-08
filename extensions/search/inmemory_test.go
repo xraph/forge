@@ -11,6 +11,7 @@ func newTestInMemorySearch() *InMemorySearch {
 	logger := forge.NewNoopLogger()
 	metrics := forge.NewNoOpMetrics()
 	config := DefaultConfig()
+
 	return NewInMemorySearch(config, logger, metrics)
 }
 
@@ -25,7 +26,7 @@ func TestInMemorySearch_Connect(t *testing.T) {
 
 	// Try connecting again
 	err = search.Connect(ctx)
-	if err != ErrAlreadyConnected {
+	if !errors.Is(err, ErrAlreadyConnected) {
 		t.Errorf("expected ErrAlreadyConnected, got %v", err)
 	}
 }
@@ -36,7 +37,7 @@ func TestInMemorySearch_Disconnect(t *testing.T) {
 
 	// Disconnect without connecting
 	err := search.Disconnect(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("expected ErrNotConnected, got %v", err)
 	}
 
@@ -58,7 +59,7 @@ func TestInMemorySearch_Ping(t *testing.T) {
 
 	// Ping without connecting
 	err := search.Ping(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("expected ErrNotConnected, got %v", err)
 	}
 
@@ -97,7 +98,7 @@ func TestInMemorySearch_CreateIndex(t *testing.T) {
 
 	// Try creating same index again
 	err = search.CreateIndex(ctx, "test", schema)
-	if err != ErrIndexAlreadyExists {
+	if !errors.Is(err, ErrIndexAlreadyExists) {
 		t.Errorf("expected ErrIndexAlreadyExists, got %v", err)
 	}
 }
@@ -113,7 +114,7 @@ func TestInMemorySearch_DeleteIndex(t *testing.T) {
 
 	// Try deleting non-existent index
 	err = search.DeleteIndex(ctx, "nonexistent")
-	if err != ErrIndexNotFound {
+	if !errors.Is(err, ErrIndexNotFound) {
 		t.Errorf("expected ErrIndexNotFound, got %v", err)
 	}
 
@@ -123,6 +124,7 @@ func TestInMemorySearch_DeleteIndex(t *testing.T) {
 			{Name: "title", Type: "text"},
 		},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -148,6 +150,7 @@ func TestInMemorySearch_ListIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to list indexes: %v", err)
 	}
+
 	if len(indexes) != 0 {
 		t.Errorf("expected 0 indexes, got %d", len(indexes))
 	}
@@ -161,6 +164,7 @@ func TestInMemorySearch_ListIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to list indexes: %v", err)
 	}
+
 	if len(indexes) != 2 {
 		t.Errorf("expected 2 indexes, got %d", len(indexes))
 	}
@@ -177,7 +181,7 @@ func TestInMemorySearch_GetIndexInfo(t *testing.T) {
 
 	// Try getting info for non-existent index
 	_, err = search.GetIndexInfo(ctx, "nonexistent")
-	if err != ErrIndexNotFound {
+	if !errors.Is(err, ErrIndexNotFound) {
 		t.Errorf("expected ErrIndexNotFound, got %v", err)
 	}
 
@@ -187,6 +191,7 @@ func TestInMemorySearch_GetIndexInfo(t *testing.T) {
 			{Name: "title", Type: "text"},
 		},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -200,6 +205,7 @@ func TestInMemorySearch_GetIndexInfo(t *testing.T) {
 	if info.Name != "test" {
 		t.Errorf("expected name 'test', got '%s'", info.Name)
 	}
+
 	if info.DocumentCount != 0 {
 		t.Errorf("expected 0 documents, got %d", info.DocumentCount)
 	}
@@ -219,6 +225,7 @@ func TestInMemorySearch_Index(t *testing.T) {
 			{Name: "title", Type: "text"},
 		},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -226,7 +233,7 @@ func TestInMemorySearch_Index(t *testing.T) {
 
 	doc := Document{
 		ID: "1",
-		Fields: map[string]interface{}{
+		Fields: map[string]any{
 			"title": "Test Document",
 		},
 	}
@@ -238,7 +245,7 @@ func TestInMemorySearch_Index(t *testing.T) {
 
 	// Try indexing to non-existent index
 	err = search.Index(ctx, "nonexistent", doc)
-	if err != ErrIndexNotFound {
+	if !errors.Is(err, ErrIndexNotFound) {
 		t.Errorf("expected ErrIndexNotFound, got %v", err)
 	}
 }
@@ -257,15 +264,16 @@ func TestInMemorySearch_BulkIndex(t *testing.T) {
 			{Name: "title", Type: "text"},
 		},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
 	}
 
 	docs := []Document{
-		{ID: "1", Fields: map[string]interface{}{"title": "Doc 1"}},
-		{ID: "2", Fields: map[string]interface{}{"title": "Doc 2"}},
-		{ID: "3", Fields: map[string]interface{}{"title": "Doc 3"}},
+		{ID: "1", Fields: map[string]any{"title": "Doc 1"}},
+		{ID: "2", Fields: map[string]any{"title": "Doc 2"}},
+		{ID: "3", Fields: map[string]any{"title": "Doc 3"}},
 	}
 
 	err = search.BulkIndex(ctx, "test", docs)
@@ -292,6 +300,7 @@ func TestInMemorySearch_Get(t *testing.T) {
 	schema := IndexSchema{
 		Fields: []FieldSchema{{Name: "title", Type: "text"}},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -299,7 +308,7 @@ func TestInMemorySearch_Get(t *testing.T) {
 
 	doc := Document{
 		ID:     "1",
-		Fields: map[string]interface{}{"title": "Test"},
+		Fields: map[string]any{"title": "Test"},
 	}
 	_ = search.Index(ctx, "test", doc)
 
@@ -308,13 +317,14 @@ func TestInMemorySearch_Get(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get document: %v", err)
 	}
+
 	if retrieved.ID != "1" {
 		t.Errorf("expected id '1', got '%s'", retrieved.ID)
 	}
 
 	// Get non-existent document
 	_, err = search.Get(ctx, "test", "999")
-	if err != ErrDocumentNotFound {
+	if !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("expected ErrDocumentNotFound, got %v", err)
 	}
 }
@@ -331,6 +341,7 @@ func TestInMemorySearch_Delete(t *testing.T) {
 	schema := IndexSchema{
 		Fields: []FieldSchema{{Name: "title", Type: "text"}},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -338,7 +349,7 @@ func TestInMemorySearch_Delete(t *testing.T) {
 
 	doc := Document{
 		ID:     "1",
-		Fields: map[string]interface{}{"title": "Test"},
+		Fields: map[string]any{"title": "Test"},
 	}
 	_ = search.Index(ctx, "test", doc)
 
@@ -350,13 +361,13 @@ func TestInMemorySearch_Delete(t *testing.T) {
 
 	// Verify deleted
 	_, err = search.Get(ctx, "test", "1")
-	if err != ErrDocumentNotFound {
+	if !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("expected ErrDocumentNotFound after delete, got %v", err)
 	}
 
 	// Delete non-existent document
 	err = search.Delete(ctx, "test", "999")
-	if err != ErrDocumentNotFound {
+	if !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("expected ErrDocumentNotFound, got %v", err)
 	}
 }
@@ -373,6 +384,7 @@ func TestInMemorySearch_Update(t *testing.T) {
 	schema := IndexSchema{
 		Fields: []FieldSchema{{Name: "title", Type: "text"}},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -380,15 +392,16 @@ func TestInMemorySearch_Update(t *testing.T) {
 
 	doc := Document{
 		ID:     "1",
-		Fields: map[string]interface{}{"title": "Original"},
+		Fields: map[string]any{"title": "Original"},
 	}
 	_ = search.Index(ctx, "test", doc)
 
 	// Update existing document
 	updated := Document{
 		ID:     "1",
-		Fields: map[string]interface{}{"title": "Updated"},
+		Fields: map[string]any{"title": "Updated"},
 	}
+
 	err = search.Update(ctx, "test", "1", updated)
 	if err != nil {
 		t.Fatalf("failed to update document: %v", err)
@@ -402,7 +415,7 @@ func TestInMemorySearch_Update(t *testing.T) {
 
 	// Update non-existent document
 	err = search.Update(ctx, "test", "999", updated)
-	if err != ErrDocumentNotFound {
+	if !errors.Is(err, ErrDocumentNotFound) {
 		t.Errorf("expected ErrDocumentNotFound, got %v", err)
 	}
 }
@@ -422,6 +435,7 @@ func TestInMemorySearch_Search(t *testing.T) {
 			{Name: "content", Type: "text"},
 		},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -429,9 +443,9 @@ func TestInMemorySearch_Search(t *testing.T) {
 
 	// Index test documents
 	docs := []Document{
-		{ID: "1", Fields: map[string]interface{}{"title": "Go Programming", "content": "Learn Go"}},
-		{ID: "2", Fields: map[string]interface{}{"title": "Python Tutorial", "content": "Learn Python"}},
-		{ID: "3", Fields: map[string]interface{}{"title": "Go Best Practices", "content": "Advanced Go"}},
+		{ID: "1", Fields: map[string]any{"title": "Go Programming", "content": "Learn Go"}},
+		{ID: "2", Fields: map[string]any{"title": "Python Tutorial", "content": "Learn Python"}},
+		{ID: "3", Fields: map[string]any{"title": "Go Best Practices", "content": "Advanced Go"}},
 	}
 	_ = search.BulkIndex(ctx, "test", docs)
 
@@ -441,6 +455,7 @@ func TestInMemorySearch_Search(t *testing.T) {
 		Query: "go",
 		Limit: 10,
 	}
+
 	results, err := search.Search(ctx, query)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
@@ -475,15 +490,16 @@ func TestInMemorySearch_SearchWithFilters(t *testing.T) {
 			{Name: "status", Type: "keyword"},
 		},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
 	}
 
 	docs := []Document{
-		{ID: "1", Fields: map[string]interface{}{"title": "Doc 1", "status": "published"}},
-		{ID: "2", Fields: map[string]interface{}{"title": "Doc 2", "status": "draft"}},
-		{ID: "3", Fields: map[string]interface{}{"title": "Doc 3", "status": "published"}},
+		{ID: "1", Fields: map[string]any{"title": "Doc 1", "status": "published"}},
+		{ID: "2", Fields: map[string]any{"title": "Doc 2", "status": "draft"}},
+		{ID: "3", Fields: map[string]any{"title": "Doc 3", "status": "published"}},
 	}
 	_ = search.BulkIndex(ctx, "test", docs)
 
@@ -518,6 +534,7 @@ func TestInMemorySearch_SearchPagination(t *testing.T) {
 	schema := IndexSchema{
 		Fields: []FieldSchema{{Name: "title", Type: "text"}},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -525,12 +542,13 @@ func TestInMemorySearch_SearchPagination(t *testing.T) {
 
 	// Index 10 documents
 	docs := make([]Document, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		docs[i] = Document{
 			ID:     string(rune('0' + i)),
-			Fields: map[string]interface{}{"title": "Document"},
+			Fields: map[string]any{"title": "Document"},
 		}
 	}
+
 	_ = search.BulkIndex(ctx, "test", docs)
 
 	// Test pagination
@@ -567,15 +585,16 @@ func TestInMemorySearch_Suggest(t *testing.T) {
 	schema := IndexSchema{
 		Fields: []FieldSchema{{Name: "title", Type: "text"}},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
 	}
 
 	docs := []Document{
-		{ID: "1", Fields: map[string]interface{}{"title": "Go Programming"}},
-		{ID: "2", Fields: map[string]interface{}{"title": "Go Best Practices"}},
-		{ID: "3", Fields: map[string]interface{}{"title": "Python Tutorial"}},
+		{ID: "1", Fields: map[string]any{"title": "Go Programming"}},
+		{ID: "2", Fields: map[string]any{"title": "Go Best Practices"}},
+		{ID: "3", Fields: map[string]any{"title": "Python Tutorial"}},
 	}
 	_ = search.BulkIndex(ctx, "test", docs)
 
@@ -608,15 +627,16 @@ func TestInMemorySearch_Autocomplete(t *testing.T) {
 	schema := IndexSchema{
 		Fields: []FieldSchema{{Name: "title", Type: "text"}},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
 	}
 
 	docs := []Document{
-		{ID: "1", Fields: map[string]interface{}{"title": "Apple"}},
-		{ID: "2", Fields: map[string]interface{}{"title": "Application"}},
-		{ID: "3", Fields: map[string]interface{}{"title": "Banana"}},
+		{ID: "1", Fields: map[string]any{"title": "Apple"}},
+		{ID: "2", Fields: map[string]any{"title": "Application"}},
+		{ID: "3", Fields: map[string]any{"title": "Banana"}},
 	}
 	_ = search.BulkIndex(ctx, "test", docs)
 
@@ -662,7 +682,7 @@ func TestInMemorySearch_Stats(t *testing.T) {
 	}
 	_ = search.CreateIndex(ctx, "test", schema)
 	docs := []Document{
-		{ID: "1", Fields: map[string]interface{}{"title": "Doc 1"}},
+		{ID: "1", Fields: map[string]any{"title": "Doc 1"}},
 	}
 	_ = search.BulkIndex(ctx, "test", docs)
 
@@ -699,23 +719,44 @@ func TestInMemorySearch_NotConnectedErrors(t *testing.T) {
 	}{
 		{"CreateIndex", func() error { return search.CreateIndex(ctx, "test", schema) }},
 		{"DeleteIndex", func() error { return search.DeleteIndex(ctx, "test") }},
-		{"ListIndexes", func() error { _, err := search.ListIndexes(ctx); return err }},
-		{"GetIndexInfo", func() error { _, err := search.GetIndexInfo(ctx, "test"); return err }},
+		{"ListIndexes", func() error {
+			_, err := search.ListIndexes(ctx)
+			return err
+		}},
+		{"GetIndexInfo", func() error {
+			_, err := search.GetIndexInfo(ctx, "test")
+			return err
+		}},
 		{"Index", func() error { return search.Index(ctx, "test", doc) }},
 		{"BulkIndex", func() error { return search.BulkIndex(ctx, "test", []Document{doc}) }},
-		{"Get", func() error { _, err := search.Get(ctx, "test", "1"); return err }},
+		{"Get", func() error {
+			_, err := search.Get(ctx, "test", "1")
+			return err
+		}},
 		{"Delete", func() error { return search.Delete(ctx, "test", "1") }},
 		{"Update", func() error { return search.Update(ctx, "test", "1", doc) }},
-		{"Search", func() error { _, err := search.Search(ctx, SearchQuery{Index: "test"}); return err }},
-		{"Suggest", func() error { _, err := search.Suggest(ctx, SuggestQuery{Index: "test"}); return err }},
-		{"Autocomplete", func() error { _, err := search.Autocomplete(ctx, AutocompleteQuery{Index: "test"}); return err }},
-		{"Stats", func() error { _, err := search.Stats(ctx); return err }},
+		{"Search", func() error {
+			_, err := search.Search(ctx, SearchQuery{Index: "test"})
+			return err
+		}},
+		{"Suggest", func() error {
+			_, err := search.Suggest(ctx, SuggestQuery{Index: "test"})
+			return err
+		}},
+		{"Autocomplete", func() error {
+			_, err := search.Autocomplete(ctx, AutocompleteQuery{Index: "test"})
+			return err
+		}},
+		{"Stats", func() error {
+			_, err := search.Stats(ctx)
+			return err
+		}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.fn()
-			if err != ErrNotConnected {
+			if !errors.Is(err, ErrNotConnected) {
 				t.Errorf("%s: expected ErrNotConnected, got %v", tt.name, err)
 			}
 		})
@@ -734,6 +775,7 @@ func TestInMemorySearch_ConcurrentAccess(t *testing.T) {
 	schema := IndexSchema{
 		Fields: []FieldSchema{{Name: "title", Type: "text"}},
 	}
+
 	err = search.CreateIndex(ctx, "test", schema)
 	if err != nil {
 		t.Fatalf("failed to create index: %v", err)
@@ -741,19 +783,21 @@ func TestInMemorySearch_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent writes
 	done := make(chan bool)
-	for i := 0; i < 10; i++ {
+
+	for i := range 10 {
 		go func(id int) {
 			doc := Document{
 				ID:     string(rune('0' + id)),
-				Fields: map[string]interface{}{"title": "Test"},
+				Fields: map[string]any{"title": "Test"},
 			}
 			_ = search.Index(ctx, "test", doc)
+
 			done <- true
 		}(i)
 	}
 
 	// Wait for all writes
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -776,11 +820,10 @@ func BenchmarkInMemorySearch_Index(b *testing.B) {
 
 	doc := Document{
 		ID:     "1",
-		Fields: map[string]interface{}{"title": "Test Document"},
+		Fields: map[string]any{"title": "Test Document"},
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = search.Index(ctx, "test", doc)
 	}
 }
@@ -796,10 +839,10 @@ func BenchmarkInMemorySearch_Search(b *testing.B) {
 	_ = search.CreateIndex(ctx, "test", schema)
 
 	// Index 100 documents
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		doc := Document{
 			ID:     string(rune('0' + i%10)),
-			Fields: map[string]interface{}{"title": "Test Document"},
+			Fields: map[string]any{"title": "Test Document"},
 		}
 		_ = search.Index(ctx, "test", doc)
 	}
@@ -810,8 +853,7 @@ func BenchmarkInMemorySearch_Search(b *testing.B) {
 		Limit: 10,
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = search.Search(ctx, query)
 	}
 }

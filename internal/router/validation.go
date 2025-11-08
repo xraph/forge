@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,41 +12,42 @@ import (
 	"strings"
 )
 
-// SchemaValidator validates data against JSON schemas
+// SchemaValidator validates data against JSON schemas.
 type SchemaValidator struct {
 	schemas map[string]*Schema
 }
 
-// NewSchemaValidator creates a new schema validator
+// NewSchemaValidator creates a new schema validator.
 func NewSchemaValidator() *SchemaValidator {
 	return &SchemaValidator{
 		schemas: make(map[string]*Schema),
 	}
 }
 
-// RegisterSchema registers a schema with a name
+// RegisterSchema registers a schema with a name.
 func (v *SchemaValidator) RegisterSchema(name string, schema *Schema) {
 	v.schemas[name] = schema
 }
 
-// ValidateRequest validates request data against a schema
-func (v *SchemaValidator) ValidateRequest(schema *Schema, data interface{}) error {
+// ValidateRequest validates request data against a schema.
+func (v *SchemaValidator) ValidateRequest(schema *Schema, data any) error {
 	errors := NewValidationErrors()
 	v.validateValue(schema, data, "", errors)
 
 	if errors.HasErrors() {
 		return errors
 	}
+
 	return nil
 }
 
-// ValidateResponse validates response data against a schema
-func (v *SchemaValidator) ValidateResponse(schema *Schema, data interface{}) error {
+// ValidateResponse validates response data against a schema.
+func (v *SchemaValidator) ValidateResponse(schema *Schema, data any) error {
 	return v.ValidateRequest(schema, data)
 }
 
-// validateValue validates a value against a schema
-func (v *SchemaValidator) validateValue(schema *Schema, value interface{}, path string, errors *ValidationErrors) {
+// validateValue validates a value against a schema.
+func (v *SchemaValidator) validateValue(schema *Schema, value any, path string, errors *ValidationErrors) {
 	if schema == nil {
 		return
 	}
@@ -63,7 +65,9 @@ func (v *SchemaValidator) validateValue(schema *Schema, value interface{}, path 
 		if actualType == "null" && schema.Nullable {
 			return
 		}
+
 		errors.AddWithCode(path, fmt.Sprintf("Expected type %s, got %s", schema.Type, actualType), ErrCodeInvalidType, value)
+
 		return
 	}
 
@@ -87,8 +91,8 @@ func (v *SchemaValidator) validateValue(schema *Schema, value interface{}, path 
 	}
 }
 
-// validateString validates string values
-func (v *SchemaValidator) validateString(schema *Schema, value interface{}, path string, errors *ValidationErrors) {
+// validateString validates string values.
+func (v *SchemaValidator) validateString(schema *Schema, value any, path string, errors *ValidationErrors) {
 	str, ok := value.(string)
 	if !ok {
 		return
@@ -98,6 +102,7 @@ func (v *SchemaValidator) validateString(schema *Schema, value interface{}, path
 	if schema.MinLength > 0 && len(str) < schema.MinLength {
 		errors.AddWithCode(path, fmt.Sprintf("String length must be at least %d", schema.MinLength), ErrCodeMinLength, value)
 	}
+
 	if schema.MaxLength > 0 && len(str) > schema.MaxLength {
 		errors.AddWithCode(path, fmt.Sprintf("String length must be at most %d", schema.MaxLength), ErrCodeMaxLength, value)
 	}
@@ -106,7 +111,7 @@ func (v *SchemaValidator) validateString(schema *Schema, value interface{}, path
 	if schema.Pattern != "" {
 		matched, err := regexp.MatchString(schema.Pattern, str)
 		if err == nil && !matched {
-			errors.AddWithCode(path, fmt.Sprintf("String does not match pattern: %s", schema.Pattern), ErrCodePattern, value)
+			errors.AddWithCode(path, "String does not match pattern: "+schema.Pattern, ErrCodePattern, value)
 		}
 	}
 
@@ -116,8 +121,8 @@ func (v *SchemaValidator) validateString(schema *Schema, value interface{}, path
 	}
 }
 
-// validateNumber validates numeric values
-func (v *SchemaValidator) validateNumber(schema *Schema, value interface{}, path string, errors *ValidationErrors) {
+// validateNumber validates numeric values.
+func (v *SchemaValidator) validateNumber(schema *Schema, value any, path string, errors *ValidationErrors) {
 	var num float64
 
 	switch val := value.(type) {
@@ -166,8 +171,8 @@ func (v *SchemaValidator) validateNumber(schema *Schema, value interface{}, path
 	}
 }
 
-// validateArray validates array values
-func (v *SchemaValidator) validateArray(schema *Schema, value interface{}, path string, errors *ValidationErrors) {
+// validateArray validates array values.
+func (v *SchemaValidator) validateArray(schema *Schema, value any, path string, errors *ValidationErrors) {
 	arr, ok := toSlice(value)
 	if !ok {
 		return
@@ -177,6 +182,7 @@ func (v *SchemaValidator) validateArray(schema *Schema, value interface{}, path 
 	if schema.MinItems > 0 && len(arr) < schema.MinItems {
 		errors.AddWithCode(path, fmt.Sprintf("Array must have at least %d items", schema.MinItems), ErrCodeMinItems, value)
 	}
+
 	if schema.MaxItems > 0 && len(arr) > schema.MaxItems {
 		errors.AddWithCode(path, fmt.Sprintf("Array must have at most %d items", schema.MaxItems), ErrCodeMaxItems, value)
 	}
@@ -184,11 +190,13 @@ func (v *SchemaValidator) validateArray(schema *Schema, value interface{}, path 
 	// Unique items validation
 	if schema.UniqueItems {
 		seen := make(map[string]bool)
+
 		for i, item := range arr {
 			key := fmt.Sprintf("%v", item)
 			if seen[key] {
 				errors.AddWithCode(fmt.Sprintf("%s[%d]", path, i), "Array items must be unique", ErrCodeUniqueItems, item)
 			}
+
 			seen[key] = true
 		}
 	}
@@ -202,8 +210,8 @@ func (v *SchemaValidator) validateArray(schema *Schema, value interface{}, path 
 	}
 }
 
-// validateObject validates object values
-func (v *SchemaValidator) validateObject(schema *Schema, value interface{}, path string, errors *ValidationErrors) {
+// validateObject validates object values.
+func (v *SchemaValidator) validateObject(schema *Schema, value any, path string, errors *ValidationErrors) {
 	obj, ok := toMap(value)
 	if !ok {
 		return
@@ -216,6 +224,7 @@ func (v *SchemaValidator) validateObject(schema *Schema, value interface{}, path
 			if fieldPath != "" {
 				fieldPath += "."
 			}
+
 			fieldPath += required
 			errors.AddWithCode(fieldPath, "Field is required", ErrCodeRequired, nil)
 		}
@@ -228,6 +237,7 @@ func (v *SchemaValidator) validateObject(schema *Schema, value interface{}, path
 			if propPath != "" {
 				propPath += "."
 			}
+
 			propPath += propName
 			v.validateValue(propSchema, propValue, propPath, errors)
 		}
@@ -237,17 +247,20 @@ func (v *SchemaValidator) validateObject(schema *Schema, value interface{}, path
 	if schema.MinProperties > 0 && len(obj) < schema.MinProperties {
 		errors.Add(path, fmt.Sprintf("Object must have at least %d properties", schema.MinProperties), value)
 	}
+
 	if schema.MaxProperties > 0 && len(obj) > schema.MaxProperties {
 		errors.Add(path, fmt.Sprintf("Object must have at most %d properties", schema.MaxProperties), value)
 	}
 }
 
-// validateEnum validates enum values
-func (v *SchemaValidator) validateEnum(schema *Schema, value interface{}, path string, errors *ValidationErrors) {
+// validateEnum validates enum values.
+func (v *SchemaValidator) validateEnum(schema *Schema, value any, path string, errors *ValidationErrors) {
 	found := false
+
 	for _, enumVal := range schema.Enum {
 		if fmt.Sprintf("%v", value) == fmt.Sprintf("%v", enumVal) {
 			found = true
+
 			break
 		}
 	}
@@ -257,7 +270,7 @@ func (v *SchemaValidator) validateEnum(schema *Schema, value interface{}, path s
 	}
 }
 
-// validateFormat validates string formats
+// validateFormat validates string formats.
 func (v *SchemaValidator) validateFormat(format, value, path string, errors *ValidationErrors) {
 	switch format {
 	case "email":
@@ -276,7 +289,7 @@ func (v *SchemaValidator) validateFormat(format, value, path string, errors *Val
 	}
 }
 
-// WithValidation adds validation middleware to a route
+// WithValidation adds validation middleware to a route.
 func WithValidation(enabled bool) RouteOption {
 	return &validationOpt{enabled: enabled}
 }
@@ -287,12 +300,13 @@ type validationOpt struct {
 
 func (o *validationOpt) Apply(config *RouteConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
+
 	config.Metadata["validation.enabled"] = o.enabled
 }
 
-// WithStrictValidation enables strict validation (validates both request and response)
+// WithStrictValidation enables strict validation (validates both request and response).
 func WithStrictValidation() RouteOption {
 	return &strictValidationOpt{}
 }
@@ -301,13 +315,14 @@ type strictValidationOpt struct{}
 
 func (o *strictValidationOpt) Apply(config *RouteConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
+
 	config.Metadata["validation.enabled"] = true
 	config.Metadata["validation.strict"] = true
 }
 
-// CreateValidationMiddleware creates a middleware that validates requests against schemas
+// CreateValidationMiddleware creates a middleware that validates requests against schemas.
 func CreateValidationMiddleware(validator *SchemaValidator) Middleware {
 	return func(next Handler) Handler {
 		return func(ctx Context) error {
@@ -318,9 +333,11 @@ func CreateValidationMiddleware(validator *SchemaValidator) Middleware {
 			if schema == nil {
 				return next(ctx)
 			}
+
 			if err := ValidateRequestBody(ctx.Request(), schema); err != nil {
 				return err
 			}
+
 			return next(ctx)
 		}
 	}
@@ -328,7 +345,7 @@ func CreateValidationMiddleware(validator *SchemaValidator) Middleware {
 
 // Helper functions
 
-func getJSONType(value interface{}) string {
+func getJSONType(value any) string {
 	if value == nil {
 		return "null"
 	}
@@ -354,22 +371,23 @@ func getJSONType(value interface{}) string {
 	}
 }
 
-func toSlice(value interface{}) ([]interface{}, bool) {
+func toSlice(value any) ([]any, bool) {
 	v := reflect.ValueOf(value)
 	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array {
 		return nil, false
 	}
 
-	result := make([]interface{}, v.Len())
+	result := make([]any, v.Len())
 	for i := 0; i < v.Len(); i++ {
 		result[i] = v.Index(i).Interface()
 	}
+
 	return result, true
 }
 
-func toMap(value interface{}) (map[string]interface{}, bool) {
+func toMap(value any) (map[string]any, bool) {
 	// Try direct type assertion first
-	if m, ok := value.(map[string]interface{}); ok {
+	if m, ok := value.(map[string]any); ok {
 		return m, true
 	}
 
@@ -380,17 +398,20 @@ func toMap(value interface{}) (map[string]interface{}, bool) {
 	}
 
 	if v.Kind() == reflect.Map {
-		result := make(map[string]interface{})
+		result := make(map[string]any)
+
 		iter := v.MapRange()
 		for iter.Next() {
 			key := fmt.Sprintf("%v", iter.Key().Interface())
 			result[key] = iter.Value().Interface()
 		}
+
 		return result, true
 	}
 
 	if v.Kind() == reflect.Struct {
-		result := make(map[string]interface{})
+		result := make(map[string]any)
+
 		t := v.Type()
 		for i := 0; i < v.NumField(); i++ {
 			field := t.Field(i)
@@ -405,6 +426,7 @@ func toMap(value interface{}) (map[string]interface{}, bool) {
 			}
 
 			name := field.Name
+
 			if jsonTag != "" {
 				parts := strings.Split(jsonTag, ",")
 				if parts[0] != "" {
@@ -414,6 +436,7 @@ func toMap(value interface{}) (map[string]interface{}, bool) {
 
 			result[name] = v.Field(i).Interface()
 		}
+
 		return result, true
 	}
 
@@ -424,6 +447,7 @@ func isValidEmail(email string) bool {
 	// Basic email validation
 	pattern := `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
 	matched, _ := regexp.MatchString(pattern, email)
+
 	return matched
 }
 
@@ -431,10 +455,11 @@ func isValidUUID(uuid string) bool {
 	// UUID v4 pattern
 	pattern := `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`
 	matched, _ := regexp.MatchString(pattern, strings.ToLower(uuid))
+
 	return matched
 }
 
-// ValidateRequestBody validates the request body against a schema
+// ValidateRequestBody validates the request body against a schema.
 func ValidateRequestBody(r *http.Request, schema *Schema) error {
 	if r.Body == nil {
 		return NewValidationErrors()
@@ -445,37 +470,43 @@ func ValidateRequestBody(r *http.Request, schema *Schema) error {
 		return err
 	}
 
-	var data interface{}
+	var data any
 	if err := json.Unmarshal(body, &data); err != nil {
 		verr := NewValidationErrors()
 		verr.Add("body", "Invalid JSON", string(body))
+
 		return verr
 	}
 
 	validator := NewSchemaValidator()
+
 	return validator.ValidateRequest(schema, data)
 }
 
-// FormatValidationError formats validation errors for HTTP response
+// FormatValidationError formats validation errors for HTTP response.
 func FormatValidationError(err error) (int, []byte) {
-	if verr, ok := err.(*ValidationErrors); ok {
+	verr := &ValidationErrors{}
+	if errors.As(err, &verr) {
 		response := NewValidationErrorResponse(verr)
 		data, _ := json.Marshal(response)
+
 		return 422, data
 	}
 
 	// Generic error
-	data, _ := json.Marshal(map[string]interface{}{
+	data, _ := json.Marshal(map[string]any{
 		"error": err.Error(),
 		"code":  400,
 	})
+
 	return 400, data
 }
 
-// ValidateQueryParams validates query parameters against a struct schema
-func ValidateQueryParams(r *http.Request, schemaType interface{}) error {
+// ValidateQueryParams validates query parameters against a struct schema.
+func ValidateQueryParams(r *http.Request, schemaType any) error {
 	// Extract query params
-	queryParams := make(map[string]interface{})
+	queryParams := make(map[string]any)
+
 	for key, values := range r.URL.Query() {
 		if len(values) == 1 {
 			queryParams[key] = values[0]
@@ -496,6 +527,7 @@ func ValidateQueryParams(r *http.Request, schemaType interface{}) error {
 	// Validate each field
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
+
 		queryTag := field.Tag.Get("query")
 		if queryTag == "" || queryTag == "-" {
 			continue
@@ -512,6 +544,7 @@ func ValidateQueryParams(r *http.Request, schemaType interface{}) error {
 
 		if required && !exists {
 			errors.AddWithCode(paramName, "Query parameter is required", ErrCodeRequired, nil)
+
 			continue
 		}
 
@@ -531,14 +564,17 @@ func ValidateQueryParams(r *http.Request, schemaType interface{}) error {
 					schema.Minimum = min
 				}
 			}
+
 			if maxStr := field.Tag.Get("maximum"); maxStr != "" {
 				if max, err := strconv.ParseFloat(maxStr, 64); err == nil {
 					schema.Maximum = max
 				}
 			}
+
 			if enumStr := field.Tag.Get("enum"); enumStr != "" {
 				enumValues := strings.Split(enumStr, ",")
-				schema.Enum = make([]interface{}, len(enumValues))
+
+				schema.Enum = make([]any, len(enumValues))
 				for i, v := range enumValues {
 					schema.Enum[i] = strings.TrimSpace(v)
 				}
@@ -551,10 +587,11 @@ func ValidateQueryParams(r *http.Request, schemaType interface{}) error {
 	if errors.HasErrors() {
 		return errors
 	}
+
 	return nil
 }
 
-func convertQueryValue(value interface{}, targetType reflect.Type) interface{} {
+func convertQueryValue(value any, targetType reflect.Type) any {
 	str, ok := value.(string)
 	if !ok {
 		return value

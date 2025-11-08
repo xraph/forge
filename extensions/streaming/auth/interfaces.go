@@ -61,7 +61,7 @@ const (
 	TargetTypeDirect  TargetType = "direct"
 )
 
-// Moderation actions
+// Moderation actions.
 const (
 	ActionDelete = "delete"
 	ActionMute   = "mute"

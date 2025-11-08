@@ -26,6 +26,7 @@ func (ra *roomAuthorizer) CanJoin(ctx context.Context, userID, roomID string) (b
 	if err != nil {
 		return false, err
 	}
+
 	if isMember {
 		return true, nil // Already a member
 	}
@@ -52,8 +53,9 @@ func (ra *roomAuthorizer) CanLeave(ctx context.Context, userID, roomID string) (
 	if err != nil {
 		return false, err
 	}
+
 	if !isMember {
-		return false, fmt.Errorf("not a member of room")
+		return false, errors.New("not a member of room")
 	}
 
 	// Check if owner
@@ -64,7 +66,7 @@ func (ra *roomAuthorizer) CanLeave(ctx context.Context, userID, roomID string) (
 
 	// Owners cannot leave their own rooms (must transfer ownership first)
 	if room.GetOwner() == userID {
-		return false, fmt.Errorf("owner cannot leave room without transferring ownership")
+		return false, errors.New("owner cannot leave room without transferring ownership")
 	}
 
 	return true, nil
@@ -87,6 +89,7 @@ func (ra *roomAuthorizer) CanInvite(ctx context.Context, userID, roomID string) 
 		if err != nil {
 			return false, err
 		}
+
 		return member.HasPermission(streaming.PermissionInviteMembers), nil
 	default:
 		return false, nil
@@ -110,6 +113,7 @@ func (ra *roomAuthorizer) CanModerate(ctx context.Context, userID, roomID string
 		if err != nil {
 			return false, err
 		}
+
 		return member.HasPermission(streaming.PermissionManageRoom), nil
 	}
 }

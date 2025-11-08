@@ -160,6 +160,7 @@ func TestParseValue(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
+
 	if val != "hello" {
 		t.Errorf("expected 'hello', got '%v'", val)
 	}
@@ -169,6 +170,7 @@ func TestParseValue(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
+
 	if val != 42 {
 		t.Errorf("expected 42, got %v", val)
 	}
@@ -178,6 +180,7 @@ func TestParseValue(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
+
 	if val != true {
 		t.Errorf("expected true, got %v", val)
 	}
@@ -187,6 +190,7 @@ func TestParseValue(t *testing.T) {
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
+
 	if val != 5*time.Second {
 		t.Errorf("expected 5s, got %v", val)
 	}

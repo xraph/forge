@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -50,6 +51,7 @@ func TestNewEnvSource(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewEnvSource() error = %v", err)
 			}
+
 			if source == nil {
 				t.Fatal("NewEnvSource() returned nil")
 			}
@@ -109,8 +111,8 @@ func TestEnvSource_Load(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v, want nil", err)
 	}
@@ -135,13 +137,14 @@ func TestEnvSource_Load(t *testing.T) {
 
 func TestEnvSource_Load_WithoutPrefix(t *testing.T) {
 	os.Setenv("NO_PREFIX_VAR", "test_value")
+
 	defer os.Unsetenv("NO_PREFIX_VAR")
 
 	source, _ := NewEnvSource("", EnvSourceOptions{})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -152,8 +155,8 @@ func TestEnvSource_Load_WithoutPrefix(t *testing.T) {
 
 	// Should load all environment variables including NO_PREFIX_VAR
 	// The key gets transformed from NO_PREFIX_VAR to NO.PREFIX.VAR due to separator replacement
-	if noData, ok := data["NO"].(map[string]interface{}); ok {
-		if prefixData, ok := noData["PREFIX"].(map[string]interface{}); ok {
+	if noData, ok := data["NO"].(map[string]any); ok {
+		if prefixData, ok := noData["PREFIX"].(map[string]any); ok {
 			if val, ok := prefixData["VAR"].(string); !ok || val != "test_value" {
 				t.Errorf("data[NO][PREFIX][VAR] = %v, want test_value", prefixData["VAR"])
 			}
@@ -168,6 +171,7 @@ func TestEnvSource_Load_WithoutPrefix(t *testing.T) {
 func TestEnvSource_Load_WithSeparator(t *testing.T) {
 	os.Setenv("APP_DB_HOST", "localhost")
 	os.Setenv("APP_DB_PORT", "5432")
+
 	defer os.Unsetenv("APP_DB_HOST")
 	defer os.Unsetenv("APP_DB_PORT")
 
@@ -177,17 +181,18 @@ func TestEnvSource_Load_WithSeparator(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 
 	// Check nested structure
-	if dbData, ok := data["DB"].(map[string]interface{}); ok {
+	if dbData, ok := data["DB"].(map[string]any); ok {
 		if host, ok := dbData["HOST"].(string); !ok || host != "localhost" {
 			t.Errorf("DB.HOST = %v, want localhost", dbData["HOST"])
 		}
+
 		if port, ok := dbData["PORT"].(string); !ok || port != "5432" {
 			t.Errorf("DB.PORT = %v, want 5432", dbData["PORT"])
 		}
@@ -202,6 +207,7 @@ func TestEnvSource_Load_WithSeparator(t *testing.T) {
 
 func TestEnvSource_Get(t *testing.T) {
 	os.Setenv("TEST_KEY", "test_value")
+
 	defer os.Unsetenv("TEST_KEY")
 
 	source, _ := NewEnvSource("TEST_", EnvSourceOptions{
@@ -216,10 +222,12 @@ func TestEnvSource_Get(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
+
 		value, ok := data["KEY"]
 		if !ok {
 			t.Fatal("Load() did not return existing key")
 		}
+
 		if value != "test_value" {
 			t.Errorf("Load() = %v, want test_value", value)
 		}
@@ -230,6 +238,7 @@ func TestEnvSource_Get(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
+
 		_, ok := data["NONEXISTENT"]
 		if ok {
 			t.Error("Load() should not return non-existent key")
@@ -243,6 +252,7 @@ func TestEnvSource_Get(t *testing.T) {
 
 func TestEnvSource_KeyTransform(t *testing.T) {
 	os.Setenv("TEST_lower_case", "value")
+
 	defer os.Unsetenv("TEST_lower_case")
 
 	keyTransform := func(key string) string {
@@ -255,8 +265,8 @@ func TestEnvSource_KeyTransform(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -269,9 +279,10 @@ func TestEnvSource_KeyTransform(t *testing.T) {
 
 func TestEnvSource_ValueTransform(t *testing.T) {
 	os.Setenv("TEST_VALUE", "original")
+
 	defer os.Unsetenv("TEST_VALUE")
 
-	valueTransform := func(key string, value interface{}) interface{} {
+	valueTransform := func(key string, value any) any {
 		return value.(string) + "_TRANSFORMED"
 	}
 
@@ -281,8 +292,8 @@ func TestEnvSource_ValueTransform(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -314,8 +325,8 @@ func TestEnvSource_TypeConversion(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -347,6 +358,7 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 	t.Run("all required vars present", func(t *testing.T) {
 		os.Setenv("REQ_VAR1", "value1")
 		os.Setenv("REQ_VAR2", "value2")
+
 		defer os.Unsetenv("REQ_VAR1")
 		defer os.Unsetenv("REQ_VAR2")
 
@@ -356,8 +368,8 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 		})
 
 		ctx := context.Background()
-		_, err := source.Load(ctx)
 
+		_, err := source.Load(ctx)
 		if err != nil {
 			t.Errorf("Load() error = %v, want nil", err)
 		}
@@ -365,6 +377,7 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 
 	t.Run("missing required var", func(t *testing.T) {
 		os.Setenv("REQ_VAR1", "value1")
+
 		defer os.Unsetenv("REQ_VAR1")
 
 		source, _ := NewEnvSource("REQ_", EnvSourceOptions{
@@ -373,8 +386,8 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 		})
 
 		ctx := context.Background()
-		_, err := source.Load(ctx)
 
+		_, err := source.Load(ctx)
 		if err == nil {
 			t.Error("Load() should return error for missing required var")
 		}
@@ -388,6 +401,7 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 func TestEnvSource_SecretVars(t *testing.T) {
 	os.Setenv("SECRET_PASSWORD", "secret123")
 	os.Setenv("NORMAL_VAR", "normal")
+
 	defer os.Unsetenv("SECRET_PASSWORD")
 	defer os.Unsetenv("NORMAL_VAR")
 
@@ -396,8 +410,8 @@ func TestEnvSource_SecretVars(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -430,9 +444,10 @@ func TestEnvSource_Watch(t *testing.T) {
 
 	go func() {
 		err := source.Watch(ctx, nil)
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Errorf("Watch() error = %v", err)
 		}
+
 		close(changes)
 	}()
 
@@ -461,8 +476,8 @@ func TestEnvSource_Watch_Disabled(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := source.Watch(ctx, nil)
 
+	err := source.Watch(ctx, nil)
 	if err == nil {
 		t.Error("Watch() should return error when watching is disabled")
 	}
@@ -576,8 +591,8 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		})
 
 		ctx := context.Background()
-		data, err := source.Load(ctx)
 
+		data, err := source.Load(ctx)
 		if err != nil {
 			t.Errorf("Load() error = %v, want nil", err)
 		}
@@ -594,6 +609,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 
 	t.Run("empty var value", func(t *testing.T) {
 		os.Setenv("TEST_EMPTY_VAR", "")
+
 		defer os.Unsetenv("TEST_EMPTY_VAR")
 
 		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
@@ -603,8 +619,8 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		})
 
 		ctx := context.Background()
-		data, err := source.Load(ctx)
 
+		data, err := source.Load(ctx)
 		if err != nil {
 			t.Errorf("Load() error = %v", err)
 		}
@@ -620,6 +636,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 	t.Run("special characters in value", func(t *testing.T) {
 		specialValue := "value with spaces and !@#$%^&*()"
 		os.Setenv("TEST_SPECIAL_VAR", specialValue)
+
 		defer os.Unsetenv("TEST_SPECIAL_VAR")
 
 		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
@@ -629,8 +646,8 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		})
 
 		ctx := context.Background()
-		data, err := source.Load(ctx)
 
+		data, err := source.Load(ctx)
 		if err != nil {
 			t.Errorf("Load() error = %v", err)
 		}
@@ -643,6 +660,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 	t.Run("very long value", func(t *testing.T) {
 		longValue := strings.Repeat("a", 10000)
 		os.Setenv("TEST_LONG_VAR", longValue)
+
 		defer os.Unsetenv("TEST_LONG_VAR")
 
 		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
@@ -652,8 +670,8 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		})
 
 		ctx := context.Background()
-		data, err := source.Load(ctx)
 
+		data, err := source.Load(ctx)
 		if err != nil {
 			t.Errorf("Load() error = %v", err)
 		}
@@ -666,6 +684,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 	t.Run("unicode in value", func(t *testing.T) {
 		unicodeValue := "Hello 世界 🌍"
 		os.Setenv("TEST_UNICODE_VAR", unicodeValue)
+
 		defer os.Unsetenv("TEST_UNICODE_VAR")
 
 		source, _ := NewEnvSource("TEST_", EnvSourceOptions{
@@ -675,8 +694,8 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 		})
 
 		ctx := context.Background()
-		data, err := source.Load(ctx)
 
+		data, err := source.Load(ctx)
 		if err != nil {
 			t.Errorf("Load() error = %v", err)
 		}
@@ -708,19 +727,19 @@ func TestEnvSource_ComplexNesting(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
 
 	// Check nested structure
-	db, ok := data["DB"].(map[string]interface{})
+	db, ok := data["DB"].(map[string]any)
 	if !ok {
 		t.Fatal("DB not found or not a map")
 	}
 
-	master, ok := db["MASTER"].(map[string]interface{})
+	master, ok := db["MASTER"].(map[string]any)
 	if !ok {
 		t.Fatal("DB.MASTER not found or not a map")
 	}
@@ -729,7 +748,7 @@ func TestEnvSource_ComplexNesting(t *testing.T) {
 		t.Errorf("DB.MASTER.HOST = %v, want master.db", master["HOST"])
 	}
 
-	replica, ok := db["REPLICA"].(map[string]interface{})
+	replica, ok := db["REPLICA"].(map[string]any)
 	if !ok {
 		t.Fatal("DB.REPLICA not found or not a map")
 	}
@@ -759,8 +778,8 @@ func TestEnvSource_MixedTypes(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	data, err := source.Load(ctx)
 
+	data, err := source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -823,7 +842,7 @@ func TestEnvSource_ContextCancellation(t *testing.T) {
 	_, err := source.Load(ctx)
 
 	// Should either complete successfully or handle cancellation gracefully
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Errorf("Load() error = %v", err)
 	}
 }
@@ -834,6 +853,7 @@ func TestEnvSource_ContextCancellation(t *testing.T) {
 
 func TestEnvSource_ReloadConsistency(t *testing.T) {
 	os.Setenv("RELOAD_VAR", "value")
+
 	defer os.Unsetenv("RELOAD_VAR")
 
 	source, _ := NewEnvSource("TEST_", EnvSourceOptions{})

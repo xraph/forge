@@ -7,32 +7,33 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// PyTorchAdapter implements ModelAdapter for PyTorch models
+// PyTorchAdapter implements ModelAdapter for PyTorch models.
 type PyTorchAdapter struct {
 	logger logger.Logger
 }
 
-// NewPyTorchAdapter creates a new PyTorch adapter
+// NewPyTorchAdapter creates a new PyTorch adapter.
 func NewPyTorchAdapter(logger logger.Logger) ModelAdapter {
 	return &PyTorchAdapter{
 		logger: logger,
 	}
 }
 
-// Name returns the adapter name
+// Name returns the adapter name.
 func (a *PyTorchAdapter) Name() string {
 	return "pytorch"
 }
 
-// Framework returns the ML framework
+// Framework returns the ML framework.
 func (a *PyTorchAdapter) Framework() MLFramework {
 	return MLFrameworkPyTorch
 }
 
-// SupportsModel checks if this adapter supports the given model configuration
+// SupportsModel checks if this adapter supports the given model configuration.
 func (a *PyTorchAdapter) SupportsModel(config ModelConfig) bool {
 	if config.Framework != MLFrameworkPyTorch {
 		return false
@@ -59,7 +60,7 @@ func (a *PyTorchAdapter) SupportsModel(config ModelConfig) bool {
 	return false
 }
 
-// CreateModel creates a new PyTorch model
+// CreateModel creates a new PyTorch model.
 func (a *PyTorchAdapter) CreateModel(config ModelConfig) (Model, error) {
 	if err := a.ValidateConfig(config); err != nil {
 		return nil, err
@@ -75,7 +76,7 @@ func (a *PyTorchAdapter) CreateModel(config ModelConfig) (Model, error) {
 	model.SetOutputSchema(a.getDefaultOutputSchema(config))
 
 	// Set PyTorch-specific metadata
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"framework": "pytorch",
 		"version":   "1.x",
 		"format":    a.detectModelFormat(config.ModelPath),
@@ -86,38 +87,38 @@ func (a *PyTorchAdapter) CreateModel(config ModelConfig) (Model, error) {
 	return model, nil
 }
 
-// ValidateConfig validates the model configuration
+// ValidateConfig validates the model configuration.
 func (a *PyTorchAdapter) ValidateConfig(config ModelConfig) error {
 	if config.Framework != MLFrameworkPyTorch {
 		return fmt.Errorf("invalid framework: expected %s, got %s", MLFrameworkPyTorch, config.Framework)
 	}
 
 	if config.ModelPath == "" {
-		return fmt.Errorf("model path is required")
+		return errors.New("model path is required")
 	}
 
 	if config.ID == "" {
-		return fmt.Errorf("model ID is required")
+		return errors.New("model ID is required")
 	}
 
 	if config.Name == "" {
-		return fmt.Errorf("model name is required")
+		return errors.New("model name is required")
 	}
 
 	// Validate batch size
 	if config.BatchSize < 0 {
-		return fmt.Errorf("batch size must be non-negative")
+		return errors.New("batch size must be non-negative")
 	}
 
 	// Validate timeout
 	if config.Timeout < 0 {
-		return fmt.Errorf("timeout must be non-negative")
+		return errors.New("timeout must be non-negative")
 	}
 
 	return nil
 }
 
-// detectModelFormat detects the PyTorch model format
+// detectModelFormat detects the PyTorch model format.
 func (a *PyTorchAdapter) detectModelFormat(modelPath string) string {
 	ext := filepath.Ext(modelPath)
 	switch ext {
@@ -133,88 +134,90 @@ func (a *PyTorchAdapter) detectModelFormat(modelPath string) string {
 		if strings.Contains(modelPath, "torchscript") {
 			return "torchscript"
 		}
+
 		return "unknown"
 	}
 }
 
-// getDeviceType returns the device type based on GPU availability
+// getDeviceType returns the device type based on GPU availability.
 func (a *PyTorchAdapter) getDeviceType(useGPU bool) string {
 	if useGPU {
 		return "cuda"
 	}
+
 	return "cpu"
 }
 
-// getDefaultInputSchema returns default input schema for PyTorch models
+// getDefaultInputSchema returns default input schema for PyTorch models.
 func (a *PyTorchAdapter) getDefaultInputSchema(config ModelConfig) InputSchema {
 	return InputSchema{
 		Type: "object",
-		Properties: map[string]interface{}{
-			"tensor": map[string]interface{}{
+		Properties: map[string]any{
+			"tensor": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "number",
 				},
 			},
-			"shape": map[string]interface{}{
+			"shape": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "integer",
 				},
 			},
-			"dtype": map[string]interface{}{
+			"dtype": map[string]any{
 				"type": "string",
 				"enum": []string{"float32", "float64", "int32", "int64"},
 			},
 		},
 		Required: []string{"tensor"},
-		Examples: []interface{}{
-			map[string]interface{}{
+		Examples: []any{
+			map[string]any{
 				"tensor": []float64{1.0, 2.0, 3.0, 4.0},
 				"shape":  []int{1, 4},
 				"dtype":  "float32",
 			},
 		},
-		Constraints: map[string]interface{}{
+		Constraints: map[string]any{
 			"max_batch_size": config.BatchSize,
 			"device":         a.getDeviceType(config.GPU),
 		},
 	}
 }
 
-// getDefaultOutputSchema returns default output schema for PyTorch models
+// getDefaultOutputSchema returns default output schema for PyTorch models.
 func (a *PyTorchAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema {
 	return OutputSchema{
 		Type: "object",
-		Properties: map[string]interface{}{
-			"predictions": map[string]interface{}{
+		Properties: map[string]any{
+			"predictions": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"label":       map[string]interface{}{"type": "string"},
-						"value":       map[string]interface{}{"type": "number"},
-						"confidence":  map[string]interface{}{"type": "number"},
-						"probability": map[string]interface{}{"type": "number"},
+					"properties": map[string]any{
+						"label":       map[string]any{"type": "string"},
+						"value":       map[string]any{"type": "number"},
+						"confidence":  map[string]any{"type": "number"},
+						"probability": map[string]any{"type": "number"},
 					},
 				},
 			},
-			"tensor": map[string]interface{}{
+			"tensor": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "number",
 				},
 			},
-			"shape": map[string]interface{}{
+			"shape": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "integer",
 				},
 			},
 		},
-		Examples: []interface{}{
-			map[string]interface{}{
-				"predictions": []map[string]interface{}{
+		Examples: []any{
+			map[string]any{
+				"predictions": []map[string]any{
 					{
 						"label":       "class_0",
 						"value":       0.85,
@@ -230,20 +233,21 @@ func (a *PyTorchAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema
 	}
 }
 
-// PyTorchModel represents a PyTorch model
+// PyTorchModel represents a PyTorch model.
 type PyTorchModel struct {
 	*BaseModel
+
 	adapter    *PyTorchAdapter
-	model      interface{} // PyTorch model (would be actual torch.Module in real implementation)
-	device     string      // Device type (cpu/cuda)
-	scriptMode bool        // Whether model is in TorchScript mode
+	model      any    // PyTorch model (would be actual torch.Module in real implementation)
+	device     string // Device type (cpu/cuda)
+	scriptMode bool   // Whether model is in TorchScript mode
 
 	// Model-specific configuration
 	dtype      string // Data type (float32, float64, etc.)
 	numThreads int    // Number of threads for CPU inference
 }
 
-// Load loads the PyTorch model
+// Load loads the PyTorch model.
 func (m *PyTorchModel) Load(ctx context.Context) error {
 	// Call base load first
 	if err := m.BaseModel.Load(ctx); err != nil {
@@ -297,7 +301,7 @@ func (m *PyTorchModel) Load(ctx context.Context) error {
 	return nil
 }
 
-// Unload unloads the PyTorch model
+// Unload unloads the PyTorch model.
 func (m *PyTorchModel) Unload(ctx context.Context) error {
 	// Clean up PyTorch resources
 	if m.model != nil {
@@ -309,7 +313,7 @@ func (m *PyTorchModel) Unload(ctx context.Context) error {
 	return m.BaseModel.Unload(ctx)
 }
 
-// Predict performs prediction using the PyTorch model
+// Predict performs prediction using the PyTorch model.
 func (m *PyTorchModel) Predict(ctx context.Context, input ModelInput) (ModelOutput, error) {
 	startTime := time.Now()
 
@@ -321,6 +325,7 @@ func (m *PyTorchModel) Predict(ctx context.Context, input ModelInput) (ModelOutp
 	// Validate input
 	if err := m.ValidateInput(input); err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("invalid input: %w", err)
 	}
 
@@ -328,6 +333,7 @@ func (m *PyTorchModel) Predict(ctx context.Context, input ModelInput) (ModelOutp
 	torchInput, err := m.prepareInput(input)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("failed to prepare input: %w", err)
 	}
 
@@ -335,6 +341,7 @@ func (m *PyTorchModel) Predict(ctx context.Context, input ModelInput) (ModelOutp
 	torchOutput, err := m.runInference(ctx, torchInput)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("inference failed: %w", err)
 	}
 
@@ -342,6 +349,7 @@ func (m *PyTorchModel) Predict(ctx context.Context, input ModelInput) (ModelOutp
 	output, err := m.convertOutput(torchOutput, input.RequestID)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("failed to convert output: %w", err)
 	}
 
@@ -364,7 +372,7 @@ func (m *PyTorchModel) Predict(ctx context.Context, input ModelInput) (ModelOutp
 	return output, nil
 }
 
-// BatchPredict performs batch prediction using the PyTorch model
+// BatchPredict performs batch prediction using the PyTorch model.
 func (m *PyTorchModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]ModelOutput, error) {
 	if len(inputs) == 0 {
 		return []ModelOutput{}, nil
@@ -387,6 +395,7 @@ func (m *PyTorchModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([
 	batchInput, err := m.prepareBatchInput(inputs)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("failed to prepare batch input: %w", err)
 	}
 
@@ -394,6 +403,7 @@ func (m *PyTorchModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([
 	batchOutput, err := m.runInference(ctx, batchInput)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("batch inference failed: %w", err)
 	}
 
@@ -401,6 +411,7 @@ func (m *PyTorchModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([
 	outputs, err := m.convertBatchOutput(batchOutput, inputs)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("failed to convert batch output: %w", err)
 	}
 
@@ -426,7 +437,7 @@ func (m *PyTorchModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([
 	return outputs, nil
 }
 
-// ValidateInput validates PyTorch-specific input
+// ValidateInput validates PyTorch-specific input.
 func (m *PyTorchModel) ValidateInput(input ModelInput) error {
 	// Call base validation
 	if err := m.BaseModel.ValidateInput(input); err != nil {
@@ -435,22 +446,22 @@ func (m *PyTorchModel) ValidateInput(input ModelInput) error {
 
 	// PyTorch-specific validation
 	if input.Data == nil {
-		return fmt.Errorf("input data is required")
+		return errors.New("input data is required")
 	}
 
 	// Validate input format based on model type
 	switch data := input.Data.(type) {
 	case []float64:
 		if len(data) == 0 {
-			return fmt.Errorf("input tensor cannot be empty")
+			return errors.New("input tensor cannot be empty")
 		}
 	case [][]float64:
 		if len(data) == 0 {
-			return fmt.Errorf("input tensor cannot be empty")
+			return errors.New("input tensor cannot be empty")
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		if _, ok := data["tensor"]; !ok {
-			return fmt.Errorf("input object must contain 'tensor' field")
+			return errors.New("input object must contain 'tensor' field")
 		}
 	default:
 		return fmt.Errorf("unsupported input type: %T", data)
@@ -459,8 +470,8 @@ func (m *PyTorchModel) ValidateInput(input ModelInput) error {
 	return nil
 }
 
-// prepareInput prepares input data for PyTorch
-func (m *PyTorchModel) prepareInput(input ModelInput) (interface{}, error) {
+// prepareInput prepares input data for PyTorch.
+func (m *PyTorchModel) prepareInput(input ModelInput) (any, error) {
 	// In real implementation, this would:
 	// 1. Convert input data to PyTorch tensors
 	// 2. Move tensors to appropriate device (CPU/GPU)
@@ -478,15 +489,15 @@ func (m *PyTorchModel) prepareInput(input ModelInput) (interface{}, error) {
 	}, nil
 }
 
-// prepareBatchInput prepares batch input data for PyTorch
-func (m *PyTorchModel) prepareBatchInput(inputs []ModelInput) (interface{}, error) {
+// prepareBatchInput prepares batch input data for PyTorch.
+func (m *PyTorchModel) prepareBatchInput(inputs []ModelInput) (any, error) {
 	// In real implementation, this would:
 	// 1. Stack input tensors into batch tensor
 	// 2. Ensure consistent shapes and dtypes
 	// 3. Move to appropriate device
 
 	// Mock implementation
-	batchData := make([]interface{}, len(inputs))
+	batchData := make([]any, len(inputs))
 	for i, input := range inputs {
 		batchData[i] = input.Data
 	}
@@ -496,13 +507,13 @@ func (m *PyTorchModel) prepareBatchInput(inputs []ModelInput) (interface{}, erro
 		device:    m.device,
 		dtype:     m.dtype,
 		features:  nil,
-		metadata:  map[string]interface{}{"batch_size": len(inputs)},
+		metadata:  map[string]any{"batch_size": len(inputs)},
 		requestID: "batch",
 	}, nil
 }
 
-// runInference runs PyTorch inference
-func (m *PyTorchModel) runInference(ctx context.Context, input interface{}) (interface{}, error) {
+// runInference runs PyTorch inference.
+func (m *PyTorchModel) runInference(ctx context.Context, input any) (any, error) {
 	// In real implementation, this would:
 	// 1. Run forward pass through PyTorch model
 	// 2. Handle both regular and TorchScript models
@@ -524,15 +535,15 @@ func (m *PyTorchModel) runInference(ctx context.Context, input interface{}) (int
 		dtype:    m.dtype,
 		device:   m.device,
 		logits:   []float64{1.7, -1.7},
-		metadata: map[string]interface{}{"inference_time": 15, "device": m.device},
+		metadata: map[string]any{"inference_time": 15, "device": m.device},
 	}, nil
 }
 
-// convertOutput converts PyTorch output to ModelOutput
-func (m *PyTorchModel) convertOutput(torchOutput interface{}, requestID string) (ModelOutput, error) {
+// convertOutput converts PyTorch output to ModelOutput.
+func (m *PyTorchModel) convertOutput(torchOutput any, requestID string) (ModelOutput, error) {
 	output, ok := torchOutput.(*pyTorchOutput)
 	if !ok {
-		return ModelOutput{}, fmt.Errorf("invalid PyTorch output type")
+		return ModelOutput{}, errors.New("invalid PyTorch output type")
 	}
 
 	// Convert tensor to predictions
@@ -543,7 +554,7 @@ func (m *PyTorchModel) convertOutput(torchOutput interface{}, requestID string) 
 			Value:       val,
 			Confidence:  val,
 			Probability: val,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"index": i,
 				"logit": output.logits[i],
 			},
@@ -560,7 +571,7 @@ func (m *PyTorchModel) convertOutput(torchOutput interface{}, requestID string) 
 		Predictions:   predictions,
 		Probabilities: output.tensor,
 		Confidence:    confidence,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"tensor_shape": output.shape,
 			"dtype":        output.dtype,
 			"device":       output.device,
@@ -570,26 +581,26 @@ func (m *PyTorchModel) convertOutput(torchOutput interface{}, requestID string) 
 	}, nil
 }
 
-// convertBatchOutput converts PyTorch batch output to ModelOutput slice
-func (m *PyTorchModel) convertBatchOutput(torchOutput interface{}, inputs []ModelInput) ([]ModelOutput, error) {
+// convertBatchOutput converts PyTorch batch output to ModelOutput slice.
+func (m *PyTorchModel) convertBatchOutput(torchOutput any, inputs []ModelInput) ([]ModelOutput, error) {
 	// In real implementation, this would split batch tensor into individual outputs
 	// For now, simulate by calling convertOutput for each input
-
 	outputs := make([]ModelOutput, len(inputs))
 	for i, input := range inputs {
 		output, err := m.convertOutput(torchOutput, input.RequestID)
 		if err != nil {
 			return nil, err
 		}
+
 		outputs[i] = output
 	}
 
 	return outputs, nil
 }
 
-// GetDeviceInfo returns information about the device used by the model
-func (m *PyTorchModel) GetDeviceInfo() map[string]interface{} {
-	return map[string]interface{}{
+// GetDeviceInfo returns information about the device used by the model.
+func (m *PyTorchModel) GetDeviceInfo() map[string]any {
+	return map[string]any{
 		"device":      m.device,
 		"dtype":       m.dtype,
 		"script_mode": m.scriptMode,
@@ -597,10 +608,10 @@ func (m *PyTorchModel) GetDeviceInfo() map[string]interface{} {
 	}
 }
 
-// SetDevice changes the device used by the model
+// SetDevice changes the device used by the model.
 func (m *PyTorchModel) SetDevice(device string) error {
 	if !m.IsLoaded() {
-		return fmt.Errorf("model must be loaded before changing device")
+		return errors.New("model must be loaded before changing device")
 	}
 
 	// In real implementation, this would move the model to the new device
@@ -616,7 +627,7 @@ func (m *PyTorchModel) SetDevice(device string) error {
 	return nil
 }
 
-// Mock PyTorch types for demonstration
+// Mock PyTorch types for demonstration.
 type pyTorchModel struct {
 	modelPath  string
 	device     string
@@ -626,11 +637,11 @@ type pyTorchModel struct {
 }
 
 type pyTorchInput struct {
-	tensor    interface{}
+	tensor    any
 	device    string
 	dtype     string
-	features  map[string]interface{}
-	metadata  map[string]interface{}
+	features  map[string]any
+	metadata  map[string]any
 	requestID string
 }
 
@@ -640,5 +651,5 @@ type pyTorchOutput struct {
 	dtype    string
 	device   string
 	logits   []float64
-	metadata map[string]interface{}
+	metadata map[string]any
 }

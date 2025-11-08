@@ -1,6 +1,6 @@
 package providers
 
-// UserContext holds user/context information for flag evaluation
+// UserContext holds user/context information for flag evaluation.
 type UserContext struct {
 	// UserID is the unique user identifier
 	UserID string `json:"user_id"`
@@ -15,7 +15,7 @@ type UserContext struct {
 	Groups []string `json:"groups,omitempty"`
 
 	// Attributes are custom attributes for targeting
-	Attributes map[string]interface{} `json:"attributes,omitempty"`
+	Attributes map[string]any `json:"attributes,omitempty"`
 
 	// IP is the user IP address
 	IP string `json:"ip,omitempty"`
@@ -24,60 +24,59 @@ type UserContext struct {
 	Country string `json:"country,omitempty"`
 }
 
-// LocalProviderConfig for local in-memory provider
+// LocalProviderConfig for local in-memory provider.
 type LocalProviderConfig struct {
 	// Flags are the static flag definitions
-	Flags map[string]FlagConfig `yaml:"flags" json:"flags"`
+	Flags map[string]FlagConfig `json:"flags" yaml:"flags"`
 }
 
-// FlagConfig defines a single feature flag
+// FlagConfig defines a single feature flag.
 type FlagConfig struct {
 	// Key is the unique flag identifier
-	Key string `yaml:"key" json:"key"`
+	Key string `json:"key" yaml:"key"`
 
 	// Name is the human-readable name
-	Name string `yaml:"name" json:"name"`
+	Name string `json:"name" yaml:"name"`
 
 	// Description describes what this flag controls
-	Description string `yaml:"description" json:"description"`
+	Description string `json:"description" yaml:"description"`
 
 	// Type is the flag value type: "boolean", "string", "number", "json"
-	Type string `yaml:"type" json:"type"`
+	Type string `json:"type" yaml:"type"`
 
 	// Enabled is the default enabled state for boolean flags
-	Enabled bool `yaml:"enabled" json:"enabled"`
+	Enabled bool `json:"enabled" yaml:"enabled"`
 
 	// Value is the default value for non-boolean flags
-	Value interface{} `yaml:"value" json:"value"`
+	Value any `json:"value" yaml:"value"`
 
 	// Targeting defines user/group targeting rules
-	Targeting []TargetingRule `yaml:"targeting" json:"targeting"`
+	Targeting []TargetingRule `json:"targeting" yaml:"targeting"`
 
 	// Rollout defines percentage-based rollout
-	Rollout *RolloutConfig `yaml:"rollout" json:"rollout"`
+	Rollout *RolloutConfig `json:"rollout" yaml:"rollout"`
 }
 
-// TargetingRule defines targeting rules for a flag
+// TargetingRule defines targeting rules for a flag.
 type TargetingRule struct {
 	// Attribute is the user attribute to match (e.g., "user_id", "email", "group")
-	Attribute string `yaml:"attribute" json:"attribute"`
+	Attribute string `json:"attribute" yaml:"attribute"`
 
 	// Operator is the comparison operator: "equals", "contains", "in", "not_in"
-	Operator string `yaml:"operator" json:"operator"`
+	Operator string `json:"operator" yaml:"operator"`
 
 	// Values are the values to match against
-	Values []string `yaml:"values" json:"values"`
+	Values []string `json:"values" yaml:"values"`
 
 	// Value is the flag value for matching users
-	Value interface{} `yaml:"value" json:"value"`
+	Value any `json:"value" yaml:"value"`
 }
 
-// RolloutConfig defines percentage-based rollout
+// RolloutConfig defines percentage-based rollout.
 type RolloutConfig struct {
 	// Percentage of users to enable (0-100)
-	Percentage int `yaml:"percentage" json:"percentage"`
+	Percentage int `json:"percentage" yaml:"percentage"`
 
 	// Attribute to use for consistent hashing (default: "user_id")
-	Attribute string `yaml:"attribute" json:"attribute"`
+	Attribute string `json:"attribute" yaml:"attribute"`
 }
-

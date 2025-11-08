@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// Manager implements cluster management
+// Manager implements cluster management.
 type Manager struct {
 	id      string
 	nodes   map[string]*NodeState
@@ -28,7 +28,7 @@ type Manager struct {
 	mu      sync.RWMutex
 }
 
-// NodeState represents the state of a node in the cluster
+// NodeState represents the state of a node in the cluster.
 type NodeState struct {
 	Info          internal.NodeInfo
 	LastHeartbeat time.Time
@@ -38,14 +38,14 @@ type NodeState struct {
 	mu            sync.RWMutex
 }
 
-// ManagerConfig contains cluster manager configuration
+// ManagerConfig contains cluster manager configuration.
 type ManagerConfig struct {
 	NodeID              string
 	HealthCheckInterval time.Duration
 	HealthTimeout       time.Duration
 }
 
-// NewManager creates a new cluster manager
+// NewManager creates a new cluster manager.
 func NewManager(config ManagerConfig, logger forge.Logger) *Manager {
 	if config.HealthCheckInterval == 0 {
 		config.HealthCheckInterval = 5 * time.Second
@@ -64,7 +64,7 @@ func NewManager(config ManagerConfig, logger forge.Logger) *Manager {
 	}
 }
 
-// Start starts the cluster manager
+// Start starts the cluster manager.
 func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -78,6 +78,7 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Start health checker
 	m.wg.Add(1)
+
 	go m.runHealthChecker()
 
 	m.logger.Info("cluster manager started",
@@ -87,13 +88,16 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the cluster manager
+// Stop stops the cluster manager.
 func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Lock()
+
 	if !m.started {
 		m.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	m.mu.Unlock()
 
 	if m.cancel != nil {
@@ -102,6 +106,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		m.wg.Wait()
 		close(done)
@@ -117,7 +122,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// GetNodes returns all nodes in the cluster
+// GetNodes returns all nodes in the cluster.
 func (m *Manager) GetNodes() []internal.NodeInfo {
 	m.nodesMu.RLock()
 	defer m.nodesMu.RUnlock()
@@ -132,7 +137,7 @@ func (m *Manager) GetNodes() []internal.NodeInfo {
 	return nodes
 }
 
-// GetNode returns information about a specific node
+// GetNode returns information about a specific node.
 func (m *Manager) GetNode(nodeID string) (*internal.NodeInfo, error) {
 	m.nodesMu.RLock()
 	defer m.nodesMu.RUnlock()
@@ -149,7 +154,7 @@ func (m *Manager) GetNode(nodeID string) (*internal.NodeInfo, error) {
 	return &info, nil
 }
 
-// AddNode adds a node to the cluster
+// AddNode adds a node to the cluster.
 func (m *Manager) AddNode(nodeID, address string, port int) error {
 	m.nodesMu.Lock()
 	defer m.nodesMu.Unlock()
@@ -167,7 +172,7 @@ func (m *Manager) AddNode(nodeID, address string, port int) error {
 			Role:          internal.RoleFollower,
 			Status:        internal.StatusActive,
 			LastHeartbeat: now,
-			Metadata:      make(map[string]interface{}),
+			Metadata:      make(map[string]any),
 		},
 		LastHeartbeat: now,
 		LastContact:   now,
@@ -183,7 +188,7 @@ func (m *Manager) AddNode(nodeID, address string, port int) error {
 	return nil
 }
 
-// RemoveNode removes a node from the cluster
+// RemoveNode removes a node from the cluster.
 func (m *Manager) RemoveNode(nodeID string) error {
 	m.nodesMu.Lock()
 	defer m.nodesMu.Unlock()
@@ -201,7 +206,7 @@ func (m *Manager) RemoveNode(nodeID string) error {
 	return nil
 }
 
-// UpdateNode updates node information
+// UpdateNode updates node information.
 func (m *Manager) UpdateNode(nodeID string, info internal.NodeInfo) error {
 	m.nodesMu.RLock()
 	state, exists := m.nodes[nodeID]
@@ -224,7 +229,7 @@ func (m *Manager) UpdateNode(nodeID string, info internal.NodeInfo) error {
 	return nil
 }
 
-// UpdateNodeRole updates a node's role
+// UpdateNodeRole updates a node's role.
 func (m *Manager) UpdateNodeRole(nodeID string, role internal.NodeRole) error {
 	m.nodesMu.RLock()
 	state, exists := m.nodes[nodeID]
@@ -246,7 +251,7 @@ func (m *Manager) UpdateNodeRole(nodeID string, role internal.NodeRole) error {
 	return nil
 }
 
-// UpdateNodeStatus updates a node's status
+// UpdateNodeStatus updates a node's status.
 func (m *Manager) UpdateNodeStatus(nodeID string, status internal.NodeStatus) error {
 	m.nodesMu.RLock()
 	state, exists := m.nodes[nodeID]
@@ -258,11 +263,13 @@ func (m *Manager) UpdateNodeStatus(nodeID string, status internal.NodeStatus) er
 
 	state.mu.Lock()
 	oldStatus := state.Info.Status
+
 	state.Info.Status = status
 	if status == internal.StatusActive {
 		state.Healthy = true
 		state.FailureCount = 0
 	}
+
 	state.mu.Unlock()
 
 	if oldStatus != status {
@@ -276,7 +283,7 @@ func (m *Manager) UpdateNodeStatus(nodeID string, status internal.NodeStatus) er
 	return nil
 }
 
-// RecordHeartbeat records a heartbeat from a node
+// RecordHeartbeat records a heartbeat from a node.
 func (m *Manager) RecordHeartbeat(nodeID string) error {
 	m.nodesMu.RLock()
 	state, exists := m.nodes[nodeID]
@@ -287,39 +294,45 @@ func (m *Manager) RecordHeartbeat(nodeID string) error {
 	}
 
 	now := time.Now()
+
 	state.mu.Lock()
 	state.LastHeartbeat = now
 	state.LastContact = now
 	state.Info.LastHeartbeat = now
 	state.Healthy = true
+
 	state.FailureCount = 0
 	if state.Info.Status != internal.StatusActive {
 		state.Info.Status = internal.StatusActive
 	}
+
 	state.mu.Unlock()
 
 	return nil
 }
 
-// GetLeader returns the current leader node
+// GetLeader returns the current leader node.
 func (m *Manager) GetLeader() *internal.NodeInfo {
 	m.nodesMu.RLock()
 	defer m.nodesMu.RUnlock()
 
 	for _, state := range m.nodes {
 		state.mu.RLock()
+
 		if state.Info.Role == internal.RoleLeader {
 			info := state.Info
 			state.mu.RUnlock()
+
 			return &info
 		}
+
 		state.mu.RUnlock()
 	}
 
 	return nil
 }
 
-// HasQuorum returns true if the cluster has quorum
+// HasQuorum returns true if the cluster has quorum.
 func (m *Manager) HasQuorum() bool {
 	totalNodes := m.GetClusterSize()
 	healthyNodes := m.GetHealthyNodes()
@@ -329,53 +342,65 @@ func (m *Manager) HasQuorum() bool {
 	}
 
 	majority := (totalNodes / 2) + 1
+
 	return healthyNodes >= majority
 }
 
-// GetClusterSize returns the size of the cluster
+// GetClusterSize returns the size of the cluster.
 func (m *Manager) GetClusterSize() int {
 	m.nodesMu.RLock()
 	defer m.nodesMu.RUnlock()
+
 	return len(m.nodes)
 }
 
-// GetHealthyNodes returns the number of healthy nodes
+// GetHealthyNodes returns the number of healthy nodes.
 func (m *Manager) GetHealthyNodes() int {
 	m.nodesMu.RLock()
 	defer m.nodesMu.RUnlock()
 
 	count := 0
+
 	for _, state := range m.nodes {
 		state.mu.RLock()
+
 		if state.Healthy && state.Info.Status == internal.StatusActive {
 			count++
 		}
+
 		state.mu.RUnlock()
 	}
 
 	return count
 }
 
-// GetClusterInfo returns cluster information
+// GetClusterInfo returns cluster information.
 func (m *Manager) GetClusterInfo() *internal.ClusterInfo {
 	m.nodesMu.RLock()
 	defer m.nodesMu.RUnlock()
 
 	nodes := make([]internal.NodeInfo, 0, len(m.nodes))
-	var leaderID string
-	var term uint64
+
+	var (
+		leaderID string
+		term     uint64
+	)
+
 	activeNodes := 0
 
 	for _, state := range m.nodes {
 		state.mu.RLock()
+
 		nodes = append(nodes, state.Info)
 		if state.Info.Role == internal.RoleLeader {
 			leaderID = state.Info.ID
 			term = state.Info.Term
 		}
+
 		if state.Info.Status == internal.StatusActive {
 			activeNodes++
 		}
+
 		state.mu.RUnlock()
 	}
 
@@ -390,7 +415,7 @@ func (m *Manager) GetClusterInfo() *internal.ClusterInfo {
 	}
 }
 
-// runHealthChecker runs the health checker
+// runHealthChecker runs the health checker.
 func (m *Manager) runHealthChecker() {
 	defer m.wg.Done()
 
@@ -408,13 +433,15 @@ func (m *Manager) runHealthChecker() {
 	}
 }
 
-// checkNodeHealth checks the health of all nodes
+// checkNodeHealth checks the health of all nodes.
 func (m *Manager) checkNodeHealth() {
 	m.nodesMu.RLock()
+
 	nodes := make([]*NodeState, 0, len(m.nodes))
 	for _, state := range m.nodes {
 		nodes = append(nodes, state)
 	}
+
 	m.nodesMu.RUnlock()
 
 	now := time.Now()
@@ -449,12 +476,12 @@ func (m *Manager) checkNodeHealth() {
 	}
 }
 
-// GetNodeStats returns statistics about the nodes
-func (m *Manager) GetNodeStats() map[string]interface{} {
+// GetNodeStats returns statistics about the nodes.
+func (m *Manager) GetNodeStats() map[string]any {
 	m.nodesMu.RLock()
 	defer m.nodesMu.RUnlock()
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 	stats["total_nodes"] = len(m.nodes)
 	stats["healthy_nodes"] = m.GetHealthyNodes()
 	stats["has_quorum"] = m.HasQuorum()

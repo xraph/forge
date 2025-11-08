@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// TestDiscoverAndLoadConfigs_SingleApp tests single-app config discovery
+// TestDiscoverAndLoadConfigs_SingleApp tests single-app config discovery.
 func TestDiscoverAndLoadConfigs_SingleApp(t *testing.T) {
 	// Create temp directory for test
 	tmpDir, err := os.MkdirTemp("", "forge-config-test-*")
@@ -59,9 +59,11 @@ logging:
 	if result.BaseConfigPath == "" {
 		t.Error("Base config path should be found")
 	}
+
 	if result.LocalConfigPath == "" {
 		t.Error("Local config path should be found")
 	}
+
 	if result.WorkingDirectory != tmpDir {
 		t.Errorf("Working directory should be %s, got %s", tmpDir, result.WorkingDirectory)
 	}
@@ -70,9 +72,11 @@ logging:
 	if host := manager.GetString("database.host"); host != "localhost" {
 		t.Errorf("Expected database.host to be 'localhost' (from local), got '%s'", host)
 	}
+
 	if name := manager.GetString("database.name"); name != "dev_db" {
 		t.Errorf("Expected database.name to be 'dev_db' (from local), got '%s'", name)
 	}
+
 	if level := manager.GetString("logging.level"); level != "debug" {
 		t.Errorf("Expected logging.level to be 'debug' (from local), got '%s'", level)
 	}
@@ -83,7 +87,7 @@ logging:
 	}
 }
 
-// TestDiscoverAndLoadConfigs_Monorepo tests monorepo config discovery with app scoping
+// TestDiscoverAndLoadConfigs_Monorepo tests monorepo config discovery with app scoping.
 func TestDiscoverAndLoadConfigs_Monorepo(t *testing.T) {
 	// Create temp monorepo structure
 	tmpDir, err := os.MkdirTemp("", "forge-monorepo-test-*")
@@ -158,6 +162,7 @@ apps:
 	if result.BaseConfigPath == "" {
 		t.Error("Base config path should be found")
 	}
+
 	if !result.IsMonorepo {
 		t.Error("Should detect monorepo layout")
 	}
@@ -172,6 +177,7 @@ apps:
 	if name := manager.GetString("database.name"); name != "test_service_dev" {
 		t.Errorf("Expected database.name to be 'test_service_dev' (app-scoped + local), got '%s'", name)
 	}
+
 	if user := manager.GetString("database.user"); user != "test_user" {
 		t.Errorf("Expected database.user to be 'test_user' (app-scoped), got '%s'", user)
 	}
@@ -192,7 +198,7 @@ apps:
 	}
 }
 
-// TestDiscoverAndLoadConfigs_NoConfigFiles tests behavior when no config files exist
+// TestDiscoverAndLoadConfigs_NoConfigFiles tests behavior when no config files exist.
 func TestDiscoverAndLoadConfigs_NoConfigFiles(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "forge-no-config-test-*")
 	if err != nil {
@@ -214,6 +220,7 @@ func TestDiscoverAndLoadConfigs_NoConfigFiles(t *testing.T) {
 	if result.BaseConfigPath != "" {
 		t.Error("Base config path should be empty")
 	}
+
 	if result.LocalConfigPath != "" {
 		t.Error("Local config path should be empty")
 	}
@@ -222,12 +229,13 @@ func TestDiscoverAndLoadConfigs_NoConfigFiles(t *testing.T) {
 	if manager == nil {
 		t.Fatal("Manager should not be nil")
 	}
+
 	if val := manager.GetString("nonexistent.key"); val != "" {
 		t.Error("Non-existent key should return empty string")
 	}
 }
 
-// TestDiscoverAndLoadConfigs_RequiredConfig tests behavior when config is required
+// TestDiscoverAndLoadConfigs_RequiredConfig tests behavior when config is required.
 func TestDiscoverAndLoadConfigs_RequiredConfig(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "forge-required-config-test-*")
 	if err != nil {
@@ -246,7 +254,7 @@ func TestDiscoverAndLoadConfigs_RequiredConfig(t *testing.T) {
 	}
 }
 
-// TestDiscoverAndLoadConfigs_HierarchicalSearch tests parent directory search
+// TestDiscoverAndLoadConfigs_HierarchicalSearch tests parent directory search.
 func TestDiscoverAndLoadConfigs_HierarchicalSearch(t *testing.T) {
 	// Create temp directory structure
 	tmpDir, err := os.MkdirTemp("", "forge-hierarchical-test-*")
@@ -284,6 +292,7 @@ app:
 	if result.BaseConfigPath == "" {
 		t.Error("Should find config in parent directory")
 	}
+
 	if !filepath.HasPrefix(result.BaseConfigPath, tmpDir) {
 		t.Error("Config should be found in root temp dir")
 	}
@@ -294,7 +303,7 @@ app:
 	}
 }
 
-// TestAutoLoadConfigManager tests the convenience function
+// TestAutoLoadConfigManager tests the convenience function.
 func TestAutoLoadConfigManager(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "forge-auto-load-test-*")
 	if err != nil {
@@ -305,6 +314,7 @@ func TestAutoLoadConfigManager(t *testing.T) {
 	// Save current directory and change to temp dir
 	oldDir, _ := os.Getwd()
 	defer os.Chdir(oldDir)
+
 	os.Chdir(tmpDir)
 
 	// Create config
@@ -329,7 +339,7 @@ database:
 	}
 }
 
-// TestLoadConfigFromPaths tests explicit path loading
+// TestLoadConfigFromPaths tests explicit path loading.
 func TestLoadConfigFromPaths(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "forge-explicit-paths-test-*")
 	if err != nil {
@@ -355,6 +365,7 @@ database:
 	if err := os.WriteFile(basePath, []byte(baseConfig), 0644); err != nil {
 		t.Fatalf("Failed to write base config: %v", err)
 	}
+
 	if err := os.WriteFile(localPath, []byte(localConfig), 0644); err != nil {
 		t.Fatalf("Failed to write local config: %v", err)
 	}
@@ -369,12 +380,13 @@ database:
 	if host := manager.GetString("database.host"); host != "localhost" {
 		t.Errorf("Expected database.host to be 'localhost' (local override), got '%s'", host)
 	}
+
 	if name := manager.GetString("app.name"); name != "explicit-test" {
 		t.Errorf("Expected app.name to be 'explicit-test' (from base), got '%s'", name)
 	}
 }
 
-// TestExtractAppScopedConfig tests app scoping extraction
+// TestExtractAppScopedConfig tests app scoping extraction.
 func TestExtractAppScopedConfig(t *testing.T) {
 	// Create manager with app-scoped config
 	manager := NewManager(ManagerConfig{
@@ -402,9 +414,11 @@ func TestExtractAppScopedConfig(t *testing.T) {
 	if name := manager.GetString("app.name"); name != "myapp" {
 		t.Errorf("Expected app.name to be 'myapp', got '%s'", name)
 	}
+
 	if host := manager.GetString("database.host"); host != "app-db.example.com" {
 		t.Errorf("Expected database.host to be 'app-db.example.com', got '%s'", host)
 	}
+
 	if custom := manager.GetString("custom.value"); custom != "app-specific" {
 		t.Errorf("Expected custom.value to be 'app-specific', got '%s'", custom)
 	}
@@ -415,7 +429,7 @@ func TestExtractAppScopedConfig(t *testing.T) {
 	}
 }
 
-// TestConfigMergePrecedence tests the complete merge precedence order
+// TestConfigMergePrecedence tests the complete merge precedence order.
 func TestConfigMergePrecedence(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "forge-precedence-test-*")
 	if err != nil {
@@ -458,6 +472,7 @@ apps:
 	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(rootConfig), 0644); err != nil {
 		t.Fatalf("Failed to write root config: %v", err)
 	}
+
 	if err := os.WriteFile(filepath.Join(tmpDir, "config.local.yaml"), []byte(localConfig), 0644); err != nil {
 		t.Fatalf("Failed to write local config: %v", err)
 	}
@@ -498,7 +513,7 @@ apps:
 	}
 }
 
-// Benchmark tests
+// Benchmark tests.
 func BenchmarkDiscoverAndLoadConfigs(b *testing.B) {
 	tmpDir, _ := os.MkdirTemp("", "forge-bench-*")
 	defer os.RemoveAll(tmpDir)
@@ -515,9 +530,7 @@ database:
 	cfg.SearchPaths = []string{tmpDir}
 	cfg.Logger = logger.NewNoopLogger()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _, _ = DiscoverAndLoadConfigs(cfg)
 	}
 }
-

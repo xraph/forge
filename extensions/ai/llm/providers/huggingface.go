@@ -7,14 +7,16 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/llm"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// HuggingFaceProvider implements LLM provider for Hugging Face
+// HuggingFaceProvider implements LLM provider for Hugging Face.
 type HuggingFaceProvider struct {
 	name      string
 	apiKey    string
@@ -27,16 +29,16 @@ type HuggingFaceProvider struct {
 	rateLimit *RateLimiter
 }
 
-// HuggingFaceConfig contains configuration for Hugging Face provider
+// HuggingFaceConfig contains configuration for Hugging Face provider.
 type HuggingFaceConfig struct {
-	APIKey     string        `yaml:"api_key" env:"HUGGINGFACE_API_KEY"`
-	BaseURL    string        `yaml:"base_url" default:"https://api-inference.huggingface.co"`
-	Timeout    time.Duration `yaml:"timeout" default:"30s"`
-	MaxRetries int           `yaml:"max_retries" default:"3"`
+	APIKey     string        `env:"HUGGINGFACE_API_KEY"                      yaml:"api_key"`
+	BaseURL    string        `default:"https://api-inference.huggingface.co" yaml:"base_url"`
+	Timeout    time.Duration `default:"30s"                                  yaml:"timeout"`
+	MaxRetries int           `default:"3"                                    yaml:"max_retries"`
 	RateLimit  *RateLimit    `yaml:"rate_limit"`
 }
 
-// Hugging Face API structures
+// Hugging Face API structures.
 type hfTextGenerationRequest struct {
 	Inputs     string        `json:"inputs"`
 	Parameters *hfParameters `json:"parameters,omitempty"`
@@ -64,8 +66,8 @@ type hfTextGenerationResponse struct {
 }
 
 type hfEmbeddingRequest struct {
-	Inputs  interface{} `json:"inputs"`
-	Options *hfOptions  `json:"options,omitempty"`
+	Inputs  any        `json:"inputs"`
+	Options *hfOptions `json:"options,omitempty"`
 }
 
 type hfEmbeddingResponse [][]float64
@@ -106,10 +108,10 @@ type hfUsage struct {
 	TotalTokens      int `json:"total_tokens"`
 }
 
-// NewHuggingFaceProvider creates a new Hugging Face provider
+// NewHuggingFaceProvider creates a new Hugging Face provider.
 func NewHuggingFaceProvider(config HuggingFaceConfig, logger forge.Logger, metrics forge.Metrics) (*HuggingFaceProvider, error) {
 	if config.APIKey == "" {
-		return nil, fmt.Errorf("Hugging Face API key is required")
+		return nil, errors.New("Hugging Face API key is required")
 	}
 
 	if config.BaseURL == "" {
@@ -176,17 +178,17 @@ func NewHuggingFaceProvider(config HuggingFaceConfig, logger forge.Logger, metri
 	}, nil
 }
 
-// Name returns the provider name
+// Name returns the provider name.
 func (p *HuggingFaceProvider) Name() string {
 	return p.name
 }
 
-// Models returns the available models
+// Models returns the available models.
 func (p *HuggingFaceProvider) Models() []string {
 	return p.models
 }
 
-// Chat performs a chat completion request
+// Chat performs a chat completion request.
 func (p *HuggingFaceProvider) Chat(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	if err := p.checkRateLimit(ctx, request.Model); err != nil {
 		return llm.ChatResponse{}, err
@@ -201,7 +203,7 @@ func (p *HuggingFaceProvider) Chat(ctx context.Context, request llm.ChatRequest)
 	return p.chatWithTextGeneration(ctx, request)
 }
 
-// Complete performs a text completion request
+// Complete performs a text completion request.
 func (p *HuggingFaceProvider) Complete(ctx context.Context, request llm.CompletionRequest) (llm.CompletionResponse, error) {
 	if err := p.checkRateLimit(ctx, request.Model); err != nil {
 		return llm.CompletionResponse{}, err
@@ -220,7 +222,7 @@ func (p *HuggingFaceProvider) Complete(ctx context.Context, request llm.Completi
 	return p.convertCompletionResponse(response, request.RequestID)
 }
 
-// Embed performs an embedding request
+// Embed performs an embedding request.
 func (p *HuggingFaceProvider) Embed(ctx context.Context, request llm.EmbeddingRequest) (llm.EmbeddingResponse, error) {
 	if err := p.checkRateLimit(ctx, request.Model); err != nil {
 		return llm.EmbeddingResponse{}, err
@@ -239,12 +241,12 @@ func (p *HuggingFaceProvider) Embed(ctx context.Context, request llm.EmbeddingRe
 	return p.convertEmbeddingResponse(response, request.RequestID)
 }
 
-// GetUsage returns current usage statistics
+// GetUsage returns current usage statistics.
 func (p *HuggingFaceProvider) GetUsage() llm.LLMUsage {
 	return p.usage
 }
 
-// HealthCheck performs a health check
+// HealthCheck performs a health check.
 func (p *HuggingFaceProvider) HealthCheck(ctx context.Context) error {
 	// Simple health check - try a small text generation
 	testRequest := llm.CompletionRequest{
@@ -254,10 +256,11 @@ func (p *HuggingFaceProvider) HealthCheck(ctx context.Context) error {
 	}
 
 	_, err := p.Complete(ctx, testRequest)
+
 	return err
 }
 
-// isChatModel checks if a model supports chat format
+// isChatModel checks if a model supports chat format.
 func (p *HuggingFaceProvider) isChatModel(model string) bool {
 	chatModels := []string{
 		"meta-llama/Llama-2-7b-chat-hf",
@@ -268,15 +271,10 @@ func (p *HuggingFaceProvider) isChatModel(model string) bool {
 		"mistralai/Mixtral-8x7B-Instruct-v0.1",
 	}
 
-	for _, chatModel := range chatModels {
-		if model == chatModel {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(chatModels, model)
 }
 
-// chatWithChatModel handles chat with models that support chat format
+// chatWithChatModel handles chat with models that support chat format.
 func (p *HuggingFaceProvider) chatWithChatModel(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	// Convert request to HF chat format
 	hfReq := p.convertChatRequest(request)
@@ -291,7 +289,7 @@ func (p *HuggingFaceProvider) chatWithChatModel(ctx context.Context, request llm
 	return p.convertChatResponse(response, request.RequestID)
 }
 
-// chatWithTextGeneration handles chat using text generation models
+// chatWithTextGeneration handles chat using text generation models.
 func (p *HuggingFaceProvider) chatWithTextGeneration(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 	// Convert chat to text format
 	prompt := p.convertChatToPrompt(request.Messages)
@@ -324,7 +322,7 @@ func (p *HuggingFaceProvider) chatWithTextGeneration(ctx context.Context, reques
 	return p.convertTextGenerationToChatResponse(response, request.RequestID)
 }
 
-// convertChatToPrompt converts chat messages to a single prompt
+// convertChatToPrompt converts chat messages to a single prompt.
 func (p *HuggingFaceProvider) convertChatToPrompt(messages []llm.ChatMessage) string {
 	var prompt strings.Builder
 
@@ -340,10 +338,11 @@ func (p *HuggingFaceProvider) convertChatToPrompt(messages []llm.ChatMessage) st
 	}
 
 	prompt.WriteString("Assistant:")
+
 	return prompt.String()
 }
 
-// makeTextGenerationRequest makes a text generation request
+// makeTextGenerationRequest makes a text generation request.
 func (p *HuggingFaceProvider) makeTextGenerationRequest(ctx context.Context, model string, payload *hfTextGenerationRequest) ([]hfTextGenerationResponse, error) {
 	// Serialize payload
 	jsonData, err := json.Marshal(payload)
@@ -352,8 +351,9 @@ func (p *HuggingFaceProvider) makeTextGenerationRequest(ctx context.Context, mod
 	}
 
 	// Create request
-	endpoint := fmt.Sprintf("/models/%s", model)
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewBuffer(jsonData))
+	endpoint := "/models/" + model
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -392,7 +392,7 @@ func (p *HuggingFaceProvider) makeTextGenerationRequest(ctx context.Context, mod
 	return response, nil
 }
 
-// makeChatRequest makes a chat request
+// makeChatRequest makes a chat request.
 func (p *HuggingFaceProvider) makeChatRequest(ctx context.Context, model string, payload *hfChatRequest) (*hfChatResponse, error) {
 	// Serialize payload
 	jsonData, err := json.Marshal(payload)
@@ -402,7 +402,8 @@ func (p *HuggingFaceProvider) makeChatRequest(ctx context.Context, model string,
 
 	// Create request
 	endpoint := fmt.Sprintf("/models/%s/chat/completions", model)
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewBuffer(jsonData))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -446,7 +447,7 @@ func (p *HuggingFaceProvider) makeChatRequest(ctx context.Context, model string,
 	return &response, nil
 }
 
-// makeEmbeddingRequest makes an embedding request
+// makeEmbeddingRequest makes an embedding request.
 func (p *HuggingFaceProvider) makeEmbeddingRequest(ctx context.Context, model string, payload *hfEmbeddingRequest) (hfEmbeddingResponse, error) {
 	// Serialize payload
 	jsonData, err := json.Marshal(payload)
@@ -455,8 +456,9 @@ func (p *HuggingFaceProvider) makeEmbeddingRequest(ctx context.Context, model st
 	}
 
 	// Create request
-	endpoint := fmt.Sprintf("/models/%s", model)
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+endpoint, bytes.NewBuffer(jsonData))
+	endpoint := "/models/" + model
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+endpoint, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -492,7 +494,7 @@ func (p *HuggingFaceProvider) makeEmbeddingRequest(ctx context.Context, model st
 	return response, nil
 }
 
-// convertChatRequest converts a chat request to HF format
+// convertChatRequest converts a chat request to HF format.
 func (p *HuggingFaceProvider) convertChatRequest(request llm.ChatRequest) *hfChatRequest {
 	hfReq := &hfChatRequest{
 		Model:       request.Model,
@@ -515,7 +517,7 @@ func (p *HuggingFaceProvider) convertChatRequest(request llm.ChatRequest) *hfCha
 	return hfReq
 }
 
-// convertCompletionRequest converts a completion request to HF format
+// convertCompletionRequest converts a completion request to HF format.
 func (p *HuggingFaceProvider) convertCompletionRequest(request llm.CompletionRequest) *hfTextGenerationRequest {
 	return &hfTextGenerationRequest{
 		Inputs: request.Prompt,
@@ -535,7 +537,7 @@ func (p *HuggingFaceProvider) convertCompletionRequest(request llm.CompletionReq
 	}
 }
 
-// convertEmbeddingRequest converts an embedding request to HF format
+// convertEmbeddingRequest converts an embedding request to HF format.
 func (p *HuggingFaceProvider) convertEmbeddingRequest(request llm.EmbeddingRequest) *hfEmbeddingRequest {
 	return &hfEmbeddingRequest{
 		Inputs: request.Input,
@@ -546,7 +548,7 @@ func (p *HuggingFaceProvider) convertEmbeddingRequest(request llm.EmbeddingReque
 	}
 }
 
-// convertChatResponse converts HF chat response to standard format
+// convertChatResponse converts HF chat response to standard format.
 func (p *HuggingFaceProvider) convertChatResponse(response *hfChatResponse, requestID string) (llm.ChatResponse, error) {
 	chatResponse := llm.ChatResponse{
 		ID:        response.ID,
@@ -582,7 +584,7 @@ func (p *HuggingFaceProvider) convertChatResponse(response *hfChatResponse, requ
 	return chatResponse, nil
 }
 
-// convertTextGenerationToChatResponse converts text generation to chat response
+// convertTextGenerationToChatResponse converts text generation to chat response.
 func (p *HuggingFaceProvider) convertTextGenerationToChatResponse(response []hfTextGenerationResponse, requestID string) (llm.ChatResponse, error) {
 	chatResponse := llm.ChatResponse{
 		ID:        fmt.Sprintf("hf-%d", time.Now().Unix()),
@@ -609,7 +611,7 @@ func (p *HuggingFaceProvider) convertTextGenerationToChatResponse(response []hfT
 	return chatResponse, nil
 }
 
-// convertCompletionResponse converts HF response to completion response
+// convertCompletionResponse converts HF response to completion response.
 func (p *HuggingFaceProvider) convertCompletionResponse(response []hfTextGenerationResponse, requestID string) (llm.CompletionResponse, error) {
 	completionResponse := llm.CompletionResponse{
 		ID:        fmt.Sprintf("hf-%d", time.Now().Unix()),
@@ -633,7 +635,7 @@ func (p *HuggingFaceProvider) convertCompletionResponse(response []hfTextGenerat
 	return completionResponse, nil
 }
 
-// convertEmbeddingResponse converts HF embedding response to standard format
+// convertEmbeddingResponse converts HF embedding response to standard format.
 func (p *HuggingFaceProvider) convertEmbeddingResponse(response hfEmbeddingResponse, requestID string) (llm.EmbeddingResponse, error) {
 	embeddingResponse := llm.EmbeddingResponse{
 		Object:    "list",
@@ -655,7 +657,7 @@ func (p *HuggingFaceProvider) convertEmbeddingResponse(response hfEmbeddingRespo
 	return embeddingResponse, nil
 }
 
-// updateUsage updates usage statistics
+// updateUsage updates usage statistics.
 func (p *HuggingFaceProvider) updateUsage(inputTokens, outputTokens int) {
 	p.usage.InputTokens += int64(inputTokens)
 	p.usage.OutputTokens += int64(outputTokens)
@@ -663,7 +665,7 @@ func (p *HuggingFaceProvider) updateUsage(inputTokens, outputTokens int) {
 	p.usage.RequestCount++
 }
 
-// checkRateLimit checks if the request is within rate limits
+// checkRateLimit checks if the request is within rate limits.
 func (p *HuggingFaceProvider) checkRateLimit(ctx context.Context, model string) error {
 	if p.rateLimit == nil {
 		return nil
@@ -676,7 +678,7 @@ func (p *HuggingFaceProvider) checkRateLimit(ctx context.Context, model string) 
 
 	// Check request rate limit
 	if len(p.rateLimit.requestTokens) >= p.rateLimit.requestsPerMinute {
-		return fmt.Errorf("rate limit exceeded: too many requests per minute")
+		return errors.New("rate limit exceeded: too many requests per minute")
 	}
 
 	// Add current request
@@ -685,46 +687,46 @@ func (p *HuggingFaceProvider) checkRateLimit(ctx context.Context, model string) 
 	return nil
 }
 
-// cleanupRateLimit removes old entries from rate limit tracking
+// cleanupRateLimit removes old entries from rate limit tracking.
 func (p *HuggingFaceProvider) cleanupRateLimit(now time.Time) {
 	cutoff := now.Add(-time.Minute)
 
 	// Clean up request tokens
 	var newRequestTokens []time.Time
+
 	for _, timestamp := range p.rateLimit.requestTokens {
 		if timestamp.After(cutoff) {
 			newRequestTokens = append(newRequestTokens, timestamp)
 		}
 	}
+
 	p.rateLimit.requestTokens = newRequestTokens
 
 	// Clean up token usage
 	var newTokenUsage []TokenUsage
+
 	for _, usage := range p.rateLimit.tokenUsage {
 		if usage.timestamp.After(cutoff) {
 			newTokenUsage = append(newTokenUsage, usage)
 		}
 	}
+
 	p.rateLimit.tokenUsage = newTokenUsage
 }
 
-// IsModelSupported checks if a model is supported
+// IsModelSupported checks if a model is supported.
 func (p *HuggingFaceProvider) IsModelSupported(model string) bool {
-	for _, supportedModel := range p.models {
-		if supportedModel == model {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(p.models, model)
 }
 
-// GetModelInfo returns information about a model
-func (p *HuggingFaceProvider) GetModelInfo(model string) (map[string]interface{}, error) {
+// GetModelInfo returns information about a model.
+func (p *HuggingFaceProvider) GetModelInfo(model string) (map[string]any, error) {
 	if !p.IsModelSupported(model) {
 		return nil, fmt.Errorf("model %s is not supported", model)
 	}
 
-	info := map[string]interface{}{
+	info := map[string]any{
 		"name":     model,
 		"provider": p.name,
 	}

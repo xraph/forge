@@ -15,9 +15,10 @@ import (
 	"github.com/xraph/forge/extensions/consensus/statemachine"
 	"github.com/xraph/forge/extensions/consensus/storage"
 	"github.com/xraph/forge/extensions/consensus/transport"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// TestHarness provides utilities for testing consensus
+// TestHarness provides utilities for testing consensus.
 type TestHarness struct {
 	t          *testing.T
 	nodes      map[string]*TestNode
@@ -26,10 +27,10 @@ type TestHarness struct {
 	mu         sync.RWMutex
 }
 
-// TestCluster is an alias for TestHarness for backward compatibility
+// TestCluster is an alias for TestHarness for backward compatibility.
 type TestCluster = TestHarness
 
-// TestNode represents a node in the test cluster
+// TestNode represents a node in the test cluster.
 type TestNode struct {
 	ID           string
 	RaftNode     internal.RaftNode
@@ -41,7 +42,7 @@ type TestNode struct {
 	Started      bool
 }
 
-// NewTestHarness creates a new test harness
+// NewTestHarness creates a new test harness.
 func NewTestHarness(t *testing.T) *TestHarness {
 	return &TestHarness{
 		t:          t,
@@ -51,17 +52,17 @@ func NewTestHarness(t *testing.T) *TestHarness {
 	}
 }
 
-// CreateCluster creates a test cluster with the specified number of nodes
+// CreateCluster creates a test cluster with the specified number of nodes.
 func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if numNodes < 1 {
-		return fmt.Errorf("cluster must have at least 1 node")
+		return errors.New("cluster must have at least 1 node")
 	}
 
 	// Create nodes
-	for i := 0; i < numNodes; i++ {
+	for i := range numNodes {
 		nodeID := fmt.Sprintf("node-%d", i+1)
 
 		// Create components
@@ -80,7 +81,8 @@ func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 
 		// Create peer list
 		var peers []internal.NodeInfo
-		for j := 0; j < numNodes; j++ {
+
+		for j := range numNodes {
 			peerID := fmt.Sprintf("node-%d", j+1)
 			peers = append(peers, internal.NodeInfo{
 				ID:      peerID,
@@ -147,10 +149,11 @@ func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 	}
 
 	h.t.Logf("Created test cluster with %d nodes", numNodes)
+
 	return nil
 }
 
-// StartCluster starts all nodes in the cluster
+// StartCluster starts all nodes in the cluster.
 func (h *TestHarness) StartCluster(ctx context.Context) error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -162,10 +165,11 @@ func (h *TestHarness) StartCluster(ctx context.Context) error {
 	}
 
 	h.t.Logf("Started cluster with %d nodes", len(h.nodes))
+
 	return nil
 }
 
-// StopCluster stops all nodes in the cluster
+// StopCluster stops all nodes in the cluster.
 func (h *TestHarness) StopCluster(ctx context.Context) error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -179,31 +183,35 @@ func (h *TestHarness) StopCluster(ctx context.Context) error {
 	}
 
 	h.t.Logf("Stopped cluster")
+
 	return nil
 }
 
-// WaitForLeader waits for a leader to be elected
+// WaitForLeader waits for a leader to be elected.
 func (h *TestHarness) WaitForLeader(timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
 		h.mu.RLock()
+
 		for nodeID, node := range h.nodes {
 			if node.Started && node.RaftNode.IsLeader() {
 				h.mu.RUnlock()
 				h.t.Logf("Leader elected: %s", nodeID)
+
 				return nodeID, nil
 			}
 		}
+
 		h.mu.RUnlock()
 
 		time.Sleep(50 * time.Millisecond)
 	}
 
-	return "", fmt.Errorf("no leader elected within timeout")
+	return "", errors.New("no leader elected within timeout")
 }
 
-// GetLeader returns the current leader node ID
+// GetLeader returns the current leader node ID.
 func (h *TestHarness) GetLeader() (string, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -214,10 +222,10 @@ func (h *TestHarness) GetLeader() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("no leader found")
+	return "", errors.New("no leader found")
 }
 
-// GetNode returns a node by ID
+// GetNode returns a node by ID.
 func (h *TestHarness) GetNode(nodeID string) (*TestNode, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -230,7 +238,7 @@ func (h *TestHarness) GetNode(nodeID string) (*TestNode, error) {
 	return node, nil
 }
 
-// StopNode stops a specific node (for partition testing)
+// StopNode stops a specific node (for partition testing).
 func (h *TestHarness) StopNode(ctx context.Context, nodeID string) error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -243,7 +251,7 @@ func (h *TestHarness) StopNode(ctx context.Context, nodeID string) error {
 	return h.stopNode(ctx, node)
 }
 
-// StartNode starts a specific node
+// StartNode starts a specific node.
 func (h *TestHarness) StartNode(ctx context.Context, nodeID string) error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -256,7 +264,7 @@ func (h *TestHarness) StartNode(ctx context.Context, nodeID string) error {
 	return h.startNode(ctx, node)
 }
 
-// PartitionNode simulates a network partition by disconnecting a node
+// PartitionNode simulates a network partition by disconnecting a node.
 func (h *TestHarness) PartitionNode(nodeID string) error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -268,10 +276,11 @@ func (h *TestHarness) PartitionNode(nodeID string) error {
 
 	trans.DisconnectAll()
 	h.t.Logf("Partitioned node: %s", nodeID)
+
 	return nil
 }
 
-// HealPartition reconnects a partitioned node
+// HealPartition reconnects a partitioned node.
 func (h *TestHarness) HealPartition(nodeID string) error {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -289,10 +298,11 @@ func (h *TestHarness) HealPartition(nodeID string) error {
 	}
 
 	h.t.Logf("Healed partition for node: %s", nodeID)
+
 	return nil
 }
 
-// SubmitToLeader submits a command to the leader
+// SubmitToLeader submits a command to the leader.
 func (h *TestHarness) SubmitToLeader(ctx context.Context, command []byte) error {
 	leaderID, err := h.GetLeader()
 	if err != nil {
@@ -307,7 +317,7 @@ func (h *TestHarness) SubmitToLeader(ctx context.Context, command []byte) error 
 	return node.RaftNode.Propose(ctx, command)
 }
 
-// WaitForCommit waits for a specific index to be committed on all nodes
+// WaitForCommit waits for a specific index to be committed on all nodes.
 func (h *TestHarness) WaitForCommit(index uint64, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 
@@ -315,6 +325,7 @@ func (h *TestHarness) WaitForCommit(index uint64, timeout time.Duration) error {
 		allCommitted := true
 
 		h.mu.RLock()
+
 		for _, node := range h.nodes {
 			if !node.Started {
 				continue
@@ -323,13 +334,16 @@ func (h *TestHarness) WaitForCommit(index uint64, timeout time.Duration) error {
 			commitIndex := node.RaftNode.GetCommitIndex()
 			if commitIndex < index {
 				allCommitted = false
+
 				break
 			}
 		}
+
 		h.mu.RUnlock()
 
 		if allCommitted {
 			h.t.Logf("All nodes committed index %d", index)
+
 			return nil
 		}
 
@@ -339,7 +353,7 @@ func (h *TestHarness) WaitForCommit(index uint64, timeout time.Duration) error {
 	return fmt.Errorf("not all nodes committed index %d within timeout", index)
 }
 
-// AssertLeaderExists asserts that a leader exists
+// AssertLeaderExists asserts that a leader exists.
 func (h *TestHarness) AssertLeaderExists() {
 	_, err := h.GetLeader()
 	if err != nil {
@@ -347,7 +361,7 @@ func (h *TestHarness) AssertLeaderExists() {
 	}
 }
 
-// AssertNoLeader asserts that no leader exists
+// AssertNoLeader asserts that no leader exists.
 func (h *TestHarness) AssertNoLeader() {
 	_, err := h.GetLeader()
 	if err == nil {
@@ -355,10 +369,10 @@ func (h *TestHarness) AssertNoLeader() {
 	}
 }
 
-// startNode starts a node
+// startNode starts a node.
 func (h *TestHarness) startNode(ctx context.Context, node *TestNode) error {
 	if node.Started {
-		return fmt.Errorf("node already started")
+		return errors.New("node already started")
 	}
 
 	// Start components
@@ -375,10 +389,11 @@ func (h *TestHarness) startNode(ctx context.Context, node *TestNode) error {
 	}
 
 	node.Started = true
+
 	return nil
 }
 
-// stopNode stops a node
+// stopNode stops a node.
 func (h *TestHarness) stopNode(ctx context.Context, node *TestNode) error {
 	if !node.Started {
 		return nil
@@ -404,10 +419,11 @@ func (h *TestHarness) stopNode(ctx context.Context, node *TestNode) error {
 	}
 
 	node.Started = false
+
 	return nil
 }
 
-// GetNodes returns a slice of all test nodes
+// GetNodes returns a slice of all test nodes.
 func (h *TestHarness) GetNodes() []*TestNode {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
@@ -416,31 +432,35 @@ func (h *TestHarness) GetNodes() []*TestNode {
 	for _, node := range h.nodes {
 		nodes = append(nodes, node)
 	}
+
 	return nodes
 }
 
-// GetHealthyNodeCount returns the number of started nodes
+// GetHealthyNodeCount returns the number of started nodes.
 func (h *TestHarness) GetHealthyNodeCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
 	count := 0
+
 	for _, node := range h.nodes {
 		if node.Started {
 			count++
 		}
 	}
+
 	return count
 }
 
-// GetQuorumSize returns the quorum size for the cluster
+// GetQuorumSize returns the quorum size for the cluster.
 func (h *TestHarness) GetQuorumSize() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return (len(h.nodes) / 2) + 1
 }
 
-// CreatePartition creates a network partition for the specified nodes
+// CreatePartition creates a network partition for the specified nodes.
 func (h *TestHarness) CreatePartition(nodeIDs []string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -460,10 +480,11 @@ func (h *TestHarness) CreatePartition(nodeIDs []string) error {
 			}
 		}
 	}
+
 	return nil
 }
 
-// HealAllPartitions heals all network partitions
+// HealAllPartitions heals all network partitions.
 func (h *TestHarness) HealAllPartitions() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -480,10 +501,11 @@ func (h *TestHarness) HealAllPartitions() error {
 			}
 		}
 	}
+
 	return nil
 }
 
-// InjectLatency injects artificial latency for a node
+// InjectLatency injects artificial latency for a node.
 func (h *TestHarness) InjectLatency(nodeID string, latency time.Duration) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -497,15 +519,16 @@ func (h *TestHarness) InjectLatency(nodeID string, latency time.Duration) error 
 	if trans, ok := node.Transport.(*transport.LocalTransport); ok {
 		trans.SetLatency(latency)
 	}
+
 	return nil
 }
 
-// RemoveLatency removes artificial latency for a node
+// RemoveLatency removes artificial latency for a node.
 func (h *TestHarness) RemoveLatency(nodeID string) error {
 	return h.InjectLatency(nodeID, 0)
 }
 
-// testLogger implements forge.Logger for testing (no-op to reduce terminal output)
+// testLogger implements forge.Logger for testing (no-op to reduce terminal output).
 type testLogger struct {
 	t *testing.T
 }
@@ -534,23 +557,23 @@ func (tl *testLogger) With(fields ...forge.Field) forge.Logger {
 	return tl
 }
 
-func (tl *testLogger) Debugf(template string, args ...interface{}) {
+func (tl *testLogger) Debugf(template string, args ...any) {
 	// No-op to reduce terminal output during tests
 }
 
-func (tl *testLogger) Infof(template string, args ...interface{}) {
+func (tl *testLogger) Infof(template string, args ...any) {
 	// No-op to reduce terminal output during tests
 }
 
-func (tl *testLogger) Warnf(template string, args ...interface{}) {
+func (tl *testLogger) Warnf(template string, args ...any) {
 	// No-op to reduce terminal output during tests
 }
 
-func (tl *testLogger) Errorf(template string, args ...interface{}) {
+func (tl *testLogger) Errorf(template string, args ...any) {
 	// No-op to reduce terminal output during tests
 }
 
-func (tl *testLogger) Fatalf(template string, args ...interface{}) {
+func (tl *testLogger) Fatalf(template string, args ...any) {
 	tl.t.Fatalf("[FATAL] "+template, args...)
 }
 
@@ -570,31 +593,31 @@ func (tl *testLogger) Sync() error {
 	return nil
 }
 
-// testSugarLogger implements forge.SugarLogger for testing (no-op to reduce terminal output)
+// testSugarLogger implements forge.SugarLogger for testing (no-op to reduce terminal output).
 type testSugarLogger struct {
 	t *testing.T
 }
 
-func (tsl *testSugarLogger) Debugw(msg string, keysAndValues ...interface{}) {
+func (tsl *testSugarLogger) Debugw(msg string, keysAndValues ...any) {
 	// No-op to reduce terminal output during tests
 }
 
-func (tsl *testSugarLogger) Infow(msg string, keysAndValues ...interface{}) {
+func (tsl *testSugarLogger) Infow(msg string, keysAndValues ...any) {
 	// No-op to reduce terminal output during tests
 }
 
-func (tsl *testSugarLogger) Warnw(msg string, keysAndValues ...interface{}) {
+func (tsl *testSugarLogger) Warnw(msg string, keysAndValues ...any) {
 	// No-op to reduce terminal output during tests
 }
 
-func (tsl *testSugarLogger) Errorw(msg string, keysAndValues ...interface{}) {
+func (tsl *testSugarLogger) Errorw(msg string, keysAndValues ...any) {
 	// No-op to reduce terminal output during tests
 }
 
-func (tsl *testSugarLogger) Fatalw(msg string, keysAndValues ...interface{}) {
+func (tsl *testSugarLogger) Fatalw(msg string, keysAndValues ...any) {
 	tsl.t.Fatalf("[FATAL] %s %v", msg, keysAndValues)
 }
 
-func (tsl *testSugarLogger) With(args ...interface{}) forge.SugarLogger {
+func (tsl *testSugarLogger) With(args ...any) forge.SugarLogger {
 	return tsl
 }

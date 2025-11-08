@@ -25,7 +25,6 @@ func TestRenderOptions_Alignment(t *testing.T) {
 func TestNavigationHints_NoLeadingSpaces(t *testing.T) {
 	// Verify that navigation hints don't have unnecessary leading spaces
 	// The hints should be left-aligned, not indented
-
 	singleSelectHint := "↑/↓: Navigate  │  Enter: Select  │  Esc/q: Cancel"
 	multiSelectHint := "↑/↓: Navigate  │  Space: Select/Deselect  │  Enter: Confirm  │  Esc/q: Cancel"
 
@@ -44,7 +43,6 @@ func TestNavigationHints_NoLeadingSpaces(t *testing.T) {
 func TestOptionPrefix_Alignment(t *testing.T) {
 	// Verify that option prefixes use consistent spacing
 	// All options should be left-aligned with their prefixes
-
 	testCases := []struct {
 		name          string
 		prefix        string
@@ -92,7 +90,7 @@ func TestClearLineSequence(t *testing.T) {
 	t.Logf("Correct line clear sequence: %q", correctSequence)
 }
 
-// TestANSISequenceOrder documents why order matters
+// TestANSISequenceOrder documents why order matters.
 func TestANSISequenceOrder(t *testing.T) {
 	t.Log("ANSI Escape Sequence Order:")
 	t.Log("1. WRONG: \\r\\033[K")

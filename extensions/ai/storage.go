@@ -8,7 +8,7 @@ import (
 )
 
 // AgentStore defines the interface for agent persistence
-// Users can implement this with ANY storage backend
+// Users can implement this with ANY storage backend.
 type AgentStore interface {
 	// Create agent
 	Create(ctx context.Context, agent *AgentDefinition) error
@@ -29,26 +29,26 @@ type AgentStore interface {
 	GetExecutionHistory(ctx context.Context, agentID string, limit int) ([]*AgentExecution, error)
 }
 
-// AgentDefinition is a simple, storage-agnostic struct
+// AgentDefinition is a simple, storage-agnostic struct.
 type AgentDefinition struct {
-	ID           string                 `json:"id"`
-	Name         string                 `json:"name"`
-	Type         string                 `json:"type"`
-	SystemPrompt string                 `json:"system_prompt"`
-	Model        string                 `json:"model"`
-	Provider     string                 `json:"provider"`
-	Temperature  *float64               `json:"temperature,omitempty"`
-	MaxTokens    *int                   `json:"max_tokens,omitempty"`
-	Tools        []llm.Tool             `json:"tools,omitempty"`
-	Config       map[string]interface{} `json:"config,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt    time.Time              `json:"created_at"`
-	UpdatedAt    time.Time              `json:"updated_at"`
-	CreatedBy    string                 `json:"created_by,omitempty"`
-	Tags         []string               `json:"tags,omitempty"`
+	ID           string         `json:"id"`
+	Name         string         `json:"name"`
+	Type         string         `json:"type"`
+	SystemPrompt string         `json:"system_prompt"`
+	Model        string         `json:"model"`
+	Provider     string         `json:"provider"`
+	Temperature  *float64       `json:"temperature,omitempty"`
+	MaxTokens    *int           `json:"max_tokens,omitempty"`
+	Tools        []llm.Tool     `json:"tools,omitempty"`
+	Config       map[string]any `json:"config,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	CreatedBy    string         `json:"created_by,omitempty"`
+	Tags         []string       `json:"tags,omitempty"`
 }
 
-// AgentFilter for querying agents
+// AgentFilter for querying agents.
 type AgentFilter struct {
 	Type      string   `json:"type,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
@@ -57,7 +57,7 @@ type AgentFilter struct {
 	Offset    int      `json:"offset,omitempty"`
 }
 
-// AgentExecution represents execution history
+// AgentExecution represents execution history.
 type AgentExecution struct {
 	ID        string        `json:"id"`
 	AgentID   string        `json:"agent_id"`
@@ -69,7 +69,7 @@ type AgentExecution struct {
 	Timestamp time.Time     `json:"timestamp"`
 }
 
-// AgentInfo provides basic agent information
+// AgentInfo provides basic agent information.
 type AgentInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`

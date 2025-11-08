@@ -37,6 +37,7 @@ func TestScope_ResolveScoped(t *testing.T) {
 
 	err := c.Register("scoped", func(c Container) (any, error) {
 		callCount++
+
 		return &mockService{name: "scoped"}, nil
 	}, Scoped())
 	require.NoError(t, err)
@@ -63,6 +64,7 @@ func TestScope_ResolveScoped_DifferentScopes(t *testing.T) {
 
 	err := c.Register("scoped", func(c Container) (any, error) {
 		callCount++
+
 		return &mockService{name: "scoped"}, nil
 	}, Scoped())
 	require.NoError(t, err)
@@ -89,6 +91,7 @@ func TestScope_ResolveTransient(t *testing.T) {
 
 	err := c.Register("transient", func(c Container) (any, error) {
 		callCount++
+
 		return &mockService{name: "transient"}, nil
 	}, Transient())
 	require.NoError(t, err)
@@ -110,6 +113,7 @@ func TestScope_ResolveTransient(t *testing.T) {
 
 func TestScope_ResolveNotFound(t *testing.T) {
 	c := NewContainer()
+
 	scope := c.BeginScope()
 	defer scope.End()
 
@@ -170,12 +174,16 @@ func TestScope_EndTwice(t *testing.T) {
 func TestScope_ConcurrentResolve(t *testing.T) {
 	c := NewContainer()
 	callCount := 0
+
 	var mu sync.Mutex
 
 	err := c.Register("scoped", func(c Container) (any, error) {
 		mu.Lock()
+
 		callCount++
+
 		mu.Unlock()
+
 		return &mockService{name: "scoped"}, nil
 	}, Scoped())
 	require.NoError(t, err)
@@ -185,22 +193,26 @@ func TestScope_ConcurrentResolve(t *testing.T) {
 
 	// Resolve concurrently
 	const goroutines = 10
+
 	done := make(chan bool, goroutines)
 	values := make(chan any, goroutines)
 
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		go func() {
 			val, err := scope.Resolve("scoped")
 			assert.NoError(t, err)
+
 			values <- val
+
 			done <- true
 		}()
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < goroutines; i++ {
+	for range goroutines {
 		<-done
 	}
+
 	close(values)
 
 	// All should get the same instance

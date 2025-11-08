@@ -1,12 +1,10 @@
 package forge
 
 import (
-	"fmt"
-
 	"github.com/xraph/forge/internal/errors"
 )
 
-// Re-export error constructors for backward compatibility
+// Re-export error constructors for backward compatibility.
 var (
 	ErrServiceNotFound      = errors.ErrServiceNotFound
 	ErrServiceAlreadyExists = errors.ErrServiceAlreadyExists
@@ -19,12 +17,12 @@ var (
 	ErrScopeEnded           = errors.ErrScopeEnded
 )
 
-// Extension-specific errors
+// Extension-specific errors.
 var (
-	ErrExtensionNotRegistered = fmt.Errorf("extension not registered with app")
+	ErrExtensionNotRegistered = errors.New("extension not registered with app")
 )
 
-// Re-export sentinel errors for error comparison using errors.Is()
+// Re-export sentinel errors for error comparison using errors.Is().
 var (
 	ErrServiceNotFoundSentinel      = errors.ErrServiceNotFoundSentinel
 	ErrServiceAlreadyExistsSentinel = errors.ErrServiceAlreadyExistsSentinel
@@ -37,8 +35,8 @@ var (
 	ErrConfigErrorSentinel          = errors.ErrConfigErrorSentinel
 )
 
-// Re-export error types for backward compatibility
+// Re-export error types for backward compatibility.
 type ServiceError = errors.ServiceError
 
-// Re-export error constructors for backward compatibility
+// Re-export error constructors for backward compatibility.
 var NewServiceError = errors.NewServiceError

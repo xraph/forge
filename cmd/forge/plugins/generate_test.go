@@ -2,7 +2,6 @@
 package plugins
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -16,6 +15,7 @@ func TestDiscoverServiceDirs(t *testing.T) {
 	// Create temporary directory structure
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	// Create standard directories
@@ -50,6 +50,7 @@ func TestDiscoverServiceDirsMinimal(t *testing.T) {
 	// Create temporary directory with only pkg
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "pkg"), 0755))
@@ -71,6 +72,7 @@ func TestDiscoverServiceDirsNone(t *testing.T) {
 	// Create temporary directory with no service directories
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	plugin := &GeneratePlugin{
@@ -82,13 +84,14 @@ func TestDiscoverServiceDirsNone(t *testing.T) {
 	dirs, err := plugin.discoverServiceDirs()
 	require.NoError(t, err)
 
-	assert.Len(t, dirs, 0)
+	assert.Empty(t, dirs)
 }
 
 func TestDiscoverTargets(t *testing.T) {
 	// Create temporary directory structure
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	// Create cmd directory with apps
@@ -126,12 +129,15 @@ func TestDiscoverTargets(t *testing.T) {
 	// Check apps
 	appCount := 0
 	extCount := 0
+
 	for _, target := range targets {
 		if target.IsExtension {
 			extCount++
+
 			assert.Equal(t, "extension", target.Type)
 		} else {
 			appCount++
+
 			assert.Equal(t, "app", target.Type)
 		}
 	}
@@ -144,6 +150,7 @@ func TestDiscoverTargetsNoApps(t *testing.T) {
 	// Create temporary directory with only extensions
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	// Create extensions
@@ -195,10 +202,11 @@ func TestTargetInfoProperties(t *testing.T) {
 	assert.True(t, extTarget.IsExtension)
 }
 
-// TestControllerPaths verifies controller directory structure
+// TestControllerPaths verifies controller directory structure.
 func TestControllerPaths(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "forge-test-*")
 	require.NoError(t, err)
+
 	defer os.RemoveAll(tmpDir)
 
 	// Create extension structure
@@ -245,7 +253,7 @@ func TestControllerPaths(t *testing.T) {
 	}
 }
 
-// TestControllerPackageNames verifies correct package name generation
+// TestControllerPackageNames verifies correct package name generation.
 func TestControllerPackageNames(t *testing.T) {
 	plugin := &GeneratePlugin{}
 
@@ -309,7 +317,7 @@ func TestControllerPackageNames(t *testing.T) {
 
 			// Verify the generated controller has the correct package
 			controllerContent := plugin.generateControllerFile("Test", packageName)
-			expectedPackageLine := fmt.Sprintf("package %s", tt.expectedPackage)
+			expectedPackageLine := "package " + tt.expectedPackage
 			assert.Contains(t, controllerContent, expectedPackageLine)
 		})
 	}

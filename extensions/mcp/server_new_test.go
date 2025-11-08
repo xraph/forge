@@ -42,7 +42,6 @@ func TestExecuteTool(t *testing.T) {
 			"filter": "active",
 		},
 	})
-
 	if err != nil {
 		t.Errorf("ExecuteTool() error = %v", err)
 	}
@@ -122,12 +121,15 @@ func TestGenerateInputSchema(t *testing.T) {
 
 				// Check if required
 				found := false
+
 				for _, req := range tool.InputSchema.Required {
 					if req == param {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					t.Errorf("Parameter %s should be required", param)
 				}
@@ -182,6 +184,7 @@ func TestResourceReader(t *testing.T) {
 
 	// Register a custom reader
 	customContent := "Custom resource content"
+
 	err = server.RegisterResourceReader("test://resource", func(ctx context.Context, r *mcp.Resource) (mcp.Content, error) {
 		return mcp.Content{
 			Type: "text",
@@ -241,6 +244,7 @@ func TestPromptGenerator(t *testing.T) {
 
 	// Register a custom generator
 	customMessage := "Custom prompt message"
+
 	err = server.RegisterPromptGenerator("test-prompt", func(ctx context.Context, p *mcp.Prompt, args map[string]interface{}) ([]mcp.PromptMessage, error) {
 		return []mcp.PromptMessage{
 			{

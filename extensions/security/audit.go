@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// AuditConfig holds audit logging configuration
+// AuditConfig holds audit logging configuration.
 type AuditConfig struct {
 	// Enabled determines if audit logging is enabled
 	Enabled bool
@@ -51,7 +51,7 @@ type AuditConfig struct {
 	Handler func(*AuditEntry)
 }
 
-// DefaultAuditConfig returns the default audit configuration
+// DefaultAuditConfig returns the default audit configuration.
 func DefaultAuditConfig() AuditConfig {
 	return AuditConfig{
 		Enabled:             true,
@@ -67,7 +67,7 @@ func DefaultAuditConfig() AuditConfig {
 	}
 }
 
-// AuditEntry represents a security audit log entry
+// AuditEntry represents a security audit log entry.
 type AuditEntry struct {
 	// Timestamp of the event
 	Timestamp time.Time `json:"timestamp"`
@@ -105,27 +105,29 @@ type AuditEntry struct {
 	Duration time.Duration `json:"duration,omitempty"`
 
 	// Additional context
-	Message  string                 `json:"message,omitempty"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Message  string         `json:"message,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 
 	// Error information
 	Error string `json:"error,omitempty"`
 }
 
-// AuditLogger handles security audit logging
+// AuditLogger handles security audit logging.
 type AuditLogger struct {
 	config AuditConfig
 	logger forge.Logger
 }
 
-// NewAuditLogger creates a new audit logger
+// NewAuditLogger creates a new audit logger.
 func NewAuditLogger(config AuditConfig, logger forge.Logger) *AuditLogger {
 	if config.MaxBodySize == 0 {
 		config.MaxBodySize = 1024
 	}
+
 	if len(config.SensitiveHeaders) == 0 {
 		config.SensitiveHeaders = []string{"Authorization", "Cookie", "X-API-Key"}
 	}
+
 	if len(config.SensitiveFields) == 0 {
 		config.SensitiveFields = []string{"password", "token", "secret", "api_key"}
 	}
@@ -136,7 +138,7 @@ func NewAuditLogger(config AuditConfig, logger forge.Logger) *AuditLogger {
 	}
 }
 
-// Log writes an audit log entry
+// Log writes an audit log entry.
 func (al *AuditLogger) Log(entry *AuditEntry) {
 	if !al.config.Enabled {
 		return
@@ -158,6 +160,7 @@ func (al *AuditLogger) Log(entry *AuditEntry) {
 	// Use custom handler if provided
 	if al.config.Handler != nil {
 		al.config.Handler(entry)
+
 		return
 	}
 
@@ -176,7 +179,7 @@ func (al *AuditLogger) Log(entry *AuditEntry) {
 	)
 }
 
-// shouldLog checks if an event should be logged based on level and category
+// shouldLog checks if an event should be logged based on level and category.
 func (al *AuditLogger) shouldLog(category string) bool {
 	switch al.config.Level {
 	case "all":
@@ -194,7 +197,7 @@ func (al *AuditLogger) shouldLog(category string) bool {
 	}
 }
 
-// shouldAuditPath checks if a path should be audited
+// shouldAuditPath checks if a path should be audited.
 func (al *AuditLogger) shouldAuditPath(path string) bool {
 	// Check exclude paths first
 	for _, excludePath := range al.config.ExcludePaths {
@@ -218,19 +221,22 @@ func (al *AuditLogger) shouldAuditPath(path string) bool {
 	return false
 }
 
-// matchPath checks if a path matches a pattern (supports * wildcard)
+// matchPath checks if a path matches a pattern (supports * wildcard).
 func matchPath(path, pattern string) bool {
 	if pattern == path {
 		return true
 	}
-	if strings.HasSuffix(pattern, "*") {
-		prefix := strings.TrimSuffix(pattern, "*")
+
+	if before, ok := strings.CutSuffix(pattern, "*"); ok {
+		prefix := before
+
 		return strings.HasPrefix(path, prefix)
 	}
+
 	return false
 }
 
-// redactSensitiveData redacts sensitive information from audit entry
+// redactSensitiveData redacts sensitive information from audit entry.
 func (al *AuditLogger) redactSensitiveData(entry *AuditEntry) {
 	// Redact sensitive headers
 	if entry.Headers != nil {
@@ -245,18 +251,19 @@ func (al *AuditLogger) redactSensitiveData(entry *AuditEntry) {
 	if entry.RequestBody != "" {
 		entry.RequestBody = al.redactJSONFields(entry.RequestBody)
 	}
+
 	if entry.ResponseBody != "" {
 		entry.ResponseBody = al.redactJSONFields(entry.ResponseBody)
 	}
 }
 
-// redactJSONFields redacts sensitive fields in JSON
+// redactJSONFields redacts sensitive fields in JSON.
 func (al *AuditLogger) redactJSONFields(jsonStr string) string {
 	if jsonStr == "" {
 		return jsonStr
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
 		// Not valid JSON, return as-is
 		return jsonStr
@@ -278,7 +285,7 @@ func (al *AuditLogger) redactJSONFields(jsonStr string) string {
 	return string(redacted)
 }
 
-// extractIPAddress extracts the client IP address from request
+// extractIPAddress extracts the client IP address from request.
 func extractIPAddress(r *http.Request) string {
 	// Try X-Forwarded-For header (for proxied requests)
 	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
@@ -298,10 +305,11 @@ func extractIPAddress(r *http.Request) string {
 	if idx := strings.LastIndex(ip, ":"); idx != -1 {
 		ip = ip[:idx]
 	}
+
 	return ip
 }
 
-// AuditMiddleware returns a middleware for audit logging
+// AuditMiddleware returns a middleware for audit logging.
 func AuditMiddleware(auditLogger *AuditLogger) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -351,6 +359,7 @@ func AuditMiddleware(auditLogger *AuditLogger) forge.Middleware {
 			} else {
 				entry.Result = "success"
 			}
+
 			entry.Category = "data"
 			entry.EventType = "request." + entry.Result
 
@@ -362,8 +371,8 @@ func AuditMiddleware(auditLogger *AuditLogger) forge.Middleware {
 	}
 }
 
-// LogAuthEvent logs an authentication event
-func LogAuthEvent(auditLogger *AuditLogger, ctx context.Context, eventType string, result string, userID string, metadata map[string]interface{}) {
+// LogAuthEvent logs an authentication event.
+func LogAuthEvent(auditLogger *AuditLogger, ctx context.Context, eventType string, result string, userID string, metadata map[string]any) {
 	entry := &AuditEntry{
 		EventType: "auth." + eventType,
 		Category:  "auth",
@@ -374,11 +383,12 @@ func LogAuthEvent(auditLogger *AuditLogger, ctx context.Context, eventType strin
 	auditLogger.Log(entry)
 }
 
-// LogDataEvent logs a data access/modification event
-func LogDataEvent(auditLogger *AuditLogger, ctx context.Context, eventType string, result string, userID string, resource string, metadata map[string]interface{}) {
+// LogDataEvent logs a data access/modification event.
+func LogDataEvent(auditLogger *AuditLogger, ctx context.Context, eventType string, result string, userID string, resource string, metadata map[string]any) {
 	if metadata == nil {
-		metadata = make(map[string]interface{})
+		metadata = make(map[string]any)
 	}
+
 	metadata["resource"] = resource
 
 	entry := &AuditEntry{
@@ -391,8 +401,8 @@ func LogDataEvent(auditLogger *AuditLogger, ctx context.Context, eventType strin
 	auditLogger.Log(entry)
 }
 
-// LogSecurityEvent logs a security-related event
-func LogSecurityEvent(auditLogger *AuditLogger, ctx context.Context, eventType string, result string, message string, metadata map[string]interface{}) {
+// LogSecurityEvent logs a security-related event.
+func LogSecurityEvent(auditLogger *AuditLogger, ctx context.Context, eventType string, result string, message string, metadata map[string]any) {
 	entry := &AuditEntry{
 		EventType: "security." + eventType,
 		Category:  "security",
@@ -403,11 +413,12 @@ func LogSecurityEvent(auditLogger *AuditLogger, ctx context.Context, eventType s
 	auditLogger.Log(entry)
 }
 
-// LogAdminEvent logs an administrative action
-func LogAdminEvent(auditLogger *AuditLogger, ctx context.Context, eventType string, result string, userID string, action string, metadata map[string]interface{}) {
+// LogAdminEvent logs an administrative action.
+func LogAdminEvent(auditLogger *AuditLogger, ctx context.Context, eventType string, result string, userID string, action string, metadata map[string]any) {
 	if metadata == nil {
-		metadata = make(map[string]interface{})
+		metadata = make(map[string]any)
 	}
+
 	metadata["action"] = action
 
 	entry := &AuditEntry{

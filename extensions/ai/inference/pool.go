@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/models"
 )
 
-// ObjectPool provides efficient object pooling for AI inference pipeline
+// ObjectPool provides efficient object pooling for AI inference pipeline.
 type ObjectPool struct {
 	// Request pools
 	requestPool  sync.Pool
@@ -30,7 +30,7 @@ type ObjectPool struct {
 	mu              sync.RWMutex
 }
 
-// PoolStats tracks object pool statistics
+// PoolStats tracks object pool statistics.
 type PoolStats struct {
 	RequestHits      int64     `json:"request_hits"`
 	RequestMisses    int64     `json:"request_misses"`
@@ -47,7 +47,7 @@ type PoolStats struct {
 	LastCleanup      time.Time `json:"last_cleanup"`
 }
 
-// NewObjectPool creates a new object pool for AI inference
+// NewObjectPool creates a new object pool for AI inference.
 func NewObjectPool(maxPoolSize int, cleanupInterval time.Duration) *ObjectPool {
 	pool := &ObjectPool{
 		maxPoolSize:     maxPoolSize,
@@ -59,9 +59,9 @@ func NewObjectPool(maxPoolSize int, cleanupInterval time.Duration) *ObjectPool {
 
 	// Initialize request pool
 	pool.requestPool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return &InferenceRequest{
-				Context: make(map[string]interface{}),
+				Context: make(map[string]any),
 				Options: InferenceOptions{},
 			}
 		},
@@ -69,16 +69,16 @@ func NewObjectPool(maxPoolSize int, cleanupInterval time.Duration) *ObjectPool {
 
 	// Initialize response pool
 	pool.responsePool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return &InferenceResponse{
-				Metadata: make(map[string]interface{}),
+				Metadata: make(map[string]any),
 			}
 		},
 	}
 
 	// Initialize worker pool
 	pool.workerPool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return &InferenceWorker{
 				id: generateWorkerID(),
 			}
@@ -87,21 +87,21 @@ func NewObjectPool(maxPoolSize int, cleanupInterval time.Duration) *ObjectPool {
 
 	// Initialize context pool
 	pool.contextPool = sync.Pool{
-		New: func() interface{} {
-			return make(map[string]interface{}, 10)
+		New: func() any {
+			return make(map[string]any, 10)
 		},
 	}
 
 	// Initialize buffer pool
 	pool.bufferPool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return make([]byte, 0, 4096) // 4KB initial capacity
 		},
 	}
 
 	// Initialize string pool
 	pool.stringPool = sync.Pool{
-		New: func() interface{} {
+		New: func() any {
 			return make([]string, 0, 10)
 		},
 	}
@@ -109,7 +109,7 @@ func NewObjectPool(maxPoolSize int, cleanupInterval time.Duration) *ObjectPool {
 	return pool
 }
 
-// GetRequest gets a request from the pool or creates a new one
+// GetRequest gets a request from the pool or creates a new one.
 func (p *ObjectPool) GetRequest() *InferenceRequest {
 	obj := p.requestPool.Get()
 	if obj == nil {
@@ -117,8 +117,9 @@ func (p *ObjectPool) GetRequest() *InferenceRequest {
 		p.stats.RequestMisses++
 		p.stats.TotalAllocations++
 		p.mu.Unlock()
+
 		return &InferenceRequest{
-			Context: make(map[string]interface{}),
+			Context: make(map[string]any),
 			Options: InferenceOptions{},
 		}
 	}
@@ -130,18 +131,20 @@ func (p *ObjectPool) GetRequest() *InferenceRequest {
 
 	request := obj.(*InferenceRequest)
 	p.resetRequest(request)
+
 	return request
 }
 
-// PutRequest returns a request to the pool
+// PutRequest returns a request to the pool.
 func (p *ObjectPool) PutRequest(request *InferenceRequest) {
 	if request == nil {
 		return
 	}
+
 	p.requestPool.Put(request)
 }
 
-// GetResponse gets a response from the pool or creates a new one
+// GetResponse gets a response from the pool or creates a new one.
 func (p *ObjectPool) GetResponse() *InferenceResponse {
 	obj := p.responsePool.Get()
 	if obj == nil {
@@ -149,8 +152,9 @@ func (p *ObjectPool) GetResponse() *InferenceResponse {
 		p.stats.ResponseMisses++
 		p.stats.TotalAllocations++
 		p.mu.Unlock()
+
 		return &InferenceResponse{
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 	}
 
@@ -161,18 +165,20 @@ func (p *ObjectPool) GetResponse() *InferenceResponse {
 
 	response := obj.(*InferenceResponse)
 	p.resetResponse(response)
+
 	return response
 }
 
-// PutResponse returns a response to the pool
+// PutResponse returns a response to the pool.
 func (p *ObjectPool) PutResponse(response *InferenceResponse) {
 	if response == nil {
 		return
 	}
+
 	p.responsePool.Put(response)
 }
 
-// GetWorker gets a worker from the pool or creates a new one
+// GetWorker gets a worker from the pool or creates a new one.
 func (p *ObjectPool) GetWorker() *InferenceWorker {
 	obj := p.workerPool.Get()
 	if obj == nil {
@@ -180,6 +186,7 @@ func (p *ObjectPool) GetWorker() *InferenceWorker {
 		p.stats.WorkerMisses++
 		p.stats.TotalAllocations++
 		p.mu.Unlock()
+
 		return &InferenceWorker{
 			id: generateWorkerID(),
 		}
@@ -192,18 +199,20 @@ func (p *ObjectPool) GetWorker() *InferenceWorker {
 
 	worker := obj.(*InferenceWorker)
 	p.resetWorker(worker)
+
 	return worker
 }
 
-// PutWorker returns a worker to the pool
+// PutWorker returns a worker to the pool.
 func (p *ObjectPool) PutWorker(worker *InferenceWorker) {
 	if worker == nil {
 		return
 	}
+
 	p.workerPool.Put(worker)
 }
 
-// GetBuffer gets a buffer from the pool or creates a new one
+// GetBuffer gets a buffer from the pool or creates a new one.
 func (p *ObjectPool) GetBuffer() []byte {
 	obj := p.bufferPool.Get()
 	if obj == nil {
@@ -211,6 +220,7 @@ func (p *ObjectPool) GetBuffer() []byte {
 		p.stats.BufferMisses++
 		p.stats.TotalAllocations++
 		p.mu.Unlock()
+
 		return make([]byte, 0, 4096)
 	}
 
@@ -220,10 +230,11 @@ func (p *ObjectPool) GetBuffer() []byte {
 	p.mu.Unlock()
 
 	buffer := obj.([]byte)
+
 	return buffer[:0] // Reset length but keep capacity
 }
 
-// PutBuffer returns a buffer to the pool
+// PutBuffer returns a buffer to the pool.
 func (p *ObjectPool) PutBuffer(buffer []byte) {
 	if buffer == nil {
 		return
@@ -234,7 +245,7 @@ func (p *ObjectPool) PutBuffer(buffer []byte) {
 	}
 }
 
-// GetStringSlice gets a string slice from the pool or creates a new one
+// GetStringSlice gets a string slice from the pool or creates a new one.
 func (p *ObjectPool) GetStringSlice() []string {
 	obj := p.stringPool.Get()
 	if obj == nil {
@@ -242,51 +253,57 @@ func (p *ObjectPool) GetStringSlice() []string {
 	}
 
 	slice := obj.([]string)
+
 	return slice[:0] // Reset length but keep capacity
 }
 
-// PutStringSlice returns a string slice to the pool
+// PutStringSlice returns a string slice to the pool.
 func (p *ObjectPool) PutStringSlice(slice []string) {
 	if slice == nil {
 		return
 	}
+
 	p.stringPool.Put(slice)
 }
 
-// GetContext gets a context map from the pool or creates a new one
-func (p *ObjectPool) GetContext() map[string]interface{} {
+// GetContext gets a context map from the pool or creates a new one.
+func (p *ObjectPool) GetContext() map[string]any {
 	obj := p.contextPool.Get()
 	if obj == nil {
-		return make(map[string]interface{}, 10)
+		return make(map[string]any, 10)
 	}
 
-	context := obj.(map[string]interface{})
+	context := obj.(map[string]any)
 	// Clear the map
 	for k := range context {
 		delete(context, k)
 	}
+
 	return context
 }
 
-// PutContext returns a context map to the pool
-func (p *ObjectPool) PutContext(context map[string]interface{}) {
+// PutContext returns a context map to the pool.
+func (p *ObjectPool) PutContext(context map[string]any) {
 	if context == nil {
 		return
 	}
+
 	p.contextPool.Put(context)
 }
 
-// GetStats returns pool statistics
+// GetStats returns pool statistics.
 func (p *ObjectPool) GetStats() PoolStats {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+
 	return p.stats
 }
 
-// ResetStats resets pool statistics
+// ResetStats resets pool statistics.
 func (p *ObjectPool) ResetStats() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.stats = PoolStats{
 		LastCleanup: time.Now(),
 	}
@@ -329,7 +346,7 @@ func (p *ObjectPool) resetWorker(worker *InferenceWorker) {
 	// Reset other fields as needed
 }
 
-// generateWorkerID generates a unique worker ID
+// generateWorkerID generates a unique worker ID.
 func generateWorkerID() string {
 	return fmt.Sprintf("worker_%d", time.Now().UnixNano())
 }

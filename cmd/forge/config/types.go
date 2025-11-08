@@ -3,23 +3,23 @@ package config
 
 import "time"
 
-// ForgeConfig represents the complete .forge.yaml configuration
+// ForgeConfig represents the complete .forge.yaml configuration.
 type ForgeConfig struct {
-	Project    ProjectConfig          `yaml:"project"`
-	Dev        DevConfig              `yaml:"dev"`
-	Database   DatabaseConfig         `yaml:"database"`
-	Build      BuildConfig            `yaml:"build"`
-	Deploy     DeployConfig           `yaml:"deploy"`
-	Generate   GenerateConfig         `yaml:"generate"`
-	Extensions map[string]interface{} `yaml:"extensions"`
-	Test       TestConfig             `yaml:"test"`
+	Project    ProjectConfig  `yaml:"project"`
+	Dev        DevConfig      `yaml:"dev"`
+	Database   DatabaseConfig `yaml:"database"`
+	Build      BuildConfig    `yaml:"build"`
+	Deploy     DeployConfig   `yaml:"deploy"`
+	Generate   GenerateConfig `yaml:"generate"`
+	Extensions map[string]any `yaml:"extensions"`
+	Test       TestConfig     `yaml:"test"`
 
 	// Internal fields
 	RootDir    string `yaml:"-"` // Directory containing .forge.yaml
 	ConfigPath string `yaml:"-"` // Full path to .forge.yaml
 }
 
-// ProjectConfig defines project metadata and structure
+// ProjectConfig defines project metadata and structure.
 type ProjectConfig struct {
 	Name        string          `yaml:"name"`
 	Version     string          `yaml:"version"`
@@ -31,7 +31,7 @@ type ProjectConfig struct {
 	Structure   StructureConfig `yaml:"structure"` // For single-module layout
 }
 
-// WorkspaceConfig for multi-module layout
+// WorkspaceConfig for multi-module layout.
 type WorkspaceConfig struct {
 	Enabled    bool   `yaml:"enabled"`
 	Apps       string `yaml:"apps"`       // Glob pattern: "./apps/*"
@@ -40,7 +40,7 @@ type WorkspaceConfig struct {
 	Pkg        string `yaml:"pkg"`        // Path: "./pkg"
 }
 
-// StructureConfig for single-module layout
+// StructureConfig for single-module layout.
 type StructureConfig struct {
 	Cmd         string `yaml:"cmd"`         // Path to cmd/
 	Apps        string `yaml:"apps"`        // Path to apps/
@@ -52,7 +52,7 @@ type StructureConfig struct {
 	Deployments string `yaml:"deployments"` // Path to deployments/
 }
 
-// DevConfig defines development server configuration
+// DevConfig defines development server configuration.
 type DevConfig struct {
 	AutoDiscover    bool            `yaml:"auto_discover"`
 	DiscoverPattern string          `yaml:"discover_pattern"`
@@ -61,20 +61,20 @@ type DevConfig struct {
 	HotReload       HotReloadConfig `yaml:"hot_reload"`
 }
 
-// WatchConfig defines file watching configuration
+// WatchConfig defines file watching configuration.
 type WatchConfig struct {
 	Enabled bool     `yaml:"enabled"`
 	Paths   []string `yaml:"paths"`
 	Exclude []string `yaml:"exclude"`
 }
 
-// HotReloadConfig defines hot reload configuration
+// HotReloadConfig defines hot reload configuration.
 type HotReloadConfig struct {
 	Enabled bool          `yaml:"enabled"`
 	Delay   time.Duration `yaml:"delay"`
 }
 
-// DatabaseConfig defines database configuration
+// DatabaseConfig defines database configuration.
 type DatabaseConfig struct {
 	Driver         string                      `yaml:"driver"` // postgres, mysql, sqlite
 	MigrationsPath string                      `yaml:"migrations_path"`
@@ -84,21 +84,21 @@ type DatabaseConfig struct {
 	Connections    map[string]ConnectionConfig `yaml:"connections"`
 }
 
-// DatabaseCodegenConfig for database model generation
+// DatabaseCodegenConfig for database model generation.
 type DatabaseCodegenConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	Output    string `yaml:"output"`
 	Templates string `yaml:"templates"`
 }
 
-// ConnectionConfig defines database connection settings
+// ConnectionConfig defines database connection settings.
 type ConnectionConfig struct {
 	URL            string `yaml:"url"`
 	MaxConnections int    `yaml:"max_connections"`
 	MaxIdle        int    `yaml:"max_idle"`
 }
 
-// BuildConfig defines build configuration
+// BuildConfig defines build configuration.
 type BuildConfig struct {
 	OutputDir    string     `yaml:"output_dir"`
 	CmdDir       string     `yaml:"cmd_dir"`       // Single-module only
@@ -109,7 +109,7 @@ type BuildConfig struct {
 	Tags         []string   `yaml:"tags"`
 }
 
-// BuildApp defines a buildable application
+// BuildApp defines a buildable application.
 type BuildApp struct {
 	Name       string `yaml:"name"`
 	Module     string `yaml:"module"` // Multi-module: path to module
@@ -118,13 +118,13 @@ type BuildApp struct {
 	Dockerfile string `yaml:"dockerfile"`
 }
 
-// Platform defines target build platform
+// Platform defines target build platform.
 type Platform struct {
 	OS   string `yaml:"os"`
 	Arch string `yaml:"arch"`
 }
 
-// DeployConfig defines deployment configuration
+// DeployConfig defines deployment configuration.
 type DeployConfig struct {
 	Registry     string              `yaml:"registry"`
 	Docker       DockerConfig        `yaml:"docker"`
@@ -134,7 +134,7 @@ type DeployConfig struct {
 	Environments []EnvironmentConfig `yaml:"environments"`
 }
 
-// DockerConfig for Docker deployment
+// DockerConfig for Docker deployment.
 type DockerConfig struct {
 	BuildContext string            `yaml:"build_context"`
 	Dockerfile   string            `yaml:"dockerfile"`
@@ -143,7 +143,7 @@ type DockerConfig struct {
 	Volumes      map[string]string `yaml:"volumes"`
 }
 
-// KubernetesConfig for Kubernetes deployment
+// KubernetesConfig for Kubernetes deployment.
 type KubernetesConfig struct {
 	Manifests string `yaml:"manifests"`
 	Namespace string `yaml:"namespace"`
@@ -151,17 +151,17 @@ type KubernetesConfig struct {
 	Registry  string `yaml:"registry"`
 }
 
-// DigitalOceanConfig for Digital Ocean deployment
+// DigitalOceanConfig for Digital Ocean deployment.
 type DigitalOceanConfig struct {
-	Region        string `yaml:"region"`
-	AppSpecFile   string `yaml:"app_spec_file"`
-	ClusterName   string `yaml:"cluster_name"`
-	GitRepo       string `yaml:"git_repo"`        // e.g., "myorg/myrepo"
-	GitBranch     string `yaml:"git_branch"`      // e.g., "main"
-	DeployOnPush  bool   `yaml:"deploy_on_push"`  // Auto-deploy on push
+	Region       string `yaml:"region"`
+	AppSpecFile  string `yaml:"app_spec_file"`
+	ClusterName  string `yaml:"cluster_name"`
+	GitRepo      string `yaml:"git_repo"`       // e.g., "myorg/myrepo"
+	GitBranch    string `yaml:"git_branch"`     // e.g., "main"
+	DeployOnPush bool   `yaml:"deploy_on_push"` // Auto-deploy on push
 }
 
-// RenderConfig for Render.com deployment
+// RenderConfig for Render.com deployment.
 type RenderConfig struct {
 	BlueprintFile string `yaml:"blueprint_file"`
 	Region        string `yaml:"region"`
@@ -169,7 +169,7 @@ type RenderConfig struct {
 	GitBranch     string `yaml:"git_branch"` // e.g., "main"
 }
 
-// EnvironmentConfig defines deployment environment
+// EnvironmentConfig defines deployment environment.
 type EnvironmentConfig struct {
 	Name      string            `yaml:"name"`
 	Cluster   string            `yaml:"cluster"`
@@ -178,13 +178,13 @@ type EnvironmentConfig struct {
 	Variables map[string]string `yaml:"variables"`
 }
 
-// GenerateConfig defines code generation configuration
+// GenerateConfig defines code generation configuration.
 type GenerateConfig struct {
 	TemplatesPath string                     `yaml:"templates_path"`
 	Generators    map[string]GeneratorConfig `yaml:"generators"`
 }
 
-// GeneratorConfig defines a specific generator
+// GeneratorConfig defines a specific generator.
 type GeneratorConfig struct {
 	Output       string `yaml:"output"`
 	CmdPath      string `yaml:"cmd_path"`      // Single-module
@@ -193,7 +193,7 @@ type GeneratorConfig struct {
 	ModulePath   string `yaml:"module_path"`   // Multi-module
 }
 
-// TestConfig defines testing configuration
+// TestConfig defines testing configuration.
 type TestConfig struct {
 	CoverageThreshold int           `yaml:"coverage_threshold"`
 	RaceDetector      bool          `yaml:"race_detector"`
@@ -201,7 +201,7 @@ type TestConfig struct {
 	Timeout           time.Duration `yaml:"timeout"`
 }
 
-// DefaultConfig returns a default configuration
+// DefaultConfig returns a default configuration.
 func DefaultConfig() *ForgeConfig {
 	return &ForgeConfig{
 		Project: ProjectConfig{
@@ -261,12 +261,12 @@ func DefaultConfig() *ForgeConfig {
 	}
 }
 
-// IsSingleModule returns true if the project uses single-module layout
+// IsSingleModule returns true if the project uses single-module layout.
 func (c *ForgeConfig) IsSingleModule() bool {
 	return c.Project.Layout == "single-module" || c.Project.Layout == ""
 }
 
-// IsMultiModule returns true if the project uses multi-module layout
+// IsMultiModule returns true if the project uses multi-module layout.
 func (c *ForgeConfig) IsMultiModule() bool {
 	return c.Project.Layout == "multi-module"
 }

@@ -49,10 +49,9 @@ func TestCircuitBreaker_Execute_Success(t *testing.T) {
 	breaker := NewCircuitBreaker(config)
 
 	// Execute successful function
-	result, err := breaker.Execute(context.Background(), func() (interface{}, error) {
+	result, err := breaker.Execute(context.Background(), func() (any, error) {
 		return "success", nil
 	})
-
 	if err != nil {
 		t.Errorf("Execute() error = %v", err)
 	}
@@ -83,10 +82,9 @@ func TestCircuitBreaker_Execute_Failure(t *testing.T) {
 	breaker := NewCircuitBreaker(config)
 
 	// Execute failing function
-	result, err := breaker.Execute(context.Background(), func() (interface{}, error) {
+	result, err := breaker.Execute(context.Background(), func() (any, error) {
 		return nil, errors.New("test error")
 	})
-
 	if err == nil {
 		t.Error("Execute() should return error")
 	}
@@ -122,8 +120,8 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 	}
 
 	// Fail multiple times to open circuit
-	for i := 0; i < 5; i++ {
-		breaker.Execute(context.Background(), func() (interface{}, error) {
+	for range 5 {
+		breaker.Execute(context.Background(), func() (any, error) {
 			return nil, errors.New("test error")
 		})
 	}
@@ -137,7 +135,7 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Try to execute - should move to half-open
-	breaker.Execute(context.Background(), func() (interface{}, error) {
+	breaker.Execute(context.Background(), func() (any, error) {
 		return "success", nil
 	})
 
@@ -164,11 +162,11 @@ func TestCircuitBreaker_Stats(t *testing.T) {
 	breaker := NewCircuitBreaker(config)
 
 	// Execute some functions
-	breaker.Execute(context.Background(), func() (interface{}, error) {
+	breaker.Execute(context.Background(), func() (any, error) {
 		return "success", nil
 	})
 
-	breaker.Execute(context.Background(), func() (interface{}, error) {
+	breaker.Execute(context.Background(), func() (any, error) {
 		return nil, errors.New("test error")
 	})
 
@@ -203,7 +201,7 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 	breaker := NewCircuitBreaker(config)
 
 	// Execute some functions
-	breaker.Execute(context.Background(), func() (interface{}, error) {
+	breaker.Execute(context.Background(), func() (any, error) {
 		return "success", nil
 	})
 
@@ -268,17 +266,19 @@ func TestCircuitBreaker_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent access
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+
+	for range 10 {
 		go func() {
-			breaker.Execute(context.Background(), func() (interface{}, error) {
+			breaker.Execute(context.Background(), func() (any, error) {
 				return "success", nil
 			})
+
 			done <- true
 		}()
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -332,16 +332,16 @@ func TestCircuitBreaker_ErrorTypes(t *testing.T) {
 	breaker := NewCircuitBreaker(config)
 
 	// Test circuit breaker error
-	_, err := breaker.Execute(context.Background(), func() (interface{}, error) {
+	_, err := breaker.Execute(context.Background(), func() (any, error) {
 		return nil, errors.New("test error")
 	})
-
 	if err == nil {
 		t.Error("Execute() should return error")
 	}
 
 	// Check error type
-	if _, ok := err.(*CircuitBreakerError); ok {
+	circuitBreakerError := &CircuitBreakerError{}
+	if errors.As(err, &circuitBreakerError) {
 		t.Error("Execute() should not return CircuitBreakerError for normal errors")
 	}
 }

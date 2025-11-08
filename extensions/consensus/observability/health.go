@@ -3,6 +3,7 @@ package observability
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// HealthChecker performs comprehensive health checks
+// HealthChecker performs comprehensive health checks.
 type HealthChecker struct {
 	logger forge.Logger
 	checks map[string]HealthCheckFunc
@@ -26,15 +27,15 @@ type HealthChecker struct {
 	timeout time.Duration
 }
 
-// HealthCheckFunc is a function that performs a health check
+// HealthCheckFunc is a function that performs a health check.
 type HealthCheckFunc func(ctx context.Context) internal.HealthCheck
 
-// HealthCheckerConfig contains health checker configuration
+// HealthCheckerConfig contains health checker configuration.
 type HealthCheckerConfig struct {
 	Timeout time.Duration
 }
 
-// NewHealthChecker creates a new health checker
+// NewHealthChecker creates a new health checker.
 func NewHealthChecker(
 	config HealthCheckerConfig,
 	logger forge.Logger,
@@ -63,7 +64,7 @@ func NewHealthChecker(
 	return hc
 }
 
-// registerDefaultChecks registers the default health checks
+// registerDefaultChecks registers the default health checks.
 func (hc *HealthChecker) registerDefaultChecks() {
 	hc.RegisterCheck("raft_node", hc.checkRaftNode)
 	hc.RegisterCheck("quorum", hc.checkQuorum)
@@ -72,7 +73,7 @@ func (hc *HealthChecker) registerDefaultChecks() {
 	hc.RegisterCheck("replication", hc.checkReplication)
 }
 
-// RegisterCheck registers a custom health check
+// RegisterCheck registers a custom health check.
 func (hc *HealthChecker) RegisterCheck(name string, fn HealthCheckFunc) {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
@@ -80,7 +81,7 @@ func (hc *HealthChecker) RegisterCheck(name string, fn HealthCheckFunc) {
 	hc.checks[name] = fn
 }
 
-// UnregisterCheck unregisters a health check
+// UnregisterCheck unregisters a health check.
 func (hc *HealthChecker) UnregisterCheck(name string) {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
@@ -88,13 +89,13 @@ func (hc *HealthChecker) UnregisterCheck(name string) {
 	delete(hc.checks, name)
 }
 
-// Check performs all health checks
+// Check performs all health checks.
 func (hc *HealthChecker) Check(ctx context.Context) internal.HealthStatus {
 	hc.mu.RLock()
+
 	checks := make(map[string]HealthCheckFunc, len(hc.checks))
-	for name, fn := range hc.checks {
-		checks[name] = fn
-	}
+	maps.Copy(checks, hc.checks)
+
 	hc.mu.RUnlock()
 
 	// Run all checks concurrently
@@ -112,7 +113,7 @@ func (hc *HealthChecker) Check(ctx context.Context) internal.HealthStatus {
 	}
 
 	// Collect results
-	for i := 0; i < len(checks); i++ {
+	for range len(checks) {
 		result := <-resultCh
 		results = append(results, result)
 	}
@@ -121,7 +122,7 @@ func (hc *HealthChecker) Check(ctx context.Context) internal.HealthStatus {
 	return hc.aggregateResults(results)
 }
 
-// aggregateResults aggregates health check results
+// aggregateResults aggregates health check results.
 func (hc *HealthChecker) aggregateResults(results []internal.HealthCheck) internal.HealthStatus {
 	now := time.Now()
 	healthy := true
@@ -132,6 +133,7 @@ func (hc *HealthChecker) aggregateResults(results []internal.HealthCheck) intern
 		if !result.Healthy {
 			healthy = false
 			status = "unhealthy"
+
 			break
 		}
 	}
@@ -169,11 +171,11 @@ func (hc *HealthChecker) aggregateResults(results []internal.HealthCheck) intern
 		ActiveNodes: activeNodes,
 		Details:     results,
 		LastCheck:   now,
-		Checks:      make(map[string]interface{}),
+		Checks:      make(map[string]any),
 	}
 }
 
-// checkRaftNode checks Raft node health
+// checkRaftNode checks Raft node health.
 func (hc *HealthChecker) checkRaftNode(ctx context.Context) internal.HealthCheck {
 	now := time.Now()
 
@@ -216,7 +218,7 @@ func (hc *HealthChecker) checkRaftNode(ctx context.Context) internal.HealthCheck
 	}
 }
 
-// checkQuorum checks if cluster has quorum
+// checkQuorum checks if cluster has quorum.
 func (hc *HealthChecker) checkQuorum(ctx context.Context) internal.HealthCheck {
 	now := time.Now()
 
@@ -233,6 +235,7 @@ func (hc *HealthChecker) checkQuorum(ctx context.Context) internal.HealthCheck {
 	if !hasQuorum {
 		totalNodes := hc.clusterManager.GetClusterSize()
 		healthyNodes := hc.clusterManager.GetHealthyNodes()
+
 		return internal.HealthCheck{
 			Name:      "quorum",
 			Healthy:   false,
@@ -249,7 +252,7 @@ func (hc *HealthChecker) checkQuorum(ctx context.Context) internal.HealthCheck {
 	}
 }
 
-// checkStorage checks storage health
+// checkStorage checks storage health.
 func (hc *HealthChecker) checkStorage(ctx context.Context) internal.HealthCheck {
 	now := time.Now()
 
@@ -297,7 +300,7 @@ func (hc *HealthChecker) checkStorage(ctx context.Context) internal.HealthCheck 
 	}
 }
 
-// checkTransport checks transport health
+// checkTransport checks transport health.
 func (hc *HealthChecker) checkTransport(ctx context.Context) internal.HealthCheck {
 	now := time.Now()
 
@@ -329,7 +332,7 @@ func (hc *HealthChecker) checkTransport(ctx context.Context) internal.HealthChec
 	}
 }
 
-// checkReplication checks replication health
+// checkReplication checks replication health.
 func (hc *HealthChecker) checkReplication(ctx context.Context) internal.HealthCheck {
 	now := time.Now()
 
@@ -366,13 +369,14 @@ func (hc *HealthChecker) checkReplication(ctx context.Context) internal.HealthCh
 	}
 }
 
-// GetHealthStatus returns the current health status
+// GetHealthStatus returns the current health status.
 func (hc *HealthChecker) GetHealthStatus(ctx context.Context) internal.HealthStatus {
 	return hc.Check(ctx)
 }
 
-// IsHealthy returns true if the system is healthy
+// IsHealthy returns true if the system is healthy.
 func (hc *HealthChecker) IsHealthy(ctx context.Context) bool {
 	status := hc.Check(ctx)
+
 	return status.Healthy
 }

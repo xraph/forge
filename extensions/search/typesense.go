@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// TypesenseSearch implements Search interface for Typesense
+// TypesenseSearch implements Search interface for Typesense.
 type TypesenseSearch struct {
 	config    Config
 	logger    forge.Logger
@@ -17,14 +17,14 @@ type TypesenseSearch struct {
 	// client    *typesense.Client // TODO: Add when implementing
 }
 
-// NewTypesenseSearch creates a new Typesense search instance
+// NewTypesenseSearch creates a new Typesense search instance.
 func NewTypesenseSearch(config Config, logger forge.Logger, metrics forge.Metrics) (*TypesenseSearch, error) {
 	if config.URL == "" && len(config.Hosts) == 0 {
-		return nil, fmt.Errorf("typesense requires URL or hosts")
+		return nil, errors.New("typesense requires URL or hosts")
 	}
 
 	if config.APIKey == "" {
-		return nil, fmt.Errorf("typesense requires API key")
+		return nil, errors.New("typesense requires API key")
 	}
 
 	return &TypesenseSearch{
@@ -34,7 +34,7 @@ func NewTypesenseSearch(config Config, logger forge.Logger, metrics forge.Metric
 	}, nil
 }
 
-// Connect establishes connection to Typesense
+// Connect establishes connection to Typesense.
 func (s *TypesenseSearch) Connect(ctx context.Context) error {
 	// TODO: Implement Typesense client connection
 	// Example:
@@ -45,22 +45,23 @@ func (s *TypesenseSearch) Connect(ctx context.Context) error {
 	//     APIKey: s.config.APIKey,
 	// })
 	// s.client = client
-
 	s.connected = true
 	s.logger.Info("connected to typesense",
 		forge.F("url", s.config.URL),
 	)
+
 	return nil
 }
 
-// Disconnect closes the Typesense connection
+// Disconnect closes the Typesense connection.
 func (s *TypesenseSearch) Disconnect(ctx context.Context) error {
 	s.connected = false
 	s.logger.Info("disconnected from typesense")
+
 	return nil
 }
 
-// Ping checks Typesense health
+// Ping checks Typesense health.
 func (s *TypesenseSearch) Ping(ctx context.Context) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -70,27 +71,29 @@ func (s *TypesenseSearch) Ping(ctx context.Context) error {
 	return nil
 }
 
-// CreateIndex creates a Typesense collection
+// CreateIndex creates a Typesense collection.
 func (s *TypesenseSearch) CreateIndex(ctx context.Context, name string, schema IndexSchema) error {
 	if !s.connected {
 		return ErrNotConnected
 	}
 	// TODO: Convert schema to Typesense collection schema and create
 	s.logger.Info("created typesense collection", forge.F("index", name))
+
 	return nil
 }
 
-// DeleteIndex deletes a Typesense collection
+// DeleteIndex deletes a Typesense collection.
 func (s *TypesenseSearch) DeleteIndex(ctx context.Context, name string) error {
 	if !s.connected {
 		return ErrNotConnected
 	}
 	// TODO: Implement collection deletion
 	s.logger.Info("deleted typesense collection", forge.F("index", name))
+
 	return nil
 }
 
-// ListIndexes lists all Typesense collections
+// ListIndexes lists all Typesense collections.
 func (s *TypesenseSearch) ListIndexes(ctx context.Context) ([]string, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -99,7 +102,7 @@ func (s *TypesenseSearch) ListIndexes(ctx context.Context) ([]string, error) {
 	return []string{}, nil
 }
 
-// GetIndexInfo returns Typesense collection information
+// GetIndexInfo returns Typesense collection information.
 func (s *TypesenseSearch) GetIndexInfo(ctx context.Context, name string) (*IndexInfo, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -114,7 +117,7 @@ func (s *TypesenseSearch) GetIndexInfo(ctx context.Context, name string) (*Index
 	}, nil
 }
 
-// Index indexes a document in Typesense
+// Index indexes a document in Typesense.
 func (s *TypesenseSearch) Index(ctx context.Context, index string, doc Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -123,7 +126,7 @@ func (s *TypesenseSearch) Index(ctx context.Context, index string, doc Document)
 	return nil
 }
 
-// BulkIndex bulk indexes documents in Typesense
+// BulkIndex bulk indexes documents in Typesense.
 func (s *TypesenseSearch) BulkIndex(ctx context.Context, index string, docs []Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -132,7 +135,7 @@ func (s *TypesenseSearch) BulkIndex(ctx context.Context, index string, docs []Do
 	return nil
 }
 
-// Get retrieves a document from Typesense
+// Get retrieves a document from Typesense.
 func (s *TypesenseSearch) Get(ctx context.Context, index string, id string) (*Document, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -141,7 +144,7 @@ func (s *TypesenseSearch) Get(ctx context.Context, index string, id string) (*Do
 	return nil, ErrDocumentNotFound
 }
 
-// Delete deletes a document from Typesense
+// Delete deletes a document from Typesense.
 func (s *TypesenseSearch) Delete(ctx context.Context, index string, id string) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -150,7 +153,7 @@ func (s *TypesenseSearch) Delete(ctx context.Context, index string, id string) e
 	return nil
 }
 
-// Update updates a document in Typesense
+// Update updates a document in Typesense.
 func (s *TypesenseSearch) Update(ctx context.Context, index string, id string, doc Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -159,7 +162,7 @@ func (s *TypesenseSearch) Update(ctx context.Context, index string, id string, d
 	return nil
 }
 
-// Search performs a Typesense search
+// Search performs a Typesense search.
 func (s *TypesenseSearch) Search(ctx context.Context, query SearchQuery) (*SearchResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -176,7 +179,7 @@ func (s *TypesenseSearch) Search(ctx context.Context, query SearchQuery) (*Searc
 	}, nil
 }
 
-// Suggest returns Typesense suggestions
+// Suggest returns Typesense suggestions.
 func (s *TypesenseSearch) Suggest(ctx context.Context, query SuggestQuery) (*SuggestResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -188,7 +191,7 @@ func (s *TypesenseSearch) Suggest(ctx context.Context, query SuggestQuery) (*Sug
 	}, nil
 }
 
-// Autocomplete returns Typesense autocomplete results
+// Autocomplete returns Typesense autocomplete results.
 func (s *TypesenseSearch) Autocomplete(ctx context.Context, query AutocompleteQuery) (*AutocompleteResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -200,7 +203,7 @@ func (s *TypesenseSearch) Autocomplete(ctx context.Context, query AutocompleteQu
 	}, nil
 }
 
-// Stats returns Typesense statistics
+// Stats returns Typesense statistics.
 func (s *TypesenseSearch) Stats(ctx context.Context) (*SearchStats, error) {
 	if !s.connected {
 		return nil, ErrNotConnected

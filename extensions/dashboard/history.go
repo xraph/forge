@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// DataHistory manages historical time-series data with a ring buffer
+// DataHistory manages historical time-series data with a ring buffer.
 type DataHistory struct {
 	maxPoints       int
 	retentionPeriod time.Duration
@@ -17,7 +17,7 @@ type DataHistory struct {
 	mu sync.RWMutex
 }
 
-// OverviewSnapshot is a timestamped overview snapshot
+// OverviewSnapshot is a timestamped overview snapshot.
 type OverviewSnapshot struct {
 	Timestamp    time.Time `json:"timestamp"`
 	HealthStatus string    `json:"health_status"`
@@ -26,7 +26,7 @@ type OverviewSnapshot struct {
 	MetricsCount int       `json:"metrics_count"`
 }
 
-// HealthSnapshot is a timestamped health snapshot
+// HealthSnapshot is a timestamped health snapshot.
 type HealthSnapshot struct {
 	Timestamp      time.Time `json:"timestamp"`
 	OverallStatus  string    `json:"overall_status"`
@@ -35,14 +35,14 @@ type HealthSnapshot struct {
 	UnhealthyCount int       `json:"unhealthy_count"`
 }
 
-// MetricsSnapshot is a timestamped metrics snapshot
+// MetricsSnapshot is a timestamped metrics snapshot.
 type MetricsSnapshot struct {
-	Timestamp    time.Time              `json:"timestamp"`
-	TotalMetrics int                    `json:"total_metrics"`
-	Values       map[string]interface{} `json:"values"`
+	Timestamp    time.Time      `json:"timestamp"`
+	TotalMetrics int            `json:"total_metrics"`
+	Values       map[string]any `json:"values"`
 }
 
-// NewDataHistory creates a new data history manager
+// NewDataHistory creates a new data history manager.
 func NewDataHistory(maxPoints int, retentionPeriod time.Duration) *DataHistory {
 	return &DataHistory{
 		maxPoints:       maxPoints,
@@ -53,7 +53,7 @@ func NewDataHistory(maxPoints int, retentionPeriod time.Duration) *DataHistory {
 	}
 }
 
-// AddOverview adds an overview snapshot
+// AddOverview adds an overview snapshot.
 func (dh *DataHistory) AddOverview(snapshot OverviewSnapshot) {
 	dh.mu.Lock()
 	defer dh.mu.Unlock()
@@ -62,7 +62,7 @@ func (dh *DataHistory) AddOverview(snapshot OverviewSnapshot) {
 	dh.trimOverview()
 }
 
-// AddHealth adds a health snapshot
+// AddHealth adds a health snapshot.
 func (dh *DataHistory) AddHealth(snapshot HealthSnapshot) {
 	dh.mu.Lock()
 	defer dh.mu.Unlock()
@@ -71,7 +71,7 @@ func (dh *DataHistory) AddHealth(snapshot HealthSnapshot) {
 	dh.trimHealth()
 }
 
-// AddMetrics adds a metrics snapshot
+// AddMetrics adds a metrics snapshot.
 func (dh *DataHistory) AddMetrics(snapshot MetricsSnapshot) {
 	dh.mu.Lock()
 	defer dh.mu.Unlock()
@@ -80,37 +80,40 @@ func (dh *DataHistory) AddMetrics(snapshot MetricsSnapshot) {
 	dh.trimMetrics()
 }
 
-// GetOverview returns all overview snapshots
+// GetOverview returns all overview snapshots.
 func (dh *DataHistory) GetOverview() []OverviewSnapshot {
 	dh.mu.RLock()
 	defer dh.mu.RUnlock()
 
 	result := make([]OverviewSnapshot, len(dh.overview))
 	copy(result, dh.overview)
+
 	return result
 }
 
-// GetHealth returns all health snapshots
+// GetHealth returns all health snapshots.
 func (dh *DataHistory) GetHealth() []HealthSnapshot {
 	dh.mu.RLock()
 	defer dh.mu.RUnlock()
 
 	result := make([]HealthSnapshot, len(dh.health))
 	copy(result, dh.health)
+
 	return result
 }
 
-// GetMetrics returns all metrics snapshots
+// GetMetrics returns all metrics snapshots.
 func (dh *DataHistory) GetMetrics() []MetricsSnapshot {
 	dh.mu.RLock()
 	defer dh.mu.RUnlock()
 
 	result := make([]MetricsSnapshot, len(dh.metrics))
 	copy(result, dh.metrics)
+
 	return result
 }
 
-// GetAll returns all historical data
+// GetAll returns all historical data.
 func (dh *DataHistory) GetAll() HistoryData {
 	dh.mu.RLock()
 	defer dh.mu.RUnlock()
@@ -129,7 +132,7 @@ func (dh *DataHistory) GetAll() HistoryData {
 	}
 }
 
-// Clear clears all historical data
+// Clear clears all historical data.
 func (dh *DataHistory) Clear() {
 	dh.mu.Lock()
 	defer dh.mu.Unlock()
@@ -139,7 +142,7 @@ func (dh *DataHistory) Clear() {
 	dh.metrics = dh.metrics[:0]
 }
 
-// trimOverview trims old overview data based on retention policy
+// trimOverview trims old overview data based on retention policy.
 func (dh *DataHistory) trimOverview() {
 	now := time.Now()
 	cutoff := now.Add(-dh.retentionPeriod)
@@ -149,6 +152,7 @@ func (dh *DataHistory) trimOverview() {
 	for i < len(dh.overview) && dh.overview[i].Timestamp.Before(cutoff) {
 		i++
 	}
+
 	if i > 0 {
 		dh.overview = dh.overview[i:]
 	}
@@ -160,7 +164,7 @@ func (dh *DataHistory) trimOverview() {
 	}
 }
 
-// trimHealth trims old health data based on retention policy
+// trimHealth trims old health data based on retention policy.
 func (dh *DataHistory) trimHealth() {
 	now := time.Now()
 	cutoff := now.Add(-dh.retentionPeriod)
@@ -169,6 +173,7 @@ func (dh *DataHistory) trimHealth() {
 	for i < len(dh.health) && dh.health[i].Timestamp.Before(cutoff) {
 		i++
 	}
+
 	if i > 0 {
 		dh.health = dh.health[i:]
 	}
@@ -179,7 +184,7 @@ func (dh *DataHistory) trimHealth() {
 	}
 }
 
-// trimMetrics trims old metrics data based on retention policy
+// trimMetrics trims old metrics data based on retention policy.
 func (dh *DataHistory) trimMetrics() {
 	now := time.Now()
 	cutoff := now.Add(-dh.retentionPeriod)
@@ -188,6 +193,7 @@ func (dh *DataHistory) trimMetrics() {
 	for i < len(dh.metrics) && dh.metrics[i].Timestamp.Before(cutoff) {
 		i++
 	}
+
 	if i > 0 {
 		dh.metrics = dh.metrics[i:]
 	}
@@ -198,7 +204,7 @@ func (dh *DataHistory) trimMetrics() {
 	}
 }
 
-// buildTimeSeries converts snapshots to time series format
+// buildTimeSeries converts snapshots to time series format.
 func (dh *DataHistory) buildTimeSeries() []TimeSeriesData {
 	series := make([]TimeSeriesData, 0)
 
@@ -211,6 +217,7 @@ func (dh *DataHistory) buildTimeSeries() []TimeSeriesData {
 				Value:     float64(snap.ServiceCount),
 			}
 		}
+
 		series = append(series, TimeSeriesData{
 			Name:   "service_count",
 			Points: points,
@@ -225,6 +232,7 @@ func (dh *DataHistory) buildTimeSeries() []TimeSeriesData {
 				Value:     float64(snap.HealthyCount),
 			}
 		}
+
 		series = append(series, TimeSeriesData{
 			Name:   "healthy_services",
 			Points: healthyPoints,

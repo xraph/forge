@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// CircuitState represents the state of the circuit breaker
+// CircuitState represents the state of the circuit breaker.
 type CircuitState int
 
 const (
@@ -20,7 +20,7 @@ const (
 	CircuitStateHalfOpen
 )
 
-// String returns the string representation of the circuit state
+// String returns the string representation of the circuit state.
 func (cs CircuitState) String() string {
 	switch cs {
 	case CircuitStateClosed:
@@ -34,7 +34,7 @@ func (cs CircuitState) String() string {
 	}
 }
 
-// CircuitBreakerMiddleware provides circuit breaker functionality based on health status
+// CircuitBreakerMiddleware provides circuit breaker functionality based on health status.
 type CircuitBreakerMiddleware struct {
 	healthService health.HealthService
 	config        *CircuitBreakerConfig
@@ -58,70 +58,70 @@ type CircuitBreakerMiddleware struct {
 	mu sync.RWMutex
 }
 
-// CircuitBreakerConfig contains configuration for circuit breaker
+// CircuitBreakerConfig contains configuration for circuit breaker.
 type CircuitBreakerConfig struct {
 	// Failure threshold to open circuit
-	FailureThreshold int `yaml:"failure_threshold" json:"failure_threshold"`
+	FailureThreshold int `json:"failure_threshold" yaml:"failure_threshold"`
 
 	// Success threshold to close circuit from half-open
-	SuccessThreshold int `yaml:"success_threshold" json:"success_threshold"`
+	SuccessThreshold int `json:"success_threshold" yaml:"success_threshold"`
 
 	// Timeout before transitioning from open to half-open
-	Timeout time.Duration `yaml:"timeout" json:"timeout"`
+	Timeout time.Duration `json:"timeout" yaml:"timeout"`
 
 	// Maximum number of concurrent requests in half-open state
-	MaxConcurrentRequests int `yaml:"max_concurrent_requests" json:"max_concurrent_requests"`
+	MaxConcurrentRequests int `json:"max_concurrent_requests" yaml:"max_concurrent_requests"`
 
 	// Health statuses that should trigger circuit opening
-	TriggerStatuses []health.HealthStatus `yaml:"trigger_statuses" json:"trigger_statuses"`
+	TriggerStatuses []health.HealthStatus `json:"trigger_statuses" yaml:"trigger_statuses"`
 
 	// Enable health-based circuit breaking
-	EnableHealthBased bool `yaml:"enable_health_based" json:"enable_health_based"`
+	EnableHealthBased bool `json:"enable_health_based" yaml:"enable_health_based"`
 
 	// Health check interval for circuit decisions
-	HealthCheckInterval time.Duration `yaml:"health_check_interval" json:"health_check_interval"`
+	HealthCheckInterval time.Duration `json:"health_check_interval" yaml:"health_check_interval"`
 
 	// Force open circuit if health is unhealthy
-	ForceOpenOnUnhealthy bool `yaml:"force_open_on_unhealthy" json:"force_open_on_unhealthy"`
+	ForceOpenOnUnhealthy bool `json:"force_open_on_unhealthy" yaml:"force_open_on_unhealthy"`
 
 	// Force close circuit if health is healthy
-	ForceCloseOnHealthy bool `yaml:"force_close_on_healthy" json:"force_close_on_healthy"`
+	ForceCloseOnHealthy bool `json:"force_close_on_healthy" yaml:"force_close_on_healthy"`
 
 	// Enable request-based circuit breaking
-	EnableRequestBased bool `yaml:"enable_request_based" json:"enable_request_based"`
+	EnableRequestBased bool `json:"enable_request_based" yaml:"enable_request_based"`
 
 	// Time window for failure counting
-	FailureWindow time.Duration `yaml:"failure_window" json:"failure_window"`
+	FailureWindow time.Duration `json:"failure_window" yaml:"failure_window"`
 
 	// Minimum number of requests before considering circuit opening
-	MinimumRequests int `yaml:"minimum_requests" json:"minimum_requests"`
+	MinimumRequests int `json:"minimum_requests" yaml:"minimum_requests"`
 
 	// Error rate threshold (0.0 to 1.0)
-	ErrorRateThreshold float64 `yaml:"error_rate_threshold" json:"error_rate_threshold"`
+	ErrorRateThreshold float64 `json:"error_rate_threshold" yaml:"error_rate_threshold"`
 
 	// Skip circuit breaker for specific paths
-	SkipPaths []string `yaml:"skip_paths" json:"skip_paths"`
+	SkipPaths []string `json:"skip_paths" yaml:"skip_paths"`
 
 	// Skip circuit breaker for specific methods
-	SkipMethods []string `yaml:"skip_methods" json:"skip_methods"`
+	SkipMethods []string `json:"skip_methods" yaml:"skip_methods"`
 
 	// Custom response for circuit open
-	OpenResponse string `yaml:"open_response" json:"open_response"`
+	OpenResponse string `json:"open_response" yaml:"open_response"`
 
 	// Include circuit state in headers
-	IncludeStateHeaders bool `yaml:"include_state_headers" json:"include_state_headers"`
+	IncludeStateHeaders bool `json:"include_state_headers" yaml:"include_state_headers"`
 
 	// State header name
-	StateHeaderName string `yaml:"state_header_name" json:"state_header_name"`
+	StateHeaderName string `json:"state_header_name" yaml:"state_header_name"`
 
 	// Enable detailed metrics
-	EnableMetrics bool `yaml:"enable_metrics" json:"enable_metrics"`
+	EnableMetrics bool `json:"enable_metrics" yaml:"enable_metrics"`
 
 	// Enable state change notifications
-	EnableNotifications bool `yaml:"enable_notifications" json:"enable_notifications"`
+	EnableNotifications bool `json:"enable_notifications" yaml:"enable_notifications"`
 }
 
-// DefaultCircuitBreakerConfig returns default configuration
+// DefaultCircuitBreakerConfig returns default configuration.
 func DefaultCircuitBreakerConfig() *CircuitBreakerConfig {
 	return &CircuitBreakerConfig{
 		FailureThreshold:      5,
@@ -150,7 +150,7 @@ func DefaultCircuitBreakerConfig() *CircuitBreakerConfig {
 	}
 }
 
-// NewCircuitBreakerMiddleware creates a new circuit breaker middleware
+// NewCircuitBreakerMiddleware creates a new circuit breaker middleware.
 func NewCircuitBreakerMiddleware(healthService health.HealthService, config *CircuitBreakerConfig, logger logger.Logger, metrics shared.Metrics) *CircuitBreakerMiddleware {
 	if config == nil {
 		config = DefaultCircuitBreakerConfig()
@@ -173,13 +173,14 @@ func NewCircuitBreakerMiddleware(healthService health.HealthService, config *Cir
 	return cbm
 }
 
-// Handler returns the circuit breaker middleware handler function
+// Handler returns the circuit breaker middleware handler function.
 func (cbm *CircuitBreakerMiddleware) Handler() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Check if we should skip circuit breaker
 			if cbm.shouldSkipCircuitBreaker(r) {
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
@@ -195,11 +196,13 @@ func (cbm *CircuitBreakerMiddleware) Handler() func(http.Handler) http.Handler {
 			switch state {
 			case CircuitStateOpen:
 				cbm.handleOpenCircuit(w, r)
+
 				return
 
 			case CircuitStateHalfOpen:
 				if !cbm.canProceedHalfOpen() {
 					cbm.handleOpenCircuit(w, r)
+
 					return
 				}
 			}
@@ -227,7 +230,7 @@ func (cbm *CircuitBreakerMiddleware) Handler() func(http.Handler) http.Handler {
 	}
 }
 
-// shouldSkipCircuitBreaker determines if circuit breaker should be skipped
+// shouldSkipCircuitBreaker determines if circuit breaker should be skipped.
 func (cbm *CircuitBreakerMiddleware) shouldSkipCircuitBreaker(r *http.Request) bool {
 	// Check skip paths
 	for _, path := range cbm.config.SkipPaths {
@@ -246,7 +249,7 @@ func (cbm *CircuitBreakerMiddleware) shouldSkipCircuitBreaker(r *http.Request) b
 	return false
 }
 
-// handleOpenCircuit handles requests when circuit is open
+// handleOpenCircuit handles requests when circuit is open.
 func (cbm *CircuitBreakerMiddleware) handleOpenCircuit(w http.ResponseWriter, r *http.Request) {
 	cbm.mu.Lock()
 	cbm.rejectedRequests++
@@ -285,7 +288,7 @@ func (cbm *CircuitBreakerMiddleware) handleOpenCircuit(w http.ResponseWriter, r 
 	}
 }
 
-// canProceedHalfOpen checks if request can proceed in half-open state
+// canProceedHalfOpen checks if request can proceed in half-open state.
 func (cbm *CircuitBreakerMiddleware) canProceedHalfOpen() bool {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
@@ -294,7 +297,7 @@ func (cbm *CircuitBreakerMiddleware) canProceedHalfOpen() bool {
 	return cbm.successes < cbm.config.MaxConcurrentRequests
 }
 
-// recordResult records the result of a request
+// recordResult records the result of a request.
 func (cbm *CircuitBreakerMiddleware) recordResult(success bool, duration time.Duration) {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -326,7 +329,7 @@ func (cbm *CircuitBreakerMiddleware) recordResult(success bool, duration time.Du
 	}
 }
 
-// shouldOpenCircuit determines if circuit should be opened
+// shouldOpenCircuit determines if circuit should be opened.
 func (cbm *CircuitBreakerMiddleware) shouldOpenCircuit() bool {
 	if !cbm.config.EnableRequestBased {
 		return false
@@ -353,20 +356,21 @@ func (cbm *CircuitBreakerMiddleware) shouldOpenCircuit() bool {
 	return false
 }
 
-// transitionTo transitions circuit to a new state
+// transitionTo transitions circuit to a new state.
 func (cbm *CircuitBreakerMiddleware) transitionTo(newState CircuitState) {
 	oldState := cbm.state
 	cbm.state = newState
 	cbm.lastTransition = time.Now()
 
 	// Reset counters on state change
-	if newState == CircuitStateClosed {
+	switch newState {
+	case CircuitStateClosed:
 		cbm.failures = 0
 		cbm.successes = 0
-	} else if newState == CircuitStateOpen {
+	case CircuitStateOpen:
 		cbm.failures = 0
 		cbm.successes = 0
-	} else if newState == CircuitStateHalfOpen {
+	case CircuitStateHalfOpen:
 		cbm.successes = 0
 	}
 
@@ -392,7 +396,7 @@ func (cbm *CircuitBreakerMiddleware) transitionTo(newState CircuitState) {
 	}
 }
 
-// healthMonitor monitors health status and adjusts circuit state
+// healthMonitor monitors health status and adjusts circuit state.
 func (cbm *CircuitBreakerMiddleware) healthMonitor() {
 	ticker := time.NewTicker(cbm.config.HealthCheckInterval)
 	defer ticker.Stop()
@@ -405,7 +409,7 @@ func (cbm *CircuitBreakerMiddleware) healthMonitor() {
 	}
 }
 
-// checkHealthAndAdjustCircuit checks health status and adjusts circuit accordingly
+// checkHealthAndAdjustCircuit checks health status and adjusts circuit accordingly.
 func (cbm *CircuitBreakerMiddleware) checkHealthAndAdjustCircuit() {
 	if cbm.healthService == nil {
 		return
@@ -424,6 +428,7 @@ func (cbm *CircuitBreakerMiddleware) checkHealthAndAdjustCircuit() {
 			cbm.transitionTo(CircuitStateOpen)
 			cbm.mu.Unlock()
 		}
+
 		return
 	}
 
@@ -434,6 +439,7 @@ func (cbm *CircuitBreakerMiddleware) checkHealthAndAdjustCircuit() {
 			cbm.transitionTo(CircuitStateClosed)
 			cbm.mu.Unlock()
 		}
+
 		return
 	}
 
@@ -451,17 +457,18 @@ func (cbm *CircuitBreakerMiddleware) checkHealthAndAdjustCircuit() {
 	}
 }
 
-// shouldTriggerOnStatus checks if status should trigger circuit opening
+// shouldTriggerOnStatus checks if status should trigger circuit opening.
 func (cbm *CircuitBreakerMiddleware) shouldTriggerOnStatus(status health.HealthStatus) bool {
 	for _, triggerStatus := range cbm.config.TriggerStatuses {
 		if status == triggerStatus {
 			return true
 		}
 	}
+
 	return false
 }
 
-// sendStateChangeNotification sends notification about state change
+// sendStateChangeNotification sends notification about state change.
 func (cbm *CircuitBreakerMiddleware) sendStateChangeNotification(oldState, newState CircuitState) {
 	// This would integrate with the alerting system
 	// For now, just log the change
@@ -474,7 +481,7 @@ func (cbm *CircuitBreakerMiddleware) sendStateChangeNotification(oldState, newSt
 	}
 }
 
-// updateMetrics updates circuit breaker metrics
+// updateMetrics updates circuit breaker metrics.
 func (cbm *CircuitBreakerMiddleware) updateMetrics(success bool, duration time.Duration) {
 	cbm.metrics.Counter("forge.health.circuit_breaker_requests").Inc()
 	cbm.metrics.Histogram("forge.health.circuit_breaker_duration").Observe(duration.Seconds())
@@ -486,14 +493,15 @@ func (cbm *CircuitBreakerMiddleware) updateMetrics(success bool, duration time.D
 	}
 }
 
-// GetState returns the current circuit state
+// GetState returns the current circuit state.
 func (cbm *CircuitBreakerMiddleware) GetState() CircuitState {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
+
 	return cbm.state
 }
 
-// GetStats returns circuit breaker statistics
+// GetStats returns circuit breaker statistics.
 func (cbm *CircuitBreakerMiddleware) GetStats() *CircuitBreakerStats {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
@@ -512,7 +520,7 @@ func (cbm *CircuitBreakerMiddleware) GetStats() *CircuitBreakerStats {
 	}
 }
 
-// Reset resets the circuit breaker to closed state
+// Reset resets the circuit breaker to closed state.
 func (cbm *CircuitBreakerMiddleware) Reset() {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -524,7 +532,7 @@ func (cbm *CircuitBreakerMiddleware) Reset() {
 	cbm.rejectedRequests = 0
 }
 
-// ForceOpen forces the circuit breaker to open state
+// ForceOpen forces the circuit breaker to open state.
 func (cbm *CircuitBreakerMiddleware) ForceOpen() {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -532,7 +540,7 @@ func (cbm *CircuitBreakerMiddleware) ForceOpen() {
 	cbm.transitionTo(CircuitStateOpen)
 }
 
-// ForceClose forces the circuit breaker to closed state
+// ForceClose forces the circuit breaker to closed state.
 func (cbm *CircuitBreakerMiddleware) ForceClose() {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
@@ -540,7 +548,7 @@ func (cbm *CircuitBreakerMiddleware) ForceClose() {
 	cbm.transitionTo(CircuitStateClosed)
 }
 
-// CircuitBreakerStats contains circuit breaker statistics
+// CircuitBreakerStats contains circuit breaker statistics.
 type CircuitBreakerStats struct {
 	State              CircuitState `json:"state"`
 	TotalRequests      int64        `json:"total_requests"`
@@ -554,7 +562,7 @@ type CircuitBreakerStats struct {
 	LastTransition     time.Time    `json:"last_transition"`
 }
 
-// HealthBasedCircuitBreaker provides a simpler health-only circuit breaker
+// HealthBasedCircuitBreaker provides a simpler health-only circuit breaker.
 type HealthBasedCircuitBreaker struct {
 	healthService health.HealthService
 	config        *HealthBasedCircuitBreakerConfig
@@ -566,28 +574,28 @@ type HealthBasedCircuitBreaker struct {
 	mu             sync.RWMutex
 }
 
-// HealthBasedCircuitBreakerConfig contains configuration for health-based circuit breaker
+// HealthBasedCircuitBreakerConfig contains configuration for health-based circuit breaker.
 type HealthBasedCircuitBreakerConfig struct {
 	// Health statuses that trigger circuit opening
-	TriggerStatuses []health.HealthStatus `yaml:"trigger_statuses" json:"trigger_statuses"`
+	TriggerStatuses []health.HealthStatus `json:"trigger_statuses" yaml:"trigger_statuses"`
 
 	// Health check interval
-	CheckInterval time.Duration `yaml:"check_interval" json:"check_interval"`
+	CheckInterval time.Duration `json:"check_interval" yaml:"check_interval"`
 
 	// Close circuit when health recovers
-	AutoClose bool `yaml:"auto_close" json:"auto_close"`
+	AutoClose bool `json:"auto_close" yaml:"auto_close"`
 
 	// Timeout before checking health for recovery
-	RecoveryTimeout time.Duration `yaml:"recovery_timeout" json:"recovery_timeout"`
+	RecoveryTimeout time.Duration `json:"recovery_timeout" yaml:"recovery_timeout"`
 
 	// Skip paths
-	SkipPaths []string `yaml:"skip_paths" json:"skip_paths"`
+	SkipPaths []string `json:"skip_paths" yaml:"skip_paths"`
 
 	// Response message
-	OpenResponse string `yaml:"open_response" json:"open_response"`
+	OpenResponse string `json:"open_response" yaml:"open_response"`
 }
 
-// DefaultHealthBasedCircuitBreakerConfig returns default configuration
+// DefaultHealthBasedCircuitBreakerConfig returns default configuration.
 func DefaultHealthBasedCircuitBreakerConfig() *HealthBasedCircuitBreakerConfig {
 	return &HealthBasedCircuitBreakerConfig{
 		TriggerStatuses: []health.HealthStatus{
@@ -601,7 +609,7 @@ func DefaultHealthBasedCircuitBreakerConfig() *HealthBasedCircuitBreakerConfig {
 	}
 }
 
-// NewHealthBasedCircuitBreaker creates a new health-based circuit breaker
+// NewHealthBasedCircuitBreaker creates a new health-based circuit breaker.
 func NewHealthBasedCircuitBreaker(healthService health.HealthService, config *HealthBasedCircuitBreakerConfig, logger logger.Logger, metrics shared.Metrics) *HealthBasedCircuitBreaker {
 	if config == nil {
 		config = DefaultHealthBasedCircuitBreakerConfig()
@@ -622,7 +630,7 @@ func NewHealthBasedCircuitBreaker(healthService health.HealthService, config *He
 	return hcb
 }
 
-// Handler returns the health-based circuit breaker handler
+// Handler returns the health-based circuit breaker handler.
 func (hcb *HealthBasedCircuitBreaker) Handler() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -630,6 +638,7 @@ func (hcb *HealthBasedCircuitBreaker) Handler() func(http.Handler) http.Handler 
 			for _, path := range hcb.config.SkipPaths {
 				if strings.HasPrefix(r.URL.Path, path) {
 					next.ServeHTTP(w, r)
+
 					return
 				}
 			}
@@ -651,6 +660,7 @@ func (hcb *HealthBasedCircuitBreaker) Handler() func(http.Handler) http.Handler 
 
 				// nolint:gosec // G104: writeJSON errors are handled by HTTP framework
 				writeJSON(w, response)
+
 				return
 			}
 
@@ -659,7 +669,7 @@ func (hcb *HealthBasedCircuitBreaker) Handler() func(http.Handler) http.Handler 
 	}
 }
 
-// healthMonitor monitors health and adjusts circuit state
+// healthMonitor monitors health and adjusts circuit state.
 func (hcb *HealthBasedCircuitBreaker) healthMonitor() {
 	ticker := time.NewTicker(hcb.config.CheckInterval)
 	defer ticker.Stop()
@@ -672,7 +682,7 @@ func (hcb *HealthBasedCircuitBreaker) healthMonitor() {
 	}
 }
 
-// checkHealthAndAdjust checks health and adjusts circuit
+// checkHealthAndAdjust checks health and adjusts circuit.
 func (hcb *HealthBasedCircuitBreaker) checkHealthAndAdjust() {
 	if hcb.healthService == nil {
 		return
@@ -685,9 +695,11 @@ func (hcb *HealthBasedCircuitBreaker) checkHealthAndAdjust() {
 
 	// Check if should open circuit
 	shouldOpen := false
+
 	for _, triggerStatus := range hcb.config.TriggerStatuses {
 		if status == triggerStatus {
 			shouldOpen = true
+
 			break
 		}
 	}
@@ -716,19 +728,20 @@ func (hcb *HealthBasedCircuitBreaker) checkHealthAndAdjust() {
 	}
 }
 
-// GetState returns the current circuit state
+// GetState returns the current circuit state.
 func (hcb *HealthBasedCircuitBreaker) GetState() CircuitState {
 	hcb.mu.RLock()
 	defer hcb.mu.RUnlock()
+
 	return hcb.state
 }
 
-// CreateCircuitBreakerMiddleware creates a circuit breaker middleware with default configuration
+// CreateCircuitBreakerMiddleware creates a circuit breaker middleware with default configuration.
 func CreateCircuitBreakerMiddleware(healthService health.HealthService, logger logger.Logger, metrics shared.Metrics) *CircuitBreakerMiddleware {
 	return NewCircuitBreakerMiddleware(healthService, DefaultCircuitBreakerConfig(), logger, metrics)
 }
 
-// CreateHealthBasedCircuitBreaker creates a health-based circuit breaker with default configuration
+// CreateHealthBasedCircuitBreaker creates a health-based circuit breaker with default configuration.
 func CreateHealthBasedCircuitBreaker(healthService health.HealthService, logger logger.Logger, metrics shared.Metrics) *HealthBasedCircuitBreaker {
 	return NewHealthBasedCircuitBreaker(healthService, DefaultHealthBasedCircuitBreakerConfig(), logger, metrics)
 }

@@ -75,6 +75,7 @@ func TestMDNSBackend_RegisterAndDiscover(t *testing.T) {
 		BrowseTimeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -111,18 +112,22 @@ func TestMDNSBackend_RegisterAndDiscover(t *testing.T) {
 
 		// Verify instance data
 		found := false
+
 		for _, inst := range instances {
 			if inst.ID == service.ID {
 				found = true
+
 				assert.Equal(t, service.Name, inst.Name)
 				assert.Equal(t, service.Version, inst.Version)
 				assert.Equal(t, service.Port, inst.Port)
 				assert.Contains(t, inst.Tags, "http")
 				assert.Contains(t, inst.Tags, "v1")
 				assert.Equal(t, "test", inst.Metadata["env"])
+
 				break
 			}
 		}
+
 		assert.True(t, found, "should find registered service")
 	})
 
@@ -133,6 +138,7 @@ func TestMDNSBackend_RegisterAndDiscover(t *testing.T) {
 
 		// Verify service is removed
 		time.Sleep(500 * time.Millisecond)
+
 		instances, err := backend.Discover(ctx, "test-service")
 		require.NoError(t, err)
 
@@ -146,6 +152,7 @@ func TestMDNSBackend_RegisterAndDiscover(t *testing.T) {
 func TestMDNSBackend_RegisterValidation(t *testing.T) {
 	backend, err := NewMDNSBackend(MDNSConfig{})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -202,6 +209,7 @@ func TestMDNSBackend_RegisterValidation(t *testing.T) {
 			err := backend.Register(ctx, tt.instance)
 			if tt.wantErr {
 				assert.Error(t, err)
+
 				if tt.errMsg != "" {
 					assert.Contains(t, err.Error(), tt.errMsg)
 				}
@@ -219,6 +227,7 @@ func TestMDNSBackend_DiscoverWithTags(t *testing.T) {
 		BrowseTimeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -251,6 +260,7 @@ func TestMDNSBackend_DiscoverWithTags(t *testing.T) {
 		err := backend.Register(ctx, svc)
 		require.NoError(t, err)
 	}
+
 	defer func() {
 		for _, svc := range services {
 			backend.Deregister(ctx, svc.ID)
@@ -328,6 +338,7 @@ func TestMDNSBackend_Watch(t *testing.T) {
 		BrowseTimeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -364,13 +375,17 @@ func TestMDNSBackend_Watch(t *testing.T) {
 	select {
 	case instances := <-notifications:
 		assert.NotEmpty(t, instances, "should receive notification with service")
+
 		found := false
+
 		for _, inst := range instances {
 			if inst.ID == service.ID {
 				found = true
+
 				break
 			}
 		}
+
 		assert.True(t, found, "notification should include registered service")
 	case <-time.After(10 * time.Second):
 		t.Fatal("did not receive notification after registration")
@@ -394,6 +409,7 @@ func TestMDNSBackend_Watch(t *testing.T) {
 func TestMDNSBackend_ListServices(t *testing.T) {
 	backend, err := NewMDNSBackend(MDNSConfig{})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -412,6 +428,7 @@ func TestMDNSBackend_ListServices(t *testing.T) {
 		err := backend.Register(ctx, svc)
 		require.NoError(t, err)
 	}
+
 	defer func() {
 		for _, svc := range services {
 			backend.Deregister(ctx, svc.ID)
@@ -430,6 +447,7 @@ func TestMDNSBackend_ListServices(t *testing.T) {
 	for _, name := range serviceNames {
 		serviceMap[name] = true
 	}
+
 	assert.True(t, serviceMap["web"], "should have web service")
 	assert.True(t, serviceMap["api"], "should have api service")
 	assert.True(t, serviceMap["database"], "should have database service")
@@ -438,6 +456,7 @@ func TestMDNSBackend_ListServices(t *testing.T) {
 func TestMDNSBackend_Health(t *testing.T) {
 	backend, err := NewMDNSBackend(MDNSConfig{})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -478,6 +497,7 @@ func TestMDNSBackend_Close(t *testing.T) {
 func TestMDNSBackend_DuplicateRegistration(t *testing.T) {
 	backend, err := NewMDNSBackend(MDNSConfig{})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -506,6 +526,7 @@ func TestMDNSBackend_DuplicateRegistration(t *testing.T) {
 func TestMDNSBackend_DeregisterNonExistent(t *testing.T) {
 	backend, err := NewMDNSBackend(MDNSConfig{})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -523,6 +544,7 @@ func TestMDNSBackend_DiscoverNonExistentService(t *testing.T) {
 		BrowseTimeout: time.Second,
 	})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -540,6 +562,7 @@ func TestMDNSBackend_MultipleWatchers(t *testing.T) {
 		BrowseTimeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -581,6 +604,7 @@ func TestMDNSBackend_MultipleWatchers(t *testing.T) {
 	}
 	err = backend.Register(ctx, service)
 	require.NoError(t, err)
+
 	defer backend.Deregister(ctx, service.ID)
 
 	// Both watchers should receive notification
@@ -626,6 +650,7 @@ func TestMDNSBackend_ConcurrentOperations(t *testing.T) {
 		BrowseTimeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -634,9 +659,10 @@ func TestMDNSBackend_ConcurrentOperations(t *testing.T) {
 
 	// Perform concurrent registrations
 	const numServices = 10
+
 	errChan := make(chan error, numServices)
 
-	for i := 0; i < numServices; i++ {
+	for i := range numServices {
 		go func(id int) {
 			service := &ServiceInstance{
 				ID:   formatServiceID("concurrent", id),
@@ -648,7 +674,7 @@ func TestMDNSBackend_ConcurrentOperations(t *testing.T) {
 	}
 
 	// Check all registrations succeeded
-	for i := 0; i < numServices; i++ {
+	for i := range numServices {
 		err := <-errChan
 		assert.NoError(t, err, "concurrent registration %d should succeed", i)
 	}
@@ -662,7 +688,7 @@ func TestMDNSBackend_ConcurrentOperations(t *testing.T) {
 	assert.GreaterOrEqual(t, len(instances), numServices, "should find at least %d services", numServices)
 
 	// Concurrent deregistrations
-	for i := 0; i < numServices; i++ {
+	for i := range numServices {
 		go func(id int) {
 			serviceID := formatServiceID("concurrent", id)
 			errChan <- backend.Deregister(ctx, serviceID)
@@ -670,7 +696,7 @@ func TestMDNSBackend_ConcurrentOperations(t *testing.T) {
 	}
 
 	// Check all deregistrations succeeded
-	for i := 0; i < numServices; i++ {
+	for i := range numServices {
 		err := <-errChan
 		assert.NoError(t, err, "concurrent deregistration %d should succeed", i)
 	}
@@ -681,6 +707,7 @@ func TestMDNSBackend_MetadataEncoding(t *testing.T) {
 		BrowseTimeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
+
 	defer backend.Close()
 
 	ctx := context.Background()
@@ -704,6 +731,7 @@ func TestMDNSBackend_MetadataEncoding(t *testing.T) {
 
 	err = backend.Register(ctx, service)
 	require.NoError(t, err)
+
 	defer backend.Deregister(ctx, service.ID)
 
 	// Wait for propagation
@@ -715,26 +743,31 @@ func TestMDNSBackend_MetadataEncoding(t *testing.T) {
 	require.NotEmpty(t, instances)
 
 	found := false
+
 	for _, inst := range instances {
 		if inst.ID == service.ID {
 			found = true
+
 			assert.Equal(t, service.Version, inst.Version)
 			assert.ElementsMatch(t, service.Tags, inst.Tags)
+
 			for key, value := range service.Metadata {
 				assert.Equal(t, value, inst.Metadata[key], "metadata key %s should match", key)
 			}
+
 			break
 		}
 	}
+
 	assert.True(t, found, "should find service with metadata")
 }
 
-// Helper function to format service ID
+// Helper function to format service ID.
 func formatServiceID(prefix string, id int) string {
 	return fmt.Sprintf("%s-%d", prefix, id)
 }
 
-// Benchmark tests
+// Benchmark tests.
 func BenchmarkMDNSBackend_Register(b *testing.B) {
 	backend, _ := NewMDNSBackend(MDNSConfig{})
 	defer backend.Close()
@@ -748,8 +781,7 @@ func BenchmarkMDNSBackend_Register(b *testing.B) {
 		Port: 9999,
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		service.ID = formatServiceID("bench", i)
 		backend.Register(ctx, service)
 	}
@@ -773,8 +805,7 @@ func BenchmarkMDNSBackend_Discover(b *testing.B) {
 	backend.Register(ctx, service)
 	time.Sleep(500 * time.Millisecond)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		backend.Discover(ctx, "bench")
 	}
 }
@@ -789,7 +820,7 @@ func BenchmarkMDNSBackend_DiscoverWithTags(b *testing.B) {
 	backend.Initialize(ctx)
 
 	// Register services with tags
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		service := &ServiceInstance{
 			ID:   formatServiceID("bench", i),
 			Name: "bench",
@@ -798,10 +829,10 @@ func BenchmarkMDNSBackend_DiscoverWithTags(b *testing.B) {
 		}
 		backend.Register(ctx, service)
 	}
+
 	time.Sleep(time.Second)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		backend.DiscoverWithTags(ctx, "bench", []string{"http"})
 	}
 }

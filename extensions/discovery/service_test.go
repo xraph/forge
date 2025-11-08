@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forge/extensions/discovery/backends"
 )
 
-// mockLogger implements forge.Logger for testing
+// mockLogger implements forge.Logger for testing.
 type mockLogger struct{}
 
 func (m *mockLogger) Debug(msg string, fields ...forge.Field)      {}
@@ -20,26 +20,26 @@ func (m *mockLogger) Info(msg string, fields ...forge.Field)       {}
 func (m *mockLogger) Warn(msg string, fields ...forge.Field)       {}
 func (m *mockLogger) Error(msg string, fields ...forge.Field)      {}
 func (m *mockLogger) Fatal(msg string, fields ...forge.Field)      {}
-func (m *mockLogger) Debugf(template string, args ...interface{})  {}
-func (m *mockLogger) Infof(template string, args ...interface{})   {}
-func (m *mockLogger) Warnf(template string, args ...interface{})   {}
-func (m *mockLogger) Errorf(template string, args ...interface{})  {}
-func (m *mockLogger) Fatalf(template string, args ...interface{})  {}
+func (m *mockLogger) Debugf(template string, args ...any)          {}
+func (m *mockLogger) Infof(template string, args ...any)           {}
+func (m *mockLogger) Warnf(template string, args ...any)           {}
+func (m *mockLogger) Errorf(template string, args ...any)          {}
+func (m *mockLogger) Fatalf(template string, args ...any)          {}
 func (m *mockLogger) With(fields ...forge.Field) forge.Logger      { return m }
 func (m *mockLogger) WithContext(ctx context.Context) forge.Logger { return m }
 func (m *mockLogger) Named(name string) forge.Logger               { return m }
-func (m *mockLogger) Sugar() forge.SugarLogger                    { return &mockSugarLogger{} }
+func (m *mockLogger) Sugar() forge.SugarLogger                     { return &mockSugarLogger{} }
 func (m *mockLogger) Sync() error                                  { return nil }
 
-// mockSugarLogger implements forge.SugarLogger for testing
+// mockSugarLogger implements forge.SugarLogger for testing.
 type mockSugarLogger struct{}
 
-func (m *mockSugarLogger) Debugw(msg string, keysAndValues ...interface{}) {}
-func (m *mockSugarLogger) Infow(msg string, keysAndValues ...interface{})  {}
-func (m *mockSugarLogger) Warnw(msg string, keysAndValues ...interface{})  {}
-func (m *mockSugarLogger) Errorw(msg string, keysAndValues ...interface{}) {}
-func (m *mockSugarLogger) Fatalw(msg string, keysAndValues ...interface{}) {}
-func (m *mockSugarLogger) With(args ...interface{}) forge.SugarLogger      { return m }
+func (m *mockSugarLogger) Debugw(msg string, keysAndValues ...any) {}
+func (m *mockSugarLogger) Infow(msg string, keysAndValues ...any)  {}
+func (m *mockSugarLogger) Warnw(msg string, keysAndValues ...any)  {}
+func (m *mockSugarLogger) Errorw(msg string, keysAndValues ...any) {}
+func (m *mockSugarLogger) Fatalw(msg string, keysAndValues ...any) {}
+func (m *mockSugarLogger) With(args ...any) forge.SugarLogger      { return m }
 
 func newMockLogger() forge.Logger {
 	return &mockLogger{}
@@ -102,7 +102,7 @@ func TestService_Deregister(t *testing.T) {
 	// Verify deregistration
 	instances, err := service.Discover(ctx, "test-service")
 	assert.NoError(t, err)
-	assert.Len(t, instances, 0)
+	assert.Empty(t, instances)
 }
 
 func TestService_Discover(t *testing.T) {
@@ -240,9 +240,11 @@ func TestService_SelectInstance_RoundRobin(t *testing.T) {
 
 	// Select instances in round-robin fashion
 	selectedIDs := make([]string, 0, 6)
-	for i := 0; i < 6; i++ {
+
+	for range 6 {
 		instance, err := service.SelectInstance(ctx, "test-service", LoadBalanceRoundRobin)
 		require.NoError(t, err)
+
 		selectedIDs = append(selectedIDs, instance.ID)
 	}
 
@@ -275,16 +277,18 @@ func TestService_SelectInstance_Random(t *testing.T) {
 
 	// Select random instances
 	selectedIDs := make(map[string]int)
-	for i := 0; i < 100; i++ {
+
+	for range 100 {
 		instance, err := service.SelectInstance(ctx, "test-service", LoadBalanceRandom)
 		require.NoError(t, err)
+
 		selectedIDs[instance.ID]++
 	}
 
 	// All instances should be selected at least once (with high probability)
-	assert.Greater(t, selectedIDs["test-1"], 0)
-	assert.Greater(t, selectedIDs["test-2"], 0)
-	assert.Greater(t, selectedIDs["test-3"], 0)
+	assert.Positive(t, selectedIDs["test-1"])
+	assert.Positive(t, selectedIDs["test-2"])
+	assert.Positive(t, selectedIDs["test-3"])
 }
 
 func TestService_SelectInstance_NoHealthyInstances(t *testing.T) {
@@ -377,7 +381,7 @@ func TestService_Watch(t *testing.T) {
 	// Should receive initial state (empty)
 	select {
 	case instances := <-changes:
-		assert.Len(t, instances, 0)
+		assert.Empty(t, instances)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("did not receive initial notification")
 	}
@@ -481,14 +485,13 @@ func TestServiceInstance_URL(t *testing.T) {
 	assert.Equal(t, "https://localhost:8080", url)
 }
 
-// Benchmark tests
+// Benchmark tests.
 func BenchmarkService_Register(b *testing.B) {
 	backend, _ := backends.NewMemoryBackend()
 	service := NewService(backend, newMockLogger())
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		instance := &ServiceInstance{
 			ID:      fmt.Sprintf("test-%d", i),
 			Name:    "test-service",
@@ -505,7 +508,7 @@ func BenchmarkService_Discover(b *testing.B) {
 	ctx := context.Background()
 
 	// Pre-register instances
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		instance := &ServiceInstance{
 			ID:      fmt.Sprintf("test-%d", i),
 			Name:    "test-service",
@@ -515,8 +518,7 @@ func BenchmarkService_Discover(b *testing.B) {
 		service.Register(ctx, instance)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		service.Discover(ctx, "test-service")
 	}
 }
@@ -527,7 +529,7 @@ func BenchmarkService_SelectInstance_RoundRobin(b *testing.B) {
 	ctx := context.Background()
 
 	// Pre-register instances
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		instance := &ServiceInstance{
 			ID:      fmt.Sprintf("test-%d", i),
 			Name:    "test-service",
@@ -538,8 +540,7 @@ func BenchmarkService_SelectInstance_RoundRobin(b *testing.B) {
 		service.Register(ctx, instance)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		service.SelectInstance(ctx, "test-service", LoadBalanceRoundRobin)
 	}
 }
@@ -550,7 +551,7 @@ func BenchmarkService_SelectInstance_Random(b *testing.B) {
 	ctx := context.Background()
 
 	// Pre-register instances
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		instance := &ServiceInstance{
 			ID:      fmt.Sprintf("test-%d", i),
 			Name:    "test-service",
@@ -561,9 +562,7 @@ func BenchmarkService_SelectInstance_Random(b *testing.B) {
 		service.Register(ctx, instance)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		service.SelectInstance(ctx, "test-service", LoadBalanceRandom)
 	}
 }
-

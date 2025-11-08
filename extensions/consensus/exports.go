@@ -2,7 +2,7 @@ package consensus
 
 import "github.com/xraph/forge/extensions/consensus/internal"
 
-// Type exports
+// Type exports.
 type NodeRole = internal.NodeRole
 type NodeStatus = internal.NodeStatus
 type NodeInfo = internal.NodeInfo
@@ -36,7 +36,7 @@ type BatchOp = internal.BatchOp
 type BatchOpType = internal.BatchOpType
 type KeyValue = internal.KeyValue
 
-// Config exports
+// Config exports.
 type Config = internal.Config
 type PeerConfig = internal.PeerConfig
 type RaftConfig = internal.RaftConfig
@@ -58,7 +58,7 @@ type EventsConfig = internal.EventsConfig
 type AdvancedConfig = internal.AdvancedConfig
 type ConfigOption = internal.ConfigOption
 
-// Event exports
+// Event exports.
 type ConsensusEventType = internal.ConsensusEventType
 type ConsensusEvent = internal.ConsensusEvent
 type LeaderElectedEvent = internal.LeaderElectedEvent
@@ -68,14 +68,14 @@ type QuorumStatusEvent = internal.QuorumStatusEvent
 type SnapshotEvent = internal.SnapshotEvent
 type HealthStatusEvent = internal.HealthStatusEvent
 
-// Constants - Node Roles
+// Constants - Node Roles.
 const (
 	RoleFollower  = internal.RoleFollower
 	RoleCandidate = internal.RoleCandidate
 	RoleLeader    = internal.RoleLeader
 )
 
-// Constants - Node Status
+// Constants - Node Status.
 const (
 	StatusActive    = internal.StatusActive
 	StatusInactive  = internal.StatusInactive
@@ -83,7 +83,7 @@ const (
 	StatusFailed    = internal.StatusFailed
 )
 
-// Constants - Entry Types
+// Constants - Entry Types.
 const (
 	EntryNormal  = internal.EntryNormal
 	EntryConfig  = internal.EntryConfig
@@ -91,7 +91,7 @@ const (
 	EntryNoop    = internal.EntryNoop
 )
 
-// Constants - Message Types
+// Constants - Message Types.
 const (
 	MessageTypeAppendEntries   = internal.MessageTypeAppendEntries
 	MessageTypeRequestVote     = internal.MessageTypeRequestVote
@@ -99,20 +99,20 @@ const (
 	MessageTypeHeartbeat       = internal.MessageTypeHeartbeat
 )
 
-// Constants - Node Change Types
+// Constants - Node Change Types.
 const (
 	NodeChangeTypeAdded   = internal.NodeChangeTypeAdded
 	NodeChangeTypeRemoved = internal.NodeChangeTypeRemoved
 	NodeChangeTypeUpdated = internal.NodeChangeTypeUpdated
 )
 
-// Constants - Batch Op Types
+// Constants - Batch Op Types.
 const (
 	BatchOpSet    = internal.BatchOpSet
 	BatchOpDelete = internal.BatchOpDelete
 )
 
-// Constants - Event Types
+// Constants - Event Types.
 const (
 	ConsensusEventNodeStarted       = internal.ConsensusEventNodeStarted
 	ConsensusEventNodeStopped       = internal.ConsensusEventNodeStopped
@@ -149,7 +149,7 @@ const (
 	ConsensusEventConfigReloaded    = internal.ConsensusEventConfigReloaded
 )
 
-// Error exports
+// Error exports.
 var (
 	ErrNotLeader            = internal.ErrNotLeader
 	ErrNoLeader             = internal.ErrNoLeader
@@ -174,7 +174,7 @@ var (
 	ErrInvalidConfig        = internal.ErrInvalidConfig
 )
 
-// Error helper functions
+// Error helper functions.
 var (
 	NewNotLeaderError = internal.NewNotLeaderError
 	NewNoLeaderError  = internal.NewNoLeaderError
@@ -194,7 +194,7 @@ var (
 
 // Note: Message type constants are available through MessageType
 
-// Config functions
+// Config functions.
 var (
 	DefaultConfig     = internal.DefaultConfig
 	WithNodeID        = internal.WithNodeID

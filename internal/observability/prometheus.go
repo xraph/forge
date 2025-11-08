@@ -2,7 +2,9 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -13,7 +15,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// PrometheusExporter provides Prometheus metrics export
+// PrometheusExporter provides Prometheus metrics export.
 type PrometheusExporter struct {
 	config   PrometheusConfig
 	registry *prometheus.Registry
@@ -24,24 +26,24 @@ type PrometheusExporter struct {
 	stopC    chan struct{}
 }
 
-// PrometheusConfig contains Prometheus configuration
+// PrometheusConfig contains Prometheus configuration.
 type PrometheusConfig struct {
-	EnableMetrics   bool          `yaml:"enable_metrics" default:"true"`
-	EnableRuntime   bool          `yaml:"enable_runtime" default:"true"`
-	ListenAddress   string        `yaml:"listen_address" default:":9090"`
-	MetricsPath     string        `yaml:"metrics_path" default:"/metrics"`
-	EnableGoMetrics bool          `yaml:"enable_go_metrics" default:"true"`
+	EnableMetrics   bool          `default:"true"     yaml:"enable_metrics"`
+	EnableRuntime   bool          `default:"true"     yaml:"enable_runtime"`
+	ListenAddress   string        `default:":9090"    yaml:"listen_address"`
+	MetricsPath     string        `default:"/metrics" yaml:"metrics_path"`
+	EnableGoMetrics bool          `default:"true"     yaml:"enable_go_metrics"`
 	Logger          logger.Logger `yaml:"-"`
 }
 
-// MetricExporter interface for metric exporters
+// MetricExporter interface for metric exporters.
 type MetricExporter interface {
 	ExportMetric(ctx context.Context, metric *Metric) error
 	Shutdown(ctx context.Context) error
 	GetName() string
 }
 
-// NewPrometheusExporter creates a new Prometheus exporter
+// NewPrometheusExporter creates a new Prometheus exporter.
 func NewPrometheusExporter(config PrometheusConfig) (*PrometheusExporter, error) {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -64,7 +66,7 @@ func NewPrometheusExporter(config PrometheusConfig) (*PrometheusExporter, error)
 	return exporter, nil
 }
 
-// ExportMetric exports a metric to Prometheus
+// ExportMetric exports a metric to Prometheus.
 func (p *PrometheusExporter) ExportMetric(ctx context.Context, metric *Metric) error {
 	if !p.config.EnableMetrics {
 		return nil
@@ -75,15 +77,15 @@ func (p *PrometheusExporter) ExportMetric(ctx context.Context, metric *Metric) e
 
 	// Convert labels to Prometheus format
 	labels := make(prometheus.Labels)
-	for k, v := range metric.Labels {
-		labels[k] = v
-	}
+	maps.Copy(labels, metric.Labels)
 
 	// Get or create metric
 	collector, exists := p.metrics[metric.Name]
 	if !exists {
-		var newCollector prometheus.Collector
-		var err error
+		var (
+			newCollector prometheus.Collector
+			err          error
+		)
 
 		switch metric.Type {
 		case MetricTypeCounter:
@@ -115,7 +117,7 @@ func (p *PrometheusExporter) ExportMetric(ctx context.Context, metric *Metric) e
 	return p.updateMetric(collector, metric, labels)
 }
 
-// createCounter creates a Prometheus counter
+// createCounter creates a Prometheus counter.
 func (p *PrometheusExporter) createCounter(metric *Metric, labels prometheus.Labels) (prometheus.Collector, error) {
 	opts := prometheus.CounterOpts{
 		Name:        metric.Name,
@@ -130,10 +132,11 @@ func (p *PrometheusExporter) createCounter(metric *Metric, labels prometheus.Lab
 	}
 
 	counter := prometheus.NewCounterVec(opts, labelNames)
+
 	return counter, nil
 }
 
-// createGauge creates a Prometheus gauge
+// createGauge creates a Prometheus gauge.
 func (p *PrometheusExporter) createGauge(metric *Metric, labels prometheus.Labels) (prometheus.Collector, error) {
 	opts := prometheus.GaugeOpts{
 		Name:        metric.Name,
@@ -148,10 +151,11 @@ func (p *PrometheusExporter) createGauge(metric *Metric, labels prometheus.Label
 	}
 
 	gauge := prometheus.NewGaugeVec(opts, labelNames)
+
 	return gauge, nil
 }
 
-// createHistogram creates a Prometheus histogram
+// createHistogram creates a Prometheus histogram.
 func (p *PrometheusExporter) createHistogram(metric *Metric, labels prometheus.Labels) (prometheus.Collector, error) {
 	opts := prometheus.HistogramOpts{
 		Name:        metric.Name,
@@ -167,10 +171,11 @@ func (p *PrometheusExporter) createHistogram(metric *Metric, labels prometheus.L
 	}
 
 	histogram := prometheus.NewHistogramVec(opts, labelNames)
+
 	return histogram, nil
 }
 
-// createSummary creates a Prometheus summary
+// createSummary creates a Prometheus summary.
 func (p *PrometheusExporter) createSummary(metric *Metric, labels prometheus.Labels) (prometheus.Collector, error) {
 	opts := prometheus.SummaryOpts{
 		Name:        metric.Name,
@@ -185,10 +190,11 @@ func (p *PrometheusExporter) createSummary(metric *Metric, labels prometheus.Lab
 	}
 
 	summary := prometheus.NewSummaryVec(opts, labelNames)
+
 	return summary, nil
 }
 
-// updateMetric updates a metric value
+// updateMetric updates a metric value.
 func (p *PrometheusExporter) updateMetric(collector prometheus.Collector, metric *Metric, labels prometheus.Labels) error {
 	switch c := collector.(type) {
 	case *prometheus.CounterVec:
@@ -202,13 +208,14 @@ func (p *PrometheusExporter) updateMetric(collector prometheus.Collector, metric
 	default:
 		return fmt.Errorf("unsupported collector type: %T", collector)
 	}
+
 	return nil
 }
 
-// Start starts the Prometheus metrics server
+// Start starts the Prometheus metrics server.
 func (p *PrometheusExporter) Start() error {
 	if p.server != nil {
-		return fmt.Errorf("server already started")
+		return errors.New("server already started")
 	}
 
 	// Create HTTP handler
@@ -237,10 +244,11 @@ func (p *PrometheusExporter) Start() error {
 	}()
 
 	p.logger.Info("prometheus metrics server started", logger.String("address", p.config.ListenAddress))
+
 	return nil
 }
 
-// Stop stops the Prometheus metrics server
+// Stop stops the Prometheus metrics server.
 func (p *PrometheusExporter) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -257,27 +265,28 @@ func (p *PrometheusExporter) Stop(ctx context.Context) error {
 
 	p.server = nil
 	p.logger.Info("prometheus metrics server stopped")
+
 	return nil
 }
 
-// GetHandler returns the HTTP handler for metrics
+// GetHandler returns the HTTP handler for metrics.
 func (p *PrometheusExporter) GetHandler() http.Handler {
 	return promhttp.HandlerFor(p.registry, promhttp.HandlerOpts{
 		EnableOpenMetrics: true,
 	})
 }
 
-// GetRegistry returns the Prometheus registry
+// GetRegistry returns the Prometheus registry.
 func (p *PrometheusExporter) GetRegistry() *prometheus.Registry {
 	return p.registry
 }
 
-// GetStats returns Prometheus exporter statistics
-func (p *PrometheusExporter) GetStats() map[string]interface{} {
+// GetStats returns Prometheus exporter statistics.
+func (p *PrometheusExporter) GetStats() map[string]any {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"metrics_count":     len(p.metrics),
 		"listen_address":    p.config.ListenAddress,
 		"metrics_path":      p.config.MetricsPath,
@@ -286,19 +295,19 @@ func (p *PrometheusExporter) GetStats() map[string]interface{} {
 	}
 }
 
-// Shutdown shuts down the exporter
+// Shutdown shuts down the exporter.
 func (p *PrometheusExporter) Shutdown(ctx context.Context) error {
 	return p.Stop(ctx)
 }
 
-// GetName returns the exporter name
+// GetName returns the exporter name.
 func (p *PrometheusExporter) GetName() string {
 	return "prometheus"
 }
 
 // Built-in metric collectors for common system metrics
 
-// SystemMetricsCollector collects system-level metrics
+// SystemMetricsCollector collects system-level metrics.
 type SystemMetricsCollector struct {
 	cpuUsage    *prometheus.Desc
 	memoryUsage *prometheus.Desc
@@ -306,7 +315,7 @@ type SystemMetricsCollector struct {
 	networkIO   *prometheus.Desc
 }
 
-// NewSystemMetricsCollector creates a new system metrics collector
+// NewSystemMetricsCollector creates a new system metrics collector.
 func NewSystemMetricsCollector() *SystemMetricsCollector {
 	return &SystemMetricsCollector{
 		cpuUsage: prometheus.NewDesc(
@@ -332,15 +341,18 @@ func NewSystemMetricsCollector() *SystemMetricsCollector {
 	}
 }
 
-// Describe implements prometheus.Collector
+// Describe implements prometheus.Collector.
 func (c *SystemMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.cpuUsage
+
 	ch <- c.memoryUsage
+
 	ch <- c.diskUsage
+
 	ch <- c.networkIO
 }
 
-// Collect implements prometheus.Collector
+// Collect implements prometheus.Collector.
 func (c *SystemMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 	// In a real implementation, this would collect actual system metrics
 	// For now, we'll provide placeholder values
@@ -350,6 +362,7 @@ func (c *SystemMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 
 	// Memory usage (placeholder)
 	ch <- prometheus.MustNewConstMetric(c.memoryUsage, prometheus.GaugeValue, 1024*1024*1024, "used")
+
 	ch <- prometheus.MustNewConstMetric(c.memoryUsage, prometheus.GaugeValue, 2*1024*1024*1024, "total")
 
 	// Disk usage (placeholder)
@@ -357,10 +370,11 @@ func (c *SystemMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 
 	// Network I/O (placeholder)
 	ch <- prometheus.MustNewConstMetric(c.networkIO, prometheus.CounterValue, 1024*1024, "eth0", "rx")
+
 	ch <- prometheus.MustNewConstMetric(c.networkIO, prometheus.CounterValue, 512*1024, "eth0", "tx")
 }
 
-// ApplicationMetricsCollector collects application-level metrics
+// ApplicationMetricsCollector collects application-level metrics.
 type ApplicationMetricsCollector struct {
 	requestDuration   *prometheus.Desc
 	requestCount      *prometheus.Desc
@@ -368,7 +382,7 @@ type ApplicationMetricsCollector struct {
 	activeConnections *prometheus.Desc
 }
 
-// NewApplicationMetricsCollector creates a new application metrics collector
+// NewApplicationMetricsCollector creates a new application metrics collector.
 func NewApplicationMetricsCollector() *ApplicationMetricsCollector {
 	return &ApplicationMetricsCollector{
 		requestDuration: prometheus.NewDesc(
@@ -394,21 +408,25 @@ func NewApplicationMetricsCollector() *ApplicationMetricsCollector {
 	}
 }
 
-// Describe implements prometheus.Collector
+// Describe implements prometheus.Collector.
 func (c *ApplicationMetricsCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.requestDuration
+
 	ch <- c.requestCount
+
 	ch <- c.errorCount
+
 	ch <- c.activeConnections
 }
 
-// Collect implements prometheus.Collector
+// Collect implements prometheus.Collector.
 func (c *ApplicationMetricsCollector) Collect(ch chan<- prometheus.Metric) {
 	// In a real implementation, this would collect actual application metrics
 	// For now, we'll provide placeholder values
 
 	// Request metrics (placeholder)
 	ch <- prometheus.MustNewConstMetric(c.requestDuration, prometheus.CounterValue, 0.1, "GET", "/api/users", "200")
+
 	ch <- prometheus.MustNewConstMetric(c.requestCount, prometheus.CounterValue, 100, "GET", "/api/users", "200")
 
 	// Error metrics (placeholder)

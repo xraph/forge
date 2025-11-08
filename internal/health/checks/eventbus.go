@@ -3,6 +3,7 @@ package checks
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -10,20 +11,21 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// EventBusHealthCheck performs health checks on event bus systems
+// EventBusHealthCheck performs health checks on event bus systems.
 type EventBusHealthCheck struct {
 	*health.BaseHealthCheck
-	eventBus    interface{} // Would be actual event bus interface
+
+	eventBus    any // Would be actual event bus interface
 	testTopic   string
 	testMessage string
 	brokerType  string
 	mu          sync.RWMutex
 }
 
-// EventBusHealthCheckConfig contains configuration for event bus health checks
+// EventBusHealthCheckConfig contains configuration for event bus health checks.
 type EventBusHealthCheckConfig struct {
 	Name        string
-	EventBus    interface{}
+	EventBus    any
 	TestTopic   string
 	TestMessage string
 	BrokerType  string
@@ -32,7 +34,7 @@ type EventBusHealthCheckConfig struct {
 	Tags        map[string]string
 }
 
-// NewEventBusHealthCheck creates a new event bus health check
+// NewEventBusHealthCheck creates a new event bus health check.
 func NewEventBusHealthCheck(config *EventBusHealthCheckConfig) *EventBusHealthCheck {
 	if config == nil {
 		config = &EventBusHealthCheckConfig{}
@@ -80,7 +82,7 @@ func NewEventBusHealthCheck(config *EventBusHealthCheckConfig) *EventBusHealthCh
 	}
 }
 
-// Check performs the event bus health check
+// Check performs the event bus health check.
 func (ebhc *EventBusHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -125,10 +127,11 @@ func (ebhc *EventBusHealthCheck) Check(ctx context.Context) *health.HealthResult
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// checkConnection checks the connection to the event bus
+// checkConnection checks the connection to the event bus.
 func (ebhc *EventBusHealthCheck) checkConnection(ctx context.Context) error {
 	ebhc.mu.RLock()
 	defer ebhc.mu.RUnlock()
@@ -147,14 +150,14 @@ func (ebhc *EventBusHealthCheck) checkConnection(ctx context.Context) error {
 	return nil
 }
 
-// checkPublish checks if we can publish messages
+// checkPublish checks if we can publish messages.
 func (ebhc *EventBusHealthCheck) checkPublish(ctx context.Context) error {
 	ebhc.mu.RLock()
 	defer ebhc.mu.RUnlock()
 
 	// Check if event bus implements a publish interface
 	if publisher, ok := ebhc.eventBus.(interface {
-		Publish(context.Context, string, interface{}) error
+		Publish(context.Context, string, any) error
 	}); ok {
 		return publisher.Publish(ctx, ebhc.testTopic, ebhc.testMessage)
 	}
@@ -163,7 +166,7 @@ func (ebhc *EventBusHealthCheck) checkPublish(ctx context.Context) error {
 	return nil
 }
 
-// checkSubscribe checks if we can subscribe to messages
+// checkSubscribe checks if we can subscribe to messages.
 func (ebhc *EventBusHealthCheck) checkSubscribe(ctx context.Context) error {
 	ebhc.mu.RLock()
 	defer ebhc.mu.RUnlock()
@@ -176,44 +179,44 @@ func (ebhc *EventBusHealthCheck) checkSubscribe(ctx context.Context) error {
 	// For now, we'll just check if the subscribe method exists
 
 	if subscriber, ok := ebhc.eventBus.(interface {
-		Subscribe(context.Context, string, func(interface{})) error
+		Subscribe(context.Context, string, func(any)) error
 	}); ok {
 		// Create a test subscription (we won't actually use it)
 		_ = subscriber
+
 		return nil
 	}
 
 	return nil
 }
 
-// getBrokerStats returns broker-specific statistics
-func (ebhc *EventBusHealthCheck) getBrokerStats() map[string]interface{} {
+// getBrokerStats returns broker-specific statistics.
+func (ebhc *EventBusHealthCheck) getBrokerStats() map[string]any {
 	ebhc.mu.RLock()
 	defer ebhc.mu.RUnlock()
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 	stats["broker_type"] = ebhc.brokerType
 
 	// Check if event bus implements a stats interface
-	if statsProvider, ok := ebhc.eventBus.(interface{ GetStats() map[string]interface{} }); ok {
+	if statsProvider, ok := ebhc.eventBus.(interface{ GetStats() map[string]any }); ok {
 		brokerStats := statsProvider.GetStats()
-		for k, v := range brokerStats {
-			stats[k] = v
-		}
+		maps.Copy(stats, brokerStats)
 	}
 
 	return stats
 }
 
-// NATSHealthCheck is a specialized health check for NATS
+// NATSHealthCheck is a specialized health check for NATS.
 type NATSHealthCheck struct {
 	*EventBusHealthCheck
-	natsConn       interface{} // Would be *nats.Conn
+
+	natsConn       any // Would be *nats.Conn
 	checkJetStream bool
 	checkClusters  bool
 }
 
-// NewNATSHealthCheck creates a new NATS health check
+// NewNATSHealthCheck creates a new NATS health check.
 func NewNATSHealthCheck(config *EventBusHealthCheckConfig) *NATSHealthCheck {
 	if config.BrokerType == "" {
 		config.BrokerType = "nats"
@@ -227,7 +230,7 @@ func NewNATSHealthCheck(config *EventBusHealthCheckConfig) *NATSHealthCheck {
 	}
 }
 
-// Check performs NATS-specific health checks
+// Check performs NATS-specific health checks.
 func (nhc *NATSHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base event bus check
 	result := nhc.EventBusHealthCheck.Check(ctx)
@@ -256,36 +259,37 @@ func (nhc *NATSHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	return result
 }
 
-// checkJetStreamStatus checks NATS JetStream status
-func (nhc *NATSHealthCheck) checkJetStreamStatus(ctx context.Context) map[string]interface{} {
+// checkJetStreamStatus checks NATS JetStream status.
+func (nhc *NATSHealthCheck) checkJetStreamStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check JetStream status
 	// For now, return placeholder data
-	return map[string]interface{}{
+	return map[string]any{
 		"jetstream_enabled": true,
 		"jetstream_status":  "healthy",
 	}
 }
 
-// checkClusterStatus checks NATS cluster status
-func (nhc *NATSHealthCheck) checkClusterStatus(ctx context.Context) map[string]interface{} {
+// checkClusterStatus checks NATS cluster status.
+func (nhc *NATSHealthCheck) checkClusterStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check cluster status
 	// For now, return placeholder data
-	return map[string]interface{}{
+	return map[string]any{
 		"cluster_enabled": false,
 		"cluster_size":    1,
 	}
 }
 
-// KafkaHealthCheck is a specialized health check for Kafka
+// KafkaHealthCheck is a specialized health check for Kafka.
 type KafkaHealthCheck struct {
 	*EventBusHealthCheck
-	kafkaClient         interface{} // Would be kafka client
+
+	kafkaClient         any // Would be kafka client
 	checkTopics         bool
 	checkPartitions     bool
 	checkConsumerGroups bool
 }
 
-// NewKafkaHealthCheck creates a new Kafka health check
+// NewKafkaHealthCheck creates a new Kafka health check.
 func NewKafkaHealthCheck(config *EventBusHealthCheckConfig) *KafkaHealthCheck {
 	if config.BrokerType == "" {
 		config.BrokerType = "kafka"
@@ -300,7 +304,7 @@ func NewKafkaHealthCheck(config *EventBusHealthCheckConfig) *KafkaHealthCheck {
 	}
 }
 
-// Check performs Kafka-specific health checks
+// Check performs Kafka-specific health checks.
 func (khc *KafkaHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base event bus check
 	result := khc.EventBusHealthCheck.Check(ctx)
@@ -337,43 +341,44 @@ func (khc *KafkaHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	return result
 }
 
-// checkTopicStatus checks Kafka topic status
-func (khc *KafkaHealthCheck) checkTopicStatus(ctx context.Context) map[string]interface{} {
+// checkTopicStatus checks Kafka topic status.
+func (khc *KafkaHealthCheck) checkTopicStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check topic metadata
-	return map[string]interface{}{
+	return map[string]any{
 		"topic_count":    10,
 		"topics_healthy": true,
 	}
 }
 
-// checkPartitionStatus checks Kafka partition status
-func (khc *KafkaHealthCheck) checkPartitionStatus(ctx context.Context) map[string]interface{} {
+// checkPartitionStatus checks Kafka partition status.
+func (khc *KafkaHealthCheck) checkPartitionStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check partition metadata
-	return map[string]interface{}{
+	return map[string]any{
 		"partition_count":    30,
 		"partitions_healthy": true,
 	}
 }
 
-// checkConsumerGroupStatus checks Kafka consumer group status
-func (khc *KafkaHealthCheck) checkConsumerGroupStatus(ctx context.Context) map[string]interface{} {
+// checkConsumerGroupStatus checks Kafka consumer group status.
+func (khc *KafkaHealthCheck) checkConsumerGroupStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check consumer group metadata
-	return map[string]interface{}{
+	return map[string]any{
 		"consumer_group_count":    5,
 		"consumer_groups_healthy": true,
 	}
 }
 
-// RabbitMQHealthCheck is a specialized health check for RabbitMQ
+// RabbitMQHealthCheck is a specialized health check for RabbitMQ.
 type RabbitMQHealthCheck struct {
 	*EventBusHealthCheck
-	rabbitConn     interface{} // Would be *amqp.Connection
+
+	rabbitConn     any // Would be *amqp.Connection
 	checkQueues    bool
 	checkExchanges bool
 	checkBindings  bool
 }
 
-// NewRabbitMQHealthCheck creates a new RabbitMQ health check
+// NewRabbitMQHealthCheck creates a new RabbitMQ health check.
 func NewRabbitMQHealthCheck(config *EventBusHealthCheckConfig) *RabbitMQHealthCheck {
 	if config.BrokerType == "" {
 		config.BrokerType = "rabbitmq"
@@ -388,7 +393,7 @@ func NewRabbitMQHealthCheck(config *EventBusHealthCheckConfig) *RabbitMQHealthCh
 	}
 }
 
-// Check performs RabbitMQ-specific health checks
+// Check performs RabbitMQ-specific health checks.
 func (rhc *RabbitMQHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base event bus check
 	result := rhc.EventBusHealthCheck.Check(ctx)
@@ -425,42 +430,43 @@ func (rhc *RabbitMQHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	return result
 }
 
-// checkQueueStatus checks RabbitMQ queue status
-func (rhc *RabbitMQHealthCheck) checkQueueStatus(ctx context.Context) map[string]interface{} {
+// checkQueueStatus checks RabbitMQ queue status.
+func (rhc *RabbitMQHealthCheck) checkQueueStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check queue status
-	return map[string]interface{}{
+	return map[string]any{
 		"queue_count":    15,
 		"queues_healthy": true,
 	}
 }
 
-// checkExchangeStatus checks RabbitMQ exchange status
-func (rhc *RabbitMQHealthCheck) checkExchangeStatus(ctx context.Context) map[string]interface{} {
+// checkExchangeStatus checks RabbitMQ exchange status.
+func (rhc *RabbitMQHealthCheck) checkExchangeStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check exchange status
-	return map[string]interface{}{
+	return map[string]any{
 		"exchange_count":    8,
 		"exchanges_healthy": true,
 	}
 }
 
-// checkBindingStatus checks RabbitMQ binding status
-func (rhc *RabbitMQHealthCheck) checkBindingStatus(ctx context.Context) map[string]interface{} {
+// checkBindingStatus checks RabbitMQ binding status.
+func (rhc *RabbitMQHealthCheck) checkBindingStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check binding status
-	return map[string]interface{}{
+	return map[string]any{
 		"binding_count":    25,
 		"bindings_healthy": true,
 	}
 }
 
-// RedisStreamHealthCheck is a specialized health check for Redis Streams
+// RedisStreamHealthCheck is a specialized health check for Redis Streams.
 type RedisStreamHealthCheck struct {
 	*EventBusHealthCheck
-	redisClient         interface{} // Would be redis client
+
+	redisClient         any // Would be redis client
 	checkStreams        bool
 	checkConsumerGroups bool
 }
 
-// NewRedisStreamHealthCheck creates a new Redis Stream health check
+// NewRedisStreamHealthCheck creates a new Redis Stream health check.
 func NewRedisStreamHealthCheck(config *EventBusHealthCheckConfig) *RedisStreamHealthCheck {
 	if config.BrokerType == "" {
 		config.BrokerType = "redis-stream"
@@ -474,7 +480,7 @@ func NewRedisStreamHealthCheck(config *EventBusHealthCheckConfig) *RedisStreamHe
 	}
 }
 
-// Check performs Redis Stream-specific health checks
+// Check performs Redis Stream-specific health checks.
 func (rshc *RedisStreamHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base event bus check
 	result := rshc.EventBusHealthCheck.Check(ctx)
@@ -503,37 +509,37 @@ func (rshc *RedisStreamHealthCheck) Check(ctx context.Context) *health.HealthRes
 	return result
 }
 
-// checkStreamStatus checks Redis Stream status
-func (rshc *RedisStreamHealthCheck) checkStreamStatus(ctx context.Context) map[string]interface{} {
+// checkStreamStatus checks Redis Stream status.
+func (rshc *RedisStreamHealthCheck) checkStreamStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check stream status
-	return map[string]interface{}{
+	return map[string]any{
 		"stream_count":    5,
 		"streams_healthy": true,
 	}
 }
 
-// checkConsumerGroupStatus checks Redis Stream consumer group status
-func (rshc *RedisStreamHealthCheck) checkConsumerGroupStatus(ctx context.Context) map[string]interface{} {
+// checkConsumerGroupStatus checks Redis Stream consumer group status.
+func (rshc *RedisStreamHealthCheck) checkConsumerGroupStatus(ctx context.Context) map[string]any {
 	// In a real implementation, this would check consumer group status
-	return map[string]interface{}{
+	return map[string]any{
 		"consumer_group_count":    3,
 		"consumer_groups_healthy": true,
 	}
 }
 
-// EventBusHealthCheckFactory creates event bus health checks based on configuration
+// EventBusHealthCheckFactory creates event bus health checks based on configuration.
 type EventBusHealthCheckFactory struct {
 	container shared.Container
 }
 
-// NewEventBusHealthCheckFactory creates a new factory
+// NewEventBusHealthCheckFactory creates a new factory.
 func NewEventBusHealthCheckFactory(container shared.Container) *EventBusHealthCheckFactory {
 	return &EventBusHealthCheckFactory{
 		container: container,
 	}
 }
 
-// CreateEventBusHealthCheck creates an event bus health check
+// CreateEventBusHealthCheck creates an event bus health check.
 func (factory *EventBusHealthCheckFactory) CreateEventBusHealthCheck(name string, brokerType string, critical bool) (health.HealthCheck, error) {
 	config := &EventBusHealthCheckConfig{
 		Name:       name,
@@ -563,7 +569,7 @@ func (factory *EventBusHealthCheckFactory) CreateEventBusHealthCheck(name string
 	}
 }
 
-// RegisterEventBusHealthChecks registers event bus health checks with the health service
+// RegisterEventBusHealthChecks registers event bus health checks with the health service.
 func RegisterEventBusHealthChecks(healthService health.HealthService, container shared.Container) error {
 	factory := NewEventBusHealthCheckFactory(container)
 
@@ -593,13 +599,14 @@ func RegisterEventBusHealthChecks(healthService health.HealthService, container 
 	return nil
 }
 
-// EventBusHealthCheckComposite combines multiple event bus health checks
+// EventBusHealthCheckComposite combines multiple event bus health checks.
 type EventBusHealthCheckComposite struct {
 	*health.CompositeHealthCheck
+
 	eventBusChecks []health.HealthCheck
 }
 
-// NewEventBusHealthCheckComposite creates a composite event bus health check
+// NewEventBusHealthCheckComposite creates a composite event bus health check.
 func NewEventBusHealthCheckComposite(name string, checks ...health.HealthCheck) *EventBusHealthCheckComposite {
 	config := &health.HealthCheckConfig{
 		Name:     name,
@@ -615,13 +622,13 @@ func NewEventBusHealthCheckComposite(name string, checks ...health.HealthCheck) 
 	}
 }
 
-// GetEventBusChecks returns the individual event bus checks
+// GetEventBusChecks returns the individual event bus checks.
 func (ebhcc *EventBusHealthCheckComposite) GetEventBusChecks() []health.HealthCheck {
 	return ebhcc.eventBusChecks
 }
 
-// AddEventBusCheck adds an event bus check to the composite
+// AddEventBusCheck adds an event bus check to the composite.
 func (ebhcc *EventBusHealthCheckComposite) AddEventBusCheck(check health.HealthCheck) {
 	ebhcc.eventBusChecks = append(ebhcc.eventBusChecks, check)
-	ebhcc.CompositeHealthCheck.AddCheck(check)
+	ebhcc.AddCheck(check)
 }

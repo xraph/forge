@@ -2,7 +2,7 @@ package shared
 
 import "time"
 
-// ExportFormat represents the format for metrics export
+// ExportFormat represents the format for metrics export.
 type ExportFormat string
 
 const (
@@ -12,7 +12,7 @@ const (
 	ExportFormatStatsD     ExportFormat = "statsd"
 )
 
-// MetricType represents the type of metric
+// MetricType represents the type of metric.
 type MetricType string
 
 const (
@@ -22,37 +22,37 @@ const (
 	MetricTypeTimer     MetricType = "timer"
 )
 
-// StorageConfig contains storage configuration
+// StorageConfig contains storage configuration.
 type MetricsStorageConfig[T any] struct {
-	Type   string `yaml:"type" json:"type"`
-	Config T      `yaml:"config" json:"config"`
+	Type   string `json:"type"   yaml:"type"`
+	Config T      `json:"config" yaml:"config"`
 }
 
-// ExporterConfig contains configuration for exporters
+// ExporterConfig contains configuration for exporters.
 type MetricsExporterConfig[T any] struct {
-	Enabled  bool          `yaml:"enabled" json:"enabled"`
-	Interval time.Duration `yaml:"interval" json:"interval"`
-	Config   T             `yaml:"config" json:"config"`
+	Enabled  bool          `json:"enabled"  yaml:"enabled"`
+	Interval time.Duration `json:"interval" yaml:"interval"`
+	Config   T             `json:"config"   yaml:"config"`
 }
 
-// MetricsConfig configures metrics collection
+// MetricsConfig configures metrics collection.
 type MetricsConfig struct {
 	Enabled     bool
 	MetricsPath string
 	Namespace   string
 
-	EnableSystemMetrics  bool                                                     `yaml:"enable_system_metrics" json:"enable_system_metrics"`
-	EnableRuntimeMetrics bool                                                     `yaml:"enable_runtime_metrics" json:"enable_runtime_metrics"`
-	EnableHTTPMetrics    bool                                                     `yaml:"enable_http_metrics" json:"enable_http_metrics"`
-	CollectionInterval   time.Duration                                            `yaml:"collection_interval" json:"collection_interval"`
-	StorageConfig        *MetricsStorageConfig[map[string]interface{}]            `yaml:"storage" json:"storage"`
-	Exporters            map[string]MetricsExporterConfig[map[string]interface{}] `yaml:"exporters" json:"exporters"`
-	DefaultTags          map[string]string                                        `yaml:"default_tags" json:"default_tags"`
-	MaxMetrics           int                                                      `yaml:"max_metrics" json:"max_metrics"`
-	BufferSize           int                                                      `yaml:"buffer_size" json:"buffer_size"`
+	EnableSystemMetrics  bool                                             `json:"enable_system_metrics"  yaml:"enable_system_metrics"`
+	EnableRuntimeMetrics bool                                             `json:"enable_runtime_metrics" yaml:"enable_runtime_metrics"`
+	EnableHTTPMetrics    bool                                             `json:"enable_http_metrics"    yaml:"enable_http_metrics"`
+	CollectionInterval   time.Duration                                    `json:"collection_interval"    yaml:"collection_interval"`
+	StorageConfig        *MetricsStorageConfig[map[string]any]            `json:"storage"                yaml:"storage"`
+	Exporters            map[string]MetricsExporterConfig[map[string]any] `json:"exporters"              yaml:"exporters"`
+	DefaultTags          map[string]string                                `json:"default_tags"           yaml:"default_tags"`
+	MaxMetrics           int                                              `json:"max_metrics"            yaml:"max_metrics"`
+	BufferSize           int                                              `json:"buffer_size"            yaml:"buffer_size"`
 }
 
-// Metrics provides telemetry collection
+// Metrics provides telemetry collection.
 type Metrics interface {
 	Service
 	HealthChecker
@@ -95,13 +95,13 @@ type Metrics interface {
 	ResetMetric(name string) error
 
 	// Get metrics
-	GetMetrics() map[string]interface{}
+	GetMetrics() map[string]any
 
 	// Get metrics by type
-	GetMetricsByType(metricType MetricType) map[string]interface{}
+	GetMetricsByType(metricType MetricType) map[string]any
 
 	// Get metrics by tag
-	GetMetricsByTag(tagKey, tagValue string) map[string]interface{}
+	GetMetricsByTag(tagKey, tagValue string) map[string]any
 
 	// Get stats
 	GetStats() CollectorStats
@@ -110,7 +110,7 @@ type Metrics interface {
 	Reload(config *MetricsConfig) error
 }
 
-// Counter tracks monotonically increasing values
+// Counter tracks monotonically increasing values.
 type Counter interface {
 	Inc()
 	Add(delta float64)
@@ -119,7 +119,7 @@ type Counter interface {
 	Reset() error
 }
 
-// Gauge tracks values that can go up or down
+// Gauge tracks values that can go up or down.
 type Gauge interface {
 	Set(value float64)
 	Inc()
@@ -130,7 +130,7 @@ type Gauge interface {
 	Reset() error
 }
 
-// Histogram tracks distributions of values
+// Histogram tracks distributions of values.
 type Histogram interface {
 	Observe(value float64)
 	ObserveDuration(start time.Time)
@@ -143,7 +143,7 @@ type Histogram interface {
 	Reset() error
 }
 
-// Timer represents a timer metric
+// Timer represents a timer metric.
 type Timer interface {
 	Record(duration time.Duration)
 	Time() func()
@@ -156,10 +156,10 @@ type Timer interface {
 	Reset()
 }
 
-// CustomCollector defines interface for custom metrics collectors
+// CustomCollector defines interface for custom metrics collectors.
 type CustomCollector interface {
 	Name() string
-	Collect() map[string]interface{}
+	Collect() map[string]any
 	// WithLabels(labels map[string]string) CustomCollector
 	// Get() map[string]interface{}
 	Reset() error
@@ -170,29 +170,29 @@ type CustomCollector interface {
 // EXPORTER INTERFACE
 // =============================================================================
 
-// Exporter defines the interface for metrics export
+// Exporter defines the interface for metrics export.
 type Exporter interface {
 	// Export exports metrics in the specific format
-	Export(metrics map[string]interface{}) ([]byte, error)
+	Export(metrics map[string]any) ([]byte, error)
 
 	// Format returns the export format identifier
 	Format() string
 
 	// Stats returns exporter statistics
-	Stats() interface{}
+	Stats() any
 }
 
-// CollectorStats contains statistics about the metrics collector
+// CollectorStats contains statistics about the metrics collector.
 type CollectorStats struct {
-	Name               string                 `json:"name"`
-	Started            bool                   `json:"started"`
-	StartTime          time.Time              `json:"start_time"`
-	Uptime             time.Duration          `json:"uptime"`
-	MetricsCreated     int64                  `json:"metrics_created"`
-	MetricsCollected   int64                  `json:"metrics_collected"`
-	CustomCollectors   int                    `json:"custom_collectors"`
-	ActiveMetrics      int                    `json:"active_metrics"`
-	LastCollectionTime time.Time              `json:"last_collection_time"`
-	Errors             []string               `json:"errors"`
-	ExporterStats      map[string]interface{} `json:"exporter_stats"`
+	Name               string         `json:"name"`
+	Started            bool           `json:"started"`
+	StartTime          time.Time      `json:"start_time"`
+	Uptime             time.Duration  `json:"uptime"`
+	MetricsCreated     int64          `json:"metrics_created"`
+	MetricsCollected   int64          `json:"metrics_collected"`
+	CustomCollectors   int            `json:"custom_collectors"`
+	ActiveMetrics      int            `json:"active_metrics"`
+	LastCollectionTime time.Time      `json:"last_collection_time"`
+	Errors             []string       `json:"errors"`
+	ExporterStats      map[string]any `json:"exporter_stats"`
 }

@@ -9,10 +9,10 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// HealthCheck defines the interface for health checks
+// HealthCheck defines the interface for health checks.
 type HealthCheck = shared.HealthCheck
 
-// HealthCheckConfig contains configuration for health checks
+// HealthCheckConfig contains configuration for health checks.
 type HealthCheckConfig struct {
 	Name         string
 	Timeout      time.Duration
@@ -22,10 +22,10 @@ type HealthCheckConfig struct {
 	Retries      int
 	RetryDelay   time.Duration
 	Tags         map[string]string
-	Metadata     map[string]interface{}
+	Metadata     map[string]any
 }
 
-// DefaultHealthCheckConfig returns default configuration for health checks
+// DefaultHealthCheckConfig returns default configuration for health checks.
 func DefaultHealthCheckConfig() *HealthCheckConfig {
 	return &HealthCheckConfig{
 		Timeout:      5 * time.Second,
@@ -35,14 +35,14 @@ func DefaultHealthCheckConfig() *HealthCheckConfig {
 		Retries:      3,
 		RetryDelay:   1 * time.Second,
 		Tags:         make(map[string]string),
-		Metadata:     make(map[string]interface{}),
+		Metadata:     make(map[string]any),
 	}
 }
 
-// HealthCheckFunc is a function type for simple health checks
+// HealthCheckFunc is a function type for simple health checks.
 type HealthCheckFunc = shared.HealthCheckFn
 
-// BaseHealthCheck provides base functionality for health checks
+// BaseHealthCheck provides base functionality for health checks.
 type BaseHealthCheck struct {
 	name         string
 	timeout      time.Duration
@@ -52,13 +52,13 @@ type BaseHealthCheck struct {
 	retries      int
 	retryDelay   time.Duration
 	tags         map[string]string
-	metadata     map[string]interface{}
+	metadata     map[string]any
 	lastResult   *shared.HealthResult
 	lastCheck    time.Time
 	mu           sync.RWMutex
 }
 
-// NewBaseHealthCheck creates a new base health check
+// NewBaseHealthCheck creates a new base health check.
 func NewBaseHealthCheck(config *HealthCheckConfig) *BaseHealthCheck {
 	if config == nil {
 		config = DefaultHealthCheckConfig()
@@ -77,92 +77,97 @@ func NewBaseHealthCheck(config *HealthCheckConfig) *BaseHealthCheck {
 	}
 }
 
-// Name returns the name of the health check
+// Name returns the name of the health check.
 func (bhc *BaseHealthCheck) Name() string {
 	return bhc.name
 }
 
-// Timeout returns the timeout for the health check
+// Timeout returns the timeout for the health check.
 func (bhc *BaseHealthCheck) Timeout() time.Duration {
 	return bhc.timeout
 }
 
-// Critical returns whether the health check is critical
+// Critical returns whether the health check is critical.
 func (bhc *BaseHealthCheck) Critical() bool {
 	return bhc.critical
 }
 
-// Dependencies returns the dependencies of the health check
+// Dependencies returns the dependencies of the health check.
 func (bhc *BaseHealthCheck) Dependencies() []string {
 	return bhc.dependencies
 }
 
-// Interval returns the check interval
+// Interval returns the check interval.
 func (bhc *BaseHealthCheck) Interval() time.Duration {
 	return bhc.interval
 }
 
-// Retries returns the number of retries
+// Retries returns the number of retries.
 func (bhc *BaseHealthCheck) Retries() int {
 	return bhc.retries
 }
 
-// RetryDelay returns the retry delay
+// RetryDelay returns the retry delay.
 func (bhc *BaseHealthCheck) RetryDelay() time.Duration {
 	return bhc.retryDelay
 }
 
-// Tags returns the tags for the health check
+// Tags returns the tags for the health check.
 func (bhc *BaseHealthCheck) Tags() map[string]string {
 	return bhc.tags
 }
 
-// Metadata returns the metadata for the health check
-func (bhc *BaseHealthCheck) Metadata() map[string]interface{} {
+// Metadata returns the metadata for the health check.
+func (bhc *BaseHealthCheck) Metadata() map[string]any {
 	return bhc.metadata
 }
 
-// GetLastResult returns the last health check result
+// GetLastResult returns the last health check result.
 func (bhc *BaseHealthCheck) GetLastResult() *shared.HealthResult {
 	bhc.mu.RLock()
 	defer bhc.mu.RUnlock()
+
 	return bhc.lastResult
 }
 
-// GetLastCheck returns the time of the last health check
+// GetLastCheck returns the time of the last health check.
 func (bhc *BaseHealthCheck) GetLastCheck() time.Time {
 	bhc.mu.RLock()
 	defer bhc.mu.RUnlock()
+
 	return bhc.lastCheck
 }
 
-// SetLastResult sets the last health check result
+// SetLastResult sets the last health check result.
 func (bhc *BaseHealthCheck) SetLastResult(result *shared.HealthResult) {
 	bhc.mu.Lock()
 	defer bhc.mu.Unlock()
+
 	bhc.lastResult = result
 	bhc.lastCheck = time.Now()
 }
 
-// ShouldCheck returns true if the health check should be performed
+// ShouldCheck returns true if the health check should be performed.
 func (bhc *BaseHealthCheck) ShouldCheck() bool {
 	bhc.mu.RLock()
 	defer bhc.mu.RUnlock()
+
 	return time.Since(bhc.lastCheck) >= bhc.interval
 }
 
-// Check performs the health check (to be implemented by concrete types)
+// Check performs the health check (to be implemented by concrete types).
 func (bhc *BaseHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 	return shared.NewHealthResult(bhc.name, shared.HealthStatusUnknown, "base health check - should be overridden")
 }
 
-// SimpleHealthCheck implements a simple function-based health check
+// SimpleHealthCheck implements a simple function-based health check.
 type SimpleHealthCheck struct {
 	*BaseHealthCheck
+
 	checkFunc HealthCheckFunc
 }
 
-// NewSimpleHealthCheck creates a new simple health check
+// NewSimpleHealthCheck creates a new simple health check.
 func NewSimpleHealthCheck(config *HealthCheckConfig, checkFunc HealthCheckFunc) *SimpleHealthCheck {
 	return &SimpleHealthCheck{
 		BaseHealthCheck: NewBaseHealthCheck(config),
@@ -170,7 +175,7 @@ func NewSimpleHealthCheck(config *HealthCheckConfig, checkFunc HealthCheckFunc) 
 	}
 }
 
-// Check performs the health check
+// Check performs the health check.
 func (shc *SimpleHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 	start := time.Now()
 
@@ -179,8 +184,10 @@ func (shc *SimpleHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 	defer cancel()
 
 	// Perform the check with retries
-	var result *shared.HealthResult
-	var lastErr error
+	var (
+		result  *shared.HealthResult
+		lastErr error
+	)
 
 	for attempt := 0; attempt <= shc.retries; attempt++ {
 		if attempt > 0 {
@@ -189,6 +196,7 @@ func (shc *SimpleHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 				// Context cancelled or timed out
 				result = shared.NewHealthResult(shc.name, shared.HealthStatusUnhealthy, "health check timed out")
 				result.WithError(checkCtx.Err())
+
 				break
 			case <-time.After(shc.retryDelay):
 				// Wait before retry
@@ -236,9 +244,10 @@ func (shc *SimpleHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 	return result
 }
 
-// AsyncHealthCheck implements an asynchronous health check
+// AsyncHealthCheck implements an asynchronous health check.
 type AsyncHealthCheck struct {
 	*BaseHealthCheck
+
 	checkFunc HealthCheckFunc
 	running   bool
 	stopCh    chan struct{}
@@ -246,7 +255,7 @@ type AsyncHealthCheck struct {
 	mu        sync.RWMutex
 }
 
-// NewAsyncHealthCheck creates a new asynchronous health check
+// NewAsyncHealthCheck creates a new asynchronous health check.
 func NewAsyncHealthCheck(config *HealthCheckConfig, checkFunc HealthCheckFunc) *AsyncHealthCheck {
 	return &AsyncHealthCheck{
 		BaseHealthCheck: NewBaseHealthCheck(config),
@@ -256,39 +265,46 @@ func NewAsyncHealthCheck(config *HealthCheckConfig, checkFunc HealthCheckFunc) *
 	}
 }
 
-// Start starts the asynchronous health check
+// Start starts the asynchronous health check.
 func (ahc *AsyncHealthCheck) Start(ctx context.Context) {
 	ahc.mu.Lock()
+
 	if ahc.running {
 		ahc.mu.Unlock()
+
 		return
 	}
+
 	ahc.running = true
 	ahc.mu.Unlock()
 
 	go ahc.run(ctx)
 }
 
-// Stop stops the asynchronous health check
+// Stop stops the asynchronous health check.
 func (ahc *AsyncHealthCheck) Stop() {
 	ahc.mu.Lock()
+
 	if !ahc.running {
 		ahc.mu.Unlock()
+
 		return
 	}
+
 	ahc.running = false
 	close(ahc.stopCh)
 	ahc.mu.Unlock()
 }
 
-// IsRunning returns true if the health check is running
+// IsRunning returns true if the health check is running.
 func (ahc *AsyncHealthCheck) IsRunning() bool {
 	ahc.mu.RLock()
 	defer ahc.mu.RUnlock()
+
 	return ahc.running
 }
 
-// run runs the health check loop
+// run runs the health check loop.
 func (ahc *AsyncHealthCheck) run(ctx context.Context) {
 	ticker := time.NewTicker(ahc.interval)
 	defer ticker.Stop()
@@ -308,7 +324,7 @@ func (ahc *AsyncHealthCheck) run(ctx context.Context) {
 	}
 }
 
-// performCheck performs a single health check
+// performCheck performs a single health check.
 func (ahc *AsyncHealthCheck) performCheck(ctx context.Context) {
 	result := ahc.checkFunc(ctx)
 	if result == nil {
@@ -334,7 +350,7 @@ func (ahc *AsyncHealthCheck) performCheck(ctx context.Context) {
 	}
 }
 
-// Check returns the last health check result
+// Check returns the last health check result.
 func (ahc *AsyncHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 	result := ahc.GetLastResult()
 	if result == nil {
@@ -349,18 +365,19 @@ func (ahc *AsyncHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 	return result
 }
 
-// GetResultChannel returns the result channel for async updates
+// GetResultChannel returns the result channel for async updates.
 func (ahc *AsyncHealthCheck) GetResultChannel() <-chan *shared.HealthResult {
 	return ahc.resultCh
 }
 
-// CompositeHealthCheck implements a health check that combines multiple checks
+// CompositeHealthCheck implements a health check that combines multiple checks.
 type CompositeHealthCheck struct {
 	*BaseHealthCheck
+
 	checks []HealthCheck
 }
 
-// NewCompositeHealthCheck creates a new composite health check
+// NewCompositeHealthCheck creates a new composite health check.
 func NewCompositeHealthCheck(config *HealthCheckConfig, checks ...HealthCheck) *CompositeHealthCheck {
 	return &CompositeHealthCheck{
 		BaseHealthCheck: NewBaseHealthCheck(config),
@@ -368,12 +385,12 @@ func NewCompositeHealthCheck(config *HealthCheckConfig, checks ...HealthCheck) *
 	}
 }
 
-// AddCheck adds a health check to the composite
+// AddCheck adds a health check to the composite.
 func (chc *CompositeHealthCheck) AddCheck(check HealthCheck) {
 	chc.checks = append(chc.checks, check)
 }
 
-// Check performs all health checks and aggregates the results
+// Check performs all health checks and aggregates the results.
 func (chc *CompositeHealthCheck) Check(ctx context.Context) *shared.HealthResult {
 	start := time.Now()
 
@@ -395,15 +412,16 @@ func (chc *CompositeHealthCheck) Check(ctx context.Context) *shared.HealthResult
 	overall.WithTags(chc.tags)
 
 	// Add individual results as details
-	details := make(map[string]interface{})
+	details := make(map[string]any)
 	for _, result := range results {
-		details[result.Name] = map[string]interface{}{
+		details[result.Name] = map[string]any{
 			"status":   result.Status,
 			"message":  result.Message,
 			"duration": result.Duration,
 			"critical": result.Critical,
 		}
 	}
+
 	overall.WithDetails(details)
 
 	// Cache the result
@@ -412,15 +430,17 @@ func (chc *CompositeHealthCheck) Check(ctx context.Context) *shared.HealthResult
 	return overall
 }
 
-// aggregateResults aggregates multiple health results into a single result
+// aggregateResults aggregates multiple health results into a single result.
 func (chc *CompositeHealthCheck) aggregateResults(results []*shared.HealthResult) *shared.HealthResult {
 	if len(results) == 0 {
 		return shared.NewHealthResult(chc.name, shared.HealthStatusUnknown, "no health checks configured")
 	}
 
-	var overallStatus = shared.HealthStatusHealthy
-	var messages []string
-	var criticalFailed bool
+	var (
+		overallStatus  = shared.HealthStatusHealthy
+		messages       []string
+		criticalFailed bool
+	)
 
 	for _, result := range results {
 		if result.Critical && result.IsUnhealthy() {
@@ -449,53 +469,55 @@ func (chc *CompositeHealthCheck) aggregateResults(results []*shared.HealthResult
 	return shared.NewHealthResult(chc.name, overallStatus, message)
 }
 
-// HealthCheckWrapper wraps a health check with additional functionality
+// HealthCheckWrapper wraps a health check with additional functionality.
 type HealthCheckWrapper struct {
 	check      HealthCheck
 	beforeFunc func(ctx context.Context) error
 	afterFunc  func(ctx context.Context, result *shared.HealthResult) error
 }
 
-// NewHealthCheckWrapper creates a new health check wrapper
+// NewHealthCheckWrapper creates a new health check wrapper.
 func NewHealthCheckWrapper(check HealthCheck) *HealthCheckWrapper {
 	return &HealthCheckWrapper{
 		check: check,
 	}
 }
 
-// WithBefore adds a before function to the wrapper
+// WithBefore adds a before function to the wrapper.
 func (hcw *HealthCheckWrapper) WithBefore(beforeFunc func(ctx context.Context) error) *HealthCheckWrapper {
 	hcw.beforeFunc = beforeFunc
+
 	return hcw
 }
 
-// WithAfter adds an after function to the wrapper
+// WithAfter adds an after function to the wrapper.
 func (hcw *HealthCheckWrapper) WithAfter(afterFunc func(ctx context.Context, result *shared.HealthResult) error) *HealthCheckWrapper {
 	hcw.afterFunc = afterFunc
+
 	return hcw
 }
 
-// Name returns the name of the wrapped health check
+// Name returns the name of the wrapped health check.
 func (hcw *HealthCheckWrapper) Name() string {
 	return hcw.check.Name()
 }
 
-// Timeout returns the timeout of the wrapped health check
+// Timeout returns the timeout of the wrapped health check.
 func (hcw *HealthCheckWrapper) Timeout() time.Duration {
 	return hcw.check.Timeout()
 }
 
-// Critical returns whether the wrapped health check is critical
+// Critical returns whether the wrapped health check is critical.
 func (hcw *HealthCheckWrapper) Critical() bool {
 	return hcw.check.Critical()
 }
 
-// Dependencies returns the dependencies of the wrapped health check
+// Dependencies returns the dependencies of the wrapped health check.
 func (hcw *HealthCheckWrapper) Dependencies() []string {
 	return hcw.check.Dependencies()
 }
 
-// Check performs the wrapped health check
+// Check performs the wrapped health check.
 func (hcw *HealthCheckWrapper) Check(ctx context.Context) *shared.HealthResult {
 	// Execute before function if provided
 	if hcw.beforeFunc != nil {

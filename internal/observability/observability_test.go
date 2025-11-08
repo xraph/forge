@@ -8,11 +8,12 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// createTestConfig creates a test configuration with unique port
+// createTestConfig creates a test configuration with unique port.
 func createTestConfig(port string) ObservabilityConfig {
 	config := CreateDefaultConfig()
 	config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
 	config.Prometheus.ListenAddress = port
+
 	return config
 }
 
@@ -23,6 +24,7 @@ func TestNewObservability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewObservability() error = %v", err)
 	}
+
 	if obs == nil {
 		t.Fatal("NewObservability() returned nil")
 	}
@@ -44,6 +46,7 @@ func TestObservability_StartSpan(t *testing.T) {
 	defer obs.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := obs.StartSpan(ctx, "test-operation")
 	if span == nil {
 		t.Error("StartSpan() returned nil span")
@@ -105,6 +108,7 @@ func TestObservability_RecordError(t *testing.T) {
 	defer obs.Shutdown(context.Background())
 
 	ctx := context.Background()
+
 	ctx, span := obs.StartSpan(ctx, "test-operation")
 	defer obs.EndSpan(span)
 
@@ -132,6 +136,7 @@ func TestObservability_ObserveRequest(t *testing.T) {
 	// Test successful request
 	err = obs.ObserveRequest(ctx, "test-request", func(ctx context.Context) error {
 		time.Sleep(10 * time.Millisecond)
+
 		return nil
 	})
 	if err != nil {
@@ -159,10 +164,11 @@ func TestObservability_WithSpan(t *testing.T) {
 	ctx := context.Background()
 
 	// Test successful span
-	err = obs.WithSpan(ctx, "test-span", func(ctx context.Context, span interface{}) error {
+	err = obs.WithSpan(ctx, "test-span", func(ctx context.Context, span any) error {
 		if span == nil {
 			t.Error("WithSpan() span should not be nil")
 		}
+
 		return nil
 	})
 	if err != nil {
@@ -170,7 +176,7 @@ func TestObservability_WithSpan(t *testing.T) {
 	}
 
 	// Test failed span
-	err = obs.WithSpan(ctx, "test-span-fail", func(ctx context.Context, span interface{}) error {
+	err = obs.WithSpan(ctx, "test-span-fail", func(ctx context.Context, span any) error {
 		return context.DeadlineExceeded
 	})
 	if err == nil {
@@ -190,6 +196,7 @@ func TestObservability_WithMetrics(t *testing.T) {
 	// Test successful metrics
 	err = obs.WithMetrics("test-operation", map[string]string{"test": "true"}, func() error {
 		time.Sleep(10 * time.Millisecond)
+
 		return nil
 	})
 	if err != nil {
@@ -334,19 +341,22 @@ func TestObservability_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent access
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+
+	for i := range 10 {
 		go func(i int) {
 			ctx := context.Background()
+
 			ctx, span := obs.StartSpan(ctx, "concurrent-operation")
 			if span != nil {
 				obs.EndSpan(span)
 			}
+
 			done <- true
 		}(i)
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -356,15 +366,17 @@ func TestCreateDefaultConfig(t *testing.T) {
 	if config.Tracer.ServiceName == "" {
 		t.Error("CreateDefaultConfig() should set service name")
 	}
+
 	if config.Tracer.ServiceVersion == "" {
 		t.Error("CreateDefaultConfig() should set service version")
 	}
+
 	if config.Tracer.Environment == "" {
 		t.Error("CreateDefaultConfig() should set environment")
 	}
 }
 
-// TestAlertHandler for testing
+// TestAlertHandler for testing.
 type TestAlertHandler struct{}
 
 func (h *TestAlertHandler) HandleAlert(ctx context.Context, alert *Alert) error {

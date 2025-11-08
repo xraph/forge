@@ -35,10 +35,9 @@ func BenchmarkSingleNodePropose(b *testing.B) {
 
 	data := []byte("benchmark-data")
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := leader.RaftNode.Propose(ctx, data); err != nil {
 			b.Fatalf("Propose failed: %v", err)
 		}
@@ -72,10 +71,9 @@ func BenchmarkThreeNodePropose(b *testing.B) {
 
 	data := []byte("benchmark-data")
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := leader.RaftNode.Propose(ctx, data); err != nil {
 			b.Fatalf("Propose failed: %v", err)
 		}
@@ -109,10 +107,9 @@ func BenchmarkFiveNodePropose(b *testing.B) {
 
 	data := []byte("benchmark-data")
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if err := leader.RaftNode.Propose(ctx, data); err != nil {
 			b.Fatalf("Propose failed: %v", err)
 		}
@@ -147,10 +144,9 @@ func BenchmarkLocalRead(b *testing.B) {
 	// Populate some data
 	leader.RaftNode.Propose(context.Background(), []byte("key:value"))
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = leader.StateMachine
 	}
 }
@@ -182,10 +178,9 @@ func BenchmarkLinearizableRead(b *testing.B) {
 
 	leader.RaftNode.Propose(context.Background(), []byte("key:value"))
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = leader.RaftNode.GetCommitIndex()
 	}
 }
@@ -216,14 +211,13 @@ func BenchmarkSnapshot(b *testing.B) {
 	}
 
 	// Add some data
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		leader.RaftNode.Propose(context.Background(), []byte("entry"))
 	}
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Snapshot functionality would be implemented here
 		_ = leader.RaftNode.GetCommitIndex()
 	}
@@ -232,7 +226,7 @@ func BenchmarkSnapshot(b *testing.B) {
 func BenchmarkLeaderElection(b *testing.B) {
 	b.Skip("Benchmark - requires running cluster")
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		harness := NewTestHarness(&testing.T{})
 		ctx := context.Background()
 
@@ -396,10 +390,9 @@ func BenchmarkMemoryAllocation_SmallEntries(b *testing.B) {
 
 	data := []byte("small-entry")
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		leader.RaftNode.Propose(ctx, data)
 	}
 }
@@ -431,10 +424,9 @@ func BenchmarkMemoryAllocation_LargeEntries(b *testing.B) {
 
 	data := make([]byte, 1024*1024) // 1MB
 
-	b.ResetTimer()
 	b.ReportAllocs()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		leader.RaftNode.Propose(ctx, data)
 	}
 }
@@ -486,7 +478,9 @@ func benchmarkLatency(b *testing.B, percentile int) {
 
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
+
 		leader.RaftNode.Propose(ctx, data)
+
 		latencies[i] = time.Since(start)
 	}
 

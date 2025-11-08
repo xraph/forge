@@ -3,14 +3,16 @@ package llm
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// LLMManager manages Large Language Model providers and operations
+// LLMManager manages Large Language Model providers and operations.
 type LLMManager struct {
 	providers   map[string]LLMProvider
 	config      LLMManagerConfig
@@ -22,24 +24,24 @@ type LLMManager struct {
 	statsUpdate time.Time
 }
 
-// LLMManagerConfig contains configuration for the LLM manager
+// LLMManagerConfig contains configuration for the LLM manager.
 type LLMManagerConfig struct {
 	Logger          forge.Logger
 	Metrics         forge.Metrics
-	DefaultProvider string               `yaml:"default_provider" default:"openai"`
-	MaxRetries      int                  `yaml:"max_retries" default:"3"`
-	RetryDelay      time.Duration        `yaml:"retry_delay" default:"1s"`
-	Timeout         time.Duration        `yaml:"timeout" default:"30s"`
+	DefaultProvider string               `default:"openai"   yaml:"default_provider"`
+	MaxRetries      int                  `default:"3"        yaml:"max_retries"`
+	RetryDelay      time.Duration        `default:"1s"       yaml:"retry_delay"`
+	Timeout         time.Duration        `default:"30s"      yaml:"timeout"`
 	RateLimits      map[string]RateLimit `yaml:"rate_limits"`
 }
 
-// RateLimit defines rate limiting for LLM providers
+// RateLimit defines rate limiting for LLM providers.
 type RateLimit struct {
 	RequestsPerMinute int `yaml:"requests_per_minute"`
 	TokensPerMinute   int `yaml:"tokens_per_minute"`
 }
 
-// LLMStats contains statistics about LLM operations
+// LLMStats contains statistics about LLM operations.
 type LLMStats struct {
 	TotalRequests      int64                       `json:"total_requests"`
 	SuccessfulRequests int64                       `json:"successful_requests"`
@@ -50,7 +52,7 @@ type LLMStats struct {
 	LastUpdated        time.Time                   `json:"last_updated"`
 }
 
-// LLMProviderStats contains statistics for a specific provider
+// LLMProviderStats contains statistics for a specific provider.
 type LLMProviderStats struct {
 	Name               string        `json:"name"`
 	TotalRequests      int64         `json:"total_requests"`
@@ -63,7 +65,7 @@ type LLMProviderStats struct {
 	LastUsed           time.Time     `json:"last_used"`
 }
 
-// NewLLMManager creates a new LLM manager
+// NewLLMManager creates a new LLM manager.
 func NewLLMManager(config LLMManagerConfig) (*LLMManager, error) {
 	return &LLMManager{
 		providers: make(map[string]LLMProvider),
@@ -78,13 +80,13 @@ func NewLLMManager(config LLMManagerConfig) (*LLMManager, error) {
 	}, nil
 }
 
-// Start initializes the LLM manager
+// Start initializes the LLM manager.
 func (m *LLMManager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if m.started {
-		return fmt.Errorf("LLM manager already started")
+		return errors.New("LLM manager already started")
 	}
 
 	m.started = true
@@ -103,13 +105,13 @@ func (m *LLMManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop shuts down the LLM manager
+// Stop shuts down the LLM manager.
 func (m *LLMManager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if !m.started {
-		return fmt.Errorf("LLM manager not started")
+		return errors.New("LLM manager not started")
 	}
 
 	// Stop all providers
@@ -139,7 +141,7 @@ func (m *LLMManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RegisterProvider registers a new LLM provider
+// RegisterProvider registers a new LLM provider.
 func (m *LLMManager) RegisterProvider(provider LLMProvider) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -173,7 +175,7 @@ func (m *LLMManager) RegisterProvider(provider LLMProvider) error {
 	return nil
 }
 
-// GetProvider retrieves an LLM provider by name
+// GetProvider retrieves an LLM provider by name.
 func (m *LLMManager) GetProvider(name string) (LLMProvider, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -186,7 +188,7 @@ func (m *LLMManager) GetProvider(name string) (LLMProvider, error) {
 	return provider, nil
 }
 
-// Chat performs a chat completion request
+// Chat performs a chat completion request.
 func (m *LLMManager) Chat(ctx context.Context, request ChatRequest) (ChatResponse, error) {
 	startTime := time.Now()
 
@@ -204,13 +206,16 @@ func (m *LLMManager) Chat(ctx context.Context, request ChatRequest) (ChatRespons
 	// Apply timeout
 	if m.config.Timeout > 0 {
 		var cancel context.CancelFunc
+
 		ctx, cancel = context.WithTimeout(ctx, m.config.Timeout)
 		defer cancel()
 	}
 
 	// Execute chat request with retries
-	var response ChatResponse
-	var lastErr error
+	var (
+		response ChatResponse
+		lastErr  error
+	)
 
 	for attempt := 0; attempt <= m.config.MaxRetries; attempt++ {
 		response, lastErr = provider.Chat(ctx, request)
@@ -239,7 +244,7 @@ func (m *LLMManager) Chat(ctx context.Context, request ChatRequest) (ChatRespons
 	return response, nil
 }
 
-// Complete performs a text completion request
+// Complete performs a text completion request.
 func (m *LLMManager) Complete(ctx context.Context, request CompletionRequest) (CompletionResponse, error) {
 	startTime := time.Now()
 
@@ -257,13 +262,16 @@ func (m *LLMManager) Complete(ctx context.Context, request CompletionRequest) (C
 	// Apply timeout
 	if m.config.Timeout > 0 {
 		var cancel context.CancelFunc
+
 		ctx, cancel = context.WithTimeout(ctx, m.config.Timeout)
 		defer cancel()
 	}
 
 	// Execute completion request with retries
-	var response CompletionResponse
-	var lastErr error
+	var (
+		response CompletionResponse
+		lastErr  error
+	)
 
 	for attempt := 0; attempt <= m.config.MaxRetries; attempt++ {
 		response, lastErr = provider.Complete(ctx, request)
@@ -292,7 +300,7 @@ func (m *LLMManager) Complete(ctx context.Context, request CompletionRequest) (C
 	return response, nil
 }
 
-// Embed performs an embedding request
+// Embed performs an embedding request.
 func (m *LLMManager) Embed(ctx context.Context, request EmbeddingRequest) (EmbeddingResponse, error) {
 	startTime := time.Now()
 
@@ -310,13 +318,16 @@ func (m *LLMManager) Embed(ctx context.Context, request EmbeddingRequest) (Embed
 	// Apply timeout
 	if m.config.Timeout > 0 {
 		var cancel context.CancelFunc
+
 		ctx, cancel = context.WithTimeout(ctx, m.config.Timeout)
 		defer cancel()
 	}
 
 	// Execute embedding request with retries
-	var response EmbeddingResponse
-	var lastErr error
+	var (
+		response EmbeddingResponse
+		lastErr  error
+	)
 
 	for attempt := 0; attempt <= m.config.MaxRetries; attempt++ {
 		response, lastErr = provider.Embed(ctx, request)
@@ -345,7 +356,7 @@ func (m *LLMManager) Embed(ctx context.Context, request EmbeddingRequest) (Embed
 	return response, nil
 }
 
-// GetStats returns LLM statistics
+// GetStats returns LLM statistics.
 func (m *LLMManager) GetStats() LLMStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -360,10 +371,11 @@ func (m *LLMManager) GetStats() LLMStats {
 	}
 
 	m.stats.LastUpdated = time.Now()
+
 	return m.stats
 }
 
-// updateStats updates statistics for a provider
+// updateStats updates statistics for a provider.
 func (m *LLMManager) updateStats(providerName, operation string, latency time.Duration, err error, usage *LLMUsage) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -418,11 +430,13 @@ func (m *LLMManager) updateStats(providerName, operation string, latency time.Du
 	// Update metrics
 	if m.metrics != nil {
 		m.metrics.Counter("forge.ai.llm.requests_total", "provider", providerName, "operation", operation).Inc()
+
 		if err != nil {
 			m.metrics.Counter("forge.ai.llm.requests_failed", "provider", providerName, "operation", operation).Inc()
 		} else {
 			m.metrics.Counter("forge.ai.llm.requests_successful", "provider", providerName, "operation", operation).Inc()
 		}
+
 		m.metrics.Histogram("forge.ai.llm.request_duration", "provider", providerName, "operation", operation).Observe(latency.Seconds())
 
 		if usage != nil {
@@ -433,33 +447,33 @@ func (m *LLMManager) updateStats(providerName, operation string, latency time.Du
 	}
 }
 
-// GetProviders returns all registered providers
+// GetProviders returns all registered providers.
 func (m *LLMManager) GetProviders() map[string]LLMProvider {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	providers := make(map[string]LLMProvider)
-	for name, provider := range m.providers {
-		providers[name] = provider
-	}
+	maps.Copy(providers, m.providers)
 
 	return providers
 }
 
-// HealthCheck performs a health check on all providers
+// HealthCheck performs a health check on all providers.
 func (m *LLMManager) HealthCheck(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	if !m.started {
-		return fmt.Errorf("LLM manager not started")
+		return errors.New("LLM manager not started")
 	}
 
 	unhealthyProviders := 0
+
 	for name, provider := range m.providers {
 		if checker, ok := provider.(interface{ HealthCheck(context.Context) error }); ok {
 			if err := checker.HealthCheck(ctx); err != nil {
 				unhealthyProviders++
+
 				if m.logger != nil {
 					m.logger.Warn("LLM provider health check failed",
 						logger.String("provider", name),
@@ -477,9 +491,10 @@ func (m *LLMManager) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// IsStarted returns true if the LLM manager is started
+// IsStarted returns true if the LLM manager is started.
 func (m *LLMManager) IsStarted() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.started
 }

@@ -67,7 +67,7 @@ func TestPluginRegistryDuplicate(t *testing.T) {
 	}
 
 	err = registry.Register(plugin2)
-	if err != ErrPluginAlreadyRegistered {
+	if !errors.Is(err, ErrPluginAlreadyRegistered) {
 		t.Errorf("expected ErrPluginAlreadyRegistered, got %v", err)
 	}
 }
@@ -92,7 +92,7 @@ func TestPluginRegistryNotFound(t *testing.T) {
 	registry := NewPluginRegistry()
 
 	_, err := registry.Get("nonexistent")
-	if err != ErrPluginNotFound {
+	if !errors.Is(err, ErrPluginNotFound) {
 		t.Errorf("expected ErrPluginNotFound, got %v", err)
 	}
 }
@@ -117,9 +117,11 @@ func TestRegisterPluginWithCLI(t *testing.T) {
 	// Check that plugin commands were added to CLI
 	commands := app.Commands()
 	found := false
+
 	for _, c := range commands {
 		if c.Name() == "testcmd" {
 			found = true
+
 			break
 		}
 	}

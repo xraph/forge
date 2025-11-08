@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/metrics/internal"
 	"github.com/xraph/forge/internal/shared"
@@ -17,7 +18,7 @@ import (
 // ENDPOINT HANDLERS
 // =============================================================================
 
-// MetricsEndpointHandler handles metrics endpoint requests
+// MetricsEndpointHandler handles metrics endpoint requests.
 type MetricsEndpointHandler struct {
 	collector shared.Metrics
 	config    *EndpointConfig
@@ -25,7 +26,7 @@ type MetricsEndpointHandler struct {
 	cache     *endpointCache
 }
 
-// endpointCache provides simple caching for endpoints
+// endpointCache provides simple caching for endpoints.
 type endpointCache struct {
 	data     map[string]cacheEntry
 	enabled  bool
@@ -38,7 +39,7 @@ type cacheEntry struct {
 	format    string
 }
 
-// NewMetricsEndpointHandler creates a new metrics endpoint handler
+// NewMetricsEndpointHandler creates a new metrics endpoint handler.
 func NewMetricsEndpointHandler(collector shared.Metrics, config *EndpointConfig, logger logger.Logger) *MetricsEndpointHandler {
 	if config == nil {
 		config = &EndpointConfig{
@@ -70,7 +71,7 @@ func NewMetricsEndpointHandler(collector shared.Metrics, config *EndpointConfig,
 // ENDPOINT REGISTRATION
 // =============================================================================
 
-// RegisterEndpoints registers metrics endpoints with the router
+// RegisterEndpoints registers metrics endpoints with the router.
 func (h *MetricsEndpointHandler) RegisterEndpoints(r shared.Router) error {
 	if !h.config.Enabled {
 		return nil
@@ -111,7 +112,7 @@ func (h *MetricsEndpointHandler) RegisterEndpoints(r shared.Router) error {
 	return nil
 }
 
-// registerAdditionalEndpoints registers additional metrics endpoints
+// registerAdditionalEndpoints registers additional metrics endpoints.
 func (h *MetricsEndpointHandler) registerAdditionalEndpoints(r shared.Router) error {
 	// Metrics by type endpoint
 	if err := r.GET("/type/:type", h.handleMetricsByType); err != nil {
@@ -145,7 +146,7 @@ func (h *MetricsEndpointHandler) registerAdditionalEndpoints(r shared.Router) er
 // HANDLER METHODS
 // =============================================================================
 
-// handleMetrics handles the main metrics endpoint
+// handleMetrics handles the main metrics endpoint.
 func (h *MetricsEndpointHandler) handleMetrics(ctx shared.Context) error {
 	// Apply CORS if enabled
 	if h.config.EnableCORS {
@@ -186,7 +187,7 @@ func (h *MetricsEndpointHandler) handleMetrics(ctx shared.Context) error {
 	return h.writeResponse(ctx, data, format)
 }
 
-// handleHealth handles the health endpoint
+// handleHealth handles the health endpoint.
 func (h *MetricsEndpointHandler) handleHealth(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
@@ -194,18 +195,19 @@ func (h *MetricsEndpointHandler) handleHealth(ctx shared.Context) error {
 
 	// Check collector health
 	if err := h.collector.Health(ctx.Context()); err != nil {
-		response := map[string]interface{}{
+		response := map[string]any{
 			"status":    "unhealthy",
 			"error":     err.Error(),
 			"timestamp": time.Now().UTC(),
 		}
+
 		return ctx.JSON(http.StatusServiceUnavailable, response)
 	}
 
 	// Get collector stats
 	stats := h.collector.GetStats()
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":            "healthy",
 		"timestamp":         time.Now().UTC(),
 		"uptime":            stats.Uptime,
@@ -219,17 +221,18 @@ func (h *MetricsEndpointHandler) handleHealth(ctx shared.Context) error {
 	return ctx.JSON(http.StatusOK, response)
 }
 
-// handleStats handles the stats endpoint
+// handleStats handles the stats endpoint.
 func (h *MetricsEndpointHandler) handleStats(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
 	}
 
 	stats := h.collector.GetStats()
+
 	return ctx.JSON(http.StatusOK, stats)
 }
 
-// handleMetricsByType handles metrics filtering by type
+// handleMetricsByType handles metrics filtering by type.
 func (h *MetricsEndpointHandler) handleMetricsByType(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
@@ -242,6 +245,7 @@ func (h *MetricsEndpointHandler) handleMetricsByType(ctx shared.Context) error {
 
 	// Parse metric type
 	var metricType internal.MetricType
+
 	switch strings.ToLower(typeParam) {
 	case "counter":
 		metricType = internal.MetricTypeCounter
@@ -256,10 +260,11 @@ func (h *MetricsEndpointHandler) handleMetricsByType(ctx shared.Context) error {
 	}
 
 	metrics := h.collector.GetMetricsByType(metricType)
+
 	return ctx.JSON(http.StatusOK, metrics)
 }
 
-// handleMetricsByName handles metrics filtering by name pattern
+// handleMetricsByName handles metrics filtering by name pattern.
 func (h *MetricsEndpointHandler) handleMetricsByName(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
@@ -275,7 +280,8 @@ func (h *MetricsEndpointHandler) handleMetricsByName(ctx shared.Context) error {
 	metrics := h.collector.GetMetrics()
 
 	// Filter by pattern (simple implementation)
-	filtered := make(map[string]interface{})
+	filtered := make(map[string]any)
+
 	for name, value := range metrics {
 		if h.matchesPattern(name, pattern) {
 			filtered[name] = value
@@ -285,7 +291,7 @@ func (h *MetricsEndpointHandler) handleMetricsByName(ctx shared.Context) error {
 	return ctx.JSON(http.StatusOK, filtered)
 }
 
-// handleMetricsByTag handles metrics filtering by tag
+// handleMetricsByTag handles metrics filtering by tag.
 func (h *MetricsEndpointHandler) handleMetricsByTag(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
@@ -299,10 +305,11 @@ func (h *MetricsEndpointHandler) handleMetricsByTag(ctx shared.Context) error {
 	}
 
 	metrics := h.collector.GetMetricsByTag(tagKey, tagValue)
+
 	return ctx.JSON(http.StatusOK, metrics)
 }
 
-// handleReset handles metrics reset
+// handleReset handles metrics reset.
 func (h *MetricsEndpointHandler) handleReset(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
@@ -323,7 +330,7 @@ func (h *MetricsEndpointHandler) handleReset(ctx shared.Context) error {
 	// Clear cache
 	h.cache.clear()
 
-	response := map[string]interface{}{
+	response := map[string]any{
 		"status":    "success",
 		"message":   "metrics reset successfully",
 		"timestamp": time.Now().UTC(),
@@ -332,7 +339,7 @@ func (h *MetricsEndpointHandler) handleReset(ctx shared.Context) error {
 	return ctx.JSON(http.StatusOK, response)
 }
 
-// handleExport handles metrics export
+// handleExport handles metrics export.
 func (h *MetricsEndpointHandler) handleExport(ctx shared.Context) error {
 	if h.config.EnableCORS {
 		h.applyCORS(ctx)
@@ -345,6 +352,7 @@ func (h *MetricsEndpointHandler) handleExport(ctx shared.Context) error {
 
 	// Parse export format
 	var format internal.ExportFormat
+
 	switch strings.ToLower(formatParam) {
 	case "prometheus":
 		format = internal.ExportFormatPrometheus
@@ -371,7 +379,7 @@ func (h *MetricsEndpointHandler) handleExport(ctx shared.Context) error {
 // HELPER METHODS
 // =============================================================================
 
-// applyCORS applies CORS headers
+// applyCORS applies CORS headers.
 func (h *MetricsEndpointHandler) applyCORS(ctx shared.Context) {
 	ctx.SetHeader("Access-Control-Allow-Origin", "*")
 	ctx.SetHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -379,35 +387,35 @@ func (h *MetricsEndpointHandler) applyCORS(ctx shared.Context) {
 	ctx.SetHeader("Access-Control-Max-Age", "86400")
 }
 
-// checkAuth checks authentication
+// checkAuth checks authentication.
 func (h *MetricsEndpointHandler) checkAuth(ctx shared.Context) error {
 	// This is a placeholder implementation
 	// In a real implementation, this would check JWT tokens, API keys, etc.
-
 	authHeader := ctx.Request().Header.Get("Authorization")
 	if authHeader == "" {
-		return fmt.Errorf("missing authorization header")
+		return errors.New("missing authorization header")
 	}
 
 	// Simple Bearer token check
 	if !strings.HasPrefix(authHeader, "Bearer ") {
-		return fmt.Errorf("invalid authorization header format")
+		return errors.New("invalid authorization header format")
 	}
 
 	// In a real implementation, validate the token
 	return nil
 }
 
-// getFormatFromQuery gets the format from query parameters
+// getFormatFromQuery gets the format from query parameters.
 func (h *MetricsEndpointHandler) getFormatFromQuery(format string) string {
 	if format == "" {
 		format = "json" // default format
 	}
+
 	return strings.ToLower(format)
 }
 
-// exportMetrics exports metrics in the specified format
-func (h *MetricsEndpointHandler) exportMetrics(metrics map[string]interface{}, format string) ([]byte, error) {
+// exportMetrics exports metrics in the specified format.
+func (h *MetricsEndpointHandler) exportMetrics(metrics map[string]any, format string) ([]byte, error) {
 	switch format {
 	case "prometheus":
 		return h.collector.Export(internal.ExportFormatPrometheus)
@@ -422,7 +430,7 @@ func (h *MetricsEndpointHandler) exportMetrics(metrics map[string]interface{}, f
 	}
 }
 
-// writeResponse writes the response with appropriate headers
+// writeResponse writes the response with appropriate headers.
 func (h *MetricsEndpointHandler) writeResponse(ctx shared.Context, data []byte, format string) error {
 	// Set content type based on format
 	switch format {
@@ -445,12 +453,13 @@ func (h *MetricsEndpointHandler) writeResponse(ctx shared.Context, data []byte, 
 
 	ctx.Response().WriteHeader(http.StatusOK)
 	_, err := ctx.Response().Write(data)
+
 	return err
 }
 
-// writeError writes an error response
+// writeError writes an error response.
 func (h *MetricsEndpointHandler) writeError(ctx shared.Context, status int, message string, err error) error {
-	response := map[string]interface{}{
+	response := map[string]any{
 		"error":     message,
 		"timestamp": time.Now().UTC(),
 	}
@@ -471,7 +480,7 @@ func (h *MetricsEndpointHandler) writeError(ctx shared.Context, status int, mess
 	return ctx.JSON(status, response)
 }
 
-// matchesPattern checks if a name matches a pattern
+// matchesPattern checks if a name matches a pattern.
 func (h *MetricsEndpointHandler) matchesPattern(name, pattern string) bool {
 	// Simple pattern matching implementation
 	if pattern == "*" {
@@ -480,6 +489,7 @@ func (h *MetricsEndpointHandler) matchesPattern(name, pattern string) bool {
 
 	if strings.HasSuffix(pattern, "*") {
 		prefix := pattern[:len(pattern)-1]
+
 		return strings.HasPrefix(name, prefix)
 	}
 
@@ -490,13 +500,14 @@ func (h *MetricsEndpointHandler) matchesPattern(name, pattern string) bool {
 // CACHE IMPLEMENTATION
 // =============================================================================
 
-// get retrieves data from cache
+// get retrieves data from cache.
 func (c *endpointCache) get(key, format string) ([]byte, bool) {
 	if !c.enabled {
 		return nil, false
 	}
 
 	cacheKey := key + ":" + format
+
 	entry, exists := c.data[cacheKey]
 	if !exists {
 		return nil, false
@@ -505,13 +516,14 @@ func (c *endpointCache) get(key, format string) ([]byte, bool) {
 	// Check if cache entry is expired
 	if time.Since(entry.timestamp) > c.duration {
 		delete(c.data, cacheKey)
+
 		return nil, false
 	}
 
 	return entry.data, true
 }
 
-// set stores data in cache
+// set stores data in cache.
 func (c *endpointCache) set(key, format string, data []byte) {
 	if !c.enabled {
 		return
@@ -525,7 +537,7 @@ func (c *endpointCache) set(key, format string, data []byte) {
 	}
 }
 
-// clear clears all cache entries
+// clear clears all cache entries.
 func (c *endpointCache) clear() {
 	c.data = make(map[string]cacheEntry)
 }
@@ -534,13 +546,14 @@ func (c *endpointCache) clear() {
 // UTILITY FUNCTIONS
 // =============================================================================
 
-// RegisterMetricsEndpoints registers metrics endpoints with a router
+// RegisterMetricsEndpoints registers metrics endpoints with a router.
 func RegisterMetricsEndpoints(router shared.Router, collector internal.Metrics, config *EndpointConfig, logger logger.Logger) error {
 	handler := NewMetricsEndpointHandler(collector, config, logger)
+
 	return handler.RegisterEndpoints(router)
 }
 
-// MetricsMiddleware creates middleware for collecting HTTP metrics
+// MetricsMiddleware creates middleware for collecting HTTP metrics.
 func MetricsMiddleware(collector internal.Metrics) func(next http.Handler) http.Handler {
 	requestsTotal := collector.Counter("http_requests_total", "method", "status", "path")
 	requestDuration := collector.Histogram("http_request_duration_seconds", "method", "path")
@@ -582,9 +595,10 @@ func MetricsMiddleware(collector internal.Metrics) func(next http.Handler) http.
 	}
 }
 
-// responseWrapper wraps http.ResponseWriter to capture metrics
+// responseWrapper wraps http.ResponseWriter to capture metrics.
 type responseWrapper struct {
 	http.ResponseWriter
+
 	statusCode   int
 	bytesWritten int
 }
@@ -597,5 +611,6 @@ func (rw *responseWrapper) WriteHeader(code int) {
 func (rw *responseWrapper) Write(b []byte) (int, error) {
 	n, err := rw.ResponseWriter.Write(b)
 	rw.bytesWritten += n
+
 	return n, err
 }

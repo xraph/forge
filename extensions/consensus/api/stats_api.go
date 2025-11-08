@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/observability"
 )
 
-// StatsAPI provides statistics endpoints
+// StatsAPI provides statistics endpoints.
 type StatsAPI struct {
 	raftNode  internal.RaftNode
 	manager   *cluster.Manager
@@ -18,7 +18,7 @@ type StatsAPI struct {
 	startTime time.Time
 }
 
-// NewStatsAPI creates a new stats API
+// NewStatsAPI creates a new stats API.
 func NewStatsAPI(
 	raftNode internal.RaftNode,
 	manager *cluster.Manager,
@@ -34,11 +34,11 @@ func NewStatsAPI(
 	}
 }
 
-// GetStats returns overall statistics
+// GetStats returns overall statistics.
 func (sa *StatsAPI) GetStats(ctx forge.Context) error {
 	raftStats := sa.raftNode.GetStats()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"uptime_seconds": time.Since(sa.startTime).Seconds(),
 		"node_id":        raftStats.NodeID,
 		"is_leader":      sa.raftNode.IsLeader(),
@@ -56,11 +56,11 @@ func (sa *StatsAPI) GetStats(ctx forge.Context) error {
 	return ctx.JSON(200, stats)
 }
 
-// GetRaftStats returns Raft-specific statistics
+// GetRaftStats returns Raft-specific statistics.
 func (sa *StatsAPI) GetRaftStats(ctx forge.Context) error {
 	raftStats := sa.raftNode.GetStats()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"node_id":      raftStats.NodeID,
 		"is_leader":    sa.raftNode.IsLeader(),
 		"current_term": raftStats.Term,
@@ -71,13 +71,14 @@ func (sa *StatsAPI) GetRaftStats(ctx forge.Context) error {
 	return ctx.JSON(200, stats)
 }
 
-// GetClusterStats returns cluster statistics
+// GetClusterStats returns cluster statistics.
 func (sa *StatsAPI) GetClusterStats(ctx forge.Context) error {
 	stats := sa.getClusterStats()
+
 	return ctx.JSON(200, stats)
 }
 
-// GetReplicationStats returns replication statistics
+// GetReplicationStats returns replication statistics.
 func (sa *StatsAPI) GetReplicationStats(ctx forge.Context) error {
 	if !sa.raftNode.IsLeader() {
 		return ctx.JSON(400, map[string]string{
@@ -86,17 +87,17 @@ func (sa *StatsAPI) GetReplicationStats(ctx forge.Context) error {
 	}
 
 	// TODO: Get actual replication stats from leader state
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"is_leader": true,
-		"peers":     []map[string]interface{}{},
+		"peers":     []map[string]any{},
 	}
 
 	return ctx.JSON(200, stats)
 }
 
-// GetPerformanceStats returns performance statistics
+// GetPerformanceStats returns performance statistics.
 func (sa *StatsAPI) GetPerformanceStats(ctx forge.Context) error {
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"uptime_seconds": time.Since(sa.startTime).Seconds(),
 	}
 
@@ -108,8 +109,8 @@ func (sa *StatsAPI) GetPerformanceStats(ctx forge.Context) error {
 	return ctx.JSON(200, stats)
 }
 
-// getClusterStats returns cluster statistics
-func (sa *StatsAPI) getClusterStats() map[string]interface{} {
+// getClusterStats returns cluster statistics.
+func (sa *StatsAPI) getClusterStats() map[string]any {
 	nodes := sa.manager.GetNodes()
 
 	healthyCount := 0
@@ -120,14 +121,16 @@ func (sa *StatsAPI) getClusterStats() map[string]interface{} {
 		if node.Status == internal.StatusActive {
 			healthyCount++
 		}
-		if node.Role == internal.RoleLeader {
+		switch node.Role {
+
+		case internal.RoleLeader:
 			leaderCount++
-		} else if node.Role == internal.RoleFollower {
+		case internal.RoleFollower:
 			followerCount++
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"total_nodes":    len(nodes),
 		"healthy_nodes":  healthyCount,
 		"leader_count":   leaderCount,
@@ -135,7 +138,7 @@ func (sa *StatsAPI) getClusterStats() map[string]interface{} {
 	}
 }
 
-// GetMetrics returns metrics in Prometheus format
+// GetMetrics returns metrics in Prometheus format.
 func (sa *StatsAPI) GetMetrics(ctx forge.Context) error {
 	if sa.metrics == nil {
 		return ctx.JSON(503, map[string]string{
@@ -144,14 +147,14 @@ func (sa *StatsAPI) GetMetrics(ctx forge.Context) error {
 	}
 
 	// TODO: Return Prometheus-formatted metrics
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"message": "metrics export not yet implemented",
 	}
 
 	return ctx.JSON(200, stats)
 }
 
-// ResetMetrics resets metrics counters
+// ResetMetrics resets metrics counters.
 func (sa *StatsAPI) ResetMetrics(ctx forge.Context) error {
 	if sa.metrics == nil {
 		return ctx.JSON(503, map[string]string{

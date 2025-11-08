@@ -9,9 +9,10 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension for feature flags
+// Extension implements forge.Extension for feature flags.
 type Extension struct {
 	*forge.BaseExtension
+
 	config   Config
 	provider Provider
 	app      forge.App
@@ -20,7 +21,7 @@ type Extension struct {
 	wg       sync.WaitGroup
 }
 
-// NewExtension creates a new feature flags extension
+// NewExtension creates a new feature flags extension.
 func NewExtension(opts ...ConfigOption) forge.Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -28,6 +29,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("features", "1.0.0", "Feature Flags & A/B Testing")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -35,12 +37,12 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 }
 
-// NewExtensionWithConfig creates a new extension with complete config
+// NewExtensionWithConfig creates a new extension with complete config.
 func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the extension with the app
+// Register registers the extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
@@ -50,6 +52,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		app.Logger().Info("features extension disabled")
+
 		return nil
 	}
 
@@ -65,14 +68,14 @@ func (e *Extension) Register(app forge.App) error {
 	e.provider = provider
 
 	// Register service for feature flag operations
-	if err := container.Register("features", func(c forge.Container) (interface{}, error) {
+	if err := container.Register("features", func(c forge.Container) (any, error) {
 		return NewService(e.provider, logger), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register features service: %w", err)
 	}
 
 	// Register Service type
-	if err := container.Register("features.Service", func(c forge.Container) (interface{}, error) {
+	if err := container.Register("features.Service", func(c forge.Container) (any, error) {
 		return NewService(e.provider, logger), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register features.Service: %w", err)
@@ -86,7 +89,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the extension
+// Start starts the extension.
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -102,14 +105,16 @@ func (e *Extension) Start(ctx context.Context) error {
 	// Start periodic refresh (if configured)
 	if e.config.RefreshInterval > 0 {
 		e.wg.Add(1)
+
 		go e.refreshLoop()
 	}
 
 	logger.Info("features extension started")
+
 	return nil
 }
 
-// Stop stops the extension gracefully
+// Stop stops the extension gracefully.
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -122,6 +127,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		e.wg.Wait()
 		close(done)
@@ -144,25 +150,25 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks the extension health
+// Health checks the extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
 	if e.provider == nil {
-		return fmt.Errorf("feature flags provider is nil")
+		return errors.New("feature flags provider is nil")
 	}
 
 	return e.provider.Health(ctx)
 }
 
-// Dependencies returns extension dependencies
+// Dependencies returns extension dependencies.
 func (e *Extension) Dependencies() []string {
 	return []string{} // No dependencies
 }
 
-// createProvider creates the appropriate provider based on configuration
+// createProvider creates the appropriate provider based on configuration.
 func (e *Extension) createProvider() (Provider, error) {
 	switch e.config.Provider {
 	case "local":
@@ -180,7 +186,7 @@ func (e *Extension) createProvider() (Provider, error) {
 	}
 }
 
-// refreshLoop periodically refreshes flags from remote provider
+// refreshLoop periodically refreshes flags from remote provider.
 func (e *Extension) refreshLoop() {
 	defer e.wg.Done()
 
@@ -200,6 +206,7 @@ func (e *Extension) refreshLoop() {
 			} else {
 				logger.Debug("feature flags refreshed")
 			}
+
 			cancel()
 
 		case <-e.stopCh:
@@ -208,7 +215,7 @@ func (e *Extension) refreshLoop() {
 	}
 }
 
-// Service returns the feature flags service
+// Service returns the feature flags service.
 func (e *Extension) Service() *Service {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -219,4 +226,3 @@ func (e *Extension) Service() *Service {
 
 	return NewService(e.provider, e.app.Logger())
 }
-

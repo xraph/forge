@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
-// NewManifest creates a new schema manifest with default values
+// NewManifest creates a new schema manifest with default values.
 func NewManifest(serviceName, serviceVersion, instanceID string) *SchemaManifest {
 	return &SchemaManifest{
 		Version:        ProtocolVersion,
@@ -23,12 +24,12 @@ func NewManifest(serviceName, serviceVersion, instanceID string) *SchemaManifest
 	}
 }
 
-// AddSchema adds a schema descriptor to the manifest
+// AddSchema adds a schema descriptor to the manifest.
 func (m *SchemaManifest) AddSchema(descriptor SchemaDescriptor) {
 	m.Schemas = append(m.Schemas, descriptor)
 }
 
-// AddCapability adds a capability to the manifest
+// AddCapability adds a capability to the manifest.
 func (m *SchemaManifest) AddCapability(capability string) {
 	// Check if capability already exists
 	for _, c := range m.Capabilities {
@@ -36,21 +37,24 @@ func (m *SchemaManifest) AddCapability(capability string) {
 			return
 		}
 	}
+
 	m.Capabilities = append(m.Capabilities, capability)
 }
 
-// UpdateChecksum recalculates the manifest checksum based on all schema hashes
+// UpdateChecksum recalculates the manifest checksum based on all schema hashes.
 func (m *SchemaManifest) UpdateChecksum() error {
 	checksum, err := CalculateManifestChecksum(m)
 	if err != nil {
 		return fmt.Errorf("failed to calculate manifest checksum: %w", err)
 	}
+
 	m.Checksum = checksum
 	m.UpdatedAt = time.Now().Unix()
+
 	return nil
 }
 
-// Validate validates the manifest for correctness
+// Validate validates the manifest for correctness.
 func (m *SchemaManifest) Validate() error {
 	// Check protocol version compatibility
 	if !IsCompatible(m.Version) {
@@ -62,6 +66,7 @@ func (m *SchemaManifest) Validate() error {
 	if m.ServiceName == "" {
 		return &ValidationError{Field: "service_name", Message: "service name is required"}
 	}
+
 	if m.InstanceID == "" {
 		return &ValidationError{Field: "instance_id", Message: "instance ID is required"}
 	}
@@ -84,6 +89,7 @@ func (m *SchemaManifest) Validate() error {
 		if err != nil {
 			return fmt.Errorf("failed to verify checksum: %w", err)
 		}
+
 		if m.Checksum != expectedChecksum {
 			return fmt.Errorf("%w: expected %s, got %s", ErrChecksumMismatch, expectedChecksum, m.Checksum)
 		}
@@ -92,27 +98,29 @@ func (m *SchemaManifest) Validate() error {
 	return nil
 }
 
-// GetSchema retrieves a schema descriptor by type
+// GetSchema retrieves a schema descriptor by type.
 func (m *SchemaManifest) GetSchema(schemaType SchemaType) (*SchemaDescriptor, bool) {
 	for i := range m.Schemas {
 		if m.Schemas[i].Type == schemaType {
 			return &m.Schemas[i], true
 		}
 	}
+
 	return nil, false
 }
 
-// HasCapability checks if the manifest includes a specific capability
+// HasCapability checks if the manifest includes a specific capability.
 func (m *SchemaManifest) HasCapability(capability string) bool {
 	for _, c := range m.Capabilities {
 		if c == capability {
 			return true
 		}
 	}
+
 	return false
 }
 
-// Clone creates a deep copy of the manifest
+// Clone creates a deep copy of the manifest.
 func (m *SchemaManifest) Clone() *SchemaManifest {
 	clone := &SchemaManifest{
 		Version:        m.Version,
@@ -132,26 +140,27 @@ func (m *SchemaManifest) Clone() *SchemaManifest {
 	return clone
 }
 
-// ToJSON serializes the manifest to JSON
+// ToJSON serializes the manifest to JSON.
 func (m *SchemaManifest) ToJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
-// ToPrettyJSON serializes the manifest to pretty-printed JSON
+// ToPrettyJSON serializes the manifest to pretty-printed JSON.
 func (m *SchemaManifest) ToPrettyJSON() ([]byte, error) {
 	return json.MarshalIndent(m, "", "  ")
 }
 
-// FromJSON deserializes a manifest from JSON
+// FromJSON deserializes a manifest from JSON.
 func FromJSON(data []byte) (*SchemaManifest, error) {
 	var manifest SchemaManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidManifest, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
+
 	return &manifest, nil
 }
 
-// ValidateSchemaDescriptor validates a schema descriptor
+// ValidateSchemaDescriptor validates a schema descriptor.
 func ValidateSchemaDescriptor(sd *SchemaDescriptor) error {
 	// Check schema type
 	if !sd.Type.IsValid() {
@@ -192,7 +201,7 @@ func ValidateSchemaDescriptor(sd *SchemaDescriptor) error {
 }
 
 // CalculateManifestChecksum calculates the SHA256 checksum of a manifest
-// by combining all schema hashes in a deterministic order
+// by combining all schema hashes in a deterministic order.
 func CalculateManifestChecksum(manifest *SchemaManifest) (string, error) {
 	if len(manifest.Schemas) == 0 {
 		// Empty manifest has empty checksum
@@ -208,16 +217,19 @@ func CalculateManifestChecksum(manifest *SchemaManifest) (string, error) {
 
 	// Concatenate all schema hashes
 	var combined string
+	var combinedSb211 strings.Builder
 	for _, schema := range sortedSchemas {
-		combined += schema.Hash
+		combinedSb211.WriteString(schema.Hash)
 	}
+	combined += combinedSb211.String()
 
 	// Calculate SHA256 of combined hashes
 	hash := sha256.Sum256([]byte(combined))
+
 	return hex.EncodeToString(hash[:]), nil
 }
 
-// CalculateSchemaChecksum calculates the SHA256 checksum of a schema
+// CalculateSchemaChecksum calculates the SHA256 checksum of a schema.
 func CalculateSchemaChecksum(schema interface{}) (string, error) {
 	// Serialize to canonical JSON (map keys are sorted by json.Marshal)
 	data, err := json.Marshal(schema)
@@ -227,10 +239,11 @@ func CalculateSchemaChecksum(schema interface{}) (string, error) {
 
 	// Calculate SHA256
 	hash := sha256.Sum256(data)
+
 	return hex.EncodeToString(hash[:]), nil
 }
 
-// ManifestDiff represents the difference between two manifests
+// ManifestDiff represents the difference between two manifests.
 type ManifestDiff struct {
 	// SchemasAdded are schemas present in new but not in old
 	SchemasAdded []SchemaDescriptor
@@ -251,14 +264,14 @@ type ManifestDiff struct {
 	EndpointsChanged bool
 }
 
-// SchemaChangeDiff represents a changed schema
+// SchemaChangeDiff represents a changed schema.
 type SchemaChangeDiff struct {
 	Type    SchemaType
 	OldHash string
 	NewHash string
 }
 
-// HasChanges returns true if there are any changes
+// HasChanges returns true if there are any changes.
 func (d *ManifestDiff) HasChanges() bool {
 	return len(d.SchemasAdded) > 0 ||
 		len(d.SchemasRemoved) > 0 ||
@@ -268,7 +281,7 @@ func (d *ManifestDiff) HasChanges() bool {
 		d.EndpointsChanged
 }
 
-// DiffManifests compares two manifests and returns the differences
+// DiffManifests compares two manifests and returns the differences.
 func DiffManifests(old, new *SchemaManifest) *ManifestDiff {
 	diff := &ManifestDiff{}
 
@@ -337,4 +350,3 @@ func DiffManifests(old, new *SchemaManifest) *ManifestDiff {
 
 	return diff
 }
-

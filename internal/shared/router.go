@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// Router provides HTTP routing with multiple backend support
+// Router provides HTTP routing with multiple backend support.
 type Router interface {
 	// HTTP Methods - register routes
 	GET(path string, handler any, opts ...RouteOption) error
@@ -50,20 +50,20 @@ type Router interface {
 	// EventStream(path string, handler SSEHandler, opts ...RouteOption) error
 }
 
-// RouteOption configures a route
+// RouteOption configures a route.
 type RouteOption interface {
 	Apply(*RouteConfig)
 }
 
-// GroupOption configures a route group
+// GroupOption configures a route group.
 type GroupOption interface {
 	Apply(*GroupConfig)
 }
 
-// Middleware wraps HTTP handlers
+// Middleware wraps HTTP handlers.
 type Middleware func(http.Handler) http.Handler
 
-// RouteConfig holds route configuration
+// RouteConfig holds route configuration.
 type RouteConfig struct {
 	Name        string
 	Summary     string
@@ -79,14 +79,14 @@ type RouteConfig struct {
 	Deprecated  bool
 }
 
-// GroupConfig holds route group configuration
+// GroupConfig holds route group configuration.
 type GroupConfig struct {
 	Middleware []Middleware
 	Tags       []string
 	Metadata   map[string]any
 }
 
-// RouteInfo provides route information for inspection
+// RouteInfo provides route information for inspection.
 type RouteInfo struct {
 	Name        string
 	Method      string
@@ -102,18 +102,18 @@ type RouteInfo struct {
 }
 
 // RouteExtension represents a route-level extension (e.g., OpenAPI, custom validation)
-// Note: This is different from app-level Extension which manages app components
+// Note: This is different from app-level Extension which manages app components.
 type RouteExtension interface {
 	Name() string
 	Validate() error
 }
 
-// RouterOption configures the router
+// RouterOption configures the router.
 type RouterOption interface {
 	Apply(*routerConfig)
 }
 
-// routerConfig holds router configuration
+// routerConfig holds router configuration.
 type routerConfig struct {
 	adapter       RouterAdapter
 	container     Container
@@ -125,7 +125,7 @@ type routerConfig struct {
 	healthConfig  *HealthConfig
 }
 
-// RouterAdapter wraps a routing backend
+// RouterAdapter wraps a routing backend.
 type RouterAdapter interface {
 	// Handle registers a route
 	Handle(method, path string, handler http.Handler)

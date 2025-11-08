@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Queue represents a unified message queue interface supporting multiple backends
+// Queue represents a unified message queue interface supporting multiple backends.
 type Queue interface {
 	// Connection management
 	Connect(ctx context.Context) error
@@ -41,7 +41,7 @@ type Queue interface {
 	Stats(ctx context.Context) (*QueueStats, error)
 }
 
-// Message represents a queue message
+// Message represents a queue message.
 type Message struct {
 	ID          string                 `json:"id"`
 	Queue       string                 `json:"queue"`
@@ -56,7 +56,7 @@ type Message struct {
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// QueueOptions contains queue configuration
+// QueueOptions contains queue configuration.
 type QueueOptions struct {
 	Durable         bool                   `json:"durable"`           // Survives broker restart
 	AutoDelete      bool                   `json:"auto_delete"`       // Deleted when no consumers
@@ -69,7 +69,7 @@ type QueueOptions struct {
 	Arguments       map[string]interface{} `json:"arguments,omitempty"`
 }
 
-// QueueInfo contains queue metadata
+// QueueInfo contains queue metadata.
 type QueueInfo struct {
 	Name          string    `json:"name"`
 	Messages      int64     `json:"messages"`
@@ -84,10 +84,10 @@ type QueueInfo struct {
 	LastMessageAt time.Time `json:"last_message_at,omitempty"`
 }
 
-// MessageHandler is called for each received message
+// MessageHandler is called for each received message.
 type MessageHandler func(ctx context.Context, msg Message) error
 
-// ConsumeOptions contains consumer configuration
+// ConsumeOptions contains consumer configuration.
 type ConsumeOptions struct {
 	ConsumerTag   string                 `json:"consumer_tag,omitempty"`
 	AutoAck       bool                   `json:"auto_ack"`           // Auto-acknowledge messages
@@ -100,7 +100,7 @@ type ConsumeOptions struct {
 	Arguments     map[string]interface{} `json:"arguments,omitempty"`
 }
 
-// RetryStrategy defines retry behavior
+// RetryStrategy defines retry behavior.
 type RetryStrategy struct {
 	MaxRetries      int           `json:"max_retries"`
 	InitialInterval time.Duration `json:"initial_interval"`
@@ -108,7 +108,7 @@ type RetryStrategy struct {
 	Multiplier      float64       `json:"multiplier"` // Exponential backoff multiplier
 }
 
-// QueueStats contains queue system statistics
+// QueueStats contains queue system statistics.
 type QueueStats struct {
 	QueueCount      int64                  `json:"queue_count"`
 	TotalMessages   int64                  `json:"total_messages"`
@@ -125,7 +125,7 @@ type QueueStats struct {
 	Extra           map[string]interface{} `json:"extra,omitempty"`
 }
 
-// DefaultQueueOptions returns default queue options
+// DefaultQueueOptions returns default queue options.
 func DefaultQueueOptions() QueueOptions {
 	return QueueOptions{
 		Durable:     true,
@@ -137,7 +137,7 @@ func DefaultQueueOptions() QueueOptions {
 	}
 }
 
-// DefaultConsumeOptions returns default consume options
+// DefaultConsumeOptions returns default consume options.
 func DefaultConsumeOptions() ConsumeOptions {
 	return ConsumeOptions{
 		AutoAck:       false,

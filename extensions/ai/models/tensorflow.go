@@ -7,32 +7,33 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// TensorFlowAdapter implements ModelAdapter for TensorFlow models
+// TensorFlowAdapter implements ModelAdapter for TensorFlow models.
 type TensorFlowAdapter struct {
 	logger logger.Logger
 }
 
-// NewTensorFlowAdapter creates a new TensorFlow adapter
+// NewTensorFlowAdapter creates a new TensorFlow adapter.
 func NewTensorFlowAdapter(logger logger.Logger) ModelAdapter {
 	return &TensorFlowAdapter{
 		logger: logger,
 	}
 }
 
-// Name returns the adapter name
+// Name returns the adapter name.
 func (a *TensorFlowAdapter) Name() string {
 	return "tensorflow"
 }
 
-// Framework returns the ML framework
+// Framework returns the ML framework.
 func (a *TensorFlowAdapter) Framework() MLFramework {
 	return MLFrameworkTensorFlow
 }
 
-// SupportsModel checks if this adapter supports the given model configuration
+// SupportsModel checks if this adapter supports the given model configuration.
 func (a *TensorFlowAdapter) SupportsModel(config ModelConfig) bool {
 	if config.Framework != MLFrameworkTensorFlow {
 		return false
@@ -59,7 +60,7 @@ func (a *TensorFlowAdapter) SupportsModel(config ModelConfig) bool {
 	return false
 }
 
-// CreateModel creates a new TensorFlow model
+// CreateModel creates a new TensorFlow model.
 func (a *TensorFlowAdapter) CreateModel(config ModelConfig) (Model, error) {
 	if err := a.ValidateConfig(config); err != nil {
 		return nil, err
@@ -75,7 +76,7 @@ func (a *TensorFlowAdapter) CreateModel(config ModelConfig) (Model, error) {
 	model.SetOutputSchema(a.getDefaultOutputSchema(config))
 
 	// Set TensorFlow-specific metadata
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"framework": "tensorflow",
 		"version":   "2.x",
 		"format":    a.detectModelFormat(config.ModelPath),
@@ -85,38 +86,38 @@ func (a *TensorFlowAdapter) CreateModel(config ModelConfig) (Model, error) {
 	return model, nil
 }
 
-// ValidateConfig validates the model configuration
+// ValidateConfig validates the model configuration.
 func (a *TensorFlowAdapter) ValidateConfig(config ModelConfig) error {
 	if config.Framework != MLFrameworkTensorFlow {
 		return fmt.Errorf("invalid framework: expected %s, got %s", MLFrameworkTensorFlow, config.Framework)
 	}
 
 	if config.ModelPath == "" {
-		return fmt.Errorf("model path is required")
+		return errors.New("model path is required")
 	}
 
 	if config.ID == "" {
-		return fmt.Errorf("model ID is required")
+		return errors.New("model ID is required")
 	}
 
 	if config.Name == "" {
-		return fmt.Errorf("model name is required")
+		return errors.New("model name is required")
 	}
 
 	// Validate batch size
 	if config.BatchSize < 0 {
-		return fmt.Errorf("batch size must be non-negative")
+		return errors.New("batch size must be non-negative")
 	}
 
 	// Validate timeout
 	if config.Timeout < 0 {
-		return fmt.Errorf("timeout must be non-negative")
+		return errors.New("timeout must be non-negative")
 	}
 
 	return nil
 }
 
-// detectModelFormat detects the TensorFlow model format
+// detectModelFormat detects the TensorFlow model format.
 func (a *TensorFlowAdapter) detectModelFormat(modelPath string) string {
 	ext := filepath.Ext(modelPath)
 	switch ext {
@@ -130,68 +131,69 @@ func (a *TensorFlowAdapter) detectModelFormat(modelPath string) string {
 		if strings.Contains(modelPath, "saved_model") {
 			return "saved_model"
 		}
+
 		return "unknown"
 	}
 }
 
-// getDefaultInputSchema returns default input schema for TensorFlow models
+// getDefaultInputSchema returns default input schema for TensorFlow models.
 func (a *TensorFlowAdapter) getDefaultInputSchema(config ModelConfig) InputSchema {
 	return InputSchema{
 		Type: "object",
-		Properties: map[string]interface{}{
-			"inputs": map[string]interface{}{
+		Properties: map[string]any{
+			"inputs": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "number",
 				},
 			},
-			"shape": map[string]interface{}{
+			"shape": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "integer",
 				},
 			},
 		},
 		Required: []string{"inputs"},
-		Examples: []interface{}{
-			map[string]interface{}{
+		Examples: []any{
+			map[string]any{
 				"inputs": []float64{1.0, 2.0, 3.0},
 				"shape":  []int{1, 3},
 			},
 		},
-		Constraints: map[string]interface{}{
+		Constraints: map[string]any{
 			"max_batch_size": config.BatchSize,
 		},
 	}
 }
 
-// getDefaultOutputSchema returns default output schema for TensorFlow models
+// getDefaultOutputSchema returns default output schema for TensorFlow models.
 func (a *TensorFlowAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema {
 	return OutputSchema{
 		Type: "object",
-		Properties: map[string]interface{}{
-			"predictions": map[string]interface{}{
+		Properties: map[string]any{
+			"predictions": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"label":       map[string]interface{}{"type": "string"},
-						"value":       map[string]interface{}{"type": "number"},
-						"confidence":  map[string]interface{}{"type": "number"},
-						"probability": map[string]interface{}{"type": "number"},
+					"properties": map[string]any{
+						"label":       map[string]any{"type": "string"},
+						"value":       map[string]any{"type": "number"},
+						"confidence":  map[string]any{"type": "number"},
+						"probability": map[string]any{"type": "number"},
 					},
 				},
 			},
-			"probabilities": map[string]interface{}{
+			"probabilities": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "number",
 				},
 			},
 		},
-		Examples: []interface{}{
-			map[string]interface{}{
-				"predictions": []map[string]interface{}{
+		Examples: []any{
+			map[string]any{
+				"predictions": []map[string]any{
 					{
 						"label":       "class_0",
 						"value":       0.8,
@@ -206,13 +208,14 @@ func (a *TensorFlowAdapter) getDefaultOutputSchema(config ModelConfig) OutputSch
 	}
 }
 
-// TensorFlowModel represents a TensorFlow model
+// TensorFlowModel represents a TensorFlow model.
 type TensorFlowModel struct {
 	*BaseModel
+
 	adapter      *TensorFlowAdapter
-	session      interface{} // TensorFlow session (would be actual TF session in real implementation)
-	inputTensor  interface{} // Input tensor definition
-	outputTensor interface{} // Output tensor definition
+	session      any // TensorFlow session (would be actual TF session in real implementation)
+	inputTensor  any // Input tensor definition
+	outputTensor any // Output tensor definition
 
 	// Model-specific configuration
 	useCPU     bool
@@ -220,7 +223,7 @@ type TensorFlowModel struct {
 	numThreads int
 }
 
-// Load loads the TensorFlow model
+// Load loads the TensorFlow model.
 func (m *TensorFlowModel) Load(ctx context.Context) error {
 	// Call base load first
 	if err := m.BaseModel.Load(ctx); err != nil {
@@ -268,7 +271,7 @@ func (m *TensorFlowModel) Load(ctx context.Context) error {
 	return nil
 }
 
-// Unload unloads the TensorFlow model
+// Unload unloads the TensorFlow model.
 func (m *TensorFlowModel) Unload(ctx context.Context) error {
 	// Clean up TensorFlow resources
 	if m.session != nil {
@@ -283,7 +286,7 @@ func (m *TensorFlowModel) Unload(ctx context.Context) error {
 	return m.BaseModel.Unload(ctx)
 }
 
-// Predict performs prediction using the TensorFlow model
+// Predict performs prediction using the TensorFlow model.
 func (m *TensorFlowModel) Predict(ctx context.Context, input ModelInput) (ModelOutput, error) {
 	startTime := time.Now()
 
@@ -295,6 +298,7 @@ func (m *TensorFlowModel) Predict(ctx context.Context, input ModelInput) (ModelO
 	// Validate input
 	if err := m.ValidateInput(input); err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("invalid input: %w", err)
 	}
 
@@ -302,6 +306,7 @@ func (m *TensorFlowModel) Predict(ctx context.Context, input ModelInput) (ModelO
 	tfInput, err := m.prepareInput(input)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("failed to prepare input: %w", err)
 	}
 
@@ -309,6 +314,7 @@ func (m *TensorFlowModel) Predict(ctx context.Context, input ModelInput) (ModelO
 	tfOutput, err := m.runInference(ctx, tfInput)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("inference failed: %w", err)
 	}
 
@@ -316,6 +322,7 @@ func (m *TensorFlowModel) Predict(ctx context.Context, input ModelInput) (ModelO
 	output, err := m.convertOutput(tfOutput, input.RequestID)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("failed to convert output: %w", err)
 	}
 
@@ -337,7 +344,7 @@ func (m *TensorFlowModel) Predict(ctx context.Context, input ModelInput) (ModelO
 	return output, nil
 }
 
-// BatchPredict performs batch prediction using the TensorFlow model
+// BatchPredict performs batch prediction using the TensorFlow model.
 func (m *TensorFlowModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]ModelOutput, error) {
 	if len(inputs) == 0 {
 		return []ModelOutput{}, nil
@@ -360,6 +367,7 @@ func (m *TensorFlowModel) BatchPredict(ctx context.Context, inputs []ModelInput)
 	batchInput, err := m.prepareBatchInput(inputs)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("failed to prepare batch input: %w", err)
 	}
 
@@ -367,6 +375,7 @@ func (m *TensorFlowModel) BatchPredict(ctx context.Context, inputs []ModelInput)
 	batchOutput, err := m.runInference(ctx, batchInput)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("batch inference failed: %w", err)
 	}
 
@@ -374,6 +383,7 @@ func (m *TensorFlowModel) BatchPredict(ctx context.Context, inputs []ModelInput)
 	outputs, err := m.convertBatchOutput(batchOutput, inputs)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("failed to convert batch output: %w", err)
 	}
 
@@ -398,7 +408,7 @@ func (m *TensorFlowModel) BatchPredict(ctx context.Context, inputs []ModelInput)
 	return outputs, nil
 }
 
-// ValidateInput validates TensorFlow-specific input
+// ValidateInput validates TensorFlow-specific input.
 func (m *TensorFlowModel) ValidateInput(input ModelInput) error {
 	// Call base validation
 	if err := m.BaseModel.ValidateInput(input); err != nil {
@@ -407,22 +417,22 @@ func (m *TensorFlowModel) ValidateInput(input ModelInput) error {
 
 	// TensorFlow-specific validation
 	if input.Data == nil {
-		return fmt.Errorf("input data is required")
+		return errors.New("input data is required")
 	}
 
 	// Validate input format based on model type
 	switch data := input.Data.(type) {
 	case []float64:
 		if len(data) == 0 {
-			return fmt.Errorf("input array cannot be empty")
+			return errors.New("input array cannot be empty")
 		}
 	case [][]float64:
 		if len(data) == 0 {
-			return fmt.Errorf("input matrix cannot be empty")
+			return errors.New("input matrix cannot be empty")
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		if _, ok := data["inputs"]; !ok {
-			return fmt.Errorf("input object must contain 'inputs' field")
+			return errors.New("input object must contain 'inputs' field")
 		}
 	default:
 		return fmt.Errorf("unsupported input type: %T", data)
@@ -431,8 +441,8 @@ func (m *TensorFlowModel) ValidateInput(input ModelInput) error {
 	return nil
 }
 
-// prepareInput prepares input data for TensorFlow
-func (m *TensorFlowModel) prepareInput(input ModelInput) (interface{}, error) {
+// prepareInput prepares input data for TensorFlow.
+func (m *TensorFlowModel) prepareInput(input ModelInput) (any, error) {
 	// In real implementation, this would:
 	// 1. Convert input data to TensorFlow tensors
 	// 2. Reshape data according to model requirements
@@ -448,15 +458,15 @@ func (m *TensorFlowModel) prepareInput(input ModelInput) (interface{}, error) {
 	}, nil
 }
 
-// prepareBatchInput prepares batch input data for TensorFlow
-func (m *TensorFlowModel) prepareBatchInput(inputs []ModelInput) (interface{}, error) {
+// prepareBatchInput prepares batch input data for TensorFlow.
+func (m *TensorFlowModel) prepareBatchInput(inputs []ModelInput) (any, error) {
 	// In real implementation, this would:
 	// 1. Concatenate input data into batch tensors
 	// 2. Ensure consistent shapes
 	// 3. Handle padding if needed
 
 	// Mock implementation
-	batchData := make([]interface{}, len(inputs))
+	batchData := make([]any, len(inputs))
 	for i, input := range inputs {
 		batchData[i] = input.Data
 	}
@@ -464,13 +474,13 @@ func (m *TensorFlowModel) prepareBatchInput(inputs []ModelInput) (interface{}, e
 	return &tensorFlowInput{
 		data:      batchData,
 		features:  nil,
-		metadata:  map[string]interface{}{"batch_size": len(inputs)},
+		metadata:  map[string]any{"batch_size": len(inputs)},
 		requestID: "batch",
 	}, nil
 }
 
-// runInference runs TensorFlow inference
-func (m *TensorFlowModel) runInference(ctx context.Context, input interface{}) (interface{}, error) {
+// runInference runs TensorFlow inference.
+func (m *TensorFlowModel) runInference(ctx context.Context, input any) (any, error) {
 	// In real implementation, this would:
 	// 1. Run TensorFlow session
 	// 2. Feed input tensors
@@ -490,15 +500,15 @@ func (m *TensorFlowModel) runInference(ctx context.Context, input interface{}) (
 		predictions:   []float64{0.8, 0.2},
 		probabilities: []float64{0.8, 0.2},
 		logits:        []float64{1.4, -1.4},
-		metadata:      map[string]interface{}{"inference_time": 10},
+		metadata:      map[string]any{"inference_time": 10},
 	}, nil
 }
 
-// convertOutput converts TensorFlow output to ModelOutput
-func (m *TensorFlowModel) convertOutput(tfOutput interface{}, requestID string) (ModelOutput, error) {
+// convertOutput converts TensorFlow output to ModelOutput.
+func (m *TensorFlowModel) convertOutput(tfOutput any, requestID string) (ModelOutput, error) {
 	output, ok := tfOutput.(*tensorFlowOutput)
 	if !ok {
-		return ModelOutput{}, fmt.Errorf("invalid TensorFlow output type")
+		return ModelOutput{}, errors.New("invalid TensorFlow output type")
 	}
 
 	// Convert predictions
@@ -509,7 +519,7 @@ func (m *TensorFlowModel) convertOutput(tfOutput interface{}, requestID string) 
 			Value:       pred,
 			Confidence:  pred,
 			Probability: pred,
-			Metadata:    map[string]interface{}{"index": i},
+			Metadata:    map[string]any{"index": i},
 		}
 	}
 
@@ -528,24 +538,24 @@ func (m *TensorFlowModel) convertOutput(tfOutput interface{}, requestID string) 
 	}, nil
 }
 
-// convertBatchOutput converts TensorFlow batch output to ModelOutput slice
-func (m *TensorFlowModel) convertBatchOutput(tfOutput interface{}, inputs []ModelInput) ([]ModelOutput, error) {
+// convertBatchOutput converts TensorFlow batch output to ModelOutput slice.
+func (m *TensorFlowModel) convertBatchOutput(tfOutput any, inputs []ModelInput) ([]ModelOutput, error) {
 	// In real implementation, this would split batch output into individual outputs
 	// For now, simulate by calling convertOutput for each input
-
 	outputs := make([]ModelOutput, len(inputs))
 	for i, input := range inputs {
 		output, err := m.convertOutput(tfOutput, input.RequestID)
 		if err != nil {
 			return nil, err
 		}
+
 		outputs[i] = output
 	}
 
 	return outputs, nil
 }
 
-// Mock TensorFlow types for demonstration
+// Mock TensorFlow types for demonstration.
 type tensorFlowSession struct {
 	modelPath  string
 	batchSize  int
@@ -554,9 +564,9 @@ type tensorFlowSession struct {
 }
 
 type tensorFlowInput struct {
-	data      interface{}
-	features  map[string]interface{}
-	metadata  map[string]interface{}
+	data      any
+	features  map[string]any
+	metadata  map[string]any
 	requestID string
 }
 
@@ -564,5 +574,5 @@ type tensorFlowOutput struct {
 	predictions   []float64
 	probabilities []float64
 	logits        []float64
-	metadata      map[string]interface{}
+	metadata      map[string]any
 }

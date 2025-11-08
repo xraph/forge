@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/observability"
 )
 
-// API provides admin endpoints for consensus management
+// API provides admin endpoints for consensus management.
 type API struct {
 	service          internal.ConsensusService
 	healthChecker    *observability.HealthChecker
@@ -18,7 +18,7 @@ type API struct {
 	logger           forge.Logger
 }
 
-// NewAPI creates a new admin API
+// NewAPI creates a new admin API.
 func NewAPI(
 	service internal.ConsensusService,
 	healthChecker *observability.HealthChecker,
@@ -33,25 +33,25 @@ func NewAPI(
 	}
 }
 
-// HandleHealth handles health check requests
+// HandleHealth handles health check requests.
 func (a *API) HandleHealth(ctx forge.Context) error {
 	checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := a.service.HealthCheck(checkCtx); err != nil {
-		return ctx.JSON(503, map[string]interface{}{
+		return ctx.JSON(503, map[string]any{
 			"healthy": false,
 			"error":   err.Error(),
 		})
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"healthy": true,
 		"status":  "ok",
 	})
 }
 
-// HandleDetailedHealth handles detailed health check requests
+// HandleDetailedHealth handles detailed health check requests.
 func (a *API) HandleDetailedHealth(ctx forge.Context) error {
 	checkCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -77,35 +77,36 @@ func (a *API) HandleDetailedHealth(ctx forge.Context) error {
 	return ctx.JSON(statusCode, status)
 }
 
-// HandleStatus handles status requests
+// HandleStatus handles status requests.
 func (a *API) HandleStatus(ctx forge.Context) error {
 	stats := a.service.GetStats()
 	clusterInfo := a.service.GetClusterInfo()
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"stats":   stats,
 		"cluster": clusterInfo,
 	})
 }
 
-// HandleMetrics handles metrics requests
+// HandleMetrics handles metrics requests.
 func (a *API) HandleMetrics(ctx forge.Context) error {
 	if a.metricsCollector == nil {
-		return ctx.JSON(404, map[string]interface{}{
+		return ctx.JSON(404, map[string]any{
 			"error": "metrics collector not configured",
 		})
 	}
 
 	metrics := a.metricsCollector.GetMetrics()
+
 	return ctx.JSON(200, metrics)
 }
 
-// HandleGetLeader handles get leader requests
+// HandleGetLeader handles get leader requests.
 func (a *API) HandleGetLeader(ctx forge.Context) error {
 	leaderID := a.service.GetLeader()
 	role := a.service.GetRole()
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"leader_id":    leaderID,
 		"is_leader":    a.service.IsLeader(),
 		"current_role": role,
@@ -113,11 +114,11 @@ func (a *API) HandleGetLeader(ctx forge.Context) error {
 	})
 }
 
-// HandleListNodes handles list nodes requests
+// HandleListNodes handles list nodes requests.
 func (a *API) HandleListNodes(ctx forge.Context) error {
 	clusterInfo := a.service.GetClusterInfo()
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"nodes":      clusterInfo.Nodes,
 		"total":      clusterInfo.TotalNodes,
 		"active":     clusterInfo.ActiveNodes,
@@ -125,20 +126,20 @@ func (a *API) HandleListNodes(ctx forge.Context) error {
 	})
 }
 
-// HandleTransferLeadership handles leadership transfer requests
+// HandleTransferLeadership handles leadership transfer requests.
 func (a *API) HandleTransferLeadership(ctx forge.Context) error {
 	var req struct {
 		TargetNodeID string `json:"target_node_id"`
 	}
 
 	if err := ctx.BindJSON(&req); err != nil {
-		return ctx.JSON(400, map[string]interface{}{
+		return ctx.JSON(400, map[string]any{
 			"error": "invalid request body",
 		})
 	}
 
 	if req.TargetNodeID == "" {
-		return ctx.JSON(400, map[string]interface{}{
+		return ctx.JSON(400, map[string]any{
 			"error": "target_node_id is required",
 		})
 	}
@@ -147,50 +148,50 @@ func (a *API) HandleTransferLeadership(ctx forge.Context) error {
 	defer cancel()
 
 	if err := a.service.TransferLeadership(transferCtx, req.TargetNodeID); err != nil {
-		return ctx.JSON(500, map[string]interface{}{
+		return ctx.JSON(500, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"message": "leadership transfer initiated",
 		"target":  req.TargetNodeID,
 	})
 }
 
-// HandleStepDown handles step down requests
+// HandleStepDown handles step down requests.
 func (a *API) HandleStepDown(ctx forge.Context) error {
 	stepDownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	if err := a.service.StepDown(stepDownCtx); err != nil {
-		return ctx.JSON(500, map[string]interface{}{
+		return ctx.JSON(500, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"message": "stepped down as leader",
 	})
 }
 
-// HandleSnapshot handles snapshot requests
+// HandleSnapshot handles snapshot requests.
 func (a *API) HandleSnapshot(ctx forge.Context) error {
 	snapshotCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	if err := a.service.Snapshot(snapshotCtx); err != nil {
-		return ctx.JSON(500, map[string]interface{}{
+		return ctx.JSON(500, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"message": "snapshot created successfully",
 	})
 }
 
-// HandleAddNode handles add node requests
+// HandleAddNode handles add node requests.
 func (a *API) HandleAddNode(ctx forge.Context) error {
 	var req struct {
 		NodeID  string `json:"node_id"`
@@ -199,13 +200,13 @@ func (a *API) HandleAddNode(ctx forge.Context) error {
 	}
 
 	if err := ctx.BindJSON(&req); err != nil {
-		return ctx.JSON(400, map[string]interface{}{
+		return ctx.JSON(400, map[string]any{
 			"error": "invalid request body",
 		})
 	}
 
 	if req.NodeID == "" || req.Address == "" || req.Port == 0 {
-		return ctx.JSON(400, map[string]interface{}{
+		return ctx.JSON(400, map[string]any{
 			"error": "node_id, address, and port are required",
 		})
 	}
@@ -214,31 +215,31 @@ func (a *API) HandleAddNode(ctx forge.Context) error {
 	defer cancel()
 
 	if err := a.service.AddNode(addCtx, req.NodeID, req.Address, req.Port); err != nil {
-		return ctx.JSON(500, map[string]interface{}{
+		return ctx.JSON(500, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"message": "node added successfully",
 		"node_id": req.NodeID,
 	})
 }
 
-// HandleRemoveNode handles remove node requests
+// HandleRemoveNode handles remove node requests.
 func (a *API) HandleRemoveNode(ctx forge.Context) error {
 	var req struct {
 		NodeID string `json:"node_id"`
 	}
 
 	if err := ctx.BindJSON(&req); err != nil {
-		return ctx.JSON(400, map[string]interface{}{
+		return ctx.JSON(400, map[string]any{
 			"error": "invalid request body",
 		})
 	}
 
 	if req.NodeID == "" {
-		return ctx.JSON(400, map[string]interface{}{
+		return ctx.JSON(400, map[string]any{
 			"error": "node_id is required",
 		})
 	}
@@ -247,23 +248,23 @@ func (a *API) HandleRemoveNode(ctx forge.Context) error {
 	defer cancel()
 
 	if err := a.service.RemoveNode(removeCtx, req.NodeID); err != nil {
-		return ctx.JSON(500, map[string]interface{}{
+		return ctx.JSON(500, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"message": "node removed successfully",
 		"node_id": req.NodeID,
 	})
 }
 
-// HandleApplyCommand handles apply command requests (for testing)
+// HandleApplyCommand handles apply command requests (for testing).
 func (a *API) HandleApplyCommand(ctx forge.Context) error {
 	var req internal.Command
 
 	if err := ctx.BindJSON(&req); err != nil {
-		return ctx.JSON(400, map[string]interface{}{
+		return ctx.JSON(400, map[string]any{
 			"error": "invalid request body",
 		})
 	}
@@ -273,29 +274,29 @@ func (a *API) HandleApplyCommand(ctx forge.Context) error {
 
 	if err := a.service.Apply(applyCtx, req); err != nil {
 		if internal.IsNotLeaderError(err) {
-			return ctx.JSON(503, map[string]interface{}{
+			return ctx.JSON(503, map[string]any{
 				"error":     "not the leader",
 				"leader_id": a.service.GetLeader(),
 			})
 		}
 
-		return ctx.JSON(500, map[string]interface{}{
+		return ctx.JSON(500, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"message": "command applied successfully",
 	})
 }
 
-// HandleReadQuery handles read query requests
+// HandleReadQuery handles read query requests.
 func (a *API) HandleReadQuery(ctx forge.Context) error {
-	var query interface{}
+	var query any
 
 	body := ctx.Request().Body
 	if err := json.NewDecoder(body).Decode(&query); err != nil {
-		return ctx.JSON(400, map[string]interface{}{
+		return ctx.JSON(400, map[string]any{
 			"error": "invalid request body",
 		})
 	}
@@ -305,17 +306,17 @@ func (a *API) HandleReadQuery(ctx forge.Context) error {
 
 	result, err := a.service.Read(readCtx, query)
 	if err != nil {
-		return ctx.JSON(500, map[string]interface{}{
+		return ctx.JSON(500, map[string]any{
 			"error": err.Error(),
 		})
 	}
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"result": result,
 	})
 }
 
-// RegisterRoutes registers all admin API routes
+// RegisterRoutes registers all admin API routes.
 func (a *API) RegisterRoutes(router forge.Router, prefix string) {
 	// Health endpoints
 	router.GET(prefix+"/health", a.HandleHealth)

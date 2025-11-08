@@ -5,13 +5,13 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// LeadershipMiddleware provides middleware for leadership enforcement
+// LeadershipMiddleware provides middleware for leadership enforcement.
 type LeadershipMiddleware struct {
 	service internal.ConsensusService
 	logger  forge.Logger
 }
 
-// NewLeadershipMiddleware creates a new leadership middleware
+// NewLeadershipMiddleware creates a new leadership middleware.
 func NewLeadershipMiddleware(service internal.ConsensusService, logger forge.Logger) *LeadershipMiddleware {
 	return &LeadershipMiddleware{
 		service: service,
@@ -19,7 +19,7 @@ func NewLeadershipMiddleware(service internal.ConsensusService, logger forge.Log
 	}
 }
 
-// RequireLeader enforces that the current node is the leader
+// RequireLeader enforces that the current node is the leader.
 func (lm *LeadershipMiddleware) RequireLeader(next func(forge.Context) error) func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		if !lm.service.IsLeader() {
@@ -30,7 +30,7 @@ func (lm *LeadershipMiddleware) RequireLeader(next func(forge.Context) error) fu
 				forge.F("path", ctx.Request().URL.Path),
 			)
 
-			return ctx.JSON(503, map[string]interface{}{
+			return ctx.JSON(503, map[string]any{
 				"error":     "not the leader",
 				"leader_id": leaderID,
 				"message":   "this node is not the leader, please redirect to the leader node",
@@ -41,14 +41,14 @@ func (lm *LeadershipMiddleware) RequireLeader(next func(forge.Context) error) fu
 	}
 }
 
-// LeaderRedirect redirects to the leader if not leader
+// LeaderRedirect redirects to the leader if not leader.
 func (lm *LeadershipMiddleware) LeaderRedirect(next func(forge.Context) error) func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		if !lm.service.IsLeader() {
 			leaderID := lm.service.GetLeader()
 
 			if leaderID == "" {
-				return ctx.JSON(503, map[string]interface{}{
+				return ctx.JSON(503, map[string]any{
 					"error":   "no leader available",
 					"message": "cluster has no leader, please retry later",
 				})
@@ -56,7 +56,7 @@ func (lm *LeadershipMiddleware) LeaderRedirect(next func(forge.Context) error) f
 
 			// In a real implementation, you'd construct the leader's URL
 			// For now, just return the leader ID
-			return ctx.JSON(307, map[string]interface{}{
+			return ctx.JSON(307, map[string]any{
 				"redirect_to": leaderID,
 				"message":     "redirecting to leader",
 			})
@@ -66,7 +66,7 @@ func (lm *LeadershipMiddleware) LeaderRedirect(next func(forge.Context) error) f
 	}
 }
 
-// ReadOnlyRouting allows reads on any node but writes only on leader
+// ReadOnlyRouting allows reads on any node but writes only on leader.
 func (lm *LeadershipMiddleware) ReadOnlyRouting(next func(forge.Context) error) func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		method := ctx.Request().Method
@@ -86,7 +86,7 @@ func (lm *LeadershipMiddleware) ReadOnlyRouting(next func(forge.Context) error) 
 				forge.F("path", ctx.Request().URL.Path),
 			)
 
-			return ctx.JSON(503, map[string]interface{}{
+			return ctx.JSON(503, map[string]any{
 				"error":     "not the leader",
 				"leader_id": leaderID,
 				"message":   "write operations must be sent to the leader node",
@@ -97,13 +97,13 @@ func (lm *LeadershipMiddleware) ReadOnlyRouting(next func(forge.Context) error) 
 	}
 }
 
-// QuorumMiddleware ensures cluster has quorum
+// QuorumMiddleware ensures cluster has quorum.
 type QuorumMiddleware struct {
 	service internal.ConsensusService
 	logger  forge.Logger
 }
 
-// NewQuorumMiddleware creates a new quorum middleware
+// NewQuorumMiddleware creates a new quorum middleware.
 func NewQuorumMiddleware(service internal.ConsensusService, logger forge.Logger) *QuorumMiddleware {
 	return &QuorumMiddleware{
 		service: service,
@@ -111,7 +111,7 @@ func NewQuorumMiddleware(service internal.ConsensusService, logger forge.Logger)
 	}
 }
 
-// RequireQuorum enforces that the cluster has quorum
+// RequireQuorum enforces that the cluster has quorum.
 func (qm *QuorumMiddleware) RequireQuorum(next func(forge.Context) error) func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		clusterInfo := qm.service.GetClusterInfo()
@@ -123,7 +123,7 @@ func (qm *QuorumMiddleware) RequireQuorum(next func(forge.Context) error) func(f
 				forge.F("path", ctx.Request().URL.Path),
 			)
 
-			return ctx.JSON(503, map[string]interface{}{
+			return ctx.JSON(503, map[string]any{
 				"error":         "no quorum",
 				"healthy_nodes": clusterInfo.ActiveNodes,
 				"total_nodes":   clusterInfo.TotalNodes,
@@ -135,13 +135,13 @@ func (qm *QuorumMiddleware) RequireQuorum(next func(forge.Context) error) func(f
 	}
 }
 
-// MetricsMiddleware adds consensus metrics to responses
+// MetricsMiddleware adds consensus metrics to responses.
 type MetricsMiddleware struct {
 	service internal.ConsensusService
 	logger  forge.Logger
 }
 
-// NewMetricsMiddleware creates a new metrics middleware
+// NewMetricsMiddleware creates a new metrics middleware.
 func NewMetricsMiddleware(service internal.ConsensusService, logger forge.Logger) *MetricsMiddleware {
 	return &MetricsMiddleware{
 		service: service,
@@ -149,7 +149,7 @@ func NewMetricsMiddleware(service internal.ConsensusService, logger forge.Logger
 	}
 }
 
-// AddConsensusHeaders adds consensus-related headers to responses
+// AddConsensusHeaders adds consensus-related headers to responses.
 func (mm *MetricsMiddleware) AddConsensusHeaders(next func(forge.Context) error) func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// Add consensus state to response headers
@@ -165,7 +165,9 @@ func (mm *MetricsMiddleware) AddConsensusHeaders(next func(forge.Context) error)
 			ctx.Response().Header().Set("X-Consensus-Leader", "true")
 		} else {
 			leaderID := mm.service.GetLeader()
+
 			ctx.Response().Header().Set("X-Consensus-Leader", "false")
+
 			if leaderID != "" {
 				ctx.Response().Header().Set("X-Consensus-Leader-ID", leaderID)
 			}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // leastConnectionsBalancer selects node with fewest connections.
@@ -30,11 +32,12 @@ func (lcb *leastConnectionsBalancer) SelectNode(ctx context.Context, userID stri
 	defer lcb.mu.RUnlock()
 
 	if len(lcb.nodes) == 0 {
-		return nil, fmt.Errorf("no nodes available")
+		return nil, errors.New("no nodes available")
 	}
 
 	// Find node with least connections
 	var selected *NodeInfo
+
 	minConnections := int(^uint(0) >> 1) // Max int
 
 	for _, node := range lcb.nodes {
@@ -57,7 +60,7 @@ func (lcb *leastConnectionsBalancer) SelectNode(ctx context.Context, userID stri
 	}
 
 	if selected == nil {
-		return nil, fmt.Errorf("no healthy nodes available")
+		return nil, errors.New("no healthy nodes available")
 	}
 
 	// Increment connection count
@@ -70,7 +73,7 @@ func (lcb *leastConnectionsBalancer) SelectNode(ctx context.Context, userID stri
 func (lcb *leastConnectionsBalancer) GetNode(ctx context.Context, connID string) (*NodeInfo, error) {
 	// This is typically used to release connection
 	// For now, just return error as we need more context
-	return nil, fmt.Errorf("not implemented for least connections")
+	return nil, errors.New("not implemented for least connections")
 }
 
 // RegisterNode adds node.

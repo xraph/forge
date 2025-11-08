@@ -15,7 +15,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// TestNewApp tests app creation
+// TestNewApp tests app creation.
 func TestNewApp(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -41,10 +41,12 @@ func TestNewApp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use test logger to prevent terminal bloating
 			tt.config.Logger = logger.NewTestLogger()
+
 			app := NewApp(tt.config)
 			if app == nil {
 				t.Fatal("expected app, got nil")
 			}
+
 			if got := app.Name(); got != tt.want {
 				t.Errorf("app.Name() = %v, want %v", got, tt.want)
 			}
@@ -52,7 +54,7 @@ func TestNewApp(t *testing.T) {
 	}
 }
 
-// TestAppComponents tests core component access
+// TestAppComponents tests core component access.
 func TestAppComponents(t *testing.T) {
 	config := DefaultAppConfig()
 	config.Logger = logger.NewTestLogger()
@@ -95,7 +97,7 @@ func TestAppComponents(t *testing.T) {
 	})
 }
 
-// TestAppInfo tests app information methods
+// TestAppInfo tests app information methods.
 func TestAppInfo(t *testing.T) {
 	config := AppConfig{
 		Name:        "test-app",
@@ -132,6 +134,7 @@ func TestAppInfo(t *testing.T) {
 
 	t.Run("uptime", func(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
+
 		uptime := app.Uptime()
 		if uptime < 10*time.Millisecond {
 			t.Errorf("expected uptime >= 10ms, got %v", uptime)
@@ -139,7 +142,7 @@ func TestAppInfo(t *testing.T) {
 	})
 }
 
-// TestAppStart tests app startup
+// TestAppStart tests app startup.
 func TestAppStart(t *testing.T) {
 	t.Run("successful start", func(t *testing.T) {
 		config := DefaultAppConfig()
@@ -178,7 +181,7 @@ func TestAppStart(t *testing.T) {
 	})
 }
 
-// TestAppStop tests app shutdown
+// TestAppStop tests app shutdown.
 func TestAppStop(t *testing.T) {
 	t.Run("stop after start", func(t *testing.T) {
 		config := DefaultAppConfig()
@@ -234,7 +237,7 @@ func TestAppStop(t *testing.T) {
 	})
 }
 
-// TestAppRegisterService tests service registration
+// TestAppRegisterService tests service registration.
 func TestAppRegisterService(t *testing.T) {
 	t.Run("register service", func(t *testing.T) {
 		config := DefaultAppConfig()
@@ -245,7 +248,6 @@ func TestAppRegisterService(t *testing.T) {
 		err := app.RegisterService("testService", func(c Container) (any, error) {
 			return "test", nil
 		})
-
 		if err != nil {
 			t.Errorf("RegisterService() error = %v", err)
 		}
@@ -262,7 +264,7 @@ func TestAppRegisterService(t *testing.T) {
 	})
 }
 
-// TestAppRegisterController tests controller registration
+// TestAppRegisterController tests controller registration.
 func TestAppRegisterController(t *testing.T) {
 	t.Run("register controller", func(t *testing.T) {
 		config := DefaultAppConfig()
@@ -280,9 +282,11 @@ func TestAppRegisterController(t *testing.T) {
 		// Verify route was registered
 		routes := app.Router().Routes()
 		found := false
+
 		for _, route := range routes {
 			if route.Path == "/test" {
 				found = true
+
 				break
 			}
 		}
@@ -293,7 +297,7 @@ func TestAppRegisterController(t *testing.T) {
 	})
 }
 
-// appTestController is a simple test controller for app tests
+// appTestController is a simple test controller for app tests.
 type appTestController struct{}
 
 func (c *appTestController) Name() string { return "apptest" }
@@ -304,7 +308,7 @@ func (c *appTestController) Routes(r Router) error {
 	})
 }
 
-// TestAppInfoEndpoint tests the /_/info endpoint
+// TestAppInfoEndpoint tests the /_/info endpoint.
 func TestAppInfoEndpoint(t *testing.T) {
 	app := NewApp(AppConfig{
 		Name:        "info-test",
@@ -316,6 +320,7 @@ func TestAppInfoEndpoint(t *testing.T) {
 
 	// Start app
 	ctx := context.Background()
+
 	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -323,7 +328,7 @@ func TestAppInfoEndpoint(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Make request to /_/info
-	req := httptest.NewRequest("GET", "/_/info", nil)
+	req := httptest.NewRequest(http.MethodGet, "/_/info", nil)
 	w := httptest.NewRecorder()
 	app.Router().ServeHTTP(w, req)
 
@@ -333,6 +338,7 @@ func TestAppInfoEndpoint(t *testing.T) {
 
 	// Parse response
 	var info AppInfo
+
 	body, _ := io.ReadAll(w.Body)
 	if err := json.Unmarshal(body, &info); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
@@ -342,15 +348,17 @@ func TestAppInfoEndpoint(t *testing.T) {
 	if info.Name != "info-test" {
 		t.Errorf("info.Name = %v, want info-test", info.Name)
 	}
+
 	if info.Version != "1.0.0" {
 		t.Errorf("info.Version = %v, want 1.0.0", info.Version)
 	}
+
 	if info.Environment != "test" {
 		t.Errorf("info.Environment = %v, want test", info.Environment)
 	}
 }
 
-// TestAppWithMetrics tests metrics integration
+// TestAppWithMetrics tests metrics integration.
 func TestAppWithMetrics(t *testing.T) {
 	config := DefaultAppConfig()
 	config.MetricsConfig.Enabled = true
@@ -359,6 +367,7 @@ func TestAppWithMetrics(t *testing.T) {
 
 	app := NewApp(config)
 	ctx := context.Background()
+
 	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -366,7 +375,7 @@ func TestAppWithMetrics(t *testing.T) {
 	defer app.Stop(ctx)
 
 	// Verify metrics endpoint is available
-	req := httptest.NewRequest("GET", "/_/metrics", nil)
+	req := httptest.NewRequest(http.MethodGet, "/_/metrics", nil)
 	w := httptest.NewRecorder()
 	app.Router().ServeHTTP(w, req)
 
@@ -375,7 +384,7 @@ func TestAppWithMetrics(t *testing.T) {
 	}
 }
 
-// TestAppWithHealth tests health check integration
+// TestAppWithHealth tests health check integration.
 func TestAppWithHealth(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HealthConfig.Enabled = true
@@ -383,6 +392,7 @@ func TestAppWithHealth(t *testing.T) {
 
 	app := NewApp(config)
 	ctx := context.Background()
+
 	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -398,7 +408,7 @@ func TestAppWithHealth(t *testing.T) {
 	})
 
 	// Verify health endpoint is available
-	req := httptest.NewRequest("GET", "/_/health", nil)
+	req := httptest.NewRequest(http.MethodGet, "/_/health", nil)
 	w := httptest.NewRecorder()
 	app.Router().ServeHTTP(w, req)
 
@@ -408,6 +418,7 @@ func TestAppWithHealth(t *testing.T) {
 
 	// Parse response
 	var report HealthReport
+
 	body, _ := io.ReadAll(w.Body)
 	if err := json.Unmarshal(body, &report); err != nil {
 		t.Fatalf("failed to parse health response: %v", err)
@@ -418,37 +429,44 @@ func TestAppWithHealth(t *testing.T) {
 	}
 }
 
-// TestDefaultAppConfig tests default configuration
+// TestDefaultAppConfig tests default configuration.
 func TestDefaultAppConfig(t *testing.T) {
 	config := DefaultAppConfig()
 
 	if config.Name != "forge-app" {
 		t.Errorf("expected Name 'forge-app', got %v", config.Name)
 	}
+
 	if config.Version != "1.0.0" {
 		t.Errorf("expected Version '1.0.0', got %v", config.Version)
 	}
+
 	if config.Environment != "development" {
 		t.Errorf("expected Environment 'development', got %v", config.Environment)
 	}
+
 	if config.HTTPAddress != ":8080" {
 		t.Errorf("expected HTTPAddress ':8080', got %v", config.HTTPAddress)
 	}
+
 	if config.HTTPTimeout != 30*time.Second {
 		t.Errorf("expected HTTPTimeout 30s, got %v", config.HTTPTimeout)
 	}
+
 	if config.ShutdownTimeout != 30*time.Second {
 		t.Errorf("expected ShutdownTimeout 30s, got %v", config.ShutdownTimeout)
 	}
+
 	if !config.MetricsConfig.Enabled {
 		t.Error("expected MetricsConfig.Enabled = true")
 	}
+
 	if !config.HealthConfig.Enabled {
 		t.Error("expected HealthConfig.Enabled = true")
 	}
 }
 
-// TestAppConfigDefaults tests that defaults are applied
+// TestAppConfigDefaults tests that defaults are applied.
 func TestAppConfigDefaults(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -493,14 +511,14 @@ func TestAppConfigDefaults(t *testing.T) {
 	}
 }
 
-// TestAppRun tests the Run method (without actual server)
+// TestAppRun tests the Run method (without actual server).
 func TestAppRun(t *testing.T) {
 	t.Skip("Run() blocks - requires integration test")
 	// This would require setting up signal handling and is better suited
 	// for integration tests
 }
 
-// TestAppGracefulShutdown tests graceful shutdown
+// TestAppGracefulShutdown tests graceful shutdown.
 func TestAppGracefulShutdown(t *testing.T) {
 	t.Run("shutdown with timeout", func(t *testing.T) {
 		config := DefaultAppConfig()
@@ -523,19 +541,20 @@ func TestAppGracefulShutdown(t *testing.T) {
 	})
 }
 
-// TestFieldHelper tests the F() helper function
+// TestFieldHelper tests the F() helper function.
 func TestFieldHelper(t *testing.T) {
 	field := F("key", "value")
 
 	if field.Key() != "key" {
 		t.Errorf("Field.Key() = %v, want key", field.Key())
 	}
+
 	if field.Value() != "value" {
 		t.Errorf("Field.Value() = %v, want value", field.Value())
 	}
 }
 
-// TestDefaultLogger tests the default logger implementation
+// TestDefaultLogger tests the default logger implementation.
 func TestDefaultLogger(t *testing.T) {
 	logger := NewNoopLogger()
 
@@ -589,7 +608,7 @@ func TestDefaultLogger(t *testing.T) {
 	}
 }
 
-// TestDefaultLoggerFatal tests that Fatal doesn't panic for noop logger
+// TestDefaultLoggerFatal tests that Fatal doesn't panic for noop logger.
 func TestDefaultLoggerFatal(t *testing.T) {
 	logger := NewNoopLogger()
 
@@ -601,7 +620,7 @@ func TestDefaultLoggerFatal(t *testing.T) {
 	// Test passed if we got here without panicking
 }
 
-// TestDefaultConfigManager tests the default config manager
+// TestDefaultConfigManager tests the default config manager.
 func TestDefaultConfigManager(t *testing.T) {
 	logger := logger.NewTestLogger()
 	metrics := NewNoOpMetrics()
@@ -643,6 +662,7 @@ func TestDefaultConfigManager(t *testing.T) {
 
 	t.Run("Bind returns error", func(t *testing.T) {
 		var target string
+
 		err := cm.Bind("nonexistent-key", &target)
 		if err == nil {
 			t.Error("expected error, got nil")
@@ -650,7 +670,7 @@ func TestDefaultConfigManager(t *testing.T) {
 	})
 }
 
-// TestAppWithCustomLogger tests app with custom logger
+// TestAppWithCustomLogger tests app with custom logger.
 func TestAppWithCustomLogger(t *testing.T) {
 	customLogger := &testLogger{}
 	config := DefaultAppConfig()
@@ -663,21 +683,21 @@ func TestAppWithCustomLogger(t *testing.T) {
 	}
 }
 
-// testLogger is a test logger implementation
+// testLogger is a test logger implementation.
 type testLogger struct {
 	messages []string
 }
 
-func (l *testLogger) Debug(msg string, fields ...Field)           {}
-func (l *testLogger) Info(msg string, fields ...Field)            { l.messages = append(l.messages, msg) }
-func (l *testLogger) Warn(msg string, fields ...Field)            {}
-func (l *testLogger) Error(msg string, fields ...Field)           {}
-func (l *testLogger) Fatal(msg string, fields ...Field)           { panic(msg) }
-func (l *testLogger) Debugf(template string, args ...interface{}) {}
-func (l *testLogger) Infof(template string, args ...interface{})  {}
-func (l *testLogger) Warnf(template string, args ...interface{})  {}
-func (l *testLogger) Errorf(template string, args ...interface{}) {}
-func (l *testLogger) Fatalf(template string, args ...interface{}) {
+func (l *testLogger) Debug(msg string, fields ...Field)   {}
+func (l *testLogger) Info(msg string, fields ...Field)    { l.messages = append(l.messages, msg) }
+func (l *testLogger) Warn(msg string, fields ...Field)    {}
+func (l *testLogger) Error(msg string, fields ...Field)   {}
+func (l *testLogger) Fatal(msg string, fields ...Field)   { panic(msg) }
+func (l *testLogger) Debugf(template string, args ...any) {}
+func (l *testLogger) Infof(template string, args ...any)  {}
+func (l *testLogger) Warnf(template string, args ...any)  {}
+func (l *testLogger) Errorf(template string, args ...any) {}
+func (l *testLogger) Fatalf(template string, args ...any) {
 	panic(fmt.Sprintf(template, args...))
 }
 func (l *testLogger) With(fields ...Field) Logger            { return l }
@@ -688,14 +708,14 @@ func (l *testLogger) Sync() error                            { return nil }
 
 type testSugarLogger struct{}
 
-func (l *testSugarLogger) Debugw(msg string, keysAndValues ...interface{}) {}
-func (l *testSugarLogger) Infow(msg string, keysAndValues ...interface{})  {}
-func (l *testSugarLogger) Warnw(msg string, keysAndValues ...interface{})  {}
-func (l *testSugarLogger) Errorw(msg string, keysAndValues ...interface{}) {}
-func (l *testSugarLogger) Fatalw(msg string, keysAndValues ...interface{}) { panic(msg) }
-func (l *testSugarLogger) With(args ...interface{}) SugarLogger            { return l }
+func (l *testSugarLogger) Debugw(msg string, keysAndValues ...any) {}
+func (l *testSugarLogger) Infow(msg string, keysAndValues ...any)  {}
+func (l *testSugarLogger) Warnw(msg string, keysAndValues ...any)  {}
+func (l *testSugarLogger) Errorw(msg string, keysAndValues ...any) {}
+func (l *testSugarLogger) Fatalw(msg string, keysAndValues ...any) { panic(msg) }
+func (l *testSugarLogger) With(args ...any) SugarLogger            { return l }
 
-// TestAppShutdownSignals tests shutdown signal configuration
+// TestAppShutdownSignals tests shutdown signal configuration.
 func TestAppShutdownSignals(t *testing.T) {
 	config := DefaultAppConfig()
 	config.ShutdownSignals = []os.Signal{os.Interrupt, syscall.SIGTERM}
@@ -709,7 +729,7 @@ func TestAppShutdownSignals(t *testing.T) {
 	// Just verify app was created - actual signal handling tested in integration
 }
 
-// TestAppWithDisabledObservability tests app with observability disabled
+// TestAppWithDisabledObservability tests app with observability disabled.
 func TestAppWithDisabledObservability(t *testing.T) {
 	config := DefaultAppConfig()
 	config.MetricsConfig.Enabled = false
@@ -718,6 +738,7 @@ func TestAppWithDisabledObservability(t *testing.T) {
 
 	app := NewApp(config)
 	ctx := context.Background()
+
 	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)

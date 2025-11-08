@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge/farp"
 )
 
-// mockApp implements farp.Application for testing
+// mockApp implements farp.Application for testing.
 type mockApp struct {
 	name    string
 	version string
@@ -21,7 +21,7 @@ func (m *mockApp) Version() string {
 	return m.version
 }
 
-func (m *mockApp) Routes() interface{} {
+func (m *mockApp) Routes() any {
 	return []map[string]string{
 		{"method": "POST", "path": "/graphql"},
 	}
@@ -57,9 +57,11 @@ func TestNewProvider(t *testing.T) {
 			if p.SpecVersion() != tt.wantVersion {
 				t.Errorf("SpecVersion() = %v, want %v", p.SpecVersion(), tt.wantVersion)
 			}
+
 			if p.Endpoint() != tt.wantEndpoint {
 				t.Errorf("Endpoint() = %v, want %v", p.Endpoint(), tt.wantEndpoint)
 			}
+
 			if p.Type() != farp.SchemaTypeGraphQL {
 				t.Errorf("Type() = %v, want %v", p.Type(), farp.SchemaTypeGraphQL)
 			}
@@ -91,7 +93,7 @@ func TestProvider_Generate_SDL(t *testing.T) {
 	}
 
 	// Check for SDL field
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		t.Fatal("schema is not a map")
 	}
@@ -130,7 +132,7 @@ func TestProvider_Generate_Introspection(t *testing.T) {
 	}
 
 	// Check for introspection structure
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		t.Fatal("schema is not a map")
 	}
@@ -150,12 +152,12 @@ func TestProvider_Validate(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		schema  interface{}
+		schema  any
 		wantErr bool
 	}{
 		{
 			name: "valid SDL schema",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"format": "SDL",
 				"sdl":    "type Query { hello: String }",
 			},
@@ -163,11 +165,11 @@ func TestProvider_Validate(t *testing.T) {
 		},
 		{
 			name: "valid introspection schema",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"format": "introspection",
-				"data": map[string]interface{}{
-					"__schema": map[string]interface{}{
-						"types": []interface{}{},
+				"data": map[string]any{
+					"__schema": map[string]any{
+						"types": []any{},
 					},
 				},
 			},
@@ -180,29 +182,29 @@ func TestProvider_Validate(t *testing.T) {
 		},
 		{
 			name: "SDL without sdl field",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"format": "SDL",
 			},
 			wantErr: true,
 		},
 		{
 			name: "introspection without data field",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"format": "introspection",
 			},
 			wantErr: true,
 		},
 		{
 			name: "introspection without __schema",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"format": "introspection",
-				"data":   map[string]interface{}{},
+				"data":   map[string]any{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "unknown format",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"format": "unknown",
 			},
 			wantErr: true,
@@ -226,6 +228,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	}
 
 	p := NewProvider("2021", "/graphql")
+
 	schema, err := p.Generate(context.Background(), app)
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
@@ -236,6 +239,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Hash() error = %v", err)
 	}
+
 	if hash == "" {
 		t.Error("Hash() returned empty string")
 	}
@@ -245,6 +249,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Serialize() error = %v", err)
 	}
+
 	if len(data) == 0 {
 		t.Error("Serialize() returned empty data")
 	}
@@ -299,6 +304,7 @@ func TestProvider_GenerateDescriptor(t *testing.T) {
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GenerateDescriptor() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
 
@@ -306,9 +312,11 @@ func TestProvider_GenerateDescriptor(t *testing.T) {
 				if descriptor == nil {
 					t.Fatal("GenerateDescriptor() returned nil descriptor")
 				}
+
 				if descriptor.Type != farp.SchemaTypeGraphQL {
 					t.Errorf("descriptor.Type = %v, want %v", descriptor.Type, farp.SchemaTypeGraphQL)
 				}
+
 				if tt.locationType == farp.LocationTypeInline && descriptor.InlineSchema == nil {
 					t.Error("descriptor.InlineSchema is nil for inline location")
 				}

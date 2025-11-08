@@ -2,11 +2,12 @@ package internal
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 )
 
-// HealthAggregator aggregates health check results into an overall health status
+// HealthAggregator aggregates health check results into an overall health status.
 type HealthAggregator struct {
 	criticalServices   map[string]bool
 	degradedThreshold  float64
@@ -17,7 +18,7 @@ type HealthAggregator struct {
 	mu                 sync.RWMutex
 }
 
-// AggregatorConfig contains configuration for the health aggregator
+// AggregatorConfig contains configuration for the health aggregator.
 type AggregatorConfig struct {
 	CriticalServices   []string
 	DegradedThreshold  float64 // Percentage of services that can be degraded before overall is degraded
@@ -26,7 +27,7 @@ type AggregatorConfig struct {
 	Weights            map[string]float64 // Weight for each service (default 1.0)
 }
 
-// DefaultAggregatorConfig returns default configuration for the health aggregator
+// DefaultAggregatorConfig returns default configuration for the health aggregator.
 func DefaultAggregatorConfig() *AggregatorConfig {
 	return &AggregatorConfig{
 		CriticalServices:   []string{},
@@ -37,7 +38,7 @@ func DefaultAggregatorConfig() *AggregatorConfig {
 	}
 }
 
-// NewHealthAggregator creates a new health aggregator
+// NewHealthAggregator creates a new health aggregator.
 func NewHealthAggregator(config *AggregatorConfig) *HealthAggregator {
 	if config == nil {
 		config = DefaultAggregatorConfig()
@@ -58,59 +59,67 @@ func NewHealthAggregator(config *AggregatorConfig) *HealthAggregator {
 	}
 }
 
-// AddCriticalService adds a service to the critical services list
+// AddCriticalService adds a service to the critical services list.
 func (ha *HealthAggregator) AddCriticalService(serviceName string) {
 	ha.mu.Lock()
 	defer ha.mu.Unlock()
+
 	ha.criticalServices[serviceName] = true
 }
 
-// RemoveCriticalService removes a service from the critical services list
+// RemoveCriticalService removes a service from the critical services list.
 func (ha *HealthAggregator) RemoveCriticalService(serviceName string) {
 	ha.mu.Lock()
 	defer ha.mu.Unlock()
+
 	delete(ha.criticalServices, serviceName)
 }
 
-// IsCriticalService returns true if the service is marked as critical
+// IsCriticalService returns true if the service is marked as critical.
 func (ha *HealthAggregator) IsCriticalService(serviceName string) bool {
 	ha.mu.RLock()
 	defer ha.mu.RUnlock()
+
 	return ha.criticalServices[serviceName]
 }
 
-// SetDependency sets a dependency relationship between services
+// SetDependency sets a dependency relationship between services.
 func (ha *HealthAggregator) SetDependency(service string, dependencies []string) {
 	ha.mu.Lock()
 	defer ha.mu.Unlock()
+
 	ha.dependencyGraph[service] = dependencies
 }
 
-// GetDependencies returns the dependencies for a service
+// GetDependencies returns the dependencies for a service.
 func (ha *HealthAggregator) GetDependencies(service string) []string {
 	ha.mu.RLock()
 	defer ha.mu.RUnlock()
+
 	return ha.dependencyGraph[service]
 }
 
-// SetWeight sets the weight for a service
+// SetWeight sets the weight for a service.
 func (ha *HealthAggregator) SetWeight(serviceName string, weight float64) {
 	ha.mu.Lock()
 	defer ha.mu.Unlock()
+
 	ha.weights[serviceName] = weight
 }
 
-// GetWeight returns the weight for a service (default 1.0)
+// GetWeight returns the weight for a service (default 1.0).
 func (ha *HealthAggregator) GetWeight(serviceName string) float64 {
 	ha.mu.RLock()
 	defer ha.mu.RUnlock()
+
 	if weight, exists := ha.weights[serviceName]; exists {
 		return weight
 	}
+
 	return 1.0
 }
 
-// Aggregate aggregates multiple health results into an overall health status
+// Aggregate aggregates multiple health results into an overall health status.
 func (ha *HealthAggregator) Aggregate(results map[string]*HealthResult) *HealthReport {
 	ha.mu.RLock()
 	defer ha.mu.RUnlock()
@@ -119,6 +128,7 @@ func (ha *HealthAggregator) Aggregate(results map[string]*HealthResult) *HealthR
 
 	if len(results) == 0 {
 		report.Overall = HealthStatusUnknown
+
 		return report
 	}
 
@@ -134,7 +144,7 @@ func (ha *HealthAggregator) Aggregate(results map[string]*HealthResult) *HealthR
 	return report
 }
 
-// calculateOverallStatus calculates the overall health status based on individual results
+// calculateOverallStatus calculates the overall health status based on individual results.
 func (ha *HealthAggregator) calculateOverallStatus(results map[string]*HealthResult) HealthStatus {
 	// First check critical services
 	if ha.hasCriticalFailures(results) {
@@ -150,39 +160,41 @@ func (ha *HealthAggregator) calculateOverallStatus(results map[string]*HealthRes
 	return ha.calculateWeightedStatus(results)
 }
 
-// hasCriticalFailures checks if any critical service has failed
+// hasCriticalFailures checks if any critical service has failed.
 func (ha *HealthAggregator) hasCriticalFailures(results map[string]*HealthResult) bool {
 	for serviceName, result := range results {
 		if ha.criticalServices[serviceName] && result.IsUnhealthy() {
 			return true
 		}
 	}
+
 	return false
 }
 
-// hasDependencyFailures checks for dependency-related failures
+// hasDependencyFailures checks for dependency-related failures.
 func (ha *HealthAggregator) hasDependencyFailures(results map[string]*HealthResult) bool {
 	for serviceName, result := range results {
 		if result.IsUnhealthy() {
 			// Check if any service depends on this failed service
 			for _, dependencies := range ha.dependencyGraph {
-				for _, dependency := range dependencies {
-					if dependency == serviceName {
-						return true
-					}
+				if slices.Contains(dependencies, serviceName) {
+					return true
 				}
 			}
 		}
 	}
+
 	return false
 }
 
-// calculateWeightedStatus calculates the overall status based on weighted results
+// calculateWeightedStatus calculates the overall status based on weighted results.
 func (ha *HealthAggregator) calculateWeightedStatus(results map[string]*HealthResult) HealthStatus {
-	var totalWeight float64
-	var healthyWeight float64
-	var degradedWeight float64
-	var unhealthyWeight float64
+	var (
+		totalWeight     float64
+		healthyWeight   float64
+		degradedWeight  float64
+		unhealthyWeight float64
+	)
 
 	for serviceName, result := range results {
 		weight := ha.GetWeight(serviceName)
@@ -228,7 +240,7 @@ func (ha *HealthAggregator) calculateWeightedStatus(results map[string]*HealthRe
 	return HealthStatusHealthy
 }
 
-// AggregateWithContext aggregates health results with context information
+// AggregateWithContext aggregates health results with context information.
 func (ha *HealthAggregator) AggregateWithContext(ctx context.Context, results map[string]*HealthResult) *HealthReport {
 	report := ha.Aggregate(results)
 
@@ -241,9 +253,10 @@ func (ha *HealthAggregator) AggregateWithContext(ctx context.Context, results ma
 	return report
 }
 
-// SmartAggregator implements advanced aggregation logic with machine learning-like features
+// SmartAggregator implements advanced aggregation logic with machine learning-like features.
 type SmartAggregator struct {
 	*HealthAggregator
+
 	history            []HealthStatusSnapshot
 	maxHistorySize     int
 	trendsEnabled      bool
@@ -251,14 +264,14 @@ type SmartAggregator struct {
 	mu                 sync.RWMutex
 }
 
-// HealthStatusSnapshot represents a point-in-time health status
+// HealthStatusSnapshot represents a point-in-time health status.
 type HealthStatusSnapshot struct {
 	Timestamp time.Time
 	Overall   HealthStatus
 	Services  map[string]HealthStatus
 }
 
-// NewSmartAggregator creates a new smart health aggregator
+// NewSmartAggregator creates a new smart health aggregator.
 func NewSmartAggregator(config *AggregatorConfig) *SmartAggregator {
 	return &SmartAggregator{
 		HealthAggregator:   NewHealthAggregator(config),
@@ -269,28 +282,31 @@ func NewSmartAggregator(config *AggregatorConfig) *SmartAggregator {
 	}
 }
 
-// SetMaxHistorySize sets the maximum number of snapshots to keep in history
+// SetMaxHistorySize sets the maximum number of snapshots to keep in history.
 func (sa *SmartAggregator) SetMaxHistorySize(size int) {
 	sa.mu.Lock()
 	defer sa.mu.Unlock()
+
 	sa.maxHistorySize = size
 }
 
-// EnableTrends enables/disables trend analysis
+// EnableTrends enables/disables trend analysis.
 func (sa *SmartAggregator) EnableTrends(enabled bool) {
 	sa.mu.Lock()
 	defer sa.mu.Unlock()
+
 	sa.trendsEnabled = enabled
 }
 
-// EnableAdaptiveThresholds enables/disables adaptive thresholds
+// EnableAdaptiveThresholds enables/disables adaptive thresholds.
 func (sa *SmartAggregator) EnableAdaptiveThresholds(enabled bool) {
 	sa.mu.Lock()
 	defer sa.mu.Unlock()
+
 	sa.adaptiveThresholds = enabled
 }
 
-// Aggregate aggregates health results with smart analysis
+// Aggregate aggregates health results with smart analysis.
 func (sa *SmartAggregator) Aggregate(results map[string]*HealthResult) *HealthReport {
 	sa.mu.Lock()
 	defer sa.mu.Unlock()
@@ -323,7 +339,7 @@ func (sa *SmartAggregator) Aggregate(results map[string]*HealthResult) *HealthRe
 	return report
 }
 
-// addSnapshot adds a snapshot to the history
+// addSnapshot adds a snapshot to the history.
 func (sa *SmartAggregator) addSnapshot(snapshot HealthStatusSnapshot) {
 	sa.history = append(sa.history, snapshot)
 
@@ -333,7 +349,7 @@ func (sa *SmartAggregator) addSnapshot(snapshot HealthStatusSnapshot) {
 	}
 }
 
-// analyzetrends analyzes health trends and adjusts status accordingly
+// analyzetrends analyzes health trends and adjusts status accordingly.
 func (sa *SmartAggregator) analyzetrends(report *HealthReport) {
 	if len(sa.history) < 3 {
 		return // Not enough history for trend analysis
@@ -348,6 +364,7 @@ func (sa *SmartAggregator) analyzetrends(report *HealthReport) {
 		if recent[i].Overall.Severity() <= recent[i-1].Overall.Severity() {
 			deteriorating = false
 		}
+
 		if recent[i].Overall.Severity() >= recent[i-1].Overall.Severity() {
 			improving = false
 		}
@@ -356,18 +373,18 @@ func (sa *SmartAggregator) analyzetrends(report *HealthReport) {
 	// Adjust status based on trends
 	if deteriorating && report.Overall == HealthStatusHealthy {
 		report.Overall = HealthStatusDegraded
-		report.WithMetadata(map[string]interface{}{
+		report.WithMetadata(map[string]any{
 			"trend_adjustment": "degraded_due_to_deteriorating_trend",
 		})
 	} else if improving && report.Overall == HealthStatusDegraded {
 		// Keep degraded status but add trend information
-		report.WithMetadata(map[string]interface{}{
+		report.WithMetadata(map[string]any{
 			"trend_info": "improving_trend_detected",
 		})
 	}
 }
 
-// adaptThresholds adapts thresholds based on historical data
+// adaptThresholds adapts thresholds based on historical data.
 func (sa *SmartAggregator) adaptThresholds(results map[string]*HealthResult) {
 	if len(sa.history) < 10 {
 		return // Not enough history for adaptation
@@ -395,22 +412,24 @@ func (sa *SmartAggregator) adaptThresholds(results map[string]*HealthResult) {
 	}
 }
 
-// GetTrends returns health trends over time
+// GetTrends returns health trends over time.
 func (sa *SmartAggregator) GetTrends() []HealthStatusSnapshot {
 	sa.mu.RLock()
 	defer sa.mu.RUnlock()
 
 	trends := make([]HealthStatusSnapshot, len(sa.history))
 	copy(trends, sa.history)
+
 	return trends
 }
 
-// GetServiceTrends returns trends for a specific service
+// GetServiceTrends returns trends for a specific service.
 func (sa *SmartAggregator) GetServiceTrends(serviceName string) []HealthStatusSnapshot {
 	sa.mu.RLock()
 	defer sa.mu.RUnlock()
 
 	var trends []HealthStatusSnapshot
+
 	for _, snapshot := range sa.history {
 		if status, exists := snapshot.Services[serviceName]; exists {
 			trends = append(trends, HealthStatusSnapshot{
@@ -420,10 +439,11 @@ func (sa *SmartAggregator) GetServiceTrends(serviceName string) []HealthStatusSn
 			})
 		}
 	}
+
 	return trends
 }
 
-// GetStabilityScore returns a stability score (0-1) based on recent health history
+// GetStabilityScore returns a stability score (0-1) based on recent health history.
 func (sa *SmartAggregator) GetStabilityScore() float64 {
 	sa.mu.RLock()
 	defer sa.mu.RUnlock()
@@ -434,6 +454,7 @@ func (sa *SmartAggregator) GetStabilityScore() float64 {
 
 	// Calculate stability based on status changes
 	changes := 0
+
 	for i := 1; i < len(sa.history); i++ {
 		if sa.history[i].Overall != sa.history[i-1].Overall {
 			changes++
@@ -443,14 +464,15 @@ func (sa *SmartAggregator) GetStabilityScore() float64 {
 	return 1.0 - float64(changes)/float64(len(sa.history)-1)
 }
 
-// PredictiveAggregator implements predictive health aggregation
+// PredictiveAggregator implements predictive health aggregation.
 type PredictiveAggregator struct {
 	*SmartAggregator
+
 	predictionWindow   time.Duration
 	predictionAccuracy float64
 }
 
-// NewPredictiveAggregator creates a new predictive health aggregator
+// NewPredictiveAggregator creates a new predictive health aggregator.
 func NewPredictiveAggregator(config *AggregatorConfig) *PredictiveAggregator {
 	return &PredictiveAggregator{
 		SmartAggregator:    NewSmartAggregator(config),
@@ -459,7 +481,7 @@ func NewPredictiveAggregator(config *AggregatorConfig) *PredictiveAggregator {
 	}
 }
 
-// PredictHealth predicts the health status for the next prediction window
+// PredictHealth predicts the health status for the next prediction window.
 func (pa *PredictiveAggregator) PredictHealth() *HealthPrediction {
 	pa.mu.RLock()
 	defer pa.mu.RUnlock()
@@ -492,8 +514,10 @@ func (pa *PredictiveAggregator) PredictHealth() *HealthPrediction {
 	}
 
 	// Predict based on majority
-	var predictedStatus HealthStatus
-	var confidence float64
+	var (
+		predictedStatus HealthStatus
+		confidence      float64
+	)
 
 	if healthyCount >= degradedCount && healthyCount >= unhealthyCount {
 		predictedStatus = HealthStatusHealthy
@@ -514,7 +538,7 @@ func (pa *PredictiveAggregator) PredictHealth() *HealthPrediction {
 	}
 }
 
-// generateRecommendations generates recommendations based on health history
+// generateRecommendations generates recommendations based on health history.
 func (pa *PredictiveAggregator) generateRecommendations(history []HealthStatusSnapshot) []string {
 	var recommendations []string
 
@@ -528,11 +552,13 @@ func (pa *PredictiveAggregator) generateRecommendations(history []HealthStatusSn
 
 		// Check for flapping
 		changes := 0
+
 		for i := 1; i < len(history); i++ {
 			if history[i].Overall != history[i-1].Overall {
 				changes++
 			}
 		}
+
 		if changes >= len(history)-1 {
 			recommendations = append(recommendations, "Health status is flapping - investigate intermittent issues")
 		}
@@ -541,7 +567,7 @@ func (pa *PredictiveAggregator) generateRecommendations(history []HealthStatusSn
 	return recommendations
 }
 
-// HealthPrediction represents a health prediction
+// HealthPrediction represents a health prediction.
 type HealthPrediction struct {
 	PredictedStatus HealthStatus  `json:"predicted_status"`
 	Confidence      float64       `json:"confidence"`
@@ -549,13 +575,14 @@ type HealthPrediction struct {
 	Recommendations []string      `json:"recommendations"`
 }
 
-// Helper functions for context extraction
+// Helper functions for context extraction.
 func getVersionFromContext(ctx context.Context) string {
 	if version := ctx.Value("version"); version != nil {
 		if v, ok := version.(string); ok {
 			return v
 		}
 	}
+
 	return "unknown"
 }
 
@@ -565,6 +592,7 @@ func getEnvironmentFromContext(ctx context.Context) string {
 			return e
 		}
 	}
+
 	return "unknown"
 }
 
@@ -574,6 +602,7 @@ func getHostnameFromContext(ctx context.Context) string {
 			return h
 		}
 	}
+
 	return "unknown"
 }
 
@@ -583,14 +612,16 @@ func getUptimeFromContext(ctx context.Context) time.Duration {
 			return u
 		}
 	}
+
 	return 0
 }
 
-// Helper functions
+// Helper functions.
 func min(a, b float64) float64 {
 	if a < b {
 		return a
 	}
+
 	return b
 }
 
@@ -598,5 +629,6 @@ func max(a, b float64) float64 {
 	if a > b {
 		return a
 	}
+
 	return b
 }

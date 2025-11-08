@@ -13,6 +13,7 @@ func newTestInMemoryQueue() *InMemoryQueue {
 	logger := forge.NewNoopLogger()
 	metrics := forge.NewNoOpMetrics()
 	config := DefaultConfig()
+
 	return NewInMemoryQueue(config, logger, metrics)
 }
 
@@ -27,7 +28,7 @@ func TestInMemoryQueue_Connect(t *testing.T) {
 
 	// Try connecting again
 	err = q.Connect(ctx)
-	if err != ErrAlreadyConnected {
+	if !errors.Is(err, ErrAlreadyConnected) {
 		t.Errorf("expected ErrAlreadyConnected, got %v", err)
 	}
 }
@@ -38,7 +39,7 @@ func TestInMemoryQueue_Disconnect(t *testing.T) {
 
 	// Disconnect without connecting
 	err := q.Disconnect(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("expected ErrNotConnected, got %v", err)
 	}
 
@@ -60,7 +61,7 @@ func TestInMemoryQueue_Ping(t *testing.T) {
 
 	// Ping without connecting
 	err := q.Ping(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("expected ErrNotConnected, got %v", err)
 	}
 
@@ -86,6 +87,7 @@ func TestInMemoryQueue_DeclareQueue(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -93,7 +95,7 @@ func TestInMemoryQueue_DeclareQueue(t *testing.T) {
 
 	// Try declaring same queue again
 	err = q.DeclareQueue(ctx, "test", opts)
-	if err != ErrQueueAlreadyExists {
+	if !errors.Is(err, ErrQueueAlreadyExists) {
 		t.Errorf("expected ErrQueueAlreadyExists, got %v", err)
 	}
 }
@@ -109,12 +111,13 @@ func TestInMemoryQueue_DeleteQueue(t *testing.T) {
 
 	// Try deleting non-existent queue
 	err = q.DeleteQueue(ctx, "nonexistent")
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("expected ErrQueueNotFound, got %v", err)
 	}
 
 	// Declare and delete queue
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -140,6 +143,7 @@ func TestInMemoryQueue_ListQueues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to list queues: %v", err)
 	}
+
 	if len(queues) != 0 {
 		t.Errorf("expected 0 queues, got %d", len(queues))
 	}
@@ -153,6 +157,7 @@ func TestInMemoryQueue_ListQueues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to list queues: %v", err)
 	}
+
 	if len(queues) != 2 {
 		t.Errorf("expected 2 queues, got %d", len(queues))
 	}
@@ -169,12 +174,13 @@ func TestInMemoryQueue_GetQueueInfo(t *testing.T) {
 
 	// Try getting info for non-existent queue
 	_, err = q.GetQueueInfo(ctx, "nonexistent")
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("expected ErrQueueNotFound, got %v", err)
 	}
 
 	// Declare queue and get info
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -188,6 +194,7 @@ func TestInMemoryQueue_GetQueueInfo(t *testing.T) {
 	if info.Name != "test" {
 		t.Errorf("expected name 'test', got '%s'", info.Name)
 	}
+
 	if info.Messages != 0 {
 		t.Errorf("expected 0 messages, got %d", info.Messages)
 	}
@@ -203,13 +210,14 @@ func TestInMemoryQueue_PurgeQueue(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
 	}
 
 	// Publish some messages
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_ = q.Publish(ctx, "test", Message{Body: []byte("test")})
 	}
 
@@ -242,6 +250,7 @@ func TestInMemoryQueue_Publish(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -259,7 +268,7 @@ func TestInMemoryQueue_Publish(t *testing.T) {
 
 	// Try publishing to non-existent queue
 	err = q.Publish(ctx, "nonexistent", msg)
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("expected ErrQueueNotFound, got %v", err)
 	}
 }
@@ -274,6 +283,7 @@ func TestInMemoryQueue_PublishBatch(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -307,6 +317,7 @@ func TestInMemoryQueue_PublishDelayed(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -337,6 +348,7 @@ func TestInMemoryQueue_Consume(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -344,6 +356,7 @@ func TestInMemoryQueue_Consume(t *testing.T) {
 
 	// Publish a message
 	msg := Message{Body: []byte("test")}
+
 	err = q.Publish(ctx, "test", msg)
 	if err != nil {
 		t.Fatalf("failed to publish: %v", err)
@@ -353,10 +366,12 @@ func TestInMemoryQueue_Consume(t *testing.T) {
 	received := make(chan Message, 1)
 	handler := func(ctx context.Context, msg Message) error {
 		received <- msg
+
 		return nil
 	}
 
 	consumeOpts := DefaultConsumeOptions()
+
 	err = q.Consume(ctx, "test", handler, consumeOpts)
 	if err != nil {
 		t.Fatalf("failed to start consumer: %v", err)
@@ -383,6 +398,7 @@ func TestInMemoryQueue_ConsumeWithError(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -390,6 +406,7 @@ func TestInMemoryQueue_ConsumeWithError(t *testing.T) {
 
 	// Publish a message
 	msg := Message{Body: []byte("test")}
+
 	err = q.Publish(ctx, "test", msg)
 	if err != nil {
 		t.Fatalf("failed to publish: %v", err)
@@ -401,6 +418,7 @@ func TestInMemoryQueue_ConsumeWithError(t *testing.T) {
 	}
 
 	consumeOpts := DefaultConsumeOptions()
+
 	err = q.Consume(ctx, "test", handler, consumeOpts)
 	if err != nil {
 		t.Fatalf("failed to start consumer: %v", err)
@@ -429,6 +447,7 @@ func TestInMemoryQueue_StopConsuming(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -439,6 +458,7 @@ func TestInMemoryQueue_StopConsuming(t *testing.T) {
 	}
 
 	consumeOpts := DefaultConsumeOptions()
+
 	err = q.Consume(ctx, "test", handler, consumeOpts)
 	if err != nil {
 		t.Fatalf("failed to start consumer: %v", err)
@@ -469,6 +489,7 @@ func TestInMemoryQueue_AckNackReject(t *testing.T) {
 		ID:   "test-msg-1",
 		Body: []byte("test message"),
 	}
+
 	err = q.Publish(ctx, "test-queue", msg)
 	if err != nil {
 		t.Fatalf("failed to publish message: %v", err)
@@ -478,6 +499,7 @@ func TestInMemoryQueue_AckNackReject(t *testing.T) {
 	received := make(chan Message, 1)
 	handler := func(ctx context.Context, m Message) error {
 		received <- m
+
 		return nil
 	}
 
@@ -502,17 +524,17 @@ func TestInMemoryQueue_AckNackReject(t *testing.T) {
 
 	// Test operations on non-existent message should return ErrMessageNotFound
 	err = q.Ack(ctx, "nonexistent")
-	if err != ErrMessageNotFound {
+	if !errors.Is(err, ErrMessageNotFound) {
 		t.Errorf("Ack on non-existent message should return ErrMessageNotFound, got: %v", err)
 	}
 
 	err = q.Nack(ctx, "nonexistent", true)
-	if err != ErrMessageNotFound {
+	if !errors.Is(err, ErrMessageNotFound) {
 		t.Errorf("Nack on non-existent message should return ErrMessageNotFound, got: %v", err)
 	}
 
 	err = q.Reject(ctx, "nonexistent")
-	if err != ErrMessageNotFound {
+	if !errors.Is(err, ErrMessageNotFound) {
 		t.Errorf("Reject on non-existent message should return ErrMessageNotFound, got: %v", err)
 	}
 }
@@ -528,12 +550,13 @@ func TestInMemoryQueue_GetDeadLetterQueue(t *testing.T) {
 
 	// Try getting DLQ for non-existent queue
 	_, err = q.GetDeadLetterQueue(ctx, "nonexistent")
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("expected ErrQueueNotFound, got %v", err)
 	}
 
 	// Declare queue
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -559,6 +582,7 @@ func TestInMemoryQueue_RequeueDeadLetter(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -566,7 +590,7 @@ func TestInMemoryQueue_RequeueDeadLetter(t *testing.T) {
 
 	// Try requeuing non-existent message
 	err = q.RequeueDeadLetter(ctx, "test", "nonexistent")
-	if err != ErrMessageNotFound {
+	if !errors.Is(err, ErrMessageNotFound) {
 		t.Errorf("expected ErrMessageNotFound, got %v", err)
 	}
 }
@@ -627,21 +651,33 @@ func TestInMemoryQueue_NotConnectedErrors(t *testing.T) {
 	}{
 		{"DeclareQueue", func() error { return q.DeclareQueue(ctx, "test", opts) }},
 		{"DeleteQueue", func() error { return q.DeleteQueue(ctx, "test") }},
-		{"ListQueues", func() error { _, err := q.ListQueues(ctx); return err }},
-		{"GetQueueInfo", func() error { _, err := q.GetQueueInfo(ctx, "test"); return err }},
+		{"ListQueues", func() error {
+			_, err := q.ListQueues(ctx)
+			return err
+		}},
+		{"GetQueueInfo", func() error {
+			_, err := q.GetQueueInfo(ctx, "test")
+			return err
+		}},
 		{"PurgeQueue", func() error { return q.PurgeQueue(ctx, "test") }},
 		{"Publish", func() error { return q.Publish(ctx, "test", msg) }},
 		{"PublishBatch", func() error { return q.PublishBatch(ctx, "test", []Message{msg}) }},
 		{"Consume", func() error { return q.Consume(ctx, "test", nil, DefaultConsumeOptions()) }},
-		{"GetDeadLetterQueue", func() error { _, err := q.GetDeadLetterQueue(ctx, "test"); return err }},
+		{"GetDeadLetterQueue", func() error {
+			_, err := q.GetDeadLetterQueue(ctx, "test")
+			return err
+		}},
 		{"RequeueDeadLetter", func() error { return q.RequeueDeadLetter(ctx, "test", "id") }},
-		{"Stats", func() error { _, err := q.Stats(ctx); return err }},
+		{"Stats", func() error {
+			_, err := q.Stats(ctx)
+			return err
+		}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.fn()
-			if err != ErrNotConnected {
+			if !errors.Is(err, ErrNotConnected) {
 				t.Errorf("%s: expected ErrNotConnected, got %v", tt.name, err)
 			}
 		})
@@ -658,6 +694,7 @@ func TestInMemoryQueue_ConcurrentAccess(t *testing.T) {
 	}
 
 	opts := DefaultQueueOptions()
+
 	err = q.DeclareQueue(ctx, "test", opts)
 	if err != nil {
 		t.Fatalf("failed to declare queue: %v", err)
@@ -665,12 +702,12 @@ func TestInMemoryQueue_ConcurrentAccess(t *testing.T) {
 
 	// Concurrent publishes
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range 10 {
+
+		wg.Go(func() {
+
 			_ = q.Publish(ctx, "test", Message{Body: []byte("test")})
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -692,8 +729,7 @@ func BenchmarkInMemoryQueue_Publish(b *testing.B) {
 
 	msg := Message{Body: []byte("test message")}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = q.Publish(ctx, "test", msg)
 	}
 }
@@ -707,7 +743,7 @@ func BenchmarkInMemoryQueue_Consume(b *testing.B) {
 	_ = q.DeclareQueue(ctx, "test", opts)
 
 	// Pre-publish messages
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = q.Publish(ctx, "test", Message{Body: []byte("test")})
 	}
 

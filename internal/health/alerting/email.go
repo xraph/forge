@@ -3,9 +3,11 @@ package alerting
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/smtp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,7 +15,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// EmailNotifier implements AlertNotifier for email notifications
+// EmailNotifier implements AlertNotifier for email notifications.
 type EmailNotifier struct {
 	config  *EmailConfig
 	logger  logger.Logger
@@ -23,29 +25,29 @@ type EmailNotifier struct {
 	addr    string
 }
 
-// EmailConfig contains configuration for email notifications
+// EmailConfig contains configuration for email notifications.
 type EmailConfig struct {
-	SMTPHost           string            `yaml:"smtp_host" json:"smtp_host"`
-	SMTPPort           int               `yaml:"smtp_port" json:"smtp_port"`
-	Username           string            `yaml:"username" json:"username"`
-	Password           string            `yaml:"password" json:"password"`
-	From               string            `yaml:"from" json:"from"`
-	To                 []string          `yaml:"to" json:"to"`
-	CC                 []string          `yaml:"cc" json:"cc"`
-	BCC                []string          `yaml:"bcc" json:"bcc"`
-	Subject            string            `yaml:"subject" json:"subject"`
-	SubjectTemplate    string            `yaml:"subject_template" json:"subject_template"`
-	BodyTemplate       string            `yaml:"body_template" json:"body_template"`
-	HTMLTemplate       string            `yaml:"html_template" json:"html_template"`
-	UseTLS             bool              `yaml:"use_tls" json:"use_tls"`
-	UseStartTLS        bool              `yaml:"use_starttls" json:"use_starttls"`
-	InsecureSkipVerify bool              `yaml:"insecure_skip_verify" json:"insecure_skip_verify"`
-	Timeout            time.Duration     `yaml:"timeout" json:"timeout"`
-	Headers            map[string]string `yaml:"headers" json:"headers"`
-	AuthType           string            `yaml:"auth_type" json:"auth_type"` // plain, login, crammd5
+	SMTPHost           string            `json:"smtp_host"            yaml:"smtp_host"`
+	SMTPPort           int               `json:"smtp_port"            yaml:"smtp_port"`
+	Username           string            `json:"username"             yaml:"username"`
+	Password           string            `json:"password"             yaml:"password"`
+	From               string            `json:"from"                 yaml:"from"`
+	To                 []string          `json:"to"                   yaml:"to"`
+	CC                 []string          `json:"cc"                   yaml:"cc"`
+	BCC                []string          `json:"bcc"                  yaml:"bcc"`
+	Subject            string            `json:"subject"              yaml:"subject"`
+	SubjectTemplate    string            `json:"subject_template"     yaml:"subject_template"`
+	BodyTemplate       string            `json:"body_template"        yaml:"body_template"`
+	HTMLTemplate       string            `json:"html_template"        yaml:"html_template"`
+	UseTLS             bool              `json:"use_tls"              yaml:"use_tls"`
+	UseStartTLS        bool              `json:"use_starttls"         yaml:"use_starttls"`
+	InsecureSkipVerify bool              `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
+	Timeout            time.Duration     `json:"timeout"              yaml:"timeout"`
+	Headers            map[string]string `json:"headers"              yaml:"headers"`
+	AuthType           string            `json:"auth_type"            yaml:"auth_type"` // plain, login, crammd5
 }
 
-// DefaultEmailConfig returns default configuration for email notifications
+// DefaultEmailConfig returns default configuration for email notifications.
 func DefaultEmailConfig() *EmailConfig {
 	return &EmailConfig{
 		SMTPHost:        "localhost",
@@ -201,7 +203,7 @@ Forge Health Alerting System
 	}
 }
 
-// NewEmailNotifier creates a new email notifier
+// NewEmailNotifier creates a new email notifier.
 func NewEmailNotifier(name string, config *EmailConfig, logger logger.Logger, metrics shared.Metrics) (*EmailNotifier, error) {
 	if config == nil {
 		config = DefaultEmailConfig()
@@ -209,17 +211,20 @@ func NewEmailNotifier(name string, config *EmailConfig, logger logger.Logger, me
 
 	// Validate required fields
 	if config.SMTPHost == "" {
-		return nil, fmt.Errorf("SMTP host is required")
+		return nil, errors.New("SMTP host is required")
 	}
+
 	if config.From == "" {
-		return nil, fmt.Errorf("from address is required")
+		return nil, errors.New("from address is required")
 	}
+
 	if len(config.To) == 0 {
-		return nil, fmt.Errorf("at least one recipient is required")
+		return nil, errors.New("at least one recipient is required")
 	}
 
 	// Create SMTP authentication
 	var auth smtp.Auth
+
 	if config.Username != "" && config.Password != "" {
 		switch config.AuthType {
 		case "plain":
@@ -245,12 +250,12 @@ func NewEmailNotifier(name string, config *EmailConfig, logger logger.Logger, me
 	}, nil
 }
 
-// Name returns the name of the notifier
+// Name returns the name of the notifier.
 func (en *EmailNotifier) Name() string {
 	return en.name
 }
 
-// Send sends an alert via email
+// Send sends an alert via email.
 func (en *EmailNotifier) Send(ctx context.Context, alert *Alert) error {
 	// Create email message
 	msg, err := en.createMessage(alert)
@@ -276,6 +281,7 @@ func (en *EmailNotifier) Send(ctx context.Context, alert *Alert) error {
 		if en.metrics != nil {
 			en.metrics.Counter("forge.health.email_errors").Inc()
 		}
+
 		return fmt.Errorf("failed to send email: %w", err)
 	}
 
@@ -294,7 +300,7 @@ func (en *EmailNotifier) Send(ctx context.Context, alert *Alert) error {
 	return nil
 }
 
-// SendBatch sends multiple alerts in a single email
+// SendBatch sends multiple alerts in a single email.
 func (en *EmailNotifier) SendBatch(ctx context.Context, alerts []*Alert) error {
 	if len(alerts) == 0 {
 		return nil
@@ -324,6 +330,7 @@ func (en *EmailNotifier) SendBatch(ctx context.Context, alerts []*Alert) error {
 		if en.metrics != nil {
 			en.metrics.Counter("forge.health.email_batch_errors").Inc()
 		}
+
 		return fmt.Errorf("failed to send batch email: %w", err)
 	}
 
@@ -342,7 +349,7 @@ func (en *EmailNotifier) SendBatch(ctx context.Context, alerts []*Alert) error {
 	return nil
 }
 
-// Test sends a test email
+// Test sends a test email.
 func (en *EmailNotifier) Test(ctx context.Context) error {
 	testAlert := NewAlert(AlertTypeSystemError, AlertSeverityInfo, "Test Alert", "This is a test alert from Forge Health Alerting")
 	testAlert.WithSource("test")
@@ -352,13 +359,13 @@ func (en *EmailNotifier) Test(ctx context.Context) error {
 	return en.Send(ctx, testAlert)
 }
 
-// Close closes the email notifier
+// Close closes the email notifier.
 func (en *EmailNotifier) Close() error {
 	// No resources to close for email notifier
 	return nil
 }
 
-// createMessage creates an email message for a single alert
+// createMessage creates an email message for a single alert.
 func (en *EmailNotifier) createMessage(alert *Alert) ([]byte, error) {
 	var msg strings.Builder
 
@@ -379,6 +386,7 @@ func (en *EmailNotifier) createMessage(alert *Alert) ([]byte, error) {
 	if err != nil {
 		subject = en.config.Subject
 	}
+
 	msg.WriteString(fmt.Sprintf("Subject: %s\r\n", subject))
 
 	// Custom headers
@@ -401,6 +409,7 @@ func (en *EmailNotifier) createMessage(alert *Alert) ([]byte, error) {
 		textBody = fmt.Sprintf("Alert: %s\nService: %s\nMessage: %s\nTimestamp: %s",
 			alert.Title, alert.Service, alert.Message, alert.Timestamp.Format(time.RFC3339))
 	}
+
 	msg.WriteString(textBody)
 	msg.WriteString("\r\n")
 
@@ -414,6 +423,7 @@ func (en *EmailNotifier) createMessage(alert *Alert) ([]byte, error) {
 		htmlBody = fmt.Sprintf("<h1>%s</h1><p><strong>Service:</strong> %s</p><p><strong>Message:</strong> %s</p><p><strong>Timestamp:</strong> %s</p>",
 			alert.Title, alert.Service, alert.Message, alert.Timestamp.Format(time.RFC3339))
 	}
+
 	msg.WriteString(htmlBody)
 	msg.WriteString("\r\n")
 
@@ -423,7 +433,7 @@ func (en *EmailNotifier) createMessage(alert *Alert) ([]byte, error) {
 	return []byte(msg.String()), nil
 }
 
-// createBatchMessage creates an email message for multiple alerts
+// createBatchMessage creates an email message for multiple alerts.
 func (en *EmailNotifier) createBatchMessage(alerts []*Alert) ([]byte, error) {
 	var msg strings.Builder
 
@@ -454,7 +464,7 @@ func (en *EmailNotifier) createBatchMessage(alerts []*Alert) ([]byte, error) {
 	msg.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
 	msg.WriteString("\r\n")
 
-	msg.WriteString(fmt.Sprintf("Health Alert Batch Notification\n\n"))
+	msg.WriteString("Health Alert Batch Notification\n\n")
 	msg.WriteString(fmt.Sprintf("Total alerts: %d\n", len(alerts)))
 	msg.WriteString(fmt.Sprintf("Timestamp: %s\n\n", time.Now().Format(time.RFC3339)))
 
@@ -500,7 +510,7 @@ func (en *EmailNotifier) createBatchMessage(alerts []*Alert) ([]byte, error) {
 <body>
     <div class="batch-header">
         <h1>Health Alert Batch Notification</h1>
-        <p><strong>Total alerts:</strong> ` + fmt.Sprintf("%d", len(alerts)) + `</p>
+        <p><strong>Total alerts:</strong> ` + strconv.Itoa(len(alerts)) + `</p>
         <p><strong>Timestamp:</strong> ` + time.Now().Format(time.RFC3339) + `</p>
     </div>`)
 
@@ -554,19 +564,21 @@ func (en *EmailNotifier) createBatchMessage(alerts []*Alert) ([]byte, error) {
 	return []byte(msg.String()), nil
 }
 
-// sendEmail sends the email using SMTP
+// sendEmail sends the email using SMTP.
 func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg []byte) error {
 	// Create context with timeout
 	ctx, cancel := context.WithTimeout(ctx, en.config.Timeout)
 	defer cancel()
 
 	// Connect to SMTP server
-	var client *smtp.Client
-	var err error
+	var (
+		client *smtp.Client
+		err    error
+	)
 
 	if en.config.UseTLS {
 		// Direct TLS connection
-		// nolint:gosec // G402: InsecureSkipVerify is user-configurable for testing environments
+		//nolint:gosec // G402: InsecureSkipVerify is user-configurable for testing environments
 		tlsConfig := &tls.Config{
 			ServerName:         en.config.SMTPHost,
 			InsecureSkipVerify: en.config.InsecureSkipVerify,
@@ -584,11 +596,12 @@ func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg
 	if err != nil {
 		return fmt.Errorf("failed to connect to SMTP server: %w", err)
 	}
+
 	defer client.Close()
 
 	// Start TLS if configured
 	if en.config.UseStartTLS {
-		// nolint:gosec // G402: InsecureSkipVerify is user-configurable for testing environments
+		//nolint:gosec // G402: InsecureSkipVerify is user-configurable for testing environments
 		tlsConfig := &tls.Config{
 			ServerName:         en.config.SMTPHost,
 			InsecureSkipVerify: en.config.InsecureSkipVerify,
@@ -640,7 +653,7 @@ func (en *EmailNotifier) sendEmail(ctx context.Context, recipients []string, msg
 	return nil
 }
 
-// renderTemplate renders a template with alert data
+// renderTemplate renders a template with alert data.
 func (en *EmailNotifier) renderTemplate(templateStr string, alert *Alert) (string, error) {
 	tmpl, err := template.New("email").Parse(templateStr)
 	if err != nil {
@@ -655,16 +668,17 @@ func (en *EmailNotifier) renderTemplate(templateStr string, alert *Alert) (strin
 	return buf.String(), nil
 }
 
-// getAllRecipients returns all recipients (To, CC, BCC)
+// getAllRecipients returns all recipients (To, CC, BCC).
 func (en *EmailNotifier) getAllRecipients() []string {
 	recipients := make([]string, 0)
 	recipients = append(recipients, en.config.To...)
 	recipients = append(recipients, en.config.CC...)
 	recipients = append(recipients, en.config.BCC...)
+
 	return recipients
 }
 
-// loginAuth implements LOGIN authentication
+// loginAuth implements LOGIN authentication.
 type loginAuth struct {
 	username, password string
 }
@@ -684,10 +698,11 @@ func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 			return nil, fmt.Errorf("unknown challenge: %s", fromServer)
 		}
 	}
+
 	return nil, nil
 }
 
-// EmailNotifierBuilder helps build email notifiers with fluent interface
+// EmailNotifierBuilder helps build email notifiers with fluent interface.
 type EmailNotifierBuilder struct {
 	config  *EmailConfig
 	logger  logger.Logger
@@ -695,7 +710,7 @@ type EmailNotifierBuilder struct {
 	metrics shared.Metrics
 }
 
-// NewEmailNotifierBuilder creates a new email notifier builder
+// NewEmailNotifierBuilder creates a new email notifier builder.
 func NewEmailNotifierBuilder(name string) *EmailNotifierBuilder {
 	return &EmailNotifierBuilder{
 		config: DefaultEmailConfig(),
@@ -703,133 +718,153 @@ func NewEmailNotifierBuilder(name string) *EmailNotifierBuilder {
 	}
 }
 
-// WithSMTP sets SMTP server configuration
+// WithSMTP sets SMTP server configuration.
 func (enb *EmailNotifierBuilder) WithSMTP(host string, port int) *EmailNotifierBuilder {
 	enb.config.SMTPHost = host
 	enb.config.SMTPPort = port
+
 	return enb
 }
 
-// WithAuth sets authentication credentials
+// WithAuth sets authentication credentials.
 func (enb *EmailNotifierBuilder) WithAuth(username, password string) *EmailNotifierBuilder {
 	enb.config.Username = username
 	enb.config.Password = password
+
 	return enb
 }
 
-// WithAuthType sets authentication type
+// WithAuthType sets authentication type.
 func (enb *EmailNotifierBuilder) WithAuthType(authType string) *EmailNotifierBuilder {
 	enb.config.AuthType = authType
+
 	return enb
 }
 
-// WithFrom sets the sender address
+// WithFrom sets the sender address.
 func (enb *EmailNotifierBuilder) WithFrom(from string) *EmailNotifierBuilder {
 	enb.config.From = from
+
 	return enb
 }
 
-// WithTo sets the recipient addresses
+// WithTo sets the recipient addresses.
 func (enb *EmailNotifierBuilder) WithTo(to ...string) *EmailNotifierBuilder {
 	enb.config.To = to
+
 	return enb
 }
 
-// WithCC sets the CC addresses
+// WithCC sets the CC addresses.
 func (enb *EmailNotifierBuilder) WithCC(cc ...string) *EmailNotifierBuilder {
 	enb.config.CC = cc
+
 	return enb
 }
 
-// WithBCC sets the BCC addresses
+// WithBCC sets the BCC addresses.
 func (enb *EmailNotifierBuilder) WithBCC(bcc ...string) *EmailNotifierBuilder {
 	enb.config.BCC = bcc
+
 	return enb
 }
 
-// WithSubject sets the email subject
+// WithSubject sets the email subject.
 func (enb *EmailNotifierBuilder) WithSubject(subject string) *EmailNotifierBuilder {
 	enb.config.Subject = subject
+
 	return enb
 }
 
-// WithSubjectTemplate sets the subject template
+// WithSubjectTemplate sets the subject template.
 func (enb *EmailNotifierBuilder) WithSubjectTemplate(template string) *EmailNotifierBuilder {
 	enb.config.SubjectTemplate = template
+
 	return enb
 }
 
-// WithBodyTemplate sets the body template
+// WithBodyTemplate sets the body template.
 func (enb *EmailNotifierBuilder) WithBodyTemplate(template string) *EmailNotifierBuilder {
 	enb.config.BodyTemplate = template
+
 	return enb
 }
 
-// WithHTMLTemplate sets the HTML template
+// WithHTMLTemplate sets the HTML template.
 func (enb *EmailNotifierBuilder) WithHTMLTemplate(template string) *EmailNotifierBuilder {
 	enb.config.HTMLTemplate = template
+
 	return enb
 }
 
-// WithTLS sets TLS configuration
+// WithTLS sets TLS configuration.
 func (enb *EmailNotifierBuilder) WithTLS(useTLS bool) *EmailNotifierBuilder {
 	enb.config.UseTLS = useTLS
+
 	return enb
 }
 
-// WithStartTLS sets STARTTLS configuration
+// WithStartTLS sets STARTTLS configuration.
 func (enb *EmailNotifierBuilder) WithStartTLS(useStartTLS bool) *EmailNotifierBuilder {
 	enb.config.UseStartTLS = useStartTLS
+
 	return enb
 }
 
-// WithInsecureSkipVerify sets TLS verification skip
+// WithInsecureSkipVerify sets TLS verification skip.
 func (enb *EmailNotifierBuilder) WithInsecureSkipVerify(skip bool) *EmailNotifierBuilder {
 	enb.config.InsecureSkipVerify = skip
+
 	return enb
 }
 
-// WithTimeout sets the timeout
+// WithTimeout sets the timeout.
 func (enb *EmailNotifierBuilder) WithTimeout(timeout time.Duration) *EmailNotifierBuilder {
 	enb.config.Timeout = timeout
+
 	return enb
 }
 
-// WithHeaders sets custom headers
+// WithHeaders sets custom headers.
 func (enb *EmailNotifierBuilder) WithHeaders(headers map[string]string) *EmailNotifierBuilder {
 	enb.config.Headers = headers
+
 	return enb
 }
 
-// WithHeader adds a custom header
+// WithHeader adds a custom header.
 func (enb *EmailNotifierBuilder) WithHeader(key, value string) *EmailNotifierBuilder {
 	if enb.config.Headers == nil {
 		enb.config.Headers = make(map[string]string)
 	}
+
 	enb.config.Headers[key] = value
+
 	return enb
 }
 
-// WithLogger sets the logger
+// WithLogger sets the logger.
 func (enb *EmailNotifierBuilder) WithLogger(logger logger.Logger) *EmailNotifierBuilder {
 	enb.logger = logger
+
 	return enb
 }
 
-// WithMetrics sets the metrics collector
+// WithMetrics sets the metrics collector.
 func (enb *EmailNotifierBuilder) WithMetrics(metrics shared.Metrics) *EmailNotifierBuilder {
 	enb.metrics = metrics
+
 	return enb
 }
 
-// Build creates the email notifier
+// Build creates the email notifier.
 func (enb *EmailNotifierBuilder) Build() (*EmailNotifier, error) {
 	return NewEmailNotifier(enb.name, enb.config, enb.logger, enb.metrics)
 }
 
 // Predefined email configurations
 
-// NewGmailNotifier creates an email notifier configured for Gmail
+// NewGmailNotifier creates an email notifier configured for Gmail.
 func NewGmailNotifier(name, username, password, from string, to []string, logger logger.Logger, metrics shared.Metrics) (*EmailNotifier, error) {
 	return NewEmailNotifierBuilder(name).
 		WithSMTP("smtp.gmail.com", 587).
@@ -843,7 +878,7 @@ func NewGmailNotifier(name, username, password, from string, to []string, logger
 		Build()
 }
 
-// NewOutlookNotifier creates an email notifier configured for Outlook
+// NewOutlookNotifier creates an email notifier configured for Outlook.
 func NewOutlookNotifier(name, username, password, from string, to []string, logger logger.Logger, metrics shared.Metrics) (*EmailNotifier, error) {
 	return NewEmailNotifierBuilder(name).
 		WithSMTP("smtp-mail.outlook.com", 587).
@@ -857,7 +892,7 @@ func NewOutlookNotifier(name, username, password, from string, to []string, logg
 		Build()
 }
 
-// NewSMTPNotifier creates a generic SMTP email notifier
+// NewSMTPNotifier creates a generic SMTP email notifier.
 func NewSMTPNotifier(name, host string, port int, username, password, from string, to []string, logger logger.Logger, metrics shared.Metrics) (*EmailNotifier, error) {
 	return NewEmailNotifierBuilder(name).
 		WithSMTP(host, port).

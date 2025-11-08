@@ -13,7 +13,7 @@ import (
 // =============================================================================
 
 // noOpMetrics implements Metrics interface with no-op operations for testing
-// and scenarios where metrics collection is disabled
+// and scenarios where metrics collection is disabled.
 type noOpMetrics struct{}
 
 // NewNoOpMetrics creates a no-op metrics collector that implements the full
@@ -99,16 +99,16 @@ func (m *noOpMetrics) GetCollectors() []internal.CustomCollector {
 // METRICS RETRIEVAL (NO-OP)
 // =============================================================================
 
-func (m *noOpMetrics) GetMetrics() map[string]interface{} {
-	return make(map[string]interface{})
+func (m *noOpMetrics) GetMetrics() map[string]any {
+	return make(map[string]any)
 }
 
-func (m *noOpMetrics) GetMetricsByType(metricType internal.MetricType) map[string]interface{} {
-	return make(map[string]interface{})
+func (m *noOpMetrics) GetMetricsByType(metricType internal.MetricType) map[string]any {
+	return make(map[string]any)
 }
 
-func (m *noOpMetrics) GetMetricsByTag(tagKey, tagValue string) map[string]interface{} {
-	return make(map[string]interface{})
+func (m *noOpMetrics) GetMetricsByTag(tagKey, tagValue string) map[string]any {
+	return make(map[string]any)
 }
 
 // =============================================================================
@@ -139,7 +139,7 @@ func (m *noOpMetrics) GetStats() internal.CollectorStats {
 		ActiveMetrics:      0,
 		LastCollectionTime: time.Time{},
 		Errors:             []string{},
-		ExporterStats:      make(map[string]interface{}),
+		ExporterStats:      make(map[string]any),
 	}
 }
 
@@ -155,7 +155,7 @@ func (m *noOpMetrics) Reload(config *shared.MetricsConfig) error {
 // NO-OP COUNTER IMPLEMENTATION
 // =============================================================================
 
-// noOpCounter implements Counter interface with no-op operations
+// noOpCounter implements Counter interface with no-op operations.
 type noOpCounter struct{}
 
 func (c *noOpCounter) Inc()                                               {}
@@ -169,7 +169,7 @@ func (c *noOpCounter) Reset() error                                       { retu
 // NO-OP GAUGE IMPLEMENTATION
 // =============================================================================
 
-// noOpGauge implements Gauge interface with no-op operations
+// noOpGauge implements Gauge interface with no-op operations.
 type noOpGauge struct{}
 
 func (g *noOpGauge) Set(value float64)                                {}
@@ -184,7 +184,7 @@ func (g *noOpGauge) Reset() error                                     { return n
 // NO-OP HISTOGRAM IMPLEMENTATION
 // =============================================================================
 
-// noOpHistogram implements Histogram interface with no-op operations
+// noOpHistogram implements Histogram interface with no-op operations.
 type noOpHistogram struct{}
 
 func (h *noOpHistogram) Observe(value float64)                                {}
@@ -201,7 +201,7 @@ func (h *noOpHistogram) Reset() error                                         { 
 // NO-OP TIMER IMPLEMENTATION
 // =============================================================================
 
-// noOpTimer implements Timer interface with no-op operations
+// noOpTimer implements Timer interface with no-op operations.
 type noOpTimer struct{}
 
 func (t *noOpTimer) Record(duration time.Duration)                  {}

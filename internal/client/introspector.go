@@ -3,23 +3,24 @@ package client
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/xraph/forge/internal/router"
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Introspector extracts API specification from a Forge Router
+// Introspector extracts API specification from a Forge Router.
 type Introspector struct {
 	router router.Router
 }
 
-// NewIntrospector creates a new introspector for a router
+// NewIntrospector creates a new introspector for a router.
 func NewIntrospector(r router.Router) *Introspector {
 	return &Introspector{router: r}
 }
 
-// Introspect extracts the complete API specification from the router
+// Introspect extracts the complete API specification from the router.
 func (i *Introspector) Introspect(ctx context.Context) (*APISpec, error) {
 	spec := &APISpec{
 		Schemas:  make(map[string]*Schema),
@@ -54,7 +55,7 @@ func (i *Introspector) Introspect(ctx context.Context) (*APISpec, error) {
 	return spec, nil
 }
 
-// extractFromOpenAPI extracts REST endpoints from OpenAPI spec
+// extractFromOpenAPI extracts REST endpoints from OpenAPI spec.
 func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPISpec) error {
 	// Extract API info
 	spec.Info = APIInfo{
@@ -92,6 +93,7 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 				Enum:        v.Enum,
 			}
 		}
+
 		spec.Servers = append(spec.Servers, server)
 	}
 
@@ -118,6 +120,7 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 						Scopes:           scheme.Flows.Implicit.Scopes,
 					}
 				}
+
 				if scheme.Flows.Password != nil {
 					secScheme.Flows.Password = &OAuthFlow{
 						AuthorizationURL: scheme.Flows.Password.AuthorizationURL,
@@ -126,6 +129,7 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 						Scopes:           scheme.Flows.Password.Scopes,
 					}
 				}
+
 				if scheme.Flows.ClientCredentials != nil {
 					secScheme.Flows.ClientCredentials = &OAuthFlow{
 						AuthorizationURL: scheme.Flows.ClientCredentials.AuthorizationURL,
@@ -134,6 +138,7 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 						Scopes:           scheme.Flows.ClientCredentials.Scopes,
 					}
 				}
+
 				if scheme.Flows.AuthorizationCode != nil {
 					secScheme.Flows.AuthorizationCode = &OAuthFlow{
 						AuthorizationURL: scheme.Flows.AuthorizationCode.AuthorizationURL,
@@ -193,7 +198,7 @@ func (i *Introspector) extractFromOpenAPI(spec *APISpec, openAPI *shared.OpenAPI
 	return nil
 }
 
-// extractFromAsyncAPI extracts streaming endpoints from AsyncAPI spec
+// extractFromAsyncAPI extracts streaming endpoints from AsyncAPI spec.
 func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.AsyncAPISpec) error {
 	// If we haven't set info yet, extract it from AsyncAPI
 	if spec.Info.Title == "" {
@@ -232,6 +237,7 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 
 		// Resolve channel reference
 		channelName := strings.TrimPrefix(channelRef, "#/channels/")
+
 		channel := asyncAPI.Channels[channelName]
 		if channel == nil {
 			continue
@@ -253,7 +259,7 @@ func (i *Introspector) extractFromAsyncAPI(spec *APISpec, asyncAPI *shared.Async
 	return nil
 }
 
-// operationToEndpoint converts an OpenAPI operation to an IR endpoint
+// operationToEndpoint converts an OpenAPI operation to an IR endpoint.
 func (i *Introspector) operationToEndpoint(method, path string, op *shared.Operation) Endpoint {
 	endpoint := Endpoint{
 		Method:      method,
@@ -264,7 +270,7 @@ func (i *Introspector) operationToEndpoint(method, path string, op *shared.Opera
 		OperationID: op.OperationID,
 		Deprecated:  op.Deprecated,
 		Responses:   make(map[int]*Response),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 
 	// Extract parameters
@@ -357,7 +363,7 @@ func (i *Introspector) operationToEndpoint(method, path string, op *shared.Opera
 	return endpoint
 }
 
-// channelToWebSocket converts an AsyncAPI channel to a WebSocket endpoint
+// channelToWebSocket converts an AsyncAPI channel to a WebSocket endpoint.
 func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) WebSocketEndpoint {
 	ws := WebSocketEndpoint{
 		ID:          opID,
@@ -365,7 +371,7 @@ func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIC
 		Summary:     channel.Summary,
 		Description: channel.Description,
 		Tags:        i.extractTagNames(channel.Tags),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 
 	// Extract send/receive schemas from messages
@@ -374,9 +380,10 @@ func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIC
 			schema := i.convertSchema(msg.Payload)
 
 			// Determine direction based on operation action
-			if operation.Action == "send" {
+			switch operation.Action {
+			case "send":
 				ws.SendSchema = schema
-			} else if operation.Action == "receive" {
+			case "receive":
 				ws.ReceiveSchema = schema
 			}
 
@@ -384,6 +391,7 @@ func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIC
 			if ws.Metadata["messages"] == nil {
 				ws.Metadata["messages"] = make(map[string]string)
 			}
+
 			ws.Metadata["messages"].(map[string]string)[msgName] = operation.Action
 		}
 	}
@@ -391,7 +399,7 @@ func (i *Introspector) channelToWebSocket(opID string, channel *shared.AsyncAPIC
 	return ws
 }
 
-// channelToSSE converts an AsyncAPI channel to an SSE endpoint
+// channelToSSE converts an AsyncAPI channel to an SSE endpoint.
 func (i *Introspector) channelToSSE(opID string, channel *shared.AsyncAPIChannel, operation *shared.AsyncAPIOperation) SSEEndpoint {
 	sse := SSEEndpoint{
 		ID:           opID,
@@ -400,7 +408,7 @@ func (i *Introspector) channelToSSE(opID string, channel *shared.AsyncAPIChannel
 		Description:  channel.Description,
 		Tags:         i.extractTagNames(channel.Tags),
 		EventSchemas: make(map[string]*Schema),
-		Metadata:     make(map[string]interface{}),
+		Metadata:     make(map[string]any),
 	}
 
 	// Extract event schemas from messages
@@ -413,7 +421,7 @@ func (i *Introspector) channelToSSE(opID string, channel *shared.AsyncAPIChannel
 	return sse
 }
 
-// routeToEndpoint converts a raw route to an endpoint (fallback when no OpenAPI)
+// routeToEndpoint converts a raw route to an endpoint (fallback when no OpenAPI).
 func (i *Introspector) routeToEndpoint(route router.RouteInfo) Endpoint {
 	endpoint := Endpoint{
 		Method:      route.Method,
@@ -422,7 +430,7 @@ func (i *Introspector) routeToEndpoint(route router.RouteInfo) Endpoint {
 		Description: route.Description,
 		Tags:        route.Tags,
 		Responses:   make(map[int]*Response),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 
 	// Extract auth requirements from metadata
@@ -435,14 +443,12 @@ func (i *Introspector) routeToEndpoint(route router.RouteInfo) Endpoint {
 	}
 
 	// Copy metadata
-	for k, v := range route.Metadata {
-		endpoint.Metadata[k] = v
-	}
+	maps.Copy(endpoint.Metadata, route.Metadata)
 
 	return endpoint
 }
 
-// convertSchema converts a shared.Schema to an IR Schema
+// convertSchema converts a shared.Schema to an IR Schema.
 func (i *Introspector) convertSchema(s *shared.Schema) *Schema {
 	if s == nil {
 		return nil
@@ -468,14 +474,17 @@ func (i *Introspector) convertSchema(s *shared.Schema) *Schema {
 		minLen := s.MinLength
 		schema.MinLength = &minLen
 	}
+
 	if s.MaxLength > 0 {
 		maxLen := s.MaxLength
 		schema.MaxLength = &maxLen
 	}
+
 	if s.Minimum != 0 {
 		min := s.Minimum
 		schema.Minimum = &min
 	}
+
 	if s.Maximum != 0 {
 		max := s.Maximum
 		schema.Maximum = &max
@@ -500,11 +509,13 @@ func (i *Introspector) convertSchema(s *shared.Schema) *Schema {
 			schema.OneOf = append(schema.OneOf, i.convertSchema(&s.OneOf[idx]))
 		}
 	}
+
 	if len(s.AnyOf) > 0 {
 		for idx := range s.AnyOf {
 			schema.AnyOf = append(schema.AnyOf, i.convertSchema(&s.AnyOf[idx]))
 		}
 	}
+
 	if len(s.AllOf) > 0 {
 		for idx := range s.AllOf {
 			schema.AllOf = append(schema.AllOf, i.convertSchema(&s.AllOf[idx]))
@@ -522,7 +533,7 @@ func (i *Introspector) convertSchema(s *shared.Schema) *Schema {
 	return schema
 }
 
-// convertExamples converts examples
+// convertExamples converts examples.
 func (i *Introspector) convertExamples(examples map[string]*shared.Example) map[string]*Example {
 	if examples == nil {
 		return nil
@@ -536,10 +547,11 @@ func (i *Introspector) convertExamples(examples map[string]*shared.Example) map[
 			Value:       v.Value,
 		}
 	}
+
 	return result
 }
 
-// isWebSocketChannel determines if a channel is WebSocket based on protocol
+// isWebSocketChannel determines if a channel is WebSocket based on protocol.
 func (i *Introspector) isWebSocketChannel(asyncAPI *shared.AsyncAPISpec, channel *shared.AsyncAPIChannel) bool {
 	// Check channel servers
 	for _, serverRef := range channel.Servers {
@@ -556,11 +568,12 @@ func (i *Introspector) isWebSocketChannel(asyncAPI *shared.AsyncAPISpec, channel
 	return len(channel.Messages) > 0
 }
 
-// extractTagNames extracts tag names from AsyncAPI tags
+// extractTagNames extracts tag names from AsyncAPI tags.
 func (i *Introspector) extractTagNames(tags []shared.AsyncAPITag) []string {
 	names := make([]string, len(tags))
 	for i, tag := range tags {
 		names[i] = tag.Name
 	}
+
 	return names
 }

@@ -3,13 +3,14 @@ package queue
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 )
 
-// InMemoryQueue implements Queue interface with an in-memory store
+// InMemoryQueue implements Queue interface with an in-memory store.
 type InMemoryQueue struct {
 	config    Config
 	logger    forge.Logger
@@ -22,13 +23,13 @@ type InMemoryQueue struct {
 }
 
 type memoryQueue struct {
-	name       string
-	opts       QueueOptions
-	messages   []Message
-	dlq        []Message
-	inflight   map[string]Message // Track messages being processed
-	createdAt  time.Time
-	mu         sync.RWMutex
+	name      string
+	opts      QueueOptions
+	messages  []Message
+	dlq       []Message
+	inflight  map[string]Message // Track messages being processed
+	createdAt time.Time
+	mu        sync.RWMutex
 }
 
 type consumer struct {
@@ -39,7 +40,7 @@ type consumer struct {
 	active  bool
 }
 
-// NewInMemoryQueue creates a new in-memory queue instance
+// NewInMemoryQueue creates a new in-memory queue instance.
 func NewInMemoryQueue(config Config, logger forge.Logger, metrics forge.Metrics) *InMemoryQueue {
 	return &InMemoryQueue{
 		config:    config,
@@ -61,6 +62,7 @@ func (q *InMemoryQueue) Connect(ctx context.Context) error {
 	q.connected = true
 	q.startTime = time.Now()
 	q.logger.Info("connected to in-memory queue")
+
 	return nil
 }
 
@@ -83,6 +85,7 @@ func (q *InMemoryQueue) Disconnect(ctx context.Context) error {
 	q.queues = make(map[string]*memoryQueue)
 	q.consumers = make(map[string]*consumer)
 	q.logger.Info("disconnected from in-memory queue")
+
 	return nil
 }
 
@@ -93,6 +96,7 @@ func (q *InMemoryQueue) Ping(ctx context.Context) error {
 	if !q.connected {
 		return ErrNotConnected
 	}
+
 	return nil
 }
 
@@ -118,6 +122,7 @@ func (q *InMemoryQueue) DeclareQueue(ctx context.Context, name string, opts Queu
 	}
 
 	q.logger.Info("declared queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -135,6 +140,7 @@ func (q *InMemoryQueue) DeleteQueue(ctx context.Context, name string) error {
 
 	delete(q.queues, name)
 	q.logger.Info("deleted queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -150,6 +156,7 @@ func (q *InMemoryQueue) ListQueues(ctx context.Context) ([]string, error) {
 	for name := range q.queues {
 		names = append(names, name)
 	}
+
 	return names, nil
 }
 
@@ -197,6 +204,7 @@ func (q *InMemoryQueue) PurgeQueue(ctx context.Context, name string) error {
 	mq.mu.Unlock()
 
 	q.logger.Info("purged queue", forge.F("queue", name))
+
 	return nil
 }
 
@@ -213,7 +221,7 @@ func (q *InMemoryQueue) Publish(ctx context.Context, queueName string, message M
 		return ErrQueueNotFound
 	}
 
-	message.ID = fmt.Sprintf("%d", time.Now().UnixNano())
+	message.ID = strconv.FormatInt(time.Now().UnixNano(), 10)
 	message.Queue = queueName
 	message.PublishedAt = time.Now()
 
@@ -222,6 +230,7 @@ func (q *InMemoryQueue) Publish(ctx context.Context, queueName string, message M
 	mq.mu.Unlock()
 
 	q.logger.Debug("published message", forge.F("queue", queueName), forge.F("msg_id", message.ID))
+
 	return nil
 }
 
@@ -231,12 +240,14 @@ func (q *InMemoryQueue) PublishBatch(ctx context.Context, queueName string, mess
 			return err
 		}
 	}
+
 	return nil
 }
 
 func (q *InMemoryQueue) PublishDelayed(ctx context.Context, queueName string, message Message, delay time.Duration) error {
 	// Simple implementation: just publish after delay
 	time.Sleep(delay)
+
 	return q.Publish(ctx, queueName, message)
 }
 
@@ -272,7 +283,7 @@ func (q *InMemoryQueue) Consume(ctx context.Context, queueName string, handler M
 		concurrency = 1
 	}
 
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		go func() {
 			for {
 				select {
@@ -281,20 +292,23 @@ func (q *InMemoryQueue) Consume(ctx context.Context, queueName string, handler M
 				default:
 					// Try to get a message
 					mq.mu.Lock()
+
 					if len(mq.messages) == 0 {
 						mq.mu.Unlock()
 						// No messages, wait a bit before checking again
 						time.Sleep(10 * time.Millisecond)
+
 						continue
 					}
 
 					msg := mq.messages[0]
 					mq.messages = mq.messages[1:]
-					
+
 					// Track message in flight
 					if !opts.AutoAck {
 						mq.inflight[msg.ID] = msg
 					}
+
 					mq.mu.Unlock()
 
 					// Process message
@@ -304,7 +318,7 @@ func (q *InMemoryQueue) Consume(ctx context.Context, queueName string, handler M
 							forge.F("msg_id", msg.ID),
 							forge.F("error", err),
 						)
-						
+
 						mq.mu.Lock()
 						// Remove from inflight if AutoAck
 						if opts.AutoAck {
@@ -315,10 +329,12 @@ func (q *InMemoryQueue) Consume(ctx context.Context, queueName string, handler M
 						} else {
 							// Remove from inflight and move to DLQ
 							delete(mq.inflight, msg.ID)
+
 							if q.config.EnableDeadLetter {
 								mq.dlq = append(mq.dlq, msg)
 							}
 						}
+
 						mq.mu.Unlock()
 					} else {
 						// Success - auto-ack if enabled
@@ -333,6 +349,7 @@ func (q *InMemoryQueue) Consume(ctx context.Context, queueName string, handler M
 	}
 
 	q.logger.Info("started consumer", forge.F("queue", queueName))
+
 	return nil
 }
 
@@ -345,12 +362,15 @@ func (q *InMemoryQueue) StopConsuming(ctx context.Context, queueName string) err
 			if c.cancel != nil {
 				c.cancel()
 			}
+
 			c.active = false
+
 			delete(q.consumers, id)
 		}
 	}
 
 	q.logger.Info("stopped consumer", forge.F("queue", queueName))
+
 	return nil
 }
 
@@ -361,11 +381,14 @@ func (q *InMemoryQueue) Ack(ctx context.Context, messageID string) error {
 	// Find which queue has this message in flight
 	for _, mq := range q.queues {
 		mq.mu.Lock()
+
 		if _, exists := mq.inflight[messageID]; exists {
 			delete(mq.inflight, messageID)
 			mq.mu.Unlock()
+
 			return nil
 		}
+
 		mq.mu.Unlock()
 	}
 
@@ -379,9 +402,11 @@ func (q *InMemoryQueue) Nack(ctx context.Context, messageID string, requeue bool
 	// Find which queue has this message in flight
 	for _, mq := range q.queues {
 		mq.mu.Lock()
+
 		msg, exists := mq.inflight[messageID]
 		if exists {
 			delete(mq.inflight, messageID)
+
 			if requeue {
 				// Put back at the front of the queue
 				mq.messages = append([]Message{msg}, mq.messages...)
@@ -389,9 +414,12 @@ func (q *InMemoryQueue) Nack(ctx context.Context, messageID string, requeue bool
 				// Move to DLQ
 				mq.dlq = append(mq.dlq, msg)
 			}
+
 			mq.mu.Unlock()
+
 			return nil
 		}
+
 		mq.mu.Unlock()
 	}
 
@@ -405,14 +433,17 @@ func (q *InMemoryQueue) Reject(ctx context.Context, messageID string) error {
 	// Find which queue has this message in flight
 	for _, mq := range q.queues {
 		mq.mu.Lock()
+
 		msg, exists := mq.inflight[messageID]
 		if exists {
 			delete(mq.inflight, messageID)
 			// Move to DLQ
 			mq.dlq = append(mq.dlq, msg)
 			mq.mu.Unlock()
+
 			return nil
 		}
+
 		mq.mu.Unlock()
 	}
 
@@ -458,6 +489,7 @@ func (q *InMemoryQueue) RequeueDeadLetter(ctx context.Context, queueName string,
 		if msg.ID == messageID {
 			mq.messages = append(mq.messages, msg)
 			mq.dlq = append(mq.dlq[:i], mq.dlq[i+1:]...)
+
 			return nil
 		}
 	}
@@ -474,6 +506,7 @@ func (q *InMemoryQueue) Stats(ctx context.Context) (*QueueStats, error) {
 	}
 
 	totalMessages := int64(0)
+
 	for _, mq := range q.queues {
 		mq.mu.RLock()
 		totalMessages += int64(len(mq.messages))

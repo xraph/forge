@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// TimeoutManager manages operation timeouts
+// TimeoutManager manages operation timeouts.
 type TimeoutManager struct {
 	nodeID string
 	logger forge.Logger
@@ -29,14 +29,14 @@ type TimeoutManager struct {
 	mu sync.RWMutex
 }
 
-// OperationStats tracks operation timing statistics
+// OperationStats tracks operation timing statistics.
 type OperationStats struct {
 	samples    []time.Duration
 	maxSamples int
 	mu         sync.RWMutex
 }
 
-// TimeoutManagerConfig contains timeout manager configuration
+// TimeoutManagerConfig contains timeout manager configuration.
 type TimeoutManagerConfig struct {
 	NodeID string
 
@@ -51,21 +51,25 @@ type TimeoutManagerConfig struct {
 	MaxSamples      int
 }
 
-// NewTimeoutManager creates a new timeout manager
+// NewTimeoutManager creates a new timeout manager.
 func NewTimeoutManager(config TimeoutManagerConfig, logger forge.Logger) *TimeoutManager {
 	// Set defaults
 	if config.RPCTimeout == 0 {
 		config.RPCTimeout = 1 * time.Second
 	}
+
 	if config.ReplicationTimeout == 0 {
 		config.ReplicationTimeout = 500 * time.Millisecond
 	}
+
 	if config.SnapshotTimeout == 0 {
 		config.SnapshotTimeout = 30 * time.Second
 	}
+
 	if config.ElectionTimeout == 0 {
 		config.ElectionTimeout = 300 * time.Millisecond
 	}
+
 	if config.MaxSamples == 0 {
 		config.MaxSamples = 100
 	}
@@ -83,7 +87,7 @@ func NewTimeoutManager(config TimeoutManagerConfig, logger forge.Logger) *Timeou
 	}
 }
 
-// newOperationStats creates new operation stats
+// newOperationStats creates new operation stats.
 func newOperationStats(maxSamples int) *OperationStats {
 	return &OperationStats{
 		samples:    make([]time.Duration, 0, maxSamples),
@@ -91,25 +95,28 @@ func newOperationStats(maxSamples int) *OperationStats {
 	}
 }
 
-// WithRPCTimeout executes operation with RPC timeout
+// WithRPCTimeout executes operation with RPC timeout.
 func (tm *TimeoutManager) WithRPCTimeout(ctx context.Context, fn func(context.Context) error) error {
 	timeout := tm.getRPCTimeout()
+
 	return tm.executeWithTimeout(ctx, "rpc", timeout, fn, tm.rpcStats)
 }
 
-// WithReplicationTimeout executes operation with replication timeout
+// WithReplicationTimeout executes operation with replication timeout.
 func (tm *TimeoutManager) WithReplicationTimeout(ctx context.Context, fn func(context.Context) error) error {
 	timeout := tm.getReplicationTimeout()
+
 	return tm.executeWithTimeout(ctx, "replication", timeout, fn, tm.replicationStats)
 }
 
-// WithSnapshotTimeout executes operation with snapshot timeout
+// WithSnapshotTimeout executes operation with snapshot timeout.
 func (tm *TimeoutManager) WithSnapshotTimeout(ctx context.Context, fn func(context.Context) error) error {
 	timeout := tm.getSnapshotTimeout()
+
 	return tm.executeWithTimeout(ctx, "snapshot", timeout, fn, nil)
 }
 
-// WithCustomTimeout executes operation with custom timeout
+// WithCustomTimeout executes operation with custom timeout.
 func (tm *TimeoutManager) WithCustomTimeout(
 	ctx context.Context,
 	timeout time.Duration,
@@ -118,7 +125,7 @@ func (tm *TimeoutManager) WithCustomTimeout(
 	return tm.executeWithTimeout(ctx, "custom", timeout, fn, nil)
 }
 
-// executeWithTimeout executes a function with timeout
+// executeWithTimeout executes a function with timeout.
 func (tm *TimeoutManager) executeWithTimeout(
 	ctx context.Context,
 	operation string,
@@ -160,32 +167,34 @@ func (tm *TimeoutManager) executeWithTimeout(
 	}
 }
 
-// getRPCTimeout gets RPC timeout (adaptive if enabled)
+// getRPCTimeout gets RPC timeout (adaptive if enabled).
 func (tm *TimeoutManager) getRPCTimeout() time.Duration {
 	if !tm.adaptiveEnabled {
 		return tm.rpcTimeout
 	}
 
 	adaptive := tm.rpcStats.getAdaptiveTimeout(tm.rpcTimeout, 2.0)
+
 	return adaptive
 }
 
-// getReplicationTimeout gets replication timeout (adaptive if enabled)
+// getReplicationTimeout gets replication timeout (adaptive if enabled).
 func (tm *TimeoutManager) getReplicationTimeout() time.Duration {
 	if !tm.adaptiveEnabled {
 		return tm.replicationTimeout
 	}
 
 	adaptive := tm.replicationStats.getAdaptiveTimeout(tm.replicationTimeout, 2.0)
+
 	return adaptive
 }
 
-// getSnapshotTimeout gets snapshot timeout
+// getSnapshotTimeout gets snapshot timeout.
 func (tm *TimeoutManager) getSnapshotTimeout() time.Duration {
 	return tm.snapshotTimeout
 }
 
-// GetTimeouts returns current timeout values
+// GetTimeouts returns current timeout values.
 func (tm *TimeoutManager) GetTimeouts() map[string]time.Duration {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -198,7 +207,7 @@ func (tm *TimeoutManager) GetTimeouts() map[string]time.Duration {
 	}
 }
 
-// SetTimeout sets a timeout value
+// SetTimeout sets a timeout value.
 func (tm *TimeoutManager) SetTimeout(operation string, timeout time.Duration) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -224,7 +233,7 @@ func (tm *TimeoutManager) SetTimeout(operation string, timeout time.Duration) er
 	return nil
 }
 
-// EnableAdaptive enables or disables adaptive timeouts
+// EnableAdaptive enables or disables adaptive timeouts.
 func (tm *TimeoutManager) EnableAdaptive(enable bool) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -236,14 +245,15 @@ func (tm *TimeoutManager) EnableAdaptive(enable bool) {
 	)
 }
 
-// IsAdaptiveEnabled returns whether adaptive timeouts are enabled
+// IsAdaptiveEnabled returns whether adaptive timeouts are enabled.
 func (tm *TimeoutManager) IsAdaptiveEnabled() bool {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
+
 	return tm.adaptiveEnabled
 }
 
-// GetStatistics returns timeout statistics
+// GetStatistics returns timeout statistics.
 func (tm *TimeoutManager) GetStatistics() TimeoutStatistics {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -261,7 +271,7 @@ func (tm *TimeoutManager) GetStatistics() TimeoutStatistics {
 	}
 }
 
-// TimeoutStatistics contains timeout statistics
+// TimeoutStatistics contains timeout statistics.
 type TimeoutStatistics struct {
 	RPCTimeout         time.Duration
 	ReplicationTimeout time.Duration
@@ -274,7 +284,7 @@ type TimeoutStatistics struct {
 	ReplicationP99     time.Duration
 }
 
-// recordDuration records an operation duration
+// recordDuration records an operation duration.
 func (os *OperationStats) recordDuration(duration time.Duration) {
 	os.mu.Lock()
 	defer os.mu.Unlock()
@@ -287,7 +297,7 @@ func (os *OperationStats) recordDuration(duration time.Duration) {
 	}
 }
 
-// getAverage calculates average duration
+// getAverage calculates average duration.
 func (os *OperationStats) getAverage() time.Duration {
 	os.mu.RLock()
 	defer os.mu.RUnlock()
@@ -304,7 +314,7 @@ func (os *OperationStats) getAverage() time.Duration {
 	return total / time.Duration(len(os.samples))
 }
 
-// getPercentile calculates percentile duration
+// getPercentile calculates percentile duration.
 func (os *OperationStats) getPercentile(percentile int) time.Duration {
 	os.mu.RLock()
 	defer os.mu.RUnlock()
@@ -317,7 +327,7 @@ func (os *OperationStats) getPercentile(percentile int) time.Duration {
 	sorted := make([]time.Duration, len(os.samples))
 	copy(sorted, os.samples)
 
-	for i := 0; i < len(sorted); i++ {
+	for i := range sorted {
 		for j := i + 1; j < len(sorted); j++ {
 			if sorted[i] > sorted[j] {
 				sorted[i], sorted[j] = sorted[j], sorted[i]
@@ -334,7 +344,7 @@ func (os *OperationStats) getPercentile(percentile int) time.Duration {
 	return sorted[index]
 }
 
-// getAdaptiveTimeout calculates adaptive timeout
+// getAdaptiveTimeout calculates adaptive timeout.
 func (os *OperationStats) getAdaptiveTimeout(baseTimeout time.Duration, multiplier float64) time.Duration {
 	avg := os.getAverage()
 
@@ -358,7 +368,7 @@ func (os *OperationStats) getAdaptiveTimeout(baseTimeout time.Duration, multipli
 	return adaptive
 }
 
-// ResetStatistics resets operation statistics
+// ResetStatistics resets operation statistics.
 func (tm *TimeoutManager) ResetStatistics() {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()

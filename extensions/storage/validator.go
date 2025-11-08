@@ -7,14 +7,14 @@ import (
 	"strings"
 )
 
-// PathValidator validates storage paths for security
+// PathValidator validates storage paths for security.
 type PathValidator struct {
 	allowedPatterns   []*regexp.Regexp
 	forbiddenPatterns []*regexp.Regexp
 	maxKeyLength      int
 }
 
-// NewPathValidator creates a new path validator with default rules
+// NewPathValidator creates a new path validator with default rules.
 func NewPathValidator() *PathValidator {
 	return &PathValidator{
 		allowedPatterns: []*regexp.Regexp{
@@ -37,7 +37,7 @@ func NewPathValidator() *PathValidator {
 	}
 }
 
-// ValidateKey validates a storage key for security issues
+// ValidateKey validates a storage key for security issues.
 func (pv *PathValidator) ValidateKey(key string) error {
 	// Check empty key
 	if key == "" {
@@ -58,12 +58,15 @@ func (pv *PathValidator) ValidateKey(key string) error {
 
 	// Check allowed patterns
 	matched := false
+
 	for _, pattern := range pv.allowedPatterns {
 		if pattern.MatchString(key) {
 			matched = true
+
 			break
 		}
 	}
+
 	if !matched {
 		return fmt.Errorf("%w: key contains invalid characters", ErrInvalidKey)
 	}
@@ -88,7 +91,7 @@ func (pv *PathValidator) ValidateKey(key string) error {
 	return nil
 }
 
-// ValidateContentType validates content type
+// ValidateContentType validates content type.
 func (pv *PathValidator) ValidateContentType(contentType string) error {
 	if contentType == "" {
 		return nil
@@ -102,7 +105,7 @@ func (pv *PathValidator) ValidateContentType(contentType string) error {
 	return nil
 }
 
-// SanitizeKey sanitizes a key to make it safe
+// SanitizeKey sanitizes a key to make it safe.
 func (pv *PathValidator) SanitizeKey(key string) string {
 	// Convert to forward slashes
 	key = filepath.ToSlash(key)
@@ -116,7 +119,9 @@ func (pv *PathValidator) SanitizeKey(key string) string {
 
 	// Remove any .. components
 	parts := strings.Split(key, "/")
+
 	var cleaned []string
+
 	for _, part := range parts {
 		if part != "" && part != "." && part != ".." {
 			cleaned = append(cleaned, part)
@@ -126,16 +131,18 @@ func (pv *PathValidator) SanitizeKey(key string) string {
 	return strings.Join(cleaned, "/")
 }
 
-// IsValidSize checks if a file size is within limits
+// IsValidSize checks if a file size is within limits.
 func IsValidSize(size int64, maxSize int64) bool {
 	return size > 0 && size <= maxSize
 }
 
-// ValidateMetadata validates metadata keys and values
+// ValidateMetadata validates metadata keys and values.
 func ValidateMetadata(metadata map[string]string) error {
-	const maxMetadataKeys = 100
-	const maxKeyLength = 256
-	const maxValueLength = 4096
+	const (
+		maxMetadataKeys = 100
+		maxKeyLength    = 256
+		maxValueLength  = 4096
+	)
 
 	if len(metadata) > maxMetadataKeys {
 		return fmt.Errorf("metadata exceeds maximum of %d keys", maxMetadataKeys)
@@ -145,6 +152,7 @@ func ValidateMetadata(metadata map[string]string) error {
 		if len(key) > maxKeyLength {
 			return fmt.Errorf("metadata key '%s' exceeds maximum length of %d", key, maxKeyLength)
 		}
+
 		if len(value) > maxValueLength {
 			return fmt.Errorf("metadata value for key '%s' exceeds maximum length of %d", key, maxValueLength)
 		}

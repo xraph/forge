@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/streaming"
 )
 
-// TestIntegration_PeerConnection_FullSetup tests the complete lifecycle of peer connections
+// TestIntegration_PeerConnection_FullSetup tests the complete lifecycle of peer connections.
 func TestIntegration_PeerConnection_FullSetup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -20,11 +20,12 @@ func TestIntegration_PeerConnection_FullSetup(t *testing.T) {
 
 	// Setup streaming extension and WebRTC extension
 	app := newMockApp()
-	
+
 	streamingExt := streaming.NewExtension()
 	if err := streamingExt.Register(app); err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
 	}
+
 	if err := streamingExt.Start(ctx); err != nil {
 		t.Fatalf("failed to start streaming extension: %v", err)
 	}
@@ -40,9 +41,11 @@ func TestIntegration_PeerConnection_FullSetup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create webrtc extension: %v", err)
 	}
+
 	if err := webrtcExt.Register(app); err != nil {
 		t.Fatalf("failed to register webrtc extension: %v", err)
 	}
+
 	if err := webrtcExt.Start(ctx); err != nil {
 		t.Fatalf("failed to start webrtc extension: %v", err)
 	}
@@ -90,12 +93,15 @@ func TestIntegration_PeerConnection_FullSetup(t *testing.T) {
 	if err := room.MuteUser(ctx, "user1"); err != nil {
 		t.Errorf("failed to mute user1: %v", err)
 	}
+
 	if err := room.UnmuteUser(ctx, "user1"); err != nil {
 		t.Errorf("failed to unmute user1: %v", err)
 	}
+
 	if err := room.DisableVideo(ctx, "user2"); err != nil {
 		t.Errorf("failed to disable video for user2: %v", err)
 	}
+
 	if err := room.EnableVideo(ctx, "user2"); err != nil {
 		t.Errorf("failed to enable video for user2: %v", err)
 	}
@@ -104,6 +110,7 @@ func TestIntegration_PeerConnection_FullSetup(t *testing.T) {
 	if err := room.Leave(ctx, "user1"); err != nil {
 		t.Errorf("failed to leave user1: %v", err)
 	}
+
 	if err := room.Leave(ctx, "user2"); err != nil {
 		t.Errorf("failed to leave user2: %v", err)
 	}
@@ -115,7 +122,7 @@ func TestIntegration_PeerConnection_FullSetup(t *testing.T) {
 	}
 }
 
-// TestIntegration_RoomClose tests room closure and cleanup
+// TestIntegration_RoomClose tests room closure and cleanup.
 func TestIntegration_RoomClose(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -125,11 +132,12 @@ func TestIntegration_RoomClose(t *testing.T) {
 
 	// Setup extensions
 	app := newMockApp()
-	
+
 	streamingExt := streaming.NewExtension()
 	if err := streamingExt.Register(app); err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
 	}
+
 	if err := streamingExt.Start(ctx); err != nil {
 		t.Fatalf("failed to start streaming extension: %v", err)
 	}
@@ -144,9 +152,11 @@ func TestIntegration_RoomClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create webrtc extension: %v", err)
 	}
+
 	if err := webrtcExt.Register(app); err != nil {
 		t.Fatalf("failed to register webrtc extension: %v", err)
 	}
+
 	if err := webrtcExt.Start(ctx); err != nil {
 		t.Fatalf("failed to start webrtc extension: %v", err)
 	}
@@ -165,6 +175,7 @@ func TestIntegration_RoomClose(t *testing.T) {
 	// Add multiple users
 	for i := 1; i <= 3; i++ {
 		userID := fmt.Sprintf("user%d", i)
+
 		_, err := room.JoinCall(ctx, userID, &JoinOptions{})
 		if err != nil {
 			t.Fatalf("failed to join %s: %v", userID, err)
@@ -186,6 +197,7 @@ func TestIntegration_RoomClose(t *testing.T) {
 	if err == nil {
 		t.Error("expected error when joining closed room")
 	}
+
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Errorf("expected ErrConnectionClosed, got %v", err)
 	}
@@ -196,7 +208,7 @@ func TestIntegration_RoomClose(t *testing.T) {
 	}
 }
 
-// TestIntegration_Concurrent_Operations tests concurrent room operations
+// TestIntegration_Concurrent_Operations tests concurrent room operations.
 func TestIntegration_Concurrent_Operations(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -206,11 +218,12 @@ func TestIntegration_Concurrent_Operations(t *testing.T) {
 
 	// Setup extensions
 	app := newMockApp()
-	
+
 	streamingExt := streaming.NewExtension()
 	if err := streamingExt.Register(app); err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
 	}
+
 	if err := streamingExt.Start(ctx); err != nil {
 		t.Fatalf("failed to start streaming extension: %v", err)
 	}
@@ -225,9 +238,11 @@ func TestIntegration_Concurrent_Operations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create webrtc extension: %v", err)
 	}
+
 	if err := webrtcExt.Register(app); err != nil {
 		t.Fatalf("failed to register webrtc extension: %v", err)
 	}
+
 	if err := webrtcExt.Start(ctx); err != nil {
 		t.Fatalf("failed to start webrtc extension: %v", err)
 	}
@@ -246,14 +261,18 @@ func TestIntegration_Concurrent_Operations(t *testing.T) {
 
 	// Concurrently join multiple users
 	var wg sync.WaitGroup
+
 	numUsers := 10
 	errs := make(chan error, numUsers)
 
-	for i := 0; i < numUsers; i++ {
+	for i := range numUsers {
 		wg.Add(1)
+
 		go func(userID int) {
 			defer wg.Done()
+
 			userIDStr := fmt.Sprintf("user%d", userID)
+
 			_, err := room.JoinCall(ctx, userIDStr, &JoinOptions{})
 			if err != nil {
 				errs <- err
@@ -266,8 +285,10 @@ func TestIntegration_Concurrent_Operations(t *testing.T) {
 
 	// Check for errors
 	errorCount := 0
+
 	for err := range errs {
 		t.Errorf("error during concurrent join: %v", err)
+
 		errorCount++
 	}
 
@@ -285,10 +306,12 @@ func TestIntegration_Concurrent_Operations(t *testing.T) {
 	wg = sync.WaitGroup{}
 	errs = make(chan error, numUsers)
 
-	for i := 0; i < numUsers; i++ {
+	for i := range numUsers {
 		wg.Add(1)
+
 		go func(userID int) {
 			defer wg.Done()
+
 			userIDStr := fmt.Sprintf("user%d", userID)
 			if err := room.Leave(ctx, userIDStr); err != nil {
 				errs <- err
@@ -301,8 +324,10 @@ func TestIntegration_Concurrent_Operations(t *testing.T) {
 
 	// Check for errors
 	errorCount = 0
+
 	for err := range errs {
 		t.Errorf("error during concurrent leave: %v", err)
+
 		errorCount++
 	}
 

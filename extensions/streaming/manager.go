@@ -205,7 +205,7 @@ func (m *manager) ConnectionCount() int {
 
 func (m *manager) CreateRoom(ctx context.Context, room Room) error {
 	if !m.config.EnableRooms {
-		return fmt.Errorf("rooms are disabled")
+		return errors.New("rooms are disabled")
 	}
 
 	if err := m.roomStore.Create(ctx, room); err != nil {
@@ -243,7 +243,7 @@ func (m *manager) JoinRoom(ctx context.Context, connID, roomID string) error {
 
 	userID := conn.GetUserID()
 	if userID == "" {
-		return fmt.Errorf("connection has no user ID")
+		return errors.New("connection has no user ID")
 	}
 
 	// Check room limit
@@ -289,7 +289,7 @@ func (m *manager) ListRooms(ctx context.Context) ([]Room, error) {
 
 func (m *manager) CreateChannel(ctx context.Context, channel Channel) error {
 	if !m.config.EnableChannels {
-		return fmt.Errorf("channels are disabled")
+		return errors.New("channels are disabled")
 	}
 
 	if err := m.channelStore.Create(ctx, channel); err != nil {
@@ -330,7 +330,7 @@ func (m *manager) Subscribe(ctx context.Context, connID, channelID string, filte
 	// Check channel limit
 	userChannels, _ := m.channelStore.GetUserChannels(ctx, userID)
 	if len(userChannels) >= m.config.MaxChannelsPerUser {
-		return fmt.Errorf("channel limit reached")
+		return errors.New("channel limit reached")
 	}
 
 	conn.AddSubscription(channelID)
@@ -388,6 +388,7 @@ func (m *manager) BroadcastToRoom(ctx context.Context, roomID string, message *M
 	conns := m.GetAllConnections()
 
 	count := 0
+
 	for _, conn := range conns {
 		if conn.IsInRoom(roomID) {
 			if err := conn.WriteJSON(message); err != nil {
@@ -416,6 +417,7 @@ func (m *manager) BroadcastToChannel(ctx context.Context, channelID string, mess
 	conns := m.GetAllConnections()
 
 	count := 0
+
 	for _, conn := range conns {
 		if conn.IsSubscribed(channelID) {
 			if err := conn.WriteJSON(message); err != nil {
@@ -446,6 +448,7 @@ func (m *manager) BroadcastToRooms(ctx context.Context, roomIDs []string, messag
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -455,6 +458,7 @@ func (m *manager) BroadcastToUsers(ctx context.Context, userIDs []string, messag
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -530,7 +534,7 @@ func (m *manager) BroadcastExcept(ctx context.Context, message *Message, exclude
 
 func (m *manager) SetPresence(ctx context.Context, userID, status string) error {
 	if !m.config.EnablePresence {
-		return fmt.Errorf("presence tracking is disabled")
+		return errors.New("presence tracking is disabled")
 	}
 
 	return m.presenceTracker.SetPresence(ctx, userID, status)
@@ -544,6 +548,7 @@ func (m *manager) GetOnlineUsers(ctx context.Context, roomID string) ([]string, 
 	if roomID != "" {
 		return m.presenceTracker.GetOnlineUsersInRoom(ctx, roomID)
 	}
+
 	return m.presenceTracker.GetOnlineUsers(ctx)
 }
 
@@ -559,7 +564,7 @@ func (m *manager) TrackActivity(ctx context.Context, userID string) error {
 
 func (m *manager) StartTyping(ctx context.Context, userID, roomID string) error {
 	if !m.config.EnableTypingIndicators {
-		return fmt.Errorf("typing indicators are disabled")
+		return errors.New("typing indicators are disabled")
 	}
 
 	return m.typingTracker.StartTyping(ctx, userID, roomID)
@@ -664,6 +669,7 @@ func (m *manager) Stop(ctx context.Context) error {
 
 	// Disconnect stores
 	_ = m.roomStore.Disconnect(ctx)
+
 	_ = m.channelStore.Disconnect(ctx)
 	if m.config.EnableMessageHistory {
 		_ = m.messageStore.Disconnect(ctx)
@@ -714,6 +720,7 @@ func (m *manager) GetConnectionsByStatus(status string) []streaming.EnhancedConn
 	defer m.mu.RUnlock()
 
 	var result []streaming.EnhancedConnection
+
 	for _, conn := range m.connections {
 		// Check if connection has the specified status
 		// For now, we'll check if the connection is closed or not
@@ -812,6 +819,7 @@ func (m *manager) GetIdleConnections(idleFor time.Duration) []streaming.Enhanced
 	defer m.mu.RUnlock()
 
 	var idleConns []streaming.EnhancedConnection
+
 	cutoff := time.Now().Add(-idleFor)
 
 	for _, conn := range m.connections {
@@ -851,6 +859,7 @@ func (m *manager) CleanupIdleConnections(ctx context.Context, idleFor time.Durat
 
 		// Close and unregister the connection
 		conn.Close()
+
 		if err := m.Unregister(connID); err != nil {
 			if m.logger != nil {
 				m.logger.Error("failed to unregister idle connection",
@@ -902,6 +911,7 @@ func (m *manager) SearchRooms(ctx context.Context, query string, filters map[str
 	}
 
 	var results []streaming.Room
+
 	for _, room := range allRooms {
 		// Simple text search in room name and description
 		roomName := room.GetName()
@@ -922,23 +932,28 @@ func (m *manager) SearchRooms(ctx context.Context, query string, filters map[str
 					matches = false
 				}
 			}
+
 			if isPrivate, ok := filters["private"]; ok {
 				if room.IsPrivate() != isPrivate {
 					matches = false
 				}
 			}
+
 			if tags, ok := filters["tags"]; ok {
 				if tagSlice, ok := tags.([]string); ok {
 					roomTags := room.GetTags()
 					hasMatchingTag := false
+
 					for _, filterTag := range tagSlice {
 						for _, roomTag := range roomTags {
 							if roomTag == filterTag {
 								hasMatchingTag = true
+
 								break
 							}
 						}
 					}
+
 					if !hasMatchingTag {
 						matches = false
 					}
@@ -962,6 +977,7 @@ func (m *manager) GetPublicRooms(ctx context.Context, limit int) ([]streaming.Ro
 	}
 
 	var publicRooms []streaming.Room
+
 	for _, room := range allRooms {
 		if !room.IsPrivate() {
 			publicRooms = append(publicRooms, room)
@@ -1064,7 +1080,7 @@ func (m *manager) UpdateChannel(ctx context.Context, channelID string, updates m
 	// Note: This is a placeholder implementation
 	// In a real system, you'd need to implement proper channel updating
 	// based on your channel store's capabilities
-	return fmt.Errorf("channel updates not yet implemented")
+	return errors.New("channel updates not yet implemented")
 }
 
 func (m *manager) GetChannelSubscribers(ctx context.Context, channelID string) ([]string, error) {
@@ -1095,6 +1111,7 @@ func (m *manager) GetUserChannels(ctx context.Context, userID string) ([]streami
 
 func (m *manager) BulkJoinRoom(ctx context.Context, connIDs []string, roomID string) error {
 	var errors []error
+
 	successCount := 0
 
 	for _, connID := range connIDs {
@@ -1113,6 +1130,7 @@ func (m *manager) BulkJoinRoom(ctx context.Context, connIDs []string, roomID str
 				forge.F("error_count", len(errors)),
 			)
 		}
+
 		return fmt.Errorf("bulk join completed with %d errors", len(errors))
 	}
 
@@ -1139,6 +1157,7 @@ func (m *manager) GetPresenceForUsers(ctx context.Context, userIDs []string) ([]
 				LastSeen: time.Now(),
 			}
 		}
+
 		presences = append(presences, presence)
 	}
 
@@ -1182,8 +1201,10 @@ func (m *manager) GetPresenceInRooms(ctx context.Context, roomIDs []string) (map
 		if err != nil {
 			// If we can't get users for a room, continue with empty list
 			result[roomID] = []string{}
+
 			continue
 		}
+
 		result[roomID] = onlineUsers
 	}
 
@@ -1246,25 +1267,25 @@ func (m *manager) SearchMessages(ctx context.Context, roomID, searchTerm string,
 func (m *manager) DeleteMessage(ctx context.Context, messageID string) error {
 	// For now, return not implemented
 	// In a real implementation, you'd delete the message from the message store
-	return fmt.Errorf("message deletion not yet implemented")
+	return errors.New("message deletion not yet implemented")
 }
 
 func (m *manager) EditMessage(ctx context.Context, messageID string, newContent any) error {
 	// For now, return not implemented
 	// In a real implementation, you'd update the message in the message store
-	return fmt.Errorf("message editing not yet implemented")
+	return errors.New("message editing not yet implemented")
 }
 
 func (m *manager) AddReaction(ctx context.Context, messageID, userID, emoji string) error {
 	// For now, return not implemented
 	// In a real implementation, you'd add the reaction to the message store
-	return fmt.Errorf("reactions not yet implemented")
+	return errors.New("reactions not yet implemented")
 }
 
 func (m *manager) RemoveReaction(ctx context.Context, messageID, userID, emoji string) error {
 	// For now, return not implemented
 	// In a real implementation, you'd remove the reaction from the message store
-	return fmt.Errorf("reactions not yet implemented")
+	return errors.New("reactions not yet implemented")
 }
 
 func (m *manager) GetReactions(ctx context.Context, messageID string) (map[string][]string, error) {
@@ -1379,7 +1400,6 @@ func (m *manager) CheckRateLimit(ctx context.Context, userID string, action stri
 	// For now, return true (allowed) for all actions
 	// In a real implementation, you'd check against rate limiting rules
 	// This would typically involve checking user's recent activity against configured limits
-
 	if m.logger != nil {
 		m.logger.Debug("rate limit check",
 			forge.F("user_id", userID),
@@ -1487,6 +1507,7 @@ func (m *manager) GetUserStats(ctx context.Context, userID string) (*streaming.U
 
 	// Get user's presence for last seen
 	presence, err := m.GetPresence(ctx, userID)
+
 	var lastSeen time.Time
 	if err != nil {
 		lastSeen = time.Now() // Default to now if no presence
@@ -1513,6 +1534,7 @@ func (m *manager) GetActiveRooms(ctx context.Context, since time.Duration) ([]st
 	}
 
 	var activeRooms []streaming.Room
+
 	cutoff := time.Now().Add(-since)
 
 	for _, room := range allRooms {
@@ -1555,7 +1577,7 @@ func (m *manager) CreateDirectMessage(ctx context.Context, fromUserID, toUserID 
 	}
 
 	// Return the room ID (in a real implementation, you'd create the room first)
-	return roomID, fmt.Errorf("direct message creation not yet fully implemented")
+	return roomID, errors.New("direct message creation not yet fully implemented")
 }
 
 func (m *manager) GetDirectMessages(ctx context.Context, userID string) ([]streaming.Room, error) {
@@ -1566,6 +1588,7 @@ func (m *manager) GetDirectMessages(ctx context.Context, userID string) ([]strea
 	}
 
 	var dmRooms []streaming.Room
+
 	for _, room := range userRooms {
 		// Check if room is a direct message based on metadata
 		if metadata := room.GetMetadata(); metadata != nil {
@@ -1603,10 +1626,11 @@ func removeFromSlice(slice []string, value string) []string {
 			return append(slice[:i], slice[i+1:]...)
 		}
 	}
+
 	return slice
 }
 
-// containsIgnoreCase performs case-insensitive string matching
+// containsIgnoreCase performs case-insensitive string matching.
 func containsIgnoreCase(s, substr string) bool {
 	return len(s) >= len(substr) &&
 		strings.Contains(strings.ToLower(s), strings.ToLower(substr))

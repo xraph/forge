@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
@@ -15,7 +17,7 @@ import (
 // MEMORY STORAGE
 // =============================================================================
 
-// MemoryStorage provides in-memory storage for metrics
+// MemoryStorage provides in-memory storage for metrics.
 type MemoryStorage struct {
 	name            string
 	data            map[string]*MetricEntry
@@ -28,27 +30,27 @@ type MemoryStorage struct {
 	stats           *MemoryStorageStats
 }
 
-// MetricEntry represents a stored metric entry
+// MetricEntry represents a stored metric entry.
 type MetricEntry struct {
-	Name        string                 `json:"name"`
-	Type        shared.MetricType      `json:"type"`
-	Value       interface{}            `json:"value"`
-	Tags        map[string]string      `json:"tags"`
-	Timestamp   time.Time              `json:"timestamp"`
-	LastUpdated time.Time              `json:"last_updated"`
-	AccessCount int64                  `json:"access_count"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Name        string            `json:"name"`
+	Type        shared.MetricType `json:"type"`
+	Value       any               `json:"value"`
+	Tags        map[string]string `json:"tags"`
+	Timestamp   time.Time         `json:"timestamp"`
+	LastUpdated time.Time         `json:"last_updated"`
+	AccessCount int64             `json:"access_count"`
+	Metadata    map[string]any    `json:"metadata"`
 }
 
-// MemoryStorageConfig contains configuration for memory storage
+// MemoryStorageConfig contains configuration for memory storage.
 type MemoryStorageConfig struct {
-	MaxEntries      int           `yaml:"max_entries" json:"max_entries"`
-	Retention       time.Duration `yaml:"retention" json:"retention"`
-	CleanupInterval time.Duration `yaml:"cleanup_interval" json:"cleanup_interval"`
-	EnableStats     bool          `yaml:"enable_stats" json:"enable_stats"`
+	MaxEntries      int           `json:"max_entries"      yaml:"max_entries"`
+	Retention       time.Duration `json:"retention"        yaml:"retention"`
+	CleanupInterval time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
+	EnableStats     bool          `json:"enable_stats"     yaml:"enable_stats"`
 }
 
-// MemoryStorageStats contains statistics about memory storage
+// MemoryStorageStats contains statistics about memory storage.
 type MemoryStorageStats struct {
 	EntriesCount     int64         `json:"entries_count"`
 	MaxEntries       int           `json:"max_entries"`
@@ -69,7 +71,7 @@ type MemoryStorageStats struct {
 	misses           int64
 }
 
-// DefaultMemoryStorageConfig returns default configuration
+// DefaultMemoryStorageConfig returns default configuration.
 func DefaultMemoryStorageConfig() *MemoryStorageConfig {
 	return &MemoryStorageConfig{
 		MaxEntries:      100000,
@@ -79,12 +81,12 @@ func DefaultMemoryStorageConfig() *MemoryStorageConfig {
 	}
 }
 
-// NewMemoryStorage creates a new memory storage instance
+// NewMemoryStorage creates a new memory storage instance.
 func NewMemoryStorage() MetricsStorage {
 	return NewMemoryStorageWithConfig(DefaultMemoryStorageConfig())
 }
 
-// NewMemoryStorageWithConfig creates a new memory storage instance with configuration
+// NewMemoryStorageWithConfig creates a new memory storage instance with configuration.
 func NewMemoryStorageWithConfig(config *MemoryStorageConfig) MetricsStorage {
 	return &MemoryStorage{
 		name:            "memory",
@@ -104,7 +106,7 @@ func NewMemoryStorageWithConfig(config *MemoryStorageConfig) MetricsStorage {
 // METRICS STORAGE INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Store stores a metric entry
+// Store stores a metric entry.
 func (ms *MemoryStorage) Store(ctx context.Context, entry *MetricEntry) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -139,7 +141,7 @@ func (ms *MemoryStorage) Store(ctx context.Context, entry *MetricEntry) error {
 	return nil
 }
 
-// Retrieve retrieves a metric entry
+// Retrieve retrieves a metric entry.
 func (ms *MemoryStorage) Retrieve(ctx context.Context, name string, tags map[string]string) (*MetricEntry, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
@@ -157,10 +159,11 @@ func (ms *MemoryStorage) Retrieve(ctx context.Context, name string, tags map[str
 	}
 
 	ms.stats.misses++
+
 	return nil, fmt.Errorf("metric not found: %s", key)
 }
 
-// Delete deletes a metric entry
+// Delete deletes a metric entry.
 func (ms *MemoryStorage) Delete(ctx context.Context, name string, tags map[string]string) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -172,13 +175,14 @@ func (ms *MemoryStorage) Delete(ctx context.Context, name string, tags map[strin
 		ms.stats.TotalDeletes++
 		ms.stats.EntriesCount = int64(len(ms.data))
 		ms.updateStorageStats()
+
 		return nil
 	}
 
 	return fmt.Errorf("metric not found: %s", key)
 }
 
-// List lists all metric entries
+// List lists all metric entries.
 func (ms *MemoryStorage) List(ctx context.Context, filters map[string]string) ([]*MetricEntry, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
@@ -192,10 +196,11 @@ func (ms *MemoryStorage) List(ctx context.Context, filters map[string]string) ([
 	}
 
 	ms.stats.TotalReads += int64(len(entries))
+
 	return entries, nil
 }
 
-// Count returns the number of stored entries
+// Count returns the number of stored entries.
 func (ms *MemoryStorage) Count(ctx context.Context) (int64, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
@@ -203,7 +208,7 @@ func (ms *MemoryStorage) Count(ctx context.Context) (int64, error) {
 	return int64(len(ms.data)), nil
 }
 
-// Clear clears all stored entries
+// Clear clears all stored entries.
 func (ms *MemoryStorage) Clear(ctx context.Context) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -215,13 +220,13 @@ func (ms *MemoryStorage) Clear(ctx context.Context) error {
 	return nil
 }
 
-// Start starts the storage system
+// Start starts the storage system.
 func (ms *MemoryStorage) Start(ctx context.Context) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
 	if ms.started {
-		return fmt.Errorf("memory storage already started")
+		return errors.New("memory storage already started")
 	}
 
 	ms.started = true
@@ -233,13 +238,13 @@ func (ms *MemoryStorage) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the storage system
+// Stop stops the storage system.
 func (ms *MemoryStorage) Stop(ctx context.Context) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
 	if !ms.started {
-		return fmt.Errorf("memory storage not started")
+		return errors.New("memory storage not started")
 	}
 
 	ms.started = false
@@ -248,13 +253,13 @@ func (ms *MemoryStorage) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks the health of the storage system
+// Health checks the health of the storage system.
 func (ms *MemoryStorage) Health(ctx context.Context) error {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 
 	if !ms.started {
-		return fmt.Errorf("memory storage not started")
+		return errors.New("memory storage not started")
 	}
 
 	// Check if storage is within limits
@@ -265,8 +270,8 @@ func (ms *MemoryStorage) Health(ctx context.Context) error {
 	return nil
 }
 
-// Stats returns storage statistics
-func (ms *MemoryStorage) Stats(ctx context.Context) (interface{}, error) {
+// Stats returns storage statistics.
+func (ms *MemoryStorage) Stats(ctx context.Context) (any, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 
@@ -285,7 +290,7 @@ func (ms *MemoryStorage) Stats(ctx context.Context) (interface{}, error) {
 // ADVANCED OPERATIONS
 // =============================================================================
 
-// Query performs a query on stored metrics
+// Query performs a query on stored metrics.
 func (ms *MemoryStorage) Query(ctx context.Context, query MetricsQuery) (*QueryResult, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
@@ -311,6 +316,7 @@ func (ms *MemoryStorage) Query(ctx context.Context, query MetricsQuery) (*QueryR
 		if end > len(entries) {
 			end = len(entries)
 		}
+
 		entries = entries[start:end]
 	}
 
@@ -324,13 +330,15 @@ func (ms *MemoryStorage) Query(ctx context.Context, query MetricsQuery) (*QueryR
 	return result, nil
 }
 
-// Aggregate performs aggregation on stored metrics
+// Aggregate performs aggregation on stored metrics.
 func (ms *MemoryStorage) Aggregate(ctx context.Context, aggregation MetricsAggregation) (*AggregationResult, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 
-	var values []float64
-	var entries []*MetricEntry
+	var (
+		values  []float64
+		entries []*MetricEntry
+	)
 
 	for _, entry := range ms.data {
 		if ms.matchesFilters(entry, aggregation.Filters) {
@@ -369,7 +377,7 @@ func (ms *MemoryStorage) Aggregate(ctx context.Context, aggregation MetricsAggre
 	return result, nil
 }
 
-// Backup creates a backup of all stored metrics
+// Backup creates a backup of all stored metrics.
 func (ms *MemoryStorage) Backup(ctx context.Context) ([]byte, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
@@ -387,7 +395,7 @@ func (ms *MemoryStorage) Backup(ctx context.Context) ([]byte, error) {
 	return ms.serializeBackup(backup)
 }
 
-// Restore restores metrics from a backup
+// Restore restores metrics from a backup.
 func (ms *MemoryStorage) Restore(ctx context.Context, data []byte) error {
 	backup, err := ms.deserializeBackup(data)
 	if err != nil {
@@ -417,7 +425,7 @@ func (ms *MemoryStorage) Restore(ctx context.Context, data []byte) error {
 // PRIVATE METHODS
 // =============================================================================
 
-// generateKey generates a unique key for a metric entry
+// generateKey generates a unique key for a metric entry.
 func (ms *MemoryStorage) generateKey(name string, tags map[string]string) string {
 	if len(tags) == 0 {
 		return name
@@ -426,19 +434,15 @@ func (ms *MemoryStorage) generateKey(name string, tags map[string]string) string
 	return name + "{" + metrics.TagsToString(tags) + "}"
 }
 
-// copyEntry creates a copy of a metric entry
+// copyEntry creates a copy of a metric entry.
 func (ms *MemoryStorage) copyEntry(entry *MetricEntry) *MetricEntry {
 	// Create a deep copy of tags
 	tags := make(map[string]string)
-	for k, v := range entry.Tags {
-		tags[k] = v
-	}
+	maps.Copy(tags, entry.Tags)
 
 	// Create a copy of metadata
-	metadata := make(map[string]interface{})
-	for k, v := range entry.Metadata {
-		metadata[k] = v
-	}
+	metadata := make(map[string]any)
+	maps.Copy(metadata, entry.Metadata)
 
 	return &MetricEntry{
 		Name:        entry.Name,
@@ -452,7 +456,7 @@ func (ms *MemoryStorage) copyEntry(entry *MetricEntry) *MetricEntry {
 	}
 }
 
-// matchesFilters checks if an entry matches the given filters
+// matchesFilters checks if an entry matches the given filters.
 func (ms *MemoryStorage) matchesFilters(entry *MetricEntry, filters map[string]string) bool {
 	for key, value := range filters {
 		switch key {
@@ -475,7 +479,7 @@ func (ms *MemoryStorage) matchesFilters(entry *MetricEntry, filters map[string]s
 	return true
 }
 
-// matchesQuery checks if an entry matches a query
+// matchesQuery checks if an entry matches a query.
 func (ms *MemoryStorage) matchesQuery(entry *MetricEntry, query MetricsQuery) bool {
 	// Check basic filters
 	if !ms.matchesFilters(entry, query.Filters) {
@@ -494,7 +498,7 @@ func (ms *MemoryStorage) matchesQuery(entry *MetricEntry, query MetricsQuery) bo
 	return true
 }
 
-// sortEntries sorts entries based on the given criteria
+// sortEntries sorts entries based on the given criteria.
 func (ms *MemoryStorage) sortEntries(entries []*MetricEntry, sortBy, sortOrder string) {
 	if sortBy == "" {
 		sortBy = "timestamp"
@@ -521,18 +525,21 @@ func (ms *MemoryStorage) sortEntries(entries []*MetricEntry, sortBy, sortOrder s
 		if ascending {
 			return less
 		}
+
 		return !less
 	})
 }
 
-// evictOldest evicts the oldest entry to make space
+// evictOldest evicts the oldest entry to make space.
 func (ms *MemoryStorage) evictOldest() error {
 	if len(ms.data) == 0 {
 		return nil
 	}
 
-	var oldestKey string
-	var oldestTime time.Time
+	var (
+		oldestKey  string
+		oldestTime time.Time
+	)
 
 	for key, entry := range ms.data {
 		if oldestTime.IsZero() || entry.Timestamp.Before(oldestTime) {
@@ -549,7 +556,7 @@ func (ms *MemoryStorage) evictOldest() error {
 	return nil
 }
 
-// cleanupLoop runs periodic cleanup
+// cleanupLoop runs periodic cleanup.
 func (ms *MemoryStorage) cleanupLoop() {
 	ticker := time.NewTicker(ms.cleanupInterval)
 	defer ticker.Stop()
@@ -564,7 +571,7 @@ func (ms *MemoryStorage) cleanupLoop() {
 	}
 }
 
-// cleanup removes expired entries
+// cleanup removes expired entries.
 func (ms *MemoryStorage) cleanup() {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -574,11 +581,13 @@ func (ms *MemoryStorage) cleanup() {
 	}
 
 	cutoff := time.Now().Add(-ms.retention)
+
 	var deletedCount int
 
 	for key, entry := range ms.data {
 		if entry.Timestamp.Before(cutoff) {
 			delete(ms.data, key)
+
 			deletedCount++
 		}
 	}
@@ -591,22 +600,26 @@ func (ms *MemoryStorage) cleanup() {
 	ms.updateStorageStats()
 }
 
-// updateStorageStats updates storage statistics
+// updateStorageStats updates storage statistics.
 func (ms *MemoryStorage) updateStorageStats() {
 	if len(ms.data) == 0 {
 		ms.stats.OldestEntry = time.Time{}
 		ms.stats.NewestEntry = time.Time{}
 		ms.stats.AverageEntrySize = 0
+
 		return
 	}
 
-	var oldest, newest time.Time
-	var totalSize int64
+	var (
+		oldest, newest time.Time
+		totalSize      int64
+	)
 
 	for _, entry := range ms.data {
 		if oldest.IsZero() || entry.Timestamp.Before(oldest) {
 			oldest = entry.Timestamp
 		}
+
 		if newest.IsZero() || entry.Timestamp.After(newest) {
 			newest = entry.Timestamp
 		}
@@ -621,7 +634,7 @@ func (ms *MemoryStorage) updateStorageStats() {
 	ms.stats.AverageEntrySize = float64(totalSize) / float64(len(ms.data))
 }
 
-// estimateEntrySize estimates the size of a metric entry
+// estimateEntrySize estimates the size of a metric entry.
 func (ms *MemoryStorage) estimateEntrySize(entry *MetricEntry) int64 {
 	size := int64(len(entry.Name))
 	size += int64(len(entry.Type))
@@ -649,8 +662,8 @@ func (ms *MemoryStorage) estimateEntrySize(entry *MetricEntry) int64 {
 	return size
 }
 
-// extractNumericValue extracts numeric value from interface{}
-func (ms *MemoryStorage) extractNumericValue(value interface{}) (float64, bool) {
+// extractNumericValue extracts numeric value from interface{}.
+func (ms *MemoryStorage) extractNumericValue(value any) (float64, bool) {
 	switch v := value.(type) {
 	case int:
 		return float64(v), true
@@ -673,12 +686,13 @@ func (ms *MemoryStorage) extractNumericValue(value interface{}) (float64, bool) 
 	}
 }
 
-// Aggregation functions
+// Aggregation functions.
 func (ms *MemoryStorage) sum(values []float64) float64 {
 	var sum float64
 	for _, v := range values {
 		sum += v
 	}
+
 	return sum
 }
 
@@ -686,6 +700,7 @@ func (ms *MemoryStorage) avg(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	return ms.sum(values) / float64(len(values))
 }
 
@@ -693,12 +708,14 @@ func (ms *MemoryStorage) min(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	min := values[0]
 	for _, v := range values[1:] {
 		if v < min {
 			min = v
 		}
 	}
+
 	return min
 }
 
@@ -706,22 +723,24 @@ func (ms *MemoryStorage) max(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	max := values[0]
 	for _, v := range values[1:] {
 		if v > max {
 			max = v
 		}
 	}
+
 	return max
 }
 
-// serializeBackup serializes a backup to bytes
+// serializeBackup serializes a backup to bytes.
 func (ms *MemoryStorage) serializeBackup(backup *MemoryStorageBackup) ([]byte, error) {
 	// This is a placeholder - in a real implementation, use JSON/protobuf/etc.
 	return []byte("backup"), nil
 }
 
-// deserializeBackup deserializes bytes to a backup
+// deserializeBackup deserializes bytes to a backup.
 func (ms *MemoryStorage) deserializeBackup(data []byte) (*MemoryStorageBackup, error) {
 	// This is a placeholder - in a real implementation, use JSON/protobuf/etc.
 	return &MemoryStorageBackup{}, nil
@@ -731,7 +750,7 @@ func (ms *MemoryStorage) deserializeBackup(data []byte) (*MemoryStorageBackup, e
 // SUPPORTING TYPES
 // =============================================================================
 
-// MetricsStorage defines the interface for metrics storage
+// MetricsStorage defines the interface for metrics storage.
 type MetricsStorage interface {
 	Store(ctx context.Context, entry *MetricEntry) error
 	Retrieve(ctx context.Context, name string, tags map[string]string) (*MetricEntry, error)
@@ -742,10 +761,10 @@ type MetricsStorage interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	Health(ctx context.Context) error
-	Stats(ctx context.Context) (interface{}, error)
+	Stats(ctx context.Context) (any, error)
 }
 
-// MetricsQuery represents a query for metrics
+// MetricsQuery represents a query for metrics.
 type MetricsQuery struct {
 	Filters   map[string]string `json:"filters"`
 	StartTime time.Time         `json:"start_time"`
@@ -756,7 +775,7 @@ type MetricsQuery struct {
 	Offset    int               `json:"offset"`
 }
 
-// QueryResult represents the result of a query
+// QueryResult represents the result of a query.
 type QueryResult struct {
 	Entries    []*MetricEntry `json:"entries"`
 	TotalCount int            `json:"total_count"`
@@ -764,14 +783,14 @@ type QueryResult struct {
 	Timestamp  time.Time      `json:"timestamp"`
 }
 
-// MetricsAggregation represents an aggregation operation
+// MetricsAggregation represents an aggregation operation.
 type MetricsAggregation struct {
 	Function string            `json:"function"`
 	Filters  map[string]string `json:"filters"`
 	GroupBy  []string          `json:"group_by"`
 }
 
-// AggregationResult represents the result of an aggregation
+// AggregationResult represents the result of an aggregation.
 type AggregationResult struct {
 	Function  string            `json:"function"`
 	Filters   map[string]string `json:"filters"`
@@ -780,7 +799,7 @@ type AggregationResult struct {
 	Timestamp time.Time         `json:"timestamp"`
 }
 
-// MemoryStorageBackup represents a backup of memory storage
+// MemoryStorageBackup represents a backup of memory storage.
 type MemoryStorageBackup struct {
 	Timestamp time.Time          `json:"timestamp"`
 	Entries   []*MetricEntry     `json:"entries"`

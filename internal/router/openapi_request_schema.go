@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// RequestComponents holds all components of a request extracted from a unified schema
+// RequestComponents holds all components of a request extracted from a unified schema.
 type RequestComponents struct {
 	PathParams   []Parameter
 	QueryParams  []Parameter
@@ -20,7 +20,7 @@ type RequestComponents struct {
 // 1. path:"name" - Path parameter
 // 2. query:"name" - Query parameter
 // 3. header:"name" - Header parameter
-// 4. body:"" or json:"name" - Body field
+// 4. body:"" or json:"name" - Body field.
 func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType interface{}) *RequestComponents {
 	components := &RequestComponents{
 		PathParams:   []Parameter{},
@@ -41,11 +41,13 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 		// Not a struct, treat as body schema
 		components.BodySchema = schemaGen.GenerateSchema(schemaType)
 		components.HasBody = true
+
 		return components
 	}
 
 	// Classify fields by tags
 	bodyProperties := make(map[string]*Schema)
+
 	var bodyRequired []string
 
 	for i := 0; i < rt.NumField(); i++ {
@@ -76,6 +78,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 
 			// Get field name for form
 			formName := field.Name
+
 			name, _ := parseTagWithOmitempty(formTag)
 			if name != "" && name != "-" {
 				formName = name
@@ -137,7 +140,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 	return components
 }
 
-// generatePathParamFromField generates a path parameter from a struct field
+// generatePathParamFromField generates a path parameter from a struct field.
 func generatePathParamFromField(schemaGen *schemaGenerator, field reflect.StructField, tagValue string) Parameter {
 	// Parse tag value
 	paramName, _ := parseTagWithOmitempty(tagValue)
@@ -161,7 +164,7 @@ func generatePathParamFromField(schemaGen *schemaGenerator, field reflect.Struct
 	}
 }
 
-// generateQueryParamFromField generates a query parameter from a struct field
+// generateQueryParamFromField generates a query parameter from a struct field.
 func generateQueryParamFromField(schemaGen *schemaGenerator, field reflect.StructField, tagValue string) Parameter {
 	// Parse tag value
 	paramName, omitempty := parseTagWithOmitempty(tagValue)
@@ -188,7 +191,7 @@ func generateQueryParamFromField(schemaGen *schemaGenerator, field reflect.Struc
 	}
 }
 
-// generateHeaderParamFromField generates a header parameter from a struct field
+// generateHeaderParamFromField generates a header parameter from a struct field.
 func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.StructField, tagValue string) Parameter {
 	// Parse tag value
 	paramName, omitempty := parseTagWithOmitempty(tagValue)
@@ -215,7 +218,7 @@ func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.Stru
 	}
 }
 
-// isFieldRequired determines if a body field is required
+// isFieldRequired determines if a body field is required.
 func isFieldRequired(field reflect.StructField) bool {
 	// Explicit required tag
 	if field.Tag.Get("required") == "true" {
@@ -249,7 +252,7 @@ func isFieldRequired(field reflect.StructField) bool {
 }
 
 // hasUnifiedTags checks if a struct has path, query, header, or form tags
-// This is used to determine if we should use unified extraction or legacy behavior
+// This is used to determine if we should use unified extraction or legacy behavior.
 func hasUnifiedTags(schemaType interface{}) bool {
 	rt := reflect.TypeOf(schemaType)
 	if rt == nil {
@@ -280,7 +283,7 @@ func hasUnifiedTags(schemaType interface{}) bool {
 }
 
 // inferRequestComponents infers what parts of the request a struct represents
-// Used for backward compatibility with existing code
+// Used for backward compatibility with existing code.
 func inferRequestComponents(schemaType interface{}) string {
 	rt := reflect.TypeOf(schemaType)
 	if rt == nil {
@@ -305,9 +308,11 @@ func inferRequestComponents(schemaType interface{}) string {
 		if field.Tag.Get("query") != "" {
 			hasQuery = true
 		}
+
 		if field.Tag.Get("header") != "" {
 			hasHeader = true
 		}
+
 		if field.Tag.Get("json") != "" || field.Tag.Get("body") != "" {
 			hasBody = true
 		}
@@ -317,6 +322,7 @@ func inferRequestComponents(schemaType interface{}) string {
 	if hasQuery && !hasHeader && !hasBody {
 		return "query"
 	}
+
 	if hasHeader && !hasQuery && !hasBody {
 		return "header"
 	}

@@ -2,9 +2,10 @@ package lb
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // stickyLoadBalancer implements sticky session load balancing.
@@ -45,6 +46,7 @@ func (slb *stickyLoadBalancer) SelectNode(ctx context.Context, userID string, me
 
 	// Check existing session
 	var nodeID string
+
 	if slb.sessionStore != nil {
 		// Check distributed store
 		storedNodeID, err := slb.sessionStore.Get(ctx, userID)
@@ -116,6 +118,7 @@ func (slb *stickyLoadBalancer) UnregisterNode(ctx context.Context, nodeID string
 			}
 		}
 	}
+
 	slb.mu.Unlock()
 
 	return slb.fallback.UnregisterNode(ctx, nodeID)
@@ -144,12 +147,14 @@ func (slb *stickyLoadBalancer) cleanupLoop() {
 		// For in-memory sessions, we can't track expiry easily
 		// Just periodically verify nodes are still healthy
 		slb.mu.Lock()
+
 		for userID, nodeID := range slb.sessions {
 			node, ok := slb.nodes[nodeID]
 			if !ok || !node.Healthy {
 				delete(slb.sessions, userID)
 			}
 		}
+
 		slb.mu.Unlock()
 	}
 }
@@ -172,6 +177,7 @@ func NewInMemorySessionStore() SessionStore {
 	}
 
 	go store.cleanupLoop()
+
 	return store
 }
 
@@ -193,11 +199,11 @@ func (ims *inMemorySessionStore) Get(ctx context.Context, userID string) (string
 
 	entry, ok := ims.sessions[userID]
 	if !ok {
-		return "", fmt.Errorf("session not found")
+		return "", errors.New("session not found")
 	}
 
 	if time.Now().After(entry.expiresAt) {
-		return "", fmt.Errorf("session expired")
+		return "", errors.New("session expired")
 	}
 
 	return entry.nodeID, nil
@@ -208,6 +214,7 @@ func (ims *inMemorySessionStore) Delete(ctx context.Context, userID string) erro
 	defer ims.mu.Unlock()
 
 	delete(ims.sessions, userID)
+
 	return nil
 }
 
@@ -217,12 +224,14 @@ func (ims *inMemorySessionStore) cleanupLoop() {
 
 	for range ticker.C {
 		ims.mu.Lock()
+
 		now := time.Now()
 		for userID, entry := range ims.sessions {
 			if now.After(entry.expiresAt) {
 				delete(ims.sessions, userID)
 			}
 		}
+
 		ims.mu.Unlock()
 	}
 }

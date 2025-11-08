@@ -3,6 +3,8 @@ package forge
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // ExtensionConfigLoader provides helper methods for loading extension configuration
@@ -18,7 +20,7 @@ type ExtensionConfigLoader struct {
 	logger Logger
 }
 
-// NewExtensionConfigLoader creates a new config loader
+// NewExtensionConfigLoader creates a new config loader.
 func NewExtensionConfigLoader(app App, logger Logger) *ExtensionConfigLoader {
 	return &ExtensionConfigLoader{
 		app:    app,
@@ -42,19 +44,19 @@ func NewExtensionConfigLoader(app App, logger Logger) *ExtensionConfigLoader {
 // Returns error only if requireConfig=true and config not found, or if binding fails.
 func (l *ExtensionConfigLoader) LoadConfig(
 	key string,
-	target interface{},
-	programmaticConfig interface{},
-	defaults interface{},
+	target any,
+	programmaticConfig any,
+	defaults any,
 	requireConfig bool,
 ) error {
 	// Validate inputs
 	if target == nil {
-		return fmt.Errorf("target cannot be nil")
+		return errors.New("target cannot be nil")
 	}
 
 	targetVal := reflect.ValueOf(target)
 	if targetVal.Kind() != reflect.Ptr {
-		return fmt.Errorf("target must be a pointer")
+		return errors.New("target must be a pointer")
 	}
 
 	// Try to get ConfigManager from app
@@ -69,6 +71,7 @@ func (l *ExtensionConfigLoader) LoadConfig(
 		if programmaticConfig != nil && !isZeroValue(programmaticConfig) {
 			return l.copyConfig(programmaticConfig, target)
 		}
+
 		if defaults != nil {
 			return l.copyConfig(defaults, target)
 		}
@@ -78,11 +81,13 @@ func (l *ExtensionConfigLoader) LoadConfig(
 				F("key", key),
 			)
 		}
+
 		return nil
 	}
 
 	// Try namespaced key first: "extensions.{key}"
-	namespacedKey := fmt.Sprintf("extensions.%s", key)
+	namespacedKey := "extensions." + key
+
 	found, err := l.tryBindConfig(configManager, namespacedKey, target)
 	if err != nil {
 		return fmt.Errorf("failed to bind config from %s: %w", namespacedKey, err)
@@ -101,6 +106,7 @@ func (l *ExtensionConfigLoader) LoadConfig(
 				return fmt.Errorf("failed to merge programmatic config: %w", err)
 			}
 		}
+
 		return nil
 	}
 
@@ -123,6 +129,7 @@ func (l *ExtensionConfigLoader) LoadConfig(
 				return fmt.Errorf("failed to merge programmatic config: %w", err)
 			}
 		}
+
 		return nil
 	}
 
@@ -136,11 +143,13 @@ func (l *ExtensionConfigLoader) LoadConfig(
 		if err := l.copyConfig(programmaticConfig, target); err != nil {
 			return err
 		}
+
 		if l.logger != nil {
 			l.logger.Debug("using programmatic config",
 				F("key", key),
 			)
 		}
+
 		return nil
 	}
 
@@ -148,11 +157,13 @@ func (l *ExtensionConfigLoader) LoadConfig(
 		if err := l.copyConfig(defaults, target); err != nil {
 			return err
 		}
+
 		if l.logger != nil {
 			l.logger.Debug("using default config",
 				F("key", key),
 			)
 		}
+
 		return nil
 	}
 
@@ -161,14 +172,15 @@ func (l *ExtensionConfigLoader) LoadConfig(
 			F("key", key),
 		)
 	}
+
 	return nil
 }
 
-// getConfigManager tries to get ConfigManager from the app's DI container
+// getConfigManager tries to get ConfigManager from the app's DI container.
 func (l *ExtensionConfigLoader) getConfigManager() (ConfigManager, error) {
 	container := l.app.Container()
 	if container == nil {
-		return nil, fmt.Errorf("no container available")
+		return nil, errors.New("no container available")
 	}
 
 	cm, err := Resolve[ConfigManager](container, ConfigKey)
@@ -180,8 +192,8 @@ func (l *ExtensionConfigLoader) getConfigManager() (ConfigManager, error) {
 }
 
 // tryBindConfig attempts to bind configuration from a specific key
-// Returns (found, error)
-func (l *ExtensionConfigLoader) tryBindConfig(cm ConfigManager, key string, target interface{}) (bool, error) {
+// Returns (found, error).
+func (l *ExtensionConfigLoader) tryBindConfig(cm ConfigManager, key string, target any) (bool, error) {
 	// Check if key exists
 	if !cm.IsSet(key) {
 		return false, nil
@@ -195,8 +207,8 @@ func (l *ExtensionConfigLoader) tryBindConfig(cm ConfigManager, key string, targ
 	return true, nil
 }
 
-// copyConfig copies config from source to target
-func (l *ExtensionConfigLoader) copyConfig(source, target interface{}) error {
+// copyConfig copies config from source to target.
+func (l *ExtensionConfigLoader) copyConfig(source, target any) error {
 	sourceVal := reflect.ValueOf(source)
 	targetVal := reflect.ValueOf(target)
 
@@ -204,25 +216,27 @@ func (l *ExtensionConfigLoader) copyConfig(source, target interface{}) error {
 	if sourceVal.Kind() == reflect.Ptr {
 		sourceVal = sourceVal.Elem()
 	}
+
 	if targetVal.Kind() == reflect.Ptr {
 		targetVal = targetVal.Elem()
 	}
 
 	if !targetVal.CanSet() {
-		return fmt.Errorf("target is not settable")
+		return errors.New("target is not settable")
 	}
 
 	// Simple copy for same types
 	if sourceVal.Type() == targetVal.Type() {
 		targetVal.Set(sourceVal)
+
 		return nil
 	}
 
 	return fmt.Errorf("type mismatch: source=%v, target=%v", sourceVal.Type(), targetVal.Type())
 }
 
-// mergeConfig merges non-zero fields from source into target
-func (l *ExtensionConfigLoader) mergeConfig(source, target interface{}) error {
+// mergeConfig merges non-zero fields from source into target.
+func (l *ExtensionConfigLoader) mergeConfig(source, target any) error {
 	sourceVal := reflect.ValueOf(source)
 	targetVal := reflect.ValueOf(target)
 
@@ -230,12 +244,13 @@ func (l *ExtensionConfigLoader) mergeConfig(source, target interface{}) error {
 	if sourceVal.Kind() == reflect.Ptr {
 		sourceVal = sourceVal.Elem()
 	}
+
 	if targetVal.Kind() == reflect.Ptr {
 		targetVal = targetVal.Elem()
 	}
 
 	if !targetVal.CanSet() {
-		return fmt.Errorf("target is not settable")
+		return errors.New("target is not settable")
 	}
 
 	if sourceVal.Type() != targetVal.Type() {
@@ -261,8 +276,8 @@ func (l *ExtensionConfigLoader) mergeConfig(source, target interface{}) error {
 	return nil
 }
 
-// isZeroValue checks if a value is the zero value for its type
-func isZeroValue(v interface{}) bool {
+// isZeroValue checks if a value is the zero value for its type.
+func isZeroValue(v any) bool {
 	if v == nil {
 		return true
 	}
@@ -272,6 +287,7 @@ func isZeroValue(v interface{}) bool {
 		if val.IsNil() {
 			return true
 		}
+
 		val = val.Elem()
 	}
 

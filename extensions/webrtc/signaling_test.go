@@ -8,7 +8,6 @@ import (
 	"github.com/xraph/forge/extensions/streaming"
 )
 
-
 func TestSignalingManager(t *testing.T) {
 	// Create streaming extension
 	streamingExt := streaming.NewExtension(
@@ -17,6 +16,7 @@ func TestSignalingManager(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -64,6 +64,7 @@ func TestSignalingManager(t *testing.T) {
 
 	// Test start/stop
 	ctx := context.Background()
+
 	err = signaling.Start(ctx)
 	if err != nil {
 		t.Errorf("failed to start signaling: %v", err)
@@ -83,6 +84,7 @@ func TestSignalingManager_Handlers(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -95,6 +97,7 @@ func TestSignalingManager_Handlers(t *testing.T) {
 
 	// Test offer handler
 	offerReceived := make(chan bool, 1)
+
 	signaling.OnOffer(func(peerID string, offer *SessionDescription) {
 		if peerID == "test-peer" && offer.Type == SessionDescriptionTypeOffer {
 			select {
@@ -106,6 +109,7 @@ func TestSignalingManager_Handlers(t *testing.T) {
 
 	// Test answer handler
 	answerReceived := make(chan bool, 1)
+
 	signaling.OnAnswer(func(peerID string, answer *SessionDescription) {
 		if peerID == "test-peer" && answer.Type == SessionDescriptionTypeAnswer {
 			select {
@@ -117,6 +121,7 @@ func TestSignalingManager_Handlers(t *testing.T) {
 
 	// Test ICE candidate handler
 	candidateReceived := make(chan bool, 1)
+
 	signaling.OnICECandidate(func(peerID string, candidate *ICECandidate) {
 		if peerID == "test-peer" {
 			select {
@@ -128,6 +133,7 @@ func TestSignalingManager_Handlers(t *testing.T) {
 
 	// Start signaling
 	ctx := context.Background()
+
 	err = signaling.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start signaling: %v", err)
@@ -168,6 +174,7 @@ func TestSignalingManager_Errors(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -192,6 +199,7 @@ func TestSignalingManager_Errors(t *testing.T) {
 
 	// Test double start
 	ctx := context.Background()
+
 	err = signaling.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start signaling: %v", err)
@@ -223,6 +231,7 @@ func TestSignalingManager_ConcurrentAccess(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -242,8 +251,9 @@ func TestSignalingManager_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent sending
 	done := make(chan bool, 1)
+
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			offer := &SessionDescription{
 				Type: SessionDescriptionTypeOffer,
 				SDP:  "test offer",
@@ -251,6 +261,7 @@ func TestSignalingManager_ConcurrentAccess(t *testing.T) {
 
 			signaling.SendOffer(ctx, "test-room", "test-peer", offer)
 		}
+
 		done <- true
 	}()
 

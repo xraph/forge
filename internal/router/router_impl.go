@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// router implements Router interface
+// router implements Router interface.
 type router struct {
 	adapter      RouterAdapter
 	container    di.Container
@@ -51,7 +51,7 @@ type router struct {
 	mu sync.RWMutex
 }
 
-// route represents a registered route
+// route represents a registered route.
 type route struct {
 	method     string
 	path       string
@@ -61,7 +61,7 @@ type route struct {
 	middleware []Middleware
 }
 
-// newRouter creates a new router instance
+// newRouter creates a new router instance.
 func newRouter(opts ...RouterOption) *router {
 	cfg := &routerConfig{
 		recovery: false,
@@ -103,42 +103,42 @@ func newRouter(opts ...RouterOption) *router {
 	return r
 }
 
-// GET registers a GET route
+// GET registers a GET route.
 func (r *router) GET(path string, handler any, opts ...RouteOption) error {
 	return r.register(http.MethodGet, path, handler, opts...)
 }
 
-// POST registers a POST route
+// POST registers a POST route.
 func (r *router) POST(path string, handler any, opts ...RouteOption) error {
 	return r.register(http.MethodPost, path, handler, opts...)
 }
 
-// PUT registers a PUT route
+// PUT registers a PUT route.
 func (r *router) PUT(path string, handler any, opts ...RouteOption) error {
 	return r.register(http.MethodPut, path, handler, opts...)
 }
 
-// DELETE registers a DELETE route
+// DELETE registers a DELETE route.
 func (r *router) DELETE(path string, handler any, opts ...RouteOption) error {
 	return r.register(http.MethodDelete, path, handler, opts...)
 }
 
-// PATCH registers a PATCH route
+// PATCH registers a PATCH route.
 func (r *router) PATCH(path string, handler any, opts ...RouteOption) error {
 	return r.register(http.MethodPatch, path, handler, opts...)
 }
 
-// OPTIONS registers an OPTIONS route
+// OPTIONS registers an OPTIONS route.
 func (r *router) OPTIONS(path string, handler any, opts ...RouteOption) error {
 	return r.register(http.MethodOptions, path, handler, opts...)
 }
 
-// HEAD registers a HEAD route
+// HEAD registers a HEAD route.
 func (r *router) HEAD(path string, handler any, opts ...RouteOption) error {
 	return r.register(http.MethodHead, path, handler, opts...)
 }
 
-// Group creates a route group
+// Group creates a route group.
 func (r *router) Group(prefix string, opts ...GroupOption) Router {
 	cfg := &GroupConfig{}
 	for _, opt := range opts {
@@ -158,14 +158,15 @@ func (r *router) Group(prefix string, opts ...GroupOption) Router {
 	}
 }
 
-// Use adds middleware
+// Use adds middleware.
 func (r *router) Use(middleware ...Middleware) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.middleware = append(r.middleware, middleware...)
 }
 
-// RegisterController registers a controller
+// RegisterController registers a controller.
 func (r *router) RegisterController(controller Controller) error {
 	// Create a router for the controller
 	cr := r
@@ -184,22 +185,23 @@ func (r *router) RegisterController(controller Controller) error {
 	return controller.Routes(cr)
 }
 
-// Start initializes the router
+// Start initializes the router.
 func (r *router) Start(ctx context.Context) error {
 	// TODO: Implement lifecycle
 	return nil
 }
 
-// Stop shuts down the router
+// Stop shuts down the router.
 func (r *router) Stop(ctx context.Context) error {
 	// TODO: Implement lifecycle
 	if r.adapter != nil {
 		return r.adapter.Close()
 	}
+
 	return nil
 }
 
-// ServeHTTP implements http.Handler
+// ServeHTTP implements http.Handler.
 func (r *router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if r.adapter != nil {
 		r.adapter.ServeHTTP(w, req)
@@ -208,17 +210,18 @@ func (r *router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-// Handler returns the router as http.Handler
+// Handler returns the router as http.Handler.
 func (r *router) Handler() http.Handler {
 	return r
 }
 
-// Routes returns all registered routes
+// Routes returns all registered routes.
 func (r *router) Routes() []RouteInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	routes := *r.routes // Dereference pointer
+
 	infos := make([]RouteInfo, len(routes))
 	for i, route := range routes {
 		infos[i] = RouteInfo{
@@ -235,10 +238,11 @@ func (r *router) Routes() []RouteInfo {
 			Description: route.config.Description,
 		}
 	}
+
 	return infos
 }
 
-// RouteByName returns a route by name
+// RouteByName returns a route by name.
 func (r *router) RouteByName(name string) (RouteInfo, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -260,15 +264,17 @@ func (r *router) RouteByName(name string) (RouteInfo, bool) {
 			}, true
 		}
 	}
+
 	return RouteInfo{}, false
 }
 
-// RoutesByTag returns routes with a specific tag
+// RoutesByTag returns routes with a specific tag.
 func (r *router) RoutesByTag(tag string) []RouteInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var infos []RouteInfo
+
 	for _, route := range *r.routes {
 		for _, t := range route.config.Tags {
 			if t == tag {
@@ -285,19 +291,22 @@ func (r *router) RoutesByTag(tag string) []RouteInfo {
 					Summary:     route.config.Summary,
 					Description: route.config.Description,
 				})
+
 				break
 			}
 		}
 	}
+
 	return infos
 }
 
-// RoutesByMetadata returns routes with specific metadata
+// RoutesByMetadata returns routes with specific metadata.
 func (r *router) RoutesByMetadata(key string, value any) []RouteInfo {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var infos []RouteInfo
+
 	for _, route := range *r.routes {
 		if v, ok := route.config.Metadata[key]; ok && v == value {
 			infos = append(infos, RouteInfo{
@@ -315,10 +324,11 @@ func (r *router) RoutesByMetadata(key string, value any) []RouteInfo {
 			})
 		}
 	}
+
 	return infos
 }
 
-// register registers a route (internal)
+// register registers a route (internal).
 func (r *router) register(method, path string, handler any, opts ...RouteOption) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -332,11 +342,13 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	// Inherit group config
 	if r.groupConfig != nil {
 		cfg.Tags = append(cfg.Tags, r.groupConfig.Tags...)
+
 		cfg.Middleware = append(r.groupConfig.Middleware, cfg.Middleware...)
 		for k, v := range r.groupConfig.Metadata {
 			if cfg.Metadata == nil {
 				cfg.Metadata = make(map[string]any)
 			}
+
 			if _, exists := cfg.Metadata[k]; !exists {
 				cfg.Metadata[k] = v
 			}
@@ -371,9 +383,11 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 		if _, hasRequestSchema := cfg.Metadata["openapi.requestSchema"]; !hasRequestSchema && handlerInfo.requestType != nil {
 			cfg.Metadata["openapi.requestType"] = handlerInfo.requestType
 		}
+
 		if _, hasResponseSchema := cfg.Metadata["openapi.responseSchema"]; !hasResponseSchema && handlerInfo.responseType != nil {
 			cfg.Metadata["openapi.responseType"] = handlerInfo.responseType
 		}
+
 		cfg.Metadata["openapi.handlerPattern"] = handlerInfo.pattern
 	}
 
@@ -399,7 +413,7 @@ func (r *router) register(method, path string, handler any, opts ...RouteOption)
 	return nil
 }
 
-// newDefaultBunRouterAdapter creates the default BunRouter adapter
+// newDefaultBunRouterAdapter creates the default BunRouter adapter.
 func newDefaultBunRouterAdapter() RouterAdapter {
 	return NewBunRouterAdapter()
 }
@@ -408,6 +422,7 @@ func applyMiddleware(h http.Handler, middleware []Middleware, container di.Conta
 	// Convert http.Handler to forge Handler
 	forgeHandler := func(ctx Context) error {
 		h.ServeHTTP(ctx.Response(), ctx.Request())
+
 		return nil
 	}
 

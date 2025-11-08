@@ -1,15 +1,17 @@
 package router
 
-import "fmt"
+import (
+	"strconv"
+)
 
-// CallbackConfig defines a callback (webhook) for an operation
+// CallbackConfig defines a callback (webhook) for an operation.
 type CallbackConfig struct {
 	Name       string
 	Expression string // Callback URL expression (e.g., "{$request.body#/callbackUrl}")
 	Operations map[string]*CallbackOperation
 }
 
-// CallbackOperation defines an operation that will be called back
+// CallbackOperation defines an operation that will be called back.
 type CallbackOperation struct {
 	Summary     string
 	Description string
@@ -17,7 +19,7 @@ type CallbackOperation struct {
 	Responses   map[string]*Response
 }
 
-// WithCallback adds a callback definition to a route
+// WithCallback adds a callback definition to a route.
 func WithCallback(config CallbackConfig) RouteOption {
 	return &callbackOpt{config: config}
 }
@@ -28,7 +30,7 @@ type callbackOpt struct {
 
 func (o *callbackOpt) Apply(config *RouteConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
 
 	callbacks, ok := config.Metadata["openapi.callbacks"].(map[string]CallbackConfig)
@@ -41,7 +43,7 @@ func (o *callbackOpt) Apply(config *RouteConfig) {
 }
 
 // WithWebhook adds a webhook definition to the OpenAPI spec
-// Webhooks are documented at the API level, not per-route
+// Webhooks are documented at the API level, not per-route.
 func WithWebhook(name string, operation *CallbackOperation) RouteOption {
 	return &webhookOpt{
 		name:      name,
@@ -56,7 +58,7 @@ type webhookOpt struct {
 
 func (o *webhookOpt) Apply(config *RouteConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
 
 	webhooks, ok := config.Metadata["openapi.webhooks"].(map[string]*CallbackOperation)
@@ -70,7 +72,7 @@ func (o *webhookOpt) Apply(config *RouteConfig) {
 
 // Helper functions to build callback operations
 
-// NewCallbackOperation creates a new callback operation
+// NewCallbackOperation creates a new callback operation.
 func NewCallbackOperation(summary, description string) *CallbackOperation {
 	return &CallbackOperation{
 		Summary:     summary,
@@ -79,9 +81,10 @@ func NewCallbackOperation(summary, description string) *CallbackOperation {
 	}
 }
 
-// WithCallbackRequestBody sets the request body for a callback operation
-func (co *CallbackOperation) WithCallbackRequestBody(description string, schema interface{}) *CallbackOperation {
+// WithCallbackRequestBody sets the request body for a callback operation.
+func (co *CallbackOperation) WithCallbackRequestBody(description string, schema any) *CallbackOperation {
 	gen := newSchemaGenerator(nil) // Callbacks use inline schemas
+
 	var schemaObj *Schema
 
 	if s, ok := schema.(*Schema); ok {
@@ -103,15 +106,16 @@ func (co *CallbackOperation) WithCallbackRequestBody(description string, schema 
 	return co
 }
 
-// WithCallbackResponse adds a response to a callback operation
+// WithCallbackResponse adds a response to a callback operation.
 func (co *CallbackOperation) WithCallbackResponse(statusCode int, description string) *CallbackOperation {
-	co.Responses[fmt.Sprintf("%d", statusCode)] = &Response{
+	co.Responses[strconv.Itoa(statusCode)] = &Response{
 		Description: description,
 	}
+
 	return co
 }
 
-// processCallbacks adds callbacks to an operation
+// processCallbacks adds callbacks to an operation.
 func processCallbacks(operation *Operation, metadata map[string]any) {
 	if metadata == nil {
 		return
@@ -161,7 +165,7 @@ func processCallbacks(operation *Operation, metadata map[string]any) {
 	}
 }
 
-// processWebhooks adds webhooks to the OpenAPI spec
+// processWebhooks adds webhooks to the OpenAPI spec.
 func processWebhooks(spec *OpenAPISpec, routes []RouteInfo) {
 	webhooksMap := make(map[string]*PathItem)
 
@@ -199,8 +203,8 @@ func processWebhooks(spec *OpenAPISpec, routes []RouteInfo) {
 
 // Callback schema helpers
 
-// NewEventCallbackConfig creates a callback config for event notifications
-func NewEventCallbackConfig(callbackURLExpression string, eventSchema interface{}) CallbackConfig {
+// NewEventCallbackConfig creates a callback config for event notifications.
+func NewEventCallbackConfig(callbackURLExpression string, eventSchema any) CallbackConfig {
 	return CallbackConfig{
 		Name:       "onEvent",
 		Expression: callbackURLExpression,
@@ -216,8 +220,8 @@ func NewEventCallbackConfig(callbackURLExpression string, eventSchema interface{
 	}
 }
 
-// NewStatusCallbackConfig creates a callback config for status updates
-func NewStatusCallbackConfig(callbackURLExpression string, statusSchema interface{}) CallbackConfig {
+// NewStatusCallbackConfig creates a callback config for status updates.
+func NewStatusCallbackConfig(callbackURLExpression string, statusSchema any) CallbackConfig {
 	return CallbackConfig{
 		Name:       "onStatusChange",
 		Expression: callbackURLExpression,
@@ -233,8 +237,8 @@ func NewStatusCallbackConfig(callbackURLExpression string, statusSchema interfac
 	}
 }
 
-// NewCompletionCallbackConfig creates a callback config for async operation completion
-func NewCompletionCallbackConfig(callbackURLExpression string, resultSchema interface{}) CallbackConfig {
+// NewCompletionCallbackConfig creates a callback config for async operation completion.
+func NewCompletionCallbackConfig(callbackURLExpression string, resultSchema any) CallbackConfig {
 	return CallbackConfig{
 		Name:       "onCompletion",
 		Expression: callbackURLExpression,

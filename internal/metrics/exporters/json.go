@@ -14,22 +14,22 @@ import (
 // JSON EXPORTER
 // =============================================================================
 
-// JSONExporter exports metrics in JSON format
+// JSONExporter exports metrics in JSON format.
 type JSONExporter struct {
 	config *JSONConfig
 	stats  *JSONStats
 }
 
-// JSONConfig contains configuration for the JSON exporter
+// JSONConfig contains configuration for the JSON exporter.
 type JSONConfig struct {
-	Pretty           bool   `yaml:"pretty" json:"pretty"`
-	IncludeMetadata  bool   `yaml:"include_metadata" json:"include_metadata"`
-	IncludeTimestamp bool   `yaml:"include_timestamp" json:"include_timestamp"`
-	TimestampFormat  string `yaml:"timestamp_format" json:"timestamp_format"`
-	Namespace        string `yaml:"namespace" json:"namespace"`
+	Pretty           bool   `json:"pretty"            yaml:"pretty"`
+	IncludeMetadata  bool   `json:"include_metadata"  yaml:"include_metadata"`
+	IncludeTimestamp bool   `json:"include_timestamp" yaml:"include_timestamp"`
+	TimestampFormat  string `json:"timestamp_format"  yaml:"timestamp_format"`
+	Namespace        string `json:"namespace"         yaml:"namespace"`
 }
 
-// JSONStats contains statistics about the JSON exporter
+// JSONStats contains statistics about the JSON exporter.
 type JSONStats struct {
 	ExportsTotal    int64     `json:"exports_total"`
 	LastExportTime  time.Time `json:"last_export_time"`
@@ -38,7 +38,7 @@ type JSONStats struct {
 	MetricsExported int64     `json:"metrics_exported"`
 }
 
-// JSONMetric represents a metric in JSON format
+// JSONMetric represents a metric in JSON format.
 type JSONMetric struct {
 	Name        string                 `json:"name"`
 	Type        string                 `json:"type"`
@@ -50,14 +50,14 @@ type JSONMetric struct {
 	Description string                 `json:"description,omitempty"`
 }
 
-// JSONExport represents the complete JSON export
+// JSONExport represents the complete JSON export.
 type JSONExport struct {
 	Metadata *ExportMetadata        `json:"metadata,omitempty"`
 	Metrics  map[string]interface{} `json:"metrics"`
 	Summary  *ExportSummary         `json:"summary,omitempty"`
 }
 
-// ExportMetadata contains metadata about the export
+// ExportMetadata contains metadata about the export.
 type ExportMetadata struct {
 	Timestamp time.Time `json:"timestamp"`
 	Namespace string    `json:"namespace,omitempty"`
@@ -67,7 +67,7 @@ type ExportMetadata struct {
 	System    string    `json:"system"`
 }
 
-// ExportSummary contains summary information about the export
+// ExportSummary contains summary information about the export.
 type ExportSummary struct {
 	TotalMetrics int                 `json:"total_metrics"`
 	MetricTypes  map[string]int      `json:"metric_types"`
@@ -75,7 +75,7 @@ type ExportSummary struct {
 	Namespaces   []string            `json:"namespaces,omitempty"`
 }
 
-// DefaultJSONConfig returns default JSON configuration
+// DefaultJSONConfig returns default JSON configuration.
 func DefaultJSONConfig() *JSONConfig {
 	return &JSONConfig{
 		Pretty:           true,
@@ -86,12 +86,12 @@ func DefaultJSONConfig() *JSONConfig {
 	}
 }
 
-// NewJSONExporter creates a new JSON exporter
+// NewJSONExporter creates a new JSON exporter.
 func NewJSONExporter() shared.Exporter {
 	return NewJSONExporterWithConfig(DefaultJSONConfig())
 }
 
-// NewJSONExporterWithConfig creates a new JSON exporter with configuration
+// NewJSONExporterWithConfig creates a new JSON exporter with configuration.
 func NewJSONExporterWithConfig(config *JSONConfig) shared.Exporter {
 	return &JSONExporter{
 		config: config,
@@ -103,7 +103,7 @@ func NewJSONExporterWithConfig(config *JSONConfig) shared.Exporter {
 // EXPORTER INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Export exports metrics in JSON format
+// Export exports metrics in JSON format.
 func (je *JSONExporter) Export(metrics map[string]interface{}) ([]byte, error) {
 	je.stats.ExportsTotal++
 	je.stats.LastExportTime = time.Now()
@@ -148,8 +148,10 @@ func (je *JSONExporter) Export(metrics map[string]interface{}) ([]byte, error) {
 	}
 
 	// Marshal to JSON
-	var data []byte
-	var err error
+	var (
+		data []byte
+		err  error
+	)
 
 	if je.config.Pretty {
 		data, err = json.MarshalIndent(export, "", "  ")
@@ -159,19 +161,21 @@ func (je *JSONExporter) Export(metrics map[string]interface{}) ([]byte, error) {
 
 	if err != nil {
 		je.stats.ErrorsTotal++
+
 		return nil, err
 	}
 
 	je.stats.LastExportSize = len(data)
+
 	return data, nil
 }
 
-// Format returns the export format
+// Format returns the export format.
 func (je *JSONExporter) Format() string {
 	return "json"
 }
 
-// Stats returns exporter statistics
+// Stats returns exporter statistics.
 func (je *JSONExporter) Stats() interface{} {
 	return je.stats
 }
@@ -180,7 +184,7 @@ func (je *JSONExporter) Stats() interface{} {
 // PRIVATE METHODS
 // =============================================================================
 
-// processMetric processes a single metric for JSON export
+// processMetric processes a single metric for JSON export.
 func (je *JSONExporter) processMetric(name string, value interface{}) interface{} {
 	// Parse metric name and tags
 	baseName, tags := je.parseMetricName(name)
@@ -210,7 +214,7 @@ func (je *JSONExporter) processMetric(name string, value interface{}) interface{
 	return jsonMetric
 }
 
-// processValue processes a metric value for JSON export
+// processValue processes a metric value for JSON export.
 func (je *JSONExporter) processValue(value interface{}) interface{} {
 	switch v := value.(type) {
 	case map[string]interface{}:
@@ -225,7 +229,7 @@ func (je *JSONExporter) processValue(value interface{}) interface{} {
 	}
 }
 
-// processComplexValue processes complex metric values
+// processComplexValue processes complex metric values.
 func (je *JSONExporter) processComplexValue(value map[string]interface{}) interface{} {
 	result := make(map[string]interface{})
 
@@ -261,7 +265,7 @@ func (je *JSONExporter) processComplexValue(value map[string]interface{}) interf
 	return result
 }
 
-// convertBuckets converts histogram buckets to JSON-friendly format
+// convertBuckets converts histogram buckets to JSON-friendly format.
 func (je *JSONExporter) convertBuckets(buckets map[float64]uint64) []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(buckets))
 
@@ -270,6 +274,7 @@ func (je *JSONExporter) convertBuckets(buckets map[float64]uint64) []map[string]
 	for bound := range buckets {
 		bounds = append(bounds, bound)
 	}
+
 	sort.Float64s(bounds)
 
 	for _, bound := range bounds {
@@ -282,10 +287,9 @@ func (je *JSONExporter) convertBuckets(buckets map[float64]uint64) []map[string]
 	return result
 }
 
-// parseMetricName parses a metric name and extracts tags
+// parseMetricName parses a metric name and extracts tags.
 func (je *JSONExporter) parseMetricName(fullName string) (string, map[string]string) {
 	// Parse format: metric_name{tag1="value1",tag2="value2"}
-
 	if !strings.Contains(fullName, "{") {
 		return fullName, nil
 	}
@@ -306,6 +310,7 @@ func (je *JSONExporter) parseMetricName(fullName string) (string, map[string]str
 
 	// Parse tags
 	tags := make(map[string]string)
+
 	if tagsStr != "" {
 		pairs := strings.Split(tagsStr, ",")
 		for _, pair := range pairs {
@@ -320,19 +325,22 @@ func (je *JSONExporter) parseMetricName(fullName string) (string, map[string]str
 	return baseName, tags
 }
 
-// inferMetricType infers the metric type from the value
+// inferMetricType infers the metric type from the value.
 func (je *JSONExporter) inferMetricType(value interface{}) string {
 	switch v := value.(type) {
 	case map[string]interface{}:
 		if _, ok := v["buckets"]; ok {
 			return "histogram"
 		}
+
 		if _, ok := v["count"]; ok {
 			if _, ok := v["mean"]; ok {
 				return "timer"
 			}
+
 			return "counter"
 		}
+
 		return "gauge"
 	case float64, int64, uint64, int, uint:
 		return "gauge"
@@ -341,7 +349,7 @@ func (je *JSONExporter) inferMetricType(value interface{}) string {
 	}
 }
 
-// inferUnit infers the unit for a metric
+// inferUnit infers the unit for a metric.
 func (je *JSONExporter) inferUnit(name, metricType string) string {
 	name = strings.ToLower(name)
 
@@ -352,51 +360,58 @@ func (je *JSONExporter) inferUnit(name, metricType string) string {
 		if strings.Contains(name, "bytes") {
 			return "bytes"
 		}
+
 		if strings.Contains(name, "requests") {
 			return "requests"
 		}
+
 		return "count"
 	case "gauge":
 		if strings.Contains(name, "memory") || strings.Contains(name, "bytes") {
 			return "bytes"
 		}
+
 		if strings.Contains(name, "cpu") || strings.Contains(name, "percent") {
 			return "percent"
 		}
+
 		if strings.Contains(name, "connections") {
 			return "connections"
 		}
+
 		return "value"
 	case "histogram":
 		if strings.Contains(name, "duration") || strings.Contains(name, "latency") {
 			return "seconds"
 		}
+
 		if strings.Contains(name, "size") || strings.Contains(name, "bytes") {
 			return "bytes"
 		}
+
 		return "value"
 	}
 
 	return "value"
 }
 
-// generateDescription generates a description for a metric
+// generateDescription generates a description for a metric.
 func (je *JSONExporter) generateDescription(name, metricType string) string {
 	switch metricType {
 	case "counter":
-		return fmt.Sprintf("Counter metric tracking %s", name)
+		return "Counter metric tracking " + name
 	case "gauge":
-		return fmt.Sprintf("Gauge metric measuring %s", name)
+		return "Gauge metric measuring " + name
 	case "histogram":
 		return fmt.Sprintf("Histogram metric for %s distribution", name)
 	case "timer":
 		return fmt.Sprintf("Timer metric for %s duration", name)
 	default:
-		return fmt.Sprintf("Metric for %s", name)
+		return "Metric for " + name
 	}
 }
 
-// generateMetadata generates metadata for a metric
+// generateMetadata generates metadata for a metric.
 func (je *JSONExporter) generateMetadata(name, metricType string) map[string]interface{} {
 	return map[string]interface{}{
 		"created_at": time.Now().Format(je.config.TimestampFormat),
@@ -406,7 +421,7 @@ func (je *JSONExporter) generateMetadata(name, metricType string) map[string]int
 	}
 }
 
-// updateSummary updates the export summary with metric information
+// updateSummary updates the export summary with metric information.
 func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metric interface{}) {
 	// Extract metric type
 	var metricType string
@@ -421,12 +436,15 @@ func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metri
 			if values, exists := summary.Tags[tagKey]; exists {
 				// Check if value already exists
 				found := false
+
 				for _, v := range values {
 					if v == tagValue {
 						found = true
+
 						break
 					}
 				}
+
 				if !found {
 					summary.Tags[tagKey] = append(values, tagValue)
 				}
@@ -439,12 +457,15 @@ func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metri
 	// Update namespaces
 	if je.config.Namespace != "" {
 		found := false
+
 		for _, ns := range summary.Namespaces {
 			if ns == je.config.Namespace {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			summary.Namespaces = append(summary.Namespaces, je.config.Namespace)
 		}
@@ -455,19 +476,21 @@ func (je *JSONExporter) updateSummary(summary *ExportSummary, name string, metri
 // UTILITY FUNCTIONS
 // =============================================================================
 
-// ExportMetricsToJSON exports metrics to JSON format with default configuration
+// ExportMetricsToJSON exports metrics to JSON format with default configuration.
 func ExportMetricsToJSON(metrics map[string]interface{}) ([]byte, error) {
 	exporter := NewJSONExporter()
+
 	return exporter.Export(metrics)
 }
 
-// ExportMetricsToJSONWithConfig exports metrics to JSON format with custom configuration
+// ExportMetricsToJSONWithConfig exports metrics to JSON format with custom configuration.
 func ExportMetricsToJSONWithConfig(metrics map[string]interface{}, config *JSONConfig) ([]byte, error) {
 	exporter := NewJSONExporterWithConfig(config)
+
 	return exporter.Export(metrics)
 }
 
-// CompactJSONExport creates a compact JSON export without metadata
+// CompactJSONExport creates a compact JSON export without metadata.
 func CompactJSONExport(metrics map[string]interface{}) ([]byte, error) {
 	config := &JSONConfig{
 		Pretty:           false,
@@ -478,7 +501,7 @@ func CompactJSONExport(metrics map[string]interface{}) ([]byte, error) {
 	return ExportMetricsToJSONWithConfig(metrics, config)
 }
 
-// PrettyJSONExport creates a pretty-printed JSON export with full metadata
+// PrettyJSONExport creates a pretty-printed JSON export with full metadata.
 func PrettyJSONExport(metrics map[string]interface{}) ([]byte, error) {
 	config := &JSONConfig{
 		Pretty:           true,
@@ -490,7 +513,7 @@ func PrettyJSONExport(metrics map[string]interface{}) ([]byte, error) {
 	return ExportMetricsToJSONWithConfig(metrics, config)
 }
 
-// JSONExportWithNamespace creates a JSON export with a specific namespace
+// JSONExportWithNamespace creates a JSON export with a specific namespace.
 func JSONExportWithNamespace(metrics map[string]interface{}, namespace string) ([]byte, error) {
 	config := &JSONConfig{
 		Pretty:           true,

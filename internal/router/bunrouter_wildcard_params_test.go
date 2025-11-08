@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/di"
 )
 
-// TestBunRouterAdapter_WildcardParameters tests that wildcard params are extracted correctly
+// TestBunRouterAdapter_WildcardParameters tests that wildcard params are extracted correctly.
 func TestBunRouterAdapter_WildcardParameters(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
@@ -23,7 +23,7 @@ func TestBunRouterAdapter_WildcardParameters(t *testing.T) {
 		wildcardParam := ctx.Param("*")
 		filepathParam := ctx.Param("filepath")
 
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(wildcardParam + "|" + filepathParam))
 	})
 
@@ -58,7 +58,7 @@ func TestBunRouterAdapter_WildcardParameters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			adapter.ServeHTTP(rec, req)
@@ -69,7 +69,7 @@ func TestBunRouterAdapter_WildcardParameters(t *testing.T) {
 	}
 }
 
-// TestBunRouterAdapter_WildcardWithGroups tests wildcard params work correctly with route groups
+// TestBunRouterAdapter_WildcardWithGroups tests wildcard params work correctly with route groups.
 func TestBunRouterAdapter_WildcardWithGroups(t *testing.T) {
 	router := NewRouter()
 
@@ -121,7 +121,7 @@ func TestBunRouterAdapter_WildcardWithGroups(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
@@ -139,7 +139,7 @@ func TestBunRouterAdapter_WildcardWithGroups(t *testing.T) {
 	}
 }
 
-// TestBunRouterAdapter_NamedParameters tests that regular named parameters still work
+// TestBunRouterAdapter_NamedParameters tests that regular named parameters still work.
 func TestBunRouterAdapter_NamedParameters(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
@@ -149,14 +149,14 @@ func TestBunRouterAdapter_NamedParameters(t *testing.T) {
 		userID := ctx.Param("id")
 		postID := ctx.Param("postId")
 
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(userID + "|" + postID))
 	})
 
 	// Register route with named parameters
 	adapter.Handle("GET", "/users/:id/posts/:postId", handler)
 
-	req := httptest.NewRequest("GET", "/users/123/posts/456", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/123/posts/456", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -165,7 +165,7 @@ func TestBunRouterAdapter_NamedParameters(t *testing.T) {
 	assert.Equal(t, "123|456", rec.Body.String())
 }
 
-// TestBunRouterAdapter_MixedParameters tests routes with both named and wildcard params
+// TestBunRouterAdapter_MixedParameters tests routes with both named and wildcard params.
 func TestBunRouterAdapter_MixedParameters(t *testing.T) {
 	adapter := NewBunRouterAdapter()
 
@@ -175,14 +175,14 @@ func TestBunRouterAdapter_MixedParameters(t *testing.T) {
 		userID := ctx.Param("userId")
 		filepath := ctx.Param("*")
 
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(userID + "|" + filepath))
 	})
 
 	// Register route with both named param and wildcard
 	adapter.Handle("GET", "/users/:userId/files/*", handler)
 
-	req := httptest.NewRequest("GET", "/users/john/files/docs/report.pdf", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/john/files/docs/report.pdf", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -190,4 +190,3 @@ func TestBunRouterAdapter_MixedParameters(t *testing.T) {
 	assert.Equal(t, 200, rec.Code)
 	assert.Equal(t, "john|docs/report.pdf", rec.Body.String())
 }
-

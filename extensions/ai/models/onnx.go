@@ -6,32 +6,33 @@ import (
 	"strings"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// ONNXAdapter implements ModelAdapter for ONNX models
+// ONNXAdapter implements ModelAdapter for ONNX models.
 type ONNXAdapter struct {
 	logger logger.Logger
 }
 
-// NewONNXAdapter creates a new ONNX adapter
+// NewONNXAdapter creates a new ONNX adapter.
 func NewONNXAdapter(logger logger.Logger) ModelAdapter {
 	return &ONNXAdapter{
 		logger: logger,
 	}
 }
 
-// Name returns the adapter name
+// Name returns the adapter name.
 func (a *ONNXAdapter) Name() string {
 	return "onnx"
 }
 
-// Framework returns the ML framework
+// Framework returns the ML framework.
 func (a *ONNXAdapter) Framework() MLFramework {
 	return MLFrameworkONNX
 }
 
-// SupportsModel checks if this adapter supports the given model configuration
+// SupportsModel checks if this adapter supports the given model configuration.
 func (a *ONNXAdapter) SupportsModel(config ModelConfig) bool {
 	if config.Framework != MLFrameworkONNX {
 		return false
@@ -46,7 +47,7 @@ func (a *ONNXAdapter) SupportsModel(config ModelConfig) bool {
 	return strings.HasSuffix(config.ModelPath, ".onnx")
 }
 
-// CreateModel creates a new ONNX model
+// CreateModel creates a new ONNX model.
 func (a *ONNXAdapter) CreateModel(config ModelConfig) (Model, error) {
 	if err := a.ValidateConfig(config); err != nil {
 		return nil, err
@@ -62,7 +63,7 @@ func (a *ONNXAdapter) CreateModel(config ModelConfig) (Model, error) {
 	model.SetOutputSchema(a.getDefaultOutputSchema(config))
 
 	// Set ONNX-specific metadata
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"framework": "onnx",
 		"version":   "1.x",
 		"format":    "onnx",
@@ -73,42 +74,42 @@ func (a *ONNXAdapter) CreateModel(config ModelConfig) (Model, error) {
 	return model, nil
 }
 
-// ValidateConfig validates the model configuration
+// ValidateConfig validates the model configuration.
 func (a *ONNXAdapter) ValidateConfig(config ModelConfig) error {
 	if config.Framework != MLFrameworkONNX {
 		return fmt.Errorf("invalid framework: expected %s, got %s", MLFrameworkONNX, config.Framework)
 	}
 
 	if config.ModelPath == "" {
-		return fmt.Errorf("model path is required")
+		return errors.New("model path is required")
 	}
 
 	if !strings.HasSuffix(config.ModelPath, ".onnx") {
-		return fmt.Errorf("model path must have .onnx extension")
+		return errors.New("model path must have .onnx extension")
 	}
 
 	if config.ID == "" {
-		return fmt.Errorf("model ID is required")
+		return errors.New("model ID is required")
 	}
 
 	if config.Name == "" {
-		return fmt.Errorf("model name is required")
+		return errors.New("model name is required")
 	}
 
 	// Validate batch size
 	if config.BatchSize < 0 {
-		return fmt.Errorf("batch size must be non-negative")
+		return errors.New("batch size must be non-negative")
 	}
 
 	// Validate timeout
 	if config.Timeout < 0 {
-		return fmt.Errorf("timeout must be non-negative")
+		return errors.New("timeout must be non-negative")
 	}
 
 	return nil
 }
 
-// getAvailableProviders returns available ONNX Runtime providers
+// getAvailableProviders returns available ONNX Runtime providers.
 func (a *ONNXAdapter) getAvailableProviders(useGPU bool) []string {
 	providers := []string{"CPUExecutionProvider"}
 
@@ -120,76 +121,76 @@ func (a *ONNXAdapter) getAvailableProviders(useGPU bool) []string {
 	return providers
 }
 
-// getDefaultInputSchema returns default input schema for ONNX models
+// getDefaultInputSchema returns default input schema for ONNX models.
 func (a *ONNXAdapter) getDefaultInputSchema(config ModelConfig) InputSchema {
 	return InputSchema{
 		Type: "object",
-		Properties: map[string]interface{}{
-			"input": map[string]interface{}{
+		Properties: map[string]any{
+			"input": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "number",
 				},
 			},
-			"shape": map[string]interface{}{
+			"shape": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "integer",
 				},
 			},
-			"dtype": map[string]interface{}{
+			"dtype": map[string]any{
 				"type": "string",
 				"enum": []string{"float32", "float64", "int32", "int64"},
 			},
 		},
 		Required: []string{"input"},
-		Examples: []interface{}{
-			map[string]interface{}{
+		Examples: []any{
+			map[string]any{
 				"input": []float64{1.0, 2.0, 3.0, 4.0},
 				"shape": []int{1, 4},
 				"dtype": "float32",
 			},
 		},
-		Constraints: map[string]interface{}{
+		Constraints: map[string]any{
 			"max_batch_size": config.BatchSize,
 			"providers":      a.getAvailableProviders(config.GPU),
 		},
 	}
 }
 
-// getDefaultOutputSchema returns default output schema for ONNX models
+// getDefaultOutputSchema returns default output schema for ONNX models.
 func (a *ONNXAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema {
 	return OutputSchema{
 		Type: "object",
-		Properties: map[string]interface{}{
-			"predictions": map[string]interface{}{
+		Properties: map[string]any{
+			"predictions": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"label":       map[string]interface{}{"type": "string"},
-						"value":       map[string]interface{}{"type": "number"},
-						"confidence":  map[string]interface{}{"type": "number"},
-						"probability": map[string]interface{}{"type": "number"},
+					"properties": map[string]any{
+						"label":       map[string]any{"type": "string"},
+						"value":       map[string]any{"type": "number"},
+						"confidence":  map[string]any{"type": "number"},
+						"probability": map[string]any{"type": "number"},
 					},
 				},
 			},
-			"output": map[string]interface{}{
+			"output": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "number",
 				},
 			},
-			"shape": map[string]interface{}{
+			"shape": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "integer",
 				},
 			},
 		},
-		Examples: []interface{}{
-			map[string]interface{}{
-				"predictions": []map[string]interface{}{
+		Examples: []any{
+			map[string]any{
+				"predictions": []map[string]any{
 					{
 						"label":       "class_0",
 						"value":       0.9,
@@ -205,12 +206,13 @@ func (a *ONNXAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema {
 	}
 }
 
-// ONNXModel represents an ONNX model
+// ONNXModel represents an ONNX model.
 type ONNXModel struct {
 	*BaseModel
+
 	adapter   *ONNXAdapter
-	session   interface{} // ONNX Runtime session
-	providers []string    // Execution providers
+	session   any      // ONNX Runtime session
+	providers []string // Execution providers
 
 	// Model information
 	inputNames   []string
@@ -224,7 +226,7 @@ type ONNXModel struct {
 	parallelism   int
 }
 
-// ONNXOptimization represents ONNX optimization settings
+// ONNXOptimization represents ONNX optimization settings.
 type ONNXOptimization struct {
 	EnableMemPattern       bool
 	EnableCPUMemArena      bool
@@ -235,7 +237,7 @@ type ONNXOptimization struct {
 	GraphOptimizationLevel string
 }
 
-// Load loads the ONNX model
+// Load loads the ONNX model.
 func (m *ONNXModel) Load(ctx context.Context) error {
 	// Call base load first
 	if err := m.BaseModel.Load(ctx); err != nil {
@@ -303,7 +305,7 @@ func (m *ONNXModel) Load(ctx context.Context) error {
 	return nil
 }
 
-// Unload unloads the ONNX model
+// Unload unloads the ONNX model.
 func (m *ONNXModel) Unload(ctx context.Context) error {
 	// Clean up ONNX Runtime resources
 	if m.session != nil {
@@ -320,7 +322,7 @@ func (m *ONNXModel) Unload(ctx context.Context) error {
 	return m.BaseModel.Unload(ctx)
 }
 
-// Predict performs prediction using the ONNX model
+// Predict performs prediction using the ONNX model.
 func (m *ONNXModel) Predict(ctx context.Context, input ModelInput) (ModelOutput, error) {
 	startTime := time.Now()
 
@@ -332,6 +334,7 @@ func (m *ONNXModel) Predict(ctx context.Context, input ModelInput) (ModelOutput,
 	// Validate input
 	if err := m.ValidateInput(input); err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("invalid input: %w", err)
 	}
 
@@ -339,6 +342,7 @@ func (m *ONNXModel) Predict(ctx context.Context, input ModelInput) (ModelOutput,
 	onnxInput, err := m.prepareInput(input)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("failed to prepare input: %w", err)
 	}
 
@@ -346,6 +350,7 @@ func (m *ONNXModel) Predict(ctx context.Context, input ModelInput) (ModelOutput,
 	onnxOutput, err := m.runInference(ctx, onnxInput)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("inference failed: %w", err)
 	}
 
@@ -353,6 +358,7 @@ func (m *ONNXModel) Predict(ctx context.Context, input ModelInput) (ModelOutput,
 	output, err := m.convertOutput(onnxOutput, input.RequestID)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("failed to convert output: %w", err)
 	}
 
@@ -375,7 +381,7 @@ func (m *ONNXModel) Predict(ctx context.Context, input ModelInput) (ModelOutput,
 	return output, nil
 }
 
-// BatchPredict performs batch prediction using the ONNX model
+// BatchPredict performs batch prediction using the ONNX model.
 func (m *ONNXModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]ModelOutput, error) {
 	if len(inputs) == 0 {
 		return []ModelOutput{}, nil
@@ -398,6 +404,7 @@ func (m *ONNXModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]Mo
 	batchInput, err := m.prepareBatchInput(inputs)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("failed to prepare batch input: %w", err)
 	}
 
@@ -405,6 +412,7 @@ func (m *ONNXModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]Mo
 	batchOutput, err := m.runInference(ctx, batchInput)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("batch inference failed: %w", err)
 	}
 
@@ -412,6 +420,7 @@ func (m *ONNXModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]Mo
 	outputs, err := m.convertBatchOutput(batchOutput, inputs)
 	if err != nil {
 		m.updateErrorCount()
+
 		return nil, fmt.Errorf("failed to convert batch output: %w", err)
 	}
 
@@ -437,7 +446,7 @@ func (m *ONNXModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]Mo
 	return outputs, nil
 }
 
-// ValidateInput validates ONNX-specific input
+// ValidateInput validates ONNX-specific input.
 func (m *ONNXModel) ValidateInput(input ModelInput) error {
 	// Call base validation
 	if err := m.BaseModel.ValidateInput(input); err != nil {
@@ -446,22 +455,22 @@ func (m *ONNXModel) ValidateInput(input ModelInput) error {
 
 	// ONNX-specific validation
 	if input.Data == nil {
-		return fmt.Errorf("input data is required")
+		return errors.New("input data is required")
 	}
 
 	// Validate input format
 	switch data := input.Data.(type) {
 	case []float64:
 		if len(data) == 0 {
-			return fmt.Errorf("input array cannot be empty")
+			return errors.New("input array cannot be empty")
 		}
 	case [][]float64:
 		if len(data) == 0 {
-			return fmt.Errorf("input matrix cannot be empty")
+			return errors.New("input matrix cannot be empty")
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		if _, ok := data["input"]; !ok {
-			return fmt.Errorf("input object must contain 'input' field")
+			return errors.New("input object must contain 'input' field")
 		}
 	default:
 		return fmt.Errorf("unsupported input type: %T", data)
@@ -470,8 +479,8 @@ func (m *ONNXModel) ValidateInput(input ModelInput) error {
 	return nil
 }
 
-// prepareInput prepares input data for ONNX Runtime
-func (m *ONNXModel) prepareInput(input ModelInput) (interface{}, error) {
+// prepareInput prepares input data for ONNX Runtime.
+func (m *ONNXModel) prepareInput(input ModelInput) (any, error) {
 	// In real implementation, this would:
 	// 1. Convert input data to ONNX value format
 	// 2. Validate input shapes match model expectations
@@ -490,15 +499,15 @@ func (m *ONNXModel) prepareInput(input ModelInput) (interface{}, error) {
 	}, nil
 }
 
-// prepareBatchInput prepares batch input data for ONNX Runtime
-func (m *ONNXModel) prepareBatchInput(inputs []ModelInput) (interface{}, error) {
+// prepareBatchInput prepares batch input data for ONNX Runtime.
+func (m *ONNXModel) prepareBatchInput(inputs []ModelInput) (any, error) {
 	// In real implementation, this would:
 	// 1. Concatenate inputs into batch tensors
 	// 2. Update batch dimension in shape
 	// 3. Handle dynamic batch sizes
 
 	// Mock implementation
-	batchData := make([]interface{}, len(inputs))
+	batchData := make([]any, len(inputs))
 	for i, input := range inputs {
 		batchData[i] = input.Data
 	}
@@ -514,13 +523,13 @@ func (m *ONNXModel) prepareBatchInput(inputs []ModelInput) (interface{}, error) 
 		shape:     batchShape,
 		dtype:     "float32",
 		features:  nil,
-		metadata:  map[string]interface{}{"batch_size": len(inputs)},
+		metadata:  map[string]any{"batch_size": len(inputs)},
 		requestID: "batch",
 	}, nil
 }
 
-// runInference runs ONNX Runtime inference
-func (m *ONNXModel) runInference(ctx context.Context, input interface{}) (interface{}, error) {
+// runInference runs ONNX Runtime inference.
+func (m *ONNXModel) runInference(ctx context.Context, input any) (any, error) {
 	// In real implementation, this would:
 	// 1. Run ONNX Runtime session
 	// 2. Handle input/output tensor management
@@ -540,15 +549,15 @@ func (m *ONNXModel) runInference(ctx context.Context, input interface{}) (interf
 		data:     []float64{0.9, 0.1},
 		shape:    m.outputShapes[m.outputNames[0]],
 		dtype:    "float32",
-		metadata: map[string]interface{}{"inference_time": 8, "provider": m.providers[0]},
+		metadata: map[string]any{"inference_time": 8, "provider": m.providers[0]},
 	}, nil
 }
 
-// convertOutput converts ONNX output to ModelOutput
-func (m *ONNXModel) convertOutput(onnxOut interface{}, requestID string) (ModelOutput, error) {
+// convertOutput converts ONNX output to ModelOutput.
+func (m *ONNXModel) convertOutput(onnxOut any, requestID string) (ModelOutput, error) {
 	output, ok := onnxOut.(*onnxOutput)
 	if !ok {
-		return ModelOutput{}, fmt.Errorf("invalid ONNX output type")
+		return ModelOutput{}, errors.New("invalid ONNX output type")
 	}
 
 	// Convert raw output to predictions
@@ -559,7 +568,7 @@ func (m *ONNXModel) convertOutput(onnxOut interface{}, requestID string) (ModelO
 			Value:       val,
 			Confidence:  val,
 			Probability: val,
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"index":     i,
 				"raw_value": val,
 			},
@@ -576,7 +585,7 @@ func (m *ONNXModel) convertOutput(onnxOut interface{}, requestID string) (ModelO
 		Predictions:   predictions,
 		Probabilities: output.data,
 		Confidence:    confidence,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"output_name":  output.name,
 			"output_shape": output.shape,
 			"dtype":        output.dtype,
@@ -586,26 +595,26 @@ func (m *ONNXModel) convertOutput(onnxOut interface{}, requestID string) (ModelO
 	}, nil
 }
 
-// convertBatchOutput converts ONNX batch output to ModelOutput slice
-func (m *ONNXModel) convertBatchOutput(onnxOutput interface{}, inputs []ModelInput) ([]ModelOutput, error) {
+// convertBatchOutput converts ONNX batch output to ModelOutput slice.
+func (m *ONNXModel) convertBatchOutput(onnxOutput any, inputs []ModelInput) ([]ModelOutput, error) {
 	// In real implementation, this would split batch output into individual outputs
 	// For now, simulate by calling convertOutput for each input
-
 	outputs := make([]ModelOutput, len(inputs))
 	for i, input := range inputs {
 		output, err := m.convertOutput(onnxOutput, input.RequestID)
 		if err != nil {
 			return nil, err
 		}
+
 		outputs[i] = output
 	}
 
 	return outputs, nil
 }
 
-// GetModelMetadata returns ONNX model metadata
-func (m *ONNXModel) GetModelMetadata() map[string]interface{} {
-	return map[string]interface{}{
+// GetModelMetadata returns ONNX model metadata.
+func (m *ONNXModel) GetModelMetadata() map[string]any {
+	return map[string]any{
 		"input_names":   m.inputNames,
 		"output_names":  m.outputNames,
 		"input_shapes":  m.inputShapes,
@@ -615,32 +624,34 @@ func (m *ONNXModel) GetModelMetadata() map[string]interface{} {
 	}
 }
 
-// SetOptimization updates ONNX optimization settings
+// SetOptimization updates ONNX optimization settings.
 func (m *ONNXModel) SetOptimization(optimization ONNXOptimization) error {
 	if m.IsLoaded() {
-		return fmt.Errorf("cannot change optimization settings while model is loaded")
+		return errors.New("cannot change optimization settings while model is loaded")
 	}
 
 	m.optimization = optimization
+
 	return nil
 }
 
-// GetProviders returns available execution providers
+// GetProviders returns available execution providers.
 func (m *ONNXModel) GetProviders() []string {
 	return m.providers
 }
 
-// SetProviders sets the execution providers
+// SetProviders sets the execution providers.
 func (m *ONNXModel) SetProviders(providers []string) error {
 	if m.IsLoaded() {
-		return fmt.Errorf("cannot change providers while model is loaded")
+		return errors.New("cannot change providers while model is loaded")
 	}
 
 	m.providers = providers
+
 	return nil
 }
 
-// Mock ONNX types for demonstration
+// Mock ONNX types for demonstration.
 type onnxSession struct {
 	modelPath    string
 	providers    []string
@@ -650,11 +661,11 @@ type onnxSession struct {
 
 type onnxInput struct {
 	name      string
-	data      interface{}
+	data      any
 	shape     []int
 	dtype     string
-	features  map[string]interface{}
-	metadata  map[string]interface{}
+	features  map[string]any
+	metadata  map[string]any
 	requestID string
 }
 
@@ -663,5 +674,5 @@ type onnxOutput struct {
 	data     []float64
 	shape    []int
 	dtype    string
-	metadata map[string]interface{}
+	metadata map[string]any
 }

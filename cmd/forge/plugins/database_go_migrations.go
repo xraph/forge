@@ -9,9 +9,10 @@ import (
 	"strings"
 
 	"github.com/xraph/forge/cli"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// hasGoMigrations checks if there are any .go migration files (excluding migrations.go)
+// hasGoMigrations checks if there are any .go migration files (excluding migrations.go).
 func (p *DatabasePlugin) hasGoMigrations() (bool, error) {
 	migrationPath, err := p.getMigrationPath()
 	if err != nil {
@@ -27,6 +28,7 @@ func (p *DatabasePlugin) hasGoMigrations() (bool, error) {
 		if entry.IsDir() {
 			continue
 		}
+
 		name := entry.Name()
 		// Look for .go files that aren't migrations.go
 		if strings.HasSuffix(name, ".go") && name != "migrations.go" {
@@ -37,7 +39,7 @@ func (p *DatabasePlugin) hasGoMigrations() (bool, error) {
 	return false, nil
 }
 
-// runWithGoMigrations builds and executes a temporary migration runner that includes Go migrations
+// runWithGoMigrations builds and executes a temporary migration runner that includes Go migrations.
 func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command string) error {
 	dbName := ctx.String("database")
 
@@ -100,9 +102,11 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command str
 
 	// Build replace section
 	replacesSection := fmt.Sprintf("replace %s => %s\n", moduleName, p.config.RootDir)
+	var replacesSectionSb103 strings.Builder
 	for module, path := range replaceDirectives {
-		replacesSection += fmt.Sprintf("replace %s => %s\n", module, path)
+		replacesSectionSb103.WriteString(fmt.Sprintf("replace %s => %s\n", module, path))
 	}
+	replacesSection += replacesSectionSb103.String()
 
 	// Create go.mod with replace directives pointing to the actual project and local dependencies
 	goModContent := fmt.Sprintf(`module forge-migrate-runner
@@ -123,6 +127,7 @@ require (
 	// Run go mod tidy to generate go.sum and resolve all dependencies
 	tidyCmd := exec.CommandContext(context.Background(), "go", "mod", "tidy")
 	tidyCmd.Dir = tmpDir
+
 	tidyCmd.Env = os.Environ()
 	if output, err := tidyCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to tidy dependencies: %w\n%s", err, string(output))
@@ -132,6 +137,7 @@ require (
 	binaryPath := filepath.Join(tmpDir, "migrate")
 	buildCmd := exec.CommandContext(context.Background(), "go", "build", "-o", binaryPath, ".")
 	buildCmd.Dir = tmpDir
+
 	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 
 	if output, err := buildCmd.CombinedOutput(); err != nil {
@@ -141,7 +147,8 @@ require (
 	// Execute the migration command
 	migrationCmd := exec.CommandContext(context.Background(), binaryPath, command)
 	migrationCmd.Dir = p.config.RootDir
-	migrationCmd.Env = append(os.Environ(), fmt.Sprintf("DATABASE_URL=%s", dbConfig.DSN))
+
+	migrationCmd.Env = append(os.Environ(), "DATABASE_URL="+dbConfig.DSN)
 	migrationCmd.Stdout = os.Stdout
 	migrationCmd.Stderr = os.Stderr
 
@@ -152,7 +159,7 @@ require (
 	return nil
 }
 
-// generateMigrationRunner creates a temporary Go file that imports the user's migrations
+// generateMigrationRunner creates a temporary Go file that imports the user's migrations.
 func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig interface{}) error {
 	// Determine the module name from go.mod
 	moduleName, err := p.getModuleName()
@@ -177,7 +184,7 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig int
 
 	// Validate migration import path
 	if migrationsImport == "" {
-		return fmt.Errorf("migration import path is empty")
+		return errors.New("migration import path is empty")
 	}
 
 	// Detect extension migrations (like authsome)
@@ -208,6 +215,7 @@ func (p *DatabasePlugin) generateMigrationRunner(outputPath string, dbConfig int
 	// Add extension migrations imports
 	if len(extensionImports) > 0 {
 		importsBuilder.WriteString("\n\t// Import extension migrations")
+
 		for _, extImport := range extensionImports {
 			importsBuilder.WriteString(fmt.Sprintf("\n\t_ \"%s\"", extImport))
 		}
@@ -375,9 +383,10 @@ func main() {
 	return os.WriteFile(outputPath, []byte(code), 0644)
 }
 
-// detectExtensionMigrations scans go.mod for known extensions with migrations
+// detectExtensionMigrations scans go.mod for known extensions with migrations.
 func (p *DatabasePlugin) detectExtensionMigrations() ([]string, error) {
 	goModPath := filepath.Join(p.config.RootDir, "go.mod")
+
 	content, err := os.ReadFile(goModPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read go.mod: %w", err)
@@ -391,6 +400,7 @@ func (p *DatabasePlugin) detectExtensionMigrations() ([]string, error) {
 	}
 
 	var extensionImports []string
+
 	contentStr := string(content)
 
 	// Check if each known extension is in go.mod
@@ -404,9 +414,10 @@ func (p *DatabasePlugin) detectExtensionMigrations() ([]string, error) {
 	return extensionImports, nil
 }
 
-// getModuleName extracts the module name from go.mod
+// getModuleName extracts the module name from go.mod.
 func (p *DatabasePlugin) getModuleName() (string, error) {
 	goModPath := filepath.Join(p.config.RootDir, "go.mod")
+
 	content, err := os.ReadFile(goModPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read go.mod: %w", err)
@@ -420,12 +431,13 @@ func (p *DatabasePlugin) getModuleName() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("module directive not found in go.mod")
+	return "", errors.New("module directive not found in go.mod")
 }
 
-// getGoVersion extracts the Go version from go.mod
+// getGoVersion extracts the Go version from go.mod.
 func (p *DatabasePlugin) getGoVersion() (string, error) {
 	goModPath := filepath.Join(p.config.RootDir, "go.mod")
+
 	content, err := os.ReadFile(goModPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read go.mod: %w", err)
@@ -439,13 +451,14 @@ func (p *DatabasePlugin) getGoVersion() (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("go directive not found in go.mod")
+	return "", errors.New("go directive not found in go.mod")
 }
 
 // getReplaceDirectives extracts replace directives from go.mod
-// This handles local modules that aren't publicly available
+// This handles local modules that aren't publicly available.
 func (p *DatabasePlugin) getReplaceDirectives() (map[string]string, error) {
 	goModPath := filepath.Join(p.config.RootDir, "go.mod")
+
 	content, err := os.ReadFile(goModPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read go.mod: %w", err)
@@ -459,6 +472,7 @@ func (p *DatabasePlugin) getReplaceDirectives() (map[string]string, error) {
 		// Handle single-line replace directives: replace example.com/module => /path/to/module
 		if strings.HasPrefix(line, "replace ") {
 			line = strings.TrimPrefix(line, "replace ")
+
 			parts := strings.Split(line, "=>")
 			if len(parts) == 2 {
 				module := strings.TrimSpace(parts[0])
@@ -467,6 +481,7 @@ func (p *DatabasePlugin) getReplaceDirectives() (map[string]string, error) {
 				if len(moduleParts) > 0 {
 					module = moduleParts[0]
 				}
+
 				path := strings.TrimSpace(parts[1])
 				// Remove version if present in replacement path
 				pathParts := strings.Fields(path)
@@ -477,6 +492,7 @@ func (p *DatabasePlugin) getReplaceDirectives() (map[string]string, error) {
 				if !filepath.IsAbs(path) {
 					path = filepath.Join(p.config.RootDir, path)
 				}
+
 				replaces[module] = path
 			}
 		}

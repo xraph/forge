@@ -134,7 +134,7 @@ func TestPeerConnection_OfferAnswerFlow(t *testing.T) {
 	t.Log("Offer/Answer flow test completed successfully")
 }
 
-// containsICECredentials checks if SDP contains ICE credentials
+// containsICECredentials checks if SDP contains ICE credentials.
 func containsICECredentials(sdp string) bool {
 	return strings.Contains(sdp, "ice-ufrag") && strings.Contains(sdp, "ice-pwd")
 }
@@ -218,8 +218,10 @@ func TestPeerConnection_ICECandidateCallback(t *testing.T) {
 
 	// Setup ICE candidate callback
 	candidateReceived := make(chan bool, 1)
+
 	peer.OnICECandidate(func(candidate *ICECandidate) {
 		t.Logf("received ICE candidate: %s", candidate.Candidate)
+
 		select {
 		case candidateReceived <- true:
 		default:
@@ -255,8 +257,7 @@ func BenchmarkPeerConnection_CreateOffer(b *testing.B) {
 	}
 	defer peer.Close(ctx)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := peer.CreateOffer(ctx)
 		if err != nil {
 			b.Fatalf("failed to create offer: %v", err)

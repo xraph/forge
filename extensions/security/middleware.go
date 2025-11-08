@@ -2,6 +2,7 @@ package security
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -9,10 +10,10 @@ import (
 	"github.com/xraph/forge"
 )
 
-// SessionContextKey is the context key for storing the session
+// SessionContextKey is the context key for storing the session.
 type SessionContextKey struct{}
 
-// SessionMiddlewareOptions holds options for the session middleware
+// SessionMiddlewareOptions holds options for the session middleware.
 type SessionMiddlewareOptions struct {
 	// Store is the session store to use
 	Store SessionStore
@@ -39,7 +40,7 @@ type SessionMiddlewareOptions struct {
 	SkipPaths []string
 }
 
-// SessionMiddleware creates middleware for session management
+// SessionMiddleware creates middleware for session management.
 func SessionMiddleware(opts SessionMiddlewareOptions) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(forgeCtx forge.Context) error {
@@ -63,7 +64,7 @@ func SessionMiddleware(opts SessionMiddlewareOptions) forge.Middleware {
 			// Get session from store
 			session, err := opts.Store.Get(ctx, sessionID)
 			if err != nil {
-				if err == ErrSessionNotFound || err == ErrSessionExpired {
+				if errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSessionExpired) {
 					// Session not found or expired, delete cookie
 					opts.CookieManager.DeleteCookie(w, opts.Config.CookieName, nil)
 
@@ -115,7 +116,7 @@ func SessionMiddleware(opts SessionMiddlewareOptions) forge.Middleware {
 	}
 }
 
-// CreateSession creates a new session and sets the session cookie
+// CreateSession creates a new session and sets the session cookie.
 func CreateSession(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -123,7 +124,7 @@ func CreateSession(
 	store SessionStore,
 	cookieManager *CookieManager,
 	config SessionConfig,
-	metadata map[string]interface{},
+	metadata map[string]any,
 ) (*Session, error) {
 	// Create new session
 	session, err := NewSession(userID, config.TTL)
@@ -132,9 +133,7 @@ func CreateSession(
 	}
 
 	// Add metadata to session
-	for k, v := range metadata {
-		session.Data[k] = v
-	}
+	maps.Copy(session.Data, metadata)
 
 	// Store session
 	if err := store.Create(ctx, session, config.TTL); err != nil {
@@ -150,41 +149,46 @@ func CreateSession(
 	return session, nil
 }
 
-// GetSession retrieves the session from standard context (for backward compatibility)
+// GetSession retrieves the session from standard context (for backward compatibility).
 func GetSession(ctx context.Context) (*Session, bool) {
 	session, ok := ctx.Value(SessionContextKey{}).(*Session)
+
 	return session, ok
 }
 
-// GetSessionFromForgeContext retrieves the session from Forge context
+// GetSessionFromForgeContext retrieves the session from Forge context.
 func GetSessionFromForgeContext(ctx forge.Context) (*Session, bool) {
 	val := ctx.Get("session")
 	if val == nil {
 		return nil, false
 	}
+
 	session, ok := val.(*Session)
+
 	return session, ok
 }
 
-// MustGetSession retrieves the session from context or panics
+// MustGetSession retrieves the session from context or panics.
 func MustGetSession(ctx context.Context) *Session {
 	session, ok := GetSession(ctx)
 	if !ok {
 		panic("session not found in context")
 	}
+
 	return session
 }
 
-// MustGetSessionFromForgeContext retrieves the session from Forge context or panics
+// MustGetSessionFromForgeContext retrieves the session from Forge context or panics.
 func MustGetSessionFromForgeContext(ctx forge.Context) *Session {
 	session, ok := GetSessionFromForgeContext(ctx)
 	if !ok {
 		panic("session not found in context")
 	}
+
 	return session
 }
 
-// DestroySession destroys the session and deletes the cookie
+// DestroySession destroys the session and deletes the cookie.
 func DestroySession(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -209,7 +213,7 @@ func DestroySession(
 	return nil
 }
 
-// UpdateSession updates the session data in the store
+// UpdateSession updates the session data in the store.
 func UpdateSession(
 	ctx context.Context,
 	store SessionStore,
@@ -223,7 +227,7 @@ func UpdateSession(
 	return store.Update(ctx, session, ttl)
 }
 
-// RequireSession creates middleware that requires a valid session
+// RequireSession creates middleware that requires a valid session.
 func RequireSession(unauthorizedHandler forge.Handler) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -231,17 +235,18 @@ func RequireSession(unauthorizedHandler forge.Handler) forge.Middleware {
 			if !ok {
 				return unauthorizedHandler(ctx)
 			}
+
 			return next(ctx)
 		}
 	}
 }
 
-// RequireSessionFunc creates middleware that requires a valid session with a handler function
+// RequireSessionFunc creates middleware that requires a valid session with a handler function.
 func RequireSessionFunc(unauthorizedHandler forge.Handler) forge.Middleware {
 	return RequireSession(unauthorizedHandler)
 }
 
-// RequireSessionSimple creates middleware that returns 401 Unauthorized if no session exists
+// RequireSessionSimple creates middleware that returns 401 Unauthorized if no session exists.
 func RequireSessionSimple() forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -249,17 +254,19 @@ func RequireSessionSimple() forge.Middleware {
 			if !ok {
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
+
 			return next(ctx)
 		}
 	}
 }
 
-// shouldSkipPath checks if the path should skip session handling
+// shouldSkipPath checks if the path should skip session handling.
 func shouldSkipPath(path string, skipPaths []string) bool {
 	for _, skipPath := range skipPaths {
 		if strings.HasPrefix(path, skipPath) {
 			return true
 		}
 	}
+
 	return false
 }

@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// CLI represents a command-line application
+// CLI represents a command-line application.
 type CLI interface {
 	// Identity
 	Name() string
@@ -31,7 +31,7 @@ type CLI interface {
 	Plugins() []Plugin
 }
 
-// Command represents a CLI command
+// Command represents a CLI command.
 type Command interface {
 	// Identity
 	Name() string
@@ -60,7 +60,7 @@ type Command interface {
 	Parent() Command
 }
 
-// CommandContext provides context to command execution
+// CommandContext provides context to command execution.
 type CommandContext interface {
 	// Arguments
 	Args() []string
@@ -115,8 +115,8 @@ type CommandContext interface {
 	Logger() *CLILogger
 }
 
-// CommandHandler is a function that handles command execution
+// CommandHandler is a function that handles command execution.
 type CommandHandler func(ctx CommandContext) error
 
-// MiddlewareFunc is a function that wraps a CommandHandler
+// MiddlewareFunc is a function that wraps a CommandHandler.
 type MiddlewareFunc func(next CommandHandler) CommandHandler

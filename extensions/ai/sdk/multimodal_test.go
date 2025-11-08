@@ -212,7 +212,6 @@ func TestMultiModalBuilder_Execute(t *testing.T) {
 		WithImageURL("https://example.com/landscape.jpg").
 		WithText("Describe this image").
 		Execute()
-
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}
@@ -243,7 +242,6 @@ func TestMultiModalBuilder_Execute_NoContent(t *testing.T) {
 	)
 
 	_, err := builder.Execute()
-
 	if err == nil {
 		t.Error("expected error for no content, got nil")
 	}
@@ -314,7 +312,7 @@ func TestMultiModalBuilder_WithCallbacks(t *testing.T) {
 
 	startCalled := false
 	completeCalled := false
-	
+
 	builder := NewMultiModalBuilder(
 		context.Background(),
 		mockLLM,
@@ -330,7 +328,6 @@ func TestMultiModalBuilder_WithCallbacks(t *testing.T) {
 		})
 
 	_, err := builder.Execute()
-
 	if err != nil {
 		t.Fatalf("Execute failed: %v", err)
 	}

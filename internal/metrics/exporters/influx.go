@@ -1,7 +1,9 @@
 package exporters
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"strconv"
@@ -15,23 +17,23 @@ import (
 // INFLUXDB EXPORTER
 // =============================================================================
 
-// InfluxExporter exports metrics in InfluxDB line protocol format
+// InfluxExporter exports metrics in InfluxDB line protocol format.
 type InfluxExporter struct {
 	config *InfluxConfig
 	stats  *InfluxStats
 }
 
-// InfluxConfig contains configuration for the InfluxDB exporter
+// InfluxConfig contains configuration for the InfluxDB exporter.
 type InfluxConfig struct {
-	Database        string            `yaml:"database" json:"database"`
-	RetentionPolicy string            `yaml:"retention_policy" json:"retention_policy"`
-	Precision       string            `yaml:"precision" json:"precision"`
-	GlobalTags      map[string]string `yaml:"global_tags" json:"global_tags"`
-	FieldMapping    map[string]string `yaml:"field_mapping" json:"field_mapping"`
-	TagMapping      map[string]string `yaml:"tag_mapping" json:"tag_mapping"`
+	Database        string            `json:"database"         yaml:"database"`
+	RetentionPolicy string            `json:"retention_policy" yaml:"retention_policy"`
+	Precision       string            `json:"precision"        yaml:"precision"`
+	GlobalTags      map[string]string `json:"global_tags"      yaml:"global_tags"`
+	FieldMapping    map[string]string `json:"field_mapping"    yaml:"field_mapping"`
+	TagMapping      map[string]string `json:"tag_mapping"      yaml:"tag_mapping"`
 }
 
-// InfluxStats contains statistics about the InfluxDB exporter
+// InfluxStats contains statistics about the InfluxDB exporter.
 type InfluxStats struct {
 	ExportsTotal    int64     `json:"exports_total"`
 	LastExportTime  time.Time `json:"last_export_time"`
@@ -41,15 +43,15 @@ type InfluxStats struct {
 	LinesGenerated  int64     `json:"lines_generated"`
 }
 
-// InfluxPoint represents a single InfluxDB point
+// InfluxPoint represents a single InfluxDB point.
 type InfluxPoint struct {
 	Measurement string
 	Tags        map[string]string
-	Fields      map[string]interface{}
+	Fields      map[string]any
 	Timestamp   time.Time
 }
 
-// DefaultInfluxConfig returns default InfluxDB configuration
+// DefaultInfluxConfig returns default InfluxDB configuration.
 func DefaultInfluxConfig() *InfluxConfig {
 	return &InfluxConfig{
 		Database:        "metrics",
@@ -61,12 +63,12 @@ func DefaultInfluxConfig() *InfluxConfig {
 	}
 }
 
-// NewInfluxExporter creates a new InfluxDB exporter
+// NewInfluxExporter creates a new InfluxDB exporter.
 func NewInfluxExporter() shared.Exporter {
 	return NewInfluxExporterWithConfig(DefaultInfluxConfig())
 }
 
-// NewInfluxExporterWithConfig creates a new InfluxDB exporter with configuration
+// NewInfluxExporterWithConfig creates a new InfluxDB exporter with configuration.
 func NewInfluxExporterWithConfig(config *InfluxConfig) shared.Exporter {
 	return &InfluxExporter{
 		config: config,
@@ -78,12 +80,13 @@ func NewInfluxExporterWithConfig(config *InfluxConfig) shared.Exporter {
 // EXPORTER INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Export exports metrics in InfluxDB line protocol format
-func (ie *InfluxExporter) Export(metrics map[string]interface{}) ([]byte, error) {
+// Export exports metrics in InfluxDB line protocol format.
+func (ie *InfluxExporter) Export(metrics map[string]any) ([]byte, error) {
 	ie.stats.ExportsTotal++
 	ie.stats.LastExportTime = time.Now()
 
 	var lines []string
+
 	timestamp := time.Now()
 
 	// Convert metrics to InfluxDB points
@@ -96,6 +99,7 @@ func (ie *InfluxExporter) Export(metrics map[string]interface{}) ([]byte, error)
 				ie.stats.LinesGenerated++
 			}
 		}
+
 		ie.stats.MetricsExported++
 	}
 
@@ -111,13 +115,13 @@ func (ie *InfluxExporter) Export(metrics map[string]interface{}) ([]byte, error)
 	return data, nil
 }
 
-// Format returns the export format
+// Format returns the export format.
 func (ie *InfluxExporter) Format() string {
 	return "influx"
 }
 
-// Stats returns exporter statistics
-func (ie *InfluxExporter) Stats() interface{} {
+// Stats returns exporter statistics.
+func (ie *InfluxExporter) Stats() any {
 	return ie.stats
 }
 
@@ -125,8 +129,8 @@ func (ie *InfluxExporter) Stats() interface{} {
 // PRIVATE METHODS
 // =============================================================================
 
-// convertMetricToPoints converts a metric to InfluxDB points
-func (ie *InfluxExporter) convertMetricToPoints(name string, value interface{}, timestamp time.Time) []InfluxPoint {
+// convertMetricToPoints converts a metric to InfluxDB points.
+func (ie *InfluxExporter) convertMetricToPoints(name string, value any, timestamp time.Time) []InfluxPoint {
 	baseName, tags := ie.parseMetricName(name)
 
 	// Merge with global tags
@@ -142,7 +146,7 @@ func (ie *InfluxExporter) convertMetricToPoints(name string, value interface{}, 
 		return []InfluxPoint{ie.createSimplePoint(baseName, mappedTags, v, timestamp)}
 	case uint64:
 		return []InfluxPoint{ie.createSimplePoint(baseName, mappedTags, v, timestamp)}
-	case map[string]interface{}:
+	case map[string]any:
 		return ie.convertComplexMetric(baseName, mappedTags, v, timestamp)
 	default:
 		// Convert unsupported types to string
@@ -150,15 +154,15 @@ func (ie *InfluxExporter) convertMetricToPoints(name string, value interface{}, 
 	}
 }
 
-// createSimplePoint creates a simple InfluxDB point
-func (ie *InfluxExporter) createSimplePoint(measurement string, tags map[string]string, value interface{}, timestamp time.Time) InfluxPoint {
-	fields := map[string]interface{}{
+// createSimplePoint creates a simple InfluxDB point.
+func (ie *InfluxExporter) createSimplePoint(measurement string, tags map[string]string, value any, timestamp time.Time) InfluxPoint {
+	fields := map[string]any{
 		"value": value,
 	}
 
 	// Apply field mapping
 	if mapped, exists := ie.config.FieldMapping[measurement]; exists {
-		fields = map[string]interface{}{
+		fields = map[string]any{
 			mapped: value,
 		}
 	}
@@ -171,8 +175,8 @@ func (ie *InfluxExporter) createSimplePoint(measurement string, tags map[string]
 	}
 }
 
-// convertComplexMetric converts complex metrics (histogram, timer) to InfluxDB points
-func (ie *InfluxExporter) convertComplexMetric(baseName string, tags map[string]string, value map[string]interface{}, timestamp time.Time) []InfluxPoint {
+// convertComplexMetric converts complex metrics (histogram, timer) to InfluxDB points.
+func (ie *InfluxExporter) convertComplexMetric(baseName string, tags map[string]string, value map[string]any, timestamp time.Time) []InfluxPoint {
 	var points []InfluxPoint
 
 	// Handle histogram metrics
@@ -189,12 +193,12 @@ func (ie *InfluxExporter) convertComplexMetric(baseName string, tags map[string]
 	return points
 }
 
-// convertHistogram converts histogram metrics to InfluxDB points
-func (ie *InfluxExporter) convertHistogram(baseName string, tags map[string]string, value map[string]interface{}, buckets map[float64]uint64, timestamp time.Time) []InfluxPoint {
+// convertHistogram converts histogram metrics to InfluxDB points.
+func (ie *InfluxExporter) convertHistogram(baseName string, tags map[string]string, value map[string]any, buckets map[float64]uint64, timestamp time.Time) []InfluxPoint {
 	var points []InfluxPoint
 
 	// Create histogram summary point
-	fields := make(map[string]interface{})
+	fields := make(map[string]any)
 
 	if count, ok := value["count"].(uint64); ok {
 		fields["count"] = count
@@ -226,7 +230,7 @@ func (ie *InfluxExporter) convertHistogram(baseName string, tags map[string]stri
 		points = append(points, InfluxPoint{
 			Measurement: baseName + "_bucket",
 			Tags:        bucketTags,
-			Fields: map[string]interface{}{
+			Fields: map[string]any{
 				"count": count,
 			},
 			Timestamp: timestamp,
@@ -236,12 +240,12 @@ func (ie *InfluxExporter) convertHistogram(baseName string, tags map[string]stri
 	return points
 }
 
-// convertTimer converts timer metrics to InfluxDB points
-func (ie *InfluxExporter) convertTimer(baseName string, tags map[string]string, value map[string]interface{}, count uint64, timestamp time.Time) []InfluxPoint {
+// convertTimer converts timer metrics to InfluxDB points.
+func (ie *InfluxExporter) convertTimer(baseName string, tags map[string]string, value map[string]any, count uint64, timestamp time.Time) []InfluxPoint {
 	var points []InfluxPoint
 
 	// Create timer summary point
-	fields := map[string]interface{}{
+	fields := map[string]any{
 		"count": count,
 	}
 
@@ -268,9 +272,9 @@ func (ie *InfluxExporter) convertTimer(baseName string, tags map[string]string, 
 		"p99": "0.99",
 	}
 
-	for key, _ := range percentiles {
+	for key := range percentiles {
 		if val, ok := value[key].(time.Duration); ok {
-			fields[fmt.Sprintf("p%s", strings.TrimPrefix(key, "p"))] = val.Nanoseconds()
+			fields["p"+strings.TrimPrefix(key, "p")] = val.Nanoseconds()
 			fields[fmt.Sprintf("p%s_seconds", strings.TrimPrefix(key, "p"))] = val.Seconds()
 		}
 	}
@@ -285,12 +289,12 @@ func (ie *InfluxExporter) convertTimer(baseName string, tags map[string]string, 
 	return points
 }
 
-// convertGaugeMetric converts gauge-like metrics to InfluxDB points
-func (ie *InfluxExporter) convertGaugeMetric(baseName string, tags map[string]string, value map[string]interface{}, timestamp time.Time) []InfluxPoint {
+// convertGaugeMetric converts gauge-like metrics to InfluxDB points.
+func (ie *InfluxExporter) convertGaugeMetric(baseName string, tags map[string]string, value map[string]any, timestamp time.Time) []InfluxPoint {
 	var points []InfluxPoint
 
 	// Convert all fields in the map
-	fields := make(map[string]interface{})
+	fields := make(map[string]any)
 
 	for k, v := range value {
 		switch val := v.(type) {
@@ -316,7 +320,7 @@ func (ie *InfluxExporter) convertGaugeMetric(baseName string, tags map[string]st
 	return points
 }
 
-// formatPoint formats an InfluxDB point to line protocol
+// formatPoint formats an InfluxDB point to line protocol.
 func (ie *InfluxExporter) formatPoint(point InfluxPoint) string {
 	if len(point.Fields) == 0 {
 		return ""
@@ -346,13 +350,14 @@ func (ie *InfluxExporter) formatPoint(point InfluxPoint) string {
 	return line.String()
 }
 
-// writeTags writes tags to the line protocol
+// writeTags writes tags to the line protocol.
 func (ie *InfluxExporter) writeTags(line *strings.Builder, tags map[string]string) {
 	// Sort tags for consistent output
 	keys := make([]string, 0, len(tags))
 	for key := range tags {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
 
 	first := true
@@ -360,6 +365,7 @@ func (ie *InfluxExporter) writeTags(line *strings.Builder, tags map[string]strin
 		if !first {
 			line.WriteString(",")
 		}
+
 		first = false
 
 		line.WriteString(ie.escapeTagKey(key))
@@ -368,13 +374,14 @@ func (ie *InfluxExporter) writeTags(line *strings.Builder, tags map[string]strin
 	}
 }
 
-// writeFields writes fields to the line protocol
-func (ie *InfluxExporter) writeFields(line *strings.Builder, fields map[string]interface{}) {
+// writeFields writes fields to the line protocol.
+func (ie *InfluxExporter) writeFields(line *strings.Builder, fields map[string]any) {
 	// Sort fields for consistent output
 	keys := make([]string, 0, len(fields))
 	for key := range fields {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
 
 	first := true
@@ -382,6 +389,7 @@ func (ie *InfluxExporter) writeFields(line *strings.Builder, fields map[string]i
 		if !first {
 			line.WriteString(",")
 		}
+
 		first = false
 
 		line.WriteString(ie.escapeFieldKey(key))
@@ -394,7 +402,7 @@ func (ie *InfluxExporter) writeFields(line *strings.Builder, fields map[string]i
 // UTILITY METHODS
 // =============================================================================
 
-// parseMetricName parses a metric name and extracts tags
+// parseMetricName parses a metric name and extracts tags.
 func (ie *InfluxExporter) parseMetricName(fullName string) (string, map[string]string) {
 	if !strings.Contains(fullName, "{") {
 		return fullName, make(map[string]string)
@@ -413,9 +421,10 @@ func (ie *InfluxExporter) parseMetricName(fullName string) (string, map[string]s
 	}
 
 	tags := make(map[string]string)
+
 	if tagsStr != "" {
-		pairs := strings.Split(tagsStr, ",")
-		for _, pair := range pairs {
+		pairs := strings.SplitSeq(tagsStr, ",")
+		for pair := range pairs {
 			if kv := strings.SplitN(pair, "=", 2); len(kv) == 2 {
 				key := strings.TrimSpace(kv[0])
 				value := strings.TrimSpace(kv[1])
@@ -427,24 +436,25 @@ func (ie *InfluxExporter) parseMetricName(fullName string) (string, map[string]s
 	return baseName, tags
 }
 
-// mergeTags merges multiple tag maps
+// mergeTags merges multiple tag maps.
 func (ie *InfluxExporter) mergeTags(tagMaps ...map[string]string) map[string]string {
 	result := make(map[string]string)
+
 	for _, tags := range tagMaps {
-		for k, v := range tags {
-			result[k] = v
-		}
+		maps.Copy(result, tags)
 	}
+
 	return result
 }
 
-// applyTagMapping applies tag mapping configuration
+// applyTagMapping applies tag mapping configuration.
 func (ie *InfluxExporter) applyTagMapping(tags map[string]string) map[string]string {
 	if len(ie.config.TagMapping) == 0 {
 		return tags
 	}
 
 	result := make(map[string]string)
+
 	for k, v := range tags {
 		if mapped, exists := ie.config.TagMapping[k]; exists {
 			result[mapped] = v
@@ -452,10 +462,11 @@ func (ie *InfluxExporter) applyTagMapping(tags map[string]string) map[string]str
 			result[k] = v
 		}
 	}
+
 	return result
 }
 
-// formatTimestamp formats timestamp according to precision
+// formatTimestamp formats timestamp according to precision.
 func (ie *InfluxExporter) formatTimestamp(t time.Time) string {
 	switch ie.config.Precision {
 	case "s":
@@ -471,8 +482,8 @@ func (ie *InfluxExporter) formatTimestamp(t time.Time) string {
 	}
 }
 
-// formatFieldValue formats a field value for InfluxDB
-func (ie *InfluxExporter) formatFieldValue(value interface{}) string {
+// formatFieldValue formats a field value for InfluxDB.
+func (ie *InfluxExporter) formatFieldValue(value any) string {
 	switch v := value.(type) {
 	case string:
 		return `"` + ie.escapeStringValue(v) + `"`
@@ -493,53 +504,60 @@ func (ie *InfluxExporter) formatFieldValue(value interface{}) string {
 	}
 }
 
-// formatFloat formats a float value for InfluxDB
+// formatFloat formats a float value for InfluxDB.
 func (ie *InfluxExporter) formatFloat(value float64) string {
 	if value != value { // NaN
 		return "NaN"
 	}
+
 	if value == math.Inf(1) { // +Inf
 		return "+Inf"
 	}
+
 	if value == math.Inf(-1) { // -Inf
 		return "-Inf"
 	}
+
 	return strconv.FormatFloat(value, 'g', -1, 64)
 }
 
-// escapeMeasurement escapes measurement name for InfluxDB
+// escapeMeasurement escapes measurement name for InfluxDB.
 func (ie *InfluxExporter) escapeMeasurement(name string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(name, ",", "\\,"), " ", "\\ ")
 }
 
-// escapeTagKey escapes tag key for InfluxDB
+// escapeTagKey escapes tag key for InfluxDB.
 func (ie *InfluxExporter) escapeTagKey(key string) string {
 	key = strings.ReplaceAll(key, ",", "\\,")
 	key = strings.ReplaceAll(key, "=", "\\=")
 	key = strings.ReplaceAll(key, " ", "\\ ")
+
 	return key
 }
 
-// escapeTagValue escapes tag value for InfluxDB
+// escapeTagValue escapes tag value for InfluxDB.
 func (ie *InfluxExporter) escapeTagValue(value string) string {
 	value = strings.ReplaceAll(value, ",", "\\,")
 	value = strings.ReplaceAll(value, "=", "\\=")
 	value = strings.ReplaceAll(value, " ", "\\ ")
+
 	return value
 }
 
-// escapeFieldKey escapes field key for InfluxDB
+// escapeFieldKey escapes field key for InfluxDB.
 func (ie *InfluxExporter) escapeFieldKey(key string) string {
 	key = strings.ReplaceAll(key, ",", "\\,")
 	key = strings.ReplaceAll(key, "=", "\\=")
 	key = strings.ReplaceAll(key, " ", "\\ ")
+
 	return key
 }
 
-// escapeStringValue escapes string field value for InfluxDB
+// escapeStringValue escapes string field value for InfluxDB.
 func (ie *InfluxExporter) escapeStringValue(value string) string {
 	value = strings.ReplaceAll(value, `"`, `\"`)
 	value = strings.ReplaceAll(value, `\`, `\\`)
+
 	return value
 }
 
@@ -547,20 +565,22 @@ func (ie *InfluxExporter) escapeStringValue(value string) string {
 // UTILITY FUNCTIONS
 // =============================================================================
 
-// ExportMetricsToInflux exports metrics to InfluxDB format with default configuration
-func ExportMetricsToInflux(metrics map[string]interface{}) ([]byte, error) {
+// ExportMetricsToInflux exports metrics to InfluxDB format with default configuration.
+func ExportMetricsToInflux(metrics map[string]any) ([]byte, error) {
 	exporter := NewInfluxExporter()
+
 	return exporter.Export(metrics)
 }
 
-// ExportMetricsToInfluxWithConfig exports metrics to InfluxDB format with custom configuration
-func ExportMetricsToInfluxWithConfig(metrics map[string]interface{}, config *InfluxConfig) ([]byte, error) {
+// ExportMetricsToInfluxWithConfig exports metrics to InfluxDB format with custom configuration.
+func ExportMetricsToInfluxWithConfig(metrics map[string]any, config *InfluxConfig) ([]byte, error) {
 	exporter := NewInfluxExporterWithConfig(config)
+
 	return exporter.Export(metrics)
 }
 
-// CreateInfluxPoint creates a new InfluxDB point
-func CreateInfluxPoint(measurement string, tags map[string]string, fields map[string]interface{}, timestamp time.Time) InfluxPoint {
+// CreateInfluxPoint creates a new InfluxDB point.
+func CreateInfluxPoint(measurement string, tags map[string]string, fields map[string]any, timestamp time.Time) InfluxPoint {
 	return InfluxPoint{
 		Measurement: measurement,
 		Tags:        tags,
@@ -569,10 +589,10 @@ func CreateInfluxPoint(measurement string, tags map[string]string, fields map[st
 	}
 }
 
-// ValidateInfluxConfig validates InfluxDB configuration
+// ValidateInfluxConfig validates InfluxDB configuration.
 func ValidateInfluxConfig(config *InfluxConfig) error {
 	if config.Database == "" {
-		return fmt.Errorf("database name is required")
+		return errors.New("database name is required")
 	}
 
 	validPrecisions := map[string]bool{

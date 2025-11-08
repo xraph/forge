@@ -192,7 +192,7 @@ func TestOpenAPIGenerator_SpecHandler(t *testing.T) {
 	handler := gen.specHandler()
 
 	// Create test request
-	req := httptest.NewRequest("GET", "/openapi.json", nil)
+	req := httptest.NewRequest(http.MethodGet, "/openapi.json", nil)
 	w := httptest.NewRecorder()
 
 	// Convert handler to http.HandlerFunc
@@ -221,7 +221,7 @@ func TestOpenAPIGenerator_UIHandler(t *testing.T) {
 	handler := gen.uiHandler()
 
 	// Create test request
-	req := httptest.NewRequest("GET", "/swagger", nil)
+	req := httptest.NewRequest(http.MethodGet, "/swagger", nil)
 	w := httptest.NewRecorder()
 
 	// Convert handler to http.HandlerFunc
@@ -281,10 +281,12 @@ func TestRouter_WithOpenAPI(t *testing.T) {
 
 	// Should have at least the OpenAPI routes
 	var hasSpec, hasUI bool
+
 	for _, route := range routes {
 		if route.Path == "/openapi.json" {
 			hasSpec = true
 		}
+
 		if route.Path == "/swagger" {
 			hasUI = true
 		}
@@ -346,10 +348,12 @@ func TestOpenAPIGenerator_RegisterEndpoints_SpecOnly(t *testing.T) {
 	routes := router.Routes()
 
 	var hasSpec, hasUI bool
+
 	for _, route := range routes {
 		if route.Path == "/api-spec.json" {
 			hasSpec = true
 		}
+
 		if route.Path == "/swagger" {
 			hasUI = true
 		}
@@ -377,10 +381,12 @@ func TestOpenAPIGenerator_RegisterEndpoints_UIOnly(t *testing.T) {
 	routes := router.Routes()
 
 	var hasSpec, hasUI bool
+
 	for _, route := range routes {
 		if route.Path == "/openapi.json" {
 			hasSpec = true
 		}
+
 		if route.Path == "/docs" {
 			hasUI = true
 		}

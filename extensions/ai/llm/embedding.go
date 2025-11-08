@@ -6,33 +6,35 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
-// EmbeddingRequest represents an embedding request
+// EmbeddingRequest represents an embedding request.
 type EmbeddingRequest struct {
-	Provider       string                 `json:"provider"`
-	Model          string                 `json:"model"`
-	Input          []string               `json:"input"`
-	User           string                 `json:"user,omitempty"`
-	Dimensions     *int                   `json:"dimensions,omitempty"`
-	EncodingFormat string                 `json:"encoding_format,omitempty"`
-	Context        map[string]interface{} `json:"context"`
-	Metadata       map[string]interface{} `json:"metadata"`
-	RequestID      string                 `json:"request_id"`
+	Provider       string         `json:"provider"`
+	Model          string         `json:"model"`
+	Input          []string       `json:"input"`
+	User           string         `json:"user,omitempty"`
+	Dimensions     *int           `json:"dimensions,omitempty"`
+	EncodingFormat string         `json:"encoding_format,omitempty"`
+	Context        map[string]any `json:"context"`
+	Metadata       map[string]any `json:"metadata"`
+	RequestID      string         `json:"request_id"`
 }
 
-// EmbeddingResponse represents an embedding response
+// EmbeddingResponse represents an embedding response.
 type EmbeddingResponse struct {
-	Object    string                 `json:"object"`
-	Data      []EmbeddingData        `json:"data"`
-	Model     string                 `json:"model"`
-	Provider  string                 `json:"provider"`
-	Usage     *LLMUsage              `json:"usage,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	RequestID string                 `json:"request_id"`
+	Object    string          `json:"object"`
+	Data      []EmbeddingData `json:"data"`
+	Model     string          `json:"model"`
+	Provider  string          `json:"provider"`
+	Usage     *LLMUsage       `json:"usage,omitempty"`
+	Metadata  map[string]any  `json:"metadata"`
+	RequestID string          `json:"request_id"`
 }
 
-// EmbeddingData represents a single embedding
+// EmbeddingData represents a single embedding.
 type EmbeddingData struct {
 	Object    string    `json:"object"`
 	Index     int       `json:"index"`
@@ -40,36 +42,36 @@ type EmbeddingData struct {
 	Text      string    `json:"text,omitempty"`
 }
 
-// EmbeddingCollection represents a collection of embeddings
+// EmbeddingCollection represents a collection of embeddings.
 type EmbeddingCollection struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Model       string                 `json:"model"`
-	Provider    string                 `json:"provider"`
-	Dimensions  int                    `json:"dimensions"`
-	Embeddings  []EmbeddingItem        `json:"embeddings"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Model       string          `json:"model"`
+	Provider    string          `json:"provider"`
+	Dimensions  int             `json:"dimensions"`
+	Embeddings  []EmbeddingItem `json:"embeddings"`
+	Metadata    map[string]any  `json:"metadata"`
+	CreatedAt   time.Time       `json:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
-// EmbeddingItem represents an item in an embedding collection
+// EmbeddingItem represents an item in an embedding collection.
 type EmbeddingItem struct {
-	ID        string                 `json:"id"`
-	Text      string                 `json:"text"`
-	Embedding []float64              `json:"embedding"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	CreatedAt time.Time              `json:"created_at"`
+	ID        string         `json:"id"`
+	Text      string         `json:"text"`
+	Embedding []float64      `json:"embedding"`
+	Metadata  map[string]any `json:"metadata"`
+	CreatedAt time.Time      `json:"created_at"`
 }
 
-// EmbeddingIndex represents an index for efficient similarity search
+// EmbeddingIndex represents an index for efficient similarity search.
 type EmbeddingIndex struct {
 	Collection *EmbeddingCollection
 	index      map[string][]float64
 	normalized bool
 }
 
-// SimilarityResult represents a similarity search result
+// SimilarityResult represents a similarity search result.
 type SimilarityResult struct {
 	Item     EmbeddingItem `json:"item"`
 	Score    float64       `json:"score"`
@@ -77,102 +79,112 @@ type SimilarityResult struct {
 	Rank     int           `json:"rank"`
 }
 
-// SimilaritySearchOptions represents options for similarity search
+// SimilaritySearchOptions represents options for similarity search.
 type SimilaritySearchOptions struct {
-	TopK        int                    `json:"top_k"`
-	Threshold   float64                `json:"threshold"`
-	IncludeText bool                   `json:"include_text"`
-	Filters     map[string]interface{} `json:"filters"`
-	Metric      string                 `json:"metric"` // cosine, euclidean, dot_product
+	TopK        int            `json:"top_k"`
+	Threshold   float64        `json:"threshold"`
+	IncludeText bool           `json:"include_text"`
+	Filters     map[string]any `json:"filters"`
+	Metric      string         `json:"metric"` // cosine, euclidean, dot_product
 }
 
-// EmbeddingBuilder provides a fluent interface for building embedding requests
+// EmbeddingBuilder provides a fluent interface for building embedding requests.
 type EmbeddingBuilder struct {
 	request EmbeddingRequest
 }
 
-// NewEmbeddingBuilder creates a new embedding builder
+// NewEmbeddingBuilder creates a new embedding builder.
 func NewEmbeddingBuilder() *EmbeddingBuilder {
 	return &EmbeddingBuilder{
 		request: EmbeddingRequest{
 			Input:    make([]string, 0),
-			Context:  make(map[string]interface{}),
-			Metadata: make(map[string]interface{}),
+			Context:  make(map[string]any),
+			Metadata: make(map[string]any),
 		},
 	}
 }
 
-// WithProvider sets the provider
+// WithProvider sets the provider.
 func (b *EmbeddingBuilder) WithProvider(provider string) *EmbeddingBuilder {
 	b.request.Provider = provider
+
 	return b
 }
 
-// WithModel sets the model
+// WithModel sets the model.
 func (b *EmbeddingBuilder) WithModel(model string) *EmbeddingBuilder {
 	b.request.Model = model
+
 	return b
 }
 
-// WithInput sets the input texts
+// WithInput sets the input texts.
 func (b *EmbeddingBuilder) WithInput(input ...string) *EmbeddingBuilder {
 	b.request.Input = input
+
 	return b
 }
 
-// AddInput adds input text
+// AddInput adds input text.
 func (b *EmbeddingBuilder) AddInput(text string) *EmbeddingBuilder {
 	b.request.Input = append(b.request.Input, text)
+
 	return b
 }
 
-// WithUser sets the user ID
+// WithUser sets the user ID.
 func (b *EmbeddingBuilder) WithUser(user string) *EmbeddingBuilder {
 	b.request.User = user
+
 	return b
 }
 
-// WithDimensions sets the embedding dimensions
+// WithDimensions sets the embedding dimensions.
 func (b *EmbeddingBuilder) WithDimensions(dimensions int) *EmbeddingBuilder {
 	b.request.Dimensions = &dimensions
+
 	return b
 }
 
-// WithEncodingFormat sets the encoding format
+// WithEncodingFormat sets the encoding format.
 func (b *EmbeddingBuilder) WithEncodingFormat(format string) *EmbeddingBuilder {
 	b.request.EncodingFormat = format
+
 	return b
 }
 
-// WithContext adds context data
-func (b *EmbeddingBuilder) WithContext(key string, value interface{}) *EmbeddingBuilder {
+// WithContext adds context data.
+func (b *EmbeddingBuilder) WithContext(key string, value any) *EmbeddingBuilder {
 	b.request.Context[key] = value
+
 	return b
 }
 
-// WithMetadata adds metadata
-func (b *EmbeddingBuilder) WithMetadata(key string, value interface{}) *EmbeddingBuilder {
+// WithMetadata adds metadata.
+func (b *EmbeddingBuilder) WithMetadata(key string, value any) *EmbeddingBuilder {
 	b.request.Metadata[key] = value
+
 	return b
 }
 
-// WithRequestID sets the request ID
+// WithRequestID sets the request ID.
 func (b *EmbeddingBuilder) WithRequestID(id string) *EmbeddingBuilder {
 	b.request.RequestID = id
+
 	return b
 }
 
-// Build returns the built embedding request
+// Build returns the built embedding request.
 func (b *EmbeddingBuilder) Build() EmbeddingRequest {
 	return b.request
 }
 
-// Execute executes the embedding request using the provided LLM manager
+// Execute executes the embedding request using the provided LLM manager.
 func (b *EmbeddingBuilder) Execute(ctx context.Context, manager *LLMManager) (EmbeddingResponse, error) {
 	return manager.Embed(ctx, b.request)
 }
 
-// NewEmbeddingCollection creates a new embedding collection
+// NewEmbeddingCollection creates a new embedding collection.
 func NewEmbeddingCollection(name, description, model, provider string, dimensions int) *EmbeddingCollection {
 	return &EmbeddingCollection{
 		Name:        name,
@@ -181,13 +193,13 @@ func NewEmbeddingCollection(name, description, model, provider string, dimension
 		Provider:    provider,
 		Dimensions:  dimensions,
 		Embeddings:  make([]EmbeddingItem, 0),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 	}
 }
 
-// AddEmbedding adds an embedding to the collection
+// AddEmbedding adds an embedding to the collection.
 func (c *EmbeddingCollection) AddEmbedding(item EmbeddingItem) error {
 	if len(item.Embedding) != c.Dimensions {
 		return fmt.Errorf("embedding dimensions (%d) don't match collection dimensions (%d)", len(item.Embedding), c.Dimensions)
@@ -200,50 +212,54 @@ func (c *EmbeddingCollection) AddEmbedding(item EmbeddingItem) error {
 	return nil
 }
 
-// AddEmbeddings adds multiple embeddings to the collection
+// AddEmbeddings adds multiple embeddings to the collection.
 func (c *EmbeddingCollection) AddEmbeddings(items []EmbeddingItem) error {
 	for _, item := range items {
 		if err := c.AddEmbedding(item); err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
-// RemoveEmbedding removes an embedding from the collection
+// RemoveEmbedding removes an embedding from the collection.
 func (c *EmbeddingCollection) RemoveEmbedding(id string) error {
 	for i, item := range c.Embeddings {
 		if item.ID == id {
 			c.Embeddings = append(c.Embeddings[:i], c.Embeddings[i+1:]...)
 			c.UpdatedAt = time.Now()
+
 			return nil
 		}
 	}
+
 	return fmt.Errorf("embedding with ID %s not found", id)
 }
 
-// GetEmbedding retrieves an embedding by ID
+// GetEmbedding retrieves an embedding by ID.
 func (c *EmbeddingCollection) GetEmbedding(id string) (*EmbeddingItem, error) {
 	for _, item := range c.Embeddings {
 		if item.ID == id {
 			return &item, nil
 		}
 	}
+
 	return nil, fmt.Errorf("embedding with ID %s not found", id)
 }
 
-// Size returns the number of embeddings in the collection
+// Size returns the number of embeddings in the collection.
 func (c *EmbeddingCollection) Size() int {
 	return len(c.Embeddings)
 }
 
-// Clear removes all embeddings from the collection
+// Clear removes all embeddings from the collection.
 func (c *EmbeddingCollection) Clear() {
 	c.Embeddings = make([]EmbeddingItem, 0)
 	c.UpdatedAt = time.Now()
 }
 
-// CreateIndex creates an index for efficient similarity search
+// CreateIndex creates an index for efficient similarity search.
 func (c *EmbeddingCollection) CreateIndex() *EmbeddingIndex {
 	index := &EmbeddingIndex{
 		Collection: c,
@@ -258,7 +274,7 @@ func (c *EmbeddingCollection) CreateIndex() *EmbeddingIndex {
 	return index
 }
 
-// CreateNormalizedIndex creates a normalized index for cosine similarity
+// CreateNormalizedIndex creates a normalized index for cosine similarity.
 func (c *EmbeddingCollection) CreateNormalizedIndex() *EmbeddingIndex {
 	index := &EmbeddingIndex{
 		Collection: c,
@@ -274,7 +290,7 @@ func (c *EmbeddingCollection) CreateNormalizedIndex() *EmbeddingIndex {
 	return index
 }
 
-// Search performs similarity search on the collection
+// Search performs similarity search on the collection.
 func (c *EmbeddingCollection) Search(queryEmbedding []float64, options SimilaritySearchOptions) ([]SimilarityResult, error) {
 	if len(queryEmbedding) != c.Dimensions {
 		return nil, fmt.Errorf("query embedding dimensions (%d) don't match collection dimensions (%d)", len(queryEmbedding), c.Dimensions)
@@ -288,8 +304,10 @@ func (c *EmbeddingCollection) Search(queryEmbedding []float64, options Similarit
 			continue
 		}
 
-		var score float64
-		var distance float64
+		var (
+			score    float64
+			distance float64
+		)
 
 		switch options.Metric {
 		case "euclidean":
@@ -335,7 +353,7 @@ func (c *EmbeddingCollection) Search(queryEmbedding []float64, options Similarit
 	return results, nil
 }
 
-// SearchText performs similarity search using text query
+// SearchText performs similarity search using text query.
 func (c *EmbeddingCollection) SearchText(ctx context.Context, manager *LLMManager, query string, options SimilaritySearchOptions) ([]SimilarityResult, error) {
 	// Generate embedding for the query
 	request := EmbeddingRequest{
@@ -350,13 +368,13 @@ func (c *EmbeddingCollection) SearchText(ctx context.Context, manager *LLMManage
 	}
 
 	if len(response.Data) == 0 {
-		return nil, fmt.Errorf("no embedding returned for query")
+		return nil, errors.New("no embedding returned for query")
 	}
 
 	return c.Search(response.Data[0].Embedding, options)
 }
 
-// Search performs similarity search using the index
+// Search performs similarity search using the index.
 func (idx *EmbeddingIndex) Search(queryEmbedding []float64, options SimilaritySearchOptions) ([]SimilarityResult, error) {
 	if len(queryEmbedding) != idx.Collection.Dimensions {
 		return nil, fmt.Errorf("query embedding dimensions (%d) don't match collection dimensions (%d)", len(queryEmbedding), idx.Collection.Dimensions)
@@ -378,8 +396,11 @@ func (idx *EmbeddingIndex) Search(queryEmbedding []float64, options SimilaritySe
 		}
 
 		indexEmbedding := idx.index[item.ID]
-		var score float64
-		var distance float64
+
+		var (
+			score    float64
+			distance float64
+		)
 
 		switch options.Metric {
 		case "euclidean":
@@ -394,6 +415,7 @@ func (idx *EmbeddingIndex) Search(queryEmbedding []float64, options SimilaritySe
 			} else {
 				score = cosineSimilarity(normalizedQuery, indexEmbedding)
 			}
+
 			distance = 1.0 - score
 		}
 
@@ -431,7 +453,7 @@ func (idx *EmbeddingIndex) Search(queryEmbedding []float64, options SimilaritySe
 
 // Helper functions for similarity calculations
 
-// cosineSimilarity calculates cosine similarity between two vectors
+// cosineSimilarity calculates cosine similarity between two vectors.
 func cosineSimilarity(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0.0
@@ -439,7 +461,7 @@ func cosineSimilarity(a, b []float64) float64 {
 
 	var dotProduct, normA, normB float64
 
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		dotProduct += a[i] * b[i]
 		normA += a[i] * a[i]
 		normB += b[i] * b[i]
@@ -452,14 +474,15 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-// euclideanDistance calculates Euclidean distance between two vectors
+// euclideanDistance calculates Euclidean distance between two vectors.
 func euclideanDistance(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return math.Inf(1)
 	}
 
 	var sum float64
-	for i := 0; i < len(a); i++ {
+
+	for i := range a {
 		diff := a[i] - b[i]
 		sum += diff * diff
 	}
@@ -467,26 +490,27 @@ func euclideanDistance(a, b []float64) float64 {
 	return math.Sqrt(sum)
 }
 
-// dotProduct calculates dot product between two vectors
+// dotProduct calculates dot product between two vectors.
 func dotProduct(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0.0
 	}
 
 	var product float64
-	for i := 0; i < len(a); i++ {
+	for i := range a {
 		product += a[i] * b[i]
 	}
 
 	return product
 }
 
-// normalizeVector normalizes a vector to unit length
+// normalizeVector normalizes a vector to unit length.
 func normalizeVector(vector []float64) []float64 {
 	var norm float64
 	for _, v := range vector {
 		norm += v * v
 	}
+
 	norm = math.Sqrt(norm)
 
 	if norm == 0.0 {
@@ -501,8 +525,8 @@ func normalizeVector(vector []float64) []float64 {
 	return normalized
 }
 
-// matchesFilters checks if an embedding item matches the given filters
-func matchesFilters(item EmbeddingItem, filters map[string]interface{}) bool {
+// matchesFilters checks if an embedding item matches the given filters.
+func matchesFilters(item EmbeddingItem, filters map[string]any) bool {
 	if filters == nil || len(filters) == 0 {
 		return true
 	}
@@ -520,7 +544,7 @@ func matchesFilters(item EmbeddingItem, filters map[string]interface{}) bool {
 	return true
 }
 
-// EmbeddingCluster represents a cluster of similar embeddings
+// EmbeddingCluster represents a cluster of similar embeddings.
 type EmbeddingCluster struct {
 	ID        string          `json:"id"`
 	Centroid  []float64       `json:"centroid"`
@@ -529,7 +553,7 @@ type EmbeddingCluster struct {
 	Coherence float64         `json:"coherence"`
 }
 
-// ClusterEmbeddings clusters embeddings using k-means
+// ClusterEmbeddings clusters embeddings using k-means.
 func (c *EmbeddingCollection) ClusterEmbeddings(k int, maxIterations int) ([]EmbeddingCluster, error) {
 	if len(c.Embeddings) < k {
 		return nil, fmt.Errorf("not enough embeddings (%d) for %d clusters", len(c.Embeddings), k)
@@ -537,13 +561,13 @@ func (c *EmbeddingCollection) ClusterEmbeddings(k int, maxIterations int) ([]Emb
 
 	// Initialize centroids randomly
 	centroids := make([][]float64, k)
-	for i := 0; i < k; i++ {
+	for i := range k {
 		centroids[i] = make([]float64, c.Dimensions)
 		copy(centroids[i], c.Embeddings[i%len(c.Embeddings)].Embedding)
 	}
 
 	// K-means iterations
-	for iter := 0; iter < maxIterations; iter++ {
+	for range maxIterations {
 		clusters := make([][]EmbeddingItem, k)
 		for i := range clusters {
 			clusters[i] = make([]EmbeddingItem, 0)
@@ -567,12 +591,14 @@ func (c *EmbeddingCollection) ClusterEmbeddings(k int, maxIterations int) ([]Emb
 
 		// Update centroids
 		converged := true
-		for i := 0; i < k; i++ {
+
+		for i := range k {
 			if len(clusters[i]) == 0 {
 				continue
 			}
 
 			newCentroid := make([]float64, c.Dimensions)
+
 			for _, item := range clusters[i] {
 				for j, val := range item.Embedding {
 					newCentroid[j] += val
@@ -598,7 +624,7 @@ func (c *EmbeddingCollection) ClusterEmbeddings(k int, maxIterations int) ([]Emb
 
 	// Create cluster results
 	results := make([]EmbeddingCluster, 0, k)
-	for i := 0; i < k; i++ {
+	for i := range k {
 		cluster := EmbeddingCluster{
 			ID:       fmt.Sprintf("cluster_%d", i),
 			Centroid: centroids[i],
@@ -628,7 +654,9 @@ func (c *EmbeddingCollection) ClusterEmbeddings(k int, maxIterations int) ([]Emb
 		// Calculate coherence (average similarity within cluster)
 		if cluster.Size > 1 {
 			var totalSimilarity float64
+
 			count := 0
+
 			for i := 0; i < cluster.Size; i++ {
 				for j := i + 1; j < cluster.Size; j++ {
 					similarity := cosineSimilarity(cluster.Items[i].Embedding, cluster.Items[j].Embedding)
@@ -636,6 +664,7 @@ func (c *EmbeddingCollection) ClusterEmbeddings(k int, maxIterations int) ([]Emb
 					count++
 				}
 			}
+
 			cluster.Coherence = totalSimilarity / float64(count)
 		} else {
 			cluster.Coherence = 1.0

@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// scope implements Scope
+// scope implements Scope.
 type scope struct {
 	parent    *containerImpl
 	instances map[string]any
@@ -16,7 +16,7 @@ type scope struct {
 	ended     bool
 }
 
-// newScope creates a new scope
+// newScope creates a new scope.
 func newScope(parent *containerImpl) *scope {
 	return &scope{
 		parent:    parent,
@@ -24,7 +24,7 @@ func newScope(parent *containerImpl) *scope {
 	}
 }
 
-// Resolve returns a service by name from this scope
+// Resolve returns a service by name from this scope.
 func (s *scope) Resolve(name string) (any, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -60,6 +60,7 @@ func (s *scope) Resolve(name string) (any, error) {
 		}
 
 		s.instances[name] = instance
+
 		return instance, nil
 	}
 
@@ -72,7 +73,7 @@ func (s *scope) Resolve(name string) (any, error) {
 	return instance, nil
 }
 
-// End cleans up all scoped services in this scope
+// End cleans up all scoped services in this scope.
 func (s *scope) End() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,6 +84,7 @@ func (s *scope) End() error {
 
 	// Dispose of scoped instances in reverse order
 	var errs []error
+
 	for name, instance := range s.instances {
 		if disposable, ok := instance.(shared.Disposable); ok {
 			if err := disposable.Dispose(); err != nil {

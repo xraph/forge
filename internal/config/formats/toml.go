@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -11,21 +12,21 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// TOMLProcessor handles TOML format configuration files
+// TOMLProcessor handles TOML format configuration files.
 type TOMLProcessor struct {
 	logger       logger.Logger
 	strictMode   bool
 	allowUnknown bool
 }
 
-// TOMLProcessorOptions contains options for the TOML processor
+// TOMLProcessorOptions contains options for the TOML processor.
 type TOMLProcessorOptions struct {
 	Logger       logger.Logger
 	StrictMode   bool // Strict parsing mode
 	AllowUnknown bool // Allow unknown fields during validation
 }
 
-// NewTOMLProcessor creates a new TOML format processor
+// NewTOMLProcessor creates a new TOML format processor.
 func NewTOMLProcessor(options TOMLProcessorOptions) *TOMLProcessor {
 	return &TOMLProcessor{
 		logger:       options.Logger,
@@ -34,23 +35,23 @@ func NewTOMLProcessor(options TOMLProcessorOptions) *TOMLProcessor {
 	}
 }
 
-// Name returns the processor name
+// Name returns the processor name.
 func (tp *TOMLProcessor) Name() string {
 	return "toml"
 }
 
-// Extensions returns the file extensions handled by this processor
+// Extensions returns the file extensions handled by this processor.
 func (tp *TOMLProcessor) Extensions() []string {
 	return []string{".toml", ".tml"}
 }
 
-// Parse parses TOML data into a configuration map
-func (tp *TOMLProcessor) Parse(data []byte) (map[string]interface{}, error) {
+// Parse parses TOML data into a configuration map.
+func (tp *TOMLProcessor) Parse(data []byte) (map[string]any, error) {
 	if len(data) == 0 {
-		return make(map[string]interface{}), nil
+		return make(map[string]any), nil
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 
 	// Create TOML decoder with custom options
 	decoder := toml.NewDecoder(strings.NewReader(string(data)))
@@ -73,7 +74,7 @@ func (tp *TOMLProcessor) Parse(data []byte) (map[string]interface{}, error) {
 		}
 	}
 
-	if convertedMap, ok := converted.(map[string]interface{}); ok {
+	if convertedMap, ok := converted.(map[string]any); ok {
 		if tp.logger != nil {
 			tp.logger.Debug("TOML data parsed successfully",
 				logger.Int("keys", len(convertedMap)),
@@ -87,16 +88,16 @@ func (tp *TOMLProcessor) Parse(data []byte) (map[string]interface{}, error) {
 	return nil, ErrConfigError("TOML root must be an object", nil)
 }
 
-// validateStrictMode performs strict mode validation after parsing
-func (tp *TOMLProcessor) validateStrictMode(data map[string]interface{}) error {
+// validateStrictMode performs strict mode validation after parsing.
+func (tp *TOMLProcessor) validateStrictMode(data map[string]any) error {
 	// Implement strict mode validation logic here
 	// This could include checking for unknown fields, required fields, etc.
 	// The exact implementation depends on what "strict mode" means for your use case
 	return nil
 }
 
-// Validate validates TOML configuration data
-func (tp *TOMLProcessor) Validate(data map[string]interface{}) error {
+// Validate validates TOML configuration data.
+func (tp *TOMLProcessor) Validate(data map[string]any) error {
 	if tp.logger != nil {
 		tp.logger.Debug("validating TOML configuration",
 			logger.Int("keys", len(data)),
@@ -107,22 +108,23 @@ func (tp *TOMLProcessor) Validate(data map[string]interface{}) error {
 	return tp.validateValue("", data)
 }
 
-// validateValue recursively validates configuration values
-func (tp *TOMLProcessor) validateValue(path string, value interface{}) error {
+// validateValue recursively validates configuration values.
+func (tp *TOMLProcessor) validateValue(path string, value any) error {
 	switch v := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		// Validate nested objects
 		for key, val := range v {
 			keyPath := key
 			if path != "" {
 				keyPath = path + "." + key
 			}
+
 			if err := tp.validateValue(keyPath, val); err != nil {
 				return err
 			}
 		}
 
-	case []interface{}:
+	case []any:
 		// Validate arrays
 		for i, val := range v {
 			itemPath := fmt.Sprintf("%s[%d]", path, i)
@@ -156,35 +158,40 @@ func (tp *TOMLProcessor) validateValue(path string, value interface{}) error {
 	return nil
 }
 
-// convertValue converts TOML values to standard Go types
-func (tp *TOMLProcessor) convertValue(value interface{}) (interface{}, error) {
+// convertValue converts TOML values to standard Go types.
+func (tp *TOMLProcessor) convertValue(value any) (any, error) {
 	if value == nil {
 		return nil, nil
 	}
 
 	switch v := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		// Convert nested maps
-		result := make(map[string]interface{})
+		result := make(map[string]any)
+
 		for key, val := range v {
 			converted, err := tp.convertValue(val)
 			if err != nil {
 				return nil, err
 			}
+
 			result[key] = converted
 		}
+
 		return result, nil
 
-	case []interface{}:
+	case []any:
 		// Convert arrays
-		result := make([]interface{}, len(v))
+		result := make([]any, len(v))
 		for i, val := range v {
 			converted, err := tp.convertValue(val)
 			if err != nil {
 				return nil, err
 			}
+
 			result[i] = converted
 		}
+
 		return result, nil
 
 	case time.Time:
@@ -193,12 +200,15 @@ func (tp *TOMLProcessor) convertValue(value interface{}) (interface{}, error) {
 
 	case int64:
 		// Convert int64 to int if it fits
-		const maxInt = int(^uint(0) >> 1)
-		const minInt = -maxInt - 1
+		const (
+			maxInt = int(^uint(0) >> 1)
+			minInt = -maxInt - 1
+		)
 
 		if v >= int64(minInt) && v <= int64(maxInt) {
 			return int(v), nil // Convert to int if it fits
 		}
+
 		return v, nil // Keep as int64 if too large
 
 	default:
@@ -207,8 +217,8 @@ func (tp *TOMLProcessor) convertValue(value interface{}) (interface{}, error) {
 	}
 }
 
-// ParseToStruct parses TOML data directly into a struct
-func (tp *TOMLProcessor) ParseToStruct(data []byte, target interface{}) error {
+// ParseToStruct parses TOML data directly into a struct.
+func (tp *TOMLProcessor) ParseToStruct(data []byte, target any) error {
 	if len(data) == 0 {
 		return nil
 	}
@@ -236,8 +246,8 @@ func (tp *TOMLProcessor) ParseToStruct(data []byte, target interface{}) error {
 	return nil
 }
 
-// FormatData formats configuration data as TOML
-func (tp *TOMLProcessor) FormatData(data map[string]interface{}) ([]byte, error) {
+// FormatData formats configuration data as TOML.
+func (tp *TOMLProcessor) FormatData(data map[string]any) ([]byte, error) {
 	if data == nil {
 		return []byte{}, nil
 	}
@@ -268,29 +278,34 @@ func (tp *TOMLProcessor) FormatData(data map[string]interface{}) ([]byte, error)
 	return result, nil
 }
 
-// prepareTOMLData prepares data for TOML encoding by ensuring type compatibility
-func (tp *TOMLProcessor) prepareTOMLData(data interface{}) (interface{}, error) {
+// prepareTOMLData prepares data for TOML encoding by ensuring type compatibility.
+func (tp *TOMLProcessor) prepareTOMLData(data any) (any, error) {
 	switch v := data.(type) {
-	case map[string]interface{}:
-		result := make(map[string]interface{})
+	case map[string]any:
+		result := make(map[string]any)
+
 		for key, val := range v {
 			prepared, err := tp.prepareTOMLData(val)
 			if err != nil {
 				return nil, err
 			}
+
 			result[key] = prepared
 		}
+
 		return result, nil
 
-	case []interface{}:
-		result := make([]interface{}, len(v))
+	case []any:
+		result := make([]any, len(v))
 		for i, val := range v {
 			prepared, err := tp.prepareTOMLData(val)
 			if err != nil {
 				return nil, err
 			}
+
 			result[i] = prepared
 		}
+
 		return result, nil
 
 	case string, int, int32, int64, float32, float64, bool:
@@ -313,8 +328,8 @@ func (tp *TOMLProcessor) prepareTOMLData(data interface{}) (interface{}, error) 
 	}
 }
 
-// ValidateStructTags validates TOML struct tags in a target struct
-func (tp *TOMLProcessor) ValidateStructTags(target interface{}) error {
+// ValidateStructTags validates TOML struct tags in a target struct.
+func (tp *TOMLProcessor) ValidateStructTags(target any) error {
 	targetType := reflect.TypeOf(target)
 	if targetType.Kind() == reflect.Ptr {
 		targetType = targetType.Elem()
@@ -327,7 +342,7 @@ func (tp *TOMLProcessor) ValidateStructTags(target interface{}) error {
 	return tp.validateStructFields(targetType, "")
 }
 
-// validateStructFields recursively validates struct fields and their TOML tags
+// validateStructFields recursively validates struct fields and their TOML tags.
 func (tp *TOMLProcessor) validateStructFields(structType reflect.Type, path string) error {
 	for i := 0; i < structType.NumField(); i++ {
 		field := structType.Field(i)
@@ -363,7 +378,7 @@ func (tp *TOMLProcessor) validateStructFields(structType reflect.Type, path stri
 
 		if fieldType.Kind() == reflect.Struct {
 			// Skip time.Time and other known types
-			if fieldType != reflect.TypeOf(time.Time{}) {
+			if fieldType != reflect.TypeFor[time.Time]() {
 				if err := tp.validateStructFields(fieldType, fieldPath); err != nil {
 					return err
 				}
@@ -374,7 +389,7 @@ func (tp *TOMLProcessor) validateStructFields(structType reflect.Type, path stri
 	return nil
 }
 
-// validateTOMLTag validates the format of a TOML struct tag
+// validateTOMLTag validates the format of a TOML struct tag.
 func (tp *TOMLProcessor) validateTOMLTag(tag, fieldPath string) error {
 	// Parse tag options
 	parts := strings.Split(tag, ",")
@@ -396,7 +411,7 @@ func (tp *TOMLProcessor) validateTOMLTag(tag, fieldPath string) error {
 	return nil
 }
 
-// isValidTOMLFieldName checks if a field name is valid for TOML
+// isValidTOMLFieldName checks if a field name is valid for TOML.
 func (tp *TOMLProcessor) isValidTOMLFieldName(name string) bool {
 	if name == "" {
 		return false
@@ -413,18 +428,14 @@ func (tp *TOMLProcessor) isValidTOMLFieldName(name string) bool {
 	return true
 }
 
-// isValidTOMLOption checks if a tag option is valid
+// isValidTOMLOption checks if a tag option is valid.
 func (tp *TOMLProcessor) isValidTOMLOption(option string) bool {
 	validOptions := []string{"omitempty", "inline"}
-	for _, valid := range validOptions {
-		if option == valid {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(validOptions, option)
 }
 
-// GetProcessor returns a configured TOML processor
+// GetProcessor returns a configured TOML processor.
 func GetProcessor(logger logger.Logger) FormatProcessor {
 	return NewTOMLProcessor(TOMLProcessorOptions{
 		Logger:       logger,
@@ -433,7 +444,7 @@ func GetProcessor(logger logger.Logger) FormatProcessor {
 	})
 }
 
-// GetStrictProcessor returns a strict TOML processor
+// GetStrictProcessor returns a strict TOML processor.
 func GetStrictProcessor(logger logger.Logger) FormatProcessor {
 	return NewTOMLProcessor(TOMLProcessorOptions{
 		Logger:       logger,
@@ -442,7 +453,7 @@ func GetStrictProcessor(logger logger.Logger) FormatProcessor {
 	})
 }
 
-// DetectTOMLFormat attempts to detect if data is in TOML format
+// DetectTOMLFormat attempts to detect if data is in TOML format.
 func DetectTOMLFormat(data []byte) bool {
 	if len(data) == 0 {
 		return false
@@ -451,8 +462,8 @@ func DetectTOMLFormat(data []byte) bool {
 	content := strings.TrimSpace(string(data))
 
 	// Basic TOML format detection
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue // Skip empty lines and comments
@@ -472,27 +483,27 @@ func DetectTOMLFormat(data []byte) bool {
 	return false
 }
 
-// TOMLFormatValidator provides additional validation for TOML-specific features
+// TOMLFormatValidator provides additional validation for TOML-specific features.
 type TOMLFormatValidator struct {
 	processor *TOMLProcessor
 }
 
-// NewTOMLFormatValidator creates a new TOML format validator
+// NewTOMLFormatValidator creates a new TOML format validator.
 func NewTOMLFormatValidator(processor *TOMLProcessor) *TOMLFormatValidator {
 	return &TOMLFormatValidator{
 		processor: processor,
 	}
 }
 
-// ValidateTableStructure validates TOML table structure
-func (tv *TOMLFormatValidator) ValidateTableStructure(data map[string]interface{}) error {
+// ValidateTableStructure validates TOML table structure.
+func (tv *TOMLFormatValidator) ValidateTableStructure(data map[string]any) error {
 	return tv.validateTables("", data)
 }
 
-// validateTables recursively validates TOML table structure
-func (tv *TOMLFormatValidator) validateTables(path string, value interface{}) error {
+// validateTables recursively validates TOML table structure.
+func (tv *TOMLFormatValidator) validateTables(path string, value any) error {
 	switch v := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		for key, val := range v {
 			keyPath := key
 			if path != "" {
@@ -510,12 +521,14 @@ func (tv *TOMLFormatValidator) validateTables(path string, value interface{}) er
 			}
 		}
 
-	case []interface{}:
+	case []any:
 		// Validate array of tables (if all elements are objects)
 		allObjects := true
+
 		for _, item := range v {
-			if _, ok := item.(map[string]interface{}); !ok {
+			if _, ok := item.(map[string]any); !ok {
 				allObjects = false
+
 				break
 			}
 		}

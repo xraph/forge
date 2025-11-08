@@ -9,13 +9,14 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
-// GRPCTransport implements gRPC-based network transport
+// GRPCTransport implements gRPC-based network transport.
 type GRPCTransport struct {
 	id        string
 	address   string
@@ -35,7 +36,7 @@ type GRPCTransport struct {
 	mu      sync.RWMutex
 }
 
-// grpcPeerConn represents a connection to a peer
+// grpcPeerConn represents a connection to a peer.
 type grpcPeerConn struct {
 	nodeID   string
 	address  string
@@ -45,7 +46,7 @@ type grpcPeerConn struct {
 	lastUsed time.Time
 }
 
-// GRPCTransportConfig contains gRPC transport configuration
+// GRPCTransportConfig contains gRPC transport configuration.
 type GRPCTransportConfig struct {
 	NodeID               string
 	Address              string
@@ -60,23 +61,28 @@ type GRPCTransportConfig struct {
 	TLSConfig            *tls.Config
 }
 
-// NewGRPCTransport creates a new gRPC transport
+// NewGRPCTransport creates a new gRPC transport.
 func NewGRPCTransport(config GRPCTransportConfig, logger forge.Logger) *GRPCTransport {
 	if config.BufferSize == 0 {
 		config.BufferSize = 100
 	}
+
 	if config.MaxConnections == 0 {
 		config.MaxConnections = 100
 	}
+
 	if config.ConnectionTimeout == 0 {
 		config.ConnectionTimeout = 10 * time.Second
 	}
+
 	if config.RequestTimeout == 0 {
 		config.RequestTimeout = 30 * time.Second
 	}
+
 	if config.KeepAliveTime == 0 {
 		config.KeepAliveTime = 30 * time.Second
 	}
+
 	if config.KeepAliveTimeout == 0 {
 		config.KeepAliveTimeout = 10 * time.Second
 	}
@@ -92,7 +98,7 @@ func NewGRPCTransport(config GRPCTransportConfig, logger forge.Logger) *GRPCTran
 	}
 }
 
-// Start starts the gRPC transport
+// Start starts the gRPC transport.
 func (gt *GRPCTransport) Start(ctx context.Context) error {
 	gt.mu.Lock()
 	defer gt.mu.Unlock()
@@ -120,6 +126,7 @@ func (gt *GRPCTransport) Start(ctx context.Context) error {
 	if gt.tlsConfig != nil {
 		creds := credentials.NewTLS(gt.tlsConfig)
 		serverOpts = append(serverOpts, grpc.Creds(creds))
+
 		gt.logger.Info("gRPC transport using TLS")
 	} else {
 		gt.logger.Warn("gRPC transport running without TLS - NOT RECOMMENDED FOR PRODUCTION")
@@ -132,6 +139,7 @@ func (gt *GRPCTransport) Start(ctx context.Context) error {
 
 	// Start server goroutine
 	gt.wg.Add(1)
+
 	go gt.runServer()
 
 	gt.logger.Info("gRPC transport started",
@@ -143,13 +151,16 @@ func (gt *GRPCTransport) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the gRPC transport
+// Stop stops the gRPC transport.
 func (gt *GRPCTransport) Stop(ctx context.Context) error {
 	gt.mu.Lock()
+
 	if !gt.started {
 		gt.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	gt.mu.Unlock()
 
 	if gt.cancel != nil {
@@ -163,18 +174,23 @@ func (gt *GRPCTransport) Stop(ctx context.Context) error {
 
 	// Close all peer connections
 	gt.peersMu.Lock()
+
 	for _, peer := range gt.peers {
 		peer.connMu.Lock()
+
 		if peer.conn != nil {
 			peer.conn.Close()
 		}
+
 		peer.connMu.Unlock()
 	}
+
 	gt.peers = make(map[string]*grpcPeerConn)
 	gt.peersMu.Unlock()
 
 	// Wait for goroutines
 	done := make(chan struct{})
+
 	go func() {
 		gt.wg.Wait()
 		close(done)
@@ -190,8 +206,8 @@ func (gt *GRPCTransport) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Send sends a message to a peer
-func (gt *GRPCTransport) Send(ctx context.Context, target string, message interface{}) error {
+// Send sends a message to a peer.
+func (gt *GRPCTransport) Send(ctx context.Context, target string, message any) error {
 	peer, err := gt.getPeerConn(target)
 	if err != nil {
 		return fmt.Errorf("failed to get peer connection: %w", err)
@@ -199,7 +215,7 @@ func (gt *GRPCTransport) Send(ctx context.Context, target string, message interf
 
 	msg, ok := message.(internal.Message)
 	if !ok {
-		return fmt.Errorf("invalid message type")
+		return errors.New("invalid message type")
 	}
 
 	// TODO: Convert to protobuf and send via gRPC
@@ -214,12 +230,12 @@ func (gt *GRPCTransport) Send(ctx context.Context, target string, message interf
 	return nil
 }
 
-// Receive returns a channel for receiving messages
+// Receive returns a channel for receiving messages.
 func (gt *GRPCTransport) Receive() <-chan internal.Message {
 	return gt.inbox
 }
 
-// AddPeer adds a peer to the transport
+// AddPeer adds a peer to the transport.
 func (gt *GRPCTransport) AddPeer(nodeID, address string, port int) error {
 	gt.peersMu.Lock()
 	defer gt.peersMu.Unlock()
@@ -244,7 +260,7 @@ func (gt *GRPCTransport) AddPeer(nodeID, address string, port int) error {
 	return nil
 }
 
-// RemovePeer removes a peer from the transport
+// RemovePeer removes a peer from the transport.
 func (gt *GRPCTransport) RemovePeer(nodeID string) error {
 	gt.peersMu.Lock()
 	defer gt.peersMu.Unlock()
@@ -256,9 +272,11 @@ func (gt *GRPCTransport) RemovePeer(nodeID string) error {
 
 	// Close connection
 	peer.connMu.Lock()
+
 	if peer.conn != nil {
 		peer.conn.Close()
 	}
+
 	peer.connMu.Unlock()
 
 	delete(gt.peers, nodeID)
@@ -271,12 +289,12 @@ func (gt *GRPCTransport) RemovePeer(nodeID string) error {
 	return nil
 }
 
-// GetAddress returns the local address
+// GetAddress returns the local address.
 func (gt *GRPCTransport) GetAddress() string {
 	return fmt.Sprintf("%s:%d", gt.address, gt.port)
 }
 
-// runServer runs the gRPC server
+// runServer runs the gRPC server.
 func (gt *GRPCTransport) runServer() {
 	defer gt.wg.Done()
 
@@ -285,7 +303,7 @@ func (gt *GRPCTransport) runServer() {
 	<-gt.ctx.Done()
 }
 
-// getPeerConn gets or creates a connection to a peer
+// getPeerConn gets or creates a connection to a peer.
 func (gt *GRPCTransport) getPeerConn(nodeID string) (*grpcPeerConn, error) {
 	gt.peersMu.RLock()
 	peer, exists := gt.peers[nodeID]
@@ -327,6 +345,7 @@ func (gt *GRPCTransport) getPeerConn(nodeID string) (*grpcPeerConn, error) {
 		}
 
 		peer.conn = conn
+
 		gt.logger.Info("connected to peer",
 			forge.F("peer_id", nodeID),
 			forge.F("address", target),

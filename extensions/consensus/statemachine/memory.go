@@ -3,25 +3,27 @@ package statemachine
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// MemoryStateMachine implements a simple in-memory state machine
+// MemoryStateMachine implements a simple in-memory state machine.
 type MemoryStateMachine struct {
-	state  map[string]interface{}
+	state  map[string]any
 	mu     sync.RWMutex
 	logger forge.Logger
 }
 
-// MemoryStateMachineConfig contains configuration for memory state machine
+// MemoryStateMachineConfig contains configuration for memory state machine.
 type MemoryStateMachineConfig struct {
 	InitialCapacity int
 }
 
-// NewMemoryStateMachine creates a new memory state machine
+// NewMemoryStateMachine creates a new memory state machine.
 func NewMemoryStateMachine(config MemoryStateMachineConfig, logger forge.Logger) *MemoryStateMachine {
 	capacity := config.InitialCapacity
 	if capacity == 0 {
@@ -29,12 +31,12 @@ func NewMemoryStateMachine(config MemoryStateMachineConfig, logger forge.Logger)
 	}
 
 	return &MemoryStateMachine{
-		state:  make(map[string]interface{}, capacity),
+		state:  make(map[string]any, capacity),
 		logger: logger,
 	}
 }
 
-// Apply applies a log entry to the state machine
+// Apply applies a log entry to the state machine.
 func (sm *MemoryStateMachine) Apply(entry internal.LogEntry) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -54,6 +56,7 @@ func (sm *MemoryStateMachine) Apply(entry internal.LogEntry) error {
 		sm.logger.Debug("config entry applied",
 			forge.F("index", entry.Index),
 		)
+
 		return nil
 
 	case internal.EntryNoop:
@@ -61,6 +64,7 @@ func (sm *MemoryStateMachine) Apply(entry internal.LogEntry) error {
 		sm.logger.Debug("no-op entry applied",
 			forge.F("index", entry.Index),
 		)
+
 		return nil
 
 	case internal.EntryBarrier:
@@ -68,6 +72,7 @@ func (sm *MemoryStateMachine) Apply(entry internal.LogEntry) error {
 		sm.logger.Debug("barrier entry applied",
 			forge.F("index", entry.Index),
 		)
+
 		return nil
 
 	default:
@@ -75,13 +80,13 @@ func (sm *MemoryStateMachine) Apply(entry internal.LogEntry) error {
 	}
 }
 
-// applyCommand applies a command to the state machine
+// applyCommand applies a command to the state machine.
 func (sm *MemoryStateMachine) applyCommand(cmd internal.Command) error {
 	switch cmd.Type {
 	case "set":
 		key, ok := cmd.Payload["key"].(string)
 		if !ok {
-			return fmt.Errorf("invalid key in set command")
+			return errors.New("invalid key in set command")
 		}
 
 		value := cmd.Payload["value"]
@@ -94,7 +99,7 @@ func (sm *MemoryStateMachine) applyCommand(cmd internal.Command) error {
 	case "delete":
 		key, ok := cmd.Payload["key"].(string)
 		if !ok {
-			return fmt.Errorf("invalid key in delete command")
+			return errors.New("invalid key in delete command")
 		}
 
 		delete(sm.state, key)
@@ -106,7 +111,7 @@ func (sm *MemoryStateMachine) applyCommand(cmd internal.Command) error {
 	case "increment":
 		key, ok := cmd.Payload["key"].(string)
 		if !ok {
-			return fmt.Errorf("invalid key in increment command")
+			return errors.New("invalid key in increment command")
 		}
 
 		current, exists := sm.state[key]
@@ -118,7 +123,7 @@ func (sm *MemoryStateMachine) applyCommand(cmd internal.Command) error {
 			} else if num, ok := current.(int); ok {
 				sm.state[key] = num + 1
 			} else {
-				return fmt.Errorf("cannot increment non-numeric value")
+				return errors.New("cannot increment non-numeric value")
 			}
 		}
 
@@ -133,7 +138,7 @@ func (sm *MemoryStateMachine) applyCommand(cmd internal.Command) error {
 	return nil
 }
 
-// Snapshot creates a snapshot of the current state
+// Snapshot creates a snapshot of the current state.
 func (sm *MemoryStateMachine) Snapshot() (*internal.Snapshot, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -156,13 +161,13 @@ func (sm *MemoryStateMachine) Snapshot() (*internal.Snapshot, error) {
 	return snapshot, nil
 }
 
-// Restore restores the state machine from a snapshot
+// Restore restores the state machine from a snapshot.
 func (sm *MemoryStateMachine) Restore(snapshot *internal.Snapshot) error {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
 	// Deserialize the state
-	newState := make(map[string]interface{})
+	newState := make(map[string]any)
 	if err := json.Unmarshal(snapshot.Data, &newState); err != nil {
 		return fmt.Errorf("failed to unmarshal snapshot: %w", err)
 	}
@@ -178,27 +183,27 @@ func (sm *MemoryStateMachine) Restore(snapshot *internal.Snapshot) error {
 	return nil
 }
 
-// Query performs a read-only query
-func (sm *MemoryStateMachine) Query(query interface{}) (interface{}, error) {
+// Query performs a read-only query.
+func (sm *MemoryStateMachine) Query(query any) (any, error) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
 	// Parse query
-	q, ok := query.(map[string]interface{})
+	q, ok := query.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("invalid query format")
+		return nil, errors.New("invalid query format")
 	}
 
 	queryType, ok := q["type"].(string)
 	if !ok {
-		return nil, fmt.Errorf("query type not specified")
+		return nil, errors.New("query type not specified")
 	}
 
 	switch queryType {
 	case "get":
 		key, ok := q["key"].(string)
 		if !ok {
-			return nil, fmt.Errorf("invalid key in get query")
+			return nil, errors.New("invalid key in get query")
 		}
 
 		value, exists := sm.state[key]
@@ -219,25 +224,23 @@ func (sm *MemoryStateMachine) Query(query interface{}) (interface{}, error) {
 	}
 }
 
-// GetState returns a copy of the current state (for testing)
-func (sm *MemoryStateMachine) GetState() map[string]interface{} {
+// GetState returns a copy of the current state (for testing).
+func (sm *MemoryStateMachine) GetState() map[string]any {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
 	// Return a shallow copy
-	stateCopy := make(map[string]interface{}, len(sm.state))
-	for k, v := range sm.state {
-		stateCopy[k] = v
-	}
+	stateCopy := make(map[string]any, len(sm.state))
+	maps.Copy(stateCopy, sm.state)
 
 	return stateCopy
 }
 
-// Clear clears the state machine (for testing)
+// Clear clears the state machine (for testing).
 func (sm *MemoryStateMachine) Clear() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.state = make(map[string]interface{})
+	sm.state = make(map[string]any)
 	sm.logger.Info("state machine cleared")
 }

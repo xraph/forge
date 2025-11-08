@@ -48,19 +48,19 @@ type Cache interface {
 
 // Typed operations for common use cases
 
-// GetString retrieves a string value from the cache
+// GetString retrieves a string value from the cache.
 type StringCache interface {
 	GetString(ctx context.Context, key string) (string, error)
 	SetString(ctx context.Context, key string, value string, ttl time.Duration) error
 }
 
-// GetJSON retrieves and unmarshals a JSON value from the cache
+// GetJSON retrieves and unmarshals a JSON value from the cache.
 type JSONCache interface {
-	GetJSON(ctx context.Context, key string, target interface{}) error
-	SetJSON(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+	GetJSON(ctx context.Context, key string, target any) error
+	SetJSON(ctx context.Context, key string, value any, ttl time.Duration) error
 }
 
-// Counter operations for atomic increments/decrements
+// Counter operations for atomic increments/decrements.
 type CounterCache interface {
 	Incr(ctx context.Context, key string) (int64, error)
 	IncrBy(ctx context.Context, key string, value int64) (int64, error)
@@ -68,7 +68,7 @@ type CounterCache interface {
 	DecrBy(ctx context.Context, key string, value int64) (int64, error)
 }
 
-// Multi-key operations
+// Multi-key operations.
 type MultiCache interface {
 	MGet(ctx context.Context, keys ...string) ([][]byte, error)
 	MSet(ctx context.Context, kvs map[string][]byte, ttl time.Duration) error

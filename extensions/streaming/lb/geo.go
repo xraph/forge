@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"sync"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // geoProximityBalancer routes to nearest node.
@@ -42,6 +44,7 @@ func (gpb *geoProximityBalancer) SelectNode(ctx context.Context, userID string, 
 		if gpb.fallback != nil {
 			return gpb.fallback.SelectNode(ctx, userID, metadata)
 		}
+
 		return nil, fmt.Errorf("failed to determine location: %w", err)
 	}
 
@@ -49,11 +52,12 @@ func (gpb *geoProximityBalancer) SelectNode(ctx context.Context, userID string, 
 	defer gpb.mu.RUnlock()
 
 	if len(gpb.nodes) == 0 {
-		return nil, fmt.Errorf("no nodes available")
+		return nil, errors.New("no nodes available")
 	}
 
 	// Find nearest healthy node
 	var nearest *NodeInfo
+
 	minDistance := math.MaxFloat64
 
 	for _, node := range gpb.nodes {
@@ -69,7 +73,7 @@ func (gpb *geoProximityBalancer) SelectNode(ctx context.Context, userID string, 
 	}
 
 	if nearest == nil {
-		return nil, fmt.Errorf("no healthy nodes available")
+		return nil, errors.New("no healthy nodes available")
 	}
 
 	return nearest, nil
@@ -80,7 +84,8 @@ func (gpb *geoProximityBalancer) GetNode(ctx context.Context, connID string) (*N
 	if gpb.fallback != nil {
 		return gpb.fallback.GetNode(ctx, connID)
 	}
-	return nil, fmt.Errorf("not implemented")
+
+	return nil, errors.New("not implemented")
 }
 
 // RegisterNode adds node.
@@ -235,7 +240,7 @@ func (sgl *simpleGeoLocator) GetLocation(ctx context.Context, userID string, met
 func (sgl *simpleGeoLocator) lookupIP(ip string) (float64, float64, error) {
 	// Placeholder for IP geolocation
 	// In production, use a service like MaxMind GeoIP
-	return 0, 0, fmt.Errorf("IP geolocation not implemented")
+	return 0, 0, errors.New("IP geolocation not implemented")
 }
 
 // SetLocation manually sets location for testing.

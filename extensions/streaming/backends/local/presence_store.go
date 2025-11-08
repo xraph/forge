@@ -13,7 +13,7 @@ type PresenceStore struct {
 	mu       sync.RWMutex
 	presence map[string]*streaming.UserPresence
 	online   map[string]bool
-	history  map[string][]*streaming.PresenceEvent // userID -> events
+	history  map[string][]*streaming.PresenceEvent      // userID -> events
 	devices  map[string]map[string]streaming.DeviceInfo // userID -> deviceID -> device
 }
 
@@ -213,7 +213,7 @@ func (s *PresenceStore) SetMultiple(ctx context.Context, presences map[string]*s
 		if presence == nil {
 			continue
 		}
-		
+
 		// Create a copy to avoid shared state issues
 		presenceCopy := &streaming.UserPresence{
 			UserID:       presence.UserID,
@@ -223,9 +223,9 @@ func (s *PresenceStore) SetMultiple(ctx context.Context, presences map[string]*s
 			CustomStatus: presence.CustomStatus,
 			Metadata:     copyMap(presence.Metadata),
 		}
-		
+
 		s.presence[userID] = presenceCopy
-		
+
 		// Save history event
 		event := &streaming.PresenceEvent{
 			Type:      "status_change",
@@ -236,7 +236,7 @@ func (s *PresenceStore) SetMultiple(ctx context.Context, presences map[string]*s
 		}
 		s.history[userID] = append(s.history[userID], event)
 	}
-	
+
 	return nil
 }
 
@@ -247,7 +247,7 @@ func (s *PresenceStore) DeleteMultiple(ctx context.Context, userIDs []string) er
 	for _, userID := range userIDs {
 		delete(s.presence, userID)
 		delete(s.online, userID)
-		
+
 		// Save history event
 		event := &streaming.PresenceEvent{
 			Type:      "offline",
@@ -257,7 +257,7 @@ func (s *PresenceStore) DeleteMultiple(ctx context.Context, userIDs []string) er
 		}
 		s.history[userID] = append(s.history[userID], event)
 	}
-	
+
 	return nil
 }
 
@@ -266,6 +266,7 @@ func (s *PresenceStore) GetByStatus(ctx context.Context, status string) ([]*stre
 	defer s.mu.RUnlock()
 
 	var result []*streaming.UserPresence
+
 	for _, presence := range s.presence {
 		if presence.Status == status {
 			// Create a copy to avoid shared state issues
@@ -280,7 +281,7 @@ func (s *PresenceStore) GetByStatus(ctx context.Context, status string) ([]*stre
 			result = append(result, presenceCopy)
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -289,8 +290,9 @@ func (s *PresenceStore) GetRecent(ctx context.Context, status string, since time
 	defer s.mu.RUnlock()
 
 	cutoff := time.Now().Add(-since)
+
 	var result []*streaming.UserPresence
-	
+
 	for _, presence := range s.presence {
 		if (status == "" || presence.Status == status) && presence.LastSeen.After(cutoff) {
 			// Create a copy to avoid shared state issues
@@ -305,7 +307,7 @@ func (s *PresenceStore) GetRecent(ctx context.Context, status string, since time
 			result = append(result, presenceCopy)
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -314,34 +316,37 @@ func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.Pr
 	defer s.mu.RUnlock()
 
 	var result []*streaming.UserPresence
-	
+
 	for _, presence := range s.presence {
 		// Check status filter
 		if len(filters.Status) > 0 {
 			statusMatch := false
+
 			for _, status := range filters.Status {
 				if presence.Status == status {
 					statusMatch = true
+
 					break
 				}
 			}
+
 			if !statusMatch {
 				continue
 			}
 		}
-		
+
 		// Check online filter
 		if filters.Online {
 			if _, isOnline := s.online[presence.UserID]; !isOnline {
 				continue
 			}
 		}
-		
+
 		// Check activity filter
 		if !filters.SinceActivity.IsZero() && presence.LastSeen.Before(filters.SinceActivity) {
 			continue
 		}
-		
+
 		// Create a copy to avoid shared state issues
 		presenceCopy := &streaming.UserPresence{
 			UserID:       presence.UserID,
@@ -353,7 +358,7 @@ func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.Pr
 		}
 		result = append(result, presenceCopy)
 	}
-	
+
 	return result, nil
 }
 
@@ -364,7 +369,7 @@ func (s *PresenceStore) SaveHistory(ctx context.Context, userID string, event *s
 	if event == nil {
 		return streaming.ErrInvalidMessage
 	}
-	
+
 	// Create a copy to avoid shared state issues
 	eventCopy := &streaming.PresenceEvent{
 		Type:      event.Type,
@@ -373,9 +378,9 @@ func (s *PresenceStore) SaveHistory(ctx context.Context, userID string, event *s
 		Timestamp: event.Timestamp,
 		Metadata:  copyMap(event.Metadata),
 	}
-	
+
 	s.history[userID] = append(s.history[userID], eventCopy)
-	
+
 	return nil
 }
 
@@ -387,25 +392,25 @@ func (s *PresenceStore) GetHistory(ctx context.Context, userID string, limit int
 	if !exists {
 		return []*streaming.PresenceEvent{}, nil
 	}
-	
+
 	// Sort by timestamp (most recent first)
 	sortedEvents := make([]*streaming.PresenceEvent, len(events))
 	copy(sortedEvents, events)
-	
+
 	// Simple sort by timestamp descending
-	for i := 0; i < len(sortedEvents)-1; i++ {
+	for i := range len(sortedEvents) - 1 {
 		for j := i + 1; j < len(sortedEvents); j++ {
 			if sortedEvents[i].Timestamp.Before(sortedEvents[j].Timestamp) {
 				sortedEvents[i], sortedEvents[j] = sortedEvents[j], sortedEvents[i]
 			}
 		}
 	}
-	
+
 	// Apply limit
 	if limit > 0 && limit < len(sortedEvents) {
 		sortedEvents = sortedEvents[:limit]
 	}
-	
+
 	// Create copies to avoid shared state issues
 	result := make([]*streaming.PresenceEvent, len(sortedEvents))
 	for i, event := range sortedEvents {
@@ -417,7 +422,7 @@ func (s *PresenceStore) GetHistory(ctx context.Context, userID string, limit int
 			Metadata:  copyMap(event.Metadata),
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -429,8 +434,9 @@ func (s *PresenceStore) GetHistorySince(ctx context.Context, userID string, sinc
 	if !exists {
 		return []*streaming.PresenceEvent{}, nil
 	}
-	
+
 	var result []*streaming.PresenceEvent
+
 	for _, event := range events {
 		if event.Timestamp.After(since) {
 			// Create a copy to avoid shared state issues
@@ -444,16 +450,16 @@ func (s *PresenceStore) GetHistorySince(ctx context.Context, userID string, sinc
 			result = append(result, eventCopy)
 		}
 	}
-	
+
 	// Sort by timestamp (most recent first)
-	for i := 0; i < len(result)-1; i++ {
+	for i := range len(result) - 1 {
 		for j := i + 1; j < len(result); j++ {
 			if result[i].Timestamp.Before(result[j].Timestamp) {
 				result[i], result[j] = result[j], result[i]
 			}
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -464,7 +470,7 @@ func (s *PresenceStore) SetDevice(ctx context.Context, userID, deviceID string, 
 	if s.devices[userID] == nil {
 		s.devices[userID] = make(map[string]streaming.DeviceInfo)
 	}
-	
+
 	// Create a copy to avoid shared state issues
 	deviceCopy := streaming.DeviceInfo{
 		DeviceID: device.DeviceID,
@@ -476,9 +482,9 @@ func (s *PresenceStore) SetDevice(ctx context.Context, userID, deviceID string, 
 		Active:   device.Active,
 		Metadata: copyMap(device.Metadata),
 	}
-	
+
 	s.devices[userID][deviceID] = deviceCopy
-	
+
 	return nil
 }
 
@@ -518,7 +524,7 @@ func (s *PresenceStore) RemoveDevice(ctx context.Context, userID, deviceID strin
 	}
 
 	delete(s.devices[userID], deviceID)
-	
+
 	// Clean up empty map
 	if len(s.devices[userID]) == 0 {
 		delete(s.devices, userID)
@@ -545,6 +551,7 @@ func (s *PresenceStore) GetActiveCount(ctx context.Context, since time.Duration)
 
 	cutoff := time.Now().Add(-since)
 	count := 0
+
 	for _, presence := range s.presence {
 		if presence.LastSeen.After(cutoff) {
 			count++
@@ -558,9 +565,11 @@ func copyMap(m map[string]any) map[string]any {
 	if m == nil {
 		return nil
 	}
+
 	copy := make(map[string]any, len(m))
 	for k, v := range m {
 		copy[k] = v
 	}
+
 	return copy
 }

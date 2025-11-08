@@ -6,26 +6,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/cmd/forge/config"
 )
 
-// Generator handles infrastructure code generation
+// Generator handles infrastructure code generation.
 type Generator struct {
-	config      *config.ForgeConfig
-	Introspect  *Introspector
+	config     *config.ForgeConfig
+	Introspect *Introspector
 }
 
-// NewGenerator creates a new infrastructure generator
+// NewGenerator creates a new infrastructure generator.
 func NewGenerator(cfg *config.ForgeConfig) *Generator {
 	return &Generator{
-		config:      cfg,
-		Introspect:  NewIntrospector(cfg),
+		config:     cfg,
+		Introspect: NewIntrospector(cfg),
 	}
 }
 
-// GeneratedConfig represents the result of infrastructure generation
+// GeneratedConfig represents the result of infrastructure generation.
 type GeneratedConfig struct {
 	ServiceCount    int
 	NetworkCount    int
@@ -37,7 +38,7 @@ type GeneratedConfig struct {
 // Docker Generation
 // ========================================
 
-// GenerateDockerCompose generates Docker Compose configuration in-memory
+// GenerateDockerCompose generates Docker Compose configuration in-memory.
 func (g *Generator) GenerateDockerCompose(service, env string) (*GeneratedConfig, error) {
 	apps, err := g.Introspect.DiscoverApps()
 	if err != nil {
@@ -57,7 +58,7 @@ func (g *Generator) GenerateDockerCompose(service, env string) (*GeneratedConfig
 	return config, nil
 }
 
-// ExportDocker exports Docker configuration to filesystem
+// ExportDocker exports Docker configuration to filesystem.
 func (g *Generator) ExportDocker(outputDir string) error {
 	apps, err := g.Introspect.DiscoverApps()
 	if err != nil {
@@ -78,6 +79,7 @@ func (g *Generator) ExportDocker(outputDir string) error {
 	// Generate environment-specific overrides
 	for _, env := range []string{"dev", "prod"} {
 		composeEnvContent := g.generateDockerComposeYAML(apps, env)
+
 		filename := fmt.Sprintf("docker-compose.%s.yml", env)
 		if err := os.WriteFile(filepath.Join(outputDir, filename), []byte(composeEnvContent), 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", filename, err)
@@ -93,7 +95,8 @@ func (g *Generator) ExportDocker(outputDir string) error {
 	// Generate Dockerfiles for each service at root level
 	for _, app := range apps {
 		dockerfileContent := g.generateDockerfile(app)
-		dockerfileName := fmt.Sprintf("Dockerfile.%s", app.Name)
+
+		dockerfileName := "Dockerfile." + app.Name
 		if err := os.WriteFile(filepath.Join(outputDir, dockerfileName), []byte(dockerfileContent), 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", dockerfileName, err)
 		}
@@ -118,9 +121,10 @@ services:
 `, environment)
 	}
 
+	var contentSb121 strings.Builder
 	for _, app := range apps {
 		if environment == "base" {
-			content += fmt.Sprintf(`  %s:
+			contentSb121.WriteString(fmt.Sprintf(`  %s:
     build:
       context: .
       dockerfile: Dockerfile.%s
@@ -133,15 +137,15 @@ services:
       - forge-network
     restart: unless-stopped
 
-`, app.Name, app.Name, normalizeEnvVar(app.Name), environment)
+`, app.Name, app.Name, normalizeEnvVar(app.Name), environment))
 		} else {
 			// Environment-specific overrides
 			replicas := "1"
 			if environment == "prod" {
 				replicas = "3"
 			}
-			
-			content += fmt.Sprintf(`  %s:
+
+			contentSb121.WriteString(fmt.Sprintf(`  %s:
     deploy:
       replicas: %s
       resources:
@@ -152,9 +156,10 @@ services:
           cpus: '0.5'
           memory: 256M
 
-`, app.Name, replicas)
+`, app.Name, replicas))
 		}
 	}
+	content += contentSb121.String()
 
 	if environment == "base" {
 		content += `networks:
@@ -215,9 +220,11 @@ LOG_LEVEL=info
 
 # Service Ports
 `
+	var contentSb218 strings.Builder
 	for _, app := range apps {
-		content += fmt.Sprintf("%s_PORT=8080\n", normalizeEnvVar(app.Name))
+		contentSb218.WriteString(normalizeEnvVar(app.Name) + "_PORT=8080\n")
 	}
+	content += contentSb218.String()
 
 	content += `
 # Database (if needed)
@@ -229,6 +236,7 @@ REDIS_URL=redis://redis:6379
 # API Keys
 # API_KEY=your-api-key-here
 `
+
 	return content
 }
 
@@ -236,7 +244,7 @@ REDIS_URL=redis://redis:6379
 // Kubernetes Generation
 // ========================================
 
-// GenerateK8sManifests generates Kubernetes manifests in-memory
+// GenerateK8sManifests generates Kubernetes manifests in-memory.
 func (g *Generator) GenerateK8sManifests(service, env string) (*GeneratedConfig, error) {
 	apps, err := g.Introspect.DiscoverApps()
 	if err != nil {
@@ -255,7 +263,7 @@ func (g *Generator) GenerateK8sManifests(service, env string) (*GeneratedConfig,
 	return config, nil
 }
 
-// ExportK8s exports Kubernetes manifests to filesystem
+// ExportK8s exports Kubernetes manifests to filesystem.
 func (g *Generator) ExportK8s(outputDir string) error {
 	apps, err := g.Introspect.DiscoverApps()
 	if err != nil {
@@ -305,9 +313,10 @@ func (g *Generator) ExportK8s(outputDir string) error {
 func (g *Generator) generateK8sDeployment(apps []AppInfo) string {
 	content := ""
 
+	var contentSb308 strings.Builder
 	for i, app := range apps {
 		if i > 0 {
-			content += "---\n"
+			contentSb308.WriteString("---\n")
 		}
 
 		registryImage := "registry.example.com"
@@ -315,7 +324,7 @@ func (g *Generator) generateK8sDeployment(apps []AppInfo) string {
 			registryImage = g.config.Deploy.Registry
 		}
 
-		content += fmt.Sprintf(`apiVersion: apps/v1
+		contentSb308.WriteString(fmt.Sprintf(`apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: %s
@@ -361,8 +370,9 @@ spec:
             port: 8080
           initialDelaySeconds: 5
           periodSeconds: 5
-`, app.Name, app.Name, app.Name, app.Name, app.Name, registryImage, app.Name)
+`, app.Name, app.Name, app.Name, app.Name, app.Name, registryImage, app.Name))
 	}
+	content += contentSb308.String()
 
 	return content
 }
@@ -370,12 +380,13 @@ spec:
 func (g *Generator) generateK8sService(apps []AppInfo) string {
 	content := ""
 
+	var contentSb373 strings.Builder
 	for i, app := range apps {
 		if i > 0 {
-			content += "---\n"
+			contentSb373.WriteString("---\n")
 		}
 
-		content += fmt.Sprintf(`apiVersion: v1
+		contentSb373.WriteString(fmt.Sprintf(`apiVersion: v1
 kind: Service
 metadata:
   name: %s
@@ -390,8 +401,9 @@ spec:
     name: http
   selector:
     app: %s
-`, app.Name, app.Name, app.Name)
+`, app.Name, app.Name, app.Name))
 	}
+	content += contentSb373.String()
 
 	return content
 }
@@ -407,6 +419,7 @@ resources:
 commonLabels:
   environment: ` + env + `
 `
+
 	return content
 }
 
@@ -427,11 +440,13 @@ namePrefix: %s-
 replicas:
 `, env)
 
+	var contentSb430 strings.Builder
 	for _, app := range apps {
-		content += fmt.Sprintf(`  - name: %s
+		contentSb430.WriteString(fmt.Sprintf(`  - name: %s
     count: %d
-`, app.Name, replicas)
+`, app.Name, replicas))
 	}
+	content += contentSb430.String()
 
 	content += `
 commonLabels:
@@ -445,7 +460,7 @@ commonLabels:
 // Digital Ocean Generation
 // ========================================
 
-// GenerateDOConfig generates Digital Ocean App Platform configuration in-memory
+// GenerateDOConfig generates Digital Ocean App Platform configuration in-memory.
 func (g *Generator) GenerateDOConfig(service, env, region string) (*GeneratedConfig, error) {
 	apps, err := g.Introspect.DiscoverApps()
 	if err != nil {
@@ -463,7 +478,7 @@ func (g *Generator) GenerateDOConfig(service, env, region string) (*GeneratedCon
 	return config, nil
 }
 
-// ExportDO exports Digital Ocean configuration to filesystem
+// ExportDO exports Digital Ocean configuration to filesystem.
 func (g *Generator) ExportDO(outputDir string) error {
 	apps, err := g.Introspect.DiscoverApps()
 	if err != nil {
@@ -500,21 +515,22 @@ func (g *Generator) generateDOAppSpec(apps []AppInfo) string {
 	gitRepo := g.extractGitRepo()
 	gitBranch := g.getGitBranch()
 	deployOnPush := g.getDeployOnPush()
-	
+
 	// Get region from config or use default
 	region := "nyc1"
 	if g.config.Deploy.DigitalOcean.Region != "" {
 		region = g.config.Deploy.DigitalOcean.Region
 	}
-	
+
 	content := fmt.Sprintf(`name: %s
 region: %s
 
 services:
 `, g.config.Project.Name, region)
 
+	var contentSb516 strings.Builder
 	for _, app := range apps {
-		content += fmt.Sprintf(`  - name: %s
+		contentSb516.WriteString(fmt.Sprintf(`  - name: %s
     github:
       repo: %s
       branch: %s
@@ -535,14 +551,16 @@ services:
       initial_delay_seconds: 30
       period_seconds: 10
 
-`, app.Name, gitRepo, gitBranch, deployOnPush, app.Name)
+`, app.Name, gitRepo, gitBranch, deployOnPush, app.Name))
 	}
+	content += contentSb516.String()
 
 	return content
 }
 
 func (g *Generator) generateDOReadme() string {
 	gitRepo := g.extractGitRepo()
+
 	return `# Digital Ocean Deployment
 
 ## Prerequisites
@@ -556,7 +574,7 @@ func (g *Generator) generateDOReadme() string {
 The app.yaml has been configured with:
 - Repository: ` + gitRepo + `
 - Branch: ` + g.getGitBranch() + `
-- Auto-deploy on push: ` + fmt.Sprintf("%t", g.getDeployOnPush()) + `
+- Auto-deploy on push: ` + strconv.FormatBool(g.getDeployOnPush()) + `
 
 Repository information was automatically extracted from go.mod. To customize:
 
@@ -598,7 +616,7 @@ https://cloud.digitalocean.com/apps
 // Render Generation
 // ========================================
 
-// GenerateRenderConfig generates Render.com configuration in-memory
+// GenerateRenderConfig generates Render.com configuration in-memory.
 func (g *Generator) GenerateRenderConfig(service, env string) (*GeneratedConfig, error) {
 	apps, err := g.Introspect.DiscoverApps()
 	if err != nil {
@@ -616,7 +634,7 @@ func (g *Generator) GenerateRenderConfig(service, env string) (*GeneratedConfig,
 	return config, nil
 }
 
-// ExportRender exports Render configuration to filesystem
+// ExportRender exports Render configuration to filesystem.
 func (g *Generator) ExportRender(outputDir string) error {
 	apps, err := g.Introspect.DiscoverApps()
 	if err != nil {
@@ -652,12 +670,13 @@ func (g *Generator) generateRenderSpec(apps []AppInfo) string {
 	// Extract git repository info
 	gitRepo := g.extractGitRepo()
 	gitBranch := g.getGitBranch()
-	
+
 	content := `services:
 `
 
+	var contentSb659 strings.Builder
 	for _, app := range apps {
-		content += fmt.Sprintf(`  - type: web
+		contentSb659.WriteString(fmt.Sprintf(`  - type: web
     name: %s
     env: go
     repo: https://github.com/%s
@@ -674,14 +693,16 @@ func (g *Generator) generateRenderSpec(apps []AppInfo) string {
     healthCheckPath: /health
     numInstances: 1
 
-`, app.Name, gitRepo, gitBranch, app.MainPath)
+`, app.Name, gitRepo, gitBranch, app.MainPath))
 	}
+	content += contentSb659.String()
 
 	return content
 }
 
 func (g *Generator) generateRenderReadme() string {
 	gitRepo := g.extractGitRepo()
+
 	return `# Render.com Deployment
 
 ## Prerequisites
@@ -741,6 +762,7 @@ func filterApps(apps []AppInfo, serviceName string) []AppInfo {
 			return []AppInfo{app}
 		}
 	}
+
 	return apps
 }
 
@@ -748,42 +770,47 @@ func normalizeEnvVar(name string) string {
 	// Convert service name to uppercase env var format
 	// e.g., "api-service" -> "API_SERVICE"
 	result := ""
+
+	var resultSb751 strings.Builder
 	for _, c := range name {
 		if c == '-' {
-			result += "_"
+			resultSb751.WriteString("_")
 		} else {
-			result += string(c)
+			resultSb751.WriteString(string(c))
 		}
 	}
+	result += resultSb751.String()
+
 	return result
 }
 
-// extractGitRepo extracts repository information from go.mod or config
+// extractGitRepo extracts repository information from go.mod or config.
 func (g *Generator) extractGitRepo() string {
 	// First check if specified in config
 	if g.config.Deploy.DigitalOcean.GitRepo != "" {
 		return g.config.Deploy.DigitalOcean.GitRepo
 	}
+
 	if g.config.Deploy.Render.GitRepo != "" {
 		return g.config.Deploy.Render.GitRepo
 	}
-	
+
 	// Try to extract from module path in config
 	if g.config.Project.Module != "" {
 		return extractRepoFromModule(g.config.Project.Module)
 	}
-	
+
 	// Try to parse go.mod
 	goModPath := filepath.Join(g.config.RootDir, "go.mod")
 	if repo := parseGoModForRepo(goModPath); repo != "" {
 		return repo
 	}
-	
+
 	return "your-org/your-repo"
 }
 
 // extractRepoFromModule converts module path to repo format
-// e.g., "github.com/myorg/myrepo" -> "myorg/myrepo"
+// e.g., "github.com/myorg/myrepo" -> "myorg/myrepo".
 func extractRepoFromModule(module string) string {
 	// Handle github.com modules
 	if strings.HasPrefix(module, "github.com/") {
@@ -792,7 +819,7 @@ func extractRepoFromModule(module string) string {
 			return parts[0] + "/" + parts[1]
 		}
 	}
-	
+
 	// Handle gitlab.com modules
 	if strings.HasPrefix(module, "gitlab.com/") {
 		parts := strings.Split(strings.TrimPrefix(module, "gitlab.com/"), "/")
@@ -800,7 +827,7 @@ func extractRepoFromModule(module string) string {
 			return parts[0] + "/" + parts[1]
 		}
 	}
-	
+
 	// Handle bitbucket.org modules
 	if strings.HasPrefix(module, "bitbucket.org/") {
 		parts := strings.Split(strings.TrimPrefix(module, "bitbucket.org/"), "/")
@@ -808,49 +835,49 @@ func extractRepoFromModule(module string) string {
 			return parts[0] + "/" + parts[1]
 		}
 	}
-	
+
 	return ""
 }
 
-// parseGoModForRepo parses go.mod file to extract module path
+// parseGoModForRepo parses go.mod file to extract module path.
 func parseGoModForRepo(goModPath string) string {
 	file, err := os.Open(goModPath)
 	if err != nil {
 		return ""
 	}
 	defer file.Close()
-	
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if strings.HasPrefix(line, "module ") {
 			module := strings.TrimSpace(strings.TrimPrefix(line, "module"))
+
 			return extractRepoFromModule(module)
 		}
 	}
-	
+
 	return ""
 }
 
-// getGitBranch returns the git branch from config or default
+// getGitBranch returns the git branch from config or default.
 func (g *Generator) getGitBranch() string {
 	// Digital Ocean config
 	if g.config.Deploy.DigitalOcean.GitBranch != "" {
 		return g.config.Deploy.DigitalOcean.GitBranch
 	}
-	
+
 	// Render config
 	if g.config.Deploy.Render.GitBranch != "" {
 		return g.config.Deploy.Render.GitBranch
 	}
-	
+
 	// Default
 	return "main"
 }
 
-// getDeployOnPush returns whether to deploy on push from config
+// getDeployOnPush returns whether to deploy on push from config.
 func (g *Generator) getDeployOnPush() bool {
 	// Check Digital Ocean config
 	return g.config.Deploy.DigitalOcean.DeployOnPush
 }
-

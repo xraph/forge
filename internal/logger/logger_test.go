@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// BenchmarkLogger compares performance between different logger implementations
+// BenchmarkLogger compares performance between different logger implementations.
 func BenchmarkLogger(b *testing.B) {
 	// Test data
 	ctx := context.Background()
@@ -28,7 +28,8 @@ func BenchmarkLogger(b *testing.B) {
 		contextLog := noopLog.WithContext(ctx)
 
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+
+		for range b.N {
 			contextLog.Info("Benchmark test message", testFields...)
 			contextLog.Error("Benchmark error message", append(testFields, logger.Error(errors.New("test error")))...)
 		}
@@ -39,15 +40,17 @@ func BenchmarkLogger(b *testing.B) {
 		contextLog := prodLog.WithContext(ctx)
 
 		b.ResetTimer()
-		for i := 0; i < b.N; i++ {
+
+		for range b.N {
 			contextLog.Info("Benchmark test message", testFields...)
 			contextLog.Error("Benchmark error message", append(testFields, logger.Error(errors.New("test error")))...)
 		}
+
 		prodLog.Sync()
 	})
 }
 
-// TestNoopLogger ensures noop logger implements interface correctly
+// TestNoopLogger ensures noop logger implements interface correctly.
 func TestNoopLogger(t *testing.T) {
 	noopLog := logger.NewNoopLogger()
 
@@ -77,9 +80,11 @@ func TestNoopLogger(t *testing.T) {
 		namedLog := noopLog.Named("test")
 
 		// Verify they return loggers (should be noop instances)
-		var _ logger.Logger = withFieldsLog
-		var _ logger.Logger = withContextLog
-		var _ logger.Logger = namedLog
+		var (
+			_ logger.Logger = withFieldsLog
+			_ logger.Logger = withContextLog
+			_ logger.Logger = namedLog
+		)
 
 		// Test chaining
 		chainedLog := noopLog.With(logger.String("k1", "v1")).
@@ -92,6 +97,7 @@ func TestNoopLogger(t *testing.T) {
 
 	t.Run("Sugar", func(t *testing.T) {
 		sugar := noopLog.Sugar()
+
 		var _ logger.SugarLogger = sugar
 
 		sugar.Infow("info with fields", "key1", "value1", "key2", 42)
@@ -109,7 +115,7 @@ func TestNoopLogger(t *testing.T) {
 	})
 }
 
-// TestLoggerInterface ensures all logger implementations satisfy the interface
+// TestLoggerInterface ensures all logger implementations satisfy the interface.
 func TestLoggerInterface(t *testing.T) {
 	testCases := []struct {
 		name   string
@@ -138,17 +144,21 @@ func TestLoggerInterface(t *testing.T) {
 
 			// Test With methods
 			withFields := tc.logger.With(logger.String("test", "value"))
+
 			var _ logger.Logger = withFields
 
 			ctx := context.Background()
 			withContext := tc.logger.WithContext(ctx)
+
 			var _ logger.Logger = withContext
 
 			named := tc.logger.Named("test")
+
 			var _ logger.Logger = named
 
 			// Test Sugar
 			sugar := tc.logger.Sugar()
+
 			var _ logger.SugarLogger = sugar
 
 			// Test Sync
@@ -161,7 +171,7 @@ func TestLoggerInterface(t *testing.T) {
 	}
 }
 
-// TestContextFields tests context field extraction
+// TestContextFields tests context field extraction.
 func TestContextFields(t *testing.T) {
 	ctx := context.Background()
 	ctx = logger.WithRequestID(ctx, "req-123")
@@ -191,7 +201,7 @@ func TestContextFields(t *testing.T) {
 	}
 }
 
-// TestPerformanceMonitor tests performance monitoring with noop logger
+// TestPerformanceMonitor tests performance monitoring with noop logger.
 func TestPerformanceMonitor(t *testing.T) {
 	noopLog := logger.NewNoopLogger()
 
@@ -215,7 +225,7 @@ func TestPerformanceMonitor(t *testing.T) {
 	})
 }
 
-// TestStructuredLogging tests structured logging with noop logger
+// TestStructuredLogging tests structured logging with noop logger.
 func TestStructuredLogging(t *testing.T) {
 	noopLog := logger.NewNoopLogger()
 
@@ -248,10 +258,10 @@ func TestStructuredLogging(t *testing.T) {
 	})
 }
 
-// BenchmarkFieldCreation compares field creation performance
+// BenchmarkFieldCreation compares field creation performance.
 func BenchmarkFieldCreation(b *testing.B) {
 	b.Run("BasicFields", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			fields := []logger.Field{
 				logger.String("operation", "benchmark"),
 				logger.Int("iteration", i),
@@ -263,12 +273,12 @@ func BenchmarkFieldCreation(b *testing.B) {
 	})
 
 	b.Run("LazyFields", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			fields := []logger.Field{
-				logger.Lazy("timestamp", func() interface{} {
+				logger.Lazy("timestamp", func() any {
 					return time.Now().Unix()
 				}),
-				logger.Lazy("random", func() interface{} {
+				logger.Lazy("random", func() any {
 					return i * 42
 				}),
 			}
@@ -277,14 +287,15 @@ func BenchmarkFieldCreation(b *testing.B) {
 	})
 
 	b.Run("ConditionalFields", func(b *testing.B) {
-		for i := 0; i < b.N; i++ {
+		for i := range b.N {
 			fields := []logger.Field{
 				logger.Conditional(i%2 == 0, "even", true),
 				logger.Conditional(i%3 == 0, "divisible_by_three", true),
-				logger.Nullable("value", func() interface{} {
+				logger.Nullable("value", func() any {
 					if i > 100 {
 						return i
 					}
+
 					return nil
 				}()),
 			}

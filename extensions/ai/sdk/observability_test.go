@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Test Tracer
@@ -69,7 +71,7 @@ func TestSpan_SetError(t *testing.T) {
 	testErr := &TestError{}
 	span.SetError(testErr)
 
-	if span.Error != testErr {
+	if !errors.Is(span.Error, testErr) {
 		t.Error("expected error to be set")
 	}
 
@@ -82,7 +84,7 @@ func TestSpan_LogEvent(t *testing.T) {
 	tracer := NewTracer(nil, nil)
 	span := tracer.StartSpan(context.Background(), "test")
 
-	span.LogEvent("info", "Processing request", map[string]interface{}{
+	span.LogEvent("info", "Processing request", map[string]any{
 		"tokens": 1000,
 	})
 
@@ -147,7 +149,7 @@ func TestDebugger_RecordError(t *testing.T) {
 	debugger := NewDebugger(nil)
 
 	testErr := &TestError{}
-	debugger.RecordError(testErr, map[string]interface{}{
+	debugger.RecordError(testErr, map[string]any{
 		"user_id": "123",
 	})
 
@@ -215,6 +217,7 @@ func TestProfiler_EndSession(t *testing.T) {
 	profiler := NewProfiler(nil, nil)
 
 	session := profiler.StartProfile("test_op")
+
 	time.Sleep(10 * time.Millisecond)
 	session.End()
 
@@ -237,8 +240,9 @@ func TestProfiler_MultipleRecords(t *testing.T) {
 	profiler := NewProfiler(nil, nil)
 
 	// Record multiple operations
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		session := profiler.StartProfile("test_op")
+
 		time.Sleep(time.Duration(i+1) * time.Millisecond)
 		session.End()
 	}
@@ -287,7 +291,6 @@ func TestProfiler_ExportJSON(t *testing.T) {
 	profiler.StartProfile("test_op").End()
 
 	json, err := profiler.ExportJSON()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -360,7 +363,7 @@ func TestHealthChecker_RunChecks_Unhealthy(t *testing.T) {
 		t.Errorf("expected status unhealthy, got %s", result.Status)
 	}
 
-	if result.Error != testErr {
+	if !errors.Is(result.Error, testErr) {
 		t.Error("expected error to be set")
 	}
 }
@@ -411,10 +414,9 @@ func TestHealthChecker_GetOverallHealth_Unhealthy(t *testing.T) {
 	}
 }
 
-// Test helper
+// Test helper.
 type TestError struct{}
 
 func (e *TestError) Error() string {
 	return "test error"
 }
-

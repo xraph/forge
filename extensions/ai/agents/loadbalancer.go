@@ -9,9 +9,10 @@ import (
 	"time"
 
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// LoadBalancerAgent provides intelligent load balancing decisions
+// LoadBalancerAgent provides intelligent load balancing decisions.
 type LoadBalancerAgent struct {
 	*ai.BaseAgent
 
@@ -38,7 +39,7 @@ type LoadBalancerAgent struct {
 	rebalanceThreshold float64
 }
 
-// ServerMetrics represents metrics for a server
+// ServerMetrics represents metrics for a server.
 type ServerMetrics struct {
 	ServerID      string            `json:"server_id"`
 	Host          string            `json:"host"`
@@ -57,7 +58,7 @@ type ServerMetrics struct {
 	Metadata      map[string]string `json:"metadata"`
 }
 
-// HealthStatus represents the health status of a server
+// HealthStatus represents the health status of a server.
 type HealthStatus string
 
 const (
@@ -67,18 +68,18 @@ const (
 	HealthStatusUnknown   HealthStatus = "unknown"
 )
 
-// LoadBalancingRule represents a rule for load balancing
+// LoadBalancingRule represents a rule for load balancing.
 type LoadBalancingRule struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Condition  string                 `json:"condition"`
-	Action     string                 `json:"action"`
-	Priority   int                    `json:"priority"`
-	Enabled    bool                   `json:"enabled"`
-	Parameters map[string]interface{} `json:"parameters"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Condition  string         `json:"condition"`
+	Action     string         `json:"action"`
+	Priority   int            `json:"priority"`
+	Enabled    bool           `json:"enabled"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// LoadBalancingAlgorithm represents a load balancing algorithm
+// LoadBalancingAlgorithm represents a load balancing algorithm.
 type LoadBalancingAlgorithm interface {
 	Name() string
 	SelectServer(servers []*ServerMetrics, request *RequestContext) (*ServerMetrics, error)
@@ -86,7 +87,7 @@ type LoadBalancingAlgorithm interface {
 	GetScore(server *ServerMetrics) float64
 }
 
-// RequestContext provides context for load balancing decisions
+// RequestContext provides context for load balancing decisions.
 type RequestContext struct {
 	UserID        string            `json:"user_id"`
 	SessionID     string            `json:"session_id"`
@@ -96,26 +97,26 @@ type RequestContext struct {
 	Metadata      map[string]string `json:"metadata"`
 }
 
-// LoadBalancingDecision represents a load balancing decision
+// LoadBalancingDecision represents a load balancing decision.
 type LoadBalancingDecision struct {
-	SelectedServer *ServerMetrics         `json:"selected_server"`
-	Algorithm      string                 `json:"algorithm"`
-	Score          float64                `json:"score"`
-	Confidence     float64                `json:"confidence"`
-	Reasoning      string                 `json:"reasoning"`
-	Alternatives   []*ServerMetrics       `json:"alternatives"`
-	Metadata       map[string]interface{} `json:"metadata"`
+	SelectedServer *ServerMetrics   `json:"selected_server"`
+	Algorithm      string           `json:"algorithm"`
+	Score          float64          `json:"score"`
+	Confidence     float64          `json:"confidence"`
+	Reasoning      string           `json:"reasoning"`
+	Alternatives   []*ServerMetrics `json:"alternatives"`
+	Metadata       map[string]any   `json:"metadata"`
 }
 
-// NewLoadBalancerAgent creates a new load balancer agent
+// NewLoadBalancerAgent creates a new load balancer agent.
 func NewLoadBalancerAgent(id, name string) ai.AIAgent {
 	capabilities := []ai.Capability{
 		{
 			Name:        "load-balancing",
 			Description: "Make intelligent load balancing decisions",
-			InputType:   reflect.TypeOf(LoadBalancingInput{}),
-			OutputType:  reflect.TypeOf(LoadBalancingOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[LoadBalancingInput](),
+			OutputType:  reflect.TypeFor[LoadBalancingOutput](),
+			Metadata: map[string]any{
 				"category": "load_balancing",
 				"priority": "high",
 			},
@@ -123,9 +124,9 @@ func NewLoadBalancerAgent(id, name string) ai.AIAgent {
 		{
 			Name:        "capacity-planning",
 			Description: "Plan server capacity based on load predictions",
-			InputType:   reflect.TypeOf(CapacityPlanningInput{}),
-			OutputType:  reflect.TypeOf(CapacityPlanningOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[CapacityPlanningInput](),
+			OutputType:  reflect.TypeFor[CapacityPlanningOutput](),
+			Metadata: map[string]any{
 				"category": "planning",
 				"priority": "medium",
 			},
@@ -133,9 +134,9 @@ func NewLoadBalancerAgent(id, name string) ai.AIAgent {
 		{
 			Name:        "health-monitoring",
 			Description: "Monitor and assess server health",
-			InputType:   reflect.TypeOf(HealthMonitoringInput{}),
-			OutputType:  reflect.TypeOf(HealthMonitoringOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[HealthMonitoringInput](),
+			OutputType:  reflect.TypeFor[HealthMonitoringOutput](),
+			Metadata: map[string]any{
 				"category": "monitoring",
 				"priority": "high",
 			},
@@ -169,7 +170,7 @@ func NewLoadBalancerAgent(id, name string) ai.AIAgent {
 	return agent
 }
 
-// Process processes load balancing requests
+// Process processes load balancing requests.
 func (a *LoadBalancerAgent) Process(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Call base implementation first
 	output, err := a.BaseAgent.Process(ctx, input)
@@ -190,12 +191,12 @@ func (a *LoadBalancerAgent) Process(ctx context.Context, input ai.AgentInput) (a
 	}
 }
 
-// processLoadBalancing processes load balancing requests
+// processLoadBalancing processes load balancing requests.
 func (a *LoadBalancerAgent) processLoadBalancing(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Parse input
-	data, ok := input.Data.(map[string]interface{})
+	data, ok := input.Data.(map[string]any)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return ai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	// Extract server metrics and request context
@@ -235,7 +236,7 @@ func (a *LoadBalancerAgent) processLoadBalancing(ctx context.Context, input ai.A
 		Confidence:  decision.Confidence,
 		Explanation: decision.Reasoning,
 		Actions:     actions,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"algorithm":       algorithm.Name(),
 			"servers_count":   len(servers),
 			"selected_server": decision.SelectedServer.ServerID,
@@ -244,12 +245,12 @@ func (a *LoadBalancerAgent) processLoadBalancing(ctx context.Context, input ai.A
 	}, nil
 }
 
-// processCapacityPlanning processes capacity planning requests
+// processCapacityPlanning processes capacity planning requests.
 func (a *LoadBalancerAgent) processCapacityPlanning(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Parse input
-	data, ok := input.Data.(map[string]interface{})
+	data, ok := input.Data.(map[string]any)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return ai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	// Extract current load and prediction horizon
@@ -277,7 +278,7 @@ func (a *LoadBalancerAgent) processCapacityPlanning(ctx context.Context, input a
 		Confidence:  capacityRecommendation.Confidence,
 		Explanation: fmt.Sprintf("Capacity planning for %s horizon", horizon),
 		Actions:     actions,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"horizon":           horizon.String(),
 			"current_capacity":  capacityRecommendation.CurrentCapacity,
 			"required_capacity": capacityRecommendation.RequiredCapacity,
@@ -286,12 +287,12 @@ func (a *LoadBalancerAgent) processCapacityPlanning(ctx context.Context, input a
 	}, nil
 }
 
-// processHealthMonitoring processes health monitoring requests
+// processHealthMonitoring processes health monitoring requests.
 func (a *LoadBalancerAgent) processHealthMonitoring(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Parse input
-	data, ok := input.Data.(map[string]interface{})
+	data, ok := input.Data.(map[string]any)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return ai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	// Extract servers for health monitoring
@@ -312,7 +313,7 @@ func (a *LoadBalancerAgent) processHealthMonitoring(ctx context.Context, input a
 		Confidence:  healthAssessment.Confidence,
 		Explanation: fmt.Sprintf("Health assessment for %d servers", len(servers)),
 		Actions:     actions,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"servers_count":     len(servers),
 			"healthy_servers":   healthAssessment.HealthyServers,
 			"degraded_servers":  healthAssessment.DegradedServers,
@@ -322,17 +323,17 @@ func (a *LoadBalancerAgent) processHealthMonitoring(ctx context.Context, input a
 	}, nil
 }
 
-// extractServerMetrics extracts server metrics from input data
-func (a *LoadBalancerAgent) extractServerMetrics(data map[string]interface{}) ([]*ServerMetrics, error) {
+// extractServerMetrics extracts server metrics from input data.
+func (a *LoadBalancerAgent) extractServerMetrics(data map[string]any) ([]*ServerMetrics, error) {
 	servers := make([]*ServerMetrics, 0)
 
-	serversData, ok := data["servers"].([]interface{})
+	serversData, ok := data["servers"].([]any)
 	if !ok {
-		return nil, fmt.Errorf("servers data not found or invalid format")
+		return nil, errors.New("servers data not found or invalid format")
 	}
 
 	for _, serverData := range serversData {
-		serverMap, ok := serverData.(map[string]interface{})
+		serverMap, ok := serverData.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -360,9 +361,9 @@ func (a *LoadBalancerAgent) extractServerMetrics(data map[string]interface{}) ([
 	return servers, nil
 }
 
-// extractRequestContext extracts request context from input data
-func (a *LoadBalancerAgent) extractRequestContext(data map[string]interface{}) *RequestContext {
-	requestData, ok := data["request"].(map[string]interface{})
+// extractRequestContext extracts request context from input data.
+func (a *LoadBalancerAgent) extractRequestContext(data map[string]any) *RequestContext {
+	requestData, ok := data["request"].(map[string]any)
 	if !ok {
 		return &RequestContext{}
 	}
@@ -377,14 +378,14 @@ func (a *LoadBalancerAgent) extractRequestContext(data map[string]interface{}) *
 	}
 }
 
-// updateServerMetrics updates the internal server metrics
+// updateServerMetrics updates the internal server metrics.
 func (a *LoadBalancerAgent) updateServerMetrics(servers []*ServerMetrics) {
 	for _, server := range servers {
 		a.serverMetrics[server.ServerID] = server
 	}
 }
 
-// calculateLoadScores calculates load scores for all servers
+// calculateLoadScores calculates load scores for all servers.
 func (a *LoadBalancerAgent) calculateLoadScores(servers []*ServerMetrics) {
 	for _, server := range servers {
 		score := a.calculateLoadScore(server)
@@ -392,7 +393,7 @@ func (a *LoadBalancerAgent) calculateLoadScores(servers []*ServerMetrics) {
 	}
 }
 
-// calculateLoadScore calculates a load score for a server
+// calculateLoadScore calculates a load score for a server.
 func (a *LoadBalancerAgent) calculateLoadScore(server *ServerMetrics) float64 {
 	// Weighted score based on multiple factors
 	score := 0.0
@@ -416,6 +417,7 @@ func (a *LoadBalancerAgent) calculateLoadScore(server *ServerMetrics) float64 {
 	if server.Capacity > 0 {
 		connectionScore = math.Max(0, 1.0-float64(server.ActiveConns)/float64(server.Capacity))
 	}
+
 	score += a.connectionWeight * connectionScore
 
 	// Health score
@@ -425,7 +427,7 @@ func (a *LoadBalancerAgent) calculateLoadScore(server *ServerMetrics) float64 {
 	return math.Max(0, math.Min(1, score))
 }
 
-// getHealthScore returns a numeric score for health status
+// getHealthScore returns a numeric score for health status.
 func (a *LoadBalancerAgent) getHealthScore(status HealthStatus) float64 {
 	switch status {
 	case HealthStatusHealthy:
@@ -439,7 +441,7 @@ func (a *LoadBalancerAgent) getHealthScore(status HealthStatus) float64 {
 	}
 }
 
-// selectBestAlgorithm selects the best load balancing algorithm
+// selectBestAlgorithm selects the best load balancing algorithm.
 func (a *LoadBalancerAgent) selectBestAlgorithm(servers []*ServerMetrics, requestContext *RequestContext) LoadBalancingAlgorithm {
 	// Default to weighted round robin
 	algorithm := a.algorithms["weighted_round_robin"]
@@ -456,12 +458,12 @@ func (a *LoadBalancerAgent) selectBestAlgorithm(servers []*ServerMetrics, reques
 	return algorithm
 }
 
-// makeLoadBalancingDecision makes a load balancing decision
+// makeLoadBalancingDecision makes a load balancing decision.
 func (a *LoadBalancerAgent) makeLoadBalancingDecision(servers []*ServerMetrics, requestContext *RequestContext, algorithm LoadBalancingAlgorithm) (*LoadBalancingDecision, error) {
 	// Filter healthy servers
 	healthyServers := a.filterHealthyServers(servers)
 	if len(healthyServers) == 0 {
-		return nil, fmt.Errorf("no healthy servers available")
+		return nil, errors.New("no healthy servers available")
 	}
 
 	// Select server using the algorithm
@@ -487,7 +489,7 @@ func (a *LoadBalancerAgent) makeLoadBalancingDecision(servers []*ServerMetrics, 
 		Confidence:     confidence,
 		Reasoning:      reasoning,
 		Alternatives:   alternatives,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"total_servers":   len(servers),
 			"healthy_servers": len(healthyServers),
 			"algorithm":       algorithm.Name(),
@@ -495,7 +497,7 @@ func (a *LoadBalancerAgent) makeLoadBalancingDecision(servers []*ServerMetrics, 
 	}, nil
 }
 
-// generateLoadBalancingActions generates actions for load balancing
+// generateLoadBalancingActions generates actions for load balancing.
 func (a *LoadBalancerAgent) generateLoadBalancingActions(decision *LoadBalancingDecision, servers []*ServerMetrics) []ai.AgentAction {
 	actions := make([]ai.AgentAction, 0)
 
@@ -503,7 +505,7 @@ func (a *LoadBalancerAgent) generateLoadBalancingActions(decision *LoadBalancing
 	actions = append(actions, ai.AgentAction{
 		Type:   "route_request",
 		Target: decision.SelectedServer.ServerID,
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"server_id": decision.SelectedServer.ServerID,
 			"host":      decision.SelectedServer.Host,
 			"port":      decision.SelectedServer.Port,
@@ -518,7 +520,7 @@ func (a *LoadBalancerAgent) generateLoadBalancingActions(decision *LoadBalancing
 		actions = append(actions, ai.AgentAction{
 			Type:   "rebalance_load",
 			Target: "load_balancer",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"reason":    "load_imbalance_detected",
 				"threshold": a.rebalanceThreshold,
 			},
@@ -533,7 +535,7 @@ func (a *LoadBalancerAgent) generateLoadBalancingActions(decision *LoadBalancing
 			actions = append(actions, ai.AgentAction{
 				Type:   "remove_server",
 				Target: server.ServerID,
-				Parameters: map[string]interface{}{
+				Parameters: map[string]any{
 					"server_id": server.ServerID,
 					"reason":    "unhealthy_server",
 				},
@@ -550,11 +552,13 @@ func (a *LoadBalancerAgent) generateLoadBalancingActions(decision *LoadBalancing
 
 func (a *LoadBalancerAgent) filterHealthyServers(servers []*ServerMetrics) []*ServerMetrics {
 	healthy := make([]*ServerMetrics, 0)
+
 	for _, server := range servers {
 		if server.HealthStatus == HealthStatusHealthy || server.HealthStatus == HealthStatusDegraded {
 			healthy = append(healthy, server)
 		}
 	}
+
 	return healthy
 }
 
@@ -568,12 +572,14 @@ func (a *LoadBalancerAgent) hasHighVariance(servers []*ServerMetrics) bool {
 	for _, server := range servers {
 		mean += server.LoadScore
 	}
+
 	mean /= float64(len(servers))
 
 	variance := 0.0
 	for _, server := range servers {
-		variance += math.Pow(server.LoadScore-mean, 2)
+		variance += (server.LoadScore - mean) * (server.LoadScore - mean)
 	}
+
 	variance /= float64(len(servers))
 
 	return variance > 0.1 // High variance threshold
@@ -585,6 +591,7 @@ func (a *LoadBalancerAgent) hasCapacityConstraints(servers []*ServerMetrics) boo
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -593,9 +600,10 @@ func (a *LoadBalancerAgent) calculateDecisionConfidence(selectedServer *ServerMe
 	confidence := selectedServer.LoadScore
 
 	// Adjust based on health status
-	if selectedServer.HealthStatus == HealthStatusHealthy {
+	switch selectedServer.HealthStatus {
+	case HealthStatusHealthy:
 		confidence *= 1.0
-	} else if selectedServer.HealthStatus == HealthStatusDegraded {
+	case HealthStatusDegraded:
 		confidence *= 0.8
 	}
 
@@ -651,44 +659,51 @@ func (a *LoadBalancerAgent) learnFromDecision(decision *LoadBalancingDecision, s
 
 // Utility methods for data extraction
 
-func (a *LoadBalancerAgent) getStringValue(data map[string]interface{}, key string) string {
+func (a *LoadBalancerAgent) getStringValue(data map[string]any, key string) string {
 	if value, ok := data[key].(string); ok {
 		return value
 	}
+
 	return ""
 }
 
-func (a *LoadBalancerAgent) getFloatValue(data map[string]interface{}, key string) float64 {
+func (a *LoadBalancerAgent) getFloatValue(data map[string]any, key string) float64 {
 	if value, ok := data[key].(float64); ok {
 		return value
 	}
+
 	if value, ok := data[key].(int); ok {
 		return float64(value)
 	}
+
 	return 0.0
 }
 
-func (a *LoadBalancerAgent) getBoolValue(data map[string]interface{}, key string) bool {
+func (a *LoadBalancerAgent) getBoolValue(data map[string]any, key string) bool {
 	if value, ok := data[key].(bool); ok {
 		return value
 	}
+
 	return false
 }
 
-func (a *LoadBalancerAgent) getStringMap(data map[string]interface{}, key string) map[string]string {
-	if value, ok := data[key].(map[string]interface{}); ok {
+func (a *LoadBalancerAgent) getStringMap(data map[string]any, key string) map[string]string {
+	if value, ok := data[key].(map[string]any); ok {
 		result := make(map[string]string)
+
 		for k, v := range value {
 			if str, ok := v.(string); ok {
 				result[k] = str
 			}
 		}
+
 		return result
 	}
+
 	return make(map[string]string)
 }
 
-func (a *LoadBalancerAgent) extractCurrentLoad(data map[string]interface{}) *LoadMetrics {
+func (a *LoadBalancerAgent) extractCurrentLoad(data map[string]any) *LoadMetrics {
 	// Extract current load metrics
 	return &LoadMetrics{
 		RequestsPerSecond:   a.getFloatValue(data, "requests_per_second"),
@@ -698,12 +713,13 @@ func (a *LoadBalancerAgent) extractCurrentLoad(data map[string]interface{}) *Loa
 	}
 }
 
-func (a *LoadBalancerAgent) extractHorizon(data map[string]interface{}) time.Duration {
+func (a *LoadBalancerAgent) extractHorizon(data map[string]any) time.Duration {
 	if horizonStr, ok := data["horizon"].(string); ok {
 		if duration, err := time.ParseDuration(horizonStr); err == nil {
 			return duration
 		}
 	}
+
 	return 1 * time.Hour // Default horizon
 }
 
@@ -714,7 +730,7 @@ func (a *LoadBalancerAgent) generateCapacityActions(recommendation *CapacityReco
 		actions = append(actions, ai.AgentAction{
 			Type:   "scale_up",
 			Target: "server_pool",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"current_capacity":  recommendation.CurrentCapacity,
 				"required_capacity": recommendation.RequiredCapacity,
 				"scale_factor":      recommendation.ScaleFactor,
@@ -734,7 +750,7 @@ func (a *LoadBalancerAgent) generateHealthActions(assessment *HealthAssessment) 
 		actions = append(actions, ai.AgentAction{
 			Type:   "health_check",
 			Target: server.ServerID,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"server_id": server.ServerID,
 				"action":    "restart_health_check",
 			},
@@ -779,9 +795,9 @@ func (a *LoadBalancerAgent) initializeDefaultRules() {
 // Input/Output types
 
 type LoadBalancingInput struct {
-	Servers []*ServerMetrics       `json:"servers"`
-	Request *RequestContext        `json:"request"`
-	Options map[string]interface{} `json:"options"`
+	Servers []*ServerMetrics `json:"servers"`
+	Request *RequestContext  `json:"request"`
+	Options map[string]any   `json:"options"`
 }
 
 type LoadBalancingOutput struct {
@@ -790,9 +806,9 @@ type LoadBalancingOutput struct {
 }
 
 type CapacityPlanningInput struct {
-	CurrentLoad *LoadMetrics           `json:"current_load"`
-	Horizon     time.Duration          `json:"horizon"`
-	Options     map[string]interface{} `json:"options"`
+	CurrentLoad *LoadMetrics   `json:"current_load"`
+	Horizon     time.Duration  `json:"horizon"`
+	Options     map[string]any `json:"options"`
 }
 
 type CapacityPlanningOutput struct {
@@ -801,8 +817,8 @@ type CapacityPlanningOutput struct {
 }
 
 type HealthMonitoringInput struct {
-	Servers []*ServerMetrics       `json:"servers"`
-	Options map[string]interface{} `json:"options"`
+	Servers []*ServerMetrics `json:"servers"`
+	Options map[string]any   `json:"options"`
 }
 
 type HealthMonitoringOutput struct {
@@ -920,7 +936,7 @@ func (wrr *WeightedRoundRobinAlgorithm) Name() string {
 
 func (wrr *WeightedRoundRobinAlgorithm) SelectServer(servers []*ServerMetrics, request *RequestContext) (*ServerMetrics, error) {
 	if len(servers) == 0 {
-		return nil, fmt.Errorf("no servers available")
+		return nil, errors.New("no servers available")
 	}
 
 	// Select server with highest load score
@@ -938,6 +954,7 @@ func (wrr *WeightedRoundRobinAlgorithm) CalculateWeights(servers []*ServerMetric
 	for _, server := range servers {
 		server.Weight = server.LoadScore
 	}
+
 	return nil
 }
 
@@ -957,7 +974,7 @@ func (lc *LeastConnectionsAlgorithm) Name() string {
 
 func (lc *LeastConnectionsAlgorithm) SelectServer(servers []*ServerMetrics, request *RequestContext) (*ServerMetrics, error) {
 	if len(servers) == 0 {
-		return nil, fmt.Errorf("no servers available")
+		return nil, errors.New("no servers available")
 	}
 
 	// Select server with least connections
@@ -979,6 +996,7 @@ func (lc *LeastConnectionsAlgorithm) GetScore(server *ServerMetrics) float64 {
 	if server.Capacity > 0 {
 		return 1.0 - float64(server.ActiveConns)/float64(server.Capacity)
 	}
+
 	return 1.0
 }
 
@@ -994,11 +1012,12 @@ func (ca *CapacityAwareAlgorithm) Name() string {
 
 func (ca *CapacityAwareAlgorithm) SelectServer(servers []*ServerMetrics, request *RequestContext) (*ServerMetrics, error) {
 	if len(servers) == 0 {
-		return nil, fmt.Errorf("no servers available")
+		return nil, errors.New("no servers available")
 	}
 
 	// Select server with best capacity score
 	var bestServer *ServerMetrics
+
 	bestScore := -1.0
 
 	for _, server := range servers {
@@ -1020,6 +1039,7 @@ func (ca *CapacityAwareAlgorithm) GetScore(server *ServerMetrics) float64 {
 	if server.Capacity > 0 {
 		return math.Max(0, 1.0-float64(server.ActiveConns)/float64(server.Capacity))
 	}
+
 	return server.LoadScore
 }
 
@@ -1035,7 +1055,7 @@ func (ss *StickySessionAlgorithm) Name() string {
 
 func (ss *StickySessionAlgorithm) SelectServer(servers []*ServerMetrics, request *RequestContext) (*ServerMetrics, error) {
 	if len(servers) == 0 {
-		return nil, fmt.Errorf("no servers available")
+		return nil, errors.New("no servers available")
 	}
 
 	// For sticky sessions, we'd normally hash the session ID

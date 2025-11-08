@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Mock EmbeddingModel
+// Mock EmbeddingModel.
 type MockEmbeddingModel struct {
 	EmbedFunc func(ctx context.Context, texts []string) ([]Vector, error)
 	DimFunc   func() int
@@ -22,6 +22,7 @@ func (m *MockEmbeddingModel) Embed(ctx context.Context, texts []string) ([]Vecto
 	for i := range vectors {
 		vectors[i] = Vector{Values: []float64{0.1, 0.2, 0.3}}
 	}
+
 	return vectors, nil
 }
 
@@ -29,13 +30,14 @@ func (m *MockEmbeddingModel) Dimensions() int {
 	if m.DimFunc != nil {
 		return m.DimFunc()
 	}
+
 	return 3
 }
 
-// Mock VectorStore
+// Mock VectorStore.
 type MockVectorStore struct {
 	UpsertFunc func(ctx context.Context, vectors []Vector) error
-	QueryFunc  func(ctx context.Context, vector []float64, limit int, filter map[string]interface{}) ([]VectorMatch, error)
+	QueryFunc  func(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error)
 	DeleteFunc func(ctx context.Context, ids []string) error
 }
 
@@ -43,13 +45,15 @@ func (m *MockVectorStore) Upsert(ctx context.Context, vectors []Vector) error {
 	if m.UpsertFunc != nil {
 		return m.UpsertFunc(ctx, vectors)
 	}
+
 	return nil
 }
 
-func (m *MockVectorStore) Query(ctx context.Context, vector []float64, limit int, filter map[string]interface{}) ([]VectorMatch, error) {
+func (m *MockVectorStore) Query(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error) {
 	if m.QueryFunc != nil {
 		return m.QueryFunc(ctx, vector, limit, filter)
 	}
+
 	return []VectorMatch{}, nil
 }
 
@@ -57,6 +61,7 @@ func (m *MockVectorStore) Delete(ctx context.Context, ids []string) error {
 	if m.DeleteFunc != nil {
 		return m.DeleteFunc(ctx, ids)
 	}
+
 	return nil
 }
 
@@ -126,6 +131,7 @@ func TestRAG_IndexDocument(t *testing.T) {
 	vectorStore := &MockVectorStore{
 		UpsertFunc: func(ctx context.Context, vectors []Vector) error {
 			upsertCalled++
+
 			return nil
 		},
 	}
@@ -142,13 +148,12 @@ func TestRAG_IndexDocument(t *testing.T) {
 	doc := Document{
 		ID:      "doc1",
 		Content: "Short test content",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"source": "test",
 		},
 	}
 
 	err := rag.IndexDocument(context.Background(), doc)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -160,12 +165,14 @@ func TestRAG_IndexDocument(t *testing.T) {
 
 func TestRAG_IndexDocument_WithChunks(t *testing.T) {
 	upsertCalled := 0
+
 	var vectorsReceived []Vector
 
 	vectorStore := &MockVectorStore{
 		UpsertFunc: func(ctx context.Context, vectors []Vector) error {
 			upsertCalled++
 			vectorsReceived = vectors
+
 			return nil
 		},
 	}
@@ -184,7 +191,6 @@ func TestRAG_IndexDocument_WithChunks(t *testing.T) {
 	}
 
 	err := rag.IndexDocument(context.Background(), doc)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -215,7 +221,6 @@ func TestRAG_IndexDocument_EmbedError(t *testing.T) {
 	}
 
 	err := rag.IndexDocument(context.Background(), doc)
-
 	if err == nil {
 		t.Error("expected error from embedding")
 	}
@@ -242,7 +247,6 @@ func TestRAG_IndexDocument_UpsertError(t *testing.T) {
 	}
 
 	err := rag.IndexDocument(context.Background(), doc)
-
 	if err == nil {
 		t.Error("expected error from upsert")
 	}
@@ -254,12 +258,12 @@ func TestRAG_IndexDocument_UpsertError(t *testing.T) {
 
 func TestRAG_Retrieve(t *testing.T) {
 	vectorStore := &MockVectorStore{
-		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]interface{}) ([]VectorMatch, error) {
+		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error) {
 			return []VectorMatch{
 				{
 					ID:    "chunk1",
 					Score: 0.9,
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"content":     "Relevant content",
 						"chunk_index": 0,
 					},
@@ -267,7 +271,7 @@ func TestRAG_Retrieve(t *testing.T) {
 				{
 					ID:    "chunk2",
 					Score: 0.8,
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"content":     "Another relevant content",
 						"chunk_index": 1,
 					},
@@ -281,7 +285,6 @@ func TestRAG_Retrieve(t *testing.T) {
 	rag := NewRAG(vectorStore, embedder, nil, nil, nil)
 
 	result, err := rag.Retrieve(context.Background(), "test query")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -315,7 +318,6 @@ func TestRAG_Retrieve_EmbedError(t *testing.T) {
 	rag := NewRAG(vectorStore, embedder, nil, nil, nil)
 
 	_, err := rag.Retrieve(context.Background(), "test query")
-
 	if err == nil {
 		t.Error("expected error from embedding")
 	}
@@ -327,7 +329,7 @@ func TestRAG_Retrieve_EmbedError(t *testing.T) {
 
 func TestRAG_Retrieve_SearchError(t *testing.T) {
 	vectorStore := &MockVectorStore{
-		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]interface{}) ([]VectorMatch, error) {
+		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error) {
 			return nil, errors.New("search error")
 		},
 	}
@@ -337,7 +339,6 @@ func TestRAG_Retrieve_SearchError(t *testing.T) {
 	rag := NewRAG(vectorStore, embedder, nil, nil, nil)
 
 	_, err := rag.Retrieve(context.Background(), "test query")
-
 	if err == nil {
 		t.Error("expected error from search")
 	}
@@ -349,12 +350,12 @@ func TestRAG_Retrieve_SearchError(t *testing.T) {
 
 func TestRAG_Retrieve_WithReranking(t *testing.T) {
 	vectorStore := &MockVectorStore{
-		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]interface{}) ([]VectorMatch, error) {
+		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error) {
 			return []VectorMatch{
 				{
 					ID:    "chunk1",
 					Score: 0.8,
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"content":     "quantum computing basics",
 						"chunk_index": 0,
 					},
@@ -362,7 +363,7 @@ func TestRAG_Retrieve_WithReranking(t *testing.T) {
 				{
 					ID:    "chunk2",
 					Score: 0.9,
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"content":     "introduction to quantum physics",
 						"chunk_index": 1,
 					},
@@ -380,7 +381,6 @@ func TestRAG_Retrieve_WithReranking(t *testing.T) {
 	rag := NewRAG(vectorStore, embedder, nil, nil, opts)
 
 	result, err := rag.Retrieve(context.Background(), "quantum computing")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -546,6 +546,7 @@ func TestRAG_RerankDocuments(t *testing.T) {
 	// Document with both terms should be ranked higher after reranking
 	// The second document has both "dogs" and "cats" so it should get boosted
 	hasDogsAndCats := false
+
 	for i, doc := range reranked {
 		if doc.Document.Content == "document about dogs and cats" {
 			hasDogsAndCats = true
@@ -573,7 +574,6 @@ func TestRAG_DeleteDocument(t *testing.T) {
 	rag := NewRAG(vectorStore, embedder, nil, nil, nil)
 
 	err := rag.DeleteDocument(context.Background(), "doc1")
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -585,6 +585,7 @@ func TestRAG_UpdateDocument(t *testing.T) {
 	vectorStore := &MockVectorStore{
 		UpsertFunc: func(ctx context.Context, vectors []Vector) error {
 			upsertCalled++
+
 			return nil
 		},
 	}
@@ -599,7 +600,6 @@ func TestRAG_UpdateDocument(t *testing.T) {
 	}
 
 	err := rag.UpdateDocument(context.Background(), doc)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -616,7 +616,6 @@ func TestRAG_GetStats(t *testing.T) {
 	rag := NewRAG(vectorStore, embedder, nil, nil, nil)
 
 	stats, err := rag.GetStats(context.Background())
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -625,4 +624,3 @@ func TestRAG_GetStats(t *testing.T) {
 		t.Error("expected stats to be returned")
 	}
 }
-

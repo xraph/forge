@@ -4,39 +4,41 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
-// LifecyclePhase represents a phase in the application lifecycle
+// LifecyclePhase represents a phase in the application lifecycle.
 type LifecyclePhase string
 
 const (
-	// PhaseBeforeStart is called before the app starts (before extensions register)
+	// PhaseBeforeStart is called before the app starts (before extensions register).
 	PhaseBeforeStart LifecyclePhase = "before_start"
 
-	// PhaseAfterRegister is called after extensions register but before they start
+	// PhaseAfterRegister is called after extensions register but before they start.
 	PhaseAfterRegister LifecyclePhase = "after_register"
 
-	// PhaseAfterStart is called after the app starts (after all extensions start)
+	// PhaseAfterStart is called after the app starts (after all extensions start).
 	PhaseAfterStart LifecyclePhase = "after_start"
 
-	// PhaseBeforeRun is called before the HTTP server starts listening
+	// PhaseBeforeRun is called before the HTTP server starts listening.
 	PhaseBeforeRun LifecyclePhase = "before_run"
 
-	// PhaseAfterRun is called after the HTTP server starts (in a goroutine, non-blocking)
+	// PhaseAfterRun is called after the HTTP server starts (in a goroutine, non-blocking).
 	PhaseAfterRun LifecyclePhase = "after_run"
 
-	// PhaseBeforeStop is called before the app stops (before graceful shutdown)
+	// PhaseBeforeStop is called before the app stops (before graceful shutdown).
 	PhaseBeforeStop LifecyclePhase = "before_stop"
 
-	// PhaseAfterStop is called after the app stops (after all extensions stop)
+	// PhaseAfterStop is called after the app stops (after all extensions stop).
 	PhaseAfterStop LifecyclePhase = "after_stop"
 )
 
 // LifecycleHook is a function called during a lifecycle phase
-// Hooks receive the App instance and a context for cancellation
+// Hooks receive the App instance and a context for cancellation.
 type LifecycleHook func(ctx context.Context, app App) error
 
-// LifecycleHookOptions configures a lifecycle hook
+// LifecycleHookOptions configures a lifecycle hook.
 type LifecycleHookOptions struct {
 	// Name is a unique identifier for this hook (for logging/debugging)
 	Name string
@@ -50,7 +52,7 @@ type LifecycleHookOptions struct {
 	ContinueOnError bool
 }
 
-// DefaultLifecycleHookOptions returns default hook options
+// DefaultLifecycleHookOptions returns default hook options.
 func DefaultLifecycleHookOptions(name string) LifecycleHookOptions {
 	return LifecycleHookOptions{
 		Name:            name,
@@ -59,13 +61,13 @@ func DefaultLifecycleHookOptions(name string) LifecycleHookOptions {
 	}
 }
 
-// lifecycleHookEntry wraps a hook with its options
+// lifecycleHookEntry wraps a hook with its options.
 type lifecycleHookEntry struct {
 	hook LifecycleHook
 	opts LifecycleHookOptions
 }
 
-// LifecycleManager manages lifecycle hooks
+// LifecycleManager manages lifecycle hooks.
 type LifecycleManager interface {
 	// RegisterHook registers a hook for a specific lifecycle phase
 	RegisterHook(phase LifecyclePhase, hook LifecycleHook, opts LifecycleHookOptions) error
@@ -86,14 +88,14 @@ type LifecycleManager interface {
 	ClearHooks(phase LifecyclePhase)
 }
 
-// lifecycleManager implements LifecycleManager
+// lifecycleManager implements LifecycleManager.
 type lifecycleManager struct {
 	mu     sync.RWMutex
 	hooks  map[LifecyclePhase][]lifecycleHookEntry
 	logger Logger
 }
 
-// NewLifecycleManager creates a new lifecycle manager
+// NewLifecycleManager creates a new lifecycle manager.
 func NewLifecycleManager(logger Logger) LifecycleManager {
 	if logger == nil {
 		logger = NewNoopLogger()
@@ -105,14 +107,14 @@ func NewLifecycleManager(logger Logger) LifecycleManager {
 	}
 }
 
-// RegisterHook registers a hook for a specific lifecycle phase
+// RegisterHook registers a hook for a specific lifecycle phase.
 func (m *lifecycleManager) RegisterHook(phase LifecyclePhase, hook LifecycleHook, opts LifecycleHookOptions) error {
 	if hook == nil {
-		return fmt.Errorf("hook cannot be nil")
+		return errors.New("hook cannot be nil")
 	}
 
 	if opts.Name == "" {
-		return fmt.Errorf("hook name is required")
+		return errors.New("hook name is required")
 	}
 
 	m.mu.Lock()
@@ -143,12 +145,12 @@ func (m *lifecycleManager) RegisterHook(phase LifecyclePhase, hook LifecycleHook
 	return nil
 }
 
-// RegisterHookFn is a convenience method to register a hook with default options
+// RegisterHookFn is a convenience method to register a hook with default options.
 func (m *lifecycleManager) RegisterHookFn(phase LifecyclePhase, name string, hook LifecycleHook) error {
 	return m.RegisterHook(phase, hook, DefaultLifecycleHookOptions(name))
 }
 
-// ExecuteHooks executes all hooks for a given phase
+// ExecuteHooks executes all hooks for a given phase.
 func (m *lifecycleManager) ExecuteHooks(ctx context.Context, phase LifecyclePhase, app App) error {
 	m.mu.RLock()
 	hooks := m.hooks[phase]
@@ -164,6 +166,7 @@ func (m *lifecycleManager) ExecuteHooks(ctx context.Context, phase LifecyclePhas
 	)
 
 	var firstError error
+
 	executedCount := 0
 
 	for _, entry := range hooks {
@@ -192,6 +195,7 @@ func (m *lifecycleManager) ExecuteHooks(ctx context.Context, phase LifecyclePhas
 					F("executed", executedCount),
 					F("remaining", len(hooks)-executedCount-1),
 				)
+
 				return firstError
 			}
 		} else {
@@ -199,6 +203,7 @@ func (m *lifecycleManager) ExecuteHooks(ctx context.Context, phase LifecyclePhas
 				F("phase", string(phase)),
 				F("name", entry.opts.Name),
 			)
+
 			executedCount++
 		}
 	}
@@ -212,20 +217,22 @@ func (m *lifecycleManager) ExecuteHooks(ctx context.Context, phase LifecyclePhas
 	return firstError
 }
 
-// GetHooks returns all hooks for a given phase (for inspection)
+// GetHooks returns all hooks for a given phase (for inspection).
 func (m *lifecycleManager) GetHooks(phase LifecyclePhase) []LifecycleHookOptions {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	hooks := m.hooks[phase]
+
 	result := make([]LifecycleHookOptions, len(hooks))
 	for i, entry := range hooks {
 		result[i] = entry.opts
 	}
+
 	return result
 }
 
-// RemoveHook removes a hook by name
+// RemoveHook removes a hook by name.
 func (m *lifecycleManager) RemoveHook(phase LifecyclePhase, name string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -239,6 +246,7 @@ func (m *lifecycleManager) RemoveHook(phase LifecyclePhase, name string) error {
 				F("phase", string(phase)),
 				F("name", name),
 			)
+
 			return nil
 		}
 	}
@@ -246,7 +254,7 @@ func (m *lifecycleManager) RemoveHook(phase LifecyclePhase, name string) error {
 	return fmt.Errorf("hook %s not found for phase %s", name, phase)
 }
 
-// ClearHooks removes all hooks for a given phase
+// ClearHooks removes all hooks for a given phase.
 func (m *lifecycleManager) ClearHooks(phase LifecyclePhase) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -260,11 +268,11 @@ func (m *lifecycleManager) ClearHooks(phase LifecyclePhase) {
 	)
 }
 
-// sortHooks sorts hooks by priority (higher priority first)
+// sortHooks sorts hooks by priority (higher priority first).
 func (m *lifecycleManager) sortHooks(phase LifecyclePhase) {
 	hooks := m.hooks[phase]
 	// Simple bubble sort (sufficient for small lists)
-	for i := 0; i < len(hooks); i++ {
+	for i := range hooks {
 		for j := i + 1; j < len(hooks); j++ {
 			if hooks[j].opts.Priority > hooks[i].opts.Priority {
 				hooks[i], hooks[j] = hooks[j], hooks[i]
@@ -272,4 +280,3 @@ func (m *lifecycleManager) sortHooks(phase LifecyclePhase) {
 		}
 	}
 }
-

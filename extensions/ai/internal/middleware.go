@@ -2,7 +2,7 @@ package internal
 
 import "time"
 
-// AIMiddlewareType defines the type of AI middleware
+// AIMiddlewareType defines the type of AI middleware.
 type AIMiddlewareType string
 
 const (
@@ -15,26 +15,26 @@ const (
 	AIMiddlewareTypeSecurity             AIMiddlewareType = "security"
 )
 
-// AIMiddlewareConfig contains configuration for AI middleware
+// AIMiddlewareConfig contains configuration for AI middleware.
 type AIMiddlewareConfig struct {
-	Enabled    bool                   `json:"enabled"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Timeout    time.Duration          `json:"timeout"`
-	Retries    int                    `json:"retries"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Enabled    bool           `json:"enabled"`
+	Parameters map[string]any `json:"parameters"`
+	Timeout    time.Duration  `json:"timeout"`
+	Retries    int            `json:"retries"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// AIMiddlewareStats contains statistics for AI middleware
+// AIMiddlewareStats contains statistics for AI middleware.
 type AIMiddlewareStats struct {
-	Name              string                 `json:"name"`
-	Type              string                 `json:"type"`
-	RequestsTotal     int64                  `json:"requests_total"`
-	RequestsProcessed int64                  `json:"requests_processed"`
-	RequestsBlocked   int64                  `json:"requests_blocked"`
-	AverageLatency    time.Duration          `json:"average_latency"`
-	ErrorRate         float64                `json:"error_rate"`
-	LearningEnabled   bool                   `json:"learning_enabled"`
-	AdaptiveChanges   int64                  `json:"adaptive_changes"`
-	LastUpdated       time.Time              `json:"last_updated"`
-	CustomMetrics     map[string]interface{} `json:"custom_metrics"`
+	Name              string         `json:"name"`
+	Type              string         `json:"type"`
+	RequestsTotal     int64          `json:"requests_total"`
+	RequestsProcessed int64          `json:"requests_processed"`
+	RequestsBlocked   int64          `json:"requests_blocked"`
+	AverageLatency    time.Duration  `json:"average_latency"`
+	ErrorRate         float64        `json:"error_rate"`
+	LearningEnabled   bool           `json:"learning_enabled"`
+	AdaptiveChanges   int64          `json:"adaptive_changes"`
+	LastUpdated       time.Time      `json:"last_updated"`
+	CustomMetrics     map[string]any `json:"custom_metrics"`
 }

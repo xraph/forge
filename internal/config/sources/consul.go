@@ -1,6 +1,5 @@
 package sources
 
-//nolint:gosec // G104: Error handler invocations and StopWatch() are intentionally void
 // Consul source operations use error handlers and stop methods without error returns.
 
 import (
@@ -18,7 +17,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// ConsulSource represents a Consul configuration source
+// ConsulSource represents a Consul configuration source.
 type ConsulSource struct {
 	name         string
 	client       *api.Client
@@ -33,7 +32,7 @@ type ConsulSource struct {
 	mu           sync.RWMutex
 }
 
-// ConsulSourceOptions contains options for Consul configuration sources
+// ConsulSourceOptions contains options for Consul configuration sources.
 type ConsulSourceOptions struct {
 	Name         string
 	Address      string
@@ -50,30 +49,30 @@ type ConsulSourceOptions struct {
 	ErrorHandler shared.ErrorHandler
 }
 
-// ConsulSourceConfig contains configuration for creating Consul sources
+// ConsulSourceConfig contains configuration for creating Consul sources.
 type ConsulSourceConfig struct {
-	Address      string           `yaml:"address" json:"address"`
-	Token        string           `yaml:"token" json:"token"`
-	Datacenter   string           `yaml:"datacenter" json:"datacenter"`
-	Prefix       string           `yaml:"prefix" json:"prefix"`
-	Priority     int              `yaml:"priority" json:"priority"`
-	WatchEnabled bool             `yaml:"watch_enabled" json:"watch_enabled"`
-	Timeout      time.Duration    `yaml:"timeout" json:"timeout"`
-	RetryCount   int              `yaml:"retry_count" json:"retry_count"`
-	RetryDelay   time.Duration    `yaml:"retry_delay" json:"retry_delay"`
-	TLS          *ConsulTLSConfig `yaml:"tls" json:"tls"`
+	Address      string           `json:"address"       yaml:"address"`
+	Token        string           `json:"token"         yaml:"token"`
+	Datacenter   string           `json:"datacenter"    yaml:"datacenter"`
+	Prefix       string           `json:"prefix"        yaml:"prefix"`
+	Priority     int              `json:"priority"      yaml:"priority"`
+	WatchEnabled bool             `json:"watch_enabled" yaml:"watch_enabled"`
+	Timeout      time.Duration    `json:"timeout"       yaml:"timeout"`
+	RetryCount   int              `json:"retry_count"   yaml:"retry_count"`
+	RetryDelay   time.Duration    `json:"retry_delay"   yaml:"retry_delay"`
+	TLS          *ConsulTLSConfig `json:"tls"           yaml:"tls"`
 }
 
-// ConsulTLSConfig contains TLS configuration for Consul
+// ConsulTLSConfig contains TLS configuration for Consul.
 type ConsulTLSConfig struct {
-	Enabled            bool   `yaml:"enabled" json:"enabled"`
-	CertFile           string `yaml:"cert_file" json:"cert_file"`
-	KeyFile            string `yaml:"key_file" json:"key_file"`
-	CAFile             string `yaml:"ca_file" json:"ca_file"`
-	InsecureSkipVerify bool   `yaml:"insecure_skip_verify" json:"insecure_skip_verify"`
+	Enabled            bool   `json:"enabled"              yaml:"enabled"`
+	CertFile           string `json:"cert_file"            yaml:"cert_file"`
+	KeyFile            string `json:"key_file"             yaml:"key_file"`
+	CAFile             string `json:"ca_file"              yaml:"ca_file"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
 }
 
-// NewConsulSource creates a new Consul configuration source
+// NewConsulSource creates a new Consul configuration source.
 func NewConsulSource(prefix string, options ConsulSourceOptions) (configcore.ConfigSource, error) {
 	if options.Address == "" {
 		options.Address = "127.0.0.1:8500"
@@ -93,7 +92,7 @@ func NewConsulSource(prefix string, options ConsulSourceOptions) (configcore.Con
 
 	name := options.Name
 	if name == "" {
-		name = fmt.Sprintf("consul:%s", prefix)
+		name = "consul:" + prefix
 	}
 
 	// Create Consul client configuration
@@ -136,34 +135,34 @@ func NewConsulSource(prefix string, options ConsulSourceOptions) (configcore.Con
 	return source, nil
 }
 
-// Name returns the source name
+// Name returns the source name.
 func (cs *ConsulSource) Name() string {
 	return cs.name
 }
 
-// GetName returns the source name (alias for Name)
+// GetName returns the source name (alias for Name).
 func (cs *ConsulSource) GetName() string {
 	return cs.name
 }
 
-// GetType returns the source type
+// GetType returns the source type.
 func (cs *ConsulSource) GetType() string {
 	return "consul"
 }
 
-// IsAvailable checks if the source is available
+// IsAvailable checks if the source is available.
 func (cs *ConsulSource) IsAvailable(ctx context.Context) bool {
 	// TODO: Implement actual Consul availability check
 	return true
 }
 
-// Priority returns the source priority
+// Priority returns the source priority.
 func (cs *ConsulSource) Priority() int {
 	return cs.priority
 }
 
-// Load loads configuration from Consul KV store
-func (cs *ConsulSource) Load(ctx context.Context) (map[string]interface{}, error) {
+// Load loads configuration from Consul KV store.
+func (cs *ConsulSource) Load(ctx context.Context) (map[string]any, error) {
 	if cs.logger != nil {
 		cs.logger.Debug("loading configuration from Consul",
 			logger.String("prefix", cs.prefix),
@@ -172,11 +171,11 @@ func (cs *ConsulSource) Load(ctx context.Context) (map[string]interface{}, error
 	}
 
 	kv := cs.client.KV()
+
 	pairs, meta, err := kv.List(cs.prefix, &api.QueryOptions{
 		RequireConsistent: true,
 		AllowStale:        false,
 	})
-
 	if err != nil {
 		return nil, errors.ErrConfigError(fmt.Sprintf("failed to query Consul KV: %v", err), err)
 	}
@@ -186,7 +185,7 @@ func (cs *ConsulSource) Load(ctx context.Context) (map[string]interface{}, error
 	cs.lastIndex = meta.LastIndex
 	cs.mu.Unlock()
 
-	config := make(map[string]interface{})
+	config := make(map[string]any)
 
 	for _, pair := range pairs {
 		// Skip directories (keys ending with /)
@@ -211,6 +210,7 @@ func (cs *ConsulSource) Load(ctx context.Context) (map[string]interface{}, error
 					logger.Error(err),
 				)
 			}
+
 			continue
 		}
 
@@ -228,8 +228,8 @@ func (cs *ConsulSource) Load(ctx context.Context) (map[string]interface{}, error
 	return config, nil
 }
 
-// Watch starts watching Consul KV for changes
-func (cs *ConsulSource) Watch(ctx context.Context, callback func(map[string]interface{})) error {
+// Watch starts watching Consul KV for changes.
+func (cs *ConsulSource) Watch(ctx context.Context, callback func(map[string]any)) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -256,7 +256,7 @@ func (cs *ConsulSource) Watch(ctx context.Context, callback func(map[string]inte
 	return nil
 }
 
-// StopWatch stops watching Consul KV
+// StopWatch stops watching Consul KV.
 func (cs *ConsulSource) StopWatch() error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
@@ -281,7 +281,7 @@ func (cs *ConsulSource) StopWatch() error {
 	return nil
 }
 
-// Reload forces a reload of Consul configuration
+// Reload forces a reload of Consul configuration.
 func (cs *ConsulSource) Reload(ctx context.Context) error {
 	if cs.logger != nil {
 		cs.logger.Info("reloading Consul configuration",
@@ -291,20 +291,21 @@ func (cs *ConsulSource) Reload(ctx context.Context) error {
 
 	// Just load again - the configuration will be updated
 	_, err := cs.Load(ctx)
+
 	return err
 }
 
-// IsWatchable returns true if Consul watching is enabled
+// IsWatchable returns true if Consul watching is enabled.
 func (cs *ConsulSource) IsWatchable() bool {
 	return cs.options.WatchEnabled
 }
 
-// SupportsSecrets returns true (Consul can store secrets)
+// SupportsSecrets returns true (Consul can store secrets).
 func (cs *ConsulSource) SupportsSecrets() bool {
 	return true
 }
 
-// GetSecret retrieves a secret from Consul KV
+// GetSecret retrieves a secret from Consul KV.
 func (cs *ConsulSource) GetSecret(ctx context.Context, key string) (string, error) {
 	kv := cs.client.KV()
 
@@ -317,20 +318,19 @@ func (cs *ConsulSource) GetSecret(ctx context.Context, key string) (string, erro
 	pair, _, err := kv.Get(secretKey, &api.QueryOptions{
 		RequireConsistent: true,
 	})
-
 	if err != nil {
 		return "", errors.ErrConfigError(fmt.Sprintf("failed to get secret from Consul: %v", err), err)
 	}
 
 	if pair == nil {
-		return "", errors.ErrConfigError(fmt.Sprintf("secret not found in Consul: %s", key), nil)
+		return "", errors.ErrConfigError("secret not found in Consul: "+key, nil)
 	}
 
 	return string(pair.Value), nil
 }
 
-// watchLoop is the main watching loop for Consul KV changes
-func (cs *ConsulSource) watchLoop(ctx context.Context, callback func(map[string]interface{})) {
+// watchLoop is the main watching loop for Consul KV changes.
+func (cs *ConsulSource) watchLoop(ctx context.Context, callback func(map[string]any)) {
 	defer func() {
 		if r := recover(); r != nil {
 			if cs.logger != nil {
@@ -363,7 +363,6 @@ func (cs *ConsulSource) watchLoop(ctx context.Context, callback func(map[string]
 			WaitIndex: lastIndex,
 			WaitTime:  cs.options.Timeout,
 		})
-
 		if err != nil {
 			retryCount++
 			if retryCount <= cs.options.RetryCount {
@@ -385,6 +384,7 @@ func (cs *ConsulSource) watchLoop(ctx context.Context, callback func(map[string]
 				}
 			} else {
 				cs.handleWatchError(err)
+
 				return
 			}
 		}
@@ -406,7 +406,8 @@ func (cs *ConsulSource) watchLoop(ctx context.Context, callback func(map[string]
 			}
 
 			// Parse changes and notify callback
-			config := make(map[string]interface{})
+			config := make(map[string]any)
+
 			for _, pair := range pairs {
 				if strings.HasSuffix(pair.Key, "/") {
 					continue
@@ -448,21 +449,22 @@ func (cs *ConsulSource) watchLoop(ctx context.Context, callback func(map[string]
 	}
 }
 
-// testConnection tests the connection to Consul
+// testConnection tests the connection to Consul.
 func (cs *ConsulSource) testConnection(ctx context.Context) error {
 	agent := cs.client.Agent()
 	_, err := agent.Self()
+
 	return err
 }
 
-// parseValue parses a Consul value, attempting JSON first, then treating as string
-func (cs *ConsulSource) parseValue(data []byte) (interface{}, error) {
+// parseValue parses a Consul value, attempting JSON first, then treating as string.
+func (cs *ConsulSource) parseValue(data []byte) (any, error) {
 	if len(data) == 0 {
 		return "", nil
 	}
 
 	// Try to parse as JSON first
-	var jsonValue interface{}
+	var jsonValue any
 	if err := json.Unmarshal(data, &jsonValue); err == nil {
 		return jsonValue, nil
 	}
@@ -471,8 +473,8 @@ func (cs *ConsulSource) parseValue(data []byte) (interface{}, error) {
 	return string(data), nil
 }
 
-// setNestedValue sets a nested configuration value using slash notation
-func (cs *ConsulSource) setNestedValue(config map[string]interface{}, key string, value interface{}) {
+// setNestedValue sets a nested configuration value using slash notation.
+func (cs *ConsulSource) setNestedValue(config map[string]any, key string, value any) {
 	keys := strings.Split(key, "/")
 	current := config
 
@@ -483,21 +485,21 @@ func (cs *ConsulSource) setNestedValue(config map[string]interface{}, key string
 		} else {
 			// Intermediate key - ensure map exists
 			if _, exists := current[k]; !exists {
-				current[k] = make(map[string]interface{})
+				current[k] = make(map[string]any)
 			}
 
-			if nextMap, ok := current[k].(map[string]interface{}); ok {
+			if nextMap, ok := current[k].(map[string]any); ok {
 				current = nextMap
 			} else {
 				// Type conflict - create new map
-				current[k] = make(map[string]interface{})
-				current = current[k].(map[string]interface{})
+				current[k] = make(map[string]any)
+				current = current[k].(map[string]any)
 			}
 		}
 	}
 }
 
-// handleWatchError handles errors during watching
+// handleWatchError handles errors during watching.
 func (cs *ConsulSource) handleWatchError(err error) {
 	if cs.logger != nil {
 		cs.logger.Error("Consul watch error",
@@ -507,20 +509,20 @@ func (cs *ConsulSource) handleWatchError(err error) {
 	}
 
 	if cs.errorHandler != nil {
-		cs.errorHandler.HandleError(nil, errors.ErrConfigError(fmt.Sprintf("Consul watch error for prefix %s", cs.prefix), err))
+		cs.errorHandler.HandleError(nil, errors.ErrConfigError("Consul watch error for prefix "+cs.prefix, err))
 	}
 
 	// Stop watching on persistent errors
 	cs.StopWatch()
 }
 
-// ConsulSourceFactory creates Consul configuration sources
+// ConsulSourceFactory creates Consul configuration sources.
 type ConsulSourceFactory struct {
 	logger       logger.Logger
 	errorHandler shared.ErrorHandler
 }
 
-// NewConsulSourceFactory creates a new Consul source factory
+// NewConsulSourceFactory creates a new Consul source factory.
 func NewConsulSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler) *ConsulSourceFactory {
 	return &ConsulSourceFactory{
 		logger:       logger,
@@ -528,10 +530,10 @@ func NewConsulSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandl
 	}
 }
 
-// CreateFromConfig creates a Consul source from configuration
+// CreateFromConfig creates a Consul source from configuration.
 func (factory *ConsulSourceFactory) CreateFromConfig(config ConsulSourceConfig) (configcore.ConfigSource, error) {
 	options := ConsulSourceOptions{
-		Name:         fmt.Sprintf("consul:%s", config.Prefix),
+		Name:         "consul:" + config.Prefix,
 		Address:      config.Address,
 		Token:        config.Token,
 		Datacenter:   config.Datacenter,
@@ -549,7 +551,7 @@ func (factory *ConsulSourceFactory) CreateFromConfig(config ConsulSourceConfig) 
 	return NewConsulSource(config.Prefix, options)
 }
 
-// CreateWithDefaults creates a Consul source with default settings
+// CreateWithDefaults creates a Consul source with default settings.
 func (factory *ConsulSourceFactory) CreateWithDefaults(prefix string) (configcore.ConfigSource, error) {
 	options := ConsulSourceOptions{
 		Address:      "127.0.0.1:8500",

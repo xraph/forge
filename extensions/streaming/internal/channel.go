@@ -92,17 +92,17 @@ type ChannelPattern interface {
 	GetPattern() string
 }
 
-// Common channel patterns
+// Common channel patterns.
 const (
-	// PatternExact matches exact channel name
+	// PatternExact matches exact channel name.
 	PatternExact = "exact"
 
-	// PatternWildcard allows * wildcards (e.g., "user.*.events")
+	// PatternWildcard allows * wildcards (e.g., "user.*.events").
 	PatternWildcard = "wildcard"
 
-	// PatternPrefix matches channel name prefix (e.g., "system.")
+	// PatternPrefix matches channel name prefix (e.g., "system.").
 	PatternPrefix = "prefix"
 
-	// PatternSuffix matches channel name suffix (e.g., ".events")
+	// PatternSuffix matches channel name suffix (e.g., ".events").
 	PatternSuffix = "suffix"
 )

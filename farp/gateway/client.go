@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -9,7 +10,7 @@ import (
 )
 
 // Client is a reference implementation for API gateway integration
-// It watches for service schema changes and provides conversion utilities
+// It watches for service schema changes and provides conversion utilities.
 type Client struct {
 	registry      farp.SchemaRegistry
 	manifestCache map[string]*farp.SchemaManifest // key: instanceID
@@ -17,7 +18,7 @@ type Client struct {
 	mu            sync.RWMutex
 }
 
-// NewClient creates a new gateway client
+// NewClient creates a new gateway client.
 func NewClient(registry farp.SchemaRegistry) *Client {
 	return &Client{
 		registry:      registry,
@@ -27,7 +28,7 @@ func NewClient(registry farp.SchemaRegistry) *Client {
 }
 
 // WatchServices watches for service registrations and schema updates
-// onChange is called whenever services are added, updated, or removed
+// onChange is called whenever services are added, updated, or removed.
 func (c *Client) WatchServices(ctx context.Context, serviceName string, onChange func([]ServiceRoute)) error {
 	// Initial load
 	manifests, err := c.registry.ListManifests(ctx, serviceName)
@@ -43,6 +44,7 @@ func (c *Client) WatchServices(ctx context.Context, serviceName string, onChange
 	return c.registry.WatchManifests(ctx, serviceName, func(event *farp.ManifestEvent) {
 		// Update manifest cache
 		c.mu.Lock()
+
 		switch event.Type {
 		case farp.EventTypeAdded, farp.EventTypeUpdated:
 			c.manifestCache[event.Manifest.InstanceID] = event.Manifest
@@ -55,6 +57,7 @@ func (c *Client) WatchServices(ctx context.Context, serviceName string, onChange
 		for _, m := range c.manifestCache {
 			manifests = append(manifests, m)
 		}
+
 		c.mu.Unlock()
 
 		// Convert to routes and notify
@@ -64,17 +67,20 @@ func (c *Client) WatchServices(ctx context.Context, serviceName string, onChange
 }
 
 // ConvertToRoutes converts service manifests to gateway routes
-// This is a reference implementation - actual gateways should customize this
+// This is a reference implementation - actual gateways should customize this.
 func (c *Client) ConvertToRoutes(manifests []*farp.SchemaManifest) []ServiceRoute {
 	var routes []ServiceRoute
 
 	for _, manifest := range manifests {
 		// Fetch schemas for this manifest
 		for _, schemaDesc := range manifest.Schemas {
-			var schema interface{}
-			var err error
+			var (
+				schema interface{}
+				err    error
+			)
 
 			// Check cache first
+
 			if cached, ok := c.getSchemaFromCache(schemaDesc.Hash); ok {
 				schema = cached
 			} else {
@@ -104,7 +110,7 @@ func (c *Client) ConvertToRoutes(manifests []*farp.SchemaManifest) []ServiceRout
 	return routes
 }
 
-// ServiceRoute represents a route configuration for the gateway
+// ServiceRoute represents a route configuration for the gateway.
 type ServiceRoute struct {
 	// Path is the route path pattern
 	Path string
@@ -131,7 +137,7 @@ type ServiceRoute struct {
 	ServiceVersion string
 }
 
-// fetchSchema fetches a schema based on its location
+// fetchSchema fetches a schema based on its location.
 func (c *Client) fetchSchema(ctx context.Context, descriptor *farp.SchemaDescriptor) (interface{}, error) {
 	switch descriptor.Location.Type {
 	case farp.LocationTypeInline:
@@ -143,14 +149,14 @@ func (c *Client) fetchSchema(ctx context.Context, descriptor *farp.SchemaDescrip
 	case farp.LocationTypeHTTP:
 		// TODO: Implement HTTP fetch
 		// This would use an HTTP client to fetch from descriptor.Location.URL
-		return nil, fmt.Errorf("HTTP schema fetch not yet implemented")
+		return nil, errors.New("HTTP schema fetch not yet implemented")
 
 	default:
 		return nil, fmt.Errorf("%w: %s", farp.ErrInvalidLocation, descriptor.Location.Type)
 	}
 }
 
-// convertOpenAPIToRoutes converts an OpenAPI schema to gateway routes
+// convertOpenAPIToRoutes converts an OpenAPI schema to gateway routes.
 func (c *Client) convertOpenAPIToRoutes(manifest *farp.SchemaManifest, schema interface{}) []ServiceRoute {
 	var routes []ServiceRoute
 
@@ -177,6 +183,7 @@ func (c *Client) convertOpenAPIToRoutes(manifest *farp.SchemaManifest, schema in
 
 		// Get methods for this path
 		methods := []string{}
+
 		for method := range pathItemMap {
 			switch method {
 			case "get", "post", "put", "delete", "patch", "options", "head":
@@ -202,7 +209,7 @@ func (c *Client) convertOpenAPIToRoutes(manifest *farp.SchemaManifest, schema in
 	return routes
 }
 
-// convertAsyncAPIToRoutes converts an AsyncAPI schema to gateway routes (WebSocket, SSE)
+// convertAsyncAPIToRoutes converts an AsyncAPI schema to gateway routes (WebSocket, SSE).
 func (c *Client) convertAsyncAPIToRoutes(manifest *farp.SchemaManifest, schema interface{}) []ServiceRoute {
 	var routes []ServiceRoute
 
@@ -239,12 +246,13 @@ func (c *Client) convertAsyncAPIToRoutes(manifest *farp.SchemaManifest, schema i
 	return routes
 }
 
-// convertGraphQLToRoutes converts a GraphQL schema to a gateway route
+// convertGraphQLToRoutes converts a GraphQL schema to a gateway route.
 func (c *Client) convertGraphQLToRoutes(manifest *farp.SchemaManifest, schema interface{}) []ServiceRoute {
 	var routes []ServiceRoute
 
 	// GraphQL typically has a single endpoint
 	baseURL := fmt.Sprintf("http://%s:%d", manifest.ServiceName, 8080)
+
 	graphqlPath := manifest.Endpoints.GraphQL
 	if graphqlPath == "" {
 		graphqlPath = "/graphql"
@@ -265,16 +273,17 @@ func (c *Client) convertGraphQLToRoutes(manifest *farp.SchemaManifest, schema in
 	return routes
 }
 
-// getSchemaFromCache retrieves a cached schema by hash
+// getSchemaFromCache retrieves a cached schema by hash.
 func (c *Client) getSchemaFromCache(hash string) (interface{}, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	schema, ok := c.schemaCache[hash]
+
 	return schema, ok
 }
 
-// cacheSchema stores a schema in cache
+// cacheSchema stores a schema in cache.
 func (c *Client) cacheSchema(hash string, schema interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -282,7 +291,7 @@ func (c *Client) cacheSchema(hash string, schema interface{}) {
 	c.schemaCache[hash] = schema
 }
 
-// ClearCache clears the schema cache
+// ClearCache clears the schema cache.
 func (c *Client) ClearCache() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -290,12 +299,12 @@ func (c *Client) ClearCache() {
 	c.schemaCache = make(map[string]interface{})
 }
 
-// GetManifest retrieves a cached manifest by instance ID
+// GetManifest retrieves a cached manifest by instance ID.
 func (c *Client) GetManifest(instanceID string) (*farp.SchemaManifest, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	manifest, ok := c.manifestCache[instanceID]
+
 	return manifest, ok
 }
-

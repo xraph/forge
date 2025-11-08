@@ -9,13 +9,15 @@ import (
 	"time"
 
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// ResourceAgent manages system resources and provides optimization recommendations
+// ResourceAgent manages system resources and provides optimization recommendations.
 type ResourceAgent struct {
 	*ai.BaseAgent
-	resourceManager   interface{} // Resource manager from system
+
+	resourceManager   any // Resource manager from system
 	resourceMonitor   *ResourceMonitor
 	optimizer         *ResourceOptimizer
 	scaler            *ResourceScaler
@@ -29,7 +31,7 @@ type ResourceAgent struct {
 	mu                sync.RWMutex
 }
 
-// ResourceMonitor monitors system resources
+// ResourceMonitor monitors system resources.
 type ResourceMonitor struct {
 	CPUMonitor     *CPUMonitor     `json:"cpu_monitor"`
 	MemoryMonitor  *MemoryMonitor  `json:"memory_monitor"`
@@ -40,86 +42,86 @@ type ResourceMonitor struct {
 	Enabled        bool            `json:"enabled"`
 }
 
-// CPUMonitor monitors CPU usage
+// CPUMonitor monitors CPU usage.
 type CPUMonitor struct {
-	Usage       float64                `json:"usage"`
-	LoadAverage []float64              `json:"load_average"`
-	Cores       int                    `json:"cores"`
-	Frequency   float64                `json:"frequency"`
-	Temperature float64                `json:"temperature"`
-	Processes   []ProcessInfo          `json:"processes"`
-	History     []CPUUsageHistory      `json:"history"`
-	Thresholds  CPUThresholds          `json:"thresholds"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Usage       float64           `json:"usage"`
+	LoadAverage []float64         `json:"load_average"`
+	Cores       int               `json:"cores"`
+	Frequency   float64           `json:"frequency"`
+	Temperature float64           `json:"temperature"`
+	Processes   []ProcessInfo     `json:"processes"`
+	History     []CPUUsageHistory `json:"history"`
+	Thresholds  CPUThresholds     `json:"thresholds"`
+	Metadata    map[string]any    `json:"metadata"`
 }
 
-// MemoryMonitor monitors memory usage
+// MemoryMonitor monitors memory usage.
 type MemoryMonitor struct {
-	Total      uint64                 `json:"total"`
-	Available  uint64                 `json:"available"`
-	Used       uint64                 `json:"used"`
-	Cached     uint64                 `json:"cached"`
-	Buffers    uint64                 `json:"buffers"`
-	Swap       SwapInfo               `json:"swap"`
-	Processes  []ProcessMemoryInfo    `json:"processes"`
-	History    []MemoryUsageHistory   `json:"history"`
-	Thresholds MemoryThresholds       `json:"thresholds"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Total      uint64               `json:"total"`
+	Available  uint64               `json:"available"`
+	Used       uint64               `json:"used"`
+	Cached     uint64               `json:"cached"`
+	Buffers    uint64               `json:"buffers"`
+	Swap       SwapInfo             `json:"swap"`
+	Processes  []ProcessMemoryInfo  `json:"processes"`
+	History    []MemoryUsageHistory `json:"history"`
+	Thresholds MemoryThresholds     `json:"thresholds"`
+	Metadata   map[string]any       `json:"metadata"`
 }
 
-// DiskMonitor monitors disk usage
+// DiskMonitor monitors disk usage.
 type DiskMonitor struct {
-	Filesystems []FilesystemInfo       `json:"filesystems"`
-	IOStats     DiskIOStats            `json:"io_stats"`
-	History     []DiskUsageHistory     `json:"history"`
-	Thresholds  DiskThresholds         `json:"thresholds"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Filesystems []FilesystemInfo   `json:"filesystems"`
+	IOStats     DiskIOStats        `json:"io_stats"`
+	History     []DiskUsageHistory `json:"history"`
+	Thresholds  DiskThresholds     `json:"thresholds"`
+	Metadata    map[string]any     `json:"metadata"`
 }
 
-// NetworkMonitor monitors network usage
+// NetworkMonitor monitors network usage.
 type NetworkMonitor struct {
-	Interfaces  []NetworkInterface     `json:"interfaces"`
-	Traffic     NetworkTrafficStats    `json:"traffic"`
-	Connections []NetworkConnection    `json:"connections"`
-	History     []NetworkUsageHistory  `json:"history"`
-	Thresholds  NetworkThresholds      `json:"thresholds"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Interfaces  []NetworkInterface    `json:"interfaces"`
+	Traffic     NetworkTrafficStats   `json:"traffic"`
+	Connections []NetworkConnection   `json:"connections"`
+	History     []NetworkUsageHistory `json:"history"`
+	Thresholds  NetworkThresholds     `json:"thresholds"`
+	Metadata    map[string]any        `json:"metadata"`
 }
 
-// ProcessInfo contains process information
+// ProcessInfo contains process information.
 type ProcessInfo struct {
-	PID         int                    `json:"pid"`
-	Name        string                 `json:"name"`
-	CPUUsage    float64                `json:"cpu_usage"`
-	MemoryUsage uint64                 `json:"memory_usage"`
-	Status      string                 `json:"status"`
-	StartTime   time.Time              `json:"start_time"`
-	Command     string                 `json:"command"`
-	User        string                 `json:"user"`
-	Threads     int                    `json:"threads"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	PID         int            `json:"pid"`
+	Name        string         `json:"name"`
+	CPUUsage    float64        `json:"cpu_usage"`
+	MemoryUsage uint64         `json:"memory_usage"`
+	Status      string         `json:"status"`
+	StartTime   time.Time      `json:"start_time"`
+	Command     string         `json:"command"`
+	User        string         `json:"user"`
+	Threads     int            `json:"threads"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// ProcessMemoryInfo contains process memory information
+// ProcessMemoryInfo contains process memory information.
 type ProcessMemoryInfo struct {
-	PID      int                    `json:"pid"`
-	Name     string                 `json:"name"`
-	RSS      uint64                 `json:"rss"`
-	VMS      uint64                 `json:"vms"`
-	Shared   uint64                 `json:"shared"`
-	Text     uint64                 `json:"text"`
-	Data     uint64                 `json:"data"`
-	Metadata map[string]interface{} `json:"metadata"`
+	PID      int            `json:"pid"`
+	Name     string         `json:"name"`
+	RSS      uint64         `json:"rss"`
+	VMS      uint64         `json:"vms"`
+	Shared   uint64         `json:"shared"`
+	Text     uint64         `json:"text"`
+	Data     uint64         `json:"data"`
+	Metadata map[string]any `json:"metadata"`
 }
 
-// SwapInfo contains swap information
+// SwapInfo contains swap information.
 type SwapInfo struct {
 	Total uint64 `json:"total"`
 	Used  uint64 `json:"used"`
 	Free  uint64 `json:"free"`
 }
 
-// FilesystemInfo contains filesystem information
+// FilesystemInfo contains filesystem information.
 type FilesystemInfo struct {
 	Device     string  `json:"device"`
 	Mountpoint string  `json:"mountpoint"`
@@ -130,7 +132,7 @@ type FilesystemInfo struct {
 	Usage      float64 `json:"usage"`
 }
 
-// DiskIOStats contains disk I/O statistics
+// DiskIOStats contains disk I/O statistics.
 type DiskIOStats struct {
 	ReadOps    uint64 `json:"read_ops"`
 	WriteOps   uint64 `json:"write_ops"`
@@ -141,7 +143,7 @@ type DiskIOStats struct {
 	IOTime     uint64 `json:"io_time"`
 }
 
-// NetworkInterface contains network interface information
+// NetworkInterface contains network interface information.
 type NetworkInterface struct {
 	Name      string `json:"name"`
 	MTU       int    `json:"mtu"`
@@ -158,7 +160,7 @@ type NetworkInterface struct {
 	TxDropped uint64 `json:"tx_dropped"`
 }
 
-// NetworkTrafficStats contains network traffic statistics
+// NetworkTrafficStats contains network traffic statistics.
 type NetworkTrafficStats struct {
 	TotalRxBytes   uint64  `json:"total_rx_bytes"`
 	TotalTxBytes   uint64  `json:"total_tx_bytes"`
@@ -168,7 +170,7 @@ type NetworkTrafficStats struct {
 	Utilization    float64 `json:"utilization"`
 }
 
-// NetworkConnection contains network connection information
+// NetworkConnection contains network connection information.
 type NetworkConnection struct {
 	Protocol    string `json:"protocol"`
 	LocalAddr   string `json:"local_addr"`
@@ -180,7 +182,7 @@ type NetworkConnection struct {
 	ProcessName string `json:"process_name"`
 }
 
-// History types for tracking resource usage over time
+// History types for tracking resource usage over time.
 type CPUUsageHistory struct {
 	Timestamp time.Time `json:"timestamp"`
 	Usage     float64   `json:"usage"`
@@ -209,7 +211,7 @@ type NetworkUsageHistory struct {
 	TxPackets uint64    `json:"tx_packets"`
 }
 
-// ResourceThresholds Resource thresholds for alerting and optimization
+// ResourceThresholds Resource thresholds for alerting and optimization.
 type ResourceThresholds struct {
 	CPU     CPUThresholds     `json:"cpu"`
 	Memory  MemoryThresholds  `json:"memory"`
@@ -245,7 +247,7 @@ type NetworkThresholds struct {
 	ConnectionsHigh int     `json:"connections_high"`
 }
 
-// ResourceOptimizer optimizes resource usage
+// ResourceOptimizer optimizes resource usage.
 type ResourceOptimizer struct {
 	OptimizationStrategies []OptimizationStrategy `json:"optimization_strategies"`
 	PerformanceTargets     PerformanceTargets     `json:"performance_targets"`
@@ -255,23 +257,23 @@ type ResourceOptimizer struct {
 	LearningEnabled        bool                   `json:"learning_enabled"`
 }
 
-// OptimizationStrategy defines optimization strategies
+// OptimizationStrategy defines optimization strategies.
 type OptimizationStrategy struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Type          string                 `json:"type"`
-	Target        string                 `json:"target"`
-	Condition     string                 `json:"condition"`
-	Action        string                 `json:"action"`
-	Parameters    map[string]interface{} `json:"parameters"`
-	Priority      int                    `json:"priority"`
-	Enabled       bool                   `json:"enabled"`
-	Effectiveness float64                `json:"effectiveness"`
-	Cost          float64                `json:"cost"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Type          string         `json:"type"`
+	Target        string         `json:"target"`
+	Condition     string         `json:"condition"`
+	Action        string         `json:"action"`
+	Parameters    map[string]any `json:"parameters"`
+	Priority      int            `json:"priority"`
+	Enabled       bool           `json:"enabled"`
+	Effectiveness float64        `json:"effectiveness"`
+	Cost          float64        `json:"cost"`
+	Metadata      map[string]any `json:"metadata"`
 }
 
-// PerformanceTargets defines performance targets
+// PerformanceTargets defines performance targets.
 type PerformanceTargets struct {
 	CPUTarget        float64       `json:"cpu_target"`
 	MemoryTarget     float64       `json:"memory_target"`
@@ -281,7 +283,7 @@ type PerformanceTargets struct {
 	ThroughputTarget float64       `json:"throughput_target"`
 }
 
-// CostTargets defines cost optimization targets
+// CostTargets defines cost optimization targets.
 type CostTargets struct {
 	ComputeCost  float64 `json:"compute_cost"`
 	StorageCost  float64 `json:"storage_cost"`
@@ -291,7 +293,7 @@ type CostTargets struct {
 	CostPerMonth float64 `json:"cost_per_month"`
 }
 
-// ResourceScaler handles automatic scaling
+// ResourceScaler handles automatic scaling.
 type ResourceScaler struct {
 	ScalingPolicies []ScalingPolicy `json:"scaling_policies"`
 	ScalingRules    []ScalingRule   `json:"scaling_rules"`
@@ -303,59 +305,59 @@ type ResourceScaler struct {
 	MaxInstances    int             `json:"max_instances"`
 }
 
-// ScalingPolicy defines scaling policies
+// ScalingPolicy defines scaling policies.
 type ScalingPolicy struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Type       string                 `json:"type"`
-	Target     string                 `json:"target"`
-	Metric     string                 `json:"metric"`
-	Threshold  float64                `json:"threshold"`
-	Action     string                 `json:"action"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Enabled    bool                   `json:"enabled"`
-	Priority   int                    `json:"priority"`
-	Cooldown   time.Duration          `json:"cooldown"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Target     string         `json:"target"`
+	Metric     string         `json:"metric"`
+	Threshold  float64        `json:"threshold"`
+	Action     string         `json:"action"`
+	Parameters map[string]any `json:"parameters"`
+	Enabled    bool           `json:"enabled"`
+	Priority   int            `json:"priority"`
+	Cooldown   time.Duration  `json:"cooldown"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// ScalingRule defines scaling rules
+// ScalingRule defines scaling rules.
 type ScalingRule struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Condition  string                 `json:"condition"`
-	Action     string                 `json:"action"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Enabled    bool                   `json:"enabled"`
-	Priority   int                    `json:"priority"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Condition  string         `json:"condition"`
+	Action     string         `json:"action"`
+	Parameters map[string]any `json:"parameters"`
+	Enabled    bool           `json:"enabled"`
+	Priority   int            `json:"priority"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// ScalingEvent records scaling events
+// ScalingEvent records scaling events.
 type ScalingEvent struct {
-	ID        string                 `json:"id"`
-	Timestamp time.Time              `json:"timestamp"`
-	Type      string                 `json:"type"`
-	Action    string                 `json:"action"`
-	Target    string                 `json:"target"`
-	Reason    string                 `json:"reason"`
-	Before    ResourceSnapshot       `json:"before"`
-	After     ResourceSnapshot       `json:"after"`
-	Success   bool                   `json:"success"`
-	Error     string                 `json:"error"`
-	Duration  time.Duration          `json:"duration"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	ID        string           `json:"id"`
+	Timestamp time.Time        `json:"timestamp"`
+	Type      string           `json:"type"`
+	Action    string           `json:"action"`
+	Target    string           `json:"target"`
+	Reason    string           `json:"reason"`
+	Before    ResourceSnapshot `json:"before"`
+	After     ResourceSnapshot `json:"after"`
+	Success   bool             `json:"success"`
+	Error     string           `json:"error"`
+	Duration  time.Duration    `json:"duration"`
+	Metadata  map[string]any   `json:"metadata"`
 }
 
-// ResourceSnapshot captures resource state at a point in time
+// ResourceSnapshot captures resource state at a point in time.
 type ResourceSnapshot struct {
-	Timestamp time.Time              `json:"timestamp"`
-	CPU       CPUSnapshot            `json:"cpu"`
-	Memory    MemorySnapshot         `json:"memory"`
-	Disk      DiskSnapshot           `json:"disk"`
-	Network   NetworkSnapshot        `json:"network"`
-	Processes []ProcessSnapshot      `json:"processes"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Timestamp time.Time         `json:"timestamp"`
+	CPU       CPUSnapshot       `json:"cpu"`
+	Memory    MemorySnapshot    `json:"memory"`
+	Disk      DiskSnapshot      `json:"disk"`
+	Network   NetworkSnapshot   `json:"network"`
+	Processes []ProcessSnapshot `json:"processes"`
+	Metadata  map[string]any    `json:"metadata"`
 }
 
 type CPUSnapshot struct {
@@ -395,60 +397,60 @@ type ProcessSnapshot struct {
 	Status      string  `json:"status"`
 }
 
-// ResourcePolicy defines resource management policies
+// ResourcePolicy defines resource management policies.
 type ResourcePolicy struct {
-	ID       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Type     string                 `json:"type"`
-	Target   string                 `json:"target"`
-	Rules    []ResourceRule         `json:"rules"`
-	Actions  []ResourceAction       `json:"actions"`
-	Enabled  bool                   `json:"enabled"`
-	Priority int                    `json:"priority"`
-	Metadata map[string]interface{} `json:"metadata"`
+	ID       string           `json:"id"`
+	Name     string           `json:"name"`
+	Type     string           `json:"type"`
+	Target   string           `json:"target"`
+	Rules    []ResourceRule   `json:"rules"`
+	Actions  []ResourceAction `json:"actions"`
+	Enabled  bool             `json:"enabled"`
+	Priority int              `json:"priority"`
+	Metadata map[string]any   `json:"metadata"`
 }
 
-// ResourceRule defines resource rules
+// ResourceRule defines resource rules.
 type ResourceRule struct {
-	ID        string                 `json:"id"`
-	Name      string                 `json:"name"`
-	Condition string                 `json:"condition"`
-	Metric    string                 `json:"metric"`
-	Threshold float64                `json:"threshold"`
-	Operator  string                 `json:"operator"`
-	Duration  time.Duration          `json:"duration"`
-	Enabled   bool                   `json:"enabled"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Condition string         `json:"condition"`
+	Metric    string         `json:"metric"`
+	Threshold float64        `json:"threshold"`
+	Operator  string         `json:"operator"`
+	Duration  time.Duration  `json:"duration"`
+	Enabled   bool           `json:"enabled"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
-// ResourceAction defines resource actions
+// ResourceAction defines resource actions.
 type ResourceAction struct {
-	ID         string                 `json:"id"`
-	Type       string                 `json:"type"`
-	Name       string                 `json:"name"`
-	Target     string                 `json:"target"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Automatic  bool                   `json:"automatic"`
-	Timeout    time.Duration          `json:"timeout"`
-	Rollback   bool                   `json:"rollback"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Name       string         `json:"name"`
+	Target     string         `json:"target"`
+	Parameters map[string]any `json:"parameters"`
+	Automatic  bool           `json:"automatic"`
+	Timeout    time.Duration  `json:"timeout"`
+	Rollback   bool           `json:"rollback"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
-// OptimizationRule defines optimization rules
+// OptimizationRule defines optimization rules.
 type OptimizationRule struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Type          string                 `json:"type"`
-	Condition     string                 `json:"condition"`
-	Optimization  string                 `json:"optimization"`
-	Parameters    map[string]interface{} `json:"parameters"`
-	Enabled       bool                   `json:"enabled"`
-	Priority      int                    `json:"priority"`
-	Effectiveness float64                `json:"effectiveness"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	ID            string         `json:"id"`
+	Name          string         `json:"name"`
+	Type          string         `json:"type"`
+	Condition     string         `json:"condition"`
+	Optimization  string         `json:"optimization"`
+	Parameters    map[string]any `json:"parameters"`
+	Enabled       bool           `json:"enabled"`
+	Priority      int            `json:"priority"`
+	Effectiveness float64        `json:"effectiveness"`
+	Metadata      map[string]any `json:"metadata"`
 }
 
-// ResourceStats tracks resource management statistics
+// ResourceStats tracks resource management statistics.
 type ResourceStats struct {
 	TotalOptimizations      int64                    `json:"total_optimizations"`
 	SuccessfulOptimizations int64                    `json:"successful_optimizations"`
@@ -463,10 +465,10 @@ type ResourceStats struct {
 	OptimizationsByType     map[string]int64         `json:"optimizations_by_type"`
 	ScalingsByType          map[string]int64         `json:"scalings_by_type"`
 	ResourceTrends          map[string]ResourceTrend `json:"resource_trends"`
-	Metadata                map[string]interface{}   `json:"metadata"`
+	Metadata                map[string]any           `json:"metadata"`
 }
 
-// ResourceUtilization contains resource utilization information
+// ResourceUtilization contains resource utilization information.
 type ResourceUtilization struct {
 	CPU     float64 `json:"cpu"`
 	Memory  float64 `json:"memory"`
@@ -476,7 +478,7 @@ type ResourceUtilization struct {
 	Overall float64 `json:"overall"`
 }
 
-// ResourceTrend tracks resource trends
+// ResourceTrend tracks resource trends.
 type ResourceTrend struct {
 	Resource   string        `json:"resource"`
 	Direction  string        `json:"direction"`
@@ -487,7 +489,7 @@ type ResourceTrend struct {
 	Duration   time.Duration `json:"duration"`
 }
 
-// ResourceInput represents resource monitoring input
+// ResourceInput represents resource monitoring input.
 type ResourceInput struct {
 	SystemMetrics              SystemMetrics              `json:"system_metrics"`
 	ApplicationMetrics         ApplicationMetrics         `json:"application_metrics"`
@@ -498,18 +500,18 @@ type ResourceInput struct {
 	UserMetrics                UserMetrics                `json:"user_metrics"`
 	TimeWindow                 TimeWindow                 `json:"time_window"`
 	Context                    ResourceContext            `json:"context"`
-	Metadata                   map[string]interface{}     `json:"metadata"`
+	Metadata                   map[string]any             `json:"metadata"`
 }
 
-// SystemMetrics contains system-level metrics
+// SystemMetrics contains system-level metrics.
 type SystemMetrics struct {
-	CPU       CPUMetrics             `json:"cpu"`
-	Memory    MemoryMetrics          `json:"memory"`
-	Disk      DiskMetrics            `json:"disk"`
-	Network   NetworkMetrics         `json:"network"`
-	Processes []ProcessMetrics       `json:"processes"`
-	Timestamp time.Time              `json:"timestamp"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	CPU       CPUMetrics       `json:"cpu"`
+	Memory    MemoryMetrics    `json:"memory"`
+	Disk      DiskMetrics      `json:"disk"`
+	Network   NetworkMetrics   `json:"network"`
+	Processes []ProcessMetrics `json:"processes"`
+	Timestamp time.Time        `json:"timestamp"`
+	Metadata  map[string]any   `json:"metadata"`
 }
 
 type CPUMetrics struct {
@@ -563,90 +565,90 @@ type ProcessMetrics struct {
 	Threads     int     `json:"threads"`
 }
 
-// ApplicationMetrics contains application-specific metrics
+// ApplicationMetrics contains application-specific metrics.
 type ApplicationMetrics struct {
-	RequestsPerSecond   float64                `json:"requests_per_second"`
-	ResponseTime        time.Duration          `json:"response_time"`
-	ErrorRate           float64                `json:"error_rate"`
-	Throughput          float64                `json:"throughput"`
-	Latency             time.Duration          `json:"latency"`
-	ActiveConnections   int                    `json:"active_connections"`
-	QueueSize           int                    `json:"queue_size"`
-	CacheHitRate        float64                `json:"cache_hit_rate"`
-	DatabaseConnections int                    `json:"database_connections"`
-	Timestamp           time.Time              `json:"timestamp"`
-	Metadata            map[string]interface{} `json:"metadata"`
+	RequestsPerSecond   float64        `json:"requests_per_second"`
+	ResponseTime        time.Duration  `json:"response_time"`
+	ErrorRate           float64        `json:"error_rate"`
+	Throughput          float64        `json:"throughput"`
+	Latency             time.Duration  `json:"latency"`
+	ActiveConnections   int            `json:"active_connections"`
+	QueueSize           int            `json:"queue_size"`
+	CacheHitRate        float64        `json:"cache_hit_rate"`
+	DatabaseConnections int            `json:"database_connections"`
+	Timestamp           time.Time      `json:"timestamp"`
+	Metadata            map[string]any `json:"metadata"`
 }
 
-// InfrastructureMetrics contains infrastructure metrics
+// InfrastructureMetrics contains infrastructure metrics.
 type InfrastructureMetrics struct {
-	NodeCount      int                    `json:"node_count"`
-	HealthyNodes   int                    `json:"healthy_nodes"`
-	UnhealthyNodes int                    `json:"unhealthy_nodes"`
-	LoadBalancers  int                    `json:"load_balancers"`
-	DatabaseStatus string                 `json:"database_status"`
-	CacheStatus    string                 `json:"cache_status"`
-	QueueStatus    string                 `json:"queue_status"`
-	ServiceStatus  map[string]string      `json:"service_status"`
-	Timestamp      time.Time              `json:"timestamp"`
-	Metadata       map[string]interface{} `json:"metadata"`
+	NodeCount      int               `json:"node_count"`
+	HealthyNodes   int               `json:"healthy_nodes"`
+	UnhealthyNodes int               `json:"unhealthy_nodes"`
+	LoadBalancers  int               `json:"load_balancers"`
+	DatabaseStatus string            `json:"database_status"`
+	CacheStatus    string            `json:"cache_status"`
+	QueueStatus    string            `json:"queue_status"`
+	ServiceStatus  map[string]string `json:"service_status"`
+	Timestamp      time.Time         `json:"timestamp"`
+	Metadata       map[string]any    `json:"metadata"`
 }
 
-// ResourcePerformanceMetrics contains performance metrics
+// ResourcePerformanceMetrics contains performance metrics.
 type ResourcePerformanceMetrics struct {
-	AverageResponseTime time.Duration          `json:"average_response_time"`
-	P95ResponseTime     time.Duration          `json:"p95_response_time"`
-	P99ResponseTime     time.Duration          `json:"p99_response_time"`
-	Throughput          float64                `json:"throughput"`
-	ErrorRate           float64                `json:"error_rate"`
-	SLA                 float64                `json:"sla"`
-	Availability        float64                `json:"availability"`
-	Timestamp           time.Time              `json:"timestamp"`
-	Metadata            map[string]interface{} `json:"metadata"`
+	AverageResponseTime time.Duration  `json:"average_response_time"`
+	P95ResponseTime     time.Duration  `json:"p95_response_time"`
+	P99ResponseTime     time.Duration  `json:"p99_response_time"`
+	Throughput          float64        `json:"throughput"`
+	ErrorRate           float64        `json:"error_rate"`
+	SLA                 float64        `json:"sla"`
+	Availability        float64        `json:"availability"`
+	Timestamp           time.Time      `json:"timestamp"`
+	Metadata            map[string]any `json:"metadata"`
 }
 
-// CostMetrics contains cost metrics
+// CostMetrics contains cost metrics.
 type CostMetrics struct {
-	ComputeCost    float64                `json:"compute_cost"`
-	StorageCost    float64                `json:"storage_cost"`
-	NetworkCost    float64                `json:"network_cost"`
-	TotalCost      float64                `json:"total_cost"`
-	CostPerHour    float64                `json:"cost_per_hour"`
-	CostPerRequest float64                `json:"cost_per_request"`
-	BudgetUsage    float64                `json:"budget_usage"`
-	Forecast       float64                `json:"forecast"`
-	Timestamp      time.Time              `json:"timestamp"`
-	Metadata       map[string]interface{} `json:"metadata"`
+	ComputeCost    float64        `json:"compute_cost"`
+	StorageCost    float64        `json:"storage_cost"`
+	NetworkCost    float64        `json:"network_cost"`
+	TotalCost      float64        `json:"total_cost"`
+	CostPerHour    float64        `json:"cost_per_hour"`
+	CostPerRequest float64        `json:"cost_per_request"`
+	BudgetUsage    float64        `json:"budget_usage"`
+	Forecast       float64        `json:"forecast"`
+	Timestamp      time.Time      `json:"timestamp"`
+	Metadata       map[string]any `json:"metadata"`
 }
 
-// ServiceMetrics contains service-specific metrics
+// ServiceMetrics contains service-specific metrics.
 type ServiceMetrics struct {
-	ServiceName      string                 `json:"service_name"`
-	Version          string                 `json:"version"`
-	Instances        int                    `json:"instances"`
-	HealthyInstances int                    `json:"healthy_instances"`
-	RequestCount     int64                  `json:"request_count"`
-	ErrorCount       int64                  `json:"error_count"`
-	ResponseTime     time.Duration          `json:"response_time"`
-	Throughput       float64                `json:"throughput"`
-	ResourceUsage    ResourceUtilization    `json:"resource_usage"`
-	Timestamp        time.Time              `json:"timestamp"`
-	Metadata         map[string]interface{} `json:"metadata"`
+	ServiceName      string              `json:"service_name"`
+	Version          string              `json:"version"`
+	Instances        int                 `json:"instances"`
+	HealthyInstances int                 `json:"healthy_instances"`
+	RequestCount     int64               `json:"request_count"`
+	ErrorCount       int64               `json:"error_count"`
+	ResponseTime     time.Duration       `json:"response_time"`
+	Throughput       float64             `json:"throughput"`
+	ResourceUsage    ResourceUtilization `json:"resource_usage"`
+	Timestamp        time.Time           `json:"timestamp"`
+	Metadata         map[string]any      `json:"metadata"`
 }
 
-// UserMetrics contains user experience metrics
+// UserMetrics contains user experience metrics.
 type UserMetrics struct {
-	ActiveUsers      int                    `json:"active_users"`
-	SessionDuration  time.Duration          `json:"session_duration"`
-	PageLoadTime     time.Duration          `json:"page_load_time"`
-	UserSatisfaction float64                `json:"user_satisfaction"`
-	ConversionRate   float64                `json:"conversion_rate"`
-	BounceRate       float64                `json:"bounce_rate"`
-	Timestamp        time.Time              `json:"timestamp"`
-	Metadata         map[string]interface{} `json:"metadata"`
+	ActiveUsers      int            `json:"active_users"`
+	SessionDuration  time.Duration  `json:"session_duration"`
+	PageLoadTime     time.Duration  `json:"page_load_time"`
+	UserSatisfaction float64        `json:"user_satisfaction"`
+	ConversionRate   float64        `json:"conversion_rate"`
+	BounceRate       float64        `json:"bounce_rate"`
+	Timestamp        time.Time      `json:"timestamp"`
+	Metadata         map[string]any `json:"metadata"`
 }
 
-// ResourceContext provides context for resource management
+// ResourceContext provides context for resource management.
 type ResourceContext struct {
 	Environment     string                   `json:"environment"`
 	ServiceTier     string                   `json:"service_tier"`
@@ -654,10 +656,10 @@ type ResourceContext struct {
 	Performance     PerformanceRequirements  `json:"performance"`
 	Availability    AvailabilityRequirements `json:"availability"`
 	Scalability     ScalabilityRequirements  `json:"scalability"`
-	Metadata        map[string]interface{}   `json:"metadata"`
+	Metadata        map[string]any           `json:"metadata"`
 }
 
-// CostConstraints defines cost constraints
+// CostConstraints defines cost constraints.
 type CostConstraints struct {
 	MaxHourlyCost    float64 `json:"max_hourly_cost"`
 	MaxMonthlyCost   float64 `json:"max_monthly_cost"`
@@ -667,7 +669,7 @@ type CostConstraints struct {
 	CostOptimization bool    `json:"cost_optimization"`
 }
 
-// PerformanceRequirements defines performance requirements
+// PerformanceRequirements defines performance requirements.
 type PerformanceRequirements struct {
 	MaxResponseTime time.Duration `json:"max_response_time"`
 	MinThroughput   float64       `json:"min_throughput"`
@@ -677,7 +679,7 @@ type PerformanceRequirements struct {
 	SLOTarget       float64       `json:"slo_target"`
 }
 
-// AvailabilityRequirements defines availability requirements
+// AvailabilityRequirements defines availability requirements.
 type AvailabilityRequirements struct {
 	MinUptime        float64       `json:"min_uptime"`
 	MaxDowntime      time.Duration `json:"max_downtime"`
@@ -687,7 +689,7 @@ type AvailabilityRequirements struct {
 	BackupRequired   bool          `json:"backup_required"`
 }
 
-// ScalabilityRequirements defines scalability requirements
+// ScalabilityRequirements defines scalability requirements.
 type ScalabilityRequirements struct {
 	MinInstances       int           `json:"min_instances"`
 	MaxInstances       int           `json:"max_instances"`
@@ -697,7 +699,7 @@ type ScalabilityRequirements struct {
 	ScaleCooldown      time.Duration `json:"scale_cooldown"`
 }
 
-// ResourceOutput represents resource management output
+// ResourceOutput represents resource management output.
 type ResourceOutput struct {
 	ResourceAnalysis            ResourceAnalysis             `json:"resource_analysis"`
 	OptimizationRecommendations []OptimizationRecommendation `json:"optimization_recommendations"`
@@ -708,10 +710,10 @@ type ResourceOutput struct {
 	Predictions                 []ResourceResourcePrediction `json:"predictions"`
 	Actions                     []ResourceActionItem         `json:"actions"`
 	Summary                     ResourceSummary              `json:"summary"`
-	Metadata                    map[string]interface{}       `json:"metadata"`
+	Metadata                    map[string]any               `json:"metadata"`
 }
 
-// ResourceAnalysis contains resource analysis results
+// ResourceAnalysis contains resource analysis results.
 type ResourceAnalysis struct {
 	CurrentUtilization    ResourceUtilization    `json:"current_utilization"`
 	HistoricalUtilization []ResourceUtilization  `json:"historical_utilization"`
@@ -723,89 +725,89 @@ type ResourceAnalysis struct {
 	Capacity              ResourceCapacity       `json:"capacity"`
 	Forecast              ResourceForecast       `json:"forecast"`
 	Confidence            float64                `json:"confidence"`
-	Metadata              map[string]interface{} `json:"metadata"`
+	Metadata              map[string]any         `json:"metadata"`
 }
 
-// OptimizationRecommendation contains optimization recommendations
+// OptimizationRecommendation contains optimization recommendations.
 type OptimizationRecommendation struct {
-	ID               string                 `json:"id"`
-	Type             string                 `json:"type"`
-	Priority         int                    `json:"priority"`
-	Title            string                 `json:"title"`
-	Description      string                 `json:"description"`
-	Target           string                 `json:"target"`
-	CurrentValue     float64                `json:"current_value"`
-	RecommendedValue float64                `json:"recommended_value"`
-	Impact           OptimizationImpact     `json:"impact"`
-	Implementation   string                 `json:"implementation"`
-	Complexity       string                 `json:"complexity"`
-	Risk             string                 `json:"risk"`
-	Timeline         time.Duration          `json:"timeline"`
-	CostSavings      float64                `json:"cost_savings"`
-	PerformanceGain  float64                `json:"performance_gain"`
-	Confidence       float64                `json:"confidence"`
-	Dependencies     []string               `json:"dependencies"`
-	Metadata         map[string]interface{} `json:"metadata"`
+	ID               string             `json:"id"`
+	Type             string             `json:"type"`
+	Priority         int                `json:"priority"`
+	Title            string             `json:"title"`
+	Description      string             `json:"description"`
+	Target           string             `json:"target"`
+	CurrentValue     float64            `json:"current_value"`
+	RecommendedValue float64            `json:"recommended_value"`
+	Impact           OptimizationImpact `json:"impact"`
+	Implementation   string             `json:"implementation"`
+	Complexity       string             `json:"complexity"`
+	Risk             string             `json:"risk"`
+	Timeline         time.Duration      `json:"timeline"`
+	CostSavings      float64            `json:"cost_savings"`
+	PerformanceGain  float64            `json:"performance_gain"`
+	Confidence       float64            `json:"confidence"`
+	Dependencies     []string           `json:"dependencies"`
+	Metadata         map[string]any     `json:"metadata"`
 }
 
-// ScalingRecommendation contains scaling recommendations
+// ScalingRecommendation contains scaling recommendations.
 type ScalingRecommendation struct {
-	ID                   string                 `json:"id"`
-	Type                 string                 `json:"type"`
-	Direction            string                 `json:"direction"`
-	Target               string                 `json:"target"`
-	CurrentInstances     int                    `json:"current_instances"`
-	RecommendedInstances int                    `json:"recommended_instances"`
-	Reason               string                 `json:"reason"`
-	Urgency              string                 `json:"urgency"`
-	Impact               ScalingImpact          `json:"impact"`
-	Timeline             time.Duration          `json:"timeline"`
-	CostImpact           float64                `json:"cost_impact"`
-	PerformanceImpact    float64                `json:"performance_impact"`
-	Confidence           float64                `json:"confidence"`
-	AutoApply            bool                   `json:"auto_apply"`
-	Metadata             map[string]interface{} `json:"metadata"`
+	ID                   string         `json:"id"`
+	Type                 string         `json:"type"`
+	Direction            string         `json:"direction"`
+	Target               string         `json:"target"`
+	CurrentInstances     int            `json:"current_instances"`
+	RecommendedInstances int            `json:"recommended_instances"`
+	Reason               string         `json:"reason"`
+	Urgency              string         `json:"urgency"`
+	Impact               ScalingImpact  `json:"impact"`
+	Timeline             time.Duration  `json:"timeline"`
+	CostImpact           float64        `json:"cost_impact"`
+	PerformanceImpact    float64        `json:"performance_impact"`
+	Confidence           float64        `json:"confidence"`
+	AutoApply            bool           `json:"auto_apply"`
+	Metadata             map[string]any `json:"metadata"`
 }
 
-// ResourceAlert contains resource alerts
+// ResourceAlert contains resource alerts.
 type ResourceAlert struct {
-	ID             string                 `json:"id"`
-	Type           string                 `json:"type"`
-	Severity       string                 `json:"severity"`
-	Title          string                 `json:"title"`
-	Description    string                 `json:"description"`
-	Resource       string                 `json:"resource"`
-	Metric         string                 `json:"metric"`
-	CurrentValue   float64                `json:"current_value"`
-	ThresholdValue float64                `json:"threshold_value"`
-	Duration       time.Duration          `json:"duration"`
-	Status         string                 `json:"status"`
-	Timestamp      time.Time              `json:"timestamp"`
-	Actions        []string               `json:"actions"`
-	Metadata       map[string]interface{} `json:"metadata"`
+	ID             string         `json:"id"`
+	Type           string         `json:"type"`
+	Severity       string         `json:"severity"`
+	Title          string         `json:"title"`
+	Description    string         `json:"description"`
+	Resource       string         `json:"resource"`
+	Metric         string         `json:"metric"`
+	CurrentValue   float64        `json:"current_value"`
+	ThresholdValue float64        `json:"threshold_value"`
+	Duration       time.Duration  `json:"duration"`
+	Status         string         `json:"status"`
+	Timestamp      time.Time      `json:"timestamp"`
+	Actions        []string       `json:"actions"`
+	Metadata       map[string]any `json:"metadata"`
 }
 
-// Supporting types for analysis
+// Supporting types for analysis.
 type ResourceBottleneck struct {
-	Resource   string                 `json:"resource"`
-	Type       string                 `json:"type"`
-	Severity   string                 `json:"severity"`
-	Impact     string                 `json:"impact"`
-	Cause      string                 `json:"cause"`
-	Solution   string                 `json:"solution"`
-	Confidence float64                `json:"confidence"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Resource   string         `json:"resource"`
+	Type       string         `json:"type"`
+	Severity   string         `json:"severity"`
+	Impact     string         `json:"impact"`
+	Cause      string         `json:"cause"`
+	Solution   string         `json:"solution"`
+	Confidence float64        `json:"confidence"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type ResourceInefficiency struct {
-	Resource   string                 `json:"resource"`
-	Type       string                 `json:"type"`
-	Waste      float64                `json:"waste"`
-	CostImpact float64                `json:"cost_impact"`
-	Solution   string                 `json:"solution"`
-	Savings    float64                `json:"savings"`
-	Confidence float64                `json:"confidence"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Resource   string         `json:"resource"`
+	Type       string         `json:"type"`
+	Waste      float64        `json:"waste"`
+	CostImpact float64        `json:"cost_impact"`
+	Solution   string         `json:"solution"`
+	Savings    float64        `json:"savings"`
+	Confidence float64        `json:"confidence"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type ResourceCapacity struct {
@@ -830,17 +832,17 @@ type ResourceForecast struct {
 	Confidence  float64                      `json:"confidence"`
 	Accuracy    float64                      `json:"accuracy"`
 	LastUpdated time.Time                    `json:"last_updated"`
-	Metadata    map[string]interface{}       `json:"metadata"`
+	Metadata    map[string]any               `json:"metadata"`
 }
 
 type ResourceResourcePrediction struct {
-	Timestamp  time.Time              `json:"timestamp"`
-	Resource   string                 `json:"resource"`
-	Metric     string                 `json:"metric"`
-	Value      float64                `json:"value"`
-	Confidence float64                `json:"confidence"`
-	Bounds     PredictionBounds       `json:"bounds"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Timestamp  time.Time        `json:"timestamp"`
+	Resource   string           `json:"resource"`
+	Metric     string           `json:"metric"`
+	Value      float64          `json:"value"`
+	Confidence float64          `json:"confidence"`
+	Bounds     PredictionBounds `json:"bounds"`
+	Metadata   map[string]any   `json:"metadata"`
 }
 
 type OptimizationImpact struct {
@@ -867,7 +869,7 @@ type PerformanceAnalysis struct {
 	Bottlenecks        []PerformanceBottleneck     `json:"bottlenecks"`
 	Recommendations    []PerformanceRecommendation `json:"recommendations"`
 	SLACompliance      SLACompliance               `json:"sla_compliance"`
-	Metadata           map[string]interface{}      `json:"metadata"`
+	Metadata           map[string]any              `json:"metadata"`
 }
 
 type PerformanceTrend struct {
@@ -879,36 +881,36 @@ type PerformanceTrend struct {
 }
 
 type PerformanceBottleneck struct {
-	Component  string                 `json:"component"`
-	Metric     string                 `json:"metric"`
-	Impact     string                 `json:"impact"`
-	Cause      string                 `json:"cause"`
-	Solution   string                 `json:"solution"`
-	Priority   int                    `json:"priority"`
-	Confidence float64                `json:"confidence"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Component  string         `json:"component"`
+	Metric     string         `json:"metric"`
+	Impact     string         `json:"impact"`
+	Cause      string         `json:"cause"`
+	Solution   string         `json:"solution"`
+	Priority   int            `json:"priority"`
+	Confidence float64        `json:"confidence"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type PerformanceRecommendation struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Impact      string                 `json:"impact"`
-	Effort      string                 `json:"effort"`
-	Priority    int                    `json:"priority"`
-	Timeline    time.Duration          `json:"timeline"`
-	Confidence  float64                `json:"confidence"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Impact      string         `json:"impact"`
+	Effort      string         `json:"effort"`
+	Priority    int            `json:"priority"`
+	Timeline    time.Duration  `json:"timeline"`
+	Confidence  float64        `json:"confidence"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 type SLACompliance struct {
-	Overall      float64                `json:"overall"`
-	Availability float64                `json:"availability"`
-	Performance  float64                `json:"performance"`
-	Reliability  float64                `json:"reliability"`
-	Violations   []SLAViolation         `json:"violations"`
-	Trends       []SLATrend             `json:"trends"`
-	Metadata     map[string]interface{} `json:"metadata"`
+	Overall      float64        `json:"overall"`
+	Availability float64        `json:"availability"`
+	Performance  float64        `json:"performance"`
+	Reliability  float64        `json:"reliability"`
+	Violations   []SLAViolation `json:"violations"`
+	Trends       []SLATrend     `json:"trends"`
+	Metadata     map[string]any `json:"metadata"`
 }
 
 type SLAViolation struct {
@@ -929,14 +931,14 @@ type SLATrend struct {
 }
 
 type CostAnalysis struct {
-	CurrentCost   CostMetrics            `json:"current_cost"`
-	TargetCost    CostMetrics            `json:"target_cost"`
-	CostTrends    []CostTrend            `json:"cost_trends"`
-	CostDrivers   []CostDriver           `json:"cost_drivers"`
-	Optimizations []CostOptimization     `json:"optimizations"`
-	Forecast      CostForecast           `json:"forecast"`
-	BudgetStatus  BudgetStatus           `json:"budget_status"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	CurrentCost   CostMetrics        `json:"current_cost"`
+	TargetCost    CostMetrics        `json:"target_cost"`
+	CostTrends    []CostTrend        `json:"cost_trends"`
+	CostDrivers   []CostDriver       `json:"cost_drivers"`
+	Optimizations []CostOptimization `json:"optimizations"`
+	Forecast      CostForecast       `json:"forecast"`
+	BudgetStatus  BudgetStatus       `json:"budget_status"`
+	Metadata      map[string]any     `json:"metadata"`
 }
 
 type CostTrend struct {
@@ -948,35 +950,35 @@ type CostTrend struct {
 }
 
 type CostDriver struct {
-	Component    string                 `json:"component"`
-	Cost         float64                `json:"cost"`
-	Percentage   float64                `json:"percentage"`
-	Trend        string                 `json:"trend"`
-	Optimization string                 `json:"optimization"`
-	Potential    float64                `json:"potential"`
-	Metadata     map[string]interface{} `json:"metadata"`
+	Component    string         `json:"component"`
+	Cost         float64        `json:"cost"`
+	Percentage   float64        `json:"percentage"`
+	Trend        string         `json:"trend"`
+	Optimization string         `json:"optimization"`
+	Potential    float64        `json:"potential"`
+	Metadata     map[string]any `json:"metadata"`
 }
 
 type CostOptimization struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Savings     float64                `json:"savings"`
-	Percentage  float64                `json:"percentage"`
-	Effort      string                 `json:"effort"`
-	Risk        string                 `json:"risk"`
-	Timeline    time.Duration          `json:"timeline"`
-	Priority    int                    `json:"priority"`
-	Confidence  float64                `json:"confidence"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Savings     float64        `json:"savings"`
+	Percentage  float64        `json:"percentage"`
+	Effort      string         `json:"effort"`
+	Risk        string         `json:"risk"`
+	Timeline    time.Duration  `json:"timeline"`
+	Priority    int            `json:"priority"`
+	Confidence  float64        `json:"confidence"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 type CostForecast struct {
-	Horizon     time.Duration          `json:"horizon"`
-	Predictions []CostPrediction       `json:"predictions"`
-	Confidence  float64                `json:"confidence"`
-	Accuracy    float64                `json:"accuracy"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Horizon     time.Duration    `json:"horizon"`
+	Predictions []CostPrediction `json:"predictions"`
+	Confidence  float64          `json:"confidence"`
+	Accuracy    float64          `json:"accuracy"`
+	Metadata    map[string]any   `json:"metadata"`
 }
 
 type CostPrediction struct {
@@ -987,53 +989,53 @@ type CostPrediction struct {
 }
 
 type BudgetStatus struct {
-	Budget    float64                `json:"budget"`
-	Spent     float64                `json:"spent"`
-	Remaining float64                `json:"remaining"`
-	Usage     float64                `json:"usage"`
-	Forecast  float64                `json:"forecast"`
-	Alert     bool                   `json:"alert"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Budget    float64        `json:"budget"`
+	Spent     float64        `json:"spent"`
+	Remaining float64        `json:"remaining"`
+	Usage     float64        `json:"usage"`
+	Forecast  float64        `json:"forecast"`
+	Alert     bool           `json:"alert"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 type ResourceActionItem struct {
-	ID         string                 `json:"id"`
-	Type       string                 `json:"type"`
-	Action     string                 `json:"action"`
-	Target     string                 `json:"target"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Priority   int                    `json:"priority"`
-	Urgency    string                 `json:"urgency"`
-	Automatic  bool                   `json:"automatic"`
-	Timeout    time.Duration          `json:"timeout"`
-	Rollback   bool                   `json:"rollback"`
-	Confidence float64                `json:"confidence"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Action     string         `json:"action"`
+	Target     string         `json:"target"`
+	Parameters map[string]any `json:"parameters"`
+	Priority   int            `json:"priority"`
+	Urgency    string         `json:"urgency"`
+	Automatic  bool           `json:"automatic"`
+	Timeout    time.Duration  `json:"timeout"`
+	Rollback   bool           `json:"rollback"`
+	Confidence float64        `json:"confidence"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 type ResourceSummary struct {
-	OverallHealth         string                 `json:"overall_health"`
-	ResourceUtilization   ResourceUtilization    `json:"resource_utilization"`
-	PerformanceScore      float64                `json:"performance_score"`
-	CostEfficiency        float64                `json:"cost_efficiency"`
-	OptimizationPotential float64                `json:"optimization_potential"`
-	RecommendationsCount  int                    `json:"recommendations_count"`
-	AlertsCount           int                    `json:"alerts_count"`
-	ActionsCount          int                    `json:"actions_count"`
-	Trends                map[string]string      `json:"trends"`
-	LastUpdated           time.Time              `json:"last_updated"`
-	Metadata              map[string]interface{} `json:"metadata"`
+	OverallHealth         string              `json:"overall_health"`
+	ResourceUtilization   ResourceUtilization `json:"resource_utilization"`
+	PerformanceScore      float64             `json:"performance_score"`
+	CostEfficiency        float64             `json:"cost_efficiency"`
+	OptimizationPotential float64             `json:"optimization_potential"`
+	RecommendationsCount  int                 `json:"recommendations_count"`
+	AlertsCount           int                 `json:"alerts_count"`
+	ActionsCount          int                 `json:"actions_count"`
+	Trends                map[string]string   `json:"trends"`
+	LastUpdated           time.Time           `json:"last_updated"`
+	Metadata              map[string]any      `json:"metadata"`
 }
 
-// NewResourceAgent creates a new resource management agent
+// NewResourceAgent creates a new resource management agent.
 func NewResourceAgent() ai.AIAgent {
 	capabilities := []ai.Capability{
 		{
 			Name:        "resource-monitoring",
 			Description: "Monitor system resources and performance metrics",
-			InputType:   reflect.TypeOf(ResourceInput{}),
-			OutputType:  reflect.TypeOf(ResourceOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[ResourceInput](),
+			OutputType:  reflect.TypeFor[ResourceOutput](),
+			Metadata: map[string]any{
 				"monitoring_accuracy": 0.95,
 				"update_frequency":    "real-time",
 			},
@@ -1041,9 +1043,9 @@ func NewResourceAgent() ai.AIAgent {
 		{
 			Name:        "performance-optimization",
 			Description: "Optimize system performance and resource utilization",
-			InputType:   reflect.TypeOf(ResourceInput{}),
-			OutputType:  reflect.TypeOf(ResourceOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[ResourceInput](),
+			OutputType:  reflect.TypeFor[ResourceOutput](),
+			Metadata: map[string]any{
 				"optimization_accuracy": 0.88,
 				"performance_gain":      "15-30%",
 			},
@@ -1051,9 +1053,9 @@ func NewResourceAgent() ai.AIAgent {
 		{
 			Name:        "cost-optimization",
 			Description: "Optimize costs while maintaining performance",
-			InputType:   reflect.TypeOf(ResourceInput{}),
-			OutputType:  reflect.TypeOf(ResourceOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[ResourceInput](),
+			OutputType:  reflect.TypeFor[ResourceOutput](),
+			Metadata: map[string]any{
 				"cost_savings":     "10-25%",
 				"optimization_roi": "200-400%",
 			},
@@ -1061,9 +1063,9 @@ func NewResourceAgent() ai.AIAgent {
 		{
 			Name:        "auto-scaling",
 			Description: "Automatically scale resources based on demand",
-			InputType:   reflect.TypeOf(ResourceInput{}),
-			OutputType:  reflect.TypeOf(ResourceOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[ResourceInput](),
+			OutputType:  reflect.TypeFor[ResourceOutput](),
+			Metadata: map[string]any{
 				"scaling_accuracy": 0.92,
 				"response_time":    "< 2min",
 			},
@@ -1071,9 +1073,9 @@ func NewResourceAgent() ai.AIAgent {
 		{
 			Name:        "capacity-planning",
 			Description: "Plan future resource capacity needs",
-			InputType:   reflect.TypeOf(ResourceInput{}),
-			OutputType:  reflect.TypeOf(ResourceOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[ResourceInput](),
+			OutputType:  reflect.TypeFor[ResourceOutput](),
+			Metadata: map[string]any{
 				"forecast_accuracy": 0.85,
 				"planning_horizon":  "1-12 months",
 			},
@@ -1136,7 +1138,7 @@ func NewResourceAgent() ai.AIAgent {
 	}
 }
 
-// Initialize initializes the resource agent
+// Initialize initializes the resource agent.
 func (a *ResourceAgent) Initialize(ctx context.Context, config ai.AgentConfig) error {
 	if err := a.BaseAgent.Initialize(ctx, config); err != nil {
 		return err
@@ -1144,13 +1146,15 @@ func (a *ResourceAgent) Initialize(ctx context.Context, config ai.AgentConfig) e
 
 	// Initialize resource-specific configuration
 	if resourceConfig, ok := config.Metadata["resource"]; ok {
-		if configMap, ok := resourceConfig.(map[string]interface{}); ok {
+		if configMap, ok := resourceConfig.(map[string]any); ok {
 			if autoScale, ok := configMap["auto_scaling"].(bool); ok {
 				a.autoScaling = autoScale
 			}
+
 			if autoOpt, ok := configMap["auto_optimization"].(bool); ok {
 				a.autoOptimization = autoOpt
 			}
+
 			if learning, ok := configMap["learning_enabled"].(bool); ok {
 				a.learningEnabled = learning
 			}
@@ -1164,7 +1168,7 @@ func (a *ResourceAgent) Initialize(ctx context.Context, config ai.AgentConfig) e
 	a.initializeOptimizationRules()
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Info("resource agent initialized",
+		a.GetConfiguration().Logger.Info("resource agent initialized",
 			logger.String("agent_id", a.ID()),
 			logger.Bool("auto_scaling", a.autoScaling),
 			logger.Bool("auto_optimization", a.autoOptimization),
@@ -1177,14 +1181,14 @@ func (a *ResourceAgent) Initialize(ctx context.Context, config ai.AgentConfig) e
 	return nil
 }
 
-// Process processes resource monitoring input
+// Process processes resource monitoring input.
 func (a *ResourceAgent) Process(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Convert input to resource-specific input
 	resourceInput, ok := input.Data.(ResourceInput)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input type for resource agent")
+		return ai.AgentOutput{}, errors.New("invalid input type for resource agent")
 	}
 
 	// Analyze current resource state
@@ -1225,7 +1229,7 @@ func (a *ResourceAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Ag
 		Predictions:                 predictions,
 		Actions:                     actions,
 		Summary:                     summary,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"processing_time": time.Since(startTime),
 			"agent_version":   "1.0.0",
 		},
@@ -1241,7 +1245,7 @@ func (a *ResourceAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Ag
 		Confidence:  a.calculateResourceConfidence(resourceInput, resourceAnalysis),
 		Explanation: a.generateResourceExplanation(output),
 		Actions:     a.convertToAgentActions(actions),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"processing_time":       time.Since(startTime),
 			"recommendations_count": len(optimizationRecommendations),
 			"alerts_count":          len(resourceAlerts),
@@ -1253,7 +1257,7 @@ func (a *ResourceAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Ag
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Debug("resource management processed",
+		a.GetConfiguration().Logger.Debug("resource management processed",
 			logger.String("agent_id", a.ID()),
 			logger.String("request_id", input.RequestID),
 			logger.Int("recommendations", len(optimizationRecommendations)),
@@ -1266,7 +1270,7 @@ func (a *ResourceAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Ag
 	return agentOutput, nil
 }
 
-// initializeResourcePolicies initializes default resource policies
+// initializeResourcePolicies initializes default resource policies.
 func (a *ResourceAgent) initializeResourcePolicies() {
 	a.resourcePolicies = []ResourcePolicy{
 		{
@@ -1292,7 +1296,7 @@ func (a *ResourceAgent) initializeResourcePolicies() {
 					Type:   "scaling",
 					Name:   "Scale Up",
 					Target: "instances",
-					Parameters: map[string]interface{}{
+					Parameters: map[string]any{
 						"scale_factor":  1.5,
 						"max_instances": 10,
 					},
@@ -1327,7 +1331,7 @@ func (a *ResourceAgent) initializeResourcePolicies() {
 					Type:   "optimization",
 					Name:   "Memory Optimization",
 					Target: "memory",
-					Parameters: map[string]interface{}{
+					Parameters: map[string]any{
 						"clear_cache":   true,
 						"gc_aggressive": true,
 					},
@@ -1342,7 +1346,7 @@ func (a *ResourceAgent) initializeResourcePolicies() {
 	}
 }
 
-// initializeOptimizationRules initializes default optimization rules
+// initializeOptimizationRules initializes default optimization rules.
 func (a *ResourceAgent) initializeOptimizationRules() {
 	a.optimizationRules = []OptimizationRule{
 		{
@@ -1351,7 +1355,7 @@ func (a *ResourceAgent) initializeOptimizationRules() {
 			Type:         "cpu",
 			Condition:    "cpu_usage < 50 AND load_average < 2.0",
 			Optimization: "reduce_cpu_allocation",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"reduction_factor": 0.8,
 				"min_allocation":   0.5,
 			},
@@ -1365,7 +1369,7 @@ func (a *ResourceAgent) initializeOptimizationRules() {
 			Type:         "memory",
 			Condition:    "memory_usage < 60 AND swap_usage < 10",
 			Optimization: "reduce_memory_allocation",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"reduction_factor": 0.9,
 				"min_allocation":   0.5,
 			},
@@ -1379,7 +1383,7 @@ func (a *ResourceAgent) initializeOptimizationRules() {
 			Type:         "disk",
 			Condition:    "disk_usage < 70 AND io_wait < 10",
 			Optimization: "optimize_disk_usage",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"cleanup_temp":  true,
 				"compress_logs": true,
 				"archive_old":   true,
@@ -1391,7 +1395,7 @@ func (a *ResourceAgent) initializeOptimizationRules() {
 	}
 }
 
-// analyzeResources analyzes current resource state
+// analyzeResources analyzes current resource state.
 func (a *ResourceAgent) analyzeResources(input ResourceInput) ResourceAnalysis {
 	currentUtilization := ResourceUtilization{
 		CPU:     input.SystemMetrics.CPU.Usage,
@@ -1423,14 +1427,14 @@ func (a *ResourceAgent) analyzeResources(input ResourceInput) ResourceAnalysis {
 		Capacity:           capacity,
 		Forecast:           forecast,
 		Confidence:         0.85,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"analysis_time": time.Now(),
 			"data_quality":  "good",
 		},
 	}
 }
 
-// calculateResourceTrends calculates resource trends
+// calculateResourceTrends calculates resource trends.
 func (a *ResourceAgent) calculateResourceTrends(input ResourceInput) []ResourceTrend {
 	trends := []ResourceTrend{}
 
@@ -1481,17 +1485,18 @@ func (a *ResourceAgent) calculateResourceTrends(input ResourceInput) []ResourceT
 	return trends
 }
 
-// determineTrendDirection determines trend direction based on usage
+// determineTrendDirection determines trend direction based on usage.
 func (a *ResourceAgent) determineTrendDirection(usage float64) string {
 	if usage > 80 {
 		return "increasing"
 	} else if usage < 30 {
 		return "decreasing"
 	}
+
 	return "stable"
 }
 
-// identifyBottlenecks identifies resource bottlenecks
+// identifyBottlenecks identifies resource bottlenecks.
 func (a *ResourceAgent) identifyBottlenecks(input ResourceInput, utilization ResourceUtilization) []ResourceBottleneck {
 	bottlenecks := []ResourceBottleneck{}
 
@@ -1550,7 +1555,7 @@ func (a *ResourceAgent) identifyBottlenecks(input ResourceInput, utilization Res
 	return bottlenecks
 }
 
-// identifyInefficiencies identifies resource inefficiencies
+// identifyInefficiencies identifies resource inefficiencies.
 func (a *ResourceAgent) identifyInefficiencies(input ResourceInput, utilization ResourceUtilization) []ResourceInefficiency {
 	inefficiencies := []ResourceInefficiency{}
 
@@ -1583,7 +1588,7 @@ func (a *ResourceAgent) identifyInefficiencies(input ResourceInput, utilization 
 	return inefficiencies
 }
 
-// calculateCapacity calculates resource capacity
+// calculateCapacity calculates resource capacity.
 func (a *ResourceAgent) calculateCapacity(input ResourceInput) ResourceCapacity {
 	return ResourceCapacity{
 		CPU: CapacityInfo{
@@ -1621,7 +1626,7 @@ func (a *ResourceAgent) calculateCapacity(input ResourceInput) ResourceCapacity 
 	}
 }
 
-// generateResourceForecast generates resource forecasts
+// generateResourceForecast generates resource forecasts.
 func (a *ResourceAgent) generateResourceForecast(input ResourceInput, trends []ResourceTrend) ResourceForecast {
 	predictions := []ResourceResourcePrediction{}
 
@@ -1652,30 +1657,33 @@ func (a *ResourceAgent) generateResourceForecast(input ResourceInput, trends []R
 	}
 }
 
-// calculateForecastValue calculates forecast value based on trend
+// calculateForecastValue calculates forecast value based on trend.
 func (a *ResourceAgent) calculateForecastValue(trend ResourceTrend, hours float64) float64 {
 	baseValue := 50.0                 // Assume 50% as base
 	changeRate := trend.Change / 24.0 // Change per hour
 
-	if trend.Direction == "increasing" {
+	switch trend.Direction {
+	case "increasing":
 		return baseValue + (changeRate * hours)
-	} else if trend.Direction == "decreasing" {
+	case "decreasing":
 		return baseValue - (changeRate * hours)
 	}
+
 	return baseValue
 }
 
-// determineSeverity determines severity based on thresholds
+// determineSeverity determines severity based on thresholds.
 func (a *ResourceAgent) determineSeverity(value, warning, critical float64) string {
 	if value >= critical {
 		return "critical"
 	} else if value >= warning {
 		return "warning"
 	}
+
 	return "normal"
 }
 
-// generateOptimizationRecommendations generates optimization recommendations
+// generateOptimizationRecommendations generates optimization recommendations.
 func (a *ResourceAgent) generateOptimizationRecommendations(input ResourceInput, analysis ResourceAnalysis) []OptimizationRecommendation {
 	recommendations := []OptimizationRecommendation{}
 
@@ -1713,13 +1721,14 @@ func (a *ResourceAgent) generateOptimizationRecommendations(input ResourceInput,
 		if recommendations[i].Priority != recommendations[j].Priority {
 			return recommendations[i].Priority < recommendations[j].Priority
 		}
+
 		return recommendations[i].CostSavings > recommendations[j].CostSavings
 	})
 
 	return recommendations
 }
 
-// generateScalingRecommendations generates scaling recommendations
+// generateScalingRecommendations generates scaling recommendations.
 func (a *ResourceAgent) generateScalingRecommendations(input ResourceInput, analysis ResourceAnalysis) []ScalingRecommendation {
 	recommendations := []ScalingRecommendation{}
 
@@ -1755,7 +1764,7 @@ func (a *ResourceAgent) generateScalingRecommendations(input ResourceInput, anal
 	return recommendations
 }
 
-// generateResourceAlerts generates resource alerts
+// generateResourceAlerts generates resource alerts.
 func (a *ResourceAgent) generateResourceAlerts(input ResourceInput, analysis ResourceAnalysis) []ResourceAlert {
 	alerts := []ResourceAlert{}
 
@@ -1765,7 +1774,7 @@ func (a *ResourceAgent) generateResourceAlerts(input ResourceInput, analysis Res
 			ID:             fmt.Sprintf("alert-%s-%d", bottleneck.Resource, time.Now().Unix()),
 			Type:           "resource_bottleneck",
 			Severity:       bottleneck.Severity,
-			Title:          fmt.Sprintf("%s bottleneck detected", bottleneck.Resource),
+			Title:          bottleneck.Resource + " bottleneck detected",
 			Description:    bottleneck.Cause,
 			Resource:       bottleneck.Resource,
 			Metric:         "usage",
@@ -1782,7 +1791,7 @@ func (a *ResourceAgent) generateResourceAlerts(input ResourceInput, analysis Res
 	return alerts
 }
 
-// analyzePerformance analyzes performance metrics
+// analyzePerformance analyzes performance metrics.
 func (a *ResourceAgent) analyzePerformance(input ResourceInput, analysis ResourceAnalysis) PerformanceAnalysis {
 	currentPerformance := ResourcePerformanceMetrics{
 		AverageResponseTime: input.ResourcePerformanceMetrics.AverageResponseTime,
@@ -1800,14 +1809,14 @@ func (a *ResourceAgent) analyzePerformance(input ResourceInput, analysis Resourc
 
 	return PerformanceAnalysis{
 		CurrentPerformance: currentPerformance,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"performance_score": performanceScore,
 			"analysis_time":     time.Now(),
 		},
 	}
 }
 
-// calculatePerformanceScore calculates performance score
+// calculatePerformanceScore calculates performance score.
 func (a *ResourceAgent) calculatePerformanceScore(metrics ResourcePerformanceMetrics) float64 {
 	// Simple scoring algorithm
 	score := 100.0
@@ -1839,7 +1848,7 @@ func (a *ResourceAgent) calculatePerformanceScore(metrics ResourcePerformanceMet
 	return score
 }
 
-// analyzeCosts analyzes cost metrics
+// analyzeCosts analyzes cost metrics.
 func (a *ResourceAgent) analyzeCosts(input ResourceInput, analysis ResourceAnalysis) CostAnalysis {
 	currentCost := CostMetrics{
 		ComputeCost:    input.CostMetrics.ComputeCost,
@@ -1855,36 +1864,34 @@ func (a *ResourceAgent) analyzeCosts(input ResourceInput, analysis ResourceAnaly
 
 	return CostAnalysis{
 		CurrentCost: currentCost,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"analysis_time": time.Now(),
 		},
 	}
 }
 
-// generateResourceResourcePredictions generates resource predictions
+// generateResourceResourcePredictions generates resource predictions.
 func (a *ResourceAgent) generateResourceResourcePredictions(input ResourceInput, analysis ResourceAnalysis) []ResourceResourcePrediction {
 	predictions := []ResourceResourcePrediction{}
 
 	// Generate predictions based on forecast
-	for _, prediction := range analysis.Forecast.Predictions {
-		predictions = append(predictions, prediction)
-	}
+	predictions = append(predictions, analysis.Forecast.Predictions...)
 
 	return predictions
 }
 
-// createResourceActions creates resource actions
+// createResourceActions creates resource actions.
 func (a *ResourceAgent) createResourceActions(optimizations []OptimizationRecommendation, scalings []ScalingRecommendation, alerts []ResourceAlert) []ResourceActionItem {
 	actions := []ResourceActionItem{}
 
 	// Create actions from optimization recommendations
 	for _, opt := range optimizations {
 		action := ResourceActionItem{
-			ID:     fmt.Sprintf("action-opt-%s", opt.ID),
+			ID:     "action-opt-" + opt.ID,
 			Type:   "optimization",
 			Action: opt.Implementation,
 			Target: opt.Target,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"current_value":     opt.CurrentValue,
 				"recommended_value": opt.RecommendedValue,
 				"cost_savings":      opt.CostSavings,
@@ -1902,11 +1909,11 @@ func (a *ResourceAgent) createResourceActions(optimizations []OptimizationRecomm
 	// Create actions from scaling recommendations
 	for _, scale := range scalings {
 		action := ResourceActionItem{
-			ID:     fmt.Sprintf("action-scale-%s", scale.ID),
+			ID:     "action-scale-" + scale.ID,
 			Type:   "scaling",
-			Action: fmt.Sprintf("scale_%s", scale.Direction),
+			Action: "scale_" + scale.Direction,
 			Target: scale.Target,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"current_instances":     scale.CurrentInstances,
 				"recommended_instances": scale.RecommendedInstances,
 				"cost_impact":           scale.CostImpact,
@@ -1924,15 +1931,17 @@ func (a *ResourceAgent) createResourceActions(optimizations []OptimizationRecomm
 	return actions
 }
 
-// generateResourceSummary generates resource summary
+// generateResourceSummary generates resource summary.
 func (a *ResourceAgent) generateResourceSummary(analysis ResourceAnalysis, performance PerformanceAnalysis, cost CostAnalysis, recommendations []OptimizationRecommendation, alerts []ResourceAlert) ResourceSummary {
 	// Calculate overall health
 	health := "good"
 	if len(alerts) > 0 {
 		health = "warning"
+
 		for _, alert := range alerts {
 			if alert.Severity == "critical" {
 				health = "critical"
+
 				break
 			}
 		}
@@ -1972,7 +1981,7 @@ func (a *ResourceAgent) generateResourceSummary(analysis ResourceAnalysis, perfo
 	}
 }
 
-// Helper methods
+// Helper methods.
 func (a *ResourceAgent) updateResourceStats(output ResourceOutput) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

@@ -3,12 +3,13 @@ package graphql
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge/farp"
 )
 
-// Provider generates GraphQL schemas (SDL - Schema Definition Language) from applications
+// Provider generates GraphQL schemas (SDL - Schema Definition Language) from applications.
 type Provider struct {
 	specVersion string
 	endpoint    string
@@ -17,11 +18,12 @@ type Provider struct {
 
 // NewProvider creates a new GraphQL schema provider
 // specVersion should be "2021" (June 2021 Edition) or "2018" (October 2018 Edition)
-// endpoint is typically "/graphql" for introspection
+// endpoint is typically "/graphql" for introspection.
 func NewProvider(specVersion string, endpoint string) *Provider {
 	if specVersion == "" {
 		specVersion = "2021"
 	}
+
 	if endpoint == "" {
 		endpoint = "/graphql"
 	}
@@ -33,31 +35,32 @@ func NewProvider(specVersion string, endpoint string) *Provider {
 	}
 }
 
-// Type returns the schema type
+// Type returns the schema type.
 func (p *Provider) Type() farp.SchemaType {
 	return farp.SchemaTypeGraphQL
 }
 
-// SpecVersion returns the GraphQL specification version
+// SpecVersion returns the GraphQL specification version.
 func (p *Provider) SpecVersion() string {
 	return p.specVersion
 }
 
-// ContentType returns the content type
+// ContentType returns the content type.
 func (p *Provider) ContentType() string {
 	if p.useSDL {
 		return "application/graphql" // SDL text format
 	}
+
 	return "application/json" // Introspection query result
 }
 
-// Endpoint returns the HTTP endpoint where GraphQL introspection is available
+// Endpoint returns the HTTP endpoint where GraphQL introspection is available.
 func (p *Provider) Endpoint() string {
 	return p.endpoint
 }
 
-// Generate generates a GraphQL schema from the application
-func (p *Provider) Generate(ctx context.Context, app farp.Application) (interface{}, error) {
+// Generate generates a GraphQL schema from the application.
+func (p *Provider) Generate(ctx context.Context, app farp.Application) (any, error) {
 	// For GraphQL, we have two options:
 	// 1. Generate SDL (Schema Definition Language) directly
 	// 2. Use introspection query to extract schema
@@ -71,7 +74,6 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	//     subscriptionType { name }
 	//   }
 	// }
-
 	if p.useSDL {
 		return p.generateSDL(ctx, app)
 	}
@@ -79,14 +81,13 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	return p.generateIntrospectionResult(ctx, app)
 }
 
-// generateSDL generates GraphQL Schema Definition Language
-func (p *Provider) generateSDL(ctx context.Context, app farp.Application) (interface{}, error) {
+// generateSDL generates GraphQL Schema Definition Language.
+func (p *Provider) generateSDL(ctx context.Context, app farp.Application) (any, error) {
 	// This would integrate with Forge's GraphQL support
 	// or parse existing schema files
 	//
 	// For now, return a minimal SDL as a map
-
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"sdl": fmt.Sprintf(`
 # GraphQL Schema for %s v%s
 
@@ -120,45 +121,44 @@ type HealthStatus {
 	return schema, nil
 }
 
-// generateIntrospectionResult generates GraphQL introspection query result
-func (p *Provider) generateIntrospectionResult(ctx context.Context, app farp.Application) (interface{}, error) {
+// generateIntrospectionResult generates GraphQL introspection query result.
+func (p *Provider) generateIntrospectionResult(ctx context.Context, app farp.Application) (any, error) {
 	// This would execute the introspection query against a running GraphQL server
 	// and return the result
 	//
 	// For now, return a minimal introspection result structure
-
-	schema := map[string]interface{}{
-		"data": map[string]interface{}{
-			"__schema": map[string]interface{}{
-				"queryType": map[string]interface{}{
+	schema := map[string]any{
+		"data": map[string]any{
+			"__schema": map[string]any{
+				"queryType": map[string]any{
 					"name": "Query",
 				},
-				"mutationType": map[string]interface{}{
+				"mutationType": map[string]any{
 					"name": "Mutation",
 				},
 				"subscriptionType": nil,
-				"types": []interface{}{
-					map[string]interface{}{
+				"types": []any{
+					map[string]any{
 						"kind": "OBJECT",
 						"name": "Query",
-						"fields": []interface{}{
-							map[string]interface{}{
+						"fields": []any{
+							map[string]any{
 								"name": "health",
-								"type": map[string]interface{}{
+								"type": map[string]any{
 									"kind": "NON_NULL",
 									"name": nil,
-									"ofType": map[string]interface{}{
+									"ofType": map[string]any{
 										"kind": "OBJECT",
 										"name": "HealthStatus",
 									},
 								},
 							},
-							map[string]interface{}{
+							map[string]any{
 								"name": "version",
-								"type": map[string]interface{}{
+								"type": map[string]any{
 									"kind": "NON_NULL",
 									"name": nil,
-									"ofType": map[string]interface{}{
+									"ofType": map[string]any{
 										"kind": "SCALAR",
 										"name": "String",
 									},
@@ -166,27 +166,27 @@ func (p *Provider) generateIntrospectionResult(ctx context.Context, app farp.App
 							},
 						},
 					},
-					map[string]interface{}{
+					map[string]any{
 						"kind": "OBJECT",
 						"name": "HealthStatus",
-						"fields": []interface{}{
-							map[string]interface{}{
+						"fields": []any{
+							map[string]any{
 								"name": "status",
-								"type": map[string]interface{}{
+								"type": map[string]any{
 									"kind": "NON_NULL",
 									"name": nil,
-									"ofType": map[string]interface{}{
+									"ofType": map[string]any{
 										"kind": "SCALAR",
 										"name": "String",
 									},
 								},
 							},
-							map[string]interface{}{
+							map[string]any{
 								"name": "timestamp",
-								"type": map[string]interface{}{
+								"type": map[string]any{
 									"kind": "NON_NULL",
 									"name": nil,
-									"ofType": map[string]interface{}{
+									"ofType": map[string]any{
 										"kind": "SCALAR",
 										"name": "String",
 									},
@@ -204,9 +204,9 @@ func (p *Provider) generateIntrospectionResult(ctx context.Context, app farp.App
 	return schema, nil
 }
 
-// Validate validates a GraphQL schema
-func (p *Provider) Validate(schema interface{}) error {
-	schemaMap, ok := schema.(map[string]interface{})
+// Validate validates a GraphQL schema.
+func (p *Provider) Validate(schema any) error {
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: schema must be a map", farp.ErrInvalidSchema)
 	}
@@ -223,7 +223,7 @@ func (p *Provider) Validate(schema interface{}) error {
 
 	case "introspection":
 		// Check for data.__schema
-		data, ok := schemaMap["data"].(map[string]interface{})
+		data, ok := schemaMap["data"].(map[string]any)
 		if !ok {
 			return fmt.Errorf("%w: missing 'data' field for introspection format", farp.ErrInvalidSchema)
 		}
@@ -239,17 +239,17 @@ func (p *Provider) Validate(schema interface{}) error {
 	return nil
 }
 
-// Hash calculates SHA256 hash of the schema
-func (p *Provider) Hash(schema interface{}) (string, error) {
+// Hash calculates SHA256 hash of the schema.
+func (p *Provider) Hash(schema any) (string, error) {
 	return farp.CalculateSchemaChecksum(schema)
 }
 
-// Serialize converts schema to JSON bytes
-func (p *Provider) Serialize(schema interface{}) ([]byte, error) {
+// Serialize converts schema to JSON bytes.
+func (p *Provider) Serialize(schema any) ([]byte, error) {
 	return json.Marshal(schema)
 }
 
-// GenerateDescriptor generates a complete SchemaDescriptor for this schema
+// GenerateDescriptor generates a complete SchemaDescriptor for this schema.
 func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
 	// Generate schema
 	schema, err := p.Generate(ctx, app)
@@ -278,9 +278,11 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeHTTP:
 		url := locationConfig["url"]
 		if url == "" {
-			return nil, fmt.Errorf("url required for HTTP location")
+			return nil, errors.New("url required for HTTP location")
 		}
+
 		location.URL = url
+
 		if headers := locationConfig["headers"]; headers != "" {
 			var headersMap map[string]string
 			if err := json.Unmarshal([]byte(headers), &headersMap); err == nil {
@@ -291,8 +293,9 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeRegistry:
 		registryPath := locationConfig["registry_path"]
 		if registryPath == "" {
-			return nil, fmt.Errorf("registry_path required for registry location")
+			return nil, errors.New("registry_path required for registry location")
 		}
+
 		location.RegistryPath = registryPath
 
 	case farp.LocationTypeInline:
@@ -316,17 +319,17 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	return descriptor, nil
 }
 
-// UseSDL configures the provider to generate SDL format
+// UseSDL configures the provider to generate SDL format.
 func (p *Provider) UseSDL() {
 	p.useSDL = true
 }
 
-// UseIntrospection configures the provider to generate introspection query result
+// UseIntrospection configures the provider to generate introspection query result.
 func (p *Provider) UseIntrospection() {
 	p.useSDL = false
 }
 
-// SetEndpoint sets the GraphQL endpoint for introspection
+// SetEndpoint sets the GraphQL endpoint for introspection.
 func (p *Provider) SetEndpoint(endpoint string) {
 	p.endpoint = endpoint
 }

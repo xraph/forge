@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// Log represents the replicated log
+// Log represents the replicated log.
 type Log struct {
 	entries []internal.LogEntry
 	cache   map[uint64]internal.LogEntry
@@ -26,7 +26,7 @@ type Log struct {
 	snapshotTerm  uint64
 }
 
-// NewLog creates a new log
+// NewLog creates a new log.
 func NewLog(logger forge.Logger, storage internal.Storage, cacheSize int) (*Log, error) {
 	l := &Log{
 		entries:   make([]internal.LogEntry, 0),
@@ -44,7 +44,7 @@ func NewLog(logger forge.Logger, storage internal.Storage, cacheSize int) (*Log,
 	return l, nil
 }
 
-// Append appends a log entry
+// Append appends a log entry.
 func (l *Log) Append(entry internal.LogEntry) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -60,7 +60,7 @@ func (l *Log) Append(entry internal.LogEntry) error {
 	return l.persistEntry(entry)
 }
 
-// AppendBatch appends multiple log entries
+// AppendBatch appends multiple log entries.
 func (l *Log) AppendBatch(entries []internal.LogEntry) error {
 	if len(entries) == 0 {
 		return nil
@@ -76,13 +76,14 @@ func (l *Log) AppendBatch(entries []internal.LogEntry) error {
 	for _, entry := range entries {
 		l.cache[entry.Index] = entry
 	}
+
 	l.evictCache()
 
 	// Persist to storage in batch
 	return l.persistBatch(entries)
 }
 
-// Get retrieves a log entry by index
+// Get retrieves a log entry by index.
 func (l *Log) Get(index uint64) (internal.LogEntry, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -101,6 +102,7 @@ func (l *Log) Get(index uint64) (internal.LogEntry, error) {
 	for _, entry := range l.entries {
 		if entry.Index == index {
 			l.cache[index] = entry
+
 			return entry, nil
 		}
 	}
@@ -109,7 +111,7 @@ func (l *Log) Get(index uint64) (internal.LogEntry, error) {
 	return l.loadEntry(index)
 }
 
-// GetRange retrieves a range of log entries
+// GetRange retrieves a range of log entries.
 func (l *Log) GetRange(start, end uint64) ([]internal.LogEntry, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -128,16 +130,19 @@ func (l *Log) GetRange(start, end uint64) ([]internal.LogEntry, error) {
 		// Check cache first
 		if entry, ok := l.cache[i]; ok {
 			result = append(result, entry)
+
 			continue
 		}
 
 		// Check in-memory entries
 		found := false
+
 		for _, entry := range l.entries {
 			if entry.Index == i {
 				result = append(result, entry)
 				l.cache[i] = entry
 				found = true
+
 				break
 			}
 		}
@@ -148,6 +153,7 @@ func (l *Log) GetRange(start, end uint64) ([]internal.LogEntry, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to load entry %d: %w", i, err)
 			}
+
 			result = append(result, entry)
 			l.cache[i] = entry
 		}
@@ -156,7 +162,7 @@ func (l *Log) GetRange(start, end uint64) ([]internal.LogEntry, error) {
 	return result, nil
 }
 
-// LastIndex returns the index of the last log entry
+// LastIndex returns the index of the last log entry.
 func (l *Log) LastIndex() uint64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -168,7 +174,7 @@ func (l *Log) LastIndex() uint64 {
 	return l.entries[len(l.entries)-1].Index
 }
 
-// LastTerm returns the term of the last log entry
+// LastTerm returns the term of the last log entry.
 func (l *Log) LastTerm() uint64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -180,7 +186,7 @@ func (l *Log) LastTerm() uint64 {
 	return l.entries[len(l.entries)-1].Term
 }
 
-// FirstIndex returns the index of the first log entry
+// FirstIndex returns the index of the first log entry.
 func (l *Log) FirstIndex() uint64 {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -192,14 +198,15 @@ func (l *Log) FirstIndex() uint64 {
 	return l.entries[0].Index
 }
 
-// Count returns the number of log entries
+// Count returns the number of log entries.
 func (l *Log) Count() int {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
+
 	return len(l.entries)
 }
 
-// TruncateAfter truncates the log after the given index
+// TruncateAfter truncates the log after the given index.
 func (l *Log) TruncateAfter(index uint64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -210,9 +217,11 @@ func (l *Log) TruncateAfter(index uint64) error {
 
 	// Find the position to truncate
 	truncatePos := -1
+
 	for i, entry := range l.entries {
 		if entry.Index > index {
 			truncatePos = i
+
 			break
 		}
 	}
@@ -237,7 +246,7 @@ func (l *Log) TruncateAfter(index uint64) error {
 	return nil
 }
 
-// Compact compacts the log up to the given index (inclusive)
+// Compact compacts the log up to the given index (inclusive).
 func (l *Log) Compact(index uint64, term uint64) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -248,9 +257,11 @@ func (l *Log) Compact(index uint64, term uint64) error {
 
 	// Find the position to compact
 	compactPos := -1
+
 	for i, entry := range l.entries {
 		if entry.Index == index {
 			compactPos = i
+
 			break
 		}
 	}
@@ -280,7 +291,7 @@ func (l *Log) Compact(index uint64, term uint64) error {
 	return nil
 }
 
-// load loads the log from storage
+// load loads the log from storage.
 func (l *Log) load() error {
 	// Load snapshot metadata
 	snapshotMeta, err := l.storage.Get([]byte("snapshot_meta"))
@@ -308,18 +319,19 @@ func (l *Log) load() error {
 	return nil
 }
 
-// persistEntry persists a single log entry to storage
+// persistEntry persists a single log entry to storage.
 func (l *Log) persistEntry(entry internal.LogEntry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("failed to marshal entry: %w", err)
 	}
 
-	key := []byte(fmt.Sprintf("log_%d", entry.Index))
+	key := fmt.Appendf(nil, "log_%d", entry.Index)
+
 	return l.storage.Set(key, data)
 }
 
-// persistBatch persists multiple log entries to storage
+// persistBatch persists multiple log entries to storage.
 func (l *Log) persistBatch(entries []internal.LogEntry) error {
 	if len(entries) == 0 {
 		return nil
@@ -338,7 +350,7 @@ func (l *Log) persistBatch(entries []internal.LogEntry) error {
 
 			ops[i] = internal.BatchOp{
 				Type:  internal.BatchOpSet,
-				Key:   []byte(fmt.Sprintf("log_%d", entry.Index)),
+				Key:   fmt.Appendf(nil, "log_%d", entry.Index),
 				Value: data,
 			}
 		}
@@ -356,9 +368,10 @@ func (l *Log) persistBatch(entries []internal.LogEntry) error {
 	return nil
 }
 
-// loadEntry loads a single log entry from storage
+// loadEntry loads a single log entry from storage.
 func (l *Log) loadEntry(index uint64) (internal.LogEntry, error) {
-	key := []byte(fmt.Sprintf("log_%d", index))
+	key := fmt.Appendf(nil, "log_%d", index)
+
 	data, err := l.storage.Get(key)
 	if err != nil {
 		return internal.LogEntry{}, fmt.Errorf("failed to load entry: %w", err)
@@ -372,7 +385,7 @@ func (l *Log) loadEntry(index uint64) (internal.LogEntry, error) {
 	return entry, nil
 }
 
-// evictCache evicts old entries from the cache if it exceeds the size limit
+// evictCache evicts old entries from the cache if it exceeds the size limit.
 func (l *Log) evictCache() {
 	if len(l.cache) <= l.cacheSize {
 		return
@@ -382,6 +395,7 @@ func (l *Log) evictCache() {
 	// Simple strategy: keep the most recent entries
 	if len(l.entries) > 0 {
 		lastIndex := l.entries[len(l.entries)-1].Index
+
 		minIndex := lastIndex
 		if uint64(l.cacheSize) < lastIndex {
 			minIndex = lastIndex - uint64(l.cacheSize)
@@ -395,7 +409,7 @@ func (l *Log) evictCache() {
 	}
 }
 
-// MatchesTerm checks if the log entry at index has the given term
+// MatchesTerm checks if the log entry at index has the given term.
 func (l *Log) MatchesTerm(index, term uint64) bool {
 	if index == 0 {
 		return true
@@ -413,7 +427,7 @@ func (l *Log) MatchesTerm(index, term uint64) bool {
 	return entry.Term == term
 }
 
-// GetEntriesAfter returns all entries after the given index
+// GetEntriesAfter returns all entries after the given index.
 func (l *Log) GetEntriesAfter(index uint64, maxEntries int) ([]internal.LogEntry, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -436,7 +450,7 @@ func (l *Log) GetEntriesAfter(index uint64, maxEntries int) ([]internal.LogEntry
 	return result, nil
 }
 
-// String returns a string representation of the log
+// String returns a string representation of the log.
 func (l *Log) String() string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -445,5 +459,6 @@ func (l *Log) String() string {
 	buf.WriteString(fmt.Sprintf("Log[snapshot=%d:%d, entries=%d, first=%d, last=%d]",
 		l.snapshotIndex, l.snapshotTerm, len(l.entries),
 		l.FirstIndex(), l.LastIndex()))
+
 	return buf.String()
 }

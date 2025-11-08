@@ -12,9 +12,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// SnapshotManager manages Raft snapshots
+// SnapshotManager manages Raft snapshots.
 type SnapshotManager struct {
 	nodeID       string
 	storage      internal.Storage
@@ -32,14 +33,14 @@ type SnapshotManager struct {
 	snapshotThreshold uint64
 }
 
-// SnapshotManagerConfig contains snapshot manager configuration
+// SnapshotManagerConfig contains snapshot manager configuration.
 type SnapshotManagerConfig struct {
 	NodeID            string
 	SnapshotInterval  time.Duration
 	SnapshotThreshold uint64
 }
 
-// NewSnapshotManager creates a new snapshot manager
+// NewSnapshotManager creates a new snapshot manager.
 func NewSnapshotManager(
 	config SnapshotManagerConfig,
 	storage internal.Storage,
@@ -64,13 +65,16 @@ func NewSnapshotManager(
 	}
 }
 
-// CreateSnapshot creates a new snapshot
+// CreateSnapshot creates a new snapshot.
 func (sm *SnapshotManager) CreateSnapshot(ctx context.Context, lastIncludedIndex, lastIncludedTerm uint64) error {
 	sm.mu.Lock()
+
 	if sm.snapshotInProgress {
 		sm.mu.Unlock()
-		return fmt.Errorf("snapshot already in progress")
+
+		return errors.New("snapshot already in progress")
 	}
+
 	sm.snapshotInProgress = true
 	sm.mu.Unlock()
 
@@ -93,6 +97,7 @@ func (sm *SnapshotManager) CreateSnapshot(ctx context.Context, lastIncludedIndex
 	if err != nil {
 		return fmt.Errorf("failed to create state machine snapshot: %w", err)
 	}
+
 	data := snap.Data
 
 	// Calculate checksum
@@ -109,6 +114,7 @@ func (sm *SnapshotManager) CreateSnapshot(ctx context.Context, lastIncludedIndex
 
 	// Encode snapshot with metadata
 	var buf bytes.Buffer
+
 	encoder := gob.NewEncoder(&buf)
 
 	if err := encoder.Encode(metadata); err != nil {
@@ -120,13 +126,14 @@ func (sm *SnapshotManager) CreateSnapshot(ctx context.Context, lastIncludedIndex
 	}
 
 	// Store snapshot
-	snapshotKey := []byte(fmt.Sprintf("snapshot/%d/%d", lastIncludedTerm, lastIncludedIndex))
+	snapshotKey := fmt.Appendf(nil, "snapshot/%d/%d", lastIncludedTerm, lastIncludedIndex)
 	if err := sm.storage.Set(snapshotKey, buf.Bytes()); err != nil {
 		return fmt.Errorf("failed to store snapshot: %w", err)
 	}
 
 	// Store snapshot metadata separately for quick access
 	metadataKey := []byte("snapshot/latest/metadata")
+
 	var metaBuf bytes.Buffer
 	if err := gob.NewEncoder(&metaBuf).Encode(metadata); err != nil {
 		return fmt.Errorf("failed to encode metadata: %w", err)
@@ -154,13 +161,16 @@ func (sm *SnapshotManager) CreateSnapshot(ctx context.Context, lastIncludedIndex
 	return nil
 }
 
-// RestoreSnapshot restores from a snapshot
+// RestoreSnapshot restores from a snapshot.
 func (sm *SnapshotManager) RestoreSnapshot(ctx context.Context, snapshotData []byte) error {
 	sm.mu.Lock()
+
 	if sm.snapshotInProgress {
 		sm.mu.Unlock()
-		return fmt.Errorf("snapshot operation already in progress")
+
+		return errors.New("snapshot operation already in progress")
 	}
+
 	sm.snapshotInProgress = true
 	sm.mu.Unlock()
 
@@ -194,7 +204,7 @@ func (sm *SnapshotManager) RestoreSnapshot(ctx context.Context, snapshotData []b
 	// Verify checksum
 	checksum := fmt.Sprintf("%x", sha256.Sum256(data))
 	if checksum != metadata.Checksum {
-		return fmt.Errorf("snapshot checksum mismatch")
+		return errors.New("snapshot checksum mismatch")
 	}
 
 	// Restore to state machine
@@ -227,10 +237,11 @@ func (sm *SnapshotManager) RestoreSnapshot(ctx context.Context, snapshotData []b
 	return nil
 }
 
-// GetLatestSnapshot retrieves the latest snapshot
+// GetLatestSnapshot retrieves the latest snapshot.
 func (sm *SnapshotManager) GetLatestSnapshot() (*internal.SnapshotMetadata, []byte, error) {
 	// Get metadata
 	metadataKey := []byte("snapshot/latest/metadata")
+
 	metaBytes, err := sm.storage.Get(metadataKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get snapshot metadata: %w", err)
@@ -242,7 +253,8 @@ func (sm *SnapshotManager) GetLatestSnapshot() (*internal.SnapshotMetadata, []by
 	}
 
 	// Get snapshot data
-	snapshotKey := []byte(fmt.Sprintf("snapshot/%d/%d", metadata.Term, metadata.Index))
+	snapshotKey := fmt.Appendf(nil, "snapshot/%d/%d", metadata.Term, metadata.Index)
+
 	snapshotData, err := sm.storage.Get(snapshotKey)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get snapshot data: %w", err)
@@ -251,7 +263,7 @@ func (sm *SnapshotManager) GetLatestSnapshot() (*internal.SnapshotMetadata, []by
 	return &metadata, snapshotData, nil
 }
 
-// ShouldCreateSnapshot checks if a snapshot should be created
+// ShouldCreateSnapshot checks if a snapshot should be created.
 func (sm *SnapshotManager) ShouldCreateSnapshot(currentIndex uint64) bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
@@ -268,21 +280,23 @@ func (sm *SnapshotManager) ShouldCreateSnapshot(currentIndex uint64) bool {
 	return false
 }
 
-// GetLastSnapshotIndex returns the last snapshot index
+// GetLastSnapshotIndex returns the last snapshot index.
 func (sm *SnapshotManager) GetLastSnapshotIndex() uint64 {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
+
 	return sm.lastSnapshotIndex
 }
 
-// GetLastSnapshotTerm returns the last snapshot term
+// GetLastSnapshotTerm returns the last snapshot term.
 func (sm *SnapshotManager) GetLastSnapshotTerm() uint64 {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
+
 	return sm.lastSnapshotTerm
 }
 
-// InstallSnapshot installs a snapshot received from leader
+// InstallSnapshot installs a snapshot received from leader.
 func (sm *SnapshotManager) InstallSnapshot(req internal.InstallSnapshotRequest) error {
 	sm.logger.Info("installing snapshot",
 		forge.F("node_id", sm.nodeID),
@@ -303,12 +317,13 @@ func (sm *SnapshotManager) InstallSnapshot(req internal.InstallSnapshotRequest) 
 	return nil
 }
 
-// CompactLog compacts the log up to the snapshot point
+// CompactLog compacts the log up to the snapshot point.
 func (sm *SnapshotManager) CompactLog(snapshotIndex uint64) error {
 	// Remove log entries up to snapshotIndex
 	logPrefix := []byte("log/")
 	// Use GetRange to list keys (ListKeys not available in Storage interface)
 	endKey := []byte("log/~") // ~ is after all ASCII characters
+
 	kvPairs, err := sm.storage.GetRange(logPrefix, endKey)
 	if err != nil {
 		return fmt.Errorf("failed to list log keys: %w", err)
@@ -321,6 +336,7 @@ func (sm *SnapshotManager) CompactLog(snapshotIndex uint64) error {
 	}
 
 	var compacted int
+
 	for _, key := range keys {
 		// Parse index from key (format: "log/{index}")
 		var index uint64
@@ -334,8 +350,10 @@ func (sm *SnapshotManager) CompactLog(snapshotIndex uint64) error {
 					forge.F("key", string(key)),
 					forge.F("error", err),
 				)
+
 				continue
 			}
+
 			compacted++
 		}
 	}
@@ -348,7 +366,7 @@ func (sm *SnapshotManager) CompactLog(snapshotIndex uint64) error {
 	return nil
 }
 
-// StreamSnapshot streams a snapshot to a writer (for sending to peers)
+// StreamSnapshot streams a snapshot to a writer (for sending to peers).
 func (sm *SnapshotManager) StreamSnapshot(writer io.Writer) error {
 	metadata, snapshotData, err := sm.GetLatestSnapshot()
 	if err != nil {
@@ -375,11 +393,12 @@ func (sm *SnapshotManager) StreamSnapshot(writer io.Writer) error {
 	return nil
 }
 
-// ListSnapshots lists all available snapshots
+// ListSnapshots lists all available snapshots.
 func (sm *SnapshotManager) ListSnapshots() ([]internal.SnapshotMetadata, error) {
 	snapshotPrefix := []byte("snapshot/")
 	// Use GetRange to list keys (ListKeys not available in Storage interface)
 	endKey := []byte("snapshot/~") // ~ is after all ASCII characters
+
 	kvPairs, err := sm.storage.GetRange(snapshotPrefix, endKey)
 	if err != nil {
 		return nil, err
@@ -392,6 +411,7 @@ func (sm *SnapshotManager) ListSnapshots() ([]internal.SnapshotMetadata, error) 
 	}
 
 	var snapshots []internal.SnapshotMetadata
+
 	seen := make(map[string]bool)
 
 	for _, key := range keys {
@@ -411,6 +431,7 @@ func (sm *SnapshotManager) ListSnapshots() ([]internal.SnapshotMetadata, error) 
 		if seen[id] {
 			continue
 		}
+
 		seen[id] = true
 
 		snapshots = append(snapshots, internal.SnapshotMetadata{

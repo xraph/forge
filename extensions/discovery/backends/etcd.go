@@ -3,6 +3,7 @@ package backends
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path"
 	"strings"
@@ -12,19 +13,19 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
-// EtcdBackend implements service discovery using etcd
+// EtcdBackend implements service discovery using etcd.
 type EtcdBackend struct {
-	client     *clientv3.Client
-	config     EtcdConfig
-	leaseID    clientv3.LeaseID
-	watchers   map[string][]func([]*ServiceInstance)
-	mu         sync.RWMutex
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
-	leaseTTL   int64
+	client   *clientv3.Client
+	config   EtcdConfig
+	leaseID  clientv3.LeaseID
+	watchers map[string][]func([]*ServiceInstance)
+	mu       sync.RWMutex
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	leaseTTL int64
 }
 
-// NewEtcdBackend creates a new etcd backend
+// NewEtcdBackend creates a new etcd backend.
 func NewEtcdBackend(config EtcdConfig) (*EtcdBackend, error) {
 	// Create etcd client configuration
 	clientConfig := clientv3.Config{
@@ -65,12 +66,12 @@ func NewEtcdBackend(config EtcdConfig) (*EtcdBackend, error) {
 	}, nil
 }
 
-// Name returns the backend name
+// Name returns the backend name.
 func (b *EtcdBackend) Name() string {
 	return "etcd"
 }
 
-// Initialize initializes the backend
+// Initialize initializes the backend.
 func (b *EtcdBackend) Initialize(ctx context.Context) error {
 	// Test connection
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -91,18 +92,20 @@ func (b *EtcdBackend) Initialize(ctx context.Context) error {
 
 	// Start lease keep-alive
 	b.wg.Add(1)
+
 	go b.keepAliveLease()
 
 	return nil
 }
 
-// Register registers a service instance with etcd
+// Register registers a service instance with etcd.
 func (b *EtcdBackend) Register(ctx context.Context, instance *ServiceInstance) error {
 	if instance.ID == "" {
-		return fmt.Errorf("service instance ID is required")
+		return errors.New("service instance ID is required")
 	}
+
 	if instance.Name == "" {
-		return fmt.Errorf("service name is required")
+		return errors.New("service name is required")
 	}
 
 	// Serialize instance to JSON
@@ -126,17 +129,19 @@ func (b *EtcdBackend) Register(ctx context.Context, instance *ServiceInstance) e
 	return nil
 }
 
-// Deregister deregisters a service instance from etcd
+// Deregister deregisters a service instance from etcd.
 func (b *EtcdBackend) Deregister(ctx context.Context, serviceID string) error {
 	// Find and delete the service key
 	// We need to search for the key since we don't know the service name
 	prefix := b.config.KeyPrefix
+
 	resp, err := b.client.Get(ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
 		return fmt.Errorf("failed to search for service: %w", err)
 	}
 
 	var foundKey string
+
 	for _, kv := range resp.Kvs {
 		var instance ServiceInstance
 		if err := json.Unmarshal(kv.Value, &instance); err != nil {
@@ -145,6 +150,7 @@ func (b *EtcdBackend) Deregister(ctx context.Context, serviceID string) error {
 
 		if instance.ID == serviceID {
 			foundKey = string(kv.Key)
+
 			break
 		}
 	}
@@ -162,10 +168,11 @@ func (b *EtcdBackend) Deregister(ctx context.Context, serviceID string) error {
 	return nil
 }
 
-// Discover discovers service instances by name from etcd
+// Discover discovers service instances by name from etcd.
 func (b *EtcdBackend) Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error) {
 	// Get all instances for this service
 	prefix := b.buildServicePrefix(serviceName)
+
 	resp, err := b.client.Get(ctx, prefix, clientv3.WithPrefix())
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover service from etcd: %w", err)
@@ -178,13 +185,14 @@ func (b *EtcdBackend) Discover(ctx context.Context, serviceName string) ([]*Serv
 		if err := json.Unmarshal(kv.Value, &instance); err != nil {
 			continue // Skip malformed entries
 		}
+
 		instances = append(instances, &instance)
 	}
 
 	return instances, nil
 }
 
-// DiscoverWithTags discovers service instances by name and tags from etcd
+// DiscoverWithTags discovers service instances by name and tags from etcd.
 func (b *EtcdBackend) DiscoverWithTags(ctx context.Context, serviceName string, tags []string) ([]*ServiceInstance, error) {
 	instances, err := b.Discover(ctx, serviceName)
 	if err != nil {
@@ -206,7 +214,7 @@ func (b *EtcdBackend) DiscoverWithTags(ctx context.Context, serviceName string, 
 	return filtered, nil
 }
 
-// Watch watches for changes to a service in etcd
+// Watch watches for changes to a service in etcd.
 func (b *EtcdBackend) Watch(ctx context.Context, serviceName string, onChange func([]*ServiceInstance)) error {
 	b.mu.Lock()
 	b.watchers[serviceName] = append(b.watchers[serviceName], onChange)
@@ -220,12 +228,13 @@ func (b *EtcdBackend) Watch(ctx context.Context, serviceName string, onChange fu
 
 	// Start watch goroutine
 	b.wg.Add(1)
+
 	go b.watchService(serviceName)
 
 	return nil
 }
 
-// watchService watches a service for changes using etcd watch
+// watchService watches a service for changes using etcd watch.
 func (b *EtcdBackend) watchService(serviceName string) {
 	defer b.wg.Done()
 
@@ -259,7 +268,7 @@ func (b *EtcdBackend) watchService(serviceName string) {
 	}
 }
 
-// ListServices lists all registered services in etcd
+// ListServices lists all registered services in etcd.
 func (b *EtcdBackend) ListServices(ctx context.Context) ([]string, error) {
 	// Get all service keys
 	resp, err := b.client.Get(ctx, b.config.KeyPrefix, clientv3.WithPrefix(), clientv3.WithKeysOnly())
@@ -269,6 +278,7 @@ func (b *EtcdBackend) ListServices(ctx context.Context) ([]string, error) {
 
 	// Extract unique service names
 	serviceSet := make(map[string]bool)
+
 	for _, kv := range resp.Kvs {
 		serviceName := b.extractServiceName(string(kv.Key))
 		if serviceName != "" {
@@ -284,7 +294,7 @@ func (b *EtcdBackend) ListServices(ctx context.Context) ([]string, error) {
 	return services, nil
 }
 
-// Health checks backend health
+// Health checks backend health.
 func (b *EtcdBackend) Health(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -293,10 +303,11 @@ func (b *EtcdBackend) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("etcd health check failed: %w", err)
 	}
+
 	return nil
 }
 
-// Close closes the backend
+// Close closes the backend.
 func (b *EtcdBackend) Close() error {
 	close(b.stopCh)
 	b.wg.Wait()
@@ -305,13 +316,14 @@ func (b *EtcdBackend) Close() error {
 	if b.leaseID != 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+
 		b.client.Revoke(ctx, b.leaseID)
 	}
 
 	return b.client.Close()
 }
 
-// keepAliveLease keeps the lease alive
+// keepAliveLease keeps the lease alive.
 func (b *EtcdBackend) keepAliveLease() {
 	defer b.wg.Done()
 
@@ -331,6 +343,7 @@ func (b *EtcdBackend) keepAliveLease() {
 				if err != nil {
 					continue
 				}
+
 				b.leaseID = lease.ID
 
 				// Restart keep-alive
@@ -343,7 +356,7 @@ func (b *EtcdBackend) keepAliveLease() {
 	}
 }
 
-// notifyWatchers notifies all watchers for a service
+// notifyWatchers notifies all watchers for a service.
 func (b *EtcdBackend) notifyWatchers(serviceName string) {
 	instances, err := b.Discover(context.Background(), serviceName)
 	if err != nil {
@@ -359,17 +372,17 @@ func (b *EtcdBackend) notifyWatchers(serviceName string) {
 	}
 }
 
-// buildServiceKey builds the etcd key for a service instance
+// buildServiceKey builds the etcd key for a service instance.
 func (b *EtcdBackend) buildServiceKey(serviceName, instanceID string) string {
 	return path.Join(b.config.KeyPrefix, serviceName, instanceID)
 }
 
-// buildServicePrefix builds the etcd key prefix for a service
+// buildServicePrefix builds the etcd key prefix for a service.
 func (b *EtcdBackend) buildServicePrefix(serviceName string) string {
 	return path.Join(b.config.KeyPrefix, serviceName) + "/"
 }
 
-// extractServiceName extracts service name from etcd key
+// extractServiceName extracts service name from etcd key.
 func (b *EtcdBackend) extractServiceName(key string) string {
 	// Remove prefix
 	key = strings.TrimPrefix(key, b.config.KeyPrefix+"/")
@@ -383,7 +396,7 @@ func (b *EtcdBackend) extractServiceName(key string) string {
 	return ""
 }
 
-// GetServiceByID retrieves a specific service instance by ID
+// GetServiceByID retrieves a specific service instance by ID.
 func (b *EtcdBackend) GetServiceByID(ctx context.Context, serviceID string) (*ServiceInstance, error) {
 	// Search all services for the instance ID
 	resp, err := b.client.Get(ctx, b.config.KeyPrefix, clientv3.WithPrefix())
@@ -405,7 +418,7 @@ func (b *EtcdBackend) GetServiceByID(ctx context.Context, serviceID string) (*Se
 	return nil, fmt.Errorf("service instance not found: %s", serviceID)
 }
 
-// UpdateServiceHealth updates the health status of a service instance
+// UpdateServiceHealth updates the health status of a service instance.
 func (b *EtcdBackend) UpdateServiceHealth(ctx context.Context, serviceID string, status HealthStatus) error {
 	// Get the service instance
 	instance, err := b.GetServiceByID(ctx, serviceID)
@@ -420,4 +433,3 @@ func (b *EtcdBackend) UpdateServiceHealth(ctx context.Context, serviceID string,
 	// Re-register with updated status
 	return b.Register(ctx, instance)
 }
-

@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Manager provides resilience features for consensus operations
+// Manager provides resilience features for consensus operations.
 type Manager struct {
 	// Retry strategies
 	rpcRetry      *resilience.Retry
@@ -27,7 +27,7 @@ type Manager struct {
 	logger forge.Logger
 }
 
-// ManagerConfig contains resilience manager configuration
+// ManagerConfig contains resilience manager configuration.
 type ManagerConfig struct {
 	// Retry configuration
 	MaxRPCAttempts      int
@@ -43,33 +43,41 @@ type ManagerConfig struct {
 	HalfOpenMaxRequests int
 }
 
-// NewManager creates a new resilience manager
+// NewManager creates a new resilience manager.
 func NewManager(config ManagerConfig, forgeLogger forge.Logger, metrics shared.Metrics) *Manager {
 	// Set defaults
 	if config.MaxRPCAttempts == 0 {
 		config.MaxRPCAttempts = 3
 	}
+
 	if config.MaxCommitAttempts == 0 {
 		config.MaxCommitAttempts = 5
 	}
+
 	if config.MaxSnapshotAttempts == 0 {
 		config.MaxSnapshotAttempts = 3
 	}
+
 	if config.RetryInitialDelay == 0 {
 		config.RetryInitialDelay = 100 * time.Millisecond
 	}
+
 	if config.RetryMaxDelay == 0 {
 		config.RetryMaxDelay = 30 * time.Second
 	}
+
 	if config.MaxFailures == 0 {
 		config.MaxFailures = 5
 	}
+
 	if config.FailureThreshold == 0 {
 		config.FailureThreshold = 0.5
 	}
+
 	if config.RecoveryTimeout == 0 {
 		config.RecoveryTimeout = 30 * time.Second
 	}
+
 	if config.HalfOpenMaxRequests == 0 {
 		config.HalfOpenMaxRequests = 3
 	}
@@ -162,58 +170,65 @@ func NewManager(config ManagerConfig, forgeLogger forge.Logger, metrics shared.M
 	}
 }
 
-// ExecuteRPC executes an RPC with retry logic
+// ExecuteRPC executes an RPC with retry logic.
 func (m *Manager) ExecuteRPC(ctx context.Context, fn func() error) error {
-	_, err := m.rpcRetry.Execute(ctx, func() (interface{}, error) {
+	_, err := m.rpcRetry.Execute(ctx, func() (any, error) {
 		return nil, fn()
 	})
+
 	return err
 }
 
-// ExecuteRPCWithCircuitBreaker executes an RPC with circuit breaker and retry
+// ExecuteRPCWithCircuitBreaker executes an RPC with circuit breaker and retry.
 func (m *Manager) ExecuteRPCWithCircuitBreaker(ctx context.Context, fn func() error) error {
-	_, err := m.transportCB.Execute(ctx, func() (interface{}, error) {
-		_, retryErr := m.rpcRetry.Execute(ctx, func() (interface{}, error) {
+	_, err := m.transportCB.Execute(ctx, func() (any, error) {
+		_, retryErr := m.rpcRetry.Execute(ctx, func() (any, error) {
 			return nil, fn()
 		})
+
 		return nil, retryErr
 	})
+
 	return err
 }
 
-// ExecuteCommit executes a commit operation with retry logic
+// ExecuteCommit executes a commit operation with retry logic.
 func (m *Manager) ExecuteCommit(ctx context.Context, fn func() error) error {
-	_, err := m.commitRetry.Execute(ctx, func() (interface{}, error) {
+	_, err := m.commitRetry.Execute(ctx, func() (any, error) {
 		return nil, fn()
 	})
+
 	return err
 }
 
-// ExecuteStorage executes a storage operation with circuit breaker
+// ExecuteStorage executes a storage operation with circuit breaker.
 func (m *Manager) ExecuteStorage(ctx context.Context, fn func() error) error {
-	_, err := m.storageCB.Execute(ctx, func() (interface{}, error) {
+	_, err := m.storageCB.Execute(ctx, func() (any, error) {
 		return nil, fn()
 	})
+
 	return err
 }
 
-// ExecuteReplication executes a replication operation with circuit breaker
+// ExecuteReplication executes a replication operation with circuit breaker.
 func (m *Manager) ExecuteReplication(ctx context.Context, fn func() error) error {
-	_, err := m.replicationCB.Execute(ctx, func() (interface{}, error) {
+	_, err := m.replicationCB.Execute(ctx, func() (any, error) {
 		return nil, fn()
 	})
+
 	return err
 }
 
-// ExecuteSnapshot executes a snapshot operation with retry logic
+// ExecuteSnapshot executes a snapshot operation with retry logic.
 func (m *Manager) ExecuteSnapshot(ctx context.Context, fn func() error) error {
-	_, err := m.snapshotRetry.Execute(ctx, func() (interface{}, error) {
+	_, err := m.snapshotRetry.Execute(ctx, func() (any, error) {
 		return nil, fn()
 	})
+
 	return err
 }
 
-// IsRetryableError checks if an error is retryable
+// IsRetryableError checks if an error is retryable.
 func (m *Manager) IsRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -239,17 +254,17 @@ func (m *Manager) IsRetryableError(err error) bool {
 	return false
 }
 
-// GetStats returns resilience statistics
-func (m *Manager) GetStats() map[string]interface{} {
-	stats := make(map[string]interface{})
+// GetStats returns resilience statistics.
+func (m *Manager) GetStats() map[string]any {
+	stats := make(map[string]any)
 
-	stats["retry"] = map[string]interface{}{
+	stats["retry"] = map[string]any{
 		"rpc":      m.rpcRetry.GetStats(),
 		"commit":   m.commitRetry.GetStats(),
 		"snapshot": m.snapshotRetry.GetStats(),
 	}
 
-	stats["circuit_breaker"] = map[string]interface{}{
+	stats["circuit_breaker"] = map[string]any{
 		"transport":   m.getCircuitBreakerStats(m.transportCB),
 		"storage":     m.getCircuitBreakerStats(m.storageCB),
 		"replication": m.getCircuitBreakerStats(m.replicationCB),
@@ -258,10 +273,11 @@ func (m *Manager) GetStats() map[string]interface{} {
 	return stats
 }
 
-// getCircuitBreakerStats gets circuit breaker stats
-func (m *Manager) getCircuitBreakerStats(cb *resilience.CircuitBreaker) map[string]interface{} {
+// getCircuitBreakerStats gets circuit breaker stats.
+func (m *Manager) getCircuitBreakerStats(cb *resilience.CircuitBreaker) map[string]any {
 	stats := cb.GetStats()
-	return map[string]interface{}{
+
+	return map[string]any{
 		"state":             cb.GetState(),
 		"total_requests":    stats.TotalRequests,
 		"successful":        stats.SuccessfulRequests,
@@ -271,7 +287,7 @@ func (m *Manager) getCircuitBreakerStats(cb *resilience.CircuitBreaker) map[stri
 	}
 }
 
-// Reset resets all resilience components
+// Reset resets all resilience components.
 func (m *Manager) Reset() {
 	m.rpcRetry.Reset()
 	m.commitRetry.Reset()
@@ -283,7 +299,7 @@ func (m *Manager) Reset() {
 	m.logger.Info("resilience manager reset")
 }
 
-// Helper function to check error message patterns
+// Helper function to check error message patterns.
 func containsErrorPattern(err error, patterns []string) bool {
 	if err == nil {
 		return false
@@ -299,7 +315,7 @@ func containsErrorPattern(err error, patterns []string) bool {
 	return false
 }
 
-// ExecuteWithTimeout executes a function with timeout
+// ExecuteWithTimeout executes a function with timeout.
 func (m *Manager) ExecuteWithTimeout(ctx context.Context, timeout time.Duration, fn func(context.Context) error) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()

@@ -21,11 +21,12 @@ func TestTokenBucket_Allow(t *testing.T) {
 	ctx := context.Background()
 
 	// Should allow up to burst size immediately
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		allowed, err := limiter.Allow(ctx, "user1", "test")
 		if err != nil {
 			t.Fatalf("Allow() error = %v", err)
 		}
+
 		if !allowed {
 			t.Errorf("request %d should be allowed", i)
 		}
@@ -36,6 +37,7 @@ func TestTokenBucket_Allow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Allow() error = %v", err)
 	}
+
 	if allowed {
 		t.Error("request should be denied after burst exhausted")
 	}
@@ -60,6 +62,7 @@ func TestTokenBucket_AllowN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllowN() error = %v", err)
 	}
+
 	if !allowed {
 		t.Error("batch should be allowed")
 	}
@@ -69,6 +72,7 @@ func TestTokenBucket_AllowN(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllowN() error = %v", err)
 	}
+
 	if allowed {
 		t.Error("batch should be denied")
 	}
@@ -89,7 +93,7 @@ func TestTokenBucket_Refill(t *testing.T) {
 	ctx := context.Background()
 
 	// Exhaust tokens
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		limiter.Allow(ctx, "user1", "refill")
 	}
 
@@ -98,6 +102,7 @@ func TestTokenBucket_Refill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Allow() error = %v", err)
 	}
+
 	if allowed {
 		t.Error("should be denied")
 	}
@@ -110,6 +115,7 @@ func TestTokenBucket_Refill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Allow() error = %v", err)
 	}
+
 	if !allowed {
 		t.Error("should be allowed after refill")
 	}
@@ -176,7 +182,7 @@ func TestTokenBucket_Reset(t *testing.T) {
 	ctx := context.Background()
 
 	// Exhaust tokens
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		limiter.Allow(ctx, "user1", "reset")
 	}
 
@@ -211,8 +217,7 @@ func BenchmarkTokenBucket_Allow(b *testing.B) {
 	limiter := NewTokenBucket(config, nil)
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = limiter.Allow(ctx, "user1", "bench")
 	}
 }
@@ -231,8 +236,7 @@ func BenchmarkTokenBucket_AllowN(b *testing.B) {
 	limiter := NewTokenBucket(config, nil)
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = limiter.AllowN(ctx, "user1", "benchN", 10)
 	}
 }

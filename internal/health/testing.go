@@ -2,6 +2,7 @@ package health
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -12,7 +13,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// TestHealthService is a mock health service for testing
+// TestHealthService is a mock health service for testing.
 type TestHealthService struct {
 	name          string
 	status        health.HealthStatus
@@ -27,7 +28,7 @@ type TestHealthService struct {
 	errors        map[string]error
 }
 
-// NewTestHealthService creates a new test health service
+// NewTestHealthService creates a new test health service.
 func NewTestHealthService(name string) *TestHealthService {
 	return &TestHealthService{
 		name:          name,
@@ -42,24 +43,29 @@ func NewTestHealthService(name string) *TestHealthService {
 	}
 }
 
-// Service lifecycle methods
+// Service lifecycle methods.
 func (ths *TestHealthService) Name() string {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Name")
+
 	return ths.name
 }
 
 func (ths *TestHealthService) Dependencies() []string {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Dependencies")
+
 	return []string{}
 }
 
 func (ths *TestHealthService) Start(ctx context.Context) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Start")
 
 	if err := ths.errors["Start"]; err != nil {
@@ -67,12 +73,14 @@ func (ths *TestHealthService) Start(ctx context.Context) error {
 	}
 
 	ths.started = true
+
 	return nil
 }
 
 func (ths *TestHealthService) Stop(ctx context.Context) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Stop")
 
 	if err := ths.errors["Stop"]; err != nil {
@@ -80,12 +88,14 @@ func (ths *TestHealthService) Stop(ctx context.Context) error {
 	}
 
 	ths.started = false
+
 	return nil
 }
 
 func (ths *TestHealthService) OnHealthCheck(ctx context.Context) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("OnHealthCheck")
 
 	if err := ths.errors["OnHealthCheck"]; err != nil {
@@ -95,10 +105,11 @@ func (ths *TestHealthService) OnHealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// Health check management
+// Health check management.
 func (ths *TestHealthService) RegisterCheck(name string, check health.HealthCheck) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Register")
 
 	if err := ths.errors["Register"]; err != nil {
@@ -106,12 +117,14 @@ func (ths *TestHealthService) RegisterCheck(name string, check health.HealthChec
 	}
 
 	ths.checks[name] = check
+
 	return nil
 }
 
 func (ths *TestHealthService) UnregisterCheck(name string) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Unregister")
 
 	if err := ths.errors["Unregister"]; err != nil {
@@ -119,24 +132,28 @@ func (ths *TestHealthService) UnregisterCheck(name string) error {
 	}
 
 	delete(ths.checks, name)
+
 	return nil
 }
 
 func (ths *TestHealthService) ListChecks() []string {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("ListChecks")
 
 	names := make([]string, 0, len(ths.checks))
 	for name := range ths.checks {
 		names = append(names, name)
 	}
+
 	return names
 }
 
 func (ths *TestHealthService) GetCheck(name string) (health.HealthCheck, error) {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("GetCheck")
 
 	if err := ths.errors["GetCheck"]; err != nil {
@@ -146,13 +163,15 @@ func (ths *TestHealthService) GetCheck(name string) (health.HealthCheck, error) 
 	if check, exists := ths.checks[name]; exists {
 		return check, nil
 	}
+
 	return nil, errors.ErrServiceNotFound(name)
 }
 
-// Health checking
+// Health checking.
 func (ths *TestHealthService) CheckAll(ctx context.Context) *health.HealthReport {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Check")
 
 	if ths.lastReport != nil {
@@ -169,12 +188,14 @@ func (ths *TestHealthService) CheckAll(ctx context.Context) *health.HealthReport
 	}
 
 	ths.lastReport = report
+
 	return report
 }
 
 func (ths *TestHealthService) CheckOne(ctx context.Context, name string) *health.HealthResult {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("CheckOne")
 
 	if check, exists := ths.checks[name]; exists {
@@ -187,7 +208,9 @@ func (ths *TestHealthService) CheckOne(ctx context.Context, name string) *health
 func (ths *TestHealthService) GetStatus() health.HealthStatus {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("GetStatus")
+
 	return ths.status
 }
 
@@ -204,10 +227,11 @@ func (ths *TestHealthService) Checker() shared.HealthManager {
 	return &ManagerImpl{}
 }
 
-// Health monitoring
+// Health monitoring.
 func (ths *TestHealthService) Subscribe(callback health.HealthCallback) error {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Subscribe")
 
 	if err := ths.errors["Subscribe"]; err != nil {
@@ -215,19 +239,23 @@ func (ths *TestHealthService) Subscribe(callback health.HealthCallback) error {
 	}
 
 	ths.callbacks = append(ths.callbacks, callback)
+
 	return nil
 }
 
 func (ths *TestHealthService) GetLastReport() *health.HealthReport {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("GetLastReport")
+
 	return ths.lastReport
 }
 
 func (ths *TestHealthService) GetStats() *health.HealthCheckerStats {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("GetStats")
 
 	return &health.HealthCheckerStats{
@@ -238,64 +266,77 @@ func (ths *TestHealthService) GetStats() *health.HealthCheckerStats {
 	}
 }
 
-// Service info
+// Service info.
 func (ths *TestHealthService) GetVersion() string {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("GetVersion")
+
 	return "test-version"
 }
 
 func (ths *TestHealthService) GetEnvironment() string {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("Environment")
+
 	return "test"
 }
 
 func (ths *TestHealthService) GetConfiguration() *health.HealthConfig {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.recordMethodCall("GetConfiguration")
+
 	return ths.configuration
 }
 
-// Test helpers
+// Test helpers.
 func (ths *TestHealthService) SetStatus(status health.HealthStatus) {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.status = status
 }
 
 func (ths *TestHealthService) SetLastReport(report *health.HealthReport) {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.lastReport = report
 }
 
 func (ths *TestHealthService) SetError(method string, err error) {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.errors[method] = err
 }
 
 func (ths *TestHealthService) GetCallCount(method string) int {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	return ths.callCounts[method]
 }
 
 func (ths *TestHealthService) GetMethodCalls() []string {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	calls := make([]string, len(ths.methodCalls))
 	copy(calls, ths.methodCalls)
+
 	return calls
 }
 
 func (ths *TestHealthService) ResetCalls() {
 	ths.mu.Lock()
 	defer ths.mu.Unlock()
+
 	ths.callCounts = make(map[string]int)
 	ths.methodCalls = make([]string, 0)
 }
@@ -305,7 +346,7 @@ func (ths *TestHealthService) recordMethodCall(method string) {
 	ths.methodCalls = append(ths.methodCalls, method)
 }
 
-// MockHealthCheck is a mock health check for testing
+// MockHealthCheck is a mock health check for testing.
 type MockHealthCheck struct {
 	name         string
 	status       health.HealthStatus
@@ -320,7 +361,7 @@ type MockHealthCheck struct {
 	mu           sync.RWMutex
 }
 
-// NewMockHealthCheck creates a new mock health check
+// NewMockHealthCheck creates a new mock health check.
 func NewMockHealthCheck(name string, status health.HealthStatus, message string) *MockHealthCheck {
 	return &MockHealthCheck{
 		name:         name,
@@ -370,75 +411,86 @@ func (mhc *MockHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	return result
 }
 
-// Test helpers for MockHealthCheck
+// Test helpers for MockHealthCheck.
 func (mhc *MockHealthCheck) SetStatus(status health.HealthStatus) {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	mhc.status = status
 }
 
 func (mhc *MockHealthCheck) SetMessage(message string) {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	mhc.message = message
 }
 
 func (mhc *MockHealthCheck) SetCritical(critical bool) {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	mhc.critical = critical
 }
 
 func (mhc *MockHealthCheck) SetTimeout(timeout time.Duration) {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	mhc.timeout = timeout
 }
 
 func (mhc *MockHealthCheck) SetDependencies(deps []string) {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	mhc.dependencies = deps
 }
 
 func (mhc *MockHealthCheck) SetResult(result *health.HealthResult) {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	mhc.result = result
 }
 
 func (mhc *MockHealthCheck) SetCheckFunc(fn func(ctx context.Context) *health.HealthResult) {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	mhc.checkFunc = fn
 }
 
 func (mhc *MockHealthCheck) GetCallCount() int {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	return mhc.callCount
 }
 
 func (mhc *MockHealthCheck) GetLastCall() time.Time {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	return mhc.lastCall
 }
 
 func (mhc *MockHealthCheck) ResetCallCount() {
 	mhc.mu.Lock()
 	defer mhc.mu.Unlock()
+
 	mhc.callCount = 0
 }
 
-// TestHealthChecker is a test-friendly health checker
+// TestHealthChecker is a test-friendly health checker.
 type TestHealthChecker struct {
 	shared.HealthManager
+
 	checkResults map[string]*health.HealthResult
 	mu           sync.RWMutex
 }
 
-// NewTestHealthChecker creates a new test health checker
+// NewTestHealthChecker creates a new test health checker.
 func NewTestHealthChecker() *TestHealthChecker {
 	config := health.DefaultHealthCheckerConfig()
 	config.CheckInterval = 100 * time.Millisecond // Fast interval for testing
@@ -449,14 +501,15 @@ func NewTestHealthChecker() *TestHealthChecker {
 	}
 }
 
-// SetCheckResult sets a predefined result for a specific check
+// SetCheckResult sets a predefined result for a specific check.
 func (thc *TestHealthChecker) SetCheckResult(name string, result *health.HealthResult) {
 	thc.mu.Lock()
 	defer thc.mu.Unlock()
+
 	thc.checkResults[name] = result
 }
 
-// testMetrics is a simple metrics collector for testing
+// testMetrics is a simple metrics collector for testing.
 type testMetrics struct{}
 
 func (tm *testMetrics) RegisterCollector(collector shared.CustomCollector) error {
@@ -516,19 +569,19 @@ func (tm *testMetrics) GetCollectors() []shared.CustomCollector {
 	return []shared.CustomCollector{}
 }
 
-func (tm *testMetrics) GetMetrics() map[string]interface{} {
+func (tm *testMetrics) GetMetrics() map[string]any {
 	// Test implementation - return empty metrics
-	return map[string]interface{}{}
+	return map[string]any{}
 }
 
-func (tm *testMetrics) GetMetricsByType(metricType shared.MetricType) map[string]interface{} {
+func (tm *testMetrics) GetMetricsByType(metricType shared.MetricType) map[string]any {
 	// Test implementation - return empty metrics
-	return map[string]interface{}{}
+	return map[string]any{}
 }
 
-func (tm *testMetrics) GetMetricsByTag(tagKey, tagValue string) map[string]interface{} {
+func (tm *testMetrics) GetMetricsByTag(tagKey, tagValue string) map[string]any {
 	// Test implementation - return empty metrics
-	return map[string]interface{}{}
+	return map[string]any{}
 }
 
 func (tm *testMetrics) Export(format shared.ExportFormat) ([]byte, error) {
@@ -673,7 +726,7 @@ func (tt *testTimer) Reset() {
 func (tt *testTimer) Record(duration time.Duration) {}
 func (tt *testTimer) Time() func()                  { return func() {} }
 
-// HealthTestSuite provides a test suite for health checks
+// HealthTestSuite provides a test suite for health checks.
 type HealthTestSuite struct {
 	t             *testing.T
 	healthService *TestHealthService
@@ -681,7 +734,7 @@ type HealthTestSuite struct {
 	started       bool
 }
 
-// NewHealthTestSuite creates a new health test suite
+// NewHealthTestSuite creates a new health test suite.
 func NewHealthTestSuite(t *testing.T) *HealthTestSuite {
 	return &HealthTestSuite{
 		t:             t,
@@ -690,7 +743,7 @@ func NewHealthTestSuite(t *testing.T) *HealthTestSuite {
 	}
 }
 
-// AddHealthCheck adds a health check to the test suite
+// AddHealthCheck adds a health check to the test suite.
 func (hts *HealthTestSuite) AddHealthCheck(name string, status health.HealthStatus, message string) *MockHealthCheck {
 	check := NewMockHealthCheck(name, status, message)
 	hts.checks[name] = check
@@ -702,7 +755,7 @@ func (hts *HealthTestSuite) AddHealthCheck(name string, status health.HealthStat
 	return check
 }
 
-// Start starts the health service
+// Start starts the health service.
 func (hts *HealthTestSuite) Start() {
 	if hts.started {
 		return
@@ -716,7 +769,7 @@ func (hts *HealthTestSuite) Start() {
 	hts.started = true
 }
 
-// Stop stops the health service
+// Stop stops the health service.
 func (hts *HealthTestSuite) Stop() {
 	if !hts.started {
 		return
@@ -730,7 +783,7 @@ func (hts *HealthTestSuite) Stop() {
 	hts.started = false
 }
 
-// AssertHealthy asserts that the service is healthy
+// AssertHealthy asserts that the service is healthy.
 func (hts *HealthTestSuite) AssertHealthy() {
 	status := hts.healthService.GetStatus()
 	if status != health.HealthStatusHealthy {
@@ -738,7 +791,7 @@ func (hts *HealthTestSuite) AssertHealthy() {
 	}
 }
 
-// AssertUnhealthy asserts that the service is unhealthy
+// AssertUnhealthy asserts that the service is unhealthy.
 func (hts *HealthTestSuite) AssertUnhealthy() {
 	status := hts.healthService.GetStatus()
 	if status != health.HealthStatusUnhealthy {
@@ -746,7 +799,7 @@ func (hts *HealthTestSuite) AssertUnhealthy() {
 	}
 }
 
-// AssertDegraded asserts that the service is degraded
+// AssertDegraded asserts that the service is degraded.
 func (hts *HealthTestSuite) AssertDegraded() {
 	status := hts.healthService.GetStatus()
 	if status != health.HealthStatusDegraded {
@@ -754,7 +807,7 @@ func (hts *HealthTestSuite) AssertDegraded() {
 	}
 }
 
-// AssertCheckCalled asserts that a specific check was called
+// AssertCheckCalled asserts that a specific check was called.
 func (hts *HealthTestSuite) AssertCheckCalled(name string, expectedCalls int) {
 	if check, exists := hts.checks[name]; exists {
 		actualCalls := check.GetCallCount()
@@ -766,7 +819,7 @@ func (hts *HealthTestSuite) AssertCheckCalled(name string, expectedCalls int) {
 	}
 }
 
-// AssertMethodCalled asserts that a service method was called
+// AssertMethodCalled asserts that a service method was called.
 func (hts *HealthTestSuite) AssertMethodCalled(method string, expectedCalls int) {
 	actualCalls := hts.healthService.GetCallCount(method)
 	if actualCalls != expectedCalls {
@@ -774,17 +827,17 @@ func (hts *HealthTestSuite) AssertMethodCalled(method string, expectedCalls int)
 	}
 }
 
-// GetHealthService returns the test health service
+// GetHealthService returns the test health service.
 func (hts *HealthTestSuite) GetHealthService() *TestHealthService {
 	return hts.healthService
 }
 
-// GetHealthCheck returns a specific health check
+// GetHealthCheck returns a specific health check.
 func (hts *HealthTestSuite) GetHealthCheck(name string) *MockHealthCheck {
 	return hts.checks[name]
 }
 
-// Cleanup cleans up the test suite
+// Cleanup cleans up the test suite.
 func (hts *HealthTestSuite) Cleanup() {
 	if hts.started {
 		hts.Stop()
@@ -798,51 +851,56 @@ func (hts *HealthTestSuite) Cleanup() {
 	hts.healthService.ResetCalls()
 }
 
-// HealthTestBuilder helps build health test scenarios
+// HealthTestBuilder helps build health test scenarios.
 type HealthTestBuilder struct {
 	suite *HealthTestSuite
 }
 
-// NewHealthTestBuilder creates a new health test builder
+// NewHealthTestBuilder creates a new health test builder.
 func NewHealthTestBuilder(t *testing.T) *HealthTestBuilder {
 	return &HealthTestBuilder{
 		suite: NewHealthTestSuite(t),
 	}
 }
 
-// WithHealthyCheck adds a healthy check
+// WithHealthyCheck adds a healthy check.
 func (htb *HealthTestBuilder) WithHealthyCheck(name string) *HealthTestBuilder {
 	htb.suite.AddHealthCheck(name, health.HealthStatusHealthy, "healthy")
+
 	return htb
 }
 
-// WithUnhealthyCheck adds an unhealthy check
+// WithUnhealthyCheck adds an unhealthy check.
 func (htb *HealthTestBuilder) WithUnhealthyCheck(name string) *HealthTestBuilder {
 	htb.suite.AddHealthCheck(name, health.HealthStatusUnhealthy, "unhealthy")
+
 	return htb
 }
 
-// WithDegradedCheck adds a degraded check
+// WithDegradedCheck adds a degraded check.
 func (htb *HealthTestBuilder) WithDegradedCheck(name string) *HealthTestBuilder {
 	htb.suite.AddHealthCheck(name, health.HealthStatusDegraded, "degraded")
+
 	return htb
 }
 
-// WithCriticalCheck adds a critical check
+// WithCriticalCheck adds a critical check.
 func (htb *HealthTestBuilder) WithCriticalCheck(name string, status health.HealthStatus) *HealthTestBuilder {
 	check := htb.suite.AddHealthCheck(name, status, "critical check")
 	check.SetCritical(true)
+
 	return htb
 }
 
-// WithCustomCheck adds a custom check
+// WithCustomCheck adds a custom check.
 func (htb *HealthTestBuilder) WithCustomCheck(name string, checkFunc func(ctx context.Context) *health.HealthResult) *HealthTestBuilder {
 	check := htb.suite.AddHealthCheck(name, health.HealthStatusHealthy, "custom check")
 	check.SetCheckFunc(checkFunc)
+
 	return htb
 }
 
-// WithSlowCheck adds a slow check for timeout testing
+// WithSlowCheck adds a slow check for timeout testing.
 func (htb *HealthTestBuilder) WithSlowCheck(name string, delay time.Duration) *HealthTestBuilder {
 	check := htb.suite.AddHealthCheck(name, health.HealthStatusHealthy, "slow check")
 	check.SetCheckFunc(func(ctx context.Context) *health.HealthResult {
@@ -853,17 +911,18 @@ func (htb *HealthTestBuilder) WithSlowCheck(name string, delay time.Duration) *H
 			return health.NewHealthResult(name, health.HealthStatusUnhealthy, "timeout")
 		}
 	})
+
 	return htb
 }
 
-// Build builds the test suite
+// Build builds the test suite.
 func (htb *HealthTestBuilder) Build() *HealthTestSuite {
 	return htb.suite
 }
 
 // Test helper functions
 
-// WaitForHealthStatus waits for a specific health status with timeout
+// WaitForHealthStatus waits for a specific health status with timeout.
 func WaitForHealthStatus(t *testing.T, service health.HealthService, expected health.HealthStatus, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -883,30 +942,35 @@ func WaitForHealthStatus(t *testing.T, service health.HealthService, expected he
 	}
 }
 
-// AssertHealthResultEqual asserts that two health results are equal
+// AssertHealthResultEqual asserts that two health results are equal.
 func AssertHealthResultEqual(t *testing.T, expected, actual *health.HealthResult) {
 	if expected.Name != actual.Name {
 		t.Errorf("Expected name %s, got %s", expected.Name, actual.Name)
 	}
+
 	if expected.Status != actual.Status {
 		t.Errorf("Expected status %s, got %s", expected.Status, actual.Status)
 	}
+
 	if expected.Message != actual.Message {
 		t.Errorf("Expected message %s, got %s", expected.Message, actual.Message)
 	}
+
 	if expected.Critical != actual.Critical {
 		t.Errorf("Expected critical %t, got %t", expected.Critical, actual.Critical)
 	}
 }
 
-// AssertHealthReportEqual asserts that two health reports are equal
+// AssertHealthReportEqual asserts that two health reports are equal.
 func AssertHealthReportEqual(t *testing.T, expected, actual *health.HealthReport) {
 	if expected.Overall != actual.Overall {
 		t.Errorf("Expected overall status %s, got %s", expected.Overall, actual.Overall)
 	}
+
 	if len(expected.Services) != len(actual.Services) {
 		t.Errorf("Expected %d services, got %d", len(expected.Services), len(actual.Services))
 	}
+
 	for name, expectedResult := range expected.Services {
 		if actualResult, exists := actual.Services[name]; exists {
 			AssertHealthResultEqual(t, expectedResult, actualResult)
@@ -916,7 +980,7 @@ func AssertHealthReportEqual(t *testing.T, expected, actual *health.HealthReport
 	}
 }
 
-// CreateTestHealthResult creates a test health result
+// CreateTestHealthResult creates a test health result.
 func CreateTestHealthResult(name string, status health.HealthStatus, message string) *health.HealthResult {
 	return health.NewHealthResult(name, status, message).
 		WithDuration(time.Millisecond*10).
@@ -924,14 +988,12 @@ func CreateTestHealthResult(name string, status health.HealthStatus, message str
 		WithTag("environment", "test")
 }
 
-// CreateTestHealthReport creates a test health report
+// CreateTestHealthReport creates a test health report.
 func CreateTestHealthReport(overall health.HealthStatus, services map[string]*health.HealthResult) *health.HealthReport {
 	report := health.NewHealthReport()
 	report.Overall = overall
 
-	for name, result := range services {
-		report.Services[name] = result
-	}
+	maps.Copy(report.Services, services)
 
 	return report.
 		WithVersion("test-version").
@@ -943,29 +1005,31 @@ func CreateTestHealthReport(overall health.HealthStatus, services map[string]*he
 
 // Benchmarking helpers
 
-// BenchmarkHealthCheck benchmarks a health check
+// BenchmarkHealthCheck benchmarks a health check.
 func BenchmarkHealthCheck(b *testing.B, check health.HealthCheck) {
 	ctx := context.Background()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for range b.N {
 		check.Check(ctx)
 	}
 }
 
-// BenchmarkHealthService benchmarks a health service
+// BenchmarkHealthService benchmarks a health service.
 func BenchmarkHealthService(b *testing.B, service health.HealthService) {
 	ctx := context.Background()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for range b.N {
 		service.Check(ctx)
 	}
 }
 
 // Example usage functions
 
-// ExampleHealthTest demonstrates how to use the health testing utilities
+// ExampleHealthTest demonstrates how to use the health testing utilities.
 func ExampleHealthTest(t *testing.T) {
 	// Create a test suite
 	suite := NewHealthTestBuilder(t).

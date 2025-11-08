@@ -17,9 +17,9 @@ type mockConfigSource struct {
 	name        string
 	priority    int
 	isWatchable bool
-	loadData    map[string]interface{}
+	loadData    map[string]any
 	loadErr     error
-	watchFunc   func(map[string]interface{})
+	watchFunc   func(map[string]any)
 	metadata    configcore.SourceMetadata
 }
 
@@ -48,26 +48,31 @@ func (m *mockConfigSource) IsWatchable() bool {
 	return m.isWatchable
 }
 
-func (m *mockConfigSource) Load(ctx context.Context) (map[string]interface{}, error) {
+func (m *mockConfigSource) Load(ctx context.Context) (map[string]any, error) {
 	if m.loadErr != nil {
 		return nil, m.loadErr
 	}
+
 	return m.loadData, nil
 }
 
-func (m *mockConfigSource) Watch(ctx context.Context, callback func(map[string]interface{})) error {
+func (m *mockConfigSource) Watch(ctx context.Context, callback func(map[string]any)) error {
 	if !m.isWatchable {
 		return ErrLifecycleError("source not watchable", nil)
 	}
+
 	m.watchFunc = callback
+
 	return nil
 }
 
-func (m *mockConfigSource) Get(key string) (interface{}, bool) {
+func (m *mockConfigSource) Get(key string) (any, bool) {
 	if m.loadData == nil {
 		return nil, false
 	}
+
 	val, ok := m.loadData[key]
+
 	return val, ok
 }
 
@@ -91,6 +96,7 @@ func (m *mockConfigSource) Reload(ctx context.Context) error {
 	if m.loadErr != nil {
 		return m.loadErr
 	}
+
 	return nil
 }
 
@@ -114,6 +120,7 @@ func (m *mockConfigSource) GetType() string {
 	if m.metadata.Type != "" {
 		return m.metadata.Type
 	}
+
 	return "mock"
 }
 
@@ -177,6 +184,7 @@ func TestSourceRegistry_Register(t *testing.T) {
 
 	t.Run("register duplicate source", func(t *testing.T) {
 		duplicate := newMockSource("source1", 1)
+
 		err := registry.RegisterSource(duplicate)
 		if err == nil {
 			t.Error("RegisterSource() should return error for duplicate source name")
@@ -186,6 +194,7 @@ func TestSourceRegistry_Register(t *testing.T) {
 
 func TestSourceRegistry_RegisterMultiple(t *testing.T) {
 	t.Skip("RegisterMultiple method not implemented")
+
 	registry := NewSourceRegistry(nil)
 
 	sources := []configcore.ConfigSource{
@@ -254,9 +263,11 @@ func TestSourceRegistry_GetSource(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetSource() error = %v", err)
 		}
+
 		if retrieved == nil {
 			t.Fatal("GetSource() returned nil")
 		}
+
 		if retrieved.Name() != "test_source" {
 			t.Errorf("GetSource() returned wrong source, got %v", retrieved.Name())
 		}
@@ -267,6 +278,7 @@ func TestSourceRegistry_GetSource(t *testing.T) {
 		if err == nil {
 			t.Error("GetSource() should return error for non-existent source")
 		}
+
 		if retrieved != nil {
 			t.Error("GetSource() should return nil for non-existent source")
 		}
@@ -298,10 +310,12 @@ func TestSourceRegistry_GetAllSources(t *testing.T) {
 			t.Errorf("First source should be source1 with priority 3, got %s with %d",
 				sources[0].Name(), sources[0].Priority())
 		}
+
 		if sources[1].Name() != "source3" || sources[1].Priority() != 2 {
 			t.Errorf("Second source should be source3 with priority 2, got %s with %d",
 				sources[1].Name(), sources[1].Priority())
 		}
+
 		if sources[2].Name() != "source2" || sources[2].Priority() != 1 {
 			t.Errorf("Third source should be source2 with priority 1, got %s with %d",
 				sources[2].Name(), sources[2].Priority())
@@ -407,12 +421,15 @@ func TestSourceRegistry_GetMetadata(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetSourceMetadata() error = %v", err)
 		}
+
 		if metadata == nil {
 			t.Fatal("GetSourceMetadata() returned nil")
 		}
+
 		if metadata.Name != "test_source" {
 			t.Errorf("metadata.Name = %v, want %v", metadata.Name, "test_source")
 		}
+
 		if metadata.Type != "test_type" {
 			t.Errorf("metadata.Type = %v, want %v", metadata.Type, "test_type")
 		}
@@ -423,6 +440,7 @@ func TestSourceRegistry_GetMetadata(t *testing.T) {
 		if err == nil {
 			t.Error("GetSourceMetadata() should return error for non-existent source")
 		}
+
 		if metadata != nil {
 			t.Error("GetSourceMetadata() should return nil metadata for non-existent source")
 		}
@@ -572,29 +590,33 @@ func TestSourceRegistry_Concurrency(t *testing.T) {
 	errChan := make(chan error, 100)
 
 	// Concurrent registrations
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(idx int) {
 			source := newMockSource(string(rune('A'+idx)), idx)
+
 			err := registry.RegisterSource(source)
 			if err != nil {
 				errChan <- err
 			}
+
 			done <- true
 		}(i)
 	}
 
 	// Concurrent reads
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		go func() {
 			_ = registry.GetSources()
 			_ = len(registry.GetSources())
+
 			done <- true
 		}()
 	}
 
 	// Wait for all goroutines
 	timeout := time.After(5 * time.Second)
-	for i := 0; i < 20; i++ {
+
+	for range 20 {
 		select {
 		case <-done:
 		case err := <-errChan:
@@ -761,7 +783,7 @@ func TestSourceRegistry_SortingStability(t *testing.T) {
 	registry := NewSourceRegistry(nil)
 
 	// Register sources with same priority in specific order
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		source := newMockSource(string(rune('A'+i)), 10)
 		registry.RegisterSource(source)
 	}
@@ -773,6 +795,7 @@ func TestSourceRegistry_SortingStability(t *testing.T) {
 	for i := range sources1 {
 		if sources1[i].Name() != sources2[i].Name() {
 			t.Error("Sorting is not stable across multiple calls")
+
 			break
 		}
 	}
@@ -797,9 +820,11 @@ func TestSourceRegistry_MetadataConsistency(t *testing.T) {
 
 	// Find in all metadata
 	var metadata2 *configcore.SourceMetadata
+
 	for name, meta := range allMetadata {
 		if name == "test" {
 			metadata2 = meta
+
 			break
 		}
 	}

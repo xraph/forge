@@ -3,15 +3,17 @@ package models
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// ModelServer interface defines the contract for model servers
+// ModelServer interface defines the contract for model servers.
 type ModelServer interface {
 	// Model management
 	LoadModel(ctx context.Context, config ModelConfig) (Model, error)
@@ -34,7 +36,7 @@ type ModelServer interface {
 	GetConfig() ModelServerConfig
 }
 
-// ModelServerConfig contains configuration for the model server
+// ModelServerConfig contains configuration for the model server.
 type ModelServerConfig struct {
 	MaxModels           int                     `json:"max_models"`
 	DefaultTimeout      time.Duration           `json:"default_timeout"`
@@ -52,7 +54,7 @@ type ModelServerConfig struct {
 	Adapters            map[string]ModelAdapter `json:"-"`
 }
 
-// ModelAdapter interface for different ML frameworks
+// ModelAdapter interface for different ML frameworks.
 type ModelAdapter interface {
 	Name() string
 	Framework() MLFramework
@@ -61,7 +63,7 @@ type ModelAdapter interface {
 	ValidateConfig(config ModelConfig) error
 }
 
-// ModelServerStats contains statistics about the model server
+// ModelServerStats contains statistics about the model server.
 type ModelServerStats struct {
 	TotalModels      int                   `json:"total_models"`
 	LoadedModels     int                   `json:"loaded_models"`
@@ -77,7 +79,7 @@ type ModelServerStats struct {
 	ModelStats       map[string]ModelStats `json:"model_stats"`
 }
 
-// ModelStats contains statistics about a specific model
+// ModelStats contains statistics about a specific model.
 type ModelStats struct {
 	ID               string        `json:"id"`
 	Name             string        `json:"name"`
@@ -92,18 +94,18 @@ type ModelStats struct {
 	IsHealthy        bool          `json:"is_healthy"`
 }
 
-// ModelServerHealth represents the health status of the model server
+// ModelServerHealth represents the health status of the model server.
 type ModelServerHealth struct {
 	Status      ModelHealthStatus      `json:"status"`
 	Message     string                 `json:"message"`
-	Details     map[string]interface{} `json:"details"`
+	Details     map[string]any         `json:"details"`
 	CheckedAt   time.Time              `json:"checked_at"`
 	LastHealthy time.Time              `json:"last_healthy"`
 	Uptime      time.Duration          `json:"uptime"`
 	ModelHealth map[string]ModelHealth `json:"model_health"`
 }
 
-// DefaultModelServer implements the ModelServer interface
+// DefaultModelServer implements the ModelServer interface.
 type DefaultModelServer struct {
 	config    ModelServerConfig
 	models    map[string]Model
@@ -131,23 +133,28 @@ type DefaultModelServer struct {
 	wg       sync.WaitGroup
 }
 
-// NewModelServer creates a new model server
+// NewModelServer creates a new model server.
 func NewModelServer(config ModelServerConfig) (ModelServer, error) {
 	if config.MaxModels <= 0 {
 		config.MaxModels = 10
 	}
+
 	if config.DefaultTimeout <= 0 {
 		config.DefaultTimeout = 30 * time.Second
 	}
+
 	if config.MaxConcurrency <= 0 {
 		config.MaxConcurrency = 100
 	}
+
 	if config.BatchSize <= 0 {
 		config.BatchSize = 10
 	}
+
 	if config.BatchTimeout <= 0 {
 		config.BatchTimeout = 100 * time.Millisecond
 	}
+
 	if config.HealthCheckInterval <= 0 {
 		config.HealthCheckInterval = 60 * time.Second
 	}
@@ -167,20 +174,18 @@ func NewModelServer(config ModelServerConfig) (ModelServer, error) {
 	server.registerDefaultAdapters()
 
 	// Register custom adapters
-	for name, adapter := range config.Adapters {
-		server.adapters[name] = adapter
-	}
+	maps.Copy(server.adapters, config.Adapters)
 
 	return server, nil
 }
 
-// Start starts the model server
+// Start starts the model server.
 func (s *DefaultModelServer) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.started {
-		return fmt.Errorf("model server already started")
+		return errors.New("model server already started")
 	}
 
 	s.started = true
@@ -189,6 +194,7 @@ func (s *DefaultModelServer) Start(ctx context.Context) error {
 
 	// Start background health monitoring
 	s.wg.Add(1)
+
 	go s.healthMonitor()
 
 	if s.logger != nil {
@@ -207,13 +213,13 @@ func (s *DefaultModelServer) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the model server
+// Stop stops the model server.
 func (s *DefaultModelServer) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.started {
-		return fmt.Errorf("model server not started")
+		return errors.New("model server not started")
 	}
 
 	// Stop background tasks
@@ -248,13 +254,13 @@ func (s *DefaultModelServer) Stop(ctx context.Context) error {
 	return nil
 }
 
-// LoadModel loads a model
+// LoadModel loads a model.
 func (s *DefaultModelServer) LoadModel(ctx context.Context, config ModelConfig) (Model, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.started {
-		return nil, fmt.Errorf("model server not started")
+		return nil, errors.New("model server not started")
 	}
 
 	// Check if model already exists
@@ -307,7 +313,7 @@ func (s *DefaultModelServer) LoadModel(ctx context.Context, config ModelConfig) 
 	return model, nil
 }
 
-// UnloadModel unloads a model
+// UnloadModel unloads a model.
 func (s *DefaultModelServer) UnloadModel(ctx context.Context, modelID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -315,7 +321,7 @@ func (s *DefaultModelServer) UnloadModel(ctx context.Context, modelID string) er
 	return s.unloadModelInternal(ctx, modelID)
 }
 
-// unloadModelInternal unloads a model (internal method, assumes lock is held)
+// unloadModelInternal unloads a model (internal method, assumes lock is held).
 func (s *DefaultModelServer) unloadModelInternal(ctx context.Context, modelID string) error {
 	model, exists := s.models[modelID]
 	if !exists {
@@ -343,7 +349,7 @@ func (s *DefaultModelServer) unloadModelInternal(ctx context.Context, modelID st
 	return nil
 }
 
-// GetModel retrieves a model by ID
+// GetModel retrieves a model by ID.
 func (s *DefaultModelServer) GetModel(modelID string) (Model, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -356,7 +362,7 @@ func (s *DefaultModelServer) GetModel(modelID string) (Model, error) {
 	return model, nil
 }
 
-// GetModels returns all loaded models
+// GetModels returns all loaded models.
 func (s *DefaultModelServer) GetModels() []Model {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -369,7 +375,7 @@ func (s *DefaultModelServer) GetModels() []Model {
 	return models
 }
 
-// Predict performs prediction using a specific model
+// Predict performs prediction using a specific model.
 func (s *DefaultModelServer) Predict(ctx context.Context, modelID string, input ModelInput) (ModelOutput, error) {
 	// Acquire semaphore for concurrency control
 	select {
@@ -385,6 +391,7 @@ func (s *DefaultModelServer) Predict(ctx context.Context, modelID string, input 
 	model, err := s.GetModel(modelID)
 	if err != nil {
 		s.updateErrorCount()
+
 		return ModelOutput{}, err
 	}
 
@@ -392,6 +399,7 @@ func (s *DefaultModelServer) Predict(ctx context.Context, modelID string, input 
 	output, err := model.Predict(ctx, input)
 	if err != nil {
 		s.updateErrorCount()
+
 		return ModelOutput{}, err
 	}
 
@@ -406,7 +414,7 @@ func (s *DefaultModelServer) Predict(ctx context.Context, modelID string, input 
 	return output, nil
 }
 
-// BatchPredict performs batch prediction using a specific model
+// BatchPredict performs batch prediction using a specific model.
 func (s *DefaultModelServer) BatchPredict(ctx context.Context, modelID string, inputs []ModelInput) ([]ModelOutput, error) {
 	if len(inputs) == 0 {
 		return []ModelOutput{}, nil
@@ -426,6 +434,7 @@ func (s *DefaultModelServer) BatchPredict(ctx context.Context, modelID string, i
 	model, err := s.GetModel(modelID)
 	if err != nil {
 		s.updateErrorCount()
+
 		return nil, err
 	}
 
@@ -433,6 +442,7 @@ func (s *DefaultModelServer) BatchPredict(ctx context.Context, modelID string, i
 	outputs, err := model.BatchPredict(ctx, inputs)
 	if err != nil {
 		s.updateErrorCount()
+
 		return nil, err
 	}
 
@@ -447,14 +457,16 @@ func (s *DefaultModelServer) BatchPredict(ctx context.Context, modelID string, i
 	return outputs, nil
 }
 
-// GetStats returns model server statistics
+// GetStats returns model server statistics.
 func (s *DefaultModelServer) GetStats() ModelServerStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var avgLatency time.Duration
-	var errorRate float64
-	var throughput float64
+	var (
+		avgLatency time.Duration
+		errorRate  float64
+		throughput float64
+	)
 
 	if s.totalPredictions > 0 {
 		avgLatency = s.totalLatency / time.Duration(s.totalPredictions)
@@ -508,7 +520,7 @@ func (s *DefaultModelServer) GetStats() ModelServerStats {
 	}
 }
 
-// GetHealth returns model server health
+// GetHealth returns model server health.
 func (s *DefaultModelServer) GetHealth() ModelServerHealth {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -547,7 +559,7 @@ func (s *DefaultModelServer) GetHealth() ModelServerHealth {
 		LastHealthy: s.lastHealthCheck,
 		Uptime:      time.Since(s.startTime),
 		ModelHealth: modelHealth,
-		Details: map[string]interface{}{
+		Details: map[string]any{
 			"total_models":      len(s.models),
 			"unhealthy_models":  unhealthyModels,
 			"total_predictions": s.totalPredictions,
@@ -556,7 +568,7 @@ func (s *DefaultModelServer) GetHealth() ModelServerHealth {
 	}
 }
 
-// SetConfig updates the server configuration
+// SetConfig updates the server configuration.
 func (s *DefaultModelServer) SetConfig(config ModelServerConfig) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -571,14 +583,15 @@ func (s *DefaultModelServer) SetConfig(config ModelServerConfig) error {
 	return nil
 }
 
-// GetConfig returns the server configuration
+// GetConfig returns the server configuration.
 func (s *DefaultModelServer) GetConfig() ModelServerConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.config
 }
 
-// findAdapter finds an appropriate adapter for the model
+// findAdapter finds an appropriate adapter for the model.
 func (s *DefaultModelServer) findAdapter(config ModelConfig) (ModelAdapter, error) {
 	// Try to find adapter by framework
 	for _, adapter := range s.adapters {
@@ -597,7 +610,7 @@ func (s *DefaultModelServer) findAdapter(config ModelConfig) (ModelAdapter, erro
 	return nil, fmt.Errorf("no adapter found for framework %s", config.Framework)
 }
 
-// registerDefaultAdapters registers default model adapters
+// registerDefaultAdapters registers default model adapters.
 func (s *DefaultModelServer) registerDefaultAdapters() {
 	// Register built-in adapters
 	// These would be implemented in separate files
@@ -608,7 +621,7 @@ func (s *DefaultModelServer) registerDefaultAdapters() {
 	// s.adapters["huggingface"] = NewHuggingFaceAdapter()
 }
 
-// updateStats updates server statistics
+// updateStats updates server statistics.
 func (s *DefaultModelServer) updateStats(latency time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -617,7 +630,7 @@ func (s *DefaultModelServer) updateStats(latency time.Duration) {
 	s.totalLatency += latency
 }
 
-// updateErrorCount updates error count
+// updateErrorCount updates error count.
 func (s *DefaultModelServer) updateErrorCount() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -625,7 +638,7 @@ func (s *DefaultModelServer) updateErrorCount() {
 	s.totalErrors++
 }
 
-// healthMonitor runs periodic health checks
+// healthMonitor runs periodic health checks.
 func (s *DefaultModelServer) healthMonitor() {
 	defer s.wg.Done()
 
@@ -642,16 +655,19 @@ func (s *DefaultModelServer) healthMonitor() {
 	}
 }
 
-// performHealthCheck performs a health check on all models
+// performHealthCheck performs a health check on all models.
 func (s *DefaultModelServer) performHealthCheck() {
 	s.mu.RLock()
+
 	models := make([]Model, 0, len(s.models))
 	for _, model := range s.models {
 		models = append(models, model)
 	}
+
 	s.mu.RUnlock()
 
 	healthyCount := 0
+
 	for _, model := range models {
 		health := model.GetHealth()
 		if health.Status == ModelHealthStatusHealthy {
@@ -671,6 +687,7 @@ func (s *DefaultModelServer) performHealthCheck() {
 	} else {
 		s.healthStatus = ModelHealthStatusUnhealthy
 	}
+
 	s.mu.Unlock()
 
 	if s.metrics != nil {
@@ -679,7 +696,7 @@ func (s *DefaultModelServer) performHealthCheck() {
 	}
 }
 
-// healthStatusToValue converts health status to numeric value for metrics
+// healthStatusToValue converts health status to numeric value for metrics.
 func (s *DefaultModelServer) healthStatusToValue(status ModelHealthStatus) int {
 	switch status {
 	case ModelHealthStatusHealthy:
@@ -693,7 +710,7 @@ func (s *DefaultModelServer) healthStatusToValue(status ModelHealthStatus) int {
 	}
 }
 
-// GetModelsByType returns models filtered by type
+// GetModelsByType returns models filtered by type.
 func (s *DefaultModelServer) GetModelsByType(modelType ModelType) []Model {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -708,7 +725,7 @@ func (s *DefaultModelServer) GetModelsByType(modelType ModelType) []Model {
 	return models
 }
 
-// GetModelsByFramework returns models filtered by framework
+// GetModelsByFramework returns models filtered by framework.
 func (s *DefaultModelServer) GetModelsByFramework(framework MLFramework) []Model {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -723,7 +740,7 @@ func (s *DefaultModelServer) GetModelsByFramework(framework MLFramework) []Model
 	return models
 }
 
-// GetBestModel returns the best model for a given type based on health and performance
+// GetBestModel returns the best model for a given type based on health and performance.
 func (s *DefaultModelServer) GetBestModel(modelType ModelType) (Model, error) {
 	models := s.GetModelsByType(modelType)
 	if len(models) == 0 {
@@ -739,6 +756,7 @@ func (s *DefaultModelServer) GetBestModel(modelType ModelType) (Model, error) {
 		if healthI.Status == ModelHealthStatusHealthy && healthJ.Status != ModelHealthStatusHealthy {
 			return true
 		}
+
 		if healthI.Status != ModelHealthStatusHealthy && healthJ.Status == ModelHealthStatusHealthy {
 			return false
 		}
@@ -746,6 +764,7 @@ func (s *DefaultModelServer) GetBestModel(modelType ModelType) (Model, error) {
 		// If both have same health status, prefer lower latency
 		metricsI := models[i].GetMetrics()
 		metricsJ := models[j].GetMetrics()
+
 		return metricsI.AverageLatency < metricsJ.AverageLatency
 	})
 

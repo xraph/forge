@@ -7,9 +7,10 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension for search functionality
+// Extension implements forge.Extension for search functionality.
 type Extension struct {
 	*forge.BaseExtension
+
 	config Config
 	search Search
 }
@@ -37,6 +38,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("search", "2.0.0", "Full-text search with Elasticsearch/Meilisearch/Typesense")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -49,7 +51,7 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the search extension with the app
+// Register registers the search extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
@@ -58,15 +60,18 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Load config from ConfigManager with dual-key support
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("search", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("search: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("search: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate config
@@ -75,8 +80,10 @@ func (e *Extension) Register(app forge.App) error {
 	}
 
 	// Create search instance based on driver
-	var search Search
-	var err error
+	var (
+		search Search
+		err    error
+	)
 
 	switch e.config.Driver {
 	case "inmemory":
@@ -141,7 +148,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the search extension
+// Start starts the search extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting search extension",
 		forge.F("driver", e.config.Driver),
@@ -157,7 +164,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the search extension
+// Stop stops the search extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping search extension")
 
@@ -175,10 +182,10 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks if the search is healthy
+// Health checks if the search is healthy.
 func (e *Extension) Health(ctx context.Context) error {
 	if e.search == nil {
-		return fmt.Errorf("search not initialized")
+		return errors.New("search not initialized")
 	}
 
 	if err := e.search.Ping(ctx); err != nil {
@@ -188,7 +195,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	return nil
 }
 
-// Search returns the search instance (for advanced usage)
+// Search returns the search instance (for advanced usage).
 func (e *Extension) Search() Search {
 	return e.search
 }

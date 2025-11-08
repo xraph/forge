@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge/farp"
 )
 
-// TestFARPManifestEndpoint validates the /_farp/manifest endpoint works correctly
+// TestFARPManifestEndpoint validates the /_farp/manifest endpoint works correctly.
 func TestFARPManifestEndpoint(t *testing.T) {
 	// Create app with router
 	app := forge.New(forge.WithConfig(forge.AppConfig{
@@ -55,7 +55,7 @@ func TestFARPManifestEndpoint(t *testing.T) {
 	defer discExt.Stop(context.Background())
 
 	// Create test HTTP request to manifest endpoint
-	req := httptest.NewRequest("GET", "/_farp/manifest", nil)
+	req := httptest.NewRequest(http.MethodGet, "/_farp/manifest", nil)
 	rec := httptest.NewRecorder()
 
 	// Get router and serve request
@@ -105,7 +105,7 @@ func TestFARPManifestEndpoint(t *testing.T) {
 	}
 }
 
-// TestFARPDiscoveryEndpoint validates the /_farp/discovery endpoint works correctly
+// TestFARPDiscoveryEndpoint validates the /_farp/discovery endpoint works correctly.
 func TestFARPDiscoveryEndpoint(t *testing.T) {
 	// Create app with router
 	app := forge.New(forge.WithConfig(forge.AppConfig{
@@ -146,7 +146,7 @@ func TestFARPDiscoveryEndpoint(t *testing.T) {
 	defer discExt.Stop(context.Background())
 
 	// Create test HTTP request to discovery endpoint
-	req := httptest.NewRequest("GET", "/_farp/discovery", nil)
+	req := httptest.NewRequest(http.MethodGet, "/_farp/discovery", nil)
 	rec := httptest.NewRecorder()
 
 	// Get router and serve request
@@ -165,7 +165,7 @@ func TestFARPDiscoveryEndpoint(t *testing.T) {
 	}
 
 	// Parse response
-	var response map[string]interface{}
+	var response map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("failed to parse response: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestFARPDiscoveryEndpoint(t *testing.T) {
 	}
 
 	// Check metadata
-	metadata, ok := response["metadata"].(map[string]interface{})
+	metadata, ok := response["metadata"].(map[string]any)
 	if !ok {
 		t.Fatal("metadata is not a map")
 	}
@@ -206,7 +206,7 @@ func TestFARPDiscoveryEndpoint(t *testing.T) {
 	}
 }
 
-// TestFARPEndpointsWithoutService validates endpoints return error when service not registered
+// TestFARPEndpointsWithoutService validates endpoints return error when service not registered.
 func TestFARPEndpointsWithoutService(t *testing.T) {
 	// Create app with router
 	app := forge.New(forge.WithConfig(forge.AppConfig{
@@ -236,7 +236,7 @@ func TestFARPEndpointsWithoutService(t *testing.T) {
 	}
 
 	// Test manifest endpoint
-	req := httptest.NewRequest("GET", "/_farp/manifest", nil)
+	req := httptest.NewRequest(http.MethodGet, "/_farp/manifest", nil)
 	rec := httptest.NewRecorder()
 
 	router := app.Router()

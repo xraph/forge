@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// containerImpl implements Container
+// containerImpl implements Container.
 type containerImpl struct {
 	services  map[string]*serviceRegistration
 	instances map[string]any
@@ -18,7 +18,7 @@ type containerImpl struct {
 	mu        sync.RWMutex
 }
 
-// serviceRegistration holds service registration details
+// serviceRegistration holds service registration details.
 type serviceRegistration struct {
 	name         string
 	factory      Factory
@@ -32,7 +32,7 @@ type serviceRegistration struct {
 	mu           sync.RWMutex
 }
 
-// newContainerImpl creates a new DI container implementation
+// newContainerImpl creates a new DI container implementation.
 func newContainerImpl() Container {
 	return &containerImpl{
 		services:  make(map[string]*serviceRegistration),
@@ -41,13 +41,15 @@ func newContainerImpl() Container {
 	}
 }
 
-// Register adds a service factory to the container
+// Register adds a service factory to the container.
 func (c *containerImpl) Register(name string, factory Factory, opts ...RegisterOption) error {
 	// Merge options
 	merged := mergeOptions(opts)
+
 	if name == "" {
-		return fmt.Errorf("service name cannot be empty")
+		return errors.New("service name cannot be empty")
 	}
+
 	if factory == nil {
 		return errors.ErrInvalidFactory
 	}
@@ -79,7 +81,7 @@ func (c *containerImpl) Register(name string, factory Factory, opts ...RegisterO
 	return nil
 }
 
-// Resolve returns a service by name
+// Resolve returns a service by name.
 func (c *containerImpl) Resolve(name string) (any, error) {
 	c.mu.RLock()
 	reg, exists := c.services[name]
@@ -93,11 +95,14 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 	if reg.singleton {
 		// Fast path: check if already created (read lock)
 		reg.mu.RLock()
+
 		if reg.instance != nil {
 			instance := reg.instance
 			reg.mu.RUnlock()
+
 			return instance, nil
 		}
+
 		reg.mu.RUnlock()
 
 		// Slow path: create instance (write lock for entire creation)
@@ -118,6 +123,7 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 		}
 
 		reg.instance = instance
+
 		return instance, nil
 	}
 
@@ -135,15 +141,17 @@ func (c *containerImpl) Resolve(name string) (any, error) {
 	return instance, nil
 }
 
-// Has checks if a service is registered
+// Has checks if a service is registered.
 func (c *containerImpl) Has(name string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	_, exists := c.services[name]
+
 	return exists
 }
 
-// Services returns all registered service names
+// Services returns all registered service names.
 func (c *containerImpl) Services() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -152,19 +160,22 @@ func (c *containerImpl) Services() []string {
 	for name := range c.services {
 		names = append(names, name)
 	}
+
 	return names
 }
 
-// BeginScope creates a new scope for request-scoped services
+// BeginScope creates a new scope for request-scoped services.
 func (c *containerImpl) BeginScope() Scope {
 	return newScope(c)
 }
 
-// Start initializes all services in dependency order
+// Start initializes all services in dependency order.
 func (c *containerImpl) Start(ctx context.Context) error {
 	c.mu.Lock()
+
 	if c.started {
 		c.mu.Unlock()
+
 		return errors.ErrContainerStarted
 	}
 
@@ -172,8 +183,10 @@ func (c *containerImpl) Start(ctx context.Context) error {
 	order, err := c.graph.TopologicalSort()
 	if err != nil {
 		c.mu.Unlock()
+
 		return err
 	}
+
 	c.mu.Unlock()
 
 	// Start services in order (without holding container lock)
@@ -181,6 +194,7 @@ func (c *containerImpl) Start(ctx context.Context) error {
 		if err := c.startService(ctx, name); err != nil {
 			// Rollback: stop already started services
 			c.stopServices(ctx, order)
+
 			return errors.NewServiceError(name, "start", err)
 		}
 	}
@@ -188,14 +202,17 @@ func (c *containerImpl) Start(ctx context.Context) error {
 	c.mu.Lock()
 	c.started = true
 	c.mu.Unlock()
+
 	return nil
 }
 
-// Stop shuts down all services in reverse order
+// Stop shuts down all services in reverse order.
 func (c *containerImpl) Stop(ctx context.Context) error {
 	c.mu.Lock()
+
 	if !c.started {
 		c.mu.Unlock()
+
 		return nil // Not an error, just no-op
 	}
 
@@ -203,8 +220,10 @@ func (c *containerImpl) Stop(ctx context.Context) error {
 	order, err := c.graph.TopologicalSort()
 	if err != nil {
 		c.mu.Unlock()
+
 		return err
 	}
+
 	c.mu.Unlock()
 
 	// Stop in reverse order (without holding container lock)
@@ -219,10 +238,11 @@ func (c *containerImpl) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	c.started = false
 	c.mu.Unlock()
+
 	return nil
 }
 
-// Health checks all services
+// Health checks all services.
 func (c *containerImpl) Health(ctx context.Context) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -243,7 +263,7 @@ func (c *containerImpl) Health(ctx context.Context) error {
 	return nil
 }
 
-// Inspect returns diagnostic information about a service
+// Inspect returns diagnostic information about a service.
 func (c *containerImpl) Inspect(name string) ServiceInfo {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -284,7 +304,7 @@ func (c *containerImpl) Inspect(name string) ServiceInfo {
 	}
 }
 
-// startService starts a single service
+// startService starts a single service.
 func (c *containerImpl) startService(ctx context.Context, name string) error {
 	reg := c.services[name]
 
@@ -299,6 +319,7 @@ func (c *containerImpl) startService(ctx context.Context, name string) error {
 		if err := svc.Start(ctx); err != nil {
 			return err
 		}
+
 		reg.mu.Lock()
 		reg.started = true
 		reg.mu.Unlock()
@@ -307,7 +328,7 @@ func (c *containerImpl) startService(ctx context.Context, name string) error {
 	return nil
 }
 
-// stopService stops a single service
+// stopService stops a single service.
 func (c *containerImpl) stopService(ctx context.Context, name string) error {
 	reg := c.services[name]
 
@@ -325,6 +346,7 @@ func (c *containerImpl) stopService(ctx context.Context, name string) error {
 		if err := svc.Stop(ctx); err != nil {
 			return err
 		}
+
 		reg.mu.Lock()
 		reg.started = false
 		reg.mu.Unlock()
@@ -333,7 +355,7 @@ func (c *containerImpl) stopService(ctx context.Context, name string) error {
 	return nil
 }
 
-// stopServices stops multiple services (for rollback)
+// stopServices stops multiple services (for rollback).
 func (c *containerImpl) stopServices(ctx context.Context, names []string) {
 	for i := len(names) - 1; i >= 0; i-- {
 		_ = c.stopService(ctx, names[i])

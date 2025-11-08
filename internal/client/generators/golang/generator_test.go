@@ -30,12 +30,15 @@ func TestGoGenerator(t *testing.T) {
 
 	for _, expected := range expectedFeatures {
 		found := false
+
 		for _, feature := range features {
 			if feature == expected {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			t.Errorf("Expected feature '%s' not found", expected)
 		}
@@ -151,6 +154,7 @@ func TestGoGeneratorRESTEndpoints(t *testing.T) {
 	}
 
 	gen := golang.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -169,6 +173,7 @@ func TestGoGeneratorRESTEndpoints(t *testing.T) {
 	if !strings.Contains(clientCode, "AuthConfig") {
 		t.Error("client.go should contain AuthConfig")
 	}
+
 	if !strings.Contains(clientCode, "BearerToken") {
 		t.Error("client.go should contain BearerToken field")
 	}
@@ -178,6 +183,7 @@ func TestGoGeneratorRESTEndpoints(t *testing.T) {
 	if !strings.Contains(typesCode, "type User struct") {
 		t.Error("types.go should contain User struct")
 	}
+
 	if !strings.Contains(typesCode, "type CreateUserRequest struct") {
 		t.Error("types.go should contain CreateUserRequest struct")
 	}
@@ -187,9 +193,11 @@ func TestGoGeneratorRESTEndpoints(t *testing.T) {
 	if !strings.Contains(restCode, "ListUsers") {
 		t.Error("rest.go should contain ListUsers method")
 	}
+
 	if !strings.Contains(restCode, "CreateUser") {
 		t.Error("rest.go should contain CreateUser method")
 	}
+
 	if !strings.Contains(restCode, "context.Context") {
 		t.Error("rest.go should use context.Context")
 	}
@@ -246,6 +254,7 @@ func TestGoGeneratorWebSocket(t *testing.T) {
 	}
 
 	gen := golang.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -334,6 +343,7 @@ func TestGoGeneratorSSE(t *testing.T) {
 	}
 
 	gen := golang.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -465,6 +475,7 @@ func TestGoGeneratorWebTransport(t *testing.T) {
 	}
 
 	gen := golang.NewGenerator()
+
 	result, err := gen.Generate(context.Background(), spec, config)
 	if err != nil {
 		t.Fatalf("Generate failed: %v", err)
@@ -509,12 +520,15 @@ func TestGoGeneratorWebTransport(t *testing.T) {
 
 	// Check dependencies include webtransport-go
 	foundWT := false
+
 	for _, dep := range result.Dependencies {
 		if strings.Contains(dep.Name, "webtransport-go") {
 			foundWT = true
+
 			break
 		}
 	}
+
 	if !foundWT {
 		t.Error("Dependencies should include 'webtransport-go' package")
 	}

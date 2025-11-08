@@ -8,25 +8,25 @@ import (
 	"github.com/xraph/forge"
 )
 
-// BatchProcessor handles efficient bulk request processing
+// BatchProcessor handles efficient bulk request processing.
 type BatchProcessor struct {
-	llmManager  LLMManager
-	logger      forge.Logger
-	metrics     forge.Metrics
-	
+	llmManager LLMManager
+	logger     forge.Logger
+	metrics    forge.Metrics
+
 	// Configuration
-	maxBatchSize    int
-	maxWaitTime     time.Duration
-	maxConcurrency  int
-	enableBatching  bool
-	
+	maxBatchSize   int
+	maxWaitTime    time.Duration
+	maxConcurrency int
+	enableBatching bool
+
 	// Internal state
 	queue           []BatchRequest
 	mu              sync.Mutex
 	processingTimer *time.Timer
 }
 
-// BatchConfig configures batch processing
+// BatchConfig configures batch processing.
 type BatchConfig struct {
 	MaxBatchSize   int           // Maximum requests per batch
 	MaxWaitTime    time.Duration // Maximum time to wait before processing
@@ -34,17 +34,17 @@ type BatchConfig struct {
 	EnableBatching bool          // Enable/disable batching
 }
 
-// BatchRequest represents a single request in a batch
+// BatchRequest represents a single request in a batch.
 type BatchRequest struct {
 	ID      string
 	Prompt  string
 	Model   string
-	Options map[string]interface{}
+	Options map[string]any
 	Result  chan<- *Result
 	Error   chan<- error
 }
 
-// BatchResult contains results from batch processing
+// BatchResult contains results from batch processing.
 type BatchResult struct {
 	Successful int
 	Failed     int
@@ -53,7 +53,7 @@ type BatchResult struct {
 	Errors     []error
 }
 
-// NewBatchProcessor creates a new batch processor
+// NewBatchProcessor creates a new batch processor.
 func NewBatchProcessor(
 	llmManager LLMManager,
 	logger forge.Logger,
@@ -63,9 +63,11 @@ func NewBatchProcessor(
 	if config.MaxBatchSize == 0 {
 		config.MaxBatchSize = 10
 	}
+
 	if config.MaxWaitTime == 0 {
 		config.MaxWaitTime = 100 * time.Millisecond
 	}
+
 	if config.MaxConcurrency == 0 {
 		config.MaxConcurrency = 5
 	}
@@ -82,7 +84,7 @@ func NewBatchProcessor(
 	}
 }
 
-// Submit submits a request for batch processing
+// Submit submits a request for batch processing.
 func (bp *BatchProcessor) Submit(ctx context.Context, req BatchRequest) error {
 	if !bp.enableBatching {
 		// Process immediately if batching disabled
@@ -97,10 +99,12 @@ func (bp *BatchProcessor) Submit(ctx context.Context, req BatchRequest) error {
 	// Process if batch is full
 	if len(bp.queue) >= bp.maxBatchSize {
 		go bp.processBatch()
+
 		bp.queue = make([]BatchRequest, 0, bp.maxBatchSize)
 		if bp.processingTimer != nil {
 			bp.processingTimer.Stop()
 		}
+
 		return nil
 	}
 
@@ -114,7 +118,7 @@ func (bp *BatchProcessor) Submit(ctx context.Context, req BatchRequest) error {
 	return nil
 }
 
-// ProcessBatch processes all requests in a batch
+// ProcessBatch processes all requests in a batch.
 func (bp *BatchProcessor) ProcessBatch(ctx context.Context, requests []BatchRequest) *BatchResult {
 	start := time.Now()
 	result := &BatchResult{
@@ -124,10 +128,12 @@ func (bp *BatchProcessor) ProcessBatch(ctx context.Context, requests []BatchRequ
 
 	// Use worker pool for concurrency
 	semaphore := make(chan struct{}, bp.maxConcurrency)
+
 	var wg sync.WaitGroup
 
 	for _, req := range requests {
 		wg.Add(1)
+
 		semaphore <- struct{}{} // Acquire
 
 		go func(r BatchRequest) {
@@ -137,6 +143,7 @@ func (bp *BatchProcessor) ProcessBatch(ctx context.Context, requests []BatchRequ
 			// Process individual request
 			builder := NewGenerateBuilder(ctx, bp.llmManager, bp.logger, bp.metrics)
 			builder.WithPrompt(r.Prompt)
+
 			if r.Model != "" {
 				builder.WithModel(r.Model)
 			}
@@ -144,12 +151,14 @@ func (bp *BatchProcessor) ProcessBatch(ctx context.Context, requests []BatchRequ
 			res, err := builder.Execute()
 			if err != nil {
 				result.Failed++
+
 				result.Errors = append(result.Errors, err)
 				if r.Error != nil {
 					r.Error <- err
 				}
 			} else {
 				result.Successful++
+
 				result.Results = append(result.Results, res)
 				if r.Result != nil {
 					r.Result <- res
@@ -159,6 +168,7 @@ func (bp *BatchProcessor) ProcessBatch(ctx context.Context, requests []BatchRequ
 	}
 
 	wg.Wait()
+
 	result.TotalTime = time.Since(start)
 
 	if bp.metrics != nil {
@@ -176,8 +186,10 @@ func (bp *BatchProcessor) ProcessBatch(ctx context.Context, requests []BatchRequ
 
 func (bp *BatchProcessor) processBatch() {
 	bp.mu.Lock()
+
 	if len(bp.queue) == 0 {
 		bp.mu.Unlock()
+
 		return
 	}
 
@@ -200,6 +212,7 @@ func (bp *BatchProcessor) processBatch() {
 func (bp *BatchProcessor) processImmediate(ctx context.Context, req BatchRequest) error {
 	builder := NewGenerateBuilder(ctx, bp.llmManager, bp.logger, bp.metrics)
 	builder.WithPrompt(req.Prompt)
+
 	if req.Model != "" {
 		builder.WithModel(req.Model)
 	}
@@ -209,20 +222,24 @@ func (bp *BatchProcessor) processImmediate(ctx context.Context, req BatchRequest
 		if req.Error != nil {
 			req.Error <- err
 		}
+
 		return err
 	}
 
 	if req.Result != nil {
 		req.Result <- res
 	}
+
 	return nil
 }
 
-// Flush processes all pending requests immediately
+// Flush processes all pending requests immediately.
 func (bp *BatchProcessor) Flush(ctx context.Context) error {
 	bp.mu.Lock()
+
 	if len(bp.queue) == 0 {
 		bp.mu.Unlock()
+
 		return nil
 	}
 
@@ -232,10 +249,11 @@ func (bp *BatchProcessor) Flush(ctx context.Context) error {
 	bp.mu.Unlock()
 
 	bp.ProcessBatch(ctx, batch)
+
 	return nil
 }
 
-// GetStats returns batch processing statistics
+// GetStats returns batch processing statistics.
 func (bp *BatchProcessor) GetStats() BatchStats {
 	bp.mu.Lock()
 	defer bp.mu.Unlock()
@@ -245,8 +263,7 @@ func (bp *BatchProcessor) GetStats() BatchStats {
 	}
 }
 
-// BatchStats contains batch processing statistics
+// BatchStats contains batch processing statistics.
 type BatchStats struct {
 	QueueSize int
 }
-

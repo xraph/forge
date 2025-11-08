@@ -6,14 +6,15 @@ import (
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// ExtensionPlugin handles extension operations
+// ExtensionPlugin handles extension operations.
 type ExtensionPlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewExtensionPlugin creates a new extension plugin
+// NewExtensionPlugin creates a new extension plugin.
 func NewExtensionPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &ExtensionPlugin{config: cfg}
 }
@@ -113,7 +114,7 @@ func (p *ExtensionPlugin) listExtensions(ctx cli.CommandContext) error {
 func (p *ExtensionPlugin) extensionInfo(ctx cli.CommandContext) error {
 	name := ctx.String("name")
 	if name == "" {
-		return fmt.Errorf("--name flag is required")
+		return errors.New("--name flag is required")
 	}
 
 	extensionInfo := map[string]struct {
@@ -169,12 +170,13 @@ func (p *ExtensionPlugin) extensionInfo(ctx cli.CommandContext) error {
 		return fmt.Errorf("extension not found: %s. Use 'forge extension:list' to see available extensions", name)
 	}
 
-	ctx.Info(fmt.Sprintf("Extension: %s", name))
+	ctx.Info("Extension: " + name)
 	ctx.Println("")
 	ctx.Println(info.description)
 	ctx.Println("")
 
 	ctx.Info("Features:")
+
 	for _, feature := range info.features {
 		ctx.Println("  •", feature)
 	}

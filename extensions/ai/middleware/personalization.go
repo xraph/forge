@@ -5,42 +5,44 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// PersonalizationConfig contains configuration for AI-powered content personalization
+// PersonalizationConfig contains configuration for AI-powered content personalization.
 type PersonalizationConfig struct {
-	Enabled              bool          `yaml:"enabled" default:"true"`
-	MaxContentSize       int64         `yaml:"max_content_size" default:"1048576"`      // 1MB max content size
-	PersonalizationLevel int           `yaml:"personalization_level" default:"2"`       // Personalization aggressiveness (1-3)
-	LearningEnabled      bool          `yaml:"learning_enabled" default:"true"`         // Enable learning from user interactions
-	RealTimeEnabled      bool          `yaml:"realtime_enabled" default:"false"`        // Enable real-time personalization
-	CachingEnabled       bool          `yaml:"caching_enabled" default:"true"`          // Enable personalized content caching
-	ModelID              string        `yaml:"model_id" default:"content-personalizer"` // AI model for personalization
-	Timeout              time.Duration `yaml:"timeout" default:"200ms"`                 // Personalization timeout
-	MinPersonalizeLength int           `yaml:"min_personalize_length" default:"500"`    // Minimum content length to personalize
-	UserSegments         []UserSegment `yaml:"user_segments"`                           // Predefined user segments
-	ContentTypes         []string      `yaml:"content_types"`                           // Content types to personalize
-	ABTestingEnabled     bool          `yaml:"ab_testing_enabled" default:"false"`      // Enable A/B testing
-	PrivacyLevel         PrivacyLevel  `yaml:"privacy_level" default:"balanced"`        // Privacy protection level
+	Enabled              bool          `default:"true"                 yaml:"enabled"`
+	MaxContentSize       int64         `default:"1048576"              yaml:"max_content_size"`       // 1MB max content size
+	PersonalizationLevel int           `default:"2"                    yaml:"personalization_level"`  // Personalization aggressiveness (1-3)
+	LearningEnabled      bool          `default:"true"                 yaml:"learning_enabled"`       // Enable learning from user interactions
+	RealTimeEnabled      bool          `default:"false"                yaml:"realtime_enabled"`       // Enable real-time personalization
+	CachingEnabled       bool          `default:"true"                 yaml:"caching_enabled"`        // Enable personalized content caching
+	ModelID              string        `default:"content-personalizer" yaml:"model_id"`               // AI model for personalization
+	Timeout              time.Duration `default:"200ms"                yaml:"timeout"`                // Personalization timeout
+	MinPersonalizeLength int           `default:"500"                  yaml:"min_personalize_length"` // Minimum content length to personalize
+	UserSegments         []UserSegment `yaml:"user_segments"`                                         // Predefined user segments
+	ContentTypes         []string      `yaml:"content_types"`                                         // Content types to personalize
+	ABTestingEnabled     bool          `default:"false"                yaml:"ab_testing_enabled"`     // Enable A/B testing
+	PrivacyLevel         PrivacyLevel  `default:"balanced"             yaml:"privacy_level"`          // Privacy protection level
 }
 
-// UserSegment defines a user segment for personalization
+// UserSegment defines a user segment for personalization.
 type UserSegment struct {
-	ID          string                 `yaml:"id"`
-	Name        string                 `yaml:"name"`
-	Description string                 `yaml:"description"`
-	Criteria    map[string]interface{} `yaml:"criteria"`
-	Weight      float64                `yaml:"weight" default:"1.0"`
+	ID          string         `yaml:"id"`
+	Name        string         `yaml:"name"`
+	Description string         `yaml:"description"`
+	Criteria    map[string]any `yaml:"criteria"`
+	Weight      float64        `default:"1.0"      yaml:"weight"`
 }
 
-// PrivacyLevel defines privacy protection levels
+// PrivacyLevel defines privacy protection levels.
 type PrivacyLevel string
 
 const (
@@ -49,15 +51,16 @@ const (
 	PrivacyLevelStrict   PrivacyLevel = "strict"   // Minimal personalization, maximum privacy
 )
 
-// responseCapture captures response data for personalization
+// responseCapture captures response data for personalization.
 type responseCapture struct {
 	http.ResponseWriter
+
 	buffer     bytes.Buffer
 	statusCode int
 	headers    http.Header
 }
 
-// PersonalizationStats contains statistics for content personalization
+// PersonalizationStats contains statistics for content personalization.
 type PersonalizationStats struct {
 	TotalRequests          int64                       `json:"total_requests"`
 	PersonalizedContent    int64                       `json:"personalized_content"`
@@ -73,7 +76,7 @@ type PersonalizationStats struct {
 	LastUpdated            time.Time                   `json:"last_updated"`
 }
 
-// UserSegmentStats contains statistics for a user segment
+// UserSegmentStats contains statistics for a user segment.
 type UserSegmentStats struct {
 	UserCount             int64   `json:"user_count"`
 	PersonalizationRate   float64 `json:"personalization_rate"`
@@ -81,14 +84,14 @@ type UserSegmentStats struct {
 	ConversionImprovement float64 `json:"conversion_improvement"`
 }
 
-// ContentTypeStats contains statistics for content type personalization
+// ContentTypeStats contains statistics for content type personalization.
 type ContentTypeStats struct {
 	RequestCount       int64   `json:"request_count"`
 	PersonalizedCount  int64   `json:"personalized_count"`
 	AverageImprovement float64 `json:"average_improvement"`
 }
 
-// ABTestResult contains A/B test results
+// ABTestResult contains A/B test results.
 type ABTestResult struct {
 	TestID       string    `json:"test_id"`
 	VariantA     string    `json:"variant_a"`
@@ -102,20 +105,20 @@ type ABTestResult struct {
 	LastUpdated  time.Time `json:"last_updated"`
 }
 
-// UserProfile represents a user's personalization profile
+// UserProfile represents a user's personalization profile.
 type UserProfile struct {
-	UserID       string                 `json:"user_id"`
-	Segment      string                 `json:"segment"`
-	Preferences  map[string]interface{} `json:"preferences"`
-	Behavior     UserBehavior           `json:"behavior"`
-	Demographics Demographics           `json:"demographics"`
-	Interests    []string               `json:"interests"`
-	History      []InteractionHistory   `json:"history"`
-	LastUpdated  time.Time              `json:"last_updated"`
-	PrivacyLevel PrivacyLevel           `json:"privacy_level"`
+	UserID       string               `json:"user_id"`
+	Segment      string               `json:"segment"`
+	Preferences  map[string]any       `json:"preferences"`
+	Behavior     UserBehavior         `json:"behavior"`
+	Demographics Demographics         `json:"demographics"`
+	Interests    []string             `json:"interests"`
+	History      []InteractionHistory `json:"history"`
+	LastUpdated  time.Time            `json:"last_updated"`
+	PrivacyLevel PrivacyLevel         `json:"privacy_level"`
 }
 
-// UserBehavior tracks user behavior patterns
+// UserBehavior tracks user behavior patterns.
 type UserBehavior struct {
 	ClickThroughRate     float64  `json:"click_through_rate"`
 	TimeOnPage           float64  `json:"time_on_page"`
@@ -127,7 +130,7 @@ type UserBehavior struct {
 	LocationHistory      []string `json:"location_history"`
 }
 
-// Demographics contains user demographic information
+// Demographics contains user demographic information.
 type Demographics struct {
 	AgeRange   string `json:"age_range"`
 	Gender     string `json:"gender"`
@@ -139,16 +142,16 @@ type Demographics struct {
 	Occupation string `json:"occupation"`
 }
 
-// InteractionHistory tracks user interactions
+// InteractionHistory tracks user interactions.
 type InteractionHistory struct {
-	Timestamp  time.Time              `json:"timestamp"`
-	Action     string                 `json:"action"`
-	Content    string                 `json:"content"`
-	Context    map[string]interface{} `json:"context"`
-	Engagement float64                `json:"engagement"`
+	Timestamp  time.Time      `json:"timestamp"`
+	Action     string         `json:"action"`
+	Content    string         `json:"content"`
+	Context    map[string]any `json:"context"`
+	Engagement float64        `json:"engagement"`
 }
 
-// PersonalizedContent represents personalized content
+// PersonalizedContent represents personalized content.
 type PersonalizedContent struct {
 	Original            []byte                `json:"original"`
 	Personalized        []byte                `json:"personalized"`
@@ -159,22 +162,22 @@ type PersonalizedContent struct {
 	ProcessingTime      time.Duration         `json:"processing_time"`
 	CacheKey            string                `json:"cache_key,omitempty"`
 	ABTestVariant       string                `json:"ab_test_variant,omitempty"`
-	PersonalizedContent interface{}           `json:"personalized_content,omitempty"`
+	PersonalizedContent any                   `json:"personalized_content,omitempty"`
 }
 
-// PersonalizationRule represents a personalization rule applied
+// PersonalizationRule represents a personalization rule applied.
 type PersonalizationRule struct {
-	Type        string                 `json:"type"` // content_swap, recommendation, layout_change, etc.
-	Description string                 `json:"description"`
-	Target      string                 `json:"target"` // CSS selector or content identifier
-	Original    string                 `json:"original"`
-	Modified    string                 `json:"modified"`
-	Confidence  float64                `json:"confidence"`
-	Reason      string                 `json:"reason"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Type        string         `json:"type"` // content_swap, recommendation, layout_change, etc.
+	Description string         `json:"description"`
+	Target      string         `json:"target"` // CSS selector or content identifier
+	Original    string         `json:"original"`
+	Modified    string         `json:"modified"`
+	Confidence  float64        `json:"confidence"`
+	Reason      string         `json:"reason"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// ContentPersonalization implements AI-powered content personalization middleware
+// ContentPersonalization implements AI-powered content personalization middleware.
 type ContentPersonalization struct {
 	config       PersonalizationConfig
 	agent        ai.AIAgent
@@ -187,14 +190,14 @@ type ContentPersonalization struct {
 	started      bool
 }
 
-// NewContentPersonalization creates a new content personalization middleware
+// NewContentPersonalization creates a new content personalization middleware.
 func NewContentPersonalization(config PersonalizationConfig, logger forge.Logger, metrics forge.Metrics) (*ContentPersonalization, error) {
 	// Create AI agent for content personalization
 	capabilities := []ai.Capability{
 		{
 			Name:        "personalize_content",
 			Description: "Personalize content based on user profile and behavior",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":       "personalization",
 				"strategies": []string{"content_swap", "recommendation", "layout_change", "language_adapt"},
 			},
@@ -202,7 +205,7 @@ func NewContentPersonalization(config PersonalizationConfig, logger forge.Logger
 		{
 			Name:        "segment_user",
 			Description: "Automatically segment users based on behavior and preferences",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":     "segmentation",
 				"segments": config.UserSegments,
 			},
@@ -210,7 +213,7 @@ func NewContentPersonalization(config PersonalizationConfig, logger forge.Logger
 		{
 			Name:        "recommend_content",
 			Description: "Generate personalized content recommendations",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":       "recommendation",
 				"algorithms": []string{"collaborative", "content_based", "hybrid"},
 			},
@@ -218,7 +221,7 @@ func NewContentPersonalization(config PersonalizationConfig, logger forge.Logger
 		{
 			Name:        "ab_test_optimize",
 			Description: "Optimize content using A/B testing results",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":    "optimization",
 				"enabled": config.ABTestingEnabled,
 			},
@@ -243,27 +246,28 @@ func NewContentPersonalization(config PersonalizationConfig, logger forge.Logger
 	}, nil
 }
 
-// Name returns the middleware name
+// Name returns the middleware name.
 func (cp *ContentPersonalization) Name() string {
 	return "content-personalization"
 }
 
-// Type returns the middleware type
+// Type returns the middleware type.
 func (cp *ContentPersonalization) Type() ai.AIMiddlewareType {
 	return ai.AIMiddlewareTypeResponseOptimization
 }
 
-// Initialize initializes the middleware
+// Initialize initializes the middleware.
 func (cp *ContentPersonalization) Initialize(ctx context.Context, config ai.AIMiddlewareConfig) error {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 
 	if cp.started {
-		return fmt.Errorf("content personalization middleware already initialized")
+		return errors.New("content personalization middleware already initialized")
 	}
 
 	if !cp.config.Enabled {
 		cp.started = true
+
 		return nil // Skip initialization if disabled
 	}
 
@@ -288,6 +292,7 @@ func (cp *ContentPersonalization) Initialize(ctx context.Context, config ai.AIMi
 	// Start background tasks
 	go cp.cleanupProfiles(ctx)
 	go cp.cleanupCache(ctx)
+
 	if cp.config.LearningEnabled {
 		go cp.updateUserSegments(ctx)
 	}
@@ -307,10 +312,11 @@ func (cp *ContentPersonalization) Initialize(ctx context.Context, config ai.AIMi
 	return nil
 }
 
-// Process processes HTTP requests with content personalization
+// Process processes HTTP requests with content personalization.
 func (cp *ContentPersonalization) Process(ctx context.Context, req *http.Request, resp http.ResponseWriter, next http.HandlerFunc) error {
 	if !cp.config.Enabled {
 		next.ServeHTTP(resp, req)
+
 		return nil
 	}
 
@@ -321,6 +327,7 @@ func (cp *ContentPersonalization) Process(ctx context.Context, req *http.Request
 	if userID == "" {
 		// No personalization without user identification
 		next.ServeHTTP(resp, req)
+
 		return nil
 	}
 
@@ -339,6 +346,7 @@ func (cp *ContentPersonalization) Process(ctx context.Context, req *http.Request
 	if cp.shouldSkipPersonalization(wrapper, req) {
 		cp.updateSkippedStats()
 		cp.serveOriginalResponse(resp, wrapper)
+
 		return nil
 	}
 
@@ -351,8 +359,10 @@ func (cp *ContentPersonalization) Process(ctx context.Context, req *http.Request
 		if cached := cp.getCachedContent(cacheKey); cached != nil {
 			cp.servePersonalizedContent(resp, cached)
 			cp.updateCacheStats(true)
+
 			return nil
 		}
+
 		cp.updateCacheStats(false)
 	}
 
@@ -361,6 +371,7 @@ func (cp *ContentPersonalization) Process(ctx context.Context, req *http.Request
 	if err != nil {
 		cp.updateErrorStats(err)
 		cp.serveOriginalResponse(resp, wrapper)
+
 		return nil
 	}
 
@@ -383,7 +394,7 @@ func (cp *ContentPersonalization) Process(ctx context.Context, req *http.Request
 	return nil
 }
 
-// shouldSkipPersonalization determines if personalization should be skipped
+// shouldSkipPersonalization determines if personalization should be skipped.
 func (cp *ContentPersonalization) shouldSkipPersonalization(wrapper *responseCapture, req *http.Request) bool {
 	// Skip if content is too small
 	if wrapper.buffer.Len() < cp.config.MinPersonalizeLength {
@@ -409,7 +420,7 @@ func (cp *ContentPersonalization) shouldSkipPersonalization(wrapper *responseCap
 	return false
 }
 
-// isPersonalizableContentType checks if content type can be personalized
+// isPersonalizableContentType checks if content type can be personalized.
 func (cp *ContentPersonalization) isPersonalizableContentType(contentType string) bool {
 	if len(cp.config.ContentTypes) == 0 {
 		// Default personalizable types
@@ -427,6 +438,7 @@ func (cp *ContentPersonalization) isPersonalizableContentType(contentType string
 				return true
 			}
 		}
+
 		return false
 	}
 
@@ -441,16 +453,16 @@ func (cp *ContentPersonalization) isPersonalizableContentType(contentType string
 	return false
 }
 
-// extractUserID extracts user ID from the request
+// extractUserID extracts user ID from the request.
 func (cp *ContentPersonalization) extractUserID(req *http.Request) string {
 	// Try various sources for user identification
-	if userID := req.Header.Get("X-User-ID"); userID != "" {
+	if userID := req.Header.Get("X-User-Id"); userID != "" {
 		return userID
 	}
 
 	if userID := req.Header.Get("Authorization"); userID != "" && strings.HasPrefix(userID, "Bearer ") {
 		// Extract user ID from JWT token (simplified)
-		return fmt.Sprintf("jwt:%s", userID[7:20])
+		return "jwt:" + userID[7:20]
 	}
 
 	if userID := req.URL.Query().Get("user_id"); userID != "" {
@@ -465,13 +477,16 @@ func (cp *ContentPersonalization) extractUserID(req *http.Request) string {
 	return ""
 }
 
-// getUserProfile gets or creates a user profile
+// getUserProfile gets or creates a user profile.
 func (cp *ContentPersonalization) getUserProfile(userID string, req *http.Request) *UserProfile {
 	cp.mu.RLock()
+
 	if profile, exists := cp.userProfiles[userID]; exists {
 		cp.mu.RUnlock()
+
 		return profile
 	}
+
 	cp.mu.RUnlock()
 
 	// Create new profile
@@ -486,7 +501,7 @@ func (cp *ContentPersonalization) getUserProfile(userID string, req *http.Reques
 	profile := &UserProfile{
 		UserID:       userID,
 		Segment:      cp.determineUserSegment(req),
-		Preferences:  make(map[string]interface{}),
+		Preferences:  make(map[string]any),
 		Behavior:     UserBehavior{},
 		Demographics: cp.extractDemographics(req),
 		Interests:    []string{},
@@ -496,10 +511,11 @@ func (cp *ContentPersonalization) getUserProfile(userID string, req *http.Reques
 	}
 
 	cp.userProfiles[userID] = profile
+
 	return profile
 }
 
-// determineUserSegment determines user segment based on request
+// determineUserSegment determines user segment based on request.
 func (cp *ContentPersonalization) determineUserSegment(req *http.Request) string {
 	// Simple segmentation logic - in production, use AI agent
 	userAgent := strings.ToLower(req.UserAgent())
@@ -507,6 +523,7 @@ func (cp *ContentPersonalization) determineUserSegment(req *http.Request) string
 	if strings.Contains(userAgent, "mobile") {
 		return "mobile"
 	}
+
 	if strings.Contains(userAgent, "tablet") {
 		return "tablet"
 	}
@@ -521,8 +538,8 @@ func (cp *ContentPersonalization) determineUserSegment(req *http.Request) string
 	return "default"
 }
 
-// matchesSegmentCriteria checks if request matches segment criteria
-func (cp *ContentPersonalization) matchesSegmentCriteria(req *http.Request, criteria map[string]interface{}) bool {
+// matchesSegmentCriteria checks if request matches segment criteria.
+func (cp *ContentPersonalization) matchesSegmentCriteria(req *http.Request, criteria map[string]any) bool {
 	// Simple criteria matching - extend based on needs
 	for key, value := range criteria {
 		switch key {
@@ -536,10 +553,11 @@ func (cp *ContentPersonalization) matchesSegmentCriteria(req *http.Request, crit
 			}
 		}
 	}
+
 	return true
 }
 
-// extractDemographics extracts user demographics from request
+// extractDemographics extracts user demographics from request.
 func (cp *ContentPersonalization) extractDemographics(req *http.Request) Demographics {
 	demographics := Demographics{}
 
@@ -559,7 +577,7 @@ func (cp *ContentPersonalization) extractDemographics(req *http.Request) Demogra
 	return demographics
 }
 
-// personalizeContent personalizes content using AI
+// personalizeContent personalizes content using AI.
 func (cp *ContentPersonalization) personalizeContent(ctx context.Context, req *http.Request, wrapper *responseCapture, profile *UserProfile) (*PersonalizedContent, error) {
 	originalContent := wrapper.buffer.Bytes()
 	contentType := wrapper.Header().Get("Content-Type")
@@ -567,18 +585,18 @@ func (cp *ContentPersonalization) personalizeContent(ctx context.Context, req *h
 	// Create AI input for personalization
 	input := ai.AgentInput{
 		Type: "personalize_content",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"content":      originalContent,
 			"content_type": contentType,
 			"user_profile": profile,
-			"request_context": map[string]interface{}{
+			"request_context": map[string]any{
 				"path":       req.URL.Path,
 				"method":     req.Method,
 				"user_agent": req.UserAgent(),
 				"headers":    cp.extractRelevantHeaders(req),
 			},
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"personalization_level": cp.config.PersonalizationLevel,
 			"privacy_level":         cp.config.PrivacyLevel,
 			"realtime_enabled":      cp.config.RealTimeEnabled,
@@ -602,15 +620,16 @@ func (cp *ContentPersonalization) personalizeContent(ctx context.Context, req *h
 	return personalized, nil
 }
 
-// parsePersonalizationOutput parses AI agent output into PersonalizedContent
+// parsePersonalizationOutput parses AI agent output into PersonalizedContent.
 func (cp *ContentPersonalization) parsePersonalizationOutput(output ai.AgentOutput, originalContent []byte, profile *UserProfile) (*PersonalizedContent, error) {
-	data, ok := output.Data.(map[string]interface{})
+	data, ok := output.Data.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("invalid personalization output format")
+		return nil, errors.New("invalid personalization output format")
 	}
 
 	// Default to original content if personalization fails
 	personalizedContent := originalContent
+
 	var personalizations []PersonalizationRule
 
 	// Extract personalized content if available
@@ -623,9 +642,9 @@ func (cp *ContentPersonalization) parsePersonalizationOutput(output ai.AgentOutp
 	}
 
 	// Extract personalization rules applied
-	if rulesData, exists := data["personalizations"].([]interface{}); exists {
+	if rulesData, exists := data["personalizations"].([]any); exists {
 		for _, rule := range rulesData {
-			if ruleMap, ok := rule.(map[string]interface{}); ok {
+			if ruleMap, ok := rule.(map[string]any); ok {
 				personalization := PersonalizationRule{
 					Type:        getStringValue(ruleMap, "type"),
 					Description: getStringValue(ruleMap, "description"),
@@ -652,7 +671,7 @@ func (cp *ContentPersonalization) parsePersonalizationOutput(output ai.AgentOutp
 	}, nil
 }
 
-// extractRelevantHeaders extracts headers relevant for personalization
+// extractRelevantHeaders extracts headers relevant for personalization.
 func (cp *ContentPersonalization) extractRelevantHeaders(req *http.Request) map[string]string {
 	relevant := map[string]string{
 		"accept":          req.Header.Get("Accept"),
@@ -668,22 +687,23 @@ func (cp *ContentPersonalization) extractRelevantHeaders(req *http.Request) map[
 	return relevant
 }
 
-// generateCacheKey generates a cache key for personalized content
+// generateCacheKey generates a cache key for personalized content.
 func (cp *ContentPersonalization) generateCacheKey(userID, segment string, req *http.Request, wrapper *responseCapture) string {
 	return fmt.Sprintf("%s:%s:%s:%x", userID, segment, req.URL.Path, cp.hashContent(wrapper.buffer.String()))
 }
 
-// hashContent creates a hash of content for cache keys
+// hashContent creates a hash of content for cache keys.
 func (cp *ContentPersonalization) hashContent(content string) string {
 	// Simple hash implementation
 	hash := 0
 	for _, char := range content {
 		hash = hash*31 + int(char)
 	}
+
 	return fmt.Sprintf("%x", hash)
 }
 
-// getCachedContent retrieves cached personalized content
+// getCachedContent retrieves cached personalized content.
 func (cp *ContentPersonalization) getCachedContent(cacheKey string) *PersonalizedContent {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -695,7 +715,7 @@ func (cp *ContentPersonalization) getCachedContent(cacheKey string) *Personalize
 	return nil
 }
 
-// cacheContent caches personalized content
+// cacheContent caches personalized content.
 func (cp *ContentPersonalization) cacheContent(cacheKey string, content *PersonalizedContent) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -705,6 +725,7 @@ func (cp *ContentPersonalization) cacheContent(cacheKey string, content *Persona
 		// Remove oldest entries
 		for k := range cp.cache {
 			delete(cp.cache, k)
+
 			if len(cp.cache) <= 800 {
 				break
 			}
@@ -715,7 +736,7 @@ func (cp *ContentPersonalization) cacheContent(cacheKey string, content *Persona
 	cp.cache[cacheKey] = content
 }
 
-// serveOriginalResponse serves the original response
+// serveOriginalResponse serves the original response.
 func (cp *ContentPersonalization) serveOriginalResponse(resp http.ResponseWriter, wrapper *responseCapture) {
 	// Copy headers
 	for key, values := range wrapper.Header() {
@@ -728,7 +749,7 @@ func (cp *ContentPersonalization) serveOriginalResponse(resp http.ResponseWriter
 	resp.Write(wrapper.buffer.Bytes())
 }
 
-// servePersonalizedContent serves personalized content
+// servePersonalizedContent serves personalized content.
 func (cp *ContentPersonalization) servePersonalizedContent(resp http.ResponseWriter, content *PersonalizedContent) {
 	// Copy original headers
 	// Note: Headers would need to be stored in the PersonalizedContent struct
@@ -737,21 +758,22 @@ func (cp *ContentPersonalization) servePersonalizedContent(resp http.ResponseWri
 	// Add personalization info headers
 	resp.Header().Set("X-Personalized", "true")
 	resp.Header().Set("X-User-Segment", content.Segment)
+
 	if len(content.Personalizations) > 0 {
-		resp.Header().Set("X-Personalization-Count", fmt.Sprintf("%d", len(content.Personalizations)))
+		resp.Header().Set("X-Personalization-Count", strconv.Itoa(len(content.Personalizations)))
 	}
 
 	resp.WriteHeader(http.StatusOK)
 	resp.Write(content.Personalized)
 }
 
-// trackInteraction tracks user interaction for learning
+// trackInteraction tracks user interaction for learning.
 func (cp *ContentPersonalization) trackInteraction(ctx context.Context, userID string, req *http.Request, wrapper *responseCapture, personalized *PersonalizedContent) {
 	interaction := InteractionHistory{
 		Timestamp: time.Now(),
 		Action:    "view",
 		Content:   req.URL.Path,
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"method":       req.Method,
 			"personalized": len(personalized.Personalizations) > 0,
 			"segment":      personalized.Segment,
@@ -762,6 +784,7 @@ func (cp *ContentPersonalization) trackInteraction(ctx context.Context, userID s
 
 	// Update user profile with interaction
 	cp.mu.Lock()
+
 	if profile, exists := cp.userProfiles[userID]; exists {
 		profile.History = append(profile.History, interaction)
 
@@ -772,13 +795,14 @@ func (cp *ContentPersonalization) trackInteraction(ctx context.Context, userID s
 
 		profile.LastUpdated = time.Now()
 	}
+
 	cp.mu.Unlock()
 
 	// Create feedback for AI agent
 	feedback := ai.AgentFeedback{
 		ActionID: fmt.Sprintf("personalize-%s-%d", userID, time.Now().UnixNano()),
 		Success:  len(personalized.Personalizations) > 0,
-		Outcome: map[string]interface{}{
+		Outcome: map[string]any{
 			"personalizations_applied": len(personalized.Personalizations),
 			"confidence":               personalized.Confidence,
 		},
@@ -786,7 +810,7 @@ func (cp *ContentPersonalization) trackInteraction(ctx context.Context, userID s
 			"processing_time": personalized.ProcessingTime.Seconds(),
 			"confidence":      personalized.Confidence,
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"user_id": userID,
 			"segment": personalized.Segment,
 			"path":    req.URL.Path,
@@ -804,7 +828,7 @@ func (cp *ContentPersonalization) trackInteraction(ctx context.Context, userID s
 	}
 }
 
-// Background maintenance tasks
+// Background maintenance tasks.
 func (cp *ContentPersonalization) cleanupProfiles(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
@@ -865,6 +889,7 @@ func (cp *ContentPersonalization) performCacheCleanup() {
 
 	if len(cp.cache) > 500 {
 		newCache := make(map[string]*PersonalizedContent)
+
 		count := 0
 		for k, v := range cp.cache {
 			if count < 400 {
@@ -872,6 +897,7 @@ func (cp *ContentPersonalization) performCacheCleanup() {
 				count++
 			}
 		}
+
 		cp.cache = newCache
 	}
 }
@@ -879,10 +905,12 @@ func (cp *ContentPersonalization) performCacheCleanup() {
 func (cp *ContentPersonalization) recomputeUserSegments() {
 	// Recompute user segments based on recent behavior
 	cp.mu.RLock()
+
 	users := make([]*UserProfile, 0, len(cp.userProfiles))
 	for _, profile := range cp.userProfiles {
 		users = append(users, profile)
 	}
+
 	cp.mu.RUnlock()
 
 	// Simple re-segmentation logic
@@ -892,8 +920,10 @@ func (cp *ContentPersonalization) recomputeUserSegments() {
 			newSegment := cp.analyzeUserBehavior(profile)
 			if newSegment != profile.Segment {
 				cp.mu.Lock()
+
 				profile.Segment = newSegment
 				profile.LastUpdated = time.Now()
+
 				cp.mu.Unlock()
 			}
 		}
@@ -903,6 +933,7 @@ func (cp *ContentPersonalization) recomputeUserSegments() {
 func (cp *ContentPersonalization) analyzeUserBehavior(profile *UserProfile) string {
 	// Simple behavior analysis - in production, use AI agent
 	mobileCount := 0
+
 	for _, interaction := range profile.History {
 		if context, ok := interaction.Context["user_agent"].(string); ok {
 			if strings.Contains(strings.ToLower(context), "mobile") {
@@ -918,7 +949,7 @@ func (cp *ContentPersonalization) analyzeUserBehavior(profile *UserProfile) stri
 	return profile.Segment
 }
 
-// Statistics update methods
+// Statistics update methods.
 func (cp *ContentPersonalization) updatePersonalizationStats(segment, contentType string, duration time.Duration) {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
@@ -981,7 +1012,7 @@ func (cp *ContentPersonalization) updateSkippedStats() {
 	cp.stats.SkippedCount++
 }
 
-// GetStats returns middleware statistics
+// GetStats returns middleware statistics.
 func (cp *ContentPersonalization) GetStats() ai.AIMiddlewareStats {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
@@ -995,7 +1026,7 @@ func (cp *ContentPersonalization) GetStats() ai.AIMiddlewareStats {
 		LearningEnabled: cp.config.LearningEnabled,
 		AdaptiveChanges: cp.stats.PersonalizedContent,
 		LastUpdated:     cp.stats.LastUpdated,
-		CustomMetrics: map[string]interface{}{
+		CustomMetrics: map[string]any{
 			"personalized_content": cp.stats.PersonalizedContent,
 			"cache_hits":           cp.stats.CacheHits,
 			"cache_misses":         cp.stats.CacheMisses,
@@ -1009,16 +1040,17 @@ func (cp *ContentPersonalization) GetStats() ai.AIMiddlewareStats {
 	}
 }
 
-// Additional helper type for PersonalizedContent to store headers
+// Additional helper type for PersonalizedContent to store headers.
 type PersonalizedContentHeaders struct {
 	Headers map[string]string `json:"headers"`
 }
 
-// Update PersonalizedContent to include headers properly
+// Update PersonalizedContent to include headers properly.
 func (pc *PersonalizedContent) SetHeaders(headers map[string]string) {
 	if pc.PersonalizedContent == nil {
 		pc.PersonalizedContent = &PersonalizedContentHeaders{}
 	}
+
 	pc.PersonalizedContent.(*PersonalizedContentHeaders).Headers = headers
 }
 
@@ -1028,27 +1060,31 @@ func (pc *PersonalizedContent) GetHeaders() map[string]string {
 			return headers.Headers
 		}
 	}
+
 	return make(map[string]string)
 }
 
-// Helper functions for data extraction
-func getStringValue(data map[string]interface{}, key string) string {
+// Helper functions for data extraction.
+func getStringValue(data map[string]any, key string) string {
 	if val, ok := data[key].(string); ok {
 		return val
 	}
+
 	return ""
 }
 
-func getFloat64Value(data map[string]interface{}, key string) float64 {
+func getFloat64Value(data map[string]any, key string) float64 {
 	if val, ok := data[key].(float64); ok {
 		return val
 	}
+
 	return 0.0
 }
 
-func getMapValue(data map[string]interface{}, key string) map[string]interface{} {
-	if val, ok := data[key].(map[string]interface{}); ok {
+func getMapValue(data map[string]any, key string) map[string]any {
+	if val, ok := data[key].(map[string]any); ok {
 		return val
 	}
-	return make(map[string]interface{})
+
+	return make(map[string]any)
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/extensions/streaming"
 )
 
-// mockStreamingExtension for testing
+// mockStreamingExtension for testing.
 type mockStreamingExtension struct{}
 
 func (m *mockStreamingExtension) Name() string                     { return "streaming" }
@@ -81,6 +81,7 @@ func TestNew(t *testing.T) {
 				if err != nil {
 					t.Errorf("unexpected error: %v", err)
 				}
+
 				if ext == nil {
 					t.Error("expected extension but got nil")
 				}
@@ -199,6 +200,7 @@ func TestConfigOptions(t *testing.T) {
 		if len(config.TURNServers) != 1 {
 			t.Error("TURN server not added")
 		}
+
 		if config.TURNServers[0].Username != "user" {
 			t.Error("TURN server not set correctly")
 		}
@@ -212,6 +214,7 @@ func TestConfigOptions(t *testing.T) {
 		if !config.RecordingEnabled {
 			t.Error("recording not enabled")
 		}
+
 		if config.RecordingPath != path {
 			t.Errorf("recording path = %s, want %s", config.RecordingPath, path)
 		}
@@ -267,8 +270,7 @@ func BenchmarkConfig_GetICEServers(b *testing.B) {
 		},
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = config.GetICEServers()
 	}
 }

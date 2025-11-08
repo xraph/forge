@@ -45,8 +45,10 @@ func TestNewRabbitMQQueue(t *testing.T) {
 			queue, err := NewRabbitMQQueue(tt.config, logger, metrics)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewRabbitMQQueue() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if !tt.wantErr && queue == nil {
 				t.Error("NewRabbitMQQueue() returned nil queue")
 			}
@@ -80,7 +82,7 @@ func TestRabbitMQQueue_ConnectDisconnect(t *testing.T) {
 
 	// Test double connect
 	err = queue.Connect(ctx)
-	if err != ErrAlreadyConnected {
+	if !errors.Is(err, ErrAlreadyConnected) {
 		t.Errorf("Connect() second time should return ErrAlreadyConnected, got %v", err)
 	}
 
@@ -98,7 +100,7 @@ func TestRabbitMQQueue_ConnectDisconnect(t *testing.T) {
 
 	// Test double disconnect
 	err = queue.Disconnect(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("Disconnect() second time should return ErrNotConnected, got %v", err)
 	}
 }
@@ -143,6 +145,7 @@ func TestRabbitMQQueue_QueueOperations(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetQueueInfo() error = %v", err)
 	}
+
 	if info.Name != queueName {
 		t.Errorf("GetQueueInfo() name = %v, want %v", info.Name, queueName)
 	}
@@ -211,6 +214,7 @@ func TestRabbitMQQueue_PublishConsume(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetQueueInfo() error = %v", err)
 	}
+
 	if info.Messages == 0 {
 		t.Logf("GetQueueInfo() messages = %d, expected > 0 (may be consumed already)", info.Messages)
 	}
@@ -221,7 +225,9 @@ func TestRabbitMQQueue_PublishConsume(t *testing.T) {
 		if string(msg.Body) != "test message" {
 			t.Errorf("Received message body = %s, want 'test message'", string(msg.Body))
 		}
+
 		received <- true
+
 		return nil
 	}
 
@@ -274,6 +280,7 @@ func TestRabbitMQQueue_PublishBatch(t *testing.T) {
 
 	// Clean up and declare queue
 	queue.DeleteQueue(ctx, queueName)
+
 	err = queue.DeclareQueue(ctx, queueName, QueueOptions{
 		Durable: true,
 	})
@@ -302,6 +309,7 @@ func TestRabbitMQQueue_PublishBatch(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetQueueInfo() error = %v", err)
 	}
+
 	if info.Messages < int64(len(messages)) {
 		t.Logf("GetQueueInfo() messages = %d, expected >= %d", info.Messages, len(messages))
 	}

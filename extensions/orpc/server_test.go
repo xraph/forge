@@ -13,7 +13,7 @@ func TestServer_RegisterMethod(t *testing.T) {
 	method := &Method{
 		Name:        "test.method",
 		Description: "Test method",
-		Handler: func(ctx interface{}, params interface{}) (interface{}, error) {
+		Handler: func(ctx any, params any) (any, error) {
 			return "result", nil
 		},
 	}
@@ -28,6 +28,7 @@ func TestServer_RegisterMethod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get method: %v", err)
 	}
+
 	if retrieved.Name != "test.method" {
 		t.Errorf("expected method name 'test.method', got %s", retrieved.Name)
 	}
@@ -43,10 +44,10 @@ func TestServer_RegisterMethod_EmptyName(t *testing.T) {
 
 	method := &Method{
 		Name:    "",
-		Handler: func(ctx interface{}, params interface{}) (interface{}, error) { return nil, nil },
+		Handler: func(ctx any, params any) (any, error) { return nil, nil },
 	}
 
-	if err := server.RegisterMethod(method); err != ErrInvalidMethodName {
+	if err := server.RegisterMethod(method); !errors.Is(err, ErrInvalidMethodName) {
 		t.Errorf("expected ErrInvalidMethodName, got %v", err)
 	}
 }
@@ -55,7 +56,7 @@ func TestServer_GetMethod_NotFound(t *testing.T) {
 	server := NewORPCServer(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 
 	_, err := server.GetMethod("nonexistent")
-	if err != ErrMethodNotFoundError {
+	if !errors.Is(err, ErrMethodNotFoundError) {
 		t.Errorf("expected ErrMethodNotFoundError, got %v", err)
 	}
 }
@@ -65,11 +66,11 @@ func TestServer_ListMethods(t *testing.T) {
 
 	method1 := &Method{
 		Name:    "method1",
-		Handler: func(ctx interface{}, params interface{}) (interface{}, error) { return nil, nil },
+		Handler: func(ctx any, params any) (any, error) { return nil, nil },
 	}
 	method2 := &Method{
 		Name:    "method2",
-		Handler: func(ctx interface{}, params interface{}) (interface{}, error) { return nil, nil },
+		Handler: func(ctx any, params any) (any, error) { return nil, nil },
 	}
 
 	server.RegisterMethod(method1)
@@ -89,7 +90,7 @@ func TestServer_HandleBatch(t *testing.T) {
 
 	method := &Method{
 		Name: "test",
-		Handler: func(ctx interface{}, params interface{}) (interface{}, error) {
+		Handler: func(ctx any, params any) (any, error) {
 			return "result", nil
 		},
 	}
@@ -183,8 +184,9 @@ func TestServer_Use(t *testing.T) {
 	server := NewORPCServer(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 
 	called := false
-	interceptor := func(ctx context.Context, req *Request, next MethodHandler) (interface{}, error) {
+	interceptor := func(ctx context.Context, req *Request, next MethodHandler) (any, error) {
 		called = true
+
 		return next(ctx, nil)
 	}
 
@@ -192,7 +194,7 @@ func TestServer_Use(t *testing.T) {
 
 	method := &Method{
 		Name: "test",
-		Handler: func(ctx interface{}, params interface{}) (interface{}, error) {
+		Handler: func(ctx any, params any) (any, error) {
 			return "result", nil
 		},
 	}
@@ -359,6 +361,7 @@ func TestExtractPathParams(t *testing.T) {
 			if len(got) != len(tt.want) {
 				t.Errorf("extractPathParams() = %v, want %v", got, tt.want)
 			}
+
 			for i, v := range got {
 				if v != tt.want[i] {
 					t.Errorf("param[%d] = %v, want %v", i, v, tt.want[i])

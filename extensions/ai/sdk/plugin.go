@@ -7,9 +7,10 @@ import (
 	"sync"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// PluginSystem manages dynamic plugin loading and execution
+// PluginSystem manages dynamic plugin loading and execution.
 type PluginSystem struct {
 	plugins map[string]Plugin
 	logger  forge.Logger
@@ -17,16 +18,16 @@ type PluginSystem struct {
 	mu      sync.RWMutex
 }
 
-// Plugin represents a loadable plugin
+// Plugin represents a loadable plugin.
 type Plugin interface {
 	Name() string
 	Version() string
 	Initialize(ctx context.Context) error
-	Execute(ctx context.Context, input interface{}) (interface{}, error)
+	Execute(ctx context.Context, input any) (any, error)
 	Shutdown(ctx context.Context) error
 }
 
-// PluginInfo contains plugin metadata
+// PluginInfo contains plugin metadata.
 type PluginInfo struct {
 	Name        string
 	Version     string
@@ -35,7 +36,7 @@ type PluginInfo struct {
 	Loaded      bool
 }
 
-// NewPluginSystem creates a new plugin system
+// NewPluginSystem creates a new plugin system.
 func NewPluginSystem(logger forge.Logger, metrics forge.Metrics) *PluginSystem {
 	return &PluginSystem{
 		plugins: make(map[string]Plugin),
@@ -44,7 +45,7 @@ func NewPluginSystem(logger forge.Logger, metrics forge.Metrics) *PluginSystem {
 	}
 }
 
-// LoadPlugin loads a plugin from a shared library file
+// LoadPlugin loads a plugin from a shared library file.
 func (ps *PluginSystem) LoadPlugin(ctx context.Context, path string) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -64,12 +65,12 @@ func (ps *PluginSystem) LoadPlugin(ctx context.Context, path string) error {
 	// Assert the correct function signature
 	newFunc, ok := sym.(func() Plugin)
 	if !ok {
-		return fmt.Errorf("invalid New function signature")
+		return errors.New("invalid New function signature")
 	}
 
 	// Create plugin instance
 	plugin := newFunc()
-	
+
 	// Initialize plugin
 	if err := plugin.Initialize(ctx); err != nil {
 		return fmt.Errorf("failed to initialize plugin: %w", err)
@@ -94,7 +95,7 @@ func (ps *PluginSystem) LoadPlugin(ctx context.Context, path string) error {
 	return nil
 }
 
-// RegisterPlugin registers a plugin instance
+// RegisterPlugin registers a plugin instance.
 func (ps *PluginSystem) RegisterPlugin(ctx context.Context, p Plugin) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -115,7 +116,7 @@ func (ps *PluginSystem) RegisterPlugin(ctx context.Context, p Plugin) error {
 	return nil
 }
 
-// UnloadPlugin unloads a plugin
+// UnloadPlugin unloads a plugin.
 func (ps *PluginSystem) UnloadPlugin(ctx context.Context, name string) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -139,8 +140,8 @@ func (ps *PluginSystem) UnloadPlugin(ctx context.Context, name string) error {
 	return nil
 }
 
-// ExecutePlugin executes a plugin by name
-func (ps *PluginSystem) ExecutePlugin(ctx context.Context, name string, input interface{}) (interface{}, error) {
+// ExecutePlugin executes a plugin by name.
+func (ps *PluginSystem) ExecutePlugin(ctx context.Context, name string, input any) (any, error) {
 	ps.mu.RLock()
 	p, exists := ps.plugins[name]
 	ps.mu.RUnlock()
@@ -157,6 +158,7 @@ func (ps *PluginSystem) ExecutePlugin(ctx context.Context, name string, input in
 				F("error", err),
 			)
 		}
+
 		return nil, err
 	}
 
@@ -170,7 +172,7 @@ func (ps *PluginSystem) ExecutePlugin(ctx context.Context, name string, input in
 	return result, nil
 }
 
-// ListPlugins returns a list of loaded plugins
+// ListPlugins returns a list of loaded plugins.
 func (ps *PluginSystem) ListPlugins() []PluginInfo {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -183,10 +185,11 @@ func (ps *PluginSystem) ListPlugins() []PluginInfo {
 			Loaded:  true,
 		})
 	}
+
 	return infos
 }
 
-// GetPlugin returns a plugin by name
+// GetPlugin returns a plugin by name.
 func (ps *PluginSystem) GetPlugin(name string) (Plugin, error) {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -195,10 +198,11 @@ func (ps *PluginSystem) GetPlugin(name string) (Plugin, error) {
 	if !exists {
 		return nil, fmt.Errorf("plugin not found: %s", name)
 	}
+
 	return p, nil
 }
 
-// Shutdown shuts down all plugins
+// Shutdown shuts down all plugins.
 func (ps *PluginSystem) Shutdown(ctx context.Context) error {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -215,26 +219,26 @@ func (ps *PluginSystem) Shutdown(ctx context.Context) error {
 	}
 
 	ps.plugins = make(map[string]Plugin)
+
 	return nil
 }
 
 // --- Extension Points ---
 
-// Middleware plugin interface
+// Middleware plugin interface.
 type MiddlewarePlugin interface {
 	Plugin
-	Middleware(next func(context.Context, interface{}) (interface{}, error)) func(context.Context, interface{}) (interface{}, error)
+	Middleware(next func(context.Context, any) (any, error)) func(context.Context, any) (any, error)
 }
 
-// Tool plugin interface
+// Tool plugin interface.
 type ToolPlugin interface {
 	Plugin
 	GetTool() Tool
 }
 
-// Provider plugin interface
+// Provider plugin interface.
 type ProviderPlugin interface {
 	Plugin
 	GetProvider() LLMManager
 }
-

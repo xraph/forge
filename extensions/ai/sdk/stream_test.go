@@ -76,7 +76,7 @@ func TestStreamBuilder_WithPrompt(t *testing.T) {
 
 func TestStreamBuilder_WithVars(t *testing.T) {
 	builder := NewStreamBuilder(context.Background(), &testhelpers.MockLLMManager{}, nil, nil)
-	vars := map[string]interface{}{
+	vars := map[string]any{
 		"topic": "AI",
 		"level": "beginner",
 	}
@@ -324,7 +324,7 @@ func TestStreamBuilder_OnReasoning(t *testing.T) {
 
 func TestStreamBuilder_OnToolCall(t *testing.T) {
 	builder := NewStreamBuilder(context.Background(), &testhelpers.MockLLMManager{}, nil, nil)
-	fn := func(toolName string, args map[string]interface{}) {}
+	fn := func(toolName string, args map[string]any) {}
 	result := builder.OnToolCall(fn)
 
 	if result != builder {
@@ -396,8 +396,12 @@ func TestStreamBuilder_Stream_Success(t *testing.T) {
 	metrics := testhelpers.NewMockMetrics()
 
 	startCalled := false
-	var tokens []string
-	var completedResult StreamResult
+
+	var (
+		tokens          []string
+		completedResult StreamResult
+	)
+
 	errorCalled := false
 
 	builder := NewStreamBuilder(context.Background(), mockLLM, logger, metrics)
@@ -411,7 +415,6 @@ func TestStreamBuilder_Stream_Success(t *testing.T) {
 		OnComplete(func(r StreamResult) { completedResult = r }).
 		OnError(func(e error) { errorCalled = true }).
 		Stream()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -476,7 +479,6 @@ func TestStreamBuilder_Stream_WithTemplateVars(t *testing.T) {
 		WithVar("topic", "quantum computing").
 		WithVar("level", "beginner").
 		Stream()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -520,7 +522,6 @@ func TestStreamBuilder_Stream_WithSystemPrompt(t *testing.T) {
 		WithSystemPrompt("You are an expert").
 		WithPrompt("Help me").
 		Stream()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -541,7 +542,6 @@ func TestStreamBuilder_Stream_LLMError(t *testing.T) {
 		WithPrompt("Test").
 		OnError(func(e error) { errorCalled = true }).
 		Stream()
-
 	if err == nil {
 		t.Error("expected error")
 	}
@@ -565,7 +565,6 @@ func TestStreamBuilder_Stream_NoChoices(t *testing.T) {
 	result, err := builder.
 		WithPrompt("Test").
 		Stream()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -580,7 +579,6 @@ func TestStreamBuilder_RenderPrompt_NoVars(t *testing.T) {
 	builder.prompt = "Simple prompt"
 
 	rendered, err := builder.renderPrompt()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -593,13 +591,12 @@ func TestStreamBuilder_RenderPrompt_NoVars(t *testing.T) {
 func TestStreamBuilder_RenderPrompt_WithVars(t *testing.T) {
 	builder := NewStreamBuilder(context.Background(), nil, nil, nil)
 	builder.prompt = "Hello {{.name}}, you are {{.age}} years old"
-	builder.vars = map[string]interface{}{
+	builder.vars = map[string]any{
 		"name": "Alice",
 		"age":  30,
 	}
 
 	rendered, err := builder.renderPrompt()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -689,21 +686,27 @@ func TestStreamBuilder_Stream_WithAllParameters(t *testing.T) {
 			if request.Temperature == nil || *request.Temperature != 0.7 {
 				t.Error("expected temperature to be set")
 			}
+
 			if request.MaxTokens == nil || *request.MaxTokens != 1000 {
 				t.Error("expected max tokens to be set")
 			}
+
 			if request.TopP == nil || *request.TopP != 0.9 {
 				t.Error("expected top-p to be set")
 			}
+
 			if request.TopK == nil || *request.TopK != 40 {
 				t.Error("expected top-k to be set")
 			}
+
 			if len(request.Stop) != 1 || request.Stop[0] != "DONE" {
 				t.Error("expected stop sequences to be set")
 			}
+
 			if len(request.Tools) != 1 {
 				t.Error("expected tools to be set")
 			}
+
 			if request.ToolChoice != "auto" {
 				t.Error("expected tool choice to be set")
 			}
@@ -740,7 +743,6 @@ func TestStreamBuilder_Stream_WithAllParameters(t *testing.T) {
 		WithTools(tool).
 		WithToolChoice("auto").
 		Stream()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -767,7 +769,6 @@ func TestStreamBuilder_Stream_NilLogger(t *testing.T) {
 	result, err := builder.
 		WithPrompt("Test").
 		Stream()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -803,7 +804,6 @@ func TestStreamBuilder_Stream_NilMetrics(t *testing.T) {
 	result, err := builder.
 		WithPrompt("Test").
 		Stream()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -813,4 +813,3 @@ func TestStreamBuilder_Stream_NilMetrics(t *testing.T) {
 		t.Error("expected usage to be parsed correctly")
 	}
 }
-
