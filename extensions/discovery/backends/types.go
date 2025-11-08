@@ -2,6 +2,7 @@ package backends
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"time"
 )
@@ -92,7 +93,7 @@ func (si *ServiceInstance) URL(scheme string) string {
 		scheme = "http"
 	}
 
-	return scheme + "://" + si.Address + ":" + string(rune(si.Port))
+	return fmt.Sprintf("%s://%s:%d", scheme, si.Address, si.Port)
 }
 
 // HasTag checks if the service has a specific tag.

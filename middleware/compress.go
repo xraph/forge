@@ -79,6 +79,8 @@ func (gzw *gzipResponseWriter) Write(b []byte) (int, error) {
 
 // WriteHeader writes the status code.
 func (gzw *gzipResponseWriter) WriteHeader(statusCode int) {
+	// Remove Content-Length header as it's no longer valid after gzip compression
+	gzw.ResponseWriter.Header().Del("Content-Length")
 	gzw.ResponseWriter.WriteHeader(statusCode)
 }
 

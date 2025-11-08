@@ -11,10 +11,10 @@ import (
 
 // TestMDNSCustomServiceType tests registration and discovery with custom service type.
 func TestMDNSCustomServiceType(t *testing.T) {
-	// Create backend with custom service type
+	// Create backend with custom service type (using unique test service type)
 	backend, err := NewMDNSBackend(MDNSConfig{
 		Domain:        "local.",
-		ServiceType:   "_octopus._tcp", // Custom service type
+		ServiceType:   "_forgetest._tcp", // Unique test service type to avoid collisions
 		BrowseTimeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
@@ -46,7 +46,17 @@ func TestMDNSCustomServiceType(t *testing.T) {
 	// Discover should find the service using custom type
 	discovered, err := backend.Discover(ctx, "my-service")
 	require.NoError(t, err)
-	assert.Len(t, discovered, 1, "should discover service with custom type")
+
+	// Filter to only our test service (in case other services exist on the machine)
+	filtered := make([]*ServiceInstance, 0)
+	for _, inst := range discovered {
+		if inst.ID == instance.ID {
+			filtered = append(filtered, inst)
+		}
+	}
+	discovered = filtered
+
+	assert.Len(t, discovered, 1, "should discover our test service")
 
 	// Verify the service
 	if len(discovered) > 0 {
@@ -55,7 +65,7 @@ func TestMDNSCustomServiceType(t *testing.T) {
 		assert.Equal(t, instance.Port, found.Port)
 
 		// Should have mdns.service_type in metadata
-		assert.Equal(t, "_octopus._tcp", found.Metadata["mdns.service_type"])
+		assert.Equal(t, "_forgetest._tcp", found.Metadata["mdns.service_type"])
 	}
 
 	// Cleanup

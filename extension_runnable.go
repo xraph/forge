@@ -118,6 +118,7 @@ type ExternalAppExtension struct {
 	process *exec.Cmd
 	running bool
 	stopped chan struct{}
+	waitCh  chan error // Channel to receive Wait() result (prevents double Wait() calls)
 	mu      sync.RWMutex
 }
 
@@ -160,6 +161,9 @@ func (e *ExternalAppExtension) Run(ctx context.Context) error {
 		F("command", e.config.Command),
 		F("args", e.config.Args),
 	)
+
+	// Create wait channel for this run
+	e.waitCh = make(chan error, 1)
 
 	// Start the process
 	if err := e.startProcess(ctx); err != nil {
@@ -216,8 +220,15 @@ func (e *ExternalAppExtension) startProcess(ctx context.Context) error {
 // monitor watches the process and optionally restarts it.
 func (e *ExternalAppExtension) monitor(ctx context.Context) {
 	for {
-		// Wait for process to exit
+		// Wait for process to exit (only this goroutine should call Wait())
 		err := e.process.Wait()
+
+		// Send result to waitCh so Shutdown() can receive it
+		select {
+		case e.waitCh <- err:
+		default:
+			// Channel full or closed, that's ok
+		}
 
 		e.mu.Lock()
 		wasRunning := e.running
@@ -313,19 +324,14 @@ func (e *ExternalAppExtension) Shutdown(ctx context.Context) error {
 		return e.process.Process.Kill()
 	}
 
-	// Wait for process to exit with timeout
-	done := make(chan error, 1)
-
-	go func() {
-		done <- e.process.Wait()
-	}()
-
 	// Use configured timeout or context deadline
 	timeout := e.config.ShutdownTimeout
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// Wait for monitor goroutine to receive Wait() result
+	// This prevents calling Wait() twice (race condition)
 	select {
 	case <-shutdownCtx.Done():
 		e.Logger().Warn("timeout waiting for external app, forcing kill",
@@ -343,7 +349,7 @@ func (e *ExternalAppExtension) Shutdown(ctx context.Context) error {
 		e.running = false
 
 		return errors.New("shutdown timeout exceeded")
-	case err := <-done:
+	case err := <-e.waitCh:
 		if err != nil {
 			e.Logger().Warn("external app exited with error during shutdown",
 				F("name", e.config.Name),

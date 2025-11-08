@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -105,12 +106,17 @@ func (b *MemoryBackend) Discover(ctx context.Context, serviceName string) ([]*Se
 		return []*ServiceInstance{}, nil
 	}
 
-	// Return copies of instances
+	// Return copies of instances in a consistent order (sorted by ID)
 	result := make([]*ServiceInstance, 0, len(instances))
 	for _, instance := range instances {
 		instanceCopy := *instance
 		result = append(result, &instanceCopy)
 	}
+
+	// Sort by ID to ensure deterministic order for testing and round-robin
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ID < result[j].ID
+	})
 
 	return result, nil
 }
