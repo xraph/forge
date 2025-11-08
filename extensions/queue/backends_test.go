@@ -363,7 +363,6 @@ func TestNATSQueue_NotConnectedErrors(t *testing.T) {
 // Test extension with different drivers
 
 func TestExtension_RedisDriver(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -393,7 +392,6 @@ func TestExtension_RedisDriver(t *testing.T) {
 }
 
 func TestExtension_RabbitMQDriver(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -423,7 +421,6 @@ func TestExtension_RabbitMQDriver(t *testing.T) {
 }
 
 func TestExtension_NATSDriver(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -453,7 +450,6 @@ func TestExtension_NATSDriver(t *testing.T) {
 }
 
 func TestExtension_Queue(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -481,7 +477,6 @@ func TestExtension_Queue(t *testing.T) {
 }
 
 func TestExtension_StopWithError(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
