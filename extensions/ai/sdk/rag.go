@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// RAG provides Retrieval Augmented Generation functionality
+// RAG provides Retrieval Augmented Generation functionality.
 type RAG struct {
 	vectorStore VectorStore
 	embedder    EmbeddingModel
@@ -28,7 +28,7 @@ type RAG struct {
 	maxContextTokens int
 }
 
-// EmbeddingModel generates embeddings for text
+// EmbeddingModel generates embeddings for text.
 type EmbeddingModel interface {
 	// Embed generates embeddings for the given texts
 	Embed(ctx context.Context, texts []string) ([]Vector, error)
@@ -37,7 +37,7 @@ type EmbeddingModel interface {
 	Dimensions() int
 }
 
-// RAGOptions configures RAG behavior
+// RAGOptions configures RAG behavior.
 type RAGOptions struct {
 	TopK             int
 	SimilarityThresh float64
@@ -48,7 +48,7 @@ type RAGOptions struct {
 	MaxContextTokens int
 }
 
-// Document represents a document for RAG
+// Document represents a document for RAG.
 type Document struct {
 	ID       string
 	Content  string
@@ -56,7 +56,7 @@ type Document struct {
 	Chunks   []DocumentChunk
 }
 
-// DocumentChunk represents a chunk of a document
+// DocumentChunk represents a chunk of a document.
 type DocumentChunk struct {
 	ID       string
 	Content  string
@@ -64,21 +64,21 @@ type DocumentChunk struct {
 	Metadata map[string]any
 }
 
-// RetrievalResult contains documents retrieved for a query
+// RetrievalResult contains documents retrieved for a query.
 type RetrievalResult struct {
 	Query     string
 	Documents []RetrievedDocument
 	Took      time.Duration
 }
 
-// RetrievedDocument is a document with similarity score
+// RetrievedDocument is a document with similarity score.
 type RetrievedDocument struct {
 	Document DocumentChunk
 	Score    float64
 	Rank     int
 }
 
-// NewRAG creates a new RAG instance
+// NewRAG creates a new RAG instance.
 func NewRAG(
 	vectorStore VectorStore,
 	embedder EmbeddingModel,
@@ -128,7 +128,7 @@ func NewRAG(
 	return rag
 }
 
-// IndexDocument indexes a document into the vector store
+// IndexDocument indexes a document into the vector store.
 func (r *RAG) IndexDocument(ctx context.Context, doc Document) error {
 	startTime := time.Now()
 
@@ -208,7 +208,7 @@ func (r *RAG) IndexDocument(ctx context.Context, doc Document) error {
 	return nil
 }
 
-// Retrieve retrieves relevant documents for a query
+// Retrieve retrieves relevant documents for a query.
 func (r *RAG) Retrieve(ctx context.Context, query string) (*RetrievalResult, error) {
 	startTime := time.Now()
 
@@ -298,7 +298,7 @@ func (r *RAG) Retrieve(ctx context.Context, query string) (*RetrievalResult, err
 	return result, nil
 }
 
-// GenerateWithContext generates a response using retrieved context
+// GenerateWithContext generates a response using retrieved context.
 func (r *RAG) GenerateWithContext(
 	ctx context.Context,
 	query string,
@@ -327,7 +327,7 @@ Answer based on the context above:`, context, query)
 		Execute()
 }
 
-// chunkDocument splits a document into chunks
+// chunkDocument splits a document into chunks.
 func (r *RAG) chunkDocument(doc Document) []DocumentChunk {
 	content := doc.Content
 	chunks := make([]DocumentChunk, 0)
@@ -389,7 +389,7 @@ func (r *RAG) chunkDocument(doc Document) []DocumentChunk {
 	return chunks
 }
 
-// buildContext builds a context string from retrieved documents
+// buildContext builds a context string from retrieved documents.
 func (r *RAG) buildContext(documents []RetrievedDocument) string {
 	var builder strings.Builder
 
@@ -417,7 +417,7 @@ func (r *RAG) buildContext(documents []RetrievedDocument) string {
 }
 
 // rerankDocuments reranks documents using a simple algorithm
-// In production, you'd use a proper reranking model
+// In production, you'd use a proper reranking model.
 func (r *RAG) rerankDocuments(query string, documents []RetrievedDocument) []RetrievedDocument {
 	queryLower := strings.ToLower(query)
 	queryTerms := strings.Fields(queryLower)
@@ -451,7 +451,7 @@ func (r *RAG) rerankDocuments(query string, documents []RetrievedDocument) []Ret
 	return documents
 }
 
-// DeleteDocument removes a document from the vector store
+// DeleteDocument removes a document from the vector store.
 func (r *RAG) DeleteDocument(ctx context.Context, docID string) error {
 	if r.logger != nil {
 		r.logger.Debug("Deleting document", F("doc_id", docID))
@@ -467,7 +467,7 @@ func (r *RAG) DeleteDocument(ctx context.Context, docID string) error {
 	return nil
 }
 
-// UpdateDocument updates an existing document
+// UpdateDocument updates an existing document.
 func (r *RAG) UpdateDocument(ctx context.Context, doc Document) error {
 	// Delete old version
 	if err := r.DeleteDocument(ctx, doc.ID); err != nil {
@@ -478,14 +478,14 @@ func (r *RAG) UpdateDocument(ctx context.Context, doc Document) error {
 	return r.IndexDocument(ctx, doc)
 }
 
-// Stats returns RAG statistics
+// Stats returns RAG statistics.
 type RAGStats struct {
 	TotalDocuments int
 	TotalChunks    int
 	AvgChunkSize   float64
 }
 
-// GetStats returns RAG statistics
+// GetStats returns RAG statistics.
 func (r *RAG) GetStats(ctx context.Context) (*RAGStats, error) {
 	// This would query the vector store for statistics
 	// For now, return empty stats

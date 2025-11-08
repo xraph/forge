@@ -935,7 +935,7 @@ func (hs *HybridStrategy) Execute(ctx context.Context, plan *CoordinationPlan, e
 	}
 
 	var firstError error
-	for range len(normalActions) {
+	for range normalActions {
 		if err := <-resultCh; err != nil && firstError == nil {
 			firstError = err
 		}
