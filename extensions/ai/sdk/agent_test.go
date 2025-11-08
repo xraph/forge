@@ -53,7 +53,7 @@ func (m *MockStateStore) List(ctx context.Context, agentID string) ([]string, er
 func TestNewAgent(t *testing.T) {
 	llmManager := &testhelpers.MockLLMManager{}
 	stateStore := &MockStateStore{}
-	logger := &testhelpers.MockLogger{}
+	logger := testhelpers.NewMockLogger()
 	metrics := testhelpers.NewMockMetrics()
 
 	agent, err := NewAgent("agent-1", "Test Agent", llmManager, stateStore, logger, metrics, nil)

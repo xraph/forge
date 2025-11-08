@@ -17,9 +17,10 @@ import (
 //
 // Directory structure:
 // single-app/
-//   ├── config.yaml       (base config - committed to git)
-//   ├── config.local.yaml (local overrides - in .gitignore)
-//   └── main.go
+//
+//	├── config.yaml       (base config - committed to git)
+//	├── config.local.yaml (local overrides - in .gitignore)
+//	└── main.go
 func main() {
 	fmt.Println("=== Forge Single-App Auto-Discovery Example ===")
 	fmt.Println()
@@ -65,7 +66,7 @@ func main() {
 func displayConfig(cfg forge.ConfigManager) {
 	fmt.Println("📋 Loaded Configuration:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// Database config
 	fmt.Println("\n🗄️  Database:")
 	fmt.Printf("  Driver: %s\n", cfg.GetString("database.driver"))
@@ -93,4 +94,3 @@ func displayConfig(cfg forge.ConfigManager) {
 	fmt.Println("💡 Tip: Values from config.local.yaml override config.yaml")
 	fmt.Println()
 }
-

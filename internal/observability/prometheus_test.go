@@ -15,7 +15,7 @@ func TestNewPrometheusExporter(t *testing.T) {
 		ListenAddress:   ":9090",
 		MetricsPath:     "/metrics",
 		EnableGoMetrics: true,
-		Logger:          logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:          logger.NewNoopLogger(),
 	}
 
 	exporter, err := NewPrometheusExporter(config)
@@ -41,7 +41,7 @@ func TestPrometheusExporter_ExportMetric(t *testing.T) {
 		ListenAddress:   ":9090",
 		MetricsPath:     "/metrics",
 		EnableGoMetrics: true,
-		Logger:          logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:          logger.NewNoopLogger(),
 	}
 
 	exporter, err := NewPrometheusExporter(config)
@@ -118,7 +118,7 @@ func TestPrometheusExporter_Start(t *testing.T) {
 		ListenAddress:   ":9091", // Use different port to avoid conflicts
 		MetricsPath:     "/metrics",
 		EnableGoMetrics: true,
-		Logger:          logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:          logger.NewNoopLogger(),
 	}
 
 	exporter, err := NewPrometheusExporter(config)
@@ -146,7 +146,7 @@ func TestPrometheusExporter_GetHandler(t *testing.T) {
 		ListenAddress:   ":9090",
 		MetricsPath:     "/metrics",
 		EnableGoMetrics: true,
-		Logger:          logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:          logger.NewNoopLogger(),
 	}
 
 	exporter, err := NewPrometheusExporter(config)
@@ -169,7 +169,7 @@ func TestPrometheusExporter_GetRegistry(t *testing.T) {
 		ListenAddress:   ":9090",
 		MetricsPath:     "/metrics",
 		EnableGoMetrics: true,
-		Logger:          logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:          logger.NewNoopLogger(),
 	}
 
 	exporter, err := NewPrometheusExporter(config)
@@ -192,7 +192,7 @@ func TestPrometheusExporter_GetStats(t *testing.T) {
 		ListenAddress:   ":9090",
 		MetricsPath:     "/metrics",
 		EnableGoMetrics: true,
-		Logger:          logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:          logger.NewNoopLogger(),
 	}
 
 	exporter, err := NewPrometheusExporter(config)
@@ -223,7 +223,7 @@ func TestPrometheusExporter_GetName(t *testing.T) {
 		ListenAddress:   ":9090",
 		MetricsPath:     "/metrics",
 		EnableGoMetrics: true,
-		Logger:          logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:          logger.NewNoopLogger(),
 	}
 
 	exporter, err := NewPrometheusExporter(config)
@@ -246,7 +246,7 @@ func TestPrometheusExporter_ConcurrentAccess(t *testing.T) {
 		ListenAddress:   ":9090",
 		MetricsPath:     "/metrics",
 		EnableGoMetrics: true,
-		Logger:          logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:          logger.NewNoopLogger(),
 	}
 
 	exporter, err := NewPrometheusExporter(config)

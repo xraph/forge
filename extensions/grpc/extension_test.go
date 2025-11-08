@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 	"google.golang.org/grpc"
 )
 
@@ -48,7 +49,14 @@ func TestNewExtensionWithOptions(t *testing.T) {
 }
 
 func TestExtensionRegister(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension()
 
 	err := ext.(*Extension).Register(app)
@@ -68,7 +76,13 @@ func TestExtensionRegister(t *testing.T) {
 }
 
 func TestExtensionRegisterInvalidConfig(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	config := Config{
 		Address:        "", // Invalid
 		MaxRecvMsgSize: -1, // Invalid
@@ -83,7 +97,14 @@ func TestExtensionRegisterInvalidConfig(t *testing.T) {
 }
 
 func TestExtensionRegisterWithTLS(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	config := Config{
 		Address:     ":50051",
 		EnableTLS:   true,
@@ -99,7 +120,14 @@ func TestExtensionRegisterWithTLS(t *testing.T) {
 }
 
 func TestExtensionStart(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithAddress("127.0.0.1:0")) // Use random port
 
 	err := ext.(*Extension).Register(app)
@@ -127,7 +155,14 @@ func TestExtensionStart(t *testing.T) {
 }
 
 func TestExtensionStop(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithAddress("127.0.0.1:0"))
 
 	err := ext.(*Extension).Register(app)
@@ -154,7 +189,14 @@ func TestExtensionStop(t *testing.T) {
 }
 
 func TestExtensionHealth(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithAddress("127.0.0.1:0"))
 
 	err := ext.(*Extension).Register(app)
@@ -193,7 +235,14 @@ func TestExtensionHealthNotStarted(t *testing.T) {
 }
 
 func TestExtensionLifecycle(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithAddress("127.0.0.1:0"))
 
 	// Register

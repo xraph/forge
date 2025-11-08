@@ -10,13 +10,13 @@ import (
 // Config contains configuration for the Kafka extension
 type Config struct {
 	// Connection settings
-	Brokers       []string      `json:"brokers" yaml:"brokers" mapstructure:"brokers"`
-	ClientID      string        `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
-	Version       string        `json:"version" yaml:"version" mapstructure:"version"` // Kafka version (e.g., "3.0.0")
-	DialTimeout   time.Duration `json:"dial_timeout" yaml:"dial_timeout" mapstructure:"dial_timeout"`
-	ReadTimeout   time.Duration `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
-	WriteTimeout  time.Duration `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
-	KeepAlive     time.Duration `json:"keep_alive" yaml:"keep_alive" mapstructure:"keep_alive"`
+	Brokers      []string      `json:"brokers" yaml:"brokers" mapstructure:"brokers"`
+	ClientID     string        `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
+	Version      string        `json:"version" yaml:"version" mapstructure:"version"` // Kafka version (e.g., "3.0.0")
+	DialTimeout  time.Duration `json:"dial_timeout" yaml:"dial_timeout" mapstructure:"dial_timeout"`
+	ReadTimeout  time.Duration `json:"read_timeout" yaml:"read_timeout" mapstructure:"read_timeout"`
+	WriteTimeout time.Duration `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
+	KeepAlive    time.Duration `json:"keep_alive" yaml:"keep_alive" mapstructure:"keep_alive"`
 
 	// TLS/SASL
 	EnableTLS     bool   `json:"enable_tls" yaml:"enable_tls" mapstructure:"enable_tls"`
@@ -25,7 +25,7 @@ type Config struct {
 	TLSCAFile     string `json:"tls_ca_file,omitempty" yaml:"tls_ca_file,omitempty" mapstructure:"tls_ca_file"`
 	TLSSkipVerify bool   `json:"tls_skip_verify" yaml:"tls_skip_verify" mapstructure:"tls_skip_verify"`
 
-	EnableSASL   bool   `json:"enable_sasl" yaml:"enable_sasl" mapstructure:"enable_sasl"`
+	EnableSASL    bool   `json:"enable_sasl" yaml:"enable_sasl" mapstructure:"enable_sasl"`
 	SASLMechanism string `json:"sasl_mechanism,omitempty" yaml:"sasl_mechanism,omitempty" mapstructure:"sasl_mechanism"` // PLAIN, SCRAM-SHA-256, SCRAM-SHA-512
 	SASLUsername  string `json:"sasl_username,omitempty" yaml:"sasl_username,omitempty" mapstructure:"sasl_username"`
 	SASLPassword  string `json:"sasl_password,omitempty" yaml:"sasl_password,omitempty" mapstructure:"sasl_password"`
@@ -55,10 +55,10 @@ type Config struct {
 	ConsumerGroupHeartbeat time.Duration `json:"consumer_group_heartbeat" yaml:"consumer_group_heartbeat" mapstructure:"consumer_group_heartbeat"`
 
 	// Metadata settings
-	MetadataRetryMax       int           `json:"metadata_retry_max" yaml:"metadata_retry_max" mapstructure:"metadata_retry_max"`
-	MetadataRetryBackoff   time.Duration `json:"metadata_retry_backoff" yaml:"metadata_retry_backoff" mapstructure:"metadata_retry_backoff"`
-	MetadataRefreshFreq    time.Duration `json:"metadata_refresh_freq" yaml:"metadata_refresh_freq" mapstructure:"metadata_refresh_freq"`
-	MetadataFullRefresh    bool          `json:"metadata_full_refresh" yaml:"metadata_full_refresh" mapstructure:"metadata_full_refresh"`
+	MetadataRetryMax     int           `json:"metadata_retry_max" yaml:"metadata_retry_max" mapstructure:"metadata_retry_max"`
+	MetadataRetryBackoff time.Duration `json:"metadata_retry_backoff" yaml:"metadata_retry_backoff" mapstructure:"metadata_retry_backoff"`
+	MetadataRefreshFreq  time.Duration `json:"metadata_refresh_freq" yaml:"metadata_refresh_freq" mapstructure:"metadata_refresh_freq"`
+	MetadataFullRefresh  bool          `json:"metadata_full_refresh" yaml:"metadata_full_refresh" mapstructure:"metadata_full_refresh"`
 
 	// Observability
 	EnableMetrics bool `json:"enable_metrics" yaml:"enable_metrics" mapstructure:"enable_metrics"`
@@ -137,9 +137,9 @@ func (c *Config) Validate() error {
 		}
 
 		validMechanisms := map[string]bool{
-			"PLAIN":          true,
-			"SCRAM-SHA-256":  true,
-			"SCRAM-SHA-512":  true,
+			"PLAIN":         true,
+			"SCRAM-SHA-256": true,
+			"SCRAM-SHA-512": true,
 		}
 
 		if !validMechanisms[c.SASLMechanism] {

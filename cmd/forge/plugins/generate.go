@@ -11,6 +11,8 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/internal/errors"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // GeneratePlugin handles code generation.
@@ -893,7 +895,7 @@ build:
 }
 
 func (p *GeneratePlugin) generateServiceFile(name string) string {
-	titleName := strings.Title(name)
+	titleName := cases.Title(language.English).String(name)
 	lowerName := strings.ToLower(name)
 
 	return fmt.Sprintf(`package %s
@@ -1004,7 +1006,7 @@ func WithEnabled(enabled bool) Option {
 }
 
 func (p *GeneratePlugin) generateControllerFile(name, packageName string) string {
-	titleName := strings.Title(name)
+	titleName := cases.Title(language.English).String(name)
 	lowerName := strings.ToLower(name)
 
 	return fmt.Sprintf(`package %s
@@ -1078,7 +1080,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	for _, field := range fields {
 		parts := strings.Split(field, ":")
 		if len(parts) >= 2 {
-			fieldName := strings.Title(parts[0])
+			fieldName := cases.Title(language.English).String(parts[0])
 			fieldType := parts[1]
 
 			// Add bun and json tags
@@ -1130,7 +1132,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	}
 
 	// Build imports section
-	importSection := ""
+	var importSection string
 
 	if len(imports) > 0 {
 		if len(imports) == 1 {
@@ -1185,7 +1187,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	}
 
 	// Determine base model embedding - always include bun.BaseModel first
-	baseEmbedding := ""
+	var baseEmbedding string
 
 	// Add table name tag if requested
 	tableName := strings.ToLower(name) + "s" // Simple pluralization
@@ -1231,7 +1233,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	}
 
 	// Build the struct
-	structBody := ""
+	var structBody string
 	if baseEmbedding != "" {
 		structBody = baseEmbedding
 		if fieldsCode != "" {

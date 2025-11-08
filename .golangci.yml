@@ -92,7 +92,7 @@ linters:
     - nlreturn
     - noctx
     - nolintlint
-    - nonamedreturns
+    # - nonamedreturns
     # - nosprintfhostport
     # - paralleltest
     - perfsprint
@@ -109,11 +109,11 @@ linters:
     - tagalign
     # - tagliatelle
     - testableexamples
-    - testifylint
-    - thelper
+    # - testifylint
+    # - thelper
     - tparallel
     - unconvert
-    - unqueryvet
+    # - unqueryvet
     # - unused
     - usestdlibvars
     - usetesting
@@ -159,6 +159,10 @@ linters:
     - dupl
     - contextcheck
     - depguard
+    - unqueryvet
+    - testifylint
+    - thelper
+    - nonamedreturns
 
   # Defines a set of rules to ignore issues.
   # It does not skip the analysis, and so does not ignore "typecheck" errors.

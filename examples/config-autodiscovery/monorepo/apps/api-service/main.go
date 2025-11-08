@@ -18,15 +18,16 @@ import (
 //
 // Directory structure:
 // monorepo/
-//   ├── config.yaml              (root config with all apps)
-//   ├── config.local.yaml        (local overrides for all apps)
-//   └── apps/
-//       ├── api-service/
-//       │   └── main.go          (this file)
-//       ├── admin-dashboard/
-//       │   └── main.go
-//       └── worker-service/
-//           └── main.go
+//
+//	├── config.yaml              (root config with all apps)
+//	├── config.local.yaml        (local overrides for all apps)
+//	└── apps/
+//	    ├── api-service/
+//	    │   └── main.go          (this file)
+//	    ├── admin-dashboard/
+//	    │   └── main.go
+//	    └── worker-service/
+//	        └── main.go
 func main() {
 	fmt.Println("=== Forge Monorepo Auto-Discovery Example (API Service) ===")
 	fmt.Println()
@@ -88,7 +89,7 @@ func main() {
 func displayConfig(cfg forge.ConfigManager) {
 	fmt.Println("📋 Loaded Configuration for API Service:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	// App info
 	fmt.Println("\n🚀 App:")
 	fmt.Printf("  Name: %s\n", cfg.GetString("app.name"))
@@ -133,4 +134,3 @@ func displayConfig(cfg forge.ConfigManager) {
 	fmt.Println("   3. Local overrides (config.local.yaml)")
 	fmt.Println()
 }
-

@@ -103,7 +103,8 @@ func TestNetworkPartition(t *testing.T) {
 	t.Logf("Initial leader: %s", leaderID)
 
 	// Partition one follower
-	followerID := ""
+	var followerID string
+
 	node1, _ := harness.GetNode("node-1")
 	node2, _ := harness.GetNode("node-2")
 	node3, _ := harness.GetNode("node-3")

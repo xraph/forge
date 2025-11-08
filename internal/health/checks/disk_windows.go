@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	kernel32               = syscall.NewLazyDLL("kernel32.dll")
+	kernel32              = syscall.NewLazyDLL("kernel32.dll")
 	getDiskFreeSpaceExPtr = kernel32.NewProc("GetDiskFreeSpaceExW")
 )
 
@@ -396,8 +396,8 @@ func NewTempDirHealthCheck(config *DiskHealthCheckConfig) *TempDirHealthCheck {
 
 	baseConfig := &health.HealthCheckConfig{
 		Name:     config.Name,
-		Timeout: config.Timeout,
-		Critical:  config.Critical,
+		Timeout:  config.Timeout,
+		Critical: config.Critical,
 		Tags:     config.Tags,
 	}
 
@@ -700,4 +700,3 @@ func RegisterDiskHealthChecks(healthService health.HealthService) error {
 
 	return nil
 }
-

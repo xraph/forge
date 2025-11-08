@@ -11,7 +11,7 @@ import (
 func TestNewMemoryManager(t *testing.T) {
 	store := &MockStateStore{}
 	vector := &MockVectorStore{}
-	logger := &testhelpers.MockLogger{}
+	logger := testhelpers.NewMockLogger()
 	metrics := testhelpers.NewMockMetrics()
 
 	opts := &MemoryManagerOptions{

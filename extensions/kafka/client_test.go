@@ -5,15 +5,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/IBM/sarama"
+	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/forge/internal/metrics"
 )
 
 func TestNewKafkaClientInvalidConfig(t *testing.T) {
 	config := DefaultConfig()
 	config.Version = "invalid"
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	_, err := NewKafkaClient(config, log, met)
 	if err == nil {
@@ -64,8 +65,8 @@ func TestBuildTLSConfigWithCA(t *testing.T) {
 func TestSendMessageNotEnabled(t *testing.T) {
 	config := DefaultConfig()
 	config.ProducerEnabled = false
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	// Create mock client without producer
 	client := &kafkaClient{
@@ -84,8 +85,8 @@ func TestSendMessageNotEnabled(t *testing.T) {
 func TestSendMessageAsyncNotEnabled(t *testing.T) {
 	config := DefaultConfig()
 	config.ProducerEnabled = false
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -103,8 +104,8 @@ func TestSendMessageAsyncNotEnabled(t *testing.T) {
 func TestSendMessagesNotEnabled(t *testing.T) {
 	config := DefaultConfig()
 	config.ProducerEnabled = false
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -126,8 +127,8 @@ func TestSendMessagesNotEnabled(t *testing.T) {
 func TestConsumeNotEnabled(t *testing.T) {
 	config := DefaultConfig()
 	config.ConsumerEnabled = false
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -146,8 +147,8 @@ func TestConsumeNotEnabled(t *testing.T) {
 func TestConsumePartitionNotEnabled(t *testing.T) {
 	config := DefaultConfig()
 	config.ConsumerEnabled = false
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -165,8 +166,8 @@ func TestConsumePartitionNotEnabled(t *testing.T) {
 
 func TestStopConsume(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -184,8 +185,8 @@ func TestStopConsume(t *testing.T) {
 
 func TestStopConsumeWithCancel(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -214,8 +215,8 @@ func TestStopConsumeWithCancel(t *testing.T) {
 
 func TestJoinConsumerGroupAlreadyInGroup(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:        config,
@@ -234,8 +235,8 @@ func TestJoinConsumerGroupAlreadyInGroup(t *testing.T) {
 
 func TestLeaveConsumerGroupNotInGroup(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -253,8 +254,8 @@ func TestLeaveConsumerGroupNotInGroup(t *testing.T) {
 
 func TestGetProducer(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -271,8 +272,8 @@ func TestGetProducer(t *testing.T) {
 
 func TestGetAsyncProducer(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -289,8 +290,8 @@ func TestGetAsyncProducer(t *testing.T) {
 
 func TestGetConsumer(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -307,8 +308,8 @@ func TestGetConsumer(t *testing.T) {
 
 func TestGetConsumerGroup(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -325,8 +326,8 @@ func TestGetConsumerGroup(t *testing.T) {
 
 func TestGetClient(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -343,8 +344,8 @@ func TestGetClient(t *testing.T) {
 
 func TestGetStats(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -374,8 +375,8 @@ func TestGetStats(t *testing.T) {
 
 func TestClose(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -393,8 +394,8 @@ func TestClose(t *testing.T) {
 func TestMetricRecording(t *testing.T) {
 	config := DefaultConfig()
 	config.EnableMetrics = true
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := &kafkaClient{
 		config:  config,
@@ -411,7 +412,7 @@ func TestMetricRecording(t *testing.T) {
 func TestMetricRecordingDisabled(t *testing.T) {
 	config := DefaultConfig()
 	config.EnableMetrics = false
-	log := logger.NewLogger(logger.Config{Level: "info"})
+	log := logger.NewNoopLogger()
 
 	client := &kafkaClient{
 		config:  config,

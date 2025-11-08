@@ -13,7 +13,7 @@ func TestMQTTInterface(t *testing.T) {
 
 func TestMessageHandlerType(t *testing.T) {
 	handler := func(client mqttclient.Client, msg mqttclient.Message) {}
-	
+
 	if handler == nil {
 		t.Error("handler should not be nil")
 	}
@@ -21,7 +21,7 @@ func TestMessageHandlerType(t *testing.T) {
 
 func TestConnectHandlerType(t *testing.T) {
 	handler := func(client mqttclient.Client) {}
-	
+
 	if handler == nil {
 		t.Error("handler should not be nil")
 	}
@@ -29,7 +29,7 @@ func TestConnectHandlerType(t *testing.T) {
 
 func TestConnectionLostHandlerType(t *testing.T) {
 	handler := func(client mqttclient.Client, err error) {}
-	
+
 	if handler == nil {
 		t.Error("handler should not be nil")
 	}
@@ -37,7 +37,7 @@ func TestConnectionLostHandlerType(t *testing.T) {
 
 func TestReconnectingHandlerType(t *testing.T) {
 	handler := func(client mqttclient.Client, options *mqttclient.ClientOptions) {}
-	
+
 	if handler == nil {
 		t.Error("handler should not be nil")
 	}

@@ -164,6 +164,8 @@ func NewOTelTracer(config OTelTracingConfig) (*OTelTracer, error) {
 func (t *OTelTracer) StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	ctx, span := t.tracer.Start(ctx, name, opts...)
 
+	defer span.End()
+
 	// Store span in context for compatibility
 	ctx = context.WithValue(ctx, spanContextKey, span)
 	ctx = context.WithValue(ctx, traceIDKey, span.SpanContext().TraceID().String())

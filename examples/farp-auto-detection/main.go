@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== FARP Auto Schema Detection Example ===\n")
+	fmt.Println("=== FARP Auto Schema Detection Example ===")
 
 	// Create app with discovery + FARP auto-detection enabled
 	app := forge.NewApp(forge.AppConfig{

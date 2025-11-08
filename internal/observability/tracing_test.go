@@ -16,7 +16,7 @@ func TestNewTracer(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -37,7 +37,7 @@ func TestTracer_StartSpan(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -80,7 +80,7 @@ func TestTracer_EndSpan(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -118,7 +118,7 @@ func TestTracer_AddEvent(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -158,7 +158,7 @@ func TestTracer_SetAttribute(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -190,7 +190,7 @@ func TestTracer_SetStatus(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -217,7 +217,7 @@ func TestTracer_AddLink(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -258,7 +258,7 @@ func TestTracer_InjectTraceContext(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableB3:       true,
 		EnableW3C:      true,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -302,7 +302,7 @@ func TestTracer_ExtractTraceContext(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableB3:       true,
 		EnableW3C:      true,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -337,7 +337,7 @@ func TestTracer_GetSpanFromContext(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -367,7 +367,7 @@ func TestTracer_GetStats(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -405,7 +405,7 @@ func TestTracer_ConcurrentAccess(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)
@@ -438,7 +438,7 @@ func TestTracer_Shutdown(t *testing.T) {
 		SamplingRate:   1.0,
 		MaxSpans:       1000,
 		FlushInterval:  5 * time.Second,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer := NewTracer(config)

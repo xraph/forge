@@ -47,10 +47,10 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "valid config",
 			config: Config{
-				Broker:        "tcp://localhost:1883",
-				ClientID:      "test-client",
-				DefaultQoS:    1,
-				MessageStore:  "memory",
+				Broker:       "tcp://localhost:1883",
+				ClientID:     "test-client",
+				DefaultQoS:   1,
+				MessageStore: "memory",
 			},
 			expectError: false,
 		},

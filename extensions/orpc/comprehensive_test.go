@@ -9,10 +9,17 @@ import (
 	"testing"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 func TestExtension_Lifecycle(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true), WithEndpoint("/rpc"), WithAutoExposeRoutes(true))
 
 	if err := app.RegisterExtension(ext); err != nil {
@@ -34,7 +41,13 @@ func TestExtension_Lifecycle(t *testing.T) {
 }
 
 func TestExtension_AutoExpose(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true), WithEndpoint("/rpc"), WithAutoExposeRoutes(true))
 
 	app.RegisterExtension(ext)
@@ -64,7 +77,13 @@ func TestExtension_AutoExpose(t *testing.T) {
 }
 
 func TestExtension_CustomMethodName(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true), WithAutoExposeRoutes(true))
 	app.RegisterExtension(ext)
 
@@ -87,7 +106,13 @@ func TestExtension_CustomMethodName(t *testing.T) {
 }
 
 func TestExtension_ExcludeRoute(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true), WithAutoExposeRoutes(true))
 	app.RegisterExtension(ext)
 
@@ -107,7 +132,13 @@ func TestExtension_ExcludeRoute(t *testing.T) {
 }
 
 func TestExtension_JSONRPCRequest(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true), WithAutoExposeRoutes(true))
 	app.RegisterExtension(ext)
 
@@ -146,7 +177,13 @@ func TestExtension_JSONRPCRequest(t *testing.T) {
 }
 
 func TestExtension_OpenRPCSchema(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true), WithOpenRPC(true), WithAutoExposeRoutes(true))
 	app.RegisterExtension(ext)
 
@@ -176,7 +213,13 @@ func TestExtension_OpenRPCSchema(t *testing.T) {
 }
 
 func TestExtension_Health(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true))
 	app.RegisterExtension(ext)
 
@@ -199,7 +242,13 @@ func TestExtension_Health_Disabled(t *testing.T) {
 }
 
 func TestExtension_BatchRequest(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true), WithBatch(true), WithBatchLimit(2))
 	app.RegisterExtension(ext)
 
@@ -233,7 +282,13 @@ func TestExtension_BatchRequest(t *testing.T) {
 }
 
 func TestExtension_ListMethods(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true), WithDiscovery(true))
 	app.RegisterExtension(ext)
 
@@ -282,7 +337,13 @@ func TestNewExtensionWithConfig(t *testing.T) {
 }
 
 func TestServer_EdgeCases(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	config := DefaultConfig()
 	config.EnableMetrics = true
 	ext := NewExtension(WithConfig(config))
@@ -362,7 +423,13 @@ func TestServer_EdgeCases(t *testing.T) {
 }
 
 func TestExtension_ErrorCases(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true))
 	app.RegisterExtension(ext)
 
@@ -395,7 +462,13 @@ func TestExtension_ErrorCases(t *testing.T) {
 	}
 
 	// Test batch disabled
-	app2 := forge.NewApp(forge.AppConfig{Name: "test2", Version: "1.0.0"})
+	app2 := forge.New(
+		forge.WithAppName("test2"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext2 := NewExtension(WithEnabled(true), WithBatch(false))
 	app2.RegisterExtension(ext2)
 
@@ -420,7 +493,13 @@ func TestExtension_ErrorCases(t *testing.T) {
 }
 
 func TestServer_MethodVariations(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	config := DefaultConfig()
 	config.NamingStrategy = "custom"
 	ext := NewExtension(WithConfig(config))
@@ -452,7 +531,13 @@ func TestServer_MethodVariations(t *testing.T) {
 
 func TestExtension_ConfigVariations(t *testing.T) {
 	// Test with method naming strategy
-	app := forge.NewApp(forge.AppConfig{Name: "test", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(
 		WithNamingStrategy("method"),
 		WithMethodPrefix("api."),
@@ -480,7 +565,13 @@ func TestExtension_ConfigVariations(t *testing.T) {
 }
 
 func TestExtension_NonJSONResponse(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{Name: "test", Version: "1.0.0"})
+	app := forge.New(
+		forge.WithAppName("test"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithEnabled(true))
 	app.RegisterExtension(ext)
 

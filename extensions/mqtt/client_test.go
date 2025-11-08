@@ -3,16 +3,16 @@ package mqtt
 import (
 	"context"
 	"testing"
-	"time"
 
+	mqttclient "github.com/eclipse/paho.mqtt.golang"
+	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/forge/internal/metrics"
 )
 
 func TestNewMQTTClient(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met)
 	if client == nil {
@@ -35,8 +35,8 @@ func TestNewMQTTClient(t *testing.T) {
 
 func TestMQTTClientGetStats(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met).(*mqttClient)
 
@@ -74,8 +74,8 @@ func TestMQTTClientGetStats(t *testing.T) {
 
 func TestMQTTClientGetSubscriptions(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met).(*mqttClient)
 
@@ -120,8 +120,8 @@ func TestMQTTClientGetSubscriptions(t *testing.T) {
 
 func TestMQTTClientIsConnected(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met).(*mqttClient)
 
@@ -133,8 +133,8 @@ func TestMQTTClientIsConnected(t *testing.T) {
 
 func TestMQTTClientGetClient(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met).(*mqttClient)
 
@@ -146,8 +146,8 @@ func TestMQTTClientGetClient(t *testing.T) {
 
 func TestMQTTClientPing(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met)
 
@@ -162,8 +162,8 @@ func TestMQTTClientPing(t *testing.T) {
 
 func TestMQTTClientAddRoute(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met)
 
@@ -173,8 +173,8 @@ func TestMQTTClientAddRoute(t *testing.T) {
 
 func TestMQTTClientSetDefaultHandler(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met)
 
@@ -185,8 +185,8 @@ func TestMQTTClientSetDefaultHandler(t *testing.T) {
 func TestMQTTClientMetricRecording(t *testing.T) {
 	config := DefaultConfig()
 	config.EnableMetrics = true
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met).(*mqttClient)
 
@@ -201,7 +201,7 @@ func TestMQTTClientMetricRecording(t *testing.T) {
 func TestMQTTClientMetricRecordingDisabled(t *testing.T) {
 	config := DefaultConfig()
 	config.EnableMetrics = false
-	log := logger.NewLogger(logger.Config{Level: "info"})
+	log := logger.NewNoopLogger()
 
 	client := NewMQTTClient(config, log, nil).(*mqttClient)
 
@@ -234,8 +234,8 @@ func TestSubscriptionStruct(t *testing.T) {
 
 func TestMQTTClientSetHandlers(t *testing.T) {
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met)
 
@@ -251,8 +251,8 @@ func TestBuildTLSConfigErrors(t *testing.T) {
 	config.TLSCertFile = "/nonexistent/cert.pem"
 	config.TLSKeyFile = "/nonexistent/key.pem"
 	config.TLSSkipVerify = false
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met).(*mqttClient)
 
@@ -267,8 +267,8 @@ func TestBuildTLSConfigWithCA(t *testing.T) {
 	config.EnableTLS = true
 	config.TLSSkipVerify = true
 	config.TLSCAFile = "/nonexistent/ca.pem"
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met).(*mqttClient)
 
@@ -282,8 +282,8 @@ func TestBuildTLSConfigSkipVerify(t *testing.T) {
 	config := DefaultConfig()
 	config.EnableTLS = true
 	config.TLSSkipVerify = true
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	client := NewMQTTClient(config, log, met).(*mqttClient)
 

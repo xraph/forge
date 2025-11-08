@@ -18,30 +18,30 @@ const (
 )
 
 var (
-	kernel32               = syscall.NewLazyDLL("kernel32.dll")
+	kernel32              = syscall.NewLazyDLL("kernel32.dll")
 	getDiskFreeSpaceExPtr = kernel32.NewProc("GetDiskFreeSpaceExW")
 )
 
 // MemoryStatusEx represents Windows memory status structure
 type MemoryStatusEx struct {
-	Length              uint32
-	MemoryLoad          uint32
-	TotalPhys           uint64
-	AvailPhys           uint64
-	TotalPageFile       uint64
-	AvailPageFile       uint64
-	TotalVirtual        uint64
-	AvailVirtual        uint64
+	Length               uint32
+	MemoryLoad           uint32
+	TotalPhys            uint64
+	AvailPhys            uint64
+	TotalPageFile        uint64
+	AvailPageFile        uint64
+	TotalVirtual         uint64
+	AvailVirtual         uint64
 	AvailExtendedVirtual uint64
 }
 
 // StatFS represents Windows disk statistics (compatible with Unix version)
 type StatFS struct {
-	Blocks  uint64
-	Bavail  uint64
-	Bsize   uint64
-	Files   uint64
-	Ffree   uint64
+	Blocks uint64
+	Bavail uint64
+	Bsize  uint64
+	Files  uint64
+	Ffree  uint64
 }
 
 // =============================================================================
@@ -134,7 +134,7 @@ func DefaultSystemCollectorConfig() *SystemCollectorConfig {
 		Interval:        time.Second * 30,
 		CollectCPU:      true,
 		CollectMemory:   true,
-		CollectDisk:      true,
+		CollectDisk:     true,
 		CollectNetwork:  false,
 		CollectLoad:     true,
 		DiskMountPoints: []string{"C:\\", "D:\\"},
@@ -487,4 +487,3 @@ func replaceAll(s, old, new string) string {
 	}
 	return result
 }
-

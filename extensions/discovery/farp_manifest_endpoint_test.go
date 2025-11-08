@@ -9,6 +9,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/farp"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // TestFARPManifestEndpoint validates the /_farp/manifest endpoint works correctly.
@@ -17,7 +18,8 @@ func TestFARPManifestEndpoint(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	// Configure discovery with FARP
 	config := Config{
@@ -111,7 +113,8 @@ func TestFARPDiscoveryEndpoint(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	// Configure discovery with FARP
 	config := Config{
@@ -212,7 +215,8 @@ func TestFARPEndpointsWithoutService(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	// Configure discovery with FARP but WITHOUT service registration
 	config := Config{

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 func TestNewExtension(t *testing.T) {
@@ -47,7 +48,13 @@ func TestNewExtensionWithOptions(t *testing.T) {
 }
 
 func TestExtensionRegister(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithDriver("inmemory"))
 
 	err := ext.(*Extension).Register(app)
@@ -67,7 +74,14 @@ func TestExtensionRegister(t *testing.T) {
 }
 
 func TestExtensionRegisterInvalidDriver(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithDriver("invalid"))
 
 	err := ext.(*Extension).Register(app)
@@ -77,7 +91,14 @@ func TestExtensionRegisterInvalidDriver(t *testing.T) {
 }
 
 func TestExtensionRegisterInvalidConfig(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	config := Config{
 		Driver:             "rabbitmq",
 		URL:                "", // Missing required URL
@@ -95,7 +116,14 @@ func TestExtensionRegisterInvalidConfig(t *testing.T) {
 }
 
 func TestExtensionStart(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithDriver("inmemory"))
 
 	err := ext.(*Extension).Register(app)
@@ -116,7 +144,14 @@ func TestExtensionStart(t *testing.T) {
 }
 
 func TestExtensionStop(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithDriver("inmemory"))
 
 	err := ext.(*Extension).Register(app)
@@ -142,7 +177,14 @@ func TestExtensionStop(t *testing.T) {
 }
 
 func TestExtensionHealth(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithDriver("inmemory"))
 
 	err := ext.(*Extension).Register(app)
@@ -175,7 +217,14 @@ func TestExtensionHealthNotStarted(t *testing.T) {
 }
 
 func TestExtensionLifecycle(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithDriver("inmemory"))
 
 	// Register

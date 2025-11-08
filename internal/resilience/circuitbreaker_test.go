@@ -19,7 +19,7 @@ func TestNewCircuitBreaker(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -42,7 +42,7 @@ func TestCircuitBreaker_Execute_Success(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -75,7 +75,7 @@ func TestCircuitBreaker_Execute_Failure(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -108,7 +108,7 @@ func TestCircuitBreaker_StateTransitions(t *testing.T) {
 		FailureThreshold: 0.6,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  1 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -155,7 +155,7 @@ func TestCircuitBreaker_Stats(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -194,7 +194,7 @@ func TestCircuitBreaker_Reset(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -229,7 +229,7 @@ func TestCircuitBreaker_StateMethods(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -258,7 +258,7 @@ func TestCircuitBreaker_ConcurrentAccess(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -298,7 +298,7 @@ func TestCircuitBreaker_UpdateConfig(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
@@ -325,7 +325,7 @@ func TestCircuitBreaker_ErrorTypes(t *testing.T) {
 		FailureThreshold: 0.5,
 		SuccessThreshold: 0.8,
 		RecoveryTimeout:  30 * time.Second,
-		Logger:           logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:           logger.NewNoopLogger(),
 		Metrics:          metrics.NewMockMetricsCollector(),
 	}
 
