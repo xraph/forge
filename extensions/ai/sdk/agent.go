@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 )
 
-// Agent represents an AI agent with state management
+// Agent represents an AI agent with state management.
 type Agent struct {
 	ID          string
 	Name        string
@@ -39,7 +40,7 @@ type Agent struct {
 	callbacks     AgentCallbacks
 }
 
-// AgentState represents the persistent state of an agent
+// AgentState represents the persistent state of an agent.
 type AgentState struct {
 	AgentID   string                 `json:"agent_id"`
 	SessionID string                 `json:"session_id"`
@@ -51,7 +52,7 @@ type AgentState struct {
 	UpdatedAt time.Time              `json:"updated_at"`
 }
 
-// AgentMessage represents a message in the agent's history
+// AgentMessage represents a message in the agent's history.
 type AgentMessage struct {
 	Role      string                 `json:"role"`
 	Content   string                 `json:"content"`
@@ -59,7 +60,7 @@ type AgentMessage struct {
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// AgentCallbacks provides hooks into agent execution
+// AgentCallbacks provides hooks into agent execution.
 type AgentCallbacks struct {
 	OnStart      func(context.Context) error
 	OnMessage    func(AgentMessage)
@@ -70,7 +71,7 @@ type AgentCallbacks struct {
 	OnStateWrite func(*AgentState)
 }
 
-// AgentOptions configures an agent
+// AgentOptions configures an agent.
 type AgentOptions struct {
 	SessionID     string
 	SystemPrompt  string
@@ -81,15 +82,15 @@ type AgentOptions struct {
 	Callbacks     AgentCallbacks
 }
 
-// Tool represents a tool/function the agent can use
+// Tool represents a tool/function the agent can use.
 type Tool struct {
-	Name        string                                      `json:"name"`
-	Description string                                      `json:"description"`
-	Parameters  map[string]interface{}                      `json:"parameters"`
+	Name        string                                                             `json:"name"`
+	Description string                                                             `json:"description"`
+	Parameters  map[string]interface{}                                             `json:"parameters"`
 	Handler     func(context.Context, map[string]interface{}) (interface{}, error) `json:"-"`
 }
 
-// AgentResponse represents the result of an agent execution
+// AgentResponse represents the result of an agent execution.
 type AgentResponse struct {
 	Content    string
 	ToolCalls  []ToolExecution
@@ -98,7 +99,7 @@ type AgentResponse struct {
 	Metadata   map[string]interface{}
 }
 
-// ToolExecution represents a tool that was executed
+// ToolExecution represents a tool that was executed.
 type ToolExecution struct {
 	Name      string
 	Arguments map[string]interface{}
@@ -107,7 +108,7 @@ type ToolExecution struct {
 	Duration  time.Duration
 }
 
-// NewAgent creates a new AI agent
+// NewAgent creates a new AI agent.
 func NewAgent(
 	id string,
 	name string,
@@ -158,15 +159,19 @@ func NewAgent(
 		if opts.SystemPrompt != "" {
 			agent.systemPrompt = opts.SystemPrompt
 		}
+
 		if len(opts.Tools) > 0 {
 			agent.tools = opts.Tools
 		}
+
 		if opts.MaxIterations > 0 {
 			agent.maxIterations = opts.MaxIterations
 		}
+
 		if opts.Temperature > 0 {
 			agent.temperature = opts.Temperature
 		}
+
 		agent.guardrails = opts.Guardrails
 		agent.callbacks = opts.Callbacks
 	}
@@ -174,7 +179,7 @@ func NewAgent(
 	return agent, nil
 }
 
-// Execute runs the agent with the given input
+// Execute runs the agent with the given input.
 func (a *Agent) Execute(ctx context.Context, input string) (*AgentResponse, error) {
 	startTime := time.Now()
 
@@ -199,6 +204,7 @@ func (a *Agent) Execute(ctx context.Context, input string) (*AgentResponse, erro
 		if err != nil {
 			return nil, fmt.Errorf("guardrail validation failed: %w", err)
 		}
+
 		if ShouldBlock(violations) {
 			return nil, fmt.Errorf("input blocked by guardrails: %s", FormatViolations(violations))
 		}
@@ -220,7 +226,7 @@ func (a *Agent) Execute(ctx context.Context, input string) (*AgentResponse, erro
 	}
 
 	// Execute agent loop with max iterations
-	for iteration := 0; iteration < a.maxIterations; iteration++ {
+	for iteration := range a.maxIterations {
 		response.Iterations = iteration + 1
 
 		if a.callbacks.OnIteration != nil {
@@ -233,6 +239,7 @@ func (a *Agent) Execute(ctx context.Context, input string) (*AgentResponse, erro
 			if a.callbacks.OnError != nil {
 				a.callbacks.OnError(err)
 			}
+
 			return nil, fmt.Errorf("generation failed at iteration %d: %w", iteration+1, err)
 		}
 
@@ -246,6 +253,7 @@ func (a *Agent) Execute(ctx context.Context, input string) (*AgentResponse, erro
 				if err != nil {
 					return nil, fmt.Errorf("output guardrail validation failed: %w", err)
 				}
+
 				if ShouldBlock(violations) {
 					return nil, fmt.Errorf("output blocked by guardrails: %s", FormatViolations(violations))
 				}
@@ -312,23 +320,28 @@ func (a *Agent) Execute(ctx context.Context, input string) (*AgentResponse, erro
 	return response, nil
 }
 
-// generateResponse generates a response from the LLM
+// generateResponse generates a response from the LLM.
 func (a *Agent) generateResponse(ctx context.Context) (*Result, error) {
 	// Build messages from history
 	agentMessages := a.buildMessages()
 
 	// Convert AgentMessage to string messages for generate builder
 	var prompt string
+	var promptSb322 strings.Builder
+
 	for i, msg := range agentMessages {
 		if msg.Role == "system" {
 			// System messages are handled separately
 			continue
 		}
+
 		if i > 0 {
-			prompt += "\n"
+			promptSb322.WriteString("\n")
 		}
-		prompt += fmt.Sprintf("%s: %s", msg.Role, msg.Content)
+
+		promptSb322.WriteString(fmt.Sprintf("%s: %s", msg.Role, msg.Content))
 	}
+	prompt += promptSb322.String()
 
 	// Create generate builder
 	builder := NewGenerateBuilder(ctx, a.llmManager, a.logger, a.metrics).
@@ -352,7 +365,7 @@ func (a *Agent) generateResponse(ctx context.Context) (*Result, error) {
 	return builder.Execute()
 }
 
-// executeTool executes a tool and returns the result
+// executeTool executes a tool and returns the result.
 func (a *Agent) executeTool(ctx context.Context, toolCall ToolCallResult) ToolExecution {
 	startTime := time.Now()
 
@@ -363,9 +376,11 @@ func (a *Agent) executeTool(ctx context.Context, toolCall ToolCallResult) ToolEx
 
 	// Find the tool
 	var tool *Tool
+
 	for i := range a.tools {
 		if a.tools[i].Name == toolCall.Name {
 			tool = &a.tools[i]
+
 			break
 		}
 	}
@@ -373,6 +388,7 @@ func (a *Agent) executeTool(ctx context.Context, toolCall ToolCallResult) ToolEx
 	if tool == nil {
 		execution.Error = fmt.Errorf("tool not found: %s", toolCall.Name)
 		execution.Duration = time.Since(startTime)
+
 		return execution
 	}
 
@@ -397,7 +413,7 @@ func (a *Agent) executeTool(ctx context.Context, toolCall ToolCallResult) ToolEx
 	return execution
 }
 
-// buildMessages builds messages for LLM from history
+// buildMessages builds messages for LLM from history.
 func (a *Agent) buildMessages() []AgentMessage {
 	a.stateMu.RLock()
 	defer a.stateMu.RUnlock()
@@ -418,7 +434,7 @@ func (a *Agent) buildMessages() []AgentMessage {
 	return messages
 }
 
-// addToHistory adds a message to the agent's history
+// addToHistory adds a message to the agent's history.
 func (a *Agent) addToHistory(msg AgentMessage) error {
 	a.stateMu.Lock()
 	defer a.stateMu.Unlock()
@@ -433,7 +449,7 @@ func (a *Agent) addToHistory(msg AgentMessage) error {
 	return nil
 }
 
-// GetState returns a copy of the current state
+// GetState returns a copy of the current state.
 func (a *Agent) GetState() *AgentState {
 	a.stateMu.RLock()
 	defer a.stateMu.RUnlock()
@@ -466,7 +482,7 @@ func (a *Agent) GetState() *AgentState {
 	return stateCopy
 }
 
-// SetStateData sets a value in the agent's state data
+// SetStateData sets a value in the agent's state data.
 func (a *Agent) SetStateData(key string, value interface{}) error {
 	a.stateMu.Lock()
 	defer a.stateMu.Unlock()
@@ -477,16 +493,17 @@ func (a *Agent) SetStateData(key string, value interface{}) error {
 	return nil
 }
 
-// GetStateData gets a value from the agent's state data
+// GetStateData gets a value from the agent's state data.
 func (a *Agent) GetStateData(key string) (interface{}, bool) {
 	a.stateMu.RLock()
 	defer a.stateMu.RUnlock()
 
 	val, ok := a.state.Data[key]
+
 	return val, ok
 }
 
-// SaveState persists the agent's state
+// SaveState persists the agent's state.
 func (a *Agent) SaveState(ctx context.Context) error {
 	a.stateMu.Lock()
 	a.state.Version++
@@ -499,6 +516,7 @@ func (a *Agent) SaveState(ctx context.Context) error {
 		if a.metrics != nil {
 			a.metrics.Counter("forge.ai.sdk.agent.state_save_errors").Inc()
 		}
+
 		return fmt.Errorf("failed to save state: %w", err)
 	}
 
@@ -513,7 +531,7 @@ func (a *Agent) SaveState(ctx context.Context) error {
 	return nil
 }
 
-// LoadState loads the agent's state from storage
+// LoadState loads the agent's state from storage.
 func (a *Agent) LoadState(ctx context.Context, sessionID string) error {
 	state, err := a.stateStore.Load(ctx, a.ID, sessionID)
 	if err != nil {
@@ -539,7 +557,7 @@ func (a *Agent) LoadState(ctx context.Context, sessionID string) error {
 	return nil
 }
 
-// ClearHistory clears the agent's conversation history
+// ClearHistory clears the agent's conversation history.
 func (a *Agent) ClearHistory() {
 	a.stateMu.Lock()
 	defer a.stateMu.Unlock()
@@ -548,7 +566,7 @@ func (a *Agent) ClearHistory() {
 	a.state.UpdatedAt = time.Now()
 }
 
-// Reset resets the agent to a fresh state
+// Reset resets the agent to a fresh state.
 func (a *Agent) Reset() {
 	a.stateMu.Lock()
 	defer a.stateMu.Unlock()
@@ -560,13 +578,14 @@ func (a *Agent) Reset() {
 	a.state.UpdatedAt = time.Now()
 }
 
-// MarshalState marshals the agent state to JSON
+// MarshalState marshals the agent state to JSON.
 func (a *Agent) MarshalState() ([]byte, error) {
 	state := a.GetState()
+
 	return json.Marshal(state)
 }
 
-// UnmarshalState unmarshals agent state from JSON
+// UnmarshalState unmarshals agent state from JSON.
 func (a *Agent) UnmarshalState(data []byte) error {
 	var state AgentState
 	if err := json.Unmarshal(data, &state); err != nil {
@@ -580,17 +599,18 @@ func (a *Agent) UnmarshalState(data []byte) error {
 	return nil
 }
 
-// GetHistoryLength returns the number of messages in history
+// GetHistoryLength returns the number of messages in history.
 func (a *Agent) GetHistoryLength() int {
 	a.stateMu.RLock()
 	defer a.stateMu.RUnlock()
+
 	return len(a.state.History)
 }
 
-// GetSessionID returns the current session ID
+// GetSessionID returns the current session ID.
 func (a *Agent) GetSessionID() string {
 	a.stateMu.RLock()
 	defer a.stateMu.RUnlock()
+
 	return a.state.SessionID
 }
-

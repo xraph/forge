@@ -30,22 +30,24 @@ func TestBufferPool_Concurrent(t *testing.T) {
 	pool := NewBufferPool(bufferSize)
 
 	var wg sync.WaitGroup
+
 	iterations := 100
 	goroutines := 10
 
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+	for range goroutines {
+
+		wg.Go(func() {
+
+			for range iterations {
 				buf := pool.Get()
 				// Use buffer
-				for k := 0; k < len(buf); k++ {
+				for k := range buf {
 					buf[k] = byte(k)
 				}
+
 				pool.Put(buf)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()
@@ -66,6 +68,7 @@ func TestBytesBufferPool(t *testing.T) {
 
 	// Test: Use buffer
 	buf.WriteString("test data")
+
 	if buf.Len() != 9 {
 		t.Errorf("Expected length 9, got %d", buf.Len())
 	}
@@ -84,19 +87,24 @@ func TestBytesBufferPool_Concurrent(t *testing.T) {
 	pool := NewBytesBufferPool()
 
 	var wg sync.WaitGroup
+
 	iterations := 100
 	goroutines := 10
 
-	for i := 0; i < goroutines; i++ {
+	for i := range goroutines {
 		wg.Add(1)
+
 		go func(id int) {
 			defer wg.Done()
-			for j := 0; j < iterations; j++ {
+
+			for j := range iterations {
 				buf := pool.Get()
 				buf.WriteString("test data")
+
 				if buf.Len() == 0 {
 					t.Errorf("Buffer should have data, goroutine %d iteration %d", id, j)
 				}
+
 				pool.Put(buf)
 			}
 		}(i)
@@ -108,16 +116,15 @@ func TestBytesBufferPool_Concurrent(t *testing.T) {
 func BenchmarkBufferPool(b *testing.B) {
 	pool := NewBufferPool(4096)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := pool.Get()
 		pool.Put(buf)
 	}
 }
 
 func BenchmarkBufferPool_NoPool(b *testing.B) {
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		buf := make([]byte, 4096)
 		_ = buf
 	}
@@ -126,8 +133,7 @@ func BenchmarkBufferPool_NoPool(b *testing.B) {
 func BenchmarkBytesBufferPool(b *testing.B) {
 	pool := NewBytesBufferPool()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		buf := pool.Get()
 		buf.WriteString("test data")
 		pool.Put(buf)

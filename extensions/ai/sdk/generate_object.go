@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 	"time"
@@ -40,7 +41,7 @@ type GenerateObjectBuilder[T any] struct {
 
 	// Prompt configuration
 	prompt       string
-	vars         map[string]interface{}
+	vars         map[string]any
 	systemPrompt string
 	messages     []llm.ChatMessage
 
@@ -52,7 +53,7 @@ type GenerateObjectBuilder[T any] struct {
 	stop        []string
 
 	// Schema configuration
-	schema         map[string]interface{}
+	schema         map[string]any
 	schemaStrict   bool
 	fallbackOnFail bool
 
@@ -70,7 +71,7 @@ type GenerateObjectBuilder[T any] struct {
 	validators []func(T) error
 }
 
-// NewGenerateObjectBuilder creates a new builder for structured output generation
+// NewGenerateObjectBuilder creates a new builder for structured output generation.
 func NewGenerateObjectBuilder[T any](
 	ctx context.Context,
 	llmManager LLMManager,
@@ -82,7 +83,7 @@ func NewGenerateObjectBuilder[T any](
 		llmManager:   llmManager,
 		logger:       logger,
 		metrics:      metrics,
-		vars:         make(map[string]interface{}),
+		vars:         make(map[string]any),
 		timeout:      30 * time.Second,
 		retries:      3,
 		retryDelay:   time.Second,
@@ -90,136 +91,155 @@ func NewGenerateObjectBuilder[T any](
 	}
 }
 
-// WithProvider sets the LLM provider
+// WithProvider sets the LLM provider.
 func (b *GenerateObjectBuilder[T]) WithProvider(provider string) *GenerateObjectBuilder[T] {
 	b.provider = provider
+
 	return b
 }
 
-// WithModel sets the model to use
+// WithModel sets the model to use.
 func (b *GenerateObjectBuilder[T]) WithModel(model string) *GenerateObjectBuilder[T] {
 	b.model = model
+
 	return b
 }
 
-// WithPrompt sets the prompt template
+// WithPrompt sets the prompt template.
 func (b *GenerateObjectBuilder[T]) WithPrompt(prompt string) *GenerateObjectBuilder[T] {
 	b.prompt = prompt
+
 	return b
 }
 
-// WithVars sets multiple template variables
-func (b *GenerateObjectBuilder[T]) WithVars(vars map[string]interface{}) *GenerateObjectBuilder[T] {
-	for k, v := range vars {
-		b.vars[k] = v
-	}
+// WithVars sets multiple template variables.
+func (b *GenerateObjectBuilder[T]) WithVars(vars map[string]any) *GenerateObjectBuilder[T] {
+	maps.Copy(b.vars, vars)
+
 	return b
 }
 
-// WithVar sets a single template variable
-func (b *GenerateObjectBuilder[T]) WithVar(key string, value interface{}) *GenerateObjectBuilder[T] {
+// WithVar sets a single template variable.
+func (b *GenerateObjectBuilder[T]) WithVar(key string, value any) *GenerateObjectBuilder[T] {
 	b.vars[key] = value
+
 	return b
 }
 
-// WithSystemPrompt sets the system prompt
+// WithSystemPrompt sets the system prompt.
 func (b *GenerateObjectBuilder[T]) WithSystemPrompt(prompt string) *GenerateObjectBuilder[T] {
 	b.systemPrompt = prompt
+
 	return b
 }
 
-// WithMessages sets conversation history
+// WithMessages sets conversation history.
 func (b *GenerateObjectBuilder[T]) WithMessages(messages []llm.ChatMessage) *GenerateObjectBuilder[T] {
 	b.messages = messages
+
 	return b
 }
 
-// WithTemperature sets the temperature parameter
+// WithTemperature sets the temperature parameter.
 func (b *GenerateObjectBuilder[T]) WithTemperature(temp float64) *GenerateObjectBuilder[T] {
 	b.temperature = &temp
+
 	return b
 }
 
-// WithMaxTokens sets the maximum tokens to generate
+// WithMaxTokens sets the maximum tokens to generate.
 func (b *GenerateObjectBuilder[T]) WithMaxTokens(tokens int) *GenerateObjectBuilder[T] {
 	b.maxTokens = &tokens
+
 	return b
 }
 
-// WithTopP sets the top-p sampling parameter
+// WithTopP sets the top-p sampling parameter.
 func (b *GenerateObjectBuilder[T]) WithTopP(topP float64) *GenerateObjectBuilder[T] {
 	b.topP = &topP
+
 	return b
 }
 
-// WithTopK sets the top-k sampling parameter
+// WithTopK sets the top-k sampling parameter.
 func (b *GenerateObjectBuilder[T]) WithTopK(topK int) *GenerateObjectBuilder[T] {
 	b.topK = &topK
+
 	return b
 }
 
-// WithStop sets stop sequences
+// WithStop sets stop sequences.
 func (b *GenerateObjectBuilder[T]) WithStop(sequences ...string) *GenerateObjectBuilder[T] {
 	b.stop = sequences
+
 	return b
 }
 
-// WithSchema sets a custom JSON schema (overrides auto-generation)
-func (b *GenerateObjectBuilder[T]) WithSchema(schema map[string]interface{}) *GenerateObjectBuilder[T] {
+// WithSchema sets a custom JSON schema (overrides auto-generation).
+func (b *GenerateObjectBuilder[T]) WithSchema(schema map[string]any) *GenerateObjectBuilder[T] {
 	b.schema = schema
+
 	return b
 }
 
-// WithSchemaStrict enables/disables strict schema validation
+// WithSchemaStrict enables/disables strict schema validation.
 func (b *GenerateObjectBuilder[T]) WithSchemaStrict(strict bool) *GenerateObjectBuilder[T] {
 	b.schemaStrict = strict
+
 	return b
 }
 
-// WithFallbackOnFail allows returning partial/empty results on parse failures
+// WithFallbackOnFail allows returning partial/empty results on parse failures.
 func (b *GenerateObjectBuilder[T]) WithFallbackOnFail(fallback bool) *GenerateObjectBuilder[T] {
 	b.fallbackOnFail = fallback
+
 	return b
 }
 
-// WithTimeout sets the execution timeout
+// WithTimeout sets the execution timeout.
 func (b *GenerateObjectBuilder[T]) WithTimeout(timeout time.Duration) *GenerateObjectBuilder[T] {
 	b.timeout = timeout
+
 	return b
 }
 
-// WithRetries sets retry behavior
+// WithRetries sets retry behavior.
 func (b *GenerateObjectBuilder[T]) WithRetries(count int, delay time.Duration) *GenerateObjectBuilder[T] {
 	b.retries = count
 	b.retryDelay = delay
+
 	return b
 }
 
-// OnStart registers a callback to run before execution
+// OnStart registers a callback to run before execution.
 func (b *GenerateObjectBuilder[T]) OnStart(fn func()) *GenerateObjectBuilder[T] {
 	b.onStart = fn
+
 	return b
 }
 
-// OnComplete registers a callback to run after successful execution
+// OnComplete registers a callback to run after successful execution.
 func (b *GenerateObjectBuilder[T]) OnComplete(fn func(T)) *GenerateObjectBuilder[T] {
 	b.onComplete = fn
+
 	return b
 }
 
-// OnError registers a callback to run on error
+// OnError registers a callback to run on error.
 func (b *GenerateObjectBuilder[T]) OnError(fn func(error)) *GenerateObjectBuilder[T] {
 	b.onError = fn
+
 	return b
 }
 
-// WithValidator adds a custom validation function for the output
+// WithValidator adds a custom validation function for the output.
 func (b *GenerateObjectBuilder[T]) WithValidator(validator func(T) error) *GenerateObjectBuilder[T] {
 	b.validators = append(b.validators, validator)
+
 	return b
 }
 
-// Execute runs the generation and returns the structured output
+// Execute runs the generation and returns the structured output.
 func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 	var zero T
 
@@ -236,14 +256,17 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 	schema := b.schema
 	if schema == nil {
 		var err error
+
 		schema, err = b.generateSchema()
 		if err != nil {
 			if b.onError != nil {
 				b.onError(err)
 			}
+
 			if b.metrics != nil {
 				b.metrics.Counter("forge.ai.sdk.generate_object.errors", "error", "schema_generation").Inc()
 			}
+
 			return zero, fmt.Errorf("schema generation failed: %w", err)
 		}
 	}
@@ -254,9 +277,11 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 		if b.onError != nil {
 			b.onError(err)
 		}
+
 		if b.metrics != nil {
 			b.metrics.Counter("forge.ai.sdk.generate_object.errors", "error", "prompt_render").Inc()
 		}
+
 		return zero, fmt.Errorf("prompt rendering failed: %w", err)
 	}
 
@@ -273,8 +298,10 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 	}
 
 	// Execute with retries
-	var result T
-	var lastErr error
+	var (
+		result  T
+		lastErr error
+	)
 
 	for attempt := 0; attempt <= b.retries; attempt++ {
 		if attempt > 0 {
@@ -284,6 +311,7 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 					F("delay", b.retryDelay),
 				)
 			}
+
 			time.Sleep(b.retryDelay)
 		}
 
@@ -297,15 +325,19 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 		if b.temperature != nil {
 			request.Temperature = b.temperature
 		}
+
 		if b.maxTokens != nil {
 			request.MaxTokens = b.maxTokens
 		}
+
 		if b.topP != nil {
 			request.TopP = b.topP
 		}
+
 		if b.topK != nil {
 			request.TopK = b.topK
 		}
+
 		if len(b.stop) > 0 {
 			request.Stop = b.stop
 		}
@@ -317,12 +349,14 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 		response, err := b.llmManager.Chat(ctx, request)
 		if err != nil {
 			lastErr = fmt.Errorf("LLM request failed: %w", err)
+
 			continue
 		}
 
 		// Extract content
 		if len(response.Choices) == 0 {
 			lastErr = errors.New("no choices in response")
+
 			continue
 		}
 
@@ -331,18 +365,22 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 		// Parse JSON response
 		if err := json.Unmarshal([]byte(content), &result); err != nil {
 			lastErr = fmt.Errorf("JSON parse failed: %w", err)
+
 			if b.fallbackOnFail {
 				break // Return zero value
 			}
+
 			continue
 		}
 
 		// Run validators
 		validationFailed := false
+
 		for i, validator := range b.validators {
 			if err := validator(result); err != nil {
 				lastErr = fmt.Errorf("validation %d failed: %w", i, err)
 				validationFailed = true
+
 				break // Stop checking validators
 			}
 		}
@@ -362,6 +400,7 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 
 		if b.metrics != nil {
 			b.metrics.Counter("forge.ai.sdk.generate_object.success").Inc()
+
 			if response.Usage != nil {
 				b.metrics.Histogram("forge.ai.sdk.generate_object.tokens").Observe(float64(response.Usage.TotalTokens))
 			}
@@ -389,13 +428,14 @@ func (b *GenerateObjectBuilder[T]) Execute() (T, error) {
 				F("error", lastErr.Error()),
 			)
 		}
+
 		return result, nil // Return whatever we have (possibly zero value)
 	}
 
 	return zero, fmt.Errorf("generation failed after %d attempts: %w", b.retries+1, lastErr)
 }
 
-// renderPrompt renders the prompt template with variables
+// renderPrompt renders the prompt template with variables.
 func (b *GenerateObjectBuilder[T]) renderPrompt() (string, error) {
 	if len(b.vars) == 0 {
 		return b.prompt, nil
@@ -410,8 +450,8 @@ func (b *GenerateObjectBuilder[T]) renderPrompt() (string, error) {
 	return result, nil
 }
 
-// buildMessages constructs the message array for the LLM request
-func (b *GenerateObjectBuilder[T]) buildMessages(prompt string, schema map[string]interface{}) []llm.ChatMessage {
+// buildMessages constructs the message array for the LLM request.
+func (b *GenerateObjectBuilder[T]) buildMessages(prompt string, schema map[string]any) []llm.ChatMessage {
 	messages := make([]llm.ChatMessage, 0)
 
 	// Add custom messages first
@@ -445,9 +485,10 @@ func (b *GenerateObjectBuilder[T]) buildMessages(prompt string, schema map[strin
 	return messages
 }
 
-// generateSchema generates a JSON schema from the Go type T
-func (b *GenerateObjectBuilder[T]) generateSchema() (map[string]interface{}, error) {
+// generateSchema generates a JSON schema from the Go type T.
+func (b *GenerateObjectBuilder[T]) generateSchema() (map[string]any, error) {
 	var zero T
+
 	t := reflect.TypeOf(zero)
 
 	// Handle pointer types
@@ -460,13 +501,13 @@ func (b *GenerateObjectBuilder[T]) generateSchema() (map[string]interface{}, err
 		return nil, fmt.Errorf("type %s is not a struct", t.Name())
 	}
 
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"type":       "object",
-		"properties": make(map[string]interface{}),
+		"properties": make(map[string]any),
 		"required":   make([]string, 0),
 	}
 
-	properties := schema["properties"].(map[string]interface{})
+	properties := schema["properties"].(map[string]any)
 	required := make([]string, 0)
 
 	// Iterate over struct fields
@@ -510,9 +551,9 @@ func (b *GenerateObjectBuilder[T]) generateSchema() (map[string]interface{}, err
 	return schema, nil
 }
 
-// generatePropertySchema generates a schema for a single property
-func (b *GenerateObjectBuilder[T]) generatePropertySchema(t reflect.Type, description string) map[string]interface{} {
-	schema := make(map[string]interface{})
+// generatePropertySchema generates a schema for a single property.
+func (b *GenerateObjectBuilder[T]) generatePropertySchema(t reflect.Type, description string) map[string]any {
+	schema := make(map[string]any)
 
 	if description != "" {
 		schema["description"] = description
@@ -548,7 +589,7 @@ func (b *GenerateObjectBuilder[T]) generatePropertySchema(t reflect.Type, descri
 	case reflect.Struct:
 		// Nested struct - recursively generate schema
 		schema["type"] = "object"
-		props := make(map[string]interface{})
+		props := make(map[string]any)
 		required := make([]string, 0)
 
 		for i := 0; i < t.NumField(); i++ {
@@ -586,4 +627,3 @@ func (b *GenerateObjectBuilder[T]) generatePropertySchema(t reflect.Type, descri
 
 	return schema
 }
-

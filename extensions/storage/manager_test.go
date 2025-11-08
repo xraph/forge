@@ -16,7 +16,7 @@ func TestStorageManager_Start(t *testing.T) {
 	config := DefaultConfig()
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -26,6 +26,7 @@ func TestStorageManager_Start(t *testing.T) {
 	manager := NewStorageManager(config, testLogger, testMetrics)
 
 	ctx := context.Background()
+
 	err := manager.Start(ctx)
 	if err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
@@ -54,7 +55,7 @@ func TestStorageManager_Upload_Download(t *testing.T) {
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -89,7 +90,7 @@ func TestStorageManager_Upload_Download(t *testing.T) {
 		rc.Close()
 		t.Fatalf("Failed to read downloaded data: %v", err)
 	}
-	
+
 	// Close the reader immediately to release the lock
 	rc.Close()
 
@@ -102,6 +103,7 @@ func TestStorageManager_Upload_Download(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check exists: %v", err)
 	}
+
 	if !exists {
 		t.Error("File should exist")
 	}
@@ -111,6 +113,7 @@ func TestStorageManager_Upload_Download(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get metadata: %v", err)
 	}
+
 	if metadata.Size != int64(len(testData)) {
 		t.Errorf("Expected size %d, got %d", len(testData), metadata.Size)
 	}
@@ -126,6 +129,7 @@ func TestStorageManager_Upload_Download(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to check exists after delete: %v", err)
 	}
+
 	if exists {
 		t.Error("File should not exist after delete")
 	}
@@ -141,7 +145,7 @@ func TestStorageManager_List(t *testing.T) {
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -190,7 +194,7 @@ func TestStorageManager_Copy_Move(t *testing.T) {
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -207,6 +211,7 @@ func TestStorageManager_Copy_Move(t *testing.T) {
 	// Upload source file
 	srcKey := "copy_test/source.txt"
 	testData := "test data for copy"
+
 	err := manager.Upload(ctx, srcKey, strings.NewReader(testData), WithContentType("text/plain"))
 	if err != nil {
 		t.Fatalf("Failed to upload source: %v", err)
@@ -214,6 +219,7 @@ func TestStorageManager_Copy_Move(t *testing.T) {
 
 	// Test copy
 	copyKey := "copy_test/copied.txt"
+
 	err = manager.Copy(ctx, srcKey, copyKey)
 	if err != nil {
 		t.Fatalf("Failed to copy: %v", err)
@@ -229,6 +235,7 @@ func TestStorageManager_Copy_Move(t *testing.T) {
 
 	// Test move
 	moveKey := "copy_test/moved.txt"
+
 	err = manager.Move(ctx, copyKey, moveKey)
 	if err != nil {
 		t.Fatalf("Failed to move: %v", err)
@@ -241,6 +248,7 @@ func TestStorageManager_Copy_Move(t *testing.T) {
 	if copyExists {
 		t.Error("Copy source should not exist after move")
 	}
+
 	if !moveExists {
 		t.Error("Move destination should exist after move")
 	}
@@ -261,7 +269,7 @@ func TestStorageManager_PresignedURLs(t *testing.T) {
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -312,7 +320,7 @@ func TestStorageManager_Health(t *testing.T) {
 	config := DefaultConfig()
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -356,7 +364,7 @@ func TestStorageManager_Backend(t *testing.T) {
 	config := DefaultConfig()
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -444,7 +452,7 @@ func BenchmarkStorageManager_Upload(b *testing.B) {
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -460,9 +468,9 @@ func BenchmarkStorageManager_Upload(b *testing.B) {
 
 	testData := strings.NewReader("benchmark test data")
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		testData.Seek(0, 0)
+
 		key := "bench/test.txt"
 		manager.Upload(ctx, key, testData, WithContentType("text/plain"))
 	}
@@ -477,7 +485,7 @@ func BenchmarkStorageManager_Download(b *testing.B) {
 	config.UseEnhancedBackend = true
 	config.Backends["local"] = BackendConfig{
 		Type: "local",
-		Config: map[string]interface{}{
+		Config: map[string]any{
 			"root_dir": testDir,
 		},
 	}
@@ -493,17 +501,18 @@ func BenchmarkStorageManager_Download(b *testing.B) {
 
 	// Upload test file
 	testKey := "bench/download.txt"
+
 	testData := strings.NewReader("benchmark test data")
 	if err := manager.Upload(ctx, testKey, testData, WithContentType("text/plain")); err != nil {
 		b.Fatalf("Failed to upload test file: %v", err)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		rc, err := manager.Download(ctx, testKey)
 		if err != nil {
 			b.Fatalf("Failed to download: %v", err)
 		}
+
 		io.ReadAll(rc)
 		rc.Close()
 	}

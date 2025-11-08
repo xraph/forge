@@ -11,9 +11,10 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// DatabaseHealthCheck performs health checks on database connections
+// DatabaseHealthCheck performs health checks on database connections.
 type DatabaseHealthCheck struct {
 	*health.BaseHealthCheck
+
 	db              *sql.DB
 	pingQuery       string
 	maxOpenConns    int
@@ -22,7 +23,7 @@ type DatabaseHealthCheck struct {
 	mu              sync.RWMutex
 }
 
-// DatabaseHealthCheckConfig contains configuration for database health checks
+// DatabaseHealthCheckConfig contains configuration for database health checks.
 type DatabaseHealthCheckConfig struct {
 	Name            string
 	DB              *sql.DB
@@ -35,7 +36,7 @@ type DatabaseHealthCheckConfig struct {
 	Tags            map[string]string
 }
 
-// NewDatabaseHealthCheck creates a new database health check
+// NewDatabaseHealthCheck creates a new database health check.
 func NewDatabaseHealthCheck(config *DatabaseHealthCheckConfig) *DatabaseHealthCheck {
 	if config == nil {
 		config = &DatabaseHealthCheckConfig{}
@@ -74,7 +75,7 @@ func NewDatabaseHealthCheck(config *DatabaseHealthCheckConfig) *DatabaseHealthCh
 	}
 }
 
-// Check performs the database health check
+// Check performs the database health check.
 func (dhc *DatabaseHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -110,10 +111,11 @@ func (dhc *DatabaseHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// checkConnection checks if the database connection is working
+// checkConnection checks if the database connection is working.
 func (dhc *DatabaseHealthCheck) checkConnection(ctx context.Context) error {
 	dhc.mu.RLock()
 	defer dhc.mu.RUnlock()
@@ -126,7 +128,8 @@ func (dhc *DatabaseHealthCheck) checkConnection(ctx context.Context) error {
 	// Try to execute a simple query
 	if dhc.pingQuery != "" {
 		row := dhc.db.QueryRowContext(ctx, dhc.pingQuery)
-		var result interface{}
+
+		var result any
 		if err := row.Scan(&result); err != nil {
 			return fmt.Errorf("database query failed: %w", err)
 		}
@@ -135,14 +138,14 @@ func (dhc *DatabaseHealthCheck) checkConnection(ctx context.Context) error {
 	return nil
 }
 
-// checkStats returns database statistics
-func (dhc *DatabaseHealthCheck) checkStats() map[string]interface{} {
+// checkStats returns database statistics.
+func (dhc *DatabaseHealthCheck) checkStats() map[string]any {
 	dhc.mu.RLock()
 	defer dhc.mu.RUnlock()
 
 	stats := dhc.db.Stats()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"open_connections":     stats.OpenConnections,
 		"in_use":               stats.InUse,
 		"idle":                 stats.Idle,
@@ -154,13 +157,13 @@ func (dhc *DatabaseHealthCheck) checkStats() map[string]interface{} {
 	}
 }
 
-// checkConnectionPool checks connection pool health
-func (dhc *DatabaseHealthCheck) checkConnectionPool() map[string]interface{} {
+// checkConnectionPool checks connection pool health.
+func (dhc *DatabaseHealthCheck) checkConnectionPool() map[string]any {
 	dhc.mu.RLock()
 	defer dhc.mu.RUnlock()
 
 	stats := dhc.db.Stats()
-	poolHealth := make(map[string]interface{})
+	poolHealth := make(map[string]any)
 
 	// Check if we're approaching connection limits
 	if dhc.maxOpenConns > 0 {
@@ -187,15 +190,16 @@ func (dhc *DatabaseHealthCheck) checkConnectionPool() map[string]interface{} {
 	return poolHealth
 }
 
-// PostgreSQLHealthCheck is a specialized health check for PostgreSQL
+// PostgreSQLHealthCheck is a specialized health check for PostgreSQL.
 type PostgreSQLHealthCheck struct {
 	*DatabaseHealthCheck
+
 	checkReplication  bool
 	enableTablespaces bool
 	enableLocksCheck  bool
 }
 
-// NewPostgreSQLHealthCheck creates a new PostgreSQL health check
+// NewPostgreSQLHealthCheck creates a new PostgreSQL health check.
 func NewPostgreSQLHealthCheck(config *DatabaseHealthCheckConfig) *PostgreSQLHealthCheck {
 	if config.PingQuery == "" {
 		config.PingQuery = "SELECT version()"
@@ -209,7 +213,7 @@ func NewPostgreSQLHealthCheck(config *DatabaseHealthCheckConfig) *PostgreSQLHeal
 	}
 }
 
-// Check performs PostgreSQL-specific health checks
+// Check performs PostgreSQL-specific health checks.
 func (pgc *PostgreSQLHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base database check
 	result := pgc.DatabaseHealthCheck.Check(ctx)
@@ -246,8 +250,8 @@ func (pgc *PostgreSQLHealthCheck) Check(ctx context.Context) *health.HealthResul
 	return result
 }
 
-// checkReplicationStatus checks PostgreSQL replication status
-func (pgc *PostgreSQLHealthCheck) checkReplicationStatus(ctx context.Context) map[string]interface{} {
+// checkReplicationStatus checks PostgreSQL replication status.
+func (pgc *PostgreSQLHealthCheck) checkReplicationStatus(ctx context.Context) map[string]any {
 	query := `
 		SELECT 
 			client_addr,
@@ -264,22 +268,25 @@ func (pgc *PostgreSQLHealthCheck) checkReplicationStatus(ctx context.Context) ma
 
 	rows, err := pgc.db.QueryContext(ctx, query)
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"replication_error": err.Error(),
 		}
 	}
 	defer rows.Close()
 
-	replicationInfo := make([]map[string]interface{}, 0)
+	replicationInfo := make([]map[string]any, 0)
+
 	for rows.Next() {
-		var clientAddr, state, sentLsn, writeLsn, flushLsn, replayLsn sql.NullString
-		var writeLag, flushLag, replayLag sql.NullString
+		var (
+			clientAddr, state, sentLsn, writeLsn, flushLsn, replayLsn sql.NullString
+			writeLag, flushLag, replayLag                             sql.NullString
+		)
 
 		if err := rows.Scan(&clientAddr, &state, &sentLsn, &writeLsn, &flushLsn, &replayLsn, &writeLag, &flushLag, &replayLag); err != nil {
 			continue
 		}
 
-		replicationInfo = append(replicationInfo, map[string]interface{}{
+		replicationInfo = append(replicationInfo, map[string]any{
 			"client_addr": clientAddr.String,
 			"state":       state.String,
 			"sent_lsn":    sentLsn.String,
@@ -292,14 +299,14 @@ func (pgc *PostgreSQLHealthCheck) checkReplicationStatus(ctx context.Context) ma
 		})
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"replication_status": replicationInfo,
 		"replica_count":      len(replicationInfo),
 	}
 }
 
-// enableTablespaces checks PostgreSQL tablespace usage
-func (pgc *PostgreSQLHealthCheck) checkTablespaces(ctx context.Context) map[string]interface{} {
+// enableTablespaces checks PostgreSQL tablespace usage.
+func (pgc *PostgreSQLHealthCheck) checkTablespaces(ctx context.Context) map[string]any {
 	query := `
 		SELECT 
 			spcname,
@@ -310,33 +317,34 @@ func (pgc *PostgreSQLHealthCheck) checkTablespaces(ctx context.Context) map[stri
 
 	rows, err := pgc.db.QueryContext(ctx, query)
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"tablespace_error": err.Error(),
 		}
 	}
 	defer rows.Close()
 
-	tablespaces := make([]map[string]interface{}, 0)
+	tablespaces := make([]map[string]any, 0)
+
 	for rows.Next() {
 		var name, location, size string
 		if err := rows.Scan(&name, &location, &size); err != nil {
 			continue
 		}
 
-		tablespaces = append(tablespaces, map[string]interface{}{
+		tablespaces = append(tablespaces, map[string]any{
 			"name":     name,
 			"location": location,
 			"size":     size,
 		})
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"tablespaces": tablespaces,
 	}
 }
 
-// enableLocksCheck checks for blocking locks
-func (pgc *PostgreSQLHealthCheck) checkLocks(ctx context.Context) map[string]interface{} {
+// enableLocksCheck checks for blocking locks.
+func (pgc *PostgreSQLHealthCheck) checkLocks(ctx context.Context) map[string]any {
 	query := `
 		SELECT 
 			COUNT(*) as lock_count,
@@ -345,27 +353,29 @@ func (pgc *PostgreSQLHealthCheck) checkLocks(ctx context.Context) map[string]int
 	`
 
 	var lockCount, waitingLocks int
+
 	err := pgc.db.QueryRowContext(ctx, query).Scan(&lockCount, &waitingLocks)
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"locks_error": err.Error(),
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"total_locks":   lockCount,
 		"waiting_locks": waitingLocks,
 	}
 }
 
-// MySQLHealthCheck is a specialized health check for MySQL
+// MySQLHealthCheck is a specialized health check for MySQL.
 type MySQLHealthCheck struct {
 	*DatabaseHealthCheck
+
 	checkReplication bool
 	slowQueries      bool
 }
 
-// NewMySQLHealthCheck creates a new MySQL health check
+// NewMySQLHealthCheck creates a new MySQL health check.
 func NewMySQLHealthCheck(config *DatabaseHealthCheckConfig) *MySQLHealthCheck {
 	if config.PingQuery == "" {
 		config.PingQuery = "SELECT 1"
@@ -378,7 +388,7 @@ func NewMySQLHealthCheck(config *DatabaseHealthCheckConfig) *MySQLHealthCheck {
 	}
 }
 
-// Check performs MySQL-specific health checks
+// Check performs MySQL-specific health checks.
 func (mc *MySQLHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base database check
 	result := mc.DatabaseHealthCheck.Check(ctx)
@@ -407,13 +417,13 @@ func (mc *MySQLHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	return result
 }
 
-// checkReplicationStatus checks MySQL replication status
-func (mc *MySQLHealthCheck) checkReplicationStatus(ctx context.Context) map[string]interface{} {
+// checkReplicationStatus checks MySQL replication status.
+func (mc *MySQLHealthCheck) checkReplicationStatus(ctx context.Context) map[string]any {
 	query := "SHOW SLAVE STATUS"
 
 	rows, err := mc.db.QueryContext(ctx, query)
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"replication_error": err.Error(),
 		}
 	}
@@ -422,22 +432,24 @@ func (mc *MySQLHealthCheck) checkReplicationStatus(ctx context.Context) map[stri
 	// Get column names
 	columns, err := rows.Columns()
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"replication_columns_error": err.Error(),
 		}
 	}
 
 	// Create slice to hold values
-	values := make([]interface{}, len(columns))
-	valuePtrs := make([]interface{}, len(columns))
+	values := make([]any, len(columns))
+
+	valuePtrs := make([]any, len(columns))
 	for i := range values {
 		valuePtrs[i] = &values[i]
 	}
 
-	replicationInfo := make(map[string]interface{})
+	replicationInfo := make(map[string]any)
+
 	if rows.Next() {
 		if err := rows.Scan(valuePtrs...); err != nil {
-			return map[string]interface{}{
+			return map[string]any{
 				"replication_scan_error": err.Error(),
 			}
 		}
@@ -447,79 +459,80 @@ func (mc *MySQLHealthCheck) checkReplicationStatus(ctx context.Context) map[stri
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"replication_status": replicationInfo,
 	}
 }
 
-// slowQueries checks for slow queries
-func (mc *MySQLHealthCheck) checkSlowQueries(ctx context.Context) map[string]interface{} {
+// slowQueries checks for slow queries.
+func (mc *MySQLHealthCheck) checkSlowQueries(ctx context.Context) map[string]any {
 	query := "SHOW GLOBAL STATUS LIKE 'Slow_queries'"
 
 	var variableName, value string
+
 	err := mc.db.QueryRowContext(ctx, query).Scan(&variableName, &value)
 	if err != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"slow_queries_error": err.Error(),
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"slow_queries": value,
 	}
 }
 
-// MongoDBHealthCheck is a health check for MongoDB (placeholder)
+// MongoDBHealthCheck is a health check for MongoDB (placeholder).
 type MongoDBHealthCheck struct {
 	*health.BaseHealthCheck
 	// MongoDB-specific fields would go here
 }
 
-// NewMongoDBHealthCheck creates a new MongoDB health check
+// NewMongoDBHealthCheck creates a new MongoDB health check.
 func NewMongoDBHealthCheck(config *health.HealthCheckConfig) *MongoDBHealthCheck {
 	return &MongoDBHealthCheck{
 		BaseHealthCheck: health.NewBaseHealthCheck(config),
 	}
 }
 
-// Check performs MongoDB health check
+// Check performs MongoDB health check.
 func (mhc *MongoDBHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// TODO: Implement MongoDB health check
 	return health.NewHealthResult(mhc.Name(), health.HealthStatusHealthy, "MongoDB health check not implemented")
 }
 
-// RedisHealthCheck is a health check for Redis (placeholder)
+// RedisHealthCheck is a health check for Redis (placeholder).
 type RedisHealthCheck struct {
 	*health.BaseHealthCheck
 	// Redis-specific fields would go here
 }
 
-// NewRedisHealthCheck creates a new Redis health check
+// NewRedisHealthCheck creates a new Redis health check.
 func NewRedisHealthCheck(config *health.HealthCheckConfig) *RedisHealthCheck {
 	return &RedisHealthCheck{
 		BaseHealthCheck: health.NewBaseHealthCheck(config),
 	}
 }
 
-// Check performs Redis health check
+// Check performs Redis health check.
 func (rhc *RedisHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// TODO: Implement Redis health check
 	return health.NewHealthResult(rhc.Name(), health.HealthStatusHealthy, "Redis health check not implemented")
 }
 
-// DatabaseHealthCheckFactory creates database health checks based on configuration
+// DatabaseHealthCheckFactory creates database health checks based on configuration.
 type DatabaseHealthCheckFactory struct {
 	container shared.Container
 }
 
-// NewDatabaseHealthCheckFactory creates a new factory
+// NewDatabaseHealthCheckFactory creates a new factory.
 func NewDatabaseHealthCheckFactory(container shared.Container) *DatabaseHealthCheckFactory {
 	return &DatabaseHealthCheckFactory{
 		container: container,
 	}
 }
 
-// CreateDatabaseHealthCheck creates a database health check
+// CreateDatabaseHealthCheck creates a database health check.
 func (factory *DatabaseHealthCheckFactory) CreateDatabaseHealthCheck(name string, dbType string, critical bool) (health.HealthCheck, error) {
 	// This would typically resolve database connections from the container
 	// For now, return a placeholder
@@ -551,7 +564,7 @@ func (factory *DatabaseHealthCheckFactory) CreateDatabaseHealthCheck(name string
 	}
 }
 
-// RegisterDatabaseHealthChecks registers database health checks with the health service
+// RegisterDatabaseHealthChecks registers database health checks with the health service.
 func RegisterDatabaseHealthChecks(healthService health.HealthService, container shared.Container) error {
 	factory := NewDatabaseHealthCheckFactory(container)
 

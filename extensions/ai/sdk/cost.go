@@ -9,18 +9,18 @@ import (
 	"github.com/xraph/forge"
 )
 
-// CostTracker tracks AI usage costs and provides optimization insights
+// CostTracker tracks AI usage costs and provides optimization insights.
 type CostTracker struct {
 	logger  forge.Logger
 	metrics forge.Metrics
 
-	mu     sync.RWMutex
-	usages []UsageRecord
+	mu      sync.RWMutex
+	usages  []UsageRecord
 	budgets map[string]*Budget
-	alerts []AlertRule
+	alerts  []AlertRule
 }
 
-// UsageRecord represents a single usage event with cost
+// UsageRecord represents a single usage event with cost.
 type UsageRecord struct {
 	Timestamp    time.Time
 	Provider     string
@@ -31,21 +31,21 @@ type UsageRecord struct {
 	TotalTokens  int
 	Cost         float64
 	CacheHit     bool
-	Metadata     map[string]interface{}
+	Metadata     map[string]any
 }
 
-// Budget represents a spending budget
+// Budget represents a spending budget.
 type Budget struct {
-	Name          string
-	Limit         float64
-	Period        time.Duration
-	StartTime     time.Time
-	CurrentSpend  float64
-	AlertAt       float64 // Alert when spending reaches this percentage (0-1)
-	LastReset     time.Time
+	Name         string
+	Limit        float64
+	Period       time.Duration
+	StartTime    time.Time
+	CurrentSpend float64
+	AlertAt      float64 // Alert when spending reaches this percentage (0-1)
+	LastReset    time.Time
 }
 
-// AlertRule defines when to trigger cost alerts
+// AlertRule defines when to trigger cost alerts.
 type AlertRule struct {
 	Name      string
 	Threshold float64 // Alert when cost exceeds this
@@ -54,22 +54,22 @@ type AlertRule struct {
 	LastCheck time.Time
 }
 
-// ModelPricing defines pricing for a model
+// ModelPricing defines pricing for a model.
 type ModelPricing struct {
-	Provider         string
-	Model            string
-	InputPer1KTokens float64 // Cost per 1K input tokens
+	Provider          string
+	Model             string
+	InputPer1KTokens  float64 // Cost per 1K input tokens
 	OutputPer1KTokens float64 // Cost per 1K output tokens
-	MinCost          float64 // Minimum cost per request
+	MinCost           float64 // Minimum cost per request
 }
 
-// CostTrackerOptions configures the cost tracker
+// CostTrackerOptions configures the cost tracker.
 type CostTrackerOptions struct {
 	RetentionPeriod time.Duration // How long to keep usage records
 	EnableCache     bool
 }
 
-// Common model pricing (as of 2024 - update as needed)
+// Common model pricing (as of 2024 - update as needed).
 var DefaultModelPricing = map[string]ModelPricing{
 	"openai/gpt-4": {
 		Provider:          "openai",
@@ -103,7 +103,7 @@ var DefaultModelPricing = map[string]ModelPricing{
 	},
 }
 
-// NewCostTracker creates a new cost tracker
+// NewCostTracker creates a new cost tracker.
 func NewCostTracker(logger forge.Logger, metrics forge.Metrics, opts *CostTrackerOptions) *CostTracker {
 	ct := &CostTracker{
 		logger:  logger,
@@ -121,7 +121,7 @@ func NewCostTracker(logger forge.Logger, metrics forge.Metrics, opts *CostTracke
 	return ct
 }
 
-// RecordUsage records a usage event and calculates cost
+// RecordUsage records a usage event and calculates cost.
 func (ct *CostTracker) RecordUsage(ctx context.Context, usage UsageRecord) error {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
@@ -133,7 +133,7 @@ func (ct *CostTracker) RecordUsage(ctx context.Context, usage UsageRecord) error
 			inputCost := float64(usage.InputTokens) / 1000.0 * pricing.InputPer1KTokens
 			outputCost := float64(usage.OutputTokens) / 1000.0 * pricing.OutputPer1KTokens
 			usage.Cost = inputCost + outputCost
-			
+
 			if usage.Cost < pricing.MinCost {
 				usage.Cost = pricing.MinCost
 			}
@@ -149,6 +149,7 @@ func (ct *CostTracker) RecordUsage(ctx context.Context, usage UsageRecord) error
 			budget.CurrentSpend = 0
 			budget.LastReset = time.Now()
 		}
+
 		budget.CurrentSpend += usage.Cost
 
 		// Check alert threshold
@@ -170,12 +171,12 @@ func (ct *CostTracker) RecordUsage(ctx context.Context, usage UsageRecord) error
 			"provider", usage.Provider,
 			"model", usage.Model,
 		).Inc()
-		
+
 		ct.metrics.Histogram("forge.ai.sdk.cost.amount",
 			"provider", usage.Provider,
 			"model", usage.Model,
 		).Observe(usage.Cost)
-		
+
 		ct.metrics.Histogram("forge.ai.sdk.cost.tokens",
 			"provider", usage.Provider,
 			"model", usage.Model,
@@ -193,7 +194,7 @@ func (ct *CostTracker) RecordUsage(ctx context.Context, usage UsageRecord) error
 	return nil
 }
 
-// GetInsights returns cost analytics and insights
+// GetInsights returns cost analytics and insights.
 func (ct *CostTracker) GetInsights() CostInsights {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
@@ -216,14 +217,14 @@ func (ct *CostTracker) GetInsights() CostInsights {
 	monthCost := 0.0
 	cacheHits := 0
 	totalRequests := 0
-	
+
 	modelCosts := make(map[string]*ModelCost)
 
 	for _, usage := range ct.usages {
 		if usage.Timestamp.After(startOfMonth) {
 			monthCost += usage.Cost
 			totalRequests++
-			
+
 			if usage.CacheHit {
 				cacheHits++
 			}
@@ -247,6 +248,7 @@ func (ct *CostTracker) GetInsights() CostInsights {
 
 	// Project monthly cost
 	daysInMonth := float64(time.Date(now.Year(), now.Month()+1, 0, 0, 0, 0, 0, now.Location()).Day())
+
 	dayOfMonth := float64(now.Day())
 	if dayOfMonth > 0 {
 		insights.ProjectedMonthly = (monthCost / dayOfMonth) * daysInMonth
@@ -269,7 +271,7 @@ func (ct *CostTracker) GetInsights() CostInsights {
 	for i := 0; i < len(insights.TopExpensiveModels); i++ {
 		for j := i + 1; j < len(insights.TopExpensiveModels); j++ {
 			if insights.TopExpensiveModels[j].Cost > insights.TopExpensiveModels[i].Cost {
-				insights.TopExpensiveModels[i], insights.TopExpensiveModels[j] = 
+				insights.TopExpensiveModels[i], insights.TopExpensiveModels[j] =
 					insights.TopExpensiveModels[j], insights.TopExpensiveModels[i]
 			}
 		}
@@ -278,7 +280,7 @@ func (ct *CostTracker) GetInsights() CostInsights {
 	return insights
 }
 
-// SetBudget sets a spending budget
+// SetBudget sets a spending budget.
 func (ct *CostTracker) SetBudget(name string, limit float64, period time.Duration, alertAt float64) {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
@@ -303,7 +305,7 @@ func (ct *CostTracker) SetBudget(name string, limit float64, period time.Duratio
 	}
 }
 
-// CheckBudget checks if any budget is exceeded
+// CheckBudget checks if any budget is exceeded.
 func (ct *CostTracker) CheckBudget(ctx context.Context) error {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
@@ -317,7 +319,7 @@ func (ct *CostTracker) CheckBudget(ctx context.Context) error {
 	return nil
 }
 
-// GetBudgetStatus returns current status of all budgets
+// GetBudgetStatus returns current status of all budgets.
 func (ct *CostTracker) GetBudgetStatus() map[string]BudgetStatus {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
@@ -325,20 +327,20 @@ func (ct *CostTracker) GetBudgetStatus() map[string]BudgetStatus {
 	status := make(map[string]BudgetStatus)
 	for name, budget := range ct.budgets {
 		status[name] = BudgetStatus{
-			Name:           name,
-			Limit:          budget.Limit,
-			CurrentSpend:   budget.CurrentSpend,
+			Name:            name,
+			Limit:           budget.Limit,
+			CurrentSpend:    budget.CurrentSpend,
 			RemainingBudget: budget.Limit - budget.CurrentSpend,
-			PercentUsed:    (budget.CurrentSpend / budget.Limit) * 100,
-			Period:         budget.Period,
-			TimeRemaining:  budget.Period - time.Since(budget.LastReset),
+			PercentUsed:     (budget.CurrentSpend / budget.Limit) * 100,
+			Period:          budget.Period,
+			TimeRemaining:   budget.Period - time.Since(budget.LastReset),
 		}
 	}
 
 	return status
 }
 
-// BudgetStatus represents the current status of a budget
+// BudgetStatus represents the current status of a budget.
 type BudgetStatus struct {
 	Name            string
 	Limit           float64
@@ -349,7 +351,7 @@ type BudgetStatus struct {
 	TimeRemaining   time.Duration
 }
 
-// GetUsageByModel returns usage statistics grouped by model
+// GetUsageByModel returns usage statistics grouped by model.
 func (ct *CostTracker) GetUsageByModel(since time.Time) map[string]ModelUsageStats {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
@@ -359,18 +361,18 @@ func (ct *CostTracker) GetUsageByModel(since time.Time) map[string]ModelUsageSta
 	for _, usage := range ct.usages {
 		if usage.Timestamp.After(since) {
 			key := fmt.Sprintf("%s/%s", usage.Provider, usage.Model)
-			
+
 			s := stats[key]
 			s.Model = key
 			s.TotalCost += usage.Cost
 			s.RequestCount++
 			s.TotalInputTokens += usage.InputTokens
 			s.TotalOutputTokens += usage.OutputTokens
-			
+
 			if usage.CacheHit {
 				s.CacheHits++
 			}
-			
+
 			stats[key] = s
 		}
 	}
@@ -381,32 +383,33 @@ func (ct *CostTracker) GetUsageByModel(since time.Time) map[string]ModelUsageSta
 			s.AvgCostPerRequest = s.TotalCost / float64(s.RequestCount)
 			s.AvgInputTokens = float64(s.TotalInputTokens) / float64(s.RequestCount)
 			s.AvgOutputTokens = float64(s.TotalOutputTokens) / float64(s.RequestCount)
-			
+
 			if s.RequestCount > 0 {
 				s.CacheHitRate = float64(s.CacheHits) / float64(s.RequestCount)
 			}
 		}
+
 		stats[key] = s
 	}
 
 	return stats
 }
 
-// ModelUsageStats represents usage statistics for a model
+// ModelUsageStats represents usage statistics for a model.
 type ModelUsageStats struct {
-	Model              string
-	RequestCount       int
-	TotalCost          float64
-	AvgCostPerRequest  float64
-	TotalInputTokens   int
-	TotalOutputTokens  int
-	AvgInputTokens     float64
-	AvgOutputTokens    float64
-	CacheHits          int
-	CacheHitRate       float64
+	Model             string
+	RequestCount      int
+	TotalCost         float64
+	AvgCostPerRequest float64
+	TotalInputTokens  int
+	TotalOutputTokens int
+	AvgInputTokens    float64
+	AvgOutputTokens   float64
+	CacheHits         int
+	CacheHitRate      float64
 }
 
-// GetOptimizationRecommendations returns cost optimization suggestions
+// GetOptimizationRecommendations returns cost optimization suggestions.
 func (ct *CostTracker) GetOptimizationRecommendations() []Recommendation {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
@@ -421,7 +424,7 @@ func (ct *CostTracker) GetOptimizationRecommendations() []Recommendation {
 		if stats.TotalCost > 100 && stats.CacheHitRate < 0.3 {
 			recommendations = append(recommendations, Recommendation{
 				Type:             "model_switch",
-				Title:            fmt.Sprintf("Consider caching for %s", stats.Model),
+				Title:            "Consider caching for " + stats.Model,
 				Description:      fmt.Sprintf("Low cache hit rate (%.1f%%) on expensive model. Implementing caching could save ~$%.2f/month", stats.CacheHitRate*100, stats.TotalCost*0.3),
 				PotentialSavings: stats.TotalCost * 0.3,
 				Priority:         "high",
@@ -431,11 +434,11 @@ func (ct *CostTracker) GetOptimizationRecommendations() []Recommendation {
 		// Recommend batch processing
 		if stats.AvgInputTokens < 100 && stats.RequestCount > 1000 {
 			recommendations = append(recommendations, Recommendation{
-				Type:        "batch_processing",
-				Title:       "Enable batch processing",
-				Description: fmt.Sprintf("Model %s has many small requests (avg %.0f tokens). Batching could reduce costs by 15%%", stats.Model, stats.AvgInputTokens),
+				Type:             "batch_processing",
+				Title:            "Enable batch processing",
+				Description:      fmt.Sprintf("Model %s has many small requests (avg %.0f tokens). Batching could reduce costs by 15%%", stats.Model, stats.AvgInputTokens),
 				PotentialSavings: stats.TotalCost * 0.15,
-				Priority:    "medium",
+				Priority:         "medium",
 			})
 		}
 	}
@@ -443,7 +446,7 @@ func (ct *CostTracker) GetOptimizationRecommendations() []Recommendation {
 	return recommendations
 }
 
-// Recommendation represents a cost optimization recommendation
+// Recommendation represents a cost optimization recommendation.
 type Recommendation struct {
 	Type             string
 	Title            string
@@ -452,33 +455,35 @@ type Recommendation struct {
 	Priority         string // "low", "medium", "high"
 }
 
-// cleanupOldRecords removes old usage records
+// cleanupOldRecords removes old usage records.
 func (ct *CostTracker) cleanupOldRecords(retentionPeriod time.Duration) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		ct.mu.Lock()
+
 		cutoff := time.Now().Add(-retentionPeriod)
 		newUsages := make([]UsageRecord, 0)
-		
+
 		for _, usage := range ct.usages {
 			if usage.Timestamp.After(cutoff) {
 				newUsages = append(newUsages, usage)
 			}
 		}
-		
+
 		ct.usages = newUsages
 		ct.mu.Unlock()
 	}
 }
 
-// ExportUsage exports usage records for external analysis
+// ExportUsage exports usage records for external analysis.
 func (ct *CostTracker) ExportUsage(since time.Time) []UsageRecord {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
 
 	exported := make([]UsageRecord, 0)
+
 	for _, usage := range ct.usages {
 		if usage.Timestamp.After(since) {
 			exported = append(exported, usage)
@@ -487,4 +492,3 @@ func (ct *CostTracker) ExportUsage(since time.Time) []UsageRecord {
 
 	return exported
 }
-

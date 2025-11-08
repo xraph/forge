@@ -6,7 +6,7 @@ import (
 	"github.com/xraph/forge/internal/di"
 )
 
-// Route option implementations
+// Route option implementations.
 type nameOpt struct{ name string }
 
 func (o *nameOpt) Apply(cfg *RouteConfig) {
@@ -52,6 +52,7 @@ func (o *metadataOpt) Apply(cfg *RouteConfig) {
 	if cfg.Metadata == nil {
 		cfg.Metadata = make(map[string]any)
 	}
+
 	cfg.Metadata[o.key] = o.value
 }
 
@@ -64,6 +65,7 @@ func (o *extensionOpt) Apply(cfg *RouteConfig) {
 	if cfg.Extensions == nil {
 		cfg.Extensions = make(map[string]Extension)
 	}
+
 	cfg.Extensions[o.name] = o.ext
 }
 
@@ -79,7 +81,7 @@ func (o *deprecatedOpt) Apply(cfg *RouteConfig) {
 	cfg.Deprecated = true
 }
 
-// Group option implementations
+// Group option implementations.
 type groupMiddlewareOpt struct{ middleware []Middleware }
 
 func (o *groupMiddlewareOpt) Apply(cfg *GroupConfig) {
@@ -101,10 +103,11 @@ func (o *groupMetadataOpt) Apply(cfg *GroupConfig) {
 	if cfg.Metadata == nil {
 		cfg.Metadata = make(map[string]any)
 	}
+
 	cfg.Metadata[o.key] = o.value
 }
 
-// Router option implementations
+// Router option implementations.
 type adapterOpt struct{ adapter RouterAdapter }
 
 func (o *adapterOpt) Apply(cfg *routerConfig) {

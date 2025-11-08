@@ -5,8 +5,11 @@ import (
 	"crypto/md5"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // consistentHashBalancer implements consistent hashing.
@@ -37,7 +40,7 @@ func (chb *consistentHashBalancer) SelectNode(ctx context.Context, userID string
 	defer chb.mu.RUnlock()
 
 	if len(chb.nodes) == 0 {
-		return nil, fmt.Errorf("no nodes available")
+		return nil, errors.New("no nodes available")
 	}
 
 	// Hash the user ID
@@ -54,6 +57,7 @@ func (chb *consistentHashBalancer) SelectNode(ctx context.Context, userID string
 	}
 
 	nodeID := chb.ringMap[chb.ring[idx]]
+
 	node, ok := chb.nodes[nodeID]
 	if !ok || !node.Healthy {
 		// Node not healthy, try next
@@ -77,7 +81,7 @@ func (chb *consistentHashBalancer) RegisterNode(ctx context.Context, node *NodeI
 	chb.nodes[node.ID] = node
 
 	// Add virtual nodes to ring
-	for i := 0; i < chb.replicas; i++ {
+	for i := range chb.replicas {
 		virtualKey := fmt.Sprintf("%s:%d", node.ID, i)
 		hash := chb.hash(virtualKey)
 		chb.ring = append(chb.ring, hash)
@@ -85,9 +89,7 @@ func (chb *consistentHashBalancer) RegisterNode(ctx context.Context, node *NodeI
 	}
 
 	// Sort ring
-	sort.Slice(chb.ring, func(i, j int) bool {
-		return chb.ring[i] < chb.ring[j]
-	})
+	slices.Sort(chb.ring)
 
 	// Persist to store
 	if chb.nodeStore != nil {
@@ -113,6 +115,7 @@ func (chb *consistentHashBalancer) UnregisterNode(ctx context.Context, nodeID st
 			delete(chb.ringMap, hash)
 		}
 	}
+
 	chb.ring = newRing
 
 	// Persist to store
@@ -170,22 +173,24 @@ func (chb *consistentHashBalancer) GetHealthyNodes(ctx context.Context) ([]*Node
 
 func (chb *consistentHashBalancer) selectNextHealthyNode(startIdx int) (*NodeInfo, error) {
 	// Try next nodes in the ring
-	for i := 0; i < len(chb.ring); i++ {
+	for i := range len(chb.ring) {
 		idx := (startIdx + i) % len(chb.ring)
 		nodeID := chb.ringMap[chb.ring[idx]]
+
 		node, ok := chb.nodes[nodeID]
 		if ok && node.Healthy {
 			return node, nil
 		}
 	}
 
-	return nil, fmt.Errorf("no healthy nodes available")
+	return nil, errors.New("no healthy nodes available")
 }
 
 func (chb *consistentHashBalancer) hash(key string) uint32 {
 	h := md5.New()
 	h.Write([]byte(key))
 	hashBytes := h.Sum(nil)
+
 	return binary.BigEndian.Uint32(hashBytes)
 }
 
@@ -207,6 +212,7 @@ func (ins *inMemoryNodeStore) Save(ctx context.Context, node *NodeInfo) error {
 	defer ins.mu.Unlock()
 
 	ins.nodes[node.ID] = node
+
 	return nil
 }
 
@@ -239,6 +245,7 @@ func (ins *inMemoryNodeStore) Delete(ctx context.Context, nodeID string) error {
 	defer ins.mu.Unlock()
 
 	delete(ins.nodes, nodeID)
+
 	return nil
 }
 
@@ -252,6 +259,7 @@ func (ins *inMemoryNodeStore) UpdateHealth(ctx context.Context, nodeID string, h
 	}
 
 	node.Healthy = healthy
+
 	return nil
 }
 
@@ -265,5 +273,6 @@ func (ins *inMemoryNodeStore) UpdateConnectionCount(ctx context.Context, nodeID 
 	}
 
 	node.ConnectionCount = count
+
 	return nil
 }

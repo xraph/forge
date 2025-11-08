@@ -56,6 +56,7 @@ func TestSelfHealingAgent_Process_Success(t *testing.T) {
 				},
 			},
 		}
+
 		return response, nil
 	}
 
@@ -84,6 +85,7 @@ func TestSelfHealingAgent_Process_RetrySuccess(t *testing.T) {
 		if attempts < 3 {
 			return llm.ChatResponse{}, errors.New("temporary error")
 		}
+
 		return llm.ChatResponse{
 			Choices: []llm.ChatChoice{
 				{
@@ -95,9 +97,9 @@ func TestSelfHealingAgent_Process_RetrySuccess(t *testing.T) {
 	}
 
 	config := SelfHealingConfig{
-		MaxRetries:   3,
-		RetryDelay:   10 * time.Millisecond,
-		AutoRecover:  true,
+		MaxRetries:  3,
+		RetryDelay:  10 * time.Millisecond,
+		AutoRecover: true,
 	}
 	sha := NewSelfHealingAgent(agent, config, testhelpers.NewMockLogger(), testhelpers.NewMockMetrics())
 
@@ -121,13 +123,14 @@ func TestSelfHealingAgent_Process_AllRetriesFail(t *testing.T) {
 	mockLLM := agent.llmManager.(*testhelpers.MockLLMManager)
 	mockLLM.ChatFunc = func(ctx context.Context, request llm.ChatRequest) (llm.ChatResponse, error) {
 		attempts++
+
 		return llm.ChatResponse{}, errors.New("persistent error")
 	}
 
 	config := SelfHealingConfig{
-		MaxRetries:   2,
-		RetryDelay:   10 * time.Millisecond,
-		AutoRecover:  true,
+		MaxRetries:  2,
+		RetryDelay:  10 * time.Millisecond,
+		AutoRecover: true,
 	}
 	sha := NewSelfHealingAgent(agent, config, testhelpers.NewMockLogger(), testhelpers.NewMockMetrics())
 
@@ -177,6 +180,7 @@ func TestSelfHealingAgent_UpdateRecoveryStats(t *testing.T) {
 	sha.updateRecoveryStats("test_strategy", false)
 
 	stats := sha.GetRecoveryStats()
+
 	strategyStats, exists := stats["test_strategy"]
 	if !exists {
 		t.Fatal("expected stats for test_strategy")
@@ -207,7 +211,7 @@ func TestSelfHealingAgent_LearnPattern(t *testing.T) {
 
 	patterns := sha.GetLearnedPatterns()
 	errorType := "*errors.errorString"
-	
+
 	action, exists := patterns[errorType]
 	if !exists {
 		t.Fatal("expected learned pattern for error type")
@@ -230,18 +234,18 @@ func TestSelfHealingAgent_LearnPattern_StrategySwitch(t *testing.T) {
 	sha := NewSelfHealingAgent(agent, config, testhelpers.NewMockLogger(), testhelpers.NewMockMetrics())
 
 	testErr := errors.New("test error")
-	
+
 	// Learn with first strategy
 	sha.learnPattern(testErr, "retry")
-	
+
 	// Try different strategy multiple times to reduce confidence
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		sha.learnPattern(testErr, "reset_state")
 	}
 
 	patterns := sha.GetLearnedPatterns()
 	errorType := "*errors.errorString"
-	
+
 	action, exists := patterns[errorType]
 	if !exists {
 		t.Fatal("expected learned pattern for error type")
@@ -261,7 +265,7 @@ func TestSelfHealingAgent_ErrorHistoryLimit(t *testing.T) {
 	sha := NewSelfHealingAgent(agent, config, testhelpers.NewMockLogger(), testhelpers.NewMockMetrics())
 
 	// Record more errors than the limit
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		sha.recordRecovery(errors.New("test error"), false, 1)
 	}
 
@@ -349,8 +353,8 @@ func TestResetStateStrategy_Recover(t *testing.T) {
 	}
 
 	strategy := &ResetStateStrategy{}
-	err := strategy.Recover(context.Background(), agent, errors.New("test"))
 
+	err := strategy.Recover(context.Background(), agent, errors.New("test"))
 	if err != nil {
 		t.Errorf("expected recovery to succeed, got error: %v", err)
 	}
@@ -364,8 +368,8 @@ func TestSimplifyPromptStrategy_Recover(t *testing.T) {
 	agent := createTestAgent()
 
 	strategy := &SimplifyPromptStrategy{}
-	err := strategy.Recover(context.Background(), agent, errors.New("test"))
 
+	err := strategy.Recover(context.Background(), agent, errors.New("test"))
 	if err != nil {
 		t.Errorf("expected recovery to succeed, got error: %v", err)
 	}
@@ -384,8 +388,8 @@ func TestFallbackModelStrategy_Recover(t *testing.T) {
 	agent := createTestAgent()
 
 	strategy := &FallbackModelStrategy{}
-	err := strategy.Recover(context.Background(), agent, errors.New("test"))
 
+	err := strategy.Recover(context.Background(), agent, errors.New("test"))
 	if err != nil {
 		t.Errorf("expected recovery to succeed, got error: %v", err)
 	}
@@ -404,14 +408,15 @@ func TestFallbackModelStrategy_Recover(t *testing.T) {
 
 func createTestAgent() *Agent {
 	agent := &Agent{
-		Name:  "test-agent",
+		Name: "test-agent",
 		state: &AgentState{
 			AgentID:   "test",
 			SessionID: "session-1",
 			History:   make([]AgentMessage, 0),
-			Data:      make(map[string]interface{}),
+			Data:      make(map[string]any),
 		},
 	}
+
 	return agent
 }
 
@@ -434,27 +439,26 @@ func createTestAgentWithMocks() *Agent {
 			SessionID: "session-1",
 			Version:   1,
 			History:   make([]AgentMessage, 0),
-			Data:      make(map[string]interface{}),
-			Context:   make(map[string]interface{}),
+			Data:      make(map[string]any),
+			Context:   make(map[string]any),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		},
 	}
+
 	return agent
 }
 
-// TestRecoveryStrategy for testing
+// TestRecoveryStrategy for testing.
 type TestRecoveryStrategy struct {
 	name            string
 	canHandleResult bool
 	recoverError    error
 }
 
-func (s *TestRecoveryStrategy) Name() string { return s.name }
-func (s *TestRecoveryStrategy) Priority() int { return 50 }
+func (s *TestRecoveryStrategy) Name() string             { return s.name }
+func (s *TestRecoveryStrategy) Priority() int            { return 50 }
 func (s *TestRecoveryStrategy) CanHandle(err error) bool { return s.canHandleResult }
 func (s *TestRecoveryStrategy) Recover(ctx context.Context, agent *Agent, err error) error {
 	return s.recoverError
 }
-
-

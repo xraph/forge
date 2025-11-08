@@ -12,49 +12,49 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// HealthResultRecord represents a health result in the database
+// HealthResultRecord represents a health result in the database.
 type HealthResultRecord struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
+	ID        uint      `gorm:"primaryKey"     json:"id"`
 	Name      string    `gorm:"index;not null" json:"name"`
-	Status    string    `gorm:"not null" json:"status"`
-	Message   string    `gorm:"type:text" json:"message"`
-	Details   string    `gorm:"type:text" json:"details"`
+	Status    string    `gorm:"not null"       json:"status"`
+	Message   string    `gorm:"type:text"      json:"message"`
+	Details   string    `gorm:"type:text"      json:"details"`
 	Timestamp time.Time `gorm:"index;not null" json:"timestamp"`
 	Duration  int64     `json:"duration"` // Duration in nanoseconds
-	Error     string    `gorm:"type:text" json:"error"`
+	Error     string    `gorm:"type:text"      json:"error"`
 	Critical  bool      `json:"critical"`
-	Tags      string    `gorm:"type:text" json:"tags"`
+	Tags      string    `gorm:"type:text"      json:"tags"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// TableName returns the table name for health results
+// TableName returns the table name for health results.
 func (HealthResultRecord) TableName() string {
 	return "health_results"
 }
 
-// HealthReportRecord represents a health report in the database
+// HealthReportRecord represents a health report in the database.
 type HealthReportRecord struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	Overall     string    `gorm:"not null" json:"overall"`
-	Services    string    `gorm:"type:text" json:"services"`
+	ID          uint      `gorm:"primaryKey"     json:"id"`
+	Overall     string    `gorm:"not null"       json:"overall"`
+	Services    string    `gorm:"type:text"      json:"services"`
 	Timestamp   time.Time `gorm:"index;not null" json:"timestamp"`
 	Duration    int64     `json:"duration"` // Duration in nanoseconds
 	Version     string    `json:"version"`
 	Environment string    `json:"environment"`
 	Hostname    string    `json:"hostname"`
 	Uptime      int64     `json:"uptime"` // Uptime in nanoseconds
-	Metadata    string    `gorm:"type:text" json:"metadata"`
+	Metadata    string    `gorm:"type:text"      json:"metadata"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// TableName returns the table name for health reports
+// TableName returns the table name for health reports.
 func (HealthReportRecord) TableName() string {
 	return "health_reports"
 }
 
-// MemoryHealthStore implements HealthStore using in-memory storage
+// MemoryHealthStore implements HealthStore using in-memory storage.
 type MemoryHealthStore struct {
 	results []*health.HealthResult
 	reports []*health.HealthReport
@@ -63,7 +63,7 @@ type MemoryHealthStore struct {
 	metrics shared.Metrics
 }
 
-// NewMemoryHealthStore creates a new in-memory health store
+// NewMemoryHealthStore creates a new in-memory health store.
 func NewMemoryHealthStore(config *HealthStoreConfig, logger logger.Logger, metrics shared.Metrics) HealthStore {
 	return &MemoryHealthStore{
 		results: make([]*health.HealthResult, 0),
@@ -74,7 +74,7 @@ func NewMemoryHealthStore(config *HealthStoreConfig, logger logger.Logger, metri
 	}
 }
 
-// StoreResult stores a health result in memory
+// StoreResult stores a health result in memory.
 func (mhs *MemoryHealthStore) StoreResult(ctx context.Context, result *health.HealthResult) error {
 	mhs.results = append(mhs.results, result)
 
@@ -91,7 +91,7 @@ func (mhs *MemoryHealthStore) StoreResult(ctx context.Context, result *health.He
 	return nil
 }
 
-// StoreReport stores a health report in memory
+// StoreReport stores a health report in memory.
 func (mhs *MemoryHealthStore) StoreReport(ctx context.Context, report *health.HealthReport) error {
 	mhs.reports = append(mhs.reports, report)
 
@@ -108,17 +108,18 @@ func (mhs *MemoryHealthStore) StoreReport(ctx context.Context, report *health.He
 	return nil
 }
 
-// GetResult retrieves a specific health result
+// GetResult retrieves a specific health result.
 func (mhs *MemoryHealthStore) GetResult(ctx context.Context, checkName string, timestamp time.Time) (*health.HealthResult, error) {
 	for _, result := range mhs.results {
 		if result.Name == checkName && result.Timestamp.Equal(timestamp) {
 			return result, nil
 		}
 	}
+
 	return nil, errors.ErrServiceNotFound(fmt.Sprintf("health result for %s at %s", checkName, timestamp))
 }
 
-// GetResults retrieves health results for a time range
+// GetResults retrieves health results for a time range.
 func (mhs *MemoryHealthStore) GetResults(ctx context.Context, checkName string, from, to time.Time) ([]*health.HealthResult, error) {
 	var results []*health.HealthResult
 
@@ -133,17 +134,18 @@ func (mhs *MemoryHealthStore) GetResults(ctx context.Context, checkName string, 
 	return results, nil
 }
 
-// GetReport retrieves a specific health report
+// GetReport retrieves a specific health report.
 func (mhs *MemoryHealthStore) GetReport(ctx context.Context, timestamp time.Time) (*health.HealthReport, error) {
 	for _, report := range mhs.reports {
 		if report.Timestamp.Equal(timestamp) {
 			return report, nil
 		}
 	}
+
 	return nil, errors.ErrServiceNotFound(fmt.Sprintf("health report at %s", timestamp))
 }
 
-// GetReports retrieves health reports for a time range
+// GetReports retrieves health reports for a time range.
 func (mhs *MemoryHealthStore) GetReports(ctx context.Context, from, to time.Time) ([]*health.HealthReport, error) {
 	var reports []*health.HealthReport
 
@@ -156,7 +158,7 @@ func (mhs *MemoryHealthStore) GetReports(ctx context.Context, from, to time.Time
 	return reports, nil
 }
 
-// GetHealthHistory retrieves health history (simplified for memory store)
+// GetHealthHistory retrieves health history (simplified for memory store).
 func (mhs *MemoryHealthStore) GetHealthHistory(ctx context.Context, checkName string, from, to time.Time, interval time.Duration) ([]*HealthHistoryPoint, error) {
 	results, err := mhs.GetResults(ctx, checkName, from, to)
 	if err != nil {
@@ -179,7 +181,7 @@ func (mhs *MemoryHealthStore) GetHealthHistory(ctx context.Context, checkName st
 	return points, nil
 }
 
-// GetHealthTrend analyzes health trends (simplified)
+// GetHealthTrend analyzes health trends (simplified).
 func (mhs *MemoryHealthStore) GetHealthTrend(ctx context.Context, checkName string, duration time.Duration) (*HealthTrend, error) {
 	from := time.Now().Add(-duration)
 	to := time.Now()
@@ -205,8 +207,10 @@ func (mhs *MemoryHealthStore) GetHealthTrend(ctx context.Context, checkName stri
 		StatusDistribution: make(map[health.HealthStatus]int64),
 	}
 
-	var successCount int64
-	var totalDuration time.Duration
+	var (
+		successCount  int64
+		totalDuration time.Duration
+	)
 
 	for _, result := range results {
 		trend.StatusDistribution[result.Status]++
@@ -236,7 +240,7 @@ func (mhs *MemoryHealthStore) GetHealthTrend(ctx context.Context, checkName stri
 	return trend, nil
 }
 
-// GetHealthStatistics calculates health statistics (simplified)
+// GetHealthStatistics calculates health statistics (simplified).
 func (mhs *MemoryHealthStore) GetHealthStatistics(ctx context.Context, checkName string, from, to time.Time) (*HealthStatistics, error) {
 	results, err := mhs.GetResults(ctx, checkName, from, to)
 	if err != nil {
@@ -279,6 +283,7 @@ func (mhs *MemoryHealthStore) GetHealthStatistics(ctx context.Context, checkName
 		if result.Duration < stats.MinDuration {
 			stats.MinDuration = result.Duration
 		}
+
 		if result.Duration > stats.MaxDuration {
 			stats.MaxDuration = result.Duration
 		}
@@ -290,23 +295,25 @@ func (mhs *MemoryHealthStore) GetHealthStatistics(ctx context.Context, checkName
 	return stats, nil
 }
 
-// Cleanup removes old data
+// Cleanup removes old data.
 func (mhs *MemoryHealthStore) Cleanup(ctx context.Context, before time.Time) error {
 	mhs.results = mhs.filterResultsByTime(mhs.results, before, time.Now())
 	mhs.reports = mhs.filterReportsByTime(mhs.reports, before, time.Now())
+
 	return nil
 }
 
-// GetSize returns the memory usage
+// GetSize returns the memory usage.
 func (mhs *MemoryHealthStore) GetSize(ctx context.Context) (int64, error) {
 	// Rough estimate of memory usage
 	return int64(len(mhs.results)*500 + len(mhs.reports)*1000), nil
 }
 
-// Close closes the memory store
+// Close closes the memory store.
 func (mhs *MemoryHealthStore) Close() error {
 	mhs.results = nil
 	mhs.reports = nil
+
 	return nil
 }
 
@@ -314,15 +321,17 @@ func (mhs *MemoryHealthStore) Close() error {
 
 func (mhs *MemoryHealthStore) filterResultsByTime(results []*health.HealthResult, from, to time.Time) []*health.HealthResult {
 	var filtered []*health.HealthResult
+
 	for _, result := range results {
 		if result.Timestamp.After(from) && result.Timestamp.Before(to) {
 			filtered = append(filtered, result)
 		}
 	}
+
 	return filtered
 }
 
-// FileHealthStore implements HealthStore using file-based storage
+// FileHealthStore implements HealthStore using file-based storage.
 type FileHealthStore struct {
 	config      *HealthStoreConfig
 	logger      logger.Logger
@@ -332,7 +341,7 @@ type FileHealthStore struct {
 	mu          sync.RWMutex
 }
 
-// NewFileHealthStore creates a new file health store
+// NewFileHealthStore creates a new file health store.
 func NewFileHealthStore(config *HealthStoreConfig, logger logger.Logger, metrics shared.Metrics) (HealthStore, error) {
 	if config == nil {
 		config = DefaultHealthStoreConfig()
@@ -359,12 +368,12 @@ func NewFileHealthStore(config *HealthStoreConfig, logger logger.Logger, metrics
 	return store, nil
 }
 
-// ensureDirectory creates the storage directory if it doesn't exist
+// ensureDirectory creates the storage directory if it doesn't exist.
 func (fhs *FileHealthStore) ensureDirectory() error {
-	return fmt.Errorf("file system operations not implemented in this context")
+	return errors.New("file system operations not implemented in this context")
 }
 
-// StoreResult stores a health result to file
+// StoreResult stores a health result to file.
 func (fhs *FileHealthStore) StoreResult(ctx context.Context, result *health.HealthResult) error {
 	fhs.mu.Lock()
 	defer fhs.mu.Unlock()
@@ -396,7 +405,7 @@ func (fhs *FileHealthStore) StoreResult(ctx context.Context, result *health.Heal
 	return nil
 }
 
-// StoreReport stores a health report to file
+// StoreReport stores a health report to file.
 func (fhs *FileHealthStore) StoreReport(ctx context.Context, report *health.HealthReport) error {
 	fhs.mu.Lock()
 	defer fhs.mu.Unlock()
@@ -428,7 +437,7 @@ func (fhs *FileHealthStore) StoreReport(ctx context.Context, report *health.Heal
 	return nil
 }
 
-// GetResult retrieves a specific health result
+// GetResult retrieves a specific health result.
 func (fhs *FileHealthStore) GetResult(ctx context.Context, checkName string, timestamp time.Time) (*health.HealthResult, error) {
 	fhs.mu.RLock()
 	defer fhs.mu.RUnlock()
@@ -447,7 +456,7 @@ func (fhs *FileHealthStore) GetResult(ctx context.Context, checkName string, tim
 	return nil, errors.ErrServiceNotFound(fmt.Sprintf("health result for %s at %s", checkName, timestamp))
 }
 
-// GetResults retrieves health results for a time range
+// GetResults retrieves health results for a time range.
 func (fhs *FileHealthStore) GetResults(ctx context.Context, checkName string, from, to time.Time) ([]*health.HealthResult, error) {
 	fhs.mu.RLock()
 	defer fhs.mu.RUnlock()
@@ -458,6 +467,7 @@ func (fhs *FileHealthStore) GetResults(ctx context.Context, checkName string, fr
 	}
 
 	var filtered []*health.HealthResult
+
 	for _, result := range results {
 		if result.Timestamp.After(from) && result.Timestamp.Before(to) {
 			if checkName == "" || result.Name == checkName {
@@ -469,7 +479,7 @@ func (fhs *FileHealthStore) GetResults(ctx context.Context, checkName string, fr
 	return filtered, nil
 }
 
-// GetReport retrieves a specific health report
+// GetReport retrieves a specific health report.
 func (fhs *FileHealthStore) GetReport(ctx context.Context, timestamp time.Time) (*health.HealthReport, error) {
 	fhs.mu.RLock()
 	defer fhs.mu.RUnlock()
@@ -488,7 +498,7 @@ func (fhs *FileHealthStore) GetReport(ctx context.Context, timestamp time.Time) 
 	return nil, errors.ErrServiceNotFound(fmt.Sprintf("health report at %s", timestamp))
 }
 
-// GetReports retrieves health reports for a time range
+// GetReports retrieves health reports for a time range.
 func (fhs *FileHealthStore) GetReports(ctx context.Context, from, to time.Time) ([]*health.HealthReport, error) {
 	fhs.mu.RLock()
 	defer fhs.mu.RUnlock()
@@ -499,6 +509,7 @@ func (fhs *FileHealthStore) GetReports(ctx context.Context, from, to time.Time) 
 	}
 
 	var filtered []*health.HealthReport
+
 	for _, report := range reports {
 		if report.Timestamp.After(from) && report.Timestamp.Before(to) {
 			filtered = append(filtered, report)
@@ -508,7 +519,7 @@ func (fhs *FileHealthStore) GetReports(ctx context.Context, from, to time.Time) 
 	return filtered, nil
 }
 
-// GetHealthHistory retrieves health history (simplified for file store)
+// GetHealthHistory retrieves health history (simplified for file store).
 func (fhs *FileHealthStore) GetHealthHistory(ctx context.Context, checkName string, from, to time.Time, interval time.Duration) ([]*HealthHistoryPoint, error) {
 	results, err := fhs.GetResults(ctx, checkName, from, to)
 	if err != nil {
@@ -531,7 +542,7 @@ func (fhs *FileHealthStore) GetHealthHistory(ctx context.Context, checkName stri
 	return points, nil
 }
 
-// GetHealthTrend analyzes health trends (simplified)
+// GetHealthTrend analyzes health trends (simplified).
 func (fhs *FileHealthStore) GetHealthTrend(ctx context.Context, checkName string, duration time.Duration) (*HealthTrend, error) {
 	from := time.Now().Add(-duration)
 	to := time.Now()
@@ -557,8 +568,10 @@ func (fhs *FileHealthStore) GetHealthTrend(ctx context.Context, checkName string
 		StatusDistribution: make(map[health.HealthStatus]int64),
 	}
 
-	var successCount int64
-	var totalDuration time.Duration
+	var (
+		successCount  int64
+		totalDuration time.Duration
+	)
 
 	for _, result := range results {
 		trend.StatusDistribution[result.Status]++
@@ -588,7 +601,7 @@ func (fhs *FileHealthStore) GetHealthTrend(ctx context.Context, checkName string
 	return trend, nil
 }
 
-// GetHealthStatistics calculates health statistics (simplified)
+// GetHealthStatistics calculates health statistics (simplified).
 func (fhs *FileHealthStore) GetHealthStatistics(ctx context.Context, checkName string, from, to time.Time) (*HealthStatistics, error) {
 	results, err := fhs.GetResults(ctx, checkName, from, to)
 	if err != nil {
@@ -631,6 +644,7 @@ func (fhs *FileHealthStore) GetHealthStatistics(ctx context.Context, checkName s
 		if result.Duration < stats.MinDuration {
 			stats.MinDuration = result.Duration
 		}
+
 		if result.Duration > stats.MaxDuration {
 			stats.MaxDuration = result.Duration
 		}
@@ -642,7 +656,7 @@ func (fhs *FileHealthStore) GetHealthStatistics(ctx context.Context, checkName s
 	return stats, nil
 }
 
-// Cleanup removes old data
+// Cleanup removes old data.
 func (fhs *FileHealthStore) Cleanup(ctx context.Context, before time.Time) error {
 	fhs.mu.Lock()
 	defer fhs.mu.Unlock()
@@ -672,14 +686,14 @@ func (fhs *FileHealthStore) Cleanup(ctx context.Context, before time.Time) error
 	return nil
 }
 
-// GetSize returns the file size
+// GetSize returns the file size.
 func (fhs *FileHealthStore) GetSize(ctx context.Context) (int64, error) {
 	// In a real implementation, this would check file sizes
 	// For now, return an estimate
 	return 1000, nil
 }
 
-// Close closes the file store
+// Close closes the file store.
 func (fhs *FileHealthStore) Close() error {
 	return nil
 }
@@ -710,30 +724,36 @@ func (fhs *FileHealthStore) saveReports(reports []*health.HealthReport) error {
 
 func (fhs *FileHealthStore) filterResultsByTime(results []*health.HealthResult, from, to time.Time) []*health.HealthResult {
 	var filtered []*health.HealthResult
+
 	for _, result := range results {
 		if result.Timestamp.After(from) && result.Timestamp.Before(to) {
 			filtered = append(filtered, result)
 		}
 	}
+
 	return filtered
 }
 
 func (fhs *FileHealthStore) filterReportsByTime(reports []*health.HealthReport, from, to time.Time) []*health.HealthReport {
 	var filtered []*health.HealthReport
+
 	for _, report := range reports {
 		if report.Timestamp.After(from) && report.Timestamp.Before(to) {
 			filtered = append(filtered, report)
 		}
 	}
+
 	return filtered
 }
 
 func (mhs *MemoryHealthStore) filterReportsByTime(reports []*health.HealthReport, from, to time.Time) []*health.HealthReport {
 	var filtered []*health.HealthReport
+
 	for _, report := range reports {
 		if report.Timestamp.After(from) && report.Timestamp.Before(to) {
 			filtered = append(filtered, report)
 		}
 	}
+
 	return filtered
 }

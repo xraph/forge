@@ -6,7 +6,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/models"
 )
 
-// LLM types
+// LLM types.
 type (
 	LLMProvider        = llm.LLMProvider
 	LLMManager         = llm.LLMManager
@@ -23,7 +23,7 @@ type (
 	ToolCall           = llm.ToolCall
 )
 
-// Model types
+// Model types.
 type (
 	Model       = models.Model
 	ModelInput  = models.ModelInput
@@ -32,7 +32,7 @@ type (
 	ModelConfig = models.ModelConfig
 )
 
-// Core AI types
+// Core AI types.
 type (
 	AI                = internal.AI
 	AIConfig          = internal.AIConfig
@@ -53,7 +53,7 @@ type (
 	LearningMetrics   = internal.LearningMetrics
 )
 
-// Middleware types
+// Middleware types.
 type (
 	AIMiddlewareType   = internal.AIMiddlewareType
 	AIMiddlewareConfig = internal.AIMiddlewareConfig
@@ -63,7 +63,7 @@ type (
 // Note: Storage, Factory, and Team types are already defined in the ai package
 // and don't need to be re-exported here. They are already public types.
 
-// Agent type constants
+// Agent type constants.
 const (
 	AgentTypeOptimization     = internal.AgentTypeOptimization
 	AgentTypeAnomalyDetection = internal.AgentTypeAnomalyDetection
@@ -75,7 +75,7 @@ const (
 	AgentTypePredictor        = internal.AgentTypePredictor
 )
 
-// Agent health status constants
+// Agent health status constants.
 const (
 	AgentHealthStatusHealthy   = internal.AgentHealthStatusHealthy
 	AgentHealthStatusUnhealthy = internal.AgentHealthStatusUnhealthy
@@ -83,7 +83,7 @@ const (
 	AgentHealthStatusUnknown   = internal.AgentHealthStatusUnknown
 )
 
-// Middleware type constants
+// Middleware type constants.
 const (
 	AIMiddlewareTypeLoadBalance          = internal.AIMiddlewareTypeLoadBalance
 	AIMiddlewareTypeAnomalyDetection     = internal.AIMiddlewareTypeAnomalyDetection
@@ -94,7 +94,7 @@ const (
 	AIMiddlewareTypeSecurity             = internal.AIMiddlewareTypeSecurity
 )
 
-// Constructor exports
+// Constructor exports.
 var (
 	NewBaseAgent = internal.NewBaseAgent
 )

@@ -2,31 +2,32 @@ package client
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
-// StreamingFeatures defines common streaming features and utilities
+// StreamingFeatures defines common streaming features and utilities.
 type StreamingFeatures struct {
 	Reconnection    bool
 	Heartbeat       bool
 	StateManagement bool
 }
 
-// ReconnectionStrategy defines the strategy for reconnection
+// ReconnectionStrategy defines the strategy for reconnection.
 type ReconnectionStrategy string
 
 const (
-	// ReconnectionStrategyExponential uses exponential backoff
+	// ReconnectionStrategyExponential uses exponential backoff.
 	ReconnectionStrategyExponential ReconnectionStrategy = "exponential"
 
-	// ReconnectionStrategyLinear uses linear backoff
+	// ReconnectionStrategyLinear uses linear backoff.
 	ReconnectionStrategyLinear ReconnectionStrategy = "linear"
 
-	// ReconnectionStrategyFixed uses fixed delay
+	// ReconnectionStrategyFixed uses fixed delay.
 	ReconnectionStrategyFixed ReconnectionStrategy = "fixed"
 )
 
-// ReconnectionConfig configures reconnection behavior
+// ReconnectionConfig configures reconnection behavior.
 type ReconnectionConfig struct {
 	Strategy      ReconnectionStrategy
 	InitialDelay  time.Duration
@@ -36,7 +37,7 @@ type ReconnectionConfig struct {
 	JitterEnabled bool    // Add random jitter to delays
 }
 
-// DefaultReconnectionConfig returns a sensible default reconnection config
+// DefaultReconnectionConfig returns a sensible default reconnection config.
 func DefaultReconnectionConfig() ReconnectionConfig {
 	return ReconnectionConfig{
 		Strategy:      ReconnectionStrategyExponential,
@@ -48,14 +49,14 @@ func DefaultReconnectionConfig() ReconnectionConfig {
 	}
 }
 
-// HeartbeatConfig configures heartbeat/ping behavior
+// HeartbeatConfig configures heartbeat/ping behavior.
 type HeartbeatConfig struct {
 	Enabled  bool
 	Interval time.Duration
 	Timeout  time.Duration
 }
 
-// DefaultHeartbeatConfig returns a sensible default heartbeat config
+// DefaultHeartbeatConfig returns a sensible default heartbeat config.
 func DefaultHeartbeatConfig() HeartbeatConfig {
 	return HeartbeatConfig{
 		Enabled:  true,
@@ -64,38 +65,38 @@ func DefaultHeartbeatConfig() HeartbeatConfig {
 	}
 }
 
-// ConnectionState represents the state of a streaming connection
+// ConnectionState represents the state of a streaming connection.
 type ConnectionState string
 
 const (
-	// ConnectionStateDisconnected means not connected
+	// ConnectionStateDisconnected means not connected.
 	ConnectionStateDisconnected ConnectionState = "disconnected"
 
-	// ConnectionStateConnecting means attempting to connect
+	// ConnectionStateConnecting means attempting to connect.
 	ConnectionStateConnecting ConnectionState = "connecting"
 
-	// ConnectionStateConnected means successfully connected
+	// ConnectionStateConnected means successfully connected.
 	ConnectionStateConnected ConnectionState = "connected"
 
-	// ConnectionStateReconnecting means attempting to reconnect
+	// ConnectionStateReconnecting means attempting to reconnect.
 	ConnectionStateReconnecting ConnectionState = "reconnecting"
 
-	// ConnectionStateClosed means connection is closed and won't reconnect
+	// ConnectionStateClosed means connection is closed and won't reconnect.
 	ConnectionStateClosed ConnectionState = "closed"
 
-	// ConnectionStateError means connection error occurred
+	// ConnectionStateError means connection error occurred.
 	ConnectionStateError ConnectionState = "error"
 )
 
-// StreamingCodeHelper provides helper methods for generating streaming code
+// StreamingCodeHelper provides helper methods for generating streaming code.
 type StreamingCodeHelper struct{}
 
-// NewStreamingCodeHelper creates a new streaming code helper
+// NewStreamingCodeHelper creates a new streaming code helper.
 func NewStreamingCodeHelper() *StreamingCodeHelper {
 	return &StreamingCodeHelper{}
 }
 
-// GenerateReconnectionDocs generates documentation for reconnection
+// GenerateReconnectionDocs generates documentation for reconnection.
 func (h *StreamingCodeHelper) GenerateReconnectionDocs() string {
 	return `### Reconnection
 
@@ -112,7 +113,7 @@ You can configure reconnection behavior when creating the client.
 `
 }
 
-// GenerateHeartbeatDocs generates documentation for heartbeat
+// GenerateHeartbeatDocs generates documentation for heartbeat.
 func (h *StreamingCodeHelper) GenerateHeartbeatDocs() string {
 	return `### Heartbeat
 
@@ -127,7 +128,7 @@ The heartbeat is handled automatically by the client.
 `
 }
 
-// GenerateStateManagementDocs generates documentation for state management
+// GenerateStateManagementDocs generates documentation for state management.
 func (h *StreamingCodeHelper) GenerateStateManagementDocs() string {
 	return `### Connection State
 
@@ -151,27 +152,27 @@ client.OnStateChange(func(state string) {
 `
 }
 
-// HasStreamingEndpoints checks if the API spec has any streaming endpoints
+// HasStreamingEndpoints checks if the API spec has any streaming endpoints.
 func HasStreamingEndpoints(spec *APISpec) bool {
 	return len(spec.WebSockets) > 0 || len(spec.SSEs) > 0
 }
 
-// HasWebSockets checks if the API spec has WebSocket endpoints
+// HasWebSockets checks if the API spec has WebSocket endpoints.
 func HasWebSockets(spec *APISpec) bool {
 	return len(spec.WebSockets) > 0
 }
 
-// HasSSE checks if the API spec has SSE endpoints
+// HasSSE checks if the API spec has SSE endpoints.
 func HasSSE(spec *APISpec) bool {
 	return len(spec.SSEs) > 0
 }
 
-// GetStreamingEndpointCount returns the count of streaming endpoints
+// GetStreamingEndpointCount returns the count of streaming endpoints.
 func GetStreamingEndpointCount(spec *APISpec) (websockets, sse int) {
 	return len(spec.WebSockets), len(spec.SSEs)
 }
 
-// GenerateStreamingFeatureDocs generates documentation for streaming features
+// GenerateStreamingFeatureDocs generates documentation for streaming features.
 func GenerateStreamingFeatureDocs(features Features) string {
 	var docs string
 
@@ -195,17 +196,17 @@ func GenerateStreamingFeatureDocs(features Features) string {
 	return docs
 }
 
-// BackoffCalculator calculates backoff delays
+// BackoffCalculator calculates backoff delays.
 type BackoffCalculator struct {
 	config ReconnectionConfig
 }
 
-// NewBackoffCalculator creates a new backoff calculator
+// NewBackoffCalculator creates a new backoff calculator.
 func NewBackoffCalculator(config ReconnectionConfig) *BackoffCalculator {
 	return &BackoffCalculator{config: config}
 }
 
-// Calculate calculates the delay for a given attempt number
+// Calculate calculates the delay for a given attempt number.
 func (b *BackoffCalculator) Calculate(attempt int) time.Duration {
 	var delay time.Duration
 
@@ -240,25 +241,27 @@ func (b *BackoffCalculator) Calculate(attempt int) time.Duration {
 	return delay
 }
 
-// pow calculates x^y for float64
+// pow calculates x^y for float64.
 func pow(x, y float64) float64 {
 	result := 1.0
-	for i := 0; i < int(y); i++ {
-		result *= x
-	}
+	// for range y {
+	// 	result *= x
+	// }
+
 	return result
 }
 
 // randInt returns a pseudo-random int in [min, max)
-// Note: This is a simple implementation; production code should use crypto/rand
+// Note: This is a simple implementation; production code should use crypto/rand.
 func randInt(min, max int) int {
 	if max <= min {
 		return min
 	}
+
 	return min + (time.Now().Nanosecond() % (max - min))
 }
 
-// WebSocketClientTemplate represents a template for WebSocket client generation
+// WebSocketClientTemplate represents a template for WebSocket client generation.
 type WebSocketClientTemplate struct {
 	EndpointID      string
 	Path            string
@@ -269,7 +272,7 @@ type WebSocketClientTemplate struct {
 	HeartbeatConfig HeartbeatConfig
 }
 
-// SSEClientTemplate represents a template for SSE client generation
+// SSEClientTemplate represents a template for SSE client generation.
 type SSEClientTemplate struct {
 	EndpointID      string
 	Path            string
@@ -278,25 +281,27 @@ type SSEClientTemplate struct {
 	ReconnectConfig ReconnectionConfig
 }
 
-// GenerateWebSocketClientName generates a name for a WebSocket client struct/class
+// GenerateWebSocketClientName generates a name for a WebSocket client struct/class.
 func GenerateWebSocketClientName(endpoint WebSocketEndpoint) string {
 	// Use endpoint ID or generate from path
 	if endpoint.ID != "" {
 		return toPascalCase(endpoint.ID) + "WSClient"
 	}
+
 	return "WebSocketClient"
 }
 
-// GenerateSSEClientName generates a name for an SSE client struct/class
+// GenerateSSEClientName generates a name for an SSE client struct/class.
 func GenerateSSEClientName(endpoint SSEEndpoint) string {
 	// Use endpoint ID or generate from path
 	if endpoint.ID != "" {
 		return toPascalCase(endpoint.ID) + "SSEClient"
 	}
+
 	return "SSEClient"
 }
 
-// toPascalCase converts a string to PascalCase
+// toPascalCase converts a string to PascalCase.
 func toPascalCase(s string) string {
 	if s == "" {
 		return ""
@@ -306,19 +311,24 @@ func toPascalCase(s string) string {
 	parts := splitBySeparators(s)
 
 	var result string
+	var resultSb309 strings.Builder
+
 	for _, part := range parts {
 		if len(part) > 0 {
-			result += capitalize(part)
+			resultSb309.WriteString(capitalize(part))
 		}
 	}
+	result += resultSb309.String()
 
 	return result
 }
 
-// splitBySeparators splits a string by common separators
+// splitBySeparators splits a string by common separators.
 func splitBySeparators(s string) []string {
-	var parts []string
-	var current string
+	var (
+		parts   []string
+		current string
+	)
 
 	for _, c := range s {
 		if c == '_' || c == '-' || c == '.' || c == ' ' {
@@ -338,10 +348,11 @@ func splitBySeparators(s string) []string {
 	return parts
 }
 
-// capitalize capitalizes the first letter of a string
+// capitalize capitalizes the first letter of a string.
 func capitalize(s string) string {
 	if s == "" {
 		return ""
 	}
+
 	return fmt.Sprintf("%c%s", s[0]-32, s[1:])
 }

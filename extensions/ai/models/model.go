@@ -3,13 +3,15 @@ package models
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// ModelType defines the type of ML model
+// ModelType defines the type of ML model.
 type ModelType string
 
 const (
@@ -24,7 +26,7 @@ const (
 	ModelTypeNLP            ModelType = "nlp"
 )
 
-// MLFramework defines the ML framework used
+// MLFramework defines the ML framework used.
 type MLFramework string
 
 const (
@@ -39,7 +41,7 @@ const (
 	MLFrameworkLocal       MLFramework = "local"
 )
 
-// ModelStatus represents the status of a model
+// ModelStatus represents the status of a model.
 type ModelStatus string
 
 const (
@@ -50,7 +52,7 @@ const (
 	ModelStatusUnloading ModelStatus = "unloading"
 )
 
-// ModelHealthStatus represents the health status of a model
+// ModelHealthStatus represents the health status of a model.
 type ModelHealthStatus string
 
 const (
@@ -60,7 +62,7 @@ const (
 	ModelHealthStatusUnknown   ModelHealthStatus = "unknown"
 )
 
-// Model interface defines the contract for ML models
+// Model interface defines the contract for ML models.
 type Model interface {
 	// Basic model information
 	ID() string
@@ -83,7 +85,7 @@ type Model interface {
 	GetHealth() ModelHealth
 	GetConfig() ModelConfig
 	GetInfo() ModelInfo
-	GetMetadata() map[string]interface{}
+	GetMetadata() map[string]any
 
 	// Model validation
 	ValidateInput(input ModelInput) error
@@ -91,73 +93,73 @@ type Model interface {
 	GetOutputSchema() OutputSchema
 }
 
-// ModelConfig contains configuration for a model
+// ModelConfig contains configuration for a model.
 type ModelConfig struct {
-	ID           string                 `json:"id"`
-	Name         string                 `json:"name"`
-	Version      string                 `json:"version"`
-	Type         ModelType              `json:"type"`
-	Framework    MLFramework            `json:"framework"`
-	ModelPath    string                 `json:"model_path"`
-	ConfigPath   string                 `json:"config_path"`
-	Weights      string                 `json:"weights"`
-	BatchSize    int                    `json:"batch_size"`
-	MaxInstances int                    `json:"max_instances"`
-	Timeout      time.Duration          `json:"timeout"`
-	Memory       string                 `json:"memory"`
-	GPU          bool                   `json:"gpu"`
-	Metadata     map[string]interface{} `json:"metadata"`
-	Environment  map[string]string      `json:"environment"`
-	Dependencies []string               `json:"dependencies"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Version      string            `json:"version"`
+	Type         ModelType         `json:"type"`
+	Framework    MLFramework       `json:"framework"`
+	ModelPath    string            `json:"model_path"`
+	ConfigPath   string            `json:"config_path"`
+	Weights      string            `json:"weights"`
+	BatchSize    int               `json:"batch_size"`
+	MaxInstances int               `json:"max_instances"`
+	Timeout      time.Duration     `json:"timeout"`
+	Memory       string            `json:"memory"`
+	GPU          bool              `json:"gpu"`
+	Metadata     map[string]any    `json:"metadata"`
+	Environment  map[string]string `json:"environment"`
+	Dependencies []string          `json:"dependencies"`
 }
 
-// ModelInput represents input to a model
+// ModelInput represents input to a model.
 type ModelInput struct {
-	Data      interface{}            `json:"data"`
-	Features  map[string]interface{} `json:"features"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	RequestID string                 `json:"request_id"`
-	Timestamp time.Time              `json:"timestamp"`
+	Data      any            `json:"data"`
+	Features  map[string]any `json:"features"`
+	Metadata  map[string]any `json:"metadata"`
+	RequestID string         `json:"request_id"`
+	Timestamp time.Time      `json:"timestamp"`
 }
 
-// ModelOutput represents output from a model
+// ModelOutput represents output from a model.
 type ModelOutput struct {
-	Predictions   []Prediction           `json:"predictions"`
-	Probabilities []float64              `json:"probabilities,omitempty"`
-	Confidence    float64                `json:"confidence"`
-	Metadata      map[string]interface{} `json:"metadata"`
-	RequestID     string                 `json:"request_id"`
-	Timestamp     time.Time              `json:"timestamp"`
-	Latency       time.Duration          `json:"latency"`
+	Predictions   []Prediction   `json:"predictions"`
+	Probabilities []float64      `json:"probabilities,omitempty"`
+	Confidence    float64        `json:"confidence"`
+	Metadata      map[string]any `json:"metadata"`
+	RequestID     string         `json:"request_id"`
+	Timestamp     time.Time      `json:"timestamp"`
+	Latency       time.Duration  `json:"latency"`
 }
 
-// Prediction represents a single prediction
+// Prediction represents a single prediction.
 type Prediction struct {
-	Label       string                 `json:"label"`
-	Value       interface{}            `json:"value"`
-	Confidence  float64                `json:"confidence"`
-	Probability float64                `json:"probability,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Label       string         `json:"label"`
+	Value       any            `json:"value"`
+	Confidence  float64        `json:"confidence"`
+	Probability float64        `json:"probability,omitempty"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
-// InputSchema defines the expected input format
+// InputSchema defines the expected input format.
 type InputSchema struct {
-	Type        string                 `json:"type"`
-	Properties  map[string]interface{} `json:"properties"`
-	Required    []string               `json:"required"`
-	Examples    []interface{}          `json:"examples"`
-	Constraints map[string]interface{} `json:"constraints"`
+	Type        string         `json:"type"`
+	Properties  map[string]any `json:"properties"`
+	Required    []string       `json:"required"`
+	Examples    []any          `json:"examples"`
+	Constraints map[string]any `json:"constraints"`
 }
 
-// OutputSchema defines the expected output format
+// OutputSchema defines the expected output format.
 type OutputSchema struct {
-	Type        string                 `json:"type"`
-	Properties  map[string]interface{} `json:"properties"`
-	Examples    []interface{}          `json:"examples"`
-	Description string                 `json:"description"`
+	Type        string         `json:"type"`
+	Properties  map[string]any `json:"properties"`
+	Examples    []any          `json:"examples"`
+	Description string         `json:"description"`
 }
 
-// ModelMetrics contains metrics about a model
+// ModelMetrics contains metrics about a model.
 type ModelMetrics struct {
 	TotalPredictions int64         `json:"total_predictions"`
 	TotalErrors      int64         `json:"total_errors"`
@@ -175,44 +177,44 @@ type ModelMetrics struct {
 	F1Score          float64       `json:"f1_score"`
 }
 
-// ModelHealth represents the health status of a model
+// ModelHealth represents the health status of a model.
 type ModelHealth struct {
-	Status      ModelHealthStatus      `json:"status"`
-	Message     string                 `json:"message"`
-	Details     map[string]interface{} `json:"details"`
-	CheckedAt   time.Time              `json:"checked_at"`
-	LastHealthy time.Time              `json:"last_healthy"`
-	Uptime      time.Duration          `json:"uptime"`
+	Status      ModelHealthStatus `json:"status"`
+	Message     string            `json:"message"`
+	Details     map[string]any    `json:"details"`
+	CheckedAt   time.Time         `json:"checked_at"`
+	LastHealthy time.Time         `json:"last_healthy"`
+	Uptime      time.Duration     `json:"uptime"`
 }
 
-// ModelInfo contains information about a model
+// ModelInfo contains information about a model.
 type ModelInfo struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Version     string                 `json:"version"`
-	Type        ModelType              `json:"type"`
-	Framework   MLFramework            `json:"framework"`
-	Status      ModelStatus            `json:"status"`
-	LoadedAt    time.Time              `json:"loaded_at"`
-	Size        int64                  `json:"size"`
-	Parameters  int64                  `json:"parameters"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Health      ModelHealth            `json:"health"`
-	Metrics     ModelMetrics           `json:"metrics"`
-	Description string                 `json:"description"`
-	Author      string                 `json:"author"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
-	Tags        []string               `json:"tags"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Version     string         `json:"version"`
+	Type        ModelType      `json:"type"`
+	Framework   MLFramework    `json:"framework"`
+	Status      ModelStatus    `json:"status"`
+	LoadedAt    time.Time      `json:"loaded_at"`
+	Size        int64          `json:"size"`
+	Parameters  int64          `json:"parameters"`
+	Metadata    map[string]any `json:"metadata"`
+	Health      ModelHealth    `json:"health"`
+	Metrics     ModelMetrics   `json:"metrics"`
+	Description string         `json:"description"`
+	Author      string         `json:"author"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	Tags        []string       `json:"tags"`
 }
 
-// BaseModel provides a base implementation for models
+// BaseModel provides a base implementation for models.
 type BaseModel struct {
 	config       ModelConfig
 	status       ModelStatus
 	health       ModelHealth
 	metrics      ModelMetrics
-	metadata     map[string]interface{}
+	metadata     map[string]any
 	inputSchema  InputSchema
 	outputSchema OutputSchema
 	logger       logger.Logger
@@ -226,13 +228,13 @@ type BaseModel struct {
 	lastPrediction  time.Time
 }
 
-// NewBaseModel creates a new base model
+// NewBaseModel creates a new base model.
 func NewBaseModel(config ModelConfig, logger logger.Logger) *BaseModel {
 	return &BaseModel{
 		config:   config,
 		status:   ModelStatusNotLoaded,
 		logger:   logger,
-		metadata: make(map[string]interface{}),
+		metadata: make(map[string]any),
 		health: ModelHealth{
 			Status:    ModelHealthStatusUnknown,
 			CheckedAt: time.Now(),
@@ -243,32 +245,32 @@ func NewBaseModel(config ModelConfig, logger logger.Logger) *BaseModel {
 	}
 }
 
-// ID returns the model ID
+// ID returns the model ID.
 func (m *BaseModel) ID() string {
 	return m.config.ID
 }
 
-// Name returns the model name
+// Name returns the model name.
 func (m *BaseModel) Name() string {
 	return m.config.Name
 }
 
-// Version returns the model version
+// Version returns the model version.
 func (m *BaseModel) Version() string {
 	return m.config.Version
 }
 
-// Type returns the model type
+// Type returns the model type.
 func (m *BaseModel) Type() ModelType {
 	return m.config.Type
 }
 
-// Framework returns the ML framework
+// Framework returns the ML framework.
 func (m *BaseModel) Framework() MLFramework {
 	return m.config.Framework
 }
 
-// Load loads the model (base implementation)
+// Load loads the model (base implementation).
 func (m *BaseModel) Load(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -289,6 +291,7 @@ func (m *BaseModel) Load(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		m.status = ModelStatusError
+
 		return ctx.Err()
 	case <-time.After(100 * time.Millisecond):
 		// Continue
@@ -311,7 +314,7 @@ func (m *BaseModel) Load(ctx context.Context) error {
 	return nil
 }
 
-// Unload unloads the model
+// Unload unloads the model.
 func (m *BaseModel) Unload(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -346,14 +349,15 @@ func (m *BaseModel) Unload(ctx context.Context) error {
 	return nil
 }
 
-// IsLoaded returns true if the model is loaded
+// IsLoaded returns true if the model is loaded.
 func (m *BaseModel) IsLoaded() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.status == ModelStatusReady
 }
 
-// Predict performs prediction (base implementation)
+// Predict performs prediction (base implementation).
 func (m *BaseModel) Predict(ctx context.Context, input ModelInput) (ModelOutput, error) {
 	startTime := time.Now()
 
@@ -365,6 +369,7 @@ func (m *BaseModel) Predict(ctx context.Context, input ModelInput) (ModelOutput,
 	// Validate input
 	if err := m.ValidateInput(input); err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, fmt.Errorf("invalid input: %w", err)
 	}
 
@@ -378,7 +383,7 @@ func (m *BaseModel) Predict(ctx context.Context, input ModelInput) (ModelOutput,
 			},
 		},
 		Confidence: 0.5,
-		Metadata:   make(map[string]interface{}),
+		Metadata:   make(map[string]any),
 		RequestID:  input.RequestID,
 		Timestamp:  time.Now(),
 		Latency:    time.Since(startTime),
@@ -390,7 +395,7 @@ func (m *BaseModel) Predict(ctx context.Context, input ModelInput) (ModelOutput,
 	return output, nil
 }
 
-// BatchPredict performs batch prediction
+// BatchPredict performs batch prediction.
 func (m *BaseModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]ModelOutput, error) {
 	if len(inputs) == 0 {
 		return []ModelOutput{}, nil
@@ -404,21 +409,24 @@ func (m *BaseModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]Mo
 		if err != nil {
 			return nil, fmt.Errorf("batch prediction failed at index %d: %w", i, err)
 		}
+
 		outputs[i] = output
 	}
 
 	return outputs, nil
 }
 
-// GetMetrics returns model metrics
+// GetMetrics returns model metrics.
 func (m *BaseModel) GetMetrics() ModelMetrics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	// Calculate derived metrics
-	var avgLatency time.Duration
-	var errorRate float64
-	var throughput float64
+	var (
+		avgLatency time.Duration
+		errorRate  float64
+		throughput float64
+	)
 
 	if m.predictionCount > 0 {
 		avgLatency = m.totalLatency / time.Duration(m.predictionCount)
@@ -444,7 +452,7 @@ func (m *BaseModel) GetMetrics() ModelMetrics {
 	}
 }
 
-// GetHealth returns model health status
+// GetHealth returns model health status.
 func (m *BaseModel) GetHealth() ModelHealth {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -467,7 +475,7 @@ func (m *BaseModel) GetHealth() ModelHealth {
 
 	m.health.CheckedAt = time.Now()
 	m.health.Uptime = time.Since(m.loadedAt)
-	m.health.Details = map[string]interface{}{
+	m.health.Details = map[string]any{
 		"status":            m.status,
 		"predictions_count": m.predictionCount,
 		"error_count":       m.errorCount,
@@ -477,31 +485,30 @@ func (m *BaseModel) GetHealth() ModelHealth {
 	return m.health
 }
 
-// GetConfig returns model configuration
+// GetConfig returns model configuration.
 func (m *BaseModel) GetConfig() ModelConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.config
 }
 
-// GetMetadata returns model metadata
-func (m *BaseModel) GetMetadata() map[string]interface{} {
+// GetMetadata returns model metadata.
+func (m *BaseModel) GetMetadata() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	metadata := make(map[string]interface{})
-	for k, v := range m.metadata {
-		metadata[k] = v
-	}
+	metadata := make(map[string]any)
+	maps.Copy(metadata, m.metadata)
 
 	return metadata
 }
 
-// ValidateInput validates model input
+// ValidateInput validates model input.
 func (m *BaseModel) ValidateInput(input ModelInput) error {
 	// Basic validation
 	if input.Data == nil {
-		return fmt.Errorf("input data is nil")
+		return errors.New("input data is nil")
 	}
 
 	// Additional validation based on input schema
@@ -509,17 +516,17 @@ func (m *BaseModel) ValidateInput(input ModelInput) error {
 	return nil
 }
 
-// GetInputSchema returns the input schema
+// GetInputSchema returns the input schema.
 func (m *BaseModel) GetInputSchema() InputSchema {
 	return m.inputSchema
 }
 
-// GetOutputSchema returns the output schema
+// GetOutputSchema returns the output schema.
 func (m *BaseModel) GetOutputSchema() OutputSchema {
 	return m.outputSchema
 }
 
-// updateMetrics updates model metrics
+// updateMetrics updates model metrics.
 func (m *BaseModel) updateMetrics(latency time.Duration, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -533,42 +540,47 @@ func (m *BaseModel) updateMetrics(latency time.Duration, err error) {
 	}
 }
 
-// updateErrorCount updates error count
+// updateErrorCount updates error count.
 func (m *BaseModel) updateErrorCount() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.errorCount++
 }
 
-// SetInputSchema sets the input schema
+// SetInputSchema sets the input schema.
 func (m *BaseModel) SetInputSchema(schema InputSchema) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.inputSchema = schema
 }
 
-// SetOutputSchema sets the output schema
+// SetOutputSchema sets the output schema.
 func (m *BaseModel) SetOutputSchema(schema OutputSchema) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.outputSchema = schema
 }
 
-// SetMetadata sets model metadata
-func (m *BaseModel) SetMetadata(metadata map[string]interface{}) {
+// SetMetadata sets model metadata.
+func (m *BaseModel) SetMetadata(metadata map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.metadata = metadata
 }
 
-// GetStatus returns the current model status
+// GetStatus returns the current model status.
 func (m *BaseModel) GetStatus() ModelStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.status
 }
 
-// GetInfo returns comprehensive model information
+// GetInfo returns comprehensive model information.
 func (m *BaseModel) GetInfo() ModelInfo {
 	return ModelInfo{
 		ID:        m.ID(),

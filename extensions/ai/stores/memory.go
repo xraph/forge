@@ -9,14 +9,14 @@ import (
 	"github.com/xraph/forge/extensions/ai"
 )
 
-// MemoryAgentStore provides in-memory storage for agents (no database required)
+// MemoryAgentStore provides in-memory storage for agents (no database required).
 type MemoryAgentStore struct {
 	agents     map[string]*ai.AgentDefinition
 	executions map[string][]*ai.AgentExecution
 	mu         sync.RWMutex
 }
 
-// NewMemoryAgentStore creates a new in-memory agent store
+// NewMemoryAgentStore creates a new in-memory agent store.
 func NewMemoryAgentStore() *MemoryAgentStore {
 	return &MemoryAgentStore{
 		agents:     make(map[string]*ai.AgentDefinition),
@@ -24,7 +24,7 @@ func NewMemoryAgentStore() *MemoryAgentStore {
 	}
 }
 
-// Create creates a new agent
+// Create creates a new agent.
 func (s *MemoryAgentStore) Create(ctx context.Context, agent *ai.AgentDefinition) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -39,10 +39,11 @@ func (s *MemoryAgentStore) Create(ctx context.Context, agent *ai.AgentDefinition
 	agent.UpdatedAt = now
 
 	s.agents[agent.ID] = agent
+
 	return nil
 }
 
-// Get retrieves an agent by ID
+// Get retrieves an agent by ID.
 func (s *MemoryAgentStore) Get(ctx context.Context, id string) (*ai.AgentDefinition, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -55,7 +56,7 @@ func (s *MemoryAgentStore) Get(ctx context.Context, id string) (*ai.AgentDefinit
 	return agent, nil
 }
 
-// Update updates an existing agent
+// Update updates an existing agent.
 func (s *MemoryAgentStore) Update(ctx context.Context, agent *ai.AgentDefinition) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -66,10 +67,11 @@ func (s *MemoryAgentStore) Update(ctx context.Context, agent *ai.AgentDefinition
 
 	agent.UpdatedAt = time.Now()
 	s.agents[agent.ID] = agent
+
 	return nil
 }
 
-// Delete deletes an agent by ID
+// Delete deletes an agent by ID.
 func (s *MemoryAgentStore) Delete(ctx context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -80,10 +82,11 @@ func (s *MemoryAgentStore) Delete(ctx context.Context, id string) error {
 
 	delete(s.agents, id)
 	delete(s.executions, id) // Also delete execution history
+
 	return nil
 }
 
-// List lists agents with optional filters
+// List lists agents with optional filters.
 func (s *MemoryAgentStore) List(ctx context.Context, filter ai.AgentFilter) ([]*ai.AgentDefinition, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -102,17 +105,21 @@ func (s *MemoryAgentStore) List(ctx context.Context, filter ai.AgentFilter) ([]*
 
 		if len(filter.Tags) > 0 {
 			hasTag := false
+
 			for _, filterTag := range filter.Tags {
 				for _, agentTag := range agent.Tags {
 					if filterTag == agentTag {
 						hasTag = true
+
 						break
 					}
 				}
+
 				if hasTag {
 					break
 				}
 			}
+
 			if !hasTag {
 				continue
 			}
@@ -133,7 +140,7 @@ func (s *MemoryAgentStore) List(ctx context.Context, filter ai.AgentFilter) ([]*
 	return agents, nil
 }
 
-// GetExecutionHistory retrieves execution history for an agent
+// GetExecutionHistory retrieves execution history for an agent.
 func (s *MemoryAgentStore) GetExecutionHistory(ctx context.Context, agentID string, limit int) ([]*ai.AgentExecution, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -147,17 +154,19 @@ func (s *MemoryAgentStore) GetExecutionHistory(ctx context.Context, agentID stri
 	if limit > 0 && limit < len(executions) {
 		// Return last N executions
 		start := len(executions) - limit
+
 		return executions[start:], nil
 	}
 
 	return executions, nil
 }
 
-// RecordExecution records an agent execution (helper method)
+// RecordExecution records an agent execution (helper method).
 func (s *MemoryAgentStore) RecordExecution(ctx context.Context, execution *ai.AgentExecution) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.executions[execution.AgentID] = append(s.executions[execution.AgentID], execution)
+
 	return nil
 }

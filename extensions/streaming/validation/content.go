@@ -130,11 +130,11 @@ func (cv *ContentValidator) validateURLsInText(text string) error {
 	for _, urlStr := range urls {
 		// Check if URL is incomplete (just protocol)
 		if len(urlStr) <= 8 { // "https://" is 8 characters
-			return NewValidationError("content", fmt.Sprintf("incomplete URL: %s", urlStr), "INVALID_URL")
+			return NewValidationError("content", "incomplete URL: "+urlStr, "INVALID_URL")
 		}
 
 		if _, err := url.ParseRequestURI(urlStr); err != nil {
-			return NewValidationError("content", fmt.Sprintf("invalid URL: %s", urlStr), "INVALID_URL")
+			return NewValidationError("content", "invalid URL: "+urlStr, "INVALID_URL")
 		}
 	}
 
@@ -143,11 +143,11 @@ func (cv *ContentValidator) validateURLsInText(text string) error {
 
 func (cv *ContentValidator) validateEmailsInText(text string) error {
 	// Extract potential emails
-	words := strings.Fields(text)
-	for _, word := range words {
+	words := strings.FieldsSeq(text)
+	for word := range words {
 		if strings.Contains(word, "@") {
 			if !cv.emailRegex.MatchString(word) {
-				return NewValidationError("content", fmt.Sprintf("invalid email: %s", word), "INVALID_EMAIL")
+				return NewValidationError("content", "invalid email: "+word, "INVALID_EMAIL")
 			}
 		}
 	}

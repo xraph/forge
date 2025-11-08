@@ -8,12 +8,12 @@ import (
 	"github.com/xraph/forge"
 )
 
-// HTTPRouterAdapter wraps julienschmidt/httprouter
+// HTTPRouterAdapter wraps julienschmidt/httprouter.
 type HTTPRouterAdapter struct {
 	router *httprouter.Router
 }
 
-// NewHTTPRouterAdapter creates an HTTPRouter adapter
+// NewHTTPRouterAdapter creates an HTTPRouter adapter.
 func NewHTTPRouterAdapter() forge.RouterAdapter {
 	router := httprouter.New()
 	router.HandleMethodNotAllowed = false
@@ -23,7 +23,7 @@ func NewHTTPRouterAdapter() forge.RouterAdapter {
 	}
 }
 
-// Handle registers a route
+// Handle registers a route.
 func (a *HTTPRouterAdapter) Handle(method, path string, handler http.Handler) {
 	a.router.Handle(method, path, func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 		// Store params in context for retrieval
@@ -35,7 +35,7 @@ func (a *HTTPRouterAdapter) Handle(method, path string, handler http.Handler) {
 	})
 }
 
-// Mount registers a sub-handler
+// Mount registers a sub-handler.
 func (a *HTTPRouterAdapter) Mount(path string, handler http.Handler) {
 	// HTTPRouter doesn't have built-in Mount, use catch-all
 	a.router.Handler("GET", path+"/*filepath", handler)
@@ -47,25 +47,26 @@ func (a *HTTPRouterAdapter) Mount(path string, handler http.Handler) {
 	a.router.Handler("HEAD", path+"/*filepath", handler)
 }
 
-// ServeHTTP dispatches requests
+// ServeHTTP dispatches requests.
 func (a *HTTPRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.router.ServeHTTP(w, r)
 }
 
-// Close cleans up resources
+// Close cleans up resources.
 func (a *HTTPRouterAdapter) Close() error {
 	return nil
 }
 
-// paramsKey is the context key for httprouter params
+// paramsKey is the context key for httprouter params.
 type contextKey string
 
 const paramsKey contextKey = "httprouter:params"
 
-// GetHTTPRouterParams retrieves httprouter params from context
+// GetHTTPRouterParams retrieves httprouter params from context.
 func GetHTTPRouterParams(r *http.Request) httprouter.Params {
 	if ps := r.Context().Value(paramsKey); ps != nil {
 		return ps.(httprouter.Params)
 	}
+
 	return nil
 }

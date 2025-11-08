@@ -145,11 +145,13 @@ func TestCacheExtension_UsageInService(t *testing.T) {
 	// Register user service that depends on cache
 	err := forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
 		cache := forge.Must[Cache](c, "cache")
+
 		return &UserService{cache: cache}, nil
 	})
 	require.NoError(t, err)
 
 	ctx := context.Background()
+
 	_ = app.Start(ctx)
 	defer app.Stop(ctx)
 
@@ -209,6 +211,7 @@ func TestCacheExtension_ConcurrentAccess(t *testing.T) {
 	})
 
 	ctx := context.Background()
+
 	_ = app.Start(ctx)
 	defer app.Stop(ctx)
 
@@ -216,17 +219,19 @@ func TestCacheExtension_ConcurrentAccess(t *testing.T) {
 
 	// Run concurrent operations
 	done := make(chan bool)
-	for i := 0; i < 50; i++ {
+
+	for i := range 50 {
 		go func(idx int) {
 			key := fmt.Sprintf("key%d", idx)
-			_ = cache.Set(ctx, key, []byte(fmt.Sprintf("value%d", idx)), 1*time.Minute)
+			_ = cache.Set(ctx, key, fmt.Appendf(nil, "value%d", idx), 1*time.Minute)
 			_, _ = cache.Get(ctx, key)
 			_, _ = cache.Exists(ctx, key)
+
 			done <- true
 		}(i)
 	}
 
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		<-done
 	}
 }
@@ -269,6 +274,7 @@ func TestCacheExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 	// Start and verify it works
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 
 	cache := forge.Must[Cache](app.Container(), "cache")
@@ -305,6 +311,7 @@ func TestCacheExtension_ConfigLoading_FromLegacyKey(t *testing.T) {
 	// Start and verify it works
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 }
 
@@ -335,6 +342,7 @@ func TestCacheExtension_ConfigLoading_NamespacedTakesPrecedence(t *testing.T) {
 	// Start
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 }
 
@@ -367,6 +375,7 @@ func TestCacheExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 	// Start
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 }
 
@@ -396,6 +405,7 @@ func TestCacheExtension_ConfigLoading_NoConfigManager(t *testing.T) {
 	// Start
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 }
 
@@ -437,6 +447,7 @@ func TestCacheExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T)
 	// Start
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 }
 
@@ -479,6 +490,7 @@ func TestCacheExtension_ConfigLoading_RequireConfigFalse_WithoutConfig(t *testin
 	// Start
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 }
 
@@ -514,6 +526,7 @@ func TestCacheExtension_ConfigLoading_PartialConfig(t *testing.T) {
 	// Start
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 }
 
@@ -573,6 +586,7 @@ func TestCacheExtension_NewExtensionWithConfig(t *testing.T) {
 	// Start
 	err = app.Start(ctx)
 	require.NoError(t, err)
+
 	defer app.Stop(ctx)
 }
 
@@ -580,12 +594,11 @@ func TestCacheExtension_NewExtensionWithConfig(t *testing.T) {
 // BENCHMARKS
 // =============================================================================
 
-// Benchmark cache extension
+// Benchmark cache extension.
 func BenchmarkCacheExtension_Register(b *testing.B) {
 	config := DefaultConfig()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ext := NewExtension(WithConfig(config))
 		appConfig := forge.DefaultAppConfig()
 		appConfig.Logger = logger.NewTestLogger()
@@ -596,15 +609,13 @@ func BenchmarkCacheExtension_Register(b *testing.B) {
 
 func BenchmarkCacheExtension_RegisterWithConfigManager(b *testing.B) {
 	// Benchmark registration with ConfigManager
-
 	configManager := forge.NewManager(forge.ManagerConfig{})
-	configManager.Set("extensions.cache", map[string]interface{}{
+	configManager.Set("extensions.cache", map[string]any{
 		"driver":   "inmemory",
 		"max_size": 10000,
 	})
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		appConfig := forge.DefaultAppConfig()
 		appConfig.Logger = logger.NewTestLogger()
 		app := forge.NewApp(appConfig)

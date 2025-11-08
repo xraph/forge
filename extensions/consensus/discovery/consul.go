@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// ConsulDiscovery implements Consul-based service discovery
+// ConsulDiscovery implements Consul-based service discovery.
 type ConsulDiscovery struct {
 	client      *api.Client
 	serviceName string
@@ -36,7 +36,7 @@ type ConsulDiscovery struct {
 	checkInterval time.Duration
 }
 
-// ConsulDiscoveryConfig contains Consul discovery configuration
+// ConsulDiscoveryConfig contains Consul discovery configuration.
 type ConsulDiscoveryConfig struct {
 	Address       string
 	Datacenter    string
@@ -51,7 +51,7 @@ type ConsulDiscoveryConfig struct {
 	HealthCheck   *api.AgentServiceCheck
 }
 
-// NewConsulDiscovery creates a new Consul service discovery
+// NewConsulDiscovery creates a new Consul service discovery.
 func NewConsulDiscovery(config ConsulDiscoveryConfig, logger forge.Logger) (*ConsulDiscovery, error) {
 	// Create Consul client
 	consulConfig := api.DefaultConfig()
@@ -89,7 +89,7 @@ func NewConsulDiscovery(config ConsulDiscoveryConfig, logger forge.Logger) (*Con
 	}, nil
 }
 
-// Start starts the discovery service
+// Start starts the discovery service.
 func (cd *ConsulDiscovery) Start(ctx context.Context) error {
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
@@ -124,10 +124,12 @@ func (cd *ConsulDiscovery) Start(ctx context.Context) error {
 
 	// Start health check updater
 	cd.wg.Add(1)
+
 	go cd.healthCheckLoop()
 
 	// Start peer discovery loop
 	cd.wg.Add(1)
+
 	go cd.discoveryLoop()
 
 	cd.logger.Info("consul discovery started",
@@ -139,13 +141,16 @@ func (cd *ConsulDiscovery) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the discovery service
+// Stop stops the discovery service.
 func (cd *ConsulDiscovery) Stop(ctx context.Context) error {
 	cd.mu.Lock()
+
 	if !cd.started {
 		cd.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	cd.mu.Unlock()
 
 	if cd.cancel != nil {
@@ -161,6 +166,7 @@ func (cd *ConsulDiscovery) Stop(ctx context.Context) error {
 
 	// Wait for goroutines
 	done := make(chan struct{})
+
 	go func() {
 		cd.wg.Wait()
 		close(done)
@@ -176,16 +182,19 @@ func (cd *ConsulDiscovery) Stop(ctx context.Context) error {
 	return nil
 }
 
-// DiscoverPeers discovers peer nodes
+// DiscoverPeers discovers peer nodes.
 func (cd *ConsulDiscovery) DiscoverPeers(ctx context.Context) ([]internal.NodeInfo, error) {
 	// Check cache first
 	cd.cacheMu.RLock()
+
 	if time.Now().Before(cd.cacheExpiry) && len(cd.cachedPeers) > 0 {
 		peers := make([]internal.NodeInfo, len(cd.cachedPeers))
 		copy(peers, cd.cachedPeers)
 		cd.cacheMu.RUnlock()
+
 		return peers, nil
 	}
+
 	cd.cacheMu.RUnlock()
 
 	// Query Consul for healthy services
@@ -195,6 +204,7 @@ func (cd *ConsulDiscovery) DiscoverPeers(ctx context.Context) ([]internal.NodeIn
 	}
 
 	var peers []internal.NodeInfo
+
 	for _, service := range services {
 		// Skip ourselves
 		if service.Service.ID == cd.nodeID {
@@ -228,7 +238,7 @@ func (cd *ConsulDiscovery) DiscoverPeers(ctx context.Context) ([]internal.NodeIn
 	return peers, nil
 }
 
-// healthCheckLoop maintains the health check
+// healthCheckLoop maintains the health check.
 func (cd *ConsulDiscovery) healthCheckLoop() {
 	defer cd.wg.Done()
 
@@ -239,7 +249,7 @@ func (cd *ConsulDiscovery) healthCheckLoop() {
 		select {
 		case <-ticker.C:
 			// Update TTL check
-			checkID := fmt.Sprintf("service:%s", cd.nodeID)
+			checkID := "service:" + cd.nodeID
 			if err := cd.client.Agent().UpdateTTL(checkID, "healthy", api.HealthPassing); err != nil {
 				cd.logger.Error("failed to update health check",
 					forge.F("error", err),
@@ -252,7 +262,7 @@ func (cd *ConsulDiscovery) healthCheckLoop() {
 	}
 }
 
-// discoveryLoop periodically discovers peers
+// discoveryLoop periodically discovers peers.
 func (cd *ConsulDiscovery) discoveryLoop() {
 	defer cd.wg.Done()
 
@@ -275,7 +285,7 @@ func (cd *ConsulDiscovery) discoveryLoop() {
 	}
 }
 
-// GetNodeInfo returns information about a specific node
+// GetNodeInfo returns information about a specific node.
 func (cd *ConsulDiscovery) GetNodeInfo(nodeID string) (*internal.NodeInfo, error) {
 	peers, err := cd.DiscoverPeers(cd.ctx)
 	if err != nil {
@@ -291,13 +301,11 @@ func (cd *ConsulDiscovery) GetNodeInfo(nodeID string) (*internal.NodeInfo, error
 	return nil, internal.ErrNodeNotFound
 }
 
-// WatchPeers watches for peer changes
+// WatchPeers watches for peer changes.
 func (cd *ConsulDiscovery) WatchPeers(ctx context.Context) (<-chan []internal.NodeInfo, error) {
 	ch := make(chan []internal.NodeInfo, 1)
 
-	cd.wg.Add(1)
-	go func() {
-		defer cd.wg.Done()
+	cd.wg.Go(func() {
 		defer close(ch)
 
 		ticker := time.NewTicker(5 * time.Second)
@@ -313,6 +321,7 @@ func (cd *ConsulDiscovery) WatchPeers(ctx context.Context) (<-chan []internal.No
 					cd.logger.Error("failed to watch peers",
 						forge.F("error", err),
 					)
+
 					continue
 				}
 
@@ -332,12 +341,12 @@ func (cd *ConsulDiscovery) WatchPeers(ctx context.Context) (<-chan []internal.No
 				return
 			}
 		}
-	}()
+	})
 
 	return ch, nil
 }
 
-// peersEqual checks if two peer lists are equal
+// peersEqual checks if two peer lists are equal.
 func peersEqual(a, b []internal.NodeInfo) bool {
 	if len(a) != len(b) {
 		return false

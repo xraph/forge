@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// DNSDiscovery implements DNS-based service discovery
+// DNSDiscovery implements DNS-based service discovery.
 type DNSDiscovery struct {
 	domain          string
 	port            int
@@ -34,7 +34,7 @@ type DNSDiscovery struct {
 	listenersMu     sync.RWMutex
 }
 
-// DNSDiscoveryConfig contains DNS discovery configuration
+// DNSDiscoveryConfig contains DNS discovery configuration.
 type DNSDiscoveryConfig struct {
 	Domain          string
 	Port            int
@@ -42,7 +42,7 @@ type DNSDiscoveryConfig struct {
 	DNSServers      []string
 }
 
-// NewDNSDiscovery creates a new DNS-based discovery service
+// NewDNSDiscovery creates a new DNS-based discovery service.
 func NewDNSDiscovery(config DNSDiscoveryConfig, logger forge.Logger) *DNSDiscovery {
 	if config.RefreshInterval == 0 {
 		config.RefreshInterval = 30 * time.Second
@@ -60,6 +60,7 @@ func NewDNSDiscovery(config DNSDiscoveryConfig, logger forge.Logger) *DNSDiscove
 		// Custom DNS servers
 		resolver.Dial = func(ctx context.Context, network, address string) (net.Conn, error) {
 			d := net.Dialer{}
+
 			return d.DialContext(ctx, network, config.DNSServers[0])
 		}
 	}
@@ -75,7 +76,7 @@ func NewDNSDiscovery(config DNSDiscoveryConfig, logger forge.Logger) *DNSDiscove
 	}
 }
 
-// Start starts the DNS discovery service
+// Start starts the DNS discovery service.
 func (dd *DNSDiscovery) Start(ctx context.Context) error {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
@@ -96,6 +97,7 @@ func (dd *DNSDiscovery) Start(ctx context.Context) error {
 
 	// Start refresh loop
 	dd.wg.Add(1)
+
 	go dd.runRefreshLoop()
 
 	dd.logger.Info("DNS discovery started",
@@ -107,13 +109,16 @@ func (dd *DNSDiscovery) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the DNS discovery service
+// Stop stops the DNS discovery service.
 func (dd *DNSDiscovery) Stop(ctx context.Context) error {
 	dd.mu.Lock()
+
 	if !dd.started {
 		dd.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	dd.mu.Unlock()
 
 	if dd.cancel != nil {
@@ -122,6 +127,7 @@ func (dd *DNSDiscovery) Stop(ctx context.Context) error {
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		dd.wg.Wait()
 		close(done)
@@ -136,30 +142,34 @@ func (dd *DNSDiscovery) Stop(ctx context.Context) error {
 
 	// Close all change listeners
 	dd.listenersMu.Lock()
+
 	for _, ch := range dd.changeListeners {
 		close(ch)
 	}
+
 	dd.changeListeners = nil
 	dd.listenersMu.Unlock()
 
 	return nil
 }
 
-// Register registers this node with the discovery service (no-op for DNS)
+// Register registers this node with the discovery service (no-op for DNS).
 func (dd *DNSDiscovery) Register(ctx context.Context, node internal.NodeInfo) error {
 	// DNS discovery is read-only, registration happens externally
 	dd.logger.Info("register called (no-op for DNS discovery)")
+
 	return nil
 }
 
-// Unregister unregisters this node from the discovery service (no-op for DNS)
+// Unregister unregisters this node from the discovery service (no-op for DNS).
 func (dd *DNSDiscovery) Unregister(ctx context.Context) error {
 	// DNS discovery is read-only, deregistration happens externally
 	dd.logger.Info("unregister called (no-op for DNS discovery)")
+
 	return nil
 }
 
-// GetNodes returns all discovered nodes
+// GetNodes returns all discovered nodes.
 func (dd *DNSDiscovery) GetNodes(ctx context.Context) ([]internal.NodeInfo, error) {
 	dd.nodesMu.RLock()
 	defer dd.nodesMu.RUnlock()
@@ -172,7 +182,7 @@ func (dd *DNSDiscovery) GetNodes(ctx context.Context) ([]internal.NodeInfo, erro
 	return nodes, nil
 }
 
-// Watch watches for node changes
+// Watch watches for node changes.
 func (dd *DNSDiscovery) Watch(ctx context.Context) (<-chan internal.NodeChangeEvent, error) {
 	ch := make(chan internal.NodeChangeEvent, 10)
 
@@ -182,10 +192,12 @@ func (dd *DNSDiscovery) Watch(ctx context.Context) (<-chan internal.NodeChangeEv
 
 	// Send initial nodes as "added" events
 	dd.nodesMu.RLock()
+
 	initialNodes := make([]internal.NodeInfo, 0, len(dd.nodes))
 	for _, node := range dd.nodes {
 		initialNodes = append(initialNodes, node)
 	}
+
 	dd.nodesMu.RUnlock()
 
 	go func() {
@@ -204,7 +216,7 @@ func (dd *DNSDiscovery) Watch(ctx context.Context) (<-chan internal.NodeChangeEv
 	return ch, nil
 }
 
-// runRefreshLoop runs the refresh loop
+// runRefreshLoop runs the refresh loop.
 func (dd *DNSDiscovery) runRefreshLoop() {
 	defer dd.wg.Done()
 
@@ -226,7 +238,7 @@ func (dd *DNSDiscovery) runRefreshLoop() {
 	}
 }
 
-// refresh performs DNS lookup and updates nodes
+// refresh performs DNS lookup and updates nodes.
 func (dd *DNSDiscovery) refresh() error {
 	ctx, cancel := context.WithTimeout(dd.ctx, 10*time.Second)
 	defer cancel()
@@ -239,6 +251,7 @@ func (dd *DNSDiscovery) refresh() error {
 
 	// Convert addresses to NodeInfo
 	newNodes := make(map[string]internal.NodeInfo)
+
 	for i, addr := range addrs {
 		// Generate node ID from address
 		nodeID := fmt.Sprintf("dns-%s-%d", addr, dd.port)
@@ -276,7 +289,7 @@ func (dd *DNSDiscovery) refresh() error {
 	return nil
 }
 
-// detectAndNotifyChanges detects and notifies listeners of node changes
+// detectAndNotifyChanges detects and notifies listeners of node changes.
 func (dd *DNSDiscovery) detectAndNotifyChanges(oldNodes, newNodes map[string]internal.NodeInfo) {
 	// Detect removed nodes
 	for nodeID, node := range oldNodes {
@@ -299,7 +312,7 @@ func (dd *DNSDiscovery) detectAndNotifyChanges(oldNodes, newNodes map[string]int
 	}
 }
 
-// notifyListeners notifies all listeners of a node change
+// notifyListeners notifies all listeners of a node change.
 func (dd *DNSDiscovery) notifyListeners(event internal.NodeChangeEvent) {
 	dd.listenersMu.RLock()
 	listeners := dd.changeListeners

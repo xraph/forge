@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// Tracer provides distributed tracing functionality
+// Tracer provides distributed tracing functionality.
 type Tracer struct {
 	config    TracingConfig
 	spans     map[string]*Span
@@ -19,24 +19,24 @@ type Tracer struct {
 	exporters []SpanExporter
 }
 
-// TracingConfig contains tracing configuration
+// TracingConfig contains tracing configuration.
 type TracingConfig struct {
-	ServiceName    string        `yaml:"service_name" default:"forge-service"`
-	ServiceVersion string        `yaml:"service_version" default:"1.0.0"`
-	Environment    string        `yaml:"environment" default:"development"`
-	SamplingRate   float64       `yaml:"sampling_rate" default:"1.0"`
-	MaxSpans       int           `yaml:"max_spans" default:"10000"`
-	FlushInterval  time.Duration `yaml:"flush_interval" default:"5s"`
-	EnableB3       bool          `yaml:"enable_b3" default:"true"`
-	EnableW3C      bool          `yaml:"enable_w3c" default:"true"`
-	EnableJaeger   bool          `yaml:"enable_jaeger" default:"false"`
-	JaegerEndpoint string        `yaml:"jaeger_endpoint" default:"http://localhost:14268/api/traces"`
-	EnableZipkin   bool          `yaml:"enable_zipkin" default:"false"`
-	ZipkinEndpoint string        `yaml:"zipkin_endpoint" default:"http://localhost:9411/api/v2/spans"`
+	ServiceName    string        `default:"forge-service"                      yaml:"service_name"`
+	ServiceVersion string        `default:"1.0.0"                              yaml:"service_version"`
+	Environment    string        `default:"development"                        yaml:"environment"`
+	SamplingRate   float64       `default:"1.0"                                yaml:"sampling_rate"`
+	MaxSpans       int           `default:"10000"                              yaml:"max_spans"`
+	FlushInterval  time.Duration `default:"5s"                                 yaml:"flush_interval"`
+	EnableB3       bool          `default:"true"                               yaml:"enable_b3"`
+	EnableW3C      bool          `default:"true"                               yaml:"enable_w3c"`
+	EnableJaeger   bool          `default:"false"                              yaml:"enable_jaeger"`
+	JaegerEndpoint string        `default:"http://localhost:14268/api/traces"  yaml:"jaeger_endpoint"`
+	EnableZipkin   bool          `default:"false"                              yaml:"enable_zipkin"`
+	ZipkinEndpoint string        `default:"http://localhost:9411/api/v2/spans" yaml:"zipkin_endpoint"`
 	Logger         logger.Logger `yaml:"-"`
 }
 
-// Span represents a tracing span
+// Span represents a tracing span.
 type Span struct {
 	TraceID      string            `json:"trace_id"`
 	SpanID       string            `json:"span_id"`
@@ -54,7 +54,7 @@ type Span struct {
 	mu           sync.RWMutex
 }
 
-// SpanKind represents the kind of span
+// SpanKind represents the kind of span.
 type SpanKind int
 
 const (
@@ -66,7 +66,7 @@ const (
 	SpanKindConsumer
 )
 
-// SpanStatus represents the status of a span
+// SpanStatus represents the status of a span.
 type SpanStatus int
 
 const (
@@ -75,27 +75,27 @@ const (
 	SpanStatusError
 )
 
-// SpanEvent represents an event within a span
+// SpanEvent represents an event within a span.
 type SpanEvent struct {
 	Name       string            `json:"name"`
 	Timestamp  time.Time         `json:"timestamp"`
 	Attributes map[string]string `json:"attributes"`
 }
 
-// SpanLink represents a link to another span
+// SpanLink represents a link to another span.
 type SpanLink struct {
 	TraceID    string            `json:"trace_id"`
 	SpanID     string            `json:"span_id"`
 	Attributes map[string]string `json:"attributes"`
 }
 
-// SpanExporter interface for exporting spans
+// SpanExporter interface for exporting spans.
 type SpanExporter interface {
 	ExportSpans(ctx context.Context, spans []*Span) error
 	Shutdown(ctx context.Context) error
 }
 
-// TraceContext represents trace context information
+// TraceContext represents trace context information.
 type TraceContext struct {
 	TraceID string `json:"trace_id"`
 	SpanID  string `json:"span_id"`
@@ -103,7 +103,7 @@ type TraceContext struct {
 	Flags   string `json:"flags"`
 }
 
-// NewTracer creates a new tracer
+// NewTracer creates a new tracer.
 func NewTracer(config TracingConfig) *Tracer {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -125,7 +125,7 @@ func NewTracer(config TracingConfig) *Tracer {
 	return tracer
 }
 
-// StartSpan starts a new span
+// StartSpan starts a new span.
 func (t *Tracer) StartSpan(ctx context.Context, name string, opts ...SpanOption) (context.Context, *Span) {
 	// Check sampling
 	if !t.shouldSample() {
@@ -178,7 +178,7 @@ func (t *Tracer) StartSpan(ctx context.Context, name string, opts ...SpanOption)
 	return ctx, span
 }
 
-// EndSpan ends a span
+// EndSpan ends a span.
 func (t *Tracer) EndSpan(span *Span) {
 	if span == nil {
 		return
@@ -195,13 +195,14 @@ func (t *Tracer) EndSpan(span *Span) {
 	t.mu.Unlock()
 }
 
-// AddEvent adds an event to a span
+// AddEvent adds an event to a span.
 func (t *Tracer) AddEvent(span *Span, name string, attributes map[string]string) {
 	if span == nil {
 		return
 	}
 
 	span.mu.Lock()
+
 	event := SpanEvent{
 		Name:       name,
 		Timestamp:  time.Now(),
@@ -211,7 +212,7 @@ func (t *Tracer) AddEvent(span *Span, name string, attributes map[string]string)
 	span.mu.Unlock()
 }
 
-// SetAttribute sets an attribute on a span
+// SetAttribute sets an attribute on a span.
 func (t *Tracer) SetAttribute(span *Span, key, value string) {
 	if span == nil {
 		return
@@ -222,7 +223,7 @@ func (t *Tracer) SetAttribute(span *Span, key, value string) {
 	span.mu.Unlock()
 }
 
-// SetStatus sets the status of a span
+// SetStatus sets the status of a span.
 func (t *Tracer) SetStatus(span *Span, status SpanStatus) {
 	if span == nil {
 		return
@@ -233,13 +234,14 @@ func (t *Tracer) SetStatus(span *Span, status SpanStatus) {
 	span.mu.Unlock()
 }
 
-// AddLink adds a link to another span
+// AddLink adds a link to another span.
 func (t *Tracer) AddLink(span *Span, traceID, spanID string, attributes map[string]string) {
 	if span == nil {
 		return
 	}
 
 	span.mu.Lock()
+
 	link := SpanLink{
 		TraceID:    traceID,
 		SpanID:     spanID,
@@ -249,34 +251,37 @@ func (t *Tracer) AddLink(span *Span, traceID, spanID string, attributes map[stri
 	span.mu.Unlock()
 }
 
-// GetSpanFromContext gets the current span from context
+// GetSpanFromContext gets the current span from context.
 func (t *Tracer) GetSpanFromContext(ctx context.Context) *Span {
 	span, ok := ctx.Value("span").(*Span)
 	if !ok {
 		return nil
 	}
+
 	return span
 }
 
-// GetTraceIDFromContext gets the trace ID from context
+// GetTraceIDFromContext gets the trace ID from context.
 func (t *Tracer) GetTraceIDFromContext(ctx context.Context) string {
 	traceID, ok := ctx.Value("trace_id").(string)
 	if !ok {
 		return ""
 	}
+
 	return traceID
 }
 
-// GetSpanIDFromContext gets the span ID from context
+// GetSpanIDFromContext gets the span ID from context.
 func (t *Tracer) GetSpanIDFromContext(ctx context.Context) string {
 	spanID, ok := ctx.Value("span_id").(string)
 	if !ok {
 		return ""
 	}
+
 	return spanID
 }
 
-// InjectTraceContext injects trace context into headers
+// InjectTraceContext injects trace context into headers.
 func (t *Tracer) InjectTraceContext(ctx context.Context, headers map[string]string) {
 	traceID := t.GetTraceIDFromContext(ctx)
 	spanID := t.GetSpanIDFromContext(ctx)
@@ -296,7 +301,7 @@ func (t *Tracer) InjectTraceContext(ctx context.Context, headers map[string]stri
 	}
 }
 
-// ExtractTraceContext extracts trace context from headers
+// ExtractTraceContext extracts trace context from headers.
 func (t *Tracer) ExtractTraceContext(ctx context.Context, headers map[string]string) context.Context {
 	var traceID, spanID string
 
@@ -304,6 +309,7 @@ func (t *Tracer) ExtractTraceContext(ctx context.Context, headers map[string]str
 	if b3TraceID, exists := headers["X-B3-TraceId"]; exists {
 		traceID = b3TraceID
 	}
+
 	if b3SpanID, exists := headers["X-B3-SpanId"]; exists {
 		spanID = b3SpanID
 	}
@@ -326,33 +332,34 @@ func (t *Tracer) ExtractTraceContext(ctx context.Context, headers map[string]str
 	return ctx
 }
 
-// shouldSample determines if a span should be sampled
+// shouldSample determines if a span should be sampled.
 func (t *Tracer) shouldSample() bool {
 	// Simple sampling based on rate
 	// In a real implementation, this would be more sophisticated
 	return true // For now, always sample
 }
 
-// generateTraceID generates a new trace ID
+// generateTraceID generates a new trace ID.
 func (t *Tracer) generateTraceID() string {
 	return fmt.Sprintf("%016x", time.Now().UnixNano())
 }
 
-// generateSpanID generates a new span ID
+// generateSpanID generates a new span ID.
 func (t *Tracer) generateSpanID() string {
 	return fmt.Sprintf("%08x", time.Now().UnixNano())
 }
 
-// getParentSpan gets the parent span from context
+// getParentSpan gets the parent span from context.
 func (t *Tracer) getParentSpan(ctx context.Context) *Span {
 	span, ok := ctx.Value("span").(*Span)
 	if !ok {
 		return nil
 	}
+
 	return span
 }
 
-// initializeExporters initializes span exporters
+// initializeExporters initializes span exporters.
 func (t *Tracer) initializeExporters() {
 	// Initialize Jaeger exporter if enabled
 	if t.config.EnableJaeger {
@@ -367,7 +374,7 @@ func (t *Tracer) initializeExporters() {
 	}
 }
 
-// startFlush starts the flush goroutine
+// startFlush starts the flush goroutine.
 func (t *Tracer) startFlush() {
 	ticker := time.NewTicker(t.config.FlushInterval)
 	defer ticker.Stop()
@@ -377,13 +384,15 @@ func (t *Tracer) startFlush() {
 	}
 }
 
-// flushSpans flushes completed spans to exporters
+// flushSpans flushes completed spans to exporters.
 func (t *Tracer) flushSpans() {
 	t.mu.RLock()
+
 	spans := make([]*Span, 0, len(t.spans))
 	for _, span := range t.spans {
 		spans = append(spans, span)
 	}
+
 	t.mu.RUnlock()
 
 	if len(spans) == 0 {
@@ -398,7 +407,7 @@ func (t *Tracer) flushSpans() {
 	}
 }
 
-// GetStats returns tracing statistics
+// GetStats returns tracing statistics.
 func (t *Tracer) GetStats() map[string]interface{} {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -413,7 +422,7 @@ func (t *Tracer) GetStats() map[string]interface{} {
 	}
 }
 
-// Shutdown shuts down the tracer
+// Shutdown shuts down the tracer.
 func (t *Tracer) Shutdown(ctx context.Context) error {
 	// Flush remaining spans
 	t.flushSpans()
@@ -428,28 +437,28 @@ func (t *Tracer) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// SpanOption represents a span option
+// SpanOption represents a span option.
 type SpanOption func(*Span)
 
 // Helper functions
 
-// splitTraceparent splits a traceparent header
+// splitTraceparent splits a traceparent header.
 func splitTraceparent(traceparent string) []string {
 	// Parse traceparent header: 00-{trace-id}-{span-id}-{trace-flags}
 	return strings.Split(traceparent, "-")
 }
 
-// NewJaegerExporter creates a new Jaeger exporter
+// NewJaegerExporter creates a new Jaeger exporter.
 func NewJaegerExporter(endpoint string) SpanExporter {
 	return &JaegerExporter{endpoint: endpoint}
 }
 
-// NewZipkinExporter creates a new Zipkin exporter
+// NewZipkinExporter creates a new Zipkin exporter.
 func NewZipkinExporter(endpoint string) SpanExporter {
 	return &ZipkinExporter{endpoint: endpoint}
 }
 
-// JaegerExporter implements SpanExporter for Jaeger
+// JaegerExporter implements SpanExporter for Jaeger.
 type JaegerExporter struct {
 	endpoint string
 }
@@ -463,7 +472,7 @@ func (e *JaegerExporter) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// ZipkinExporter implements SpanExporter for Zipkin
+// ZipkinExporter implements SpanExporter for Zipkin.
 type ZipkinExporter struct {
 	endpoint string
 }

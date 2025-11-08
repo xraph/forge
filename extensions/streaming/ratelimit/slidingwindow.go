@@ -85,10 +85,7 @@ func (sw *slidingWindow) GetStatus(ctx context.Context, key string, action strin
 			return nil, err
 		}
 
-		remaining := limit.Requests - int(count)
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining := max(limit.Requests-int(count), 0)
 
 		return &RateLimitStatus{
 			Allowed:   count <= int64(limit.Requests),
@@ -116,10 +113,7 @@ func (sw *slidingWindow) GetStatus(ctx context.Context, key string, action strin
 	count := sw.countInWindow(w, windowStart)
 	w.mu.Unlock()
 
-	remaining := limit.Requests - count
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(limit.Requests-count, 0)
 
 	return &RateLimitStatus{
 		Allowed:   count < limit.Requests,
@@ -148,6 +142,7 @@ func (sw *slidingWindow) allowInMemory(key, action string, limit RateLimit, n in
 	fullKey := sw.makeKey(key, action)
 
 	sw.mu.Lock()
+
 	w, ok := sw.windows[fullKey]
 	if !ok {
 		w = &window{
@@ -155,6 +150,7 @@ func (sw *slidingWindow) allowInMemory(key, action string, limit RateLimit, n in
 		}
 		sw.windows[fullKey] = w
 	}
+
 	sw.mu.Unlock()
 
 	w.mu.Lock()
@@ -225,7 +221,8 @@ func (sw *slidingWindow) makeKey(key, action string) string {
 	if action != "" {
 		return fmt.Sprintf("ratelimit:sw:%s:%s", key, action)
 	}
-	return fmt.Sprintf("ratelimit:sw:%s", key)
+
+	return "ratelimit:sw:" + key
 }
 
 func (sw *slidingWindow) cleanup() {
@@ -234,16 +231,21 @@ func (sw *slidingWindow) cleanup() {
 
 	for range ticker.C {
 		sw.mu.Lock()
+
 		now := time.Now()
+
 		for key, w := range sw.windows {
 			w.mu.Lock()
 			// Clean windows older than 1 hour
 			sw.cleanWindow(w, now.Add(-time.Hour))
+
 			if len(w.counts) == 0 {
 				delete(sw.windows, key)
 			}
+
 			w.mu.Unlock()
 		}
+
 		sw.mu.Unlock()
 	}
 }

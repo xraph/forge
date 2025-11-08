@@ -14,7 +14,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// DatabaseManager manages multiple database connections
+// DatabaseManager manages multiple database connections.
 type DatabaseManager struct {
 	databases map[string]Database
 	logger    forge.Logger
@@ -22,7 +22,7 @@ type DatabaseManager struct {
 	mu        sync.RWMutex
 }
 
-// NewDatabaseManager creates a new database manager
+// NewDatabaseManager creates a new database manager.
 func NewDatabaseManager(logger forge.Logger, metrics forge.Metrics) *DatabaseManager {
 	return &DatabaseManager{
 		databases: make(map[string]Database),
@@ -31,7 +31,7 @@ func NewDatabaseManager(logger forge.Logger, metrics forge.Metrics) *DatabaseMan
 	}
 }
 
-// Register adds a database to the manager
+// Register adds a database to the manager.
 func (m *DatabaseManager) Register(name string, db Database) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -46,7 +46,7 @@ func (m *DatabaseManager) Register(name string, db Database) error {
 	return nil
 }
 
-// Get retrieves a database by name
+// Get retrieves a database by name.
 func (m *DatabaseManager) Get(name string) (Database, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -59,7 +59,7 @@ func (m *DatabaseManager) Get(name string) (Database, error) {
 	return db, nil
 }
 
-// SQL retrieves an SQL database with Bun ORM by name
+// SQL retrieves an SQL database with Bun ORM by name.
 func (m *DatabaseManager) SQL(name string) (*bun.DB, error) {
 	db, err := m.Get(name)
 	if err != nil {
@@ -74,7 +74,7 @@ func (m *DatabaseManager) SQL(name string) (*bun.DB, error) {
 	return sqlDB.Bun(), nil
 }
 
-// Mongo retrieves a MongoDB client by name
+// Mongo retrieves a MongoDB client by name.
 func (m *DatabaseManager) Mongo(name string) (*mongo.Client, error) {
 	db, err := m.Get(name)
 	if err != nil {
@@ -89,7 +89,7 @@ func (m *DatabaseManager) Mongo(name string) (*mongo.Client, error) {
 	return mongoDB.Client(), nil
 }
 
-// MongoDatabase retrieves a MongoDB database wrapper by name
+// MongoDatabase retrieves a MongoDB database wrapper by name.
 func (m *DatabaseManager) MongoDatabase(name string) (*MongoDatabase, error) {
 	db, err := m.Get(name)
 	if err != nil {
@@ -104,7 +104,7 @@ func (m *DatabaseManager) MongoDatabase(name string) (*MongoDatabase, error) {
 	return mongoDB, nil
 }
 
-// MultiError represents multiple database errors
+// MultiError represents multiple database errors.
 type MultiError struct {
 	Errors map[string]error
 }
@@ -118,15 +118,16 @@ func (e *MultiError) Error() string {
 	for name, err := range e.Errors {
 		msgs = append(msgs, fmt.Sprintf("%s: %v", name, err))
 	}
-	return fmt.Sprintf("multiple database errors: %s", strings.Join(msgs, "; "))
+
+	return "multiple database errors: " + strings.Join(msgs, "; ")
 }
 
-// HasErrors returns true if there are any errors
+// HasErrors returns true if there are any errors.
 func (e *MultiError) HasErrors() bool {
 	return len(e.Errors) > 0
 }
 
-// OpenAll opens all registered databases, collecting errors without stopping
+// OpenAll opens all registered databases, collecting errors without stopping.
 func (m *DatabaseManager) OpenAll(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -141,6 +142,7 @@ func (m *DatabaseManager) OpenAll(ctx context.Context) error {
 				logger.String("type", string(db.Type())),
 				logger.Error(err),
 			)
+
 			if m.metrics != nil {
 				m.metrics.Counter("db_open_failures",
 					"db", name,
@@ -158,10 +160,11 @@ func (m *DatabaseManager) OpenAll(ctx context.Context) error {
 	if multiErr.HasErrors() {
 		return multiErr
 	}
+
 	return nil
 }
 
-// CloseAll closes all registered databases, collecting errors without stopping
+// CloseAll closes all registered databases, collecting errors without stopping.
 func (m *DatabaseManager) CloseAll(ctx context.Context) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -186,10 +189,11 @@ func (m *DatabaseManager) CloseAll(ctx context.Context) error {
 	if multiErr.HasErrors() {
 		return multiErr
 	}
+
 	return nil
 }
 
-// HealthCheckAll performs health checks on all databases
+// HealthCheckAll performs health checks on all databases.
 func (m *DatabaseManager) HealthCheckAll(ctx context.Context) map[string]HealthStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -202,7 +206,7 @@ func (m *DatabaseManager) HealthCheckAll(ctx context.Context) map[string]HealthS
 	return statuses
 }
 
-// List returns the names of all registered databases
+// List returns the names of all registered databases.
 func (m *DatabaseManager) List() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// Example_errorCodes demonstrates using error code constants
+// Example_errorCodes demonstrates using error code constants.
 func Example_errorCodes() {
 	// Create errors using constructors (they use the constants internally)
 	err := ErrServiceNotFound("database")
@@ -38,7 +38,7 @@ func Example_errorCodes() {
 	// Matched using helper
 }
 
-// Example_errorConstants demonstrates the available error code constants
+// Example_errorConstants demonstrates the available error code constants.
 func Example_errorConstants() {
 	// All available error code constants:
 	codes := []string{
@@ -69,7 +69,7 @@ func Example_errorConstants() {
 	// Code: TIMEOUT_ERROR
 }
 
-// Example_forgeErrorWithConstants shows creating custom ForgeErrors with constants
+// Example_forgeErrorWithConstants shows creating custom ForgeErrors with constants.
 func Example_forgeErrorWithConstants() {
 	// When creating custom ForgeErrors, use the constants
 	customErr := &ForgeError{
@@ -89,7 +89,7 @@ func Example_forgeErrorWithConstants() {
 	// This is a validation error
 }
 
-// Example_errorMatching demonstrates various error matching patterns
+// Example_errorMatching demonstrates various error matching patterns.
 func Example_errorMatching() {
 	// Create a wrapped error chain
 	baseErr := ErrServiceNotFound("auth")

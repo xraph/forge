@@ -25,6 +25,7 @@ func NewDistributedBackend(client *redis.Client, nodeID, prefix string) streamin
 	if prefix == "" {
 		prefix = "streaming:distributed"
 	}
+
 	if nodeID == "" {
 		nodeID = uuid.New().String()
 	}
@@ -40,7 +41,7 @@ func NewDistributedBackend(client *redis.Client, nodeID, prefix string) streamin
 func (d *DistributedBackend) RegisterNode(ctx context.Context, nodeID string, metadata map[string]any) error {
 	nodeKey := fmt.Sprintf("%s:nodes:%s", d.prefix, nodeID)
 
-	nodeData := map[string]interface{}{
+	nodeData := map[string]any{
 		"id":         nodeID,
 		"registered": time.Now().Unix(),
 		"metadata":   metadata,
@@ -57,12 +58,15 @@ func (d *DistributedBackend) RegisterNode(ctx context.Context, nodeID string, me
 
 func (d *DistributedBackend) UnregisterNode(ctx context.Context, nodeID string) error {
 	nodeKey := fmt.Sprintf("%s:nodes:%s", d.prefix, nodeID)
+
 	return d.client.Del(ctx, nodeKey).Err()
 }
 
 func (d *DistributedBackend) GetNodes(ctx context.Context) ([]streaming.NodeInfo, error) {
-	pattern := fmt.Sprintf("%s:nodes:*", d.prefix)
+	pattern := d.prefix + ":nodes:*"
+
 	var cursor uint64
+
 	nodes := make([]streaming.NodeInfo, 0)
 
 	for {
@@ -77,7 +81,7 @@ func (d *DistributedBackend) GetNodes(ctx context.Context) ([]streaming.NodeInfo
 				continue
 			}
 
-			var nodeData map[string]interface{}
+			var nodeData map[string]any
 			if err := json.Unmarshal([]byte(data), &nodeData); err != nil {
 				continue
 			}
@@ -105,14 +109,15 @@ func (d *DistributedBackend) GetNode(ctx context.Context, nodeID string) (*strea
 	nodeKey := fmt.Sprintf("%s:nodes:%s", d.prefix, nodeID)
 
 	data, err := d.client.Get(ctx, nodeKey).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, streaming.ErrNodeNotFound
 	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	var nodeData map[string]interface{}
+	var nodeData map[string]any
 	if err := json.Unmarshal([]byte(data), &nodeData); err != nil {
 		return nil, err
 	}
@@ -181,7 +186,7 @@ func (d *DistributedBackend) Unsubscribe(ctx context.Context, channel string) er
 func (d *DistributedBackend) SetPresence(ctx context.Context, userID, status string, ttl time.Duration) error {
 	presenceKey := fmt.Sprintf("%s:presence:%s", d.prefix, userID)
 
-	presenceData := map[string]interface{}{
+	presenceData := map[string]any{
 		"user_id": userID,
 		"status":  status,
 		"updated": time.Now().Unix(),
@@ -199,14 +204,15 @@ func (d *DistributedBackend) GetPresence(ctx context.Context, userID string) (*s
 	presenceKey := fmt.Sprintf("%s:presence:%s", d.prefix, userID)
 
 	data, err := d.client.Get(ctx, presenceKey).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, streaming.ErrPresenceNotFound
 	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	var presenceData map[string]interface{}
+	var presenceData map[string]any
 	if err := json.Unmarshal([]byte(data), &presenceData); err != nil {
 		return nil, err
 	}
@@ -219,8 +225,10 @@ func (d *DistributedBackend) GetPresence(ctx context.Context, userID string) (*s
 }
 
 func (d *DistributedBackend) GetOnlineUsers(ctx context.Context) ([]string, error) {
-	pattern := fmt.Sprintf("%s:presence:*", d.prefix)
+	pattern := d.prefix + ":presence:*"
+
 	var cursor uint64
+
 	users := make([]string, 0)
 
 	for {
@@ -235,7 +243,7 @@ func (d *DistributedBackend) GetOnlineUsers(ctx context.Context) ([]string, erro
 				continue
 			}
 
-			var presenceData map[string]interface{}
+			var presenceData map[string]any
 			if err := json.Unmarshal([]byte(data), &presenceData); err != nil {
 				continue
 			}
@@ -280,7 +288,7 @@ func (d *DistributedBackend) AcquireLock(ctx context.Context, key string, ttl ti
 func (d *DistributedBackend) ReleaseLock(ctx context.Context, lock streaming.Lock) error {
 	redisLock, ok := lock.(*redisLock)
 	if !ok {
-		return fmt.Errorf("invalid lock type")
+		return errors.New("invalid lock type")
 	}
 
 	// Only release if we still hold it
@@ -299,25 +307,30 @@ func (d *DistributedBackend) ReleaseLock(ctx context.Context, lock streaming.Loc
 	}
 
 	redisLock.held = false
+
 	return d.client.Del(ctx, redisLock.key).Err()
 }
 
 func (d *DistributedBackend) Increment(ctx context.Context, key string) (int64, error) {
 	counterKey := fmt.Sprintf("%s:counters:%s", d.prefix, key)
+
 	return d.client.Incr(ctx, counterKey).Result()
 }
 
 func (d *DistributedBackend) Decrement(ctx context.Context, key string) (int64, error) {
 	counterKey := fmt.Sprintf("%s:counters:%s", d.prefix, key)
+
 	return d.client.Decr(ctx, counterKey).Result()
 }
 
 func (d *DistributedBackend) GetCounter(ctx context.Context, key string) (int64, error) {
 	counterKey := fmt.Sprintf("%s:counters:%s", d.prefix, key)
+
 	val, err := d.client.Get(ctx, counterKey).Int64()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return 0, nil
 	}
+
 	return val, err
 }
 
@@ -327,7 +340,7 @@ func (d *DistributedBackend) DiscoverNodes(ctx context.Context) ([]streaming.Nod
 
 func (d *DistributedBackend) WatchNodes(ctx context.Context, handler streaming.NodeChangeHandler) error {
 	// Use pub/sub for node change notifications
-	channelKey := fmt.Sprintf("%s:node_events", d.prefix)
+	channelKey := d.prefix + ":node_events"
 
 	if d.pubsub == nil {
 		d.pubsub = d.client.Subscribe(ctx, channelKey)
@@ -365,6 +378,7 @@ func (d *DistributedBackend) Disconnect(ctx context.Context) error {
 	if d.pubsub != nil {
 		return d.pubsub.Close()
 	}
+
 	return nil
 }
 
@@ -398,7 +412,7 @@ func (d *DistributedBackend) receiveMessages(ctx context.Context) {
 	}
 }
 
-// redisLock implements streaming.Lock
+// redisLock implements streaming.Lock.
 type redisLock struct {
 	client *redis.Client
 	key    string
@@ -425,6 +439,7 @@ func (l *redisLock) Renew(ctx context.Context, ttl time.Duration) error {
 
 	if current != l.lockID {
 		l.held = false
+
 		return streaming.ErrLockNotHeld
 	}
 
@@ -434,5 +449,6 @@ func (l *redisLock) Renew(ctx context.Context, ttl time.Duration) error {
 	}
 
 	l.expiry = time.Now().Add(ttl)
+
 	return nil
 }

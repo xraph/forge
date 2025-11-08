@@ -2,7 +2,7 @@ package client
 
 import "time"
 
-// APISpec represents the complete API specification in an intermediate representation
+// APISpec represents the complete API specification in an intermediate representation.
 type APISpec struct {
 	Info          APIInfo
 	Servers       []Server
@@ -15,7 +15,7 @@ type APISpec struct {
 	Tags          []Tag
 }
 
-// APIInfo contains metadata about the API
+// APIInfo contains metadata about the API.
 type APIInfo struct {
 	Title       string
 	Version     string
@@ -24,34 +24,34 @@ type APIInfo struct {
 	License     *License
 }
 
-// Contact represents contact information
+// Contact represents contact information.
 type Contact struct {
 	Name  string
 	URL   string
 	Email string
 }
 
-// License represents license information
+// License represents license information.
 type License struct {
 	Name string
 	URL  string
 }
 
-// Server represents an API server
+// Server represents an API server.
 type Server struct {
 	URL         string
 	Description string
 	Variables   map[string]ServerVariable
 }
 
-// ServerVariable represents a variable in server URL
+// ServerVariable represents a variable in server URL.
 type ServerVariable struct {
 	Default     string
 	Description string
 	Enum        []string
 }
 
-// Endpoint represents a REST API endpoint
+// Endpoint represents a REST API endpoint.
 type Endpoint struct {
 	ID          string
 	Method      string
@@ -76,10 +76,10 @@ type Endpoint struct {
 	Security []SecurityRequirement
 
 	// Metadata
-	Metadata map[string]interface{}
+	Metadata map[string]any
 }
 
-// WebSocketEndpoint represents a WebSocket endpoint
+// WebSocketEndpoint represents a WebSocket endpoint.
 type WebSocketEndpoint struct {
 	ID          string
 	Path        string
@@ -95,10 +95,10 @@ type WebSocketEndpoint struct {
 	Security []SecurityRequirement
 
 	// Metadata
-	Metadata map[string]interface{}
+	Metadata map[string]any
 }
 
-// SSEEndpoint represents a Server-Sent Events endpoint
+// SSEEndpoint represents a Server-Sent Events endpoint.
 type SSEEndpoint struct {
 	ID          string
 	Path        string
@@ -113,10 +113,10 @@ type SSEEndpoint struct {
 	Security []SecurityRequirement
 
 	// Metadata
-	Metadata map[string]interface{}
+	Metadata map[string]any
 }
 
-// WebTransportEndpoint represents a WebTransport endpoint
+// WebTransportEndpoint represents a WebTransport endpoint.
 type WebTransportEndpoint struct {
 	ID          string
 	Path        string
@@ -133,16 +133,16 @@ type WebTransportEndpoint struct {
 	Security []SecurityRequirement
 
 	// Metadata
-	Metadata map[string]interface{}
+	Metadata map[string]any
 }
 
-// StreamSchema represents a streaming data schema
+// StreamSchema represents a streaming data schema.
 type StreamSchema struct {
 	SendSchema    *Schema // Client -> Server
 	ReceiveSchema *Schema // Server -> Client
 }
 
-// Parameter represents a request parameter
+// Parameter represents a request parameter.
 type Parameter struct {
 	Name        string
 	In          string // "path", "query", "header"
@@ -150,48 +150,48 @@ type Parameter struct {
 	Required    bool
 	Deprecated  bool
 	Schema      *Schema
-	Example     interface{}
+	Example     any
 }
 
-// RequestBody represents a request body
+// RequestBody represents a request body.
 type RequestBody struct {
 	Description string
 	Required    bool
 	Content     map[string]*MediaType // content-type -> media type
 }
 
-// Response represents an API response
+// Response represents an API response.
 type Response struct {
 	Description string
 	Content     map[string]*MediaType // content-type -> media type
 	Headers     map[string]*Parameter
 }
 
-// MediaType represents a media type with schema
+// MediaType represents a media type with schema.
 type MediaType struct {
 	Schema   *Schema
-	Example  interface{}
+	Example  any
 	Examples map[string]*Example
 }
 
-// Example represents an example value
+// Example represents an example value.
 type Example struct {
 	Summary     string
 	Description string
-	Value       interface{}
+	Value       any
 }
 
-// Schema represents a data schema
+// Schema represents a data schema.
 type Schema struct {
 	Type        string // "object", "array", "string", "number", "integer", "boolean", "null"
 	Format      string // "date-time", "email", "uuid", etc.
 	Description string
 	Required    []string // For object types
 	Properties  map[string]*Schema
-	Items       *Schema       // For array types
-	Enum        []interface{} // For enum types
-	Default     interface{}
-	Example     interface{}
+	Items       *Schema // For array types
+	Enum        []any   // For enum types
+	Default     any
+	Example     any
 	Nullable    bool
 	ReadOnly    bool
 	WriteOnly   bool
@@ -209,16 +209,16 @@ type Schema struct {
 	Discriminator *Discriminator
 
 	// Additional properties
-	AdditionalProperties interface{} // bool or *Schema
+	AdditionalProperties any // bool or *Schema
 }
 
-// Discriminator supports polymorphism
+// Discriminator supports polymorphism.
 type Discriminator struct {
 	PropertyName string
 	Mapping      map[string]string // value -> schema reference
 }
 
-// SecurityScheme represents an authentication/authorization scheme
+// SecurityScheme represents an authentication/authorization scheme.
 type SecurityScheme struct {
 	Type             string // "apiKey", "http", "oauth2", "openIdConnect"
 	Name             string // Scheme name
@@ -231,7 +231,7 @@ type SecurityScheme struct {
 	CustomHeaders    map[string]string // Custom headers
 }
 
-// OAuthFlows defines OAuth 2.0 flows
+// OAuthFlows defines OAuth 2.0 flows.
 type OAuthFlows struct {
 	Implicit          *OAuthFlow
 	Password          *OAuthFlow
@@ -239,7 +239,7 @@ type OAuthFlows struct {
 	AuthorizationCode *OAuthFlow
 }
 
-// OAuthFlow defines a single OAuth 2.0 flow
+// OAuthFlow defines a single OAuth 2.0 flow.
 type OAuthFlow struct {
 	AuthorizationURL string
 	TokenURL         string
@@ -247,19 +247,19 @@ type OAuthFlow struct {
 	Scopes           map[string]string
 }
 
-// SecurityRequirement represents a security requirement for an operation
+// SecurityRequirement represents a security requirement for an operation.
 type SecurityRequirement struct {
 	SchemeName string
 	Scopes     []string
 }
 
-// Tag represents an API tag for grouping
+// Tag represents an API tag for grouping.
 type Tag struct {
 	Name        string
 	Description string
 }
 
-// EndpointType represents the type of endpoint
+// EndpointType represents the type of endpoint.
 type EndpointType string
 
 const (
@@ -269,27 +269,27 @@ const (
 	EndpointTypeWebTransport EndpointType = "WebTransport"
 )
 
-// GetEndpointType returns the type of endpoint
+// GetEndpointType returns the type of endpoint.
 func (e *Endpoint) GetType() EndpointType {
 	return EndpointTypeREST
 }
 
-// GetEndpointType returns the type of endpoint
+// GetEndpointType returns the type of endpoint.
 func (e *WebSocketEndpoint) GetType() EndpointType {
 	return EndpointTypeWebSocket
 }
 
-// GetEndpointType returns the type of endpoint
+// GetEndpointType returns the type of endpoint.
 func (e *SSEEndpoint) GetType() EndpointType {
 	return EndpointTypeSSE
 }
 
-// GetEndpointType returns the type of endpoint
+// GetEndpointType returns the type of endpoint.
 func (e *WebTransportEndpoint) GetType() EndpointType {
 	return EndpointTypeWebTransport
 }
 
-// ResolveSchemaRef resolves a schema reference in the spec
+// ResolveSchemaRef resolves a schema reference in the spec.
 func (spec *APISpec) ResolveSchemaRef(ref string) *Schema {
 	// Simple reference resolution: #/components/schemas/SchemaName
 	if len(ref) == 0 || spec.Schemas == nil {
@@ -300,13 +300,14 @@ func (spec *APISpec) ResolveSchemaRef(ref string) *Schema {
 	const prefix = "#/components/schemas/"
 	if len(ref) > len(prefix) && ref[:len(prefix)] == prefix {
 		schemaName := ref[len(prefix):]
+
 		return spec.Schemas[schemaName]
 	}
 
 	return nil
 }
 
-// ValidationOptions for API spec validation
+// ValidationOptions for API spec validation.
 type ValidationOptions struct {
 	RequireOperationIDs bool
 	RequireDescriptions bool
@@ -314,7 +315,7 @@ type ValidationOptions struct {
 	RequireSecurity     bool
 }
 
-// Validate validates the API spec
+// Validate validates the API spec.
 func (spec *APISpec) Validate(opts ValidationOptions) []ValidationError {
 	var errors []ValidationError
 
@@ -351,7 +352,7 @@ func (spec *APISpec) Validate(opts ValidationOptions) []ValidationError {
 	return errors
 }
 
-// ValidationError represents a validation error
+// ValidationError represents a validation error.
 type ValidationError struct {
 	Type    string
 	Path    string
@@ -359,12 +360,12 @@ type ValidationError struct {
 	Index   int
 }
 
-// Error implements error interface
+// Error implements error interface.
 func (e ValidationError) Error() string {
 	return e.Message
 }
 
-// Stats returns statistics about the API spec
+// Stats returns statistics about the API spec.
 type APIStats struct {
 	TotalEndpoints   int
 	RESTEndpoints    int
@@ -375,7 +376,7 @@ type APIStats struct {
 	UpdatedAt        time.Time
 }
 
-// GetStats returns statistics about the API spec
+// GetStats returns statistics about the API spec.
 func (spec *APISpec) GetStats() APIStats {
 	stats := APIStats{
 		TotalEndpoints: len(spec.Endpoints) + len(spec.WebSockets) + len(spec.SSEs),
@@ -391,11 +392,13 @@ func (spec *APISpec) GetStats() APIStats {
 			stats.SecuredEndpoints++
 		}
 	}
+
 	for _, ws := range spec.WebSockets {
 		if len(ws.Security) > 0 {
 			stats.SecuredEndpoints++
 		}
 	}
+
 	for _, sse := range spec.SSEs {
 		if len(sse.Security) > 0 {
 			stats.SecuredEndpoints++
@@ -407,6 +410,7 @@ func (spec *APISpec) GetStats() APIStats {
 	for _, tag := range spec.Tags {
 		tagSet[tag.Name] = true
 	}
+
 	for tag := range tagSet {
 		stats.Tags = append(stats.Tags, tag)
 	}

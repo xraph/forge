@@ -15,7 +15,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// ORPC represents the oRPC server interface
+// ORPC represents the oRPC server interface.
 type ORPC interface {
 	// Method management
 	RegisterMethod(method *Method) error
@@ -42,10 +42,10 @@ type ORPC interface {
 	SetRouter(router forge.Router)
 }
 
-// Interceptor wraps method execution
-type Interceptor func(ctx context.Context, req *Request, next MethodHandler) (interface{}, error)
+// Interceptor wraps method execution.
+type Interceptor func(ctx context.Context, req *Request, next MethodHandler) (any, error)
 
-// server implements ORPC interface
+// server implements ORPC interface.
 type server struct {
 	config  Config
 	logger  forge.Logger
@@ -65,7 +65,7 @@ type server struct {
 	statsLock sync.RWMutex
 }
 
-// NewORPCServer creates a new oRPC server
+// NewORPCServer creates a new oRPC server.
 func NewORPCServer(config Config, logger forge.Logger, metrics forge.Metrics) ORPC {
 	return &server{
 		config:       config,
@@ -77,12 +77,12 @@ func NewORPCServer(config Config, logger forge.Logger, metrics forge.Metrics) OR
 	}
 }
 
-// SetRouter sets the router reference for executing routes
+// SetRouter sets the router reference for executing routes.
 func (s *server) SetRouter(router forge.Router) {
 	s.router = router
 }
 
-// RegisterMethod registers a new JSON-RPC method
+// RegisterMethod registers a new JSON-RPC method.
 func (s *server) RegisterMethod(method *Method) error {
 	if method.Name == "" {
 		return ErrInvalidMethodName
@@ -110,7 +110,7 @@ func (s *server) RegisterMethod(method *Method) error {
 	return nil
 }
 
-// GetMethod retrieves a method by name
+// GetMethod retrieves a method by name.
 func (s *server) GetMethod(name string) (*Method, error) {
 	s.methodsLock.RLock()
 	defer s.methodsLock.RUnlock()
@@ -123,7 +123,7 @@ func (s *server) GetMethod(name string) (*Method, error) {
 	return method, nil
 }
 
-// ListMethods returns all registered methods
+// ListMethods returns all registered methods.
 func (s *server) ListMethods() []Method {
 	s.methodsLock.RLock()
 	defer s.methodsLock.RUnlock()
@@ -136,11 +136,11 @@ func (s *server) ListMethods() []Method {
 	return methods
 }
 
-// GenerateMethodFromRoute creates a JSON-RPC method from a Forge route
+// GenerateMethodFromRoute creates a JSON-RPC method from a Forge route.
 func (s *server) GenerateMethodFromRoute(route forge.RouteInfo) (*Method, error) {
 	// Check if route explicitly excludes oRPC
 	if exclude, ok := route.Metadata["orpc.exclude"].(bool); ok && exclude {
-		return nil, fmt.Errorf("route explicitly excluded from oRPC")
+		return nil, errors.New("route explicitly excluded from oRPC")
 	}
 
 	// Get custom method name or generate from route
@@ -175,7 +175,7 @@ func (s *server) GenerateMethodFromRoute(route forge.RouteInfo) (*Method, error)
 	return method, nil
 }
 
-// generateMethodName generates a JSON-RPC method name from a route
+// generateMethodName generates a JSON-RPC method name from a route.
 func (s *server) generateMethodName(route forge.RouteInfo) string {
 	// Check for custom method name in metadata
 	if customName, ok := route.Metadata["orpc.method"].(string); ok {
@@ -189,6 +189,7 @@ func (s *server) generateMethodName(route forge.RouteInfo) string {
 		if route.Name != "" {
 			return route.Name
 		}
+
 		fallthrough
 	case "path":
 		fallthrough
@@ -198,11 +199,10 @@ func (s *server) generateMethodName(route forge.RouteInfo) string {
 	}
 }
 
-// pathToMethodName converts HTTP method and path to RPC method name
+// pathToMethodName converts HTTP method and path to RPC method name.
 func (s *server) pathToMethodName(httpMethod, path string) string {
 	// Convert: GET /users/:id -> get.users.id
 	// Or: POST /api/v1/posts -> create.api.v1.posts
-
 	path = strings.TrimPrefix(path, "/")
 	path = strings.ReplaceAll(path, "/", ".")
 	path = strings.ReplaceAll(path, ":", "")
@@ -212,6 +212,7 @@ func (s *server) pathToMethodName(httpMethod, path string) string {
 
 	// Method prefix
 	var prefix string
+
 	switch httpMethod {
 	case "POST":
 		prefix = "create"
@@ -234,7 +235,7 @@ func (s *server) pathToMethodName(httpMethod, path string) string {
 	return prefix + "." + path
 }
 
-// generateParamsSchema generates parameter schema from route
+// generateParamsSchema generates parameter schema from route.
 func (s *server) generateParamsSchema(route forge.RouteInfo) *ParamsSchema {
 	// 1. Check for explicit oRPC params (backward compat - highest priority)
 	if customSchema, ok := route.Metadata["orpc.params"]; ok {
@@ -257,8 +258,8 @@ func (s *server) generateParamsSchema(route forge.RouteInfo) *ParamsSchema {
 	return s.autoGenerateParamsSchema(route)
 }
 
-// generateParamsFromReflection generates params schema from a reflected type
-func (s *server) generateParamsFromReflection(requestType interface{}, route forge.RouteInfo) *ParamsSchema {
+// generateParamsFromReflection generates params schema from a reflected type.
+func (s *server) generateParamsFromReflection(requestType any, route forge.RouteInfo) *ParamsSchema {
 	rt := reflect.TypeOf(requestType)
 	if rt == nil {
 		return s.autoGenerateParamsSchema(route)
@@ -283,13 +284,14 @@ func (s *server) generateParamsFromReflection(requestType interface{}, route for
 	for _, param := range pathParams {
 		schema.Properties[param] = &PropertySchema{
 			Type:        "string",
-			Description: fmt.Sprintf("Path parameter: %s", param),
+			Description: "Path parameter: " + param,
 		}
 		schema.Required = append(schema.Required, param)
 	}
 
 	// Parse struct fields
 	bodyProps := make(map[string]*PropertySchema)
+
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 		if !field.IsExported() {
@@ -321,7 +323,7 @@ func (s *server) generateParamsFromReflection(requestType interface{}, route for
 	return schema
 }
 
-// autoGenerateParamsSchema is the fallback auto-generation logic
+// autoGenerateParamsSchema is the fallback auto-generation logic.
 func (s *server) autoGenerateParamsSchema(route forge.RouteInfo) *ParamsSchema {
 	schema := &ParamsSchema{
 		Type:       "object",
@@ -334,13 +336,13 @@ func (s *server) autoGenerateParamsSchema(route forge.RouteInfo) *ParamsSchema {
 	for _, param := range pathParams {
 		schema.Properties[param] = &PropertySchema{
 			Type:        "string",
-			Description: fmt.Sprintf("Path parameter: %s", param),
+			Description: "Path parameter: " + param,
 		}
 		schema.Required = append(schema.Required, param)
 	}
 
 	// Add body for POST/PUT/PATCH
-	if route.Method == "POST" || route.Method == "PUT" || route.Method == "PATCH" {
+	if route.Method == http.MethodPost || route.Method == http.MethodPut || route.Method == http.MethodPatch {
 		schema.Properties["body"] = &PropertySchema{
 			Type:        "object",
 			Description: "Request body",
@@ -356,7 +358,7 @@ func (s *server) autoGenerateParamsSchema(route forge.RouteInfo) *ParamsSchema {
 	return schema
 }
 
-// generateResultSchema generates result schema from route
+// generateResultSchema generates result schema from route.
 func (s *server) generateResultSchema(route forge.RouteInfo) *ResultSchema {
 	// 1. Check for explicit oRPC result (backward compat - highest priority)
 	if customSchema, ok := route.Metadata["orpc.result"]; ok {
@@ -380,14 +382,15 @@ func (s *server) generateResultSchema(route forge.RouteInfo) *ResultSchema {
 	}
 }
 
-// extractPathParams extracts parameter names from path
+// extractPathParams extracts parameter names from path.
 func extractPathParams(path string) []string {
 	var params []string
-	parts := strings.Split(path, "/")
-	for _, part := range parts {
+
+	parts := strings.SplitSeq(path, "/")
+	for part := range parts {
 		// Handle :param style
-		if strings.HasPrefix(part, ":") {
-			params = append(params, strings.TrimPrefix(part, ":"))
+		if after, ok := strings.CutPrefix(part, ":"); ok {
+			params = append(params, after)
 		}
 		// Handle {param} style
 		if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
@@ -395,15 +398,16 @@ func extractPathParams(path string) []string {
 			params = append(params, param)
 		}
 	}
+
 	return params
 }
 
-// createRouteHandler creates a handler that executes the underlying route
+// createRouteHandler creates a handler that executes the underlying route.
 func (s *server) createRouteHandler(route forge.RouteInfo) MethodHandler {
-	return func(ctx interface{}, params interface{}) (interface{}, error) {
+	return func(ctx any, params any) (any, error) {
 		reqCtx, ok := ctx.(context.Context)
 		if !ok {
-			return nil, fmt.Errorf("invalid context type")
+			return nil, errors.New("invalid context type")
 		}
 
 		// Convert JSON-RPC params to HTTP request
@@ -422,16 +426,17 @@ func (s *server) createRouteHandler(route forge.RouteInfo) MethodHandler {
 	}
 }
 
-// buildHTTPRequest builds an HTTP request from JSON-RPC params
-func (s *server) buildHTTPRequest(ctx context.Context, route forge.RouteInfo, params interface{}) (*http.Request, error) {
+// buildHTTPRequest builds an HTTP request from JSON-RPC params.
+func (s *server) buildHTTPRequest(ctx context.Context, route forge.RouteInfo, params any) (*http.Request, error) {
 	// Parse params
-	paramsMap, ok := params.(map[string]interface{})
+	paramsMap, ok := params.(map[string]any)
 	if !ok {
 		// Try to marshal and unmarshal
 		paramsJSON, err := json.Marshal(params)
 		if err != nil {
 			return nil, fmt.Errorf("invalid params: %w", err)
 		}
+
 		if err := json.Unmarshal(paramsJSON, &paramsMap); err != nil {
 			return nil, fmt.Errorf("invalid params format: %w", err)
 		}
@@ -439,6 +444,7 @@ func (s *server) buildHTTPRequest(ctx context.Context, route forge.RouteInfo, pa
 
 	// Build the request path with parameters
 	path := route.Path
+
 	pathParams := extractPathParams(route.Path)
 	for _, param := range pathParams {
 		if val, ok := paramsMap[param]; ok {
@@ -446,17 +452,20 @@ func (s *server) buildHTTPRequest(ctx context.Context, route forge.RouteInfo, pa
 			if !strings.Contains(path, placeholder) {
 				placeholder = "{" + param + "}"
 			}
+
 			path = strings.ReplaceAll(path, placeholder, fmt.Sprintf("%v", val))
 		}
 	}
 
 	// Build query string
 	query := ""
-	if queryArgs, ok := paramsMap["query"].(map[string]interface{}); ok {
+
+	if queryArgs, ok := paramsMap["query"].(map[string]any); ok {
 		var queryParts []string
 		for k, v := range queryArgs {
 			queryParts = append(queryParts, fmt.Sprintf("%s=%v", k, v))
 		}
+
 		if len(queryParts) > 0 {
 			query = "?" + strings.Join(queryParts, "&")
 		}
@@ -464,8 +473,10 @@ func (s *server) buildHTTPRequest(ctx context.Context, route forge.RouteInfo, pa
 
 	// Extract body
 	var bodyData []byte
+
 	if body, ok := paramsMap["body"]; ok {
 		var err error
+
 		bodyData, err = json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal request body: %w", err)
@@ -490,10 +501,10 @@ func (s *server) buildHTTPRequest(ctx context.Context, route forge.RouteInfo, pa
 	return req, nil
 }
 
-// executeRoute executes the route via the router
-func (s *server) executeRoute(req *http.Request, route forge.RouteInfo) (interface{}, error) {
+// executeRoute executes the route via the router.
+func (s *server) executeRoute(req *http.Request, route forge.RouteInfo) (any, error) {
 	if s.router == nil {
-		return nil, fmt.Errorf("router not set")
+		return nil, errors.New("router not set")
 	}
 
 	// Create a response recorder
@@ -512,10 +523,10 @@ func (s *server) executeRoute(req *http.Request, route forge.RouteInfo) (interfa
 	}
 
 	// Parse JSON response
-	var responseData interface{}
+	var responseData any
 	if err := json.NewDecoder(result.Body).Decode(&responseData); err != nil {
 		// If not JSON, return raw body
-		return map[string]interface{}{
+		return map[string]any{
 			"status": result.StatusCode,
 			"body":   rec.Body.String(),
 		}, nil
@@ -524,12 +535,13 @@ func (s *server) executeRoute(req *http.Request, route forge.RouteInfo) (interfa
 	return responseData, nil
 }
 
-// HandleRequest handles a single JSON-RPC request
+// HandleRequest handles a single JSON-RPC request.
 func (s *server) HandleRequest(ctx context.Context, req *Request) *Response {
 	start := time.Now()
 
 	// Update stats
 	s.incrementStat("requests")
+
 	defer func() {
 		s.updateLatency(time.Since(start))
 	}()
@@ -547,17 +559,20 @@ func (s *server) HandleRequest(ctx context.Context, req *Request) *Response {
 	method, err := s.GetMethod(req.Method)
 	if err != nil {
 		s.incrementStat("errors")
+
 		if s.metrics != nil && s.config.EnableMetrics {
 			s.metrics.Counter("orpc_requests_total", "status", "not_found").Inc()
 		}
+
 		return NewErrorResponse(req.ID, ErrMethodNotFound, fmt.Sprintf("Method '%s' not found", req.Method))
 	}
 
 	// Parse params
-	var params interface{}
+	var params any
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			s.incrementStat("errors")
+
 			return NewErrorResponse(req.ID, ErrInvalidParams, "Invalid parameters")
 		}
 	}
@@ -566,9 +581,11 @@ func (s *server) HandleRequest(ctx context.Context, req *Request) *Response {
 	result, err := s.executeWithInterceptors(ctx, req, method, params)
 	if err != nil {
 		s.incrementStat("errors")
+
 		if s.metrics != nil && s.config.EnableMetrics {
 			s.metrics.Counter("orpc_requests_total", "status", "error", "method", req.Method).Inc()
 		}
+
 		return NewErrorResponseWithData(req.ID, ErrInternalError, err.Error(), nil)
 	}
 
@@ -580,7 +597,7 @@ func (s *server) HandleRequest(ctx context.Context, req *Request) *Response {
 	return NewSuccessResponse(req.ID, result)
 }
 
-// HandleBatch handles a batch of JSON-RPC requests
+// HandleBatch handles a batch of JSON-RPC requests.
 func (s *server) HandleBatch(ctx context.Context, requests []*Request) []*Response {
 	if !s.config.EnableBatch {
 		return []*Response{NewErrorResponse(nil, ErrServerError, "Batch requests are disabled")}
@@ -600,8 +617,8 @@ func (s *server) HandleBatch(ctx context.Context, requests []*Request) []*Respon
 	return responses
 }
 
-// executeWithInterceptors executes a method with all registered interceptors
-func (s *server) executeWithInterceptors(ctx context.Context, req *Request, method *Method, params interface{}) (interface{}, error) {
+// executeWithInterceptors executes a method with all registered interceptors.
+func (s *server) executeWithInterceptors(ctx context.Context, req *Request, method *Method, params any) (any, error) {
 	// Build interceptor chain
 	handler := method.Handler
 
@@ -609,7 +626,7 @@ func (s *server) executeWithInterceptors(ctx context.Context, req *Request, meth
 	for i := len(s.interceptors) - 1; i >= 0; i-- {
 		interceptor := s.interceptors[i]
 		currentHandler := handler
-		handler = func(ctx interface{}, params interface{}) (interface{}, error) {
+		handler = func(ctx any, params any) (any, error) {
 			return interceptor(ctx.(context.Context), req, currentHandler)
 		}
 	}
@@ -618,12 +635,12 @@ func (s *server) executeWithInterceptors(ctx context.Context, req *Request, meth
 	return handler(ctx, params)
 }
 
-// Use adds an interceptor to the chain
+// Use adds an interceptor to the chain.
 func (s *server) Use(interceptor Interceptor) {
 	s.interceptors = append(s.interceptors, interceptor)
 }
 
-// OpenRPCDocument generates the OpenRPC schema document
+// OpenRPCDocument generates the OpenRPC schema document.
 func (s *server) OpenRPCDocument() *OpenRPCDocument {
 	s.methodsLock.RLock()
 	defer s.methodsLock.RUnlock()
@@ -685,22 +702,25 @@ func (s *server) OpenRPCDocument() *OpenRPCDocument {
 	}
 }
 
-// schemaToMap converts a schema to a map for JSON serialization
-func (s *server) schemaToMap(schema interface{}) map[string]interface{} {
+// schemaToMap converts a schema to a map for JSON serialization.
+func (s *server) schemaToMap(schema any) map[string]any {
 	data, _ := json.Marshal(schema)
-	var result map[string]interface{}
+
+	var result map[string]any
 	json.Unmarshal(data, &result)
+
 	return result
 }
 
-// GetStats returns server statistics
+// GetStats returns server statistics.
 func (s *server) GetStats() ServerStats {
 	s.statsLock.RLock()
 	defer s.statsLock.RUnlock()
+
 	return s.stats
 }
 
-// incrementStat increments a stat counter
+// incrementStat increments a stat counter.
 func (s *server) incrementStat(name string) {
 	s.statsLock.Lock()
 	defer s.statsLock.Unlock()
@@ -715,7 +735,7 @@ func (s *server) incrementStat(name string) {
 	}
 }
 
-// updateLatency updates the average latency
+// updateLatency updates the average latency.
 func (s *server) updateLatency(duration time.Duration) {
 	s.statsLock.Lock()
 	defer s.statsLock.Unlock()

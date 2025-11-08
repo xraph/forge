@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/sdk"
 )
 
-// Extension implements forge.Extension for AI
+// Extension implements forge.Extension for AI.
 type Extension struct {
 	config     Config
 	ai         internal.AI
@@ -22,7 +22,7 @@ type Extension struct {
 	app        forge.App
 }
 
-// NewExtension creates a new AI extension with variadic options
+// NewExtension creates a new AI extension with variadic options.
 func NewExtension(opts ...ConfigOption) *Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -34,32 +34,32 @@ func NewExtension(opts ...ConfigOption) *Extension {
 	}
 }
 
-// NewExtensionWithConfig creates a new AI extension with a complete config
+// NewExtensionWithConfig creates a new AI extension with a complete config.
 func NewExtensionWithConfig(config Config) *Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Name returns the extension name
+// Name returns the extension name.
 func (e *Extension) Name() string {
 	return "ai"
 }
 
-// Version returns the extension version
+// Version returns the extension version.
 func (e *Extension) Version() string {
 	return "2.0.0"
 }
 
-// Description returns the extension description
+// Description returns the extension description.
 func (e *Extension) Description() string {
 	return "AI/ML Extension with LLM, agents, inference, and more"
 }
 
-// Dependencies returns extension dependencies
+// Dependencies returns extension dependencies.
 func (e *Extension) Dependencies() []string {
 	return []string{} // No dependencies
 }
 
-// Register registers the AI extension with the app
+// Register registers the AI extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	e.app = app
 
@@ -78,6 +78,7 @@ func (e *Extension) Register(app forge.App) error {
 			if e.logger != nil {
 				e.logger.Debug("using default AI config", forge.F("reason", err.Error()))
 			}
+
 			e.config = DefaultConfig()
 		}
 	}
@@ -87,6 +88,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Get optional agent store from DI
 	var store AgentStore
+
 	if s, err := app.Container().Resolve("agentStore"); err == nil {
 		if as, ok := s.(AgentStore); ok {
 			store = as
@@ -111,12 +113,15 @@ func (e *Extension) Register(app forge.App) error {
 		if llmConfig.DefaultProvider == "" {
 			llmConfig.DefaultProvider = "openai"
 		}
+
 		if llmConfig.MaxRetries == 0 {
 			llmConfig.MaxRetries = 3
 		}
+
 		if llmConfig.RetryDelay == 0 {
 			llmConfig.RetryDelay = time.Second
 		}
+
 		if llmConfig.Timeout == 0 {
 			llmConfig.Timeout = 30 * time.Second
 		}
@@ -125,12 +130,15 @@ func (e *Extension) Register(app forge.App) error {
 		if err != nil {
 			return fmt.Errorf("failed to create LLM manager: %w", err)
 		}
+
 		e.llmManager = llmManager
 
 		// Register providers from config
 		for name, providerConfig := range e.config.LLM.Providers {
-			var provider llm.LLMProvider
-			var err error
+			var (
+				provider llm.LLMProvider
+				err      error
+			)
 
 			switch providerConfig.Type {
 			case "openai":
@@ -143,6 +151,7 @@ func (e *Extension) Register(app forge.App) error {
 				if providerConfig.BaseURL == "" {
 					openAIConfig.BaseURL = "https://api.openai.com/v1"
 				}
+
 				provider, err = providers.NewOpenAIProvider(openAIConfig, e.logger, e.metrics)
 			case "anthropic":
 				anthropicConfig := providers.AnthropicConfig{
@@ -154,6 +163,7 @@ func (e *Extension) Register(app forge.App) error {
 				if providerConfig.BaseURL == "" {
 					anthropicConfig.BaseURL = "https://api.anthropic.com"
 				}
+
 				provider, err = providers.NewAnthropicProvider(anthropicConfig, e.logger, e.metrics)
 			case "huggingface":
 				hfConfig := providers.HuggingFaceConfig{
@@ -165,11 +175,13 @@ func (e *Extension) Register(app forge.App) error {
 				if providerConfig.BaseURL == "" {
 					hfConfig.BaseURL = "https://api-inference.huggingface.co"
 				}
+
 				provider, err = providers.NewHuggingFaceProvider(hfConfig, e.logger, e.metrics)
 			default:
 				if e.logger != nil {
 					e.logger.Warn("unsupported LLM provider type", forge.F("provider", name), forge.F("type", providerConfig.Type))
 				}
+
 				continue
 			}
 
@@ -177,6 +189,7 @@ func (e *Extension) Register(app forge.App) error {
 				if e.logger != nil {
 					e.logger.Error("failed to create LLM provider", forge.F("provider", name), forge.F("error", err))
 				}
+
 				continue
 			}
 
@@ -184,6 +197,7 @@ func (e *Extension) Register(app forge.App) error {
 				if e.logger != nil {
 					e.logger.Error("failed to register LLM provider", forge.F("provider", name), forge.F("error", err))
 				}
+
 				continue
 			}
 		}
@@ -252,7 +266,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the AI extension
+// Start starts the AI extension.
 func (e *Extension) Start(ctx context.Context) error {
 	// Start LLM manager if enabled
 	if e.llmManager != nil {
@@ -276,7 +290,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the AI extension
+// Stop stops the AI extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	if err := e.ai.Stop(ctx); err != nil {
 		return fmt.Errorf("failed to stop AI extension: %w", err)
@@ -300,25 +314,26 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health performs health check on the AI extension
+// Health performs health check on the AI extension.
 func (e *Extension) Health(ctx context.Context) error {
 	return e.ai.HealthCheck(ctx)
 }
 
-// GetAI returns the AI interface for direct access
+// GetAI returns the AI interface for direct access.
 func (e *Extension) GetAI() internal.AI {
 	return e.ai
 }
 
-// GetManager returns the AI manager implementation (if needed)
+// GetManager returns the AI manager implementation (if needed).
 func (e *Extension) GetManager() *managerImpl {
 	if impl, ok := e.ai.(*managerImpl); ok {
 		return impl
 	}
+
 	return nil
 }
 
-// GetLLMManager returns the LLM manager for SDK usage
+// GetLLMManager returns the LLM manager for SDK usage.
 func (e *Extension) GetLLMManager() *llm.LLMManager {
 	return e.llmManager
 }
@@ -326,31 +341,34 @@ func (e *Extension) GetLLMManager() *llm.LLMManager {
 // SDK convenience methods
 
 // Generate creates a new GenerateBuilder for text generation
-// This is a convenience method that uses the extension's LLM manager
+// This is a convenience method that uses the extension's LLM manager.
 func (e *Extension) Generate(ctx context.Context) *sdk.GenerateBuilder {
 	if e.llmManager == nil {
 		// Return a builder that will fail with a clear error
 		// This allows the SDK to handle the error gracefully
 		return sdk.NewGenerateBuilder(ctx, nil, e.logger, e.metrics)
 	}
+
 	return sdk.NewGenerateBuilder(ctx, e.llmManager, e.logger, e.metrics)
 }
 
 // Stream creates a new StreamBuilder for streaming text generation
-// This is a convenience method that uses the extension's LLM manager
+// This is a convenience method that uses the extension's LLM manager.
 func (e *Extension) Stream(ctx context.Context) *sdk.StreamBuilder {
 	if e.llmManager == nil {
 		return sdk.NewStreamBuilder(ctx, nil, e.logger, e.metrics)
 	}
+
 	return sdk.NewStreamBuilder(ctx, e.llmManager, e.logger, e.metrics)
 }
 
 // GenerateObject creates a new GenerateObjectBuilder for structured output generation
 // This is a convenience method that uses the extension's LLM manager
-// Note: This is a standalone function because Go doesn't support generic methods yet
+// Note: This is a standalone function because Go doesn't support generic methods yet.
 func GenerateObject[T any](e *Extension, ctx context.Context) *sdk.GenerateObjectBuilder[T] {
 	if e.llmManager == nil {
 		return sdk.NewGenerateObjectBuilder[T](ctx, nil, e.logger, e.metrics)
 	}
+
 	return sdk.NewGenerateObjectBuilder[T](ctx, e.llmManager, e.logger, e.metrics)
 }

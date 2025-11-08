@@ -2,13 +2,14 @@ package raft
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 )
 
-// CandidateState manages candidate-specific state and operations
+// CandidateState manages candidate-specific state and operations.
 type CandidateState struct {
 	nodeID string
 	logger forge.Logger
@@ -31,7 +32,7 @@ type CandidateState struct {
 	wg     sync.WaitGroup
 }
 
-// NewCandidateState creates a new candidate state
+// NewCandidateState creates a new candidate state.
 func NewCandidateState(nodeID string, electionTimeout time.Duration, logger forge.Logger) *CandidateState {
 	return &CandidateState{
 		nodeID:          nodeID,
@@ -41,7 +42,7 @@ func NewCandidateState(nodeID string, electionTimeout time.Duration, logger forg
 	}
 }
 
-// Start starts a new election
+// Start starts a new election.
 func (cs *CandidateState) Start(ctx context.Context, term uint64, clusterSize int) error {
 	cs.ctx, cs.cancel = context.WithCancel(ctx)
 
@@ -68,7 +69,7 @@ func (cs *CandidateState) Start(ctx context.Context, term uint64, clusterSize in
 	return nil
 }
 
-// Stop stops the candidate state
+// Stop stops the candidate state.
 func (cs *CandidateState) Stop(ctx context.Context) error {
 	if cs.cancel != nil {
 		cs.cancel()
@@ -76,6 +77,7 @@ func (cs *CandidateState) Stop(ctx context.Context) error {
 
 	// Wait for goroutines
 	done := make(chan struct{})
+
 	go func() {
 		cs.wg.Wait()
 		close(done)
@@ -91,7 +93,7 @@ func (cs *CandidateState) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RecordVote records a vote response
+// RecordVote records a vote response.
 func (cs *CandidateState) RecordVote(voterID string, granted bool) {
 	cs.electionMu.Lock()
 	defer cs.electionMu.Unlock()
@@ -119,7 +121,7 @@ func (cs *CandidateState) RecordVote(voterID string, granted bool) {
 	}
 }
 
-// HasWonElection checks if the candidate has won the election
+// HasWonElection checks if the candidate has won the election.
 func (cs *CandidateState) HasWonElection() bool {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
@@ -139,7 +141,7 @@ func (cs *CandidateState) HasWonElection() bool {
 	return won
 }
 
-// HasLostElection checks if the candidate has definitively lost
+// HasLostElection checks if the candidate has definitively lost.
 func (cs *CandidateState) HasLostElection(totalNodes int) bool {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
@@ -163,7 +165,7 @@ func (cs *CandidateState) HasLostElection(totalNodes int) bool {
 	return lost
 }
 
-// HasElectionTimedOut checks if the election has timed out
+// HasElectionTimedOut checks if the election has timed out.
 func (cs *CandidateState) HasElectionTimedOut() bool {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
@@ -183,28 +185,31 @@ func (cs *CandidateState) HasElectionTimedOut() bool {
 	return timedOut
 }
 
-// GetVoteCount returns the current vote counts
+// GetVoteCount returns the current vote counts.
 func (cs *CandidateState) GetVoteCount() (granted, denied, needed int) {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
+
 	return cs.votesGranted, cs.votesDenied, cs.votesNeeded
 }
 
-// GetTerm returns the election term
+// GetTerm returns the election term.
 func (cs *CandidateState) GetTerm() uint64 {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
+
 	return cs.currentTerm
 }
 
-// GetElectionDuration returns how long the election has been running
+// GetElectionDuration returns how long the election has been running.
 func (cs *CandidateState) GetElectionDuration() time.Duration {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
+
 	return time.Since(cs.electionStarted)
 }
 
-// GetStatus returns candidate status
+// GetStatus returns candidate status.
 func (cs *CandidateState) GetStatus() CandidateStatus {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
@@ -223,7 +228,7 @@ func (cs *CandidateState) GetStatus() CandidateStatus {
 	}
 }
 
-// CandidateStatus represents candidate status
+// CandidateStatus represents candidate status.
 type CandidateStatus struct {
 	NodeID           string
 	Term             uint64
@@ -237,20 +242,18 @@ type CandidateStatus struct {
 	TimeRemaining    time.Duration
 }
 
-// GetVoters returns all nodes that have voted and their decisions
+// GetVoters returns all nodes that have voted and their decisions.
 func (cs *CandidateState) GetVoters() map[string]bool {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
 
 	voters := make(map[string]bool, len(cs.votesReceived))
-	for voter, granted := range cs.votesReceived {
-		voters[voter] = granted
-	}
+	maps.Copy(voters, cs.votesReceived)
 
 	return voters
 }
 
-// GetQuorumProgress returns progress towards quorum as a percentage
+// GetQuorumProgress returns progress towards quorum as a percentage.
 func (cs *CandidateState) GetQuorumProgress() float64 {
 	cs.electionMu.RLock()
 	defer cs.electionMu.RUnlock()
@@ -262,7 +265,7 @@ func (cs *CandidateState) GetQuorumProgress() float64 {
 	return float64(cs.votesGranted) / float64(cs.votesNeeded) * 100.0
 }
 
-// IsStillViable checks if the election is still viable
+// IsStillViable checks if the election is still viable.
 func (cs *CandidateState) IsStillViable(totalNodes int) bool {
 	return !cs.HasWonElection() && !cs.HasLostElection(totalNodes) && !cs.HasElectionTimedOut()
 }

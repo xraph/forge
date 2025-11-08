@@ -2,13 +2,14 @@ package raft
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 )
 
-// LeaderState manages leader-specific state and operations
+// LeaderState manages leader-specific state and operations.
 type LeaderState struct {
 	nodeID string
 	logger forge.Logger
@@ -29,7 +30,7 @@ type LeaderState struct {
 	wg     sync.WaitGroup
 }
 
-// NewLeaderState creates a new leader state
+// NewLeaderState creates a new leader state.
 func NewLeaderState(nodeID string, heartbeatInterval time.Duration, logger forge.Logger) *LeaderState {
 	return &LeaderState{
 		nodeID:            nodeID,
@@ -41,12 +42,13 @@ func NewLeaderState(nodeID string, heartbeatInterval time.Duration, logger forge
 	}
 }
 
-// Start starts the leader state
+// Start starts the leader state.
 func (ls *LeaderState) Start(ctx context.Context, lastLogIndex uint64, peers []string) error {
 	ls.ctx, ls.cancel = context.WithCancel(ctx)
 
 	// Initialize replication state for all peers
 	ls.stateMu.Lock()
+
 	for _, peer := range peers {
 		if peer != ls.nodeID {
 			ls.nextIndex[peer] = lastLogIndex + 1
@@ -54,6 +56,7 @@ func (ls *LeaderState) Start(ctx context.Context, lastLogIndex uint64, peers []s
 			ls.lastHeartbeat[peer] = time.Time{}
 		}
 	}
+
 	ls.stateMu.Unlock()
 
 	ls.logger.Info("leader state started",
@@ -65,7 +68,7 @@ func (ls *LeaderState) Start(ctx context.Context, lastLogIndex uint64, peers []s
 	return nil
 }
 
-// Stop stops the leader state
+// Stop stops the leader state.
 func (ls *LeaderState) Stop(ctx context.Context) error {
 	if ls.cancel != nil {
 		ls.cancel()
@@ -73,6 +76,7 @@ func (ls *LeaderState) Stop(ctx context.Context) error {
 
 	// Wait for goroutines
 	done := make(chan struct{})
+
 	go func() {
 		ls.wg.Wait()
 		close(done)
@@ -88,17 +92,19 @@ func (ls *LeaderState) Stop(ctx context.Context) error {
 	return nil
 }
 
-// GetNextIndex returns the next index for a peer
+// GetNextIndex returns the next index for a peer.
 func (ls *LeaderState) GetNextIndex(peerID string) uint64 {
 	ls.stateMu.RLock()
 	defer ls.stateMu.RUnlock()
+
 	return ls.nextIndex[peerID]
 }
 
-// SetNextIndex sets the next index for a peer
+// SetNextIndex sets the next index for a peer.
 func (ls *LeaderState) SetNextIndex(peerID string, index uint64) {
 	ls.stateMu.Lock()
 	defer ls.stateMu.Unlock()
+
 	ls.nextIndex[peerID] = index
 
 	ls.logger.Debug("set next index",
@@ -107,17 +113,19 @@ func (ls *LeaderState) SetNextIndex(peerID string, index uint64) {
 	)
 }
 
-// GetMatchIndex returns the match index for a peer
+// GetMatchIndex returns the match index for a peer.
 func (ls *LeaderState) GetMatchIndex(peerID string) uint64 {
 	ls.stateMu.RLock()
 	defer ls.stateMu.RUnlock()
+
 	return ls.matchIndex[peerID]
 }
 
-// SetMatchIndex sets the match index for a peer
+// SetMatchIndex sets the match index for a peer.
 func (ls *LeaderState) SetMatchIndex(peerID string, index uint64) {
 	ls.stateMu.Lock()
 	defer ls.stateMu.Unlock()
+
 	ls.matchIndex[peerID] = index
 
 	ls.logger.Debug("set match index",
@@ -126,7 +134,7 @@ func (ls *LeaderState) SetMatchIndex(peerID string, index uint64) {
 	)
 }
 
-// UpdateMatchIndex updates match index and next index atomically
+// UpdateMatchIndex updates match index and next index atomically.
 func (ls *LeaderState) UpdateMatchIndex(peerID string, matchIndex uint64) {
 	ls.stateMu.Lock()
 	defer ls.stateMu.Unlock()
@@ -143,7 +151,7 @@ func (ls *LeaderState) UpdateMatchIndex(peerID string, matchIndex uint64) {
 	}
 }
 
-// DecrementNextIndex decrements the next index for a peer (on replication failure)
+// DecrementNextIndex decrements the next index for a peer (on replication failure).
 func (ls *LeaderState) DecrementNextIndex(peerID string) uint64 {
 	ls.stateMu.Lock()
 	defer ls.stateMu.Unlock()
@@ -162,20 +170,18 @@ func (ls *LeaderState) DecrementNextIndex(peerID string) uint64 {
 	return newIndex
 }
 
-// GetAllMatchIndexes returns all match indexes
+// GetAllMatchIndexes returns all match indexes.
 func (ls *LeaderState) GetAllMatchIndexes() map[string]uint64 {
 	ls.stateMu.RLock()
 	defer ls.stateMu.RUnlock()
 
 	result := make(map[string]uint64, len(ls.matchIndex))
-	for peer, index := range ls.matchIndex {
-		result[peer] = index
-	}
+	maps.Copy(result, ls.matchIndex)
 
 	return result
 }
 
-// CalculateCommitIndex calculates the new commit index based on majority replication
+// CalculateCommitIndex calculates the new commit index based on majority replication.
 func (ls *LeaderState) CalculateCommitIndex(currentCommitIndex, lastLogIndex uint64) uint64 {
 	ls.stateMu.RLock()
 	defer ls.stateMu.RUnlock()
@@ -205,41 +211,46 @@ func (ls *LeaderState) CalculateCommitIndex(currentCommitIndex, lastLogIndex uin
 			forge.F("old_commit", currentCommitIndex),
 			forge.F("new_commit", newCommitIndex),
 		)
+
 		return newCommitIndex
 	}
 
 	return currentCommitIndex
 }
 
-// RecordHeartbeat records a successful heartbeat to a peer
+// RecordHeartbeat records a successful heartbeat to a peer.
 func (ls *LeaderState) RecordHeartbeat(peerID string) {
 	ls.heartbeatMu.Lock()
 	defer ls.heartbeatMu.Unlock()
+
 	ls.lastHeartbeat[peerID] = time.Now()
 }
 
-// GetLastHeartbeat returns the last heartbeat time for a peer
+// GetLastHeartbeat returns the last heartbeat time for a peer.
 func (ls *LeaderState) GetLastHeartbeat(peerID string) time.Time {
 	ls.heartbeatMu.RLock()
 	defer ls.heartbeatMu.RUnlock()
+
 	return ls.lastHeartbeat[peerID]
 }
 
-// NeedsHeartbeat checks if a peer needs a heartbeat
+// NeedsHeartbeat checks if a peer needs a heartbeat.
 func (ls *LeaderState) NeedsHeartbeat(peerID string) bool {
 	ls.heartbeatMu.RLock()
 	defer ls.heartbeatMu.RUnlock()
 
 	lastTime := ls.lastHeartbeat[peerID]
+
 	return time.Since(lastTime) >= ls.heartbeatInterval
 }
 
-// GetPeersNeedingHeartbeat returns peers that need heartbeats
+// GetPeersNeedingHeartbeat returns peers that need heartbeats.
 func (ls *LeaderState) GetPeersNeedingHeartbeat() []string {
 	ls.heartbeatMu.RLock()
 	defer ls.heartbeatMu.RUnlock()
 
 	var peers []string
+
 	now := time.Now()
 
 	for peerID, lastTime := range ls.lastHeartbeat {
@@ -251,7 +262,7 @@ func (ls *LeaderState) GetPeersNeedingHeartbeat() []string {
 	return peers
 }
 
-// AddPeer adds a new peer to track
+// AddPeer adds a new peer to track.
 func (ls *LeaderState) AddPeer(peerID string, nextIndex uint64) {
 	ls.stateMu.Lock()
 	ls.nextIndex[peerID] = nextIndex
@@ -268,7 +279,7 @@ func (ls *LeaderState) AddPeer(peerID string, nextIndex uint64) {
 	)
 }
 
-// RemovePeer removes a peer from tracking
+// RemovePeer removes a peer from tracking.
 func (ls *LeaderState) RemovePeer(peerID string) {
 	ls.stateMu.Lock()
 	delete(ls.nextIndex, peerID)
@@ -284,7 +295,7 @@ func (ls *LeaderState) RemovePeer(peerID string) {
 	)
 }
 
-// GetReplicationStatus returns replication status for all peers
+// GetReplicationStatus returns replication status for all peers.
 func (ls *LeaderState) GetReplicationStatus() map[string]ReplicationStatus {
 	ls.stateMu.RLock()
 	defer ls.stateMu.RUnlock()
@@ -312,7 +323,7 @@ func (ls *LeaderState) GetReplicationStatus() map[string]ReplicationStatus {
 	return status
 }
 
-// ReplicationStatus represents replication status for a peer
+// ReplicationStatus represents replication status for a peer.
 type ReplicationStatus struct {
 	PeerID        string
 	NextIndex     uint64
@@ -322,7 +333,7 @@ type ReplicationStatus struct {
 	Healthy       bool
 }
 
-// GetHealthyPeerCount returns the number of healthy peers
+// GetHealthyPeerCount returns the number of healthy peers.
 func (ls *LeaderState) GetHealthyPeerCount() int {
 	status := ls.GetReplicationStatus()
 	count := 0
@@ -336,7 +347,7 @@ func (ls *LeaderState) GetHealthyPeerCount() int {
 	return count
 }
 
-// HasQuorum checks if we have a healthy quorum
+// HasQuorum checks if we have a healthy quorum.
 func (ls *LeaderState) HasQuorum(totalNodes int) bool {
 	healthyPeers := ls.GetHealthyPeerCount()
 	// +1 for leader itself

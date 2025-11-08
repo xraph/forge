@@ -7,15 +7,15 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// SSEGenerator generates TypeScript SSE client code
+// SSEGenerator generates TypeScript SSE client code.
 type SSEGenerator struct{}
 
-// NewSSEGenerator creates a new SSE generator
+// NewSSEGenerator creates a new SSE generator.
 func NewSSEGenerator() *SSEGenerator {
 	return &SSEGenerator{}
 }
 
-// Generate generates the SSE clients
+// Generate generates the SSE clients.
 func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -33,7 +33,7 @@ func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorCon
 	return buf.String()
 }
 
-// generateSSEClient generates an SSE client for an endpoint
+// generateSSEClient generates an SSE client for an endpoint.
 func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -41,9 +41,11 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 
 	// Class definition
 	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
+
 	if sse.Description != "" {
 		buf.WriteString(fmt.Sprintf(" * %s\n", sse.Description))
 	}
+
 	buf.WriteString(" */\n")
 	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
 	buf.WriteString("  private eventSource: EventSource | null = null;\n")
@@ -96,9 +98,11 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 
 	buf.WriteString("    this.eventSource.onopen = () => {\n")
 	buf.WriteString("      this.setState(ConnectionState.CONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("      this.reconnectAttempts = 0;\n")
 	}
+
 	buf.WriteString("    };\n\n")
 
 	buf.WriteString("    this.eventSource.onerror = (error) => {\n")
@@ -112,6 +116,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		buf.WriteString("        }\n")
 		buf.WriteString("      }\n")
 	}
+
 	buf.WriteString("    };\n\n")
 
 	// Register event listeners for each event type
@@ -205,15 +210,16 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	return buf.String()
 }
 
-// generateClassName generates a class name for an SSE endpoint
+// generateClassName generates a class name for an SSE endpoint.
 func (s *SSEGenerator) generateClassName(sse client.SSEEndpoint) string {
 	if sse.ID != "" {
 		return s.toPascalCase(sse.ID) + "SSEClient"
 	}
+
 	return "SSEClient"
 }
 
-// getSchemaTypeName gets the type name for a schema
+// getSchemaTypeName gets the type name for a schema.
 func (s *SSEGenerator) getSchemaTypeName(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "any"
@@ -221,24 +227,28 @@ func (s *SSEGenerator) getSchemaTypeName(schema *client.Schema, spec *client.API
 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
+
 		return "types." + parts[len(parts)-1]
 	}
 
 	return "any"
 }
 
-// toPascalCase converts a string to PascalCase
+// toPascalCase converts a string to PascalCase.
 func (s *SSEGenerator) toPascalCase(str string) string {
 	parts := strings.FieldsFunc(str, func(r rune) bool {
 		return r == '_' || r == '-' || r == ' '
 	})
 
 	var result string
+	var resultSb237 strings.Builder
+
 	for _, part := range parts {
 		if len(part) > 0 {
-			result += strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+			resultSb237.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
 		}
 	}
+	result += resultSb237.String()
 
 	return result
 }

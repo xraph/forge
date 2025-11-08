@@ -1,6 +1,6 @@
 package di
 
-// newContainer creates a new container implementation
+// newContainer creates a new container implementation.
 func newContainer() Container {
 	return newContainerImpl()
 }

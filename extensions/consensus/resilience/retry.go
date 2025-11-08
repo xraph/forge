@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/resilience"
 )
 
-// RetryManager manages retry logic for consensus operations
+// RetryManager manages retry logic for consensus operations.
 type RetryManager struct {
 	nodeID string
 	logger forge.Logger
@@ -25,7 +25,7 @@ type RetryManager struct {
 	statsChan chan RetryEvent
 }
 
-// RetryStatistics contains retry statistics
+// RetryStatistics contains retry statistics.
 type RetryStatistics struct {
 	RPCRetries         int64
 	ReplicationRetries int64
@@ -35,7 +35,7 @@ type RetryStatistics struct {
 	FailedRetries      int64
 }
 
-// RetryEvent represents a retry event
+// RetryEvent represents a retry event.
 type RetryEvent struct {
 	Operation string
 	Attempt   int
@@ -45,7 +45,7 @@ type RetryEvent struct {
 	Timestamp time.Time
 }
 
-// RetryManagerConfig contains retry manager configuration
+// RetryManagerConfig contains retry manager configuration.
 type RetryManagerConfig struct {
 	NodeID string
 
@@ -65,15 +65,17 @@ type RetryManagerConfig struct {
 	SnapshotMaxRetryDelay time.Duration
 }
 
-// NewRetryManager creates a new retry manager
+// NewRetryManager creates a new retry manager.
 func NewRetryManager(config RetryManagerConfig, logger forge.Logger) *RetryManager {
 	// Set defaults
 	if config.RPCMaxRetries == 0 {
 		config.RPCMaxRetries = 3
 	}
+
 	if config.RPCRetryDelay == 0 {
 		config.RPCRetryDelay = 100 * time.Millisecond
 	}
+
 	if config.RPCMaxRetryDelay == 0 {
 		config.RPCMaxRetryDelay = 1 * time.Second
 	}
@@ -81,9 +83,11 @@ func NewRetryManager(config RetryManagerConfig, logger forge.Logger) *RetryManag
 	if config.ReplicaMaxRetries == 0 {
 		config.ReplicaMaxRetries = 5
 	}
+
 	if config.ReplicaRetryDelay == 0 {
 		config.ReplicaRetryDelay = 50 * time.Millisecond
 	}
+
 	if config.ReplicaMaxRetryDelay == 0 {
 		config.ReplicaMaxRetryDelay = 500 * time.Millisecond
 	}
@@ -91,9 +95,11 @@ func NewRetryManager(config RetryManagerConfig, logger forge.Logger) *RetryManag
 	if config.SnapshotMaxRetries == 0 {
 		config.SnapshotMaxRetries = 3
 	}
+
 	if config.SnapshotRetryDelay == 0 {
 		config.SnapshotRetryDelay = 1 * time.Second
 	}
+
 	if config.SnapshotMaxRetryDelay == 0 {
 		config.SnapshotMaxRetryDelay = 5 * time.Second
 	}
@@ -138,14 +144,15 @@ func NewRetryManager(config RetryManagerConfig, logger forge.Logger) *RetryManag
 	return rm
 }
 
-// RetryRPC retries an RPC operation
+// RetryRPC retries an RPC operation.
 func (rm *RetryManager) RetryRPC(ctx context.Context, operation string, fn func() error) error {
 	start := time.Now()
 	attempt := 0
 
-	result, err := rm.rpcRetry.Execute(ctx, func() (interface{}, error) {
+	result, err := rm.rpcRetry.Execute(ctx, func() (any, error) {
 		attempt++
 		err := fn()
+
 		return nil, err
 	})
 
@@ -153,7 +160,7 @@ func (rm *RetryManager) RetryRPC(ctx context.Context, operation string, fn func(
 
 	// Record event
 	rm.statsChan <- RetryEvent{
-		Operation: fmt.Sprintf("rpc:%s", operation),
+		Operation: "rpc:" + operation,
 		Attempt:   attempt,
 		Success:   err == nil,
 		Error:     err,
@@ -167,6 +174,7 @@ func (rm *RetryManager) RetryRPC(ctx context.Context, operation string, fn func(
 			forge.F("attempts", attempt),
 			forge.F("error", err),
 		)
+
 		return internal.ErrOperationFailed.WithContext("operation", operation)
 	}
 
@@ -175,14 +183,15 @@ func (rm *RetryManager) RetryRPC(ctx context.Context, operation string, fn func(
 	return nil
 }
 
-// RetryReplication retries a replication operation
+// RetryReplication retries a replication operation.
 func (rm *RetryManager) RetryReplication(ctx context.Context, nodeID string, fn func() error) error {
 	start := time.Now()
 	attempt := 0
 
-	result, err := rm.replicaRetry.Execute(ctx, func() (interface{}, error) {
+	result, err := rm.replicaRetry.Execute(ctx, func() (any, error) {
 		attempt++
 		err := fn()
+
 		return nil, err
 	})
 
@@ -190,7 +199,7 @@ func (rm *RetryManager) RetryReplication(ctx context.Context, nodeID string, fn 
 
 	// Record event
 	rm.statsChan <- RetryEvent{
-		Operation: fmt.Sprintf("replication:%s", nodeID),
+		Operation: "replication:" + nodeID,
 		Attempt:   attempt,
 		Success:   err == nil,
 		Error:     err,
@@ -204,6 +213,7 @@ func (rm *RetryManager) RetryReplication(ctx context.Context, nodeID string, fn 
 			forge.F("attempts", attempt),
 			forge.F("error", err),
 		)
+
 		return internal.ErrReplicationFailed.WithContext("node_id", nodeID)
 	}
 
@@ -212,14 +222,15 @@ func (rm *RetryManager) RetryReplication(ctx context.Context, nodeID string, fn 
 	return nil
 }
 
-// RetrySnapshot retries a snapshot operation
+// RetrySnapshot retries a snapshot operation.
 func (rm *RetryManager) RetrySnapshot(ctx context.Context, operation string, fn func() error) error {
 	start := time.Now()
 	attempt := 0
 
-	result, err := rm.snapshotRetry.Execute(ctx, func() (interface{}, error) {
+	result, err := rm.snapshotRetry.Execute(ctx, func() (any, error) {
 		attempt++
 		err := fn()
+
 		return nil, err
 	})
 
@@ -227,7 +238,7 @@ func (rm *RetryManager) RetrySnapshot(ctx context.Context, operation string, fn 
 
 	// Record event
 	rm.statsChan <- RetryEvent{
-		Operation: fmt.Sprintf("snapshot:%s", operation),
+		Operation: "snapshot:" + operation,
 		Attempt:   attempt,
 		Success:   err == nil,
 		Error:     err,
@@ -241,6 +252,7 @@ func (rm *RetryManager) RetrySnapshot(ctx context.Context, operation string, fn 
 			forge.F("attempts", attempt),
 			forge.F("error", err),
 		)
+
 		return internal.ErrSnapshotFailed.WithContext("operation", operation)
 	}
 
@@ -249,7 +261,7 @@ func (rm *RetryManager) RetrySnapshot(ctx context.Context, operation string, fn 
 	return nil
 }
 
-// collectStatistics collects retry statistics
+// collectStatistics collects retry statistics.
 func (rm *RetryManager) collectStatistics() {
 	for event := range rm.statsChan {
 		rm.stats.TotalRetries++
@@ -271,17 +283,17 @@ func (rm *RetryManager) collectStatistics() {
 	}
 }
 
-// GetStatistics returns retry statistics
+// GetStatistics returns retry statistics.
 func (rm *RetryManager) GetStatistics() RetryStatistics {
 	return rm.stats
 }
 
-// Close closes the retry manager
+// Close closes the retry manager.
 func (rm *RetryManager) Close() {
 	close(rm.statsChan)
 }
 
-// IsRetryable determines if an error is retryable
+// IsRetryable determines if an error is retryable.
 func IsRetryableError(err error) bool {
 	if err == nil {
 		return false
@@ -308,7 +320,7 @@ func IsRetryableError(err error) bool {
 	}
 }
 
-// RetryWithBackoff retries with custom backoff
+// RetryWithBackoff retries with custom backoff.
 func (rm *RetryManager) RetryWithBackoff(
 	ctx context.Context,
 	operation string,
@@ -316,6 +328,7 @@ func (rm *RetryManager) RetryWithBackoff(
 	backoff BackoffStrategy,
 ) error {
 	var lastErr error
+
 	attempt := 0
 
 	for {
@@ -334,6 +347,7 @@ func (rm *RetryManager) RetryWithBackoff(
 				Duration:  duration,
 				Timestamp: time.Now(),
 			}
+
 			return nil
 		}
 
@@ -349,6 +363,7 @@ func (rm *RetryManager) RetryWithBackoff(
 				Duration:  duration,
 				Timestamp: time.Now(),
 			}
+
 			return err
 		}
 

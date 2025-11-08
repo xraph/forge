@@ -10,12 +10,14 @@ import (
 	"time"
 
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// PredictorAgent provides predictive analytics and forecasting capabilities
+// PredictorAgent provides predictive analytics and forecasting capabilities.
 type PredictorAgent struct {
 	*ai.BaseAgent
+
 	predictionModels map[string]*PredictionModel
 	forecaster       *Forecaster
 	anomalyDetector  *AnomalyDetector
@@ -31,7 +33,7 @@ type PredictorAgent struct {
 	mu               sync.RWMutex
 }
 
-// PredictionModel represents a predictive model
+// PredictionModel represents a predictive model.
 type PredictionModel struct {
 	ID              string                 `json:"id"`
 	Name            string                 `json:"name"`
@@ -52,7 +54,7 @@ type PredictionModel struct {
 	Metadata        map[string]interface{} `json:"metadata"`
 }
 
-// ModelType defines the type of prediction model
+// ModelType defines the type of prediction model.
 type ModelType string
 
 const (
@@ -66,7 +68,7 @@ const (
 	ModelTypeOptimization     ModelType = "optimization"
 )
 
-// PredictorDataPoint represents a data point for training/prediction
+// PredictorDataPoint represents a data point for training/prediction.
 type PredictorDataPoint struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Features  map[string]interface{} `json:"features"`
@@ -75,7 +77,7 @@ type PredictorDataPoint struct {
 	Metadata  map[string]interface{} `json:"metadata"`
 }
 
-// ModelMetrics contains model performance metrics
+// ModelMetrics contains model performance metrics.
 type ModelMetrics struct {
 	Accuracy        float64                `json:"accuracy"`
 	Precision       float64                `json:"precision"`
@@ -92,7 +94,7 @@ type ModelMetrics struct {
 	Metadata        map[string]interface{} `json:"metadata"`
 }
 
-// Forecaster handles time series forecasting
+// Forecaster handles time series forecasting.
 type Forecaster struct {
 	Models               map[string]*ForecastModel `json:"models"`
 	DefaultHorizon       time.Duration             `json:"default_horizon"`
@@ -103,7 +105,7 @@ type Forecaster struct {
 	Metadata             map[string]interface{}    `json:"metadata"`
 }
 
-// ForecastModel represents a forecasting model
+// ForecastModel represents a forecasting model.
 type ForecastModel struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
@@ -117,14 +119,14 @@ type ForecastModel struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// TimeSeriesPoint represents a time series data point
+// TimeSeriesPoint represents a time series data point.
 type TimeSeriesPoint struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Value     float64                `json:"value"`
 	Metadata  map[string]interface{} `json:"metadata"`
 }
 
-// SeasonalityInfo contains seasonality information
+// SeasonalityInfo contains seasonality information.
 type SeasonalityInfo struct {
 	Detected   bool                   `json:"detected"`
 	Period     time.Duration          `json:"period"`
@@ -134,7 +136,7 @@ type SeasonalityInfo struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// TrendInfo contains trend information
+// TrendInfo contains trend information.
 type TrendInfo struct {
 	Detected     bool                   `json:"detected"`
 	Direction    string                 `json:"direction"`
@@ -145,7 +147,7 @@ type TrendInfo struct {
 	Metadata     map[string]interface{} `json:"metadata"`
 }
 
-// Pattern represents a recurring pattern
+// Pattern represents a recurring pattern.
 type Pattern struct {
 	ID         string                 `json:"id"`
 	Type       string                 `json:"type"`
@@ -156,7 +158,7 @@ type Pattern struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// TrendChangePoint represents a point where trend changes
+// TrendChangePoint represents a point where trend changes.
 type TrendChangePoint struct {
 	Timestamp  time.Time              `json:"timestamp"`
 	OldSlope   float64                `json:"old_slope"`
@@ -165,7 +167,7 @@ type TrendChangePoint struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// AnomalyDetector detects anomalies in data
+// AnomalyDetector detects anomalies in data.
 type AnomalyDetector struct {
 	Models          map[string]*AnomalyModel `json:"models"`
 	Threshold       float64                  `json:"threshold"`
@@ -176,7 +178,7 @@ type AnomalyDetector struct {
 	Metadata        map[string]interface{}   `json:"metadata"`
 }
 
-// AnomalyModel represents an anomaly detection model
+// AnomalyModel represents an anomaly detection model.
 type AnomalyModel struct {
 	ID                string                 `json:"id"`
 	Name              string                 `json:"name"`
@@ -191,7 +193,7 @@ type AnomalyModel struct {
 	Metadata          map[string]interface{} `json:"metadata"`
 }
 
-// BaselineInfo contains baseline information for anomaly detection
+// BaselineInfo contains baseline information for anomaly detection.
 type BaselineInfo struct {
 	Mean        float64                `json:"mean"`
 	StdDev      float64                `json:"std_dev"`
@@ -203,7 +205,7 @@ type BaselineInfo struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// PredictorTrendAnalyzer analyzes trends in data
+// PredictorTrendAnalyzer analyzes trends in data.
 type PredictorTrendAnalyzer struct {
 	WindowSize       time.Duration          `json:"window_size"`
 	MinTrendStrength float64                `json:"min_trend_strength"`
@@ -213,7 +215,7 @@ type PredictorTrendAnalyzer struct {
 	Metadata         map[string]interface{} `json:"metadata"`
 }
 
-// Predictor handles general predictions
+// Predictor handles general predictions.
 type Predictor struct {
 	Models          map[string]*PredictionModel  `json:"models"`
 	DefaultModel    string                       `json:"default_model"`
@@ -225,7 +227,7 @@ type Predictor struct {
 	Metadata        map[string]interface{}       `json:"metadata"`
 }
 
-// CachedPrediction represents a cached prediction
+// CachedPrediction represents a cached prediction.
 type CachedPrediction struct {
 	ID        string                 `json:"id"`
 	Input     PredictionInput        `json:"input"`
@@ -236,7 +238,7 @@ type CachedPrediction struct {
 	Metadata  map[string]interface{} `json:"metadata"`
 }
 
-// PredictionStats tracks prediction statistics
+// PredictionStats tracks prediction statistics.
 type PredictionStats struct {
 	TotalPredictions      int64                  `json:"total_predictions"`
 	SuccessfulPredictions int64                  `json:"successful_predictions"`
@@ -254,7 +256,7 @@ type PredictionStats struct {
 	Metadata              map[string]interface{} `json:"metadata"`
 }
 
-// AnomalyDetectionStats tracks anomaly detection statistics
+// AnomalyDetectionStats tracks anomaly detection statistics.
 type AnomalyDetectionStats struct {
 	TotalAnomalies      int64                  `json:"total_anomalies"`
 	TruePositives       int64                  `json:"true_positives"`
@@ -269,7 +271,7 @@ type AnomalyDetectionStats struct {
 	Metadata            map[string]interface{} `json:"metadata"`
 }
 
-// ForecastStats tracks forecasting statistics
+// ForecastStats tracks forecasting statistics.
 type ForecastStats struct {
 	TotalForecasts      int64                  `json:"total_forecasts"`
 	SuccessfulForecasts int64                  `json:"successful_forecasts"`
@@ -283,7 +285,7 @@ type ForecastStats struct {
 	Metadata            map[string]interface{} `json:"metadata"`
 }
 
-// ModelRegistry manages prediction models
+// ModelRegistry manages prediction models.
 type ModelRegistry struct {
 	Models        map[string]*PredictionModel `json:"models"`
 	DefaultModels map[string]string           `json:"default_models"`
@@ -294,7 +296,7 @@ type ModelRegistry struct {
 	Metadata      map[string]interface{}      `json:"metadata"`
 }
 
-// DataProcessor processes data for predictions
+// DataProcessor processes data for predictions.
 type DataProcessor struct {
 	Preprocessors     map[string]*Preprocessor     `json:"preprocessors"`
 	FeatureExtractors map[string]*FeatureExtractor `json:"feature_extractors"`
@@ -304,7 +306,7 @@ type DataProcessor struct {
 	Metadata          map[string]interface{}       `json:"metadata"`
 }
 
-// Preprocessor handles data preprocessing
+// Preprocessor handles data preprocessing.
 type Preprocessor struct {
 	ID         string                 `json:"id"`
 	Name       string                 `json:"name"`
@@ -314,7 +316,7 @@ type Preprocessor struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// FeatureExtractor extracts features from data
+// FeatureExtractor extracts features from data.
 type FeatureExtractor struct {
 	ID           string                 `json:"id"`
 	Name         string                 `json:"name"`
@@ -326,7 +328,7 @@ type FeatureExtractor struct {
 	Metadata     map[string]interface{} `json:"metadata"`
 }
 
-// Normalizer normalizes data
+// Normalizer normalizes data.
 type Normalizer struct {
 	ID         string                 `json:"id"`
 	Name       string                 `json:"name"`
@@ -336,7 +338,7 @@ type Normalizer struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// DataValidator validates data quality
+// DataValidator validates data quality.
 type DataValidator struct {
 	ID       string                 `json:"id"`
 	Name     string                 `json:"name"`
@@ -346,7 +348,7 @@ type DataValidator struct {
 	Metadata map[string]interface{} `json:"metadata"`
 }
 
-// ValidationRule defines a data validation rule
+// ValidationRule defines a data validation rule.
 type ValidationRule struct {
 	ID        string                 `json:"id"`
 	Name      string                 `json:"name"`
@@ -359,7 +361,7 @@ type ValidationRule struct {
 	Metadata  map[string]interface{} `json:"metadata"`
 }
 
-// ModelEvaluator evaluates model performance
+// ModelEvaluator evaluates model performance.
 type ModelEvaluator struct {
 	EvaluationMetrics []string               `json:"evaluation_metrics"`
 	TestDataRatio     float64                `json:"test_data_ratio"`
@@ -369,7 +371,7 @@ type ModelEvaluator struct {
 	Metadata          map[string]interface{} `json:"metadata"`
 }
 
-// CrossValidationConfig defines cross-validation configuration
+// CrossValidationConfig defines cross-validation configuration.
 type CrossValidationConfig struct {
 	Enabled    bool                   `json:"enabled"`
 	Folds      int                    `json:"folds"`
@@ -379,7 +381,7 @@ type CrossValidationConfig struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// EvaluationResult contains model evaluation results
+// EvaluationResult contains model evaluation results.
 type EvaluationResult struct {
 	ID        string                 `json:"id"`
 	ModelID   string                 `json:"model_id"`
@@ -393,7 +395,7 @@ type EvaluationResult struct {
 	Metadata  map[string]interface{} `json:"metadata"`
 }
 
-// PredictionInput represents input for predictions
+// PredictionInput represents input for predictions.
 type PredictionInput struct {
 	Type       string                 `json:"type"`
 	Data       interface{}            `json:"data"`
@@ -404,7 +406,7 @@ type PredictionInput struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// PredictionContext provides context for predictions
+// PredictionContext provides context for predictions.
 type PredictionContext struct {
 	Domain      string                 `json:"domain"`
 	Environment string                 `json:"environment"`
@@ -415,7 +417,7 @@ type PredictionContext struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// PredictionOptions defines prediction options
+// PredictionOptions defines prediction options.
 type PredictionOptions struct {
 	ModelID        string                 `json:"model_id"`
 	Horizon        time.Duration          `json:"horizon"`
@@ -427,7 +429,7 @@ type PredictionOptions struct {
 	Metadata       map[string]interface{} `json:"metadata"`
 }
 
-// TimeWindow defines a time window for analysis
+// TimeWindow defines a time window for analysis.
 type TimeWindow struct {
 	StartTime   time.Time              `json:"start_time"`
 	EndTime     time.Time              `json:"end_time"`
@@ -436,7 +438,7 @@ type TimeWindow struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// PredictionOutput represents prediction results
+// PredictionOutput represents prediction results.
 type PredictionOutput struct {
 	Type            string                     `json:"type"`
 	Predictions     []Prediction               `json:"predictions"`
@@ -451,7 +453,7 @@ type PredictionOutput struct {
 	Metadata        map[string]interface{}     `json:"metadata"`
 }
 
-// Prediction represents a single prediction
+// Prediction represents a single prediction.
 type Prediction struct {
 	ID          string                 `json:"id"`
 	Type        string                 `json:"type"`
@@ -466,7 +468,7 @@ type Prediction struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// PredictionBounds represents prediction bounds
+// PredictionBounds represents prediction bounds.
 type PredictionBounds struct {
 	Lower      float64                `json:"lower"`
 	Upper      float64                `json:"upper"`
@@ -474,7 +476,7 @@ type PredictionBounds struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// Anomaly represents an anomaly detection result
+// Anomaly represents an anomaly detection result.
 type Anomaly struct {
 	ID          string                 `json:"id"`
 	Type        string                 `json:"type"`
@@ -488,7 +490,7 @@ type Anomaly struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// Forecast represents a forecast result
+// Forecast represents a forecast result.
 type Forecast struct {
 	ID          string                 `json:"id"`
 	Type        string                 `json:"type"`
@@ -501,7 +503,7 @@ type Forecast struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// ForecastPoint represents a point in a forecast
+// ForecastPoint represents a point in a forecast.
 type ForecastPoint struct {
 	Timestamp  time.Time              `json:"timestamp"`
 	Value      float64                `json:"value"`
@@ -510,7 +512,7 @@ type ForecastPoint struct {
 	Metadata   map[string]interface{} `json:"metadata"`
 }
 
-// Trend represents a trend analysis result
+// Trend represents a trend analysis result.
 type Trend struct {
 	ID           string                 `json:"id"`
 	Type         string                 `json:"type"`
@@ -526,7 +528,7 @@ type Trend struct {
 	Impact       string                 `json:"impact"`
 }
 
-// PredictionRecommendation represents a recommendation based on predictions
+// PredictionRecommendation represents a recommendation based on predictions.
 type PredictionRecommendation struct {
 	ID          string                 `json:"id"`
 	Type        string                 `json:"type"`
@@ -541,7 +543,7 @@ type PredictionRecommendation struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// ModelInfo provides information about the model used
+// ModelInfo provides information about the model used.
 type ModelInfo struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
@@ -553,7 +555,7 @@ type ModelInfo struct {
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
-// NewPredictorAgent creates a new predictive analytics agent
+// NewPredictorAgent creates a new predictive analytics agent.
 func NewPredictorAgent() ai.AIAgent {
 	capabilities := []ai.Capability{
 		{
@@ -685,7 +687,7 @@ func NewPredictorAgent() ai.AIAgent {
 	}
 }
 
-// Initialize initializes the predictor agent
+// Initialize initializes the predictor agent.
 func (a *PredictorAgent) Initialize(ctx context.Context, config ai.AgentConfig) error {
 	if err := a.BaseAgent.Initialize(ctx, config); err != nil {
 		return err
@@ -697,6 +699,7 @@ func (a *PredictorAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 			if autoRetrain, ok := configMap["auto_retrain"].(bool); ok {
 				a.autoRetrain = autoRetrain
 			}
+
 			if learning, ok := configMap["learning_enabled"].(bool); ok {
 				a.learningEnabled = learning
 			}
@@ -710,7 +713,7 @@ func (a *PredictorAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 	a.initializeDataProcessors()
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Info("predictor agent initialized",
+		a.GetConfiguration().Logger.Info("predictor agent initialized",
 			logger.String("agent_id", a.ID()),
 			logger.Bool("auto_retrain", a.autoRetrain),
 			logger.Bool("learning_enabled", a.learningEnabled),
@@ -721,14 +724,14 @@ func (a *PredictorAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 	return nil
 }
 
-// Process processes prediction input
+// Process processes prediction input.
 func (a *PredictorAgent) Process(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Convert input to prediction-specific input
 	predictionInput, ok := input.Data.(PredictionInput)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input type for predictor agent")
+		return ai.AgentOutput{}, errors.New("invalid input type for predictor agent")
 	}
 
 	// Process data
@@ -812,7 +815,7 @@ func (a *PredictorAgent) Process(ctx context.Context, input ai.AgentInput) (ai.A
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Debug("predictive analytics processed",
+		a.GetConfiguration().Logger.Debug("predictive analytics processed",
 			logger.String("agent_id", a.ID()),
 			logger.String("request_id", input.RequestID),
 			logger.Int("predictions", len(predictions)),
@@ -826,7 +829,7 @@ func (a *PredictorAgent) Process(ctx context.Context, input ai.AgentInput) (ai.A
 	return agentOutput, nil
 }
 
-// initializeDefaultModels initializes default prediction models
+// initializeDefaultModels initializes default prediction models.
 func (a *PredictorAgent) initializeDefaultModels() {
 	// Time series forecasting model
 	timeSeriesModel := &PredictionModel{
@@ -914,7 +917,7 @@ func (a *PredictorAgent) initializeDefaultModels() {
 	a.modelRegistry.DefaultModels["trend_analysis"] = "trend_default"
 }
 
-// initializeDataProcessors initializes data processing components
+// initializeDataProcessors initializes data processing components.
 func (a *PredictorAgent) initializeDataProcessors() {
 	// Time series preprocessor
 	timeSeriesPreprocessor := &Preprocessor{
@@ -990,7 +993,7 @@ func (a *PredictorAgent) initializeDataProcessors() {
 	a.dataProcessor.Validators["basic_validator"] = dataValidator
 }
 
-// processData processes input data for predictions
+// processData processes input data for predictions.
 func (a *PredictorAgent) processData(input PredictionInput) ([]PredictorDataPoint, error) {
 	// Convert input data to data points
 	dataPoints := []PredictorDataPoint{}
@@ -1040,7 +1043,7 @@ func (a *PredictorAgent) processData(input PredictionInput) ([]PredictorDataPoin
 		if validator.Enabled {
 			if err := a.validateData(dataPoints, validator); err != nil {
 				if a.BaseAgent.GetConfiguration().Logger != nil {
-					a.BaseAgent.GetConfiguration().Logger.Warn("data validation warning",
+					a.GetConfiguration().Logger.Warn("data validation warning",
 						logger.String("validator", validator.Name),
 						logger.Error(err),
 					)
@@ -1052,7 +1055,7 @@ func (a *PredictorAgent) processData(input PredictionInput) ([]PredictorDataPoin
 	return dataPoints, nil
 }
 
-// generatePredictions generates predictions from processed data
+// generatePredictions generates predictions from processed data.
 func (a *PredictorAgent) generatePredictions(data []PredictorDataPoint) ([]Prediction, error) {
 	predictions := []Prediction{}
 
@@ -1063,6 +1066,7 @@ func (a *PredictorAgent) generatePredictions(data []PredictorDataPoint) ([]Predi
 			if err != nil {
 				continue
 			}
+
 			prediction.ModelID = modelID
 			predictions = append(predictions, prediction)
 		}
@@ -1071,28 +1075,32 @@ func (a *PredictorAgent) generatePredictions(data []PredictorDataPoint) ([]Predi
 	return predictions, nil
 }
 
-// generatePredictionWithModel generates a prediction using a specific model
+// generatePredictionWithModel generates a prediction using a specific model.
 func (a *PredictorAgent) generatePredictionWithModel(data []PredictorDataPoint, model *PredictionModel) (Prediction, error) {
 	// Simple prediction algorithm for demonstration
 	if len(data) == 0 {
-		return Prediction{}, fmt.Errorf("no data provided")
+		return Prediction{}, errors.New("no data provided")
 	}
 
 	// Calculate prediction based on model type
-	var value interface{}
-	var confidence float64
+	var (
+		value      interface{}
+		confidence float64
+	)
 
 	switch model.Type {
 	case ModelTypeRegression:
 		// Simple linear regression
 		sum := 0.0
 		count := 0
+
 		for _, point := range data {
 			if val, ok := point.Features["value"].(float64); ok {
 				sum += val
 				count++
 			}
 		}
+
 		if count > 0 {
 			value = sum / float64(count)
 			confidence = 0.8
@@ -1134,7 +1142,7 @@ func (a *PredictorAgent) generatePredictionWithModel(data []PredictorDataPoint, 
 	return prediction, nil
 }
 
-// detectAnomalies detects anomalies in the data
+// detectAnomalies detects anomalies in the data.
 func (a *PredictorAgent) detectAnomalies(data []PredictorDataPoint) ([]Anomaly, error) {
 	anomalies := []Anomaly{}
 
@@ -1149,6 +1157,7 @@ func (a *PredictorAgent) detectAnomalies(data []PredictorDataPoint) ([]Anomaly, 
 
 	// Calculate basic statistics
 	values := []float64{}
+
 	for _, point := range data {
 		if val, ok := point.Features["value"].(float64); ok {
 			values = append(values, val)
@@ -1195,7 +1204,7 @@ func (a *PredictorAgent) detectAnomalies(data []PredictorDataPoint) ([]Anomaly, 
 	return anomalies, nil
 }
 
-// generateForecasts generates forecasts from the data
+// generateForecasts generates forecasts from the data.
 func (a *PredictorAgent) generateForecasts(data []PredictorDataPoint) ([]Forecast, error) {
 	forecasts := []Forecast{}
 
@@ -1210,6 +1219,7 @@ func (a *PredictorAgent) generateForecasts(data []PredictorDataPoint) ([]Forecas
 
 	// Extract time series
 	series := []TimeSeriesPoint{}
+
 	for _, point := range data {
 		if val, ok := point.Features["value"].(float64); ok {
 			series = append(series, TimeSeriesPoint{
@@ -1275,7 +1285,7 @@ func (a *PredictorAgent) generateForecasts(data []PredictorDataPoint) ([]Forecas
 	return forecasts, nil
 }
 
-// analyzeTrends analyzes trends in the data
+// analyzeTrends analyzes trends in the data.
 func (a *PredictorAgent) analyzeTrends(data []PredictorDataPoint) ([]Trend, error) {
 	trends := []Trend{}
 
@@ -1305,6 +1315,7 @@ func (a *PredictorAgent) analyzeTrends(data []PredictorDataPoint) ([]Trend, erro
 
 	// Calculate slope using linear regression
 	slope := a.calculateSlope(values)
+
 	direction := "stable"
 	if slope > 0.1 {
 		direction = "increasing"
@@ -1339,7 +1350,7 @@ func (a *PredictorAgent) analyzeTrends(data []PredictorDataPoint) ([]Trend, erro
 	return trends, nil
 }
 
-// generateRecommendations generates recommendations based on analysis results
+// generateRecommendations generates recommendations based on analysis results.
 func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anomalies []Anomaly, forecasts []Forecast, trends []Trend) []PredictionRecommendation {
 	recommendations := []PredictionRecommendation{}
 
@@ -1347,10 +1358,10 @@ func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anoma
 	for _, anomaly := range anomalies {
 		if anomaly.Severity == "high" || anomaly.Severity == "critical" {
 			recommendation := PredictionRecommendation{
-				ID:          fmt.Sprintf("rec_anomaly_%s", anomaly.ID),
+				ID:          "rec_anomaly_" + anomaly.ID,
 				Type:        "anomaly_response",
 				Title:       "Investigate Anomaly",
-				Description: fmt.Sprintf("High-severity anomaly detected: %s", anomaly.Description),
+				Description: "High-severity anomaly detected: " + anomaly.Description,
 				Action:      "investigate_anomaly",
 				Priority:    1,
 				Confidence:  anomaly.Score,
@@ -1371,14 +1382,16 @@ func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anoma
 	for _, trend := range trends {
 		if trend.Strength > 0.7 {
 			var action, title, description string
+
 			priority := 2
 
-			if trend.Direction == "increasing" {
+			switch trend.Direction {
+			case "increasing":
 				action = "scale_up"
 				title = "Consider Scaling Up"
 				description = fmt.Sprintf("Strong upward trend detected (strength: %.2f)", trend.Strength)
 				priority = 1
-			} else if trend.Direction == "decreasing" {
+			case "decreasing":
 				action = "investigate_decline"
 				title = "Investigate Declining Trend"
 				description = fmt.Sprintf("Strong downward trend detected (strength: %.2f)", trend.Strength)
@@ -1386,7 +1399,7 @@ func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anoma
 
 			if action != "" {
 				recommendation := PredictionRecommendation{
-					ID:          fmt.Sprintf("rec_trend_%s", trend.ID),
+					ID:          "rec_trend_" + trend.ID,
 					Type:        "trend_response",
 					Title:       title,
 					Description: description,
@@ -1430,7 +1443,7 @@ func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anoma
 					}
 
 					recommendation := PredictionRecommendation{
-						ID:          fmt.Sprintf("rec_forecast_%s", forecast.ID),
+						ID:          "rec_forecast_" + forecast.ID,
 						Type:        "forecast_response",
 						Title:       title,
 						Description: description,
@@ -1486,10 +1499,12 @@ func (a *PredictorAgent) calculateMean(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	sum := 0.0
 	for _, v := range values {
 		sum += v
 	}
+
 	return sum / float64(len(values))
 }
 
@@ -1497,10 +1512,12 @@ func (a *PredictorAgent) calculateStdDev(values []float64, mean float64) float64
 	if len(values) <= 1 {
 		return 0
 	}
+
 	sum := 0.0
 	for _, v := range values {
 		sum += (v - mean) * (v - mean)
 	}
+
 	return math.Sqrt(sum / float64(len(values)-1))
 }
 
@@ -1534,6 +1551,7 @@ func (a *PredictorAgent) determineSeverity(score float64) string {
 	} else if score >= 2.0 {
 		return "medium"
 	}
+
 	return "low"
 }
 

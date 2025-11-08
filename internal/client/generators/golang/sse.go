@@ -7,19 +7,19 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// SSEGenerator generates SSE (Server-Sent Events) client code
+// SSEGenerator generates SSE (Server-Sent Events) client code.
 type SSEGenerator struct {
 	typesGen *TypesGenerator
 }
 
-// NewSSEGenerator creates a new SSE generator
+// NewSSEGenerator creates a new SSE generator.
 func NewSSEGenerator() *SSEGenerator {
 	return &SSEGenerator{
 		typesGen: NewTypesGenerator(),
 	}
 }
 
-// Generate generates the sse.go file
+// Generate generates the sse.go file.
 func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -51,7 +51,7 @@ func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorCon
 	return buf.String()
 }
 
-// generateSSEEventType generates the SSE event type
+// generateSSEEventType generates the SSE event type.
 func (s *SSEGenerator) generateSSEEventType() string {
 	var buf strings.Builder
 
@@ -66,7 +66,7 @@ func (s *SSEGenerator) generateSSEEventType() string {
 	return buf.String()
 }
 
-// generateSSEClient generates an SSE client for an endpoint
+// generateSSEClient generates an SSE client for an endpoint.
 func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -74,9 +74,11 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 
 	// Client struct
 	buf.WriteString(fmt.Sprintf("// %s is an SSE client for %s\n", clientName, sse.Path))
+
 	if sse.Description != "" {
 		buf.WriteString(fmt.Sprintf("// %s\n", sse.Description))
 	}
+
 	buf.WriteString(fmt.Sprintf("type %s struct {\n", clientName))
 	buf.WriteString("\tclient *Client\n")
 	buf.WriteString("\tresp   *http.Response\n")
@@ -136,11 +138,11 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	return buf.String()
 }
 
-// generateSSEConnectMethod generates the Connect method for SSE
+// generateSSEConnectMethod generates the Connect method for SSE.
 func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SSEEndpoint, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// Connect connects to the SSE endpoint and starts receiving events\n"))
+	buf.WriteString("// Connect connects to the SSE endpoint and starts receiving events\n")
 	buf.WriteString(fmt.Sprintf("func (sse *%s) Connect(ctx context.Context) error {\n", clientName))
 	buf.WriteString("\tsse.mu.Lock()\n")
 	buf.WriteString("\tdefer sse.mu.Unlock()\n\n")
@@ -153,9 +155,11 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 
 	buf.WriteString("\treq, err := http.NewRequestWithContext(ctx, \"GET\", url, nil)\n")
 	buf.WriteString("\tif err != nil {\n")
+
 	if config.Features.StateManagement {
 		buf.WriteString("\t\tsse.setState(ConnectionStateError)\n")
 	}
+
 	buf.WriteString("\t\treturn fmt.Errorf(\"create request: %w\", err)\n")
 	buf.WriteString("\t}\n\n")
 
@@ -173,24 +177,30 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 
 	buf.WriteString("\tresp, err := sse.client.httpClient.Do(req)\n")
 	buf.WriteString("\tif err != nil {\n")
+
 	if config.Features.StateManagement {
 		buf.WriteString("\t\tsse.setState(ConnectionStateError)\n")
 	}
+
 	buf.WriteString("\t\treturn fmt.Errorf(\"do request: %w\", err)\n")
 	buf.WriteString("\t}\n\n")
 
 	buf.WriteString("\tif resp.StatusCode != http.StatusOK {\n")
 	buf.WriteString("\t\tresp.Body.Close()\n")
+
 	if config.Features.StateManagement {
 		buf.WriteString("\t\tsse.setState(ConnectionStateError)\n")
 	}
+
 	buf.WriteString("\t\treturn fmt.Errorf(\"unexpected status: %d\", resp.StatusCode)\n")
 	buf.WriteString("\t}\n\n")
 
 	buf.WriteString("\tsse.resp = resp\n")
+
 	if config.Features.StateManagement {
 		buf.WriteString("\tsse.setState(ConnectionStateConnected)\n")
 	}
+
 	if config.Features.Reconnection {
 		buf.WriteString("\tsse.attempts = 0\n")
 	}
@@ -207,11 +217,13 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 	buf.WriteString("\t\tif sse.resp != nil {\n")
 	buf.WriteString("\t\t\tsse.resp.Body.Close()\n")
 	buf.WriteString("\t\t}\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("\t\tif !sse.closed {\n")
 		buf.WriteString("\t\t\tsse.reconnect()\n")
 		buf.WriteString("\t\t}\n")
 	}
+
 	buf.WriteString("\t}()\n\n")
 
 	buf.WriteString("\treader := bufio.NewReader(sse.resp.Body)\n")
@@ -225,9 +237,11 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 	buf.WriteString("\t\t\tline, err := reader.ReadString('\\n')\n")
 	buf.WriteString("\t\t\tif err != nil {\n")
 	buf.WriteString("\t\t\t\tif err != io.EOF {\n")
+
 	if config.Features.StateManagement {
 		buf.WriteString("\t\t\t\t\tsse.setState(ConnectionStateError)\n")
 	}
+
 	buf.WriteString("\t\t\t\t}\n")
 	buf.WriteString("\t\t\t\treturn\n")
 	buf.WriteString("\t\t\t}\n\n")
@@ -308,13 +322,17 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 		buf.WriteString(fmt.Sprintf("func (sse *%s) reconnect() {\n", clientName))
 		buf.WriteString("\tsse.mu.Lock()\n")
 		buf.WriteString("\tdefer sse.mu.Unlock()\n\n")
+
 		if config.Features.StateManagement {
 			buf.WriteString("\tsse.setState(ConnectionStateReconnecting)\n\n")
 		}
+
 		buf.WriteString("\tif sse.attempts >= sse.reconnectConfig.maxAttempts {\n")
+
 		if config.Features.StateManagement {
 			buf.WriteString("\t\tsse.setState(ConnectionStateClosed)\n")
 		}
+
 		buf.WriteString("\t\treturn\n")
 		buf.WriteString("\t}\n\n")
 		buf.WriteString("\tdelay := calculateBackoff(sse.attempts, sse.reconnectConfig)\n")
@@ -327,7 +345,7 @@ func (s *SSEGenerator) generateSSEConnectMethod(clientName string, sse client.SS
 	return buf.String()
 }
 
-// generateOnEventMethod generates the OnEvent method for a specific event type
+// generateOnEventMethod generates the OnEvent method for a specific event type.
 func (s *SSEGenerator) generateOnEventMethod(clientName, eventName string, sse client.SSEEndpoint, spec *client.APISpec) string {
 	var buf strings.Builder
 
@@ -350,11 +368,11 @@ func (s *SSEGenerator) generateOnEventMethod(clientName, eventName string, sse c
 	return buf.String()
 }
 
-// generateSSECloseMethod generates the Close method for SSE
+// generateSSECloseMethod generates the Close method for SSE.
 func (s *SSEGenerator) generateSSECloseMethod(clientName string, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// Close closes the SSE connection\n"))
+	buf.WriteString("// Close closes the SSE connection\n")
 	buf.WriteString(fmt.Sprintf("func (sse *%s) Close() error {\n", clientName))
 	buf.WriteString("\tsse.mu.Lock()\n")
 	buf.WriteString("\tdefer sse.mu.Unlock()\n\n")
@@ -380,11 +398,11 @@ func (s *SSEGenerator) generateSSECloseMethod(clientName string, config client.G
 	return buf.String()
 }
 
-// generateSSEOnStateChangeMethod generates the OnStateChange method
+// generateSSEOnStateChangeMethod generates the OnStateChange method.
 func (s *SSEGenerator) generateSSEOnStateChangeMethod(clientName string) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// OnStateChange registers a callback for state changes\n"))
+	buf.WriteString("// OnStateChange registers a callback for state changes\n")
 	buf.WriteString(fmt.Sprintf("func (sse *%s) OnStateChange(handler func(ConnectionState)) {\n", clientName))
 	buf.WriteString("\tsse.mu.Lock()\n")
 	buf.WriteString("\tdefer sse.mu.Unlock()\n")
@@ -401,7 +419,7 @@ func (s *SSEGenerator) generateSSEOnStateChangeMethod(clientName string) string 
 	return buf.String()
 }
 
-// getSchemaTypeName gets the type name for a schema
+// getSchemaTypeName gets the type name for a schema.
 func (s *SSEGenerator) getSchemaTypeName(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "interface{}"

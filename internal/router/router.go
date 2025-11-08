@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Re-export HTTP error types and constructors for backward compatibility
+// Re-export HTTP error types and constructors for backward compatibility.
 type HTTPError = errors.HTTPError
 
 var (
@@ -23,7 +23,7 @@ var (
 	InternalError = errors.InternalError
 )
 
-// Router provides HTTP routing with multiple backend support
+// Router provides HTTP routing with multiple backend support.
 type Router interface {
 	// HTTP Methods - register routes
 	GET(path string, handler any, opts ...RouteOption) error
@@ -74,28 +74,28 @@ type Router interface {
 	StopHTTP3() error
 }
 
-// RouteOption configures a route
+// RouteOption configures a route.
 type RouteOption interface {
 	Apply(*RouteConfig)
 }
 
-// GroupOption configures a route group
+// GroupOption configures a route group.
 type GroupOption interface {
 	Apply(*GroupConfig)
 }
 
 // Handler is a forge handler function that takes a Context and returns an error
-// This is the preferred handler pattern for forge applications
+// This is the preferred handler pattern for forge applications.
 type Handler func(ctx Context) error
 
 // Middleware wraps forge handlers (new pattern)
-// This is the preferred middleware pattern for forge applications
+// This is the preferred middleware pattern for forge applications.
 type Middleware func(next Handler) Handler
 
-// PureMiddleware wraps HTTP handlers
+// PureMiddleware wraps HTTP handlers.
 type PureMiddleware func(http.Handler) http.Handler
 
-// RouteConfig holds route configuration
+// RouteConfig holds route configuration.
 type RouteConfig struct {
 	Name        string
 	Summary     string
@@ -111,14 +111,14 @@ type RouteConfig struct {
 	Deprecated  bool
 }
 
-// GroupConfig holds route group configuration
+// GroupConfig holds route group configuration.
 type GroupConfig struct {
 	Middleware []Middleware
 	Tags       []string
 	Metadata   map[string]any
 }
 
-// RouteInfo provides route information for inspection
+// RouteInfo provides route information for inspection.
 type RouteInfo struct {
 	Name        string
 	Method      string
@@ -134,23 +134,23 @@ type RouteInfo struct {
 }
 
 // RouteExtension represents a route-level extension (e.g., OpenAPI, custom validation)
-// Note: This is different from app-level Extension which manages app components
+// Note: This is different from app-level Extension which manages app components.
 type RouteExtension interface {
 	Name() string
 	Validate() error
 }
 
-// NewRouter creates a new router with options
+// NewRouter creates a new router with options.
 func NewRouter(opts ...RouterOption) Router {
 	return newRouter(opts...)
 }
 
-// RouterOption configures the router
+// RouterOption configures the router.
 type RouterOption interface {
 	Apply(*routerConfig)
 }
 
-// routerConfig holds router configuration
+// routerConfig holds router configuration.
 type routerConfig struct {
 	adapter        RouterAdapter
 	container      di.Container
@@ -163,18 +163,18 @@ type routerConfig struct {
 	healthConfig   *shared.HealthConfig
 }
 
-// RouterAdapter wraps a routing backend
+// RouterAdapter wraps a routing backend.
 type RouterAdapter = shared.RouterAdapter
 
-// ErrorHandler handles errors from handlers
+// ErrorHandler handles errors from handlers.
 type ErrorHandler = shared.ErrorHandler
 
-// NewDefaultErrorHandler creates a default error handler
+// NewDefaultErrorHandler creates a default error handler.
 func NewDefaultErrorHandler(l Logger) ErrorHandler {
 	return shared.NewDefaultErrorHandler(l)
 }
 
-// Route option constructors
+// Route option constructors.
 func WithName(name string) RouteOption {
 	return &nameOpt{name}
 }
@@ -215,7 +215,7 @@ func WithDeprecated() RouteOption {
 	return &deprecatedOpt{}
 }
 
-// Group option constructors
+// Group option constructors.
 func WithGroupMiddleware(mw ...Middleware) GroupOption {
 	return &groupMiddlewareOpt{mw}
 }
@@ -228,7 +228,7 @@ func WithGroupMetadata(key string, value any) GroupOption {
 	return &groupMetadataOpt{key, value}
 }
 
-// Router option constructors
+// Router option constructors.
 func WithAdapter(adapter RouterAdapter) RouterOption {
 	return &adapterOpt{adapter}
 }

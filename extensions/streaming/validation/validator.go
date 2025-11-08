@@ -38,6 +38,7 @@ func (cv *CompositeValidator) Validate(ctx context.Context, msg *streaming.Messa
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -48,6 +49,7 @@ func (cv *CompositeValidator) ValidateContent(content any) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -58,6 +60,7 @@ func (cv *CompositeValidator) ValidateMetadata(metadata map[string]any) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -77,6 +80,7 @@ func (ve *ValidationError) Error() string {
 	if ve.Field != "" {
 		return fmt.Sprintf("validation error for field '%s': %s (code: %s)", ve.Field, ve.Message, ve.Code)
 	}
+
 	return fmt.Sprintf("validation error: %s (code: %s)", ve.Message, ve.Code)
 }
 

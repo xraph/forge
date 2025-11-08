@@ -22,6 +22,7 @@ func NewMessageStore(client *redis.Client, prefix string) streaming.MessageStore
 	if prefix == "" {
 		prefix = "streaming:messages"
 	}
+
 	return &MessageStore{
 		client: client,
 		prefix: prefix,
@@ -45,7 +46,7 @@ func (s *MessageStore) Save(ctx context.Context, message *streaming.Message) err
 	// Store in stream
 	pipe.XAdd(ctx, &redis.XAddArgs{
 		Stream: streamKey,
-		Values: map[string]interface{}{
+		Values: map[string]any{
 			"id":   message.ID,
 			"data": dataJSON,
 		},
@@ -67,6 +68,7 @@ func (s *MessageStore) Save(ctx context.Context, message *streaming.Message) err
 	}
 
 	_, err = pipe.Exec(ctx)
+
 	return err
 }
 
@@ -84,7 +86,7 @@ func (s *MessageStore) SaveBatch(ctx context.Context, messages []*streaming.Mess
 
 		pipe.XAdd(ctx, &redis.XAddArgs{
 			Stream: streamKey,
-			Values: map[string]interface{}{
+			Values: map[string]any{
 				"id":   msg.ID,
 				"data": dataJSON,
 			},
@@ -104,6 +106,7 @@ func (s *MessageStore) SaveBatch(ctx context.Context, messages []*streaming.Mess
 	}
 
 	_, err := pipe.Exec(ctx)
+
 	return err
 }
 
@@ -111,9 +114,10 @@ func (s *MessageStore) Get(ctx context.Context, messageID string) (*streaming.Me
 	msgKey := fmt.Sprintf("%s:msg:%s", s.prefix, messageID)
 
 	data, err := s.client.Get(ctx, msgKey).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, streaming.ErrMessageNotFound
 	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +155,7 @@ func (s *MessageStore) Delete(ctx context.Context, messageID string) error {
 	}
 
 	_, err = pipe.Exec(ctx)
+
 	return err
 }
 
@@ -185,15 +190,19 @@ func (s *MessageStore) GetHistory(ctx context.Context, roomID string, query stre
 		if !query.Before.IsZero() && msg.Timestamp.After(query.Before) {
 			continue
 		}
+
 		if !query.After.IsZero() && msg.Timestamp.Before(query.After) {
 			continue
 		}
+
 		if query.ThreadID != "" && msg.ThreadID != query.ThreadID {
 			continue
 		}
+
 		if query.UserID != "" && msg.UserID != query.UserID {
 			continue
 		}
+
 		if query.SearchTerm != "" && !s.matchesSearch(&msg, query.SearchTerm) {
 			continue
 		}
@@ -228,9 +237,11 @@ func (s *MessageStore) GetThreadHistory(ctx context.Context, roomID, threadID st
 		if !query.Before.IsZero() && msg.Timestamp.After(query.Before) {
 			continue
 		}
+
 		if !query.After.IsZero() && msg.Timestamp.Before(query.After) {
 			continue
 		}
+
 		if query.UserID != "" && msg.UserID != query.UserID {
 			continue
 		}
@@ -264,9 +275,11 @@ func (s *MessageStore) GetUserMessages(ctx context.Context, userID string, query
 		if !query.Before.IsZero() && msg.Timestamp.After(query.Before) {
 			continue
 		}
+
 		if !query.After.IsZero() && msg.Timestamp.Before(query.After) {
 			continue
 		}
+
 		if query.ThreadID != "" && msg.ThreadID != query.ThreadID {
 			continue
 		}
@@ -283,11 +296,13 @@ func (s *MessageStore) GetUserMessages(ctx context.Context, userID string, query
 
 func (s *MessageStore) Search(ctx context.Context, roomID, searchTerm string, query streaming.HistoryQuery) ([]*streaming.Message, error) {
 	query.SearchTerm = searchTerm
+
 	return s.GetHistory(ctx, roomID, query)
 }
 
 func (s *MessageStore) GetMessageCount(ctx context.Context, roomID string) (int64, error) {
 	streamKey := fmt.Sprintf("%s:%s", s.prefix, roomID)
+
 	info, err := s.client.XInfoStream(ctx, streamKey).Result()
 	if err != nil {
 		return 0, err
@@ -299,12 +314,14 @@ func (s *MessageStore) GetMessageCount(ctx context.Context, roomID string) (int6
 func (s *MessageStore) GetMessageCountByUser(ctx context.Context, roomID, userID string) (int64, error) {
 	userKey := fmt.Sprintf("%s:user:%s", s.prefix, userID)
 	count, err := s.client.LLen(ctx, userKey).Result()
+
 	return count, err
 }
 
 func (s *MessageStore) DeleteOld(ctx context.Context, olderThan time.Duration) error {
 	// Use SCAN to find all message streams
 	var cursor uint64
+
 	cutoffTime := time.Now().Add(-olderThan)
 
 	for {
@@ -338,6 +355,7 @@ func (s *MessageStore) DeleteOld(ctx context.Context, olderThan time.Duration) e
 
 func (s *MessageStore) DeleteByRoom(ctx context.Context, roomID string) error {
 	streamKey := fmt.Sprintf("%s:%s", s.prefix, roomID)
+
 	return s.client.Del(ctx, streamKey).Err()
 }
 
@@ -356,9 +374,11 @@ func (s *MessageStore) DeleteByUser(ctx context.Context, userID string) error {
 		msgKey := fmt.Sprintf("%s:msg:%s", s.prefix, msgID)
 		pipe.Del(ctx, msgKey)
 	}
+
 	pipe.Del(ctx, userKey)
 
 	_, err = pipe.Exec(ctx)
+
 	return err
 }
 

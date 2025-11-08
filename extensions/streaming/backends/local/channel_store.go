@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +92,7 @@ func (s *ChannelStore) Exists(ctx context.Context, channelID string) (bool, erro
 	defer s.mu.RUnlock()
 
 	_, exists := s.channels[channelID]
+
 	return exists, nil
 }
 
@@ -184,6 +186,7 @@ func (s *ChannelStore) IsSubscribed(ctx context.Context, channelID, connID strin
 	}
 
 	_, exists = channelSubs[connID]
+
 	return exists, nil
 }
 
@@ -206,11 +209,13 @@ func (s *ChannelStore) GetUserChannels(ctx context.Context, userID string) ([]st
 	defer s.mu.RUnlock()
 
 	channels := make([]streaming.Channel, 0)
+
 	for channelID, channelSubs := range s.subscriptions {
 		for _, sub := range channelSubs {
 			if sub.userID == userID {
 				if channel, exists := s.channels[channelID]; exists {
 					channels = append(channels, channel)
+
 					break
 				}
 			}
@@ -232,7 +237,7 @@ func (s *ChannelStore) Ping(ctx context.Context) error {
 	return nil // No-op for local
 }
 
-// LocalChannel implements streaming.Channel
+// LocalChannel implements streaming.Channel.
 type LocalChannel struct {
 	mu           sync.RWMutex
 	id           string
@@ -253,18 +258,21 @@ func NewLocalChannel(opts streaming.ChannelOptions) *LocalChannel {
 func (c *LocalChannel) GetID() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.id
 }
 
 func (c *LocalChannel) GetName() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.name
 }
 
 func (c *LocalChannel) GetCreated() time.Time {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
 	return c.created
 }
 
@@ -300,7 +308,7 @@ func (c *LocalChannel) Delete(ctx context.Context) error {
 	return streaming.ErrInvalidChannel // Managed by ChannelStore
 }
 
-// LocalSubscription implements streaming.Subscription
+// LocalSubscription implements streaming.Subscription.
 type LocalSubscription struct {
 	mu           sync.RWMutex
 	connID       string
@@ -321,34 +329,38 @@ func NewLocalSubscription(opts streaming.SubscriptionOptions) *LocalSubscription
 func (s *LocalSubscription) GetConnID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.connID
 }
 
 func (s *LocalSubscription) GetUserID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.userID
 }
 
 func (s *LocalSubscription) GetSubscribedAt() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.subscribedAt
 }
 
 func (s *LocalSubscription) GetFilters() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	filters := make(map[string]any, len(s.filters))
-	for k, v := range s.filters {
-		filters[k] = v
-	}
+	maps.Copy(filters, s.filters)
+
 	return filters
 }
 
 func (s *LocalSubscription) SetFilters(filters map[string]any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.filters = filters
 }
 
@@ -365,6 +377,7 @@ func (s *LocalSubscription) MatchesFilter(message *streaming.Message) bool {
 		if message.Metadata == nil {
 			return false
 		}
+
 		msgValue, exists := message.Metadata[key]
 		if !exists || msgValue != filterValue {
 			return false

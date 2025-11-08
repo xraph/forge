@@ -1,10 +1,10 @@
 package observability
 
-//nolint:gosec // G104: RecordError intentionally discards errors
 // Observability tracking intentionally doesn't handle error returns.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -12,7 +12,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// Observability provides unified observability functionality
+// Observability provides unified observability functionality.
 type Observability struct {
 	config   ObservabilityConfig
 	monitor  *Monitor
@@ -24,7 +24,7 @@ type Observability struct {
 	wg       sync.WaitGroup
 }
 
-// ObservabilityConfig contains unified observability configuration
+// ObservabilityConfig contains unified observability configuration.
 type ObservabilityConfig struct {
 	// Monitor configuration
 	Monitor MonitoringConfig `yaml:"monitor"`
@@ -36,16 +36,16 @@ type ObservabilityConfig struct {
 	Prometheus PrometheusConfig `yaml:"prometheus"`
 
 	// Global settings
-	EnableMetrics   bool          `yaml:"enable_metrics" default:"true"`
-	EnableTracing   bool          `yaml:"enable_tracing" default:"true"`
-	EnableAlerts    bool          `yaml:"enable_alerts" default:"true"`
-	EnableHealth    bool          `yaml:"enable_health" default:"true"`
-	ShutdownTimeout time.Duration `yaml:"shutdown_timeout" default:"30s"`
+	EnableMetrics   bool          `default:"true" yaml:"enable_metrics"`
+	EnableTracing   bool          `default:"true" yaml:"enable_tracing"`
+	EnableAlerts    bool          `default:"true" yaml:"enable_alerts"`
+	EnableHealth    bool          `default:"true" yaml:"enable_health"`
+	ShutdownTimeout time.Duration `default:"30s"  yaml:"shutdown_timeout"`
 
 	Logger logger.Logger `yaml:"-"`
 }
 
-// NewObservability creates a new observability instance
+// NewObservability creates a new observability instance.
 func NewObservability(config ObservabilityConfig) (*Observability, error) {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -68,10 +68,12 @@ func NewObservability(config ObservabilityConfig) (*Observability, error) {
 	if config.EnableTracing {
 		tracerConfig := config.Tracer
 		tracerConfig.Logger = config.Logger
+
 		tracer, err := NewOTelTracer(tracerConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create tracer: %w", err)
 		}
+
 		obs.tracer = tracer
 	}
 
@@ -79,10 +81,12 @@ func NewObservability(config ObservabilityConfig) (*Observability, error) {
 	if config.EnableMetrics {
 		prometheusConfig := config.Prometheus
 		prometheusConfig.Logger = config.Logger
+
 		exporter, err := NewPrometheusExporter(prometheusConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Prometheus exporter: %w", err)
 		}
+
 		obs.exporter = exporter
 
 		// Start Prometheus server
@@ -94,19 +98,20 @@ func NewObservability(config ObservabilityConfig) (*Observability, error) {
 	return obs, nil
 }
 
-// StartSpan starts a new span with tracing
-func (o *Observability) StartSpan(ctx context.Context, name string, opts ...interface{}) (context.Context, interface{}) {
+// StartSpan starts a new span with tracing.
+func (o *Observability) StartSpan(ctx context.Context, name string, opts ...any) (context.Context, any) {
 	if o.tracer == nil {
 		return ctx, nil
 	}
 
 	// Start span with OpenTelemetry
 	ctx, span := o.tracer.StartSpan(ctx, name)
+
 	return ctx, span
 }
 
-// EndSpan ends a span
-func (o *Observability) EndSpan(span interface{}) {
+// EndSpan ends a span.
+func (o *Observability) EndSpan(span any) {
 	if o.tracer == nil || span == nil {
 		return
 	}
@@ -117,7 +122,7 @@ func (o *Observability) EndSpan(span interface{}) {
 	}
 }
 
-// RecordMetric records a metric
+// RecordMetric records a metric.
 func (o *Observability) RecordMetric(metric *Metric) {
 	if o.monitor != nil {
 		o.monitor.RecordMetric(metric)
@@ -133,7 +138,7 @@ func (o *Observability) RecordMetric(metric *Metric) {
 	}
 }
 
-// RecordError records an error with tracing and metrics
+// RecordError records an error with tracing and metrics.
 func (o *Observability) RecordError(ctx context.Context, err error, attributes map[string]string) error {
 	if o.tracer != nil {
 		span := o.tracer.GetSpanFromContext(ctx)
@@ -162,7 +167,7 @@ func (o *Observability) RecordError(ctx context.Context, err error, attributes m
 	return nil
 }
 
-// ObserveRequest observes a request with tracing and metrics
+// ObserveRequest observes a request with tracing and metrics.
 func (o *Observability) ObserveRequest(ctx context.Context, name string, handler func(context.Context) error) error {
 	// Start span
 	ctx, span := o.StartSpan(ctx, name)
@@ -203,15 +208,16 @@ func (o *Observability) ObserveRequest(ctx context.Context, name string, handler
 	return err
 }
 
-// AddAlert adds an alert
+// AddAlert adds an alert.
 func (o *Observability) AddAlert(alert *Alert) error {
 	if o.monitor == nil {
-		return fmt.Errorf("monitor not initialized")
+		return errors.New("monitor not initialized")
 	}
+
 	return o.monitor.AddAlert(alert)
 }
 
-// GetHealthStatus returns the current health status
+// GetHealthStatus returns the current health status.
 func (o *Observability) GetHealthStatus() *HealthCheck {
 	if o.monitor == nil {
 		return &HealthCheck{
@@ -221,12 +227,13 @@ func (o *Observability) GetHealthStatus() *HealthCheck {
 			Timestamp: time.Now(),
 		}
 	}
+
 	return o.monitor.GetHealthStatus()
 }
 
-// GetStats returns observability statistics
-func (o *Observability) GetStats() map[string]interface{} {
-	stats := make(map[string]interface{})
+// GetStats returns observability statistics.
+func (o *Observability) GetStats() map[string]any {
+	stats := make(map[string]any)
 
 	if o.monitor != nil {
 		stats["monitor"] = o.monitor.GetStats()
@@ -243,22 +250,23 @@ func (o *Observability) GetStats() map[string]interface{} {
 	return stats
 }
 
-// GetPrometheusHandler returns the Prometheus metrics HTTP handler
-func (o *Observability) GetPrometheusHandler() interface{} {
+// GetPrometheusHandler returns the Prometheus metrics HTTP handler.
+func (o *Observability) GetPrometheusHandler() any {
 	if o.exporter == nil {
 		return nil
 	}
+
 	return o.exporter.GetHandler()
 }
 
-// RegisterAlertHandler registers an alert handler
+// RegisterAlertHandler registers an alert handler.
 func (o *Observability) RegisterAlertHandler(handler AlertHandler) {
 	if o.monitor != nil {
 		o.monitor.RegisterAlertHandler(handler)
 	}
 }
 
-// Shutdown shuts down the observability instance
+// Shutdown shuts down the observability instance.
 func (o *Observability) Shutdown(ctx context.Context) error {
 	close(o.stopC)
 
@@ -289,6 +297,7 @@ func (o *Observability) Shutdown(ctx context.Context) error {
 
 	// Wait for all goroutines to complete
 	done := make(chan struct{})
+
 	go func() {
 		o.wg.Wait()
 		close(done)
@@ -312,14 +321,15 @@ func (o *Observability) Shutdown(ctx context.Context) error {
 
 // Helper functions for common observability patterns
 
-// WithSpan creates a span and ensures it's properly closed
-func (o *Observability) WithSpan(ctx context.Context, name string, fn func(context.Context, interface{}) error) error {
+// WithSpan creates a span and ensures it's properly closed.
+func (o *Observability) WithSpan(ctx context.Context, name string, fn func(context.Context, any) error) error {
 	ctx, span := o.StartSpan(ctx, name)
 	defer o.EndSpan(span)
+
 	return fn(ctx, span)
 }
 
-// WithMetrics records metrics around a function execution
+// WithMetrics records metrics around a function execution.
 func (o *Observability) WithMetrics(name string, labels map[string]string, fn func() error) error {
 	startTime := time.Now()
 
@@ -365,7 +375,7 @@ func (o *Observability) WithMetrics(name string, labels map[string]string, fn fu
 	return err
 }
 
-// CreateDefaultConfig creates a default observability configuration
+// CreateDefaultConfig creates a default observability configuration.
 func CreateDefaultConfig() ObservabilityConfig {
 	return ObservabilityConfig{
 		Monitor: MonitoringConfig{

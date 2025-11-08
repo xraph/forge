@@ -8,7 +8,7 @@ import (
 	forge "github.com/xraph/forge"
 )
 
-// CORSConfig defines configuration for CORS middleware
+// CORSConfig defines configuration for CORS middleware.
 type CORSConfig struct {
 	// AllowOrigin defines the allowed origin(s)
 	// Use "*" for all origins, or specific origin like "https://example.com"
@@ -30,7 +30,7 @@ type CORSConfig struct {
 	MaxAge int
 }
 
-// DefaultCORSConfig returns a permissive CORS configuration suitable for development
+// DefaultCORSConfig returns a permissive CORS configuration suitable for development.
 func DefaultCORSConfig() CORSConfig {
 	return CORSConfig{
 		AllowOrigin:      "*",
@@ -42,7 +42,7 @@ func DefaultCORSConfig() CORSConfig {
 	}
 }
 
-// CORS returns middleware that handles Cross-Origin Resource Sharing
+// CORS returns middleware that handles Cross-Origin Resource Sharing.
 func CORS(config CORSConfig) forge.Middleware {
 	// Pre-compute header values
 	allowMethods := strings.Join(config.AllowMethods, ", ")
@@ -75,6 +75,7 @@ func CORS(config CORSConfig) forge.Middleware {
 			// Handle preflight OPTIONS request
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
+
 				return nil
 			}
 

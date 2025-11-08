@@ -127,6 +127,7 @@ func (s *signalingManager) SendICECandidate(ctx context.Context, roomID, peerID 
 func (s *signalingManager) OnOffer(handler OfferHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.offerHandler = handler
 }
 
@@ -134,6 +135,7 @@ func (s *signalingManager) OnOffer(handler OfferHandler) {
 func (s *signalingManager) OnAnswer(handler AnswerHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.answerHandler = handler
 }
 
@@ -141,6 +143,7 @@ func (s *signalingManager) OnAnswer(handler AnswerHandler) {
 func (s *signalingManager) OnICECandidate(handler ICECandidateReceivedHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.iceCandidateHandler = handler
 }
 
@@ -194,6 +197,7 @@ func (s *signalingManager) HandleConnection(ctx context.Context, roomID, userID 
 				forge.F("user_id", userID),
 				forge.F("reason", ctx.Err()),
 			)
+
 			return ctx.Err()
 
 		default:
@@ -201,7 +205,6 @@ func (s *signalingManager) HandleConnection(ctx context.Context, roomID, userID 
 			// if deadline, ok := ctx.Deadline(); ok {
 			// 	conn.SetReadDeadline(deadline)
 			// }
-
 			var msg map[string]any
 			if err := conn.ReadJSON(&msg); err != nil {
 				// Check if context was cancelled
@@ -214,6 +217,7 @@ func (s *signalingManager) HandleConnection(ctx context.Context, roomID, userID 
 					forge.F("user_id", userID),
 					forge.F("error", err),
 				)
+
 				return err
 			}
 
@@ -223,6 +227,7 @@ func (s *signalingManager) HandleConnection(ctx context.Context, roomID, userID 
 					forge.F("room_id", roomID),
 					forge.F("user_id", userID),
 				)
+
 				continue
 			}
 
@@ -387,6 +392,7 @@ func min(a, b int) int {
 	if a < b {
 		return a
 	}
+
 	return b
 }
 

@@ -10,7 +10,7 @@ import (
 //go:embed assets/*
 var dashboardAssets embed.FS
 
-// Dashboard provides a web UI for SDK monitoring and management
+// Dashboard provides a web UI for SDK monitoring and management.
 type Dashboard struct {
 	server  *Server
 	logger  forge.Logger
@@ -18,7 +18,7 @@ type Dashboard struct {
 	tmpl    *template.Template
 }
 
-// NewDashboard creates a new web dashboard
+// NewDashboard creates a new web dashboard.
 func NewDashboard(server *Server, logger forge.Logger, metrics forge.Metrics) *Dashboard {
 	tmpl := template.Must(template.New("dashboard").Parse(dashboardHTML))
 
@@ -30,7 +30,7 @@ func NewDashboard(server *Server, logger forge.Logger, metrics forge.Metrics) *D
 	}
 }
 
-// MountRoutes mounts the dashboard routes
+// MountRoutes mounts the dashboard routes.
 func (d *Dashboard) MountRoutes(router forge.Router, basePath string) error {
 	// Dashboard home
 	router.GET(basePath, d.handleDashboard,
@@ -66,39 +66,43 @@ func (d *Dashboard) MountRoutes(router forge.Router, basePath string) error {
 }
 
 func (d *Dashboard) handleDashboard(ctx forge.Context) error {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":   "AI SDK Dashboard",
 		"Section": "home",
 	}
+
 	return d.tmpl.Execute(ctx.Response(), data)
 }
 
 func (d *Dashboard) handleGeneration(ctx forge.Context) error {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":   "Generation Playground",
 		"Section": "generation",
 	}
+
 	return d.tmpl.Execute(ctx.Response(), data)
 }
 
 func (d *Dashboard) handleAgents(ctx forge.Context) error {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":   "Agent Management",
 		"Section": "agents",
 	}
+
 	return d.tmpl.Execute(ctx.Response(), data)
 }
 
 func (d *Dashboard) handleRAG(ctx forge.Context) error {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":   "RAG Dashboard",
 		"Section": "rag",
 	}
+
 	return d.tmpl.Execute(ctx.Response(), data)
 }
 
 func (d *Dashboard) handleCosts(ctx forge.Context) error {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":   "Cost Analytics",
 		"Section": "costs",
 	}
@@ -113,14 +117,15 @@ func (d *Dashboard) handleCosts(ctx forge.Context) error {
 }
 
 func (d *Dashboard) handleMetrics(ctx forge.Context) error {
-	data := map[string]interface{}{
+	data := map[string]any{
 		"Title":   "Metrics Dashboard",
 		"Section": "metrics",
 	}
+
 	return d.tmpl.Execute(ctx.Response(), data)
 }
 
-// dashboardHTML is the main dashboard template with Tailwind CSS
+// dashboardHTML is the main dashboard template with Tailwind CSS.
 const dashboardHTML = `<!DOCTYPE html>
 <html lang="en" class="h-full bg-gray-50">
 <head>

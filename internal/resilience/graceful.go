@@ -6,11 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
 
-// GracefulDegradation provides graceful degradation functionality
+// GracefulDegradation provides graceful degradation functionality.
 type GracefulDegradation struct {
 	config    DegradationConfig
 	fallbacks map[string]FallbackHandler
@@ -20,20 +21,20 @@ type GracefulDegradation struct {
 	stats     DegradationStats
 }
 
-// DegradationConfig contains graceful degradation configuration
+// DegradationConfig contains graceful degradation configuration.
 type DegradationConfig struct {
 	Name                   string         `yaml:"name"`
-	EnableFallbacks        bool           `yaml:"enable_fallbacks" default:"true"`
-	FallbackTimeout        time.Duration  `yaml:"fallback_timeout" default:"5s"`
-	EnableCircuitBreaker   bool           `yaml:"enable_circuit_breaker" default:"true"`
-	EnableRetry            bool           `yaml:"enable_retry" default:"true"`
-	MaxConcurrentFallbacks int            `yaml:"max_concurrent_fallbacks" default:"10"`
-	EnableMetrics          bool           `yaml:"enable_metrics" default:"true"`
+	EnableFallbacks        bool           `default:"true" yaml:"enable_fallbacks"`
+	FallbackTimeout        time.Duration  `default:"5s"   yaml:"fallback_timeout"`
+	EnableCircuitBreaker   bool           `default:"true" yaml:"enable_circuit_breaker"`
+	EnableRetry            bool           `default:"true" yaml:"enable_retry"`
+	MaxConcurrentFallbacks int            `default:"10"   yaml:"max_concurrent_fallbacks"`
+	EnableMetrics          bool           `default:"true" yaml:"enable_metrics"`
 	Logger                 logger.Logger  `yaml:"-"`
 	Metrics                shared.Metrics `yaml:"-"`
 }
 
-// DegradationStats contains degradation statistics
+// DegradationStats contains degradation statistics.
 type GracefulDegradationStats struct {
 	TotalRequests      int64
 	SuccessfulRequests int64
@@ -42,18 +43,18 @@ type GracefulDegradationStats struct {
 	LastRequest        time.Time
 }
 
-// FallbackHandler represents a fallback handler
+// FallbackHandler represents a fallback handler.
 type FallbackHandler interface {
-	Execute(ctx context.Context, request interface{}) (interface{}, error)
+	Execute(ctx context.Context, request any) (any, error)
 	GetName() string
 	GetPriority() int
 	IsAvailable(ctx context.Context) bool
 }
 
-// DegradationResult represents the result of graceful degradation
+// DegradationResult represents the result of graceful degradation.
 type DegradationResult struct {
 	Success      bool          `json:"success"`
-	Result       interface{}   `json:"result,omitempty"`
+	Result       any           `json:"result,omitempty"`
 	Error        error         `json:"error,omitempty"`
 	Handler      string        `json:"handler"`
 	FallbackUsed bool          `json:"fallback_used"`
@@ -61,7 +62,7 @@ type DegradationResult struct {
 	Attempts     int           `json:"attempts"`
 }
 
-// DegradationStats represents degradation statistics
+// DegradationStats represents degradation statistics.
 type DegradationStats struct {
 	TotalRequests      int64     `json:"total_requests"`
 	SuccessfulRequests int64     `json:"successful_requests"`
@@ -72,7 +73,7 @@ type DegradationStats struct {
 	LastFailure        time.Time `json:"last_failure"`
 }
 
-// NewGracefulDegradation creates a new graceful degradation instance
+// NewGracefulDegradation creates a new graceful degradation instance.
 func NewGracefulDegradation(config DegradationConfig) *GracefulDegradation {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -86,8 +87,8 @@ func NewGracefulDegradation(config DegradationConfig) *GracefulDegradation {
 	}
 }
 
-// Execute executes a function with graceful degradation
-func (gd *GracefulDegradation) Execute(ctx context.Context, primaryHandler FallbackHandler, request interface{}) (*DegradationResult, error) {
+// Execute executes a function with graceful degradation.
+func (gd *GracefulDegradation) Execute(ctx context.Context, primaryHandler FallbackHandler, request any) (*DegradationResult, error) {
 	start := time.Now()
 
 	gd.mu.Lock()
@@ -99,6 +100,7 @@ func (gd *GracefulDegradation) Execute(ctx context.Context, primaryHandler Fallb
 	result, err := gd.tryHandler(ctx, primaryHandler, request)
 	if err == nil {
 		gd.recordSuccess(primaryHandler.GetName(), time.Since(start), false)
+
 		return &DegradationResult{
 			Success:      true,
 			Result:       result,
@@ -114,12 +116,14 @@ func (gd *GracefulDegradation) Execute(ctx context.Context, primaryHandler Fallb
 		fallbackResult, fallbackErr := gd.tryFallbacks(ctx, request)
 		if fallbackErr == nil {
 			gd.recordSuccess(fallbackResult.Handler, time.Since(start), true)
+
 			return fallbackResult, nil
 		}
 	}
 
 	// All handlers failed
 	gd.recordFailure(primaryHandler.GetName(), time.Since(start))
+
 	return &DegradationResult{
 		Success:      false,
 		Error:        err,
@@ -130,8 +134,8 @@ func (gd *GracefulDegradation) Execute(ctx context.Context, primaryHandler Fallb
 	}, err
 }
 
-// tryHandler tries to execute a handler
-func (gd *GracefulDegradation) tryHandler(ctx context.Context, handler FallbackHandler, request interface{}) (interface{}, error) {
+// tryHandler tries to execute a handler.
+func (gd *GracefulDegradation) tryHandler(ctx context.Context, handler FallbackHandler, request any) (any, error) {
 	// Check if handler is available
 	if !handler.IsAvailable(ctx) {
 		return nil, fmt.Errorf("handler %s is not available", handler.GetName())
@@ -145,13 +149,15 @@ func (gd *GracefulDegradation) tryHandler(ctx context.Context, handler FallbackH
 	return handler.Execute(timeoutCtx, request)
 }
 
-// tryFallbacks tries to execute fallback handlers
-func (gd *GracefulDegradation) tryFallbacks(ctx context.Context, request interface{}) (*DegradationResult, error) {
+// tryFallbacks tries to execute fallback handlers.
+func (gd *GracefulDegradation) tryFallbacks(ctx context.Context, request any) (*DegradationResult, error) {
 	gd.mu.RLock()
+
 	handlers := make([]FallbackHandler, 0, len(gd.fallbacks))
 	for _, handler := range gd.fallbacks {
 		handlers = append(handlers, handler)
 	}
+
 	gd.mu.RUnlock()
 
 	// Sort handlers by priority (higher priority first)
@@ -172,6 +178,7 @@ func (gd *GracefulDegradation) tryFallbacks(ctx context.Context, request interfa
 		result, err := gd.tryHandler(ctx, handler, request)
 		if err == nil {
 			gd.recordFallback(handler.GetName(), time.Since(start))
+
 			return &DegradationResult{
 				Success:      true,
 				Result:       result,
@@ -183,12 +190,12 @@ func (gd *GracefulDegradation) tryFallbacks(ctx context.Context, request interfa
 		}
 	}
 
-	return nil, fmt.Errorf("all fallback handlers failed")
+	return nil, errors.New("all fallback handlers failed")
 }
 
-// sortHandlersByPriority sorts handlers by priority
+// sortHandlersByPriority sorts handlers by priority.
 func sortHandlersByPriority(handlers []FallbackHandler) {
-	for i := 0; i < len(handlers); i++ {
+	for i := range handlers {
 		for j := i + 1; j < len(handlers); j++ {
 			if handlers[i].GetPriority() < handlers[j].GetPriority() {
 				handlers[i], handlers[j] = handlers[j], handlers[i]
@@ -197,7 +204,7 @@ func sortHandlersByPriority(handlers []FallbackHandler) {
 	}
 }
 
-// recordSuccess records a successful request
+// recordSuccess records a successful request.
 func (gd *GracefulDegradation) recordSuccess(handler string, duration time.Duration, fallback bool) {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
@@ -220,7 +227,7 @@ func (gd *GracefulDegradation) recordSuccess(handler string, duration time.Durat
 		logger.Bool("fallback", fallback))
 }
 
-// recordFailure records a failed request
+// recordFailure records a failed request.
 func (gd *GracefulDegradation) recordFailure(handler string, duration time.Duration) {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
@@ -238,7 +245,7 @@ func (gd *GracefulDegradation) recordFailure(handler string, duration time.Durat
 		logger.String("duration", duration.String()))
 }
 
-// recordFallback records a fallback request
+// recordFallback records a fallback request.
 func (gd *GracefulDegradation) recordFallback(handler string, duration time.Duration) {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
@@ -255,7 +262,7 @@ func (gd *GracefulDegradation) recordFallback(handler string, duration time.Dura
 		logger.String("duration", duration.String()))
 }
 
-// recordMetrics records degradation metrics
+// recordMetrics records degradation metrics.
 func (gd *GracefulDegradation) recordMetrics(handler string, duration time.Duration, success bool, fallback bool) {
 	result := "success"
 	if !success {
@@ -288,7 +295,7 @@ func (gd *GracefulDegradation) recordMetrics(handler string, duration time.Durat
 	}
 }
 
-// RegisterFallback registers a fallback handler
+// RegisterFallback registers a fallback handler.
 func (gd *GracefulDegradation) RegisterFallback(handler FallbackHandler) {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
@@ -296,7 +303,7 @@ func (gd *GracefulDegradation) RegisterFallback(handler FallbackHandler) {
 	gd.fallbacks[handler.GetName()] = handler
 }
 
-// UnregisterFallback unregisters a fallback handler
+// UnregisterFallback unregisters a fallback handler.
 func (gd *GracefulDegradation) UnregisterFallback(name string) {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
@@ -304,7 +311,7 @@ func (gd *GracefulDegradation) UnregisterFallback(name string) {
 	delete(gd.fallbacks, name)
 }
 
-// GetFallback returns a fallback handler by name
+// GetFallback returns a fallback handler by name.
 func (gd *GracefulDegradation) GetFallback(name string) (FallbackHandler, error) {
 	gd.mu.RLock()
 	defer gd.mu.RUnlock()
@@ -317,7 +324,7 @@ func (gd *GracefulDegradation) GetFallback(name string) (FallbackHandler, error)
 	return handler, nil
 }
 
-// ListFallbacks returns all registered fallback handlers
+// ListFallbacks returns all registered fallback handlers.
 func (gd *GracefulDegradation) ListFallbacks() []FallbackHandler {
 	gd.mu.RLock()
 	defer gd.mu.RUnlock()
@@ -330,14 +337,15 @@ func (gd *GracefulDegradation) ListFallbacks() []FallbackHandler {
 	return handlers
 }
 
-// GetStats returns the degradation statistics
+// GetStats returns the degradation statistics.
 func (gd *GracefulDegradation) GetStats() DegradationStats {
 	gd.mu.RLock()
 	defer gd.mu.RUnlock()
+
 	return gd.stats
 }
 
-// Reset resets the degradation statistics
+// Reset resets the degradation statistics.
 func (gd *GracefulDegradation) Reset() {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
@@ -347,12 +355,12 @@ func (gd *GracefulDegradation) Reset() {
 	}
 }
 
-// GetConfig returns the degradation configuration
+// GetConfig returns the degradation configuration.
 func (gd *GracefulDegradation) GetConfig() DegradationConfig {
 	return gd.config
 }
 
-// UpdateConfig updates the degradation configuration
+// UpdateConfig updates the degradation configuration.
 func (gd *GracefulDegradation) UpdateConfig(config DegradationConfig) {
 	gd.mu.Lock()
 	defer gd.mu.Unlock()
@@ -362,11 +370,11 @@ func (gd *GracefulDegradation) UpdateConfig(config DegradationConfig) {
 
 // Built-in fallback handlers
 
-// CacheFallbackHandler provides cache-based fallback
+// CacheFallbackHandler provides cache-based fallback.
 type CacheFallbackHandler struct {
 	name     string
 	priority int
-	cache    map[string]interface{}
+	cache    map[string]any
 	mu       sync.RWMutex
 }
 
@@ -374,11 +382,11 @@ func NewCacheFallbackHandler(name string, priority int) *CacheFallbackHandler {
 	return &CacheFallbackHandler{
 		name:     name,
 		priority: priority,
-		cache:    make(map[string]interface{}),
+		cache:    make(map[string]any),
 	}
 }
 
-func (h *CacheFallbackHandler) Execute(ctx context.Context, request interface{}) (interface{}, error) {
+func (h *CacheFallbackHandler) Execute(ctx context.Context, request any) (any, error) {
 	// Simple cache implementation
 	key := fmt.Sprintf("%v", request)
 
@@ -405,14 +413,14 @@ func (h *CacheFallbackHandler) IsAvailable(ctx context.Context) bool {
 	return true
 }
 
-// StaticFallbackHandler provides static response fallback
+// StaticFallbackHandler provides static response fallback.
 type StaticFallbackHandler struct {
 	name     string
 	priority int
-	response interface{}
+	response any
 }
 
-func NewStaticFallbackHandler(name string, priority int, response interface{}) *StaticFallbackHandler {
+func NewStaticFallbackHandler(name string, priority int, response any) *StaticFallbackHandler {
 	return &StaticFallbackHandler{
 		name:     name,
 		priority: priority,
@@ -420,7 +428,7 @@ func NewStaticFallbackHandler(name string, priority int, response interface{}) *
 	}
 }
 
-func (h *StaticFallbackHandler) Execute(ctx context.Context, request interface{}) (interface{}, error) {
+func (h *StaticFallbackHandler) Execute(ctx context.Context, request any) (any, error) {
 	return h.response, nil
 }
 

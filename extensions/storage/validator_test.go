@@ -43,6 +43,7 @@ func TestPathValidator_ValidateKey(t *testing.T) {
 			if tt.shouldErr && err == nil {
 				t.Errorf("Expected error for key '%s', got nil", tt.key)
 			}
+
 			if !tt.shouldErr && err != nil {
 				t.Errorf("Expected no error for key '%s', got %v", tt.key, err)
 			}
@@ -104,6 +105,7 @@ func TestPathValidator_ValidateContentType(t *testing.T) {
 			if tt.shouldErr && err == nil {
 				t.Errorf("Expected error for content type '%s', got nil", tt.contentType)
 			}
+
 			if !tt.shouldErr && err != nil {
 				t.Errorf("Expected no error for content type '%s', got %v", tt.contentType, err)
 			}
@@ -155,6 +157,7 @@ func TestValidateMetadata(t *testing.T) {
 			if tt.shouldErr && err == nil {
 				t.Error("Expected error, got nil")
 			}
+
 			if !tt.shouldErr && err != nil {
 				t.Errorf("Expected no error, got %v", err)
 			}
@@ -164,9 +167,10 @@ func TestValidateMetadata(t *testing.T) {
 
 func generateMetadata(count int) map[string]string {
 	m := make(map[string]string)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		m[fmt.Sprintf("key%d", i)] = "value"
 	}
+
 	return m
 }
 
@@ -174,8 +178,7 @@ func BenchmarkPathValidator_ValidateKey(b *testing.B) {
 	pv := NewPathValidator()
 	key := "folder/subfolder/file.txt"
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pv.ValidateKey(key)
 	}
 }
@@ -184,8 +187,7 @@ func BenchmarkPathValidator_SanitizeKey(b *testing.B) {
 	pv := NewPathValidator()
 	key := "//folder/../subfolder//./file.txt"
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		pv.SanitizeKey(key)
 	}
 }

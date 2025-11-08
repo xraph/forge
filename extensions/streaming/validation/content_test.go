@@ -8,7 +8,7 @@ import (
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
 )
 
-// mockConnection for testing
+// mockConnection for testing.
 type mockConnection struct {
 	id     string
 	userID string
@@ -165,6 +165,7 @@ func TestContentValidator_CustomValidators(t *testing.T) {
 				return NewValidationError("content", "forbidden word", "CUSTOM_ERROR")
 			}
 		}
+
 		return nil
 	}
 
@@ -223,8 +224,7 @@ func BenchmarkContentValidator_Validate(b *testing.B) {
 		Data:   "This is a test message with https://example.com",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = validator.Validate(ctx, msg, conn)
 	}
 }

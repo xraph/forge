@@ -13,7 +13,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// AlertSeverity represents the severity of an alert
+// AlertSeverity represents the severity of an alert.
 type AlertSeverity string
 
 const (
@@ -23,12 +23,12 @@ const (
 	AlertSeverityCritical AlertSeverity = "critical"
 )
 
-// String returns the string representation of alert severity
+// String returns the string representation of alert severity.
 func (as AlertSeverity) String() string {
 	return string(as)
 }
 
-// AlertType represents the type of alert
+// AlertType represents the type of alert.
 type AlertType string
 
 const (
@@ -40,12 +40,12 @@ const (
 	AlertTypeThreshold       AlertType = "threshold"
 )
 
-// String returns the string representation of alert type
+// String returns the string representation of alert type.
 func (at AlertType) String() string {
 	return string(at)
 }
 
-// Alert represents an alert notification
+// Alert represents an alert notification.
 type Alert struct {
 	ID          string                 `json:"id"`
 	Type        AlertType              `json:"type"`
@@ -63,7 +63,7 @@ type Alert struct {
 	Fingerprint string                 `json:"fingerprint"`
 }
 
-// NewAlert creates a new alert
+// NewAlert creates a new alert.
 func NewAlert(alertType AlertType, severity AlertSeverity, title, message string) *Alert {
 	return &Alert{
 		ID:          generateAlertID(),
@@ -80,74 +80,83 @@ func NewAlert(alertType AlertType, severity AlertSeverity, title, message string
 	}
 }
 
-// WithDetails adds details to the alert
+// WithDetails adds details to the alert.
 func (a *Alert) WithDetails(details map[string]interface{}) *Alert {
 	for k, v := range details {
 		a.Details[k] = v
 	}
+
 	return a
 }
 
-// WithDetail adds a single detail to the alert
+// WithDetail adds a single detail to the alert.
 func (a *Alert) WithDetail(key string, value interface{}) *Alert {
 	a.Details[key] = value
+
 	return a
 }
 
-// WithSource sets the alert source
+// WithSource sets the alert source.
 func (a *Alert) WithSource(source string) *Alert {
 	a.Source = source
+
 	return a
 }
 
-// WithService sets the alert service
+// WithService sets the alert service.
 func (a *Alert) WithService(service string) *Alert {
 	a.Service = service
+
 	return a
 }
 
-// WithTags adds tags to the alert
+// WithTags adds tags to the alert.
 func (a *Alert) WithTags(tags map[string]string) *Alert {
 	for k, v := range tags {
 		a.Tags[k] = v
 	}
+
 	return a
 }
 
-// WithTag adds a single tag to the alert
+// WithTag adds a single tag to the alert.
 func (a *Alert) WithTag(key, value string) *Alert {
 	a.Tags[key] = value
+
 	return a
 }
 
-// WithMetadata adds metadata to the alert
+// WithMetadata adds metadata to the alert.
 func (a *Alert) WithMetadata(metadata map[string]interface{}) *Alert {
 	for k, v := range metadata {
 		a.Metadata[k] = v
 	}
+
 	return a
 }
 
-// WithFingerprint sets the alert fingerprint
+// WithFingerprint sets the alert fingerprint.
 func (a *Alert) WithFingerprint(fingerprint string) *Alert {
 	a.Fingerprint = fingerprint
+
 	return a
 }
 
-// Resolve marks the alert as resolved
+// Resolve marks the alert as resolved.
 func (a *Alert) Resolve() *Alert {
 	a.Resolved = true
 	now := time.Now()
 	a.ResolvedAt = &now
+
 	return a
 }
 
-// IsResolved returns true if the alert is resolved
+// IsResolved returns true if the alert is resolved.
 func (a *Alert) IsResolved() bool {
 	return a.Resolved
 }
 
-// GetFingerprint returns the alert fingerprint for deduplication
+// GetFingerprint returns the alert fingerprint for deduplication.
 func (a *Alert) GetFingerprint() string {
 	if a.Fingerprint != "" {
 		return a.Fingerprint
@@ -161,10 +170,11 @@ func (a *Alert) GetFingerprint() string {
 	}
 
 	a.Fingerprint = strings.Join(parts, ":")
+
 	return a.Fingerprint
 }
 
-// AlertNotifier defines the interface for alert notification systems
+// AlertNotifier defines the interface for alert notification systems.
 type AlertNotifier interface {
 	// Name returns the name of the notifier
 	Name() string
@@ -182,7 +192,7 @@ type AlertNotifier interface {
 	Close() error
 }
 
-// AlertRule defines conditions for triggering alerts
+// AlertRule defines conditions for triggering alerts.
 type AlertRule struct {
 	Name       string                 `json:"name"`
 	Enabled    bool                   `json:"enabled"`
@@ -202,14 +212,14 @@ type AlertRule struct {
 	mu         sync.RWMutex
 }
 
-// AlertCondition defines a condition for alert rules
+// AlertCondition defines a condition for alert rules.
 type AlertCondition struct {
 	Field    string      `json:"field"`
 	Operator string      `json:"operator"`
 	Value    interface{} `json:"value"`
 }
 
-// AlertAction defines an action to take when an alert is triggered
+// AlertAction defines an action to take when an alert is triggered.
 type AlertAction struct {
 	Type       string                 `json:"type"`
 	Notifier   string                 `json:"notifier"`
@@ -217,7 +227,7 @@ type AlertAction struct {
 	Parameters map[string]interface{} `json:"parameters"`
 }
 
-// ShouldFire determines if the rule should fire based on health results
+// ShouldFire determines if the rule should fire based on health results.
 func (ar *AlertRule) ShouldFire(results []*health.HealthResult) bool {
 	ar.mu.RLock()
 	defer ar.mu.RUnlock()
@@ -233,6 +243,7 @@ func (ar *AlertRule) ShouldFire(results []*health.HealthResult) bool {
 
 	// Check threshold
 	failureCount := 0
+
 	for _, result := range results {
 		if ar.matchesRule(result) {
 			failureCount++
@@ -242,17 +253,20 @@ func (ar *AlertRule) ShouldFire(results []*health.HealthResult) bool {
 	return failureCount >= ar.Threshold
 }
 
-// matchesRule checks if a health result matches the rule conditions
+// matchesRule checks if a health result matches the rule conditions.
 func (ar *AlertRule) matchesRule(result *health.HealthResult) bool {
 	// Check services filter
 	if len(ar.Services) > 0 {
 		found := false
+
 		for _, service := range ar.Services {
 			if service == result.Name {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			return false
 		}
@@ -261,12 +275,15 @@ func (ar *AlertRule) matchesRule(result *health.HealthResult) bool {
 	// Check status filter
 	if len(ar.Statuses) > 0 {
 		found := false
+
 		for _, status := range ar.Statuses {
 			if status == result.Status {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			return false
 		}
@@ -282,7 +299,7 @@ func (ar *AlertRule) matchesRule(result *health.HealthResult) bool {
 	return true
 }
 
-// evaluateCondition evaluates a single condition
+// evaluateCondition evaluates a single condition.
 func (ar *AlertRule) evaluateCondition(condition AlertCondition, result *health.HealthResult) bool {
 	// Get field value from result
 	var fieldValue interface{}
@@ -331,15 +348,16 @@ func (ar *AlertRule) evaluateCondition(condition AlertCondition, result *health.
 	}
 }
 
-// Fire marks the rule as fired
+// Fire marks the rule as fired.
 func (ar *AlertRule) Fire() {
 	ar.mu.Lock()
 	defer ar.mu.Unlock()
+
 	ar.LastFired = time.Now()
 	ar.FireCount++
 }
 
-// AlertManager manages alert notifications and rules
+// AlertManager manages alert notifications and rules.
 type AlertManager struct {
 	notifiers map[string]AlertNotifier
 	rules     map[string]*AlertRule
@@ -352,20 +370,20 @@ type AlertManager struct {
 	started   bool
 }
 
-// AlertManagerConfig contains configuration for the alert manager
+// AlertManagerConfig contains configuration for the alert manager.
 type AlertManagerConfig struct {
-	Enabled             bool              `yaml:"enabled" json:"enabled"`
-	DefaultSeverity     AlertSeverity     `yaml:"default_severity" json:"default_severity"`
-	BatchSize           int               `yaml:"batch_size" json:"batch_size"`
-	BatchTimeout        time.Duration     `yaml:"batch_timeout" json:"batch_timeout"`
-	RetryAttempts       int               `yaml:"retry_attempts" json:"retry_attempts"`
-	RetryDelay          time.Duration     `yaml:"retry_delay" json:"retry_delay"`
-	DeduplicationWindow time.Duration     `yaml:"deduplication_window" json:"deduplication_window"`
-	GlobalTags          map[string]string `yaml:"global_tags" json:"global_tags"`
-	Templates           map[string]string `yaml:"templates" json:"templates"`
+	Enabled             bool              `json:"enabled"              yaml:"enabled"`
+	DefaultSeverity     AlertSeverity     `json:"default_severity"     yaml:"default_severity"`
+	BatchSize           int               `json:"batch_size"           yaml:"batch_size"`
+	BatchTimeout        time.Duration     `json:"batch_timeout"        yaml:"batch_timeout"`
+	RetryAttempts       int               `json:"retry_attempts"       yaml:"retry_attempts"`
+	RetryDelay          time.Duration     `json:"retry_delay"          yaml:"retry_delay"`
+	DeduplicationWindow time.Duration     `json:"deduplication_window" yaml:"deduplication_window"`
+	GlobalTags          map[string]string `json:"global_tags"          yaml:"global_tags"`
+	Templates           map[string]string `json:"templates"            yaml:"templates"`
 }
 
-// DefaultAlertManagerConfig returns default configuration
+// DefaultAlertManagerConfig returns default configuration.
 func DefaultAlertManagerConfig() *AlertManagerConfig {
 	return &AlertManagerConfig{
 		Enabled:             true,
@@ -380,7 +398,7 @@ func DefaultAlertManagerConfig() *AlertManagerConfig {
 	}
 }
 
-// NewAlertManager creates a new alert manager
+// NewAlertManager creates a new alert manager.
 func NewAlertManager(config *AlertManagerConfig, logger logger.Logger, metrics shared.Metrics) *AlertManager {
 	if config == nil {
 		config = DefaultAlertManagerConfig()
@@ -397,7 +415,7 @@ func NewAlertManager(config *AlertManagerConfig, logger logger.Logger, metrics s
 	}
 }
 
-// AddNotifier adds a notifier to the alert manager
+// AddNotifier adds a notifier to the alert manager.
 func (am *AlertManager) AddNotifier(name string, notifier AlertNotifier) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
@@ -418,7 +436,7 @@ func (am *AlertManager) AddNotifier(name string, notifier AlertNotifier) error {
 	return nil
 }
 
-// RemoveNotifier removes a notifier from the alert manager
+// RemoveNotifier removes a notifier from the alert manager.
 func (am *AlertManager) RemoveNotifier(name string) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
@@ -448,7 +466,7 @@ func (am *AlertManager) RemoveNotifier(name string) error {
 	return nil
 }
 
-// AddRule adds an alert rule
+// AddRule adds an alert rule.
 func (am *AlertManager) AddRule(rule *AlertRule) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
@@ -470,7 +488,7 @@ func (am *AlertManager) AddRule(rule *AlertRule) error {
 	return nil
 }
 
-// RemoveRule removes an alert rule
+// RemoveRule removes an alert rule.
 func (am *AlertManager) RemoveRule(name string) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
@@ -490,17 +508,19 @@ func (am *AlertManager) RemoveRule(name string) error {
 	return nil
 }
 
-// ProcessHealthResults processes health results and triggers alerts
+// ProcessHealthResults processes health results and triggers alerts.
 func (am *AlertManager) ProcessHealthResults(ctx context.Context, results []*health.HealthResult) error {
 	if !am.config.Enabled {
 		return nil
 	}
 
 	am.mu.RLock()
+
 	rules := make([]*AlertRule, 0, len(am.rules))
 	for _, rule := range am.rules {
 		rules = append(rules, rule)
 	}
+
 	am.mu.RUnlock()
 
 	// Process each rule
@@ -515,6 +535,7 @@ func (am *AlertManager) ProcessHealthResults(ctx context.Context, results []*hea
 					)
 				}
 			}
+
 			rule.Fire()
 		}
 	}
@@ -522,7 +543,7 @@ func (am *AlertManager) ProcessHealthResults(ctx context.Context, results []*hea
 	return nil
 }
 
-// SendAlert sends an alert notification
+// SendAlert sends an alert notification.
 func (am *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 	if !am.config.Enabled {
 		return nil
@@ -535,22 +556,28 @@ func (am *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 
 	// Check for deduplication
 	fingerprint := alert.GetFingerprint()
+
 	am.mu.Lock()
+
 	if existing, exists := am.alerts[fingerprint]; exists {
 		if time.Since(existing.Timestamp) < am.config.DeduplicationWindow {
 			am.mu.Unlock()
+
 			return nil // Skip duplicate alert
 		}
 	}
+
 	am.alerts[fingerprint] = alert
 	am.mu.Unlock()
 
 	// Send to all notifiers
 	am.mu.RLock()
+
 	notifiers := make([]AlertNotifier, 0, len(am.notifiers))
 	for _, notifier := range am.notifiers {
 		notifiers = append(notifiers, notifier)
 	}
+
 	am.mu.RUnlock()
 
 	for _, notifier := range notifiers {
@@ -572,11 +599,11 @@ func (am *AlertManager) SendAlert(ctx context.Context, alert *Alert) error {
 	return nil
 }
 
-// sendWithRetry sends an alert with retry logic
+// sendWithRetry sends an alert with retry logic.
 func (am *AlertManager) sendWithRetry(ctx context.Context, notifier AlertNotifier, alert *Alert) error {
 	var lastErr error
 
-	for attempt := 0; attempt < am.config.RetryAttempts; attempt++ {
+	for attempt := range am.config.RetryAttempts {
 		if attempt > 0 {
 			select {
 			case <-ctx.Done():
@@ -587,6 +614,7 @@ func (am *AlertManager) sendWithRetry(ctx context.Context, notifier AlertNotifie
 
 		if err := notifier.Send(ctx, alert); err != nil {
 			lastErr = err
+
 			continue
 		}
 
@@ -596,13 +624,15 @@ func (am *AlertManager) sendWithRetry(ctx context.Context, notifier AlertNotifie
 	return lastErr
 }
 
-// createAlertFromRule creates an alert from a rule and health results
+// createAlertFromRule creates an alert from a rule and health results.
 func (am *AlertManager) createAlertFromRule(rule *AlertRule, results []*health.HealthResult) *Alert {
 	// Find the first matching result for context
 	var matchingResult *health.HealthResult
+
 	for _, result := range results {
 		if rule.matchesRule(result) {
 			matchingResult = result
+
 			break
 		}
 	}
@@ -634,7 +664,7 @@ func (am *AlertManager) createAlertFromRule(rule *AlertRule, results []*health.H
 	return alert
 }
 
-// renderTemplate renders an alert message template
+// renderTemplate renders an alert message template.
 func (am *AlertManager) renderTemplate(template string, result *health.HealthResult) string {
 	// Simple template rendering - in production, use a proper template engine
 	message := template
@@ -642,10 +672,11 @@ func (am *AlertManager) renderTemplate(template string, result *health.HealthRes
 	message = strings.ReplaceAll(message, "{{.Status}}", string(result.Status))
 	message = strings.ReplaceAll(message, "{{.Message}}", result.Message)
 	message = strings.ReplaceAll(message, "{{.Duration}}", result.Duration.String())
+
 	return message
 }
 
-// GetActiveAlerts returns all active alerts
+// GetActiveAlerts returns all active alerts.
 func (am *AlertManager) GetActiveAlerts() []*Alert {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
@@ -660,7 +691,7 @@ func (am *AlertManager) GetActiveAlerts() []*Alert {
 	return alerts
 }
 
-// GetNotifiers returns all registered notifiers
+// GetNotifiers returns all registered notifiers.
 func (am *AlertManager) GetNotifiers() map[string]AlertNotifier {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
@@ -673,7 +704,7 @@ func (am *AlertManager) GetNotifiers() map[string]AlertNotifier {
 	return notifiers
 }
 
-// GetRules returns all alert rules
+// GetRules returns all alert rules.
 func (am *AlertManager) GetRules() []*AlertRule {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
@@ -686,13 +717,15 @@ func (am *AlertManager) GetRules() []*AlertRule {
 	return rules
 }
 
-// Test tests all notifiers
+// Test tests all notifiers.
 func (am *AlertManager) Test(ctx context.Context) error {
 	am.mu.RLock()
+
 	notifiers := make([]AlertNotifier, 0, len(am.notifiers))
 	for _, notifier := range am.notifiers {
 		notifiers = append(notifiers, notifier)
 	}
+
 	am.mu.RUnlock()
 
 	for _, notifier := range notifiers {
@@ -704,7 +737,7 @@ func (am *AlertManager) Test(ctx context.Context) error {
 	return nil
 }
 
-// Start starts the alert manager
+// Start starts the alert manager.
 func (am *AlertManager) Start(ctx context.Context) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
@@ -725,7 +758,7 @@ func (am *AlertManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the alert manager
+// Stop stops the alert manager.
 func (am *AlertManager) Stop(ctx context.Context) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
@@ -772,6 +805,7 @@ func compareValues(a, b interface{}) int {
 			} else if va > vb {
 				return 1
 			}
+
 			return 0
 		}
 	case float64:
@@ -781,6 +815,7 @@ func compareValues(a, b interface{}) int {
 			} else if va > vb {
 				return 1
 			}
+
 			return 0
 		}
 	case string:

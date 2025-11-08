@@ -3,14 +3,14 @@ package security
 import (
 	"context"
 	"crypto/subtle"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// AuthManager manages authentication and authorization
+// AuthManager manages authentication and authorization.
 type AuthManager struct {
 	config   AuthConfig
 	tokens   map[string]*TokenInfo
@@ -18,7 +18,7 @@ type AuthManager struct {
 	logger   forge.Logger
 }
 
-// AuthConfig contains authentication configuration
+// AuthConfig contains authentication configuration.
 type AuthConfig struct {
 	Enabled      bool
 	TokenTimeout time.Duration
@@ -28,7 +28,7 @@ type AuthConfig struct {
 	RequireAuth  bool
 }
 
-// TokenInfo contains information about an authentication token
+// TokenInfo contains information about an authentication token.
 type TokenInfo struct {
 	Token     string
 	Role      Role
@@ -38,33 +38,33 @@ type TokenInfo struct {
 	Metadata  map[string]string
 }
 
-// Role represents an authorization role
+// Role represents an authorization role.
 type Role string
 
 const (
-	// RoleAdmin has full access
+	// RoleAdmin has full access.
 	RoleAdmin Role = "admin"
-	// RoleWrite has read and write access
+	// RoleWrite has read and write access.
 	RoleWrite Role = "write"
-	// RoleRead has read-only access
+	// RoleRead has read-only access.
 	RoleRead Role = "read"
-	// RoleNone has no access
+	// RoleNone has no access.
 	RoleNone Role = "none"
 )
 
-// Permission represents a permission type
+// Permission represents a permission type.
 type Permission string
 
 const (
-	// PermissionRead allows read operations
+	// PermissionRead allows read operations.
 	PermissionRead Permission = "read"
-	// PermissionWrite allows write operations
+	// PermissionWrite allows write operations.
 	PermissionWrite Permission = "write"
-	// PermissionAdmin allows admin operations
+	// PermissionAdmin allows admin operations.
 	PermissionAdmin Permission = "admin"
 )
 
-// NewAuthManager creates a new authentication manager
+// NewAuthManager creates a new authentication manager.
 func NewAuthManager(config AuthConfig, logger forge.Logger) *AuthManager {
 	if config.TokenTimeout == 0 {
 		config.TokenTimeout = 24 * time.Hour
@@ -124,7 +124,7 @@ func NewAuthManager(config AuthConfig, logger forge.Logger) *AuthManager {
 	return am
 }
 
-// Authenticate authenticates a token
+// Authenticate authenticates a token.
 func (am *AuthManager) Authenticate(ctx context.Context, token string) (*TokenInfo, error) {
 	if !am.config.Enabled {
 		// Authentication disabled, return default admin role
@@ -139,7 +139,8 @@ func (am *AuthManager) Authenticate(ctx context.Context, token string) (*TokenIn
 
 	if !exists {
 		am.logger.Warn("authentication failed - invalid token")
-		return nil, fmt.Errorf("invalid token")
+
+		return nil, errors.New("invalid token")
 	}
 
 	// Check if token has expired
@@ -147,12 +148,15 @@ func (am *AuthManager) Authenticate(ctx context.Context, token string) (*TokenIn
 		am.logger.Warn("authentication failed - token expired",
 			forge.F("token", maskToken(token)),
 		)
-		return nil, fmt.Errorf("token expired")
+
+		return nil, errors.New("token expired")
 	}
 
 	// Update last used time
 	am.tokensMu.Lock()
+
 	tokenInfo.LastUsed = time.Now()
+
 	am.tokensMu.Unlock()
 
 	am.logger.Debug("authentication successful",
@@ -162,7 +166,7 @@ func (am *AuthManager) Authenticate(ctx context.Context, token string) (*TokenIn
 	return tokenInfo, nil
 }
 
-// AuthorizeRequest checks if a token has permission for a request
+// AuthorizeRequest checks if a token has permission for a request.
 func (am *AuthManager) AuthorizeRequest(ctx context.Context, token string, permission Permission) error {
 	tokenInfo, err := am.Authenticate(ctx, token)
 	if err != nil {
@@ -174,7 +178,8 @@ func (am *AuthManager) AuthorizeRequest(ctx context.Context, token string, permi
 			forge.F("role", tokenInfo.Role),
 			forge.F("permission", permission),
 		)
-		return fmt.Errorf("insufficient permissions")
+
+		return errors.New("insufficient permissions")
 	}
 
 	am.logger.Debug("authorization successful",
@@ -185,7 +190,7 @@ func (am *AuthManager) AuthorizeRequest(ctx context.Context, token string, permi
 	return nil
 }
 
-// hasPermission checks if a role has a permission
+// hasPermission checks if a role has a permission.
 func (am *AuthManager) hasPermission(role Role, permission Permission) bool {
 	switch permission {
 	case PermissionRead:
@@ -199,13 +204,14 @@ func (am *AuthManager) hasPermission(role Role, permission Permission) bool {
 	}
 }
 
-// AddToken dynamically adds a token
+// AddToken dynamically adds a token.
 func (am *AuthManager) AddToken(token string, role Role, timeout time.Duration) {
 	if timeout == 0 {
 		timeout = am.config.TokenTimeout
 	}
 
 	now := time.Now()
+
 	am.tokensMu.Lock()
 	am.tokens[token] = &TokenInfo{
 		Token:     token,
@@ -223,7 +229,7 @@ func (am *AuthManager) AddToken(token string, role Role, timeout time.Duration) 
 	)
 }
 
-// RemoveToken removes a token
+// RemoveToken removes a token.
 func (am *AuthManager) RemoveToken(token string) {
 	am.tokensMu.Lock()
 	delete(am.tokens, token)
@@ -232,18 +238,21 @@ func (am *AuthManager) RemoveToken(token string) {
 	am.logger.Info("token removed")
 }
 
-// RevokeExpiredTokens removes expired tokens
+// RevokeExpiredTokens removes expired tokens.
 func (am *AuthManager) RevokeExpiredTokens() int {
 	now := time.Now()
 	expired := 0
 
 	am.tokensMu.Lock()
+
 	for token, info := range am.tokens {
 		if now.After(info.ExpiresAt) {
 			delete(am.tokens, token)
+
 			expired++
 		}
 	}
+
 	am.tokensMu.Unlock()
 
 	if expired > 0 {
@@ -255,20 +264,20 @@ func (am *AuthManager) RevokeExpiredTokens() int {
 	return expired
 }
 
-// GetTokenInfo returns information about a token
+// GetTokenInfo returns information about a token.
 func (am *AuthManager) GetTokenInfo(token string) (*TokenInfo, error) {
 	am.tokensMu.RLock()
 	defer am.tokensMu.RUnlock()
 
 	info, exists := am.tokens[token]
 	if !exists {
-		return nil, fmt.Errorf("token not found")
+		return nil, errors.New("token not found")
 	}
 
 	return info, nil
 }
 
-// ListTokens returns all active tokens (masked)
+// ListTokens returns all active tokens (masked).
 func (am *AuthManager) ListTokens() []TokenInfo {
 	am.tokensMu.RLock()
 	defer am.tokensMu.RUnlock()
@@ -284,25 +293,26 @@ func (am *AuthManager) ListTokens() []TokenInfo {
 	return tokens
 }
 
-// ValidateToken validates a token using constant-time comparison
+// ValidateToken validates a token using constant-time comparison.
 func (am *AuthManager) ValidateToken(provided, expected string) bool {
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }
 
-// IsEnabled returns true if authentication is enabled
+// IsEnabled returns true if authentication is enabled.
 func (am *AuthManager) IsEnabled() bool {
 	return am.config.Enabled
 }
 
-// maskToken masks a token for logging
+// maskToken masks a token for logging.
 func maskToken(token string) string {
 	if len(token) <= 8 {
 		return "****"
 	}
+
 	return token[:4] + "****" + token[len(token)-4:]
 }
 
-// AuthMiddleware returns a middleware that enforces authentication
+// AuthMiddleware returns a middleware that enforces authentication.
 func (am *AuthManager) AuthMiddleware(permission Permission) func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		if !am.config.Enabled {
@@ -312,7 +322,7 @@ func (am *AuthManager) AuthMiddleware(permission Permission) func(forge.Context)
 		// Extract token from Authorization header
 		token := ctx.Request().Header.Get("Authorization")
 		if token == "" {
-			return ctx.JSON(401, map[string]interface{}{
+			return ctx.JSON(401, map[string]any{
 				"error": "missing authorization token",
 			})
 		}
@@ -324,7 +334,7 @@ func (am *AuthManager) AuthMiddleware(permission Permission) func(forge.Context)
 
 		// Authenticate and authorize
 		if err := am.AuthorizeRequest(ctx.Request().Context(), token, permission); err != nil {
-			return ctx.JSON(403, map[string]interface{}{
+			return ctx.JSON(403, map[string]any{
 				"error": err.Error(),
 			})
 		}

@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Type aliases for AsyncAPI types
+// Type aliases for AsyncAPI types.
 type (
 	AsyncAPIConfig            = shared.AsyncAPIConfig
 	AsyncAPISpec              = shared.AsyncAPISpec
@@ -26,25 +26,28 @@ type (
 	HTTPChannelBinding        = shared.HTTPChannelBinding
 )
 
-// asyncAPIGenerator generates AsyncAPI 3.0.0 specifications from a router
+// asyncAPIGenerator generates AsyncAPI 3.0.0 specifications from a router.
 type asyncAPIGenerator struct {
 	config  AsyncAPIConfig
 	router  Router
 	schemas *asyncAPISchemaGenerator
 }
 
-// newAsyncAPIGenerator creates a new AsyncAPI generator
+// newAsyncAPIGenerator creates a new AsyncAPI generator.
 func newAsyncAPIGenerator(config AsyncAPIConfig, router Router) *asyncAPIGenerator {
 	// Set defaults
 	if config.AsyncAPIVersion == "" {
 		config.AsyncAPIVersion = "3.0.0"
 	}
+
 	if config.UIPath == "" {
 		config.UIPath = "/asyncapi"
 	}
+
 	if config.SpecPath == "" {
 		config.SpecPath = "/asyncapi.json"
 	}
+
 	if config.DefaultContentType == "" {
 		config.DefaultContentType = "application/json"
 	}
@@ -60,7 +63,7 @@ func newAsyncAPIGenerator(config AsyncAPIConfig, router Router) *asyncAPIGenerat
 	}
 }
 
-// Generate creates the complete AsyncAPI specification
+// Generate creates the complete AsyncAPI specification.
 func (g *asyncAPIGenerator) Generate() *AsyncAPISpec {
 	spec := &AsyncAPISpec{
 		AsyncAPI: g.config.AsyncAPIVersion,
@@ -90,7 +93,7 @@ func (g *asyncAPIGenerator) Generate() *AsyncAPISpec {
 	return spec
 }
 
-// processRoute converts a route to AsyncAPI channels and operations
+// processRoute converts a route to AsyncAPI channels and operations.
 func (g *asyncAPIGenerator) processRoute(spec *AsyncAPISpec, route RouteInfo) {
 	// Check if this is a streaming route (WebSocket or SSE)
 	routeType := g.getRouteType(route)
@@ -106,15 +109,17 @@ func (g *asyncAPIGenerator) processRoute(spec *AsyncAPISpec, route RouteInfo) {
 	}
 }
 
-// getRouteType determines if a route is WebSocket, SSE, or regular HTTP
+// getRouteType determines if a route is WebSocket, SSE, or regular HTTP.
 func (g *asyncAPIGenerator) getRouteType(route RouteInfo) string {
 	// Check metadata for streaming indicators
 	if _, ok := route.Metadata["asyncapi.ws.send"]; ok {
 		return "websocket"
 	}
+
 	if _, ok := route.Metadata["asyncapi.ws.receive"]; ok {
 		return "websocket"
 	}
+
 	if _, ok := route.Metadata["asyncapi.sse.messages"]; ok {
 		return "sse"
 	}
@@ -127,7 +132,7 @@ func (g *asyncAPIGenerator) getRouteType(route RouteInfo) string {
 	return "http"
 }
 
-// processWebSocketRoute processes a WebSocket route
+// processWebSocketRoute processes a WebSocket route.
 func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route RouteInfo) {
 	// Generate channel ID from path
 	channelID := g.getChannelID(route)
@@ -145,6 +150,7 @@ func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route Rout
 	if desc, ok := route.Metadata["asyncapi.channel.description"].(string); ok {
 		channel.Description = desc
 	}
+
 	if summary, ok := route.Metadata["asyncapi.channel.summary"].(string); ok {
 		channel.Summary = summary
 	}
@@ -200,7 +206,7 @@ func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route Rout
 				Ref: "#/channels/" + channelID,
 			},
 			Title:       "Send message",
-			Summary:     fmt.Sprintf("Send messages to %s", route.Path),
+			Summary:     "Send messages to " + route.Path,
 			Description: route.Description,
 			Tags:        g.getAsyncAPITags(route),
 			Messages: []AsyncAPIMessageReference{
@@ -219,7 +225,7 @@ func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route Rout
 				Ref: "#/channels/" + channelID,
 			},
 			Title:       "Receive message",
-			Summary:     fmt.Sprintf("Receive messages from %s", route.Path),
+			Summary:     "Receive messages from " + route.Path,
 			Description: route.Description,
 			Tags:        g.getAsyncAPITags(route),
 			Messages: []AsyncAPIMessageReference{
@@ -231,7 +237,7 @@ func (g *asyncAPIGenerator) processWebSocketRoute(spec *AsyncAPISpec, route Rout
 	}
 }
 
-// processSSERoute processes a Server-Sent Events route
+// processSSERoute processes a Server-Sent Events route.
 func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo) {
 	// Generate channel ID from path
 	channelID := g.getChannelID(route)
@@ -249,6 +255,7 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 	if desc, ok := route.Metadata["asyncapi.channel.description"].(string); ok {
 		channel.Description = desc
 	}
+
 	if summary, ok := route.Metadata["asyncapi.channel.summary"].(string); ok {
 		channel.Summary = summary
 	}
@@ -264,12 +271,12 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 	// Process SSE messages
 	messages := make(map[string]*AsyncAPIMessage)
 
-	if messageSchemas, ok := route.Metadata["asyncapi.sse.messages"].(map[string]interface{}); ok {
+	if messageSchemas, ok := route.Metadata["asyncapi.sse.messages"].(map[string]any); ok {
 		for eventName, schema := range messageSchemas {
 			msg := g.schemas.GenerateMessageSchema(schema, "text/event-stream")
 			msg.Name = eventName
-			msg.Title = fmt.Sprintf("%s event", eventName)
-			msg.Summary = fmt.Sprintf("SSE event: %s", eventName)
+			msg.Title = eventName + " event"
+			msg.Summary = "SSE event: " + eventName
 			messages[eventName] = msg
 
 			// Add to components
@@ -298,7 +305,7 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 			Ref: "#/channels/" + channelID,
 		},
 		Title:       "Receive SSE events",
-		Summary:     fmt.Sprintf("Receive Server-Sent Events from %s", route.Path),
+		Summary:     "Receive Server-Sent Events from " + route.Path,
 		Description: route.Description,
 		Tags:        g.getAsyncAPITags(route),
 		Messages:    messageRefs,
@@ -307,7 +314,7 @@ func (g *asyncAPIGenerator) processSSERoute(spec *AsyncAPISpec, route RouteInfo)
 	spec.Operations[operationID] = receiveOp
 }
 
-// getChannelID gets or generates a channel ID for a route
+// getChannelID gets or generates a channel ID for a route.
 func (g *asyncAPIGenerator) getChannelID(route RouteInfo) string {
 	// Check for custom channel name
 	if name, ok := route.Metadata["asyncapi.channelName"].(string); ok {
@@ -318,7 +325,7 @@ func (g *asyncAPIGenerator) getChannelID(route RouteInfo) string {
 	return pathToChannelID(route.Path)
 }
 
-// getOperationID gets or generates an operation ID for a route
+// getOperationID gets or generates an operation ID for a route.
 func (g *asyncAPIGenerator) getOperationID(route RouteInfo, channelID string) string {
 	// Check for custom operation ID
 	if id, ok := route.Metadata["asyncapi.operationId"].(string); ok {
@@ -334,7 +341,7 @@ func (g *asyncAPIGenerator) getOperationID(route RouteInfo, channelID string) st
 	return channelID
 }
 
-// getAsyncAPITags gets AsyncAPI tags for a route
+// getAsyncAPITags gets AsyncAPI tags for a route.
 func (g *asyncAPIGenerator) getAsyncAPITags(route RouteInfo) []AsyncAPITag {
 	var tags []AsyncAPITag
 
@@ -355,7 +362,7 @@ func (g *asyncAPIGenerator) getAsyncAPITags(route RouteInfo) []AsyncAPITag {
 	return tags
 }
 
-// RegisterEndpoints registers the AsyncAPI spec and UI endpoints
+// RegisterEndpoints registers the AsyncAPI spec and UI endpoints.
 func (g *asyncAPIGenerator) RegisterEndpoints() {
 	// Register spec endpoint
 	if g.config.SpecEnabled {
@@ -370,7 +377,7 @@ func (g *asyncAPIGenerator) RegisterEndpoints() {
 	}
 }
 
-// handleSpecEndpoint serves the AsyncAPI JSON specification
+// handleSpecEndpoint serves the AsyncAPI JSON specification.
 func (g *asyncAPIGenerator) handleSpecEndpoint(ctx Context) error {
 	spec := g.Generate()
 
@@ -385,7 +392,7 @@ func (g *asyncAPIGenerator) handleSpecEndpoint(ctx Context) error {
 	return encoder.Encode(spec)
 }
 
-// handleUIEndpoint serves the AsyncAPI UI
+// handleUIEndpoint serves the AsyncAPI UI.
 func (g *asyncAPIGenerator) handleUIEndpoint(ctx Context) error {
 	html := g.generateUIHTML()
 
@@ -396,7 +403,7 @@ func (g *asyncAPIGenerator) handleUIEndpoint(ctx Context) error {
 	return err
 }
 
-// generateUIHTML generates HTML for AsyncAPI Studio viewer
+// generateUIHTML generates HTML for AsyncAPI Studio viewer.
 func (g *asyncAPIGenerator) generateUIHTML() string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en">

@@ -2,13 +2,14 @@ package backends
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	consulapi "github.com/hashicorp/consul/api"
 )
 
-// ConsulBackend implements service discovery using Consul
+// ConsulBackend implements service discovery using Consul.
 type ConsulBackend struct {
 	client   *consulapi.Client
 	config   ConsulConfig
@@ -18,7 +19,7 @@ type ConsulBackend struct {
 	wg       sync.WaitGroup
 }
 
-// NewConsulBackend creates a new Consul backend
+// NewConsulBackend creates a new Consul backend.
 func NewConsulBackend(config ConsulConfig) (*ConsulBackend, error) {
 	// Create Consul client configuration
 	consulConfig := consulapi.DefaultConfig()
@@ -40,9 +41,11 @@ func NewConsulBackend(config ConsulConfig) (*ConsulBackend, error) {
 		if config.TLSCAFile != "" {
 			tlsConfig.CAFile = config.TLSCAFile
 		}
+
 		if config.TLSCert != "" {
 			tlsConfig.CertFile = config.TLSCert
 		}
+
 		if config.TLSKey != "" {
 			tlsConfig.KeyFile = config.TLSKey
 		}
@@ -64,12 +67,12 @@ func NewConsulBackend(config ConsulConfig) (*ConsulBackend, error) {
 	}, nil
 }
 
-// Name returns the backend name
+// Name returns the backend name.
 func (b *ConsulBackend) Name() string {
 	return "consul"
 }
 
-// Initialize initializes the backend
+// Initialize initializes the backend.
 func (b *ConsulBackend) Initialize(ctx context.Context) error {
 	// Test connection
 	_, err := b.client.Agent().Self()
@@ -80,13 +83,14 @@ func (b *ConsulBackend) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// Register registers a service instance with Consul
+// Register registers a service instance with Consul.
 func (b *ConsulBackend) Register(ctx context.Context, instance *ServiceInstance) error {
 	if instance.ID == "" {
-		return fmt.Errorf("service instance ID is required")
+		return errors.New("service instance ID is required")
 	}
+
 	if instance.Name == "" {
-		return fmt.Errorf("service name is required")
+		return errors.New("service name is required")
 	}
 
 	// Create Consul service registration
@@ -125,7 +129,7 @@ func (b *ConsulBackend) Register(ctx context.Context, instance *ServiceInstance)
 	return nil
 }
 
-// Deregister deregisters a service instance from Consul
+// Deregister deregisters a service instance from Consul.
 func (b *ConsulBackend) Deregister(ctx context.Context, serviceID string) error {
 	if err := b.client.Agent().ServiceDeregister(serviceID); err != nil {
 		return fmt.Errorf("failed to deregister service from consul: %w", err)
@@ -134,7 +138,7 @@ func (b *ConsulBackend) Deregister(ctx context.Context, serviceID string) error 
 	return nil
 }
 
-// Discover discovers service instances by name from Consul
+// Discover discovers service instances by name from Consul.
 func (b *ConsulBackend) Discover(ctx context.Context, serviceName string) ([]*ServiceInstance, error) {
 	// Query Consul for service instances
 	services, _, err := b.client.Health().Service(serviceName, "", false, nil)
@@ -152,7 +156,7 @@ func (b *ConsulBackend) Discover(ctx context.Context, serviceName string) ([]*Se
 	return instances, nil
 }
 
-// DiscoverWithTags discovers service instances by name and tags from Consul
+// DiscoverWithTags discovers service instances by name and tags from Consul.
 func (b *ConsulBackend) DiscoverWithTags(ctx context.Context, serviceName string, tags []string) ([]*ServiceInstance, error) {
 	if len(tags) == 0 {
 		return b.Discover(ctx, serviceName)
@@ -161,6 +165,7 @@ func (b *ConsulBackend) DiscoverWithTags(ctx context.Context, serviceName string
 	// Consul supports filtering by a single tag
 	// For multiple tags, we'll query with the first tag and filter the rest manually
 	tag := tags[0]
+
 	services, _, err := b.client.Health().Service(serviceName, tag, false, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover service from consul: %w", err)
@@ -178,7 +183,7 @@ func (b *ConsulBackend) DiscoverWithTags(ctx context.Context, serviceName string
 	return instances, nil
 }
 
-// Watch watches for changes to a service in Consul
+// Watch watches for changes to a service in Consul.
 func (b *ConsulBackend) Watch(ctx context.Context, serviceName string, onChange func([]*ServiceInstance)) error {
 	b.mu.Lock()
 	b.watchers[serviceName] = append(b.watchers[serviceName], onChange)
@@ -186,12 +191,13 @@ func (b *ConsulBackend) Watch(ctx context.Context, serviceName string, onChange 
 
 	// Start watch goroutine if not already running
 	b.wg.Add(1)
+
 	go b.watchService(serviceName)
 
 	return nil
 }
 
-// watchService watches a service for changes
+// watchService watches a service for changes.
 func (b *ConsulBackend) watchService(serviceName string) {
 	defer b.wg.Done()
 
@@ -231,7 +237,7 @@ func (b *ConsulBackend) watchService(serviceName string) {
 	}
 }
 
-// ListServices lists all registered services in Consul
+// ListServices lists all registered services in Consul.
 func (b *ConsulBackend) ListServices(ctx context.Context) ([]string, error) {
 	services, _, err := b.client.Catalog().Services(nil)
 	if err != nil {
@@ -246,23 +252,25 @@ func (b *ConsulBackend) ListServices(ctx context.Context) ([]string, error) {
 	return serviceNames, nil
 }
 
-// Health checks backend health
+// Health checks backend health.
 func (b *ConsulBackend) Health(ctx context.Context) error {
 	_, err := b.client.Agent().Self()
 	if err != nil {
 		return fmt.Errorf("consul health check failed: %w", err)
 	}
+
 	return nil
 }
 
-// Close closes the backend
+// Close closes the backend.
 func (b *ConsulBackend) Close() error {
 	close(b.stopCh)
 	b.wg.Wait()
+
 	return nil
 }
 
-// notifyWatchers notifies all watchers for a service
+// notifyWatchers notifies all watchers for a service.
 func (b *ConsulBackend) notifyWatchers(serviceName string) {
 	instances, err := b.Discover(context.Background(), serviceName)
 	if err != nil {
@@ -278,10 +286,11 @@ func (b *ConsulBackend) notifyWatchers(serviceName string) {
 	}
 }
 
-// convertConsulEntry converts a Consul health entry to ServiceInstance
+// convertConsulEntry converts a Consul health entry to ServiceInstance.
 func (b *ConsulBackend) convertConsulEntry(entry *consulapi.ServiceEntry) *ServiceInstance {
 	// Determine health status
 	status := HealthStatusPassing
+
 	for _, check := range entry.Checks {
 		switch check.Status {
 		case consulapi.HealthCritical:
@@ -305,9 +314,10 @@ func (b *ConsulBackend) convertConsulEntry(entry *consulapi.ServiceEntry) *Servi
 	}
 }
 
-// UpdateServiceHealth updates the health status of a service instance
+// UpdateServiceHealth updates the health status of a service instance.
 func (b *ConsulBackend) UpdateServiceHealth(ctx context.Context, serviceID string, status HealthStatus) error {
 	var consulStatus string
+
 	switch status {
 	case HealthStatusPassing:
 		consulStatus = "passing"
@@ -328,7 +338,7 @@ func (b *ConsulBackend) UpdateServiceHealth(ctx context.Context, serviceID strin
 	return nil
 }
 
-// GetServiceByID retrieves a specific service instance by ID
+// GetServiceByID retrieves a specific service instance by ID.
 func (b *ConsulBackend) GetServiceByID(ctx context.Context, serviceID string) (*ServiceInstance, error) {
 	services, err := b.client.Agent().Services()
 	if err != nil {
@@ -351,7 +361,7 @@ func (b *ConsulBackend) GetServiceByID(ctx context.Context, serviceID string) (*
 	}, nil
 }
 
-// ensureNamespace ensures the namespace exists (Consul Enterprise)
+// ensureNamespace ensures the namespace exists (Consul Enterprise).
 func (b *ConsulBackend) ensureNamespace(ctx context.Context) error {
 	if b.config.Namespace == "" {
 		return nil
@@ -361,4 +371,3 @@ func (b *ConsulBackend) ensureNamespace(ctx context.Context) error {
 	// This is a no-op in OSS Consul
 	return nil
 }
-

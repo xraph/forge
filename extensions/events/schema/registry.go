@@ -3,6 +3,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// SchemaRegistry manages event schemas for validation and evolution
+// SchemaRegistry manages event schemas for validation and evolution.
 type SchemaRegistry struct {
 	schemas     map[string]map[int]*Schema // event_type -> version -> schema
 	schemasByID map[string]*Schema         // schema_id -> schema
@@ -24,18 +25,18 @@ type SchemaRegistry struct {
 	validator   *EventSchemaValidator
 }
 
-// RegistryConfig defines configuration for the schema registry
+// RegistryConfig defines configuration for the schema registry.
 type RegistryConfig struct {
-	EnableCache        bool          `yaml:"enable_cache" json:"enable_cache"`
-	CacheTTL           time.Duration `yaml:"cache_ttl" json:"cache_ttl"`
-	AutoRegister       bool          `yaml:"auto_register" json:"auto_register"`
-	VersioningStrategy string        `yaml:"versioning_strategy" json:"versioning_strategy"` // "strict", "compatible", "none"
-	ValidationLevel    string        `yaml:"validation_level" json:"validation_level"`       // "strict", "lenient", "disabled"
-	AllowEvolution     bool          `yaml:"allow_evolution" json:"allow_evolution"`
-	MaxVersions        int           `yaml:"max_versions" json:"max_versions"`
+	EnableCache        bool          `json:"enable_cache"        yaml:"enable_cache"`
+	CacheTTL           time.Duration `json:"cache_ttl"           yaml:"cache_ttl"`
+	AutoRegister       bool          `json:"auto_register"       yaml:"auto_register"`
+	VersioningStrategy string        `json:"versioning_strategy" yaml:"versioning_strategy"` // "strict", "compatible", "none"
+	ValidationLevel    string        `json:"validation_level"    yaml:"validation_level"`    // "strict", "lenient", "disabled"
+	AllowEvolution     bool          `json:"allow_evolution"     yaml:"allow_evolution"`
+	MaxVersions        int           `json:"max_versions"        yaml:"max_versions"`
 }
 
-// DefaultRegistryConfig returns default configuration
+// DefaultRegistryConfig returns default configuration.
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
 		EnableCache:        true,
@@ -48,7 +49,7 @@ func DefaultRegistryConfig() *RegistryConfig {
 	}
 }
 
-// SchemaStore defines interface for persisting schemas
+// SchemaStore defines interface for persisting schemas.
 type SchemaStore interface {
 	// SaveSchema saves a schema to persistent storage
 	SaveSchema(ctx context.Context, schema *Schema) error
@@ -75,7 +76,7 @@ type SchemaStore interface {
 	Close(ctx context.Context) error
 }
 
-// SchemaCache defines interface for caching schemas
+// SchemaCache defines interface for caching schemas.
 type SchemaCache interface {
 	// Get retrieves a schema from cache
 	Get(key string) (*Schema, bool)
@@ -90,40 +91,40 @@ type SchemaCache interface {
 	Clear()
 
 	// Stats returns cache statistics
-	Stats() map[string]interface{}
+	Stats() map[string]any
 }
 
-// SchemaEvolution defines how schemas can evolve
+// SchemaEvolution defines how schemas can evolve.
 type SchemaEvolution struct {
-	EventType      string                 `json:"event_type"`
-	FromVersion    int                    `json:"from_version"`
-	ToVersion      int                    `json:"to_version"`
-	Changes        []SchemaChange         `json:"changes"`
-	Compatible     bool                   `json:"compatible"`
-	Transformation *TransformationRule    `json:"transformation,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
+	EventType      string              `json:"event_type"`
+	FromVersion    int                 `json:"from_version"`
+	ToVersion      int                 `json:"to_version"`
+	Changes        []SchemaChange      `json:"changes"`
+	Compatible     bool                `json:"compatible"`
+	Transformation *TransformationRule `json:"transformation,omitempty"`
+	Metadata       map[string]any      `json:"metadata,omitempty"`
 }
 
-// SchemaChange represents a change in schema
+// SchemaChange represents a change in schema.
 type SchemaChange struct {
-	Type        string      `json:"type"` // "add", "remove", "modify", "rename"
-	Path        string      `json:"path"` // JSON path to the changed property
-	OldValue    interface{} `json:"old_value,omitempty"`
-	NewValue    interface{} `json:"new_value,omitempty"`
-	Description string      `json:"description,omitempty"`
+	Type        string `json:"type"` // "add", "remove", "modify", "rename"
+	Path        string `json:"path"` // JSON path to the changed property
+	OldValue    any    `json:"old_value,omitempty"`
+	NewValue    any    `json:"new_value,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
-// TransformationRule defines how to transform data between schema versions
+// TransformationRule defines how to transform data between schema versions.
 type TransformationRule struct {
-	Rule         string                 `json:"rule"` // "copy", "rename", "transform", "default"
-	SourcePath   string                 `json:"source_path,omitempty"`
-	TargetPath   string                 `json:"target_path,omitempty"`
-	Transform    string                 `json:"transform,omitempty"` // transformation expression
-	DefaultValue interface{}            `json:"default_value,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	Rule         string         `json:"rule"` // "copy", "rename", "transform", "default"
+	SourcePath   string         `json:"source_path,omitempty"`
+	TargetPath   string         `json:"target_path,omitempty"`
+	Transform    string         `json:"transform,omitempty"` // transformation expression
+	DefaultValue any            `json:"default_value,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
 }
 
-// NewSchemaRegistry creates a new schema registry
+// NewSchemaRegistry creates a new schema registry.
 func NewSchemaRegistry(store SchemaStore, cache SchemaCache, config *RegistryConfig, logger forge.Logger, metrics forge.Metrics) *SchemaRegistry {
 	if config == nil {
 		config = DefaultRegistryConfig()
@@ -151,7 +152,7 @@ func NewSchemaRegistry(store SchemaStore, cache SchemaCache, config *RegistryCon
 	return registry
 }
 
-// RegisterSchema registers a new schema in the registry
+// RegisterSchema registers a new schema in the registry.
 func (sr *SchemaRegistry) RegisterSchema(ctx context.Context, schema *Schema) error {
 	if err := sr.validateSchema(schema); err != nil {
 		return errors.ErrValidationError("schema", err)
@@ -165,6 +166,7 @@ func (sr *SchemaRegistry) RegisterSchema(ctx context.Context, schema *Schema) er
 		if existing.ID == schema.ID {
 			return nil // Already registered
 		}
+
 		return fmt.Errorf("schema %s version %d already exists with different ID", schema.Name, schema.Version)
 	}
 
@@ -180,6 +182,7 @@ func (sr *SchemaRegistry) RegisterSchema(ctx context.Context, schema *Schema) er
 	if schema.CreatedAt == "" {
 		schema.CreatedAt = now
 	}
+
 	schema.UpdatedAt = now
 
 	// Save to persistent store
@@ -193,6 +196,7 @@ func (sr *SchemaRegistry) RegisterSchema(ctx context.Context, schema *Schema) er
 	if sr.schemas[schema.Name] == nil {
 		sr.schemas[schema.Name] = make(map[int]*Schema)
 	}
+
 	sr.schemas[schema.Name][schema.Version] = schema
 	sr.schemasByID[schema.ID] = schema
 
@@ -223,7 +227,7 @@ func (sr *SchemaRegistry) RegisterSchema(ctx context.Context, schema *Schema) er
 	return nil
 }
 
-// GetSchema retrieves a schema by event type and version
+// GetSchema retrieves a schema by event type and version.
 func (sr *SchemaRegistry) GetSchema(eventType string, version int) (*Schema, error) {
 	// Try cache first if enabled
 	if sr.config.EnableCache && sr.cache != nil {
@@ -244,6 +248,7 @@ func (sr *SchemaRegistry) GetSchema(eventType string, version int) (*Schema, err
 			cacheKey := sr.buildCacheKey(eventType, version)
 			sr.cache.Set(cacheKey, schema, sr.config.CacheTTL)
 		}
+
 		return schema, nil
 	}
 
@@ -256,9 +261,11 @@ func (sr *SchemaRegistry) GetSchema(eventType string, version int) (*Schema, err
 
 		// Add to memory and cache
 		sr.mu.Lock()
+
 		if sr.schemas[eventType] == nil {
 			sr.schemas[eventType] = make(map[int]*Schema)
 		}
+
 		sr.schemas[eventType][version] = schema
 		sr.schemasByID[schema.ID] = schema
 		sr.mu.Unlock()
@@ -274,15 +281,17 @@ func (sr *SchemaRegistry) GetSchema(eventType string, version int) (*Schema, err
 	return nil, fmt.Errorf("schema not found: %s version %d", eventType, version)
 }
 
-// GetLatestSchema retrieves the latest version of a schema
+// GetLatestSchema retrieves the latest version of a schema.
 func (sr *SchemaRegistry) GetLatestSchema(eventType string) (*Schema, error) {
 	sr.mu.RLock()
 	versions, exists := sr.schemas[eventType]
 	sr.mu.RUnlock()
 
 	if exists {
-		var latestVersion int
-		var latestSchema *Schema
+		var (
+			latestVersion int
+			latestSchema  *Schema
+		)
 
 		for version, schema := range versions {
 			if version > latestVersion {
@@ -304,7 +313,7 @@ func (sr *SchemaRegistry) GetLatestSchema(eventType string) (*Schema, error) {
 	return nil, fmt.Errorf("no schema found for event type: %s", eventType)
 }
 
-// GetSchemaByID retrieves a schema by ID
+// GetSchemaByID retrieves a schema by ID.
 func (sr *SchemaRegistry) GetSchemaByID(schemaID string) (*Schema, error) {
 	sr.mu.RLock()
 	schema, exists := sr.schemasByID[schemaID]
@@ -323,9 +332,11 @@ func (sr *SchemaRegistry) GetSchemaByID(schemaID string) (*Schema, error) {
 
 		// Add to memory
 		sr.mu.Lock()
+
 		if sr.schemas[schema.Name] == nil {
 			sr.schemas[schema.Name] = make(map[int]*Schema)
 		}
+
 		sr.schemas[schema.Name][schema.Version] = schema
 		sr.schemasByID[schema.ID] = schema
 		sr.mu.Unlock()
@@ -336,7 +347,7 @@ func (sr *SchemaRegistry) GetSchemaByID(schemaID string) (*Schema, error) {
 	return nil, fmt.Errorf("schema not found: %s", schemaID)
 }
 
-// GetSchemaVersions retrieves all versions of a schema
+// GetSchemaVersions retrieves all versions of a schema.
 func (sr *SchemaRegistry) GetSchemaVersions(eventType string) ([]*Schema, error) {
 	sr.mu.RLock()
 	versions, exists := sr.schemas[eventType]
@@ -373,7 +384,7 @@ func (sr *SchemaRegistry) GetSchemaVersions(eventType string) ([]*Schema, error)
 	return schemas, nil
 }
 
-// UpdateSchema updates an existing schema
+// UpdateSchema updates an existing schema.
 func (sr *SchemaRegistry) UpdateSchema(ctx context.Context, schema *Schema) error {
 	if err := sr.validateSchema(schema); err != nil {
 		return errors.ErrValidationError("schema", err)
@@ -424,7 +435,7 @@ func (sr *SchemaRegistry) UpdateSchema(ctx context.Context, schema *Schema) erro
 	return nil
 }
 
-// DeleteSchema deletes a schema
+// DeleteSchema deletes a schema.
 func (sr *SchemaRegistry) DeleteSchema(ctx context.Context, eventType string, version int) error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
@@ -443,9 +454,11 @@ func (sr *SchemaRegistry) DeleteSchema(ctx context.Context, eventType string, ve
 
 	// Delete from memory
 	delete(sr.schemas[eventType], version)
+
 	if len(sr.schemas[eventType]) == 0 {
 		delete(sr.schemas, eventType)
 	}
+
 	delete(sr.schemasByID, schema.ID)
 
 	// Invalidate cache
@@ -470,7 +483,7 @@ func (sr *SchemaRegistry) DeleteSchema(ctx context.Context, eventType string, ve
 	return nil
 }
 
-// ListEventTypes lists all registered event types
+// ListEventTypes lists all registered event types.
 func (sr *SchemaRegistry) ListEventTypes() []string {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
@@ -483,31 +496,36 @@ func (sr *SchemaRegistry) ListEventTypes() []string {
 	return eventTypes
 }
 
-// validateSchema validates a schema before registration
+// validateSchema validates a schema before registration.
 func (sr *SchemaRegistry) validateSchema(schema *Schema) error {
 	if schema == nil {
-		return fmt.Errorf("schema cannot be nil")
+		return errors.New("schema cannot be nil")
 	}
+
 	if schema.ID == "" {
-		return fmt.Errorf("schema ID is required")
+		return errors.New("schema ID is required")
 	}
+
 	if schema.Name == "" {
-		return fmt.Errorf("schema name is required")
+		return errors.New("schema name is required")
 	}
+
 	if schema.Version <= 0 {
-		return fmt.Errorf("schema version must be positive")
+		return errors.New("schema version must be positive")
 	}
+
 	if schema.Type == "" {
-		return fmt.Errorf("schema type is required")
+		return errors.New("schema type is required")
 	}
+
 	if schema.Properties == nil {
-		return fmt.Errorf("schema properties are required")
+		return errors.New("schema properties are required")
 	}
 
 	return nil
 }
 
-// checkVersionCompatibility checks if a new schema version is compatible
+// checkVersionCompatibility checks if a new schema version is compatible.
 func (sr *SchemaRegistry) checkVersionCompatibility(ctx context.Context, newSchema *Schema) error {
 	if sr.config.VersioningStrategy == "none" {
 		return nil
@@ -520,8 +538,11 @@ func (sr *SchemaRegistry) checkVersionCompatibility(ctx context.Context, newSche
 	}
 
 	// Find the latest existing version
-	var latestVersion int
-	var latestSchema *Schema
+	var (
+		latestVersion int
+		latestSchema  *Schema
+	)
+
 	for version, schema := range existing {
 		if version > latestVersion {
 			latestVersion = version
@@ -549,7 +570,7 @@ func (sr *SchemaRegistry) checkVersionCompatibility(ctx context.Context, newSche
 	}
 }
 
-// checkStrictCompatibility performs strict compatibility checking
+// checkStrictCompatibility performs strict compatibility checking.
 func (sr *SchemaRegistry) checkStrictCompatibility(oldSchema, newSchema *Schema) error {
 	// In strict mode, only additive changes are allowed
 	evolution := sr.analyzeSchemaEvolution(oldSchema, newSchema)
@@ -569,7 +590,7 @@ func (sr *SchemaRegistry) checkStrictCompatibility(oldSchema, newSchema *Schema)
 	return nil
 }
 
-// checkBackwardCompatibility performs backward compatibility checking
+// checkBackwardCompatibility performs backward compatibility checking.
 func (sr *SchemaRegistry) checkBackwardCompatibility(oldSchema, newSchema *Schema) error {
 	// In compatible mode, we allow more changes but still check for breaking changes
 	evolution := sr.analyzeSchemaEvolution(oldSchema, newSchema)
@@ -595,7 +616,7 @@ func (sr *SchemaRegistry) checkBackwardCompatibility(oldSchema, newSchema *Schem
 	return nil
 }
 
-// analyzeSchemaEvolution analyzes differences between two schemas
+// analyzeSchemaEvolution analyzes differences between two schemas.
 func (sr *SchemaRegistry) analyzeSchemaEvolution(oldSchema, newSchema *Schema) *SchemaEvolution {
 	evolution := &SchemaEvolution{
 		EventType:   newSchema.Name,
@@ -614,7 +635,7 @@ func (sr *SchemaRegistry) analyzeSchemaEvolution(oldSchema, newSchema *Schema) *
 	return evolution
 }
 
-// compareProperties compares properties between two schemas
+// compareProperties compares properties between two schemas.
 func (sr *SchemaRegistry) compareProperties(basePath string, oldProps, newProps map[string]*Property, evolution *SchemaEvolution) {
 	// Check for removed properties
 	for name, oldProp := range oldProps {
@@ -659,7 +680,7 @@ func (sr *SchemaRegistry) compareProperties(basePath string, oldProps, newProps 
 	}
 }
 
-// compareRequiredFields compares required fields between schemas
+// compareRequiredFields compares required fields between schemas.
 func (sr *SchemaRegistry) compareRequiredFields(oldRequired, newRequired []string, evolution *SchemaEvolution) {
 	oldReqMap := make(map[string]bool)
 	for _, field := range oldRequired {
@@ -698,13 +719,14 @@ func (sr *SchemaRegistry) compareRequiredFields(oldRequired, newRequired []strin
 	}
 }
 
-// Helper methods
+// Helper methods.
 func (sr *SchemaRegistry) getSchemaFromMemory(eventType string, version int) (*Schema, bool) {
 	if versions, exists := sr.schemas[eventType]; exists {
 		if schema, exists := versions[version]; exists {
 			return schema, true
 		}
 	}
+
 	return nil, false
 }
 
@@ -716,16 +738,13 @@ func (sr *SchemaRegistry) buildPath(basePath, name string) string {
 	if basePath == "" {
 		return name
 	}
+
 	return fmt.Sprintf("%s.%s", basePath, name)
 }
 
 func (sr *SchemaRegistry) isRequiredField(schema *Schema, path string) bool {
-	for _, required := range schema.Required {
-		if required == path {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(schema.Required, path)
 }
 
 func (sr *SchemaRegistry) isTypeChange(change SchemaChange) bool {
@@ -745,7 +764,7 @@ func (sr *SchemaRegistry) cleanupOldVersions(ctx context.Context, eventType stri
 	}
 
 	// Sort versions in descending order
-	for i := 0; i < len(sortedVersions)-1; i++ {
+	for i := range len(sortedVersions) - 1 {
 		for j := i + 1; j < len(sortedVersions); j++ {
 			if sortedVersions[i] < sortedVersions[j] {
 				sortedVersions[i], sortedVersions[j] = sortedVersions[j], sortedVersions[i]
@@ -776,12 +795,12 @@ func (sr *SchemaRegistry) cleanupOldVersions(ctx context.Context, eventType stri
 	}
 }
 
-// GetStats returns registry statistics
-func (sr *SchemaRegistry) GetStats() map[string]interface{} {
+// GetStats returns registry statistics.
+func (sr *SchemaRegistry) GetStats() map[string]any {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"total_schemas":     len(sr.schemasByID),
 		"total_event_types": len(sr.schemas),
 		"config":            sr.config,
@@ -797,19 +816,20 @@ func (sr *SchemaRegistry) GetStats() map[string]interface{} {
 	for eventType, versions := range sr.schemas {
 		eventTypeStats[eventType] = len(versions)
 	}
+
 	stats["schemas_per_event_type"] = eventTypeStats
 
 	return stats
 }
 
-// MemorySchemaStore implements SchemaStore using in-memory storage
+// MemorySchemaStore implements SchemaStore using in-memory storage.
 type MemorySchemaStore struct {
 	schemas map[string]*Schema         // schema_id -> schema
 	byType  map[string]map[int]*Schema // event_type -> version -> schema
 	mu      sync.RWMutex
 }
 
-// NewMemorySchemaStore creates a new in-memory schema store
+// NewMemorySchemaStore creates a new in-memory schema store.
 func NewMemorySchemaStore() *MemorySchemaStore {
 	return &MemorySchemaStore{
 		schemas: make(map[string]*Schema),
@@ -817,7 +837,7 @@ func NewMemorySchemaStore() *MemorySchemaStore {
 	}
 }
 
-// SaveSchema implements SchemaStore
+// SaveSchema implements SchemaStore.
 func (mss *MemorySchemaStore) SaveSchema(ctx context.Context, schema *Schema) error {
 	mss.mu.Lock()
 	defer mss.mu.Unlock()
@@ -827,12 +847,13 @@ func (mss *MemorySchemaStore) SaveSchema(ctx context.Context, schema *Schema) er
 	if mss.byType[schema.Name] == nil {
 		mss.byType[schema.Name] = make(map[int]*Schema)
 	}
+
 	mss.byType[schema.Name][schema.Version] = schema
 
 	return nil
 }
 
-// GetSchema implements SchemaStore
+// GetSchema implements SchemaStore.
 func (mss *MemorySchemaStore) GetSchema(ctx context.Context, eventType string, version int) (*Schema, error) {
 	mss.mu.RLock()
 	defer mss.mu.RUnlock()
@@ -846,7 +867,7 @@ func (mss *MemorySchemaStore) GetSchema(ctx context.Context, eventType string, v
 	return nil, fmt.Errorf("schema not found: %s version %d", eventType, version)
 }
 
-// GetSchemaByID implements SchemaStore
+// GetSchemaByID implements SchemaStore.
 func (mss *MemorySchemaStore) GetSchemaByID(ctx context.Context, schemaID string) (*Schema, error) {
 	mss.mu.RLock()
 	defer mss.mu.RUnlock()
@@ -858,7 +879,7 @@ func (mss *MemorySchemaStore) GetSchemaByID(ctx context.Context, schemaID string
 	return nil, fmt.Errorf("schema not found: %s", schemaID)
 }
 
-// GetLatestSchema implements SchemaStore
+// GetLatestSchema implements SchemaStore.
 func (mss *MemorySchemaStore) GetLatestSchema(ctx context.Context, eventType string) (*Schema, error) {
 	mss.mu.RLock()
 	defer mss.mu.RUnlock()
@@ -868,8 +889,10 @@ func (mss *MemorySchemaStore) GetLatestSchema(ctx context.Context, eventType str
 		return nil, fmt.Errorf("no schemas found for event type: %s", eventType)
 	}
 
-	var latestVersion int
-	var latestSchema *Schema
+	var (
+		latestVersion int
+		latestSchema  *Schema
+	)
 
 	for version, schema := range versions {
 		if version > latestVersion {
@@ -885,7 +908,7 @@ func (mss *MemorySchemaStore) GetLatestSchema(ctx context.Context, eventType str
 	return latestSchema, nil
 }
 
-// GetSchemaVersions implements SchemaStore
+// GetSchemaVersions implements SchemaStore.
 func (mss *MemorySchemaStore) GetSchemaVersions(ctx context.Context, eventType string) ([]*Schema, error) {
 	mss.mu.RLock()
 	defer mss.mu.RUnlock()
@@ -903,7 +926,7 @@ func (mss *MemorySchemaStore) GetSchemaVersions(ctx context.Context, eventType s
 	return schemas, nil
 }
 
-// DeleteSchema implements SchemaStore
+// DeleteSchema implements SchemaStore.
 func (mss *MemorySchemaStore) DeleteSchema(ctx context.Context, schemaID string) error {
 	mss.mu.Lock()
 	defer mss.mu.Unlock()
@@ -917,6 +940,7 @@ func (mss *MemorySchemaStore) DeleteSchema(ctx context.Context, schemaID string)
 
 	if versions, exists := mss.byType[schema.Name]; exists {
 		delete(versions, schema.Version)
+
 		if len(versions) == 0 {
 			delete(mss.byType, schema.Name)
 		}
@@ -925,7 +949,7 @@ func (mss *MemorySchemaStore) DeleteSchema(ctx context.Context, schemaID string)
 	return nil
 }
 
-// ListEventTypes implements SchemaStore
+// ListEventTypes implements SchemaStore.
 func (mss *MemorySchemaStore) ListEventTypes(ctx context.Context) ([]string, error) {
 	mss.mu.RLock()
 	defer mss.mu.RUnlock()
@@ -938,12 +962,12 @@ func (mss *MemorySchemaStore) ListEventTypes(ctx context.Context) ([]string, err
 	return eventTypes, nil
 }
 
-// Close implements SchemaStore
+// Close implements SchemaStore.
 func (mss *MemorySchemaStore) Close(ctx context.Context) error {
 	return nil
 }
 
-// MemorySchemaCache implements SchemaCache using in-memory storage
+// MemorySchemaCache implements SchemaCache using in-memory storage.
 type MemorySchemaCache struct {
 	cache  map[string]*cachedSchema
 	mu     sync.RWMutex
@@ -956,14 +980,14 @@ type cachedSchema struct {
 	expiresAt time.Time
 }
 
-// NewMemorySchemaCache creates a new in-memory schema cache
+// NewMemorySchemaCache creates a new in-memory schema cache.
 func NewMemorySchemaCache() *MemorySchemaCache {
 	return &MemorySchemaCache{
 		cache: make(map[string]*cachedSchema),
 	}
 }
 
-// Get implements SchemaCache
+// Get implements SchemaCache.
 func (msc *MemorySchemaCache) Get(key string) (*Schema, bool) {
 	msc.mu.RLock()
 	defer msc.mu.RUnlock()
@@ -971,20 +995,23 @@ func (msc *MemorySchemaCache) Get(key string) (*Schema, bool) {
 	cached, exists := msc.cache[key]
 	if !exists {
 		msc.misses++
+
 		return nil, false
 	}
 
 	if time.Now().After(cached.expiresAt) {
 		delete(msc.cache, key)
 		msc.misses++
+
 		return nil, false
 	}
 
 	msc.hits++
+
 	return cached.schema, true
 }
 
-// Set implements SchemaCache
+// Set implements SchemaCache.
 func (msc *MemorySchemaCache) Set(key string, schema *Schema, ttl time.Duration) {
 	msc.mu.Lock()
 	defer msc.mu.Unlock()
@@ -995,7 +1022,7 @@ func (msc *MemorySchemaCache) Set(key string, schema *Schema, ttl time.Duration)
 	}
 }
 
-// Delete implements SchemaCache
+// Delete implements SchemaCache.
 func (msc *MemorySchemaCache) Delete(key string) {
 	msc.mu.Lock()
 	defer msc.mu.Unlock()
@@ -1003,7 +1030,7 @@ func (msc *MemorySchemaCache) Delete(key string) {
 	delete(msc.cache, key)
 }
 
-// Clear implements SchemaCache
+// Clear implements SchemaCache.
 func (msc *MemorySchemaCache) Clear() {
 	msc.mu.Lock()
 	defer msc.mu.Unlock()
@@ -1011,18 +1038,19 @@ func (msc *MemorySchemaCache) Clear() {
 	msc.cache = make(map[string]*cachedSchema)
 }
 
-// Stats implements SchemaCache
-func (msc *MemorySchemaCache) Stats() map[string]interface{} {
+// Stats implements SchemaCache.
+func (msc *MemorySchemaCache) Stats() map[string]any {
 	msc.mu.RLock()
 	defer msc.mu.RUnlock()
 
 	total := msc.hits + msc.misses
+
 	hitRate := float64(0)
 	if total > 0 {
 		hitRate = float64(msc.hits) / float64(total)
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"entries":  len(msc.cache),
 		"hits":     msc.hits,
 		"misses":   msc.misses,

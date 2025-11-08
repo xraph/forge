@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// ElasticsearchSearch implements Search interface for Elasticsearch
+// ElasticsearchSearch implements Search interface for Elasticsearch.
 type ElasticsearchSearch struct {
 	config    Config
 	logger    forge.Logger
@@ -17,10 +17,10 @@ type ElasticsearchSearch struct {
 	// client    *elasticsearch.Client // TODO: Add when implementing
 }
 
-// NewElasticsearchSearch creates a new Elasticsearch search instance
+// NewElasticsearchSearch creates a new Elasticsearch search instance.
 func NewElasticsearchSearch(config Config, logger forge.Logger, metrics forge.Metrics) (*ElasticsearchSearch, error) {
 	if config.URL == "" && len(config.Hosts) == 0 {
-		return nil, fmt.Errorf("elasticsearch requires URL or hosts")
+		return nil, errors.New("elasticsearch requires URL or hosts")
 	}
 
 	return &ElasticsearchSearch{
@@ -30,7 +30,7 @@ func NewElasticsearchSearch(config Config, logger forge.Logger, metrics forge.Me
 	}, nil
 }
 
-// Connect establishes connection to Elasticsearch
+// Connect establishes connection to Elasticsearch.
 func (s *ElasticsearchSearch) Connect(ctx context.Context) error {
 	// TODO: Implement Elasticsearch client connection
 	// Example:
@@ -44,22 +44,23 @@ func (s *ElasticsearchSearch) Connect(ctx context.Context) error {
 	//     return fmt.Errorf("failed to create elasticsearch client: %w", err)
 	// }
 	// s.client = client
-
 	s.connected = true
 	s.logger.Info("connected to elasticsearch",
 		forge.F("url", s.config.URL),
 	)
+
 	return nil
 }
 
-// Disconnect closes the Elasticsearch connection
+// Disconnect closes the Elasticsearch connection.
 func (s *ElasticsearchSearch) Disconnect(ctx context.Context) error {
 	s.connected = false
 	s.logger.Info("disconnected from elasticsearch")
+
 	return nil
 }
 
-// Ping checks Elasticsearch health
+// Ping checks Elasticsearch health.
 func (s *ElasticsearchSearch) Ping(ctx context.Context) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -69,27 +70,29 @@ func (s *ElasticsearchSearch) Ping(ctx context.Context) error {
 	return nil
 }
 
-// CreateIndex creates an Elasticsearch index
+// CreateIndex creates an Elasticsearch index.
 func (s *ElasticsearchSearch) CreateIndex(ctx context.Context, name string, schema IndexSchema) error {
 	if !s.connected {
 		return ErrNotConnected
 	}
 	// TODO: Convert schema to Elasticsearch mapping and create index
 	s.logger.Info("created elasticsearch index", forge.F("index", name))
+
 	return nil
 }
 
-// DeleteIndex deletes an Elasticsearch index
+// DeleteIndex deletes an Elasticsearch index.
 func (s *ElasticsearchSearch) DeleteIndex(ctx context.Context, name string) error {
 	if !s.connected {
 		return ErrNotConnected
 	}
 	// TODO: Implement index deletion
 	s.logger.Info("deleted elasticsearch index", forge.F("index", name))
+
 	return nil
 }
 
-// ListIndexes lists all Elasticsearch indexes
+// ListIndexes lists all Elasticsearch indexes.
 func (s *ElasticsearchSearch) ListIndexes(ctx context.Context) ([]string, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -98,7 +101,7 @@ func (s *ElasticsearchSearch) ListIndexes(ctx context.Context) ([]string, error)
 	return []string{}, nil
 }
 
-// GetIndexInfo returns Elasticsearch index information
+// GetIndexInfo returns Elasticsearch index information.
 func (s *ElasticsearchSearch) GetIndexInfo(ctx context.Context, name string) (*IndexInfo, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -113,7 +116,7 @@ func (s *ElasticsearchSearch) GetIndexInfo(ctx context.Context, name string) (*I
 	}, nil
 }
 
-// Index indexes a document in Elasticsearch
+// Index indexes a document in Elasticsearch.
 func (s *ElasticsearchSearch) Index(ctx context.Context, index string, doc Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -122,7 +125,7 @@ func (s *ElasticsearchSearch) Index(ctx context.Context, index string, doc Docum
 	return nil
 }
 
-// BulkIndex bulk indexes documents in Elasticsearch
+// BulkIndex bulk indexes documents in Elasticsearch.
 func (s *ElasticsearchSearch) BulkIndex(ctx context.Context, index string, docs []Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -131,7 +134,7 @@ func (s *ElasticsearchSearch) BulkIndex(ctx context.Context, index string, docs 
 	return nil
 }
 
-// Get retrieves a document from Elasticsearch
+// Get retrieves a document from Elasticsearch.
 func (s *ElasticsearchSearch) Get(ctx context.Context, index string, id string) (*Document, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -140,7 +143,7 @@ func (s *ElasticsearchSearch) Get(ctx context.Context, index string, id string) 
 	return nil, ErrDocumentNotFound
 }
 
-// Delete deletes a document from Elasticsearch
+// Delete deletes a document from Elasticsearch.
 func (s *ElasticsearchSearch) Delete(ctx context.Context, index string, id string) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -149,7 +152,7 @@ func (s *ElasticsearchSearch) Delete(ctx context.Context, index string, id strin
 	return nil
 }
 
-// Update updates a document in Elasticsearch
+// Update updates a document in Elasticsearch.
 func (s *ElasticsearchSearch) Update(ctx context.Context, index string, id string, doc Document) error {
 	if !s.connected {
 		return ErrNotConnected
@@ -158,7 +161,7 @@ func (s *ElasticsearchSearch) Update(ctx context.Context, index string, id strin
 	return nil
 }
 
-// Search performs an Elasticsearch search
+// Search performs an Elasticsearch search.
 func (s *ElasticsearchSearch) Search(ctx context.Context, query SearchQuery) (*SearchResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -175,7 +178,7 @@ func (s *ElasticsearchSearch) Search(ctx context.Context, query SearchQuery) (*S
 	}, nil
 }
 
-// Suggest returns Elasticsearch suggestions
+// Suggest returns Elasticsearch suggestions.
 func (s *ElasticsearchSearch) Suggest(ctx context.Context, query SuggestQuery) (*SuggestResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -187,7 +190,7 @@ func (s *ElasticsearchSearch) Suggest(ctx context.Context, query SuggestQuery) (
 	}, nil
 }
 
-// Autocomplete returns Elasticsearch autocomplete results
+// Autocomplete returns Elasticsearch autocomplete results.
 func (s *ElasticsearchSearch) Autocomplete(ctx context.Context, query AutocompleteQuery) (*AutocompleteResults, error) {
 	if !s.connected {
 		return nil, ErrNotConnected
@@ -199,7 +202,7 @@ func (s *ElasticsearchSearch) Autocomplete(ctx context.Context, query Autocomple
 	}, nil
 }
 
-// Stats returns Elasticsearch statistics
+// Stats returns Elasticsearch statistics.
 func (s *ElasticsearchSearch) Stats(ctx context.Context) (*SearchStats, error) {
 	if !s.connected {
 		return nil, ErrNotConnected

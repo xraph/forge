@@ -60,6 +60,7 @@ func (sf *sizeFilter) Filter(ctx context.Context, msg *streaming.Message, recipi
 			if err != nil {
 				return nil, err
 			}
+
 			msg = truncated
 			size, _ = sf.calculateSize(msg)
 		} else {
@@ -92,6 +93,7 @@ func (sf *sizeFilter) calculateSize(msg *streaming.Message) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+
 	return len(data), nil
 }
 
@@ -105,6 +107,7 @@ func (sf *sizeFilter) truncateMessage(msg *streaming.Message) (*streaming.Messag
 			if truncated.Metadata == nil {
 				truncated.Metadata = make(map[string]any)
 			}
+
 			truncated.Metadata["truncated"] = true
 			truncated.Metadata["original_length"] = len(text)
 		}
@@ -122,20 +125,24 @@ func (sf *sizeFilter) compressMessage(msg *streaming.Message) (*streaming.Messag
 
 	// Compress with gzip
 	var buf bytes.Buffer
+
 	gzWriter := gzip.NewWriter(&buf)
 	if _, err := gzWriter.Write(data); err != nil {
 		return nil, err
 	}
+
 	if err := gzWriter.Close(); err != nil {
 		return nil, err
 	}
 
 	// Create compressed message
 	compressed := *msg
+
 	compressed.Data = buf.Bytes()
 	if compressed.Metadata == nil {
 		compressed.Metadata = make(map[string]any)
 	}
+
 	compressed.Metadata["compressed"] = true
 	compressed.Metadata["compression"] = "gzip"
 	compressed.Metadata["original_size"] = len(data)

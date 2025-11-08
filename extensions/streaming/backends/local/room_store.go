@@ -100,9 +100,11 @@ func (s *RoomStore) Update(ctx context.Context, roomID string, updates map[strin
 	if name, ok := updates["name"].(string); ok {
 		room.name = name
 	}
+
 	if desc, ok := updates["description"].(string); ok {
 		room.description = desc
 	}
+
 	if metadata, ok := updates["metadata"].(map[string]any); ok {
 		room.metadata = metadata
 	}
@@ -143,6 +145,7 @@ func (s *RoomStore) Exists(ctx context.Context, roomID string) (bool, error) {
 	defer s.mu.RUnlock()
 
 	_, exists := s.rooms[roomID]
+
 	return exists, nil
 }
 
@@ -242,6 +245,7 @@ func (s *RoomStore) IsMember(ctx context.Context, roomID, userID string) (bool, 
 	}
 
 	_, exists = roomMembers[userID]
+
 	return exists, nil
 }
 
@@ -262,6 +266,7 @@ func (s *RoomStore) GetUserRooms(ctx context.Context, userID string) ([]streamin
 	defer s.mu.RUnlock()
 
 	rooms := make([]streaming.Room, 0)
+
 	for roomID, roomMembers := range s.members {
 		if _, exists := roomMembers[userID]; exists {
 			if room, exists := s.rooms[roomID]; exists {
@@ -291,6 +296,7 @@ func (s *RoomStore) CreateMany(ctx context.Context, rooms []streaming.Room) erro
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -302,6 +308,7 @@ func (s *RoomStore) DeleteMany(ctx context.Context, roomIDs []string) error {
 		if _, exists := s.rooms[roomID]; !exists {
 			return streaming.ErrRoomNotFound
 		}
+
 		delete(s.rooms, roomID)
 		delete(s.members, roomID)
 		delete(s.bans, roomID)
@@ -311,10 +318,13 @@ func (s *RoomStore) DeleteMany(ctx context.Context, roomIDs []string) error {
 			for _, code := range inviteCodes {
 				delete(s.invites, code)
 			}
+
 			delete(s.roomInvites, roomID)
 		}
+
 		delete(s.moderationLogs, roomID)
 	}
+
 	return nil
 }
 
@@ -323,6 +333,7 @@ func (s *RoomStore) GetUserRoomsByRole(ctx context.Context, userID, role string)
 	defer s.mu.RUnlock()
 
 	var rooms []streaming.Room
+
 	for roomID, roomMembers := range s.members {
 		if member, exists := roomMembers[userID]; exists && member.role == role {
 			if room, exists := s.rooms[roomID]; exists {
@@ -330,6 +341,7 @@ func (s *RoomStore) GetUserRoomsByRole(ctx context.Context, userID, role string)
 			}
 		}
 	}
+
 	return rooms, nil
 }
 
@@ -338,6 +350,7 @@ func (s *RoomStore) GetCommonRooms(ctx context.Context, userID1, userID2 string)
 	defer s.mu.RUnlock()
 
 	var commonRooms []streaming.Room
+
 	for roomID, roomMembers := range s.members {
 		if _, exists1 := roomMembers[userID1]; exists1 {
 			if _, exists2 := roomMembers[userID2]; exists2 {
@@ -347,6 +360,7 @@ func (s *RoomStore) GetCommonRooms(ctx context.Context, userID1, userID2 string)
 			}
 		}
 	}
+
 	return commonRooms, nil
 }
 
@@ -355,19 +369,20 @@ func (s *RoomStore) Search(ctx context.Context, query string, filters map[string
 	defer s.mu.RUnlock()
 
 	query = strings.ToLower(query)
+
 	var results []streaming.Room
 
 	for _, room := range s.rooms {
 		// Search in name and description
 		if strings.Contains(strings.ToLower(room.name), query) ||
 			strings.Contains(strings.ToLower(room.description), query) {
-
 			// Apply filters
 			if s.matchesFilters(room, filters) {
 				results = append(results, room)
 			}
 		}
 	}
+
 	return results, nil
 }
 
@@ -376,14 +391,17 @@ func (s *RoomStore) FindByTag(ctx context.Context, tag string) ([]streaming.Room
 	defer s.mu.RUnlock()
 
 	var results []streaming.Room
+
 	for _, room := range s.rooms {
 		for _, roomTag := range room.tags {
 			if roomTag == tag {
 				results = append(results, room)
+
 				break
 			}
 		}
 	}
+
 	return results, nil
 }
 
@@ -392,11 +410,13 @@ func (s *RoomStore) FindByCategory(ctx context.Context, category string) ([]stre
 	defer s.mu.RUnlock()
 
 	var results []streaming.Room
+
 	for _, room := range s.rooms {
 		if room.category == category {
 			results = append(results, room)
 		}
 	}
+
 	return results, nil
 }
 
@@ -405,6 +425,7 @@ func (s *RoomStore) GetPublicRooms(ctx context.Context, limit int) ([]streaming.
 	defer s.mu.RUnlock()
 
 	var publicRooms []streaming.Room
+
 	for _, room := range s.rooms {
 		if !room.isPrivate && !room.isArchived {
 			publicRooms = append(publicRooms, room)
@@ -428,6 +449,7 @@ func (s *RoomStore) GetArchivedRooms(ctx context.Context, userID string) ([]stre
 	defer s.mu.RUnlock()
 
 	var archivedRooms []streaming.Room
+
 	for roomID, roomMembers := range s.members {
 		if _, isMember := roomMembers[userID]; isMember {
 			if room, exists := s.rooms[roomID]; exists && room.isArchived {
@@ -435,12 +457,14 @@ func (s *RoomStore) GetArchivedRooms(ctx context.Context, userID string) ([]stre
 			}
 		}
 	}
+
 	return archivedRooms, nil
 }
 
 func (s *RoomStore) GetRoomCount(ctx context.Context) (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return len(s.rooms), nil
 }
 
@@ -452,6 +476,7 @@ func (s *RoomStore) GetTotalMembers(ctx context.Context) (int, error) {
 	for _, roomMembers := range s.members {
 		totalMembers += len(roomMembers)
 	}
+
 	return totalMembers, nil
 }
 
@@ -535,6 +560,7 @@ func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.Roo
 			}
 		}
 	}
+
 	return bans, nil
 }
 
@@ -556,6 +582,7 @@ func (s *RoomStore) IsBanned(ctx context.Context, roomID, userID string) (bool, 
 			delete(roomBans, userID)
 		}
 	}
+
 	return false, nil
 }
 
@@ -609,12 +636,14 @@ func (s *RoomStore) DeleteInvite(ctx context.Context, inviteCode string) error {
 		for i, code := range inviteCodes {
 			if code == inviteCode {
 				s.roomInvites[invite.RoomID] = append(inviteCodes[:i], inviteCodes[i+1:]...)
+
 				break
 			}
 		}
 	}
 
 	delete(s.invites, inviteCode)
+
 	return nil
 }
 
@@ -627,6 +656,7 @@ func (s *RoomStore) ListInvites(ctx context.Context, roomID string) ([]*streamin
 	}
 
 	var invites []*streaming.Invite
+
 	if inviteCodes, exists := s.roomInvites[roomID]; exists {
 		for _, code := range inviteCodes {
 			if invite, exists := s.invites[code]; exists {
@@ -639,10 +669,11 @@ func (s *RoomStore) ListInvites(ctx context.Context, roomID string) ([]*streamin
 			}
 		}
 	}
+
 	return invites, nil
 }
 
-// Helper methods
+// Helper methods.
 func (s *RoomStore) matchesFilters(room *LocalRoom, filters map[string]any) bool {
 	if filters == nil {
 		return true
@@ -671,10 +702,11 @@ func (s *RoomStore) addModerationEvent(roomID string, event *streaming.Moderatio
 	if _, exists := s.moderationLogs[roomID]; !exists {
 		s.moderationLogs[roomID] = make([]*streaming.ModerationEvent, 0)
 	}
+
 	s.moderationLogs[roomID] = append(s.moderationLogs[roomID], event)
 }
 
-// Room implements streaming.Room for local backend
+// Room implements streaming.Room for local backend.
 type LocalRoom struct {
 	mu          sync.RWMutex
 	id          string
@@ -700,6 +732,7 @@ type LocalRoom struct {
 
 func NewRoom(opts streaming.RoomOptions) *LocalRoom {
 	now := time.Now()
+
 	return &LocalRoom{
 		id:          opts.ID,
 		name:        opts.Name,
@@ -714,36 +747,42 @@ func NewRoom(opts streaming.RoomOptions) *LocalRoom {
 func (r *LocalRoom) GetID() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.id
 }
 
 func (r *LocalRoom) GetName() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.name
 }
 
 func (r *LocalRoom) GetDescription() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.description
 }
 
 func (r *LocalRoom) GetOwner() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.owner
 }
 
 func (r *LocalRoom) GetCreated() time.Time {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.created
 }
 
 func (r *LocalRoom) GetUpdated() time.Time {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.updated
 }
 
@@ -755,6 +794,7 @@ func (r *LocalRoom) GetMetadata() map[string]any {
 	for k, v := range r.metadata {
 		metadata[k] = v
 	}
+
 	return metadata
 }
 
@@ -815,14 +855,17 @@ func (r *LocalRoom) UpdateMemberRole(ctx context.Context, userID, newRole string
 	defer r.mu.Unlock()
 	// This would typically be handled by the RoomStore, but we can update local state
 	r.updated = time.Now()
+
 	return nil
 }
 
 func (r *LocalRoom) TransferOwnership(ctx context.Context, newOwnerID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.owner = newOwnerID
 	r.updated = time.Now()
+
 	return nil
 }
 
@@ -845,14 +888,18 @@ func (r *LocalRoom) GetBannedMembers(ctx context.Context) ([]streaming.RoomBan, 
 func (r *LocalRoom) MuteMember(ctx context.Context, userID string, duration time.Duration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.mutedMembers[userID] = time.Now().Add(duration)
+
 	return nil
 }
 
 func (r *LocalRoom) UnmuteMember(ctx context.Context, userID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	delete(r.mutedMembers, userID)
+
 	return nil
 }
 
@@ -867,6 +914,7 @@ func (r *LocalRoom) IsMuted(ctx context.Context, userID string) (bool, error) {
 		// Mute expired, clean it up
 		delete(r.mutedMembers, userID)
 	}
+
 	return false, nil
 }
 
@@ -893,74 +941,90 @@ func (r *LocalRoom) JoinWithInvite(ctx context.Context, userID, inviteCode strin
 func (r *LocalRoom) IsPrivate() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.isPrivate
 }
 
 func (r *LocalRoom) SetPrivate(ctx context.Context, private bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.isPrivate = private
 	r.updated = time.Now()
+
 	return nil
 }
 
 func (r *LocalRoom) GetMaxMembers() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.maxMembers
 }
 
 func (r *LocalRoom) SetMaxMembers(ctx context.Context, max int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.maxMembers = max
 	r.updated = time.Now()
+
 	return nil
 }
 
 func (r *LocalRoom) IsArchived() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.isArchived
 }
 
 func (r *LocalRoom) Archive(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.isArchived = true
 	r.updated = time.Now()
+
 	return nil
 }
 
 func (r *LocalRoom) Unarchive(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.isArchived = false
 	r.updated = time.Now()
+
 	return nil
 }
 
 func (r *LocalRoom) IsLocked() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.isLocked
 }
 
 func (r *LocalRoom) Lock(ctx context.Context, reason string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.isLocked = true
 	r.lockReason = reason
 	r.updated = time.Now()
+
 	return nil
 }
 
 func (r *LocalRoom) Unlock(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.isLocked = false
 	r.lockReason = ""
 	r.updated = time.Now()
+
 	return nil
 }
 
@@ -971,14 +1035,17 @@ func (r *LocalRoom) GetModerationLog(ctx context.Context, limit int) ([]streamin
 func (r *LocalRoom) SetSlowMode(ctx context.Context, intervalSeconds int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.slowMode = intervalSeconds
 	r.updated = time.Now()
+
 	return nil
 }
 
 func (r *LocalRoom) GetSlowMode(ctx context.Context) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.slowMode
 }
 
@@ -995,6 +1062,7 @@ func (r *LocalRoom) PinMessage(ctx context.Context, messageID string) error {
 
 	r.pinnedMessages = append(r.pinnedMessages, messageID)
 	r.updated = time.Now()
+
 	return nil
 }
 
@@ -1006,9 +1074,11 @@ func (r *LocalRoom) UnpinMessage(ctx context.Context, messageID string) error {
 		if pinned == messageID {
 			r.pinnedMessages = append(r.pinnedMessages[:i], r.pinnedMessages[i+1:]...)
 			r.updated = time.Now()
+
 			break
 		}
 	}
+
 	return nil
 }
 
@@ -1019,6 +1089,7 @@ func (r *LocalRoom) GetPinnedMessages(ctx context.Context) ([]string, error) {
 	// Return copy to prevent external modification
 	pinned := make([]string, len(r.pinnedMessages))
 	copy(pinned, r.pinnedMessages)
+
 	return pinned, nil
 }
 
@@ -1035,6 +1106,7 @@ func (r *LocalRoom) AddTag(ctx context.Context, tag string) error {
 
 	r.tags = append(r.tags, tag)
 	r.updated = time.Now()
+
 	return nil
 }
 
@@ -1046,9 +1118,11 @@ func (r *LocalRoom) RemoveTag(ctx context.Context, tag string) error {
 		if existingTag == tag {
 			r.tags = append(r.tags[:i], r.tags[i+1:]...)
 			r.updated = time.Now()
+
 			break
 		}
 	}
+
 	return nil
 }
 
@@ -1059,20 +1133,24 @@ func (r *LocalRoom) GetTags() []string {
 	// Return copy to prevent external modification
 	tags := make([]string, len(r.tags))
 	copy(tags, r.tags)
+
 	return tags
 }
 
 func (r *LocalRoom) SetCategory(ctx context.Context, category string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.category = category
 	r.updated = time.Now()
+
 	return nil
 }
 
 func (r *LocalRoom) GetCategory() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.category
 }
 
@@ -1095,7 +1173,9 @@ func (r *LocalRoom) BroadcastToRole(ctx context.Context, message *streaming.Mess
 func (r *LocalRoom) MarkAsRead(ctx context.Context, userID, messageID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	r.readMarkers[userID] = messageID
+
 	return nil
 }
 
@@ -1110,10 +1190,11 @@ func (r *LocalRoom) GetLastReadMessage(ctx context.Context, userID string) (stri
 	if messageID, exists := r.readMarkers[userID]; exists {
 		return messageID, nil
 	}
+
 	return "", nil
 }
 
-// LocalMember implements streaming.Member
+// LocalMember implements streaming.Member.
 type LocalMember struct {
 	mu          sync.RWMutex
 	userID      string
@@ -1136,49 +1217,58 @@ func NewLocalMember(opts streaming.MemberOptions) *LocalMember {
 func (m *LocalMember) GetUserID() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.userID
 }
 
 func (m *LocalMember) GetRole() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.role
 }
 
 func (m *LocalMember) GetJoinedAt() time.Time {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	return m.joinedAt
 }
 
 func (m *LocalMember) GetPermissions() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	perms := make([]string, len(m.permissions))
 	copy(perms, m.permissions)
+
 	return perms
 }
 
 func (m *LocalMember) SetRole(role string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.role = role
 }
 
 func (m *LocalMember) HasPermission(permission string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	for _, p := range m.permissions {
 		if p == permission {
 			return true
 		}
 	}
+
 	return false
 }
 
 func (m *LocalMember) GrantPermission(permission string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	if !m.HasPermission(permission) {
 		m.permissions = append(m.permissions, permission)
 	}
@@ -1187,9 +1277,11 @@ func (m *LocalMember) GrantPermission(permission string) {
 func (m *LocalMember) RevokePermission(permission string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	for i, p := range m.permissions {
 		if p == permission {
 			m.permissions = append(m.permissions[:i], m.permissions[i+1:]...)
+
 			break
 		}
 	}
@@ -1198,18 +1290,22 @@ func (m *LocalMember) RevokePermission(permission string) {
 func (m *LocalMember) GetMetadata() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
 	metadata := make(map[string]any, len(m.metadata))
 	for k, v := range m.metadata {
 		metadata[k] = v
 	}
+
 	return metadata
 }
 
 func (m *LocalMember) SetMetadata(key string, value any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	if m.metadata == nil {
 		m.metadata = make(map[string]any)
 	}
+
 	m.metadata[key] = value
 }

@@ -1,6 +1,6 @@
 package forge
 
-// HandlerPattern indicates the handler signature
+// HandlerPattern indicates the handler signature.
 type HandlerPattern int
 
 const (

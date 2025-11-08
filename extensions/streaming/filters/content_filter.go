@@ -82,6 +82,7 @@ func (cf *contentFilter) Filter(ctx context.Context, msg *streaming.Message, rec
 				if msg.Metadata == nil {
 					msg.Metadata = make(map[string]any)
 				}
+
 				msg.Metadata["flagged_profanity"] = true
 			}
 		}
@@ -110,6 +111,7 @@ func (cf *contentFilter) Filter(ctx context.Context, msg *streaming.Message, rec
 	// Update message with filtered text
 	filtered := *msg
 	filtered.Data = text
+
 	return &filtered, nil
 }
 
@@ -124,12 +126,15 @@ func (cf *contentFilter) isURLBlocked(url string) bool {
 	// If allowed list exists, check it
 	if len(cf.config.AllowedDomains) > 0 {
 		allowed := false
+
 		for _, domain := range cf.config.AllowedDomains {
 			if strings.Contains(url, domain) {
 				allowed = true
+
 				break
 			}
 		}
+
 		return !allowed
 	}
 
@@ -148,6 +153,7 @@ func (cf *contentFilter) isSpam(text string) bool {
 	// Check mentions (@username)
 	if cf.config.MaxMentions > 0 {
 		mentionRegex := regexp.MustCompile(`@\w+`)
+
 		mentions := mentionRegex.FindAllString(text, -1)
 		if len(mentions) > cf.config.MaxMentions {
 			return true

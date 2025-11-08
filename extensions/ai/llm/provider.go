@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// LLMProvider defines the interface for LLM providers
+// LLMProvider defines the interface for LLM providers.
 type LLMProvider interface {
 	// Basic provider information
 	Name() string
@@ -21,7 +21,7 @@ type LLMProvider interface {
 	HealthCheck(ctx context.Context) error
 }
 
-// LLMUsage represents usage statistics for an LLM provider
+// LLMUsage represents usage statistics for an LLM provider.
 type LLMUsage struct {
 	InputTokens       int64         `json:"input_tokens"`
 	OutputTokens      int64         `json:"output_tokens"`

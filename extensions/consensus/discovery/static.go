@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// StaticDiscovery implements static service discovery with a fixed peer list
+// StaticDiscovery implements static service discovery with a fixed peer list.
 type StaticDiscovery struct {
 	nodes   map[string]internal.NodeInfo
 	nodesMu sync.RWMutex
@@ -25,12 +25,12 @@ type StaticDiscovery struct {
 	listenersMu     sync.RWMutex
 }
 
-// StaticDiscoveryConfig contains static discovery configuration
+// StaticDiscoveryConfig contains static discovery configuration.
 type StaticDiscoveryConfig struct {
 	Nodes []internal.NodeInfo
 }
 
-// NewStaticDiscovery creates a new static discovery service
+// NewStaticDiscovery creates a new static discovery service.
 func NewStaticDiscovery(config StaticDiscoveryConfig, logger forge.Logger) *StaticDiscovery {
 	sd := &StaticDiscovery{
 		nodes:           make(map[string]internal.NodeInfo),
@@ -46,7 +46,7 @@ func NewStaticDiscovery(config StaticDiscoveryConfig, logger forge.Logger) *Stat
 	return sd
 }
 
-// Start starts the discovery service
+// Start starts the discovery service.
 func (sd *StaticDiscovery) Start(ctx context.Context) error {
 	sd.mu.Lock()
 	defer sd.mu.Unlock()
@@ -65,13 +65,16 @@ func (sd *StaticDiscovery) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the discovery service
+// Stop stops the discovery service.
 func (sd *StaticDiscovery) Stop(ctx context.Context) error {
 	sd.mu.Lock()
+
 	if !sd.started {
 		sd.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	sd.mu.Unlock()
 
 	if sd.cancel != nil {
@@ -80,17 +83,20 @@ func (sd *StaticDiscovery) Stop(ctx context.Context) error {
 
 	// Close all change listeners
 	sd.listenersMu.Lock()
+
 	for _, ch := range sd.changeListeners {
 		close(ch)
 	}
+
 	sd.changeListeners = nil
 	sd.listenersMu.Unlock()
 
 	sd.logger.Info("static discovery stopped")
+
 	return nil
 }
 
-// Register registers this node with the discovery service
+// Register registers this node with the discovery service.
 func (sd *StaticDiscovery) Register(ctx context.Context, node internal.NodeInfo) error {
 	sd.nodesMu.Lock()
 	defer sd.nodesMu.Unlock()
@@ -112,14 +118,15 @@ func (sd *StaticDiscovery) Register(ctx context.Context, node internal.NodeInfo)
 	return nil
 }
 
-// Unregister unregisters this node from the discovery service
+// Unregister unregisters this node from the discovery service.
 func (sd *StaticDiscovery) Unregister(ctx context.Context) error {
 	// Static discovery doesn't remove nodes
 	sd.logger.Info("unregister called (no-op for static discovery)")
+
 	return nil
 }
 
-// GetNodes returns all discovered nodes
+// GetNodes returns all discovered nodes.
 func (sd *StaticDiscovery) GetNodes(ctx context.Context) ([]internal.NodeInfo, error) {
 	sd.nodesMu.RLock()
 	defer sd.nodesMu.RUnlock()
@@ -132,7 +139,7 @@ func (sd *StaticDiscovery) GetNodes(ctx context.Context) ([]internal.NodeInfo, e
 	return nodes, nil
 }
 
-// Watch watches for node changes
+// Watch watches for node changes.
 func (sd *StaticDiscovery) Watch(ctx context.Context) (<-chan internal.NodeChangeEvent, error) {
 	ch := make(chan internal.NodeChangeEvent, 10)
 
@@ -142,10 +149,12 @@ func (sd *StaticDiscovery) Watch(ctx context.Context) (<-chan internal.NodeChang
 
 	// Send initial nodes as "added" events
 	sd.nodesMu.RLock()
+
 	initialNodes := make([]internal.NodeInfo, 0, len(sd.nodes))
 	for _, node := range sd.nodes {
 		initialNodes = append(initialNodes, node)
 	}
+
 	sd.nodesMu.RUnlock()
 
 	go func() {
@@ -164,7 +173,7 @@ func (sd *StaticDiscovery) Watch(ctx context.Context) (<-chan internal.NodeChang
 	return ch, nil
 }
 
-// AddNode dynamically adds a node (for testing/dynamic updates)
+// AddNode dynamically adds a node (for testing/dynamic updates).
 func (sd *StaticDiscovery) AddNode(node internal.NodeInfo) error {
 	sd.nodesMu.Lock()
 	defer sd.nodesMu.Unlock()
@@ -184,13 +193,15 @@ func (sd *StaticDiscovery) AddNode(node internal.NodeInfo) error {
 	return nil
 }
 
-// RemoveNode dynamically removes a node (for testing/dynamic updates)
+// RemoveNode dynamically removes a node (for testing/dynamic updates).
 func (sd *StaticDiscovery) RemoveNode(nodeID string) error {
 	sd.nodesMu.Lock()
+
 	node, exists := sd.nodes[nodeID]
 	if exists {
 		delete(sd.nodes, nodeID)
 	}
+
 	sd.nodesMu.Unlock()
 
 	if !exists {
@@ -210,7 +221,7 @@ func (sd *StaticDiscovery) RemoveNode(nodeID string) error {
 	return nil
 }
 
-// notifyListeners notifies all listeners of a node change
+// notifyListeners notifies all listeners of a node change.
 func (sd *StaticDiscovery) notifyListeners(event internal.NodeChangeEvent) {
 	sd.listenersMu.RLock()
 	listeners := sd.changeListeners

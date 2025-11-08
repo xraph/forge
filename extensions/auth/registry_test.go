@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// mockProvider is a simple mock auth provider for testing
+// mockProvider is a simple mock auth provider for testing.
 type mockProvider struct {
 	name       string
 	authFunc   func(ctx context.Context, r *http.Request) (*AuthContext, error)
@@ -28,6 +28,7 @@ func (m *mockProvider) Authenticate(ctx context.Context, r *http.Request) (*Auth
 	if m.authFunc != nil {
 		return m.authFunc(ctx, r)
 	}
+
 	return &AuthContext{Subject: "test-user"}, nil
 }
 
@@ -64,6 +65,7 @@ func TestRegistry_Register(t *testing.T) {
 
 	// Test empty name
 	emptyProvider := &mockProvider{name: "", schemeType: SecurityTypeAPIKey}
+
 	err = registry.Register(emptyProvider)
 	if err == nil {
 		t.Error("Expected error for empty provider name, got nil")
@@ -82,6 +84,7 @@ func TestRegistry_GetAndHas(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
+
 	if retrieved.Name() != "test" {
 		t.Errorf("Expected provider name 'test', got %s", retrieved.Name())
 	}
@@ -96,6 +99,7 @@ func TestRegistry_GetAndHas(t *testing.T) {
 	if !registry.Has("test") {
 		t.Error("Expected registry to have 'test' provider")
 	}
+
 	if registry.Has("nonexistent") {
 		t.Error("Expected registry to not have 'nonexistent' provider")
 	}
@@ -119,10 +123,12 @@ func TestRegistry_List(t *testing.T) {
 	// Check both providers are in list
 	hasProvider1 := false
 	hasProvider2 := false
+
 	for _, name := range list {
 		if name == "provider1" {
 			hasProvider1 = true
 		}
+
 		if name == "provider2" {
 			hasProvider2 = true
 		}
@@ -131,6 +137,7 @@ func TestRegistry_List(t *testing.T) {
 	if !hasProvider1 {
 		t.Error("Expected provider1 in list")
 	}
+
 	if !hasProvider2 {
 		t.Error("Expected provider2 in list")
 	}

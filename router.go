@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Re-export HTTP error types and constructors for backward compatibility
+// Re-export HTTP error types and constructors for backward compatibility.
 type HTTPError = errors.HTTPError
 
 var (
@@ -20,60 +20,60 @@ var (
 	InternalError = errors.InternalError
 )
 
-// Router provides HTTP routing with multiple backend support
+// Router provides HTTP routing with multiple backend support.
 type Router = router.Router
 
-// RouteOption configures a route
+// RouteOption configures a route.
 type RouteOption = router.RouteOption
 
-// GroupOption configures a route group
+// GroupOption configures a route group.
 type GroupOption = router.GroupOption
 
-// Handler is a forge handler function
+// Handler is a forge handler function.
 type Handler = router.Handler
 
-// Middleware wraps HTTP handlers
+// Middleware wraps HTTP handlers.
 type Middleware = router.Middleware
 
-// RouteConfig holds route configuration
+// RouteConfig holds route configuration.
 type RouteConfig = router.RouteConfig
 
-// GroupConfig holds route group configuration
+// GroupConfig holds route group configuration.
 type GroupConfig = router.GroupConfig
 
-// RouteInfo provides route information for inspection
+// RouteInfo provides route information for inspection.
 type RouteInfo = router.RouteInfo
 
 // RouteExtension represents a route-level extension (e.g., OpenAPI, custom validation)
-// Note: This is different from app-level Extension which manages app components
+// Note: This is different from app-level Extension which manages app components.
 type RouteExtension = router.RouteExtension
 
-// NewRouter creates a new router with options
+// NewRouter creates a new router with options.
 func NewRouter(opts ...RouterOption) Router {
 	return router.NewRouter(opts...)
 }
 
 // GetRouter resolves the router from the container
-// Returns the router instance and an error if resolution fails
+// Returns the router instance and an error if resolution fails.
 func GetRouter(c Container) (Router, error) {
 	return router.GetRouter(c)
 }
 
-// RouterOption configures the router
+// RouterOption configures the router.
 type RouterOption = router.RouterOption
 
-// RouterAdapter wraps a routing backend
+// RouterAdapter wraps a routing backend.
 type RouterAdapter = router.RouterAdapter
 
-// ErrorHandler handles errors from handlers
+// ErrorHandler handles errors from handlers.
 type ErrorHandler = shared.ErrorHandler
 
-// NewDefaultErrorHandler creates a default error handler
+// NewDefaultErrorHandler creates a default error handler.
 func NewDefaultErrorHandler(l Logger) ErrorHandler {
 	return shared.NewDefaultErrorHandler(l)
 }
 
-// Route option constructors
+// Route option constructors.
 func WithName(name string) RouteOption {
 	return router.WithName(name)
 }
@@ -134,189 +134,189 @@ func WithDeprecated() RouteOption {
 //	}
 //
 // If the struct has no path/query/header tags, it's treated as body-only for backward compatibility.
-func WithRequestSchema(schemaOrType interface{}) RouteOption {
+func WithRequestSchema(schemaOrType any) RouteOption {
 	return router.WithRequestSchema(schemaOrType)
 }
 
 // WithRequestBodySchema sets only the request body schema for OpenAPI generation.
 // Use this for explicit body-only schemas when you need separate schemas for different parts.
-func WithRequestBodySchema(schemaOrType interface{}) RouteOption {
+func WithRequestBodySchema(schemaOrType any) RouteOption {
 	return router.WithRequestBodySchema(schemaOrType)
 }
 
-// WithResponseSchema sets a response schema for OpenAPI generation
-func WithResponseSchema(statusCode int, description string, schemaOrType interface{}) RouteOption {
+// WithResponseSchema sets a response schema for OpenAPI generation.
+func WithResponseSchema(statusCode int, description string, schemaOrType any) RouteOption {
 	return router.WithResponseSchema(statusCode, description, schemaOrType)
 }
 
-// WithQuerySchema sets the query parameters schema for OpenAPI generation
-func WithQuerySchema(schemaType interface{}) RouteOption {
+// WithQuerySchema sets the query parameters schema for OpenAPI generation.
+func WithQuerySchema(schemaType any) RouteOption {
 	return router.WithQuerySchema(schemaType)
 }
 
-// WithHeaderSchema sets the header parameters schema for OpenAPI generation
-func WithHeaderSchema(schemaType interface{}) RouteOption {
+// WithHeaderSchema sets the header parameters schema for OpenAPI generation.
+func WithHeaderSchema(schemaType any) RouteOption {
 	return router.WithHeaderSchema(schemaType)
 }
 
-// WithRequestContentTypes specifies the content types for request body
+// WithRequestContentTypes specifies the content types for request body.
 func WithRequestContentTypes(types ...string) RouteOption {
 	return router.WithRequestContentTypes(types...)
 }
 
-// WithResponseContentTypes specifies the content types for response body
+// WithResponseContentTypes specifies the content types for response body.
 func WithResponseContentTypes(types ...string) RouteOption {
 	return router.WithResponseContentTypes(types...)
 }
 
 // OpenAPI Advanced Features
 
-// WithDiscriminator adds discriminator support for polymorphic schemas
+// WithDiscriminator adds discriminator support for polymorphic schemas.
 func WithDiscriminator(config DiscriminatorConfig) RouteOption {
 	return router.WithDiscriminator(config)
 }
 
-// WithRequestExample adds an example for the request body
-func WithRequestExample(name string, example interface{}) RouteOption {
+// WithRequestExample adds an example for the request body.
+func WithRequestExample(name string, example any) RouteOption {
 	return router.WithRequestExample(name, example)
 }
 
-// WithResponseExample adds an example for a specific response status code
-func WithResponseExample(statusCode int, name string, example interface{}) RouteOption {
+// WithResponseExample adds an example for a specific response status code.
+func WithResponseExample(statusCode int, name string, example any) RouteOption {
 	return router.WithResponseExample(statusCode, name, example)
 }
 
-// WithSchemaRef adds a schema reference to components
-func WithSchemaRef(name string, schema interface{}) RouteOption {
+// WithSchemaRef adds a schema reference to components.
+func WithSchemaRef(name string, schema any) RouteOption {
 	return router.WithSchemaRef(name, schema)
 }
 
 // OpenAPI Response Helpers
 
-// WithPaginatedResponse creates a route option for paginated list responses
-func WithPaginatedResponse(itemType interface{}, statusCode int) RouteOption {
+// WithPaginatedResponse creates a route option for paginated list responses.
+func WithPaginatedResponse(itemType any, statusCode int) RouteOption {
 	return router.WithPaginatedResponse(itemType, statusCode)
 }
 
-// WithErrorResponses adds standard HTTP error responses to a route
+// WithErrorResponses adds standard HTTP error responses to a route.
 func WithErrorResponses() RouteOption {
 	return router.WithErrorResponses()
 }
 
-// WithStandardRESTResponses adds standard REST CRUD responses for a resource
-func WithStandardRESTResponses(resourceType interface{}) RouteOption {
+// WithStandardRESTResponses adds standard REST CRUD responses for a resource.
+func WithStandardRESTResponses(resourceType any) RouteOption {
 	return router.WithStandardRESTResponses(resourceType)
 }
 
-// WithFileUploadResponse creates a response for file upload success
+// WithFileUploadResponse creates a response for file upload success.
 func WithFileUploadResponse(statusCode int) RouteOption {
 	return router.WithFileUploadResponse(statusCode)
 }
 
-// WithNoContentResponse creates a 204 No Content response
+// WithNoContentResponse creates a 204 No Content response.
 func WithNoContentResponse() RouteOption {
 	return router.WithNoContentResponse()
 }
 
-// WithCreatedResponse creates a 201 Created response
-func WithCreatedResponse(resourceType interface{}) RouteOption {
+// WithCreatedResponse creates a 201 Created response.
+func WithCreatedResponse(resourceType any) RouteOption {
 	return router.WithCreatedResponse(resourceType)
 }
 
-// WithAcceptedResponse creates a 202 Accepted response for async operations
+// WithAcceptedResponse creates a 202 Accepted response for async operations.
 func WithAcceptedResponse() RouteOption {
 	return router.WithAcceptedResponse()
 }
 
-// WithListResponse creates a simple list response (array of items)
-func WithListResponse(itemType interface{}, statusCode int) RouteOption {
+// WithListResponse creates a simple list response (array of items).
+func WithListResponse(itemType any, statusCode int) RouteOption {
 	return router.WithListResponse(itemType, statusCode)
 }
 
-// WithBatchResponse creates a response for batch operations
-func WithBatchResponse(itemType interface{}, statusCode int) RouteOption {
+// WithBatchResponse creates a response for batch operations.
+func WithBatchResponse(itemType any, statusCode int) RouteOption {
 	return router.WithBatchResponse(itemType, statusCode)
 }
 
-// WithValidationErrorResponse adds a 422 Unprocessable Entity response for validation errors
+// WithValidationErrorResponse adds a 422 Unprocessable Entity response for validation errors.
 func WithValidationErrorResponse() RouteOption {
 	return router.WithValidationErrorResponse()
 }
 
 // Validation Options
 
-// WithValidation adds validation middleware to a route
+// WithValidation adds validation middleware to a route.
 func WithValidation(enabled bool) RouteOption {
 	return router.WithValidation(enabled)
 }
 
-// WithStrictValidation enables strict validation (validates both request and response)
+// WithStrictValidation enables strict validation (validates both request and response).
 func WithStrictValidation() RouteOption {
 	return router.WithStrictValidation()
 }
 
 // Callback and Webhook Options
 
-// WithCallback adds a callback definition to a route
+// WithCallback adds a callback definition to a route.
 func WithCallback(config CallbackConfig) RouteOption {
 	return router.WithCallback(config)
 }
 
-// WithWebhook adds a webhook definition to the OpenAPI spec
+// WithWebhook adds a webhook definition to the OpenAPI spec.
 func WithWebhook(name string, operation *CallbackOperation) RouteOption {
 	return router.WithWebhook(name, operation)
 }
 
 // OpenAPI Type Exports
 
-// DiscriminatorConfig defines discriminator for polymorphic types
+// DiscriminatorConfig defines discriminator for polymorphic types.
 type DiscriminatorConfig = router.DiscriminatorConfig
 
-// CallbackConfig defines a callback (webhook) for an operation
+// CallbackConfig defines a callback (webhook) for an operation.
 type CallbackConfig = router.CallbackConfig
 
-// CallbackOperation defines an operation that will be called back
+// CallbackOperation defines an operation that will be called back.
 type CallbackOperation = router.CallbackOperation
 
-// ValidationError represents a single field validation error
+// ValidationError represents a single field validation error.
 type ValidationError = router.ValidationError
 
-// ValidationErrors is a collection of validation errors
+// ValidationErrors is a collection of validation errors.
 type ValidationErrors = router.ValidationErrors
 
-// ResponseSchemaDef defines a response schema
+// ResponseSchemaDef defines a response schema.
 type ResponseSchemaDef = router.ResponseSchemaDef
 
 // Callback and Webhook Helpers
 
-// NewCallbackOperation creates a new callback operation
+// NewCallbackOperation creates a new callback operation.
 func NewCallbackOperation(summary, description string) *CallbackOperation {
 	return router.NewCallbackOperation(summary, description)
 }
 
-// NewEventCallbackConfig creates a callback config for event notifications
-func NewEventCallbackConfig(callbackURLExpression string, eventSchema interface{}) CallbackConfig {
+// NewEventCallbackConfig creates a callback config for event notifications.
+func NewEventCallbackConfig(callbackURLExpression string, eventSchema any) CallbackConfig {
 	return router.NewEventCallbackConfig(callbackURLExpression, eventSchema)
 }
 
-// NewStatusCallbackConfig creates a callback config for status updates
-func NewStatusCallbackConfig(callbackURLExpression string, statusSchema interface{}) CallbackConfig {
+// NewStatusCallbackConfig creates a callback config for status updates.
+func NewStatusCallbackConfig(callbackURLExpression string, statusSchema any) CallbackConfig {
 	return router.NewStatusCallbackConfig(callbackURLExpression, statusSchema)
 }
 
-// NewCompletionCallbackConfig creates a callback config for async operation completion
-func NewCompletionCallbackConfig(callbackURLExpression string, resultSchema interface{}) CallbackConfig {
+// NewCompletionCallbackConfig creates a callback config for async operation completion.
+func NewCompletionCallbackConfig(callbackURLExpression string, resultSchema any) CallbackConfig {
 	return router.NewCompletionCallbackConfig(callbackURLExpression, resultSchema)
 }
 
 // Validation Helpers
 
-// NewValidationErrors creates a new ValidationErrors instance
+// NewValidationErrors creates a new ValidationErrors instance.
 func NewValidationErrors() *ValidationErrors {
 	return router.NewValidationErrors()
 }
 
-// Group option constructors
+// Group option constructors.
 func WithGroupMiddleware(mw ...Middleware) GroupOption {
 	return router.WithGroupMiddleware(mw...)
 }
@@ -329,7 +329,7 @@ func WithGroupMetadata(key string, value any) GroupOption {
 	return router.WithGroupMetadata(key, value)
 }
 
-// Router option constructors
+// Router option constructors.
 func WithAdapter(adapter RouterAdapter) RouterOption {
 	return router.WithAdapter(adapter)
 }

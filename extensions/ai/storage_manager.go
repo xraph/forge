@@ -6,13 +6,14 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// CreateAgent creates and persists an agent from a definition
+// CreateAgent creates and persists an agent from a definition.
 func (m *managerImpl) CreateAgent(ctx context.Context, def *AgentDefinition) (internal.AIAgent, error) {
 	// Create runtime agent using factory
 	if m.agentFactory == nil {
-		return nil, fmt.Errorf("agent factory not configured")
+		return nil, errors.New("agent factory not configured")
 	}
 
 	agent, err := m.agentFactory.CreateAgentFromDefinition(def)
@@ -33,6 +34,7 @@ func (m *managerImpl) CreateAgent(ctx context.Context, def *AgentDefinition) (in
 		if m.store != nil {
 			m.store.Delete(ctx, def.ID)
 		}
+
 		return nil, err
 	}
 
@@ -62,7 +64,7 @@ func (m *managerImpl) CreateAgent(ctx context.Context, def *AgentDefinition) (in
 	return agent, nil
 }
 
-// LoadAgent loads an agent from the store
+// LoadAgent loads an agent from the store.
 func (m *managerImpl) LoadAgent(ctx context.Context, id string) (internal.AIAgent, error) {
 	// Check if already loaded
 	agent, err := m.GetAgent(id)
@@ -84,7 +86,7 @@ func (m *managerImpl) LoadAgent(ctx context.Context, id string) (internal.AIAgen
 	return m.CreateAgent(ctx, def)
 }
 
-// UpdateAgent updates an agent in storage and runtime
+// UpdateAgent updates an agent in storage and runtime.
 func (m *managerImpl) UpdateAgent(ctx context.Context, id string, updates *AgentDefinition) error {
 	// Update in store
 	if m.store != nil {
@@ -124,7 +126,7 @@ func (m *managerImpl) UpdateAgent(ctx context.Context, id string, updates *Agent
 	return nil
 }
 
-// DeleteAgent deletes an agent from storage and runtime
+// DeleteAgent deletes an agent from storage and runtime.
 func (m *managerImpl) DeleteAgent(ctx context.Context, id string) error {
 	// Delete from store
 	if m.store != nil {
@@ -144,6 +146,7 @@ func (m *managerImpl) DeleteAgent(ctx context.Context, id string) error {
 				m.logger.Warn("failed to stop agent", forge.F("agent_id", id), forge.F("error", err.Error()))
 			}
 		}
+
 		delete(m.agents, id)
 	}
 
@@ -154,7 +157,7 @@ func (m *managerImpl) DeleteAgent(ctx context.Context, id string) error {
 	return nil
 }
 
-// ListAgentsWithFilter lists agents from storage with optional filters
+// ListAgentsWithFilter lists agents from storage with optional filters.
 func (m *managerImpl) ListAgentsWithFilter(ctx context.Context, filter AgentFilter) ([]*AgentDefinition, error) {
 	if m.store != nil {
 		// Load from store
@@ -177,7 +180,7 @@ func (m *managerImpl) ListAgentsWithFilter(ctx context.Context, filter AgentFilt
 	return agents, nil
 }
 
-// GetExecutionHistory retrieves execution history for an agent
+// GetExecutionHistory retrieves execution history for an agent.
 func (m *managerImpl) GetExecutionHistory(ctx context.Context, agentID string, limit int) ([]*AgentExecution, error) {
 	if m.store == nil {
 		return []*AgentExecution{}, nil
@@ -186,7 +189,7 @@ func (m *managerImpl) GetExecutionHistory(ctx context.Context, agentID string, l
 	return m.store.GetExecutionHistory(ctx, agentID, limit)
 }
 
-// RegisterTeam registers a new agent team
+// RegisterTeam registers a new agent team.
 func (m *managerImpl) RegisterTeam(team *AgentTeam) error {
 	m.teamsMu.Lock()
 	defer m.teamsMu.Unlock()
@@ -204,7 +207,7 @@ func (m *managerImpl) RegisterTeam(team *AgentTeam) error {
 	return nil
 }
 
-// GetTeam retrieves a team by ID
+// GetTeam retrieves a team by ID.
 func (m *managerImpl) GetTeam(id string) (*AgentTeam, error) {
 	m.teamsMu.RLock()
 	defer m.teamsMu.RUnlock()
@@ -217,7 +220,7 @@ func (m *managerImpl) GetTeam(id string) (*AgentTeam, error) {
 	return team, nil
 }
 
-// ListTeams returns all registered teams
+// ListTeams returns all registered teams.
 func (m *managerImpl) ListTeams() []*AgentTeam {
 	m.teamsMu.RLock()
 	defer m.teamsMu.RUnlock()
@@ -230,7 +233,7 @@ func (m *managerImpl) ListTeams() []*AgentTeam {
 	return teams
 }
 
-// DeleteTeam unregisters a team
+// DeleteTeam unregisters a team.
 func (m *managerImpl) DeleteTeam(id string) error {
 	m.teamsMu.Lock()
 	defer m.teamsMu.Unlock()

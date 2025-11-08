@@ -8,9 +8,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// MembershipManager manages cluster membership changes
+// MembershipManager manages cluster membership changes.
 type MembershipManager struct {
 	manager *Manager
 	logger  forge.Logger
@@ -23,7 +24,7 @@ type MembershipManager struct {
 	changeTimeout time.Duration
 }
 
-// MembershipChange represents a pending membership change
+// MembershipChange represents a pending membership change.
 type MembershipChange struct {
 	ID        string
 	Type      MembershipChangeType
@@ -32,33 +33,33 @@ type MembershipChange struct {
 	Status    MembershipChangeStatus
 }
 
-// MembershipChangeType represents the type of membership change
+// MembershipChangeType represents the type of membership change.
 type MembershipChangeType int
 
 const (
-	// MembershipChangeAdd adds a node to the cluster
+	// MembershipChangeAdd adds a node to the cluster.
 	MembershipChangeAdd MembershipChangeType = iota
-	// MembershipChangeRemove removes a node from the cluster
+	// MembershipChangeRemove removes a node from the cluster.
 	MembershipChangeRemove
-	// MembershipChangeUpdate updates node information
+	// MembershipChangeUpdate updates node information.
 	MembershipChangeUpdate
 )
 
-// MembershipChangeStatus represents the status of a membership change
+// MembershipChangeStatus represents the status of a membership change.
 type MembershipChangeStatus int
 
 const (
-	// MembershipChangeStatusPending is waiting to be applied
+	// MembershipChangeStatusPending is waiting to be applied.
 	MembershipChangeStatusPending MembershipChangeStatus = iota
-	// MembershipChangeStatusInProgress is currently being applied
+	// MembershipChangeStatusInProgress is currently being applied.
 	MembershipChangeStatusInProgress
-	// MembershipChangeStatusCommitted has been committed
+	// MembershipChangeStatusCommitted has been committed.
 	MembershipChangeStatusCommitted
-	// MembershipChangeStatusFailed has failed
+	// MembershipChangeStatusFailed has failed.
 	MembershipChangeStatusFailed
 )
 
-// NewMembershipManager creates a new membership manager
+// NewMembershipManager creates a new membership manager.
 func NewMembershipManager(manager *Manager, logger forge.Logger) *MembershipManager {
 	return &MembershipManager{
 		manager:        manager,
@@ -68,7 +69,7 @@ func NewMembershipManager(manager *Manager, logger forge.Logger) *MembershipMana
 	}
 }
 
-// AddNode proposes adding a node to the cluster
+// AddNode proposes adding a node to the cluster.
 func (mm *MembershipManager) AddNode(ctx context.Context, nodeInfo internal.NodeInfo) error {
 	mm.logger.Info("proposing to add node",
 		forge.F("node_id", nodeInfo.ID),
@@ -100,7 +101,7 @@ func (mm *MembershipManager) AddNode(ctx context.Context, nodeInfo internal.Node
 	return mm.applyChange(ctx, change)
 }
 
-// RemoveNode proposes removing a node from the cluster
+// RemoveNode proposes removing a node from the cluster.
 func (mm *MembershipManager) RemoveNode(ctx context.Context, nodeID string) error {
 	mm.logger.Info("proposing to remove node",
 		forge.F("node_id", nodeID),
@@ -130,7 +131,7 @@ func (mm *MembershipManager) RemoveNode(ctx context.Context, nodeID string) erro
 	return mm.applyChange(ctx, change)
 }
 
-// UpdateNode proposes updating node information
+// UpdateNode proposes updating node information.
 func (mm *MembershipManager) UpdateNode(ctx context.Context, nodeInfo internal.NodeInfo) error {
 	mm.logger.Info("proposing to update node",
 		forge.F("node_id", nodeInfo.ID),
@@ -160,7 +161,7 @@ func (mm *MembershipManager) UpdateNode(ctx context.Context, nodeInfo internal.N
 	return mm.applyChange(ctx, change)
 }
 
-// applyChange applies a membership change
+// applyChange applies a membership change.
 func (mm *MembershipManager) applyChange(ctx context.Context, change MembershipChange) error {
 	mm.logger.Info("applying membership change",
 		forge.F("change_id", change.ID),
@@ -172,6 +173,7 @@ func (mm *MembershipManager) applyChange(ctx context.Context, change MembershipC
 
 	// Apply based on type
 	var err error
+
 	switch change.Type {
 	case MembershipChangeAdd:
 		err = mm.manager.AddNode(change.NodeInfo.ID, change.NodeInfo.Address, change.NodeInfo.Port)
@@ -193,6 +195,7 @@ func (mm *MembershipManager) applyChange(ctx context.Context, change MembershipC
 			forge.F("change_id", change.ID),
 			forge.F("error", err),
 		)
+
 		return err
 	}
 
@@ -204,7 +207,7 @@ func (mm *MembershipManager) applyChange(ctx context.Context, change MembershipC
 	return nil
 }
 
-// updateChangeStatus updates the status of a change
+// updateChangeStatus updates the status of a change.
 func (mm *MembershipManager) updateChangeStatus(changeID string, status MembershipChangeStatus) {
 	mm.changesMu.Lock()
 	defer mm.changesMu.Unlock()
@@ -212,12 +215,13 @@ func (mm *MembershipManager) updateChangeStatus(changeID string, status Membersh
 	for i := range mm.pendingChanges {
 		if mm.pendingChanges[i].ID == changeID {
 			mm.pendingChanges[i].Status = status
+
 			break
 		}
 	}
 }
 
-// GetPendingChanges returns all pending membership changes
+// GetPendingChanges returns all pending membership changes.
 func (mm *MembershipManager) GetPendingChanges() []MembershipChange {
 	mm.changesMu.RLock()
 	defer mm.changesMu.RUnlock()
@@ -228,12 +232,13 @@ func (mm *MembershipManager) GetPendingChanges() []MembershipChange {
 	return changes
 }
 
-// CleanupOldChanges removes old completed/failed changes
+// CleanupOldChanges removes old completed/failed changes.
 func (mm *MembershipManager) CleanupOldChanges(maxAge time.Duration) {
 	mm.changesMu.Lock()
 	defer mm.changesMu.Unlock()
 
 	cutoff := time.Now().Add(-maxAge)
+
 	var remaining []MembershipChange
 
 	for _, change := range mm.pendingChanges {
@@ -241,6 +246,7 @@ func (mm *MembershipManager) CleanupOldChanges(maxAge time.Duration) {
 		if change.Status == MembershipChangeStatusPending ||
 			change.Status == MembershipChangeStatusInProgress {
 			remaining = append(remaining, change)
+
 			continue
 		}
 
@@ -260,14 +266,14 @@ func (mm *MembershipManager) CleanupOldChanges(maxAge time.Duration) {
 	}
 }
 
-// ValidateClusterSize validates that cluster size is within bounds
+// ValidateClusterSize validates that cluster size is within bounds.
 func (mm *MembershipManager) ValidateClusterSize(proposedSize int) error {
 	if proposedSize < 1 {
-		return fmt.Errorf("cluster must have at least 1 node")
+		return errors.New("cluster must have at least 1 node")
 	}
 
 	if proposedSize > 100 {
-		return fmt.Errorf("cluster size cannot exceed 100 nodes")
+		return errors.New("cluster size cannot exceed 100 nodes")
 	}
 
 	// Warn if even number (can't form majority)
@@ -280,7 +286,7 @@ func (mm *MembershipManager) ValidateClusterSize(proposedSize int) error {
 	return nil
 }
 
-// CanSafelyRemoveNode checks if a node can be safely removed
+// CanSafelyRemoveNode checks if a node can be safely removed.
 func (mm *MembershipManager) CanSafelyRemoveNode(nodeID string) (bool, string) {
 	nodes := mm.manager.GetNodes()
 
@@ -291,6 +297,7 @@ func (mm *MembershipManager) CanSafelyRemoveNode(nodeID string) (bool, string) {
 
 	// Check if removing would break quorum
 	healthyNodes := 0
+
 	for _, node := range nodes {
 		if node.Status == internal.StatusActive {
 			healthyNodes++
@@ -316,7 +323,7 @@ func (mm *MembershipManager) CanSafelyRemoveNode(nodeID string) (bool, string) {
 	return true, ""
 }
 
-// String returns string representation of change type
+// String returns string representation of change type.
 func (t MembershipChangeType) String() string {
 	switch t {
 	case MembershipChangeAdd:
@@ -330,7 +337,7 @@ func (t MembershipChangeType) String() string {
 	}
 }
 
-// String returns string representation of change status
+// String returns string representation of change status.
 func (s MembershipChangeStatus) String() string {
 	switch s {
 	case MembershipChangeStatusPending:

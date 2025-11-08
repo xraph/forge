@@ -28,7 +28,7 @@ func TestInMemoryQueue_DoubleConnect(t *testing.T) {
 
 	// Second connect should return error
 	err = q.Connect(ctx)
-	if err != ErrAlreadyConnected {
+	if !errors.Is(err, ErrAlreadyConnected) {
 		t.Errorf("Connect() second time error = %v, want ErrAlreadyConnected", err)
 	}
 }
@@ -55,7 +55,7 @@ func TestInMemoryQueue_QueueAlreadyExists(t *testing.T) {
 
 	// Declare again should return error
 	err = q.DeclareQueue(ctx, "test", QueueOptions{})
-	if err != ErrQueueAlreadyExists {
+	if !errors.Is(err, ErrQueueAlreadyExists) {
 		t.Errorf("DeclareQueue() second time error = %v, want ErrQueueAlreadyExists", err)
 	}
 }
@@ -76,19 +76,19 @@ func TestInMemoryQueue_QueueNotFound(t *testing.T) {
 
 	// Try to get info for non-existent queue
 	_, err = q.GetQueueInfo(ctx, "nonexistent")
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("GetQueueInfo() error = %v, want ErrQueueNotFound", err)
 	}
 
 	// Try to delete non-existent queue
 	err = q.DeleteQueue(ctx, "nonexistent")
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("DeleteQueue() error = %v, want ErrQueueNotFound", err)
 	}
 
 	// Try to purge non-existent queue
 	err = q.PurgeQueue(ctx, "nonexistent")
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("PurgeQueue() error = %v, want ErrQueueNotFound", err)
 	}
 }
@@ -109,7 +109,7 @@ func TestInMemoryQueue_PublishToNonExistentQueue(t *testing.T) {
 
 	// Try to publish to non-existent queue
 	err = q.Publish(ctx, "nonexistent", Message{Body: []byte("test")})
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("Publish() error = %v, want ErrQueueNotFound", err)
 	}
 }
@@ -132,8 +132,9 @@ func TestInMemoryQueue_ConsumeFromNonExistentQueue(t *testing.T) {
 	handler := func(ctx context.Context, msg Message) error {
 		return nil
 	}
+
 	err = q.Consume(ctx, "nonexistent", handler, ConsumeOptions{})
-	if err != ErrQueueNotFound {
+	if !errors.Is(err, ErrQueueNotFound) {
 		t.Errorf("Consume() error = %v, want ErrQueueNotFound", err)
 	}
 }
@@ -154,19 +155,19 @@ func TestInMemoryQueue_MessageNotFound(t *testing.T) {
 
 	// Try to ack non-existent message
 	err = q.Ack(ctx, "nonexistent")
-	if err != ErrMessageNotFound {
+	if !errors.Is(err, ErrMessageNotFound) {
 		t.Errorf("Ack() error = %v, want ErrMessageNotFound", err)
 	}
 
 	// Try to nack non-existent message
 	err = q.Nack(ctx, "nonexistent", false)
-	if err != ErrMessageNotFound {
+	if !errors.Is(err, ErrMessageNotFound) {
 		t.Errorf("Nack() error = %v, want ErrMessageNotFound", err)
 	}
 
 	// Try to reject non-existent message
 	err = q.Reject(ctx, "nonexistent")
-	if err != ErrMessageNotFound {
+	if !errors.Is(err, ErrMessageNotFound) {
 		t.Errorf("Reject() error = %v, want ErrMessageNotFound", err)
 	}
 }
@@ -200,6 +201,7 @@ func TestInMemoryQueue_ConsumeTimeout(t *testing.T) {
 	// Consume with timeout
 	handler := func(ctx context.Context, msg Message) error {
 		time.Sleep(200 * time.Millisecond) // Longer than timeout
+
 		return nil
 	}
 
@@ -265,7 +267,8 @@ func TestInMemoryQueue_RetryLogic(t *testing.T) {
 	attempts := 0
 	handler := func(ctx context.Context, msg Message) error {
 		attempts++
-		return fmt.Errorf("simulated error")
+
+		return errors.New("simulated error")
 	}
 
 	err = q.Consume(ctx, "retry-test", handler, ConsumeOptions{
@@ -288,6 +291,7 @@ func TestInMemoryQueue_RetryLogic(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetDeadLetterQueue() error = %v", err)
 	}
+
 	if len(dlqMessages) != 1 {
 		t.Errorf("GetDeadLetterQueue() count = %d, want 1", len(dlqMessages))
 	}
@@ -334,9 +338,11 @@ func TestInMemoryQueue_QueueOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetQueueInfo() error = %v", err)
 	}
+
 	if !info.Durable {
 		t.Error("Expected durable queue")
 	}
+
 	if info.AutoDelete {
 		t.Error("Expected auto_delete false")
 	}
@@ -363,9 +369,9 @@ func TestInMemoryQueue_ConsumeOptions(t *testing.T) {
 	}
 
 	// Publish messages
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		err = q.Publish(ctx, "consume-opts", Message{
-			Body: []byte(fmt.Sprintf("message-%d", i)),
+			Body: fmt.Appendf(nil, "message-%d", i),
 		})
 		if err != nil {
 			t.Fatalf("Publish() error = %v", err)
@@ -373,8 +379,10 @@ func TestInMemoryQueue_ConsumeOptions(t *testing.T) {
 	}
 
 	var received int32
+
 	handler := func(ctx context.Context, msg Message) error {
 		atomic.AddInt32(&received, 1)
+
 		return nil
 	}
 

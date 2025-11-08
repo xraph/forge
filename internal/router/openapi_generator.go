@@ -2,29 +2,32 @@ package router
 
 import (
 	"encoding/json"
-	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
-// openAPIGenerator generates OpenAPI 3.1.0 specifications from a router
+// openAPIGenerator generates OpenAPI 3.1.0 specifications from a router.
 type openAPIGenerator struct {
 	config    OpenAPIConfig
 	router    Router
-	container interface{} // DI container (optional)
+	container any // DI container (optional)
 	schemas   *schemaGenerator
 }
 
-// newOpenAPIGenerator creates a new OpenAPI generator
-func newOpenAPIGenerator(config OpenAPIConfig, router Router, container interface{}) *openAPIGenerator {
+// newOpenAPIGenerator creates a new OpenAPI generator.
+func newOpenAPIGenerator(config OpenAPIConfig, router Router, container any) *openAPIGenerator {
 	// Set defaults
 	if config.OpenAPIVersion == "" {
 		config.OpenAPIVersion = "3.1.0"
 	}
+
 	if config.UIPath == "" {
 		config.UIPath = "/swagger"
 	}
+
 	if config.SpecPath == "" {
 		config.SpecPath = "/openapi.json"
 	}
@@ -41,7 +44,7 @@ func newOpenAPIGenerator(config OpenAPIConfig, router Router, container interfac
 	}
 }
 
-// Generate creates the complete OpenAPI specification
+// Generate creates the complete OpenAPI specification.
 func (g *openAPIGenerator) Generate() *OpenAPISpec {
 	spec := &OpenAPISpec{
 		OpenAPI: g.config.OpenAPIVersion,
@@ -78,7 +81,7 @@ func (g *openAPIGenerator) Generate() *OpenAPISpec {
 }
 
 // addAuthSecuritySchemes retrieves security schemes from the auth registry
-// and adds them to the OpenAPI spec components
+// and adds them to the OpenAPI spec components.
 func (g *openAPIGenerator) addAuthSecuritySchemes(spec *OpenAPISpec) {
 	if g.container == nil {
 		return
@@ -87,7 +90,7 @@ func (g *openAPIGenerator) addAuthSecuritySchemes(spec *OpenAPISpec) {
 	// Try to get the auth registry from the container
 	// We use reflection to avoid direct import of auth extension
 	type registryGetter interface {
-		Get(name string) (interface{}, error)
+		Get(name string) (any, error)
 	}
 
 	if getter, ok := g.container.(registryGetter); ok {
@@ -112,19 +115,18 @@ func (g *openAPIGenerator) addAuthSecuritySchemes(spec *OpenAPISpec) {
 					SecuritySchemes: make(map[string]SecurityScheme),
 				}
 			}
+
 			if spec.Components.SecuritySchemes == nil {
 				spec.Components.SecuritySchemes = make(map[string]SecurityScheme)
 			}
 
 			// Merge auth provider security schemes
-			for name, scheme := range schemes {
-				spec.Components.SecuritySchemes[name] = scheme
-			}
+			maps.Copy(spec.Components.SecuritySchemes, schemes)
 		}
 	}
 }
 
-// processRoute converts a route to an OpenAPI operation
+// processRoute converts a route to an OpenAPI operation.
 func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) {
 	// Get or create path item
 	pathItem := spec.Paths[route.Path]
@@ -204,7 +206,7 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) {
 	g.setOperation(pathItem, route.Method, operation)
 }
 
-// setOperation sets an operation on a path item based on HTTP method
+// setOperation sets an operation on a path item based on HTTP method.
 func (g *openAPIGenerator) setOperation(pathItem *PathItem, method string, operation *Operation) {
 	switch strings.ToUpper(method) {
 	case "GET":
@@ -224,7 +226,7 @@ func (g *openAPIGenerator) setOperation(pathItem *PathItem, method string, opera
 	}
 }
 
-// RegisterEndpoints registers OpenAPI spec and Swagger UI endpoints
+// RegisterEndpoints registers OpenAPI spec and Swagger UI endpoints.
 func (g *openAPIGenerator) RegisterEndpoints() {
 	// Register spec endpoint
 	if g.config.SpecEnabled {
@@ -239,8 +241,8 @@ func (g *openAPIGenerator) RegisterEndpoints() {
 	}
 }
 
-// specHandler returns the OpenAPI spec as JSON
-func (g *openAPIGenerator) specHandler() interface{} {
+// specHandler returns the OpenAPI spec as JSON.
+func (g *openAPIGenerator) specHandler() any {
 	return func(ctx Context) error {
 		spec := g.Generate()
 
@@ -257,22 +259,25 @@ func (g *openAPIGenerator) specHandler() interface{} {
 		ctx.Response().Header().Set("Content-Type", "application/json")
 		// nolint:gosec // G104: Response write errors are handled by the framework
 		ctx.Response().Write(data)
+
 		return nil
 	}
 }
 
-// uiHandler returns the Swagger UI HTML
-func (g *openAPIGenerator) uiHandler() interface{} {
+// uiHandler returns the Swagger UI HTML.
+func (g *openAPIGenerator) uiHandler() any {
 	return func(ctx Context) error {
 		html := g.generateSwaggerHTML()
+
 		ctx.Response().Header().Set("Content-Type", "text/html; charset=utf-8")
 		// nolint:gosec // G104: Response write errors are handled by the framework
 		ctx.Response().Write([]byte(html))
+
 		return nil
 	}
 }
 
-// generateSwaggerHTML generates the Swagger UI HTML
+// generateSwaggerHTML generates the Swagger UI HTML.
 func (g *openAPIGenerator) generateSwaggerHTML() string {
 	return `<!DOCTYPE html>
 <html lang="en">
@@ -317,7 +322,7 @@ func (g *openAPIGenerator) generateSwaggerHTML() string {
 </html>`
 }
 
-// buildRequestBody builds a RequestBody from a schema
+// buildRequestBody builds a RequestBody from a schema.
 func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, metadata map[string]any, isMultipart bool) *RequestBody {
 	// Get content types
 	var contentTypes []string
@@ -341,7 +346,7 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 
 	// Get examples if specified
 	var examples map[string]*Example
-	if examplesData, ok := metadata["openapi.requestExamples"].(map[string]interface{}); ok {
+	if examplesData, ok := metadata["openapi.requestExamples"].(map[string]any); ok {
 		examples = make(map[string]*Example)
 		for name, exampleValue := range examplesData {
 			examples[name] = &Example{
@@ -362,6 +367,7 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 		// Add encoding for multipart/form-data
 		if contentType == "multipart/form-data" && schema != nil && schema.Properties != nil {
 			encoding := make(map[string]*Encoding)
+
 			for propName, propSchema := range schema.Properties {
 				if propSchema.Format == "binary" {
 					encoding[propName] = &Encoding{
@@ -369,6 +375,7 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 					}
 				}
 			}
+
 			if len(encoding) > 0 {
 				mediaType.Encoding = encoding
 			}
@@ -380,16 +387,19 @@ func (g *openAPIGenerator) buildRequestBody(spec *OpenAPISpec, schema *Schema, m
 	return requestBody
 }
 
-// extractRequestSchema extracts request schema from route metadata
+// extractRequestSchema extracts request schema from route metadata.
 func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteInfo) *RequestBody {
 	if route.Metadata == nil {
 		return nil
 	}
 
-	var schema *Schema
-	var contentTypes []string
+	var (
+		schema       *Schema
+		contentTypes []string
+	)
 
 	// Check for manually specified schema
+
 	if schemaVal, ok := route.Metadata["openapi.requestSchema"]; ok {
 		if s, ok := schemaVal.(*Schema); ok {
 			schema = s
@@ -444,7 +454,7 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 
 	// Get examples if specified
 	var examples map[string]*Example
-	if examplesData, ok := route.Metadata["openapi.requestExamples"].(map[string]interface{}); ok {
+	if examplesData, ok := route.Metadata["openapi.requestExamples"].(map[string]any); ok {
 		examples = make(map[string]*Example)
 		for name, exampleValue := range examplesData {
 			examples[name] = &Example{
@@ -461,13 +471,14 @@ func (g *openAPIGenerator) extractRequestSchema(spec *OpenAPISpec, route RouteIn
 		if examples != nil {
 			mediaType.Examples = examples
 		}
+
 		requestBody.Content[contentType] = mediaType
 	}
 
 	return requestBody
 }
 
-// extractResponseSchemas processes response schemas from route metadata
+// extractResponseSchemas processes response schemas from route metadata.
 func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *Operation, route RouteInfo) {
 	if route.Metadata == nil {
 		return
@@ -481,7 +492,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 
 	// Get response examples if specified
 	var responseExamples map[int]map[string]*Example
-	if examplesData, ok := route.Metadata["openapi.responseExamples"].(map[int]map[string]interface{}); ok {
+	if examplesData, ok := route.Metadata["openapi.responseExamples"].(map[int]map[string]any); ok {
 		responseExamples = make(map[int]map[string]*Example)
 		for statusCode, examples := range examplesData {
 			responseExamples[statusCode] = make(map[string]*Example)
@@ -509,6 +520,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 					if rt.Kind() == reflect.Ptr {
 						rt = rt.Elem()
 					}
+
 					if rt.Kind() == reflect.Struct {
 						typeName := GetTypeName(rt)
 						if typeName != "" && spec.Components != nil {
@@ -522,6 +534,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 			}
 
 			content := make(map[string]*MediaType)
+
 			for _, contentType := range contentTypes {
 				mediaType := &MediaType{
 					Schema: schema,
@@ -530,14 +543,16 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 				if examples, ok := responseExamples[statusCode]; ok {
 					mediaType.Examples = examples
 				}
+
 				content[contentType] = mediaType
 			}
 
-			operation.Responses[fmt.Sprintf("%d", statusCode)] = &Response{
+			operation.Responses[strconv.Itoa(statusCode)] = &Response{
 				Description: respDef.Description,
 				Content:     content,
 			}
 		}
+
 		return
 	}
 
@@ -558,6 +573,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 			}
 
 			content := make(map[string]*MediaType)
+
 			for _, contentType := range contentTypes {
 				mediaType := &MediaType{
 					Schema: schema,
@@ -566,6 +582,7 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 				if examples, ok := responseExamples[200]; ok {
 					mediaType.Examples = examples
 				}
+
 				content[contentType] = mediaType
 			}
 
@@ -577,13 +594,14 @@ func (g *openAPIGenerator) extractResponseSchemas(spec *OpenAPISpec, operation *
 	}
 }
 
-// extractPathParameters parses path parameters from the path string
+// extractPathParameters parses path parameters from the path string.
 func (g *openAPIGenerator) extractPathParameters(path string, metadata map[string]any) []Parameter {
 	pathParams := extractPathParamsFromPath(path)
+
 	return convertPathParamsToOpenAPIParams(pathParams)
 }
 
-// extractQueryParameters extracts query parameters from metadata
+// extractQueryParameters extracts query parameters from metadata.
 func (g *openAPIGenerator) extractQueryParameters(metadata map[string]any) []Parameter {
 	if metadata == nil {
 		return nil
@@ -598,7 +616,7 @@ func (g *openAPIGenerator) extractQueryParameters(metadata map[string]any) []Par
 	return generateQueryParamsFromStruct(g.schemas, querySchema)
 }
 
-// extractHeaderParameters extracts header parameters from metadata
+// extractHeaderParameters extracts header parameters from metadata.
 func (g *openAPIGenerator) extractHeaderParameters(metadata map[string]any) []Parameter {
 	if metadata == nil {
 		return nil
@@ -613,7 +631,7 @@ func (g *openAPIGenerator) extractHeaderParameters(metadata map[string]any) []Pa
 	return generateHeaderParamsFromStruct(g.schemas, headerSchema)
 }
 
-// processSecurityRequirements adds security requirements to operation
+// processSecurityRequirements adds security requirements to operation.
 func (g *openAPIGenerator) processSecurityRequirements(operation *Operation, metadata map[string]any) {
 	if metadata == nil {
 		return
@@ -627,6 +645,7 @@ func (g *openAPIGenerator) processSecurityRequirements(operation *Operation, met
 				scheme: []string{},
 			}
 		}
+
 		return
 	}
 
@@ -646,6 +665,7 @@ func (g *openAPIGenerator) processSecurityRequirements(operation *Operation, met
 		// AND mode: all providers in a single security requirement (rare in OpenAPI)
 		// OpenAPI treats multiple schemes in one requirement as AND
 		req := SecurityRequirement{}
+
 		for _, provider := range providers {
 			if scopes != nil && len(scopes) > 0 {
 				req[provider] = scopes
@@ -653,6 +673,7 @@ func (g *openAPIGenerator) processSecurityRequirements(operation *Operation, met
 				req[provider] = []string{}
 			}
 		}
+
 		operation.Security = append(operation.Security, req)
 	} else {
 		// OR mode (default): each provider as separate security requirement
@@ -664,6 +685,7 @@ func (g *openAPIGenerator) processSecurityRequirements(operation *Operation, met
 			} else {
 				req[provider] = []string{}
 			}
+
 			operation.Security = append(operation.Security, req)
 		}
 	}

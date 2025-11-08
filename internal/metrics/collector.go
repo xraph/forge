@@ -1,11 +1,11 @@
 package metrics
 
-//nolint:gosec // G104: Collector Reset() methods are intentionally void
 // Testing code and collectors use Reset() for cleanup without error handling.
 
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -21,14 +21,14 @@ import (
 // METRICS COLLECTOR INTERFACE
 // =============================================================================
 
-// Metrics defines the interface for metrics collection
+// Metrics defines the interface for metrics collection.
 type Metrics = metrics.Metrics
 
 // =============================================================================
 // COLLECTOR IMPLEMENTATION
 // =============================================================================
 
-// collector implements MetricsCollector interface
+// collector implements MetricsCollector interface.
 type collector struct {
 	name               string
 	registry           Registry
@@ -45,16 +45,16 @@ type collector struct {
 	errors             []error
 }
 
-// CollectorConfig contains configuration for the metrics collector
+// CollectorConfig contains configuration for the metrics collector.
 type CollectorConfig = shared.MetricsConfig
 
-// StorageConfig contains storage configuration
-type StorageConfig = shared.MetricsStorageConfig[map[string]interface{}]
+// StorageConfig contains storage configuration.
+type StorageConfig = shared.MetricsStorageConfig[map[string]any]
 
-// CollectorStats contains statistics about the metrics collector
+// CollectorStats contains statistics about the metrics collector.
 type CollectorStats = metrics.CollectorStats
 
-// DefaultCollectorConfig returns default collector configuration
+// DefaultCollectorConfig returns default collector configuration.
 func DefaultCollectorConfig() *CollectorConfig {
 	return &CollectorConfig{
 		EnableSystemMetrics:  true,
@@ -62,7 +62,7 @@ func DefaultCollectorConfig() *CollectorConfig {
 		CollectionInterval:   time.Second * 10,
 		StorageConfig: &StorageConfig{
 			Type:   "memory",
-			Config: make(map[string]interface{}),
+			Config: make(map[string]any),
 		},
 		Exporters:   make(map[string]ExporterConfig),
 		DefaultTags: make(map[string]string),
@@ -71,7 +71,7 @@ func DefaultCollectorConfig() *CollectorConfig {
 	}
 }
 
-// New creates a new metrics collector
+// New creates a new metrics collector.
 func New(config *CollectorConfig, logger logger.Logger) Metrics {
 	if config == nil {
 		config = DefaultCollectorConfig()
@@ -97,23 +97,24 @@ func New(config *CollectorConfig, logger logger.Logger) Metrics {
 // SERVICE LIFECYCLE IMPLEMENTATION
 // =============================================================================
 
-// Name returns the service name
+// Name returns the service name.
 func (c *collector) Name() string {
 	return c.name
 }
 
-// Dependencies returns the service dependencies
+// Dependencies returns the service dependencies.
 func (c *collector) Dependencies() []string {
 	return []string{"config-manager"}
 }
 
-// Start starts the metrics collector service
+// Start starts the metrics collector service.
 func (c *collector) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.started {
 		c.logger.Warn("metrics collector already started", logger.String("name", c.name))
+
 		return nil
 		// todo: remove return common.ErrServiceAlreadyExists(c.name)
 	}
@@ -148,7 +149,7 @@ func (c *collector) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the metrics collector service
+// Stop stops the metrics collector service.
 func (c *collector) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -179,13 +180,13 @@ func (c *collector) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health performs health check
+// Health performs health check.
 func (c *collector) Health(ctx context.Context) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	if !c.started {
-		return errors.ErrHealthCheckFailed(c.name, fmt.Errorf("metrics collector not started"))
+		return errors.ErrHealthCheckFailed(c.name, errors.New("metrics collector not started"))
 	}
 
 	// Check if collection is working
@@ -208,7 +209,7 @@ func (c *collector) Health(ctx context.Context) error {
 // METRIC CREATION METHODS
 // =============================================================================
 
-// Counter creates or retrieves a counter metric
+// Counter creates or retrieves a counter metric.
 func (c *collector) Counter(name string, tags ...string) metrics.Counter {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -222,7 +223,7 @@ func (c *collector) Counter(name string, tags ...string) metrics.Counter {
 	return metric
 }
 
-// Gauge creates or retrieves a gauge metric
+// Gauge creates or retrieves a gauge metric.
 func (c *collector) Gauge(name string, tags ...string) metrics.Gauge {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -236,7 +237,7 @@ func (c *collector) Gauge(name string, tags ...string) metrics.Gauge {
 	return metric
 }
 
-// Histogram creates or retrieves a histogram metric
+// Histogram creates or retrieves a histogram metric.
 func (c *collector) Histogram(name string, tags ...string) metrics.Histogram {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -250,7 +251,7 @@ func (c *collector) Histogram(name string, tags ...string) metrics.Histogram {
 	return metric
 }
 
-// Timer creates or retrieves a timer metric
+// Timer creates or retrieves a timer metric.
 func (c *collector) Timer(name string, tags ...string) metrics.Timer {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -268,7 +269,7 @@ func (c *collector) Timer(name string, tags ...string) metrics.Timer {
 // CUSTOM COLLECTOR MANAGEMENT
 // =============================================================================
 
-// RegisterCollector registers a custom collector
+// RegisterCollector registers a custom collector.
 func (c *collector) RegisterCollector(collector metrics.CustomCollector) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -289,7 +290,7 @@ func (c *collector) RegisterCollector(collector metrics.CustomCollector) error {
 	return nil
 }
 
-// UnregisterCollector unregisters a custom collector
+// UnregisterCollector unregisters a custom collector.
 func (c *collector) UnregisterCollector(name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -311,7 +312,7 @@ func (c *collector) UnregisterCollector(name string) error {
 	return nil
 }
 
-// GetCollectors returns all custom collectors
+// GetCollectors returns all custom collectors.
 func (c *collector) GetCollectors() []metrics.CustomCollector {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -328,38 +329,38 @@ func (c *collector) GetCollectors() []metrics.CustomCollector {
 // METRICS RETRIEVAL
 // =============================================================================
 
-// GetMetrics returns all metrics
-func (c *collector) GetMetrics() map[string]interface{} {
+// GetMetrics returns all metrics.
+func (c *collector) GetMetrics() map[string]any {
 	// Snapshot collectors and registry access without holding lock
 	c.mu.RLock()
 	allMetrics := c.registry.GetAllMetrics()
+
 	collectors := make([]metrics.CustomCollector, 0, len(c.customCollectors))
 	for _, collector := range c.customCollectors {
 		collectors = append(collectors, collector)
 	}
+
 	c.mu.RUnlock()
 
 	// Collect from custom collectors without holding the lock
 	for _, collector := range collectors {
 		customMetrics := collector.Collect()
-		for k, v := range customMetrics {
-			allMetrics[k] = v
-		}
+		maps.Copy(allMetrics, customMetrics)
 	}
 
 	return allMetrics
 }
 
-// GetMetricsByType returns metrics filtered by type
-func (c *collector) GetMetricsByType(metricType metrics.MetricType) map[string]interface{} {
+// GetMetricsByType returns metrics filtered by type.
+func (c *collector) GetMetricsByType(metricType metrics.MetricType) map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	return c.registry.GetMetricsByType(metricType)
 }
 
-// GetMetricsByTag returns metrics filtered by tag
-func (c *collector) GetMetricsByTag(tagKey, tagValue string) map[string]interface{} {
+// GetMetricsByTag returns metrics filtered by tag.
+func (c *collector) GetMetricsByTag(tagKey, tagValue string) map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -370,7 +371,7 @@ func (c *collector) GetMetricsByTag(tagKey, tagValue string) map[string]interfac
 // EXPORT FUNCTIONALITY
 // =============================================================================
 
-// Export exports metrics in the specified format
+// Export exports metrics in the specified format.
 func (c *collector) Export(format metrics.ExportFormat) ([]byte, error) {
 	// Snapshot exporter without holding lock during export operation
 	c.mu.RLock()
@@ -384,10 +385,11 @@ func (c *collector) Export(format metrics.ExportFormat) ([]byte, error) {
 	// Get metrics without holding the collector lock
 	// This prevents deadlock with other systems (health checks, etc.) that may need locks
 	metrics := c.GetMetrics()
+
 	return exporter.Export(metrics)
 }
 
-// ExportToFile exports metrics to a file
+// ExportToFile exports metrics to a file.
 func (c *collector) ExportToFile(format metrics.ExportFormat, filename string) error {
 	data, err := c.Export(format)
 	if err != nil {
@@ -411,7 +413,7 @@ func (c *collector) ExportToFile(format metrics.ExportFormat, filename string) e
 // MANAGEMENT METHODS
 // =============================================================================
 
-// Reset resets all metrics
+// Reset resets all metrics.
 func (c *collector) Reset() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -433,7 +435,7 @@ func (c *collector) Reset() error {
 	return nil
 }
 
-// ResetMetric resets a specific metric
+// ResetMetric resets a specific metric.
 func (c *collector) ResetMetric(name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -445,7 +447,7 @@ func (c *collector) ResetMetric(name string) error {
 // STATISTICS
 // =============================================================================
 
-// GetStats returns collector statistics
+// GetStats returns collector statistics.
 func (c *collector) GetStats() CollectorStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -460,7 +462,7 @@ func (c *collector) GetStats() CollectorStats {
 		errorStrings[i] = err.Error()
 	}
 
-	exporterStats := make(map[string]interface{})
+	exporterStats := make(map[string]any)
 	for format, exporter := range c.exporters {
 		exporterStats[string(format)] = exporter.Stats()
 	}
@@ -484,7 +486,7 @@ func (c *collector) GetStats() CollectorStats {
 // PRIVATE METHODS
 // =============================================================================
 
-// initializeExporters initializes all exporters
+// initializeExporters initializes all exporters.
 func (c *collector) initializeExporters() {
 	// Initialize Prometheus exporter
 	c.exporters[metrics.ExportFormatPrometheus] = exporters.NewPrometheusExporter()
@@ -499,7 +501,7 @@ func (c *collector) initializeExporters() {
 	c.exporters[metrics.ExportFormatStatsD] = exporters.NewStatsDExporter()
 }
 
-// initializeBuiltinCollectors initializes built-in collectors
+// initializeBuiltinCollectors initializes built-in collectors.
 func (c *collector) initializeBuiltinCollectors() error {
 	// Register system metrics collector
 	if c.config.EnableSystemMetrics {
@@ -536,7 +538,7 @@ func (c *collector) initializeBuiltinCollectors() error {
 	return nil
 }
 
-// collectionLoop runs the metrics collection loop
+// collectionLoop runs the metrics collection loop.
 func (c *collector) collectionLoop(ctx context.Context) {
 	ticker := time.NewTicker(c.config.CollectionInterval)
 	defer ticker.Stop()
@@ -551,11 +553,13 @@ func (c *collector) collectionLoop(ctx context.Context) {
 	}
 }
 
-// collectMetrics collects metrics from all collectors
+// collectMetrics collects metrics from all collectors.
 func (c *collector) collectMetrics() {
 	// Snapshot collectors without holding lock
 	c.mu.RLock()
+
 	lastCollectionTime := time.Now()
+
 	collectors := make([]struct {
 		name      string
 		collector metrics.CustomCollector
@@ -566,17 +570,20 @@ func (c *collector) collectMetrics() {
 			collector metrics.CustomCollector
 		}{name: name, collector: collector})
 	}
+
 	c.mu.RUnlock()
 
 	// Collect from custom collectors without holding the lock
 	// This prevents deadlocks when collectors do I/O or take time
 	errors := make([]error, 0)
+
 	for _, item := range collectors {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					err := fmt.Errorf("panic in collector %s: %v", item.name, r)
 					errors = append(errors, err)
+
 					if c.logger != nil {
 						c.logger.Error("metrics collection panic",
 							logger.String("collector", item.name),
@@ -604,7 +611,7 @@ func (c *collector) collectMetrics() {
 	}
 }
 
-// startExporters starts configured exporters
+// startExporters starts configured exporters.
 func (c *collector) startExporters(ctx context.Context) error {
 	if len(c.config.Exporters) == 0 {
 		return nil
@@ -624,7 +631,7 @@ func (c *collector) startExporters(ctx context.Context) error {
 	return nil
 }
 
-// startExporter starts a specific exporter
+// startExporter starts a specific exporter.
 func (c *collector) startExporter(ctx context.Context, name string, config ExporterConfig) error {
 	if c.logger != nil {
 		c.logger.Info("starting exporter",
@@ -639,7 +646,7 @@ func (c *collector) startExporter(ctx context.Context, name string, config Expor
 	return nil
 }
 
-// exporterLoop runs the exporter loop
+// exporterLoop runs the exporter loop.
 func (c *collector) exporterLoop(ctx context.Context, name string, config ExporterConfig) {
 	ticker := time.NewTicker(config.Interval)
 	defer ticker.Stop()
@@ -663,10 +670,11 @@ func (c *collector) exporterLoop(ctx context.Context, name string, config Export
 	}
 }
 
-// performExport performs a single export operation
+// performExport performs a single export operation.
 func (c *collector) performExport(name string, config ExporterConfig) error {
 	// Determine export format based on exporter name
 	var format metrics.ExportFormat
+
 	switch name {
 	case "prometheus":
 		format = metrics.ExportFormatPrometheus
@@ -694,7 +702,7 @@ func (c *collector) performExport(name string, config ExporterConfig) error {
 	return nil
 }
 
-// processExportedData processes exported data
+// processExportedData processes exported data.
 func (c *collector) processExportedData(exporterName string, config ExporterConfig, data []byte) error {
 	// This is a placeholder implementation
 	// In a real implementation, this would:
@@ -702,7 +710,6 @@ func (c *collector) processExportedData(exporterName string, config ExporterConf
 	// - Write to files
 	// - Post to HTTP endpoints
 	// - Send via network protocols
-
 	if c.logger != nil {
 		c.logger.Debug("exported metrics",
 			logger.String("exporter", exporterName),
@@ -713,20 +720,22 @@ func (c *collector) processExportedData(exporterName string, config ExporterConf
 	return nil
 }
 
-// stopExporters stops all exporters
+// stopExporters stops all exporters.
 func (c *collector) stopExporters(ctx context.Context) error {
 	// Exporters are stopped by context cancellation
 	return nil
 }
 
-// getActiveExporters returns the number of active exporters
+// getActiveExporters returns the number of active exporters.
 func (c *collector) getActiveExporters() int {
 	count := 0
+
 	for _, config := range c.config.Exporters {
 		if config.Enabled {
 			count++
 		}
 	}
+
 	return count
 }
 
@@ -734,13 +743,13 @@ func (c *collector) getActiveExporters() int {
 // RELOAD CONFIGURATION
 // =============================================================================
 
-// Reload reloads the metrics configuration at runtime
+// Reload reloads the metrics configuration at runtime.
 func (c *collector) Reload(config *CollectorConfig) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if config == nil {
-		return fmt.Errorf("config cannot be nil")
+		return errors.New("config cannot be nil")
 	}
 
 	if c.logger != nil {
@@ -763,6 +772,7 @@ func (c *collector) Reload(config *CollectorConfig) error {
 			newExporter, exists := config.Exporters[name]
 			if !exists || oldExporter.Enabled != newExporter.Enabled {
 				exportersChanged = true
+
 				break
 			}
 		}
@@ -770,6 +780,7 @@ func (c *collector) Reload(config *CollectorConfig) error {
 
 	if exportersChanged {
 		c.initializeExporters()
+
 		if c.logger != nil {
 			c.logger.Info("exporters reinitialized")
 		}
@@ -795,6 +806,7 @@ func (c *collector) Reload(config *CollectorConfig) error {
 					logger.Error(err),
 				)
 			}
+
 			return fmt.Errorf("failed to reinitialize built-in collectors: %w", err)
 		}
 

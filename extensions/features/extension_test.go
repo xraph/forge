@@ -8,72 +8,52 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
-// mockSugarLogger implements logger.SugarLogger for testing
-type mockSugarLogger struct{}
-
-func (m *mockSugarLogger) Debugw(msg string, keysAndValues ...interface{})  {}
-func (m *mockSugarLogger) Infow(msg string, keysAndValues ...interface{})   {}
-func (m *mockSugarLogger) Warnw(msg string, keysAndValues ...interface{})   {}
-func (m *mockSugarLogger) Errorw(msg string, keysAndValues ...interface{})  {}
-func (m *mockSugarLogger) Fatalw(msg string, keysAndValues ...interface{})  {}
-func (m *mockSugarLogger) With(args ...interface{}) forge.SugarLogger       { return m }
-
-// mockLogger implements forge.Logger for testing
-type mockLogger struct{}
-
-func (m *mockLogger) Debug(msg string, fields ...forge.Field)      {}
-func (m *mockLogger) Info(msg string, fields ...forge.Field)       {}
-func (m *mockLogger) Warn(msg string, fields ...forge.Field)       {}
-func (m *mockLogger) Error(msg string, fields ...forge.Field)      {}
-func (m *mockLogger) Fatal(msg string, fields ...forge.Field)      {}
-func (m *mockLogger) Debugf(template string, args ...interface{})  {}
-func (m *mockLogger) Infof(template string, args ...interface{})   {}
-func (m *mockLogger) Warnf(template string, args ...interface{})   {}
-func (m *mockLogger) Errorf(template string, args ...interface{})  {}
-func (m *mockLogger) Fatalf(template string, args ...interface{})  {}
-func (m *mockLogger) With(fields ...forge.Field) forge.Logger      { return m }
-func (m *mockLogger) WithContext(ctx context.Context) forge.Logger { return m }
-func (m *mockLogger) Named(name string) forge.Logger               { return m }
-func (m *mockLogger) Sugar() forge.SugarLogger                     { return &mockSugarLogger{} }
-func (m *mockLogger) Sync() error                                  { return nil }
-
 func newMockLogger() forge.Logger {
-	return &mockLogger{}
+	return logger.NewTestLogger()
 }
 
-// mockApp implements a minimal forge.App for testing
+// mockApp implements a minimal forge.App for testing.
 type mockApp struct {
 	logger    forge.Logger
 	container *mockContainer
 }
 
-func (m *mockApp) Name() string                                       { return "test-app" }
-func (m *mockApp) Version() string                                    { return "1.0.0" }
-func (m *mockApp) Environment() string                                { return "test" }
-func (m *mockApp) Logger() forge.Logger                               { return m.logger }
-func (m *mockApp) Container() forge.Container                         { return m.container }
-func (m *mockApp) Router() forge.Router                               { return nil }
-func (m *mockApp) Config() forge.ConfigManager                        { return nil }
-func (m *mockApp) Metrics() forge.Metrics                             { return nil }
-func (m *mockApp) HealthManager() forge.HealthManager                 { return nil }
-func (m *mockApp) LifecycleManager() forge.LifecycleManager           { return forge.NewLifecycleManager(m.logger) }
-func (m *mockApp) Context() context.Context                           { return context.Background() }
-func (m *mockApp) Run() error                                         { return nil }
-func (m *mockApp) Start(ctx context.Context) error                    { return nil }
-func (m *mockApp) Stop(ctx context.Context) error                     { return nil }
-func (m *mockApp) RegisterExtension(ext forge.Extension) error        { return nil }
-func (m *mockApp) RegisterService(name string, factory forge.Factory, opts ...forge.RegisterOption) error { return nil }
+func (m *mockApp) Name() string                       { return "test-app" }
+func (m *mockApp) Version() string                    { return "1.0.0" }
+func (m *mockApp) Environment() string                { return "test" }
+func (m *mockApp) Logger() forge.Logger               { return m.logger }
+func (m *mockApp) Container() forge.Container         { return m.container }
+func (m *mockApp) Router() forge.Router               { return nil }
+func (m *mockApp) Config() forge.ConfigManager        { return nil }
+func (m *mockApp) Metrics() forge.Metrics             { return nil }
+func (m *mockApp) HealthManager() forge.HealthManager { return nil }
+func (m *mockApp) LifecycleManager() forge.LifecycleManager {
+	return forge.NewLifecycleManager(m.logger)
+}
+func (m *mockApp) Context() context.Context                    { return context.Background() }
+func (m *mockApp) Run() error                                  { return nil }
+func (m *mockApp) Start(ctx context.Context) error             { return nil }
+func (m *mockApp) Stop(ctx context.Context) error              { return nil }
+func (m *mockApp) RegisterExtension(ext forge.Extension) error { return nil }
+func (m *mockApp) RegisterService(name string, factory forge.Factory, opts ...forge.RegisterOption) error {
+	return nil
+}
 func (m *mockApp) RegisterController(controller forge.Controller) error { return nil }
-func (m *mockApp) RegisterHook(phase forge.LifecyclePhase, hook forge.LifecycleHook, opts forge.LifecycleHookOptions) error { return nil }
-func (m *mockApp) RegisterHookFn(phase forge.LifecyclePhase, name string, hook forge.LifecycleHook) error { return nil }
+func (m *mockApp) RegisterHook(phase forge.LifecyclePhase, hook forge.LifecycleHook, opts forge.LifecycleHookOptions) error {
+	return nil
+}
+func (m *mockApp) RegisterHookFn(phase forge.LifecyclePhase, name string, hook forge.LifecycleHook) error {
+	return nil
+}
 func (m *mockApp) GetExtension(name string) (forge.Extension, error) { return nil, nil }
 func (m *mockApp) Extensions() []forge.Extension                     { return nil }
 func (m *mockApp) StartTime() time.Time                              { return time.Now() }
 func (m *mockApp) Uptime() time.Duration                             { return time.Second }
 func (m *mockApp) ListExtensions() []forge.ExtensionInfo             { return nil }
-func (m *mockApp) HealthCheck(ctx context.Context) error              { return nil }
+func (m *mockApp) HealthCheck(ctx context.Context) error             { return nil }
 
 type mockScope struct{}
 
@@ -86,14 +66,16 @@ func (m *mockScope) End() error {
 }
 
 type mockContainer struct {
-	services map[string]interface{}
+	services map[string]any
 }
 
 func (m *mockContainer) Register(name string, factory forge.Factory, opts ...forge.RegisterOption) error {
 	if m.services == nil {
-		m.services = make(map[string]interface{})
+		m.services = make(map[string]any)
 	}
+
 	m.services[name] = factory
+
 	return nil
 }
 
@@ -144,7 +126,7 @@ func (m *mockContainer) Services() []string {
 func newMockApp() *mockApp {
 	return &mockApp{
 		logger:    newMockLogger(),
-		container: &mockContainer{services: make(map[string]interface{})},
+		container: &mockContainer{services: make(map[string]any)},
 	}
 }
 
@@ -340,7 +322,7 @@ func TestConfigOptions(t *testing.T) {
 	})
 
 	t.Run("WithDefaultFlags", func(t *testing.T) {
-		defaults := map[string]interface{}{
+		defaults := map[string]any{
 			"flag1": true,
 			"flag2": "value",
 		}
@@ -380,7 +362,7 @@ func TestExtension_RefreshLoop(t *testing.T) {
 	ext := NewExtension(
 		WithEnabled(true),
 		WithProvider("local"),
-		WithRefreshInterval(100 * time.Millisecond),
+		WithRefreshInterval(100*time.Millisecond),
 	)
 
 	app := newMockApp()
@@ -471,7 +453,7 @@ func TestRolloutConfig(t *testing.T) {
 	assert.Equal(t, "user_id", rollout.Attribute)
 }
 
-// Integration test with local provider
+// Integration test with local provider.
 func TestExtension_Integration_LocalProvider(t *testing.T) {
 	ext := NewExtension(
 		WithEnabled(true),
@@ -528,7 +510,7 @@ func TestExtension_Integration_LocalProvider(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// Test error handling
+// Test error handling.
 func TestExtension_ErrorHandling(t *testing.T) {
 	t.Run("health check with nil provider", func(t *testing.T) {
 		ext := &Extension{
@@ -554,12 +536,11 @@ func TestExtension_ErrorHandling(t *testing.T) {
 	})
 }
 
-// Benchmark tests
+// Benchmark tests.
 func BenchmarkExtension_Register(b *testing.B) {
 	app := newMockApp()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ext := NewExtension(
 			WithEnabled(true),
 			WithProvider("local"),
@@ -579,9 +560,7 @@ func BenchmarkExtension_Health(b *testing.B) {
 
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ext.Health(ctx)
 	}
 }
-

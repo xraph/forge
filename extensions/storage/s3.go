@@ -17,7 +17,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// S3Backend implements storage using AWS S3
+// S3Backend implements storage using AWS S3.
 type S3Backend struct {
 	client     *s3.Client
 	uploader   *manager.Uploader
@@ -30,7 +30,7 @@ type S3Backend struct {
 	validator  *PathValidator
 }
 
-// S3Config contains S3 configuration
+// S3Config contains S3 configuration.
 type S3Config struct {
 	Region          string
 	Bucket          string
@@ -42,21 +42,23 @@ type S3Config struct {
 	UsePathStyle    bool   // For S3-compatible services
 }
 
-// NewS3Backend creates a new S3 storage backend
-func NewS3Backend(configMap map[string]interface{}, logger forge.Logger, metrics forge.Metrics) (*S3Backend, error) {
+// NewS3Backend creates a new S3 storage backend.
+func NewS3Backend(configMap map[string]any, logger forge.Logger, metrics forge.Metrics) (*S3Backend, error) {
 	// Parse configuration
 	s3Config := parseS3Config(configMap)
 
 	// Validate required fields
 	if s3Config.Bucket == "" {
-		return nil, fmt.Errorf("S3 bucket is required")
+		return nil, errors.New("S3 bucket is required")
 	}
+
 	if s3Config.Region == "" {
 		s3Config.Region = "us-east-1" // Default region
 	}
 
 	// Build AWS config
 	var opts []func(*config.LoadOptions) error
+
 	opts = append(opts, config.WithRegion(s3Config.Region))
 
 	// Add credentials if provided
@@ -119,7 +121,7 @@ func NewS3Backend(configMap map[string]interface{}, logger forge.Logger, metrics
 	return backend, nil
 }
 
-// Upload uploads a file to S3
+// Upload uploads a file to S3.
 func (b *S3Backend) Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error {
 	start := time.Now()
 
@@ -155,6 +157,7 @@ func (b *S3Backend) Upload(ctx context.Context, key string, data io.Reader, opts
 	result, err := b.uploader.Upload(ctx, input)
 	if err != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "s3").Inc()
+
 		return fmt.Errorf("failed to upload to S3: %w", err)
 	}
 
@@ -172,7 +175,7 @@ func (b *S3Backend) Upload(ctx context.Context, key string, data io.Reader, opts
 	return nil
 }
 
-// Download downloads a file from S3
+// Download downloads a file from S3.
 func (b *S3Backend) Download(ctx context.Context, key string) (io.ReadCloser, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -190,7 +193,9 @@ func (b *S3Backend) Download(ctx context.Context, key string) (io.ReadCloser, er
 		if isS3NotFoundError(err) {
 			return nil, ErrObjectNotFound
 		}
+
 		b.metrics.Counter("storage_download_errors", "backend", "s3").Inc()
+
 		return nil, fmt.Errorf("failed to download from S3: %w", err)
 	}
 
@@ -199,7 +204,7 @@ func (b *S3Backend) Download(ctx context.Context, key string) (io.ReadCloser, er
 	return result.Body, nil
 }
 
-// Delete deletes a file from S3
+// Delete deletes a file from S3.
 func (b *S3Backend) Delete(ctx context.Context, key string) error {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -214,6 +219,7 @@ func (b *S3Backend) Delete(ctx context.Context, key string) error {
 	})
 	if err != nil {
 		b.metrics.Counter("storage_delete_errors", "backend", "s3").Inc()
+
 		return fmt.Errorf("failed to delete from S3: %w", err)
 	}
 
@@ -222,7 +228,7 @@ func (b *S3Backend) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// List lists files with a prefix
+// List lists files with a prefix.
 func (b *S3Backend) List(ctx context.Context, prefix string, opts ...ListOption) ([]Object, error) {
 	options := applyListOptions(opts...)
 
@@ -252,6 +258,7 @@ func (b *S3Backend) List(ctx context.Context, prefix string, opts ...ListOption)
 	}
 
 	var objects []Object
+
 	paginator := s3.NewListObjectsV2Paginator(b.client, input)
 
 	for paginator.HasMorePages() {
@@ -294,7 +301,7 @@ func (b *S3Backend) List(ctx context.Context, prefix string, opts ...ListOption)
 	return objects, nil
 }
 
-// Metadata retrieves object metadata
+// Metadata retrieves object metadata.
 func (b *S3Backend) Metadata(ctx context.Context, key string) (*ObjectMetadata, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -311,6 +318,7 @@ func (b *S3Backend) Metadata(ctx context.Context, key string) (*ObjectMetadata, 
 		if isS3NotFoundError(err) {
 			return nil, ErrObjectNotFound
 		}
+
 		return nil, fmt.Errorf("failed to get metadata from S3: %w", err)
 	}
 
@@ -326,7 +334,7 @@ func (b *S3Backend) Metadata(ctx context.Context, key string) (*ObjectMetadata, 
 	return metadata, nil
 }
 
-// Exists checks if an object exists
+// Exists checks if an object exists.
 func (b *S3Backend) Exists(ctx context.Context, key string) (bool, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -343,18 +351,20 @@ func (b *S3Backend) Exists(ctx context.Context, key string) (bool, error) {
 		if isS3NotFoundError(err) {
 			return false, nil
 		}
+
 		return false, fmt.Errorf("failed to check existence in S3: %w", err)
 	}
 
 	return true, nil
 }
 
-// Copy copies a file within S3
+// Copy copies a file within S3.
 func (b *S3Backend) Copy(ctx context.Context, srcKey, dstKey string) error {
 	// Validate keys
 	if err := b.validator.ValidateKey(srcKey); err != nil {
 		return fmt.Errorf("invalid source key: %w", err)
 	}
+
 	if err := b.validator.ValidateKey(dstKey); err != nil {
 		return fmt.Errorf("invalid destination key: %w", err)
 	}
@@ -373,13 +383,14 @@ func (b *S3Backend) Copy(ctx context.Context, srcKey, dstKey string) error {
 		if isS3NotFoundError(err) {
 			return ErrObjectNotFound
 		}
+
 		return fmt.Errorf("failed to copy in S3: %w", err)
 	}
 
 	return nil
 }
 
-// Move moves a file within S3 (copy + delete)
+// Move moves a file within S3 (copy + delete).
 func (b *S3Backend) Move(ctx context.Context, srcKey, dstKey string) error {
 	// Copy first
 	if err := b.Copy(ctx, srcKey, dstKey); err != nil {
@@ -393,13 +404,14 @@ func (b *S3Backend) Move(ctx context.Context, srcKey, dstKey string) error {
 			forge.F("dst_key", dstKey),
 			forge.F("error", err.Error()),
 		)
+
 		return fmt.Errorf("failed to delete source after move: %w", err)
 	}
 
 	return nil
 }
 
-// PresignUpload generates a presigned URL for upload
+// PresignUpload generates a presigned URL for upload.
 func (b *S3Backend) PresignUpload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -425,7 +437,7 @@ func (b *S3Backend) PresignUpload(ctx context.Context, key string, expiry time.D
 	return result.URL, nil
 }
 
-// PresignDownload generates a presigned URL for download
+// PresignDownload generates a presigned URL for download.
 func (b *S3Backend) PresignDownload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	// Validate key
 	if err := b.validator.ValidateKey(key); err != nil {
@@ -451,27 +463,30 @@ func (b *S3Backend) PresignDownload(ctx context.Context, key string, expiry time
 	return result.URL, nil
 }
 
-// Helper: Get S3 key with prefix
+// Helper: Get S3 key with prefix.
 func (b *S3Backend) getS3Key(key string) string {
 	if b.prefix == "" {
 		return key
 	}
+
 	return b.prefix + "/" + key
 }
 
-// Helper: Remove prefix from S3 key
+// Helper: Remove prefix from S3 key.
 func (b *S3Backend) removePrefix(s3Key string) string {
 	if b.prefix == "" {
 		return s3Key
 	}
+
 	prefix := b.prefix + "/"
-	if strings.HasPrefix(s3Key, prefix) {
-		return strings.TrimPrefix(s3Key, prefix)
+	if after, ok := strings.CutPrefix(s3Key, prefix); ok {
+		return after
 	}
+
 	return s3Key
 }
 
-// Helper: Check if error is S3 not found error
+// Helper: Check if error is S3 not found error.
 func isS3NotFoundError(err error) bool {
 	if err == nil {
 		return false
@@ -479,13 +494,14 @@ func isS3NotFoundError(err error) bool {
 
 	// Check for NoSuchKey error
 	errMsg := err.Error()
+
 	return strings.Contains(errMsg, "NoSuchKey") ||
 		strings.Contains(errMsg, "NotFound") ||
 		strings.Contains(errMsg, "404")
 }
 
-// Helper: Parse S3 config from map
-func parseS3Config(configMap map[string]interface{}) S3Config {
+// Helper: Parse S3 config from map.
+func parseS3Config(configMap map[string]any) S3Config {
 	config := S3Config{
 		Region: "us-east-1", // Default
 	}
@@ -493,24 +509,31 @@ func parseS3Config(configMap map[string]interface{}) S3Config {
 	if v, ok := configMap["region"].(string); ok {
 		config.Region = v
 	}
+
 	if v, ok := configMap["bucket"].(string); ok {
 		config.Bucket = v
 	}
+
 	if v, ok := configMap["prefix"].(string); ok {
 		config.Prefix = v
 	}
+
 	if v, ok := configMap["access_key_id"].(string); ok {
 		config.AccessKeyID = v
 	}
+
 	if v, ok := configMap["secret_access_key"].(string); ok {
 		config.SecretAccessKey = v
 	}
+
 	if v, ok := configMap["session_token"].(string); ok {
 		config.SessionToken = v
 	}
+
 	if v, ok := configMap["endpoint"].(string); ok {
 		config.Endpoint = v
 	}
+
 	if v, ok := configMap["use_path_style"].(bool); ok {
 		config.UsePathStyle = v
 	}

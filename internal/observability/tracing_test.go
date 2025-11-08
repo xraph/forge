@@ -92,6 +92,7 @@ func TestTracer_EndSpan(t *testing.T) {
 	}
 
 	startTime := span.StartTime
+
 	time.Sleep(1 * time.Millisecond) // Ensure some duration
 
 	tracer.EndSpan(span)
@@ -411,18 +412,20 @@ func TestTracer_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent span creation
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+
+	for i := range 10 {
 		go func(i int) {
 			_, span := tracer.StartSpan(context.Background(), "test-operation")
 			if span != nil {
 				tracer.EndSpan(span)
 			}
+
 			done <- true
 		}(i)
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -442,6 +445,7 @@ func TestTracer_Shutdown(t *testing.T) {
 
 	// Shutdown the tracer
 	ctx := context.Background()
+
 	err := tracer.Shutdown(ctx)
 	if err != nil {
 		t.Errorf("Shutdown() error = %v", err)

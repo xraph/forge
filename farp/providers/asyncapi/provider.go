@@ -3,23 +3,25 @@ package asyncapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge/farp"
 )
 
-// Provider generates AsyncAPI 2.x or 3.x schemas from applications
+// Provider generates AsyncAPI 2.x or 3.x schemas from applications.
 type Provider struct {
 	specVersion string
 	endpoint    string
 }
 
 // NewProvider creates a new AsyncAPI schema provider
-// specVersion should be "2.6.0" or "3.0.0" (recommended)
+// specVersion should be "2.6.0" or "3.0.0" (recommended).
 func NewProvider(specVersion string, endpoint string) *Provider {
 	if specVersion == "" {
 		specVersion = "3.0.0"
 	}
+
 	if endpoint == "" {
 		endpoint = "/asyncapi.json"
 	}
@@ -30,47 +32,46 @@ func NewProvider(specVersion string, endpoint string) *Provider {
 	}
 }
 
-// Type returns the schema type
+// Type returns the schema type.
 func (p *Provider) Type() farp.SchemaType {
 	return farp.SchemaTypeAsyncAPI
 }
 
-// SpecVersion returns the AsyncAPI specification version
+// SpecVersion returns the AsyncAPI specification version.
 func (p *Provider) SpecVersion() string {
 	return p.specVersion
 }
 
-// ContentType returns the content type
+// ContentType returns the content type.
 func (p *Provider) ContentType() string {
 	return "application/json"
 }
 
-// Endpoint returns the HTTP endpoint where the schema is served
+// Endpoint returns the HTTP endpoint where the schema is served.
 func (p *Provider) Endpoint() string {
 	return p.endpoint
 }
 
 // Generate generates an AsyncAPI schema from the application
-// app should provide Routes() method that returns route information
-func (p *Provider) Generate(ctx context.Context, app farp.Application) (interface{}, error) {
+// app should provide Routes() method that returns route information.
+func (p *Provider) Generate(ctx context.Context, app farp.Application) (any, error) {
 	// This is a placeholder implementation
 	// The actual implementation should integrate with Forge's AsyncAPI generator
 	// For now, we return a minimal valid AsyncAPI schema
-
 	routes := app.Routes()
 	if routes == nil {
-		return nil, fmt.Errorf("application does not provide routes")
+		return nil, errors.New("application does not provide routes")
 	}
 
 	// Build minimal AsyncAPI spec
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"asyncapi": p.specVersion,
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   app.Name(),
 			"version": app.Version(),
 		},
-		"channels":   map[string]interface{}{},
-		"operations": map[string]interface{}{},
+		"channels":   map[string]any{},
+		"operations": map[string]any{},
 	}
 
 	// TODO: Process streaming routes (WebSocket, SSE) and generate channels/operations
@@ -79,10 +80,10 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	return spec, nil
 }
 
-// Validate validates an AsyncAPI schema
-func (p *Provider) Validate(schema interface{}) error {
+// Validate validates an AsyncAPI schema.
+func (p *Provider) Validate(schema any) error {
 	// Basic validation - check for required fields
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: schema must be a map", farp.ErrInvalidSchema)
 	}
@@ -102,6 +103,7 @@ func (p *Provider) Validate(schema interface{}) error {
 		if _, ok := schemaMap["channels"]; !ok {
 			return fmt.Errorf("%w: missing 'channels' field (AsyncAPI 3.x)", farp.ErrInvalidSchema)
 		}
+
 		if _, ok := schemaMap["operations"]; !ok {
 			return fmt.Errorf("%w: missing 'operations' field (AsyncAPI 3.x)", farp.ErrInvalidSchema)
 		}
@@ -110,17 +112,17 @@ func (p *Provider) Validate(schema interface{}) error {
 	return nil
 }
 
-// Hash calculates SHA256 hash of the schema
-func (p *Provider) Hash(schema interface{}) (string, error) {
+// Hash calculates SHA256 hash of the schema.
+func (p *Provider) Hash(schema any) (string, error) {
 	return farp.CalculateSchemaChecksum(schema)
 }
 
-// Serialize converts schema to JSON bytes
-func (p *Provider) Serialize(schema interface{}) ([]byte, error) {
+// Serialize converts schema to JSON bytes.
+func (p *Provider) Serialize(schema any) ([]byte, error) {
 	return json.Marshal(schema)
 }
 
-// GenerateDescriptor generates a complete SchemaDescriptor for this schema
+// GenerateDescriptor generates a complete SchemaDescriptor for this schema.
 func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
 	// Generate schema
 	schema, err := p.Generate(ctx, app)
@@ -149,9 +151,11 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeHTTP:
 		url := locationConfig["url"]
 		if url == "" {
-			return nil, fmt.Errorf("url required for HTTP location")
+			return nil, errors.New("url required for HTTP location")
 		}
+
 		location.URL = url
+
 		if headers := locationConfig["headers"]; headers != "" {
 			// Parse headers from JSON string
 			var headersMap map[string]string
@@ -163,8 +167,9 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeRegistry:
 		registryPath := locationConfig["registry_path"]
 		if registryPath == "" {
-			return nil, fmt.Errorf("registry_path required for registry location")
+			return nil, errors.New("registry_path required for registry location")
 		}
+
 		location.RegistryPath = registryPath
 
 	case farp.LocationTypeInline:

@@ -8,7 +8,7 @@ import (
 // SECRETS MANAGEMENT
 // =============================================================================
 
-// SecretsManager manages secrets for configuration
+// SecretsManager manages secrets for configuration.
 type SecretsManager interface {
 	// GetSecret retrieves a secret by key
 	GetSecret(ctx context.Context, key string) (string, error)
@@ -44,7 +44,7 @@ type SecretsManager interface {
 	HealthCheck(ctx context.Context) error
 }
 
-// SecretProvider defines an interface for different secret backends
+// SecretProvider defines an interface for different secret backends.
 type SecretProvider interface {
 	// Name returns the provider name
 	Name() string
@@ -71,7 +71,7 @@ type SecretProvider interface {
 	SupportsCaching() bool
 
 	// Initialize initializes the provider
-	Initialize(ctx context.Context, config map[string]interface{}) error
+	Initialize(ctx context.Context, config map[string]any) error
 
 	// Close closes the provider
 	Close(ctx context.Context) error

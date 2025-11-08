@@ -73,12 +73,15 @@ func (mf *metadataFilter) Filter(ctx context.Context, msg *streaming.Message, re
 		// Check allowed types
 		if len(mf.config.AllowedTypes) > 0 {
 			allowed := false
+
 			for _, allowedType := range mf.config.AllowedTypes {
 				if msg.Type == allowedType {
 					allowed = true
+
 					break
 				}
 			}
+
 			if !allowed {
 				return nil, nil // Not in allowed list
 			}
@@ -92,7 +95,9 @@ func (mf *metadataFilter) Filter(ctx context.Context, msg *streaming.Message, re
 			if msg.Metadata == nil {
 				msg.Metadata = make(map[string]any)
 			}
+
 			msg.Metadata["filtered_by"] = name
+
 			return nil, nil // Custom condition failed
 		}
 	}

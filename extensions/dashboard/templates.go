@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// generateHTML returns the complete dashboard HTML
+// generateHTML returns the complete dashboard HTML.
 func (ds *DashboardServer) generateHTML() string {
 	theme := ds.config.Theme
 	title := ds.config.Title
@@ -728,6 +728,7 @@ func (ds *DashboardServer) generateHTML() string {
 			if enableRealtime {
 				return "initWebSocket();"
 			}
+
 			return ""
 		}(),
 		theme,

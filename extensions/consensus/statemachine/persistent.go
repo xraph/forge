@@ -5,14 +5,16 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// PersistentStateMachine is a state machine backed by persistent storage
+// PersistentStateMachine is a state machine backed by persistent storage.
 type PersistentStateMachine struct {
 	storage internal.Storage
 	logger  forge.Logger
@@ -44,7 +46,7 @@ type PersistentStateMachine struct {
 	mu      sync.RWMutex
 }
 
-// PersistentStateMachineConfig contains persistent state machine configuration
+// PersistentStateMachineConfig contains persistent state machine configuration.
 type PersistentStateMachineConfig struct {
 	Storage       internal.Storage
 	EnableCache   bool
@@ -54,10 +56,10 @@ type PersistentStateMachineConfig struct {
 	SyncWrites    bool
 }
 
-// NewPersistentStateMachine creates a new persistent state machine
+// NewPersistentStateMachine creates a new persistent state machine.
 func NewPersistentStateMachine(config PersistentStateMachineConfig, logger forge.Logger) (*PersistentStateMachine, error) {
 	if config.Storage == nil {
-		return nil, fmt.Errorf("storage is required")
+		return nil, errors.New("storage is required")
 	}
 
 	if config.BatchSize == 0 {
@@ -88,7 +90,7 @@ func NewPersistentStateMachine(config PersistentStateMachineConfig, logger forge
 	return psm, nil
 }
 
-// Start starts the persistent state machine
+// Start starts the persistent state machine.
 func (psm *PersistentStateMachine) Start(ctx context.Context) error {
 	psm.mu.Lock()
 	defer psm.mu.Unlock()
@@ -102,6 +104,7 @@ func (psm *PersistentStateMachine) Start(ctx context.Context) error {
 
 	// Start apply worker
 	psm.wg.Add(1)
+
 	go psm.applyWorker()
 
 	psm.logger.Info("persistent state machine started",
@@ -113,13 +116,16 @@ func (psm *PersistentStateMachine) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the persistent state machine
+// Stop stops the persistent state machine.
 func (psm *PersistentStateMachine) Stop(ctx context.Context) error {
 	psm.mu.Lock()
+
 	if !psm.started {
 		psm.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	psm.mu.Unlock()
 
 	if psm.cancel != nil {
@@ -131,6 +137,7 @@ func (psm *PersistentStateMachine) Stop(ctx context.Context) error {
 
 	// Wait for workers
 	done := make(chan struct{})
+
 	go func() {
 		psm.wg.Wait()
 		close(done)
@@ -146,7 +153,7 @@ func (psm *PersistentStateMachine) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Apply applies a log entry to the state machine
+// Apply applies a log entry to the state machine.
 func (psm *PersistentStateMachine) Apply(entry internal.LogEntry) error {
 	// Add to apply queue
 	psm.applyQueueMu.Lock()
@@ -165,11 +172,12 @@ func (psm *PersistentStateMachine) Apply(entry internal.LogEntry) error {
 	return nil
 }
 
-// Get retrieves a value from the state machine
+// Get retrieves a value from the state machine.
 func (psm *PersistentStateMachine) Get(key string) ([]byte, error) {
 	// Check cache first
 	if psm.cache != nil {
 		psm.cacheMu.RLock()
+
 		if value, exists := psm.cache[key]; exists {
 			psm.cacheMu.RUnlock()
 
@@ -179,6 +187,7 @@ func (psm *PersistentStateMachine) Get(key string) ([]byte, error) {
 
 			return value, nil
 		}
+
 		psm.cacheMu.RUnlock()
 
 		psm.statsMu.Lock()
@@ -188,6 +197,7 @@ func (psm *PersistentStateMachine) Get(key string) ([]byte, error) {
 
 	// Read from storage
 	storageKey := []byte("sm/" + key)
+
 	value, err := psm.storage.Get(storageKey)
 	if err != nil {
 		return nil, err
@@ -201,7 +211,7 @@ func (psm *PersistentStateMachine) Get(key string) ([]byte, error) {
 	return value, nil
 }
 
-// CreateSnapshot creates a snapshot of the state machine
+// CreateSnapshot creates a snapshot of the state machine.
 func (psm *PersistentStateMachine) CreateSnapshot() ([]byte, error) {
 	psm.logger.Info("creating persistent state machine snapshot")
 
@@ -209,6 +219,7 @@ func (psm *PersistentStateMachine) CreateSnapshot() ([]byte, error) {
 	prefix := []byte("sm/")
 	// Use GetRange to list keys (ListKeys not available in Storage interface)
 	endKey := []byte("sm/~") // ~ is after all ASCII characters
+
 	kvPairs, err := psm.storage.GetRange(prefix, endKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list keys: %w", err)
@@ -216,6 +227,7 @@ func (psm *PersistentStateMachine) CreateSnapshot() ([]byte, error) {
 
 	// Build snapshot
 	snapshot := make(map[string][]byte)
+
 	for _, kv := range kvPairs {
 		// Remove prefix
 		snapshotKey := string(kv.Key[len(prefix):])
@@ -224,6 +236,7 @@ func (psm *PersistentStateMachine) CreateSnapshot() ([]byte, error) {
 
 	// Encode snapshot
 	var buf bytes.Buffer
+
 	encoder := gob.NewEncoder(&buf)
 	if err := encoder.Encode(snapshot); err != nil {
 		return nil, fmt.Errorf("failed to encode snapshot: %w", err)
@@ -241,7 +254,7 @@ func (psm *PersistentStateMachine) CreateSnapshot() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// RestoreSnapshot restores a snapshot to the state machine
+// RestoreSnapshot restores a snapshot to the state machine.
 func (psm *PersistentStateMachine) RestoreSnapshot(data []byte) error {
 	psm.logger.Info("restoring persistent state machine snapshot",
 		forge.F("size_bytes", len(data)),
@@ -260,6 +273,7 @@ func (psm *PersistentStateMachine) RestoreSnapshot(data []byte) error {
 	prefix := []byte("sm/")
 	// Use GetRange to list keys (ListKeys not available in Storage interface)
 	endKey := []byte("sm/~") // ~ is after all ASCII characters
+
 	kvPairs, err := psm.storage.GetRange(prefix, endKey)
 	if err != nil {
 		return fmt.Errorf("failed to list keys: %w", err)
@@ -294,10 +308,10 @@ func (psm *PersistentStateMachine) RestoreSnapshot(data []byte) error {
 	// Clear and rebuild cache
 	if psm.cache != nil {
 		psm.cacheMu.Lock()
+
 		psm.cache = make(map[string][]byte)
-		for key, value := range snapshot {
-			psm.cache[key] = value
-		}
+		maps.Copy(psm.cache, snapshot)
+
 		psm.cacheMu.Unlock()
 	}
 
@@ -308,7 +322,7 @@ func (psm *PersistentStateMachine) RestoreSnapshot(data []byte) error {
 	return nil
 }
 
-// applyWorker processes the apply queue in batches
+// applyWorker processes the apply queue in batches.
 func (psm *PersistentStateMachine) applyWorker() {
 	defer psm.wg.Done()
 
@@ -329,11 +343,13 @@ func (psm *PersistentStateMachine) applyWorker() {
 	}
 }
 
-// flushApplyQueue flushes the apply queue to storage
+// flushApplyQueue flushes the apply queue to storage.
 func (psm *PersistentStateMachine) flushApplyQueue() {
 	psm.applyQueueMu.Lock()
+
 	if len(psm.applyQueue) == 0 {
 		psm.applyQueueMu.Unlock()
+
 		return
 	}
 
@@ -345,6 +361,7 @@ func (psm *PersistentStateMachine) flushApplyQueue() {
 
 	// Build batch operations
 	var ops []internal.BatchOp
+
 	cacheUpdates := make(map[string][]byte)
 
 	for _, entry := range queue {
@@ -355,6 +372,7 @@ func (psm *PersistentStateMachine) flushApplyQueue() {
 				forge.F("index", entry.Index),
 				forge.F("error", err),
 			)
+
 			continue
 		}
 
@@ -386,6 +404,7 @@ func (psm *PersistentStateMachine) flushApplyQueue() {
 				forge.F("operations", len(ops)),
 				forge.F("error", err),
 			)
+
 			return
 		}
 	}
@@ -393,6 +412,7 @@ func (psm *PersistentStateMachine) flushApplyQueue() {
 	// Update cache
 	if psm.cache != nil {
 		psm.cacheMu.Lock()
+
 		for key, value := range cacheUpdates {
 			if value == nil {
 				delete(psm.cache, key)
@@ -400,15 +420,18 @@ func (psm *PersistentStateMachine) flushApplyQueue() {
 				psm.cache[key] = value
 			}
 		}
+
 		psm.cacheMu.Unlock()
 	}
 
 	// Update statistics
 	psm.statsMu.Lock()
+
 	psm.appliedCount += uint64(len(queue))
 	if len(queue) > 0 {
 		psm.lastApplied = queue[len(queue)-1].Index
 	}
+
 	psm.statsMu.Unlock()
 
 	psm.logger.Debug("flushed apply queue",
@@ -417,9 +440,10 @@ func (psm *PersistentStateMachine) flushApplyQueue() {
 	)
 }
 
-// parseCommand parses a command from data
+// parseCommand parses a command from data.
 func (psm *PersistentStateMachine) parseCommand(data []byte) (*Command, error) {
 	var cmd Command
+
 	buf := bytes.NewReader(data)
 	decoder := gob.NewDecoder(buf)
 
@@ -430,7 +454,7 @@ func (psm *PersistentStateMachine) parseCommand(data []byte) (*Command, error) {
 	return &cmd, nil
 }
 
-// updateCache updates the cache with size limiting
+// updateCache updates the cache with size limiting.
 func (psm *PersistentStateMachine) updateCache(key string, value []byte) {
 	psm.cacheMu.Lock()
 	defer psm.cacheMu.Unlock()
@@ -442,8 +466,8 @@ func (psm *PersistentStateMachine) updateCache(key string, value []byte) {
 	}
 }
 
-// GetStats returns state machine statistics
-func (psm *PersistentStateMachine) GetStats() map[string]interface{} {
+// GetStats returns state machine statistics.
+func (psm *PersistentStateMachine) GetStats() map[string]any {
 	psm.statsMu.RLock()
 	defer psm.statsMu.RUnlock()
 
@@ -451,7 +475,7 @@ func (psm *PersistentStateMachine) GetStats() map[string]interface{} {
 	queueSize := len(psm.applyQueue)
 	psm.applyQueueMu.Unlock()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"applied_count": psm.appliedCount,
 		"last_applied":  psm.lastApplied,
 		"last_snapshot": psm.lastSnapshot,
@@ -476,7 +500,7 @@ func (psm *PersistentStateMachine) GetStats() map[string]interface{} {
 	return stats
 }
 
-// Command represents a state machine command
+// Command represents a state machine command.
 type Command struct {
 	Op    string
 	Key   string

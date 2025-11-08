@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Storage defines the unified storage interface
+// Storage defines the unified storage interface.
 type Storage interface {
 	// Upload uploads an object
 	Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error
@@ -41,7 +41,7 @@ type Storage interface {
 	PresignDownload(ctx context.Context, key string, expiry time.Duration) (string, error)
 }
 
-// Object represents a storage object
+// Object represents a storage object.
 type Object struct {
 	Key          string            `json:"key"`
 	Size         int64             `json:"size"`
@@ -51,7 +51,7 @@ type Object struct {
 	Metadata     map[string]string `json:"metadata"`
 }
 
-// ObjectMetadata represents object metadata
+// ObjectMetadata represents object metadata.
 type ObjectMetadata struct {
 	Key          string            `json:"key"`
 	Size         int64             `json:"size"`
@@ -61,69 +61,69 @@ type ObjectMetadata struct {
 	Metadata     map[string]string `json:"metadata"`
 }
 
-// UploadOption is a functional option for uploads
+// UploadOption is a functional option for uploads.
 type UploadOption func(*UploadOptions)
 
-// ListOption is a functional option for listing
+// ListOption is a functional option for listing.
 type ListOption func(*ListOptions)
 
-// UploadOptions contains upload options
+// UploadOptions contains upload options.
 type UploadOptions struct {
 	ContentType string
 	Metadata    map[string]string
 	ACL         string
 }
 
-// ListOptions contains list options
+// ListOptions contains list options.
 type ListOptions struct {
 	Limit     int
 	Marker    string
 	Recursive bool
 }
 
-// WithContentType sets the content type
+// WithContentType sets the content type.
 func WithContentType(contentType string) UploadOption {
 	return func(o *UploadOptions) {
 		o.ContentType = contentType
 	}
 }
 
-// WithMetadata sets metadata
+// WithMetadata sets metadata.
 func WithMetadata(metadata map[string]string) UploadOption {
 	return func(o *UploadOptions) {
 		o.Metadata = metadata
 	}
 }
 
-// WithACL sets ACL
+// WithACL sets ACL.
 func WithACL(acl string) UploadOption {
 	return func(o *UploadOptions) {
 		o.ACL = acl
 	}
 }
 
-// WithLimit sets the limit
+// WithLimit sets the limit.
 func WithLimit(limit int) ListOption {
 	return func(o *ListOptions) {
 		o.Limit = limit
 	}
 }
 
-// WithMarker sets the marker
+// WithMarker sets the marker.
 func WithMarker(marker string) ListOption {
 	return func(o *ListOptions) {
 		o.Marker = marker
 	}
 }
 
-// WithRecursive sets recursive listing
+// WithRecursive sets recursive listing.
 func WithRecursive(recursive bool) ListOption {
 	return func(o *ListOptions) {
 		o.Recursive = recursive
 	}
 }
 
-// applyUploadOptions applies upload options
+// applyUploadOptions applies upload options.
 func applyUploadOptions(opts ...UploadOption) *UploadOptions {
 	options := &UploadOptions{
 		ContentType: "application/octet-stream",
@@ -133,10 +133,11 @@ func applyUploadOptions(opts ...UploadOption) *UploadOptions {
 	for _, opt := range opts {
 		opt(options)
 	}
+
 	return options
 }
 
-// applyListOptions applies list options
+// applyListOptions applies list options.
 func applyListOptions(opts ...ListOption) *ListOptions {
 	options := &ListOptions{
 		Limit:     1000,
@@ -145,5 +146,6 @@ func applyListOptions(opts ...ListOption) *ListOptions {
 	for _, opt := range opts {
 		opt(options)
 	}
+
 	return options
 }

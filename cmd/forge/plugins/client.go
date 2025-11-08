@@ -13,12 +13,12 @@ import (
 	"github.com/xraph/forge/internal/client/generators/typescript"
 )
 
-// ClientPlugin handles client code generation
+// ClientPlugin handles client code generation.
 type ClientPlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewClientPlugin creates a new client plugin
+// NewClientPlugin creates a new client plugin.
 func NewClientPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &ClientPlugin{config: cfg}
 }
@@ -99,6 +99,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	if err := gen.Register(golang.NewGenerator()); err != nil {
 		return fmt.Errorf("register Go generator: %w", err)
 	}
+
 	if err := gen.Register(typescript.NewGenerator()); err != nil {
 		return fmt.Errorf("register TypeScript generator: %w", err)
 	}
@@ -136,6 +137,7 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	generatedClient, err := gen.GenerateFromFile(context.Background(), fromSpec, genConfig)
 	if err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("generate client: %w", err)
 	}
 
@@ -143,26 +145,30 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 
 	// Write files
 	spinner = ctx.Spinner("Writing client files...")
+
 	outputMgr := client.NewOutputManager()
 	if err := outputMgr.WriteClient(generatedClient, outputDir); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("write client: %w", err)
 	}
 
-	spinner.Stop(cli.Green(fmt.Sprintf("✓ Client generated in %s", outputDir)))
+	spinner.Stop(cli.Green("✓ Client generated in " + outputDir))
 
 	// Show summary
 	ctx.Println("")
 	ctx.Success("Client generation complete!")
 	ctx.Println("")
 	ctx.Println(cli.Bold("Generated files:"))
+
 	for filename := range generatedClient.Files {
-		ctx.Println(fmt.Sprintf("  - %s", filename))
+		ctx.Println("  - " + filename)
 	}
 
 	if len(generatedClient.Dependencies) > 0 {
 		ctx.Println("")
 		ctx.Println(cli.Bold("Dependencies:"))
+
 		for _, dep := range generatedClient.Dependencies {
 			ctx.Println(fmt.Sprintf("  - %s %s", dep.Name, dep.Version))
 		}
@@ -170,16 +176,19 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 
 	ctx.Println("")
 	ctx.Info("Next steps:")
+
 	switch language {
 	case "go":
-		ctx.Println(fmt.Sprintf("  cd %s", outputDir))
+		ctx.Println("  cd " + outputDir)
+
 		if module != "" {
 			ctx.Println("  go mod tidy")
 		}
+
 		ctx.Println("  # Import and use the client in your code")
 
 	case "typescript":
-		ctx.Println(fmt.Sprintf("  cd %s", outputDir))
+		ctx.Println("  cd " + outputDir)
 		ctx.Println("  npm install")
 		ctx.Println("  npm run build")
 	}
@@ -197,6 +206,7 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 
 	// Parse spec
 	parser := client.NewSpecParser()
+
 	spec, err := parser.ParseFile(context.Background(), fromSpec)
 	if err != nil {
 		return fmt.Errorf("parse spec: %w", err)
@@ -244,6 +254,7 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 	// Display table
 	if len(endpoints) == 0 {
 		ctx.Info("No endpoints found")
+
 		return nil
 	}
 
@@ -273,7 +284,9 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 
 	// Show statistics
 	ctx.Println("")
+
 	stats := spec.GetStats()
+
 	ctx.Println(cli.Bold("Statistics:"))
 	ctx.Println(fmt.Sprintf("  Total endpoints: %d", stats.TotalEndpoints))
 	ctx.Println(fmt.Sprintf("  REST: %d, WebSocket: %d, SSE: %d", stats.RESTEndpoints, stats.WebSocketCount, stats.SSECount))
@@ -296,6 +309,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	if err != nil {
 		return err
 	}
+
 	if outputDir == "" {
 		outputDir = "./client"
 	}
@@ -305,6 +319,7 @@ func (p *ClientPlugin) initConfig(ctx cli.CommandContext) error {
 	if err != nil {
 		return err
 	}
+
 	if packageName == "" {
 		packageName = "client"
 	}
@@ -354,5 +369,6 @@ func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
+
 	return s[:maxLen-3] + "..."
 }

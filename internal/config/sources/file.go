@@ -20,7 +20,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// FileSource represents a file-based configuration source
+// FileSource represents a file-based configuration source.
 type FileSource struct {
 	name          string
 	path          string
@@ -29,7 +29,7 @@ type FileSource struct {
 	processor     formats.FormatProcessor
 	watcher       *fsnotify.Watcher
 	lastModTime   time.Time
-	watchCallback func(map[string]interface{})
+	watchCallback func(map[string]any)
 	watching      bool
 	mu            sync.RWMutex
 	logger        logger.Logger
@@ -37,7 +37,7 @@ type FileSource struct {
 	options       FileSourceOptions
 }
 
-// FileSourceOptions contains options for file sources
+// FileSourceOptions contains options for file sources.
 type FileSourceOptions struct {
 	Name            string
 	Format          string
@@ -55,21 +55,21 @@ type FileSourceOptions struct {
 	ErrorHandler    shared.ErrorHandler
 }
 
-// FileSourceConfig contains configuration for creating file sources
+// FileSourceConfig contains configuration for creating file sources.
 type FileSourceConfig struct {
-	Path          string        `yaml:"path" json:"path"`
-	Format        string        `yaml:"format" json:"format"`
-	Priority      int           `yaml:"priority" json:"priority"`
-	WatchEnabled  bool          `yaml:"watch_enabled" json:"watch_enabled"`
-	WatchInterval time.Duration `yaml:"watch_interval" json:"watch_interval"`
-	ExpandEnvVars bool          `yaml:"expand_env_vars" json:"expand_env_vars"`
-	ExpandSecrets bool          `yaml:"expand_secrets" json:"expand_secrets"`
-	RequireFile   bool          `yaml:"require_file" json:"require_file"`
-	BackupEnabled bool          `yaml:"backup_enabled" json:"backup_enabled"`
-	BackupDir     string        `yaml:"backup_dir" json:"backup_dir"`
+	Path          string        `json:"path"            yaml:"path"`
+	Format        string        `json:"format"          yaml:"format"`
+	Priority      int           `json:"priority"        yaml:"priority"`
+	WatchEnabled  bool          `json:"watch_enabled"   yaml:"watch_enabled"`
+	WatchInterval time.Duration `json:"watch_interval"  yaml:"watch_interval"`
+	ExpandEnvVars bool          `json:"expand_env_vars" yaml:"expand_env_vars"`
+	ExpandSecrets bool          `json:"expand_secrets"  yaml:"expand_secrets"`
+	RequireFile   bool          `json:"require_file"    yaml:"require_file"`
+	BackupEnabled bool          `json:"backup_enabled"  yaml:"backup_enabled"`
+	BackupDir     string        `json:"backup_dir"      yaml:"backup_dir"`
 }
 
-// NewFileSource creates a new file-based configuration source
+// NewFileSource creates a new file-based configuration source.
 func NewFileSource(path string, options FileSourceOptions) (configcore.ConfigSource, error) {
 	if path == "" {
 		return nil, errors.ErrConfigError("file path cannot be empty", nil)
@@ -99,13 +99,13 @@ func NewFileSource(path string, options FileSourceOptions) (configcore.ConfigSou
 	// Set default name if not provided
 	name := options.Name
 	if name == "" {
-		name = fmt.Sprintf("file:%s", filepath.Base(path))
+		name = "file:" + filepath.Base(path)
 	}
 
 	// Get format processor
 	processor, err := getFormatProcessor(format)
 	if err != nil {
-		return nil, errors.ErrConfigError(fmt.Sprintf("unsupported format: %s", format), err)
+		return nil, errors.ErrConfigError("unsupported format: "+format, err)
 	}
 
 	source := &FileSource{
@@ -127,34 +127,35 @@ func NewFileSource(path string, options FileSourceOptions) (configcore.ConfigSou
 	return source, nil
 }
 
-// Name returns the source name
+// Name returns the source name.
 func (fs *FileSource) Name() string {
 	return fs.name
 }
 
-// GetName returns the source name (alias for Name)
+// GetName returns the source name (alias for Name).
 func (fs *FileSource) GetName() string {
 	return fs.name
 }
 
-// GetType returns the source type
+// GetType returns the source type.
 func (fs *FileSource) GetType() string {
 	return "file"
 }
 
-// IsAvailable checks if the source is available
+// IsAvailable checks if the source is available.
 func (fs *FileSource) IsAvailable(ctx context.Context) bool {
 	_, err := os.Stat(fs.path)
+
 	return err == nil
 }
 
-// Priority returns the source priority
+// Priority returns the source priority.
 func (fs *FileSource) Priority() int {
 	return fs.priority
 }
 
-// Load loads configuration from the file
-func (fs *FileSource) Load(ctx context.Context) (map[string]interface{}, error) {
+// Load loads configuration from the file.
+func (fs *FileSource) Load(ctx context.Context) (map[string]any, error) {
 	fs.mu.RLock()
 	path := fs.path
 	fs.mu.RUnlock()
@@ -171,9 +172,10 @@ func (fs *FileSource) Load(ctx context.Context) (map[string]interface{}, error) 
 	if err != nil {
 		if os.IsNotExist(err) && !fs.options.RequireFile {
 			// Return empty configuration if file doesn't exist and it's not required
-			return make(map[string]interface{}), nil
+			return make(map[string]any), nil
 		}
-		return nil, errors.ErrConfigError(fmt.Sprintf("failed to stat file %s", path), err)
+
+		return nil, errors.ErrConfigError("failed to stat file "+path, err)
 	}
 
 	// Update modification time
@@ -185,7 +187,7 @@ func (fs *FileSource) Load(ctx context.Context) (map[string]interface{}, error) 
 	// nolint:gosec // G304: Path is validated and controlled by application configuration
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, errors.ErrConfigError(fmt.Sprintf("failed to read file %s", path), err)
+		return nil, errors.ErrConfigError("failed to read file "+path, err)
 	}
 
 	// Create backup if enabled
@@ -203,7 +205,7 @@ func (fs *FileSource) Load(ctx context.Context) (map[string]interface{}, error) 
 	// Parse content
 	data, err := fs.processor.Parse(content)
 	if err != nil {
-		return nil, errors.ErrConfigError(fmt.Sprintf("failed to parse file %s", path), err)
+		return nil, errors.ErrConfigError("failed to parse file "+path, err)
 	}
 
 	// Expand environment variables if enabled
@@ -215,16 +217,16 @@ func (fs *FileSource) Load(ctx context.Context) (map[string]interface{}, error) 
 	if fs.options.ExpandSecrets {
 		data, err = fs.expandSecrets(ctx, data)
 		if err != nil {
-			return nil, errors.ErrConfigError(fmt.Sprintf("failed to expand secrets in %s", path), err)
+			return nil, errors.ErrConfigError("failed to expand secrets in "+path, err)
 		}
 	}
 
 	// Validate if processor supports it
 	if validator, ok := fs.processor.(interface {
-		Validate(map[string]interface{}) error
+		Validate(map[string]any) error
 	}); ok {
 		if err := validator.Validate(data); err != nil {
-			return nil, errors.ErrConfigError(fmt.Sprintf("validation failed for file %s", path), err)
+			return nil, errors.ErrConfigError("validation failed for file "+path, err)
 		}
 	}
 
@@ -239,8 +241,8 @@ func (fs *FileSource) Load(ctx context.Context) (map[string]interface{}, error) 
 	return data, nil
 }
 
-// Watch starts watching the file for changes
-func (fs *FileSource) Watch(ctx context.Context, callback func(map[string]interface{})) error {
+// Watch starts watching the file for changes.
+func (fs *FileSource) Watch(ctx context.Context, callback func(map[string]any)) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
@@ -261,7 +263,8 @@ func (fs *FileSource) Watch(ctx context.Context, callback func(map[string]interf
 	dir := filepath.Dir(fs.path)
 	if err := watcher.Add(dir); err != nil {
 		watcher.Close()
-		return errors.ErrConfigError(fmt.Sprintf("failed to watch directory %s", dir), err)
+
+		return errors.ErrConfigError("failed to watch directory "+dir, err)
 	}
 
 	fs.watcher = watcher
@@ -281,7 +284,7 @@ func (fs *FileSource) Watch(ctx context.Context, callback func(map[string]interf
 	return nil
 }
 
-// StopWatch stops watching the file
+// StopWatch stops watching the file.
 func (fs *FileSource) StopWatch() error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
@@ -299,6 +302,7 @@ func (fs *FileSource) StopWatch() error {
 				)
 			}
 		}
+
 		fs.watcher = nil
 	}
 
@@ -314,7 +318,7 @@ func (fs *FileSource) StopWatch() error {
 	return nil
 }
 
-// Reload forces a reload of the file
+// Reload forces a reload of the file.
 func (fs *FileSource) Reload(ctx context.Context) error {
 	if fs.logger != nil {
 		fs.logger.Info("reloading configuration file",
@@ -324,31 +328,33 @@ func (fs *FileSource) Reload(ctx context.Context) error {
 
 	// Just load the file again - the modification time will be updated
 	_, err := fs.Load(ctx)
+
 	return err
 }
 
-// IsWatchable returns true if file watching is enabled
+// IsWatchable returns true if file watching is enabled.
 func (fs *FileSource) IsWatchable() bool {
 	return fs.options.WatchEnabled
 }
 
-// SupportsSecrets returns true if secret expansion is enabled
+// SupportsSecrets returns true if secret expansion is enabled.
 func (fs *FileSource) SupportsSecrets() bool {
 	return fs.options.ExpandSecrets
 }
 
-// GetSecret retrieves a secret value (placeholder implementation)
+// GetSecret retrieves a secret value (placeholder implementation).
 func (fs *FileSource) GetSecret(ctx context.Context, key string) (string, error) {
 	// This is a basic implementation
 	// In a real scenario, you might integrate with secret management systems
 	value := os.Getenv(key)
 	if value == "" {
-		return "", errors.ErrConfigError(fmt.Sprintf("secret not found: %s", key), nil)
+		return "", errors.ErrConfigError("secret not found: "+key, nil)
 	}
+
 	return value, nil
 }
 
-// watchLoop is the main watching loop
+// watchLoop is the main watching loop.
 func (fs *FileSource) watchLoop(ctx context.Context) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -369,17 +375,19 @@ func (fs *FileSource) watchLoop(ctx context.Context) {
 			if !ok {
 				return
 			}
+
 			fs.handleFileEvent(ctx, event)
 		case err, ok := <-fs.watcher.Errors:
 			if !ok {
 				return
 			}
+
 			fs.handleWatchError(err)
 		}
 	}
 }
 
-// handleFileEvent handles file system events
+// handleFileEvent handles file system events.
 func (fs *FileSource) handleFileEvent(ctx context.Context, event fsnotify.Event) {
 	// Check if this event is for our file
 	if !fs.isOurFile(event.Name) {
@@ -417,7 +425,7 @@ func (fs *FileSource) handleFileEvent(ctx context.Context, event fsnotify.Event)
 	}
 }
 
-// handleWatchError handles errors during watching
+// handleWatchError handles errors during watching.
 func (fs *FileSource) handleWatchError(err error) {
 	if fs.logger != nil {
 		fs.logger.Error("file watch error",
@@ -427,11 +435,11 @@ func (fs *FileSource) handleWatchError(err error) {
 	}
 
 	if fs.errorHandler != nil {
-		fs.errorHandler.HandleError(nil, errors.ErrConfigError(fmt.Sprintf("file watch error for %s", fs.path), err))
+		fs.errorHandler.HandleError(nil, errors.ErrConfigError("file watch error for "+fs.path, err))
 	}
 }
 
-// isOurFile checks if the event is for our configuration file
+// isOurFile checks if the event is for our configuration file.
 func (fs *FileSource) isOurFile(eventPath string) bool {
 	// Clean paths for comparison
 	cleanEventPath := filepath.Clean(eventPath)
@@ -440,9 +448,9 @@ func (fs *FileSource) isOurFile(eventPath string) bool {
 	return cleanEventPath == cleanFilePath
 }
 
-// expandEnvironmentVariables recursively expands environment variables
-func (fs *FileSource) expandEnvironmentVariables(data map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
+// expandEnvironmentVariables recursively expands environment variables.
+func (fs *FileSource) expandEnvironmentVariables(data map[string]any) map[string]any {
+	result := make(map[string]any)
 
 	for key, value := range data {
 		result[key] = fs.expandValue(value)
@@ -451,79 +459,86 @@ func (fs *FileSource) expandEnvironmentVariables(data map[string]interface{}) ma
 	return result
 }
 
-// expandValue recursively expands environment variables in a value
-func (fs *FileSource) expandValue(value interface{}) interface{} {
+// expandValue recursively expands environment variables in a value.
+func (fs *FileSource) expandValue(value any) any {
 	switch v := value.(type) {
 	case string:
 		return os.ExpandEnv(v)
-	case map[string]interface{}:
+	case map[string]any:
 		return fs.expandEnvironmentVariables(v)
-	case []interface{}:
-		result := make([]interface{}, len(v))
+	case []any:
+		result := make([]any, len(v))
 		for i, item := range v {
 			result[i] = fs.expandValue(item)
 		}
+
 		return result
 	default:
 		return value
 	}
 }
 
-// expandSecrets recursively expands secret references
-func (fs *FileSource) expandSecrets(ctx context.Context, data map[string]interface{}) (map[string]interface{}, error) {
-	result := make(map[string]interface{})
+// expandSecrets recursively expands secret references.
+func (fs *FileSource) expandSecrets(ctx context.Context, data map[string]any) (map[string]any, error) {
+	result := make(map[string]any)
 
 	for key, value := range data {
 		expandedValue, err := fs.expandSecretValue(ctx, value)
 		if err != nil {
 			return nil, err
 		}
+
 		result[key] = expandedValue
 	}
 
 	return result, nil
 }
 
-// expandSecretValue recursively expands secret references in a value
-func (fs *FileSource) expandSecretValue(ctx context.Context, value interface{}) (interface{}, error) {
+// expandSecretValue recursively expands secret references in a value.
+func (fs *FileSource) expandSecretValue(ctx context.Context, value any) (any, error) {
 	switch v := value.(type) {
 	case string:
 		if fs.isSecretReference(v) {
 			secretKey := fs.extractSecretKey(v)
+
 			return fs.GetSecret(ctx, secretKey)
 		}
+
 		return v, nil
-	case map[string]interface{}:
+	case map[string]any:
 		return fs.expandSecrets(ctx, v)
-	case []interface{}:
-		result := make([]interface{}, len(v))
+	case []any:
+		result := make([]any, len(v))
 		for i, item := range v {
 			expandedItem, err := fs.expandSecretValue(ctx, item)
 			if err != nil {
 				return nil, err
 			}
+
 			result[i] = expandedItem
 		}
+
 		return result, nil
 	default:
 		return value, nil
 	}
 }
 
-// isSecretReference checks if a string is a secret reference
+// isSecretReference checks if a string is a secret reference.
 func (fs *FileSource) isSecretReference(s string) bool {
 	return strings.HasPrefix(s, "${secret:") && strings.HasSuffix(s, "}")
 }
 
-// extractSecretKey extracts the secret key from a reference
+// extractSecretKey extracts the secret key from a reference.
 func (fs *FileSource) extractSecretKey(s string) string {
 	if strings.HasPrefix(s, "${secret:") && strings.HasSuffix(s, "}") {
 		return s[9 : len(s)-1] // Remove "${secret:" and "}"
 	}
+
 	return s
 }
 
-// createBackup creates a backup of the configuration file
+// createBackup creates a backup of the configuration file.
 func (fs *FileSource) createBackup(content []byte) error {
 	if fs.options.BackupDir == "" {
 		return nil
@@ -543,35 +558,38 @@ func (fs *FileSource) createBackup(content []byte) error {
 	return os.WriteFile(backupPath, content, 0600)
 }
 
-// GetPath returns the file path
+// GetPath returns the file path.
 func (fs *FileSource) GetPath() string {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
+
 	return fs.path
 }
 
-// GetFormat returns the file format
+// GetFormat returns the file format.
 func (fs *FileSource) GetFormat() string {
 	return fs.format
 }
 
-// GetLastModTime returns the last modification time
+// GetLastModTime returns the last modification time.
 func (fs *FileSource) GetLastModTime() time.Time {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
+
 	return fs.lastModTime
 }
 
-// IsWatching returns true if the file is being watched
+// IsWatching returns true if the file is being watched.
 func (fs *FileSource) IsWatching() bool {
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
+
 	return fs.watching
 }
 
 // Helper functions
 
-// expandPath expands the file path (handles ~ and environment variables)
+// expandPath expands the file path (handles ~ and environment variables).
 func expandPath(path string) (string, error) {
 	// Expand environment variables
 	path = os.ExpandEnv(path)
@@ -582,6 +600,7 @@ func expandPath(path string) (string, error) {
 		if err != nil {
 			return path, err
 		}
+
 		path = filepath.Join(homeDir, path[2:])
 	}
 
@@ -589,7 +608,7 @@ func expandPath(path string) (string, error) {
 	return filepath.Abs(path)
 }
 
-// getFormatProcessor returns a format processor for the given format
+// getFormatProcessor returns a format processor for the given format.
 func getFormatProcessor(format string) (formats.FormatProcessor, error) {
 	switch strings.ToLower(format) {
 	case "yaml", "yml":
@@ -605,13 +624,13 @@ func getFormatProcessor(format string) (formats.FormatProcessor, error) {
 	}
 }
 
-// FileSourceFactory creates file sources
+// FileSourceFactory creates file sources.
 type FileSourceFactory struct {
 	logger       logger.Logger
 	errorHandler shared.ErrorHandler
 }
 
-// NewFileSourceFactory creates a new file source factory
+// NewFileSourceFactory creates a new file source factory.
 func NewFileSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler) *FileSourceFactory {
 	return &FileSourceFactory{
 		logger:       logger,
@@ -619,10 +638,10 @@ func NewFileSourceFactory(logger logger.Logger, errorHandler shared.ErrorHandler
 	}
 }
 
-// CreateFromConfig creates a file source from configuration
+// CreateFromConfig creates a file source from configuration.
 func (factory *FileSourceFactory) CreateFromConfig(config FileSourceConfig) (configcore.ConfigSource, error) {
 	options := FileSourceOptions{
-		Name:          fmt.Sprintf("file:%s", filepath.Base(config.Path)),
+		Name:          "file:" + filepath.Base(config.Path),
 		Format:        config.Format,
 		Priority:      config.Priority,
 		WatchEnabled:  config.WatchEnabled,
@@ -639,7 +658,7 @@ func (factory *FileSourceFactory) CreateFromConfig(config FileSourceConfig) (con
 	return NewFileSource(config.Path, options)
 }
 
-// CreateMultiple creates multiple file sources from configurations
+// CreateMultiple creates multiple file sources from configurations.
 func (factory *FileSourceFactory) CreateMultiple(configs []FileSourceConfig) ([]configcore.ConfigSource, error) {
 	sources := make([]configcore.ConfigSource, 0, len(configs))
 
@@ -648,6 +667,7 @@ func (factory *FileSourceFactory) CreateMultiple(configs []FileSourceConfig) ([]
 		if err != nil {
 			return nil, err
 		}
+
 		sources = append(sources, source)
 	}
 

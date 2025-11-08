@@ -2,7 +2,7 @@ package forge
 
 import "github.com/xraph/forge/internal/logger"
 
-// Re-export logger interfaces for 100% v1 compatibility
+// Re-export logger interfaces for 100% v1 compatibility.
 type (
 	Logger        = logger.Logger
 	SugarLogger   = logger.SugarLogger
@@ -12,7 +12,7 @@ type (
 	LoggerConfig  = logger.LoggingConfig
 )
 
-// Re-export logger constants
+// Re-export logger constants.
 const (
 	LevelInfo  = logger.LevelInfo
 	LevelWarn  = logger.LevelWarn
@@ -21,7 +21,7 @@ const (
 	LevelDebug = logger.LevelDebug
 )
 
-// Re-export logger constructors
+// Re-export logger constructors.
 var (
 	NewLogger            = logger.NewLogger
 	NewDevelopmentLogger = logger.NewDevelopmentLogger
@@ -32,9 +32,9 @@ var (
 	SetGlobalLogger      = logger.SetGlobalLogger
 )
 
-// Re-export field constructors
+// Re-export field constructors.
 var (
-	// Basic types
+	// Basic types.
 	String  = logger.String
 	Int     = logger.Int
 	Int8    = logger.Int8
@@ -50,48 +50,48 @@ var (
 	Float64 = logger.Float64
 	Bool    = logger.Bool
 
-	// Time and duration
+	// Time and duration.
 	Time     = logger.Time
 	Duration = logger.Duration
 
-	// Error
+	// Error.
 	Error = logger.Error
 
-	// Advanced
+	// Advanced.
 	Stringer = logger.Stringer
 	Any      = logger.Any
 	Stack    = logger.Stack
 	Strings  = logger.Strings
 
-	// HTTP fields
+	// HTTP fields.
 	HTTPMethod    = logger.HTTPMethod
 	HTTPStatus    = logger.HTTPStatus
 	HTTPPath      = logger.HTTPPath
 	HTTPURL       = logger.HTTPURL
 	HTTPUserAgent = logger.HTTPUserAgent
 
-	// Database fields
+	// Database fields.
 	DatabaseQuery = logger.DatabaseQuery
 	DatabaseTable = logger.DatabaseTable
 	DatabaseRows  = logger.DatabaseRows
 
-	// Service fields
+	// Service fields.
 	ServiceName        = logger.ServiceName
 	ServiceVersion     = logger.ServiceVersion
 	ServiceEnvironment = logger.ServiceEnvironment
 
-	// Context fields
+	// Context fields.
 	RequestID     = logger.RequestID
 	TraceID       = logger.TraceID
 	UserID        = logger.UserID
 	ContextFields = logger.ContextFields
 
-	// Custom
+	// Custom.
 	Custom = logger.Custom
 	Lazy   = logger.Lazy
 )
 
-// Re-export context helpers (note: WithLogger conflicts with context.go, use logger.WithLogger directly)
+// Re-export context helpers (note: WithLogger conflicts with context.go, use logger.WithLogger directly).
 var (
 	LoggerFromContext    = logger.LoggerFromContext
 	WithRequestID        = logger.WithRequestID
@@ -102,7 +102,7 @@ var (
 	UserIDFromContext    = logger.UserIDFromContext
 )
 
-// Re-export utility functions
+// Re-export utility functions.
 var (
 	Track              = logger.Track
 	TrackWithLogger    = logger.TrackWithLogger
@@ -111,14 +111,14 @@ var (
 	LogPanicWithFields = logger.LogPanicWithFields
 )
 
-// Re-export field groups
+// Re-export field groups.
 var (
 	HTTPRequestGroup   = logger.HTTPRequestGroup
 	DatabaseQueryGroup = logger.DatabaseQueryGroup
 	ServiceInfoGroup   = logger.ServiceInfoGroup
 )
 
-// F creates a new field (alias for Any for backwards compatibility with Phase 7)
-func F(key string, value interface{}) Field {
+// F creates a new field (alias for Any for backwards compatibility with Phase 7).
+func F(key string, value any) Field {
 	return logger.Any(key, value)
 }

@@ -20,7 +20,7 @@ type InMemorySessionStore struct {
 	wg       sync.WaitGroup
 }
 
-// NewInMemorySessionStore creates a new in-memory session store
+// NewInMemorySessionStore creates a new in-memory session store.
 func NewInMemorySessionStore(logger forge.Logger, metrics forge.Metrics) *InMemorySessionStore {
 	return &InMemorySessionStore{
 		sessions: make(map[string]*Session),
@@ -30,7 +30,7 @@ func NewInMemorySessionStore(logger forge.Logger, metrics forge.Metrics) *InMemo
 	}
 }
 
-// Create creates a new session
+// Create creates a new session.
 func (s *InMemorySessionStore) Create(ctx context.Context, session *Session, ttl time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -52,7 +52,7 @@ func (s *InMemorySessionStore) Create(ctx context.Context, session *Session, ttl
 	return nil
 }
 
-// Get retrieves a session by ID
+// Get retrieves a session by ID.
 func (s *InMemorySessionStore) Get(ctx context.Context, sessionID string) (*Session, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -62,6 +62,7 @@ func (s *InMemorySessionStore) Get(ctx context.Context, sessionID string) (*Sess
 		if s.metrics != nil {
 			s.metrics.Counter("security.sessions.not_found").Inc()
 		}
+
 		return nil, ErrSessionNotFound
 	}
 
@@ -69,6 +70,7 @@ func (s *InMemorySessionStore) Get(ctx context.Context, sessionID string) (*Sess
 		if s.metrics != nil {
 			s.metrics.Counter("security.sessions.expired").Inc()
 		}
+
 		return nil, ErrSessionExpired
 	}
 
@@ -79,7 +81,7 @@ func (s *InMemorySessionStore) Get(ctx context.Context, sessionID string) (*Sess
 	return session, nil
 }
 
-// Update updates an existing session
+// Update updates an existing session.
 func (s *InMemorySessionStore) Update(ctx context.Context, session *Session, ttl time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -103,7 +105,7 @@ func (s *InMemorySessionStore) Update(ctx context.Context, session *Session, ttl
 	return nil
 }
 
-// Delete removes a session by ID
+// Delete removes a session by ID.
 func (s *InMemorySessionStore) Delete(ctx context.Context, sessionID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -126,15 +128,17 @@ func (s *InMemorySessionStore) Delete(ctx context.Context, sessionID string) err
 	return nil
 }
 
-// DeleteByUserID removes all sessions for a user
+// DeleteByUserID removes all sessions for a user.
 func (s *InMemorySessionStore) DeleteByUserID(ctx context.Context, userID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	deleted := 0
+
 	for id, session := range s.sessions {
 		if session.UserID == userID {
 			delete(s.sessions, id)
+
 			deleted++
 		}
 	}
@@ -152,7 +156,7 @@ func (s *InMemorySessionStore) DeleteByUserID(ctx context.Context, userID string
 	return nil
 }
 
-// Touch updates the last accessed time and extends TTL
+// Touch updates the last accessed time and extends TTL.
 func (s *InMemorySessionStore) Touch(ctx context.Context, sessionID string, ttl time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -177,7 +181,7 @@ func (s *InMemorySessionStore) Touch(ctx context.Context, sessionID string, ttl 
 	return nil
 }
 
-// Cleanup removes expired sessions
+// Cleanup removes expired sessions.
 func (s *InMemorySessionStore) Cleanup(ctx context.Context) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -188,6 +192,7 @@ func (s *InMemorySessionStore) Cleanup(ctx context.Context) (int, error) {
 	for id, session := range s.sessions {
 		if now.After(session.ExpiresAt) {
 			delete(s.sessions, id)
+
 			deleted++
 		}
 	}
@@ -206,7 +211,7 @@ func (s *InMemorySessionStore) Cleanup(ctx context.Context) (int, error) {
 	return deleted, nil
 }
 
-// Count returns the total number of active sessions
+// Count returns the total number of active sessions.
 func (s *InMemorySessionStore) Count(ctx context.Context) (int64, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -214,27 +219,30 @@ func (s *InMemorySessionStore) Count(ctx context.Context) (int64, error) {
 	return int64(len(s.sessions)), nil
 }
 
-// Connect establishes connection (no-op for in-memory)
+// Connect establishes connection (no-op for in-memory).
 func (s *InMemorySessionStore) Connect(ctx context.Context) error {
 	// Start background cleanup goroutine
 	s.wg.Add(1)
+
 	go s.cleanupLoop()
+
 	return nil
 }
 
-// Disconnect closes connection (no-op for in-memory)
+// Disconnect closes connection (no-op for in-memory).
 func (s *InMemorySessionStore) Disconnect(ctx context.Context) error {
 	close(s.stopCh)
 	s.wg.Wait()
+
 	return nil
 }
 
-// Ping checks if the store is accessible (always true for in-memory)
+// Ping checks if the store is accessible (always true for in-memory).
 func (s *InMemorySessionStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-// cleanupLoop runs periodic cleanup of expired sessions
+// cleanupLoop runs periodic cleanup of expired sessions.
 func (s *InMemorySessionStore) cleanupLoop() {
 	defer s.wg.Done()
 
@@ -254,4 +262,3 @@ func (s *InMemorySessionStore) cleanupLoop() {
 		}
 	}
 }
-

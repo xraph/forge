@@ -5,31 +5,31 @@ import (
 	"time"
 )
 
-// DI container keys for database extension services
+// DI container keys for database extension services.
 const (
-	// ManagerKey is the DI key for the database manager
+	// ManagerKey is the DI key for the database manager.
 	ManagerKey = "forge.database.manager"
-	// DatabaseKey is the DI key for the default database
+	// DatabaseKey is the DI key for the default database.
 	DatabaseKey = "forge.database.database"
-	// SQLKey is the DI key for the default SQL database (Bun DB)
+	// SQLKey is the DI key for the default SQL database (Bun DB).
 	SQLKey = "forge.database.sql"
-	// MongoKey is the DI key for the default MongoDB client
+	// MongoKey is the DI key for the default MongoDB client.
 	MongoKey = "forge.database.mongo"
 )
 
-// Config is the configuration for the database extension
+// Config is the configuration for the database extension.
 type Config struct {
 	// List of database configurations
-	Databases []DatabaseConfig `yaml:"databases" json:"databases" mapstructure:"databases"`
+	Databases []DatabaseConfig `json:"databases" mapstructure:"databases" yaml:"databases"`
 
 	// Default database name (first one if not specified)
-	Default string `yaml:"default" json:"default" mapstructure:"default"`
+	Default string `json:"default" mapstructure:"default" yaml:"default"`
 
 	// Config loading flags
-	RequireConfig bool `yaml:"-" json:"-"`
+	RequireConfig bool `json:"-" yaml:"-"`
 }
 
-// DefaultConfig returns default configuration
+// DefaultConfig returns default configuration.
 func DefaultConfig() Config {
 	return Config{
 		Databases: []DatabaseConfig{
@@ -50,7 +50,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c *Config) Validate() error {
 	if len(c.Databases) == 0 {
 		return ErrNoDatabasesConfigured()
@@ -104,45 +104,46 @@ func validateDatabaseConfig(config DatabaseConfig) error {
 	return nil
 }
 
-// ConfigOption is a functional option for Config
+// ConfigOption is a functional option for Config.
 type ConfigOption func(*Config)
 
-// WithDatabases sets the list of database configurations
+// WithDatabases sets the list of database configurations.
 func WithDatabases(databases ...DatabaseConfig) ConfigOption {
 	return func(c *Config) {
 		c.Databases = databases
 	}
 }
 
-// WithDatabase adds a single database configuration
+// WithDatabase adds a single database configuration.
 func WithDatabase(db DatabaseConfig) ConfigOption {
 	return func(c *Config) {
 		c.Databases = append(c.Databases, db)
 	}
 }
 
-// WithDefault sets the default database name
+// WithDefault sets the default database name.
 func WithDefault(name string) ConfigOption {
 	return func(c *Config) { c.Default = name }
 }
 
-// WithRequireConfig requires config from YAML
+// WithRequireConfig requires config from YAML.
 func WithRequireConfig(require bool) ConfigOption {
 	return func(c *Config) { c.RequireConfig = require }
 }
 
-// WithConfig replaces the entire config
+// WithConfig replaces the entire config.
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) { *c = config }
 }
 
-// MaskDSN masks sensitive information in DSN for logging
+// MaskDSN masks sensitive information in DSN for logging.
 func MaskDSN(dsn string, dbType DatabaseType) string {
 	switch dbType {
 	case TypePostgres:
 		// postgres://user:password@host/db -> postgres://user:***@host/db
 		if idx := strings.Index(dsn, "://"); idx != -1 {
 			prefix := dsn[:idx+3]
+
 			rest := dsn[idx+3:]
 			if idx2 := strings.Index(rest, ":"); idx2 != -1 {
 				if idx3 := strings.Index(rest[idx2:], "@"); idx3 != -1 {
@@ -161,6 +162,7 @@ func MaskDSN(dsn string, dbType DatabaseType) string {
 		// mongodb://user:password@host/db -> mongodb://user:***@host/db
 		if idx := strings.Index(dsn, "://"); idx != -1 {
 			prefix := dsn[:idx+3]
+
 			rest := dsn[idx+3:]
 			if idx2 := strings.Index(rest, ":"); idx2 != -1 {
 				if idx3 := strings.Index(rest[idx2:], "@"); idx3 != -1 {

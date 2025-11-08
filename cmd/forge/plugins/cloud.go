@@ -7,15 +7,16 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/cmd/forge/plugins/infra"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// CloudPlugin handles Forge Cloud operations
+// CloudPlugin handles Forge Cloud operations.
 type CloudPlugin struct {
 	config     *config.ForgeConfig
 	introspect *infra.Introspector
 }
 
-// NewCloudPlugin creates a new cloud plugin
+// NewCloudPlugin creates a new cloud plugin.
 func NewCloudPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &CloudPlugin{
 		config:     cfg,
@@ -123,19 +124,22 @@ func (p *CloudPlugin) showHelp(ctx cli.CommandContext) error {
 	ctx.Println("  forge cloud deploy -s api-service   # Deploy specific service")
 	ctx.Println("  forge cloud status --env=prod       # Check production status")
 	ctx.Println("  forge cloud logs -s api -f          # Follow API service logs")
+
 	return nil
 }
 
-// validateConfig checks if the project has a valid .forge.yaml
+// validateConfig checks if the project has a valid .forge.yaml.
 func (p *CloudPlugin) validateConfig(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
+
 	return nil
 }
 
@@ -159,6 +163,7 @@ func (p *CloudPlugin) cloudDeploy(ctx cli.CommandContext) error {
 		if err != nil {
 			return err
 		}
+
 		service = selectedService
 	}
 
@@ -166,28 +171,32 @@ func (p *CloudPlugin) cloudDeploy(ctx cli.CommandContext) error {
 
 	// Check authentication (stub)
 	if !p.isAuthenticated() {
-		ctx.Error(fmt.Errorf("not authenticated"))
+		ctx.Error(errors.New("not authenticated"))
 		ctx.Info("Please login first:")
 		ctx.Println("  forge cloud login")
-		return fmt.Errorf("authentication required")
+
+		return errors.New("authentication required")
 	}
 
 	// Display deployment info
-	ctx.Info(fmt.Sprintf("Environment: %s", env))
+	ctx.Info("Environment: " + env)
+
 	if service != "" {
-		ctx.Info(fmt.Sprintf("Service: %s", service))
+		ctx.Info("Service: " + service)
 	} else {
 		ctx.Info("Service: all")
 	}
+
 	if region != "" {
-		ctx.Info(fmt.Sprintf("Region: %s", region))
+		ctx.Info("Region: " + region)
 	}
+
 	ctx.Println("")
 
 	// Stub deployment process
 	spinner := ctx.Spinner("Preparing deployment...")
 	spinner.Stop(cli.Green("✓ Preparation complete"))
-	
+
 	// Simulate deployment steps
 	ctx.Info("→ Building images...")
 	ctx.Info("→ Pushing to registry...")
@@ -198,7 +207,7 @@ func (p *CloudPlugin) cloudDeploy(ctx cli.CommandContext) error {
 		ctx.Println("")
 		ctx.Info("Watching deployment progress...")
 		ctx.Println("")
-		
+
 		// Simulate deployment progress
 		steps := []string{
 			"Building api-service...",
@@ -207,9 +216,9 @@ func (p *CloudPlugin) cloudDeploy(ctx cli.CommandContext) error {
 			"Health check passed ✓",
 			"Service is live ✓",
 		}
-		
+
 		for _, step := range steps {
-			ctx.Info(fmt.Sprintf("  %s", step))
+			ctx.Info("  " + step)
 		}
 	}
 
@@ -237,10 +246,11 @@ func (p *CloudPlugin) cloudStatus(ctx cli.CommandContext) error {
 	watch := ctx.Bool("watch")
 
 	if !p.isAuthenticated() {
-		ctx.Error(fmt.Errorf("not authenticated"))
+		ctx.Error(errors.New("not authenticated"))
 		ctx.Info("Please login first:")
 		ctx.Println("  forge cloud login")
-		return fmt.Errorf("authentication required")
+
+		return errors.New("authentication required")
 	}
 
 	ctx.Info(fmt.Sprintf("☁️  Forge Cloud Status (%s environment)\n", env))
@@ -253,9 +263,11 @@ func (p *CloudPlugin) cloudStatus(ctx cli.CommandContext) error {
 	if service == "" || service == "api-service" {
 		table.AppendRow([]string{"api-service", cli.Green("✓ Running"), "3/3", "v1.2.3", "2 hours ago"})
 	}
+
 	if service == "" || service == "auth-service" {
 		table.AppendRow([]string{"auth-service", cli.Green("✓ Running"), "2/2", "v1.1.0", "1 day ago"})
 	}
+
 	if service == "" || service == "worker-service" {
 		table.AppendRow([]string{"worker-service", cli.Yellow("⚠ Degraded"), "1/2", "v0.9.0", "3 days ago"})
 	}
@@ -290,7 +302,7 @@ func (p *CloudPlugin) cloudLogin(ctx cli.CommandContext) error {
 
 	// Stub authentication
 	spinner := ctx.Spinner("Verifying credentials...")
-	
+
 	// Simulate verification
 	spinner.Stop(cli.Green("✓ Authentication successful"))
 
@@ -331,14 +343,15 @@ func (p *CloudPlugin) cloudLogs(ctx cli.CommandContext) error {
 	tail := ctx.Int("tail")
 
 	if service == "" {
-		return fmt.Errorf("--service flag is required")
+		return errors.New("--service flag is required")
 	}
 
 	if !p.isAuthenticated() {
-		ctx.Error(fmt.Errorf("not authenticated"))
+		ctx.Error(errors.New("not authenticated"))
 		ctx.Info("Please login first:")
 		ctx.Println("  forge cloud login")
-		return fmt.Errorf("authentication required")
+
+		return errors.New("authentication required")
 	}
 
 	ctx.Info(fmt.Sprintf("☁️  Logs for %s (%s)\n", service, env))
@@ -384,29 +397,31 @@ func (p *CloudPlugin) cloudRollback(ctx cli.CommandContext) error {
 	version := ctx.String("version")
 
 	if service == "" {
-		return fmt.Errorf("--service flag is required")
+		return errors.New("--service flag is required")
 	}
 
 	if !p.isAuthenticated() {
-		ctx.Error(fmt.Errorf("not authenticated"))
+		ctx.Error(errors.New("not authenticated"))
 		ctx.Info("Please login first:")
 		ctx.Println("  forge cloud login")
-		return fmt.Errorf("authentication required")
+
+		return errors.New("authentication required")
 	}
 
 	ctx.Info(fmt.Sprintf("☁️  Rolling back %s in %s environment\n", service, env))
 
 	if version != "" {
-		ctx.Info(fmt.Sprintf("Target version: %s", version))
+		ctx.Info("Target version: " + version)
 	} else {
 		ctx.Info("Target version: previous")
 	}
+
 	ctx.Println("")
 
 	// Stub rollback
 	spinner := ctx.Spinner("Initiating rollback...")
 	spinner.Stop(cli.Green("✓ Rollback initiated"))
-	
+
 	ctx.Info("→ Reverting deployment...")
 	ctx.Info("→ Health check in progress...")
 	ctx.Success("✓ Rollback successful")
@@ -431,18 +446,19 @@ func (p *CloudPlugin) cloudScale(ctx cli.CommandContext) error {
 	replicas := ctx.Int("replicas")
 
 	if service == "" {
-		return fmt.Errorf("--service flag is required")
+		return errors.New("--service flag is required")
 	}
 
 	if replicas < 1 {
-		return fmt.Errorf("replicas must be at least 1")
+		return errors.New("replicas must be at least 1")
 	}
 
 	if !p.isAuthenticated() {
-		ctx.Error(fmt.Errorf("not authenticated"))
+		ctx.Error(errors.New("not authenticated"))
 		ctx.Info("Please login first:")
 		ctx.Println("  forge cloud login")
-		return fmt.Errorf("authentication required")
+
+		return errors.New("authentication required")
 	}
 
 	ctx.Info(fmt.Sprintf("☁️  Scaling %s in %s environment\n", service, env))
@@ -452,7 +468,7 @@ func (p *CloudPlugin) cloudScale(ctx cli.CommandContext) error {
 	// Stub scaling
 	spinner := ctx.Spinner("Scaling service...")
 	spinner.Stop(cli.Green("✓ Scaling initiated"))
-	
+
 	ctx.Info("→ Updating instance count...")
 	ctx.Info("→ Waiting for instances to be ready...")
 	ctx.Success("✓ Scaling complete")
@@ -468,14 +484,14 @@ func (p *CloudPlugin) cloudScale(ctx cli.CommandContext) error {
 // ========================================
 
 // isAuthenticated checks if user is authenticated with Forge Cloud
-// This is a stub implementation
+// This is a stub implementation.
 func (p *CloudPlugin) isAuthenticated() bool {
 	// In real implementation, would check for valid auth token
 	// For now, return true to allow testing
 	return true
 }
 
-// selectService shows an interactive service selector
+// selectService shows an interactive service selector.
 func (p *CloudPlugin) selectService(ctx cli.CommandContext) (string, error) {
 	// Discover apps using introspector
 	apps, err := p.introspect.DiscoverApps()
@@ -488,17 +504,20 @@ func (p *CloudPlugin) selectService(ctx cli.CommandContext) (string, error) {
 		ctx.Println("")
 		ctx.Info("To create an app, run:")
 		ctx.Println("  forge generate:service <name>")
-		return "", fmt.Errorf("no apps found")
+
+		return "", errors.New("no apps found")
 	}
 
 	// If only one app, use it automatically
 	if len(apps) == 1 {
 		ctx.Info(fmt.Sprintf("Found 1 app: %s\n", apps[0].Name))
+
 		return apps[0].Name, nil
 	}
 
 	// Multiple apps - show selector with "all" option
 	options := make([]string, len(apps)+1)
+
 	options[0] = "all (deploy all services)"
 	for i, app := range apps {
 		options[i+1] = app.Name
@@ -512,10 +531,11 @@ func (p *CloudPlugin) selectService(ctx cli.CommandContext) (string, error) {
 	// If "all" selected, return empty string (which means deploy all)
 	if selected == options[0] {
 		ctx.Println("")
+
 		return "", nil
 	}
 
 	ctx.Println("")
+
 	return selected, nil
 }
-

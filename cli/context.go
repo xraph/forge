@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// commandContext implements the CommandContext interface
+// commandContext implements the CommandContext interface.
 type commandContext struct {
 	ctx    context.Context
 	cmd    Command
@@ -19,7 +19,7 @@ type commandContext struct {
 	cli    CLI
 }
 
-// newCommandContext creates a new command context
+// newCommandContext creates a new command context.
 func newCommandContext(ctx context.Context, cmd Command, args []string, flags map[string]*flagValue, logger *CLILogger, app forge.App, cli CLI) *commandContext {
 	return &commandContext{
 		ctx:    ctx,
@@ -42,6 +42,7 @@ func (c *commandContext) Arg(index int) string {
 	if index < 0 || index >= len(c.args) {
 		return ""
 	}
+
 	return c.args[index]
 }
 
@@ -181,7 +182,7 @@ func (c *commandContext) Logger() *CLILogger {
 	return c.logger
 }
 
-// Helper function to get flag by name or short name
+// Helper function to get flag by name or short name.
 func (c *commandContext) findFlag(name string) (*flagValue, bool) {
 	// Try exact match
 	if fv, ok := c.flags[name]; ok {
@@ -200,7 +201,7 @@ func (c *commandContext) findFlag(name string) (*flagValue, bool) {
 	return nil, false
 }
 
-// parseFlagsForCommand parses flags for a specific command
+// parseFlagsForCommand parses flags for a specific command.
 func parseFlagsForCommand(cmd Command, args []string) (map[string]*flagValue, []string, error) {
 	flagValues := make(map[string]*flagValue)
 	remainingArgs := []string{}
@@ -220,6 +221,7 @@ func parseFlagsForCommand(cmd Command, args []string) (map[string]*flagValue, []
 		// Check if it's a flag
 		if !isFlag(arg) {
 			remainingArgs = append(remainingArgs, arg)
+
 			continue
 		}
 
@@ -228,9 +230,11 @@ func parseFlagsForCommand(cmd Command, args []string) (map[string]*flagValue, []
 
 		// Find the flag definition
 		var flagDef Flag
+
 		for _, f := range cmd.Flags() {
 			if f.Name() == name || f.ShortName() == name {
 				flagDef = f
+
 				break
 			}
 		}
@@ -245,6 +249,7 @@ func parseFlagsForCommand(cmd Command, args []string) (map[string]*flagValue, []
 				rawValue: true,
 				isSet:    true,
 			}
+
 			continue
 		}
 
@@ -254,6 +259,7 @@ func parseFlagsForCommand(cmd Command, args []string) (map[string]*flagValue, []
 			if i+1 >= len(args) {
 				return nil, nil, fmt.Errorf("flag requires a value: %s", name)
 			}
+
 			i++
 			value = args[i]
 		}
@@ -285,14 +291,16 @@ func parseFlagsForCommand(cmd Command, args []string) (map[string]*flagValue, []
 	return flagValues, remainingArgs, nil
 }
 
-// parseValue parses a string value according to the flag type
+// parseValue parses a string value according to the flag type.
 func parseValue(value string, flagType FlagType) (any, error) {
 	switch flagType {
 	case StringFlagType:
 		return value, nil
 	case IntFlagType:
 		var i int
+
 		_, err := fmt.Sscanf(value, "%d", &i)
+
 		return i, err
 	case BoolFlagType:
 		return value == "true" || value == "1" || value == "yes", nil
@@ -301,9 +309,11 @@ func parseValue(value string, flagType FlagType) (any, error) {
 		if value == "" {
 			return []string{}, nil
 		}
+
 		return []string{value}, nil // Single value, can be called multiple times
 	case DurationFlagType:
 		d, err := time.ParseDuration(value)
+
 		return d, err
 	default:
 		return value, nil

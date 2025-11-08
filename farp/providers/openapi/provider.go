@@ -3,23 +3,25 @@ package openapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge/farp"
 )
 
-// Provider generates OpenAPI 3.x schemas from applications
+// Provider generates OpenAPI 3.x schemas from applications.
 type Provider struct {
 	specVersion string
 	endpoint    string
 }
 
 // NewProvider creates a new OpenAPI schema provider
-// specVersion should be "3.0.0", "3.0.1", or "3.1.0" (recommended)
+// specVersion should be "3.0.0", "3.0.1", or "3.1.0" (recommended).
 func NewProvider(specVersion string, endpoint string) *Provider {
 	if specVersion == "" {
 		specVersion = "3.1.0"
 	}
+
 	if endpoint == "" {
 		endpoint = "/openapi.json"
 	}
@@ -30,46 +32,45 @@ func NewProvider(specVersion string, endpoint string) *Provider {
 	}
 }
 
-// Type returns the schema type
+// Type returns the schema type.
 func (p *Provider) Type() farp.SchemaType {
 	return farp.SchemaTypeOpenAPI
 }
 
-// SpecVersion returns the OpenAPI specification version
+// SpecVersion returns the OpenAPI specification version.
 func (p *Provider) SpecVersion() string {
 	return p.specVersion
 }
 
-// ContentType returns the content type
+// ContentType returns the content type.
 func (p *Provider) ContentType() string {
 	return "application/json"
 }
 
-// Endpoint returns the HTTP endpoint where the schema is served
+// Endpoint returns the HTTP endpoint where the schema is served.
 func (p *Provider) Endpoint() string {
 	return p.endpoint
 }
 
 // Generate generates an OpenAPI schema from the application
-// app should provide Routes() method that returns route information
-func (p *Provider) Generate(ctx context.Context, app farp.Application) (interface{}, error) {
+// app should provide Routes() method that returns route information.
+func (p *Provider) Generate(ctx context.Context, app farp.Application) (any, error) {
 	// This is a placeholder implementation
 	// The actual implementation should integrate with Forge's OpenAPI generator
 	// For now, we return a minimal valid OpenAPI schema
-
 	routes := app.Routes()
 	if routes == nil {
-		return nil, fmt.Errorf("application does not provide routes")
+		return nil, errors.New("application does not provide routes")
 	}
 
 	// Build minimal OpenAPI spec
-	spec := map[string]interface{}{
+	spec := map[string]any{
 		"openapi": p.specVersion,
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   app.Name(),
 			"version": app.Version(),
 		},
-		"paths": map[string]interface{}{},
+		"paths": map[string]any{},
 	}
 
 	// TODO: Process routes and generate paths
@@ -78,10 +79,10 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	return spec, nil
 }
 
-// Validate validates an OpenAPI schema
-func (p *Provider) Validate(schema interface{}) error {
+// Validate validates an OpenAPI schema.
+func (p *Provider) Validate(schema any) error {
 	// Basic validation - check for required fields
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: schema must be a map", farp.ErrInvalidSchema)
 	}
@@ -104,17 +105,17 @@ func (p *Provider) Validate(schema interface{}) error {
 	return nil
 }
 
-// Hash calculates SHA256 hash of the schema
-func (p *Provider) Hash(schema interface{}) (string, error) {
+// Hash calculates SHA256 hash of the schema.
+func (p *Provider) Hash(schema any) (string, error) {
 	return farp.CalculateSchemaChecksum(schema)
 }
 
-// Serialize converts schema to JSON bytes
-func (p *Provider) Serialize(schema interface{}) ([]byte, error) {
+// Serialize converts schema to JSON bytes.
+func (p *Provider) Serialize(schema any) ([]byte, error) {
 	return json.Marshal(schema)
 }
 
-// GenerateDescriptor generates a complete SchemaDescriptor for this schema
+// GenerateDescriptor generates a complete SchemaDescriptor for this schema.
 func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
 	// Generate schema
 	schema, err := p.Generate(ctx, app)
@@ -143,9 +144,11 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeHTTP:
 		url := locationConfig["url"]
 		if url == "" {
-			return nil, fmt.Errorf("url required for HTTP location")
+			return nil, errors.New("url required for HTTP location")
 		}
+
 		location.URL = url
+
 		if headers := locationConfig["headers"]; headers != "" {
 			// Parse headers from JSON string
 			var headersMap map[string]string
@@ -157,8 +160,9 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeRegistry:
 		registryPath := locationConfig["registry_path"]
 		if registryPath == "" {
-			return nil, fmt.Errorf("registry_path required for registry location")
+			return nil, errors.New("registry_path required for registry location")
 		}
+
 		location.RegistryPath = registryPath
 
 	case farp.LocationTypeInline:

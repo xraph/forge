@@ -111,5 +111,5 @@ type MiddlewareExtension interface {
 	Middlewares() []Middleware
 }
 
-// ExtensionInfo contains information about a registered extension
+// ExtensionInfo contains information about a registered extension.
 type ExtensionInfo = shared.ExtensionInfo

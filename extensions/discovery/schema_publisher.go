@@ -10,9 +10,10 @@ import (
 	"github.com/xraph/forge/farp/providers/asyncapi"
 	"github.com/xraph/forge/farp/providers/openapi"
 	"github.com/xraph/forge/farp/registry/memory"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// SchemaPublisher handles FARP schema registration
+// SchemaPublisher handles FARP schema registration.
 type SchemaPublisher struct {
 	config   FARPConfig
 	registry farp.SchemaRegistry
@@ -20,7 +21,7 @@ type SchemaPublisher struct {
 	logger   forge.Logger
 }
 
-// NewSchemaPublisher creates a new schema publisher
+// NewSchemaPublisher creates a new schema publisher.
 func NewSchemaPublisher(config FARPConfig, app forge.App) *SchemaPublisher {
 	// For now, use memory registry - in production, this should use the same backend as discovery
 	registry := memory.NewRegistry()
@@ -33,7 +34,7 @@ func NewSchemaPublisher(config FARPConfig, app forge.App) *SchemaPublisher {
 	}
 }
 
-// Publish generates and publishes schemas for the service
+// Publish generates and publishes schemas for the service.
 func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error {
 	if !p.config.Enabled {
 		return nil
@@ -84,6 +85,7 @@ func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error 
 				forge.F("type", schemaConfig.Type),
 				forge.F("error", err),
 			)
+
 			continue
 		}
 
@@ -126,11 +128,13 @@ func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error 
 	return nil
 }
 
-// createSchemaDescriptor creates a schema descriptor from configuration
+// createSchemaDescriptor creates a schema descriptor from configuration.
 func (p *SchemaPublisher) createSchemaDescriptor(ctx context.Context, config FARPSchemaConfig) (*farp.SchemaDescriptor, error) {
 	// Generate or fetch schema based on type
-	var schema interface{}
-	var err error
+	var (
+		schema interface{}
+		err    error
+	)
 
 	switch config.Type {
 	case "openapi":
@@ -139,10 +143,10 @@ func (p *SchemaPublisher) createSchemaDescriptor(ctx context.Context, config FAR
 		schema, err = p.generateAsyncAPISchema(ctx)
 	case "grpc":
 		// TODO: Implement gRPC schema extraction
-		return nil, fmt.Errorf("grpc schema generation not yet implemented")
+		return nil, errors.New("grpc schema generation not yet implemented")
 	case "graphql":
 		// TODO: Implement GraphQL schema extraction
-		return nil, fmt.Errorf("graphql schema generation not yet implemented")
+		return nil, errors.New("graphql schema generation not yet implemented")
 	default:
 		return nil, fmt.Errorf("unsupported schema type: %s", config.Type)
 	}
@@ -195,7 +199,7 @@ func (p *SchemaPublisher) createSchemaDescriptor(ctx context.Context, config FAR
 	return descriptor, nil
 }
 
-// generateOpenAPISchema generates OpenAPI schema from the app
+// generateOpenAPISchema generates OpenAPI schema from the app.
 func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (interface{}, error) {
 	p.logger.Debug("generating OpenAPI schema from Forge router")
 
@@ -203,6 +207,7 @@ func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (interface{
 	router := p.app.Router()
 	if router == nil {
 		p.logger.Warn("no router available, returning minimal schema")
+
 		return p.generateMinimalOpenAPISchema(), nil
 	}
 
@@ -215,6 +220,7 @@ func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (interface{
 		p.logger.Warn("failed to generate OpenAPI schema from router, using minimal schema",
 			forge.F("error", err),
 		)
+
 		return p.generateMinimalOpenAPISchema(), nil
 	}
 
@@ -223,14 +229,16 @@ func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (interface{
 		p.logger.Warn("generated OpenAPI schema failed validation, using minimal schema",
 			forge.F("error", err),
 		)
+
 		return p.generateMinimalOpenAPISchema(), nil
 	}
 
 	p.logger.Debug("OpenAPI schema generated successfully")
+
 	return schema, nil
 }
 
-// generateMinimalOpenAPISchema returns a minimal valid OpenAPI schema
+// generateMinimalOpenAPISchema returns a minimal valid OpenAPI schema.
 func (p *SchemaPublisher) generateMinimalOpenAPISchema() map[string]interface{} {
 	return map[string]interface{}{
 		"openapi": "3.1.0",
@@ -242,7 +250,7 @@ func (p *SchemaPublisher) generateMinimalOpenAPISchema() map[string]interface{} 
 	}
 }
 
-// generateAsyncAPISchema generates AsyncAPI schema from the app
+// generateAsyncAPISchema generates AsyncAPI schema from the app.
 func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (interface{}, error) {
 	p.logger.Debug("generating AsyncAPI schema from Forge router")
 
@@ -250,6 +258,7 @@ func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (interface
 	router := p.app.Router()
 	if router == nil {
 		p.logger.Warn("no router available, returning minimal schema")
+
 		return p.generateMinimalAsyncAPISchema(), nil
 	}
 
@@ -262,6 +271,7 @@ func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (interface
 		p.logger.Warn("failed to generate AsyncAPI schema from router, using minimal schema",
 			forge.F("error", err),
 		)
+
 		return p.generateMinimalAsyncAPISchema(), nil
 	}
 
@@ -270,14 +280,16 @@ func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (interface
 		p.logger.Warn("generated AsyncAPI schema failed validation, using minimal schema",
 			forge.F("error", err),
 		)
+
 		return p.generateMinimalAsyncAPISchema(), nil
 	}
 
 	p.logger.Debug("AsyncAPI schema generated successfully")
+
 	return schema, nil
 }
 
-// generateMinimalAsyncAPISchema returns a minimal valid AsyncAPI schema
+// generateMinimalAsyncAPISchema returns a minimal valid AsyncAPI schema.
 func (p *SchemaPublisher) generateMinimalAsyncAPISchema() map[string]interface{} {
 	return map[string]interface{}{
 		"asyncapi": "3.0.0",
@@ -290,15 +302,17 @@ func (p *SchemaPublisher) generateMinimalAsyncAPISchema() map[string]interface{}
 	}
 }
 
-// publishSchemaContent publishes schema content to the registry
+// publishSchemaContent publishes schema content to the registry.
 func (p *SchemaPublisher) publishSchemaContent(ctx context.Context, descriptor *farp.SchemaDescriptor) error {
 	if descriptor.Location.Type != farp.LocationTypeRegistry {
 		return nil
 	}
 
 	// Generate schema
-	var schema interface{}
-	var err error
+	var (
+		schema interface{}
+		err    error
+	)
 
 	switch descriptor.Type {
 	case farp.SchemaTypeOpenAPI:
@@ -317,13 +331,13 @@ func (p *SchemaPublisher) publishSchemaContent(ctx context.Context, descriptor *
 	return p.registry.PublishSchema(ctx, descriptor.Location.RegistryPath, schema)
 }
 
-// GetManifest retrieves the manifest for an instance
+// GetManifest retrieves the manifest for an instance.
 func (p *SchemaPublisher) GetManifest(ctx context.Context, instanceID string) (*farp.SchemaManifest, error) {
 	return p.registry.GetManifest(ctx, instanceID)
 }
 
 // GetMetadataForDiscovery returns metadata that should be added to service discovery
-// This allows mDNS/Bonjour and other backends to advertise FARP endpoints in TXT records
+// This allows mDNS/Bonjour and other backends to advertise FARP endpoints in TXT records.
 func (p *SchemaPublisher) GetMetadataForDiscovery(baseURL string) map[string]string {
 	if !p.config.Enabled {
 		return nil
@@ -341,6 +355,7 @@ func (p *SchemaPublisher) GetMetadataForDiscovery(baseURL string) map[string]str
 		if baseURL != "" {
 			metadata["farp.openapi"] = baseURL + p.config.Endpoints.OpenAPI
 		}
+
 		metadata["farp.openapi.path"] = p.config.Endpoints.OpenAPI
 	}
 
@@ -348,6 +363,7 @@ func (p *SchemaPublisher) GetMetadataForDiscovery(baseURL string) map[string]str
 		if baseURL != "" {
 			metadata["farp.asyncapi"] = baseURL + p.config.Endpoints.AsyncAPI
 		}
+
 		metadata["farp.asyncapi.path"] = p.config.Endpoints.AsyncAPI
 	}
 
@@ -355,6 +371,7 @@ func (p *SchemaPublisher) GetMetadataForDiscovery(baseURL string) map[string]str
 		if baseURL != "" {
 			metadata["farp.graphql"] = baseURL + p.config.Endpoints.GraphQL
 		}
+
 		metadata["farp.graphql.path"] = p.config.Endpoints.GraphQL
 	}
 
@@ -378,13 +395,14 @@ func (p *SchemaPublisher) GetMetadataForDiscovery(baseURL string) map[string]str
 	return metadata
 }
 
-// autoDetectSchemas detects available schema types based on router capabilities
+// autoDetectSchemas detects available schema types based on router capabilities.
 func (p *SchemaPublisher) autoDetectSchemas() []FARPSchemaConfig {
 	var schemas []FARPSchemaConfig
 
 	router := p.app.Router()
 	if router == nil {
 		p.logger.Debug("no router available for schema auto-detection")
+
 		return schemas
 	}
 
@@ -403,6 +421,7 @@ func (p *SchemaPublisher) autoDetectSchemas() []FARPSchemaConfig {
 			},
 			ContentType: "application/json",
 		})
+
 		p.logger.Debug("auto-detected OpenAPI schema support")
 	}
 
@@ -421,6 +440,7 @@ func (p *SchemaPublisher) autoDetectSchemas() []FARPSchemaConfig {
 			},
 			ContentType: "application/json",
 		})
+
 		p.logger.Debug("auto-detected AsyncAPI schema support")
 	}
 
@@ -433,7 +453,7 @@ func (p *SchemaPublisher) autoDetectSchemas() []FARPSchemaConfig {
 	return schemas
 }
 
-// supportsOpenAPI checks if the router supports OpenAPI schema generation
+// supportsOpenAPI checks if the router supports OpenAPI schema generation.
 func (p *SchemaPublisher) supportsOpenAPI(router interface{}) bool {
 	// Check if router has OpenAPISpec method
 	type hasOpenAPISpec interface {
@@ -442,13 +462,14 @@ func (p *SchemaPublisher) supportsOpenAPI(router interface{}) bool {
 
 	if specProvider, ok := router.(hasOpenAPISpec); ok {
 		spec := specProvider.OpenAPISpec()
+
 		return spec != nil
 	}
 
 	return false
 }
 
-// supportsAsyncAPI checks if the router supports AsyncAPI schema generation
+// supportsAsyncAPI checks if the router supports AsyncAPI schema generation.
 func (p *SchemaPublisher) supportsAsyncAPI(router interface{}) bool {
 	// Check if router has AsyncAPISpec method
 	type hasAsyncAPISpec interface {
@@ -457,16 +478,18 @@ func (p *SchemaPublisher) supportsAsyncAPI(router interface{}) bool {
 
 	if specProvider, ok := router.(hasAsyncAPISpec); ok {
 		spec := specProvider.AsyncAPISpec()
+
 		return spec != nil
 	}
 
 	return false
 }
 
-// Close closes the schema publisher
+// Close closes the schema publisher.
 func (p *SchemaPublisher) Close() error {
 	if p.registry != nil {
 		return p.registry.Close()
 	}
+
 	return nil
 }

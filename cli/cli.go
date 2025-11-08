@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/xraph/forge"
 )
 
-// cli implements the CLI interface
+// cli implements the CLI interface.
 type cli struct {
 	name         string
 	version      string
@@ -23,7 +24,7 @@ type cli struct {
 	app          forge.App // Optional Forge app integration
 }
 
-// Config configures a CLI application
+// Config configures a CLI application.
 type Config struct {
 	Name         string
 	Version      string
@@ -34,7 +35,7 @@ type Config struct {
 	App          forge.App // Optional Forge app integration
 }
 
-// New creates a new CLI application
+// New creates a new CLI application.
 func New(config Config) CLI {
 	if config.Output == nil {
 		config.Output = os.Stdout
@@ -62,7 +63,7 @@ func New(config Config) CLI {
 	}
 }
 
-// defaultErrorHandler returns a default error handler
+// defaultErrorHandler returns a default error handler.
 func defaultErrorHandler(logger *CLILogger) func(error) {
 	return func(err error) {
 		if err != nil {
@@ -89,6 +90,7 @@ func (c *cli) AddCommand(cmd Command) error {
 	}
 
 	c.commands = append(c.commands, cmd)
+
 	return nil
 }
 
@@ -96,7 +98,7 @@ func (c *cli) Commands() []Command {
 	return c.commands
 }
 
-// Run executes the CLI application
+// Run executes the CLI application.
 func (c *cli) Run(args []string) error {
 	// Remove program name from args
 	if len(args) > 0 {
@@ -106,12 +108,14 @@ func (c *cli) Run(args []string) error {
 	// Check for version flag
 	if hasVersionFlag(args) {
 		c.printVersion()
+
 		return nil
 	}
 
 	// Check for help flag with no command
 	if len(args) == 0 || (len(args) == 1 && isHelpFlag(args[0])) {
 		c.printHelp()
+
 		return nil
 	}
 
@@ -119,14 +123,16 @@ func (c *cli) Run(args []string) error {
 	commandPath, remainingArgs := parseCommandPath(args)
 
 	// Find the command
-	var cmd Command
-	var cmdArgs []string
+	var (
+		cmd     Command
+		cmdArgs []string
+	)
 
 	if len(commandPath) > 0 {
 		// Try to find the command
 		rootCmd := c.findRootCommand(commandPath[0])
 		if rootCmd == nil {
-			return NewError(fmt.Sprintf("unknown command: %s", commandPath[0]), ExitUsageError)
+			return NewError("unknown command: "+commandPath[0], ExitUsageError)
 		}
 
 		// Navigate to subcommands
@@ -137,12 +143,14 @@ func (c *cli) Run(args []string) error {
 	} else {
 		// No command specified
 		c.printHelp()
+
 		return nil
 	}
 
 	// Check for help flag for specific command
 	if hasHelpFlag(cmdArgs) {
 		c.printCommandHelp(cmd)
+
 		return nil
 	}
 
@@ -167,18 +175,18 @@ func (c *cli) Run(args []string) error {
 	return cmd.Run(ctx)
 }
 
-// findRootCommand finds a root-level command by name or alias
+// findRootCommand finds a root-level command by name or alias.
 func (c *cli) findRootCommand(name string) Command {
 	for _, cmd := range c.commands {
 		if cmd.Name() == name {
 			return cmd
 		}
-		for _, alias := range cmd.Aliases() {
-			if alias == name {
-				return cmd
-			}
+
+		if slices.Contains(cmd.Aliases(), name) {
+			return cmd
 		}
 	}
+
 	return nil
 }
 
@@ -187,6 +195,7 @@ func (c *cli) findRootCommand(name string) Command {
 func (c *cli) Flag(name string, opts ...FlagOption) Flag {
 	flag := NewFlag(name, StringFlagType, opts...)
 	c.globalFlags = append(c.globalFlags, flag)
+
 	return flag
 }
 
@@ -237,29 +246,30 @@ func (c *cli) Plugins() []Plugin {
 
 // Helper methods
 
-// printVersion prints the version information
+// printVersion prints the version information.
 func (c *cli) printVersion() {
 	fmt.Fprintf(c.output, "%s version %s\n", c.name, c.version)
 }
 
-// printHelp prints the main help message
+// printHelp prints the main help message.
 func (c *cli) printHelp() {
 	help := generateHelp(c, nil)
 	fmt.Fprint(c.output, help)
 }
 
-// printCommandHelp prints help for a specific command
+// printCommandHelp prints help for a specific command.
 func (c *cli) printCommandHelp(cmd Command) {
 	help := generateHelp(c, cmd)
 	fmt.Fprint(c.output, help)
 }
 
-// hasVersionFlag checks if arguments contain a version flag
+// hasVersionFlag checks if arguments contain a version flag.
 func hasVersionFlag(args []string) bool {
 	for _, arg := range args {
 		if arg == "-v" || arg == "--version" || arg == "version" {
 			return true
 		}
 	}
+
 	return false
 }

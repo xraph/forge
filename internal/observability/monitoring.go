@@ -2,14 +2,16 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge/internal/logger"
 )
 
-// Monitor provides comprehensive monitoring and alerting
+// Monitor provides comprehensive monitoring and alerting.
 type Monitor struct {
 	config    MonitoringConfig
 	metrics   map[string]*Metric
@@ -22,22 +24,22 @@ type Monitor struct {
 	startTime time.Time
 }
 
-// MonitoringConfig contains monitoring configuration
+// MonitoringConfig contains monitoring configuration.
 type MonitoringConfig struct {
-	EnableMetrics     bool          `yaml:"enable_metrics" default:"true"`
-	EnableAlerts      bool          `yaml:"enable_alerts" default:"true"`
-	EnableHealth      bool          `yaml:"enable_health" default:"true"`
-	EnableUptime      bool          `yaml:"enable_uptime" default:"true"`
-	EnablePerformance bool          `yaml:"enable_performance" default:"true"`
-	CheckInterval     time.Duration `yaml:"check_interval" default:"30s"`
-	AlertTimeout      time.Duration `yaml:"alert_timeout" default:"5m"`
-	RetentionPeriod   time.Duration `yaml:"retention_period" default:"7d"`
-	MaxMetrics        int           `yaml:"max_metrics" default:"10000"`
-	MaxAlerts         int           `yaml:"max_alerts" default:"1000"`
+	EnableMetrics     bool          `default:"true"  yaml:"enable_metrics"`
+	EnableAlerts      bool          `default:"true"  yaml:"enable_alerts"`
+	EnableHealth      bool          `default:"true"  yaml:"enable_health"`
+	EnableUptime      bool          `default:"true"  yaml:"enable_uptime"`
+	EnablePerformance bool          `default:"true"  yaml:"enable_performance"`
+	CheckInterval     time.Duration `default:"30s"   yaml:"check_interval"`
+	AlertTimeout      time.Duration `default:"5m"    yaml:"alert_timeout"`
+	RetentionPeriod   time.Duration `default:"7d"    yaml:"retention_period"`
+	MaxMetrics        int           `default:"10000" yaml:"max_metrics"`
+	MaxAlerts         int           `default:"1000"  yaml:"max_alerts"`
 	Logger            logger.Logger `yaml:"-"`
 }
 
-// Metric represents a monitoring metric
+// Metric represents a monitoring metric.
 type Metric struct {
 	Name        string            `json:"name"`
 	Type        MetricType        `json:"type"`
@@ -48,7 +50,7 @@ type Metric struct {
 	Description string            `json:"description"`
 }
 
-// MetricType represents the type of metric
+// MetricType represents the type of metric.
 type MetricType int
 
 const (
@@ -58,7 +60,7 @@ const (
 	MetricTypeSummary
 )
 
-// Alert represents an alert
+// Alert represents an alert.
 type Alert struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
@@ -75,7 +77,7 @@ type Alert struct {
 	ResolvedAt  time.Time         `json:"resolved_at,omitempty"`
 }
 
-// AlertSeverity represents the severity of an alert
+// AlertSeverity represents the severity of an alert.
 type AlertSeverity int
 
 const (
@@ -85,7 +87,7 @@ const (
 	AlertSeverityEmergency
 )
 
-// AlertStatus represents the status of an alert
+// AlertStatus represents the status of an alert.
 type AlertStatus int
 
 const (
@@ -95,13 +97,13 @@ const (
 	AlertStatusResolved
 )
 
-// AlertHandler handles alert notifications
+// AlertHandler handles alert notifications.
 type AlertHandler interface {
 	HandleAlert(ctx context.Context, alert *Alert) error
 	GetName() string
 }
 
-// HealthCheck represents a health check
+// HealthCheck represents a health check.
 type HealthCheck struct {
 	Name       string            `json:"name"`
 	Status     HealthStatus      `json:"status"`
@@ -111,7 +113,7 @@ type HealthCheck struct {
 	Attributes map[string]string `json:"attributes"`
 }
 
-// HealthStatus represents the status of a health check
+// HealthStatus represents the status of a health check.
 type HealthStatus int
 
 const (
@@ -121,7 +123,7 @@ const (
 	HealthStatusUnhealthy
 )
 
-// NewMonitor creates a new monitor
+// NewMonitor creates a new monitor.
 func NewMonitor(config MonitoringConfig) *Monitor {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -140,18 +142,20 @@ func NewMonitor(config MonitoringConfig) *Monitor {
 	// Start monitoring goroutines
 	if config.EnableAlerts {
 		monitor.wg.Add(1)
+
 		go monitor.startAlerting()
 	}
 
 	if config.EnableHealth {
 		monitor.wg.Add(1)
+
 		go monitor.startHealthChecks()
 	}
 
 	return monitor
 }
 
-// RecordMetric records a metric
+// RecordMetric records a metric.
 func (m *Monitor) RecordMetric(metric *Metric) {
 	if !m.config.EnableMetrics {
 		return
@@ -163,14 +167,18 @@ func (m *Monitor) RecordMetric(metric *Metric) {
 	// Check if we've reached the maximum number of metrics
 	if len(m.metrics) >= m.config.MaxMetrics {
 		// Remove oldest metric
-		var oldestKey string
-		var oldestTime time.Time
+		var (
+			oldestKey  string
+			oldestTime time.Time
+		)
+
 		for key, metric := range m.metrics {
 			if oldestTime.IsZero() || metric.Timestamp.Before(oldestTime) {
 				oldestTime = metric.Timestamp
 				oldestKey = key
 			}
 		}
+
 		if oldestKey != "" {
 			delete(m.metrics, oldestKey)
 		}
@@ -180,7 +188,7 @@ func (m *Monitor) RecordMetric(metric *Metric) {
 	m.metrics[metric.Name] = metric
 }
 
-// GetMetric gets a metric by name
+// GetMetric gets a metric by name.
 func (m *Monitor) GetMetric(name string) (*Metric, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -193,7 +201,7 @@ func (m *Monitor) GetMetric(name string) (*Metric, error) {
 	return metric, nil
 }
 
-// ListMetrics returns all metrics
+// ListMetrics returns all metrics.
 func (m *Monitor) ListMetrics() []*Metric {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -206,10 +214,10 @@ func (m *Monitor) ListMetrics() []*Metric {
 	return metrics
 }
 
-// AddAlert adds a new alert
+// AddAlert adds a new alert.
 func (m *Monitor) AddAlert(alert *Alert) error {
 	if !m.config.EnableAlerts {
-		return fmt.Errorf("alerts are disabled")
+		return errors.New("alerts are disabled")
 	}
 
 	m.mu.Lock()
@@ -217,7 +225,7 @@ func (m *Monitor) AddAlert(alert *Alert) error {
 
 	// Check if we've reached the maximum number of alerts
 	if len(m.alerts) >= m.config.MaxAlerts {
-		return fmt.Errorf("maximum number of alerts reached")
+		return errors.New("maximum number of alerts reached")
 	}
 
 	alert.CreatedAt = time.Now()
@@ -228,7 +236,7 @@ func (m *Monitor) AddAlert(alert *Alert) error {
 	return nil
 }
 
-// UpdateAlert updates an existing alert
+// UpdateAlert updates an existing alert.
 func (m *Monitor) UpdateAlert(alert *Alert) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -245,16 +253,17 @@ func (m *Monitor) UpdateAlert(alert *Alert) error {
 	return nil
 }
 
-// RemoveAlert removes an alert
+// RemoveAlert removes an alert.
 func (m *Monitor) RemoveAlert(alertID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	delete(m.alerts, alertID)
+
 	return nil
 }
 
-// GetAlert gets an alert by ID
+// GetAlert gets an alert by ID.
 func (m *Monitor) GetAlert(alertID string) (*Alert, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -267,7 +276,7 @@ func (m *Monitor) GetAlert(alertID string) (*Alert, error) {
 	return alert, nil
 }
 
-// ListAlerts returns all alerts
+// ListAlerts returns all alerts.
 func (m *Monitor) ListAlerts() []*Alert {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -280,7 +289,7 @@ func (m *Monitor) ListAlerts() []*Alert {
 	return alerts
 }
 
-// RegisterAlertHandler registers an alert handler
+// RegisterAlertHandler registers an alert handler.
 func (m *Monitor) RegisterAlertHandler(handler AlertHandler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -288,7 +297,7 @@ func (m *Monitor) RegisterAlertHandler(handler AlertHandler) {
 	m.handlers[handler.GetName()] = handler
 }
 
-// UnregisterAlertHandler unregisters an alert handler
+// UnregisterAlertHandler unregisters an alert handler.
 func (m *Monitor) UnregisterAlertHandler(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -296,9 +305,10 @@ func (m *Monitor) UnregisterAlertHandler(name string) {
 	delete(m.handlers, name)
 }
 
-// startAlerting starts the alerting goroutine
+// startAlerting starts the alerting goroutine.
 func (m *Monitor) startAlerting() {
 	defer m.wg.Done()
+
 	ticker := time.NewTicker(m.config.CheckInterval)
 	defer ticker.Stop()
 
@@ -312,13 +322,15 @@ func (m *Monitor) startAlerting() {
 	}
 }
 
-// checkAlerts checks all alerts for firing conditions
+// checkAlerts checks all alerts for firing conditions.
 func (m *Monitor) checkAlerts() {
 	m.mu.RLock()
+
 	alerts := make([]*Alert, 0, len(m.alerts))
 	for _, alert := range m.alerts {
 		alerts = append(alerts, alert)
 	}
+
 	m.mu.RUnlock()
 
 	for _, alert := range alerts {
@@ -330,7 +342,7 @@ func (m *Monitor) checkAlerts() {
 	}
 }
 
-// shouldFireAlert determines if an alert should fire
+// shouldFireAlert determines if an alert should fire.
 func (m *Monitor) shouldFireAlert(alert *Alert) bool {
 	// Simple threshold-based alerting
 	// In a real implementation, this would be more sophisticated
@@ -353,7 +365,7 @@ func (m *Monitor) shouldFireAlert(alert *Alert) bool {
 	}
 }
 
-// fireAlert fires an alert
+// fireAlert fires an alert.
 func (m *Monitor) fireAlert(alert *Alert) {
 	if alert.Status == AlertStatusFiring {
 		return // Already firing
@@ -371,7 +383,7 @@ func (m *Monitor) fireAlert(alert *Alert) {
 	m.notifyHandlers(context.Background(), alert)
 }
 
-// resolveAlert resolves an alert
+// resolveAlert resolves an alert.
 func (m *Monitor) resolveAlert(alert *Alert) {
 	if alert.Status != AlertStatusFiring {
 		return // Not firing
@@ -386,13 +398,15 @@ func (m *Monitor) resolveAlert(alert *Alert) {
 	m.mu.Unlock()
 }
 
-// notifyHandlers notifies all registered handlers
+// notifyHandlers notifies all registered handlers.
 func (m *Monitor) notifyHandlers(ctx context.Context, alert *Alert) {
 	m.mu.RLock()
+
 	handlers := make([]AlertHandler, 0, len(m.handlers))
 	for _, handler := range m.handlers {
 		handlers = append(handlers, handler)
 	}
+
 	m.mu.RUnlock()
 
 	for _, handler := range handlers {
@@ -407,9 +421,10 @@ func (m *Monitor) notifyHandlers(ctx context.Context, alert *Alert) {
 	}
 }
 
-// startHealthChecks starts the health check goroutine
+// startHealthChecks starts the health check goroutine.
 func (m *Monitor) startHealthChecks() {
 	defer m.wg.Done()
+
 	ticker := time.NewTicker(m.config.CheckInterval)
 	defer ticker.Stop()
 
@@ -423,11 +438,10 @@ func (m *Monitor) startHealthChecks() {
 	}
 }
 
-// performHealthChecks performs health checks
+// performHealthChecks performs health checks.
 func (m *Monitor) performHealthChecks() {
 	// In a real implementation, this would check various system components
 	// For now, we'll just record a basic health metric
-
 	healthMetric := &Metric{
 		Name:        "system_health",
 		Type:        MetricTypeGauge,
@@ -440,23 +454,25 @@ func (m *Monitor) performHealthChecks() {
 	m.RecordMetric(healthMetric)
 }
 
-// GetHealthStatus returns the current health status
+// GetHealthStatus returns the current health status.
 func (m *Monitor) GetHealthStatus() *HealthCheck {
 	// Simple health check implementation
 	// In a real implementation, this would check various components
-
 	startTime := time.Now()
 	status := HealthStatusHealthy
 	message := "All systems operational"
 
 	// Check if there are any critical alerts
 	m.mu.RLock()
+
 	criticalAlerts := 0
+
 	for _, alert := range m.alerts {
 		if alert.Severity == AlertSeverityCritical && alert.Status == AlertStatusFiring {
 			criticalAlerts++
 		}
 	}
+
 	m.mu.RUnlock()
 
 	if criticalAlerts > 0 {
@@ -471,18 +487,19 @@ func (m *Monitor) GetHealthStatus() *HealthCheck {
 		Duration:  time.Since(startTime),
 		Timestamp: time.Now(),
 		Attributes: map[string]string{
-			"critical_alerts": fmt.Sprintf("%d", criticalAlerts),
+			"critical_alerts": strconv.Itoa(criticalAlerts),
 		},
 	}
 }
 
-// GetStats returns monitoring statistics
+// GetStats returns monitoring statistics.
 func (m *Monitor) GetStats() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	// Count alerts by status
 	alertCounts := make(map[string]int)
+
 	for _, alert := range m.alerts {
 		switch alert.Status {
 		case AlertStatusInactive:
@@ -505,16 +522,17 @@ func (m *Monitor) GetStats() map[string]interface{} {
 	}
 }
 
-// Shutdown shuts down the monitor
+// Shutdown shuts down the monitor.
 func (m *Monitor) Shutdown(ctx context.Context) error {
 	close(m.stopC)
 	m.wg.Wait()
+
 	return nil
 }
 
 // Built-in alert handlers
 
-// LogAlertHandler logs alerts to the logger
+// LogAlertHandler logs alerts to the logger.
 type LogAlertHandler struct {
 	logger logger.Logger
 }
@@ -530,6 +548,7 @@ func (h *LogAlertHandler) HandleAlert(ctx context.Context, alert *Alert) error {
 		logger.String("severity", alert.Severity.String()),
 		logger.String("condition", alert.Condition),
 		logger.Float64("threshold", alert.Threshold))
+
 	return nil
 }
 
@@ -537,7 +556,7 @@ func (h *LogAlertHandler) GetName() string {
 	return "log"
 }
 
-// EmailAlertHandler sends alerts via email
+// EmailAlertHandler sends alerts via email.
 type EmailAlertHandler struct {
 	recipients []string
 	smtpConfig map[string]string
@@ -559,7 +578,7 @@ func (h *EmailAlertHandler) GetName() string {
 	return "email"
 }
 
-// SlackAlertHandler sends alerts to Slack
+// SlackAlertHandler sends alerts to Slack.
 type SlackAlertHandler struct {
 	webhookURL string
 	channel    string

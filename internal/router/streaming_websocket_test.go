@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockConn implements net.Conn for testing
+// mockConn implements net.Conn for testing.
 type mockConn struct {
 	readData   []byte
 	writeData  []byte
@@ -25,8 +25,10 @@ func (m *mockConn) Read(b []byte) (n int, err error) {
 	if m.readErr != nil {
 		return 0, m.readErr
 	}
+
 	n = copy(b, m.readData)
 	m.readData = m.readData[n:]
+
 	return n, nil
 }
 
@@ -34,12 +36,15 @@ func (m *mockConn) Write(b []byte) (n int, err error) {
 	if m.writeErr != nil {
 		return 0, m.writeErr
 	}
+
 	m.writeData = append(m.writeData, b...)
+
 	return len(b), nil
 }
 
 func (m *mockConn) Close() error {
 	m.closed = true
+
 	return nil
 }
 

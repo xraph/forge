@@ -25,6 +25,7 @@ func TestConsistentHashBalancer_SelectNode(t *testing.T) {
 
 	// Test consistent hashing - same userID should get same node
 	userID := "user123"
+
 	node1, err := balancer.SelectNode(ctx, userID, nil)
 	if err != nil {
 		t.Fatalf("SelectNode() error = %v", err)
@@ -97,12 +98,14 @@ func TestConsistentHashBalancer_Distribution(t *testing.T) {
 	distribution := make(map[string]int)
 	numUsers := 1000
 
-	for i := 0; i < numUsers; i++ {
+	for i := range numUsers {
 		userID := string(rune(i))
+
 		node, err := balancer.SelectNode(ctx, userID, nil)
 		if err != nil {
 			t.Fatalf("SelectNode() error = %v", err)
 		}
+
 		distribution[node.ID]++
 	}
 
@@ -123,6 +126,7 @@ func abs(x int) int {
 	if x < 0 {
 		return -x
 	}
+
 	return x
 }
 
@@ -132,7 +136,7 @@ func BenchmarkConsistentHashBalancer_SelectNode(b *testing.B) {
 	ctx := context.Background()
 
 	// Register 10 nodes
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		node := &NodeInfo{
 			ID:      string(rune('a' + i)),
 			Address: "10.0.1.1",
@@ -142,8 +146,7 @@ func BenchmarkConsistentHashBalancer_SelectNode(b *testing.B) {
 		balancer.RegisterNode(ctx, node)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		userID := string(rune(i % 1000))
 		_, _ = balancer.SelectNode(ctx, userID, nil)
 	}

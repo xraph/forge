@@ -5,14 +5,14 @@ import (
 )
 
 // APISpec is a forward declaration to avoid import cycle
-// The actual type is defined in the client package
-type APISpec interface{}
+// The actual type is defined in the client package.
+type APISpec any
 
 // GeneratorConfig is a forward declaration to avoid import cycle
-// The actual type is defined in the client package
-type GeneratorConfig interface{}
+// The actual type is defined in the client package.
+type GeneratorConfig any
 
-// LanguageGenerator defines the interface for language-specific client generators
+// LanguageGenerator defines the interface for language-specific client generators.
 type LanguageGenerator interface {
 	// Name returns the generator name (e.g., "go", "typescript")
 	Name() string
@@ -27,7 +27,7 @@ type LanguageGenerator interface {
 	Validate(spec APISpec) error
 }
 
-// GeneratedClient represents the generated client code
+// GeneratedClient represents the generated client code.
 type GeneratedClient struct {
 	// Files maps filename to file contents
 	Files map[string]string
@@ -45,14 +45,14 @@ type GeneratedClient struct {
 	Version string
 }
 
-// Dependency represents a required dependency
+// Dependency represents a required dependency.
 type Dependency struct {
 	Name    string
 	Version string
 	Type    string // "direct", "dev", "peer"
 }
 
-// Feature constants for common features
+// Feature constants for common features.
 const (
 	FeatureREST              = "rest"
 	FeatureWebSocket         = "websocket"

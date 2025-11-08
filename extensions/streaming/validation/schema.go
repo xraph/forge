@@ -52,6 +52,7 @@ func (sv *SchemaValidator) ValidateContent(content any) error {
 	if content == nil {
 		return NewValidationError("content", "content cannot be nil", "CONTENT_REQUIRED")
 	}
+
 	return nil
 }
 
@@ -87,6 +88,7 @@ func (sv *SchemaValidator) validateObject(data any, schema *Schema) error {
 		if err != nil {
 			return NewValidationError("", "expected object", "TYPE_MISMATCH")
 		}
+
 		if err := json.Unmarshal(jsonBytes, &obj); err != nil {
 			return NewValidationError("", "expected object", "TYPE_MISMATCH")
 		}
@@ -128,12 +130,15 @@ func (sv *SchemaValidator) validateString(data any, schema *Schema) error {
 	// Check enum
 	if len(schema.Enum) > 0 {
 		valid := false
+
 		for _, allowed := range schema.Enum {
 			if str == allowed {
 				valid = true
+
 				break
 			}
 		}
+
 		if !valid {
 			return NewValidationError("", "value not in allowed list", "ENUM_MISMATCH")
 		}
@@ -155,6 +160,7 @@ func (sv *SchemaValidator) validateBoolean(data any, schema *Schema) error {
 	if _, ok := data.(bool); !ok {
 		return NewValidationError("", "expected boolean", "TYPE_MISMATCH")
 	}
+
 	return nil
 }
 
@@ -162,5 +168,6 @@ func (sv *SchemaValidator) validateArray(data any, schema *Schema) error {
 	if _, ok := data.([]any); !ok {
 		return NewValidationError("", "expected array", "TYPE_MISMATCH")
 	}
+
 	return nil
 }

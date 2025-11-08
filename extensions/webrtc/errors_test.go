@@ -9,7 +9,6 @@ import (
 	"github.com/xraph/forge/extensions/streaming"
 )
 
-
 func TestErrorTypes(t *testing.T) {
 	// Test error type checking
 	tests := []struct {
@@ -29,7 +28,7 @@ func TestErrorTypes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.err != tt.want {
+			if !errors.Is(tt.err, tt.want) {
 				t.Errorf("error mismatch: got %v, want %v", tt.err, tt.want)
 			}
 		})
@@ -50,7 +49,7 @@ func TestSignalingError(t *testing.T) {
 		t.Errorf("expected error message %q, got %q", expectedMsg, sigErr.Error())
 	}
 
-	if sigErr.Unwrap() != originalErr {
+	if !errors.Is(sigErr.Unwrap(), originalErr) {
 		t.Errorf("expected unwrapped error %v, got %v", originalErr, sigErr.Unwrap())
 	}
 }
@@ -68,7 +67,7 @@ func TestConnectionError(t *testing.T) {
 		t.Errorf("expected error message %q, got %q", expectedMsg, connErr.Error())
 	}
 
-	if connErr.Unwrap() != originalErr {
+	if !errors.Is(connErr.Unwrap(), originalErr) {
 		t.Errorf("expected unwrapped error %v, got %v", originalErr, connErr.Unwrap())
 	}
 }
@@ -86,7 +85,7 @@ func TestMediaError(t *testing.T) {
 		t.Errorf("expected error message %q, got %q", expectedMsg, mediaErr.Error())
 	}
 
-	if mediaErr.Unwrap() != originalErr {
+	if !errors.Is(mediaErr.Unwrap(), originalErr) {
 		t.Errorf("expected unwrapped error %v, got %v", originalErr, mediaErr.Unwrap())
 	}
 }
@@ -99,6 +98,7 @@ func TestPeerConnection_Errors(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -106,6 +106,7 @@ func TestPeerConnection_Errors(t *testing.T) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		t.Fatalf("failed to create WebRTC extension: %v", err)
@@ -236,6 +237,7 @@ func TestCallRoom_InvalidOperations(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -243,6 +245,7 @@ func TestCallRoom_InvalidOperations(t *testing.T) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		t.Fatalf("failed to create WebRTC extension: %v", err)
@@ -326,6 +329,7 @@ func TestExtension_HealthCheck(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -333,6 +337,7 @@ func TestExtension_HealthCheck(t *testing.T) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		t.Fatalf("failed to create WebRTC extension: %v", err)
@@ -459,19 +464,25 @@ func TestErrorWrapping(t *testing.T) {
 	}
 }
 
-// Helper functions for error type checking
+// Helper functions for error type checking.
 func IsSignalingError(err error) bool {
-	_, ok := err.(*SignalingError)
+	signalingError := &SignalingError{}
+	ok := errors.As(err, &signalingError)
+
 	return ok
 }
 
 func IsConnectionError(err error) bool {
-	_, ok := err.(*ConnectionError)
+	connectionError := &ConnectionError{}
+	ok := errors.As(err, &connectionError)
+
 	return ok
 }
 
 func IsMediaError(err error) bool {
-	_, ok := err.(*MediaError)
+	mediaError := &MediaError{}
+	ok := errors.As(err, &mediaError)
+
 	return ok
 }
 

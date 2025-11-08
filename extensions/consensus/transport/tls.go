@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// TLSConfig contains TLS configuration for secure transport
+// TLSConfig contains TLS configuration for secure transport.
 type TLSConfig struct {
 	// Enable TLS
 	Enabled bool
@@ -38,7 +39,7 @@ type TLSConfig struct {
 	InsecureSkipVerify bool
 }
 
-// TLSManager manages TLS configuration and certificate loading
+// TLSManager manages TLS configuration and certificate loading.
 type TLSManager struct {
 	config TLSConfig
 	logger forge.Logger
@@ -51,7 +52,7 @@ type TLSManager struct {
 	lastReload         time.Time
 }
 
-// NewTLSManager creates a new TLS manager
+// NewTLSManager creates a new TLS manager.
 func NewTLSManager(config TLSConfig, logger forge.Logger) (*TLSManager, error) {
 	tm := &TLSManager{
 		config:             config,
@@ -68,7 +69,7 @@ func NewTLSManager(config TLSConfig, logger forge.Logger) (*TLSManager, error) {
 	return tm, nil
 }
 
-// loadTLSConfig loads TLS configuration
+// loadTLSConfig loads TLS configuration.
 func (tm *TLSManager) loadTLSConfig() error {
 	if !tm.config.Enabled {
 		return nil
@@ -93,6 +94,7 @@ func (tm *TLSManager) loadTLSConfig() error {
 	if tlsConfig.MinVersion == 0 {
 		tlsConfig.MinVersion = tls.VersionTLS12
 	}
+
 	if tlsConfig.MaxVersion == 0 {
 		tlsConfig.MaxVersion = tls.VersionTLS13
 	}
@@ -119,7 +121,7 @@ func (tm *TLSManager) loadTLSConfig() error {
 
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return fmt.Errorf("failed to parse CA certificate")
+			return errors.New("failed to parse CA certificate")
 		}
 
 		tlsConfig.RootCAs = caCertPool
@@ -137,7 +139,7 @@ func (tm *TLSManager) loadTLSConfig() error {
 
 			clientCACertPool := x509.NewCertPool()
 			if !clientCACertPool.AppendCertsFromPEM(clientCACert) {
-				return fmt.Errorf("failed to parse client CA certificate")
+				return errors.New("failed to parse client CA certificate")
 			}
 
 			tlsConfig.ClientCAs = clientCACertPool
@@ -156,7 +158,7 @@ func (tm *TLSManager) loadTLSConfig() error {
 	return nil
 }
 
-// GetTLSConfig returns the TLS configuration
+// GetTLSConfig returns the TLS configuration.
 func (tm *TLSManager) GetTLSConfig() *tls.Config {
 	if !tm.config.Enabled {
 		return nil
@@ -170,7 +172,7 @@ func (tm *TLSManager) GetTLSConfig() *tls.Config {
 	return nil
 }
 
-// ReloadCertificates reloads certificates from disk
+// ReloadCertificates reloads certificates from disk.
 func (tm *TLSManager) ReloadCertificates() error {
 	if !tm.config.Enabled {
 		return nil
@@ -182,14 +184,16 @@ func (tm *TLSManager) ReloadCertificates() error {
 		tm.logger.Error("failed to reload certificates",
 			forge.F("error", err),
 		)
+
 		return err
 	}
 
 	tm.logger.Info("TLS certificates reloaded successfully")
+
 	return nil
 }
 
-// ShouldReload checks if certificates should be reloaded
+// ShouldReload checks if certificates should be reloaded.
 func (tm *TLSManager) ShouldReload() bool {
 	if !tm.config.Enabled {
 		return false
@@ -198,14 +202,14 @@ func (tm *TLSManager) ShouldReload() bool {
 	return time.Since(tm.lastReload) >= tm.certReloadInterval
 }
 
-// VerifyPeerCertificate verifies a peer certificate
+// VerifyPeerCertificate verifies a peer certificate.
 func (tm *TLSManager) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 	if !tm.config.Enabled || tm.config.InsecureSkipVerify {
 		return nil
 	}
 
 	if len(rawCerts) == 0 {
-		return fmt.Errorf("no peer certificates provided")
+		return errors.New("no peer certificates provided")
 	}
 
 	// Parse certificate
@@ -217,10 +221,11 @@ func (tm *TLSManager) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains []
 	// Check expiration
 	now := time.Now()
 	if now.Before(cert.NotBefore) {
-		return fmt.Errorf("certificate not yet valid")
+		return errors.New("certificate not yet valid")
 	}
+
 	if now.After(cert.NotAfter) {
-		return fmt.Errorf("certificate has expired")
+		return errors.New("certificate has expired")
 	}
 
 	tm.logger.Debug("peer certificate verified",
@@ -232,7 +237,7 @@ func (tm *TLSManager) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains []
 	return nil
 }
 
-// tlsVersionString converts TLS version to string
+// tlsVersionString converts TLS version to string.
 func tlsVersionString(version uint16) string {
 	switch version {
 	case tls.VersionTLS10:
@@ -248,10 +253,10 @@ func tlsVersionString(version uint16) string {
 	}
 }
 
-// GetCertificateInfo returns information about the loaded certificate
-func (tm *TLSManager) GetCertificateInfo() map[string]interface{} {
+// GetCertificateInfo returns information about the loaded certificate.
+func (tm *TLSManager) GetCertificateInfo() map[string]any {
 	if !tm.config.Enabled || tm.tlsConfig == nil || len(tm.tlsConfig.Certificates) == 0 {
-		return map[string]interface{}{
+		return map[string]any{
 			"enabled": false,
 		}
 	}
@@ -260,9 +265,10 @@ func (tm *TLSManager) GetCertificateInfo() map[string]interface{} {
 	if cert.Leaf == nil && len(cert.Certificate) > 0 {
 		// Parse leaf certificate
 		var err error
+
 		cert.Leaf, err = x509.ParseCertificate(cert.Certificate[0])
 		if err != nil {
-			return map[string]interface{}{
+			return map[string]any{
 				"enabled": true,
 				"error":   err.Error(),
 			}
@@ -270,7 +276,7 @@ func (tm *TLSManager) GetCertificateInfo() map[string]interface{} {
 	}
 
 	if cert.Leaf != nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"enabled":    true,
 			"subject":    cert.Leaf.Subject.CommonName,
 			"issuer":     cert.Leaf.Issuer.CommonName,
@@ -281,22 +287,22 @@ func (tm *TLSManager) GetCertificateInfo() map[string]interface{} {
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"enabled": true,
 	}
 }
 
-// IsEnabled returns whether TLS is enabled
+// IsEnabled returns whether TLS is enabled.
 func (tm *TLSManager) IsEnabled() bool {
 	return tm.config.Enabled
 }
 
-// IsMTLSEnabled returns whether mTLS is enabled
+// IsMTLSEnabled returns whether mTLS is enabled.
 func (tm *TLSManager) IsMTLSEnabled() bool {
 	return tm.config.Enabled && tm.config.RequireClientCert
 }
 
-// DefaultTLSConfig returns a secure default TLS configuration
+// DefaultTLSConfig returns a secure default TLS configuration.
 func DefaultTLSConfig() TLSConfig {
 	return TLSConfig{
 		Enabled:            true,
@@ -314,7 +320,7 @@ func DefaultTLSConfig() TLSConfig {
 	}
 }
 
-// MTLSConfig returns a default mTLS configuration
+// MTLSConfig returns a default mTLS configuration.
 func MTLSConfig(certFile, keyFile, caFile string) TLSConfig {
 	config := DefaultTLSConfig()
 	config.CertFile = certFile
@@ -322,5 +328,6 @@ func MTLSConfig(certFile, keyFile, caFile string) TLSConfig {
 	config.CAFile = caFile
 	config.ClientCAFile = caFile
 	config.RequireClientCert = true
+
 	return config
 }

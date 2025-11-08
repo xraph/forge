@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// ApplyManager manages optimized log entry application
+// ApplyManager manages optimized log entry application.
 type ApplyManager struct {
 	stateMachine internal.StateMachine
 	logger       forge.Logger
@@ -40,13 +40,13 @@ type ApplyManager struct {
 	mu      sync.RWMutex
 }
 
-// applyTask represents a task to apply log entries
+// applyTask represents a task to apply log entries.
 type applyTask struct {
 	entries []internal.LogEntry
 	result  chan applyResult
 }
 
-// applyResult represents the result of applying log entries
+// applyResult represents the result of applying log entries.
 type applyResult struct {
 	lastIndex uint64
 	count     int
@@ -54,7 +54,7 @@ type applyResult struct {
 	duration  time.Duration
 }
 
-// ApplyManagerConfig contains apply manager configuration
+// ApplyManagerConfig contains apply manager configuration.
 type ApplyManagerConfig struct {
 	PipelineDepth int
 	WorkerCount   int
@@ -62,7 +62,7 @@ type ApplyManagerConfig struct {
 	BatchTimeout  time.Duration
 }
 
-// NewApplyManager creates a new apply manager
+// NewApplyManager creates a new apply manager.
 func NewApplyManager(
 	stateMachine internal.StateMachine,
 	config ApplyManagerConfig,
@@ -71,12 +71,15 @@ func NewApplyManager(
 	if config.PipelineDepth == 0 {
 		config.PipelineDepth = 1000
 	}
+
 	if config.WorkerCount == 0 {
 		config.WorkerCount = 4
 	}
+
 	if config.BatchSize == 0 {
 		config.BatchSize = 100
 	}
+
 	if config.BatchTimeout == 0 {
 		config.BatchTimeout = 10 * time.Millisecond
 	}
@@ -93,7 +96,7 @@ func NewApplyManager(
 	}
 }
 
-// Start starts the apply manager
+// Start starts the apply manager.
 func (am *ApplyManager) Start(ctx context.Context) error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
@@ -108,6 +111,7 @@ func (am *ApplyManager) Start(ctx context.Context) error {
 	// Start worker pool
 	for i := 0; i < am.workerCount; i++ {
 		am.wg.Add(1)
+
 		go am.applyWorker(i)
 	}
 
@@ -120,13 +124,16 @@ func (am *ApplyManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the apply manager
+// Stop stops the apply manager.
 func (am *ApplyManager) Stop(ctx context.Context) error {
 	am.mu.Lock()
+
 	if !am.started {
 		am.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	am.mu.Unlock()
 
 	if am.cancel != nil {
@@ -138,6 +145,7 @@ func (am *ApplyManager) Stop(ctx context.Context) error {
 
 	// Wait for workers
 	done := make(chan struct{})
+
 	go func() {
 		am.wg.Wait()
 		close(done)
@@ -153,7 +161,7 @@ func (am *ApplyManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// ApplyEntries applies log entries asynchronously
+// ApplyEntries applies log entries asynchronously.
 func (am *ApplyManager) ApplyEntries(entries []internal.LogEntry) error {
 	if len(entries) == 0 {
 		return nil
@@ -164,6 +172,7 @@ func (am *ApplyManager) ApplyEntries(entries []internal.LogEntry) error {
 
 	// Store result channel
 	lastIndex := entries[len(entries)-1].Index
+
 	am.resultMu.Lock()
 	am.resultChans[lastIndex] = resultChan
 	am.resultMu.Unlock()
@@ -178,13 +187,13 @@ func (am *ApplyManager) ApplyEntries(entries []internal.LogEntry) error {
 	case am.applyPipeline <- task:
 		return nil
 	case <-am.ctx.Done():
-		return fmt.Errorf("apply manager stopped")
+		return errors.New("apply manager stopped")
 	default:
-		return fmt.Errorf("apply pipeline full")
+		return errors.New("apply pipeline full")
 	}
 }
 
-// ApplyEntriesSync applies log entries synchronously
+// ApplyEntriesSync applies log entries synchronously.
 func (am *ApplyManager) ApplyEntriesSync(entries []internal.LogEntry, timeout time.Duration) error {
 	if len(entries) == 0 {
 		return nil
@@ -197,10 +206,11 @@ func (am *ApplyManager) ApplyEntriesSync(entries []internal.LogEntry, timeout ti
 
 	// Wait for result
 	lastIndex := entries[len(entries)-1].Index
+
 	return am.WaitForApply(lastIndex, timeout)
 }
 
-// WaitForApply waits for entries up to index to be applied
+// WaitForApply waits for entries up to index to be applied.
 func (am *ApplyManager) WaitForApply(index uint64, timeout time.Duration) error {
 	am.resultMu.RLock()
 	resultChan, exists := am.resultChans[index]
@@ -227,11 +237,11 @@ func (am *ApplyManager) WaitForApply(index uint64, timeout time.Duration) error 
 		return fmt.Errorf("apply timeout for index %d", index)
 
 	case <-am.ctx.Done():
-		return fmt.Errorf("apply manager stopped")
+		return errors.New("apply manager stopped")
 	}
 }
 
-// applyWorker processes apply tasks
+// applyWorker processes apply tasks.
 func (am *ApplyManager) applyWorker(workerID int) {
 	defer am.wg.Done()
 
@@ -262,7 +272,7 @@ func (am *ApplyManager) applyWorker(workerID int) {
 	}
 }
 
-// processApplyTask processes an apply task
+// processApplyTask processes an apply task.
 func (am *ApplyManager) processApplyTask(task applyTask) applyResult {
 	startTime := time.Now()
 
@@ -272,10 +282,7 @@ func (am *ApplyManager) processApplyTask(task applyTask) applyResult {
 
 	// Apply entries in batches
 	for i := 0; i < len(task.entries); i += am.batchSize {
-		end := i + am.batchSize
-		if end > len(task.entries) {
-			end = len(task.entries)
-		}
+		end := min(i+am.batchSize, len(task.entries))
 
 		batch := task.entries[i:end]
 
@@ -311,6 +318,7 @@ func (am *ApplyManager) processApplyTask(task applyTask) applyResult {
 	} else {
 		am.averageLatency = (am.averageLatency + result.duration) / 2
 	}
+
 	am.statsMu.Unlock()
 
 	am.logger.Debug("applied entries",
@@ -322,7 +330,7 @@ func (am *ApplyManager) processApplyTask(task applyTask) applyResult {
 	return result
 }
 
-// ApplyBatch applies a batch of entries with optimizations
+// ApplyBatch applies a batch of entries with optimizations.
 func (am *ApplyManager) ApplyBatch(entries []internal.LogEntry) error {
 	if len(entries) == 0 {
 		return nil
@@ -332,12 +340,10 @@ func (am *ApplyManager) ApplyBatch(entries []internal.LogEntry) error {
 	batchCount := (len(entries) + am.batchSize - 1) / am.batchSize
 	resultChans := make([]chan applyResult, batchCount)
 
-	for i := 0; i < batchCount; i++ {
+	for i := range batchCount {
 		start := i * am.batchSize
-		end := start + am.batchSize
-		if end > len(entries) {
-			end = len(entries)
-		}
+
+		end := min(start+am.batchSize, len(entries))
 
 		batch := entries[start:end]
 		resultChan := make(chan applyResult, 1)
@@ -352,9 +358,9 @@ func (am *ApplyManager) ApplyBatch(entries []internal.LogEntry) error {
 		select {
 		case am.applyPipeline <- task:
 		case <-am.ctx.Done():
-			return fmt.Errorf("apply manager stopped")
+			return errors.New("apply manager stopped")
 		default:
-			return fmt.Errorf("apply pipeline full")
+			return errors.New("apply pipeline full")
 		}
 	}
 
@@ -370,14 +376,14 @@ func (am *ApplyManager) ApplyBatch(entries []internal.LogEntry) error {
 			return fmt.Errorf("batch %d timeout", i)
 
 		case <-am.ctx.Done():
-			return fmt.Errorf("apply manager stopped")
+			return errors.New("apply manager stopped")
 		}
 	}
 
 	return nil
 }
 
-// ApplyWithRetry applies entries with retry logic
+// ApplyWithRetry applies entries with retry logic.
 func (am *ApplyManager) ApplyWithRetry(entries []internal.LogEntry, maxRetries int) error {
 	var err error
 
@@ -407,8 +413,8 @@ func (am *ApplyManager) ApplyWithRetry(entries []internal.LogEntry, maxRetries i
 	return err
 }
 
-// GetStats returns apply manager statistics
-func (am *ApplyManager) GetStats() map[string]interface{} {
+// GetStats returns apply manager statistics.
+func (am *ApplyManager) GetStats() map[string]any {
 	am.statsMu.RLock()
 	defer am.statsMu.RUnlock()
 
@@ -418,7 +424,7 @@ func (am *ApplyManager) GetStats() map[string]interface{} {
 
 	pipelineSize := len(am.applyPipeline)
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"total_applied":      am.totalApplied,
 		"total_failed":       am.totalFailed,
 		"average_latency_ms": am.averageLatency.Milliseconds(),
@@ -436,25 +442,27 @@ func (am *ApplyManager) GetStats() map[string]interface{} {
 	return stats
 }
 
-// GetPipelineUtilization returns pipeline utilization percentage
+// GetPipelineUtilization returns pipeline utilization percentage.
 func (am *ApplyManager) GetPipelineUtilization() float64 {
 	size := len(am.applyPipeline)
+
 	return float64(size) / float64(am.pipelineDepth) * 100.0
 }
 
-// IsPipelineFull returns true if the pipeline is full
+// IsPipelineFull returns true if the pipeline is full.
 func (am *ApplyManager) IsPipelineFull() bool {
 	return len(am.applyPipeline) >= am.pipelineDepth
 }
 
-// GetPendingCount returns the number of pending applies
+// GetPendingCount returns the number of pending applies.
 func (am *ApplyManager) GetPendingCount() int {
 	am.resultMu.RLock()
 	defer am.resultMu.RUnlock()
+
 	return len(am.resultChans)
 }
 
-// FlushPending waits for all pending applies to complete
+// FlushPending waits for all pending applies to complete.
 func (am *ApplyManager) FlushPending(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 

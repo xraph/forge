@@ -34,7 +34,7 @@ type BaseExtension struct {
 	mu           sync.RWMutex
 }
 
-// NewBaseExtension creates a new base extension with the given identity
+// NewBaseExtension creates a new base extension with the given identity.
 func NewBaseExtension(name, version, description string) *BaseExtension {
 	return &BaseExtension{
 		name:         name,
@@ -44,69 +44,72 @@ func NewBaseExtension(name, version, description string) *BaseExtension {
 	}
 }
 
-// Name returns the extension name
+// Name returns the extension name.
 func (e *BaseExtension) Name() string {
 	return e.name
 }
 
-// Version returns the extension version
+// Version returns the extension version.
 func (e *BaseExtension) Version() string {
 	return e.version
 }
 
-// Description returns the extension description
+// Description returns the extension description.
 func (e *BaseExtension) Description() string {
 	return e.description
 }
 
-// Dependencies returns the extension dependencies
+// Dependencies returns the extension dependencies.
 func (e *BaseExtension) Dependencies() []string {
 	return e.dependencies
 }
 
-// SetDependencies sets the extension dependencies
+// SetDependencies sets the extension dependencies.
 func (e *BaseExtension) SetDependencies(deps []string) {
 	e.dependencies = deps
 }
 
-// SetLogger sets the logger for this extension
+// SetLogger sets the logger for this extension.
 func (e *BaseExtension) SetLogger(logger Logger) {
 	e.logger = logger
 }
 
-// Logger returns the extension's logger
+// Logger returns the extension's logger.
 func (e *BaseExtension) Logger() Logger {
 	return e.logger
 }
 
-// SetMetrics sets the metrics for this extension
+// SetMetrics sets the metrics for this extension.
 func (e *BaseExtension) SetMetrics(metrics Metrics) {
 	e.metrics = metrics
 }
 
-// Metrics returns the extension's metrics
+// Metrics returns the extension's metrics.
 func (e *BaseExtension) Metrics() Metrics {
 	return e.metrics
 }
 
-// IsStarted returns true if the extension has been started
+// IsStarted returns true if the extension has been started.
 func (e *BaseExtension) IsStarted() bool {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
+
 	return e.started
 }
 
-// MarkStarted marks the extension as started
+// MarkStarted marks the extension as started.
 func (e *BaseExtension) MarkStarted() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	e.started = true
 }
 
-// MarkStopped marks the extension as stopped
+// MarkStopped marks the extension as stopped.
 func (e *BaseExtension) MarkStopped() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	e.started = false
 }
 
@@ -117,6 +120,7 @@ func (e *BaseExtension) Register(app App) error {
 	e.app = app
 	e.logger = app.Logger()
 	e.metrics = app.Metrics()
+
 	return nil
 }
 
@@ -124,6 +128,7 @@ func (e *BaseExtension) Register(app App) error {
 // Extensions should override this to start their services.
 func (e *BaseExtension) Start(ctx context.Context) error {
 	e.MarkStarted()
+
 	return nil
 }
 
@@ -131,6 +136,7 @@ func (e *BaseExtension) Start(ctx context.Context) error {
 // Extensions should override this to stop their services.
 func (e *BaseExtension) Stop(ctx context.Context) error {
 	e.MarkStopped()
+
 	return nil
 }
 
@@ -171,9 +177,9 @@ func (e *BaseExtension) Health(ctx context.Context) error {
 //	}
 func (e *BaseExtension) LoadConfig(
 	key string,
-	target interface{},
-	programmaticConfig interface{},
-	defaults interface{},
+	target any,
+	programmaticConfig any,
+	defaults any,
 	requireConfig bool,
 ) error {
 	if e.app == nil {
@@ -182,14 +188,16 @@ func (e *BaseExtension) LoadConfig(
 		}
 		// No app available, use programmatic or defaults
 		loader := NewExtensionConfigLoader(nil, e.logger)
+
 		return loader.LoadConfig(key, target, programmaticConfig, defaults, false)
 	}
 
 	loader := NewExtensionConfigLoader(e.app, e.logger)
+
 	return loader.LoadConfig(key, target, programmaticConfig, defaults, requireConfig)
 }
 
-// App returns the app instance this extension is registered with
+// App returns the app instance this extension is registered with.
 func (e *BaseExtension) App() App {
 	return e.app
 }

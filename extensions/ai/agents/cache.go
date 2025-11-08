@@ -7,31 +7,33 @@ import (
 	"time"
 
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// CacheAgent optimizes caching strategies and performance
+// CacheAgent optimizes caching strategies and performance.
 type CacheAgent struct {
 	*ai.BaseAgent
-	cacheManager      interface{} // Cache manager from Phase 4
+
+	cacheManager      any // Cache manager from Phase 4
 	hitRateThreshold  float64
 	evictionPolicy    string
 	warmupStrategies  []WarmupStrategy
 	optimizationStats CacheOptimizationStats
 }
 
-// WarmupStrategy defines cache warming strategies
+// WarmupStrategy defines cache warming strategies.
 type WarmupStrategy struct {
-	Name        string                 `json:"name"`
-	Priority    int                    `json:"priority"`
-	Condition   string                 `json:"condition"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Enabled     bool                   `json:"enabled"`
-	LastUsed    time.Time              `json:"last_used"`
-	SuccessRate float64                `json:"success_rate"`
+	Name        string         `json:"name"`
+	Priority    int            `json:"priority"`
+	Condition   string         `json:"condition"`
+	Parameters  map[string]any `json:"parameters"`
+	Enabled     bool           `json:"enabled"`
+	LastUsed    time.Time      `json:"last_used"`
+	SuccessRate float64        `json:"success_rate"`
 }
 
-// CacheOptimizationStats tracks cache optimization metrics
+// CacheOptimizationStats tracks cache optimization metrics.
 type CacheOptimizationStats struct {
 	HitRateImprovement    float64   `json:"hit_rate_improvement"`
 	EvictionOptimizations int64     `json:"eviction_optimizations"`
@@ -41,7 +43,7 @@ type CacheOptimizationStats struct {
 	TotalSavings          float64   `json:"total_savings"` // In cost or time
 }
 
-// CacheInput represents cache optimization input
+// CacheInput represents cache optimization input.
 type CacheInput struct {
 	CacheMetrics      CacheMetrics        `json:"cache_metrics"`
 	AccessPatterns    []AccessPattern     `json:"access_patterns"`
@@ -53,7 +55,7 @@ type CacheInput struct {
 	OptimizationGoals []OptimizationGoal  `json:"optimization_goals"`
 }
 
-// CacheMetrics contains cache performance metrics
+// CacheMetrics contains cache performance metrics.
 type CacheMetrics struct {
 	HitRate          float64          `json:"hit_rate"`
 	MissRate         float64          `json:"miss_rate"`
@@ -65,7 +67,7 @@ type CacheMetrics struct {
 	TTLDistribution  map[string]int64 `json:"ttl_distribution"`
 }
 
-// AccessPattern represents cache access patterns
+// AccessPattern represents cache access patterns.
 type AccessPattern struct {
 	Pattern        string        `json:"pattern"`
 	Frequency      int64         `json:"frequency"`
@@ -75,7 +77,7 @@ type AccessPattern struct {
 	Keys           []string      `json:"keys"`
 }
 
-// StorageMetrics contains storage-related metrics
+// StorageMetrics contains storage-related metrics.
 type StorageMetrics struct {
 	TotalSize        int64         `json:"total_size"`
 	UsedSize         int64         `json:"used_size"`
@@ -85,7 +87,7 @@ type StorageMetrics struct {
 	Throughput       int64         `json:"throughput"`
 }
 
-// PerformanceData contains performance metrics
+// PerformanceData contains performance metrics.
 type PerformanceData struct {
 	ResponseTime   time.Duration `json:"response_time"`
 	Throughput     int64         `json:"throughput"`
@@ -95,15 +97,15 @@ type PerformanceData struct {
 	ErrorRate      float64       `json:"error_rate"`
 }
 
-// UserBehaviorMetrics contains user behavior analysis
+// UserBehaviorMetrics contains user behavior analysis.
 type UserBehaviorMetrics struct {
-	ActiveUsers     int64                  `json:"active_users"`
-	SessionLength   time.Duration          `json:"session_length"`
-	RequestPatterns []UserRequestPattern   `json:"request_patterns"`
-	Preferences     map[string]interface{} `json:"preferences"`
+	ActiveUsers     int64                `json:"active_users"`
+	SessionLength   time.Duration        `json:"session_length"`
+	RequestPatterns []UserRequestPattern `json:"request_patterns"`
+	Preferences     map[string]any       `json:"preferences"`
 }
 
-// UserRequestPattern represents user request patterns
+// UserRequestPattern represents user request patterns.
 type UserRequestPattern struct {
 	UserID    string      `json:"user_id"`
 	Requests  []string    `json:"requests"`
@@ -112,7 +114,7 @@ type UserRequestPattern struct {
 	Locality  string      `json:"locality"`
 }
 
-// TimeContext provides temporal context for optimization
+// TimeContext provides temporal context for optimization.
 type TimeContext struct {
 	CurrentTime  time.Time `json:"current_time"`
 	DayOfWeek    string    `json:"day_of_week"`
@@ -122,7 +124,7 @@ type TimeContext struct {
 	EventContext string    `json:"event_context"`
 }
 
-// ResourceUsage tracks resource utilization
+// ResourceUsage tracks resource utilization.
 type ResourceUsage struct {
 	CPU     float64 `json:"cpu"`
 	Memory  float64 `json:"memory"`
@@ -131,7 +133,7 @@ type ResourceUsage struct {
 	Cost    float64 `json:"cost"`
 }
 
-// OptimizationGoal defines optimization objectives
+// OptimizationGoal defines optimization objectives.
 type OptimizationGoal struct {
 	Type     string  `json:"type"` // hit_rate, latency, cost, storage
 	Target   float64 `json:"target"`
@@ -139,7 +141,7 @@ type OptimizationGoal struct {
 	Weight   float64 `json:"weight"`
 }
 
-// CacheOutput represents cache optimization output
+// CacheOutput represents cache optimization output.
 type CacheOutput struct {
 	Recommendations  []CacheRecommendation `json:"recommendations"`
 	WarmupPlan       WarmupPlan            `json:"warmup_plan"`
@@ -149,49 +151,49 @@ type CacheOutput struct {
 	Actions          []CacheAction         `json:"actions"`
 }
 
-// CacheRecommendation contains cache optimization recommendations
+// CacheRecommendation contains cache optimization recommendations.
 type CacheRecommendation struct {
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Impact      string                 `json:"impact"`
-	Confidence  float64                `json:"confidence"`
-	Priority    int                    `json:"priority"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Rationale   string                 `json:"rationale"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Impact      string         `json:"impact"`
+	Confidence  float64        `json:"confidence"`
+	Priority    int            `json:"priority"`
+	Parameters  map[string]any `json:"parameters"`
+	Rationale   string         `json:"rationale"`
 }
 
-// WarmupPlan defines cache warming strategy
+// WarmupPlan defines cache warming strategy.
 type WarmupPlan struct {
-	Strategy    string                 `json:"strategy"`
-	Keys        []string               `json:"keys"`
-	Priority    []int                  `json:"priority"`
-	Schedule    []time.Time            `json:"schedule"`
-	BatchSize   int                    `json:"batch_size"`
-	Parallelism int                    `json:"parallelism"`
-	Parameters  map[string]interface{} `json:"parameters"`
+	Strategy    string         `json:"strategy"`
+	Keys        []string       `json:"keys"`
+	Priority    []int          `json:"priority"`
+	Schedule    []time.Time    `json:"schedule"`
+	BatchSize   int            `json:"batch_size"`
+	Parallelism int            `json:"parallelism"`
+	Parameters  map[string]any `json:"parameters"`
 }
 
-// EvictionStrategy defines cache eviction strategy
+// EvictionStrategy defines cache eviction strategy.
 type EvictionStrategy struct {
-	Policy     string                 `json:"policy"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Thresholds map[string]float64     `json:"thresholds"`
-	Conditions []string               `json:"conditions"`
-	Scheduling string                 `json:"scheduling"`
+	Policy     string             `json:"policy"`
+	Parameters map[string]any     `json:"parameters"`
+	Thresholds map[string]float64 `json:"thresholds"`
+	Conditions []string           `json:"conditions"`
+	Scheduling string             `json:"scheduling"`
 }
 
-// SizingAdvice provides cache sizing recommendations
+// SizingAdvice provides cache sizing recommendations.
 type SizingAdvice struct {
-	RecommendedSize int64                  `json:"recommended_size"`
-	MinSize         int64                  `json:"min_size"`
-	MaxSize         int64                  `json:"max_size"`
-	OptimalRatio    float64                `json:"optimal_ratio"`
-	Partitioning    map[string]int64       `json:"partitioning"`
-	Rationale       string                 `json:"rationale"`
-	Parameters      map[string]interface{} `json:"parameters"`
+	RecommendedSize int64            `json:"recommended_size"`
+	MinSize         int64            `json:"min_size"`
+	MaxSize         int64            `json:"max_size"`
+	OptimalRatio    float64          `json:"optimal_ratio"`
+	Partitioning    map[string]int64 `json:"partitioning"`
+	Rationale       string           `json:"rationale"`
+	Parameters      map[string]any   `json:"parameters"`
 }
 
-// PredictedImpact shows expected optimization impact
+// PredictedImpact shows expected optimization impact.
 type PredictedImpact struct {
 	HitRateImprovement  float64       `json:"hit_rate_improvement"`
 	LatencyReduction    time.Duration `json:"latency_reduction"`
@@ -200,26 +202,26 @@ type PredictedImpact struct {
 	Confidence          float64       `json:"confidence"`
 }
 
-// CacheAction represents a cache optimization action
+// CacheAction represents a cache optimization action.
 type CacheAction struct {
-	Type       string                 `json:"type"`
-	Target     string                 `json:"target"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Priority   int                    `json:"priority"`
-	Condition  string                 `json:"condition"`
-	Timeout    time.Duration          `json:"timeout"`
-	Rollback   bool                   `json:"rollback"`
+	Type       string         `json:"type"`
+	Target     string         `json:"target"`
+	Parameters map[string]any `json:"parameters"`
+	Priority   int            `json:"priority"`
+	Condition  string         `json:"condition"`
+	Timeout    time.Duration  `json:"timeout"`
+	Rollback   bool           `json:"rollback"`
 }
 
-// NewCacheAgent creates a new cache optimization agent
+// NewCacheAgent creates a new cache optimization agent.
 func NewCacheAgent() ai.AIAgent {
 	capabilities := []ai.Capability{
 		{
 			Name:        "predictive-warming",
 			Description: "Predict and warm cache entries before they're needed",
-			InputType:   reflect.TypeOf(CacheInput{}),
-			OutputType:  reflect.TypeOf(CacheOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[CacheInput](),
+			OutputType:  reflect.TypeFor[CacheOutput](),
+			Metadata: map[string]any{
 				"accuracy": 0.85,
 				"latency":  "50ms",
 			},
@@ -227,9 +229,9 @@ func NewCacheAgent() ai.AIAgent {
 		{
 			Name:        "intelligent-eviction",
 			Description: "Optimize cache eviction policies based on access patterns",
-			InputType:   reflect.TypeOf(CacheInput{}),
-			OutputType:  reflect.TypeOf(CacheOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[CacheInput](),
+			OutputType:  reflect.TypeFor[CacheOutput](),
+			Metadata: map[string]any{
 				"efficiency":   0.92,
 				"adaptability": "high",
 			},
@@ -237,9 +239,9 @@ func NewCacheAgent() ai.AIAgent {
 		{
 			Name:        "hit-rate-optimization",
 			Description: "Optimize cache hit rates through intelligent caching strategies",
-			InputType:   reflect.TypeOf(CacheInput{}),
-			OutputType:  reflect.TypeOf(CacheOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[CacheInput](),
+			OutputType:  reflect.TypeFor[CacheOutput](),
+			Metadata: map[string]any{
 				"improvement": 0.25,
 				"consistency": "high",
 			},
@@ -247,9 +249,9 @@ func NewCacheAgent() ai.AIAgent {
 		{
 			Name:        "storage-optimization",
 			Description: "Optimize cache storage utilization and costs",
-			InputType:   reflect.TypeOf(CacheInput{}),
-			OutputType:  reflect.TypeOf(CacheOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[CacheInput](),
+			OutputType:  reflect.TypeFor[CacheOutput](),
+			Metadata: map[string]any{
 				"savings":     0.30,
 				"reliability": "high",
 			},
@@ -267,7 +269,7 @@ func NewCacheAgent() ai.AIAgent {
 	}
 }
 
-// Initialize initializes the cache agent
+// Initialize initializes the cache agent.
 func (a *CacheAgent) Initialize(ctx context.Context, config ai.AgentConfig) error {
 	if err := a.BaseAgent.Initialize(ctx, config); err != nil {
 		return err
@@ -275,10 +277,11 @@ func (a *CacheAgent) Initialize(ctx context.Context, config ai.AgentConfig) erro
 
 	// Initialize cache-specific configuration
 	if cacheConfig, ok := config.Metadata["cache"]; ok {
-		if configMap, ok := cacheConfig.(map[string]interface{}); ok {
+		if configMap, ok := cacheConfig.(map[string]any); ok {
 			if threshold, ok := configMap["hit_rate_threshold"].(float64); ok {
 				a.hitRateThreshold = threshold
 			}
+
 			if policy, ok := configMap["eviction_policy"].(string); ok {
 				a.evictionPolicy = policy
 			}
@@ -291,7 +294,7 @@ func (a *CacheAgent) Initialize(ctx context.Context, config ai.AgentConfig) erro
 			Name:        "predictive-warmup",
 			Priority:    1,
 			Condition:   "hit_rate < 0.8",
-			Parameters:  map[string]interface{}{"lookahead": "30m", "confidence": 0.7},
+			Parameters:  map[string]any{"lookahead": "30m", "confidence": 0.7},
 			Enabled:     true,
 			SuccessRate: 0.0,
 		},
@@ -299,7 +302,7 @@ func (a *CacheAgent) Initialize(ctx context.Context, config ai.AgentConfig) erro
 			Name:        "temporal-warmup",
 			Priority:    2,
 			Condition:   "time_of_day in peak_hours",
-			Parameters:  map[string]interface{}{"peak_hours": []string{"9-11", "14-16"}},
+			Parameters:  map[string]any{"peak_hours": []string{"9-11", "14-16"}},
 			Enabled:     true,
 			SuccessRate: 0.0,
 		},
@@ -307,14 +310,14 @@ func (a *CacheAgent) Initialize(ctx context.Context, config ai.AgentConfig) erro
 			Name:        "user-behavior-warmup",
 			Priority:    3,
 			Condition:   "user_activity > threshold",
-			Parameters:  map[string]interface{}{"threshold": 1000, "batch_size": 100},
+			Parameters:  map[string]any{"threshold": 1000, "batch_size": 100},
 			Enabled:     true,
 			SuccessRate: 0.0,
 		},
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Info("cache agent initialized",
+		a.GetConfiguration().Logger.Info("cache agent initialized",
 			logger.String("agent_id", a.ID()),
 			logger.Float64("hit_rate_threshold", a.hitRateThreshold),
 			logger.String("eviction_policy", a.evictionPolicy),
@@ -325,7 +328,7 @@ func (a *CacheAgent) Initialize(ctx context.Context, config ai.AgentConfig) erro
 	return nil
 }
 
-// Process processes cache optimization input
+// Process processes cache optimization input.
 func (a *CacheAgent) Process(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Acquire processing slot
 	startTime := time.Now()
@@ -333,7 +336,7 @@ func (a *CacheAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Agent
 	// Convert input to cache-specific input
 	cacheInput, ok := input.Data.(CacheInput)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input type for cache agent")
+		return ai.AgentOutput{}, errors.New("invalid input type for cache agent")
 	}
 
 	// Analyze cache performance
@@ -377,7 +380,7 @@ func (a *CacheAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Agent
 		Confidence:  a.calculateConfidence(cacheInput, analysis),
 		Explanation: a.generateExplanation(output),
 		Actions:     a.convertToAgentActions(actions),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"processing_time":       time.Since(startTime),
 			"recommendations_count": len(recommendations),
 			"predicted_improvement": predictedImpact.HitRateImprovement,
@@ -386,7 +389,7 @@ func (a *CacheAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Agent
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Debug("cache optimization processed",
+		a.GetConfiguration().Logger.Debug("cache optimization processed",
 			logger.String("agent_id", a.ID()),
 			logger.String("request_id", input.RequestID),
 			logger.Float64("hit_rate", cacheInput.CacheMetrics.HitRate),
@@ -398,7 +401,7 @@ func (a *CacheAgent) Process(ctx context.Context, input ai.AgentInput) (ai.Agent
 	return agentOutput, nil
 }
 
-// analyzeCachePerformance analyzes current cache performance
+// analyzeCachePerformance analyzes current cache performance.
 func (a *CacheAgent) analyzeCachePerformance(input CacheInput) CachePerformanceAnalysis {
 	analysis := CachePerformanceAnalysis{
 		CurrentHitRate:   input.CacheMetrics.HitRate,
@@ -425,7 +428,7 @@ func (a *CacheAgent) analyzeCachePerformance(input CacheInput) CachePerformanceA
 	return analysis
 }
 
-// CachePerformanceAnalysis contains cache performance analysis
+// CachePerformanceAnalysis contains cache performance analysis.
 type CachePerformanceAnalysis struct {
 	CurrentHitRate   float64           `json:"current_hit_rate"`
 	PerformanceGrade string            `json:"performance_grade"`
@@ -435,7 +438,7 @@ type CachePerformanceAnalysis struct {
 	Recommendations  []string          `json:"recommendations"`
 }
 
-// PatternAnalysis contains pattern analysis results
+// PatternAnalysis contains pattern analysis results.
 type PatternAnalysis struct {
 	Pattern    string  `json:"pattern"`
 	Confidence float64 `json:"confidence"`
@@ -444,7 +447,7 @@ type PatternAnalysis struct {
 	Trend      string  `json:"trend"`
 }
 
-// calculatePerformanceGrade calculates cache performance grade
+// calculatePerformanceGrade calculates cache performance grade.
 func (a *CacheAgent) calculatePerformanceGrade(metrics CacheMetrics) string {
 	if metrics.HitRate >= 0.95 {
 		return "A+"
@@ -457,10 +460,11 @@ func (a *CacheAgent) calculatePerformanceGrade(metrics CacheMetrics) string {
 	} else if metrics.HitRate >= 0.60 {
 		return "D"
 	}
+
 	return "F"
 }
 
-// identifyBottlenecks identifies cache performance bottlenecks
+// identifyBottlenecks identifies cache performance bottlenecks.
 func (a *CacheAgent) identifyBottlenecks(input CacheInput) []string {
 	bottlenecks := []string{}
 
@@ -483,7 +487,7 @@ func (a *CacheAgent) identifyBottlenecks(input CacheInput) []string {
 	return bottlenecks
 }
 
-// analyzeAccessPatterns analyzes cache access patterns
+// analyzeAccessPatterns analyzes cache access patterns.
 func (a *CacheAgent) analyzeAccessPatterns(patterns []AccessPattern) []PatternAnalysis {
 	analyses := []PatternAnalysis{}
 
@@ -494,13 +498,14 @@ func (a *CacheAgent) analyzeAccessPatterns(patterns []AccessPattern) []PatternAn
 			Frequency:  pattern.Frequency,
 		}
 
-		if pattern.Locality == "temporal" {
+		switch pattern.Locality {
+		case "temporal":
 			analysis.Impact = "high"
 			analysis.Trend = "predictable"
-		} else if pattern.Locality == "spatial" {
+		case "spatial":
 			analysis.Impact = "medium"
 			analysis.Trend = "clustered"
-		} else {
+		default:
 			analysis.Impact = "low"
 			analysis.Trend = "random"
 		}
@@ -511,7 +516,7 @@ func (a *CacheAgent) analyzeAccessPatterns(patterns []AccessPattern) []PatternAn
 	return analyses
 }
 
-// calculateEfficiency calculates cache efficiency
+// calculateEfficiency calculates cache efficiency.
 func (a *CacheAgent) calculateEfficiency(input CacheInput) float64 {
 	// Weighted efficiency calculation
 	hitRateWeight := 0.4
@@ -519,6 +524,7 @@ func (a *CacheAgent) calculateEfficiency(input CacheInput) float64 {
 	storageWeight := 0.3
 
 	hitRateScore := input.CacheMetrics.HitRate
+
 	latencyScore := 1.0 - (float64(input.CacheMetrics.AverageLatency.Milliseconds()) / 1000.0)
 	if latencyScore < 0 {
 		latencyScore = 0
@@ -532,7 +538,7 @@ func (a *CacheAgent) calculateEfficiency(input CacheInput) float64 {
 	return hitRateWeight*hitRateScore + latencyWeight*latencyScore + storageWeight*storageScore
 }
 
-// generateRecommendations generates cache optimization recommendations
+// generateRecommendations generates cache optimization recommendations.
 func (a *CacheAgent) generateRecommendations(input CacheInput, analysis CachePerformanceAnalysis) []CacheRecommendation {
 	recommendations := []CacheRecommendation{}
 
@@ -544,7 +550,7 @@ func (a *CacheAgent) generateRecommendations(input CacheInput, analysis CachePer
 			Impact:      "high",
 			Confidence:  0.85,
 			Priority:    1,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"target_hit_rate": 0.90,
 				"strategy":        "predictive-warmup",
 			},
@@ -560,7 +566,7 @@ func (a *CacheAgent) generateRecommendations(input CacheInput, analysis CachePer
 			Impact:      "medium",
 			Confidence:  0.80,
 			Priority:    2,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"policy":             "intelligent-lru",
 				"eviction_threshold": 0.05,
 			},
@@ -576,7 +582,7 @@ func (a *CacheAgent) generateRecommendations(input CacheInput, analysis CachePer
 			Impact:      "medium",
 			Confidence:  0.75,
 			Priority:    3,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"compaction_threshold":  0.25,
 				"background_compaction": true,
 			},
@@ -592,7 +598,7 @@ func (a *CacheAgent) generateRecommendations(input CacheInput, analysis CachePer
 			Impact:      "high",
 			Confidence:  0.90,
 			Priority:    1,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"size_adjustment":  "increase",
 				"recommended_size": input.StorageMetrics.TotalSize * 12 / 10,
 			},
@@ -603,7 +609,7 @@ func (a *CacheAgent) generateRecommendations(input CacheInput, analysis CachePer
 	return recommendations
 }
 
-// createWarmupPlan creates a cache warmup plan
+// createWarmupPlan creates a cache warmup plan.
 func (a *CacheAgent) createWarmupPlan(input CacheInput, analysis CachePerformanceAnalysis) WarmupPlan {
 	// Identify high-priority keys for warmup
 	keys := a.identifyWarmupKeys(input, analysis)
@@ -624,14 +630,14 @@ func (a *CacheAgent) createWarmupPlan(input CacheInput, analysis CachePerformanc
 		Schedule:    schedule,
 		BatchSize:   50,
 		Parallelism: 5,
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"confidence_threshold": 0.7,
 			"lookahead_window":     "30m",
 		},
 	}
 }
 
-// identifyWarmupKeys identifies keys that should be warmed up
+// identifyWarmupKeys identifies keys that should be warmed up.
 func (a *CacheAgent) identifyWarmupKeys(input CacheInput, analysis CachePerformanceAnalysis) []string {
 	keys := []string{}
 
@@ -650,7 +656,7 @@ func (a *CacheAgent) identifyWarmupKeys(input CacheInput, analysis CachePerforma
 	return keys
 }
 
-// scheduleWarmupOperations schedules warmup operations
+// scheduleWarmupOperations schedules warmup operations.
 func (a *CacheAgent) scheduleWarmupOperations(keys []string, timeContext TimeContext) []time.Time {
 	schedule := []time.Time{}
 
@@ -665,7 +671,7 @@ func (a *CacheAgent) scheduleWarmupOperations(keys []string, timeContext TimeCon
 	return schedule
 }
 
-// optimizeEvictionStrategy optimizes cache eviction strategy
+// optimizeEvictionStrategy optimizes cache eviction strategy.
 func (a *CacheAgent) optimizeEvictionStrategy(input CacheInput, analysis CachePerformanceAnalysis) EvictionStrategy {
 	policy := "lru"
 
@@ -680,7 +686,7 @@ func (a *CacheAgent) optimizeEvictionStrategy(input CacheInput, analysis CachePe
 
 	return EvictionStrategy{
 		Policy: policy,
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"eviction_threshold": 0.90,
 			"batch_size":         10,
 			"aging_factor":       0.1,
@@ -698,34 +704,38 @@ func (a *CacheAgent) optimizeEvictionStrategy(input CacheInput, analysis CachePe
 	}
 }
 
-// hasTemporalLocality checks if access patterns have temporal locality
+// hasTemporalLocality checks if access patterns have temporal locality.
 func (a *CacheAgent) hasTemporalLocality(patterns []AccessPattern) bool {
 	for _, pattern := range patterns {
 		if pattern.Locality == "temporal" && pattern.Predictability > 0.7 {
 			return true
 		}
 	}
+
 	return false
 }
 
-// hasSpatialLocality checks if access patterns have spatial locality
+// hasSpatialLocality checks if access patterns have spatial locality.
 func (a *CacheAgent) hasSpatialLocality(patterns []AccessPattern) bool {
 	for _, pattern := range patterns {
 		if pattern.Locality == "spatial" && pattern.Predictability > 0.7 {
 			return true
 		}
 	}
+
 	return false
 }
 
-// provideSizingAdvice provides cache sizing recommendations
+// provideSizingAdvice provides cache sizing recommendations.
 func (a *CacheAgent) provideSizingAdvice(input CacheInput, analysis CachePerformanceAnalysis) SizingAdvice {
 	currentSize := input.StorageMetrics.TotalSize
 	usedSize := input.StorageMetrics.UsedSize
 	utilizationRate := float64(usedSize) / float64(currentSize)
 
-	var recommendedSize int64
-	var rationale string
+	var (
+		recommendedSize int64
+		rationale       string
+	)
 
 	if utilizationRate > 0.9 {
 		recommendedSize = currentSize * 13 / 10 // Increase by 30%
@@ -749,14 +759,14 @@ func (a *CacheAgent) provideSizingAdvice(input CacheInput, analysis CachePerform
 			"cold": recommendedSize * 2 / 10,
 		},
 		Rationale: rationale,
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"growth_rate":        0.1,
 			"utilization_target": 0.8,
 		},
 	}
 }
 
-// predictImpact predicts the impact of optimization recommendations
+// predictImpact predicts the impact of optimization recommendations.
 func (a *CacheAgent) predictImpact(input CacheInput, recommendations []CacheRecommendation) PredictedImpact {
 	hitRateImprovement := 0.0
 	latencyReduction := time.Duration(0)
@@ -785,7 +795,7 @@ func (a *CacheAgent) predictImpact(input CacheInput, recommendations []CacheReco
 	}
 }
 
-// createActions creates cache optimization actions
+// createActions creates cache optimization actions.
 func (a *CacheAgent) createActions(recommendations []CacheRecommendation, warmupPlan WarmupPlan, evictionStrategy EvictionStrategy) []CacheAction {
 	actions := []CacheAction{}
 
@@ -796,7 +806,7 @@ func (a *CacheAgent) createActions(recommendations []CacheRecommendation, warmup
 			Target:     "cache-system",
 			Parameters: rec.Parameters,
 			Priority:   rec.Priority,
-			Condition:  fmt.Sprintf("confidence > 0.7"),
+			Condition:  "confidence > 0.7",
 			Timeout:    30 * time.Second,
 			Rollback:   true,
 		}
@@ -808,7 +818,7 @@ func (a *CacheAgent) createActions(recommendations []CacheRecommendation, warmup
 		actions = append(actions, CacheAction{
 			Type:   "warmup-cache",
 			Target: "cache-system",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"keys":        warmupPlan.Keys,
 				"batch_size":  warmupPlan.BatchSize,
 				"parallelism": warmupPlan.Parallelism,
@@ -824,7 +834,7 @@ func (a *CacheAgent) createActions(recommendations []CacheRecommendation, warmup
 	actions = append(actions, CacheAction{
 		Type:   "update-eviction-policy",
 		Target: "cache-system",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"policy":     evictionStrategy.Policy,
 			"parameters": evictionStrategy.Parameters,
 			"thresholds": evictionStrategy.Thresholds,
@@ -838,7 +848,7 @@ func (a *CacheAgent) createActions(recommendations []CacheRecommendation, warmup
 	return actions
 }
 
-// calculateConfidence calculates overall confidence in recommendations
+// calculateConfidence calculates overall confidence in recommendations.
 func (a *CacheAgent) calculateConfidence(input CacheInput, analysis CachePerformanceAnalysis) float64 {
 	confidence := 0.5 // Base confidence
 
@@ -862,6 +872,7 @@ func (a *CacheAgent) calculateConfidence(input CacheInput, analysis CachePerform
 	for _, pattern := range analysis.Patterns {
 		avgPredictability += pattern.Confidence
 	}
+
 	if len(analysis.Patterns) > 0 {
 		avgPredictability /= float64(len(analysis.Patterns))
 		confidence += avgPredictability * 0.2
@@ -874,9 +885,9 @@ func (a *CacheAgent) calculateConfidence(input CacheInput, analysis CachePerform
 	return confidence
 }
 
-// generateExplanation generates human-readable explanation
+// generateExplanation generates human-readable explanation.
 func (a *CacheAgent) generateExplanation(output CacheOutput) string {
-	explanation := fmt.Sprintf("Cache optimization analysis completed. ")
+	explanation := "Cache optimization analysis completed. "
 
 	if len(output.Recommendations) > 0 {
 		explanation += fmt.Sprintf("Generated %d recommendations for improvement. ", len(output.Recommendations))
@@ -896,7 +907,7 @@ func (a *CacheAgent) generateExplanation(output CacheOutput) string {
 	return explanation
 }
 
-// convertToAgentActions converts cache actions to agent actions
+// convertToAgentActions converts cache actions to agent actions.
 func (a *CacheAgent) convertToAgentActions(cacheActions []CacheAction) []ai.AgentAction {
 	actions := []ai.AgentAction{}
 
@@ -915,7 +926,7 @@ func (a *CacheAgent) convertToAgentActions(cacheActions []CacheAction) []ai.Agen
 	return actions
 }
 
-// updateOptimizationStats updates optimization statistics
+// updateOptimizationStats updates optimization statistics.
 func (a *CacheAgent) updateOptimizationStats(output CacheOutput) {
 	a.optimizationStats.LastOptimization = time.Now()
 
@@ -940,7 +951,7 @@ func (a *CacheAgent) updateOptimizationStats(output CacheOutput) {
 	a.optimizationStats.TotalSavings += output.PredictedImpact.CostSavings
 }
 
-// Learn learns from cache optimization feedback
+// Learn learns from cache optimization feedback.
 func (a *CacheAgent) Learn(ctx context.Context, feedback ai.AgentFeedback) error {
 	if err := a.BaseAgent.Learn(ctx, feedback); err != nil {
 		return err
@@ -956,7 +967,9 @@ func (a *CacheAgent) Learn(ctx context.Context, feedback ai.AgentFeedback) error
 					} else {
 						a.warmupStrategies[i].SuccessRate = a.warmupStrategies[i].SuccessRate * 0.9
 					}
+
 					a.warmupStrategies[i].LastUsed = time.Now()
+
 					break
 				}
 			}
@@ -980,7 +993,7 @@ func (a *CacheAgent) Learn(ctx context.Context, feedback ai.AgentFeedback) error
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Debug("cache agent learned from feedback",
+		a.GetConfiguration().Logger.Debug("cache agent learned from feedback",
 			logger.String("agent_id", a.ID()),
 			logger.String("action_id", feedback.ActionID),
 			logger.Bool("success", feedback.Success),
@@ -991,23 +1004,25 @@ func (a *CacheAgent) Learn(ctx context.Context, feedback ai.AgentFeedback) error
 	return nil
 }
 
-// GetCacheOptimizationStats returns cache optimization statistics
+// GetCacheOptimizationStats returns cache optimization statistics.
 func (a *CacheAgent) GetCacheOptimizationStats() CacheOptimizationStats {
 	return a.optimizationStats
 }
 
-// GetWarmupStrategies returns current warmup strategies
+// GetWarmupStrategies returns current warmup strategies.
 func (a *CacheAgent) GetWarmupStrategies() []WarmupStrategy {
 	return a.warmupStrategies
 }
 
-// UpdateWarmupStrategy updates a warmup strategy
+// UpdateWarmupStrategy updates a warmup strategy.
 func (a *CacheAgent) UpdateWarmupStrategy(name string, strategy WarmupStrategy) error {
 	for i, s := range a.warmupStrategies {
 		if s.Name == name {
 			a.warmupStrategies[i] = strategy
+
 			return nil
 		}
 	}
+
 	return fmt.Errorf("warmup strategy %s not found", name)
 }

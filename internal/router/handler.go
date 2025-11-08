@@ -1,6 +1,7 @@
 package router
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -8,7 +9,7 @@ import (
 	"github.com/xraph/forge/internal/di"
 )
 
-// HandlerPattern indicates the handler signature
+// HandlerPattern indicates the handler signature.
 type HandlerPattern int
 
 const (
@@ -19,7 +20,7 @@ const (
 	PatternCombined                          // func(ctx, svc, req) (resp, error)
 )
 
-// handlerInfo contains analyzed handler information
+// handlerInfo contains analyzed handler information.
 type handlerInfo struct {
 	pattern      HandlerPattern
 	funcValue    reflect.Value
@@ -30,16 +31,17 @@ type handlerInfo struct {
 	serviceName  string
 }
 
-// detectHandlerPattern analyzes handler signature
+// detectHandlerPattern analyzes handler signature.
 func detectHandlerPattern(handler any) (*handlerInfo, error) {
 	if handler == nil {
-		return nil, fmt.Errorf("handler is nil")
+		return nil, errors.New("handler is nil")
 	}
 
 	// Check if already http.Handler or http.HandlerFunc
 	if _, ok := handler.(http.Handler); ok {
 		return &handlerInfo{pattern: PatternStandard}, nil
 	}
+
 	if _, ok := handler.(http.HandlerFunc); ok {
 		return &handlerInfo{pattern: PatternStandard}, nil
 	}
@@ -67,7 +69,7 @@ func detectHandlerPattern(handler any) (*handlerInfo, error) {
 
 	// All other patterns start with Context
 	if numIn == 0 || !isContext(funcType.In(0)) {
-		return nil, fmt.Errorf("handler must start with forge.Context parameter")
+		return nil, errors.New("handler must start with forge.Context parameter")
 	}
 
 	// Pattern 2: func(ctx Context) error
@@ -96,6 +98,7 @@ func detectHandlerPattern(handler any) (*handlerInfo, error) {
 	if numIn == 2 && numOut == 1 && isError(funcType.Out(0)) {
 		serviceType := funcType.In(1)
 		serviceName := getServiceName(serviceType)
+
 		return &handlerInfo{
 			pattern:     PatternService,
 			funcValue:   funcValue,
@@ -110,6 +113,7 @@ func detectHandlerPattern(handler any) (*handlerInfo, error) {
 		if isPointer(funcType.In(2)) && isPointer(funcType.Out(0)) && isError(funcType.Out(1)) {
 			serviceType := funcType.In(1)
 			serviceName := getServiceName(serviceType)
+
 			return &handlerInfo{
 				pattern:      PatternCombined,
 				funcValue:    funcValue,
@@ -125,12 +129,13 @@ func detectHandlerPattern(handler any) (*handlerInfo, error) {
 	return nil, fmt.Errorf("unsupported handler signature: %v", funcType)
 }
 
-// convertHandler converts any handler to http.Handler
+// convertHandler converts any handler to http.Handler.
 func convertHandler(handler any, container di.Container, errorHandler ErrorHandler) (http.Handler, error) {
 	// Fast path for existing http.Handler
 	if h, ok := handler.(http.Handler); ok {
 		return h, nil
 	}
+
 	if h, ok := handler.(http.HandlerFunc); ok {
 		return h, nil
 	}
@@ -156,7 +161,7 @@ func convertHandler(handler any, container di.Container, errorHandler ErrorHandl
 	}
 }
 
-// convertStandardHandler converts func(w, r) to http.Handler
+// convertStandardHandler converts func(w, r) to http.Handler.
 func convertStandardHandler(info *handlerInfo) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info.funcValue.Call([]reflect.Value{
@@ -166,7 +171,7 @@ func convertStandardHandler(info *handlerInfo) http.Handler {
 	})
 }
 
-// convertContextHandler converts func(ctx) error to http.Handler
+// convertContextHandler converts func(ctx) error to http.Handler.
 func convertContextHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := di.NewContext(w, r, container)
@@ -187,7 +192,7 @@ func convertContextHandler(info *handlerInfo, container di.Container, errorHandl
 }
 
 // shouldBindRequestBody determines if we should try to bind a request body
-// based on HTTP method and struct field tags
+// based on HTTP method and struct field tags.
 func shouldBindRequestBody(method string, requestType reflect.Type) bool {
 	// Methods that typically don't have a body
 	noBodyMethods := map[string]bool{
@@ -199,6 +204,7 @@ func shouldBindRequestBody(method string, requestType reflect.Type) bool {
 
 	// Check if struct has any body fields (json or body tags)
 	hasBodyFields := false
+
 	for i := 0; i < requestType.NumField(); i++ {
 		field := requestType.Field(i)
 
@@ -214,10 +220,13 @@ func shouldBindRequestBody(method string, requestType reflect.Type) bool {
 			// Has json or body tag, or no special tags (default to body)
 			if field.Tag.Get("json") != "" && field.Tag.Get("json") != "-" {
 				hasBodyFields = true
+
 				break
 			}
+
 			if field.Tag.Get("body") != "" && field.Tag.Get("body") != "-" {
 				hasBodyFields = true
+
 				break
 			}
 		}
@@ -237,7 +246,7 @@ func shouldBindRequestBody(method string, requestType reflect.Type) bool {
 	return true
 }
 
-// convertOpinionatedHandler converts func(ctx, req) (resp, error) to http.Handler
+// convertOpinionatedHandler converts func(ctx, req) (resp, error) to http.Handler.
 func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := di.NewContext(w, r, container)
@@ -255,6 +264,7 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 			// Bind request body
 			if err := ctx.Bind(req.Interface()); err != nil {
 				handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
+
 				return
 			}
 		}
@@ -277,6 +287,7 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 			} else {
 				handleError(ctx, err)
 			}
+
 			return
 		}
 
@@ -286,7 +297,7 @@ func convertOpinionatedHandler(info *handlerInfo, container di.Container, errorH
 	})
 }
 
-// convertServiceHandler converts func(ctx, svc) error to http.Handler
+// convertServiceHandler converts func(ctx, svc) error to http.Handler.
 func convertServiceHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := di.NewContext(w, r, container)
@@ -296,6 +307,7 @@ func convertServiceHandler(info *handlerInfo, container di.Container, errorHandl
 		service, err := resolveService(ctx, info.serviceType, info.serviceName)
 		if err != nil {
 			handleError(ctx, InternalError(fmt.Errorf("failed to resolve service: %w", err)))
+
 			return
 		}
 
@@ -317,7 +329,7 @@ func convertServiceHandler(info *handlerInfo, container di.Container, errorHandl
 	})
 }
 
-// convertCombinedHandler converts func(ctx, svc, req) (resp, error) to http.Handler
+// convertCombinedHandler converts func(ctx, svc, req) (resp, error) to http.Handler.
 func convertCombinedHandler(info *handlerInfo, container di.Container, errorHandler ErrorHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := di.NewContext(w, r, container)
@@ -327,6 +339,7 @@ func convertCombinedHandler(info *handlerInfo, container di.Container, errorHand
 		service, err := resolveService(ctx, info.serviceType, info.serviceName)
 		if err != nil {
 			handleError(ctx, InternalError(fmt.Errorf("failed to resolve service: %w", err)))
+
 			return
 		}
 
@@ -340,6 +353,7 @@ func convertCombinedHandler(info *handlerInfo, container di.Container, errorHand
 			// Bind request body
 			if err := ctx.Bind(req.Interface()); err != nil {
 				handleError(ctx, BadRequest(fmt.Sprintf("invalid request: %v", err)))
+
 				return
 			}
 		}
@@ -363,6 +377,7 @@ func convertCombinedHandler(info *handlerInfo, container di.Container, errorHand
 			} else {
 				handleError(ctx, err)
 			}
+
 			return
 		}
 
@@ -372,21 +387,21 @@ func convertCombinedHandler(info *handlerInfo, container di.Container, errorHand
 	})
 }
 
-// Helper functions for type checking
+// Helper functions for type checking.
 func isResponseWriter(t reflect.Type) bool {
-	return t.Implements(reflect.TypeOf((*http.ResponseWriter)(nil)).Elem())
+	return t.Implements(reflect.TypeFor[http.ResponseWriter]())
 }
 
 func isRequest(t reflect.Type) bool {
-	return t == reflect.TypeOf((*http.Request)(nil))
+	return t == reflect.TypeFor[*http.Request]()
 }
 
 func isContext(t reflect.Type) bool {
-	return t.Implements(reflect.TypeOf((*Context)(nil)).Elem())
+	return t.Implements(reflect.TypeFor[Context]())
 }
 
 func isError(t reflect.Type) bool {
-	return t.Implements(reflect.TypeOf((*error)(nil)).Elem())
+	return t.Implements(reflect.TypeFor[error]())
 }
 
 func isPointer(t reflect.Type) bool {
@@ -403,6 +418,7 @@ func getServiceName(t reflect.Type) string {
 	if t.PkgPath() != "" {
 		return t.PkgPath() + "." + t.Name()
 	}
+
 	return t.Name()
 }
 
@@ -424,7 +440,8 @@ func resolveService(ctx Context, serviceType reflect.Type, serviceName string) (
 }
 
 func handleError(ctx Context, err error) {
-	if httpErr, ok := err.(*HTTPError); ok {
+	httpErr := &HTTPError{}
+	if errors.As(err, &httpErr) {
 		_ = ctx.JSON(httpErr.Code, map[string]string{
 			"error": httpErr.Error(),
 		})

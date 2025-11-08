@@ -3,6 +3,7 @@ package sdk
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,17 +17,17 @@ import (
 	"github.com/xraph/forge"
 )
 
-// PromptTemplateManager manages prompt templates with versioning
+// PromptTemplateManager manages prompt templates with versioning.
 type PromptTemplateManager struct {
 	logger  forge.Logger
 	metrics forge.Metrics
 
-	mu        sync.RWMutex
-	templates map[string]map[string]*PromptTemplate // name -> version -> template
+	mu            sync.RWMutex
+	templates     map[string]map[string]*PromptTemplate // name -> version -> template
 	activeABTests map[string]*ABTest
 }
 
-// PromptTemplate represents a versioned prompt template
+// PromptTemplate represents a versioned prompt template.
 type PromptTemplate struct {
 	Name        string
 	Version     string
@@ -34,15 +35,15 @@ type PromptTemplate struct {
 	Template    string
 	Variables   []string
 	Tags        []string
-	Metadata    map[string]interface{}
+	Metadata    map[string]any
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	IsActive    bool
-	
+
 	compiled *template.Template
 }
 
-// ABTest represents an A/B test configuration
+// ABTest represents an A/B test configuration.
 type ABTest struct {
 	Name        string
 	Description string
@@ -50,19 +51,19 @@ type ABTest struct {
 	StartDate   time.Time
 	EndDate     time.Time
 	IsActive    bool
-	
-	mu sync.RWMutex
+
+	mu      sync.RWMutex
 	results map[string]*ABTestResults
 }
 
-// ABVariant represents a variant in an A/B test
+// ABVariant represents a variant in an A/B test.
 type ABVariant struct {
-	Name           string
+	Name            string
 	TemplateVersion string
-	TrafficWeight  float64 // 0.0 to 1.0
+	TrafficWeight   float64 // 0.0 to 1.0
 }
 
-// ABTestResults tracks results for an A/B test
+// ABTestResults tracks results for an A/B test.
 type ABTestResults struct {
 	VariantName string
 	Impressions int
@@ -72,7 +73,7 @@ type ABTestResults struct {
 	AvgCost     float64
 }
 
-// NewPromptTemplateManager creates a new template manager
+// NewPromptTemplateManager creates a new template manager.
 func NewPromptTemplateManager(logger forge.Logger, metrics forge.Metrics) *PromptTemplateManager {
 	return &PromptTemplateManager{
 		logger:        logger,
@@ -82,7 +83,7 @@ func NewPromptTemplateManager(logger forge.Logger, metrics forge.Metrics) *Promp
 	}
 }
 
-// RegisterTemplate registers a new prompt template
+// RegisterTemplate registers a new prompt template.
 func (ptm *PromptTemplateManager) RegisterTemplate(tmpl *PromptTemplate) error {
 	if tmpl.Name == "" {
 		return errors.New("template name is required")
@@ -101,6 +102,7 @@ func (ptm *PromptTemplateManager) RegisterTemplate(tmpl *PromptTemplate) error {
 	if err != nil {
 		return fmt.Errorf("template compilation failed: %w", err)
 	}
+
 	tmpl.compiled = compiled
 
 	// Extract variables
@@ -136,7 +138,7 @@ func (ptm *PromptTemplateManager) RegisterTemplate(tmpl *PromptTemplate) error {
 	return nil
 }
 
-// GetTemplate retrieves a specific template version
+// GetTemplate retrieves a specific template version.
 func (ptm *PromptTemplateManager) GetTemplate(name, version string) (*PromptTemplate, error) {
 	ptm.mu.RLock()
 	defer ptm.mu.RUnlock()
@@ -159,10 +161,12 @@ func (ptm *PromptTemplateManager) GetTemplate(name, version string) (*PromptTemp
 	return tmpl, nil
 }
 
-// getLatestVersion returns the latest version string
+// getLatestVersion returns the latest version string.
 func (ptm *PromptTemplateManager) getLatestVersion(versions map[string]*PromptTemplate) string {
-	var latest string
-	var latestTime time.Time
+	var (
+		latest     string
+		latestTime time.Time
+	)
 
 	for version, tmpl := range versions {
 		if tmpl.CreatedAt.After(latestTime) {
@@ -174,7 +178,7 @@ func (ptm *PromptTemplateManager) getLatestVersion(versions map[string]*PromptTe
 	return latest
 }
 
-// ListTemplates returns all templates
+// ListTemplates returns all templates.
 func (ptm *PromptTemplateManager) ListTemplates() []*PromptTemplate {
 	ptm.mu.RLock()
 	defer ptm.mu.RUnlock()
@@ -189,7 +193,7 @@ func (ptm *PromptTemplateManager) ListTemplates() []*PromptTemplate {
 	return templates
 }
 
-// ListVersions returns all versions of a template
+// ListVersions returns all versions of a template.
 func (ptm *PromptTemplateManager) ListVersions(name string) ([]string, error) {
 	ptm.mu.RLock()
 	defer ptm.mu.RUnlock()
@@ -207,8 +211,8 @@ func (ptm *PromptTemplateManager) ListVersions(name string) ([]string, error) {
 	return versionList, nil
 }
 
-// Render renders a template with the given variables
-func (ptm *PromptTemplateManager) Render(name, version string, vars map[string]interface{}) (string, error) {
+// Render renders a template with the given variables.
+func (ptm *PromptTemplateManager) Render(name, version string, vars map[string]any) (string, error) {
 	tmpl, err := ptm.GetTemplate(name, version)
 	if err != nil {
 		return "", err
@@ -242,7 +246,7 @@ func (ptm *PromptTemplateManager) Render(name, version string, vars map[string]i
 	return rendered, nil
 }
 
-// UpdateTemplate updates an existing template (creates new version)
+// UpdateTemplate updates an existing template (creates new version).
 func (ptm *PromptTemplateManager) UpdateTemplate(name string, newTemplate string) (string, error) {
 	ptm.mu.Lock()
 	defer ptm.mu.Unlock()
@@ -275,6 +279,7 @@ func (ptm *PromptTemplateManager) UpdateTemplate(name string, newTemplate string
 	if err != nil {
 		return "", fmt.Errorf("template compilation failed: %w", err)
 	}
+
 	newTmpl.compiled = compiled
 	newTmpl.Variables = extractTemplateVariables(newTemplate)
 	newTmpl.CreatedAt = time.Now()
@@ -297,7 +302,7 @@ func (ptm *PromptTemplateManager) UpdateTemplate(name string, newTemplate string
 	return newVersion, nil
 }
 
-// incrementVersion increments a semantic version
+// incrementVersion increments a semantic version.
 func (ptm *PromptTemplateManager) incrementVersion(version string) string {
 	parts := strings.Split(version, ".")
 	if len(parts) != 3 {
@@ -311,7 +316,7 @@ func (ptm *PromptTemplateManager) incrementVersion(version string) string {
 	return fmt.Sprintf("%d.%d.%d", major, minor, patch)
 }
 
-// DeleteTemplate deletes a template version
+// DeleteTemplate deletes a template version.
 func (ptm *PromptTemplateManager) DeleteTemplate(name, version string) error {
 	ptm.mu.Lock()
 	defer ptm.mu.Unlock()
@@ -326,6 +331,7 @@ func (ptm *PromptTemplateManager) DeleteTemplate(name, version string) error {
 		delete(ptm.templates, name)
 	} else {
 		delete(versions, version)
+
 		if len(versions) == 0 {
 			delete(ptm.templates, name)
 		}
@@ -338,7 +344,7 @@ func (ptm *PromptTemplateManager) DeleteTemplate(name, version string) error {
 	return nil
 }
 
-// CreateABTest creates a new A/B test
+// CreateABTest creates a new A/B test.
 func (ptm *PromptTemplateManager) CreateABTest(test *ABTest) error {
 	if test.Name == "" {
 		return errors.New("A/B test name is required")
@@ -353,6 +359,7 @@ func (ptm *PromptTemplateManager) CreateABTest(test *ABTest) error {
 	for _, variant := range test.Variants {
 		totalWeight += variant.TrafficWeight
 	}
+
 	if totalWeight < 0.99 || totalWeight > 1.01 {
 		return fmt.Errorf("traffic weights must sum to 1.0, got %.2f", totalWeight)
 	}
@@ -382,7 +389,7 @@ func (ptm *PromptTemplateManager) CreateABTest(test *ABTest) error {
 	return nil
 }
 
-// selectABVariant selects a variant based on traffic weights
+// selectABVariant selects a variant based on traffic weights.
 func (ptm *PromptTemplateManager) selectABVariant(test *ABTest) (*PromptTemplate, error) {
 	r := rand.Float64()
 	cumulative := 0.0
@@ -392,9 +399,11 @@ func (ptm *PromptTemplateManager) selectABVariant(test *ABTest) (*PromptTemplate
 		if r <= cumulative {
 			// Record impression
 			test.mu.Lock()
+
 			if result, exists := test.results[variant.Name]; exists {
 				result.Impressions++
 			}
+
 			test.mu.Unlock()
 
 			// Get template for this variant
@@ -418,7 +427,7 @@ func (ptm *PromptTemplateManager) selectABVariant(test *ABTest) (*PromptTemplate
 	return ptm.GetTemplate(test.Name, test.Variants[0].TemplateVersion)
 }
 
-// RecordABTestResult records the result of an A/B test variant
+// RecordABTestResult records the result of an A/B test variant.
 func (ptm *PromptTemplateManager) RecordABTestResult(testName, variantName string, success bool, latency time.Duration, cost float64) error {
 	ptm.mu.RLock()
 	test, exists := ptm.activeABTests[testName]
@@ -450,7 +459,7 @@ func (ptm *PromptTemplateManager) RecordABTestResult(testName, variantName strin
 	return nil
 }
 
-// GetABTestResults retrieves results for an A/B test
+// GetABTestResults retrieves results for an A/B test.
 func (ptm *PromptTemplateManager) GetABTestResults(testName string) (map[string]*ABTestResults, error) {
 	ptm.mu.RLock()
 	test, exists := ptm.activeABTests[testName]
@@ -473,7 +482,7 @@ func (ptm *PromptTemplateManager) GetABTestResults(testName string) (map[string]
 	return results, nil
 }
 
-// StopABTest stops an active A/B test
+// StopABTest stops an active A/B test.
 func (ptm *PromptTemplateManager) StopABTest(testName string) error {
 	ptm.mu.Lock()
 	defer ptm.mu.Unlock()
@@ -493,7 +502,7 @@ func (ptm *PromptTemplateManager) StopABTest(testName string) error {
 	return nil
 }
 
-// CompareTemplates compares two template versions
+// CompareTemplates compares two template versions.
 func (ptm *PromptTemplateManager) CompareTemplates(name, version1, version2 string) (*TemplateDiff, error) {
 	tmpl1, err := ptm.GetTemplate(name, version1)
 	if err != nil {
@@ -515,8 +524,8 @@ func (ptm *PromptTemplateManager) CompareTemplates(name, version1, version2 stri
 	// Calculate hash
 	hash1 := sha256.Sum256([]byte(tmpl1.Template))
 	hash2 := sha256.Sum256([]byte(tmpl2.Template))
-	diff.Hash1 = fmt.Sprintf("%x", hash1)
-	diff.Hash2 = fmt.Sprintf("%x", hash2)
+	diff.Hash1 = hex.EncodeToString(hash1[:])
+	diff.Hash2 = hex.EncodeToString(hash2[:])
 
 	// Simple diff (in production, use proper diff algorithm)
 	if !diff.IsSame {
@@ -526,7 +535,7 @@ func (ptm *PromptTemplateManager) CompareTemplates(name, version1, version2 stri
 	return diff, nil
 }
 
-// TemplateDiff represents the difference between two templates
+// TemplateDiff represents the difference between two templates.
 type TemplateDiff struct {
 	Name     string
 	Version1 string
@@ -537,7 +546,7 @@ type TemplateDiff struct {
 	Changes  string
 }
 
-// ExportTemplate exports a template as JSON
+// ExportTemplate exports a template as JSON.
 func (ptm *PromptTemplateManager) ExportTemplate(name, version string) (string, error) {
 	tmpl, err := ptm.GetTemplate(name, version)
 	if err != nil {
@@ -552,7 +561,7 @@ func (ptm *PromptTemplateManager) ExportTemplate(name, version string) (string, 
 		Template    string
 		Variables   []string
 		Tags        []string
-		Metadata    map[string]interface{}
+		Metadata    map[string]any
 		CreatedAt   time.Time
 	}{
 		Name:        tmpl.Name,
@@ -573,7 +582,7 @@ func (ptm *PromptTemplateManager) ExportTemplate(name, version string) (string, 
 	return string(data), nil
 }
 
-// ImportTemplate imports a template from JSON
+// ImportTemplate imports a template from JSON.
 func (ptm *PromptTemplateManager) ImportTemplate(jsonData string) error {
 	var tmpl PromptTemplate
 	if err := json.Unmarshal([]byte(jsonData), &tmpl); err != nil {
@@ -583,7 +592,7 @@ func (ptm *PromptTemplateManager) ImportTemplate(jsonData string) error {
 	return ptm.RegisterTemplate(&tmpl)
 }
 
-// extractTemplateVariables extracts variable names from a template
+// extractTemplateVariables extracts variable names from a template.
 func extractTemplateVariables(tmplStr string) []string {
 	re := regexp.MustCompile(`\{\{\.(\w+)\}\}`)
 	matches := re.FindAllStringSubmatch(tmplStr, -1)
@@ -604,14 +613,15 @@ func extractTemplateVariables(tmplStr string) []string {
 	return vars
 }
 
-// ValidateVariables checks if all required variables are provided
-func (ptm *PromptTemplateManager) ValidateVariables(name, version string, vars map[string]interface{}) error {
+// ValidateVariables checks if all required variables are provided.
+func (ptm *PromptTemplateManager) ValidateVariables(name, version string, vars map[string]any) error {
 	tmpl, err := ptm.GetTemplate(name, version)
 	if err != nil {
 		return err
 	}
 
 	missingVars := make([]string, 0)
+
 	for _, varName := range tmpl.Variables {
 		if _, exists := vars[varName]; !exists {
 			missingVars = append(missingVars, varName)
@@ -624,4 +634,3 @@ func (ptm *PromptTemplateManager) ValidateVariables(name, version string, vars m
 
 	return nil
 }
-

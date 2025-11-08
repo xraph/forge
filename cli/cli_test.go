@@ -75,8 +75,10 @@ func TestDuplicateCommand(t *testing.T) {
 }
 
 func TestRunCommandWithFlags(t *testing.T) {
-	var capturedName string
-	var capturedVerbose bool
+	var (
+		capturedName    string
+		capturedVerbose bool
+	)
 
 	app := New(Config{
 		Name:    "testapp",
@@ -89,6 +91,7 @@ func TestRunCommandWithFlags(t *testing.T) {
 		func(ctx CommandContext) error {
 			capturedName = ctx.String("name")
 			capturedVerbose = ctx.Bool("verbose")
+
 			return nil
 		},
 		WithFlag(NewStringFlag("name", "n", "Name to greet", "World")),
@@ -99,6 +102,7 @@ func TestRunCommandWithFlags(t *testing.T) {
 
 	// Test with flags
 	args := []string{"testapp", "greet", "--name=John", "--verbose"}
+
 	err := app.Run(args)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -126,6 +130,7 @@ func TestRunCommandWithShortFlags(t *testing.T) {
 		"Greet someone",
 		func(ctx CommandContext) error {
 			capturedName = ctx.String("name")
+
 			return nil
 		},
 		WithFlag(NewStringFlag("name", "n", "Name to greet", "World")),
@@ -135,6 +140,7 @@ func TestRunCommandWithShortFlags(t *testing.T) {
 
 	// Test with short flag
 	args := []string{"testapp", "greet", "-n", "Jane"}
+
 	err := app.Run(args)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -163,6 +169,7 @@ func TestHelpOutput(t *testing.T) {
 
 	// Run with help flag
 	args := []string{"testapp", "--help"}
+
 	err := app.Run(args)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -194,6 +201,7 @@ func TestVersionOutput(t *testing.T) {
 
 	// Run with version flag
 	args := []string{"testapp", "--version"}
+
 	err := app.Run(args)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
@@ -205,7 +213,7 @@ func TestVersionOutput(t *testing.T) {
 	}
 }
 
-// Helper function
+// Helper function.
 func contains(s, substr string) bool {
 	return bytes.Contains([]byte(s), []byte(substr))
 }

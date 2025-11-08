@@ -2,45 +2,45 @@ package storage
 
 import "time"
 
-// Config is the storage extension configuration
+// Config is the storage extension configuration.
 type Config struct {
 	// Default backend name
-	Default string `yaml:"default" json:"default" default:"local"`
+	Default string `default:"local" json:"default" yaml:"default"`
 
 	// Backend configurations
-	Backends map[string]BackendConfig `yaml:"backends" json:"backends"`
+	Backends map[string]BackendConfig `json:"backends" yaml:"backends"`
 
 	// Features
-	EnablePresignedURLs bool          `yaml:"enable_presigned_urls" json:"enable_presigned_urls" default:"true"`
-	PresignExpiry       time.Duration `yaml:"presign_expiry" json:"presign_expiry" default:"15m"`
-	MaxUploadSize       int64         `yaml:"max_upload_size" json:"max_upload_size" default:"5368709120"` // 5GB
-	ChunkSize           int           `yaml:"chunk_size" json:"chunk_size" default:"5242880"`              // 5MB
+	EnablePresignedURLs bool          `default:"true"       json:"enable_presigned_urls" yaml:"enable_presigned_urls"`
+	PresignExpiry       time.Duration `default:"15m"        json:"presign_expiry"        yaml:"presign_expiry"`
+	MaxUploadSize       int64         `default:"5368709120" json:"max_upload_size"       yaml:"max_upload_size"` // 5GB
+	ChunkSize           int           `default:"5242880"    json:"chunk_size"            yaml:"chunk_size"`      // 5MB
 
 	// CDN
-	EnableCDN  bool   `yaml:"enable_cdn" json:"enable_cdn" default:"false"`
-	CDNBaseURL string `yaml:"cdn_base_url" json:"cdn_base_url"`
+	EnableCDN  bool   `default:"false"     json:"enable_cdn"   yaml:"enable_cdn"`
+	CDNBaseURL string `json:"cdn_base_url" yaml:"cdn_base_url"`
 
 	// Resilience configuration
-	Resilience ResilienceConfig `yaml:"resilience" json:"resilience"`
+	Resilience ResilienceConfig `json:"resilience" yaml:"resilience"`
 
 	// Use enhanced backend (with locking, pooling, etc.)
-	UseEnhancedBackend bool `yaml:"use_enhanced_backend" json:"use_enhanced_backend" default:"true"`
+	UseEnhancedBackend bool `default:"true" json:"use_enhanced_backend" yaml:"use_enhanced_backend"`
 }
 
-// BackendConfig is the configuration for a storage backend
+// BackendConfig is the configuration for a storage backend.
 type BackendConfig struct {
-	Type   string                 `yaml:"type" json:"type"` // local, s3, gcs, azure
-	Config map[string]interface{} `yaml:"config" json:"config"`
+	Type   string         `json:"type"   yaml:"type"` // local, s3, gcs, azure
+	Config map[string]any `json:"config" yaml:"config"`
 }
 
-// DefaultConfig returns the default storage configuration
+// DefaultConfig returns the default storage configuration.
 func DefaultConfig() Config {
 	return Config{
 		Default: "local",
 		Backends: map[string]BackendConfig{
 			"local": {
 				Type: "local",
-				Config: map[string]interface{}{
+				Config: map[string]any{
 					"root_dir": "./storage",
 					"base_url": "http://localhost:8080/files",
 				},
@@ -56,7 +56,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c *Config) Validate() error {
 	if len(c.Backends) == 0 {
 		return ErrNoBackendsConfigured
@@ -79,7 +79,7 @@ func (c *Config) Validate() error {
 		if backend.Config == nil {
 			c.Backends[name] = BackendConfig{
 				Type:   backend.Type,
-				Config: make(map[string]interface{}),
+				Config: make(map[string]any),
 			}
 		}
 	}

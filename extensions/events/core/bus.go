@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// EventBus defines the interface for the event bus
+// EventBus defines the interface for the event bus.
 type EventBus interface {
 	// Publish publishes an event to all registered brokers
 	Publish(ctx context.Context, event *Event) error
@@ -34,7 +34,7 @@ type EventBus interface {
 	SetDefaultBroker(name string) error
 
 	// GetStats returns event bus statistics
-	GetStats() map[string]interface{}
+	GetStats() map[string]any
 
 	// Start starts the event bus
 	Start(ctx context.Context) error
@@ -46,10 +46,10 @@ type EventBus interface {
 	HealthCheck(ctx context.Context) error
 }
 
-// MessageBroker defines the interface for message brokers
+// MessageBroker defines the interface for message brokers.
 type MessageBroker interface {
 	// Connect connects to the message broker
-	Connect(ctx context.Context, config interface{}) error
+	Connect(ctx context.Context, config any) error
 
 	// Publish publishes an event to a topic
 	Publish(ctx context.Context, topic string, event Event) error
@@ -67,5 +67,5 @@ type MessageBroker interface {
 	HealthCheck(ctx context.Context) error
 
 	// GetStats returns broker statistics
-	GetStats() map[string]interface{}
+	GetStats() map[string]any
 }

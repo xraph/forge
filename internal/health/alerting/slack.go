@@ -3,6 +3,7 @@ package alerting
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -13,7 +14,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// SlackNotifier implements AlertNotifier for Slack notifications
+// SlackNotifier implements AlertNotifier for Slack notifications.
 type SlackNotifier struct {
 	config  *SlackConfig
 	client  *http.Client
@@ -22,67 +23,67 @@ type SlackNotifier struct {
 	name    string
 }
 
-// SlackConfig contains configuration for Slack notifications
+// SlackConfig contains configuration for Slack notifications.
 type SlackConfig struct {
 	// Webhook URL for Slack incoming webhooks
-	WebhookURL string `yaml:"webhook_url" json:"webhook_url"`
+	WebhookURL string `json:"webhook_url" yaml:"webhook_url"`
 
 	// Bot Token for Slack Bot API (alternative to webhook)
-	BotToken string `yaml:"bot_token" json:"bot_token"`
+	BotToken string `json:"bot_token" yaml:"bot_token"`
 
 	// Channel to send notifications to (for Bot API)
-	Channel string `yaml:"channel" json:"channel"`
+	Channel string `json:"channel" yaml:"channel"`
 
 	// Username for the bot (webhook only)
-	Username string `yaml:"username" json:"username"`
+	Username string `json:"username" yaml:"username"`
 
 	// Icon emoji for the bot (webhook only)
-	IconEmoji string `yaml:"icon_emoji" json:"icon_emoji"`
+	IconEmoji string `json:"icon_emoji" yaml:"icon_emoji"`
 
 	// Icon URL for the bot (webhook only)
-	IconURL string `yaml:"icon_url" json:"icon_url"`
+	IconURL string `json:"icon_url" yaml:"icon_url"`
 
 	// Template for custom message formatting
-	Template string `yaml:"template" json:"template"`
+	Template string `json:"template" yaml:"template"`
 
 	// Timeout for HTTP requests
-	Timeout time.Duration `yaml:"timeout" json:"timeout"`
+	Timeout time.Duration `json:"timeout" yaml:"timeout"`
 
 	// Enable threaded messages
-	EnableThreading bool `yaml:"enable_threading" json:"enable_threading"`
+	EnableThreading bool `json:"enable_threading" yaml:"enable_threading"`
 
 	// Thread timestamp for replies
-	ThreadTS string `yaml:"thread_ts" json:"thread_ts"`
+	ThreadTS string `json:"thread_ts" yaml:"thread_ts"`
 
 	// Color coding for different severity levels
-	Colors map[AlertSeverity]string `yaml:"colors" json:"colors"`
+	Colors map[AlertSeverity]string `json:"colors" yaml:"colors"`
 
 	// Mention users on critical alerts
-	MentionUsers []string `yaml:"mention_users" json:"mention_users"`
+	MentionUsers []string `json:"mention_users" yaml:"mention_users"`
 
 	// Mention channels on critical alerts
-	MentionChannels []string `yaml:"mention_channels" json:"mention_channels"`
+	MentionChannels []string `json:"mention_channels" yaml:"mention_channels"`
 
 	// Enable attachment formatting
-	EnableAttachments bool `yaml:"enable_attachments" json:"enable_attachments"`
+	EnableAttachments bool `json:"enable_attachments" yaml:"enable_attachments"`
 
 	// Enable blocks formatting (modern Slack UI)
-	EnableBlocks bool `yaml:"enable_blocks" json:"enable_blocks"`
+	EnableBlocks bool `json:"enable_blocks" yaml:"enable_blocks"`
 
 	// Maximum message length (Slack limit is 4000 characters)
-	MaxMessageLength int `yaml:"max_message_length" json:"max_message_length"`
+	MaxMessageLength int `json:"max_message_length" yaml:"max_message_length"`
 
 	// Retry configuration
-	MaxRetries int           `yaml:"max_retries" json:"max_retries"`
-	RetryDelay time.Duration `yaml:"retry_delay" json:"retry_delay"`
+	MaxRetries int           `json:"max_retries" yaml:"max_retries"`
+	RetryDelay time.Duration `json:"retry_delay" yaml:"retry_delay"`
 
 	// Rate limiting
-	RateLimitEnabled bool          `yaml:"rate_limit_enabled" json:"rate_limit_enabled"`
-	RateLimitWindow  time.Duration `yaml:"rate_limit_window" json:"rate_limit_window"`
-	RateLimitMax     int           `yaml:"rate_limit_max" json:"rate_limit_max"`
+	RateLimitEnabled bool          `json:"rate_limit_enabled" yaml:"rate_limit_enabled"`
+	RateLimitWindow  time.Duration `json:"rate_limit_window"  yaml:"rate_limit_window"`
+	RateLimitMax     int           `json:"rate_limit_max"     yaml:"rate_limit_max"`
 }
 
-// DefaultSlackConfig returns default configuration for Slack notifications
+// DefaultSlackConfig returns default configuration for Slack notifications.
 func DefaultSlackConfig() *SlackConfig {
 	return &SlackConfig{
 		Username:          "Forge Health Bot",
@@ -106,7 +107,7 @@ func DefaultSlackConfig() *SlackConfig {
 	}
 }
 
-// NewSlackNotifier creates a new Slack notifier
+// NewSlackNotifier creates a new Slack notifier.
 func NewSlackNotifier(name string, config *SlackConfig, logger logger.Logger, metrics shared.Metrics) *SlackNotifier {
 	if config == nil {
 		config = DefaultSlackConfig()
@@ -139,12 +140,12 @@ func NewSlackNotifier(name string, config *SlackConfig, logger logger.Logger, me
 	}
 }
 
-// Name returns the name of the notifier
+// Name returns the name of the notifier.
 func (sn *SlackNotifier) Name() string {
 	return sn.name
 }
 
-// Send sends an alert to Slack
+// Send sends an alert to Slack.
 func (sn *SlackNotifier) Send(ctx context.Context, alert *Alert) error {
 	// Check rate limiting
 	if sn.config.RateLimitEnabled {
@@ -159,11 +160,11 @@ func (sn *SlackNotifier) Send(ctx context.Context, alert *Alert) error {
 	} else if sn.config.WebhookURL != "" {
 		return sn.sendViaWebhook(ctx, alert)
 	} else {
-		return fmt.Errorf("no valid Slack configuration provided")
+		return errors.New("no valid Slack configuration provided")
 	}
 }
 
-// SendBatch sends multiple alerts in a batch
+// SendBatch sends multiple alerts in a batch.
 func (sn *SlackNotifier) SendBatch(ctx context.Context, alerts []*Alert) error {
 	if len(alerts) == 0 {
 		return nil
@@ -188,7 +189,7 @@ func (sn *SlackNotifier) SendBatch(ctx context.Context, alerts []*Alert) error {
 	return nil
 }
 
-// Test tests the Slack notification
+// Test tests the Slack notification.
 func (sn *SlackNotifier) Test(ctx context.Context) error {
 	testAlert := NewAlert(AlertTypeSystemError, AlertSeverityInfo, "Test Alert", "This is a test alert from Forge Health Alerting")
 	testAlert.WithSource("test")
@@ -198,20 +199,20 @@ func (sn *SlackNotifier) Test(ctx context.Context) error {
 	return sn.Send(ctx, testAlert)
 }
 
-// Close closes the Slack notifier
+// Close closes the Slack notifier.
 func (sn *SlackNotifier) Close() error {
 	// HTTP client doesn't need explicit closing
 	return nil
 }
 
-// sendViaWebhook sends alert via Slack webhook
+// sendViaWebhook sends alert via Slack webhook.
 func (sn *SlackNotifier) sendViaWebhook(ctx context.Context, alert *Alert) error {
 	payload, err := sn.createWebhookPayload(alert)
 	if err != nil {
 		return fmt.Errorf("failed to create webhook payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", sn.config.WebhookURL, bytes.NewBuffer(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sn.config.WebhookURL, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
@@ -233,14 +234,17 @@ func (sn *SlackNotifier) sendViaWebhook(ctx context.Context, alert *Alert) error
 		if sn.metrics != nil {
 			sn.metrics.Counter("forge.health.slack_webhook_errors").Inc()
 		}
+
 		return fmt.Errorf("webhook request failed: %w", err)
 	}
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if sn.metrics != nil {
 			sn.metrics.Counter("forge.health.slack_webhook_errors").Inc()
 		}
+
 		return fmt.Errorf("webhook request failed with status %d", resp.StatusCode)
 	}
 
@@ -259,14 +263,14 @@ func (sn *SlackNotifier) sendViaWebhook(ctx context.Context, alert *Alert) error
 	return nil
 }
 
-// sendViaAPI sends alert via Slack Bot API
+// sendViaAPI sends alert via Slack Bot API.
 func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 	payload, err := sn.createAPIPayload(alert)
 	if err != nil {
 		return fmt.Errorf("failed to create API payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", "https://slack.com/api/chat.postMessage", bytes.NewBuffer(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://slack.com/api/chat.postMessage", bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create API request: %w", err)
 	}
@@ -289,8 +293,10 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 		if sn.metrics != nil {
 			sn.metrics.Counter("forge.health.slack_api_errors").Inc()
 		}
+
 		return fmt.Errorf("API request failed: %w", err)
 	}
+
 	defer resp.Body.Close()
 
 	// Parse response
@@ -304,6 +310,7 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 		if sn.metrics != nil {
 			sn.metrics.Counter("forge.health.slack_api_errors").Inc()
 		}
+
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -311,6 +318,7 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 		if sn.metrics != nil {
 			sn.metrics.Counter("forge.health.slack_api_errors").Inc()
 		}
+
 		return fmt.Errorf("Slack API error: %s", response.Error)
 	}
 
@@ -329,7 +337,7 @@ func (sn *SlackNotifier) sendViaAPI(ctx context.Context, alert *Alert) error {
 	return nil
 }
 
-// createWebhookPayload creates payload for Slack webhook
+// createWebhookPayload creates payload for Slack webhook.
 func (sn *SlackNotifier) createWebhookPayload(alert *Alert) ([]byte, error) {
 	if sn.config.Template != "" {
 		return sn.createCustomPayload(alert)
@@ -337,7 +345,7 @@ func (sn *SlackNotifier) createWebhookPayload(alert *Alert) ([]byte, error) {
 
 	message := sn.formatMessage(alert)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"text":     message,
 		"username": sn.config.Username,
 	}
@@ -351,7 +359,7 @@ func (sn *SlackNotifier) createWebhookPayload(alert *Alert) ([]byte, error) {
 	}
 
 	if sn.config.EnableAttachments {
-		payload["attachments"] = []map[string]interface{}{
+		payload["attachments"] = []map[string]any{
 			sn.createAttachment(alert),
 		}
 	}
@@ -363,7 +371,7 @@ func (sn *SlackNotifier) createWebhookPayload(alert *Alert) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// createAPIPayload creates payload for Slack API
+// createAPIPayload creates payload for Slack API.
 func (sn *SlackNotifier) createAPIPayload(alert *Alert) ([]byte, error) {
 	if sn.config.Template != "" {
 		return sn.createCustomPayload(alert)
@@ -371,7 +379,7 @@ func (sn *SlackNotifier) createAPIPayload(alert *Alert) ([]byte, error) {
 
 	message := sn.formatMessage(alert)
 
-	payload := map[string]interface{}{
+	payload := map[string]any{
 		"channel": sn.config.Channel,
 		"text":    message,
 	}
@@ -381,7 +389,7 @@ func (sn *SlackNotifier) createAPIPayload(alert *Alert) ([]byte, error) {
 	}
 
 	if sn.config.EnableAttachments {
-		payload["attachments"] = []map[string]interface{}{
+		payload["attachments"] = []map[string]any{
 			sn.createAttachment(alert),
 		}
 	}
@@ -393,7 +401,7 @@ func (sn *SlackNotifier) createAPIPayload(alert *Alert) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// createCustomPayload creates a custom payload using template
+// createCustomPayload creates a custom payload using template.
 func (sn *SlackNotifier) createCustomPayload(alert *Alert) ([]byte, error) {
 	template := sn.config.Template
 	template = strings.ReplaceAll(template, "{{.ID}}", alert.ID)
@@ -408,7 +416,7 @@ func (sn *SlackNotifier) createCustomPayload(alert *Alert) ([]byte, error) {
 	return []byte(template), nil
 }
 
-// formatMessage formats the alert message for Slack
+// formatMessage formats the alert message for Slack.
 func (sn *SlackNotifier) formatMessage(alert *Alert) string {
 	var message strings.Builder
 
@@ -417,6 +425,7 @@ func (sn *SlackNotifier) formatMessage(alert *Alert) string {
 		for _, user := range sn.config.MentionUsers {
 			message.WriteString(fmt.Sprintf("<@%s> ", user))
 		}
+
 		for _, channel := range sn.config.MentionChannels {
 			message.WriteString(fmt.Sprintf("<!channel|%s> ", channel))
 		}
@@ -447,14 +456,14 @@ func (sn *SlackNotifier) formatMessage(alert *Alert) string {
 	return result
 }
 
-// createAttachment creates a Slack attachment
-func (sn *SlackNotifier) createAttachment(alert *Alert) map[string]interface{} {
+// createAttachment creates a Slack attachment.
+func (sn *SlackNotifier) createAttachment(alert *Alert) map[string]any {
 	color := sn.config.Colors[alert.Severity]
 	if color == "" {
 		color = "good"
 	}
 
-	fields := []map[string]interface{}{
+	fields := []map[string]any{
 		{
 			"title": "Service",
 			"value": alert.Service,
@@ -487,14 +496,15 @@ func (sn *SlackNotifier) createAttachment(alert *Alert) map[string]interface{} {
 		if len(fields) >= 20 { // Slack limit
 			break
 		}
-		fields = append(fields, map[string]interface{}{
+
+		fields = append(fields, map[string]any{
 			"title": strings.Title(key),
 			"value": fmt.Sprintf("%v", value),
 			"short": true,
 		})
 	}
 
-	attachment := map[string]interface{}{
+	attachment := map[string]any{
 		"color":     color,
 		"fields":    fields,
 		"timestamp": alert.Timestamp.Unix(),
@@ -505,47 +515,47 @@ func (sn *SlackNotifier) createAttachment(alert *Alert) map[string]interface{} {
 	return attachment
 }
 
-// createBlocks creates Slack blocks (modern UI)
-func (sn *SlackNotifier) createBlocks(alert *Alert) []map[string]interface{} {
-	blocks := []map[string]interface{}{
+// createBlocks creates Slack blocks (modern UI).
+func (sn *SlackNotifier) createBlocks(alert *Alert) []map[string]any {
+	blocks := []map[string]any{
 		{
 			"type": "header",
-			"text": map[string]interface{}{
+			"text": map[string]any{
 				"type": "plain_text",
 				"text": alert.Title,
 			},
 		},
 		{
 			"type": "section",
-			"text": map[string]interface{}{
+			"text": map[string]any{
 				"type": "mrkdwn",
 				"text": alert.Message,
 			},
 		},
 		{
 			"type": "section",
-			"fields": []map[string]interface{}{
+			"fields": []map[string]any{
 				{
 					"type": "mrkdwn",
-					"text": fmt.Sprintf("*Service:*\n%s", alert.Service),
+					"text": "*Service:*\n" + alert.Service,
 				},
 				{
 					"type": "mrkdwn",
-					"text": fmt.Sprintf("*Severity:*\n%s", strings.ToUpper(string(alert.Severity))),
+					"text": "*Severity:*\n" + strings.ToUpper(string(alert.Severity)),
 				},
 				{
 					"type": "mrkdwn",
-					"text": fmt.Sprintf("*Source:*\n%s", alert.Source),
+					"text": "*Source:*\n" + alert.Source,
 				},
 				{
 					"type": "mrkdwn",
-					"text": fmt.Sprintf("*Type:*\n%s", string(alert.Type)),
+					"text": "*Type:*\n" + string(alert.Type),
 				},
 			},
 		},
 		{
 			"type": "context",
-			"elements": []map[string]interface{}{
+			"elements": []map[string]any{
 				{
 					"type": "plain_text",
 					"text": fmt.Sprintf("Alert ID: %s | %s", alert.ID, alert.Timestamp.Format("2006-01-02 15:04:05 MST")),
@@ -557,14 +567,14 @@ func (sn *SlackNotifier) createBlocks(alert *Alert) []map[string]interface{} {
 	return blocks
 }
 
-// checkRateLimit checks if we're within rate limits
+// checkRateLimit checks if we're within rate limits.
 func (sn *SlackNotifier) checkRateLimit() error {
 	// Simple rate limiting - in production, use a proper rate limiter
 	// This is a placeholder implementation
 	return nil
 }
 
-// SlackNotifierBuilder helps build Slack notifiers with fluent interface
+// SlackNotifierBuilder helps build Slack notifiers with fluent interface.
 type SlackNotifierBuilder struct {
 	config  *SlackConfig
 	logger  logger.Logger
@@ -572,7 +582,7 @@ type SlackNotifierBuilder struct {
 	name    string
 }
 
-// NewSlackNotifierBuilder creates a new Slack notifier builder
+// NewSlackNotifierBuilder creates a new Slack notifier builder.
 func NewSlackNotifierBuilder(name string) *SlackNotifierBuilder {
 	return &SlackNotifierBuilder{
 		config: DefaultSlackConfig(),
@@ -580,125 +590,143 @@ func NewSlackNotifierBuilder(name string) *SlackNotifierBuilder {
 	}
 }
 
-// WithWebhookURL sets the webhook URL
+// WithWebhookURL sets the webhook URL.
 func (snb *SlackNotifierBuilder) WithWebhookURL(url string) *SlackNotifierBuilder {
 	snb.config.WebhookURL = url
+
 	return snb
 }
 
-// WithBotToken sets the bot token
+// WithBotToken sets the bot token.
 func (snb *SlackNotifierBuilder) WithBotToken(token string) *SlackNotifierBuilder {
 	snb.config.BotToken = token
+
 	return snb
 }
 
-// WithChannel sets the channel
+// WithChannel sets the channel.
 func (snb *SlackNotifierBuilder) WithChannel(channel string) *SlackNotifierBuilder {
 	snb.config.Channel = channel
+
 	return snb
 }
 
-// WithUsername sets the username
+// WithUsername sets the username.
 func (snb *SlackNotifierBuilder) WithUsername(username string) *SlackNotifierBuilder {
 	snb.config.Username = username
+
 	return snb
 }
 
-// WithIconEmoji sets the icon emoji
+// WithIconEmoji sets the icon emoji.
 func (snb *SlackNotifierBuilder) WithIconEmoji(emoji string) *SlackNotifierBuilder {
 	snb.config.IconEmoji = emoji
+
 	return snb
 }
 
-// WithIconURL sets the icon URL
+// WithIconURL sets the icon URL.
 func (snb *SlackNotifierBuilder) WithIconURL(url string) *SlackNotifierBuilder {
 	snb.config.IconURL = url
+
 	return snb
 }
 
-// WithTemplate sets the custom template
+// WithTemplate sets the custom template.
 func (snb *SlackNotifierBuilder) WithTemplate(template string) *SlackNotifierBuilder {
 	snb.config.Template = template
+
 	return snb
 }
 
-// WithTimeout sets the timeout
+// WithTimeout sets the timeout.
 func (snb *SlackNotifierBuilder) WithTimeout(timeout time.Duration) *SlackNotifierBuilder {
 	snb.config.Timeout = timeout
+
 	return snb
 }
 
-// WithThreading enables threading
+// WithThreading enables threading.
 func (snb *SlackNotifierBuilder) WithThreading(enabled bool) *SlackNotifierBuilder {
 	snb.config.EnableThreading = enabled
+
 	return snb
 }
 
-// WithAttachments enables attachments
+// WithAttachments enables attachments.
 func (snb *SlackNotifierBuilder) WithAttachments(enabled bool) *SlackNotifierBuilder {
 	snb.config.EnableAttachments = enabled
+
 	return snb
 }
 
-// WithBlocks enables blocks
+// WithBlocks enables blocks.
 func (snb *SlackNotifierBuilder) WithBlocks(enabled bool) *SlackNotifierBuilder {
 	snb.config.EnableBlocks = enabled
+
 	return snb
 }
 
-// WithMentionUsers sets users to mention on critical alerts
+// WithMentionUsers sets users to mention on critical alerts.
 func (snb *SlackNotifierBuilder) WithMentionUsers(users ...string) *SlackNotifierBuilder {
 	snb.config.MentionUsers = users
+
 	return snb
 }
 
-// WithMentionChannels sets channels to mention on critical alerts
+// WithMentionChannels sets channels to mention on critical alerts.
 func (snb *SlackNotifierBuilder) WithMentionChannels(channels ...string) *SlackNotifierBuilder {
 	snb.config.MentionChannels = channels
+
 	return snb
 }
 
-// WithColors sets severity colors
+// WithColors sets severity colors.
 func (snb *SlackNotifierBuilder) WithColors(colors map[AlertSeverity]string) *SlackNotifierBuilder {
 	snb.config.Colors = colors
+
 	return snb
 }
 
-// WithRetry sets retry configuration
+// WithRetry sets retry configuration.
 func (snb *SlackNotifierBuilder) WithRetry(maxRetries int, retryDelay time.Duration) *SlackNotifierBuilder {
 	snb.config.MaxRetries = maxRetries
 	snb.config.RetryDelay = retryDelay
+
 	return snb
 }
 
-// WithRateLimit sets rate limiting
+// WithRateLimit sets rate limiting.
 func (snb *SlackNotifierBuilder) WithRateLimit(enabled bool, window time.Duration, max int) *SlackNotifierBuilder {
 	snb.config.RateLimitEnabled = enabled
 	snb.config.RateLimitWindow = window
 	snb.config.RateLimitMax = max
+
 	return snb
 }
 
-// WithLogger sets the logger
+// WithLogger sets the logger.
 func (snb *SlackNotifierBuilder) WithLogger(logger logger.Logger) *SlackNotifierBuilder {
 	snb.logger = logger
+
 	return snb
 }
 
-// WithMetrics sets the metrics collector
+// WithMetrics sets the metrics collector.
 func (snb *SlackNotifierBuilder) WithMetrics(metrics shared.Metrics) *SlackNotifierBuilder {
 	snb.metrics = metrics
+
 	return snb
 }
 
-// Build creates the Slack notifier
+// Build creates the Slack notifier.
 func (snb *SlackNotifierBuilder) Build() *SlackNotifier {
 	return NewSlackNotifier(snb.name, snb.config, snb.logger, snb.metrics)
 }
 
 // Convenience functions for common Slack configurations
 
-// NewSlackWebhookNotifier creates a simple webhook-based Slack notifier
+// NewSlackWebhookNotifier creates a simple webhook-based Slack notifier.
 func NewSlackWebhookNotifier(name, webhookURL string, logger logger.Logger, metrics shared.Metrics) *SlackNotifier {
 	return NewSlackNotifierBuilder(name).
 		WithWebhookURL(webhookURL).
@@ -707,7 +735,7 @@ func NewSlackWebhookNotifier(name, webhookURL string, logger logger.Logger, metr
 		Build()
 }
 
-// NewSlackBotNotifier creates a bot-based Slack notifier
+// NewSlackBotNotifier creates a bot-based Slack notifier.
 func NewSlackBotNotifier(name, botToken, channel string, logger logger.Logger, metrics shared.Metrics) *SlackNotifier {
 	return NewSlackNotifierBuilder(name).
 		WithBotToken(botToken).
@@ -717,7 +745,7 @@ func NewSlackBotNotifier(name, botToken, channel string, logger logger.Logger, m
 		Build()
 }
 
-// NewSlackNotifierWithMentions creates a Slack notifier with mention capabilities
+// NewSlackNotifierWithMentions creates a Slack notifier with mention capabilities.
 func NewSlackNotifierWithMentions(name, webhookURL string, mentionUsers, mentionChannels []string, logger logger.Logger, metrics shared.Metrics) *SlackNotifier {
 	return NewSlackNotifierBuilder(name).
 		WithWebhookURL(webhookURL).

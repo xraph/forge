@@ -8,6 +8,7 @@ func TestNewCommand(t *testing.T) {
 	called := false
 	handler := func(ctx CommandContext) error {
 		called = true
+
 		return nil
 	}
 
@@ -107,6 +108,7 @@ func TestFindSubcommand(t *testing.T) {
 	if !ok {
 		t.Error("expected to find subcommand by name")
 	}
+
 	if found.Name() != "child" {
 		t.Errorf("expected found command name 'child', got '%s'", found.Name())
 	}
@@ -116,6 +118,7 @@ func TestFindSubcommand(t *testing.T) {
 	if !ok {
 		t.Error("expected to find subcommand by alias")
 	}
+
 	if found.Name() != "child" {
 		t.Errorf("expected found command name 'child', got '%s'", found.Name())
 	}
@@ -133,6 +136,7 @@ func TestCommandMiddleware(t *testing.T) {
 	beforeMiddleware := func(next CommandHandler) CommandHandler {
 		return func(ctx CommandContext) error {
 			calls = append(calls, "before")
+
 			return next(ctx)
 		}
 	}
@@ -140,13 +144,16 @@ func TestCommandMiddleware(t *testing.T) {
 	afterMiddleware := func(next CommandHandler) CommandHandler {
 		return func(ctx CommandContext) error {
 			err := next(ctx)
+
 			calls = append(calls, "after")
+
 			return err
 		}
 	}
 
 	handler := func(ctx CommandContext) error {
 		calls = append(calls, "handler")
+
 		return nil
 	}
 

@@ -6,7 +6,7 @@ import (
 	forge "github.com/xraph/forge"
 )
 
-// LoggingConfig defines configuration for logging middleware
+// LoggingConfig defines configuration for logging middleware.
 type LoggingConfig struct {
 	// IncludeHeaders includes request headers in logs
 	IncludeHeaders bool
@@ -18,7 +18,7 @@ type LoggingConfig struct {
 	SensitiveHeaders []string
 }
 
-// DefaultLoggingConfig returns default logging configuration
+// DefaultLoggingConfig returns default logging configuration.
 func DefaultLoggingConfig() LoggingConfig {
 	return LoggingConfig{
 		IncludeHeaders:   false,
@@ -27,12 +27,12 @@ func DefaultLoggingConfig() LoggingConfig {
 	}
 }
 
-// Logging middleware logs HTTP requests with timing information
+// Logging middleware logs HTTP requests with timing information.
 func Logging(logger forge.Logger) forge.Middleware {
 	return LoggingWithConfig(logger, DefaultLoggingConfig())
 }
 
-// LoggingWithConfig middleware logs HTTP requests with custom configuration
+// LoggingWithConfig middleware logs HTTP requests with custom configuration.
 func LoggingWithConfig(logger forge.Logger, config LoggingConfig) forge.Middleware {
 	// Pre-compile exclude paths for performance
 	excludeMap := make(map[string]bool)

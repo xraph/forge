@@ -102,6 +102,7 @@ func TestExtensionStart(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start extension: %v", err)
@@ -122,6 +123,7 @@ func TestExtensionStop(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start extension: %v", err)
@@ -147,6 +149,7 @@ func TestExtensionHealth(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start extension: %v", err)
@@ -162,6 +165,7 @@ func TestExtensionHealthNotStarted(t *testing.T) {
 	ext := NewExtension(WithDriver("inmemory"))
 
 	ctx := context.Background()
+
 	err := ext.Health(ctx)
 	if err == nil {
 		t.Fatal("expected error for health check on non-started extension")
@@ -180,6 +184,7 @@ func TestExtensionLifecycle(t *testing.T) {
 
 	// Start
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start: %v", err)
@@ -206,6 +211,7 @@ func TestExtensionLifecycle(t *testing.T) {
 
 func TestExtensionDependencies(t *testing.T) {
 	ext := NewExtension()
+
 	deps := ext.Dependencies()
 	if len(deps) != 0 {
 		t.Errorf("expected 0 dependencies, got %d", len(deps))
@@ -215,6 +221,7 @@ func TestExtensionDependencies(t *testing.T) {
 func TestConfigOption_WithDriver(t *testing.T) {
 	config := DefaultConfig()
 	WithDriver("elasticsearch")(&config)
+
 	if config.Driver != "elasticsearch" {
 		t.Errorf("expected driver 'elasticsearch', got '%s'", config.Driver)
 	}
@@ -223,6 +230,7 @@ func TestConfigOption_WithDriver(t *testing.T) {
 func TestConfigOption_WithURL(t *testing.T) {
 	config := DefaultConfig()
 	WithURL("http://localhost:9200")(&config)
+
 	if config.URL != "http://localhost:9200" {
 		t.Errorf("expected url 'http://localhost:9200', got '%s'", config.URL)
 	}
@@ -232,6 +240,7 @@ func TestConfigOption_WithHosts(t *testing.T) {
 	config := DefaultConfig()
 	hosts := []string{"host1", "host2"}
 	WithHosts(hosts...)(&config)
+
 	if len(config.Hosts) != 2 {
 		t.Errorf("expected 2 hosts, got %d", len(config.Hosts))
 	}
@@ -240,6 +249,7 @@ func TestConfigOption_WithHosts(t *testing.T) {
 func TestConfigOption_WithAuth(t *testing.T) {
 	config := DefaultConfig()
 	WithAuth("user", "pass")(&config)
+
 	if config.Username != "user" || config.Password != "pass" {
 		t.Error("auth not set correctly")
 	}
@@ -248,6 +258,7 @@ func TestConfigOption_WithAuth(t *testing.T) {
 func TestConfigOption_WithAPIKey(t *testing.T) {
 	config := DefaultConfig()
 	WithAPIKey("key123")(&config)
+
 	if config.APIKey != "key123" {
 		t.Errorf("expected api_key 'key123', got '%s'", config.APIKey)
 	}
@@ -256,6 +267,7 @@ func TestConfigOption_WithAPIKey(t *testing.T) {
 func TestConfigOption_WithMaxConnections(t *testing.T) {
 	config := DefaultConfig()
 	WithMaxConnections(20)(&config)
+
 	if config.MaxConnections != 20 {
 		t.Errorf("expected max_connections 20, got %d", config.MaxConnections)
 	}
@@ -264,6 +276,7 @@ func TestConfigOption_WithMaxConnections(t *testing.T) {
 func TestConfigOption_WithDefaultLimit(t *testing.T) {
 	config := DefaultConfig()
 	WithDefaultLimit(50)(&config)
+
 	if config.DefaultLimit != 50 {
 		t.Errorf("expected default_limit 50, got %d", config.DefaultLimit)
 	}
@@ -272,6 +285,7 @@ func TestConfigOption_WithDefaultLimit(t *testing.T) {
 func TestConfigOption_WithMaxLimit(t *testing.T) {
 	config := DefaultConfig()
 	WithMaxLimit(200)(&config)
+
 	if config.MaxLimit != 200 {
 		t.Errorf("expected max_limit 200, got %d", config.MaxLimit)
 	}
@@ -280,6 +294,7 @@ func TestConfigOption_WithMaxLimit(t *testing.T) {
 func TestConfigOption_WithMetrics(t *testing.T) {
 	config := DefaultConfig()
 	WithMetrics(false)(&config)
+
 	if config.EnableMetrics {
 		t.Error("expected metrics disabled")
 	}
@@ -288,6 +303,7 @@ func TestConfigOption_WithMetrics(t *testing.T) {
 func TestConfigOption_WithTracing(t *testing.T) {
 	config := DefaultConfig()
 	WithTracing(false)(&config)
+
 	if config.EnableTracing {
 		t.Error("expected tracing disabled")
 	}
@@ -296,6 +312,7 @@ func TestConfigOption_WithTracing(t *testing.T) {
 func TestConfigOption_WithRequireConfig(t *testing.T) {
 	config := DefaultConfig()
 	WithRequireConfig(true)(&config)
+
 	if !config.RequireConfig {
 		t.Error("expected require_config enabled")
 	}
@@ -307,6 +324,7 @@ func TestConfigOption_WithConfig(t *testing.T) {
 	}
 	config := DefaultConfig()
 	WithConfig(originalConfig)(&config)
+
 	if config.Driver != "custom" {
 		t.Errorf("expected driver 'custom', got '%s'", config.Driver)
 	}

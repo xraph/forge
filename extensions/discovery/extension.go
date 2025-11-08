@@ -3,17 +3,20 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/discovery/backends"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Extension implements forge.Extension for service discovery
+// Extension implements forge.Extension for service discovery.
 type Extension struct {
 	*forge.BaseExtension
+
 	config          Config
 	backend         Backend
 	app             forge.App
@@ -25,7 +28,7 @@ type Extension struct {
 	serviceInstance *ServiceInstance // Store the registered service instance
 }
 
-// NewExtension creates a new service discovery extension
+// NewExtension creates a new service discovery extension.
 func NewExtension(opts ...ConfigOption) forge.Extension {
 	config := DefaultConfig()
 	for _, opt := range opts {
@@ -33,6 +36,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("discovery", "1.0.0", "Service Discovery & Registry")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -40,12 +44,12 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 }
 
-// NewExtensionWithConfig creates a new extension with complete config
+// NewExtensionWithConfig creates a new extension with complete config.
 func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the extension with the app
+// Register registers the extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
@@ -58,9 +62,11 @@ func (e *Extension) Register(app forge.App) error {
 		if name, ok := e.config.Service.Metadata["_app_config_name"]; ok {
 			e.appConfig.Name = name
 		}
+
 		if version, ok := e.config.Service.Metadata["_app_config_version"]; ok {
 			e.appConfig.Version = version
 		}
+
 		if httpAddr, ok := e.config.Service.Metadata["_app_config_http_address"]; ok {
 			e.appConfig.HTTPAddress = httpAddr
 		}
@@ -76,6 +82,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		app.Logger().Info("discovery extension disabled")
+
 		return nil
 	}
 
@@ -91,14 +98,14 @@ func (e *Extension) Register(app forge.App) error {
 	e.backend = backend
 
 	// Register service for service discovery operations
-	if err := container.Register("discovery", func(c forge.Container) (interface{}, error) {
+	if err := container.Register("discovery", func(c forge.Container) (any, error) {
 		return NewService(e.backend, logger), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register discovery service: %w", err)
 	}
 
 	// Register Service type
-	if err := container.Register("discovery.Service", func(c forge.Container) (interface{}, error) {
+	if err := container.Register("discovery.Service", func(c forge.Container) (any, error) {
 		return NewService(e.backend, logger), nil
 	}); err != nil {
 		return fmt.Errorf("failed to register discovery.Service: %w", err)
@@ -125,7 +132,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the extension
+// Start starts the extension.
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -172,20 +179,23 @@ func (e *Extension) Start(ctx context.Context) error {
 	// Start watching for service changes (if enabled)
 	if e.config.Watch.Enabled && len(e.config.Watch.Services) > 0 {
 		e.wg.Add(1)
+
 		go e.watchServices()
 	}
 
 	// Start health check updater (if enabled)
 	if e.config.HealthCheck.Enabled {
 		e.wg.Add(1)
+
 		go e.healthCheckLoop()
 	}
 
 	logger.Info("discovery extension started")
+
 	return nil
 }
 
-// Stop stops the extension gracefully
+// Stop stops the extension gracefully.
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -211,6 +221,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		e.wg.Wait()
 		close(done)
@@ -233,25 +244,25 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks the extension health
+// Health checks the extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
 	if e.backend == nil {
-		return fmt.Errorf("service discovery backend is nil")
+		return errors.New("service discovery backend is nil")
 	}
 
 	return e.backend.Health(ctx)
 }
 
-// Dependencies returns extension dependencies
+// Dependencies returns extension dependencies.
 func (e *Extension) Dependencies() []string {
 	return []string{} // No dependencies
 }
 
-// createBackend creates the appropriate backend based on configuration
+// createBackend creates the appropriate backend based on configuration.
 func (e *Extension) createBackend() (Backend, error) {
 	switch e.config.Backend {
 	case "memory":
@@ -275,16 +286,16 @@ func (e *Extension) createBackend() (Backend, error) {
 		})
 	case "kubernetes":
 		// TODO: Implement Kubernetes backend
-		return nil, fmt.Errorf("kubernetes backend not yet implemented")
+		return nil, errors.New("kubernetes backend not yet implemented")
 	case "eureka":
 		// TODO: Implement Eureka backend
-		return nil, fmt.Errorf("eureka backend not yet implemented")
+		return nil, errors.New("eureka backend not yet implemented")
 	default:
 		return nil, fmt.Errorf("unknown service discovery backend: %s", e.config.Backend)
 	}
 }
 
-// createServiceInstance creates a service instance from config
+// createServiceInstance creates a service instance from config.
 func (e *Extension) createServiceInstance() *ServiceInstance {
 	// Use configured values or fallback to app values
 	serviceName := e.config.Service.Name
@@ -309,6 +320,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 			if serviceAddress == "" {
 				serviceAddress = addr
 			}
+
 			if servicePort == 0 {
 				servicePort = port
 			}
@@ -328,30 +340,29 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 
 	// Start with configured metadata
 	metadata := make(map[string]string)
+
 	if e.config.Service.Metadata != nil {
-		for k, v := range e.config.Service.Metadata {
-			metadata[k] = v
-		}
+		maps.Copy(metadata, e.config.Service.Metadata)
 	}
 
 	// Add FARP metadata if schema publisher is enabled
 	if e.schemaPublisher != nil && e.config.FARP.Enabled {
 		// Build base URL for the service
 		baseURL := ""
+
 		if serviceAddress != "" && servicePort > 0 {
 			// Use HTTP by default, can be enhanced with scheme config
 			scheme := "http"
 			if e.config.Service.Metadata != nil && e.config.Service.Metadata["scheme"] != "" {
 				scheme = e.config.Service.Metadata["scheme"]
 			}
+
 			baseURL = fmt.Sprintf("%s://%s:%d", scheme, serviceAddress, servicePort)
 		}
 
 		// Merge FARP metadata into service metadata
 		farpMetadata := e.schemaPublisher.GetMetadataForDiscovery(baseURL)
-		for k, v := range farpMetadata {
-			metadata[k] = v
-		}
+		maps.Copy(metadata, farpMetadata)
 	}
 
 	return &ServiceInstance{
@@ -366,7 +377,7 @@ func (e *Extension) createServiceInstance() *ServiceInstance {
 	}
 }
 
-// getHTTPAddress tries to get the HTTPAddress from multiple sources
+// getHTTPAddress tries to get the HTTPAddress from multiple sources.
 func (e *Extension) getHTTPAddress() string {
 	// 1. Try from stored appConfig
 	if e.appConfig.HTTPAddress != "" {
@@ -392,14 +403,14 @@ func (e *Extension) getHTTPAddress() string {
 }
 
 // parseHTTPAddress parses an HTTPAddress string and returns address and port
-// Handles formats like ":4400", "localhost:4400", "0.0.0.0:8080"
+// Handles formats like ":4400", "localhost:4400", "0.0.0.0:8080".
 func parseHTTPAddress(httpAddr string) (address string, port int) {
 	// Default values
 	address = "localhost"
 	port = 8080
 
 	if httpAddr == "" {
-		return
+		return address, port
 	}
 
 	// Split by ":"
@@ -427,10 +438,10 @@ func parseHTTPAddress(httpAddr string) (address string, port int) {
 		address = "localhost"
 	}
 
-	return
+	return address, port
 }
 
-// watchServices watches for service changes
+// watchServices watches for service changes.
 func (e *Extension) watchServices() {
 	defer e.wg.Done()
 
@@ -447,7 +458,6 @@ func (e *Extension) watchServices() {
 				e.config.Watch.OnChange(instances)
 			}
 		})
-
 		if err != nil {
 			logger.Warn("failed to watch service",
 				forge.F("service", serviceName),
@@ -459,7 +469,7 @@ func (e *Extension) watchServices() {
 	<-e.stopCh
 }
 
-// healthCheckLoop periodically updates health status
+// healthCheckLoop periodically updates health status.
 func (e *Extension) healthCheckLoop() {
 	defer e.wg.Done()
 
@@ -474,11 +484,13 @@ func (e *Extension) healthCheckLoop() {
 			// Check service health using app health checks
 			ctx, cancel := context.WithTimeout(context.Background(), e.config.HealthCheck.Timeout)
 			err := e.app.HealthManager().OnHealthCheck(ctx)
+
 			cancel()
 
 			status := HealthStatusPassing
 			if err != nil {
 				status = HealthStatusCritical
+
 				logger.Warn("service health check failed", forge.F("error", err))
 			}
 
@@ -494,6 +506,7 @@ func (e *Extension) healthCheckLoop() {
 					forge.F("error", err),
 				)
 			}
+
 			regCancel()
 
 		case <-e.stopCh:
@@ -502,7 +515,7 @@ func (e *Extension) healthCheckLoop() {
 	}
 }
 
-// Service returns the service discovery service
+// Service returns the service discovery service.
 func (e *Extension) Service() *Service {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -514,11 +527,12 @@ func (e *Extension) Service() *Service {
 	return NewService(e.backend, e.app.Logger())
 }
 
-// registerFARPRoutes registers HTTP endpoints for FARP manifest and schema retrieval
+// registerFARPRoutes registers HTTP endpoints for FARP manifest and schema retrieval.
 func (e *Extension) registerFARPRoutes(app forge.App) {
 	router := app.Router()
 	if router == nil {
 		e.app.Logger().Warn("no router available, FARP HTTP endpoints not registered")
+
 		return
 	}
 
@@ -537,6 +551,7 @@ func (e *Extension) registerFARPRoutes(app forge.App) {
 
 		if instance == nil {
 			e.app.Logger().Warn("service instance not registered")
+
 			return ctx.JSON(503, map[string]string{
 				"error": "service not registered",
 			})
@@ -548,6 +563,7 @@ func (e *Extension) registerFARPRoutes(app forge.App) {
 				forge.F("error", err),
 				forge.F("instance_id", instance.ID),
 			)
+
 			return ctx.JSON(500, map[string]string{
 				"error": "failed to retrieve manifest",
 			})
@@ -565,14 +581,15 @@ func (e *Extension) registerFARPRoutes(app forge.App) {
 
 		if instance == nil {
 			e.app.Logger().Warn("service instance not registered")
-			return ctx.JSON(503, map[string]interface{}{
+
+			return ctx.JSON(503, map[string]any{
 				"error":        "service not registered",
 				"farp_enabled": e.config.FARP.Enabled,
 				"backend":      e.config.Backend,
 			})
 		}
 
-		return ctx.JSON(200, map[string]interface{}{
+		return ctx.JSON(200, map[string]any{
 			"service_id":      instance.ID,
 			"service_name":    instance.Name,
 			"service_version": instance.Version,

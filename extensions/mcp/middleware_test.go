@@ -25,7 +25,8 @@ func TestAuthMiddleware_Success(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("X-API-Key", "valid-token-123")
+	req.Header.Set("X-Api-Key", "valid-token-123")
+
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -55,6 +56,7 @@ func TestAuthMiddleware_BearerToken(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "Bearer bearer-token")
+
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -104,7 +106,8 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("X-API-Key", "invalid-token")
+	req.Header.Set("X-Api-Key", "invalid-token")
+
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -151,7 +154,7 @@ func TestRateLimitMiddleware_WithinLimit(t *testing.T) {
 	}))
 
 	// Make 5 requests (within limit of 10)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 
@@ -177,7 +180,7 @@ func TestRateLimitMiddleware_ExceedLimit(t *testing.T) {
 	}))
 
 	// Make requests exceeding the limit
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345" // Same client
 		rec := httptest.NewRecorder()
@@ -217,7 +220,7 @@ func TestRateLimitMiddleware_Disabled(t *testing.T) {
 	}))
 
 	// Make many requests - should all succeed when rate limiting disabled
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		rec := httptest.NewRecorder()
 
@@ -243,7 +246,7 @@ func TestRateLimitMiddleware_DifferentClients(t *testing.T) {
 	}))
 
 	// Client 1 - make 2 requests (at limit)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		req.RemoteAddr = "192.168.1.1:12345"
 		rec := httptest.NewRecorder()
@@ -256,7 +259,7 @@ func TestRateLimitMiddleware_DifferentClients(t *testing.T) {
 	}
 
 	// Client 2 - should still be able to make requests
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
 		req.RemoteAddr = "192.168.1.2:12345" // Different IP
 		rec := httptest.NewRecorder()
@@ -275,6 +278,7 @@ func TestRateLimiter_WindowReset(t *testing.T) {
 	}
 
 	logger := forge.NewNoopLogger()
+
 	limiter := mcp.NewRateLimiter(config, logger)
 	defer limiter.Stop()
 

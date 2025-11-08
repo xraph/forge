@@ -73,11 +73,13 @@ func (arl *adaptiveRateLimiter) AllowN(ctx context.Context, key string, action s
 
 	// Track result
 	arl.mu.Lock()
+
 	if allowed {
 		arl.successCount++
 	} else {
 		arl.failureCount++
 	}
+
 	arl.mu.Unlock()
 
 	return allowed, err
@@ -152,6 +154,7 @@ func (arl *adaptiveRateLimiter) adjust(config AdaptiveConfig) {
 func (arl *adaptiveRateLimiter) GetLoadFactor() float64 {
 	arl.mu.RLock()
 	defer arl.mu.RUnlock()
+
 	return arl.loadFactor
 }
 
@@ -159,6 +162,7 @@ func (arl *adaptiveRateLimiter) GetLoadFactor() float64 {
 func (arl *adaptiveRateLimiter) GetSuccessRate() float64 {
 	arl.mu.RLock()
 	defer arl.mu.RUnlock()
+
 	return arl.successRate
 }
 
@@ -203,6 +207,7 @@ func (ls *localStore) Set(ctx context.Context, key string, data *StoreData, ttl 
 	defer ls.mu.Unlock()
 
 	ls.data[key] = data
+
 	return nil
 }
 
@@ -226,6 +231,7 @@ func (ls *localStore) Increment(ctx context.Context, key string, window time.Dur
 	}
 
 	data.Count++
+
 	return data.Count, nil
 }
 
@@ -234,6 +240,7 @@ func (ls *localStore) Delete(ctx context.Context, key string) error {
 	defer ls.mu.Unlock()
 
 	delete(ls.data, key)
+
 	return nil
 }
 
@@ -243,6 +250,7 @@ func (rls *RateLimitStatus) Format() string {
 		return fmt.Sprintf("Allowed (%d/%d remaining, resets at %s)",
 			rls.Remaining, rls.Limit, rls.ResetAt.Format(time.RFC3339))
 	}
+
 	return fmt.Sprintf("Rate limited (retry in %s, resets at %s)",
 		rls.RetryIn, rls.ResetAt.Format(time.RFC3339))
 }

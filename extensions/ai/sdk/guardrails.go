@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge"
 )
 
-// GuardrailManager manages safety guardrails for AI operations
+// GuardrailManager manages safety guardrails for AI operations.
 type GuardrailManager struct {
 	logger  forge.Logger
 	metrics forge.Metrics
@@ -32,7 +33,7 @@ type GuardrailManager struct {
 	customValidators []func(context.Context, string) error
 }
 
-// GuardrailOptions configures the guardrail manager
+// GuardrailOptions configures the guardrail manager.
 type GuardrailOptions struct {
 	EnablePII             bool
 	EnableToxicity        bool
@@ -45,7 +46,7 @@ type GuardrailOptions struct {
 	CustomBlockedPatterns []string
 }
 
-// GuardrailViolation represents a detected safety violation
+// GuardrailViolation represents a detected safety violation.
 type GuardrailViolation struct {
 	Type        string
 	Description string
@@ -54,7 +55,7 @@ type GuardrailViolation struct {
 	Offending   string // The offending text (may be redacted)
 }
 
-// NewGuardrailManager creates a new guardrail manager
+// NewGuardrailManager creates a new guardrail manager.
 func NewGuardrailManager(
 	logger forge.Logger,
 	metrics forge.Metrics,
@@ -67,8 +68,8 @@ func NewGuardrailManager(
 		enableToxicity:        true,
 		enablePromptInjection: true,
 		enableContentFilter:   true,
-		maxInputLength:        100000,  // 100k chars
-		maxOutputLength:       50000,   // 50k chars
+		maxInputLength:        100000, // 100k chars
+		maxOutputLength:       50000,  // 50k chars
 		toxicWords:            make(map[string]bool),
 		piiPatterns:           make([]*regexp.Regexp, 0),
 		injectionPatterns:     make([]*regexp.Regexp, 0),
@@ -85,6 +86,7 @@ func NewGuardrailManager(
 		if opts.MaxInputLength > 0 {
 			gm.maxInputLength = opts.MaxInputLength
 		}
+
 		if opts.MaxOutputLength > 0 {
 			gm.maxOutputLength = opts.MaxOutputLength
 		}
@@ -115,7 +117,7 @@ func NewGuardrailManager(
 	return gm
 }
 
-// initializeDefaultPatterns sets up default detection patterns
+// initializeDefaultPatterns sets up default detection patterns.
 func (gm *GuardrailManager) initializeDefaultPatterns() {
 	// PII Patterns
 	piiPatterns := []string{
@@ -144,8 +146,8 @@ func (gm *GuardrailManager) initializeDefaultPatterns() {
 		`(?i)forget\s+(everything|all|previous)`,
 		`(?i)new\s+instructions?:`,
 		`(?i)system\s*:\s*`,
-		`(?i)\[INST\]|\[/INST\]`,  // Common injection markers
-		`(?i)<\|im_start\|>`,        // ChatML markers
+		`(?i)\[INST\]|\[/INST\]`, // Common injection markers
+		`(?i)<\|im_start\|>`,     // ChatML markers
 	}
 
 	for _, pattern := range injectionPatterns {
@@ -164,7 +166,7 @@ func (gm *GuardrailManager) initializeDefaultPatterns() {
 	}
 }
 
-// ValidateInput validates input text against all enabled guardrails
+// ValidateInput validates input text against all enabled guardrails.
 func (gm *GuardrailManager) ValidateInput(ctx context.Context, input string) ([]GuardrailViolation, error) {
 	violations := make([]GuardrailViolation, 0)
 
@@ -226,15 +228,16 @@ func (gm *GuardrailManager) ValidateInput(ctx context.Context, input string) ([]
 	// Record metrics
 	if gm.metrics != nil {
 		gm.metrics.Counter("forge.ai.sdk.guardrails.input_checks").Inc()
+
 		if len(violations) > 0 {
-			gm.metrics.Counter("forge.ai.sdk.guardrails.input_violations", "count", fmt.Sprint(len(violations))).Inc()
+			gm.metrics.Counter("forge.ai.sdk.guardrails.input_violations", "count", strconv.Itoa(len(violations))).Inc()
 		}
 	}
 
 	return violations, nil
 }
 
-// ValidateOutput validates output text against all enabled guardrails
+// ValidateOutput validates output text against all enabled guardrails.
 func (gm *GuardrailManager) ValidateOutput(ctx context.Context, output string) ([]GuardrailViolation, error) {
 	violations := make([]GuardrailViolation, 0)
 
@@ -269,15 +272,16 @@ func (gm *GuardrailManager) ValidateOutput(ctx context.Context, output string) (
 	// Record metrics
 	if gm.metrics != nil {
 		gm.metrics.Counter("forge.ai.sdk.guardrails.output_checks").Inc()
+
 		if len(violations) > 0 {
-			gm.metrics.Counter("forge.ai.sdk.guardrails.output_violations", "count", fmt.Sprint(len(violations))).Inc()
+			gm.metrics.Counter("forge.ai.sdk.guardrails.output_violations", "count", strconv.Itoa(len(violations))).Inc()
 		}
 	}
 
 	return violations, nil
 }
 
-// detectPII detects personally identifiable information
+// detectPII detects personally identifiable information.
 func (gm *GuardrailManager) detectPII(text, location string) []GuardrailViolation {
 	violations := make([]GuardrailViolation, 0)
 
@@ -298,7 +302,7 @@ func (gm *GuardrailManager) detectPII(text, location string) []GuardrailViolatio
 	return violations
 }
 
-// detectToxicity detects toxic or harmful content
+// detectToxicity detects toxic or harmful content.
 func (gm *GuardrailManager) detectToxicity(text, location string) []GuardrailViolation {
 	violations := make([]GuardrailViolation, 0)
 
@@ -326,7 +330,7 @@ func (gm *GuardrailManager) detectToxicity(text, location string) []GuardrailVio
 	return violations
 }
 
-// detectPromptInjection detects prompt injection attempts
+// detectPromptInjection detects prompt injection attempts.
 func (gm *GuardrailManager) detectPromptInjection(text, location string) []GuardrailViolation {
 	violations := make([]GuardrailViolation, 0)
 
@@ -345,7 +349,7 @@ func (gm *GuardrailManager) detectPromptInjection(text, location string) []Guard
 	return violations
 }
 
-// detectBlockedContent detects blocked content patterns
+// detectBlockedContent detects blocked content patterns.
 func (gm *GuardrailManager) detectBlockedContent(text, location string) []GuardrailViolation {
 	violations := make([]GuardrailViolation, 0)
 
@@ -364,7 +368,7 @@ func (gm *GuardrailManager) detectBlockedContent(text, location string) []Guardr
 	return violations
 }
 
-// RedactPII removes PII from text
+// RedactPII removes PII from text.
 func (gm *GuardrailManager) RedactPII(text string) string {
 	result := text
 
@@ -375,22 +379,23 @@ func (gm *GuardrailManager) RedactPII(text string) string {
 	return result
 }
 
-// AddCustomValidator adds a custom validation function
+// AddCustomValidator adds a custom validation function.
 func (gm *GuardrailManager) AddCustomValidator(validator func(context.Context, string) error) {
 	gm.customValidators = append(gm.customValidators, validator)
 }
 
-// ShouldBlock returns true if violations warrant blocking the operation
+// ShouldBlock returns true if violations warrant blocking the operation.
 func ShouldBlock(violations []GuardrailViolation) bool {
 	for _, v := range violations {
 		if v.Severity == "critical" || v.Severity == "high" {
 			return true
 		}
 	}
+
 	return false
 }
 
-// FormatViolations formats violations into a human-readable string
+// FormatViolations formats violations into a human-readable string.
 func FormatViolations(violations []GuardrailViolation) string {
 	if len(violations) == 0 {
 		return "No violations detected"
@@ -406,4 +411,3 @@ func FormatViolations(violations []GuardrailViolation) string {
 
 	return builder.String()
 }
-

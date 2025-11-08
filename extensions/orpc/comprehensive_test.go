@@ -79,6 +79,7 @@ func TestExtension_CustomMethodName(t *testing.T) {
 	defer app.Stop(context.Background())
 
 	orpcExt := ext.(*Extension)
+
 	_, err := orpcExt.Server().GetMethod("user.get")
 	if err != nil {
 		t.Errorf("expected custom method 'user.get' to exist: %v", err)
@@ -98,6 +99,7 @@ func TestExtension_ExcludeRoute(t *testing.T) {
 	defer app.Stop(context.Background())
 
 	orpcExt := ext.(*Extension)
+
 	_, err := orpcExt.Server().GetMethod("get.internal.debug")
 	if err == nil {
 		t.Errorf("expected excluded method to not exist")
@@ -116,15 +118,16 @@ func TestExtension_JSONRPCRequest(t *testing.T) {
 	app.Start(context.Background())
 	defer app.Stop(context.Background())
 
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "get.test",
 		"id":      1,
 	}
 	body, _ := json.Marshal(reqBody)
 
-	req := httptest.NewRequest("POST", "/rpc", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
@@ -154,7 +157,7 @@ func TestExtension_OpenRPCSchema(t *testing.T) {
 	app.Start(context.Background())
 	defer app.Stop(context.Background())
 
-	req := httptest.NewRequest("GET", "/rpc/schema", nil)
+	req := httptest.NewRequest(http.MethodGet, "/rpc/schema", nil)
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
@@ -176,6 +179,7 @@ func TestExtension_Health(t *testing.T) {
 	app := forge.NewApp(forge.AppConfig{Name: "test-app", Version: "1.0.0"})
 	ext := NewExtension(WithEnabled(true))
 	app.RegisterExtension(ext)
+
 	app.Start(context.Background())
 	defer app.Stop(context.Background())
 
@@ -187,6 +191,7 @@ func TestExtension_Health(t *testing.T) {
 
 func TestExtension_Health_Disabled(t *testing.T) {
 	ext := NewExtension(WithEnabled(false))
+
 	orpcExt := ext.(*Extension)
 	if err := orpcExt.Health(context.Background()); err != nil {
 		t.Errorf("health check should pass when disabled: %v", err)
@@ -205,14 +210,15 @@ func TestExtension_BatchRequest(t *testing.T) {
 	app.Start(context.Background())
 	defer app.Stop(context.Background())
 
-	reqBody := []map[string]interface{}{
+	reqBody := []map[string]any{
 		{"jsonrpc": "2.0", "method": "get.test", "id": 1},
 		{"jsonrpc": "2.0", "method": "get.test", "id": 2},
 	}
 	body, _ := json.Marshal(reqBody)
 
-	req := httptest.NewRequest("POST", "/rpc", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
@@ -238,7 +244,7 @@ func TestExtension_ListMethods(t *testing.T) {
 	app.Start(context.Background())
 	defer app.Stop(context.Background())
 
-	req := httptest.NewRequest("GET", "/rpc/methods", nil)
+	req := httptest.NewRequest(http.MethodGet, "/rpc/methods", nil)
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
@@ -249,6 +255,7 @@ func TestExtension_ListMethods(t *testing.T) {
 
 func TestParseBatchRequest_Empty(t *testing.T) {
 	body := []byte("[]")
+
 	_, err := parseBatchRequest(body)
 	if err == nil {
 		t.Error("expected error for empty batch")
@@ -257,6 +264,7 @@ func TestParseBatchRequest_Empty(t *testing.T) {
 
 func TestParseBatchRequest_InvalidElement(t *testing.T) {
 	body := []byte(`[{"invalid": true}, "not an object"]`)
+
 	_, err := parseBatchRequest(body)
 	if err == nil {
 		t.Error("expected error for invalid element")
@@ -296,14 +304,16 @@ func TestServer_EdgeCases(t *testing.T) {
 
 	// Test with body parameters
 	app.Router().POST("/items", func(ctx forge.Context) error {
-		var body map[string]interface{}
+		var body map[string]any
 		ctx.Bind(&body)
+
 		return ctx.JSON(201, body)
 	})
 
 	// Test with query parameters
 	app.Router().GET("/search", func(ctx forge.Context) error {
 		query := ctx.Request().URL.Query()
+
 		return ctx.JSON(200, map[string]string{"q": query.Get("q")})
 	})
 
@@ -326,6 +336,7 @@ func TestServer_EdgeCases(t *testing.T) {
 		Params:  json.RawMessage(`{"invalid json`),
 		ID:      1,
 	}
+
 	resp := server.HandleRequest(context.Background(), req)
 	if resp.Error == nil {
 		t.Error("expected error for invalid params")
@@ -363,20 +374,22 @@ func TestExtension_ErrorCases(t *testing.T) {
 	defer app.Stop(context.Background())
 
 	// Test with read error (invalid body)
-	req := httptest.NewRequest("POST", "/rpc", nil)
+	req := httptest.NewRequest(http.MethodPost, "/rpc", nil)
 	req.Body = &errorReader{}
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
 	// Test with invalid request type
 	body := []byte(`"just a string"`)
-	req = httptest.NewRequest("POST", "/rpc", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec = httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
 	var response Response
 	json.Unmarshal(rec.Body.Bytes(), &response)
+
 	if response.Error == nil {
 		t.Error("expected error for invalid request type")
 	}
@@ -385,19 +398,22 @@ func TestExtension_ErrorCases(t *testing.T) {
 	app2 := forge.NewApp(forge.AppConfig{Name: "test2", Version: "1.0.0"})
 	ext2 := NewExtension(WithEnabled(true), WithBatch(false))
 	app2.RegisterExtension(ext2)
+
 	app2.Start(context.Background())
 	defer app2.Stop(context.Background())
 
-	reqBody := []map[string]interface{}{
+	reqBody := []map[string]any{
 		{"jsonrpc": "2.0", "method": "test", "id": 1},
 	}
 	body, _ = json.Marshal(reqBody)
-	req = httptest.NewRequest("POST", "/rpc", bytes.NewReader(body))
+	req = httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec = httptest.NewRecorder()
 	app2.Router().ServeHTTP(rec, req)
 
 	json.Unmarshal(rec.Body.Bytes(), &response)
+
 	if response.Error == nil {
 		t.Error("expected error for disabled batch")
 	}
@@ -471,21 +487,23 @@ func TestExtension_NonJSONResponse(t *testing.T) {
 	// Route that returns non-JSON
 	app.Router().GET("/text", func(ctx forge.Context) error {
 		ctx.Response().Write([]byte("plain text"))
+
 		return nil
 	})
 
 	app.Start(context.Background())
 	defer app.Stop(context.Background())
 
-	reqBody := map[string]interface{}{
+	reqBody := map[string]any{
 		"jsonrpc": "2.0",
 		"method":  "get.text",
 		"id":      1,
 	}
 	body, _ := json.Marshal(reqBody)
 
-	req := httptest.NewRequest("POST", "/rpc", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/rpc", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 	app.Router().ServeHTTP(rec, req)
 
@@ -494,7 +512,7 @@ func TestExtension_NonJSONResponse(t *testing.T) {
 	// Should handle non-JSON response gracefully
 }
 
-// errorReader simulates a read error
+// errorReader simulates a read error.
 type errorReader struct{}
 
 func (e *errorReader) Read(p []byte) (n int, err error) {

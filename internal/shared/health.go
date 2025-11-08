@@ -2,12 +2,13 @@ package shared
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	json "github.com/json-iterator/go"
 )
 
-// HealthManager defines the interface for health checking
+// HealthManager defines the interface for health checking.
 type HealthManager interface {
 	// Name returns the name or identifier associated with the implementation.
 	Name() string
@@ -76,10 +77,10 @@ type HealthManager interface {
 	Reload(config *HealthConfig) error
 }
 
-// HealthCheckFn represents a single health check
+// HealthCheckFn represents a single health check.
 type HealthCheckFn func(ctx context.Context) *HealthResult
 
-// HealthCheck defines the interface for health checks
+// HealthCheck defines the interface for health checks.
 type HealthCheck interface {
 	// Name returns the name of the health check implementation.
 	Name() string
@@ -97,7 +98,7 @@ type HealthCheck interface {
 	Dependencies() []string
 }
 
-// HealthStatus represents the health status of a service or component
+// HealthStatus represents the health status of a service or component.
 type HealthStatus string
 
 const (
@@ -107,32 +108,32 @@ const (
 	HealthStatusUnknown   HealthStatus = "unknown"
 )
 
-// String returns the string representation of the health status
+// String returns the string representation of the health status.
 func (hs HealthStatus) String() string {
 	return string(hs)
 }
 
-// IsHealthy returns true if the status is healthy
+// IsHealthy returns true if the status is healthy.
 func (hs HealthStatus) IsHealthy() bool {
 	return hs == HealthStatusHealthy
 }
 
-// IsDegraded returns true if the status is degraded
+// IsDegraded returns true if the status is degraded.
 func (hs HealthStatus) IsDegraded() bool {
 	return hs == HealthStatusDegraded
 }
 
-// IsUnhealthy returns true if the status is unhealthy
+// IsUnhealthy returns true if the status is unhealthy.
 func (hs HealthStatus) IsUnhealthy() bool {
 	return hs == HealthStatusUnhealthy
 }
 
-// IsUnknown returns true if the status is unknown
+// IsUnknown returns true if the status is unknown.
 func (hs HealthStatus) IsUnknown() bool {
 	return hs == HealthStatusUnknown
 }
 
-// Severity returns a numeric severity level for comparison
+// Severity returns a numeric severity level for comparison.
 func (hs HealthStatus) Severity() int {
 	switch hs {
 	case HealthStatusHealthy:
@@ -148,46 +149,46 @@ func (hs HealthStatus) Severity() int {
 	}
 }
 
-// HealthResult represents the result of a health check
+// HealthResult represents the result of a health check.
 type HealthResult struct {
-	Name      string                 `json:"name"`
-	Status    HealthStatus           `json:"status"`
-	Message   string                 `json:"message"`
-	Details   map[string]interface{} `json:"details"`
-	Timestamp time.Time              `json:"timestamp"`
-	Duration  time.Duration          `json:"duration"`
-	Error     string                 `json:"error,omitempty"`
-	Critical  bool                   `json:"critical"`
-	Tags      map[string]string      `json:"tags,omitempty"`
+	Name      string            `json:"name"`
+	Status    HealthStatus      `json:"status"`
+	Message   string            `json:"message"`
+	Details   map[string]any    `json:"details"`
+	Timestamp time.Time         `json:"timestamp"`
+	Duration  time.Duration     `json:"duration"`
+	Error     string            `json:"error,omitempty"`
+	Critical  bool              `json:"critical"`
+	Tags      map[string]string `json:"tags,omitempty"`
 }
 
-// NewHealthResult creates a new health result
+// NewHealthResult creates a new health result.
 func NewHealthResult(name string, status HealthStatus, message string) *HealthResult {
 	return &HealthResult{
 		Name:      name,
 		Status:    status,
 		Message:   message,
-		Details:   make(map[string]interface{}),
+		Details:   make(map[string]any),
 		Timestamp: time.Now(),
 		Tags:      make(map[string]string),
 	}
 }
 
-// WithDetails adds details to the health result
-func (hr *HealthResult) WithDetails(details map[string]interface{}) *HealthResult {
-	for k, v := range details {
-		hr.Details[k] = v
-	}
+// WithDetails adds details to the health result.
+func (hr *HealthResult) WithDetails(details map[string]any) *HealthResult {
+	maps.Copy(hr.Details, details)
+
 	return hr
 }
 
-// WithDetail adds a single detail to the health result
-func (hr *HealthResult) WithDetail(key string, value interface{}) *HealthResult {
+// WithDetail adds a single detail to the health result.
+func (hr *HealthResult) WithDetail(key string, value any) *HealthResult {
 	hr.Details[key] = value
+
 	return hr
 }
 
-// WithError adds an error to the health result
+// WithError adds an error to the health result.
 func (hr *HealthResult) WithError(err error) *HealthResult {
 	if err != nil {
 		hr.Error = err.Error()
@@ -195,52 +196,59 @@ func (hr *HealthResult) WithError(err error) *HealthResult {
 			hr.Status = HealthStatusUnhealthy
 		}
 	}
+
 	return hr
 }
 
-// WithDuration sets the duration of the health check
+// WithDuration sets the duration of the health check.
 func (hr *HealthResult) WithDuration(duration time.Duration) *HealthResult {
 	hr.Duration = duration
+
 	return hr
 }
 
-// WithCritical marks the health check as critical
+// WithCritical marks the health check as critical.
 func (hr *HealthResult) WithCritical(critical bool) *HealthResult {
 	hr.Critical = critical
+
 	return hr
 }
 
 func (hr *HealthResult) WithStatus(status HealthStatus) *HealthResult {
 	hr.Status = status
+
 	return hr
 }
 
 func (hr *HealthResult) WithMessage(message string) *HealthResult {
 	hr.Message = message
+
 	return hr
 }
 
-// WithTags adds tags to the health result
+// WithTags adds tags to the health result.
 func (hr *HealthResult) WithTags(tags map[string]string) *HealthResult {
-	for k, v := range tags {
-		hr.Tags[k] = v
-	}
+	maps.Copy(hr.Tags, tags)
+
 	return hr
 }
 
-// WithTag adds a single tag to the health result
+// WithTag adds a single tag to the health result.
 func (hr *HealthResult) WithTag(key, value string) *HealthResult {
 	hr.Tags[key] = value
+
 	return hr
 }
 
 func (hr *HealthResult) WithTimestamp(timestamp time.Time) *HealthResult {
 	hr.Timestamp = timestamp
+
 	return hr
 }
 
 func (hr *HealthResult) WithTimestampNow() *HealthResult {
 	hr.Timestamp = time.Now()
+
 	return hr
 }
 
@@ -248,27 +256,27 @@ func (hr *HealthResult) String() string {
 	return hr.Name + ": " + hr.Status.String() + " - " + hr.Message
 }
 
-// IsHealthy returns true if the health result is healthy
+// IsHealthy returns true if the health result is healthy.
 func (hr *HealthResult) IsHealthy() bool {
 	return hr.Status.IsHealthy()
 }
 
-// IsDegraded returns true if the health result is degraded
+// IsDegraded returns true if the health result is degraded.
 func (hr *HealthResult) IsDegraded() bool {
 	return hr.Status.IsDegraded()
 }
 
-// IsUnhealthy returns true if the health result is unhealthy
+// IsUnhealthy returns true if the health result is unhealthy.
 func (hr *HealthResult) IsUnhealthy() bool {
 	return hr.Status.IsUnhealthy()
 }
 
-// IsCritical returns true if the health check is critical
+// IsCritical returns true if the health check is critical.
 func (hr *HealthResult) IsCritical() bool {
 	return hr.Critical
 }
 
-// HealthReport represents a comprehensive health report
+// HealthReport represents a comprehensive health report.
 type HealthReport struct {
 	Overall     HealthStatus             `json:"overall"`
 	Services    map[string]*HealthResult `json:"services"`
@@ -278,176 +286,196 @@ type HealthReport struct {
 	Environment string                   `json:"environment"`
 	Hostname    string                   `json:"hostname"`
 	Uptime      time.Duration            `json:"uptime"`
-	Metadata    map[string]interface{}   `json:"metadata,omitempty"`
+	Metadata    map[string]any           `json:"metadata,omitempty"`
 }
 
-// NewHealthReport creates a new health report
+// NewHealthReport creates a new health report.
 func NewHealthReport() *HealthReport {
 	return &HealthReport{
 		Overall:   HealthStatusUnknown,
 		Services:  make(map[string]*HealthResult),
 		Timestamp: time.Now(),
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 }
 
-// AddResult adds a health result to the report
+// AddResult adds a health result to the report.
 func (hr *HealthReport) AddResult(result *HealthResult) {
 	hr.Services[result.Name] = result
 }
 
-// AddResults adds multiple health results to the report
+// AddResults adds multiple health results to the report.
 func (hr *HealthReport) AddResults(results []*HealthResult) {
 	for _, result := range results {
 		hr.AddResult(result)
 	}
 }
 
-// WithVersion sets the version information
+// WithVersion sets the version information.
 func (hr *HealthReport) WithVersion(version string) *HealthReport {
 	hr.Version = version
+
 	return hr
 }
 
-// WithEnvironment sets the environment information
+// WithEnvironment sets the environment information.
 func (hr *HealthReport) WithEnvironment(environment string) *HealthReport {
 	hr.Environment = environment
+
 	return hr
 }
 
-// WithHostname sets the hostname information
+// WithHostname sets the hostname information.
 func (hr *HealthReport) WithHostname(hostname string) *HealthReport {
 	hr.Hostname = hostname
+
 	return hr
 }
 
-// WithUptime sets the application uptime
+// WithUptime sets the application uptime.
 func (hr *HealthReport) WithUptime(uptime time.Duration) *HealthReport {
 	hr.Uptime = uptime
+
 	return hr
 }
 
-// WithDuration sets the duration of the health check
+// WithDuration sets the duration of the health check.
 func (hr *HealthReport) WithDuration(duration time.Duration) *HealthReport {
 	hr.Duration = duration
+
 	return hr
 }
 
-// WithMetadata adds metadata to the health report
-func (hr *HealthReport) WithMetadata(metadata map[string]interface{}) *HealthReport {
-	for k, v := range metadata {
-		hr.Metadata[k] = v
-	}
+// WithMetadata adds metadata to the health report.
+func (hr *HealthReport) WithMetadata(metadata map[string]any) *HealthReport {
+	maps.Copy(hr.Metadata, metadata)
+
 	return hr
 }
 
-// GetHealthyCount returns the number of healthy services
+// GetHealthyCount returns the number of healthy services.
 func (hr *HealthReport) GetHealthyCount() int {
 	count := 0
+
 	for _, result := range hr.Services {
 		if result.IsHealthy() {
 			count++
 		}
 	}
+
 	return count
 }
 
-// GetDegradedCount returns the number of degraded services
+// GetDegradedCount returns the number of degraded services.
 func (hr *HealthReport) GetDegradedCount() int {
 	count := 0
+
 	for _, result := range hr.Services {
 		if result.IsDegraded() {
 			count++
 		}
 	}
+
 	return count
 }
 
-// GetUnhealthyCount returns the number of unhealthy services
+// GetUnhealthyCount returns the number of unhealthy services.
 func (hr *HealthReport) GetUnhealthyCount() int {
 	count := 0
+
 	for _, result := range hr.Services {
 		if result.IsUnhealthy() {
 			count++
 		}
 	}
+
 	return count
 }
 
-// GetCriticalCount returns the number of critical services
+// GetCriticalCount returns the number of critical services.
 func (hr *HealthReport) GetCriticalCount() int {
 	count := 0
+
 	for _, result := range hr.Services {
 		if result.IsCritical() {
 			count++
 		}
 	}
+
 	return count
 }
 
-// GetFailedCriticalCount returns the number of failed critical services
+// GetFailedCriticalCount returns the number of failed critical services.
 func (hr *HealthReport) GetFailedCriticalCount() int {
 	count := 0
+
 	for _, result := range hr.Services {
 		if result.IsCritical() && result.IsUnhealthy() {
 			count++
 		}
 	}
+
 	return count
 }
 
-// GetServicesByStatus returns services filtered by status
+// GetServicesByStatus returns services filtered by status.
 func (hr *HealthReport) GetServicesByStatus(status HealthStatus) []*HealthResult {
 	var results []*HealthResult
+
 	for _, result := range hr.Services {
 		if result.Status == status {
 			results = append(results, result)
 		}
 	}
+
 	return results
 }
 
-// GetCriticalServices returns all critical services
+// GetCriticalServices returns all critical services.
 func (hr *HealthReport) GetCriticalServices() []*HealthResult {
 	var results []*HealthResult
+
 	for _, result := range hr.Services {
 		if result.IsCritical() {
 			results = append(results, result)
 		}
 	}
+
 	return results
 }
 
-// IsHealthy returns true if the overall health is healthy
+// IsHealthy returns true if the overall health is healthy.
 func (hr *HealthReport) IsHealthy() bool {
 	return hr.Overall.IsHealthy()
 }
 
-// IsDegraded returns true if the overall health is degraded
+// IsDegraded returns true if the overall health is degraded.
 func (hr *HealthReport) IsDegraded() bool {
 	return hr.Overall.IsDegraded()
 }
 
-// IsUnhealthy returns true if the overall health is unhealthy
+// IsUnhealthy returns true if the overall health is unhealthy.
 func (hr *HealthReport) IsUnhealthy() bool {
 	return hr.Overall.IsUnhealthy()
 }
 
-// ToJSON converts the health report to JSON
+// ToJSON converts the health report to JSON.
 func (hr *HealthReport) ToJSON() ([]byte, error) {
 	return json.MarshalIndent(hr, "", "  ")
 }
 
-// FromJSON creates a health report from JSON
+// FromJSON creates a health report from JSON.
 func FromJSON(data []byte) (*HealthReport, error) {
 	var report HealthReport
+
 	err := json.Unmarshal(data, &report)
+
 	return &report, err
 }
 
-// Summary returns a summary of the health report
-func (hr *HealthReport) Summary() map[string]interface{} {
-	return map[string]interface{}{
+// Summary returns a summary of the health report.
+func (hr *HealthReport) Summary() map[string]any {
+	return map[string]any{
 		"overall":         hr.Overall,
 		"total_services":  len(hr.Services),
 		"healthy_count":   hr.GetHealthyCount(),
@@ -464,13 +492,13 @@ func (hr *HealthReport) Summary() map[string]interface{} {
 	}
 }
 
-// HealthCallback is a callback function for health status changes
+// HealthCallback is a callback function for health status changes.
 type HealthCallback func(result *HealthResult)
 
-// HealthReportCallback is a callback function for health report changes
+// HealthReportCallback is a callback function for health report changes.
 type HealthReportCallback func(report *HealthReport)
 
-// HealthCheckerStats contains statistics about the health checker
+// HealthCheckerStats contains statistics about the health checker.
 type HealthCheckerStats struct {
 	RegisteredChecks int           `json:"registered_checks"`
 	Subscribers      int           `json:"subscribers"`
@@ -481,37 +509,37 @@ type HealthCheckerStats struct {
 	LastReport       *HealthReport `json:"last_report,omitempty"`
 }
 
-// HealthConfig configures health checks
+// HealthConfig configures health checks.
 type HealthConfig struct {
-	Enabled                bool              `yaml:"enabled" json:"enabled"`
-	CheckInterval          time.Duration     `yaml:"check_interval" json:"check_interval"`
-	ReportInterval         time.Duration     `yaml:"report_interval" json:"report_interval"`
-	EnableAutoDiscovery    bool              `yaml:"enable_auto_discovery" json:"enable_auto_discovery"`
-	EnablePersistence      bool              `yaml:"enable_persistence" json:"enable_persistence"`
-	EnableAlerting         bool              `yaml:"enable_alerting" json:"enable_alerting"`
-	MaxConcurrentChecks    int               `yaml:"max_concurrent_checks" json:"max_concurrent_checks"`
-	DefaultTimeout         time.Duration     `yaml:"default_timeout" json:"default_timeout"`
-	CriticalServices       []string          `yaml:"critical_services" json:"critical_services"`
-	DegradedThreshold      float64           `yaml:"degraded_threshold" json:"degraded_threshold"`
-	UnhealthyThreshold     float64           `yaml:"unhealthy_threshold" json:"unhealthy_threshold"`
-	EnableSmartAggregation bool              `yaml:"enable_smart_aggregation" json:"enable_smart_aggregation"`
-	EnablePrediction       bool              `yaml:"enable_prediction" json:"enable_prediction"`
-	EnableEndpoints        bool              `yaml:"enable_endpoints" json:"enable_endpoints"`
-	EndpointPrefix         string            `yaml:"endpoint_prefix" json:"endpoint_prefix"`
-	HistorySize            int               `yaml:"history_size" json:"history_size"`
-	Tags                   map[string]string `yaml:"tags" json:"tags"`
+	Enabled                bool              `json:"enabled"                  yaml:"enabled"`
+	CheckInterval          time.Duration     `json:"check_interval"           yaml:"check_interval"`
+	ReportInterval         time.Duration     `json:"report_interval"          yaml:"report_interval"`
+	EnableAutoDiscovery    bool              `json:"enable_auto_discovery"    yaml:"enable_auto_discovery"`
+	EnablePersistence      bool              `json:"enable_persistence"       yaml:"enable_persistence"`
+	EnableAlerting         bool              `json:"enable_alerting"          yaml:"enable_alerting"`
+	MaxConcurrentChecks    int               `json:"max_concurrent_checks"    yaml:"max_concurrent_checks"`
+	DefaultTimeout         time.Duration     `json:"default_timeout"          yaml:"default_timeout"`
+	CriticalServices       []string          `json:"critical_services"        yaml:"critical_services"`
+	DegradedThreshold      float64           `json:"degraded_threshold"       yaml:"degraded_threshold"`
+	UnhealthyThreshold     float64           `json:"unhealthy_threshold"      yaml:"unhealthy_threshold"`
+	EnableSmartAggregation bool              `json:"enable_smart_aggregation" yaml:"enable_smart_aggregation"`
+	EnablePrediction       bool              `json:"enable_prediction"        yaml:"enable_prediction"`
+	EnableEndpoints        bool              `json:"enable_endpoints"         yaml:"enable_endpoints"`
+	EndpointPrefix         string            `json:"endpoint_prefix"          yaml:"endpoint_prefix"`
+	HistorySize            int               `json:"history_size"             yaml:"history_size"`
+	Tags                   map[string]string `json:"tags"                     yaml:"tags"`
 
 	// Service specific configuration
-	AutoRegister    bool `yaml:"auto_register" json:"auto_register"`
-	ExposeEndpoints bool `yaml:"expose_endpoints" json:"expose_endpoints"`
-	EnableMetrics   bool `yaml:"enable_metrics" json:"enable_metrics"`
+	AutoRegister    bool `json:"auto_register"    yaml:"auto_register"`
+	ExposeEndpoints bool `json:"expose_endpoints" yaml:"expose_endpoints"`
+	EnableMetrics   bool `json:"enable_metrics"   yaml:"enable_metrics"`
 
 	// Environment information
-	Version     string `yaml:"version" json:"version"`
-	Environment string `yaml:"environment" json:"environment"`
+	Version     string `json:"version"     yaml:"version"`
+	Environment string `json:"environment" yaml:"environment"`
 }
 
-// DefaultHealthConfig returns default health configuration
+// DefaultHealthConfig returns default health configuration.
 func DefaultHealthConfig() HealthConfig {
 	return HealthConfig{
 		Enabled: true,

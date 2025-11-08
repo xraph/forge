@@ -2,7 +2,7 @@ package orpc
 
 import "errors"
 
-// Package-level errors for internal use
+// Package-level errors for internal use.
 var (
 	ErrMethodExists        = errors.New("orpc: method already exists")
 	ErrMethodNotFoundError = errors.New("orpc: method not found")
@@ -13,7 +13,7 @@ var (
 	ErrRequestTooLarge     = errors.New("orpc: request size exceeds limit")
 )
 
-// GetErrorMessage returns the standard message for a JSON-RPC error code
+// GetErrorMessage returns the standard message for a JSON-RPC error code.
 func GetErrorMessage(code int) string {
 	switch code {
 	case ErrParseError:

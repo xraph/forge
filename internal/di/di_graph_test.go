@@ -38,10 +38,10 @@ func TestDependencyGraph_TopologicalSort_Complex(t *testing.T) {
 	cIdx := indexOf(result, "c")
 	dIdx := indexOf(result, "d")
 
-	assert.True(t, aIdx < bIdx)
-	assert.True(t, aIdx < cIdx)
-	assert.True(t, bIdx < dIdx)
-	assert.True(t, cIdx < dIdx)
+	assert.Less(t, aIdx, bIdx)
+	assert.Less(t, aIdx, cIdx)
+	assert.Less(t, bIdx, dIdx)
+	assert.Less(t, cIdx, dIdx)
 }
 
 func TestDependencyGraph_TopologicalSort_CircularDependency(t *testing.T) {
@@ -92,12 +92,13 @@ func TestDependencyGraph_Visit_AlreadyVisited(t *testing.T) {
 	assert.Empty(t, result) // Should not add again
 }
 
-// Helper function
+// Helper function.
 func indexOf(slice []string, value string) int {
 	for i, v := range slice {
 		if v == value {
 			return i
 		}
 	}
+
 	return -1
 }

@@ -9,21 +9,21 @@ import (
 	"github.com/uptrace/bun/migrate"
 )
 
-// MigrationManager manages database migrations
+// MigrationManager manages database migrations.
 type MigrationManager struct {
 	db         *bun.DB
 	migrations *migrate.Migrations
 	logger     Logger
 }
 
-// Logger interface for migration logging
+// Logger interface for migration logging.
 type Logger interface {
-	Info(msg string, fields ...interface{})
-	Error(msg string, fields ...interface{})
-	Warn(msg string, fields ...interface{})
+	Info(msg string, fields ...any)
+	Error(msg string, fields ...any)
+	Warn(msg string, fields ...any)
 }
 
-// NewMigrationManager creates a new migration manager
+// NewMigrationManager creates a new migration manager.
 func NewMigrationManager(db *bun.DB, migrations *migrate.Migrations, logger Logger) *MigrationManager {
 	return &MigrationManager{
 		db:         db,
@@ -32,16 +32,17 @@ func NewMigrationManager(db *bun.DB, migrations *migrate.Migrations, logger Logg
 	}
 }
 
-// CreateTables creates the migrations table
+// CreateTables creates the migrations table.
 func (m *MigrationManager) CreateTables(ctx context.Context) error {
 	migrator := migrate.NewMigrator(m.db, m.migrations)
+
 	return migrator.Init(ctx)
 }
 
-// Migrate runs all pending migrations
+// Migrate runs all pending migrations.
 func (m *MigrationManager) Migrate(ctx context.Context) error {
 	migrator := migrate.NewMigrator(m.db, m.migrations)
-	
+
 	if err := migrator.Lock(ctx); err != nil {
 		return fmt.Errorf("failed to acquire migration lock: %w", err)
 	}
@@ -54,6 +55,7 @@ func (m *MigrationManager) Migrate(ctx context.Context) error {
 
 	if group.IsZero() {
 		m.logger.Info("no pending migrations")
+
 		return nil
 	}
 
@@ -65,10 +67,10 @@ func (m *MigrationManager) Migrate(ctx context.Context) error {
 	return nil
 }
 
-// Rollback rolls back the last migration group
+// Rollback rolls back the last migration group.
 func (m *MigrationManager) Rollback(ctx context.Context) error {
 	migrator := migrate.NewMigrator(m.db, m.migrations)
-	
+
 	if err := migrator.Lock(ctx); err != nil {
 		return fmt.Errorf("failed to acquire migration lock: %w", err)
 	}
@@ -81,6 +83,7 @@ func (m *MigrationManager) Rollback(ctx context.Context) error {
 
 	if group.IsZero() {
 		m.logger.Info("no migrations to rollback")
+
 		return nil
 	}
 
@@ -92,7 +95,7 @@ func (m *MigrationManager) Rollback(ctx context.Context) error {
 	return nil
 }
 
-// Status returns the current migration status
+// Status returns the current migration status.
 func (m *MigrationManager) Status(ctx context.Context) (*MigrationStatusResult, error) {
 	migrator := migrate.NewMigrator(m.db, m.migrations)
 
@@ -129,20 +132,20 @@ func (m *MigrationManager) Status(ctx context.Context) (*MigrationStatusResult, 
 	return status, nil
 }
 
-// MigrationStatusResult represents the current state of migrations
+// MigrationStatusResult represents the current state of migrations.
 type MigrationStatusResult struct {
 	Applied []AppliedMigration
 	Pending []string
 }
 
-// AppliedMigration represents an applied migration
+// AppliedMigration represents an applied migration.
 type AppliedMigration struct {
 	Name      string
 	GroupID   int64
 	AppliedAt time.Time
 }
 
-// Reset drops all tables and re-runs all migrations
+// Reset drops all tables and re-runs all migrations.
 func (m *MigrationManager) Reset(ctx context.Context) error {
 	// This is a destructive operation - use with caution
 	migrator := migrate.NewMigrator(m.db, m.migrations)
@@ -158,6 +161,7 @@ func (m *MigrationManager) Reset(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("rollback failed during reset: %w", err)
 		}
+
 		if group.IsZero() {
 			break
 		}
@@ -178,8 +182,8 @@ func (m *MigrationManager) Reset(ctx context.Context) error {
 }
 
 // AutoMigrate automatically creates/updates tables for registered models
-// This is a development convenience - use migrations for production
-func (m *MigrationManager) AutoMigrate(ctx context.Context, models ...interface{}) error {
+// This is a development convenience - use migrations for production.
+func (m *MigrationManager) AutoMigrate(ctx context.Context, models ...any) error {
 	for _, model := range models {
 		_, err := m.db.NewCreateTable().
 			Model(model).
@@ -189,14 +193,15 @@ func (m *MigrationManager) AutoMigrate(ctx context.Context, models ...interface{
 			return fmt.Errorf("failed to auto-migrate model: %w", err)
 		}
 	}
-	
+
 	m.logger.Info("auto-migration completed", "models", len(models))
+
 	return nil
 }
 
-// CreateMigration creates the migration tables and initial structure
+// CreateMigration creates the migration tables and initial structure.
 func (m *MigrationManager) CreateMigration(ctx context.Context) error {
 	migrator := migrate.NewMigrator(m.db, m.migrations)
+
 	return migrator.Init(ctx)
 }
-

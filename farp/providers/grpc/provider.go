@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge/farp"
@@ -11,7 +12,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-// Provider generates gRPC schemas (FileDescriptorSet) from applications
+// Provider generates gRPC schemas (FileDescriptorSet) from applications.
 type Provider struct {
 	specVersion string
 	endpoint    string
@@ -20,7 +21,7 @@ type Provider struct {
 
 // NewProvider creates a new gRPC schema provider
 // specVersion should be "proto3" (recommended) or "proto2"
-// endpoint is typically empty for gRPC (uses reflection)
+// endpoint is typically empty for gRPC (uses reflection).
 func NewProvider(specVersion string, protoFiles []string) *Provider {
 	if specVersion == "" {
 		specVersion = "proto3"
@@ -33,29 +34,29 @@ func NewProvider(specVersion string, protoFiles []string) *Provider {
 	}
 }
 
-// Type returns the schema type
+// Type returns the schema type.
 func (p *Provider) Type() farp.SchemaType {
 	return farp.SchemaTypeGRPC
 }
 
-// SpecVersion returns the Protocol Buffer version
+// SpecVersion returns the Protocol Buffer version.
 func (p *Provider) SpecVersion() string {
 	return p.specVersion
 }
 
 // ContentType returns the content type
-// Can be "application/x-protobuf" for binary or "application/json" for JSON representation
+// Can be "application/x-protobuf" for binary or "application/json" for JSON representation.
 func (p *Provider) ContentType() string {
 	return "application/json" // JSON representation of FileDescriptorSet
 }
 
-// Endpoint returns the HTTP endpoint (empty for gRPC - uses reflection)
+// Endpoint returns the HTTP endpoint (empty for gRPC - uses reflection).
 func (p *Provider) Endpoint() string {
 	return p.endpoint
 }
 
-// Generate generates a gRPC schema (FileDescriptorSet) from the application
-func (p *Provider) Generate(ctx context.Context, app farp.Application) (interface{}, error) {
+// Generate generates a gRPC schema (FileDescriptorSet) from the application.
+func (p *Provider) Generate(ctx context.Context, app farp.Application) (any, error) {
 	// For gRPC, we have two options:
 	// 1. Parse .proto files if provided
 	// 2. Use gRPC server reflection to extract FileDescriptorSet
@@ -65,7 +66,6 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	// - protoc to compile .proto files
 	// - grpc reflection client to extract from running server
 	// - Forge's gRPC integration to extract service definitions
-
 	if len(p.protoFiles) > 0 {
 		return p.generateFromProtoFiles(ctx, app)
 	}
@@ -73,8 +73,8 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	return p.generateFromReflection(ctx, app)
 }
 
-// generateFromProtoFiles generates schema by parsing .proto files
-func (p *Provider) generateFromProtoFiles(ctx context.Context, app farp.Application) (interface{}, error) {
+// generateFromProtoFiles generates schema by parsing .proto files.
+func (p *Provider) generateFromProtoFiles(ctx context.Context, app farp.Application) (any, error) {
 	// This would use protoc or a Go protobuf parser
 	// to read .proto files and generate FileDescriptorSet
 	//
@@ -82,7 +82,7 @@ func (p *Provider) generateFromProtoFiles(ctx context.Context, app farp.Applicat
 	fds := &descriptorpb.FileDescriptorSet{
 		File: []*descriptorpb.FileDescriptorProto{
 			{
-				Name:    proto.String(fmt.Sprintf("%s.proto", app.Name())),
+				Name:    proto.String(app.Name() + ".proto"),
 				Package: proto.String(app.Name()),
 				Syntax:  proto.String(p.specVersion),
 			},
@@ -93,8 +93,8 @@ func (p *Provider) generateFromProtoFiles(ctx context.Context, app farp.Applicat
 	return protojson.Marshal(fds)
 }
 
-// generateFromReflection generates schema using gRPC server reflection
-func (p *Provider) generateFromReflection(ctx context.Context, app farp.Application) (interface{}, error) {
+// generateFromReflection generates schema using gRPC server reflection.
+func (p *Provider) generateFromReflection(ctx context.Context, app farp.Application) (any, error) {
 	// This would connect to the gRPC server's reflection service
 	// and extract the FileDescriptorSet
 	//
@@ -105,7 +105,7 @@ func (p *Provider) generateFromReflection(ctx context.Context, app farp.Applicat
 	fds := &descriptorpb.FileDescriptorSet{
 		File: []*descriptorpb.FileDescriptorProto{
 			{
-				Name:    proto.String(fmt.Sprintf("%s.proto", app.Name())),
+				Name:    proto.String(app.Name() + ".proto"),
 				Package: proto.String(app.Name()),
 				Syntax:  proto.String(p.specVersion),
 				Service: []*descriptorpb.ServiceDescriptorProto{
@@ -124,7 +124,7 @@ func (p *Provider) generateFromReflection(ctx context.Context, app farp.Applicat
 	}
 
 	// Return as map for consistency with other providers
-	var result map[string]interface{}
+	var result map[string]any
 	if err := json.Unmarshal(data, &result); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal to map: %w", err)
 	}
@@ -132,10 +132,10 @@ func (p *Provider) generateFromReflection(ctx context.Context, app farp.Applicat
 	return result, nil
 }
 
-// Validate validates a gRPC schema (FileDescriptorSet)
-func (p *Provider) Validate(schema interface{}) error {
+// Validate validates a gRPC schema (FileDescriptorSet).
+func (p *Provider) Validate(schema any) error {
 	// Check if it's a map (JSON representation)
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: schema must be a map", farp.ErrInvalidSchema)
 	}
@@ -147,24 +147,24 @@ func (p *Provider) Validate(schema interface{}) error {
 	}
 
 	// Ensure files is an array
-	if _, ok := files.([]interface{}); !ok {
+	if _, ok := files.([]any); !ok {
 		return fmt.Errorf("%w: 'file' must be an array", farp.ErrInvalidSchema)
 	}
 
 	return nil
 }
 
-// Hash calculates SHA256 hash of the schema
-func (p *Provider) Hash(schema interface{}) (string, error) {
+// Hash calculates SHA256 hash of the schema.
+func (p *Provider) Hash(schema any) (string, error) {
 	return farp.CalculateSchemaChecksum(schema)
 }
 
-// Serialize converts schema to JSON bytes
-func (p *Provider) Serialize(schema interface{}) ([]byte, error) {
+// Serialize converts schema to JSON bytes.
+func (p *Provider) Serialize(schema any) ([]byte, error) {
 	return json.Marshal(schema)
 }
 
-// GenerateDescriptor generates a complete SchemaDescriptor for this schema
+// GenerateDescriptor generates a complete SchemaDescriptor for this schema.
 func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
 	// Generate schema
 	schema, err := p.Generate(ctx, app)
@@ -193,9 +193,11 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeHTTP:
 		url := locationConfig["url"]
 		if url == "" {
-			return nil, fmt.Errorf("url required for HTTP location")
+			return nil, errors.New("url required for HTTP location")
 		}
+
 		location.URL = url
+
 		if headers := locationConfig["headers"]; headers != "" {
 			var headersMap map[string]string
 			if err := json.Unmarshal([]byte(headers), &headersMap); err == nil {
@@ -206,8 +208,9 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeRegistry:
 		registryPath := locationConfig["registry_path"]
 		if registryPath == "" {
-			return nil, fmt.Errorf("registry_path required for registry location")
+			return nil, errors.New("registry_path required for registry location")
 		}
+
 		location.RegistryPath = registryPath
 
 	case farp.LocationTypeInline:
@@ -231,12 +234,12 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	return descriptor, nil
 }
 
-// SetProtoFiles sets the .proto files to parse
+// SetProtoFiles sets the .proto files to parse.
 func (p *Provider) SetProtoFiles(files []string) {
 	p.protoFiles = files
 }
 
-// EnableReflection configures the provider to use gRPC reflection
+// EnableReflection configures the provider to use gRPC reflection.
 func (p *Provider) EnableReflection() {
 	p.protoFiles = nil // Clear proto files to use reflection
 }

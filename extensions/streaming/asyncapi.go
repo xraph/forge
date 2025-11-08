@@ -5,7 +5,7 @@ import (
 )
 
 // AsyncAPISpec generates AsyncAPI 3.0.0 specification for the streaming extension
-// This documents all streaming channels, operations, and message types
+// This documents all streaming channels, operations, and message types.
 func (e *Extension) AsyncAPISpec() *forge.AsyncAPISpec {
 	spec := &forge.AsyncAPISpec{
 		AsyncAPI: "3.0.0",
@@ -45,7 +45,7 @@ func (e *Extension) AsyncAPISpec() *forge.AsyncAPISpec {
 	return spec
 }
 
-// addRoomChannels adds room-related channels and operations
+// addRoomChannels adds room-related channels and operations.
 func (e *Extension) addRoomChannels(spec *forge.AsyncAPISpec) {
 	// Room channel
 	channelID := "rooms"
@@ -72,7 +72,7 @@ func (e *Extension) addRoomChannels(spec *forge.AsyncAPISpec) {
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"type":    {Type: "string", Enum: []interface{}{"join"}},
+						"type":    {Type: "string", Enum: []any{"join"}},
 						"room_id": {Type: "string", Description: "Room ID to join"},
 						"user_id": {Type: "string", Description: "User ID"},
 					},
@@ -88,7 +88,7 @@ func (e *Extension) addRoomChannels(spec *forge.AsyncAPISpec) {
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"type":    {Type: "string", Enum: []interface{}{"leave"}},
+						"type":    {Type: "string", Enum: []any{"leave"}},
 						"room_id": {Type: "string", Description: "Room ID to leave"},
 					},
 					Required: []string{"type", "room_id"},
@@ -177,7 +177,7 @@ func (e *Extension) addRoomChannels(spec *forge.AsyncAPISpec) {
 	}
 }
 
-// addChannelChannels adds pub/sub channel operations
+// addChannelChannels adds pub/sub channel operations.
 func (e *Extension) addChannelChannels(spec *forge.AsyncAPISpec) {
 	channelID := "channels"
 	spec.Channels[channelID] = &forge.AsyncAPIChannel{
@@ -203,7 +203,7 @@ func (e *Extension) addChannelChannels(spec *forge.AsyncAPISpec) {
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"action":     {Type: "string", Enum: []interface{}{"subscribe"}},
+						"action":     {Type: "string", Enum: []any{"subscribe"}},
 						"channel_id": {Type: "string", Description: "Channel ID to subscribe to"},
 					},
 					Required: []string{"action", "channel_id"},
@@ -218,7 +218,7 @@ func (e *Extension) addChannelChannels(spec *forge.AsyncAPISpec) {
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"action":     {Type: "string", Enum: []interface{}{"publish"}},
+						"action":     {Type: "string", Enum: []any{"publish"}},
 						"channel_id": {Type: "string", Description: "Channel ID to publish to"},
 						"data":       {Type: "object", Description: "Message data"},
 					},
@@ -259,7 +259,7 @@ func (e *Extension) addChannelChannels(spec *forge.AsyncAPISpec) {
 	}
 }
 
-// addPresenceChannels adds presence tracking operations
+// addPresenceChannels adds presence tracking operations.
 func (e *Extension) addPresenceChannels(spec *forge.AsyncAPISpec) {
 	channelID := "presence"
 	spec.Channels[channelID] = &forge.AsyncAPIChannel{
@@ -277,9 +277,9 @@ func (e *Extension) addPresenceChannels(spec *forge.AsyncAPISpec) {
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"type":          {Type: "string", Enum: []interface{}{"presence"}},
+						"type":          {Type: "string", Enum: []any{"presence"}},
 						"user_id":       {Type: "string", Description: "User ID"},
-						"status":        {Type: "string", Enum: []interface{}{"online", "away", "busy", "offline"}, Description: "Presence status"},
+						"status":        {Type: "string", Enum: []any{"online", "away", "busy", "offline"}, Description: "Presence status"},
 						"custom_status": {Type: "string", Description: "Custom status message"},
 					},
 					Required: []string{"type", "user_id", "status"},
@@ -319,7 +319,7 @@ func (e *Extension) addPresenceChannels(spec *forge.AsyncAPISpec) {
 	}
 }
 
-// addTypingChannels adds typing indicator operations
+// addTypingChannels adds typing indicator operations.
 func (e *Extension) addTypingChannels(spec *forge.AsyncAPISpec) {
 	channelID := "typing"
 	spec.Channels[channelID] = &forge.AsyncAPIChannel{
@@ -345,10 +345,10 @@ func (e *Extension) addTypingChannels(spec *forge.AsyncAPISpec) {
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"type":    {Type: "string", Enum: []interface{}{"typing"}},
+						"type":    {Type: "string", Enum: []any{"typing"}},
 						"room_id": {Type: "string", Description: "Room ID"},
 						"user_id": {Type: "string", Description: "User ID"},
-						"data":    {Type: "boolean", Enum: []interface{}{true}, Description: "Typing status (true)"},
+						"data":    {Type: "boolean", Enum: []any{true}, Description: "Typing status (true)"},
 					},
 					Required: []string{"type", "room_id", "user_id", "data"},
 				},
@@ -362,10 +362,10 @@ func (e *Extension) addTypingChannels(spec *forge.AsyncAPISpec) {
 				Payload: &forge.Schema{
 					Type: "object",
 					Properties: map[string]*forge.Schema{
-						"type":    {Type: "string", Enum: []interface{}{"typing"}},
+						"type":    {Type: "string", Enum: []any{"typing"}},
 						"room_id": {Type: "string", Description: "Room ID"},
 						"user_id": {Type: "string", Description: "User ID"},
-						"data":    {Type: "boolean", Enum: []interface{}{false}, Description: "Typing status (false)"},
+						"data":    {Type: "boolean", Enum: []any{false}, Description: "Typing status (false)"},
 					},
 					Required: []string{"type", "room_id", "user_id", "data"},
 				},
@@ -417,7 +417,7 @@ func (e *Extension) addTypingChannels(spec *forge.AsyncAPISpec) {
 	}
 }
 
-// addMessageSchemas adds common message schemas to components
+// addMessageSchemas adds common message schemas to components.
 func (e *Extension) addMessageSchemas(spec *forge.AsyncAPISpec) {
 	// Add base Message type
 	spec.Components.Schemas["Message"] = &forge.Schema{
@@ -432,7 +432,7 @@ func (e *Extension) addMessageSchemas(spec *forge.AsyncAPISpec) {
 		Type:        "object",
 		Description: "Error message",
 		Properties: map[string]*forge.Schema{
-			"type":    {Type: "string", Enum: []interface{}{"error"}},
+			"type":    {Type: "string", Enum: []any{"error"}},
 			"code":    {Type: "string", Description: "Error code"},
 			"message": {Type: "string", Description: "Error message"},
 		},
@@ -440,7 +440,7 @@ func (e *Extension) addMessageSchemas(spec *forge.AsyncAPISpec) {
 	}
 }
 
-// messageSchemaProperties returns the common message schema properties
+// messageSchemaProperties returns the common message schema properties.
 func messageSchemaProperties() map[string]*forge.Schema {
 	return map[string]*forge.Schema{
 		"id": {
@@ -450,7 +450,7 @@ func messageSchemaProperties() map[string]*forge.Schema {
 		"type": {
 			Type:        "string",
 			Description: "Message type",
-			Enum:        []interface{}{"message", "presence", "typing", "system", "join", "leave", "error"},
+			Enum:        []any{"message", "presence", "typing", "system", "join", "leave", "error"},
 		},
 		"event": {
 			Type:        "string",

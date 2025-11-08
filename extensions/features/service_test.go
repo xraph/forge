@@ -151,7 +151,7 @@ func TestService_GetFloat(t *testing.T) {
 }
 
 func TestService_GetJSON(t *testing.T) {
-	config := map[string]interface{}{
+	config := map[string]any{
 		"timeout": 30,
 		"retry":   3,
 	}
@@ -178,7 +178,7 @@ func TestService_GetJSON(t *testing.T) {
 	assert.Equal(t, config, value)
 
 	// Test non-existent flag (should return default)
-	defaultValue := map[string]interface{}{"default": true}
+	defaultValue := map[string]any{"default": true}
 	value = service.GetJSON(ctx, "non-existent", userCtx, defaultValue)
 	assert.Equal(t, defaultValue, value)
 }
@@ -224,7 +224,7 @@ func TestNewUserContext(t *testing.T) {
 
 	assert.Equal(t, "test-user", userCtx.UserID)
 	assert.NotNil(t, userCtx.Attributes)
-	assert.Len(t, userCtx.Attributes, 0)
+	assert.Empty(t, userCtx.Attributes)
 }
 
 func TestUserContext_Builders(t *testing.T) {
@@ -348,7 +348,8 @@ func TestService_WithRollout(t *testing.T) {
 
 	// Test with multiple users to verify consistent hashing
 	results := make(map[bool]int)
-	for i := 0; i < 100; i++ {
+
+	for i := range 100 {
 		userCtx := NewUserContext(string(rune('a' + i)))
 		enabled := service.IsEnabled(ctx, "gradual-rollout", userCtx)
 		results[enabled]++
@@ -375,7 +376,7 @@ func TestService_ErrorHandling(t *testing.T) {
 	assert.False(t, enabled)
 }
 
-// Benchmark tests
+// Benchmark tests.
 func BenchmarkService_IsEnabled(b *testing.B) {
 	provider := NewLocalProvider(
 		LocalProviderConfig{
@@ -394,8 +395,7 @@ func BenchmarkService_IsEnabled(b *testing.B) {
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		service.IsEnabled(ctx, "test-flag", userCtx)
 	}
 }
@@ -418,8 +418,7 @@ func BenchmarkService_GetString(b *testing.B) {
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user")
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		service.GetString(ctx, "theme", userCtx, "light")
 	}
 }
@@ -449,15 +448,14 @@ func BenchmarkService_WithTargeting(b *testing.B) {
 	ctx := context.Background()
 	userCtx := NewUserContext("test-user").WithGroups([]string{"vip"})
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		service.IsEnabled(ctx, "vip-feature", userCtx)
 	}
 }
 
 func BenchmarkUserContext_Creation(b *testing.B) {
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		NewUserContext("test-user").
 			WithEmail("user@example.com").
 			WithName("Test User").
@@ -465,4 +463,3 @@ func BenchmarkUserContext_Creation(b *testing.B) {
 			WithAttribute("plan", "premium")
 	}
 }
-

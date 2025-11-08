@@ -7,10 +7,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// Dataset defines the interface for training datasets
+// Dataset defines the interface for training datasets.
 type Dataset interface {
 	// Basic dataset information
 	ID() string
@@ -41,7 +42,7 @@ type Dataset interface {
 	// Metadata and statistics
 	GetSchema() DataSchema
 	GetStatistics() DataStatistics
-	GetMetadata() map[string]interface{}
+	GetMetadata() map[string]any
 	GetConfig() DatasetConfig
 
 	// Health and metrics
@@ -49,7 +50,7 @@ type Dataset interface {
 	GetMetrics() DatasetMetrics
 }
 
-// DataManager manages training data and datasets
+// DataManager manages training data and datasets.
 type DataManager interface {
 	// Dataset management
 	RegisterDataset(dataset Dataset) error
@@ -72,7 +73,7 @@ type DataManager interface {
 	ExecutePipeline(ctx context.Context, pipelineID string, input DataPipelineInput) (DataPipelineOutput, error)
 }
 
-// DatasetType defines the type of dataset
+// DatasetType defines the type of dataset.
 type DatasetType string
 
 const (
@@ -86,23 +87,23 @@ const (
 	DatasetTypeMultimodal DatasetType = "multimodal"
 )
 
-// DatasetConfig contains dataset configuration
+// DatasetConfig contains dataset configuration.
 type DatasetConfig struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        DatasetType            `json:"type"`
-	Version     string                 `json:"version"`
-	Description string                 `json:"description"`
-	Source      DataSource             `json:"source"`
-	Schema      DataSchema             `json:"schema"`
-	Validation  ValidationRules        `json:"validation"`
-	Processing  ProcessingConfig       `json:"processing"`
-	Storage     StorageConfig          `json:"storage"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Tags        []string               `json:"tags"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Type        DatasetType      `json:"type"`
+	Version     string           `json:"version"`
+	Description string           `json:"description"`
+	Source      DataSource       `json:"source"`
+	Schema      DataSchema       `json:"schema"`
+	Validation  ValidationRules  `json:"validation"`
+	Processing  ProcessingConfig `json:"processing"`
+	Storage     StorageConfig    `json:"storage"`
+	Metadata    map[string]any   `json:"metadata"`
+	Tags        []string         `json:"tags"`
 }
 
-// DataSource represents a data source
+// DataSource represents a data source.
 type DataSource interface {
 	ID() string
 	Name() string
@@ -112,10 +113,10 @@ type DataSource interface {
 	Read(ctx context.Context, query DataQuery) (DataReader, error)
 	Write(ctx context.Context, data DataWriter) error
 	GetSchema() DataSchema
-	GetMetadata() map[string]interface{}
+	GetMetadata() map[string]any
 }
 
-// DataSourceType defines the type of data source
+// DataSourceType defines the type of data source.
 type DataSourceType string
 
 const (
@@ -127,30 +128,30 @@ const (
 	DataSourceTypeMemory   DataSourceType = "memory"
 )
 
-// DataQuery represents a data query
+// DataQuery represents a data query.
 type DataQuery struct {
-	Filter    map[string]interface{} `json:"filter"`
-	Sort      []SortField            `json:"sort"`
-	Limit     int                    `json:"limit"`
-	Offset    int                    `json:"offset"`
-	Fields    []string               `json:"fields"`
-	Aggregate []AggregateField       `json:"aggregate"`
+	Filter    map[string]any   `json:"filter"`
+	Sort      []SortField      `json:"sort"`
+	Limit     int              `json:"limit"`
+	Offset    int              `json:"offset"`
+	Fields    []string         `json:"fields"`
+	Aggregate []AggregateField `json:"aggregate"`
 }
 
-// SortField represents a sort field
+// SortField represents a sort field.
 type SortField struct {
 	Field string `json:"field"`
 	Order string `json:"order"` // asc, desc
 }
 
-// AggregateField represents an aggregate field
+// AggregateField represents an aggregate field.
 type AggregateField struct {
 	Field string `json:"field"`
 	Type  string `json:"type"` // sum, avg, count, min, max
 	Alias string `json:"alias"`
 }
 
-// DataReader defines the interface for reading data
+// DataReader defines the interface for reading data.
 type DataReader interface {
 	Read(ctx context.Context) (DataRecord, error)
 	ReadBatch(ctx context.Context, batchSize int) ([]DataRecord, error)
@@ -159,7 +160,7 @@ type DataReader interface {
 	HasNext() bool
 }
 
-// DataWriter defines the interface for writing data
+// DataWriter defines the interface for writing data.
 type DataWriter interface {
 	Write(ctx context.Context, record DataRecord) error
 	WriteBatch(ctx context.Context, records []DataRecord) error
@@ -167,24 +168,24 @@ type DataWriter interface {
 	Close() error
 }
 
-// DataRecord represents a single data record
+// DataRecord represents a single data record.
 type DataRecord struct {
-	ID       string                 `json:"id"`
-	Data     map[string]interface{} `json:"data"`
-	Labels   map[string]interface{} `json:"labels,omitempty"`
-	Metadata map[string]interface{} `json:"metadata"`
-	Version  string                 `json:"version"`
+	ID       string         `json:"id"`
+	Data     map[string]any `json:"data"`
+	Labels   map[string]any `json:"labels,omitempty"`
+	Metadata map[string]any `json:"metadata"`
+	Version  string         `json:"version"`
 }
 
-// DataBatch represents a batch of data records
+// DataBatch represents a batch of data records.
 type DataBatch struct {
-	ID       string                 `json:"id"`
-	Records  []DataRecord           `json:"records"`
-	Size     int                    `json:"size"`
-	Metadata map[string]interface{} `json:"metadata"`
+	ID       string         `json:"id"`
+	Records  []DataRecord   `json:"records"`
+	Size     int            `json:"size"`
+	Metadata map[string]any `json:"metadata"`
 }
 
-// DataIterator provides iteration over dataset records
+// DataIterator provides iteration over dataset records.
 type DataIterator interface {
 	HasNext() bool
 	Next(ctx context.Context) (DataRecord, error)
@@ -194,7 +195,7 @@ type DataIterator interface {
 	Size() int
 }
 
-// DataSchema represents the structure of data
+// DataSchema represents the structure of data.
 type DataSchema struct {
 	Version string                 `json:"version"`
 	Fields  map[string]FieldSchema `json:"fields"`
@@ -204,25 +205,25 @@ type DataSchema struct {
 	Indexes []IndexSchema          `json:"indexes,omitempty"`
 }
 
-// FieldSchema defines the schema for a field
+// FieldSchema defines the schema for a field.
 type FieldSchema struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Required    bool                   `json:"required"`
-	Nullable    bool                   `json:"nullable"`
-	Default     interface{}            `json:"default,omitempty"`
-	Constraints map[string]interface{} `json:"constraints,omitempty"`
-	Format      string                 `json:"format,omitempty"`
-	Description string                 `json:"description,omitempty"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	Required    bool           `json:"required"`
+	Nullable    bool           `json:"nullable"`
+	Default     any            `json:"default,omitempty"`
+	Constraints map[string]any `json:"constraints,omitempty"`
+	Format      string         `json:"format,omitempty"`
+	Description string         `json:"description,omitempty"`
 }
 
-// ForeignKey represents a foreign key relationship
+// ForeignKey represents a foreign key relationship.
 type ForeignKey struct {
 	Table  string   `json:"table"`
 	Fields []string `json:"fields"`
 }
 
-// IndexSchema represents an index
+// IndexSchema represents an index.
 type IndexSchema struct {
 	Name   string   `json:"name"`
 	Fields []string `json:"fields"`
@@ -230,34 +231,34 @@ type IndexSchema struct {
 	Type   string   `json:"type"`
 }
 
-// DataStatistics contains dataset statistics
+// DataStatistics contains dataset statistics.
 type DataStatistics struct {
 	RecordCount  int64                         `json:"record_count"`
 	Size         int64                         `json:"size"`
 	Fields       map[string]FieldStatistics    `json:"fields"`
 	Correlations map[string]map[string]float64 `json:"correlations,omitempty"`
-	Distribution map[string]interface{}        `json:"distribution,omitempty"`
+	Distribution map[string]any                `json:"distribution,omitempty"`
 	Quality      DataQualityMetrics            `json:"quality"`
 	LastUpdated  time.Time                     `json:"last_updated"`
 }
 
-// FieldStatistics contains statistics for a field
+// FieldStatistics contains statistics for a field.
 type FieldStatistics struct {
-	Count        int64                  `json:"count"`
-	NullCount    int64                  `json:"null_count"`
-	UniqueCount  int64                  `json:"unique_count"`
-	Mean         *float64               `json:"mean,omitempty"`
-	Median       *float64               `json:"median,omitempty"`
-	Mode         interface{}            `json:"mode,omitempty"`
-	Min          interface{}            `json:"min,omitempty"`
-	Max          interface{}            `json:"max,omitempty"`
-	StdDev       *float64               `json:"std_dev,omitempty"`
-	Variance     *float64               `json:"variance,omitempty"`
-	Percentiles  map[string]interface{} `json:"percentiles,omitempty"`
-	Distribution map[string]int64       `json:"distribution,omitempty"`
+	Count        int64            `json:"count"`
+	NullCount    int64            `json:"null_count"`
+	UniqueCount  int64            `json:"unique_count"`
+	Mean         *float64         `json:"mean,omitempty"`
+	Median       *float64         `json:"median,omitempty"`
+	Mode         any              `json:"mode,omitempty"`
+	Min          any              `json:"min,omitempty"`
+	Max          any              `json:"max,omitempty"`
+	StdDev       *float64         `json:"std_dev,omitempty"`
+	Variance     *float64         `json:"variance,omitempty"`
+	Percentiles  map[string]any   `json:"percentiles,omitempty"`
+	Distribution map[string]int64 `json:"distribution,omitempty"`
 }
 
-// DataQualityMetrics contains data quality metrics
+// DataQualityMetrics contains data quality metrics.
 type DataQualityMetrics struct {
 	Completeness float64            `json:"completeness"`
 	Accuracy     float64            `json:"accuracy"`
@@ -267,18 +268,18 @@ type DataQualityMetrics struct {
 	Issues       []DataQualityIssue `json:"issues"`
 }
 
-// DataQualityIssue represents a data quality issue
+// DataQualityIssue represents a data quality issue.
 type DataQualityIssue struct {
-	Type        string        `json:"type"`
-	Field       string        `json:"field,omitempty"`
-	Message     string        `json:"message"`
-	Count       int64         `json:"count"`
-	Severity    string        `json:"severity"`
-	Examples    []interface{} `json:"examples,omitempty"`
-	Suggestions []string      `json:"suggestions,omitempty"`
+	Type        string   `json:"type"`
+	Field       string   `json:"field,omitempty"`
+	Message     string   `json:"message"`
+	Count       int64    `json:"count"`
+	Severity    string   `json:"severity"`
+	Examples    []any    `json:"examples,omitempty"`
+	Suggestions []string `json:"suggestions,omitempty"`
 }
 
-// ValidationRules contains data validation rules
+// ValidationRules contains data validation rules.
 type ValidationRules struct {
 	Required   []string               `json:"required"`
 	Types      map[string]string      `json:"types"`
@@ -289,22 +290,22 @@ type ValidationRules struct {
 	CrossField []CrossFieldValidation `json:"cross_field"`
 }
 
-// Range represents a value range
+// Range represents a value range.
 type Range struct {
-	Min interface{} `json:"min,omitempty"`
-	Max interface{} `json:"max,omitempty"`
+	Min any `json:"min,omitempty"`
+	Max any `json:"max,omitempty"`
 }
 
-// CustomValidation represents custom validation logic
+// CustomValidation represents custom validation logic.
 type CustomValidation struct {
-	Name       string                 `json:"name"`
-	Field      string                 `json:"field"`
-	Rule       string                 `json:"rule"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Message    string                 `json:"message"`
+	Name       string         `json:"name"`
+	Field      string         `json:"field"`
+	Rule       string         `json:"rule"`
+	Parameters map[string]any `json:"parameters"`
+	Message    string         `json:"message"`
 }
 
-// CrossFieldValidation represents validation across multiple fields
+// CrossFieldValidation represents validation across multiple fields.
 type CrossFieldValidation struct {
 	Name    string   `json:"name"`
 	Fields  []string `json:"fields"`
@@ -312,7 +313,7 @@ type CrossFieldValidation struct {
 	Message string   `json:"message"`
 }
 
-// ProcessingConfig contains data processing configuration
+// ProcessingConfig contains data processing configuration.
 type ProcessingConfig struct {
 	Transformations []TransformationConfig   `json:"transformations"`
 	Normalization   NormalizationConfig      `json:"normalization"`
@@ -322,81 +323,81 @@ type ProcessingConfig struct {
 	Augmentation    AugmentationConfig       `json:"augmentation"`
 }
 
-// TransformationConfig contains transformation configuration
+// TransformationConfig contains transformation configuration.
 type TransformationConfig struct {
-	Type       string                 `json:"type"`
-	Fields     []string               `json:"fields"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Output     string                 `json:"output,omitempty"`
+	Type       string         `json:"type"`
+	Fields     []string       `json:"fields"`
+	Parameters map[string]any `json:"parameters"`
+	Output     string         `json:"output,omitempty"`
 }
 
-// NormalizationConfig contains normalization configuration
+// NormalizationConfig contains normalization configuration.
 type NormalizationConfig struct {
 	Method string             `json:"method"` // min-max, z-score, robust, quantile
 	Fields []string           `json:"fields"`
 	Params map[string]float64 `json:"params,omitempty"`
 }
 
-// EncodingConfig contains encoding configuration
+// EncodingConfig contains encoding configuration.
 type EncodingConfig struct {
 	Categorical CategoricalEncodingConfig `json:"categorical"`
 	Text        TextEncodingConfig        `json:"text"`
 	DateTime    DateTimeEncodingConfig    `json:"datetime"`
 }
 
-// CategoricalEncodingConfig contains categorical encoding configuration
+// CategoricalEncodingConfig contains categorical encoding configuration.
 type CategoricalEncodingConfig struct {
-	Method string                 `json:"method"` // one-hot, label, ordinal, target
-	Fields []string               `json:"fields"`
-	Params map[string]interface{} `json:"params,omitempty"`
+	Method string         `json:"method"` // one-hot, label, ordinal, target
+	Fields []string       `json:"fields"`
+	Params map[string]any `json:"params,omitempty"`
 }
 
-// TextEncodingConfig contains text encoding configuration
+// TextEncodingConfig contains text encoding configuration.
 type TextEncodingConfig struct {
-	Method     string                 `json:"method"` // tfidf, word2vec, bert
-	Fields     []string               `json:"fields"`
-	Vocabulary int                    `json:"vocabulary"`
-	Params     map[string]interface{} `json:"params,omitempty"`
+	Method     string         `json:"method"` // tfidf, word2vec, bert
+	Fields     []string       `json:"fields"`
+	Vocabulary int            `json:"vocabulary"`
+	Params     map[string]any `json:"params,omitempty"`
 }
 
-// DateTimeEncodingConfig contains datetime encoding configuration
+// DateTimeEncodingConfig contains datetime encoding configuration.
 type DateTimeEncodingConfig struct {
 	Fields     []string `json:"fields"`
 	Components []string `json:"components"` // year, month, day, hour, minute, dayofweek
 	Cyclical   bool     `json:"cyclical"`
 }
 
-// FeatureEngineeringConfig contains feature engineering configuration
+// FeatureEngineeringConfig contains feature engineering configuration.
 type FeatureEngineeringConfig struct {
 	Create  []FeatureCreation   `json:"create"`
 	Select  FeatureSelection    `json:"select"`
 	Extract []FeatureExtraction `json:"extract"`
 }
 
-// FeatureCreation represents feature creation rules
+// FeatureCreation represents feature creation rules.
 type FeatureCreation struct {
-	Name       string                 `json:"name"`
-	Type       string                 `json:"type"` // polynomial, interaction, ratio, etc.
-	Fields     []string               `json:"fields"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"` // polynomial, interaction, ratio, etc.
+	Fields     []string       `json:"fields"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// FeatureSelection represents feature selection configuration
+// FeatureSelection represents feature selection configuration.
 type FeatureSelection struct {
-	Method     string                 `json:"method"` // variance, correlation, mutual_info, etc.
-	Count      int                    `json:"count,omitempty"`
-	Threshold  float64                `json:"threshold,omitempty"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Method     string         `json:"method"` // variance, correlation, mutual_info, etc.
+	Count      int            `json:"count,omitempty"`
+	Threshold  float64        `json:"threshold,omitempty"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// FeatureExtraction represents feature extraction configuration
+// FeatureExtraction represents feature extraction configuration.
 type FeatureExtraction struct {
-	Method     string                 `json:"method"` // pca, lda, ica, etc.
-	Components int                    `json:"components"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Method     string         `json:"method"` // pca, lda, ica, etc.
+	Components int            `json:"components"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// SamplingConfig contains sampling configuration
+// SamplingConfig contains sampling configuration.
 type SamplingConfig struct {
 	Method   string  `json:"method"` // random, stratified, systematic
 	Ratio    float64 `json:"ratio"`
@@ -404,40 +405,40 @@ type SamplingConfig struct {
 	Stratify string  `json:"stratify,omitempty"`
 }
 
-// AugmentationConfig contains data augmentation configuration
+// AugmentationConfig contains data augmentation configuration.
 type AugmentationConfig struct {
 	Enabled     bool                    `json:"enabled"`
 	Techniques  []AugmentationTechnique `json:"techniques"`
 	Probability float64                 `json:"probability"`
 }
 
-// AugmentationTechnique represents an augmentation technique
+// AugmentationTechnique represents an augmentation technique.
 type AugmentationTechnique struct {
-	Name       string                 `json:"name"`
-	Type       string                 `json:"type"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Fields     []string               `json:"fields,omitempty"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Parameters map[string]any `json:"parameters"`
+	Fields     []string       `json:"fields,omitempty"`
 }
 
-// StorageConfig contains storage configuration
+// StorageConfig contains storage configuration.
 type StorageConfig struct {
-	Type         string                 `json:"type"` // file, database, memory, cloud
-	Location     string                 `json:"location"`
-	Format       string                 `json:"format"` // csv, json, parquet, hdf5
-	Compression  string                 `json:"compression,omitempty"`
-	Partitioning PartitioningConfig     `json:"partitioning"`
-	Caching      CachingConfig          `json:"caching"`
-	Parameters   map[string]interface{} `json:"parameters"`
+	Type         string             `json:"type"` // file, database, memory, cloud
+	Location     string             `json:"location"`
+	Format       string             `json:"format"` // csv, json, parquet, hdf5
+	Compression  string             `json:"compression,omitempty"`
+	Partitioning PartitioningConfig `json:"partitioning"`
+	Caching      CachingConfig      `json:"caching"`
+	Parameters   map[string]any     `json:"parameters"`
 }
 
-// PartitioningConfig contains partitioning configuration
+// PartitioningConfig contains partitioning configuration.
 type PartitioningConfig struct {
 	Enabled  bool     `json:"enabled"`
 	Fields   []string `json:"fields"`
 	Strategy string   `json:"strategy"` // hash, range, list
 }
 
-// CachingConfig contains caching configuration
+// CachingConfig contains caching configuration.
 type CachingConfig struct {
 	Enabled  bool          `json:"enabled"`
 	TTL      time.Duration `json:"ttl"`
@@ -445,7 +446,7 @@ type CachingConfig struct {
 	Strategy string        `json:"strategy"` // lru, lfu, fifo
 }
 
-// DatasetMetrics contains dataset metrics
+// DatasetMetrics contains dataset metrics.
 type DatasetMetrics struct {
 	AccessCount    int64         `json:"access_count"`
 	LastAccessed   time.Time     `json:"last_accessed"`
@@ -458,24 +459,24 @@ type DatasetMetrics struct {
 	QualityScore   float64       `json:"quality_score"`
 }
 
-// DataTransformer defines the interface for data transformation
+// DataTransformer defines the interface for data transformation.
 type DataTransformer interface {
 	Name() string
 	Transform(ctx context.Context, record DataRecord) (DataRecord, error)
 	BatchTransform(ctx context.Context, records []DataRecord) ([]DataRecord, error)
 	Fit(ctx context.Context, dataset Dataset) error
-	GetParams() map[string]interface{}
-	SetParams(params map[string]interface{}) error
+	GetParams() map[string]any
+	SetParams(params map[string]any) error
 }
 
-// DataFilter defines the interface for data filtering
+// DataFilter defines the interface for data filtering.
 type DataFilter interface {
 	Name() string
 	Filter(ctx context.Context, record DataRecord) (bool, error)
-	GetCriteria() map[string]interface{}
+	GetCriteria() map[string]any
 }
 
-// DataPipeline represents a data processing pipeline
+// DataPipeline represents a data processing pipeline.
 type DataPipeline interface {
 	ID() string
 	Name() string
@@ -484,44 +485,44 @@ type DataPipeline interface {
 	GetConfig() DataPipelineConfig
 }
 
-// DataPipelineConfig contains data pipeline configuration
+// DataPipelineConfig contains data pipeline configuration.
 type DataPipelineConfig struct {
 	ID          string                    `json:"id"`
 	Name        string                    `json:"name"`
 	Description string                    `json:"description"`
 	Stages      []DataPipelineStageConfig `json:"stages"`
-	Parameters  map[string]interface{}    `json:"parameters"`
+	Parameters  map[string]any            `json:"parameters"`
 }
 
-// DataPipelineStageConfig contains stage configuration
+// DataPipelineStageConfig contains stage configuration.
 type DataPipelineStageConfig struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Type       string                 `json:"type"`
-	Parameters map[string]interface{} `json:"parameters"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// DataPipelineStage represents a pipeline stage
+// DataPipelineStage represents a pipeline stage.
 type DataPipelineStage interface {
 	ID() string
 	Name() string
-	Execute(ctx context.Context, input interface{}) (interface{}, error)
+	Execute(ctx context.Context, input any) (any, error)
 }
 
-// DataPipelineInput represents pipeline input
+// DataPipelineInput represents pipeline input.
 type DataPipelineInput struct {
-	Data       interface{}            `json:"data"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Data       any            `json:"data"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// DataPipelineOutput represents pipeline output
+// DataPipelineOutput represents pipeline output.
 type DataPipelineOutput struct {
-	Data     interface{}            `json:"data"`
-	Metadata map[string]interface{} `json:"metadata"`
-	Metrics  map[string]float64     `json:"metrics"`
+	Data     any                `json:"data"`
+	Metadata map[string]any     `json:"metadata"`
+	Metrics  map[string]float64 `json:"metrics"`
 }
 
-// DatasetImpl implements the Dataset interface
+// DatasetImpl implements the Dataset interface.
 type DatasetImpl struct {
 	id         string
 	config     DatasetConfig
@@ -535,7 +536,7 @@ type DatasetImpl struct {
 	createdAt  time.Time
 }
 
-// NewDataset creates a new dataset
+// NewDataset creates a new dataset.
 func NewDataset(config DatasetConfig, logger logger.Logger) Dataset {
 	return &DatasetImpl{
 		id:        config.ID,
@@ -546,41 +547,43 @@ func NewDataset(config DatasetConfig, logger logger.Logger) Dataset {
 	}
 }
 
-// ID returns the dataset ID
+// ID returns the dataset ID.
 func (d *DatasetImpl) ID() string {
 	return d.id
 }
 
-// Name returns the dataset name
+// Name returns the dataset name.
 func (d *DatasetImpl) Name() string {
 	return d.config.Name
 }
 
-// Type returns the dataset type
+// Type returns the dataset type.
 func (d *DatasetImpl) Type() DatasetType {
 	return d.config.Type
 }
 
-// Version returns the dataset version
+// Version returns the dataset version.
 func (d *DatasetImpl) Version() string {
 	return d.config.Version
 }
 
-// Size returns the dataset size in bytes
+// Size returns the dataset size in bytes.
 func (d *DatasetImpl) Size() int64 {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+
 	return d.statistics.Size
 }
 
-// RecordCount returns the number of records
+// RecordCount returns the number of records.
 func (d *DatasetImpl) RecordCount() int64 {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+
 	return int64(len(d.records))
 }
 
-// Prepare prepares the dataset for use
+// Prepare prepares the dataset for use.
 func (d *DatasetImpl) Prepare(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -594,6 +597,7 @@ func (d *DatasetImpl) Prepare(ctx context.Context) error {
 
 	// Load data from source
 	query := DataQuery{} // Load all data
+
 	reader, err := d.config.Source.Read(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to read data: %w", err)
@@ -624,7 +628,7 @@ func (d *DatasetImpl) Prepare(ctx context.Context) error {
 	return nil
 }
 
-// Validate validates the dataset
+// Validate validates the dataset.
 func (d *DatasetImpl) Validate(ctx context.Context) error {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -633,6 +637,7 @@ func (d *DatasetImpl) Validate(ctx context.Context) error {
 
 	// Validate records against schema and rules
 	errorCount := 0
+
 	for _, record := range d.records {
 		if err := d.validateRecord(record); err != nil {
 			errorCount++
@@ -658,7 +663,7 @@ func (d *DatasetImpl) Validate(ctx context.Context) error {
 	return nil
 }
 
-// Load loads the dataset into memory
+// Load loads the dataset into memory.
 func (d *DatasetImpl) Load(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -684,7 +689,7 @@ func (d *DatasetImpl) Load(ctx context.Context) error {
 	return nil
 }
 
-// Unload unloads the dataset from memory
+// Unload unloads the dataset from memory.
 func (d *DatasetImpl) Unload(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -699,7 +704,7 @@ func (d *DatasetImpl) Unload(ctx context.Context) error {
 	return nil
 }
 
-// GetRecords returns a slice of records
+// GetRecords returns a slice of records.
 func (d *DatasetImpl) GetRecords(ctx context.Context, offset, limit int) ([]DataRecord, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -711,15 +716,12 @@ func (d *DatasetImpl) GetRecords(ctx context.Context, offset, limit int) ([]Data
 		return []DataRecord{}, nil
 	}
 
-	end := offset + limit
-	if end > len(d.records) {
-		end = len(d.records)
-	}
+	end := min(offset+limit, len(d.records))
 
 	return d.records[offset:end], nil
 }
 
-// GetBatch returns a batch of records
+// GetBatch returns a batch of records.
 func (d *DatasetImpl) GetBatch(ctx context.Context, batchSize int) (DataBatch, error) {
 	records, err := d.GetRecords(ctx, 0, batchSize)
 	if err != nil {
@@ -730,14 +732,14 @@ func (d *DatasetImpl) GetBatch(ctx context.Context, batchSize int) (DataBatch, e
 		ID:      fmt.Sprintf("batch_%d", time.Now().UnixNano()),
 		Records: records,
 		Size:    len(records),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"dataset_id": d.id,
 			"created_at": time.Now(),
 		},
 	}, nil
 }
 
-// GetSample returns a random sample of records
+// GetSample returns a random sample of records.
 func (d *DatasetImpl) GetSample(ctx context.Context, sampleSize int) ([]DataRecord, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -748,19 +750,19 @@ func (d *DatasetImpl) GetSample(ctx context.Context, sampleSize int) ([]DataReco
 
 	// Simple random sampling (in production, use proper sampling)
 	sample := make([]DataRecord, sampleSize)
-	for i := 0; i < sampleSize; i++ {
+	for i := range sampleSize {
 		sample[i] = d.records[i%len(d.records)]
 	}
 
 	return sample, nil
 }
 
-// Iterator returns a data iterator
+// Iterator returns a data iterator.
 func (d *DatasetImpl) Iterator(ctx context.Context) (DataIterator, error) {
 	return NewDatasetIterator(d), nil
 }
 
-// Transform applies a transformation to the dataset
+// Transform applies a transformation to the dataset.
 func (d *DatasetImpl) Transform(ctx context.Context, transformer DataTransformer) (Dataset, error) {
 	transformedRecords := make([]DataRecord, 0, len(d.records))
 
@@ -769,6 +771,7 @@ func (d *DatasetImpl) Transform(ctx context.Context, transformer DataTransformer
 		if err != nil {
 			return nil, fmt.Errorf("failed to transform record %s: %w", record.ID, err)
 		}
+
 		transformedRecords = append(transformedRecords, transformed)
 	}
 
@@ -781,7 +784,7 @@ func (d *DatasetImpl) Transform(ctx context.Context, transformer DataTransformer
 	return transformedDataset, nil
 }
 
-// Filter applies a filter to the dataset
+// Filter applies a filter to the dataset.
 func (d *DatasetImpl) Filter(ctx context.Context, filter DataFilter) (Dataset, error) {
 	filteredRecords := make([]DataRecord, 0)
 
@@ -790,6 +793,7 @@ func (d *DatasetImpl) Filter(ctx context.Context, filter DataFilter) (Dataset, e
 		if err != nil {
 			return nil, fmt.Errorf("failed to filter record %s: %w", record.ID, err)
 		}
+
 		if keep {
 			filteredRecords = append(filteredRecords, record)
 		}
@@ -804,10 +808,10 @@ func (d *DatasetImpl) Filter(ctx context.Context, filter DataFilter) (Dataset, e
 	return filteredDataset, nil
 }
 
-// Split splits the dataset into multiple datasets
+// Split splits the dataset into multiple datasets.
 func (d *DatasetImpl) Split(ctx context.Context, ratios []float64) ([]Dataset, error) {
 	if len(ratios) == 0 {
-		return nil, fmt.Errorf("at least one ratio must be specified")
+		return nil, errors.New("at least one ratio must be specified")
 	}
 
 	// Validate ratios sum to 1.0
@@ -815,6 +819,7 @@ func (d *DatasetImpl) Split(ctx context.Context, ratios []float64) ([]Dataset, e
 	for _, ratio := range ratios {
 		sum += ratio
 	}
+
 	if sum != 1.0 {
 		return nil, fmt.Errorf("ratios must sum to 1.0, got %f", sum)
 	}
@@ -841,11 +846,11 @@ func (d *DatasetImpl) Split(ctx context.Context, ratios []float64) ([]Dataset, e
 	return datasets, nil
 }
 
-// Merge merges this dataset with another dataset
+// Merge merges this dataset with another dataset.
 func (d *DatasetImpl) Merge(ctx context.Context, other Dataset) (Dataset, error) {
 	otherImpl, ok := other.(*DatasetImpl)
 	if !ok {
-		return nil, fmt.Errorf("can only merge with DatasetImpl")
+		return nil, errors.New("can only merge with DatasetImpl")
 	}
 
 	mergedRecords := make([]DataRecord, 0, len(d.records)+len(otherImpl.records))
@@ -860,39 +865,40 @@ func (d *DatasetImpl) Merge(ctx context.Context, other Dataset) (Dataset, error)
 	return mergedDataset, nil
 }
 
-// GetSchema returns the dataset schema
+// GetSchema returns the dataset schema.
 func (d *DatasetImpl) GetSchema() DataSchema {
 	return d.schema
 }
 
-// GetStatistics returns dataset statistics
+// GetStatistics returns dataset statistics.
 func (d *DatasetImpl) GetStatistics() DataStatistics {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+
 	return d.statistics
 }
 
-// GetMetadata returns dataset metadata
-func (d *DatasetImpl) GetMetadata() map[string]interface{} {
+// GetMetadata returns dataset metadata.
+func (d *DatasetImpl) GetMetadata() map[string]any {
 	return d.config.Metadata
 }
 
-// GetConfig returns dataset configuration
+// GetConfig returns dataset configuration.
 func (d *DatasetImpl) GetConfig() DatasetConfig {
 	return d.config
 }
 
-// HealthCheck performs a health check on the dataset
+// HealthCheck performs a health check on the dataset.
 func (d *DatasetImpl) HealthCheck(ctx context.Context) error {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	if !d.loaded {
-		return fmt.Errorf("dataset is not loaded")
+		return errors.New("dataset is not loaded")
 	}
 
 	if len(d.records) == 0 {
-		return fmt.Errorf("dataset is empty")
+		return errors.New("dataset is empty")
 	}
 
 	if d.metrics.ErrorRate > 0.1 {
@@ -902,10 +908,11 @@ func (d *DatasetImpl) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// GetMetrics returns dataset metrics
+// GetMetrics returns dataset metrics.
 func (d *DatasetImpl) GetMetrics() DatasetMetrics {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+
 	return d.metrics
 }
 
@@ -960,6 +967,7 @@ func (d *DatasetImpl) calculateQualityMetrics() {
 	}
 
 	var completeness, validity float64
+
 	for _, fieldStats := range d.statistics.Fields {
 		if fieldStats.Count > 0 {
 			fieldCompleteness := float64(fieldStats.Count-fieldStats.NullCount) / float64(fieldStats.Count)
@@ -992,10 +1000,11 @@ func (d *DatasetImpl) validateRecord(record DataRecord) error {
 			return fmt.Errorf("required field %s is missing", rule)
 		}
 	}
+
 	return nil
 }
 
-// DatasetIterator implements DataIterator
+// DatasetIterator implements DataIterator.
 type DatasetIterator struct {
 	dataset  *DatasetImpl
 	position int
@@ -1021,11 +1030,13 @@ func (it *DatasetIterator) Next(ctx context.Context) (DataRecord, error) {
 
 	record := it.dataset.records[it.position]
 	it.position++
+
 	return record, nil
 }
 
 func (it *DatasetIterator) Reset() error {
 	it.position = 0
+
 	return nil
 }
 

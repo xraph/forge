@@ -16,45 +16,46 @@ import (
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// ResponseOptimizationConfig contains configuration for AI-powered response optimization
+// ResponseOptimizationConfig contains configuration for AI-powered response optimization.
 type ResponseOptimizationConfig struct {
-	Enabled               bool          `yaml:"enabled" default:"true"`
-	CompressionEnabled    bool          `yaml:"compression_enabled" default:"true"`
-	CacheOptimization     bool          `yaml:"cache_optimization" default:"true"`
-	ContentOptimization   bool          `yaml:"content_optimization" default:"true"`
-	HeaderOptimization    bool          `yaml:"header_optimization" default:"true"`
-	AdaptiveCompression   bool          `yaml:"adaptive_compression" default:"true"`
-	MinCompressionSize    int64         `yaml:"min_compression_size" default:"1024"`       // Minimum size for compression
-	CompressionLevel      int           `yaml:"compression_level" default:"6"`             // 1-9 compression level
-	LearningEnabled       bool          `yaml:"learning_enabled" default:"true"`           // Enable learning from response patterns
-	OptimizationAlgorithm string        `yaml:"optimization_algorithm" default:"adaptive"` // adaptive, aggressive, conservative
-	ResponseSizeThreshold int64         `yaml:"response_size_threshold" default:"10240"`   // 10KB threshold for optimization
-	LatencyThreshold      time.Duration `yaml:"latency_threshold" default:"500ms"`         // Latency threshold for optimization
-	CacheHitRateTarget    float64       `yaml:"cache_hit_rate_target" default:"0.8"`       // Target cache hit rate
-	BandwidthSavingTarget float64       `yaml:"bandwidth_saving_target" default:"0.3"`     // Target bandwidth saving (30%)
-	ContentTypeFilters    []string      `yaml:"content_type_filters"`                      // Content types to optimize
+	Enabled               bool          `default:"true"              yaml:"enabled"`
+	CompressionEnabled    bool          `default:"true"              yaml:"compression_enabled"`
+	CacheOptimization     bool          `default:"true"              yaml:"cache_optimization"`
+	ContentOptimization   bool          `default:"true"              yaml:"content_optimization"`
+	HeaderOptimization    bool          `default:"true"              yaml:"header_optimization"`
+	AdaptiveCompression   bool          `default:"true"              yaml:"adaptive_compression"`
+	MinCompressionSize    int64         `default:"1024"              yaml:"min_compression_size"`    // Minimum size for compression
+	CompressionLevel      int           `default:"6"                 yaml:"compression_level"`       // 1-9 compression level
+	LearningEnabled       bool          `default:"true"              yaml:"learning_enabled"`        // Enable learning from response patterns
+	OptimizationAlgorithm string        `default:"adaptive"          yaml:"optimization_algorithm"`  // adaptive, aggressive, conservative
+	ResponseSizeThreshold int64         `default:"10240"             yaml:"response_size_threshold"` // 10KB threshold for optimization
+	LatencyThreshold      time.Duration `default:"500ms"             yaml:"latency_threshold"`       // Latency threshold for optimization
+	CacheHitRateTarget    float64       `default:"0.8"               yaml:"cache_hit_rate_target"`   // Target cache hit rate
+	BandwidthSavingTarget float64       `default:"0.3"               yaml:"bandwidth_saving_target"` // Target bandwidth saving (30%)
+	ContentTypeFilters    []string      `yaml:"content_type_filters"`                                // Content types to optimize
 }
 
-// ResponseData contains response data for optimization analysis
+// ResponseData contains response data for optimization analysis.
 type ResponseData struct {
-	StatusCode          int                    `json:"status_code"`
-	ContentType         string                 `json:"content_type"`
-	OriginalSize        int64                  `json:"original_size"`
-	CompressedSize      int64                  `json:"compressed_size"`
-	CompressionRatio    float64                `json:"compression_ratio"`
-	Headers             map[string]string      `json:"headers"`
-	ProcessingTime      time.Duration          `json:"processing_time"`
-	CompressionTime     time.Duration          `json:"compression_time"`
-	CacheStatus         string                 `json:"cache_status"` // hit, miss, no-cache
-	OptimizationApplied []string               `json:"optimization_applied"`
-	Metadata            map[string]interface{} `json:"metadata"`
-	Timestamp           time.Time              `json:"timestamp"`
+	StatusCode          int               `json:"status_code"`
+	ContentType         string            `json:"content_type"`
+	OriginalSize        int64             `json:"original_size"`
+	CompressedSize      int64             `json:"compressed_size"`
+	CompressionRatio    float64           `json:"compression_ratio"`
+	Headers             map[string]string `json:"headers"`
+	ProcessingTime      time.Duration     `json:"processing_time"`
+	CompressionTime     time.Duration     `json:"compression_time"`
+	CacheStatus         string            `json:"cache_status"` // hit, miss, no-cache
+	OptimizationApplied []string          `json:"optimization_applied"`
+	Metadata            map[string]any    `json:"metadata"`
+	Timestamp           time.Time         `json:"timestamp"`
 }
 
-// OptimizationDecision represents an optimization decision made by AI
+// OptimizationDecision represents an optimization decision made by AI.
 type OptimizationDecision struct {
 	ShouldCompress      bool              `json:"should_compress"`
 	CompressionLevel    int               `json:"compression_level"`
@@ -69,7 +70,7 @@ type OptimizationDecision struct {
 	Timestamp           time.Time         `json:"timestamp"`
 }
 
-// ResponseOptimizationStats contains statistics for response optimization
+// ResponseOptimizationStats contains statistics for response optimization.
 type ResponseOptimizationStats struct {
 	TotalRequests          int64                    `json:"total_requests"`
 	OptimizedResponses     int64                    `json:"optimized_responses"`
@@ -86,7 +87,7 @@ type ResponseOptimizationStats struct {
 	TopOptimizedPaths      []PathOptimizationStat   `json:"top_optimized_paths"`
 }
 
-// CompressionStats contains compression-specific statistics
+// CompressionStats contains compression-specific statistics.
 type CompressionStats struct {
 	CompressedResponses     int64            `json:"compressed_responses"`
 	TotalOriginalSize       int64            `json:"total_original_size"`
@@ -96,7 +97,7 @@ type CompressionStats struct {
 	OptimalCompressionLevel int              `json:"optimal_compression_level"`
 }
 
-// CacheOptimizationStats contains cache optimization statistics
+// CacheOptimizationStats contains cache optimization statistics.
 type CacheOptimizationStats struct {
 	CacheHitRate           float64                      `json:"cache_hit_rate"`
 	OptimalCacheHeaders    map[string]string            `json:"optimal_cache_headers"`
@@ -104,7 +105,7 @@ type CacheOptimizationStats struct {
 	AverageCacheEfficiency float64                      `json:"average_cache_efficiency"`
 }
 
-// ContentOptimizationStats contains content optimization statistics
+// ContentOptimizationStats contains content optimization statistics.
 type ContentOptimizationStats struct {
 	JSONMinified      int64 `json:"json_minified"`
 	HTMLOptimized     int64 `json:"html_optimized"`
@@ -114,7 +115,7 @@ type ContentOptimizationStats struct {
 	ContentBytesSaved int64 `json:"content_bytes_saved"`
 }
 
-// HeaderOptimizationStats contains header optimization statistics
+// HeaderOptimizationStats contains header optimization statistics.
 type HeaderOptimizationStats struct {
 	RedundantHeadersRemoved int64               `json:"redundant_headers_removed"`
 	SecurityHeadersAdded    int64               `json:"security_headers_added"`
@@ -123,7 +124,7 @@ type HeaderOptimizationStats struct {
 	OptimalHeadersByPath    map[string][]string `json:"optimal_headers_by_path"`
 }
 
-// PathOptimizationStat contains optimization statistics for a specific path
+// PathOptimizationStat contains optimization statistics for a specific path.
 type PathOptimizationStat struct {
 	Path                string  `json:"path"`
 	RequestCount        int64   `json:"request_count"`
@@ -132,9 +133,10 @@ type PathOptimizationStat struct {
 	OptimizationSuccess float64 `json:"optimization_success"`
 }
 
-// OptimizedResponseWriter wraps http.ResponseWriter for response optimization
+// OptimizedResponseWriter wraps http.ResponseWriter for response optimization.
 type OptimizedResponseWriter struct {
 	http.ResponseWriter
+
 	buffer       *bytes.Buffer
 	statusCode   int
 	originalSize int64
@@ -143,7 +145,7 @@ type OptimizedResponseWriter struct {
 	startTime    time.Time
 }
 
-// ResponseOptimization implements AI-powered response optimization middleware
+// ResponseOptimization implements AI-powered response optimization middleware.
 type ResponseOptimization struct {
 	config         ResponseOptimizationConfig
 	agent          ai.AIAgent
@@ -156,26 +158,26 @@ type ResponseOptimization struct {
 	started        bool
 }
 
-// PathOptimizationPattern represents learned optimization patterns for a path
+// PathOptimizationPattern represents learned optimization patterns for a path.
 type PathOptimizationPattern struct {
-	Path                     string                 `json:"path"`
-	OptimalCompressionLevel  int                    `json:"optimal_compression_level"`
-	OptimalCacheHeaders      map[string]string      `json:"optimal_cache_headers"`
-	AverageResponseSize      int64                  `json:"average_response_size"`
-	CompressionEffectiveness float64                `json:"compression_effectiveness"`
-	LastUpdated              time.Time              `json:"last_updated"`
-	RequestCount             int64                  `json:"request_count"`
-	Metadata                 map[string]interface{} `json:"metadata"`
+	Path                     string            `json:"path"`
+	OptimalCompressionLevel  int               `json:"optimal_compression_level"`
+	OptimalCacheHeaders      map[string]string `json:"optimal_cache_headers"`
+	AverageResponseSize      int64             `json:"average_response_size"`
+	CompressionEffectiveness float64           `json:"compression_effectiveness"`
+	LastUpdated              time.Time         `json:"last_updated"`
+	RequestCount             int64             `json:"request_count"`
+	Metadata                 map[string]any    `json:"metadata"`
 }
 
-// NewResponseOptimization creates a new response optimization middleware
+// NewResponseOptimization creates a new response optimization middleware.
 func NewResponseOptimization(config ResponseOptimizationConfig, logger forge.Logger, metrics forge.Metrics) (*ResponseOptimization, error) {
 	// Create response optimization agent
 	capabilities := []ai.Capability{
 		{
 			Name:        "optimize_compression",
 			Description: "Optimize response compression based on content analysis",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "compression_optimization",
 				"algorithm": "adaptive_compression",
 				"accuracy":  0.88,
@@ -184,7 +186,7 @@ func NewResponseOptimization(config ResponseOptimizationConfig, logger forge.Log
 		{
 			Name:        "optimize_caching",
 			Description: "Optimize cache headers for better cache efficiency",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "cache_optimization",
 				"algorithm": "cache_policy_optimization",
 				"accuracy":  0.85,
@@ -193,7 +195,7 @@ func NewResponseOptimization(config ResponseOptimizationConfig, logger forge.Log
 		{
 			Name:        "optimize_content",
 			Description: "Optimize content structure and formatting",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "content_optimization",
 				"algorithm": "content_analysis",
 				"accuracy":  0.82,
@@ -202,7 +204,7 @@ func NewResponseOptimization(config ResponseOptimizationConfig, logger forge.Log
 		{
 			Name:        "optimize_headers",
 			Description: "Optimize HTTP headers for performance and security",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "header_optimization",
 				"algorithm": "header_analysis",
 				"accuracy":  0.90,
@@ -235,23 +237,23 @@ func NewResponseOptimization(config ResponseOptimizationConfig, logger forge.Log
 	}, nil
 }
 
-// Name returns the middleware name
+// Name returns the middleware name.
 func (ro *ResponseOptimization) Name() string {
 	return "response-optimization"
 }
 
-// Type returns the middleware type
+// Type returns the middleware type.
 func (ro *ResponseOptimization) Type() ai.AIMiddlewareType {
 	return ai.AIMiddlewareTypeResponseOptimization
 }
 
-// Initialize initializes the middleware
+// Initialize initializes the middleware.
 func (ro *ResponseOptimization) Initialize(ctx context.Context, config ai.AIMiddlewareConfig) error {
 	ro.mu.Lock()
 	defer ro.mu.Unlock()
 
 	if ro.started {
-		return fmt.Errorf("response optimization middleware already initialized")
+		return errors.New("response optimization middleware already initialized")
 	}
 
 	// Initialize the AI agent
@@ -290,10 +292,11 @@ func (ro *ResponseOptimization) Initialize(ctx context.Context, config ai.AIMidd
 	return nil
 }
 
-// Process processes HTTP requests with response optimization
+// Process processes HTTP requests with response optimization.
 func (ro *ResponseOptimization) Process(ctx context.Context, req *http.Request, resp http.ResponseWriter, next http.HandlerFunc) error {
 	if !ro.config.Enabled {
 		next.ServeHTTP(resp, req)
+
 		return nil
 	}
 
@@ -337,10 +340,10 @@ func (ro *ResponseOptimization) Process(ctx context.Context, req *http.Request, 
 	return nil
 }
 
-// getOptimizationDecision gets AI-powered optimization decision
+// getOptimizationDecision gets AI-powered optimization decision.
 func (ro *ResponseOptimization) getOptimizationDecision(ctx context.Context, req *http.Request) (*OptimizationDecision, error) {
 	// Extract request features
-	requestFeatures := map[string]interface{}{
+	requestFeatures := map[string]any{
 		"method":            req.Method,
 		"path":              req.URL.Path,
 		"content_type":      req.Header.Get("Content-Type"),
@@ -355,12 +358,12 @@ func (ro *ResponseOptimization) getOptimizationDecision(ctx context.Context, req
 
 	input := ai.AgentInput{
 		Type: "optimize_compression", // Start with compression optimization
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"request_features": requestFeatures,
 			"path_pattern":     pattern,
 			"config":           ro.config,
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"optimization_goals": []string{"bandwidth", "latency", "cache_efficiency"},
 			"algorithm":          ro.config.OptimizationAlgorithm,
 		},
@@ -377,7 +380,7 @@ func (ro *ResponseOptimization) getOptimizationDecision(ctx context.Context, req
 	return ro.parseOptimizationDecision(output), nil
 }
 
-// parseOptimizationDecision parses AI output into optimization decision
+// parseOptimizationDecision parses AI output into optimization decision.
 func (ro *ResponseOptimization) parseOptimizationDecision(output ai.AgentOutput) *OptimizationDecision {
 	decision := &OptimizationDecision{
 		Confidence:   output.Confidence,
@@ -386,7 +389,7 @@ func (ro *ResponseOptimization) parseOptimizationDecision(output ai.AgentOutput)
 		CacheHeaders: make(map[string]string),
 	}
 
-	if decisionData, ok := output.Data.(map[string]interface{}); ok {
+	if decisionData, ok := output.Data.(map[string]any); ok {
 		decision.ShouldCompress = getBoolRO(decisionData, "should_compress")
 		decision.CompressionLevel = int(getFloat64RO(decisionData, "compression_level"))
 		decision.ContentFiltering = getBoolRO(decisionData, "content_filtering")
@@ -394,7 +397,7 @@ func (ro *ResponseOptimization) parseOptimizationDecision(output ai.AgentOutput)
 		decision.OptimizationType = getStringRO(decisionData, "optimization_type")
 
 		// Parse cache headers
-		if cacheHeaders, ok := decisionData["cache_headers"].(map[string]interface{}); ok {
+		if cacheHeaders, ok := decisionData["cache_headers"].(map[string]any); ok {
 			for key, value := range cacheHeaders {
 				if strValue, ok := value.(string); ok {
 					decision.CacheHeaders[key] = strValue
@@ -403,7 +406,7 @@ func (ro *ResponseOptimization) parseOptimizationDecision(output ai.AgentOutput)
 		}
 
 		// Parse header optimizations
-		if headerOpts, ok := decisionData["header_optimizations"].([]interface{}); ok {
+		if headerOpts, ok := decisionData["header_optimizations"].([]any); ok {
 			for _, opt := range headerOpts {
 				if optStr, ok := opt.(string); ok {
 					decision.HeaderOptimizations = append(decision.HeaderOptimizations, optStr)
@@ -412,7 +415,7 @@ func (ro *ResponseOptimization) parseOptimizationDecision(output ai.AgentOutput)
 		}
 
 		// Parse recommended actions
-		if actions, ok := decisionData["recommended_actions"].([]interface{}); ok {
+		if actions, ok := decisionData["recommended_actions"].([]any); ok {
 			for _, action := range actions {
 				if actionStr, ok := action.(string); ok {
 					decision.RecommendedActions = append(decision.RecommendedActions, actionStr)
@@ -424,7 +427,7 @@ func (ro *ResponseOptimization) parseOptimizationDecision(output ai.AgentOutput)
 	return decision
 }
 
-// getDefaultOptimization provides fallback optimization when AI fails
+// getDefaultOptimization provides fallback optimization when AI fails.
 func (ro *ResponseOptimization) getDefaultOptimization(req *http.Request) *OptimizationDecision {
 	supportsGzip := strings.Contains(req.Header.Get("Accept-Encoding"), "gzip")
 
@@ -441,7 +444,7 @@ func (ro *ResponseOptimization) getDefaultOptimization(req *http.Request) *Optim
 	}
 }
 
-// applyPreResponseOptimizations applies optimizations before response is written
+// applyPreResponseOptimizations applies optimizations before response is written.
 func (ro *ResponseOptimization) applyPreResponseOptimizations(writer *OptimizedResponseWriter, req *http.Request, decision *OptimizationDecision) {
 	// Apply cache headers
 	for key, value := range decision.CacheHeaders {
@@ -460,7 +463,7 @@ func (ro *ResponseOptimization) applyPreResponseOptimizations(writer *OptimizedR
 	}
 }
 
-// applyPostResponseOptimizations applies optimizations after response is written
+// applyPostResponseOptimizations applies optimizations after response is written.
 func (ro *ResponseOptimization) applyPostResponseOptimizations(ctx context.Context, writer *OptimizedResponseWriter, req *http.Request, decision *OptimizationDecision) error {
 	responseData := writer.buffer.Bytes()
 	writer.originalSize = int64(len(responseData))
@@ -478,6 +481,7 @@ func (ro *ResponseOptimization) applyPostResponseOptimizations(ctx context.Conte
 		compressedData, err := ro.compressResponse(responseData, decision.CompressionLevel)
 		if err == nil && len(compressedData) < len(responseData) {
 			responseData = compressedData
+
 			writer.Header().Set("Content-Encoding", "gzip")
 		}
 	}
@@ -492,7 +496,7 @@ func (ro *ResponseOptimization) applyPostResponseOptimizations(ctx context.Conte
 	return err
 }
 
-// shouldCompress determines if response should be compressed
+// shouldCompress determines if response should be compressed.
 func (ro *ResponseOptimization) shouldCompress(data []byte, contentType string) bool {
 	if len(data) < int(ro.config.MinCompressionSize) {
 		return false
@@ -501,12 +505,15 @@ func (ro *ResponseOptimization) shouldCompress(data []byte, contentType string) 
 	// Check content type filters
 	if len(ro.config.ContentTypeFilters) > 0 {
 		allowed := false
+
 		for _, allowedType := range ro.config.ContentTypeFilters {
 			if strings.Contains(contentType, allowedType) {
 				allowed = true
+
 				break
 			}
 		}
+
 		if !allowed {
 			return false
 		}
@@ -531,7 +538,7 @@ func (ro *ResponseOptimization) shouldCompress(data []byte, contentType string) 
 	return true
 }
 
-// compressResponse compresses response data using gzip
+// compressResponse compresses response data using gzip.
 func (ro *ResponseOptimization) compressResponse(data []byte, level int) ([]byte, error) {
 	var compressed bytes.Buffer
 
@@ -543,6 +550,7 @@ func (ro *ResponseOptimization) compressResponse(data []byte, level int) ([]byte
 	_, err = writer.Write(data)
 	if err != nil {
 		writer.Close()
+
 		return nil, err
 	}
 
@@ -554,7 +562,7 @@ func (ro *ResponseOptimization) compressResponse(data []byte, level int) ([]byte
 	return compressed.Bytes(), nil
 }
 
-// optimizeContent optimizes content based on content type
+// optimizeContent optimizes content based on content type.
 func (ro *ResponseOptimization) optimizeContent(data []byte, contentType string) ([]byte, error) {
 	switch {
 	case strings.Contains(contentType, "application/json"):
@@ -570,17 +578,19 @@ func (ro *ResponseOptimization) optimizeContent(data []byte, contentType string)
 	}
 }
 
-// minifyJSON removes unnecessary whitespace from JSON
+// minifyJSON removes unnecessary whitespace from JSON.
 func (ro *ResponseOptimization) minifyJSON(data []byte) ([]byte, error) {
 	var compactData bytes.Buffer
+
 	err := json.Compact(&compactData, data)
 	if err != nil {
 		return data, err
 	}
+
 	return compactData.Bytes(), nil
 }
 
-// optimizeHTML performs basic HTML optimization
+// optimizeHTML performs basic HTML optimization.
 func (ro *ResponseOptimization) optimizeHTML(data []byte) ([]byte, error) {
 	// Simple HTML optimization - remove extra whitespace
 	html := string(data)
@@ -596,7 +606,7 @@ func (ro *ResponseOptimization) optimizeHTML(data []byte) ([]byte, error) {
 	return []byte(html), nil
 }
 
-// minifyCSS performs basic CSS minification
+// minifyCSS performs basic CSS minification.
 func (ro *ResponseOptimization) minifyCSS(data []byte) ([]byte, error) {
 	css := string(data)
 
@@ -614,7 +624,7 @@ func (ro *ResponseOptimization) minifyCSS(data []byte) ([]byte, error) {
 	return []byte(css), nil
 }
 
-// minifyJS performs basic JavaScript minification
+// minifyJS performs basic JavaScript minification.
 func (ro *ResponseOptimization) minifyJS(data []byte) ([]byte, error) {
 	js := string(data)
 
@@ -626,7 +636,7 @@ func (ro *ResponseOptimization) minifyJS(data []byte) ([]byte, error) {
 	return []byte(js), nil
 }
 
-// optimizeHeaders optimizes HTTP headers
+// optimizeHeaders optimizes HTTP headers.
 func (ro *ResponseOptimization) optimizeHeaders(writer *OptimizedResponseWriter, optimizations []string) {
 	for _, optimization := range optimizations {
 		switch optimization {
@@ -648,7 +658,7 @@ func (ro *ResponseOptimization) optimizeHeaders(writer *OptimizedResponseWriter,
 	}
 }
 
-// getPathPattern gets optimization pattern for a path
+// getPathPattern gets optimization pattern for a path.
 func (ro *ResponseOptimization) getPathPattern(path string) *PathOptimizationPattern {
 	ro.mu.RLock()
 	defer ro.mu.RUnlock()
@@ -663,11 +673,11 @@ func (ro *ResponseOptimization) getPathPattern(path string) *PathOptimizationPat
 		OptimalCompressionLevel: ro.config.CompressionLevel,
 		OptimalCacheHeaders:     make(map[string]string),
 		LastUpdated:             time.Now(),
-		Metadata:                make(map[string]interface{}),
+		Metadata:                make(map[string]any),
 	}
 }
 
-// recordOptimizationData records data about optimization performance
+// recordOptimizationData records data about optimization performance.
 func (ro *ResponseOptimization) recordOptimizationData(req *http.Request, writer *OptimizedResponseWriter, decision *OptimizationDecision, processingTime time.Duration) {
 	responseData := ResponseData{
 		StatusCode:          writer.statusCode,
@@ -677,7 +687,7 @@ func (ro *ResponseOptimization) recordOptimizationData(req *http.Request, writer
 		CacheStatus:         ro.determineCacheStatus(req, writer),
 		OptimizationApplied: decision.RecommendedActions,
 		Timestamp:           time.Now(),
-		Metadata:            make(map[string]interface{}),
+		Metadata:            make(map[string]any),
 	}
 
 	// Calculate compression metrics if compression was applied
@@ -690,6 +700,7 @@ func (ro *ResponseOptimization) recordOptimizationData(req *http.Request, writer
 
 	// Add to buffer for analysis
 	ro.mu.Lock()
+
 	ro.responseBuffer = append(ro.responseBuffer, responseData)
 	if len(ro.responseBuffer) > 1000 {
 		ro.responseBuffer = ro.responseBuffer[1:] // Remove oldest
@@ -705,7 +716,7 @@ func (ro *ResponseOptimization) recordOptimizationData(req *http.Request, writer
 	}
 }
 
-// updateStats updates optimization statistics
+// updateStats updates optimization statistics.
 func (ro *ResponseOptimization) updateStats(data ResponseData) {
 	ro.stats.TotalRequests++
 
@@ -763,13 +774,14 @@ func (ro *ResponseOptimization) updateStats(data ResponseData) {
 	if ro.metrics != nil {
 		ro.metrics.Counter("forge.ai.response_optimized").Inc()
 		ro.metrics.Histogram("forge.ai.optimization_time").Observe(data.ProcessingTime.Seconds())
+
 		if data.OriginalSize > 0 && data.CompressedSize > 0 {
 			ro.metrics.Histogram("forge.ai.compression_ratio").Observe(data.CompressionRatio)
 		}
 	}
 }
 
-// determineCacheStatus determines the cache status of a request
+// determineCacheStatus determines the cache status of a request.
 func (ro *ResponseOptimization) determineCacheStatus(req *http.Request, writer *OptimizedResponseWriter) string {
 	if req.Header.Get("If-Modified-Since") != "" || req.Header.Get("If-None-Match") != "" {
 		if writer.statusCode == http.StatusNotModified {
@@ -785,7 +797,7 @@ func (ro *ResponseOptimization) determineCacheStatus(req *http.Request, writer *
 	return "miss"
 }
 
-// optimizationLoop runs periodic optimization tasks
+// optimizationLoop runs periodic optimization tasks.
 func (ro *ResponseOptimization) optimizationLoop(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
@@ -800,7 +812,7 @@ func (ro *ResponseOptimization) optimizationLoop(ctx context.Context) {
 	}
 }
 
-// performOptimizationAnalysis analyzes optimization effectiveness
+// performOptimizationAnalysis analyzes optimization effectiveness.
 func (ro *ResponseOptimization) performOptimizationAnalysis(ctx context.Context) {
 	ro.mu.RLock()
 	bufferCopy := make([]ResponseData, len(ro.responseBuffer))
@@ -814,13 +826,13 @@ func (ro *ResponseOptimization) performOptimizationAnalysis(ctx context.Context)
 	// Analyze optimization effectiveness
 	input := ai.AgentInput{
 		Type: "optimize_caching",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"response_data":     bufferCopy,
 			"current_stats":     ro.stats,
 			"target_bandwidth":  ro.config.BandwidthSavingTarget,
 			"target_cache_rate": ro.config.CacheHitRateTarget,
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"analysis_type": "effectiveness_analysis",
 		},
 		RequestID: fmt.Sprintf("analysis-%d", time.Now().UnixNano()),
@@ -832,6 +844,7 @@ func (ro *ResponseOptimization) performOptimizationAnalysis(ctx context.Context)
 		if ro.logger != nil {
 			ro.logger.Error("optimization analysis failed", logger.Error(err))
 		}
+
 		return
 	}
 
@@ -839,9 +852,9 @@ func (ro *ResponseOptimization) performOptimizationAnalysis(ctx context.Context)
 	ro.applyOptimizationRecommendations(output)
 }
 
-// applyOptimizationRecommendations applies AI recommendations
+// applyOptimizationRecommendations applies AI recommendations.
 func (ro *ResponseOptimization) applyOptimizationRecommendations(output ai.AgentOutput) {
-	if recommendations, ok := output.Data.(map[string]interface{}); ok {
+	if recommendations, ok := output.Data.(map[string]any); ok {
 		ro.mu.Lock()
 		defer ro.mu.Unlock()
 
@@ -851,15 +864,17 @@ func (ro *ResponseOptimization) applyOptimizationRecommendations(output ai.Agent
 		}
 
 		// Update cache optimization settings
-		if cacheSettings, ok := recommendations["cache_settings"].(map[string]interface{}); ok {
+		if cacheSettings, ok := recommendations["cache_settings"].(map[string]any); ok {
 			for path, headers := range cacheSettings {
-				if headerMap, ok := headers.(map[string]interface{}); ok {
+				if headerMap, ok := headers.(map[string]any); ok {
 					pathHeaders := make(map[string]string)
+
 					for k, v := range headerMap {
 						if strValue, ok := v.(string); ok {
 							pathHeaders[k] = strValue
 						}
 					}
+
 					ro.stats.CacheStats.CacheHeadersByPath[path] = pathHeaders
 				}
 			}
@@ -874,7 +889,7 @@ func (ro *ResponseOptimization) applyOptimizationRecommendations(output ai.Agent
 	}
 }
 
-// patternLearningLoop learns optimization patterns
+// patternLearningLoop learns optimization patterns.
 func (ro *ResponseOptimization) patternLearningLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
@@ -889,7 +904,7 @@ func (ro *ResponseOptimization) patternLearningLoop(ctx context.Context) {
 	}
 }
 
-// learnOptimizationPatterns learns patterns for different paths
+// learnOptimizationPatterns learns patterns for different paths.
 func (ro *ResponseOptimization) learnOptimizationPatterns(ctx context.Context) {
 	ro.mu.RLock()
 	bufferCopy := make([]ResponseData, len(ro.responseBuffer))
@@ -898,6 +913,7 @@ func (ro *ResponseOptimization) learnOptimizationPatterns(ctx context.Context) {
 
 	// Group responses by path
 	pathGroups := make(map[string][]ResponseData)
+
 	for _, data := range bufferCopy {
 		// Extract path from metadata (simplified)
 		path := "/unknown" // Would extract from actual request data
@@ -914,7 +930,7 @@ func (ro *ResponseOptimization) learnOptimizationPatterns(ctx context.Context) {
 	}
 }
 
-// updatePathPattern updates optimization pattern for a path
+// updatePathPattern updates optimization pattern for a path.
 func (ro *ResponseOptimization) updatePathPattern(path string, responses []ResponseData) {
 	ro.mu.Lock()
 	defer ro.mu.Unlock()
@@ -924,14 +940,17 @@ func (ro *ResponseOptimization) updatePathPattern(path string, responses []Respo
 		pattern = &PathOptimizationPattern{
 			Path:                path,
 			OptimalCacheHeaders: make(map[string]string),
-			Metadata:            make(map[string]interface{}),
+			Metadata:            make(map[string]any),
 		}
 		ro.pathPatterns[path] = pattern
 	}
 
 	// Calculate average response size
-	var totalSize int64
-	var compressionEffectiveness float64
+	var (
+		totalSize                int64
+		compressionEffectiveness float64
+	)
+
 	validCompressions := 0
 
 	for _, response := range responses {
@@ -951,7 +970,7 @@ func (ro *ResponseOptimization) updatePathPattern(path string, responses []Respo
 	pattern.LastUpdated = time.Now()
 }
 
-// performanceMonitoringLoop monitors optimization performance
+// performanceMonitoringLoop monitors optimization performance.
 func (ro *ResponseOptimization) performanceMonitoringLoop(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
@@ -966,7 +985,7 @@ func (ro *ResponseOptimization) performanceMonitoringLoop(ctx context.Context) {
 	}
 }
 
-// monitorPerformance monitors optimization performance
+// monitorPerformance monitors optimization performance.
 func (ro *ResponseOptimization) monitorPerformance() {
 	ro.mu.RLock()
 	defer ro.mu.RUnlock()
@@ -995,7 +1014,7 @@ func (ro *ResponseOptimization) monitorPerformance() {
 	ro.stats.TopOptimizedPaths = pathStats
 }
 
-// learnFromOptimization learns from individual optimization results
+// learnFromOptimization learns from individual optimization results.
 func (ro *ResponseOptimization) learnFromOptimization(req *http.Request, data ResponseData, decision *OptimizationDecision) {
 	// Create feedback based on optimization effectiveness
 	success := true
@@ -1013,7 +1032,7 @@ func (ro *ResponseOptimization) learnFromOptimization(req *http.Request, data Re
 	feedback := ai.AgentFeedback{
 		ActionID: fmt.Sprintf("optimization-%s-%d", req.URL.Path, time.Now().UnixNano()),
 		Success:  success,
-		Outcome: map[string]interface{}{
+		Outcome: map[string]any{
 			"actual_saving":    actualSaving,
 			"predicted_saving": decision.PredictedSaving,
 			"compression_time": data.CompressionTime,
@@ -1024,7 +1043,7 @@ func (ro *ResponseOptimization) learnFromOptimization(req *http.Request, data Re
 			"optimization_accuracy": 1.0 - math.Abs(actualSaving-decision.PredictedSaving),
 			"performance_impact":    data.ProcessingTime.Seconds(),
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"path":              req.URL.Path,
 			"optimization_type": decision.OptimizationType,
 			"confidence":        decision.Confidence,
@@ -1039,7 +1058,7 @@ func (ro *ResponseOptimization) learnFromOptimization(req *http.Request, data Re
 	}
 }
 
-// OptimizedResponseWriter methods
+// OptimizedResponseWriter methods.
 func (w *OptimizedResponseWriter) Write(data []byte) (int, error) {
 	return w.buffer.Write(data)
 }
@@ -1052,29 +1071,32 @@ func (w *OptimizedResponseWriter) Header() http.Header {
 	return w.ResponseWriter.Header()
 }
 
-// Helper functions
-func getBoolRORO(data map[string]interface{}, key string) bool {
+// Helper functions.
+func getBoolRORO(data map[string]any, key string) bool {
 	if val, ok := data[key].(bool); ok {
 		return val
 	}
+
 	return false
 }
 
-func getFloat64RORO(data map[string]interface{}, key string) float64 {
+func getFloat64RORO(data map[string]any, key string) float64 {
 	if val, ok := data[key].(float64); ok {
 		return val
 	}
+
 	return 0.0
 }
 
-func getStringRORO(data map[string]interface{}, key string) string {
+func getStringRORO(data map[string]any, key string) string {
 	if val, ok := data[key].(string); ok {
 		return val
 	}
+
 	return ""
 }
 
-// GetStats returns middleware statistics
+// GetStats returns middleware statistics.
 func (ro *ResponseOptimization) GetStats() ai.AIMiddlewareStats {
 	ro.mu.RLock()
 	defer ro.mu.RUnlock()
@@ -1088,7 +1110,7 @@ func (ro *ResponseOptimization) GetStats() ai.AIMiddlewareStats {
 		LearningEnabled: ro.config.LearningEnabled,
 		AdaptiveChanges: 0, // Could track optimization setting changes
 		LastUpdated:     ro.stats.LastOptimization,
-		CustomMetrics: map[string]interface{}{
+		CustomMetrics: map[string]any{
 			"optimized_responses":      ro.stats.OptimizedResponses,
 			"bytes_saved":              ro.stats.BytesSaved,
 			"bandwidth_saving_percent": ro.stats.BandwidthSavingPercent,
@@ -1102,24 +1124,27 @@ func (ro *ResponseOptimization) GetStats() ai.AIMiddlewareStats {
 	}
 }
 
-// Helper functions for data extraction
-func getBoolRO(data map[string]interface{}, key string) bool {
+// Helper functions for data extraction.
+func getBoolRO(data map[string]any, key string) bool {
 	if val, ok := data[key].(bool); ok {
 		return val
 	}
+
 	return false
 }
 
-func getFloat64RO(data map[string]interface{}, key string) float64 {
+func getFloat64RO(data map[string]any, key string) float64 {
 	if val, ok := data[key].(float64); ok {
 		return val
 	}
+
 	return 0.0
 }
 
-func getStringRO(data map[string]interface{}, key string) string {
+func getStringRO(data map[string]any, key string) string {
 	if val, ok := data[key].(string); ok {
 		return val
 	}
+
 	return ""
 }

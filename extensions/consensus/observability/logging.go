@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// LogManager manages structured logging for consensus operations
+// LogManager manages structured logging for consensus operations.
 type LogManager struct {
 	nodeID string
 	logger forge.Logger
@@ -26,33 +26,33 @@ type LogManager struct {
 	stats LogStatistics
 }
 
-// LogEntry represents a structured log entry
+// LogEntry represents a structured log entry.
 type LogEntry struct {
 	Timestamp time.Time
 	Level     LogLevel
 	Operation string
 	Message   string
-	Fields    map[string]interface{}
+	Fields    map[string]any
 	TraceID   string
 	SpanID    string
 	NodeID    string
 }
 
-// LogLevel represents log level
+// LogLevel represents log level.
 type LogLevel string
 
 const (
-	// LogLevelDebug debug level
+	// LogLevelDebug debug level.
 	LogLevelDebug LogLevel = "debug"
-	// LogLevelInfo info level
+	// LogLevelInfo info level.
 	LogLevelInfo LogLevel = "info"
-	// LogLevelWarn warning level
+	// LogLevelWarn warning level.
 	LogLevelWarn LogLevel = "warn"
-	// LogLevelError error level
+	// LogLevelError error level.
 	LogLevelError LogLevel = "error"
 )
 
-// LogConfig contains logging configuration
+// LogConfig contains logging configuration.
 type LogConfig struct {
 	EnableBuffer     bool
 	BufferSize       int
@@ -61,7 +61,7 @@ type LogConfig struct {
 	SampleRate       float64
 }
 
-// LogStatistics contains logging statistics
+// LogStatistics contains logging statistics.
 type LogStatistics struct {
 	TotalLogs    int64
 	DebugLogs    int64
@@ -71,12 +71,13 @@ type LogStatistics struct {
 	BufferedLogs int
 }
 
-// NewLogManager creates a new log manager
+// NewLogManager creates a new log manager.
 func NewLogManager(nodeID string, config LogConfig, logger forge.Logger) *LogManager {
 	// Set defaults
 	if config.BufferSize == 0 {
 		config.BufferSize = 1000
 	}
+
 	if config.SampleRate == 0 {
 		config.SampleRate = 1.0
 	}
@@ -90,32 +91,32 @@ func NewLogManager(nodeID string, config LogConfig, logger forge.Logger) *LogMan
 	}
 }
 
-// Debug logs a debug message
-func (lm *LogManager) Debug(ctx context.Context, operation, message string, fields ...interface{}) {
+// Debug logs a debug message.
+func (lm *LogManager) Debug(ctx context.Context, operation, message string, fields ...any) {
 	lm.log(ctx, LogLevelDebug, operation, message, fields...)
 	lm.stats.DebugLogs++
 }
 
-// Info logs an info message
-func (lm *LogManager) Info(ctx context.Context, operation, message string, fields ...interface{}) {
+// Info logs an info message.
+func (lm *LogManager) Info(ctx context.Context, operation, message string, fields ...any) {
 	lm.log(ctx, LogLevelInfo, operation, message, fields...)
 	lm.stats.InfoLogs++
 }
 
-// Warn logs a warning message
-func (lm *LogManager) Warn(ctx context.Context, operation, message string, fields ...interface{}) {
+// Warn logs a warning message.
+func (lm *LogManager) Warn(ctx context.Context, operation, message string, fields ...any) {
 	lm.log(ctx, LogLevelWarn, operation, message, fields...)
 	lm.stats.WarnLogs++
 }
 
-// Error logs an error message
-func (lm *LogManager) Error(ctx context.Context, operation, message string, fields ...interface{}) {
+// Error logs an error message.
+func (lm *LogManager) Error(ctx context.Context, operation, message string, fields ...any) {
 	lm.log(ctx, LogLevelError, operation, message, fields...)
 	lm.stats.ErrorLogs++
 }
 
-// log performs the actual logging
-func (lm *LogManager) log(ctx context.Context, level LogLevel, operation, message string, fields ...interface{}) {
+// log performs the actual logging.
+func (lm *LogManager) log(ctx context.Context, level LogLevel, operation, message string, fields ...any) {
 	lm.stats.TotalLogs++
 
 	// Check sample rate
@@ -124,7 +125,7 @@ func (lm *LogManager) log(ctx context.Context, level LogLevel, operation, messag
 	}
 
 	// Build field map
-	fieldMap := make(map[string]interface{})
+	fieldMap := make(map[string]any)
 	// Fields are passed as key-value pairs
 	for i := 0; i < len(fields); i += 2 {
 		if i+1 < len(fields) {
@@ -141,11 +142,13 @@ func (lm *LogManager) log(ctx context.Context, level LogLevel, operation, messag
 	// Add trace context if available
 	traceID := ""
 	spanID := ""
+
 	if lm.config.EnableTracing && ctx != nil {
 		if tid, ok := GetTraceContext(ctx); ok {
 			traceID = tid
 			fieldMap["trace_id"] = traceID
 		}
+
 		if sid, ok := GetSpanContext(ctx); ok {
 			spanID = sid
 			fieldMap["span_id"] = spanID
@@ -182,7 +185,7 @@ func (lm *LogManager) log(ctx context.Context, level LogLevel, operation, messag
 	}
 }
 
-// bufferEntry adds entry to buffer
+// bufferEntry adds entry to buffer.
 func (lm *LogManager) bufferEntry(entry LogEntry) {
 	lm.bufferMu.Lock()
 	defer lm.bufferMu.Unlock()
@@ -197,7 +200,7 @@ func (lm *LogManager) bufferEntry(entry LogEntry) {
 	lm.stats.BufferedLogs = len(lm.buffer)
 }
 
-// GetBuffer returns buffered log entries
+// GetBuffer returns buffered log entries.
 func (lm *LogManager) GetBuffer(limit int) []LogEntry {
 	lm.bufferMu.RLock()
 	defer lm.bufferMu.RUnlock()
@@ -213,7 +216,7 @@ func (lm *LogManager) GetBuffer(limit int) []LogEntry {
 	return result
 }
 
-// SearchLogs searches buffered logs
+// SearchLogs searches buffered logs.
 func (lm *LogManager) SearchLogs(filter LogFilter) []LogEntry {
 	lm.bufferMu.RLock()
 	defer lm.bufferMu.RUnlock()
@@ -229,7 +232,7 @@ func (lm *LogManager) SearchLogs(filter LogFilter) []LogEntry {
 	return results
 }
 
-// LogFilter filters log entries
+// LogFilter filters log entries.
 type LogFilter struct {
 	Level     LogLevel
 	Operation string
@@ -238,27 +241,32 @@ type LogFilter struct {
 	EndTime   time.Time
 }
 
-// Matches checks if entry matches filter
+// Matches checks if entry matches filter.
 func (lf LogFilter) Matches(entry LogEntry) bool {
 	if lf.Level != "" && entry.Level != lf.Level {
 		return false
 	}
+
 	if lf.Operation != "" && entry.Operation != lf.Operation {
 		return false
 	}
+
 	if lf.TraceID != "" && entry.TraceID != lf.TraceID {
 		return false
 	}
+
 	if !lf.StartTime.IsZero() && entry.Timestamp.Before(lf.StartTime) {
 		return false
 	}
+
 	if !lf.EndTime.IsZero() && entry.Timestamp.After(lf.EndTime) {
 		return false
 	}
+
 	return true
 }
 
-// ClearBuffer clears the log buffer
+// ClearBuffer clears the log buffer.
 func (lm *LogManager) ClearBuffer() {
 	lm.bufferMu.Lock()
 	defer lm.bufferMu.Unlock()
@@ -269,21 +277,23 @@ func (lm *LogManager) ClearBuffer() {
 	lm.logger.Debug("log buffer cleared")
 }
 
-// GetStatistics returns logging statistics
+// GetStatistics returns logging statistics.
 func (lm *LogManager) GetStatistics() LogStatistics {
 	lm.bufferMu.RLock()
 	defer lm.bufferMu.RUnlock()
 
 	stats := lm.stats
 	stats.BufferedLogs = len(lm.buffer)
+
 	return stats
 }
 
-// shouldLog determines if log should be written based on sample rate
+// shouldLog determines if log should be written based on sample rate.
 func (lm *LogManager) shouldLog() bool {
 	if lm.config.SampleRate >= 1.0 {
 		return true
 	}
+
 	if lm.config.SampleRate <= 0.0 {
 		return false
 	}
@@ -291,13 +301,13 @@ func (lm *LogManager) shouldLog() bool {
 	return (time.Now().UnixNano() % 100) < int64(lm.config.SampleRate*100)
 }
 
-// ExportLogs exports logs in structured format
-func (lm *LogManager) ExportLogs(filter LogFilter) []map[string]interface{} {
+// ExportLogs exports logs in structured format.
+func (lm *LogManager) ExportLogs(filter LogFilter) []map[string]any {
 	logs := lm.SearchLogs(filter)
 
-	exported := make([]map[string]interface{}, len(logs))
+	exported := make([]map[string]any, len(logs))
 	for i, log := range logs {
-		exported[i] = map[string]interface{}{
+		exported[i] = map[string]any{
 			"timestamp": log.Timestamp,
 			"level":     log.Level,
 			"operation": log.Operation,
@@ -312,7 +322,7 @@ func (lm *LogManager) ExportLogs(filter LogFilter) []map[string]interface{} {
 	return exported
 }
 
-// LogElection logs election-related events
+// LogElection logs election-related events.
 func (lm *LogManager) LogElection(ctx context.Context, event string, term uint64, candidateID string) {
 	lm.Info(ctx, "election", event,
 		forge.F("term", term),
@@ -320,7 +330,7 @@ func (lm *LogManager) LogElection(ctx context.Context, event string, term uint64
 	)
 }
 
-// LogReplication logs replication events
+// LogReplication logs replication events.
 func (lm *LogManager) LogReplication(ctx context.Context, event string, followerID string, index uint64) {
 	lm.Debug(ctx, "replication", event,
 		forge.F("follower", followerID),
@@ -328,7 +338,7 @@ func (lm *LogManager) LogReplication(ctx context.Context, event string, follower
 	)
 }
 
-// LogSnapshot logs snapshot events
+// LogSnapshot logs snapshot events.
 func (lm *LogManager) LogSnapshot(ctx context.Context, event string, index uint64, size int64) {
 	lm.Info(ctx, "snapshot", event,
 		forge.F("index", index),
@@ -336,14 +346,14 @@ func (lm *LogManager) LogSnapshot(ctx context.Context, event string, index uint6
 	)
 }
 
-// LogStateChange logs state machine changes
+// LogStateChange logs state machine changes.
 func (lm *LogManager) LogStateChange(ctx context.Context, event string, index uint64) {
 	lm.Debug(ctx, "statemachine", event,
 		forge.F("index", index),
 	)
 }
 
-// LogClusterChange logs cluster membership changes
+// LogClusterChange logs cluster membership changes.
 func (lm *LogManager) LogClusterChange(ctx context.Context, event string, nodeID string, memberCount int) {
 	lm.Info(ctx, "cluster", event,
 		forge.F("affected_node", nodeID),
@@ -351,46 +361,46 @@ func (lm *LogManager) LogClusterChange(ctx context.Context, event string, nodeID
 	)
 }
 
-// LogPerformance logs performance metrics
+// LogPerformance logs performance metrics.
 func (lm *LogManager) LogPerformance(ctx context.Context, operation string, duration time.Duration, success bool) {
 	level := LogLevelDebug
 	if !success {
 		level = LogLevelWarn
 	}
 
-	lm.log(ctx, level, "performance", fmt.Sprintf("%s completed", operation),
+	lm.log(ctx, level, "performance", operation+" completed",
 		forge.F("operation", operation),
 		forge.F("duration_ms", duration.Milliseconds()),
 		forge.F("success", success),
 	)
 }
 
-// GetLogsByLevel returns logs filtered by level
+// GetLogsByLevel returns logs filtered by level.
 func (lm *LogManager) GetLogsByLevel(level LogLevel, limit int) []LogEntry {
 	return lm.SearchLogs(LogFilter{Level: level})
 }
 
-// GetErrorLogs returns error logs
+// GetErrorLogs returns error logs.
 func (lm *LogManager) GetErrorLogs(limit int) []LogEntry {
 	return lm.GetLogsByLevel(LogLevelError, limit)
 }
 
-// GetWarningLogs returns warning logs
+// GetWarningLogs returns warning logs.
 func (lm *LogManager) GetWarningLogs(limit int) []LogEntry {
 	return lm.GetLogsByLevel(LogLevelWarn, limit)
 }
 
-// GetLogsByOperation returns logs for a specific operation
+// GetLogsByOperation returns logs for a specific operation.
 func (lm *LogManager) GetLogsByOperation(operation string, limit int) []LogEntry {
 	return lm.SearchLogs(LogFilter{Operation: operation})
 }
 
-// GetLogsByTrace returns logs for a specific trace
+// GetLogsByTrace returns logs for a specific trace.
 func (lm *LogManager) GetLogsByTrace(traceID string) []LogEntry {
 	return lm.SearchLogs(LogFilter{TraceID: traceID})
 }
 
-// GetRecentLogs returns most recent logs
+// GetRecentLogs returns most recent logs.
 func (lm *LogManager) GetRecentLogs(duration time.Duration, limit int) []LogEntry {
 	return lm.SearchLogs(LogFilter{
 		StartTime: time.Now().Add(-duration),

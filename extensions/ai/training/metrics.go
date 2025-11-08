@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// TrainingMetrics contains comprehensive training metrics
+// TrainingMetrics contains comprehensive training metrics.
 type TrainingMetrics struct {
 	JobID     string         `json:"job_id"`
 	StartTime time.Time      `json:"start_time"`
@@ -67,7 +67,7 @@ type TrainingMetrics struct {
 	LastUpdated time.Time `json:"last_updated"`
 }
 
-// LossPoint represents a point in loss history
+// LossPoint represents a point in loss history.
 type LossPoint struct {
 	Epoch          int       `json:"epoch"`
 	Step           int64     `json:"step"`
@@ -76,7 +76,7 @@ type LossPoint struct {
 	Timestamp      time.Time `json:"timestamp"`
 }
 
-// ClassificationMetrics contains per-class metrics
+// ClassificationMetrics contains per-class metrics.
 type ClassificationMetrics struct {
 	ClassName      string  `json:"class_name"`
 	Precision      float64 `json:"precision"`
@@ -89,7 +89,7 @@ type ClassificationMetrics struct {
 	FalseNegatives int     `json:"false_negatives"`
 }
 
-// ResourceUsageMetrics contains resource utilization metrics
+// ResourceUsageMetrics contains resource utilization metrics.
 type ResourceUsageMetrics struct {
 	CPUUsage       float64   `json:"cpu_usage"`
 	MemoryUsage    int64     `json:"memory_usage"`
@@ -103,7 +103,7 @@ type ResourceUsageMetrics struct {
 	Temperature    float64   `json:"temperature"`
 }
 
-// NetworkIO contains network I/O metrics
+// NetworkIO contains network I/O metrics.
 type NetworkIO struct {
 	BytesSent       int64 `json:"bytes_sent"`
 	BytesReceived   int64 `json:"bytes_received"`
@@ -111,7 +111,7 @@ type NetworkIO struct {
 	PacketsReceived int64 `json:"packets_received"`
 }
 
-// DiskIO contains disk I/O metrics
+// DiskIO contains disk I/O metrics.
 type DiskIO struct {
 	ReadBytes  int64 `json:"read_bytes"`
 	WriteBytes int64 `json:"write_bytes"`
@@ -119,7 +119,7 @@ type DiskIO struct {
 	WriteOps   int64 `json:"write_ops"`
 }
 
-// EarlyStoppingMetrics contains early stopping metrics
+// EarlyStoppingMetrics contains early stopping metrics.
 type EarlyStoppingMetrics struct {
 	Enabled        bool      `json:"enabled"`
 	Metric         string    `json:"metric"`
@@ -133,7 +133,7 @@ type EarlyStoppingMetrics struct {
 	MinImprovement float64   `json:"min_improvement"`
 }
 
-// CheckpointInfo contains checkpoint information
+// CheckpointInfo contains checkpoint information.
 type CheckpointInfo struct {
 	ID        string                 `json:"id"`
 	Epoch     int                    `json:"epoch"`
@@ -147,7 +147,7 @@ type CheckpointInfo struct {
 	IsBest    bool                   `json:"is_best"`
 }
 
-// MetricsCollector defines the interface for collecting training metrics
+// MetricsCollector defines the interface for collecting training metrics.
 type MetricsCollector interface {
 	// Metrics collection
 	RecordMetric(jobID string, name string, value float64, epoch int, step int64) error
@@ -179,7 +179,7 @@ type MetricsCollector interface {
 	ExportMetrics(jobID string, format string) ([]byte, error)
 }
 
-// AggregatedMetrics contains aggregated metrics across multiple jobs
+// AggregatedMetrics contains aggregated metrics across multiple jobs.
 type AggregatedMetrics struct {
 	JobCount        int                      `json:"job_count"`
 	SuccessRate     float64                  `json:"success_rate"`
@@ -192,7 +192,7 @@ type AggregatedMetrics struct {
 	TimeRange       TimeRange                `json:"time_range"`
 }
 
-// MetricSummary contains summary statistics for a metric
+// MetricSummary contains summary statistics for a metric.
 type MetricSummary struct {
 	Name        string             `json:"name"`
 	Count       int                `json:"count"`
@@ -206,13 +206,13 @@ type MetricSummary struct {
 	LastUpdate  time.Time          `json:"last_update"`
 }
 
-// TimeRange represents a time range
+// TimeRange represents a time range.
 type TimeRange struct {
 	Start time.Time `json:"start"`
 	End   time.Time `json:"end"`
 }
 
-// MetricsEvaluator defines the interface for evaluating model performance
+// MetricsEvaluator defines the interface for evaluating model performance.
 type MetricsEvaluator interface {
 	// Classification evaluation
 	EvaluateClassification(predictions, labels []int, classNames []string) (ClassificationEvaluation, error)
@@ -232,7 +232,7 @@ type MetricsEvaluator interface {
 	EvaluateCustom(predictions, targets interface{}, evaluator func(interface{}, interface{}) (map[string]float64, error)) (CustomEvaluation, error)
 }
 
-// ClassificationEvaluation contains classification evaluation results
+// ClassificationEvaluation contains classification evaluation results.
 type ClassificationEvaluation struct {
 	Accuracy             float64                          `json:"accuracy"`
 	MacroAvgPrecision    float64                          `json:"macro_avg_precision"`
@@ -249,7 +249,7 @@ type ClassificationEvaluation struct {
 	LogLoss              float64                          `json:"log_loss"`
 }
 
-// MultilabelEvaluation contains multilabel classification evaluation results
+// MultilabelEvaluation contains multilabel classification evaluation results.
 type MultilabelEvaluation struct {
 	SubsetAccuracy    float64                 `json:"subset_accuracy"`
 	HammingLoss       float64                 `json:"hamming_loss"`
@@ -262,7 +262,7 @@ type MultilabelEvaluation struct {
 	LabelMetrics      map[string]LabelMetrics `json:"label_metrics"`
 }
 
-// LabelMetrics contains per-label metrics for multilabel classification
+// LabelMetrics contains per-label metrics for multilabel classification.
 type LabelMetrics struct {
 	Precision float64 `json:"precision"`
 	Recall    float64 `json:"recall"`
@@ -270,7 +270,7 @@ type LabelMetrics struct {
 	Support   int     `json:"support"`
 }
 
-// RegressionEvaluation contains regression evaluation results
+// RegressionEvaluation contains regression evaluation results.
 type RegressionEvaluation struct {
 	MAE               float64 `json:"mae"`  // Mean Absolute Error
 	MSE               float64 `json:"mse"`  // Mean Squared Error
@@ -282,13 +282,13 @@ type RegressionEvaluation struct {
 	ExplainedVariance float64 `json:"explained_variance"`
 }
 
-// MultiOutputRegressionEvaluation contains multi-output regression evaluation results
+// MultiOutputRegressionEvaluation contains multi-output regression evaluation results.
 type MultiOutputRegressionEvaluation struct {
 	OverallMetrics RegressionEvaluation            `json:"overall_metrics"`
 	OutputMetrics  map[string]RegressionEvaluation `json:"output_metrics"`
 }
 
-// RankingEvaluation contains ranking evaluation results
+// RankingEvaluation contains ranking evaluation results.
 type RankingEvaluation struct {
 	NDCG      map[int]float64 `json:"ndcg"`      // Normalized Discounted Cumulative Gain
 	MAP       float64         `json:"map"`       // Mean Average Precision
@@ -298,7 +298,7 @@ type RankingEvaluation struct {
 	HitRate   map[int]float64 `json:"hit_rate"`  // Hit Rate at K
 }
 
-// TimeSeriesEvaluation contains time series evaluation results
+// TimeSeriesEvaluation contains time series evaluation results.
 type TimeSeriesEvaluation struct {
 	RegressionMetrics RegressionEvaluation `json:"regression_metrics"`
 	SMAPE             float64              `json:"smape"` // Symmetric Mean Absolute Percentage Error
@@ -308,7 +308,7 @@ type TimeSeriesEvaluation struct {
 	Trend             TrendMetrics         `json:"trend"`
 }
 
-// SeasonalityMetrics contains seasonality analysis metrics
+// SeasonalityMetrics contains seasonality analysis metrics.
 type SeasonalityMetrics struct {
 	Detected      bool                 `json:"detected"`
 	Strength      float64              `json:"strength"`
@@ -316,7 +316,7 @@ type SeasonalityMetrics struct {
 	Decomposition map[string][]float64 `json:"decomposition"`
 }
 
-// TrendMetrics contains trend analysis metrics
+// TrendMetrics contains trend analysis metrics.
 type TrendMetrics struct {
 	Detected  bool    `json:"detected"`
 	Strength  float64 `json:"strength"`
@@ -324,27 +324,27 @@ type TrendMetrics struct {
 	Slope     float64 `json:"slope"`
 }
 
-// CustomEvaluation contains custom evaluation results
+// CustomEvaluation contains custom evaluation results.
 type CustomEvaluation struct {
 	Metrics  map[string]float64     `json:"metrics"`
 	Metadata map[string]interface{} `json:"metadata"`
 }
 
-// ROCPoint represents a point on the ROC curve
+// ROCPoint represents a point on the ROC curve.
 type ROCPoint struct {
 	FPR       float64 `json:"fpr"` // False Positive Rate
 	TPR       float64 `json:"tpr"` // True Positive Rate
 	Threshold float64 `json:"threshold"`
 }
 
-// PRPoint represents a point on the Precision-Recall curve
+// PRPoint represents a point on the Precision-Recall curve.
 type PRPoint struct {
 	Precision float64 `json:"precision"`
 	Recall    float64 `json:"recall"`
 	Threshold float64 `json:"threshold"`
 }
 
-// MetricsCollectorImpl implements the MetricsCollector interface
+// MetricsCollectorImpl implements the MetricsCollector interface.
 type MetricsCollectorImpl struct {
 	metrics   map[string]*TrainingMetrics
 	history   map[string][]TrainingMetrics
@@ -353,7 +353,7 @@ type MetricsCollectorImpl struct {
 	mu        sync.RWMutex
 }
 
-// NewMetricsCollector creates a new metrics collector
+// NewMetricsCollector creates a new metrics collector.
 func NewMetricsCollector(logger logger.Logger) MetricsCollector {
 	return &MetricsCollectorImpl{
 		metrics:   make(map[string]*TrainingMetrics),
@@ -363,7 +363,7 @@ func NewMetricsCollector(logger logger.Logger) MetricsCollector {
 	}
 }
 
-// RecordMetric records a generic metric
+// RecordMetric records a generic metric.
 func (mc *MetricsCollectorImpl) RecordMetric(jobID string, name string, value float64, epoch int, step int64) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -395,7 +395,7 @@ func (mc *MetricsCollectorImpl) RecordMetric(jobID string, name string, value fl
 	return nil
 }
 
-// RecordLoss records training and validation loss
+// RecordLoss records training and validation loss.
 func (mc *MetricsCollectorImpl) RecordLoss(jobID string, trainingLoss, validationLoss float64, epoch int, step int64) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -434,7 +434,7 @@ func (mc *MetricsCollectorImpl) RecordLoss(jobID string, trainingLoss, validatio
 	return nil
 }
 
-// RecordCustomMetric records a custom metric with metadata
+// RecordCustomMetric records a custom metric with metadata.
 func (mc *MetricsCollectorImpl) RecordCustomMetric(jobID string, name string, value float64, metadata map[string]interface{}) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -458,7 +458,7 @@ func (mc *MetricsCollectorImpl) RecordCustomMetric(jobID string, name string, va
 	return nil
 }
 
-// RecordResourceUsage records resource usage metrics
+// RecordResourceUsage records resource usage metrics.
 func (mc *MetricsCollectorImpl) RecordResourceUsage(jobID string, usage ResourceUsageMetrics) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -470,7 +470,7 @@ func (mc *MetricsCollectorImpl) RecordResourceUsage(jobID string, usage Resource
 	return nil
 }
 
-// RecordClassificationMetrics records classification metrics
+// RecordClassificationMetrics records classification metrics.
 func (mc *MetricsCollectorImpl) RecordClassificationMetrics(jobID string, predictions, labels []int, classNames []string) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -499,7 +499,7 @@ func (mc *MetricsCollectorImpl) RecordClassificationMetrics(jobID string, predic
 	return nil
 }
 
-// RecordConfusionMatrix records confusion matrix
+// RecordConfusionMatrix records confusion matrix.
 func (mc *MetricsCollectorImpl) RecordConfusionMatrix(jobID string, matrix [][]int, classNames []string) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -526,7 +526,7 @@ func (mc *MetricsCollectorImpl) RecordConfusionMatrix(jobID string, matrix [][]i
 	return nil
 }
 
-// RecordRegressionMetrics records regression metrics
+// RecordRegressionMetrics records regression metrics.
 func (mc *MetricsCollectorImpl) RecordRegressionMetrics(jobID string, predictions, targets []float64) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -557,7 +557,7 @@ func (mc *MetricsCollectorImpl) RecordRegressionMetrics(jobID string, prediction
 	return nil
 }
 
-// RecordModelMetrics records model-specific metrics
+// RecordModelMetrics records model-specific metrics.
 func (mc *MetricsCollectorImpl) RecordModelMetrics(jobID string, weights map[string]float64, gradients map[string]float64) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -569,6 +569,7 @@ func (mc *MetricsCollectorImpl) RecordModelMetrics(jobID string, weights map[str
 	for _, weight := range weights {
 		weightNormSquared += weight * weight
 	}
+
 	metrics.WeightNorm = math.Sqrt(weightNormSquared)
 
 	// Calculate gradient norm
@@ -576,6 +577,7 @@ func (mc *MetricsCollectorImpl) RecordModelMetrics(jobID string, weights map[str
 	for _, grad := range gradients {
 		gradNormSquared += grad * grad
 	}
+
 	metrics.GradientNorm = math.Sqrt(gradNormSquared)
 
 	metrics.LastUpdated = time.Now()
@@ -583,7 +585,7 @@ func (mc *MetricsCollectorImpl) RecordModelMetrics(jobID string, weights map[str
 	return nil
 }
 
-// GetMetrics returns metrics for a job
+// GetMetrics returns metrics for a job.
 func (mc *MetricsCollectorImpl) GetMetrics(jobID string) (TrainingMetrics, error) {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
@@ -596,7 +598,7 @@ func (mc *MetricsCollectorImpl) GetMetrics(jobID string) (TrainingMetrics, error
 	return *metrics, nil
 }
 
-// GetMetricsHistory returns metrics history for a job
+// GetMetricsHistory returns metrics history for a job.
 func (mc *MetricsCollectorImpl) GetMetricsHistory(jobID string, fromTime, toTime time.Time) ([]TrainingMetrics, error) {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
@@ -607,6 +609,7 @@ func (mc *MetricsCollectorImpl) GetMetricsHistory(jobID string, fromTime, toTime
 	}
 
 	var filtered []TrainingMetrics
+
 	for _, metric := range history {
 		if metric.LastUpdated.After(fromTime) && metric.LastUpdated.Before(toTime) {
 			filtered = append(filtered, metric)
@@ -616,7 +619,7 @@ func (mc *MetricsCollectorImpl) GetMetricsHistory(jobID string, fromTime, toTime
 	return filtered, nil
 }
 
-// GetLossHistory returns loss history for a job
+// GetLossHistory returns loss history for a job.
 func (mc *MetricsCollectorImpl) GetLossHistory(jobID string) ([]LossPoint, error) {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
@@ -629,13 +632,15 @@ func (mc *MetricsCollectorImpl) GetLossHistory(jobID string) ([]LossPoint, error
 	return metrics.LossHistory, nil
 }
 
-// GetAggregatedMetrics returns aggregated metrics across multiple jobs
+// GetAggregatedMetrics returns aggregated metrics across multiple jobs.
 func (mc *MetricsCollectorImpl) GetAggregatedMetrics(jobIDs []string) (AggregatedMetrics, error) {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
 
-	var allMetrics []TrainingMetrics
-	var startTime, endTime time.Time
+	var (
+		allMetrics         []TrainingMetrics
+		startTime, endTime time.Time
+	)
 
 	for _, jobID := range jobIDs {
 		if metrics, exists := mc.metrics[jobID]; exists {
@@ -644,6 +649,7 @@ func (mc *MetricsCollectorImpl) GetAggregatedMetrics(jobIDs []string) (Aggregate
 			if startTime.IsZero() || metrics.StartTime.Before(startTime) {
 				startTime = metrics.StartTime
 			}
+
 			if endTime.IsZero() || metrics.EndTime.After(endTime) {
 				endTime = metrics.EndTime
 			}
@@ -651,7 +657,7 @@ func (mc *MetricsCollectorImpl) GetAggregatedMetrics(jobIDs []string) (Aggregate
 	}
 
 	if len(allMetrics) == 0 {
-		return AggregatedMetrics{}, fmt.Errorf("no metrics found for provided job IDs")
+		return AggregatedMetrics{}, errors.New("no metrics found for provided job IDs")
 	}
 
 	// Calculate aggregated metrics
@@ -666,8 +672,11 @@ func (mc *MetricsCollectorImpl) GetAggregatedMetrics(jobIDs []string) (Aggregate
 
 	// Calculate success rate
 	successCount := 0
-	var totalAccuracy, totalLoss, totalDuration float64
-	var bestAccuracy, bestLoss float64 = -1, math.Inf(1)
+
+	var (
+		totalAccuracy, totalLoss, totalDuration float64
+		bestAccuracy, bestLoss                  float64 = -1, math.Inf(1)
+	)
 
 	for _, metrics := range allMetrics {
 		if metrics.Status == TrainingStatusCompleted {
@@ -681,6 +690,7 @@ func (mc *MetricsCollectorImpl) GetAggregatedMetrics(jobIDs []string) (Aggregate
 		if metrics.Accuracy > bestAccuracy {
 			bestAccuracy = metrics.Accuracy
 		}
+
 		if metrics.ValidationLoss < bestLoss {
 			bestLoss = metrics.ValidationLoss
 		}
@@ -696,7 +706,7 @@ func (mc *MetricsCollectorImpl) GetAggregatedMetrics(jobIDs []string) (Aggregate
 	return aggregated, nil
 }
 
-// ExportMetrics exports metrics in the specified format
+// ExportMetrics exports metrics in the specified format.
 func (mc *MetricsCollectorImpl) ExportMetrics(jobID string, format string) ([]byte, error) {
 	metrics, err := mc.GetMetrics(jobID)
 	if err != nil {
@@ -733,6 +743,7 @@ func (mc *MetricsCollectorImpl) getOrCreateMetrics(jobID string) *TrainingMetric
 	}
 
 	mc.metrics[jobID] = metrics
+
 	return metrics
 }
 
@@ -746,25 +757,26 @@ func (mc *MetricsCollectorImpl) exportCSV(metrics TrainingMetrics) ([]byte, erro
 	return []byte(""), nil // Placeholder
 }
 
-// MetricsEvaluatorImpl implements the MetricsEvaluator interface
+// MetricsEvaluatorImpl implements the MetricsEvaluator interface.
 type MetricsEvaluatorImpl struct {
 	logger logger.Logger
 }
 
-// NewMetricsEvaluator creates a new metrics evaluator
+// NewMetricsEvaluator creates a new metrics evaluator.
 func NewMetricsEvaluator(logger logger.Logger) MetricsEvaluator {
 	return &MetricsEvaluatorImpl{
 		logger: logger,
 	}
 }
 
-// EvaluateClassification evaluates classification performance
+// EvaluateClassification evaluates classification performance.
 func (me *MetricsEvaluatorImpl) EvaluateClassification(predictions, labels []int, classNames []string) (ClassificationEvaluation, error) {
 	if len(predictions) != len(labels) {
-		return ClassificationEvaluation{}, fmt.Errorf("predictions and labels must have same length")
+		return ClassificationEvaluation{}, errors.New("predictions and labels must have same length")
 	}
 
 	numClasses := len(classNames)
+
 	confusionMatrix := make([][]int, numClasses)
 	for i := range confusionMatrix {
 		confusionMatrix[i] = make([]int, numClasses)
@@ -772,7 +784,8 @@ func (me *MetricsEvaluatorImpl) EvaluateClassification(predictions, labels []int
 
 	// Build confusion matrix
 	correct := 0
-	for i := 0; i < len(predictions); i++ {
+
+	for i := range len(predictions) {
 		pred := predictions[i]
 		label := labels[i]
 
@@ -789,6 +802,7 @@ func (me *MetricsEvaluatorImpl) EvaluateClassification(predictions, labels []int
 
 	// Calculate per-class metrics
 	classReport := make(map[string]ClassificationMetrics)
+
 	var macroPrec, macroRec, macroF1 float64
 
 	for i, className := range classNames {
@@ -797,7 +811,7 @@ func (me *MetricsEvaluatorImpl) EvaluateClassification(predictions, labels []int
 		fp := 0
 		tn := 0
 
-		for j := 0; j < numClasses; j++ {
+		for j := range numClasses {
 			if j != i {
 				fn += confusionMatrix[i][j] // False negatives
 				fp += confusionMatrix[j][i] // False positives
@@ -815,9 +829,11 @@ func (me *MetricsEvaluatorImpl) EvaluateClassification(predictions, labels []int
 		if math.IsNaN(precision) {
 			precision = 0
 		}
+
 		if math.IsNaN(recall) {
 			recall = 0
 		}
+
 		if math.IsNaN(f1) {
 			f1 = 0
 		}
@@ -856,24 +872,27 @@ func (me *MetricsEvaluatorImpl) EvaluateClassification(predictions, labels []int
 	}, nil
 }
 
-// EvaluateMultilabelClassification evaluates multilabel classification
+// EvaluateMultilabelClassification evaluates multilabel classification.
 func (me *MetricsEvaluatorImpl) EvaluateMultilabelClassification(predictions, labels [][]int, classNames []string) (MultilabelEvaluation, error) {
 	// Implementation for multilabel classification
 	return MultilabelEvaluation{}, nil // Placeholder
 }
 
-// EvaluateRegression evaluates regression performance
+// EvaluateRegression evaluates regression performance.
 func (me *MetricsEvaluatorImpl) EvaluateRegression(predictions, targets []float64) (RegressionEvaluation, error) {
 	if len(predictions) != len(targets) {
-		return RegressionEvaluation{}, fmt.Errorf("predictions and targets must have same length")
+		return RegressionEvaluation{}, errors.New("predictions and targets must have same length")
 	}
 
 	n := float64(len(predictions))
-	var sumSquaredError, sumAbsError, sumTargets, sumSquaredTargets float64
-	var maxError float64
-	var absErrors []float64
 
-	for i := 0; i < len(predictions); i++ {
+	var (
+		sumSquaredError, sumAbsError, sumTargets, sumSquaredTargets float64
+		maxError                                                    float64
+		absErrors                                                   []float64
+	)
+
+	for i := range len(predictions) {
 		pred := predictions[i]
 		target := targets[i]
 
@@ -900,7 +919,9 @@ func (me *MetricsEvaluatorImpl) EvaluateRegression(predictions, targets []float6
 
 	// Calculate R2 score
 	meanTarget := sumTargets / n
+
 	var totalSumSquares float64
+
 	for _, target := range targets {
 		diff := target - meanTarget
 		totalSumSquares += diff * diff
@@ -910,6 +931,7 @@ func (me *MetricsEvaluatorImpl) EvaluateRegression(predictions, targets []float6
 
 	// Calculate median absolute error
 	sort.Float64s(absErrors)
+
 	var medianAE float64
 	if len(absErrors)%2 == 0 {
 		medianAE = (absErrors[len(absErrors)/2-1] + absErrors[len(absErrors)/2]) / 2
@@ -919,8 +941,10 @@ func (me *MetricsEvaluatorImpl) EvaluateRegression(predictions, targets []float6
 
 	// Calculate MAPE
 	var sumPercentageError float64
+
 	validCount := 0
-	for i := 0; i < len(predictions); i++ {
+
+	for i := range len(predictions) {
 		if targets[i] != 0 {
 			percentageError := math.Abs((targets[i] - predictions[i]) / targets[i])
 			sumPercentageError += percentageError
@@ -935,14 +959,17 @@ func (me *MetricsEvaluatorImpl) EvaluateRegression(predictions, targets []float6
 
 	// Calculate explained variance
 	var predVariance float64
+
 	meanPred := sumTargets / n // Using target mean as approximation
 	for _, pred := range predictions {
 		diff := pred - meanPred
 		predVariance += diff * diff
 	}
+
 	predVariance /= n
 
 	targetVariance := (sumSquaredTargets / n) - (meanTarget * meanTarget)
+
 	var explainedVariance float64
 	if targetVariance != 0 {
 		explainedVariance = 1.0 - (mse / targetVariance)
@@ -960,19 +987,19 @@ func (me *MetricsEvaluatorImpl) EvaluateRegression(predictions, targets []float6
 	}, nil
 }
 
-// EvaluateMultiOutputRegression evaluates multi-output regression
+// EvaluateMultiOutputRegression evaluates multi-output regression.
 func (me *MetricsEvaluatorImpl) EvaluateMultiOutputRegression(predictions, targets [][]float64) (MultiOutputRegressionEvaluation, error) {
 	// Implementation for multi-output regression
 	return MultiOutputRegressionEvaluation{}, nil // Placeholder
 }
 
-// EvaluateRanking evaluates ranking performance
+// EvaluateRanking evaluates ranking performance.
 func (me *MetricsEvaluatorImpl) EvaluateRanking(predictions [][]float64, relevance [][]int) (RankingEvaluation, error) {
 	// Implementation for ranking evaluation
 	return RankingEvaluation{}, nil // Placeholder
 }
 
-// EvaluateTimeSeries evaluates time series performance
+// EvaluateTimeSeries evaluates time series performance.
 func (me *MetricsEvaluatorImpl) EvaluateTimeSeries(predictions, targets []float64, timestamps []time.Time) (TimeSeriesEvaluation, error) {
 	// Start with regression metrics
 	regEval, err := me.EvaluateRegression(predictions, targets)
@@ -982,9 +1009,10 @@ func (me *MetricsEvaluatorImpl) EvaluateTimeSeries(predictions, targets []float6
 
 	// Calculate time series specific metrics
 	var sumAbsPercentageError, sumActual float64
+
 	validCount := 0
 
-	for i := 0; i < len(predictions); i++ {
+	for i := range len(predictions) {
 		if targets[i] != 0 {
 			absPercentageError := math.Abs(targets[i] - predictions[i])
 			sumAbsPercentageError += absPercentageError
@@ -1006,9 +1034,10 @@ func (me *MetricsEvaluatorImpl) EvaluateTimeSeries(predictions, targets []float6
 
 	// Calculate bias
 	var sumError float64
-	for i := 0; i < len(predictions); i++ {
+	for i := range len(predictions) {
 		sumError += predictions[i] - targets[i]
 	}
+
 	bias := sumError / float64(len(predictions))
 
 	return TimeSeriesEvaluation{
@@ -1021,7 +1050,7 @@ func (me *MetricsEvaluatorImpl) EvaluateTimeSeries(predictions, targets []float6
 	}, nil
 }
 
-// EvaluateCustom evaluates using a custom evaluator function
+// EvaluateCustom evaluates using a custom evaluator function.
 func (me *MetricsEvaluatorImpl) EvaluateCustom(predictions, targets interface{}, evaluator func(interface{}, interface{}) (map[string]float64, error)) (CustomEvaluation, error) {
 	metrics, err := evaluator(predictions, targets)
 	if err != nil {

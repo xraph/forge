@@ -15,7 +15,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// HealthStore defines the interface for health history storage
+// HealthStore defines the interface for health history storage.
 type HealthStore interface {
 	// Store operations
 	StoreResult(ctx context.Context, result *health.HealthResult) error
@@ -38,17 +38,17 @@ type HealthStore interface {
 	Close() error
 }
 
-// HealthHistoryPoint represents a point in health history
+// HealthHistoryPoint represents a point in health history.
 type HealthHistoryPoint struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Status    health.HealthStatus    `json:"status"`
-	Duration  time.Duration          `json:"duration"`
-	Message   string                 `json:"message"`
-	Error     string                 `json:"error,omitempty"`
-	Details   map[string]interface{} `json:"details,omitempty"`
+	Timestamp time.Time           `json:"timestamp"`
+	Status    health.HealthStatus `json:"status"`
+	Duration  time.Duration       `json:"duration"`
+	Message   string              `json:"message"`
+	Error     string              `json:"error,omitempty"`
+	Details   map[string]any      `json:"details,omitempty"`
 }
 
-// HealthTrend represents health trend analysis
+// HealthTrend represents health trend analysis.
 type HealthTrend struct {
 	CheckName           string                        `json:"check_name"`
 	Period              time.Duration                 `json:"period"`
@@ -62,7 +62,7 @@ type HealthTrend struct {
 	ConsecutiveFailures int                           `json:"consecutive_failures"`
 }
 
-// HealthStatistics represents health statistics over a period
+// HealthStatistics represents health statistics over a period.
 type HealthStatistics struct {
 	CheckName       string                        `json:"check_name"`
 	From            time.Time                     `json:"from"`
@@ -82,7 +82,7 @@ type HealthStatistics struct {
 	MTTR            time.Duration                 `json:"mttr"` // Mean Time To Recovery
 }
 
-// HealthStoreConfig contains configuration for health store
+// HealthStoreConfig contains configuration for health store.
 type HealthStoreConfig struct {
 	Type              string            `json:"type"`
 	ConnectionString  string            `json:"connection_string"`
@@ -98,7 +98,7 @@ type HealthStoreConfig struct {
 	Tags              map[string]string `json:"tags"`
 }
 
-// DefaultHealthStoreConfig returns default configuration
+// DefaultHealthStoreConfig returns default configuration.
 func DefaultHealthStoreConfig() *HealthStoreConfig {
 	return &HealthStoreConfig{
 		Type:              "memory",
@@ -115,14 +115,14 @@ func DefaultHealthStoreConfig() *HealthStoreConfig {
 	}
 }
 
-// HealthStoreFactory creates health store instances
+// HealthStoreFactory creates health store instances.
 type HealthStoreFactory struct {
 	logger    logger.Logger
 	metrics   shared.Metrics
 	container shared.Container
 }
 
-// NewHealthStoreFactory creates a new health store factory
+// NewHealthStoreFactory creates a new health store factory.
 func NewHealthStoreFactory(logger logger.Logger, metrics shared.Metrics, container shared.Container) *HealthStoreFactory {
 	return &HealthStoreFactory{
 		logger:    logger,
@@ -131,7 +131,7 @@ func NewHealthStoreFactory(logger logger.Logger, metrics shared.Metrics, contain
 	}
 }
 
-// CreateStore creates a health store based on configuration
+// CreateStore creates a health store based on configuration.
 func (f *HealthStoreFactory) CreateStore(config *HealthStoreConfig) (HealthStore, error) {
 	switch config.Type {
 	case "memory":
@@ -144,7 +144,7 @@ func (f *HealthStoreFactory) CreateStore(config *HealthStoreConfig) (HealthStore
 	}
 }
 
-// HealthPersistenceService manages health data persistence
+// HealthPersistenceService manages health data persistence.
 type HealthPersistenceService struct {
 	store         HealthStore
 	config        *HealthStoreConfig
@@ -154,7 +154,7 @@ type HealthPersistenceService struct {
 	stopChan      chan struct{}
 }
 
-// NewHealthPersistenceService creates a new health persistence service
+// NewHealthPersistenceService creates a new health persistence service.
 func NewHealthPersistenceService(store HealthStore, config *HealthStoreConfig, logger logger.Logger, metrics shared.Metrics) *HealthPersistenceService {
 	return &HealthPersistenceService{
 		store:    store,
@@ -165,7 +165,7 @@ func NewHealthPersistenceService(store HealthStore, config *HealthStoreConfig, l
 	}
 }
 
-// Start starts the persistence service
+// Start starts the persistence service.
 func (hps *HealthPersistenceService) Start(ctx context.Context) error {
 	if hps.logger != nil {
 		hps.logger.Info("starting health persistence service",
@@ -186,7 +186,7 @@ func (hps *HealthPersistenceService) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the persistence service
+// Stop stops the persistence service.
 func (hps *HealthPersistenceService) Stop(ctx context.Context) error {
 	if hps.logger != nil {
 		hps.logger.Info("stopping health persistence service")
@@ -207,6 +207,7 @@ func (hps *HealthPersistenceService) Stop(ctx context.Context) error {
 				logger.Error(err),
 			)
 		}
+
 		return err
 	}
 
@@ -217,7 +218,7 @@ func (hps *HealthPersistenceService) Stop(ctx context.Context) error {
 	return nil
 }
 
-// cleanupLoop runs periodic cleanup
+// cleanupLoop runs periodic cleanup.
 func (hps *HealthPersistenceService) cleanupLoop() {
 	for {
 		select {
@@ -229,7 +230,7 @@ func (hps *HealthPersistenceService) cleanupLoop() {
 	}
 }
 
-// performCleanup performs periodic cleanup of old health data
+// performCleanup performs periodic cleanup of old health data.
 func (hps *HealthPersistenceService) performCleanup() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -248,9 +249,11 @@ func (hps *HealthPersistenceService) performCleanup() {
 				logger.Error(err),
 			)
 		}
+
 		if hps.metrics != nil {
 			hps.metrics.Counter("forge.health.cleanup_errors").Inc()
 		}
+
 		return
 	}
 
@@ -259,12 +262,12 @@ func (hps *HealthPersistenceService) performCleanup() {
 	}
 }
 
-// GetStore returns the underlying health store
+// GetStore returns the underlying health store.
 func (hps *HealthPersistenceService) GetStore() HealthStore {
 	return hps.store
 }
 
-// StoreResult stores a health check result
+// StoreResult stores a health check result.
 func (hps *HealthPersistenceService) StoreResult(ctx context.Context, result *health.HealthResult) error {
 	if hps.metrics != nil {
 		hps.metrics.Counter("forge.health.results_stored").Inc()
@@ -273,7 +276,7 @@ func (hps *HealthPersistenceService) StoreResult(ctx context.Context, result *he
 	return hps.store.StoreResult(ctx, result)
 }
 
-// StoreReport stores a health report
+// StoreReport stores a health report.
 func (hps *HealthPersistenceService) StoreReport(ctx context.Context, report *health.HealthReport) error {
 	if hps.metrics != nil {
 		hps.metrics.Counter("forge.health.reports_stored").Inc()
@@ -282,7 +285,7 @@ func (hps *HealthPersistenceService) StoreReport(ctx context.Context, report *he
 	return hps.store.StoreReport(ctx, report)
 }
 
-// GetHealthHistory returns health history for a check
+// GetHealthHistory returns health history for a check.
 func (hps *HealthPersistenceService) GetHealthHistory(ctx context.Context, checkName string, from, to time.Time, interval time.Duration) ([]*HealthHistoryPoint, error) {
 	if hps.metrics != nil {
 		hps.metrics.Counter("forge.health.history_queries").Inc()
@@ -291,7 +294,7 @@ func (hps *HealthPersistenceService) GetHealthHistory(ctx context.Context, check
 	return hps.store.GetHealthHistory(ctx, checkName, from, to, interval)
 }
 
-// GetHealthTrend returns health trend analysis
+// GetHealthTrend returns health trend analysis.
 func (hps *HealthPersistenceService) GetHealthTrend(ctx context.Context, checkName string, duration time.Duration) (*HealthTrend, error) {
 	if hps.metrics != nil {
 		hps.metrics.Counter("forge.health.trend_queries").Inc()
@@ -300,7 +303,7 @@ func (hps *HealthPersistenceService) GetHealthTrend(ctx context.Context, checkNa
 	return hps.store.GetHealthTrend(ctx, checkName, duration)
 }
 
-// GetHealthStatistics returns health statistics
+// GetHealthStatistics returns health statistics.
 func (hps *HealthPersistenceService) GetHealthStatistics(ctx context.Context, checkName string, from, to time.Time) (*HealthStatistics, error) {
 	if hps.metrics != nil {
 		hps.metrics.Counter("forge.health.statistics_queries").Inc()
@@ -309,7 +312,7 @@ func (hps *HealthPersistenceService) GetHealthStatistics(ctx context.Context, ch
 	return hps.store.GetHealthStatistics(ctx, checkName, from, to)
 }
 
-// HealthQueryBuilder provides a fluent interface for building health queries
+// HealthQueryBuilder provides a fluent interface for building health queries.
 type HealthQueryBuilder struct {
 	store     HealthStore
 	checkName string
@@ -321,7 +324,7 @@ type HealthQueryBuilder struct {
 	offset    int
 }
 
-// NewHealthQueryBuilder creates a new health query builder
+// NewHealthQueryBuilder creates a new health query builder.
 func NewHealthQueryBuilder(store HealthStore) *HealthQueryBuilder {
 	return &HealthQueryBuilder{
 		store: store,
@@ -330,82 +333,90 @@ func NewHealthQueryBuilder(store HealthStore) *HealthQueryBuilder {
 	}
 }
 
-// ForCheck sets the check name to query
+// ForCheck sets the check name to query.
 func (hqb *HealthQueryBuilder) ForCheck(checkName string) *HealthQueryBuilder {
 	hqb.checkName = checkName
+
 	return hqb
 }
 
-// Between sets the time range for the query
+// Between sets the time range for the query.
 func (hqb *HealthQueryBuilder) Between(from, to time.Time) *HealthQueryBuilder {
 	hqb.from = from
 	hqb.to = to
+
 	return hqb
 }
 
-// Last sets the query to cover the last duration
+// Last sets the query to cover the last duration.
 func (hqb *HealthQueryBuilder) Last(duration time.Duration) *HealthQueryBuilder {
 	hqb.to = time.Now()
 	hqb.from = hqb.to.Add(-duration)
+
 	return hqb
 }
 
-// WithInterval sets the aggregation interval
+// WithInterval sets the aggregation interval.
 func (hqb *HealthQueryBuilder) WithInterval(interval time.Duration) *HealthQueryBuilder {
 	hqb.interval = interval
+
 	return hqb
 }
 
-// WithStatuses filters by health statuses
+// WithStatuses filters by health statuses.
 func (hqb *HealthQueryBuilder) WithStatuses(statuses ...health.HealthStatus) *HealthQueryBuilder {
 	hqb.statuses = statuses
+
 	return hqb
 }
 
-// WithLimit sets the result limit
+// WithLimit sets the result limit.
 func (hqb *HealthQueryBuilder) WithLimit(limit int) *HealthQueryBuilder {
 	hqb.limit = limit
+
 	return hqb
 }
 
-// WithOffset sets the result offset
+// WithOffset sets the result offset.
 func (hqb *HealthQueryBuilder) WithOffset(offset int) *HealthQueryBuilder {
 	hqb.offset = offset
+
 	return hqb
 }
 
-// GetHistory executes the query and returns health history
+// GetHistory executes the query and returns health history.
 func (hqb *HealthQueryBuilder) GetHistory(ctx context.Context) ([]*HealthHistoryPoint, error) {
 	return hqb.store.GetHealthHistory(ctx, hqb.checkName, hqb.from, hqb.to, hqb.interval)
 }
 
-// GetTrend executes the query and returns health trend
+// GetTrend executes the query and returns health trend.
 func (hqb *HealthQueryBuilder) GetTrend(ctx context.Context) (*HealthTrend, error) {
 	duration := hqb.to.Sub(hqb.from)
+
 	return hqb.store.GetHealthTrend(ctx, hqb.checkName, duration)
 }
 
-// GetStatistics executes the query and returns health statistics
+// GetStatistics executes the query and returns health statistics.
 func (hqb *HealthQueryBuilder) GetStatistics(ctx context.Context) (*HealthStatistics, error) {
 	return hqb.store.GetHealthStatistics(ctx, hqb.checkName, hqb.from, hqb.to)
 }
 
-// GetResults executes the query and returns health results
+// GetResults executes the query and returns health results.
 func (hqb *HealthQueryBuilder) GetResults(ctx context.Context) ([]*health.HealthResult, error) {
 	return hqb.store.GetResults(ctx, hqb.checkName, hqb.from, hqb.to)
 }
 
-// HealthDataExporter exports health data in various formats
+// HealthDataExporter exports health data in various formats.
 type HealthDataExporter struct {
 	store HealthStore
 }
 
-// NewHealthDataExporter creates a new health data exporter
+// NewHealthDataExporter creates a new health data exporter.
 func NewHealthDataExporter(store HealthStore) *HealthDataExporter {
 	return &HealthDataExporter{store: store}
 }
 
-// ExportFormat represents supported export formats
+// ExportFormat represents supported export formats.
 type ExportFormat string
 
 const (
@@ -414,7 +425,7 @@ const (
 	ExportFormatXML  ExportFormat = "xml"
 )
 
-// ExportHealthData exports health data in the specified format
+// ExportHealthData exports health data in the specified format.
 func (hde *HealthDataExporter) ExportHealthData(ctx context.Context, checkName string, from, to time.Time, format ExportFormat) ([]byte, error) {
 	results, err := hde.store.GetResults(ctx, checkName, from, to)
 	if err != nil {
@@ -433,9 +444,10 @@ func (hde *HealthDataExporter) ExportHealthData(ctx context.Context, checkName s
 	}
 }
 
-// exportCSV exports health data as CSV
+// exportCSV exports health data as CSV.
 func (hde *HealthDataExporter) exportCSV(results []*health.HealthResult) ([]byte, error) {
 	var buf bytes.Buffer
+
 	writer := csv.NewWriter(&buf)
 
 	// Write header
@@ -462,10 +474,11 @@ func (hde *HealthDataExporter) exportCSV(results []*health.HealthResult) ([]byte
 	}
 
 	writer.Flush()
+
 	return buf.Bytes(), writer.Error()
 }
 
-// exportXML exports health data as XML
+// exportXML exports health data as XML.
 func (hde *HealthDataExporter) exportXML(results []*health.HealthResult) ([]byte, error) {
 	type XMLResults struct {
 		XMLName xml.Name               `xml:"health_results"`
@@ -473,5 +486,6 @@ func (hde *HealthDataExporter) exportXML(results []*health.HealthResult) ([]byte
 	}
 
 	xmlResults := XMLResults{Results: results}
+
 	return xml.MarshalIndent(xmlResults, "", "  ")
 }

@@ -9,20 +9,22 @@ import (
 	"time"
 
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// SchedulerAgent optimizes job scheduling and resource allocation
+// SchedulerAgent optimizes job scheduling and resource allocation.
 type SchedulerAgent struct {
 	*ai.BaseAgent
-	cronManager          interface{} // Cron manager from Phase 4
+
+	cronManager          any // Cron manager from Phase 4
 	resourceThresholds   SchedulerResourceThresholds
 	optimizationPolicies []OptimizationPolicy
 	schedulingStats      SchedulingStats
 	jobPredictions       map[string]JobPrediction
 }
 
-// SchedulerResourceThresholds defines resource utilization thresholds
+// SchedulerResourceThresholds defines resource utilization thresholds.
 type SchedulerResourceThresholds struct {
 	CPU     float64 `json:"cpu"`
 	Memory  float64 `json:"memory"`
@@ -30,19 +32,19 @@ type SchedulerResourceThresholds struct {
 	Network float64 `json:"network"`
 }
 
-// OptimizationPolicy defines job scheduling optimization policies
+// OptimizationPolicy defines job scheduling optimization policies.
 type OptimizationPolicy struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"` // priority, load_balance, cost_optimize, sla_optimize
-	Weight      float64                `json:"weight"`
-	Conditions  []string               `json:"conditions"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Enabled     bool                   `json:"enabled"`
-	SuccessRate float64                `json:"success_rate"`
-	LastUsed    time.Time              `json:"last_used"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"` // priority, load_balance, cost_optimize, sla_optimize
+	Weight      float64        `json:"weight"`
+	Conditions  []string       `json:"conditions"`
+	Parameters  map[string]any `json:"parameters"`
+	Enabled     bool           `json:"enabled"`
+	SuccessRate float64        `json:"success_rate"`
+	LastUsed    time.Time      `json:"last_used"`
 }
 
-// SchedulingStats tracks scheduling optimization metrics
+// SchedulingStats tracks scheduling optimization metrics.
 type SchedulingStats struct {
 	TotalOptimizations  int64            `json:"total_optimizations"`
 	SuccessfulSchedules int64            `json:"successful_schedules"`
@@ -54,7 +56,7 @@ type SchedulingStats struct {
 	OptimizationsByType map[string]int64 `json:"optimizations_by_type"`
 }
 
-// JobPrediction contains job execution predictions
+// JobPrediction contains job execution predictions.
 type JobPrediction struct {
 	JobID              string        `json:"job_id"`
 	EstimatedRuntime   time.Duration `json:"estimated_runtime"`
@@ -66,7 +68,7 @@ type JobPrediction struct {
 	LastUpdated        time.Time     `json:"last_updated"`
 }
 
-// SchedulerInput represents job scheduling optimization input
+// SchedulerInput represents job scheduling optimization input.
 type SchedulerInput struct {
 	Jobs              []Job                `json:"jobs"`
 	Resources         ResourceAvailability `json:"resources"`
@@ -78,26 +80,26 @@ type SchedulerInput struct {
 	SystemLoad        SystemLoad           `json:"system_load"`
 }
 
-// Job represents a job to be scheduled
+// Job represents a job to be scheduled.
 type Job struct {
-	ID                   string                 `json:"id"`
-	Name                 string                 `json:"name"`
-	Type                 string                 `json:"type"`
-	Priority             int                    `json:"priority"`
-	EstimatedRuntime     time.Duration          `json:"estimated_runtime"`
-	ResourceRequirements ResourceRequirements   `json:"resource_requirements"`
-	Dependencies         []string               `json:"dependencies"`
-	Schedule             string                 `json:"schedule"` // cron expression
-	Deadline             *time.Time             `json:"deadline"`
-	Retries              int                    `json:"retries"`
-	Status               string                 `json:"status"`
-	LastRun              *time.Time             `json:"last_run"`
-	LastDuration         time.Duration          `json:"last_duration"`
-	SuccessRate          float64                `json:"success_rate"`
-	Metadata             map[string]interface{} `json:"metadata"`
+	ID                   string               `json:"id"`
+	Name                 string               `json:"name"`
+	Type                 string               `json:"type"`
+	Priority             int                  `json:"priority"`
+	EstimatedRuntime     time.Duration        `json:"estimated_runtime"`
+	ResourceRequirements ResourceRequirements `json:"resource_requirements"`
+	Dependencies         []string             `json:"dependencies"`
+	Schedule             string               `json:"schedule"` // cron expression
+	Deadline             *time.Time           `json:"deadline"`
+	Retries              int                  `json:"retries"`
+	Status               string               `json:"status"`
+	LastRun              *time.Time           `json:"last_run"`
+	LastDuration         time.Duration        `json:"last_duration"`
+	SuccessRate          float64              `json:"success_rate"`
+	Metadata             map[string]any       `json:"metadata"`
 }
 
-// ResourceRequirements defines job resource requirements
+// ResourceRequirements defines job resource requirements.
 type ResourceRequirements struct {
 	CPU     float64 `json:"cpu"`
 	Memory  int64   `json:"memory"`
@@ -106,7 +108,7 @@ type ResourceRequirements struct {
 	GPU     int     `json:"gpu"`
 }
 
-// ResourceAvailability defines available system resources
+// ResourceAvailability defines available system resources.
 type ResourceAvailability struct {
 	CPU     float64 `json:"cpu"`
 	Memory  int64   `json:"memory"`
@@ -116,18 +118,18 @@ type ResourceAvailability struct {
 	Nodes   int     `json:"nodes"`
 }
 
-// Constraint defines scheduling constraints
+// Constraint defines scheduling constraints.
 type Constraint struct {
-	Type       string                 `json:"type"`
-	Target     string                 `json:"target"`
-	Operator   string                 `json:"operator"`
-	Value      interface{}            `json:"value"`
-	Priority   int                    `json:"priority"`
-	Soft       bool                   `json:"soft"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Type       string         `json:"type"`
+	Target     string         `json:"target"`
+	Operator   string         `json:"operator"`
+	Value      any            `json:"value"`
+	Priority   int            `json:"priority"`
+	Soft       bool           `json:"soft"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// SLARequirement defines service level agreement requirements
+// SLARequirement defines service level agreement requirements.
 type SLARequirement struct {
 	JobID              string        `json:"job_id"`
 	MaxRuntime         time.Duration `json:"max_runtime"`
@@ -138,7 +140,7 @@ type SLARequirement struct {
 	Priority           int           `json:"priority"`
 }
 
-// HistoricalJobData contains historical job execution data
+// HistoricalJobData contains historical job execution data.
 type HistoricalJobData struct {
 	JobExecutions      []JobExecution      `json:"job_executions"`
 	ResourceUsage      []ResourceUsage     `json:"resource_usage"`
@@ -147,7 +149,7 @@ type HistoricalJobData struct {
 	Trends             []Trend             `json:"trends"`
 }
 
-// JobExecution contains job execution information
+// JobExecution contains job execution information.
 type JobExecution struct {
 	JobID      string        `json:"job_id"`
 	StartTime  time.Time     `json:"start_time"`
@@ -159,7 +161,7 @@ type JobExecution struct {
 	RetryCount int           `json:"retry_count"`
 }
 
-// PerformanceMetric contains performance metrics
+// PerformanceMetric contains performance metrics.
 type PerformanceMetric struct {
 	JobID     string    `json:"job_id"`
 	Metric    string    `json:"metric"`
@@ -168,7 +170,7 @@ type PerformanceMetric struct {
 	NodeID    string    `json:"node_id"`
 }
 
-// JobFailure contains job failure information
+// JobFailure contains job failure information.
 type JobFailure struct {
 	JobID      string    `json:"job_id"`
 	Timestamp  time.Time `json:"timestamp"`
@@ -178,7 +180,7 @@ type JobFailure struct {
 	RetryCount int       `json:"retry_count"`
 }
 
-// SystemLoad contains current system load information
+// SystemLoad contains current system load information.
 type SystemLoad struct {
 	CPU        float64   `json:"cpu"`
 	Memory     float64   `json:"memory"`
@@ -189,7 +191,7 @@ type SystemLoad struct {
 	Timestamp  time.Time `json:"timestamp"`
 }
 
-// SchedulerOutput represents job scheduling optimization output
+// SchedulerOutput represents job scheduling optimization output.
 type SchedulerOutput struct {
 	Schedule          OptimizedSchedule          `json:"schedule"`
 	ResourcePlan      ResourcePlan               `json:"resource_plan"`
@@ -201,7 +203,7 @@ type SchedulerOutput struct {
 	Warnings          []string                   `json:"warnings"`
 }
 
-// OptimizedSchedule contains the optimized job schedule
+// OptimizedSchedule contains the optimized job schedule.
 type OptimizedSchedule struct {
 	TimeSlots     []TimeSlot            `json:"time_slots"`
 	JobPlacements []JobPlacement        `json:"job_placements"`
@@ -211,7 +213,7 @@ type OptimizedSchedule struct {
 	SLACompliance float64               `json:"sla_compliance"`
 }
 
-// TimeSlot represents a time slot in the schedule
+// TimeSlot represents a time slot in the schedule.
 type TimeSlot struct {
 	Start     time.Time     `json:"start"`
 	End       time.Time     `json:"end"`
@@ -221,7 +223,7 @@ type TimeSlot struct {
 	Priority  int           `json:"priority"`
 }
 
-// JobPlacement contains job placement information
+// JobPlacement contains job placement information.
 type JobPlacement struct {
 	JobID        string             `json:"job_id"`
 	StartTime    time.Time          `json:"start_time"`
@@ -233,7 +235,7 @@ type JobPlacement struct {
 	Constraints  []Constraint       `json:"constraints"`
 }
 
-// ResourceAllocation contains resource allocation information
+// ResourceAllocation contains resource allocation information.
 type ResourceAllocation struct {
 	CPU     float64 `json:"cpu"`
 	Memory  int64   `json:"memory"`
@@ -243,15 +245,15 @@ type ResourceAllocation struct {
 	NodeID  string  `json:"node_id"`
 }
 
-// LoadBalancingStrategy defines load balancing strategy
+// LoadBalancingStrategy defines load balancing strategy.
 type LoadBalancingStrategy struct {
-	Type       string                 `json:"type"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Nodes      []NodeAllocation       `json:"nodes"`
-	Efficiency float64                `json:"efficiency"`
+	Type       string           `json:"type"`
+	Parameters map[string]any   `json:"parameters"`
+	Nodes      []NodeAllocation `json:"nodes"`
+	Efficiency float64          `json:"efficiency"`
 }
 
-// NodeAllocation contains node allocation information
+// NodeAllocation contains node allocation information.
 type NodeAllocation struct {
 	NodeID      string        `json:"node_id"`
 	JobIDs      []string      `json:"job_ids"`
@@ -260,7 +262,7 @@ type NodeAllocation struct {
 	Load        float64       `json:"load"`
 }
 
-// ResourcePlan contains resource allocation plan
+// ResourcePlan contains resource allocation plan.
 type ResourcePlan struct {
 	Allocations []ResourceAllocation `json:"allocations"`
 	Utilization ResourceUtilization  `json:"utilization"`
@@ -269,14 +271,14 @@ type ResourcePlan struct {
 	Efficiency  float64              `json:"efficiency"`
 }
 
-// ScalingPlan contains scaling recommendations
+// ScalingPlan contains scaling recommendations.
 type ScalingPlan struct {
 	ScaleUp   []ScalingAction  `json:"scale_up"`
 	ScaleDown []ScalingAction  `json:"scale_down"`
 	Triggers  []ScalingTrigger `json:"triggers"`
 }
 
-// ScalingAction contains scaling action information
+// ScalingAction contains scaling action information.
 type ScalingAction struct {
 	Type      string    `json:"type"`
 	Resource  string    `json:"resource"`
@@ -286,7 +288,7 @@ type ScalingAction struct {
 	Priority  int       `json:"priority"`
 }
 
-// ScalingTrigger contains scaling trigger information
+// ScalingTrigger contains scaling trigger information.
 type ScalingTrigger struct {
 	Metric    string        `json:"metric"`
 	Threshold float64       `json:"threshold"`
@@ -294,7 +296,7 @@ type ScalingTrigger struct {
 	Action    string        `json:"action"`
 }
 
-// CostEstimate contains cost estimation
+// CostEstimate contains cost estimation.
 type CostEstimate struct {
 	Total      float64            `json:"total"`
 	ByResource map[string]float64 `json:"by_resource"`
@@ -302,18 +304,18 @@ type CostEstimate struct {
 	Savings    float64            `json:"savings"`
 }
 
-// SchedulingRecommendation contains scheduling recommendations
+// SchedulingRecommendation contains scheduling recommendations.
 type SchedulingRecommendation struct {
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Impact      string                 `json:"impact"`
-	Confidence  float64                `json:"confidence"`
-	Priority    int                    `json:"priority"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Rationale   string                 `json:"rationale"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Impact      string         `json:"impact"`
+	Confidence  float64        `json:"confidence"`
+	Priority    int            `json:"priority"`
+	Parameters  map[string]any `json:"parameters"`
+	Rationale   string         `json:"rationale"`
 }
 
-// PredictedOutcome contains predicted scheduling outcomes
+// PredictedOutcome contains predicted scheduling outcomes.
 type PredictedOutcome struct {
 	JobID              string        `json:"job_id"`
 	StartTime          time.Time     `json:"start_time"`
@@ -324,45 +326,45 @@ type PredictedOutcome struct {
 	Risks              []string      `json:"risks"`
 }
 
-// SchedulingOptimization contains optimization details
+// SchedulingOptimization contains optimization details.
 type SchedulingOptimization struct {
-	Type        string                 `json:"type"`
-	Target      string                 `json:"target"`
-	Improvement float64                `json:"improvement"`
-	Method      string                 `json:"method"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Confidence  float64                `json:"confidence"`
+	Type        string         `json:"type"`
+	Target      string         `json:"target"`
+	Improvement float64        `json:"improvement"`
+	Method      string         `json:"method"`
+	Parameters  map[string]any `json:"parameters"`
+	Confidence  float64        `json:"confidence"`
 }
 
-// SchedulingAction contains scheduling actions
+// SchedulingAction contains scheduling actions.
 type SchedulingAction struct {
-	Type       string                 `json:"type"`
-	Target     string                 `json:"target"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Priority   int                    `json:"priority"`
-	Condition  string                 `json:"condition"`
-	Timeout    time.Duration          `json:"timeout"`
-	Rollback   bool                   `json:"rollback"`
+	Type       string         `json:"type"`
+	Target     string         `json:"target"`
+	Parameters map[string]any `json:"parameters"`
+	Priority   int            `json:"priority"`
+	Condition  string         `json:"condition"`
+	Timeout    time.Duration  `json:"timeout"`
+	Rollback   bool           `json:"rollback"`
 }
 
-// ConflictResolution contains conflict resolution information
+// ConflictResolution contains conflict resolution information.
 type ConflictResolution struct {
-	ConflictType string                 `json:"conflict_type"`
-	JobIDs       []string               `json:"job_ids"`
-	Resolution   string                 `json:"resolution"`
-	Parameters   map[string]interface{} `json:"parameters"`
-	Impact       string                 `json:"impact"`
+	ConflictType string         `json:"conflict_type"`
+	JobIDs       []string       `json:"job_ids"`
+	Resolution   string         `json:"resolution"`
+	Parameters   map[string]any `json:"parameters"`
+	Impact       string         `json:"impact"`
 }
 
-// NewSchedulerAgent creates a new job scheduler agent
+// NewSchedulerAgent creates a new job scheduler agent.
 func NewSchedulerAgent() ai.AIAgent {
 	capabilities := []ai.Capability{
 		{
 			Name:        "intelligent-scheduling",
 			Description: "Optimize job scheduling based on resource availability and constraints",
-			InputType:   reflect.TypeOf(SchedulerInput{}),
-			OutputType:  reflect.TypeOf(SchedulerOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SchedulerInput](),
+			OutputType:  reflect.TypeFor[SchedulerOutput](),
+			Metadata: map[string]any{
 				"optimization_level": "high",
 				"sla_compliance":     0.95,
 			},
@@ -370,9 +372,9 @@ func NewSchedulerAgent() ai.AIAgent {
 		{
 			Name:        "resource-optimization",
 			Description: "Optimize resource allocation for scheduled jobs",
-			InputType:   reflect.TypeOf(SchedulerInput{}),
-			OutputType:  reflect.TypeOf(SchedulerOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SchedulerInput](),
+			OutputType:  reflect.TypeFor[SchedulerOutput](),
+			Metadata: map[string]any{
 				"efficiency":   0.90,
 				"cost_savings": 0.25,
 			},
@@ -380,9 +382,9 @@ func NewSchedulerAgent() ai.AIAgent {
 		{
 			Name:        "predictive-scheduling",
 			Description: "Predict job execution outcomes and optimize accordingly",
-			InputType:   reflect.TypeOf(SchedulerInput{}),
-			OutputType:  reflect.TypeOf(SchedulerOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SchedulerInput](),
+			OutputType:  reflect.TypeFor[SchedulerOutput](),
+			Metadata: map[string]any{
 				"accuracy":  0.88,
 				"lookahead": "24h",
 			},
@@ -390,9 +392,9 @@ func NewSchedulerAgent() ai.AIAgent {
 		{
 			Name:        "load-balancing",
 			Description: "Balance job loads across available resources",
-			InputType:   reflect.TypeOf(SchedulerInput{}),
-			OutputType:  reflect.TypeOf(SchedulerOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[SchedulerInput](),
+			OutputType:  reflect.TypeFor[SchedulerOutput](),
+			Metadata: map[string]any{
 				"balancing_efficiency": 0.92,
 				"fairness":             "high",
 			},
@@ -415,7 +417,7 @@ func NewSchedulerAgent() ai.AIAgent {
 	}
 }
 
-// Initialize initializes the scheduler agent
+// Initialize initializes the scheduler agent.
 func (a *SchedulerAgent) Initialize(ctx context.Context, config ai.AgentConfig) error {
 	if err := a.BaseAgent.Initialize(ctx, config); err != nil {
 		return err
@@ -423,17 +425,20 @@ func (a *SchedulerAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 
 	// Initialize scheduler-specific configuration
 	if schedulerConfig, ok := config.Metadata["scheduler"]; ok {
-		if configMap, ok := schedulerConfig.(map[string]interface{}); ok {
-			if thresholds, ok := configMap["resource_thresholds"].(map[string]interface{}); ok {
+		if configMap, ok := schedulerConfig.(map[string]any); ok {
+			if thresholds, ok := configMap["resource_thresholds"].(map[string]any); ok {
 				if cpu, ok := thresholds["cpu"].(float64); ok {
 					a.resourceThresholds.CPU = cpu
 				}
+
 				if memory, ok := thresholds["memory"].(float64); ok {
 					a.resourceThresholds.Memory = memory
 				}
+
 				if disk, ok := thresholds["disk"].(float64); ok {
 					a.resourceThresholds.Disk = disk
 				}
+
 				if network, ok := thresholds["network"].(float64); ok {
 					a.resourceThresholds.Network = network
 				}
@@ -448,7 +453,7 @@ func (a *SchedulerAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 			Type:       "priority",
 			Weight:     0.4,
 			Conditions: []string{"job_priority > 0"},
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"priority_weight": 0.6,
 				"fairness_weight": 0.4,
 			},
@@ -460,7 +465,7 @@ func (a *SchedulerAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 			Type:       "load_balance",
 			Weight:     0.3,
 			Conditions: []string{"resource_utilization < 0.9"},
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"balance_threshold": 0.1,
 				"migration_cost":    0.05,
 			},
@@ -472,7 +477,7 @@ func (a *SchedulerAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 			Type:       "sla_optimize",
 			Weight:     0.3,
 			Conditions: []string{"sla_compliance < 0.95"},
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"compliance_target": 0.98,
 				"penalty_weight":    0.2,
 			},
@@ -482,7 +487,7 @@ func (a *SchedulerAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Info("scheduler agent initialized",
+		a.GetConfiguration().Logger.Info("scheduler agent initialized",
 			logger.String("agent_id", a.ID()),
 			logger.Float64("cpu_threshold", a.resourceThresholds.CPU),
 			logger.Float64("memory_threshold", a.resourceThresholds.Memory),
@@ -493,14 +498,14 @@ func (a *SchedulerAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 	return nil
 }
 
-// Process processes job scheduling optimization input
+// Process processes job scheduling optimization input.
 func (a *SchedulerAgent) Process(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	startTime := time.Now()
 
 	// Convert input to scheduler-specific input
 	schedulerInput, ok := input.Data.(SchedulerInput)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input type for scheduler agent")
+		return ai.AgentOutput{}, errors.New("invalid input type for scheduler agent")
 	}
 
 	// Analyze current system state
@@ -555,7 +560,7 @@ func (a *SchedulerAgent) Process(ctx context.Context, input ai.AgentInput) (ai.A
 		Confidence:  a.calculateConfidence(schedulerInput, analysis),
 		Explanation: a.generateExplanation(output),
 		Actions:     a.convertToAgentActions(actions),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"processing_time":     time.Since(startTime),
 			"jobs_scheduled":      len(schedule.JobPlacements),
 			"sla_compliance":      schedule.SLACompliance,
@@ -565,7 +570,7 @@ func (a *SchedulerAgent) Process(ctx context.Context, input ai.AgentInput) (ai.A
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Debug("job scheduling processed",
+		a.GetConfiguration().Logger.Debug("job scheduling processed",
 			logger.String("agent_id", a.ID()),
 			logger.String("request_id", input.RequestID),
 			logger.Int("jobs_count", len(schedulerInput.Jobs)),
@@ -577,7 +582,7 @@ func (a *SchedulerAgent) Process(ctx context.Context, input ai.AgentInput) (ai.A
 	return agentOutput, nil
 }
 
-// analyzeSystemState analyzes the current system state
+// analyzeSystemState analyzes the current system state.
 func (a *SchedulerAgent) analyzeSystemState(input SchedulerInput) SystemStateAnalysis {
 	analysis := SystemStateAnalysis{
 		ResourceUtilization: ResourceUtilization{
@@ -611,12 +616,15 @@ func (a *SchedulerAgent) analyzeSystemState(input SchedulerInput) SystemStateAna
 	if analysis.ResourceUtilization.CPU > a.resourceThresholds.CPU {
 		analysis.Bottlenecks = append(analysis.Bottlenecks, "cpu")
 	}
+
 	if analysis.ResourceUtilization.Memory > a.resourceThresholds.Memory {
 		analysis.Bottlenecks = append(analysis.Bottlenecks, "memory")
 	}
+
 	if analysis.ResourceUtilization.Disk > a.resourceThresholds.Disk {
 		analysis.Bottlenecks = append(analysis.Bottlenecks, "disk")
 	}
+
 	if analysis.ResourceUtilization.Network > a.resourceThresholds.Network {
 		analysis.Bottlenecks = append(analysis.Bottlenecks, "network")
 	}
@@ -634,7 +642,7 @@ func (a *SchedulerAgent) analyzeSystemState(input SchedulerInput) SystemStateAna
 	return analysis
 }
 
-// SystemStateAnalysis contains system state analysis
+// SystemStateAnalysis contains system state analysis.
 type SystemStateAnalysis struct {
 	ResourceUtilization ResourceUtilization `json:"resource_utilization"`
 	JobQueue            JobQueueAnalysis    `json:"job_queue"`
@@ -642,7 +650,7 @@ type SystemStateAnalysis struct {
 	Trends              []TrendAnalysis     `json:"trends"`
 }
 
-// JobQueueAnalysis contains job queue analysis
+// JobQueueAnalysis contains job queue analysis.
 type JobQueueAnalysis struct {
 	ActiveJobs   int `json:"active_jobs"`
 	QueuedJobs   int `json:"queued_jobs"`
@@ -651,7 +659,7 @@ type JobQueueAnalysis struct {
 	LowPriority  int `json:"low_priority"`
 }
 
-// TrendAnalysis contains trend analysis
+// TrendAnalysis contains trend analysis.
 type TrendAnalysis struct {
 	Type       string  `json:"type"`
 	Direction  string  `json:"direction"`
@@ -659,7 +667,7 @@ type TrendAnalysis struct {
 	Impact     string  `json:"impact"`
 }
 
-// generateJobPredictions generates job execution predictions
+// generateJobPredictions generates job execution predictions.
 func (a *SchedulerAgent) generateJobPredictions(input SchedulerInput) map[string]JobPrediction {
 	predictions := make(map[string]JobPrediction)
 
@@ -682,15 +690,17 @@ func (a *SchedulerAgent) generateJobPredictions(input SchedulerInput) map[string
 	return predictions
 }
 
-// predictJobRuntime predicts job execution runtime
+// predictJobRuntime predicts job execution runtime.
 func (a *SchedulerAgent) predictJobRuntime(job Job, historical HistoricalJobData) time.Duration {
 	if job.EstimatedRuntime > 0 {
 		return job.EstimatedRuntime
 	}
 
 	// Analyze historical executions
-	var totalDuration time.Duration
-	var count int
+	var (
+		totalDuration time.Duration
+		count         int
+	)
 
 	for _, execution := range historical.JobExecutions {
 		if execution.JobID == job.ID {
@@ -720,7 +730,7 @@ func (a *SchedulerAgent) predictJobRuntime(job Job, historical HistoricalJobData
 	}
 }
 
-// predictResourceUsage predicts job resource usage
+// predictResourceUsage predicts job resource usage.
 func (a *SchedulerAgent) predictResourceUsage(job Job, historical HistoricalJobData) ResourceUsage {
 	// Start with job requirements
 	usage := ResourceUsage{
@@ -731,8 +741,10 @@ func (a *SchedulerAgent) predictResourceUsage(job Job, historical HistoricalJobD
 	}
 
 	// Adjust based on historical data
-	var totalUsage ResourceUsage
-	var count int
+	var (
+		totalUsage ResourceUsage
+		count      int
+	)
 
 	for _, historical := range historical.ResourceUsage {
 		// Assuming ResourceUsage has a JobID field (should be added)
@@ -755,12 +767,15 @@ func (a *SchedulerAgent) predictResourceUsage(job Job, historical HistoricalJobD
 		if avgUsage.CPU > 0 {
 			usage.CPU = avgUsage.CPU
 		}
+
 		if avgUsage.Memory > 0 {
 			usage.Memory = avgUsage.Memory
 		}
+
 		if avgUsage.Disk > 0 {
 			usage.Disk = avgUsage.Disk
 		}
+
 		if avgUsage.Network > 0 {
 			usage.Network = avgUsage.Network
 		}
@@ -769,7 +784,7 @@ func (a *SchedulerAgent) predictResourceUsage(job Job, historical HistoricalJobD
 	return usage
 }
 
-// calculateSuccessProbability calculates job success probability
+// calculateSuccessProbability calculates job success probability.
 func (a *SchedulerAgent) calculateSuccessProbability(job Job, historical HistoricalJobData) float64 {
 	if job.SuccessRate > 0 {
 		return job.SuccessRate
@@ -781,6 +796,7 @@ func (a *SchedulerAgent) calculateSuccessProbability(job Job, historical Histori
 	for _, execution := range historical.JobExecutions {
 		if execution.JobID == job.ID {
 			totalCount++
+
 			if execution.Status == "success" {
 				successCount++
 			}
@@ -806,7 +822,7 @@ func (a *SchedulerAgent) calculateSuccessProbability(job Job, historical Histori
 	}
 }
 
-// findOptimalStartTime finds the optimal start time for a job
+// findOptimalStartTime finds the optimal start time for a job.
 func (a *SchedulerAgent) findOptimalStartTime(job Job, input SchedulerInput) time.Time {
 	// Consider resource availability and constraints
 	startTime := input.TimeWindow.StartTime
@@ -838,7 +854,7 @@ func (a *SchedulerAgent) findOptimalStartTime(job Job, input SchedulerInput) tim
 	return startTime
 }
 
-// optimizeJobSchedule optimizes the job schedule
+// optimizeJobSchedule optimizes the job schedule.
 func (a *SchedulerAgent) optimizeJobSchedule(input SchedulerInput, analysis SystemStateAnalysis, predictions map[string]JobPrediction) OptimizedSchedule {
 	// Sort jobs by priority and dependencies
 	sortedJobs := a.sortJobsByPriority(input.Jobs)
@@ -867,7 +883,7 @@ func (a *SchedulerAgent) optimizeJobSchedule(input SchedulerInput, analysis Syst
 	}
 }
 
-// sortJobsByPriority sorts jobs by priority and dependencies
+// sortJobsByPriority sorts jobs by priority and dependencies.
 func (a *SchedulerAgent) sortJobsByPriority(jobs []Job) []Job {
 	sortedJobs := make([]Job, len(jobs))
 	copy(sortedJobs, jobs)
@@ -890,7 +906,7 @@ func (a *SchedulerAgent) sortJobsByPriority(jobs []Job) []Job {
 	return sortedJobs
 }
 
-// createTimeSlots creates time slots for scheduling
+// createTimeSlots creates time slots for scheduling.
 func (a *SchedulerAgent) createTimeSlots(timeWindow TimeWindow, slotDuration time.Duration) []TimeSlot {
 	slots := []TimeSlot{}
 
@@ -920,7 +936,7 @@ func (a *SchedulerAgent) createTimeSlots(timeWindow TimeWindow, slotDuration tim
 	return slots
 }
 
-// placeJobs places jobs in time slots
+// placeJobs places jobs in time slots.
 func (a *SchedulerAgent) placeJobs(jobs []Job, timeSlots []TimeSlot, resources ResourceAvailability, predictions map[string]JobPrediction) []JobPlacement {
 	placements := []JobPlacement{}
 	resourceUsage := make(map[int]ResourceUsage) // Usage per time slot
@@ -950,7 +966,7 @@ func (a *SchedulerAgent) placeJobs(jobs []Job, timeSlots []TimeSlot, resources R
 	return placements
 }
 
-// findBestPlacement finds the best placement for a job
+// findBestPlacement finds the best placement for a job.
 func (a *SchedulerAgent) findBestPlacement(job Job, timeSlots []TimeSlot, resources ResourceAvailability, resourceUsage map[int]ResourceUsage, predictions map[string]JobPrediction) *JobPlacement {
 	prediction, exists := predictions[job.ID]
 	if !exists {
@@ -990,17 +1006,20 @@ func (a *SchedulerAgent) findBestPlacement(job Job, timeSlots []TimeSlot, resour
 	return nil
 }
 
-// canFitJob checks if a job can fit in the current resource usage
+// canFitJob checks if a job can fit in the current resource usage.
 func (a *SchedulerAgent) canFitJob(job Job, currentUsage ResourceUsage, resources ResourceAvailability) bool {
 	if currentUsage.CPU+job.ResourceRequirements.CPU > resources.CPU {
 		return false
 	}
+
 	if currentUsage.Memory+float64(job.ResourceRequirements.Memory) > float64(resources.Memory) {
 		return false
 	}
+
 	if currentUsage.Disk+float64(job.ResourceRequirements.Disk) > float64(resources.Disk) {
 		return false
 	}
+
 	if currentUsage.Network+float64(job.ResourceRequirements.Network) > float64(resources.Network) {
 		return false
 	}
@@ -1008,24 +1027,25 @@ func (a *SchedulerAgent) canFitJob(job Job, currentUsage ResourceUsage, resource
 	return true
 }
 
-// areDependenciesMet checks if job dependencies are met
+// areDependenciesMet checks if job dependencies are met.
 func (a *SchedulerAgent) areDependenciesMet(job Job, startTime time.Time, resourceUsage map[int]ResourceUsage) bool {
 	// Simplified dependency check
 	// In a real implementation, this would check if dependent jobs are scheduled before this time
 	return len(job.Dependencies) == 0 || startTime.After(time.Now().Add(time.Hour))
 }
 
-// findTimeSlotIndex finds the time slot index for a given time
+// findTimeSlotIndex finds the time slot index for a given time.
 func (a *SchedulerAgent) findTimeSlotIndex(timeSlots []TimeSlot, t time.Time) int {
 	for i, slot := range timeSlots {
 		if t.Before(slot.End) {
 			return i
 		}
 	}
+
 	return len(timeSlots) - 1
 }
 
-// createLoadBalancingStrategy creates a load balancing strategy
+// createLoadBalancingStrategy creates a load balancing strategy.
 func (a *SchedulerAgent) createLoadBalancingStrategy(placements []JobPlacement, resources ResourceAvailability) LoadBalancingStrategy {
 	// Simple round-robin node allocation
 	nodeCount := resources.Nodes
@@ -1065,23 +1085,25 @@ func (a *SchedulerAgent) createLoadBalancingStrategy(placements []JobPlacement, 
 	for _, node := range nodes {
 		totalUtilization += node.Utilization
 	}
+
 	efficiency := totalUtilization / float64(nodeCount)
 
 	return LoadBalancingStrategy{
 		Type:       "round-robin",
-		Parameters: map[string]interface{}{"node_count": nodeCount},
+		Parameters: map[string]any{"node_count": nodeCount},
 		Nodes:      nodes,
 		Efficiency: efficiency,
 	}
 }
 
-// calculateTotalDuration calculates total schedule duration
+// calculateTotalDuration calculates total schedule duration.
 func (a *SchedulerAgent) calculateTotalDuration(placements []JobPlacement) time.Duration {
 	if len(placements) == 0 {
 		return 0
 	}
 
 	var earliestStart, latestEnd time.Time
+
 	for i, placement := range placements {
 		if i == 0 {
 			earliestStart = placement.StartTime
@@ -1090,6 +1112,7 @@ func (a *SchedulerAgent) calculateTotalDuration(placements []JobPlacement) time.
 			if placement.StartTime.Before(earliestStart) {
 				earliestStart = placement.StartTime
 			}
+
 			if placement.EndTime.After(latestEnd) {
 				latestEnd = placement.EndTime
 			}
@@ -1099,7 +1122,7 @@ func (a *SchedulerAgent) calculateTotalDuration(placements []JobPlacement) time.
 	return latestEnd.Sub(earliestStart)
 }
 
-// calculateScheduleEfficiency calculates schedule efficiency
+// calculateScheduleEfficiency calculates schedule efficiency.
 func (a *SchedulerAgent) calculateScheduleEfficiency(placements []JobPlacement, resources ResourceAvailability) float64 {
 	if len(placements) == 0 {
 		return 0.0
@@ -1135,7 +1158,7 @@ func (a *SchedulerAgent) calculateScheduleEfficiency(placements []JobPlacement, 
 	return efficiency
 }
 
-// calculateSLACompliance calculates SLA compliance
+// calculateSLACompliance calculates SLA compliance.
 func (a *SchedulerAgent) calculateSLACompliance(placements []JobPlacement, slaRequirements []SLARequirement) float64 {
 	if len(slaRequirements) == 0 {
 		return 1.0
@@ -1153,6 +1176,7 @@ func (a *SchedulerAgent) calculateSLACompliance(placements []JobPlacement, slaRe
 				if runtime <= sla.MaxRuntime {
 					compliantJobs++
 				}
+
 				break
 			}
 		}
@@ -1161,7 +1185,7 @@ func (a *SchedulerAgent) calculateSLACompliance(placements []JobPlacement, slaRe
 	return float64(compliantJobs) / float64(totalJobs)
 }
 
-// createResourcePlan creates a resource allocation plan
+// createResourcePlan creates a resource allocation plan.
 func (a *SchedulerAgent) createResourcePlan(input SchedulerInput, schedule OptimizedSchedule) ResourcePlan {
 	// Calculate total resource allocations
 	allocations := []ResourceAllocation{}
@@ -1192,6 +1216,7 @@ func (a *SchedulerAgent) createResourcePlan(input SchedulerInput, schedule Optim
 	utilization.CPU /= input.Resources.CPU
 	utilization.Memory /= float64(input.Resources.Memory)
 	utilization.Disk /= float64(input.Resources.Disk)
+
 	utilization.Network /= float64(input.Resources.Network)
 	if input.Resources.GPU > 0 {
 		utilization.GPU /= float64(input.Resources.GPU)
@@ -1214,7 +1239,7 @@ func (a *SchedulerAgent) createResourcePlan(input SchedulerInput, schedule Optim
 	}
 }
 
-// createScalingPlan creates a scaling plan
+// createScalingPlan creates a scaling plan.
 func (a *SchedulerAgent) createScalingPlan(utilization ResourceUtilization, resources ResourceAvailability) ScalingPlan {
 	scaleUp := []ScalingAction{}
 	scaleDown := []ScalingAction{}
@@ -1282,7 +1307,7 @@ func (a *SchedulerAgent) createScalingPlan(utilization ResourceUtilization, reso
 	}
 }
 
-// estimateCosts estimates resource costs
+// estimateCosts estimates resource costs.
 func (a *SchedulerAgent) estimateCosts(allocations []ResourceAllocation, duration time.Duration) CostEstimate {
 	// Simple cost estimation (would be more sophisticated in real implementation)
 	cpuCost := 0.0
@@ -1330,7 +1355,7 @@ func (a *SchedulerAgent) estimateCosts(allocations []ResourceAllocation, duratio
 	}
 }
 
-// generateRecommendations generates scheduling recommendations
+// generateRecommendations generates scheduling recommendations.
 func (a *SchedulerAgent) generateRecommendations(input SchedulerInput, analysis SystemStateAnalysis, schedule OptimizedSchedule) []SchedulingRecommendation {
 	recommendations := []SchedulingRecommendation{}
 
@@ -1342,7 +1367,7 @@ func (a *SchedulerAgent) generateRecommendations(input SchedulerInput, analysis 
 			Impact:      "medium",
 			Confidence:  0.80,
 			Priority:    2,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"suggested_reduction": 0.3,
 				"estimated_savings":   0.25,
 			},
@@ -1358,7 +1383,7 @@ func (a *SchedulerAgent) generateRecommendations(input SchedulerInput, analysis 
 			Impact:      "high",
 			Confidence:  0.85,
 			Priority:    1,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"target_compliance": 0.98,
 				"buffer_time":       "15m",
 			},
@@ -1374,7 +1399,7 @@ func (a *SchedulerAgent) generateRecommendations(input SchedulerInput, analysis 
 			Impact:      "medium",
 			Confidence:  0.75,
 			Priority:    3,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"strategy": "weighted-round-robin",
 				"weights":  map[string]float64{"cpu": 0.4, "memory": 0.4, "disk": 0.2},
 			},
@@ -1390,19 +1415,19 @@ func (a *SchedulerAgent) generateRecommendations(input SchedulerInput, analysis 
 			Impact:      "high",
 			Confidence:  0.90,
 			Priority:    1,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"resource":  bottleneck,
 				"threshold": a.getResourceThreshold(bottleneck),
 				"current":   a.getCurrentResourceUsage(bottleneck, analysis),
 			},
-			Rationale: fmt.Sprintf("%s utilization exceeds threshold", bottleneck),
+			Rationale: bottleneck + " utilization exceeds threshold",
 		})
 	}
 
 	return recommendations
 }
 
-// getResourceThreshold gets the threshold for a resource
+// getResourceThreshold gets the threshold for a resource.
 func (a *SchedulerAgent) getResourceThreshold(resource string) float64 {
 	switch resource {
 	case "cpu":
@@ -1418,7 +1443,7 @@ func (a *SchedulerAgent) getResourceThreshold(resource string) float64 {
 	}
 }
 
-// getCurrentResourceUsage gets current resource usage
+// getCurrentResourceUsage gets current resource usage.
 func (a *SchedulerAgent) getCurrentResourceUsage(resource string, analysis SystemStateAnalysis) float64 {
 	switch resource {
 	case "cpu":
@@ -1434,7 +1459,7 @@ func (a *SchedulerAgent) getCurrentResourceUsage(resource string, analysis Syste
 	}
 }
 
-// predictOutcomes predicts scheduling outcomes
+// predictOutcomes predicts scheduling outcomes.
 func (a *SchedulerAgent) predictOutcomes(input SchedulerInput, schedule OptimizedSchedule, predictions map[string]JobPrediction) []PredictedOutcome {
 	outcomes := []PredictedOutcome{}
 
@@ -1445,11 +1470,13 @@ func (a *SchedulerAgent) predictOutcomes(input SchedulerInput, schedule Optimize
 		}
 
 		// Find SLA requirement
-		var slaCompliant bool = true
+		var slaCompliant = true
+
 		for _, sla := range input.SLARequirements {
 			if sla.JobID == placement.JobID {
 				runtime := placement.EndTime.Sub(placement.StartTime)
 				slaCompliant = runtime <= sla.MaxRuntime
+
 				break
 			}
 		}
@@ -1459,9 +1486,11 @@ func (a *SchedulerAgent) predictOutcomes(input SchedulerInput, schedule Optimize
 		if prediction.SuccessProbability < 0.9 {
 			risks = append(risks, "low-success-probability")
 		}
+
 		if placement.Resources.CPU > 0.8 {
 			risks = append(risks, "high-cpu-usage")
 		}
+
 		if len(placement.Dependencies) > 0 {
 			risks = append(risks, "dependency-risk")
 		}
@@ -1482,7 +1511,7 @@ func (a *SchedulerAgent) predictOutcomes(input SchedulerInput, schedule Optimize
 	return outcomes
 }
 
-// createOptimizations creates optimization details
+// createOptimizations creates optimization details.
 func (a *SchedulerAgent) createOptimizations(input SchedulerInput, schedule OptimizedSchedule, analysis SystemStateAnalysis) []SchedulingOptimization {
 	optimizations := []SchedulingOptimization{}
 
@@ -1493,7 +1522,7 @@ func (a *SchedulerAgent) createOptimizations(input SchedulerInput, schedule Opti
 			Target:      "overall",
 			Improvement: schedule.Efficiency - 0.5, // Assuming baseline of 0.5
 			Method:      "intelligent-placement",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"algorithm":      "priority-based",
 				"load_balancing": true,
 			},
@@ -1508,7 +1537,7 @@ func (a *SchedulerAgent) createOptimizations(input SchedulerInput, schedule Opti
 			Target:      "compliance",
 			Improvement: schedule.SLACompliance - 0.9, // Assuming baseline of 0.9
 			Method:      "deadline-aware-scheduling",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"buffer_time":        "15m",
 				"priority_weighting": 0.7,
 			},
@@ -1523,7 +1552,7 @@ func (a *SchedulerAgent) createOptimizations(input SchedulerInput, schedule Opti
 			Target:      "utilization",
 			Improvement: 0.9 - analysis.ResourceUtilization.Overall,
 			Method:      "resource-aware-placement",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"utilization_target":      0.85,
 				"fragmentation_avoidance": true,
 			},
@@ -1534,7 +1563,7 @@ func (a *SchedulerAgent) createOptimizations(input SchedulerInput, schedule Opti
 	return optimizations
 }
 
-// resolveConflicts resolves scheduling conflicts
+// resolveConflicts resolves scheduling conflicts.
 func (a *SchedulerAgent) resolveConflicts(input SchedulerInput, schedule OptimizedSchedule) []ConflictResolution {
 	conflicts := []ConflictResolution{}
 
@@ -1545,7 +1574,7 @@ func (a *SchedulerAgent) resolveConflicts(input SchedulerInput, schedule Optimiz
 			ConflictType: "resource",
 			JobIDs:       conflict.JobIDs,
 			Resolution:   "reschedule-lower-priority",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"delay":                 "30m",
 				"alternative_resources": true,
 			},
@@ -1561,7 +1590,7 @@ func (a *SchedulerAgent) resolveConflicts(input SchedulerInput, schedule Optimiz
 			ConflictType: "dependency",
 			JobIDs:       conflict.JobIDs,
 			Resolution:   "adjust-start-time",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"dependency_buffer":  "10m",
 				"parallel_execution": false,
 			},
@@ -1577,7 +1606,7 @@ func (a *SchedulerAgent) resolveConflicts(input SchedulerInput, schedule Optimiz
 			ConflictType: "sla",
 			JobIDs:       conflict.JobIDs,
 			Resolution:   "increase-priority",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"priority_boost":       2,
 				"resource_reservation": true,
 			},
@@ -1589,7 +1618,7 @@ func (a *SchedulerAgent) resolveConflicts(input SchedulerInput, schedule Optimiz
 	return conflicts
 }
 
-// checkResourceConflicts checks for resource conflicts
+// checkResourceConflicts checks for resource conflicts.
 func (a *SchedulerAgent) checkResourceConflicts(placements []JobPlacement) []ResourceConflict {
 	conflicts := []ResourceConflict{}
 
@@ -1628,14 +1657,14 @@ func (a *SchedulerAgent) checkResourceConflicts(placements []JobPlacement) []Res
 	return conflicts
 }
 
-// ResourceConflict represents a resource conflict
+// ResourceConflict represents a resource conflict.
 type ResourceConflict struct {
 	TimeKey string   `json:"time_key"`
 	JobIDs  []string `json:"job_ids"`
 	Type    string   `json:"type"`
 }
 
-// checkDependencyConflicts checks for dependency conflicts
+// checkDependencyConflicts checks for dependency conflicts.
 func (a *SchedulerAgent) checkDependencyConflicts(placements []JobPlacement) []DependencyConflict {
 	conflicts := []DependencyConflict{}
 
@@ -1664,7 +1693,7 @@ func (a *SchedulerAgent) checkDependencyConflicts(placements []JobPlacement) []D
 	return conflicts
 }
 
-// DependencyConflict represents a dependency conflict
+// DependencyConflict represents a dependency conflict.
 type DependencyConflict struct {
 	JobID        string   `json:"job_id"`
 	DependencyID string   `json:"dependency_id"`
@@ -1672,7 +1701,7 @@ type DependencyConflict struct {
 	JobIDs       []string `json:"job_ids"`
 }
 
-// checkSLAConflicts checks for SLA conflicts
+// checkSLAConflicts checks for SLA conflicts.
 func (a *SchedulerAgent) checkSLAConflicts(placements []JobPlacement, slaRequirements []SLARequirement) []SLAConflict {
 	conflicts := []SLAConflict{}
 
@@ -1696,7 +1725,7 @@ func (a *SchedulerAgent) checkSLAConflicts(placements []JobPlacement, slaRequire
 	return conflicts
 }
 
-// SLAConflict represents an SLA conflict
+// SLAConflict represents an SLA conflict.
 type SLAConflict struct {
 	JobID         string        `json:"job_id"`
 	Type          string        `json:"type"`
@@ -1705,7 +1734,7 @@ type SLAConflict struct {
 	JobIDs        []string      `json:"job_ids"`
 }
 
-// generateWarnings generates scheduling warnings
+// generateWarnings generates scheduling warnings.
 func (a *SchedulerAgent) generateWarnings(input SchedulerInput, schedule OptimizedSchedule, analysis SystemStateAnalysis) []string {
 	warnings := []string{}
 
@@ -1738,7 +1767,7 @@ func (a *SchedulerAgent) generateWarnings(input SchedulerInput, schedule Optimiz
 	return warnings
 }
 
-// calculateMaxDependencyDepth calculates maximum dependency depth
+// calculateMaxDependencyDepth calculates maximum dependency depth.
 func (a *SchedulerAgent) calculateMaxDependencyDepth(jobs []Job) int {
 	maxDepth := 0
 
@@ -1752,7 +1781,7 @@ func (a *SchedulerAgent) calculateMaxDependencyDepth(jobs []Job) int {
 	return maxDepth
 }
 
-// calculateJobDependencyDepth calculates dependency depth for a job
+// calculateJobDependencyDepth calculates dependency depth for a job.
 func (a *SchedulerAgent) calculateJobDependencyDepth(jobID string, jobs []Job, visited map[string]bool) int {
 	if visited[jobID] {
 		return 0 // Circular dependency protection
@@ -1762,9 +1791,11 @@ func (a *SchedulerAgent) calculateJobDependencyDepth(jobID string, jobs []Job, v
 
 	// Find job
 	var job *Job
+
 	for _, j := range jobs {
 		if j.ID == jobID {
 			job = &j
+
 			break
 		}
 	}
@@ -1774,6 +1805,7 @@ func (a *SchedulerAgent) calculateJobDependencyDepth(jobID string, jobs []Job, v
 	}
 
 	maxDepth := 0
+
 	for _, depID := range job.Dependencies {
 		depth := a.calculateJobDependencyDepth(depID, jobs, visited)
 		if depth > maxDepth {
@@ -1784,11 +1816,12 @@ func (a *SchedulerAgent) calculateJobDependencyDepth(jobID string, jobs []Job, v
 	return maxDepth + 1
 }
 
-// detectResourceFragmentation detects resource fragmentation
+// detectResourceFragmentation detects resource fragmentation.
 func (a *SchedulerAgent) detectResourceFragmentation(placements []JobPlacement) bool {
 	// Simple fragmentation detection - could be more sophisticated
 	// Check if there are many small allocations
 	smallAllocations := 0
+
 	for _, placement := range placements {
 		if placement.Resources.CPU < 0.5 && placement.Resources.Memory < 1024*1024*1024 {
 			smallAllocations++
@@ -1798,7 +1831,7 @@ func (a *SchedulerAgent) detectResourceFragmentation(placements []JobPlacement) 
 	return smallAllocations > len(placements)/2
 }
 
-// createActions creates scheduling actions
+// createActions creates scheduling actions.
 func (a *SchedulerAgent) createActions(recommendations []SchedulingRecommendation, schedule OptimizedSchedule, resourcePlan ResourcePlan) []SchedulingAction {
 	actions := []SchedulingAction{}
 
@@ -1809,7 +1842,7 @@ func (a *SchedulerAgent) createActions(recommendations []SchedulingRecommendatio
 			Target:     "scheduler",
 			Parameters: rec.Parameters,
 			Priority:   rec.Priority,
-			Condition:  fmt.Sprintf("confidence > 0.7"),
+			Condition:  "confidence > 0.7",
 			Timeout:    5 * time.Minute,
 			Rollback:   true,
 		}
@@ -1820,7 +1853,7 @@ func (a *SchedulerAgent) createActions(recommendations []SchedulingRecommendatio
 	actions = append(actions, SchedulingAction{
 		Type:   "apply-schedule",
 		Target: "cron-manager",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"schedule":   schedule,
 			"placements": schedule.JobPlacements,
 			"efficiency": schedule.Efficiency,
@@ -1836,7 +1869,7 @@ func (a *SchedulerAgent) createActions(recommendations []SchedulingRecommendatio
 		actions = append(actions, SchedulingAction{
 			Type:   "scale-up",
 			Target: "resource-manager",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"resource": scaleAction.Resource,
 				"amount":   scaleAction.Amount,
 				"reason":   scaleAction.Reason,
@@ -1852,7 +1885,7 @@ func (a *SchedulerAgent) createActions(recommendations []SchedulingRecommendatio
 		actions = append(actions, SchedulingAction{
 			Type:   "scale-down",
 			Target: "resource-manager",
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"resource": scaleAction.Resource,
 				"amount":   scaleAction.Amount,
 				"reason":   scaleAction.Reason,
@@ -1867,7 +1900,7 @@ func (a *SchedulerAgent) createActions(recommendations []SchedulingRecommendatio
 	return actions
 }
 
-// calculateConfidence calculates overall confidence in scheduling
+// calculateConfidence calculates overall confidence in scheduling.
 func (a *SchedulerAgent) calculateConfidence(input SchedulerInput, analysis SystemStateAnalysis) float64 {
 	confidence := 0.5 // Base confidence
 
@@ -1891,16 +1924,19 @@ func (a *SchedulerAgent) calculateConfidence(input SchedulerInput, analysis Syst
 
 	// Increase confidence based on trend predictability
 	predictableTrends := 0
+
 	for _, trend := range analysis.Trends {
 		if trend.Confidence > 0.8 {
 			predictableTrends++
 		}
 	}
+
 	confidence += float64(predictableTrends) * 0.02
 
 	if confidence > 1.0 {
 		confidence = 1.0
 	}
+
 	if confidence < 0.0 {
 		confidence = 0.0
 	}
@@ -1908,9 +1944,9 @@ func (a *SchedulerAgent) calculateConfidence(input SchedulerInput, analysis Syst
 	return confidence
 }
 
-// generateExplanation generates human-readable explanation
+// generateExplanation generates human-readable explanation.
 func (a *SchedulerAgent) generateExplanation(output SchedulerOutput) string {
-	explanation := fmt.Sprintf("Job scheduling optimization completed. ")
+	explanation := "Job scheduling optimization completed. "
 
 	if len(output.Schedule.JobPlacements) > 0 {
 		explanation += fmt.Sprintf("Successfully scheduled %d jobs with %.1f%% efficiency. ",
@@ -1939,7 +1975,7 @@ func (a *SchedulerAgent) generateExplanation(output SchedulerOutput) string {
 	return explanation
 }
 
-// convertToAgentActions converts scheduling actions to agent actions
+// convertToAgentActions converts scheduling actions to agent actions.
 func (a *SchedulerAgent) convertToAgentActions(schedulingActions []SchedulingAction) []ai.AgentAction {
 	actions := []ai.AgentAction{}
 
@@ -1958,7 +1994,7 @@ func (a *SchedulerAgent) convertToAgentActions(schedulingActions []SchedulingAct
 	return actions
 }
 
-// updateSchedulingStats updates scheduling statistics
+// updateSchedulingStats updates scheduling statistics.
 func (a *SchedulerAgent) updateSchedulingStats(output SchedulerOutput) {
 	a.schedulingStats.TotalOptimizations++
 	a.schedulingStats.LastOptimization = time.Now()
@@ -1978,7 +2014,7 @@ func (a *SchedulerAgent) updateSchedulingStats(output SchedulerOutput) {
 	}
 }
 
-// Learn learns from scheduling feedback
+// Learn learns from scheduling feedback.
 func (a *SchedulerAgent) Learn(ctx context.Context, feedback ai.AgentFeedback) error {
 	if err := a.BaseAgent.Learn(ctx, feedback); err != nil {
 		return err
@@ -1993,7 +2029,9 @@ func (a *SchedulerAgent) Learn(ctx context.Context, feedback ai.AgentFeedback) e
 				} else {
 					a.optimizationPolicies[i].SuccessRate = a.optimizationPolicies[i].SuccessRate * 0.9
 				}
+
 				a.optimizationPolicies[i].LastUsed = time.Now()
+
 				break
 			}
 		}
@@ -2021,7 +2059,7 @@ func (a *SchedulerAgent) Learn(ctx context.Context, feedback ai.AgentFeedback) e
 	}
 
 	if a.BaseAgent.GetConfiguration().Logger != nil {
-		a.BaseAgent.GetConfiguration().Logger.Debug("scheduler agent learned from feedback",
+		a.GetConfiguration().Logger.Debug("scheduler agent learned from feedback",
 			logger.String("agent_id", a.ID()),
 			logger.String("action_id", feedback.ActionID),
 			logger.Bool("success", feedback.Success),
@@ -2033,38 +2071,40 @@ func (a *SchedulerAgent) Learn(ctx context.Context, feedback ai.AgentFeedback) e
 	return nil
 }
 
-// GetSchedulingStats returns scheduling statistics
+// GetSchedulingStats returns scheduling statistics.
 func (a *SchedulerAgent) GetSchedulingStats() SchedulingStats {
 	return a.schedulingStats
 }
 
-// GetOptimizationPolicies returns optimization policies
+// GetOptimizationPolicies returns optimization policies.
 func (a *SchedulerAgent) GetOptimizationPolicies() []OptimizationPolicy {
 	return a.optimizationPolicies
 }
 
-// GetJobPredictions returns job predictions
+// GetJobPredictions returns job predictions.
 func (a *SchedulerAgent) GetJobPredictions() map[string]JobPrediction {
 	return a.jobPredictions
 }
 
-// UpdateOptimizationPolicy updates an optimization policy
+// UpdateOptimizationPolicy updates an optimization policy.
 func (a *SchedulerAgent) UpdateOptimizationPolicy(name string, policy OptimizationPolicy) error {
 	for i, p := range a.optimizationPolicies {
 		if p.Name == name {
 			a.optimizationPolicies[i] = policy
+
 			return nil
 		}
 	}
+
 	return fmt.Errorf("optimization policy %s not found", name)
 }
 
-// GetSchedulerResourceThresholds returns resource thresholds
+// GetSchedulerResourceThresholds returns resource thresholds.
 func (a *SchedulerAgent) GetSchedulerResourceThresholds() SchedulerResourceThresholds {
 	return a.resourceThresholds
 }
 
-// SetSchedulerResourceThresholds sets resource thresholds
+// SetSchedulerResourceThresholds sets resource thresholds.
 func (a *SchedulerAgent) SetSchedulerResourceThresholds(thresholds SchedulerResourceThresholds) {
 	a.resourceThresholds = thresholds
 }

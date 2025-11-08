@@ -3,12 +3,13 @@ package thrift
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge/farp"
 )
 
-// Provider generates Apache Thrift IDL schemas from applications
+// Provider generates Apache Thrift IDL schemas from applications.
 type Provider struct {
 	specVersion string
 	endpoint    string
@@ -16,7 +17,7 @@ type Provider struct {
 }
 
 // NewProvider creates a new Thrift schema provider
-// specVersion should be the Thrift version (e.g., "0.19.0")
+// specVersion should be the Thrift version (e.g., "0.19.0").
 func NewProvider(specVersion string, idlFiles []string) *Provider {
 	if specVersion == "" {
 		specVersion = "0.19.0"
@@ -29,28 +30,28 @@ func NewProvider(specVersion string, idlFiles []string) *Provider {
 	}
 }
 
-// Type returns the schema type
+// Type returns the schema type.
 func (p *Provider) Type() farp.SchemaType {
 	return farp.SchemaTypeThrift
 }
 
-// SpecVersion returns the Thrift specification version
+// SpecVersion returns the Thrift specification version.
 func (p *Provider) SpecVersion() string {
 	return p.specVersion
 }
 
-// ContentType returns the content type
+// ContentType returns the content type.
 func (p *Provider) ContentType() string {
 	return "application/json" // JSON representation of Thrift IDL
 }
 
-// Endpoint returns the HTTP endpoint (empty for Thrift - uses IDL files)
+// Endpoint returns the HTTP endpoint (empty for Thrift - uses IDL files).
 func (p *Provider) Endpoint() string {
 	return p.endpoint
 }
 
-// Generate generates a Thrift schema from the application
-func (p *Provider) Generate(ctx context.Context, app farp.Application) (interface{}, error) {
+// Generate generates a Thrift schema from the application.
+func (p *Provider) Generate(ctx context.Context, app farp.Application) (any, error) {
 	// For Thrift, we have several options:
 	// 1. Parse .thrift IDL files
 	// 2. Generate IDL from application structure
@@ -61,7 +62,6 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	// - Parse .thrift files using a Thrift parser
 	// - Generate IDL from application routes/handlers
 	// - Support Thrift namespaces, services, and types
-
 	if len(p.idlFiles) > 0 {
 		return p.generateFromIDLFiles(ctx, app)
 	}
@@ -69,83 +69,83 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	return p.generateFromApplication(ctx, app)
 }
 
-// generateFromIDLFiles generates schema by parsing .thrift files
-func (p *Provider) generateFromIDLFiles(ctx context.Context, app farp.Application) (interface{}, error) {
+// generateFromIDLFiles generates schema by parsing .thrift files.
+func (p *Provider) generateFromIDLFiles(ctx context.Context, app farp.Application) (any, error) {
 	// This would use a Thrift IDL parser to read .thrift files
 	// and convert them to a JSON representation
 	//
 	// For now, return a minimal structure
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"thrift_version": p.specVersion,
 		"format":         "idl",
 		"namespaces": map[string]string{
 			"go":   app.Name(),
 			"java": "com." + app.Name(),
 		},
-		"services": []interface{}{
-			map[string]interface{}{
+		"services": []any{
+			map[string]any{
 				"name": app.Name() + "Service",
-				"functions": []interface{}{
-					map[string]interface{}{
+				"functions": []any{
+					map[string]any{
 						"name":        "ping",
 						"return_type": "void",
-						"arguments":   []interface{}{},
+						"arguments":   []any{},
 					},
 				},
 			},
 		},
-		"structs":   []interface{}{},
-		"enums":     []interface{}{},
+		"structs":   []any{},
+		"enums":     []any{},
 		"idl_files": p.idlFiles,
 	}
 
 	return schema, nil
 }
 
-// generateFromApplication generates schema from application structure
-func (p *Provider) generateFromApplication(ctx context.Context, app farp.Application) (interface{}, error) {
+// generateFromApplication generates schema from application structure.
+func (p *Provider) generateFromApplication(ctx context.Context, app farp.Application) (any, error) {
 	// This would analyze the application's Thrift service implementations
 	// and generate an IDL representation
 	//
 	// For now, return a minimal structure
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"thrift_version": p.specVersion,
 		"format":         "generated",
 		"namespaces": map[string]string{
 			"go":   app.Name(),
 			"java": "com." + app.Name(),
 		},
-		"services": []interface{}{
-			map[string]interface{}{
+		"services": []any{
+			map[string]any{
 				"name": app.Name() + "Service",
-				"functions": []interface{}{
-					map[string]interface{}{
+				"functions": []any{
+					map[string]any{
 						"name":        "getVersion",
 						"return_type": "string",
-						"arguments":   []interface{}{},
+						"arguments":   []any{},
 					},
 				},
 			},
 		},
-		"structs": []interface{}{
-			map[string]interface{}{
+		"structs": []any{
+			map[string]any{
 				"name": "HealthStatus",
-				"fields": []interface{}{
-					map[string]interface{}{"id": 1, "name": "status", "type": "string", "required": true},
-					map[string]interface{}{"id": 2, "name": "timestamp", "type": "i64", "required": true},
+				"fields": []any{
+					map[string]any{"id": 1, "name": "status", "type": "string", "required": true},
+					map[string]any{"id": 2, "name": "timestamp", "type": "i64", "required": true},
 				},
 			},
 		},
-		"enums": []interface{}{},
+		"enums": []any{},
 	}
 
 	return schema, nil
 }
 
-// Validate validates a Thrift schema
-func (p *Provider) Validate(schema interface{}) error {
+// Validate validates a Thrift schema.
+func (p *Provider) Validate(schema any) error {
 	// Basic validation - check for required fields
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: schema must be a map", farp.ErrInvalidSchema)
 	}
@@ -162,24 +162,24 @@ func (p *Provider) Validate(schema interface{}) error {
 	}
 
 	// Ensure services is an array
-	if _, ok := services.([]interface{}); !ok {
+	if _, ok := services.([]any); !ok {
 		return fmt.Errorf("%w: 'services' must be an array", farp.ErrInvalidSchema)
 	}
 
 	return nil
 }
 
-// Hash calculates SHA256 hash of the schema
-func (p *Provider) Hash(schema interface{}) (string, error) {
+// Hash calculates SHA256 hash of the schema.
+func (p *Provider) Hash(schema any) (string, error) {
 	return farp.CalculateSchemaChecksum(schema)
 }
 
-// Serialize converts schema to JSON bytes
-func (p *Provider) Serialize(schema interface{}) ([]byte, error) {
+// Serialize converts schema to JSON bytes.
+func (p *Provider) Serialize(schema any) ([]byte, error) {
 	return json.Marshal(schema)
 }
 
-// GenerateDescriptor generates a complete SchemaDescriptor for this schema
+// GenerateDescriptor generates a complete SchemaDescriptor for this schema.
 func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
 	// Generate schema
 	schema, err := p.Generate(ctx, app)
@@ -208,9 +208,11 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeHTTP:
 		url := locationConfig["url"]
 		if url == "" {
-			return nil, fmt.Errorf("url required for HTTP location")
+			return nil, errors.New("url required for HTTP location")
 		}
+
 		location.URL = url
+
 		if headers := locationConfig["headers"]; headers != "" {
 			var headersMap map[string]string
 			if err := json.Unmarshal([]byte(headers), &headersMap); err == nil {
@@ -221,8 +223,9 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeRegistry:
 		registryPath := locationConfig["registry_path"]
 		if registryPath == "" {
-			return nil, fmt.Errorf("registry_path required for registry location")
+			return nil, errors.New("registry_path required for registry location")
 		}
+
 		location.RegistryPath = registryPath
 
 	case farp.LocationTypeInline:
@@ -246,12 +249,12 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	return descriptor, nil
 }
 
-// SetIDLFiles sets the .thrift IDL files to parse
+// SetIDLFiles sets the .thrift IDL files to parse.
 func (p *Provider) SetIDLFiles(files []string) {
 	p.idlFiles = files
 }
 
-// GetIDLFiles returns the configured IDL files
+// GetIDLFiles returns the configured IDL files.
 func (p *Provider) GetIDLFiles() []string {
 	return p.idlFiles
 }

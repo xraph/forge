@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// ClusterAPI provides cluster management endpoints
+// ClusterAPI provides cluster management endpoints.
 type ClusterAPI struct {
 	manager    *cluster.Manager
 	membership *cluster.MembershipManager
@@ -18,7 +18,7 @@ type ClusterAPI struct {
 	logger     forge.Logger
 }
 
-// NewClusterAPI creates a new cluster API
+// NewClusterAPI creates a new cluster API.
 func NewClusterAPI(
 	manager *cluster.Manager,
 	membership *cluster.MembershipManager,
@@ -37,12 +37,13 @@ func NewClusterAPI(
 	}
 }
 
-// GetClusterStatus returns cluster status
+// GetClusterStatus returns cluster status.
 func (ca *ClusterAPI) GetClusterStatus(ctx forge.Context) error {
 	nodes := ca.manager.GetNodes()
 
 	healthyCount := 0
 	unhealthyCount := 0
+
 	for _, node := range nodes {
 		if node.Status == internal.StatusActive {
 			healthyCount++
@@ -53,7 +54,7 @@ func (ca *ClusterAPI) GetClusterStatus(ctx forge.Context) error {
 
 	quorumInfo := ca.quorum.GetQuorumInfo()
 
-	status := map[string]interface{}{
+	status := map[string]any{
 		"total_nodes":     len(nodes),
 		"healthy_nodes":   healthyCount,
 		"unhealthy_nodes": unhealthyCount,
@@ -65,17 +66,17 @@ func (ca *ClusterAPI) GetClusterStatus(ctx forge.Context) error {
 	return ctx.JSON(200, status)
 }
 
-// ListNodes returns all cluster nodes
+// ListNodes returns all cluster nodes.
 func (ca *ClusterAPI) ListNodes(ctx forge.Context) error {
 	nodes := ca.manager.GetNodes()
 
-	return ctx.JSON(200, map[string]interface{}{
+	return ctx.JSON(200, map[string]any{
 		"nodes": nodes,
 		"count": len(nodes),
 	})
 }
 
-// GetNode returns information about a specific node
+// GetNode returns information about a specific node.
 func (ca *ClusterAPI) GetNode(ctx forge.Context) error {
 	nodeID := ctx.Param("node_id")
 	if nodeID == "" {
@@ -90,7 +91,7 @@ func (ca *ClusterAPI) GetNode(ctx forge.Context) error {
 	return ctx.JSON(200, node)
 }
 
-// AddNode adds a node to the cluster
+// AddNode adds a node to the cluster.
 func (ca *ClusterAPI) AddNode(ctx forge.Context) error {
 	var req struct {
 		NodeID  string `json:"node_id"`
@@ -118,13 +119,13 @@ func (ca *ClusterAPI) AddNode(ctx forge.Context) error {
 		return ctx.JSON(500, map[string]string{"error": err.Error()})
 	}
 
-	return ctx.JSON(201, map[string]interface{}{
+	return ctx.JSON(201, map[string]any{
 		"message": "node added successfully",
 		"node":    nodeInfo,
 	})
 }
 
-// RemoveNode removes a node from the cluster
+// RemoveNode removes a node from the cluster.
 func (ca *ClusterAPI) RemoveNode(ctx forge.Context) error {
 	nodeID := ctx.Param("node_id")
 	if nodeID == "" {
@@ -144,25 +145,28 @@ func (ca *ClusterAPI) RemoveNode(ctx forge.Context) error {
 	return ctx.JSON(200, map[string]string{"message": "node removed successfully"})
 }
 
-// GetQuorumStatus returns quorum information
+// GetQuorumStatus returns quorum information.
 func (ca *ClusterAPI) GetQuorumStatus(ctx forge.Context) error {
 	status := ca.quorum.GetQuorumStatus()
+
 	return ctx.JSON(200, status)
 }
 
-// GetTopology returns cluster topology
+// GetTopology returns cluster topology.
 func (ca *ClusterAPI) GetTopology(ctx forge.Context) error {
 	view := ca.topology.GetTopologyView()
+
 	return ctx.JSON(200, view)
 }
 
-// AnalyzeBalance analyzes cluster balance
+// AnalyzeBalance analyzes cluster balance.
 func (ca *ClusterAPI) AnalyzeBalance(ctx forge.Context) error {
 	analysis := ca.rebalance.AnalyzeBalance()
+
 	return ctx.JSON(200, analysis)
 }
 
-// Rebalance triggers cluster rebalancing
+// Rebalance triggers cluster rebalancing.
 func (ca *ClusterAPI) Rebalance(ctx forge.Context) error {
 	result, err := ca.rebalance.Rebalance(ctx.Context())
 	if err != nil {
@@ -172,40 +176,44 @@ func (ca *ClusterAPI) Rebalance(ctx forge.Context) error {
 	return ctx.JSON(200, result)
 }
 
-// GetMembershipChanges returns pending membership changes
+// GetMembershipChanges returns pending membership changes.
 func (ca *ClusterAPI) GetMembershipChanges(ctx forge.Context) error {
 	changes := ca.membership.GetPendingChanges()
-	return ctx.JSON(200, map[string]interface{}{
+
+	return ctx.JSON(200, map[string]any{
 		"changes": changes,
 		"count":   len(changes),
 	})
 }
 
-// ValidateTopology validates cluster topology
+// ValidateTopology validates cluster topology.
 func (ca *ClusterAPI) ValidateTopology(ctx forge.Context) error {
 	warnings := ca.topology.ValidateTopology()
-	return ctx.JSON(200, map[string]interface{}{
+
+	return ctx.JSON(200, map[string]any{
 		"valid":    len(warnings) == 0,
 		"warnings": warnings,
 	})
 }
 
-// ValidateResilience validates cluster resilience
+// ValidateResilience validates cluster resilience.
 func (ca *ClusterAPI) ValidateResilience(ctx forge.Context) error {
 	warnings := ca.quorum.ValidateClusterResilience()
-	return ctx.JSON(200, map[string]interface{}{
+
+	return ctx.JSON(200, map[string]any{
 		"valid":    len(warnings) == 0,
 		"warnings": warnings,
 	})
 }
 
-// GetClusterSize recommendations
+// GetClusterSize recommendations.
 func (ca *ClusterAPI) GetClusterSizeRecommendations(ctx forge.Context) error {
 	recommendations := ca.quorum.RecommendClusterSize()
+
 	return ctx.JSON(200, recommendations)
 }
 
-// TransferLeadership initiates leadership transfer
+// TransferLeadership initiates leadership transfer.
 func (ca *ClusterAPI) TransferLeadership(ctx forge.Context) error {
 	var req struct {
 		TargetNode string `json:"target_node"`
@@ -235,7 +243,7 @@ func (ca *ClusterAPI) TransferLeadership(ctx forge.Context) error {
 	})
 }
 
-// GetClusterHealth returns overall cluster health
+// GetClusterHealth returns overall cluster health.
 func (ca *ClusterAPI) GetClusterHealth(ctx forge.Context) error {
 	nodes := ca.manager.GetNodes()
 	quorumInfo := ca.quorum.GetQuorumInfo()
@@ -247,7 +255,7 @@ func (ca *ClusterAPI) GetClusterHealth(ctx forge.Context) error {
 		healthStatus = "degraded"
 	}
 
-	health := map[string]interface{}{
+	health := map[string]any{
 		"status":          healthStatus,
 		"total_nodes":     len(nodes),
 		"healthy_nodes":   quorumInfo.HealthyNodes,
@@ -258,9 +266,10 @@ func (ca *ClusterAPI) GetClusterHealth(ctx forge.Context) error {
 	}
 
 	statusCode := 200
-	if healthStatus == "critical" {
+	switch healthStatus {
+	case "critical":
 		statusCode = 503
-	} else if healthStatus == "degraded" {
+	case "degraded":
 		statusCode = 200 // Still operational
 	}
 

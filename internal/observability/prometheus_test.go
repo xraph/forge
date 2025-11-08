@@ -22,6 +22,7 @@ func TestNewPrometheusExporter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPrometheusExporter() error = %v", err)
 	}
+
 	if exporter == nil {
 		t.Fatal("NewPrometheusExporter() returned nil")
 	}
@@ -256,7 +257,8 @@ func TestPrometheusExporter_ConcurrentAccess(t *testing.T) {
 
 	// Test concurrent metric export
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+
+	for i := range 10 {
 		go func(i int) {
 			metric := &Metric{
 				Name:        "concurrent_metric",
@@ -267,12 +269,13 @@ func TestPrometheusExporter_ConcurrentAccess(t *testing.T) {
 				Description: "Concurrent test metric",
 			}
 			exporter.ExportMetric(context.Background(), metric)
+
 			done <- true
 		}(i)
 	}
 
 	// Wait for all goroutines to complete
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }

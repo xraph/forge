@@ -18,13 +18,13 @@ type RAG struct {
 	metrics     forge.Metrics
 
 	// Configuration
-	topK              int
-	similarityThresh  float64
-	rerank            bool
-	includeMetadata   bool
-	chunkSize         int
-	chunkOverlap      int
-	maxContextTokens  int
+	topK             int
+	similarityThresh float64
+	rerank           bool
+	includeMetadata  bool
+	chunkSize        int
+	chunkOverlap     int
+	maxContextTokens int
 }
 
 // EmbeddingModel generates embeddings for text
@@ -72,9 +72,9 @@ type RetrievalResult struct {
 
 // RetrievedDocument is a document with similarity score
 type RetrievedDocument struct {
-	Document   DocumentChunk
-	Score      float64
-	Rank       int
+	Document DocumentChunk
+	Score    float64
+	Rank     int
 }
 
 // NewRAG creates a new RAG instance
@@ -86,34 +86,39 @@ func NewRAG(
 	opts *RAGOptions,
 ) *RAG {
 	rag := &RAG{
-		vectorStore:       vectorStore,
-		embedder:          embedder,
-		logger:            logger,
-		metrics:           metrics,
-		topK:              10,
-		similarityThresh:  0.7,
-		rerank:            false,
-		includeMetadata:   true,
-		chunkSize:         512,
-		chunkOverlap:      50,
-		maxContextTokens:  2000,
+		vectorStore:      vectorStore,
+		embedder:         embedder,
+		logger:           logger,
+		metrics:          metrics,
+		topK:             10,
+		similarityThresh: 0.7,
+		rerank:           false,
+		includeMetadata:  true,
+		chunkSize:        512,
+		chunkOverlap:     50,
+		maxContextTokens: 2000,
 	}
 
 	if opts != nil {
 		if opts.TopK > 0 {
 			rag.topK = opts.TopK
 		}
+
 		if opts.SimilarityThresh > 0 {
 			rag.similarityThresh = opts.SimilarityThresh
 		}
+
 		rag.rerank = opts.Rerank
+
 		rag.includeMetadata = opts.IncludeMetadata
 		if opts.ChunkSize > 0 {
 			rag.chunkSize = opts.ChunkSize
 		}
+
 		if opts.ChunkOverlap > 0 {
 			rag.chunkOverlap = opts.ChunkOverlap
 		}
+
 		if opts.MaxContextTokens > 0 {
 			rag.maxContextTokens = opts.MaxContextTokens
 		}
@@ -150,6 +155,7 @@ func (r *RAG) IndexDocument(ctx context.Context, doc Document) error {
 		if r.metrics != nil {
 			r.metrics.Counter("forge.ai.sdk.rag.index.errors").Inc()
 		}
+
 		return fmt.Errorf("failed to generate embeddings: %w", err)
 	}
 
@@ -182,6 +188,7 @@ func (r *RAG) IndexDocument(ctx context.Context, doc Document) error {
 		if r.metrics != nil {
 			r.metrics.Counter("forge.ai.sdk.rag.index.errors").Inc()
 		}
+
 		return fmt.Errorf("failed to store embeddings: %w", err)
 	}
 
@@ -219,6 +226,7 @@ func (r *RAG) Retrieve(ctx context.Context, query string) (*RetrievalResult, err
 		if r.metrics != nil {
 			r.metrics.Counter("forge.ai.sdk.rag.retrieve.errors").Inc()
 		}
+
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
 
@@ -234,6 +242,7 @@ func (r *RAG) Retrieve(ctx context.Context, query string) (*RetrievalResult, err
 		if r.metrics != nil {
 			r.metrics.Counter("forge.ai.sdk.rag.retrieve.errors").Inc()
 		}
+
 		return nil, fmt.Errorf("vector search failed: %w", err)
 	}
 
@@ -324,6 +333,7 @@ func max(a, b int) int {
 	if a > b {
 		return a
 	}
+
 	return b
 }
 
@@ -349,6 +359,7 @@ func (r *RAG) chunkDocument(doc Document) []DocumentChunk {
 			for i := end; i > start+r.chunkSize/2 && i < len(content); i-- {
 				if content[i] == ' ' || content[i] == '\n' {
 					end = i
+
 					break
 				}
 			}
@@ -381,6 +392,7 @@ func (r *RAG) chunkDocument(doc Document) []DocumentChunk {
 		if nextStart <= start {
 			nextStart = start + max(1, r.chunkSize/2)
 		}
+
 		start = nextStart
 	}
 
@@ -390,6 +402,7 @@ func (r *RAG) chunkDocument(doc Document) []DocumentChunk {
 // buildContext builds a context string from retrieved documents
 func (r *RAG) buildContext(documents []RetrievedDocument) string {
 	var builder strings.Builder
+
 	tokenCount := 0
 
 	for i, doc := range documents {
@@ -456,7 +469,7 @@ func (r *RAG) DeleteDocument(ctx context.Context, docID string) error {
 
 	// In a real implementation, you'd query for all chunks of this document
 	// and delete them. For now, we'll assume a single delete operation.
-	
+
 	if r.metrics != nil {
 		r.metrics.Counter("forge.ai.sdk.rag.delete").Inc()
 	}
@@ -488,4 +501,3 @@ func (r *RAG) GetStats(ctx context.Context) (*RAGStats, error) {
 	// For now, return empty stats
 	return &RAGStats{}, nil
 }
-

@@ -3,6 +3,7 @@ package router
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -10,7 +11,7 @@ import (
 	"github.com/quic-go/webtransport-go"
 )
 
-// WebTransportSession represents a WebTransport session
+// WebTransportSession represents a WebTransport session.
 type WebTransportSession interface {
 	// ID returns unique session ID
 	ID() string
@@ -46,7 +47,7 @@ type WebTransportSession interface {
 	LocalAddr() string
 }
 
-// WebTransportStream represents a WebTransport stream
+// WebTransportStream represents a WebTransport stream.
 type WebTransportStream interface {
 	io.ReadWriteCloser
 
@@ -69,10 +70,10 @@ type WebTransportStream interface {
 	Close() error
 }
 
-// WebTransportHandler handles WebTransport sessions
+// WebTransportHandler handles WebTransport sessions.
 type WebTransportHandler func(ctx Context, session WebTransportSession) error
 
-// webTransportSession implements WebTransportSession
+// webTransportSession implements WebTransportSession.
 type webTransportSession struct {
 	id      string
 	session *webtransport.Session
@@ -81,9 +82,10 @@ type webTransportSession struct {
 	mu      sync.RWMutex
 }
 
-// newWebTransportSession creates a new WebTransport session wrapper
+// newWebTransportSession creates a new WebTransport session wrapper.
 func newWebTransportSession(id string, session *webtransport.Session, ctx context.Context) *webTransportSession {
 	sessionCtx, cancel := context.WithCancel(ctx)
+
 	return &webTransportSession{
 		id:      id,
 		session: session,
@@ -172,6 +174,7 @@ func (s *webTransportSession) Close() error {
 	defer s.mu.Unlock()
 
 	s.cancel()
+
 	return s.session.CloseWithError(0, "session closed")
 }
 
@@ -187,13 +190,13 @@ func (s *webTransportSession) LocalAddr() string {
 	return s.session.LocalAddr().String()
 }
 
-// webTransportStream implements WebTransportStream
+// webTransportStream implements WebTransportStream.
 type webTransportStream struct {
 	stream *webtransport.Stream
 	mu     sync.RWMutex
 }
 
-// newWebTransportStream creates a new WebTransport stream wrapper
+// newWebTransportStream creates a new WebTransport stream wrapper.
 func newWebTransportStream(stream *webtransport.Stream) *webTransportStream {
 	return &webTransportStream{
 		stream: stream,
@@ -223,6 +226,7 @@ func (s *webTransportStream) ReadJSON(v any) error {
 	defer s.mu.RUnlock()
 
 	decoder := json.NewDecoder(s.stream)
+
 	return decoder.Decode(v)
 }
 
@@ -236,6 +240,7 @@ func (s *webTransportStream) WriteJSON(v any) error {
 	}
 
 	_, err = s.stream.Write(data)
+
 	return err
 }
 
@@ -246,7 +251,7 @@ func (s *webTransportStream) Close() error {
 	return s.stream.Close()
 }
 
-// webTransportSendStream wraps a send-only stream
+// webTransportSendStream wraps a send-only stream.
 type webTransportSendStream struct {
 	stream *webtransport.SendStream
 	mu     sync.RWMutex
@@ -261,17 +266,18 @@ func (s *webTransportSendStream) StreamID() uint64 {
 }
 
 func (s *webTransportSendStream) Read(p []byte) (n int, err error) {
-	return 0, fmt.Errorf("cannot read from send-only stream")
+	return 0, errors.New("cannot read from send-only stream")
 }
 
 func (s *webTransportSendStream) Write(p []byte) (n int, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.stream.Write(p)
 }
 
 func (s *webTransportSendStream) ReadJSON(v any) error {
-	return fmt.Errorf("cannot read from send-only stream")
+	return errors.New("cannot read from send-only stream")
 }
 
 func (s *webTransportSendStream) WriteJSON(v any) error {
@@ -284,16 +290,18 @@ func (s *webTransportSendStream) WriteJSON(v any) error {
 	}
 
 	_, err = s.stream.Write(data)
+
 	return err
 }
 
 func (s *webTransportSendStream) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	return s.stream.Close()
 }
 
-// webTransportReceiveStream wraps a receive-only stream
+// webTransportReceiveStream wraps a receive-only stream.
 type webTransportReceiveStream struct {
 	stream *webtransport.ReceiveStream
 	mu     sync.RWMutex
@@ -310,11 +318,12 @@ func (s *webTransportReceiveStream) StreamID() uint64 {
 func (s *webTransportReceiveStream) Read(p []byte) (n int, err error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.stream.Read(p)
 }
 
 func (s *webTransportReceiveStream) Write(p []byte) (n int, err error) {
-	return 0, fmt.Errorf("cannot write to receive-only stream")
+	return 0, errors.New("cannot write to receive-only stream")
 }
 
 func (s *webTransportReceiveStream) ReadJSON(v any) error {
@@ -322,21 +331,24 @@ func (s *webTransportReceiveStream) ReadJSON(v any) error {
 	defer s.mu.RUnlock()
 
 	decoder := json.NewDecoder(s.stream)
+
 	return decoder.Decode(v)
 }
 
 func (s *webTransportReceiveStream) WriteJSON(v any) error {
-	return fmt.Errorf("cannot write to receive-only stream")
+	return errors.New("cannot write to receive-only stream")
 }
 
 func (s *webTransportReceiveStream) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.stream.CancelRead(0)
+
 	return nil
 }
 
-// WebTransportConfig configures WebTransport behavior
+// WebTransportConfig configures WebTransport behavior.
 type WebTransportConfig struct {
 	// Maximum bidirectional streams
 	MaxBidiStreams int64
@@ -363,7 +375,7 @@ type WebTransportConfig struct {
 	MaxIdleTimeout int // milliseconds
 }
 
-// DefaultWebTransportConfig returns default WebTransport configuration
+// DefaultWebTransportConfig returns default WebTransport configuration.
 func DefaultWebTransportConfig() WebTransportConfig {
 	return WebTransportConfig{
 		MaxBidiStreams:          100,

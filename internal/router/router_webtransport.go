@@ -2,6 +2,7 @@ package router
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// WebTransport registers a WebTransport handler
+// WebTransport registers a WebTransport handler.
 func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...RouteOption) error {
 	// WebTransport requires HTTP/3, which needs to be configured separately
 	// Store the handler for later use when HTTP/3 server is started
@@ -23,11 +24,13 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 		// Check if this is a WebTransport request
 		if req.Method != http.MethodConnect {
 			http.Error(w, "WebTransport requires CONNECT method", http.StatusMethodNotAllowed)
+
 			return
 		}
 
 		if req.Proto != "webtransport" {
 			http.Error(w, "WebTransport protocol required", http.StatusBadRequest)
+
 			return
 		}
 
@@ -39,12 +42,15 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 					logger.String("error", err.Error()),
 				)
 			}
+
 			http.Error(w, "Failed to upgrade connection", http.StatusInternalServerError)
+
 			return
 		}
 
 		// Create WebTransport session wrapper
 		sessionID := generateConnectionID()
+
 		wtSession := newWebTransportSession(sessionID, session, req.Context())
 		defer wtSession.Close()
 
@@ -68,7 +74,7 @@ func (r *router) WebTransport(path string, handler WebTransportHandler, opts ...
 	return r.register(http.MethodConnect, path, httpHandler, optsWithType...)
 }
 
-// upgradeToWebTransport upgrades an HTTP request to WebTransport
+// upgradeToWebTransport upgrades an HTTP request to WebTransport.
 func upgradeToWebTransport(w http.ResponseWriter, r *http.Request, config WebTransportConfig) (*webtransport.Session, error) {
 	// Create a WebTransport server
 	server := &webtransport.Server{
@@ -87,7 +93,7 @@ func upgradeToWebTransport(w http.ResponseWriter, r *http.Request, config WebTra
 	return session, nil
 }
 
-// EnableWebTransport configures the router to support WebTransport
+// EnableWebTransport configures the router to support WebTransport.
 func (r *router) EnableWebTransport(config WebTransportConfig) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -106,14 +112,14 @@ func (r *router) EnableWebTransport(config WebTransportConfig) error {
 	return nil
 }
 
-// StartHTTP3 starts an HTTP/3 server for WebTransport support
+// StartHTTP3 starts an HTTP/3 server for WebTransport support.
 func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
 	if !r.webTransportEnabled {
-		return fmt.Errorf("webtransport not enabled")
+		return errors.New("webtransport not enabled")
 	}
 
 	if tlsConfig == nil {
-		return fmt.Errorf("TLS config required for HTTP/3")
+		return errors.New("TLS config required for HTTP/3")
 	}
 
 	// Configure QUIC
@@ -147,7 +153,7 @@ func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
 
 	// Start server in background
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			if r.logger != nil {
 				r.logger.Error("HTTP/3 server error",
 					logger.String("error", err.Error()),
@@ -159,7 +165,7 @@ func (r *router) StartHTTP3(addr string, tlsConfig *tls.Config) error {
 	return nil
 }
 
-// StopHTTP3 stops the HTTP/3 server
+// StopHTTP3 stops the HTTP/3 server.
 func (r *router) StopHTTP3() error {
 	r.mu.Lock()
 	serverInterface := r.http3Server

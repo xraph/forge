@@ -10,9 +10,10 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension for oRPC (JSON-RPC 2.0 / OpenRPC) functionality
+// Extension implements forge.Extension for oRPC (JSON-RPC 2.0 / OpenRPC) functionality.
 type Extension struct {
 	*forge.BaseExtension
+
 	config Config
 	server ORPC
 	app    forge.App
@@ -42,6 +43,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("orpc", "2.0.0", "JSON-RPC 2.0 / OpenRPC Server")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -54,7 +56,7 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the oRPC extension with the app
+// Register registers the oRPC extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
@@ -66,15 +68,18 @@ func (e *Extension) Register(app forge.App) error {
 	// Load config from ConfigManager with dual-key support
 	// Tries "extensions.orpc", then "orpc", with programmatic config overrides
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("orpc", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("orpc: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("orpc: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate config
@@ -84,6 +89,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("orpc extension disabled")
+
 		return nil
 	}
 
@@ -91,6 +97,7 @@ func (e *Extension) Register(app forge.App) error {
 	if e.config.ServerName == "" {
 		e.config.ServerName = app.Name()
 	}
+
 	if e.config.ServerVersion == "" {
 		e.config.ServerVersion = app.Version()
 	}
@@ -113,7 +120,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the oRPC extension
+// Start starts the oRPC extension.
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -140,7 +147,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the oRPC extension
+// Stop stops the oRPC extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -154,20 +161,20 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks if the oRPC extension is healthy
+// Health checks if the oRPC extension is healthy.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
 	}
 
 	if e.server == nil {
-		return fmt.Errorf("orpc server not initialized")
+		return errors.New("orpc server not initialized")
 	}
 
 	return nil
 }
 
-// registerEndpoints registers oRPC HTTP endpoints
+// registerEndpoints registers oRPC HTTP endpoints.
 func (e *Extension) registerEndpoints() {
 	router := e.app.Router()
 
@@ -205,7 +212,7 @@ func (e *Extension) registerEndpoints() {
 	)
 }
 
-// exposeRoutesAsMethods automatically exposes Forge routes as JSON-RPC methods
+// exposeRoutesAsMethods automatically exposes Forge routes as JSON-RPC methods.
 func (e *Extension) exposeRoutesAsMethods() {
 	routes := e.app.Router().Routes()
 
@@ -229,7 +236,9 @@ func (e *Extension) exposeRoutesAsMethods() {
 			e.Logger().Debug("orpc: skipping oRPC endpoint",
 				forge.F("path", route.Path),
 			)
+
 			skipped++
+
 			continue
 		}
 
@@ -238,7 +247,9 @@ func (e *Extension) exposeRoutesAsMethods() {
 			e.Logger().Debug("orpc: route excluded by config",
 				forge.F("path", route.Path),
 			)
+
 			excluded++
+
 			continue
 		}
 
@@ -249,6 +260,7 @@ func (e *Extension) exposeRoutesAsMethods() {
 				forge.F("path", route.Path),
 				forge.F("error", err),
 			)
+
 			continue
 		}
 
@@ -258,6 +270,7 @@ func (e *Extension) exposeRoutesAsMethods() {
 				forge.F("method", method.Name),
 				forge.F("error", err),
 			)
+
 			continue
 		}
 
@@ -265,6 +278,7 @@ func (e *Extension) exposeRoutesAsMethods() {
 			forge.F("method_name", method.Name),
 			forge.F("route_path", route.Path),
 		)
+
 		exposed++
 	}
 
@@ -277,13 +291,14 @@ func (e *Extension) exposeRoutesAsMethods() {
 	)
 }
 
-// shouldSkipRoute checks if a route should be skipped from auto-exposure
+// shouldSkipRoute checks if a route should be skipped from auto-exposure.
 func (e *Extension) shouldSkipRoute(route forge.RouteInfo) bool {
 	// Skip oRPC endpoints
 	if len(route.Path) >= len(e.config.Endpoint) &&
 		route.Path[:len(e.config.Endpoint)] == e.config.Endpoint {
 		return true
 	}
+
 	return false
 }
 
@@ -293,6 +308,7 @@ func (e *Extension) handleJSONRPC(ctx forge.Context) error {
 	// Check request size
 	if ctx.Request().ContentLength > e.config.MaxRequestSize {
 		response := NewErrorResponse(nil, ErrServerError, "Request too large")
+
 		return ctx.JSON(http.StatusOK, response) // JSON-RPC always returns 200
 	}
 
@@ -300,53 +316,62 @@ func (e *Extension) handleJSONRPC(ctx forge.Context) error {
 	body, err := io.ReadAll(io.LimitReader(ctx.Request().Body, e.config.MaxRequestSize))
 	if err != nil {
 		response := NewErrorResponse(nil, ErrParseError, "Failed to read request body")
+
 		return ctx.JSON(http.StatusOK, response)
 	}
 
 	// Detect if batch or single request
-	var req interface{}
+	var req any
 	if err := json.Unmarshal(body, &req); err != nil {
 		response := NewErrorResponse(nil, ErrParseError, "Invalid JSON")
+
 		return ctx.JSON(http.StatusOK, response)
 	}
 
 	// Check if batch request (array)
 	switch req.(type) {
-	case []interface{}:
+	case []any:
 		// Batch request
 		if !e.config.EnableBatch {
 			response := NewErrorResponse(nil, ErrServerError, "Batch requests are disabled")
+
 			return ctx.JSON(http.StatusOK, response)
 		}
 
 		requests, err := parseBatchRequest(body)
 		if err != nil {
 			response := NewErrorResponse(nil, ErrInvalidRequest, err.Error())
+
 			return ctx.JSON(http.StatusOK, response)
 		}
 
 		responses := e.server.HandleBatch(ctx.Context(), requests)
+
 		return ctx.JSON(http.StatusOK, responses)
 
-	case map[string]interface{}:
+	case map[string]any:
 		// Single request
 		var request Request
 		if err := json.Unmarshal(body, &request); err != nil {
 			response := NewErrorResponse(nil, ErrInvalidRequest, "Invalid request format")
+
 			return ctx.JSON(http.StatusOK, response)
 		}
 
 		response := e.server.HandleRequest(ctx.Context(), &request)
+
 		return ctx.JSON(http.StatusOK, response)
 
 	default:
 		response := NewErrorResponse(nil, ErrInvalidRequest, "Invalid request format")
+
 		return ctx.JSON(http.StatusOK, response)
 	}
 }
 
 func (e *Extension) handleOpenRPCSchema(ctx forge.Context) error {
 	doc := e.server.OpenRPCDocument()
+
 	return ctx.JSON(http.StatusOK, doc)
 }
 
@@ -354,9 +379,9 @@ func (e *Extension) handleListMethods(ctx forge.Context) error {
 	methods := e.server.ListMethods()
 
 	// Format method list
-	methodList := make([]map[string]interface{}, 0, len(methods))
+	methodList := make([]map[string]any, 0, len(methods))
 	for _, method := range methods {
-		methodList = append(methodList, map[string]interface{}{
+		methodList = append(methodList, map[string]any{
 			"name":        method.Name,
 			"description": method.Description,
 			"tags":        method.Tags,
@@ -364,14 +389,14 @@ func (e *Extension) handleListMethods(ctx forge.Context) error {
 		})
 	}
 
-	return ctx.JSON(http.StatusOK, map[string]interface{}{
+	return ctx.JSON(http.StatusOK, map[string]any{
 		"jsonrpc": "2.0",
 		"methods": methodList,
 		"total":   len(methods),
 	})
 }
 
-// parseBatchRequest parses a batch of JSON-RPC requests
+// parseBatchRequest parses a batch of JSON-RPC requests.
 func parseBatchRequest(body []byte) ([]*Request, error) {
 	var rawRequests []json.RawMessage
 	if err := json.Unmarshal(body, &rawRequests); err != nil {
@@ -379,7 +404,7 @@ func parseBatchRequest(body []byte) ([]*Request, error) {
 	}
 
 	if len(rawRequests) == 0 {
-		return nil, fmt.Errorf("empty batch")
+		return nil, errors.New("empty batch")
 	}
 
 	requests := make([]*Request, len(rawRequests))
@@ -388,13 +413,14 @@ func parseBatchRequest(body []byte) ([]*Request, error) {
 		if err := json.Unmarshal(raw, &req); err != nil {
 			return nil, fmt.Errorf("invalid request at index %d: %w", i, err)
 		}
+
 		requests[i] = &req
 	}
 
 	return requests, nil
 }
 
-// Server returns the oRPC server instance
+// Server returns the oRPC server instance.
 func (e *Extension) Server() ORPC {
 	return e.server
 }

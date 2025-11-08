@@ -1,7 +1,9 @@
 package exporters
 
 import (
+	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"strconv"
@@ -15,7 +17,7 @@ import (
 // PROMETHEUS EXPORTER
 // =============================================================================
 
-// PrometheusExporter exports metrics in Prometheus format
+// PrometheusExporter exports metrics in Prometheus format.
 type PrometheusExporter struct {
 	namespace string
 	subsystem string
@@ -23,7 +25,7 @@ type PrometheusExporter struct {
 	stats     *PrometheusStats
 }
 
-// PrometheusStats contains statistics about the Prometheus exporter
+// PrometheusStats contains statistics about the Prometheus exporter.
 type PrometheusStats struct {
 	ExportsTotal    int64     `json:"exports_total"`
 	LastExportTime  time.Time `json:"last_export_time"`
@@ -32,17 +34,17 @@ type PrometheusStats struct {
 	MetricsExported int64     `json:"metrics_exported"`
 }
 
-// PrometheusConfig contains configuration for the Prometheus exporter
+// PrometheusConfig contains configuration for the Prometheus exporter.
 type PrometheusConfig struct {
-	Namespace       string            `yaml:"namespace" json:"namespace"`
-	Subsystem       string            `yaml:"subsystem" json:"subsystem"`
-	Labels          map[string]string `yaml:"labels" json:"labels"`
-	IncludeHelp     bool              `yaml:"include_help" json:"include_help"`
-	IncludeType     bool              `yaml:"include_type" json:"include_type"`
-	TimestampFormat string            `yaml:"timestamp_format" json:"timestamp_format"`
+	Namespace       string            `json:"namespace"        yaml:"namespace"`
+	Subsystem       string            `json:"subsystem"        yaml:"subsystem"`
+	Labels          map[string]string `json:"labels"           yaml:"labels"`
+	IncludeHelp     bool              `json:"include_help"     yaml:"include_help"`
+	IncludeType     bool              `json:"include_type"     yaml:"include_type"`
+	TimestampFormat string            `json:"timestamp_format" yaml:"timestamp_format"`
 }
 
-// DefaultPrometheusConfig returns default Prometheus configuration
+// DefaultPrometheusConfig returns default Prometheus configuration.
 func DefaultPrometheusConfig() *PrometheusConfig {
 	return &PrometheusConfig{
 		Namespace:       "forge",
@@ -54,12 +56,12 @@ func DefaultPrometheusConfig() *PrometheusConfig {
 	}
 }
 
-// NewPrometheusExporter creates a new Prometheus exporter
+// NewPrometheusExporter creates a new Prometheus exporter.
 func NewPrometheusExporter() shared.Exporter {
 	return NewPrometheusExporterWithConfig(DefaultPrometheusConfig())
 }
 
-// NewPrometheusExporterWithConfig creates a new Prometheus exporter with configuration
+// NewPrometheusExporterWithConfig creates a new Prometheus exporter with configuration.
 func NewPrometheusExporterWithConfig(config *PrometheusConfig) shared.Exporter {
 	return &PrometheusExporter{
 		namespace: config.Namespace,
@@ -73,8 +75,8 @@ func NewPrometheusExporterWithConfig(config *PrometheusConfig) shared.Exporter {
 // EXPORTER INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Export exports metrics in Prometheus format
-func (pe *PrometheusExporter) Export(metrics map[string]interface{}) ([]byte, error) {
+// Export exports metrics in Prometheus format.
+func (pe *PrometheusExporter) Export(metrics map[string]any) ([]byte, error) {
 	pe.stats.ExportsTotal++
 	pe.stats.LastExportTime = time.Now()
 
@@ -93,6 +95,7 @@ func (pe *PrometheusExporter) Export(metrics map[string]interface{}) ([]byte, er
 	for name := range groupedMetrics {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
 
 	// Export each metric group
@@ -100,8 +103,10 @@ func (pe *PrometheusExporter) Export(metrics map[string]interface{}) ([]byte, er
 		metricGroup := groupedMetrics[name]
 		if err := pe.exportMetricGroup(&output, name, metricGroup); err != nil {
 			pe.stats.ErrorsTotal++
+
 			return nil, fmt.Errorf("failed to export metric group %s: %w", name, err)
 		}
+
 		pe.stats.MetricsExported++
 	}
 
@@ -111,13 +116,13 @@ func (pe *PrometheusExporter) Export(metrics map[string]interface{}) ([]byte, er
 	return result, nil
 }
 
-// Format returns the export format
+// Format returns the export format.
 func (pe *PrometheusExporter) Format() string {
 	return "prometheus"
 }
 
-// Stats returns exporter statistics
-func (pe *PrometheusExporter) Stats() interface{} {
+// Stats returns exporter statistics.
+func (pe *PrometheusExporter) Stats() any {
 	return pe.stats
 }
 
@@ -125,8 +130,8 @@ func (pe *PrometheusExporter) Stats() interface{} {
 // PRIVATE METHODS
 // =============================================================================
 
-// groupMetrics groups metrics by base name
-func (pe *PrometheusExporter) groupMetrics(metrics map[string]interface{}) map[string][]metricEntry {
+// groupMetrics groups metrics by base name.
+func (pe *PrometheusExporter) groupMetrics(metrics map[string]any) map[string][]metricEntry {
 	grouped := make(map[string][]metricEntry)
 
 	for fullName, value := range metrics {
@@ -144,17 +149,16 @@ func (pe *PrometheusExporter) groupMetrics(metrics map[string]interface{}) map[s
 	return grouped
 }
 
-// metricEntry represents a single metric entry
+// metricEntry represents a single metric entry.
 type metricEntry struct {
 	Name  string
-	Value interface{}
+	Value any
 	Tags  map[string]string
 }
 
-// parseMetricName parses a metric name and extracts tags
+// parseMetricName parses a metric name and extracts tags.
 func (pe *PrometheusExporter) parseMetricName(fullName string) (string, map[string]string) {
 	// Parse format: metric_name{tag1="value1",tag2="value2"}
-
 	if !strings.Contains(fullName, "{") {
 		return fullName, nil
 	}
@@ -175,9 +179,10 @@ func (pe *PrometheusExporter) parseMetricName(fullName string) (string, map[stri
 
 	// Parse tags
 	tags := make(map[string]string)
+
 	if tagsStr != "" {
-		pairs := strings.Split(tagsStr, ",")
-		for _, pair := range pairs {
+		pairs := strings.SplitSeq(tagsStr, ",")
+		for pair := range pairs {
 			if kv := strings.SplitN(pair, "=", 2); len(kv) == 2 {
 				key := strings.TrimSpace(kv[0])
 				value := strings.TrimSpace(kv[1])
@@ -189,7 +194,7 @@ func (pe *PrometheusExporter) parseMetricName(fullName string) (string, map[stri
 	return baseName, tags
 }
 
-// exportMetricGroup exports a group of metrics with the same base name
+// exportMetricGroup exports a group of metrics with the same base name.
 func (pe *PrometheusExporter) exportMetricGroup(output *strings.Builder, baseName string, entries []metricEntry) error {
 	if len(entries) == 0 {
 		return nil
@@ -202,10 +207,10 @@ func (pe *PrometheusExporter) exportMetricGroup(output *strings.Builder, baseNam
 	metricType := pe.inferMetricType(entries[0].Value)
 
 	// Write HELP comment
-	output.WriteString(fmt.Sprintf("# HELP %s %s\n", fullName, pe.generateHelpText(baseName, metricType)))
+	fmt.Fprintf(output, "# HELP %s %s\n", fullName, pe.generateHelpText(baseName, metricType))
 
 	// Write TYPE comment
-	output.WriteString(fmt.Sprintf("# TYPE %s %s\n", fullName, metricType))
+	fmt.Fprintf(output, "# TYPE %s %s\n", fullName, metricType)
 
 	// Export each entry
 	for _, entry := range entries {
@@ -215,10 +220,11 @@ func (pe *PrometheusExporter) exportMetricGroup(output *strings.Builder, baseNam
 	}
 
 	output.WriteString("\n")
+
 	return nil
 }
 
-// exportMetricEntry exports a single metric entry
+// exportMetricEntry exports a single metric entry.
 func (pe *PrometheusExporter) exportMetricEntry(output *strings.Builder, fullName string, entry metricEntry) error {
 	switch value := entry.Value.(type) {
 	case float64:
@@ -227,7 +233,7 @@ func (pe *PrometheusExporter) exportMetricEntry(output *strings.Builder, fullNam
 		pe.writeMetricLine(output, fullName, entry.Tags, float64(value))
 	case uint64:
 		pe.writeMetricLine(output, fullName, entry.Tags, float64(value))
-	case map[string]interface{}:
+	case map[string]any:
 		return pe.exportComplexMetric(output, fullName, entry.Tags, value)
 	default:
 		return fmt.Errorf("unsupported metric value type: %T", value)
@@ -236,8 +242,8 @@ func (pe *PrometheusExporter) exportMetricEntry(output *strings.Builder, fullNam
 	return nil
 }
 
-// exportComplexMetric exports complex metrics (histogram, timer)
-func (pe *PrometheusExporter) exportComplexMetric(output *strings.Builder, fullName string, tags map[string]string, value map[string]interface{}) error {
+// exportComplexMetric exports complex metrics (histogram, timer).
+func (pe *PrometheusExporter) exportComplexMetric(output *strings.Builder, fullName string, tags map[string]string, value map[string]any) error {
 	// Handle histogram metrics
 	if buckets, ok := value["buckets"].(map[float64]uint64); ok {
 		return pe.exportHistogram(output, fullName, tags, value, buckets)
@@ -257,16 +263,17 @@ func (pe *PrometheusExporter) exportComplexMetric(output *strings.Builder, fullN
 		})
 	}
 
-	return fmt.Errorf("unsupported complex metric format")
+	return errors.New("unsupported complex metric format")
 }
 
-// exportHistogram exports histogram metrics
-func (pe *PrometheusExporter) exportHistogram(output *strings.Builder, fullName string, tags map[string]string, value map[string]interface{}, buckets map[float64]uint64) error {
+// exportHistogram exports histogram metrics.
+func (pe *PrometheusExporter) exportHistogram(output *strings.Builder, fullName string, tags map[string]string, value map[string]any, buckets map[float64]uint64) error {
 	// Export histogram buckets
 	bucketKeys := make([]float64, 0, len(buckets))
 	for bucket := range buckets {
 		bucketKeys = append(bucketKeys, bucket)
 	}
+
 	sort.Float64s(bucketKeys)
 
 	for _, bucket := range bucketKeys {
@@ -293,8 +300,8 @@ func (pe *PrometheusExporter) exportHistogram(output *strings.Builder, fullName 
 	return nil
 }
 
-// exportTimer exports timer metrics
-func (pe *PrometheusExporter) exportTimer(output *strings.Builder, fullName string, tags map[string]string, value map[string]interface{}, count uint64) error {
+// exportTimer exports timer metrics.
+func (pe *PrometheusExporter) exportTimer(output *strings.Builder, fullName string, tags map[string]string, value map[string]any, count uint64) error {
 	// Export timer count
 	pe.writeMetricLine(output, fullName+"_count", tags, float64(count))
 
@@ -315,7 +322,7 @@ func (pe *PrometheusExporter) exportTimer(output *strings.Builder, fullName stri
 	return nil
 }
 
-// writeMetricLine writes a single metric line
+// writeMetricLine writes a single metric line.
 func (pe *PrometheusExporter) writeMetricLine(output *strings.Builder, name string, tags map[string]string, value float64) {
 	output.WriteString(name)
 
@@ -337,7 +344,7 @@ func (pe *PrometheusExporter) writeMetricLine(output *strings.Builder, name stri
 	output.WriteString("\n")
 }
 
-// writeLabels writes labels to output
+// writeLabels writes labels to output.
 func (pe *PrometheusExporter) writeLabels(output *strings.Builder, labels map[string]string) {
 	if len(labels) == 0 {
 		return
@@ -348,6 +355,7 @@ func (pe *PrometheusExporter) writeLabels(output *strings.Builder, labels map[st
 	for key := range labels {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
 
 	first := true
@@ -355,6 +363,7 @@ func (pe *PrometheusExporter) writeLabels(output *strings.Builder, labels map[st
 		if !first {
 			output.WriteString(",")
 		}
+
 		first = false
 
 		output.WriteString(pe.sanitizeLabelName(key))
@@ -368,7 +377,7 @@ func (pe *PrometheusExporter) writeLabels(output *strings.Builder, labels map[st
 // UTILITY METHODS
 // =============================================================================
 
-// buildFullName builds the full metric name with namespace and subsystem
+// buildFullName builds the full metric name with namespace and subsystem.
 func (pe *PrometheusExporter) buildFullName(baseName string) string {
 	parts := []string{}
 
@@ -385,16 +394,18 @@ func (pe *PrometheusExporter) buildFullName(baseName string) string {
 	return strings.Join(parts, "_")
 }
 
-// inferMetricType infers the Prometheus metric type from the value
-func (pe *PrometheusExporter) inferMetricType(value interface{}) string {
+// inferMetricType infers the Prometheus metric type from the value.
+func (pe *PrometheusExporter) inferMetricType(value any) string {
 	switch v := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if _, ok := v["buckets"]; ok {
 			return "histogram"
 		}
+
 		if _, ok := v["count"]; ok {
 			return "summary"
 		}
+
 		return "gauge"
 	case float64, int64, uint64:
 		return "gauge"
@@ -403,39 +414,38 @@ func (pe *PrometheusExporter) inferMetricType(value interface{}) string {
 	}
 }
 
-// generateHelpText generates help text for a metric
+// generateHelpText generates help text for a metric.
 func (pe *PrometheusExporter) generateHelpText(baseName, metricType string) string {
 	switch metricType {
 	case "counter":
-		return fmt.Sprintf("Total number of %s", baseName)
+		return "Total number of " + baseName
 	case "gauge":
-		return fmt.Sprintf("Current value of %s", baseName)
+		return "Current value of " + baseName
 	case "histogram":
-		return fmt.Sprintf("Histogram of %s", baseName)
+		return "Histogram of " + baseName
 	case "summary":
-		return fmt.Sprintf("Summary of %s", baseName)
+		return "Summary of " + baseName
 	default:
-		return fmt.Sprintf("Metric %s", baseName)
+		return "Metric " + baseName
 	}
 }
 
-// mergeTags merges multiple tag maps
+// mergeTags merges multiple tag maps.
 func (pe *PrometheusExporter) mergeTags(tagMaps ...map[string]string) map[string]string {
 	result := make(map[string]string)
 
 	for _, tags := range tagMaps {
-		for k, v := range tags {
-			result[k] = v
-		}
+		maps.Copy(result, tags)
 	}
 
 	return result
 }
 
-// sanitizeLabelName sanitizes a label name for Prometheus
+// sanitizeLabelName sanitizes a label name for Prometheus.
 func (pe *PrometheusExporter) sanitizeLabelName(name string) string {
 	// Replace invalid characters with underscores
 	result := strings.Builder{}
+
 	for _, char := range name {
 		if (char >= 'a' && char <= 'z') ||
 			(char >= 'A' && char <= 'Z') ||
@@ -446,10 +456,11 @@ func (pe *PrometheusExporter) sanitizeLabelName(name string) string {
 			result.WriteRune('_')
 		}
 	}
+
 	return result.String()
 }
 
-// escapeLabelValue escapes a label value for Prometheus
+// escapeLabelValue escapes a label value for Prometheus.
 func (pe *PrometheusExporter) escapeLabelValue(value string) string {
 	// Escape special characters
 	value = strings.ReplaceAll(value, "\\", "\\\\")
@@ -457,24 +468,28 @@ func (pe *PrometheusExporter) escapeLabelValue(value string) string {
 	value = strings.ReplaceAll(value, "\n", "\\n")
 	value = strings.ReplaceAll(value, "\r", "\\r")
 	value = strings.ReplaceAll(value, "\t", "\\t")
+
 	return value
 }
 
-// formatFloat formats a float value for Prometheus
+// formatFloat formats a float value for Prometheus.
 func (pe *PrometheusExporter) formatFloat(value float64) string {
 	if value != value { // NaN
 		return "NaN"
 	}
+
 	if value == math.Inf(1) { // +Inf
 		return "+Inf"
 	}
+
 	if value == math.Inf(-1) { // -Inf
 		return "-Inf"
 	}
+
 	return strconv.FormatFloat(value, 'g', -1, 64)
 }
 
-// percentileToQuantile converts percentile name to quantile value
+// percentileToQuantile converts percentile name to quantile value.
 func (pe *PrometheusExporter) percentileToQuantile(percentile string) string {
 	switch percentile {
 	case "p50":

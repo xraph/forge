@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// WAL implements Write-Ahead Logging for consensus operations
+// WAL implements Write-Ahead Logging for consensus operations.
 type WAL struct {
 	nodeID string
 	logger forge.Logger
@@ -32,7 +33,7 @@ type WAL struct {
 	statsMu sync.RWMutex
 }
 
-// WALConfig contains WAL configuration
+// WALConfig contains WAL configuration.
 type WALConfig struct {
 	Dir               string
 	MaxFileSize       int64
@@ -41,7 +42,7 @@ type WALConfig struct {
 	EnableChecksum    bool
 }
 
-// WALEntry represents a WAL entry
+// WALEntry represents a WAL entry.
 type WALEntry struct {
 	Type      WALEntryType
 	Index     uint64
@@ -51,21 +52,21 @@ type WALEntry struct {
 	Checksum  uint32
 }
 
-// WALEntryType represents the type of WAL entry
+// WALEntryType represents the type of WAL entry.
 type WALEntryType uint8
 
 const (
-	// WALEntryTypeLog log entry
+	// WALEntryTypeLog log entry.
 	WALEntryTypeLog WALEntryType = 1
-	// WALEntryTypeMeta metadata entry
+	// WALEntryTypeMeta metadata entry.
 	WALEntryTypeMeta WALEntryType = 2
-	// WALEntryTypeSnapshot snapshot entry
+	// WALEntryTypeSnapshot snapshot entry.
 	WALEntryTypeSnapshot WALEntryType = 3
-	// WALEntryTypeCheckpoint checkpoint entry
+	// WALEntryTypeCheckpoint checkpoint entry.
 	WALEntryTypeCheckpoint WALEntryType = 4
 )
 
-// WALStatistics contains WAL statistics
+// WALStatistics contains WAL statistics.
 type WALStatistics struct {
 	TotalWrites   int64
 	TotalReads    int64
@@ -77,15 +78,17 @@ type WALStatistics struct {
 	LastRotation  time.Time
 }
 
-// NewWAL creates a new WAL
+// NewWAL creates a new WAL.
 func NewWAL(nodeID string, config WALConfig, logger forge.Logger) (*WAL, error) {
 	// Set defaults
 	if config.Dir == "" {
 		config.Dir = filepath.Join("data", "wal")
 	}
+
 	if config.MaxFileSize == 0 {
 		config.MaxFileSize = 100 * 1024 * 1024 // 100MB
 	}
+
 	if config.SyncInterval == 0 {
 		config.SyncInterval = 100 * time.Millisecond
 	}
@@ -118,7 +121,7 @@ func NewWAL(nodeID string, config WALConfig, logger forge.Logger) (*WAL, error) 
 	return wal, nil
 }
 
-// Write writes an entry to the WAL
+// Write writes an entry to the WAL.
 func (w *WAL) Write(ctx context.Context, entry *WALEntry) error {
 	w.fileMu.Lock()
 	defer w.fileMu.Unlock()
@@ -159,13 +162,13 @@ func (w *WAL) Write(ctx context.Context, entry *WALEntry) error {
 	return nil
 }
 
-// Sync syncs the WAL to disk
+// Sync syncs the WAL to disk.
 func (w *WAL) Sync() error {
 	w.fileMu.Lock()
 	defer w.fileMu.Unlock()
 
 	if w.file == nil {
-		return fmt.Errorf("WAL file not open")
+		return errors.New("WAL file not open")
 	}
 
 	if err := w.file.Sync(); err != nil {
@@ -180,7 +183,7 @@ func (w *WAL) Sync() error {
 	return nil
 }
 
-// Read reads entries from the WAL
+// Read reads entries from the WAL.
 func (w *WAL) Read(ctx context.Context, startIndex uint64) ([]*WALEntry, error) {
 	// Get all WAL files
 	files, err := w.getWALFiles()
@@ -197,6 +200,7 @@ func (w *WAL) Read(ctx context.Context, startIndex uint64) ([]*WALEntry, error) 
 				forge.F("file", filename),
 				forge.F("error", err),
 			)
+
 			continue
 		}
 
@@ -210,7 +214,7 @@ func (w *WAL) Read(ctx context.Context, startIndex uint64) ([]*WALEntry, error) 
 	return entries, nil
 }
 
-// openFile opens the current WAL file
+// openFile opens the current WAL file.
 func (w *WAL) openFile() error {
 	filename := w.currentFilename()
 	path := filepath.Join(w.dir, filename)
@@ -223,6 +227,7 @@ func (w *WAL) openFile() error {
 	stat, err := file.Stat()
 	if err != nil {
 		file.Close()
+
 		return fmt.Errorf("failed to stat WAL file: %w", err)
 	}
 
@@ -232,7 +237,7 @@ func (w *WAL) openFile() error {
 	return nil
 }
 
-// rotate rotates the WAL file
+// rotate rotates the WAL file.
 func (w *WAL) rotate() error {
 	// Close current file
 	if w.file != nil {
@@ -258,12 +263,12 @@ func (w *WAL) rotate() error {
 	return nil
 }
 
-// currentFilename returns the current WAL filename
+// currentFilename returns the current WAL filename.
 func (w *WAL) currentFilename() string {
 	return fmt.Sprintf("wal-%s-%d.log", w.nodeID, time.Now().Unix())
 }
 
-// getWALFiles returns all WAL files sorted by timestamp
+// getWALFiles returns all WAL files sorted by timestamp.
 func (w *WAL) getWALFiles() ([]string, error) {
 	entries, err := os.ReadDir(w.dir)
 	if err != nil {
@@ -271,6 +276,7 @@ func (w *WAL) getWALFiles() ([]string, error) {
 	}
 
 	var files []string
+
 	for _, entry := range entries {
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".log" {
 			files = append(files, entry.Name())
@@ -280,7 +286,7 @@ func (w *WAL) getWALFiles() ([]string, error) {
 	return files, nil
 }
 
-// readFile reads entries from a WAL file
+// readFile reads entries from a WAL file.
 func (w *WAL) readFile(path string) ([]*WALEntry, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -292,9 +298,10 @@ func (w *WAL) readFile(path string) ([]*WALEntry, error) {
 
 	for {
 		entry, err := w.deserializeEntry(file)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
+
 		if err != nil {
 			return nil, err
 		}
@@ -309,7 +316,7 @@ func (w *WAL) readFile(path string) ([]*WALEntry, error) {
 	return entries, nil
 }
 
-// serializeEntry serializes a WAL entry
+// serializeEntry serializes a WAL entry.
 func (w *WAL) serializeEntry(entry *WALEntry) ([]byte, error) {
 	// Format:
 	// [4 bytes: total size]
@@ -319,7 +326,6 @@ func (w *WAL) serializeEntry(entry *WALEntry) ([]byte, error) {
 	// [4 bytes: data size]
 	// [N bytes: data]
 	// [4 bytes: checksum]
-
 	dataSize := len(entry.Data)
 	totalSize := 1 + 8 + 8 + 4 + dataSize + 4
 
@@ -352,13 +358,14 @@ func (w *WAL) serializeEntry(entry *WALEntry) ([]byte, error) {
 	return buf, nil
 }
 
-// deserializeEntry deserializes a WAL entry
+// deserializeEntry deserializes a WAL entry.
 func (w *WAL) deserializeEntry(r io.Reader) (*WALEntry, error) {
 	// Read total size
 	var sizeBytes [4]byte
 	if _, err := io.ReadFull(r, sizeBytes[:]); err != nil {
 		return nil, err
 	}
+
 	totalSize := binary.BigEndian.Uint32(sizeBytes[:])
 
 	// Read entry data
@@ -380,9 +387,10 @@ func (w *WAL) deserializeEntry(r io.Reader) (*WALEntry, error) {
 	// Verify checksum
 	if w.config.EnableChecksum {
 		storedChecksum := binary.BigEndian.Uint32(data[21+dataSize:])
+
 		calculatedChecksum := w.calculateChecksum(data[:21+dataSize])
 		if storedChecksum != calculatedChecksum {
-			return nil, fmt.Errorf("checksum mismatch")
+			return nil, errors.New("checksum mismatch")
 		}
 	}
 
@@ -393,16 +401,17 @@ func (w *WAL) deserializeEntry(r io.Reader) (*WALEntry, error) {
 	return entry, nil
 }
 
-// calculateChecksum calculates a simple checksum
+// calculateChecksum calculates a simple checksum.
 func (w *WAL) calculateChecksum(data []byte) uint32 {
 	var sum uint32
 	for _, b := range data {
 		sum += uint32(b)
 	}
+
 	return sum
 }
 
-// backgroundSync performs periodic syncs
+// backgroundSync performs periodic syncs.
 func (w *WAL) backgroundSync() {
 	ticker := time.NewTicker(w.config.SyncInterval)
 	defer ticker.Stop()
@@ -416,7 +425,7 @@ func (w *WAL) backgroundSync() {
 	}
 }
 
-// Truncate truncates the WAL up to the given index
+// Truncate truncates the WAL up to the given index.
 func (w *WAL) Truncate(ctx context.Context, index uint64) error {
 	w.logger.Info("truncating WAL",
 		forge.F("up_to_index", index),
@@ -430,7 +439,7 @@ func (w *WAL) Truncate(ctx context.Context, index uint64) error {
 	return nil
 }
 
-// Close closes the WAL
+// Close closes the WAL.
 func (w *WAL) Close() error {
 	w.fileMu.Lock()
 	defer w.fileMu.Unlock()
@@ -441,19 +450,23 @@ func (w *WAL) Close() error {
 				forge.F("error", err),
 			)
 		}
+
 		if err := w.file.Close(); err != nil {
 			return err
 		}
+
 		w.file = nil
 	}
 
 	w.logger.Info("WAL closed")
+
 	return nil
 }
 
-// GetStatistics returns WAL statistics
+// GetStatistics returns WAL statistics.
 func (w *WAL) GetStatistics() WALStatistics {
 	w.statsMu.RLock()
 	defer w.statsMu.RUnlock()
+
 	return w.stats
 }

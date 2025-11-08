@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// App represents a Forge application with lifecycle management
+// App represents a Forge application with lifecycle management.
 type App interface {
 	// Core components
 	Container() Container
@@ -43,7 +43,7 @@ type App interface {
 	GetExtension(name string) (Extension, error)
 }
 
-// AppConfig configures the application
+// AppConfig configures the application.
 type AppConfig struct {
 	// Basic info
 	Name        string
@@ -84,7 +84,7 @@ type AppConfig struct {
 	EnableAppScopedConfig     bool     // Enable app-scoped config extraction for monorepos (default: true)
 }
 
-// DefaultAppConfig returns a default application configuration
+// DefaultAppConfig returns a default application configuration.
 func DefaultAppConfig() AppConfig {
 	// Get proper default health config with all fields set
 	healthConfig := DefaultHealthConfig()
@@ -115,176 +115,177 @@ func DefaultAppConfig() AppConfig {
 	}
 }
 
-// AppOption is a functional option for AppConfig
+// AppOption is a functional option for AppConfig.
 type AppOption func(*AppConfig)
 
-// WithConfig replaces the entire config
+// WithConfig replaces the entire config.
 func WithConfig(config AppConfig) AppOption {
 	return func(c *AppConfig) {
 		*c = config
 	}
 }
 
-// WithAppName sets the application name
+// WithAppName sets the application name.
 func WithAppName(name string) AppOption {
 	return func(c *AppConfig) {
 		c.Name = name
 	}
 }
 
-// WithAppVersion sets the application version
+// WithAppVersion sets the application version.
 func WithAppVersion(version string) AppOption {
 	return func(c *AppConfig) {
 		c.Version = version
 	}
 }
 
-// WithAppDescription sets the application description
+// WithAppDescription sets the application description.
 func WithAppDescription(description string) AppOption {
 	return func(c *AppConfig) {
 		c.Description = description
 	}
 }
 
-// WithAppEnvironment sets the application environment
+// WithAppEnvironment sets the application environment.
 func WithAppEnvironment(environment string) AppOption {
 	return func(c *AppConfig) {
 		c.Environment = environment
 	}
 }
 
-// WithAppConfigManager sets the config manager
+// WithAppConfigManager sets the config manager.
 func WithAppConfigManager(configManager ConfigManager) AppOption {
 	return func(c *AppConfig) {
 		c.ConfigManager = configManager
 	}
 }
 
-// WithAppLogger sets the logger
+// WithAppLogger sets the logger.
 func WithAppLogger(logger Logger) AppOption {
 	return func(c *AppConfig) {
 		c.Logger = logger
 	}
 }
 
-// WithAppRouterOptions sets the router options
+// WithAppRouterOptions sets the router options.
 func WithAppRouterOptions(opts ...RouterOption) AppOption {
 	return func(c *AppConfig) {
 		c.RouterOptions = opts
 	}
 }
 
-// WithAppMetricsConfig sets the metrics configuration
+// WithAppMetricsConfig sets the metrics configuration.
 func WithAppMetricsConfig(config MetricsConfig) AppOption {
 	return func(c *AppConfig) {
 		c.MetricsConfig = config
 	}
 }
 
-// WithAppHealthConfig sets the health configuration
+// WithAppHealthConfig sets the health configuration.
 func WithAppHealthConfig(config HealthConfig) AppOption {
 	return func(c *AppConfig) {
 		c.HealthConfig = config
 	}
 }
 
-// WithAppErrorHandler sets the error handler
+// WithAppErrorHandler sets the error handler.
 func WithAppErrorHandler(handler ErrorHandler) AppOption {
 	return func(c *AppConfig) {
 		c.ErrorHandler = handler
 	}
 }
 
-// WithHTTPAddress sets the HTTP address
+// WithHTTPAddress sets the HTTP address.
 func WithHTTPAddress(address string) AppOption {
 	return func(c *AppConfig) {
 		c.HTTPAddress = address
 	}
 }
 
-// WithHTTPTimeout sets the HTTP timeout
+// WithHTTPTimeout sets the HTTP timeout.
 func WithHTTPTimeout(timeout time.Duration) AppOption {
 	return func(c *AppConfig) {
 		c.HTTPTimeout = timeout
 	}
 }
 
-// WithShutdownTimeout sets the shutdown timeout
+// WithShutdownTimeout sets the shutdown timeout.
 func WithShutdownTimeout(timeout time.Duration) AppOption {
 	return func(c *AppConfig) {
 		c.ShutdownTimeout = timeout
 	}
 }
 
-// WithShutdownSignals sets the shutdown signals
+// WithShutdownSignals sets the shutdown signals.
 func WithShutdownSignals(signals ...os.Signal) AppOption {
 	return func(c *AppConfig) {
 		c.ShutdownSignals = signals
 	}
 }
 
-// WithExtensions sets the extensions
+// WithExtensions sets the extensions.
 func WithExtensions(extensions ...Extension) AppOption {
 	return func(c *AppConfig) {
 		c.Extensions = extensions
 	}
 }
 
-// WithEnableConfigAutoDiscovery enables or disables config auto-discovery
+// WithEnableConfigAutoDiscovery enables or disables config auto-discovery.
 func WithEnableConfigAutoDiscovery(enabled bool) AppOption {
 	return func(c *AppConfig) {
 		c.EnableConfigAutoDiscovery = enabled
 	}
 }
 
-// WithConfigSearchPaths sets the config search paths
+// WithConfigSearchPaths sets the config search paths.
 func WithConfigSearchPaths(paths ...string) AppOption {
 	return func(c *AppConfig) {
 		c.ConfigSearchPaths = paths
 	}
 }
 
-// WithConfigBaseNames sets the config base names
+// WithConfigBaseNames sets the config base names.
 func WithConfigBaseNames(names ...string) AppOption {
 	return func(c *AppConfig) {
 		c.ConfigBaseNames = names
 	}
 }
 
-// WithConfigLocalNames sets the config local names
+// WithConfigLocalNames sets the config local names.
 func WithConfigLocalNames(names ...string) AppOption {
 	return func(c *AppConfig) {
 		c.ConfigLocalNames = names
 	}
 }
 
-// WithEnableAppScopedConfig enables or disables app-scoped config
+// WithEnableAppScopedConfig enables or disables app-scoped config.
 func WithEnableAppScopedConfig(enabled bool) AppOption {
 	return func(c *AppConfig) {
 		c.EnableAppScopedConfig = enabled
 	}
 }
 
-// NewApp creates a new Forge application
+// NewApp creates a new Forge application.
 func NewApp(config AppConfig) App {
 	return newApp(config)
 }
 
-// NewWithConfig creates a new Forge application with a complete config
+// NewWithConfig creates a new Forge application with a complete config.
 func NewWithConfig(config AppConfig) App {
 	return newApp(config)
 }
 
-// New creates a new Forge application with variadic options
+// New creates a new Forge application with variadic options.
 func New(opts ...AppOption) App {
 	config := DefaultAppConfig()
 	for _, opt := range opts {
 		opt(&config)
 	}
+
 	return newApp(config)
 }
 
-// AppInfo represents application information returned by /_/info endpoint
+// AppInfo represents application information returned by /_/info endpoint.
 type AppInfo struct {
 	Name        string          `json:"name"`
 	Version     string          `json:"version"`

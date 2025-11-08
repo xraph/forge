@@ -14,10 +14,11 @@ func TestRequestID_Generate(t *testing.T) {
 	handler := RequestID()(func(ctx forge.Context) error {
 		requestID := GetRequestIDFromForgeContext(ctx)
 		assert.NotEmpty(t, requestID)
+
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	ctx := di.NewContext(rec, req, nil)
 
@@ -33,11 +34,13 @@ func TestRequestID_UseExisting(t *testing.T) {
 	handler := RequestID()(func(ctx forge.Context) error {
 		requestID := GetRequestIDFromForgeContext(ctx)
 		assert.Equal(t, existingID, requestID)
+
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("X-Request-ID", existingID)
+
 	rec := httptest.NewRecorder()
 	ctx := di.NewContext(rec, req, nil)
 
@@ -48,7 +51,7 @@ func TestRequestID_UseExisting(t *testing.T) {
 }
 
 func TestGetRequestID_NoContext(t *testing.T) {
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	requestID := GetRequestID(req.Context())
 	assert.Empty(t, requestID)
 }

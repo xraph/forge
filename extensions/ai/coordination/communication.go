@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// CommunicationProtocol defines the communication protocol
+// CommunicationProtocol defines the communication protocol.
 type CommunicationProtocol string
 
 const (
@@ -21,7 +22,7 @@ const (
 	CommunicationProtocolDistributed CommunicationProtocol = "distributed" // Distributed messaging
 )
 
-// MessageType defines different types of messages
+// MessageType defines different types of messages.
 type MessageType string
 
 const (
@@ -35,7 +36,7 @@ const (
 	MessageTypeAlert        MessageType = "alert"        // Alert message
 )
 
-// MessagePriority defines message priorities
+// MessagePriority defines message priorities.
 type MessagePriority int
 
 const (
@@ -45,45 +46,45 @@ const (
 	MessagePrityCritical  MessagePriority = 10
 )
 
-// AgentMessage represents a message between agents
+// AgentMessage represents a message between agents.
 type AgentMessage struct {
-	ID         string                 `json:"id"`
-	Type       MessageType            `json:"type"`
-	From       string                 `json:"from"`
-	To         string                 `json:"to"` // Empty for broadcasts
-	Subject    string                 `json:"subject"`
-	Payload    interface{}            `json:"payload"`
-	Priority   MessagePriority        `json:"priority"`
-	Timestamp  time.Time              `json:"timestamp"`
-	ExpiresAt  time.Time              `json:"expires_at"`
-	ResponseTo string                 `json:"response_to,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata"`
-	Encrypted  bool                   `json:"encrypted"`
-	Compressed bool                   `json:"compressed"`
-	Retries    int                    `json:"retries"`
-	MaxRetries int                    `json:"max_retries"`
+	ID         string          `json:"id"`
+	Type       MessageType     `json:"type"`
+	From       string          `json:"from"`
+	To         string          `json:"to"` // Empty for broadcasts
+	Subject    string          `json:"subject"`
+	Payload    any             `json:"payload"`
+	Priority   MessagePriority `json:"priority"`
+	Timestamp  time.Time       `json:"timestamp"`
+	ExpiresAt  time.Time       `json:"expires_at"`
+	ResponseTo string          `json:"response_to,omitempty"`
+	Metadata   map[string]any  `json:"metadata"`
+	Encrypted  bool            `json:"encrypted"`
+	Compressed bool            `json:"compressed"`
+	Retries    int             `json:"retries"`
+	MaxRetries int             `json:"max_retries"`
 }
 
-// MessageHandler defines a function that handles incoming messages
+// MessageHandler defines a function that handles incoming messages.
 type MessageHandler func(ctx context.Context, message *AgentMessage) (*AgentMessage, error)
 
-// CommunicationConfig contains configuration for agent communication
+// CommunicationConfig contains configuration for agent communication.
 type CommunicationConfig struct {
-	Protocol           CommunicationProtocol `yaml:"protocol" default:"message"`
-	MaxRetries         int                   `yaml:"max_retries" default:"3"`
-	RetryDelay         time.Duration         `yaml:"retry_delay" default:"1s"`
-	MessageTimeout     time.Duration         `yaml:"message_timeout" default:"30s"`
-	HeartbeatInterval  time.Duration         `yaml:"heartbeat_interval" default:"30s"`
-	MaxMessageSize     int64                 `yaml:"max_message_size" default:"1048576"` // 1MB
-	EnableEncryption   bool                  `yaml:"enable_encryption" default:"false"`
-	EnableCompression  bool                  `yaml:"enable_compression" default:"false"`
-	BufferSize         int                   `yaml:"buffer_size" default:"1000"`
-	WorkerCount        int                   `yaml:"worker_count" default:"10"`
-	EnableMessageQueue bool                  `yaml:"enable_message_queue" default:"true"`
-	QueueCapacity      int                   `yaml:"queue_capacity" default:"10000"`
+	Protocol           CommunicationProtocol `default:"message" yaml:"protocol"`
+	MaxRetries         int                   `default:"3"       yaml:"max_retries"`
+	RetryDelay         time.Duration         `default:"1s"      yaml:"retry_delay"`
+	MessageTimeout     time.Duration         `default:"30s"     yaml:"message_timeout"`
+	HeartbeatInterval  time.Duration         `default:"30s"     yaml:"heartbeat_interval"`
+	MaxMessageSize     int64                 `default:"1048576" yaml:"max_message_size"` // 1MB
+	EnableEncryption   bool                  `default:"false"   yaml:"enable_encryption"`
+	EnableCompression  bool                  `default:"false"   yaml:"enable_compression"`
+	BufferSize         int                   `default:"1000"    yaml:"buffer_size"`
+	WorkerCount        int                   `default:"10"      yaml:"worker_count"`
+	EnableMessageQueue bool                  `default:"true"    yaml:"enable_message_queue"`
+	QueueCapacity      int                   `default:"10000"   yaml:"queue_capacity"`
 }
 
-// CommunicationStats contains statistics about agent communication
+// CommunicationStats contains statistics about agent communication.
 type CommunicationStats struct {
 	TotalMessagesSent      int64                     `json:"total_messages_sent"`
 	TotalMessagesReceived  int64                     `json:"total_messages_received"`
@@ -99,7 +100,7 @@ type CommunicationStats struct {
 	LastUpdated            time.Time                 `json:"last_updated"`
 }
 
-// AgentCommStats contains communication statistics for a specific agent
+// AgentCommStats contains communication statistics for a specific agent.
 type AgentCommStats struct {
 	AgentID           string        `json:"agent_id"`
 	MessagesSent      int64         `json:"messages_sent"`
@@ -110,7 +111,7 @@ type AgentCommStats struct {
 	FailureCount      int64         `json:"failure_count"`
 }
 
-// CommunicationManager manages inter-agent communication
+// CommunicationManager manages inter-agent communication.
 type CommunicationManager struct {
 	config        CommunicationConfig
 	protocol      CommunicationProtocol
@@ -124,14 +125,14 @@ type CommunicationManager struct {
 	mu            sync.RWMutex
 }
 
-// QueuedMessage represents a message in the processing queue
+// QueuedMessage represents a message in the processing queue.
 type QueuedMessage struct {
 	Message   *AgentMessage
 	Timestamp time.Time
 	Retries   int
 }
 
-// AgentCommunicator handles communication for a specific agent
+// AgentCommunicator handles communication for a specific agent.
 type AgentCommunicator struct {
 	agentID       string
 	manager       *CommunicationManager
@@ -143,7 +144,7 @@ type AgentCommunicator struct {
 	mu            sync.RWMutex
 }
 
-// NewCommunicationManager creates a new communication manager
+// NewCommunicationManager creates a new communication manager.
 func NewCommunicationManager(protocol CommunicationProtocol, logger logger.Logger) *CommunicationManager {
 	return &CommunicationManager{
 		config: CommunicationConfig{
@@ -171,17 +172,17 @@ func NewCommunicationManager(protocol CommunicationProtocol, logger logger.Logge
 	}
 }
 
-// Start starts the communication manager
+// Start starts the communication manager.
 func (cm *CommunicationManager) Start(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if cm.started {
-		return fmt.Errorf("communication manager already started")
+		return errors.New("communication manager already started")
 	}
 
 	// Start message processing workers
-	for i := 0; i < cm.config.WorkerCount; i++ {
+	for range cm.config.WorkerCount {
 		go cm.messageWorker(ctx)
 	}
 
@@ -204,13 +205,13 @@ func (cm *CommunicationManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the communication manager
+// Stop stops the communication manager.
 func (cm *CommunicationManager) Stop(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if !cm.started {
-		return fmt.Errorf("communication manager not started")
+		return errors.New("communication manager not started")
 	}
 
 	// Stop all agent communicators
@@ -230,13 +231,13 @@ func (cm *CommunicationManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RegisterAgent registers an agent for communication
+// RegisterAgent registers an agent for communication.
 func (cm *CommunicationManager) RegisterAgent(agentID string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if !cm.started {
-		return fmt.Errorf("communication manager not started")
+		return errors.New("communication manager not started")
 	}
 
 	if _, exists := cm.agents[agentID]; exists {
@@ -272,7 +273,7 @@ func (cm *CommunicationManager) RegisterAgent(agentID string) error {
 	return nil
 }
 
-// UnregisterAgent unregisters an agent from communication
+// UnregisterAgent unregisters an agent from communication.
 func (cm *CommunicationManager) UnregisterAgent(agentID string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -297,10 +298,10 @@ func (cm *CommunicationManager) UnregisterAgent(agentID string) error {
 	return nil
 }
 
-// SendMessage sends a message from one agent to another
+// SendMessage sends a message from one agent to another.
 func (cm *CommunicationManager) SendMessage(ctx context.Context, message *AgentMessage) error {
 	if !cm.started {
-		return fmt.Errorf("communication manager not started")
+		return errors.New("communication manager not started")
 	}
 
 	// Validate message
@@ -312,12 +313,15 @@ func (cm *CommunicationManager) SendMessage(ctx context.Context, message *AgentM
 	if message.ID == "" {
 		message.ID = cm.generateMessageID()
 	}
+
 	if message.Timestamp.IsZero() {
 		message.Timestamp = time.Now()
 	}
+
 	if message.ExpiresAt.IsZero() {
 		message.ExpiresAt = time.Now().Add(cm.config.MessageTimeout)
 	}
+
 	if message.MaxRetries == 0 {
 		message.MaxRetries = cm.config.MaxRetries
 	}
@@ -350,25 +354,27 @@ func (cm *CommunicationManager) SendMessage(ctx context.Context, message *AgentM
 		return ctx.Err()
 
 	default:
-		return fmt.Errorf("message queue is full")
+		return errors.New("message queue is full")
 	}
 }
 
-// BroadcastMessage broadcasts a message to all registered agents
+// BroadcastMessage broadcasts a message to all registered agents.
 func (cm *CommunicationManager) BroadcastMessage(ctx context.Context, message *AgentMessage) error {
 	if !cm.started {
-		return fmt.Errorf("communication manager not started")
+		return errors.New("communication manager not started")
 	}
 
 	message.To = "" // Empty means broadcast
 
 	cm.mu.RLock()
+
 	agents := make([]string, 0, len(cm.agents))
 	for agentID := range cm.agents {
 		if agentID != message.From { // Don't send to sender
 			agents = append(agents, agentID)
 		}
 	}
+
 	cm.mu.RUnlock()
 
 	// Send to each agent
@@ -390,13 +396,13 @@ func (cm *CommunicationManager) BroadcastMessage(ctx context.Context, message *A
 	return nil
 }
 
-// SubscribeToMessages subscribes an agent to specific message types
+// SubscribeToMessages subscribes an agent to specific message types.
 func (cm *CommunicationManager) SubscribeToMessages(agentID string, messageTypes []string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if !cm.started {
-		return fmt.Errorf("communication manager not started")
+		return errors.New("communication manager not started")
 	}
 
 	if _, exists := cm.agents[agentID]; !exists {
@@ -415,7 +421,7 @@ func (cm *CommunicationManager) SubscribeToMessages(agentID string, messageTypes
 	return nil
 }
 
-// RegisterMessageHandler registers a global message handler
+// RegisterMessageHandler registers a global message handler.
 func (cm *CommunicationManager) RegisterMessageHandler(messageType MessageType, handler MessageHandler) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -431,7 +437,7 @@ func (cm *CommunicationManager) RegisterMessageHandler(messageType MessageType, 
 	return nil
 }
 
-// GetStats returns communication statistics
+// GetStats returns communication statistics.
 func (cm *CommunicationManager) GetStats() CommunicationStats {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
@@ -454,6 +460,7 @@ func (cm *CommunicationManager) messageWorker(ctx context.Context) {
 			if queuedMsg == nil {
 				return // Channel closed
 			}
+
 			cm.processQueuedMessage(ctx, queuedMsg)
 		}
 	}
@@ -469,6 +476,7 @@ func (cm *CommunicationManager) processQueuedMessage(ctx context.Context, queued
 				logger.String("message_id", message.ID),
 			)
 		}
+
 		return
 	}
 
@@ -489,9 +497,11 @@ func (cm *CommunicationManager) processQueuedMessage(ctx context.Context, queued
 				logger.String("target_agent", message.To),
 			)
 		}
+
 		cm.mu.Lock()
 		cm.stats.FailedMessages++
 		cm.mu.Unlock()
+
 		return
 	}
 
@@ -504,6 +514,7 @@ func (cm *CommunicationManager) processQueuedMessage(ctx context.Context, queued
 			// Retry after delay
 			go func() {
 				time.Sleep(cm.config.RetryDelay * time.Duration(queuedMsg.Retries))
+
 				select {
 				case cm.messageQueue <- queuedMsg:
 					cm.mu.Lock()
@@ -520,6 +531,7 @@ func (cm *CommunicationManager) processQueuedMessage(ctx context.Context, queued
 					logger.Error(err),
 				)
 			}
+
 			cm.mu.Lock()
 			cm.stats.FailedMessages++
 			cm.mu.Unlock()
@@ -550,6 +562,7 @@ func (cm *CommunicationManager) checkAgentHealth() {
 
 	for agentID, agent := range cm.agents {
 		agent.mu.Lock()
+
 		if now.Sub(agent.lastHeartbeat) > timeout {
 			if agent.isOnline {
 				agent.isOnline = false
@@ -563,6 +576,7 @@ func (cm *CommunicationManager) checkAgentHealth() {
 				}
 			}
 		}
+
 		agent.mu.Unlock()
 	}
 }
@@ -595,6 +609,7 @@ func (cm *CommunicationManager) updateStatistics() {
 	// Calculate average latency
 	totalLatency := time.Duration(0)
 	totalMessages := int64(0)
+
 	for _, agentStats := range cm.stats.AgentStats {
 		if agentStats.MessagesSent > 0 {
 			totalLatency += agentStats.AverageLatency * time.Duration(agentStats.MessagesSent)
@@ -611,16 +626,19 @@ func (cm *CommunicationManager) updateStatistics() {
 
 func (cm *CommunicationManager) validateMessage(message *AgentMessage) error {
 	if message == nil {
-		return fmt.Errorf("message is nil")
+		return errors.New("message is nil")
 	}
+
 	if message.From == "" {
-		return fmt.Errorf("message sender is required")
+		return errors.New("message sender is required")
 	}
+
 	if message.Type == "" {
-		return fmt.Errorf("message type is required")
+		return errors.New("message type is required")
 	}
+
 	if message.Subject == "" {
-		return fmt.Errorf("message subject is required")
+		return errors.New("message subject is required")
 	}
 
 	// Validate message size
@@ -657,7 +675,7 @@ func (ac *AgentCommunicator) deliverMessage(ctx context.Context, message *AgentM
 		return ctx.Err()
 
 	default:
-		return fmt.Errorf("agent message buffer is full")
+		return errors.New("agent message buffer is full")
 	}
 }
 
@@ -677,6 +695,7 @@ func (ac *AgentCommunicator) handleMessage(message *AgentMessage) {
 		ac.isOnline = true
 		ac.stats.IsOnline = true
 		ac.mu.Unlock()
+
 		return
 	}
 
@@ -685,17 +704,21 @@ func (ac *AgentCommunicator) handleMessage(message *AgentMessage) {
 
 	// Check agent-specific handlers first
 	ac.mu.RLock()
+
 	if h, exists := ac.handlers[message.Type]; exists {
 		handler = h
 	}
+
 	ac.mu.RUnlock()
 
 	// Fall back to global handlers
 	if handler == nil {
 		ac.manager.mu.RLock()
+
 		if h, exists := ac.manager.handlers[message.Type]; exists {
 			handler = h
 		}
+
 		ac.manager.mu.RUnlock()
 	}
 
@@ -707,6 +730,7 @@ func (ac *AgentCommunicator) handleMessage(message *AgentMessage) {
 				logger.String("message_id", message.ID),
 			)
 		}
+
 		return
 	}
 
@@ -716,11 +740,14 @@ func (ac *AgentCommunicator) handleMessage(message *AgentMessage) {
 
 	// Update statistics
 	latency := time.Since(startTime)
+
 	ac.mu.Lock()
+
 	ac.stats.AverageLatency = (ac.stats.AverageLatency + latency) / 2
 	if err != nil {
 		ac.stats.FailureCount++
 	}
+
 	ac.mu.Unlock()
 
 	if err != nil {
@@ -731,6 +758,7 @@ func (ac *AgentCommunicator) handleMessage(message *AgentMessage) {
 				logger.Error(err),
 			)
 		}
+
 		return
 	}
 
@@ -764,6 +792,7 @@ func (ac *AgentCommunicator) handleMessage(message *AgentMessage) {
 func (ac *AgentCommunicator) registerHandler(messageType MessageType, handler MessageHandler) {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
+
 	ac.handlers[messageType] = handler
 }
 
@@ -771,13 +800,13 @@ func (ac *AgentCommunicator) stop() {
 	close(ac.messageBuffer)
 }
 
-// SendHeartbeat sends a heartbeat message
+// SendHeartbeat sends a heartbeat message.
 func (ac *AgentCommunicator) SendHeartbeat(ctx context.Context) error {
 	heartbeat := &AgentMessage{
 		Type:      MessageTypeHeartbeat,
 		From:      ac.agentID,
 		Subject:   "heartbeat",
-		Payload:   map[string]interface{}{"timestamp": time.Now()},
+		Payload:   map[string]any{"timestamp": time.Now()},
 		Priority:  MessagePriorityLow,
 		Timestamp: time.Now(),
 	}
@@ -787,8 +816,8 @@ func (ac *AgentCommunicator) SendHeartbeat(ctx context.Context) error {
 
 // Utility functions for creating common message types
 
-// CreateRequestMessage creates a request message
-func CreateRequestMessage(from, to, subject string, payload interface{}) *AgentMessage {
+// CreateRequestMessage creates a request message.
+func CreateRequestMessage(from, to, subject string, payload any) *AgentMessage {
 	return &AgentMessage{
 		Type:     MessageTypeRequest,
 		From:     from,
@@ -796,12 +825,12 @@ func CreateRequestMessage(from, to, subject string, payload interface{}) *AgentM
 		Subject:  subject,
 		Payload:  payload,
 		Priority: MessagePriorityNormal,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 }
 
-// CreateBroadcastMessage creates a broadcast message
-func CreateBroadcastMessage(from, subject string, payload interface{}) *AgentMessage {
+// CreateBroadcastMessage creates a broadcast message.
+func CreateBroadcastMessage(from, subject string, payload any) *AgentMessage {
 	return &AgentMessage{
 		Type:     MessageTypeBroadcast,
 		From:     from,
@@ -809,24 +838,24 @@ func CreateBroadcastMessage(from, subject string, payload interface{}) *AgentMes
 		Subject:  subject,
 		Payload:  payload,
 		Priority: MessagePriorityNormal,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 }
 
-// CreateAlertMessage creates an alert message
-func CreateAlertMessage(from, subject string, payload interface{}) *AgentMessage {
+// CreateAlertMessage creates an alert message.
+func CreateAlertMessage(from, subject string, payload any) *AgentMessage {
 	return &AgentMessage{
 		Type:     MessageTypeAlert,
 		From:     from,
 		Subject:  subject,
 		Payload:  payload,
 		Priority: MessagePrityCritical,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 }
 
-// CreateCommandMessage creates a command message
-func CreateCommandMessage(from, to, command string, parameters map[string]interface{}) *AgentMessage {
+// CreateCommandMessage creates a command message.
+func CreateCommandMessage(from, to, command string, parameters map[string]any) *AgentMessage {
 	return &AgentMessage{
 		Type:     MessageTypeCommand,
 		From:     from,
@@ -834,6 +863,6 @@ func CreateCommandMessage(from, to, command string, parameters map[string]interf
 		Subject:  command,
 		Payload:  parameters,
 		Priority: MessagePriorityHigh,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 }

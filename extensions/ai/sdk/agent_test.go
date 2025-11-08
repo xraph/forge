@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/sdk/testhelpers"
 )
 
-// Mock StateStore
+// Mock StateStore.
 type MockStateStore struct {
 	SaveFunc   func(ctx context.Context, state *AgentState) error
 	LoadFunc   func(ctx context.Context, agentID, sessionID string) (*AgentState, error)
@@ -22,6 +22,7 @@ func (m *MockStateStore) Save(ctx context.Context, state *AgentState) error {
 	if m.SaveFunc != nil {
 		return m.SaveFunc(ctx, state)
 	}
+
 	return nil
 }
 
@@ -29,6 +30,7 @@ func (m *MockStateStore) Load(ctx context.Context, agentID, sessionID string) (*
 	if m.LoadFunc != nil {
 		return m.LoadFunc(ctx, agentID, sessionID)
 	}
+
 	return nil, errors.New("not found")
 }
 
@@ -36,6 +38,7 @@ func (m *MockStateStore) Delete(ctx context.Context, agentID, sessionID string) 
 	if m.DeleteFunc != nil {
 		return m.DeleteFunc(ctx, agentID, sessionID)
 	}
+
 	return nil
 }
 
@@ -43,6 +46,7 @@ func (m *MockStateStore) List(ctx context.Context, agentID string) ([]string, er
 	if m.ListFunc != nil {
 		return m.ListFunc(ctx, agentID)
 	}
+
 	return []string{}, nil
 }
 
@@ -53,7 +57,6 @@ func TestNewAgent(t *testing.T) {
 	metrics := testhelpers.NewMockMetrics()
 
 	agent, err := NewAgent("agent-1", "Test Agent", llmManager, stateStore, logger, metrics, nil)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -87,7 +90,6 @@ func TestNewAgent_WithOptions(t *testing.T) {
 	}
 
 	agent, err := NewAgent("agent-1", "Test Agent", llmManager, stateStore, nil, nil, opts)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -153,6 +155,7 @@ func TestAgent_GetState(t *testing.T) {
 
 	// Verify it's a copy (not a reference)
 	state.Data["test"] = "modified"
+
 	originalVal, _ := agent.GetStateData("test")
 	if originalVal == "modified" {
 		t.Error("state should be a copy, not a reference")
@@ -161,12 +164,14 @@ func TestAgent_GetState(t *testing.T) {
 
 func TestAgent_SaveState(t *testing.T) {
 	saveCalled := false
+
 	var savedState *AgentState
 
 	stateStore := &MockStateStore{
 		SaveFunc: func(ctx context.Context, state *AgentState) error {
 			saveCalled = true
 			savedState = state
+
 			return nil
 		},
 	}
@@ -177,7 +182,6 @@ func TestAgent_SaveState(t *testing.T) {
 	initialVersion := agent.state.Version
 
 	err := agent.SaveState(context.Background())
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -205,7 +209,6 @@ func TestAgent_SaveState_Error(t *testing.T) {
 	agent, _ := NewAgent("agent-1", "Test", &testhelpers.MockLLMManager{}, stateStore, nil, nil, nil)
 
 	err := agent.SaveState(context.Background())
-
 	if err == nil {
 		t.Error("expected error from save")
 	}
@@ -220,11 +223,11 @@ func TestAgent_LoadState(t *testing.T) {
 		AgentID:   "agent-1",
 		SessionID: "session-123",
 		Version:   5,
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"loaded": "data",
 		},
 		History:   []AgentMessage{{Role: "user", Content: "Hello"}},
-		Context:   make(map[string]interface{}),
+		Context:   make(map[string]any),
 		CreatedAt: time.Now().Add(-1 * time.Hour),
 		UpdatedAt: time.Now(),
 	}
@@ -234,6 +237,7 @@ func TestAgent_LoadState(t *testing.T) {
 			if agentID == "agent-1" && sessionID == "session-123" {
 				return existingState, nil
 			}
+
 			return nil, errors.New("not found")
 		},
 	}
@@ -241,7 +245,6 @@ func TestAgent_LoadState(t *testing.T) {
 	agent, _ := NewAgent("agent-1", "Test", &testhelpers.MockLLMManager{}, stateStore, nil, nil, nil)
 
 	err := agent.LoadState(context.Background(), "session-123")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -270,7 +273,6 @@ func TestAgent_LoadState_NotFound(t *testing.T) {
 	agent, _ := NewAgent("agent-1", "Test", &testhelpers.MockLLMManager{}, stateStore, nil, nil, nil)
 
 	err := agent.LoadState(context.Background(), "nonexistent")
-
 	if err == nil {
 		t.Error("expected error when state not found")
 	}
@@ -377,20 +379,25 @@ func TestAgent_GetSessionID(t *testing.T) {
 
 func TestAgent_Callbacks(t *testing.T) {
 	startCalled := false
-	var messagesReceived []AgentMessage
-	var toolsCalled []string
+
+	var (
+		messagesReceived []AgentMessage
+		toolsCalled      []string
+	)
+
 	iterationCount := 0
 	completeCalled := false
 
 	callbacks := AgentCallbacks{
 		OnStart: func(ctx context.Context) error {
 			startCalled = true
+
 			return nil
 		},
 		OnMessage: func(msg AgentMessage) {
 			messagesReceived = append(messagesReceived, msg)
 		},
-		OnToolCall: func(name string, args map[string]interface{}) {
+		OnToolCall: func(name string, args map[string]any) {
 			toolsCalled = append(toolsCalled, name)
 		},
 		OnIteration: func(iteration int) {
@@ -486,6 +493,7 @@ func TestAgent_BuildMessages_NoSystemPrompt(t *testing.T) {
 
 func TestAgent_AddToHistory(t *testing.T) {
 	messageCalled := false
+
 	var receivedMessage AgentMessage
 
 	callbacks := AgentCallbacks{
@@ -506,7 +514,6 @@ func TestAgent_AddToHistory(t *testing.T) {
 	}
 
 	err := agent.addToHistory(msg)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -532,18 +539,20 @@ func TestAgent_ThreadSafety(t *testing.T) {
 
 	// Writer goroutine
 	go func() {
-		for i := 0; i < 100; i++ {
+		for i := range 100 {
 			agent.SetStateData("key", i)
 		}
+
 		done <- true
 	}()
 
 	// Reader goroutine
 	go func() {
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			agent.GetStateData("key")
 			agent.GetState()
 		}
+
 		done <- true
 	}()
 
@@ -559,7 +568,7 @@ func TestNewAgent_WithExistingState(t *testing.T) {
 		AgentID:   "agent-1",
 		SessionID: "existing-session",
 		Version:   3,
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"previous": "data",
 		},
 		History:   []AgentMessage{{Role: "user", Content: "Previous message"}},
@@ -572,6 +581,7 @@ func TestNewAgent_WithExistingState(t *testing.T) {
 			if sessionID == "existing-session" {
 				return existingState, nil
 			}
+
 			return nil, errors.New("not found")
 		},
 	}
@@ -581,7 +591,6 @@ func TestNewAgent_WithExistingState(t *testing.T) {
 	}
 
 	agent, err := NewAgent("agent-1", "Test", &testhelpers.MockLLMManager{}, stateStore, nil, nil, opts)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -599,4 +608,3 @@ func TestNewAgent_WithExistingState(t *testing.T) {
 		t.Error("expected history to be loaded")
 	}
 }
-

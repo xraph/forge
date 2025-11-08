@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// PeerConnection represents a WebRTC peer connection
+// PeerConnection represents a WebRTC peer connection.
 type PeerConnection interface {
 	// ID returns the peer connection ID
 	ID() string
@@ -59,7 +59,7 @@ type PeerConnection interface {
 	OnDataChannel(handler DataChannelHandler)
 }
 
-// MediaTrack represents a media track (audio/video)
+// MediaTrack represents a media track (audio/video).
 type MediaTrack interface {
 	// ID returns the track ID
 	ID() string
@@ -86,7 +86,7 @@ type MediaTrack interface {
 	Close() error
 }
 
-// DataChannel represents a WebRTC data channel
+// DataChannel represents a WebRTC data channel.
 type DataChannel interface {
 	// ID returns channel ID
 	ID() string
@@ -116,7 +116,7 @@ type DataChannel interface {
 	Close() error
 }
 
-// SignalingManager handles WebRTC signaling via streaming
+// SignalingManager handles WebRTC signaling via streaming.
 type SignalingManager interface {
 	// SendOffer sends SDP offer to peer
 	SendOffer(ctx context.Context, roomID, peerID string, offer *SessionDescription) error
@@ -143,7 +143,7 @@ type SignalingManager interface {
 	Stop(ctx context.Context) error
 }
 
-// CallRoom represents a WebRTC call room
+// CallRoom represents a WebRTC call room.
 type CallRoom interface {
 	// ID returns room ID
 	ID() string
@@ -191,7 +191,7 @@ type CallRoom interface {
 	Close(ctx context.Context) error
 }
 
-// SFURouter handles media routing in SFU mode
+// SFURouter handles media routing in SFU mode.
 type SFURouter interface {
 	// RouteTrack routes a track from sender to receivers
 	RouteTrack(ctx context.Context, senderID string, track MediaTrack, receiverIDs []string) error
@@ -233,7 +233,7 @@ type SFURouter interface {
 	GetAvailableTracks() []TrackInfo
 }
 
-// Recorder handles call recording
+// Recorder handles call recording.
 type Recorder interface {
 	// Start starts recording
 	Start(ctx context.Context, roomID string, options *RecordingOptions) error
@@ -251,7 +251,7 @@ type Recorder interface {
 	GetStatus(roomID string) (*RecordingStatus, error)
 }
 
-// QualityMonitor monitors connection quality
+// QualityMonitor monitors connection quality.
 type QualityMonitor interface {
 	// Monitor starts monitoring peer connection
 	Monitor(ctx context.Context, peer PeerConnection) error
@@ -266,7 +266,7 @@ type QualityMonitor interface {
 	OnQualityChange(handler QualityChangeHandler)
 }
 
-// Callback handlers
+// Callback handlers.
 type (
 	ICECandidateHandler         func(candidate *ICECandidate)
 	TrackHandler                func(track MediaTrack, receiver *TrackReceiver)
@@ -282,13 +282,13 @@ type (
 
 // Types
 
-// SessionDescription represents SDP
+// SessionDescription represents SDP.
 type SessionDescription struct {
 	Type SessionDescriptionType
 	SDP  string
 }
 
-// SessionDescriptionType is the type of SDP
+// SessionDescriptionType is the type of SDP.
 type SessionDescriptionType string
 
 const (
@@ -296,7 +296,7 @@ const (
 	SessionDescriptionTypeAnswer SessionDescriptionType = "answer"
 )
 
-// ICECandidate represents an ICE candidate
+// ICECandidate represents an ICE candidate.
 type ICECandidate struct {
 	Candidate        string
 	SDPMid           string
@@ -304,14 +304,14 @@ type ICECandidate struct {
 	UsernameFragment string
 }
 
-// ICEServer represents a STUN/TURN server
+// ICEServer represents a STUN/TURN server.
 type ICEServer struct {
 	URLs       []string
 	Username   string
 	Credential string
 }
 
-// ConnectionState represents peer connection state
+// ConnectionState represents peer connection state.
 type ConnectionState string
 
 const (
@@ -323,7 +323,7 @@ const (
 	ConnectionStateClosed       ConnectionState = "closed"
 )
 
-// DataChannelState represents data channel state
+// DataChannelState represents data channel state.
 type DataChannelState string
 
 const (
@@ -333,7 +333,7 @@ const (
 	DataChannelStateClosed     DataChannelState = "closed"
 )
 
-// TrackKind represents track type
+// TrackKind represents track type.
 type TrackKind string
 
 const (
@@ -341,7 +341,7 @@ const (
 	TrackKindVideo TrackKind = "video"
 )
 
-// TrackSettings represents track settings
+// TrackSettings represents track settings.
 type TrackSettings struct {
 	Width      int
 	Height     int
@@ -351,7 +351,7 @@ type TrackSettings struct {
 	Channels   int
 }
 
-// Participant represents a call participant
+// Participant represents a call participant.
 type Participant struct {
 	UserID        string
 	DisplayName   string
@@ -362,7 +362,7 @@ type Participant struct {
 	JoinedAt      time.Time
 }
 
-// JoinOptions holds options for joining a call
+// JoinOptions holds options for joining a call.
 type JoinOptions struct {
 	AudioEnabled bool
 	VideoEnabled bool
@@ -370,7 +370,7 @@ type JoinOptions struct {
 	Metadata     map[string]any
 }
 
-// RecordingOptions holds recording options
+// RecordingOptions holds recording options.
 type RecordingOptions struct {
 	Format      string // "webm", "mp4"
 	VideoCodec  string
@@ -379,7 +379,7 @@ type RecordingOptions struct {
 	IncludeChat bool
 }
 
-// RecordingStatus represents recording status
+// RecordingStatus represents recording status.
 type RecordingStatus struct {
 	RoomID     string
 	Recording  bool
@@ -390,7 +390,7 @@ type RecordingStatus struct {
 	OutputPath string
 }
 
-// TrackReceiver receives a track
+// TrackReceiver receives a track.
 type TrackReceiver struct {
 	TrackID  string
 	PeerID   string
@@ -400,7 +400,7 @@ type TrackReceiver struct {
 
 // Stats types
 
-// PeerStats holds peer connection statistics
+// PeerStats holds peer connection statistics.
 type PeerStats struct {
 	PeerID              string
 	ConnectionState     ConnectionState
@@ -416,7 +416,7 @@ type PeerStats struct {
 	AvailableBitrate    int
 }
 
-// TrackStats holds media track statistics
+// TrackStats holds media track statistics.
 type TrackStats struct {
 	TrackID         string
 	Kind            TrackKind
@@ -430,7 +430,7 @@ type TrackStats struct {
 	Jitter          time.Duration
 }
 
-// RouterStats holds SFU router statistics
+// RouterStats holds SFU router statistics.
 type RouterStats struct {
 	TotalTracks        int
 	ActiveReceivers    int
@@ -439,7 +439,7 @@ type RouterStats struct {
 	AverageBitrate     int
 }
 
-// CallQuality holds overall call quality metrics
+// CallQuality holds overall call quality metrics.
 type CallQuality struct {
 	RoomID           string
 	ParticipantCount int
@@ -450,7 +450,7 @@ type CallQuality struct {
 	Participants     map[string]*ConnectionQuality
 }
 
-// ConnectionQuality holds connection quality metrics
+// ConnectionQuality holds connection quality metrics.
 type ConnectionQuality struct {
 	Score       float64 // 0-100
 	PacketLoss  float64 // Percentage
@@ -461,7 +461,7 @@ type ConnectionQuality struct {
 	LastUpdated time.Time
 }
 
-// SimulcastLayer represents a simulcast layer
+// SimulcastLayer represents a simulcast layer.
 type SimulcastLayer struct {
 	RID     string
 	Active  bool
@@ -470,7 +470,7 @@ type SimulcastLayer struct {
 	Bitrate int
 }
 
-// SFUStats holds SFU router statistics
+// SFUStats holds SFU router statistics.
 type SFUStats struct {
 	TotalTracks        int
 	ActiveReceivers    int
@@ -480,7 +480,7 @@ type SFUStats struct {
 	Timestamp          time.Time
 }
 
-// RecordOptions holds recording configuration options
+// RecordOptions holds recording configuration options.
 type RecordOptions struct {
 	Format      string
 	Quality     string
@@ -489,7 +489,7 @@ type RecordOptions struct {
 	MaxDuration time.Duration
 }
 
-// RecordingStats holds recording statistics
+// RecordingStats holds recording statistics.
 type RecordingStats struct {
 	Duration    time.Duration
 	FileSize    uint64

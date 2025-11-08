@@ -12,7 +12,7 @@ import (
 type Logger = logger.Logger
 
 // ForgeError type alias to preserve references via common.ForgeError
-// Allows type assertions like err.(*common.ForgeError)
+// Allows type assertions like err.(*common.ForgeError).
 type ForgeError = ferrors.ForgeError
 
 // Error constructor compatibility wrappers
@@ -54,7 +54,7 @@ func ErrContextCancelled(operation string) *ferrors.ForgeError {
 	return ferrors.ErrContextCancelled(operation)
 }
 
-// ErrServiceStopFailed preserves compatibility; map to lifecycle stop error
+// ErrServiceStopFailed preserves compatibility; map to lifecycle stop error.
 func ErrServiceStopFailed(serviceName string, cause error) *ferrors.ForgeError {
 	return ferrors.ErrLifecycleError("stop:"+serviceName, cause)
 }

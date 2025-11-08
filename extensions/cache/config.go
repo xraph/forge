@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Config configures the cache extension
+// Config configures the cache extension.
 type Config struct {
 	// Driver specifies the cache backend: "inmemory", "redis", "memcached"
 	Driver string
@@ -56,7 +56,7 @@ type Config struct {
 	RequireConfig bool
 }
 
-// DefaultConfig returns a default configuration for in-memory cache
+// DefaultConfig returns a default configuration for in-memory cache.
 func DefaultConfig() Config {
 	return Config{
 		Driver:             "inmemory",
@@ -73,66 +73,66 @@ func DefaultConfig() Config {
 	}
 }
 
-// ConfigOption is a functional option for configuring the cache extension
+// ConfigOption is a functional option for configuring the cache extension.
 type ConfigOption func(*Config)
 
-// WithDriver sets the cache driver
+// WithDriver sets the cache driver.
 func WithDriver(driver string) ConfigOption {
 	return func(c *Config) {
 		c.Driver = driver
 	}
 }
 
-// WithURL sets the cache URL
+// WithURL sets the cache URL.
 func WithURL(url string) ConfigOption {
 	return func(c *Config) {
 		c.URL = url
 	}
 }
 
-// WithDefaultTTL sets the default TTL
+// WithDefaultTTL sets the default TTL.
 func WithDefaultTTL(ttl time.Duration) ConfigOption {
 	return func(c *Config) {
 		c.DefaultTTL = ttl
 	}
 }
 
-// WithMaxSize sets the maximum cache size (in-memory only)
+// WithMaxSize sets the maximum cache size (in-memory only).
 func WithMaxSize(size int) ConfigOption {
 	return func(c *Config) {
 		c.MaxSize = size
 	}
 }
 
-// WithPrefix sets the key prefix
+// WithPrefix sets the key prefix.
 func WithPrefix(prefix string) ConfigOption {
 	return func(c *Config) {
 		c.Prefix = prefix
 	}
 }
 
-// WithConnectionPoolSize sets the connection pool size
+// WithConnectionPoolSize sets the connection pool size.
 func WithConnectionPoolSize(size int) ConfigOption {
 	return func(c *Config) {
 		c.ConnectionPoolSize = size
 	}
 }
 
-// WithRequireConfig sets whether config is required from ConfigManager
+// WithRequireConfig sets whether config is required from ConfigManager.
 func WithRequireConfig(require bool) ConfigOption {
 	return func(c *Config) {
 		c.RequireConfig = require
 	}
 }
 
-// WithConfig applies a complete config
+// WithConfig applies a complete config.
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) {
 		*c = config
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c Config) Validate() error {
 	if c.Driver == "" {
 		return errors.New("cache driver cannot be empty")

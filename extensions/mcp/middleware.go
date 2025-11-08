@@ -9,13 +9,14 @@ import (
 	"github.com/xraph/forge"
 )
 
-// AuthMiddleware creates middleware for MCP authentication
+// AuthMiddleware creates middleware for MCP authentication.
 func AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Skip if auth not required
 			if !config.RequireAuth {
 				next.ServeHTTP(w, r)
+
 				return
 			}
 
@@ -24,6 +25,7 @@ func AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware {
 			if authHeader == "" {
 				logger.Warn("mcp: missing auth header", forge.F("path", r.URL.Path))
 				http.Error(w, "Unauthorized: missing authentication", http.StatusUnauthorized)
+
 				return
 			}
 
@@ -35,9 +37,11 @@ func AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware {
 
 			// Validate token
 			valid := false
+
 			for _, validToken := range config.AuthTokens {
 				if token == validToken {
 					valid = true
+
 					break
 				}
 			}
@@ -45,6 +49,7 @@ func AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware {
 			if !valid {
 				logger.Warn("mcp: invalid auth token", forge.F("path", r.URL.Path))
 				http.Error(w, "Unauthorized: invalid token", http.StatusUnauthorized)
+
 				return
 			}
 
@@ -54,7 +59,7 @@ func AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware {
 	}
 }
 
-// RateLimiter tracks request rates
+// RateLimiter tracks request rates.
 type RateLimiter struct {
 	config    Config
 	logger    forge.Logger
@@ -68,7 +73,7 @@ type requestInfo struct {
 	resetTime time.Time
 }
 
-// NewRateLimiter creates a new rate limiter
+// NewRateLimiter creates a new rate limiter.
 func NewRateLimiter(config Config, logger forge.Logger) *RateLimiter {
 	rl := &RateLimiter{
 		config:    config,
@@ -83,7 +88,7 @@ func NewRateLimiter(config Config, logger forge.Logger) *RateLimiter {
 	return rl
 }
 
-// RateLimitMiddleware creates middleware for rate limiting
+// RateLimitMiddleware creates middleware for rate limiting.
 func RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metrics) forge.PureMiddleware {
 	// Skip if rate limiting not configured
 	if config.RateLimitPerMinute <= 0 {
@@ -110,18 +115,19 @@ func RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metri
 					metrics.Counter("mcp_rate_limit_exceeded_total").Inc()
 				}
 
-				w.Header().Set("X-RateLimit-Limit", string(rune(config.RateLimitPerMinute)))
+				w.Header().Set("X-Ratelimit-Limit", string(rune(config.RateLimitPerMinute)))
 				w.Header().Set("Retry-After", "60")
 				http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+
 				return
 			}
 
 			// Set rate limit headers
 			info := limiter.GetInfo(clientID)
 			if info != nil {
-				w.Header().Set("X-RateLimit-Limit", string(rune(config.RateLimitPerMinute)))
-				w.Header().Set("X-RateLimit-Remaining", string(rune(config.RateLimitPerMinute-info.count)))
-				w.Header().Set("X-RateLimit-Reset", string(rune(info.resetTime.Unix())))
+				w.Header().Set("X-Ratelimit-Limit", string(rune(config.RateLimitPerMinute)))
+				w.Header().Set("X-Ratelimit-Remaining", string(rune(config.RateLimitPerMinute-info.count)))
+				w.Header().Set("X-Ratelimit-Reset", string(rune(info.resetTime.Unix())))
 			}
 
 			next.ServeHTTP(w, r)
@@ -129,7 +135,7 @@ func RateLimitMiddleware(config Config, logger forge.Logger, metrics forge.Metri
 	}
 }
 
-// Allow checks if a request is allowed
+// Allow checks if a request is allowed.
 func (rl *RateLimiter) Allow(clientID string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
@@ -144,6 +150,7 @@ func (rl *RateLimiter) Allow(clientID string) bool {
 			count:     1,
 			resetTime: now.Add(time.Minute),
 		}
+
 		return true
 	}
 
@@ -154,10 +161,11 @@ func (rl *RateLimiter) Allow(clientID string) bool {
 
 	// Increment counter
 	info.count++
+
 	return true
 }
 
-// GetInfo returns rate limit info for a client
+// GetInfo returns rate limit info for a client.
 func (rl *RateLimiter) GetInfo(clientID string) *requestInfo {
 	rl.mu.RLock()
 	defer rl.mu.RUnlock()
@@ -165,7 +173,7 @@ func (rl *RateLimiter) GetInfo(clientID string) *requestInfo {
 	return rl.requests[clientID]
 }
 
-// cleanup periodically removes expired entries
+// cleanup periodically removes expired entries.
 func (rl *RateLimiter) cleanup() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
@@ -174,12 +182,14 @@ func (rl *RateLimiter) cleanup() {
 		select {
 		case <-ticker.C:
 			rl.mu.Lock()
+
 			now := time.Now()
 			for clientID, info := range rl.requests {
 				if now.After(info.resetTime) {
 					delete(rl.requests, clientID)
 				}
 			}
+
 			rl.mu.Unlock()
 		case <-rl.cleanupCh:
 			return
@@ -187,12 +197,12 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// Stop stops the rate limiter cleanup goroutine
+// Stop stops the rate limiter cleanup goroutine.
 func (rl *RateLimiter) Stop() {
 	close(rl.cleanupCh)
 }
 
-// getClientID extracts a client identifier from the request
+// getClientID extracts a client identifier from the request.
 func getClientID(r *http.Request, config Config) string {
 	// Try auth token first (more stable than IP)
 	if config.RequireAuth {
@@ -202,6 +212,7 @@ func getClientID(r *http.Request, config Config) string {
 			if strings.HasPrefix(authHeader, "Bearer ") {
 				token = strings.TrimPrefix(authHeader, "Bearer ")
 			}
+
 			return "token:" + token
 		}
 	}
@@ -211,5 +222,6 @@ func getClientID(r *http.Request, config Config) string {
 	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
 		ip = strings.Split(forwarded, ",")[0]
 	}
+
 	return "ip:" + ip
 }

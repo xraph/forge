@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// qualityMonitor implements QualityMonitor for connection quality tracking
+// qualityMonitor implements QualityMonitor for connection quality tracking.
 type qualityMonitor struct {
 	peerID  string
 	peer    PeerConnection
@@ -37,7 +37,7 @@ type qualityMonitor struct {
 	mu sync.RWMutex
 }
 
-// QualitySample represents a quality measurement at a point in time
+// QualitySample represents a quality measurement at a point in time.
 type QualitySample struct {
 	Timestamp        time.Time
 	PacketLoss       float64
@@ -49,7 +49,7 @@ type QualitySample struct {
 
 // QualityConfig is defined in config.go
 
-// DefaultQualityConfig returns default quality monitoring configuration
+// DefaultQualityConfig returns default quality monitoring configuration.
 func DefaultQualityConfig() QualityConfig {
 	return QualityConfig{
 		MonitorEnabled:       true,
@@ -62,7 +62,7 @@ func DefaultQualityConfig() QualityConfig {
 	}
 }
 
-// NewQualityMonitor creates a new quality monitor
+// NewQualityMonitor creates a new quality monitor.
 func NewQualityMonitor(peerID string, peer PeerConnection, config QualityConfig, logger forge.Logger, metrics forge.Metrics) QualityMonitor {
 	return &qualityMonitor{
 		peerID:  peerID,
@@ -85,19 +85,20 @@ func NewQualityMonitor(peerID string, peer PeerConnection, config QualityConfig,
 	}
 }
 
-// Start begins quality monitoring
+// Start begins quality monitoring.
 func (q *qualityMonitor) Start(ctx context.Context) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	if q.running {
-		return fmt.Errorf("quality monitor already running")
+		return errors.New("quality monitor already running")
 	}
 
 	// Check if monitoring is enabled
 	if !q.config.MonitorEnabled {
 		q.logger.Debug("quality monitor disabled, not starting",
 			forge.F("peer_id", q.peerID))
+
 		return nil
 	}
 
@@ -115,7 +116,7 @@ func (q *qualityMonitor) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops quality monitoring
+// Stop stops quality monitoring.
 func (q *qualityMonitor) Stop(peerID string) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -133,6 +134,7 @@ func (q *qualityMonitor) Stop(peerID string) {
 	if q.sampleTicker != nil {
 		q.sampleTicker.Stop()
 	}
+
 	select {
 	case <-q.stopCh:
 		// Channel already closed
@@ -143,20 +145,21 @@ func (q *qualityMonitor) Stop(peerID string) {
 	q.logger.Debug("stopped quality monitor", forge.F("peer_id", q.peerID))
 }
 
-// Monitor starts monitoring a peer connection
+// Monitor starts monitoring a peer connection.
 func (q *qualityMonitor) Monitor(ctx context.Context, peer PeerConnection) error {
 	// Start monitoring the peer
 	return q.Start(ctx)
 }
 
-// OnQualityChange sets quality change callback
+// OnQualityChange sets quality change callback.
 func (q *qualityMonitor) OnQualityChange(handler QualityChangeHandler) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
+
 	q.qualityHandler = handler
 }
 
-// GetQuality returns current connection quality
+// GetQuality returns current connection quality.
 func (q *qualityMonitor) GetQuality(peerID string) (*ConnectionQuality, error) {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -176,10 +179,11 @@ func (q *qualityMonitor) GetQuality(peerID string) (*ConnectionQuality, error) {
 		Warnings:    append([]string{}, q.currentQuality.Warnings...),
 		LastUpdated: q.currentQuality.LastUpdated,
 	}
+
 	return &quality, nil
 }
 
-// GetHistory returns quality history
+// GetHistory returns quality history.
 func (q *qualityMonitor) GetHistory(ctx context.Context, duration time.Duration) ([]QualitySample, error) {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -196,17 +200,17 @@ func (q *qualityMonitor) GetHistory(ctx context.Context, duration time.Duration)
 	return samples, nil
 }
 
-// monitorLoop runs the quality monitoring loop
+// monitorLoop runs the quality monitoring loop.
 func (q *qualityMonitor) monitorLoop(ctx context.Context) {
 	// Get the ticker channel under read lock to avoid race condition
 	q.mu.RLock()
 	ticker := q.sampleTicker
 	q.mu.RUnlock()
-	
+
 	if ticker == nil {
 		return
 	}
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -224,7 +228,7 @@ func (q *qualityMonitor) monitorLoop(ctx context.Context) {
 	}
 }
 
-// collectSample collects a quality measurement sample
+// collectSample collects a quality measurement sample.
 func (q *qualityMonitor) collectSample(ctx context.Context) error {
 	// Get stats from peer connection
 	stats, err := q.peer.GetStats(ctx)
@@ -271,10 +275,11 @@ func (q *qualityMonitor) collectSample(ctx context.Context) error {
 	return nil
 }
 
-// calculateSample calculates quality metrics from peer stats
+// calculateSample calculates quality metrics from peer stats.
 func (q *qualityMonitor) calculateSample(stats *PeerStats) QualitySample {
 	// Calculate packet loss
 	var packetLoss float64
+
 	totalPackets := stats.PacketsSent + stats.PacketsReceived
 	if totalPackets > 0 {
 		// This is a simplified calculation
@@ -297,7 +302,7 @@ func (q *qualityMonitor) calculateSample(stats *PeerStats) QualitySample {
 	return sample
 }
 
-// assessQuality calculates a quality score from a sample
+// assessQuality calculates a quality score from a sample.
 func (q *qualityMonitor) assessQuality(sample QualitySample) *ConnectionQuality {
 	score := 100
 
@@ -332,6 +337,7 @@ func (q *qualityMonitor) assessQuality(sample QualitySample) *ConnectionQuality 
 	if score < 0 {
 		score = 0
 	}
+
 	if score > 100 {
 		score = 100
 	}
@@ -347,7 +353,7 @@ func (q *qualityMonitor) assessQuality(sample QualitySample) *ConnectionQuality 
 	}
 }
 
-// GetRecommendedLayer returns recommended simulcast layer based on quality
+// GetRecommendedLayer returns recommended simulcast layer based on quality.
 func (q *qualityMonitor) GetRecommendedLayer(peerID string) (int, error) {
 	quality, err := q.GetQuality(peerID)
 	if err != nil {
@@ -360,5 +366,6 @@ func (q *qualityMonitor) GetRecommendedLayer(peerID string) (int, error) {
 	} else if quality.Score >= 50 {
 		return 1, nil // Medium quality
 	}
+
 	return 0, nil // Low quality
 }

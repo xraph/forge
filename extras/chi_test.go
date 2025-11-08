@@ -12,13 +12,13 @@ func TestChiAdapter_BasicRoute(t *testing.T) {
 	adapter := NewChiAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
 	adapter.Handle("GET", "/test", handler)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -31,13 +31,13 @@ func TestChiAdapter_PathParams(t *testing.T) {
 	adapter := NewChiAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
 
 	adapter.Handle("GET", "/users/:id", handler)
 
-	req := httptest.NewRequest("GET", "/users/123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/users/123", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)
@@ -49,13 +49,13 @@ func TestChiAdapter_Mount(t *testing.T) {
 	adapter := NewChiAdapter()
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("mounted"))
 	})
 
 	adapter.Mount("/api", handler)
 
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
 	rec := httptest.NewRecorder()
 
 	adapter.ServeHTTP(rec, req)

@@ -7,13 +7,13 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// ReadOnlyMiddleware routes read-only requests to any node
+// ReadOnlyMiddleware routes read-only requests to any node.
 type ReadOnlyMiddleware struct {
 	raftNode internal.RaftNode
 	logger   forge.Logger
 }
 
-// NewReadOnlyMiddleware creates read-only middleware
+// NewReadOnlyMiddleware creates read-only middleware.
 func NewReadOnlyMiddleware(raftNode internal.RaftNode, logger forge.Logger) *ReadOnlyMiddleware {
 	return &ReadOnlyMiddleware{
 		raftNode: raftNode,
@@ -21,7 +21,7 @@ func NewReadOnlyMiddleware(raftNode internal.RaftNode, logger forge.Logger) *Rea
 	}
 }
 
-// Handle allows read-only requests on any node
+// Handle allows read-only requests on any node.
 func (rom *ReadOnlyMiddleware) Handle() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// Check if request is read-only (GET, HEAD)
@@ -31,6 +31,7 @@ func (rom *ReadOnlyMiddleware) Handle() func(forge.Context) error {
 				forge.F("method", ctx.Request().Method),
 				forge.F("path", ctx.Request().URL.Path),
 			)
+
 			return nil
 		}
 
@@ -45,7 +46,7 @@ func (rom *ReadOnlyMiddleware) Handle() func(forge.Context) error {
 	}
 }
 
-// HandleStrict enforces leadership even for reads
+// HandleStrict enforces leadership even for reads.
 func (rom *ReadOnlyMiddleware) HandleStrict() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// All requests must go to leader
@@ -59,7 +60,7 @@ func (rom *ReadOnlyMiddleware) HandleStrict() func(forge.Context) error {
 	}
 }
 
-// HandleWithStaleReads allows stale reads on followers
+// HandleWithStaleReads allows stale reads on followers.
 func (rom *ReadOnlyMiddleware) HandleWithStaleReads() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// Check if request is read-only
@@ -74,6 +75,7 @@ func (rom *ReadOnlyMiddleware) HandleWithStaleReads() func(forge.Context) error 
 					forge.F("path", ctx.Request().URL.Path),
 				)
 				ctx.Set("stale_read", true)
+
 				return nil
 			}
 
@@ -99,8 +101,9 @@ func (rom *ReadOnlyMiddleware) HandleWithStaleReads() func(forge.Context) error 
 	}
 }
 
-// isReadOnlyMethod checks if HTTP method is read-only
+// isReadOnlyMethod checks if HTTP method is read-only.
 func isReadOnlyMethod(method string) bool {
 	method = strings.ToUpper(method)
+
 	return method == "GET" || method == "HEAD" || method == "OPTIONS"
 }

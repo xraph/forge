@@ -8,36 +8,36 @@ import (
 // Config contains all configuration for the streaming extension.
 type Config struct {
 	// Backend configuration
-	Backend         string   `json:"backend" yaml:"backend"`                   // "local", "redis", "nats"
-	BackendURLs     []string `json:"backend_urls" yaml:"backend_urls"`         // Connection URLs
+	Backend         string   `json:"backend"          yaml:"backend"`          // "local", "redis", "nats"
+	BackendURLs     []string `json:"backend_urls"     yaml:"backend_urls"`     // Connection URLs
 	BackendUsername string   `json:"backend_username" yaml:"backend_username"` // Authentication username
 	BackendPassword string   `json:"backend_password" yaml:"backend_password"` // Authentication password
 
 	// Feature toggles
-	EnableRooms            bool `json:"enable_rooms" yaml:"enable_rooms"`
-	EnableChannels         bool `json:"enable_channels" yaml:"enable_channels"`
-	EnablePresence         bool `json:"enable_presence" yaml:"enable_presence"`
+	EnableRooms            bool `json:"enable_rooms"             yaml:"enable_rooms"`
+	EnableChannels         bool `json:"enable_channels"          yaml:"enable_channels"`
+	EnablePresence         bool `json:"enable_presence"          yaml:"enable_presence"`
 	EnableTypingIndicators bool `json:"enable_typing_indicators" yaml:"enable_typing_indicators"`
-	EnableMessageHistory   bool `json:"enable_message_history" yaml:"enable_message_history"`
-	EnableDistributed      bool `json:"enable_distributed" yaml:"enable_distributed"`
+	EnableMessageHistory   bool `json:"enable_message_history"   yaml:"enable_message_history"`
+	EnableDistributed      bool `json:"enable_distributed"       yaml:"enable_distributed"`
 
 	// Connection limits
 	MaxConnectionsPerUser int `json:"max_connections_per_user" yaml:"max_connections_per_user"`
-	MaxRoomsPerUser       int `json:"max_rooms_per_user" yaml:"max_rooms_per_user"`
-	MaxChannelsPerUser    int `json:"max_channels_per_user" yaml:"max_channels_per_user"`
-	MaxMessageSize        int `json:"max_message_size" yaml:"max_message_size"` // Bytes
-	MaxMessagesPerSecond  int `json:"max_messages_per_second" yaml:"max_messages_per_second"`
+	MaxRoomsPerUser       int `json:"max_rooms_per_user"       yaml:"max_rooms_per_user"`
+	MaxChannelsPerUser    int `json:"max_channels_per_user"    yaml:"max_channels_per_user"`
+	MaxMessageSize        int `json:"max_message_size"         yaml:"max_message_size"` // Bytes
+	MaxMessagesPerSecond  int `json:"max_messages_per_second"  yaml:"max_messages_per_second"`
 
 	// Timeouts
-	PingInterval    time.Duration `json:"ping_interval" yaml:"ping_interval"`
-	PongTimeout     time.Duration `json:"pong_timeout" yaml:"pong_timeout"`
-	WriteTimeout    time.Duration `json:"write_timeout" yaml:"write_timeout"`
-	ReadBufferSize  int           `json:"read_buffer_size" yaml:"read_buffer_size"`
+	PingInterval    time.Duration `json:"ping_interval"     yaml:"ping_interval"`
+	PongTimeout     time.Duration `json:"pong_timeout"      yaml:"pong_timeout"`
+	WriteTimeout    time.Duration `json:"write_timeout"     yaml:"write_timeout"`
+	ReadBufferSize  int           `json:"read_buffer_size"  yaml:"read_buffer_size"`
 	WriteBufferSize int           `json:"write_buffer_size" yaml:"write_buffer_size"`
 
 	// Message persistence
-	MessageRetention   time.Duration `json:"message_retention" yaml:"message_retention"`
-	MessageCleanup     time.Duration `json:"message_cleanup" yaml:"message_cleanup"`
+	MessageRetention   time.Duration `json:"message_retention"     yaml:"message_retention"`
+	MessageCleanup     time.Duration `json:"message_cleanup"       yaml:"message_cleanup"`
 	MaxMessagesPerRoom int64         `json:"max_messages_per_room" yaml:"max_messages_per_room"`
 
 	// Presence settings
@@ -45,20 +45,20 @@ type Config struct {
 	PresenceCleanup time.Duration `json:"presence_cleanup" yaml:"presence_cleanup"`
 
 	// Typing settings
-	TypingTimeout         time.Duration `json:"typing_timeout" yaml:"typing_timeout"`
-	TypingCleanup         time.Duration `json:"typing_cleanup" yaml:"typing_cleanup"`
+	TypingTimeout         time.Duration `json:"typing_timeout"            yaml:"typing_timeout"`
+	TypingCleanup         time.Duration `json:"typing_cleanup"            yaml:"typing_cleanup"`
 	MaxTypingUsersPerRoom int           `json:"max_typing_users_per_room" yaml:"max_typing_users_per_room"`
 
 	// Distributed settings
-	NodeID            string        `json:"node_id" yaml:"node_id"`
+	NodeID            string        `json:"node_id"            yaml:"node_id"`
 	HeartbeatInterval time.Duration `json:"heartbeat_interval" yaml:"heartbeat_interval"`
-	NodeTimeout       time.Duration `json:"node_timeout" yaml:"node_timeout"`
+	NodeTimeout       time.Duration `json:"node_timeout"       yaml:"node_timeout"`
 
 	// TLS
-	TLSEnabled  bool   `json:"tls_enabled" yaml:"tls_enabled"`
+	TLSEnabled  bool   `json:"tls_enabled"   yaml:"tls_enabled"`
 	TLSCertFile string `json:"tls_cert_file" yaml:"tls_cert_file"`
-	TLSKeyFile  string `json:"tls_key_file" yaml:"tls_key_file"`
-	TLSCAFile   string `json:"tls_ca_file" yaml:"tls_ca_file"`
+	TLSKeyFile  string `json:"tls_key_file"  yaml:"tls_key_file"`
+	TLSCAFile   string `json:"tls_ca_file"   yaml:"tls_ca_file"`
 
 	// Misc
 	RequireConfig bool `json:"-" yaml:"-"` // Internal flag for config loading

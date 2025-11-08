@@ -12,7 +12,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Password hashing errors
+// Password hashing errors.
 var (
 	ErrInvalidHash         = errors.New("invalid password hash format")
 	ErrIncompatibleVersion = errors.New("incompatible argon2 version")
@@ -20,11 +20,11 @@ var (
 )
 
 const (
-	// MaxPasswordLength is the maximum password length to prevent DoS attacks
+	// MaxPasswordLength is the maximum password length to prevent DoS attacks.
 	MaxPasswordLength = 72 // bcrypt limitation
 )
 
-// PasswordHasherConfig holds password hashing configuration
+// PasswordHasherConfig holds password hashing configuration.
 type PasswordHasherConfig struct {
 	// Algorithm specifies the hashing algorithm ("argon2id", "bcrypt")
 	// Default: "argon2id" (recommended)
@@ -41,7 +41,7 @@ type PasswordHasherConfig struct {
 	BcryptCost int // Cost factor 4-31 (default: 12)
 }
 
-// DefaultPasswordHasherConfig returns the default password hasher configuration
+// DefaultPasswordHasherConfig returns the default password hasher configuration.
 func DefaultPasswordHasherConfig() PasswordHasherConfig {
 	return PasswordHasherConfig{
 		Algorithm:         "argon2id",
@@ -55,7 +55,7 @@ func DefaultPasswordHasherConfig() PasswordHasherConfig {
 }
 
 // SecurePasswordHasherConfig returns a more secure configuration
-// Use this for high-security applications (slower but more secure)
+// Use this for high-security applications (slower but more secure).
 func SecurePasswordHasherConfig() PasswordHasherConfig {
 	return PasswordHasherConfig{
 		Algorithm:         "argon2id",
@@ -68,32 +68,38 @@ func SecurePasswordHasherConfig() PasswordHasherConfig {
 	}
 }
 
-// PasswordHasher handles password hashing and verification
+// PasswordHasher handles password hashing and verification.
 type PasswordHasher struct {
 	config PasswordHasherConfig
 }
 
-// NewPasswordHasher creates a new password hasher
+// NewPasswordHasher creates a new password hasher.
 func NewPasswordHasher(config PasswordHasherConfig) *PasswordHasher {
 	// Set defaults
 	if config.Algorithm == "" {
 		config.Algorithm = "argon2id"
 	}
+
 	if config.Argon2Memory == 0 {
 		config.Argon2Memory = 64 * 1024
 	}
+
 	if config.Argon2Iterations == 0 {
 		config.Argon2Iterations = 3
 	}
+
 	if config.Argon2Parallelism == 0 {
 		config.Argon2Parallelism = 4
 	}
+
 	if config.Argon2SaltLength == 0 {
 		config.Argon2SaltLength = 16
 	}
+
 	if config.Argon2KeyLength == 0 {
 		config.Argon2KeyLength = 32
 	}
+
 	if config.BcryptCost == 0 {
 		config.BcryptCost = 12
 	}
@@ -103,7 +109,7 @@ func NewPasswordHasher(config PasswordHasherConfig) *PasswordHasher {
 	}
 }
 
-// Hash creates a hash of the password using the configured algorithm
+// Hash creates a hash of the password using the configured algorithm.
 func (ph *PasswordHasher) Hash(password string) (string, error) {
 	if len(password) > MaxPasswordLength {
 		return "", ErrPasswordTooLong
@@ -119,7 +125,7 @@ func (ph *PasswordHasher) Hash(password string) (string, error) {
 	}
 }
 
-// Verify checks if the password matches the hash
+// Verify checks if the password matches the hash.
 func (ph *PasswordHasher) Verify(password, hash string) (bool, error) {
 	if len(password) > MaxPasswordLength {
 		return false, ErrPasswordTooLong
@@ -136,7 +142,7 @@ func (ph *PasswordHasher) Verify(password, hash string) (bool, error) {
 }
 
 // NeedsRehash checks if the hash needs to be rehashed with current parameters
-// This is useful when upgrading hashing parameters
+// This is useful when upgrading hashing parameters.
 func (ph *PasswordHasher) NeedsRehash(hash string) (bool, error) {
 	if strings.HasPrefix(hash, "$argon2id$") {
 		params, _, _, err := ph.decodeArgon2IDHash(hash)
@@ -149,19 +155,19 @@ func (ph *PasswordHasher) NeedsRehash(hash string) (bool, error) {
 			params.Iterations != ph.config.Argon2Iterations ||
 			params.Parallelism != ph.config.Argon2Parallelism ||
 			params.KeyLength != ph.config.Argon2KeyLength, nil
-
 	} else if strings.HasPrefix(hash, "$2a$") || strings.HasPrefix(hash, "$2b$") || strings.HasPrefix(hash, "$2y$") {
 		cost, err := bcrypt.Cost([]byte(hash))
 		if err != nil {
 			return false, err
 		}
+
 		return cost != ph.config.BcryptCost, nil
 	}
 
 	return false, ErrInvalidHash
 }
 
-// hashArgon2ID creates an Argon2id hash
+// hashArgon2ID creates an Argon2id hash.
 func (ph *PasswordHasher) hashArgon2ID(password string) (string, error) {
 	// Generate random salt
 	salt := make([]byte, ph.config.Argon2SaltLength)
@@ -194,7 +200,7 @@ func (ph *PasswordHasher) hashArgon2ID(password string) (string, error) {
 	), nil
 }
 
-// argon2Params holds Argon2 parameters
+// argon2Params holds Argon2 parameters.
 type argon2Params struct {
 	Memory      uint32
 	Iterations  uint32
@@ -203,7 +209,7 @@ type argon2Params struct {
 	KeyLength   uint32
 }
 
-// decodeArgon2IDHash decodes an Argon2id hash string
+// decodeArgon2IDHash decodes an Argon2id hash string.
 func (ph *PasswordHasher) decodeArgon2IDHash(encodedHash string) (*argon2Params, []byte, []byte, error) {
 	// Format: $argon2id$v=19$m=65536,t=3,p=4$salt$hash
 	parts := strings.Split(encodedHash, "$")
@@ -221,6 +227,7 @@ func (ph *PasswordHasher) decodeArgon2IDHash(encodedHash string) (*argon2Params,
 	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil {
 		return nil, nil, nil, ErrInvalidHash
 	}
+
 	if version != argon2.Version {
 		return nil, nil, nil, ErrIncompatibleVersion
 	}
@@ -236,6 +243,7 @@ func (ph *PasswordHasher) decodeArgon2IDHash(encodedHash string) (*argon2Params,
 	if err != nil {
 		return nil, nil, nil, ErrInvalidHash
 	}
+
 	params.SaltLength = uint32(len(salt))
 
 	// Decode hash
@@ -243,12 +251,13 @@ func (ph *PasswordHasher) decodeArgon2IDHash(encodedHash string) (*argon2Params,
 	if err != nil {
 		return nil, nil, nil, ErrInvalidHash
 	}
+
 	params.KeyLength = uint32(len(hash))
 
 	return params, salt, hash, nil
 }
 
-// verifyArgon2ID verifies a password against an Argon2id hash
+// verifyArgon2ID verifies a password against an Argon2id hash.
 func (ph *PasswordHasher) verifyArgon2ID(password, encodedHash string) (bool, error) {
 	params, salt, hash, err := ph.decodeArgon2IDHash(encodedHash)
 	if err != nil {
@@ -273,28 +282,31 @@ func (ph *PasswordHasher) verifyArgon2ID(password, encodedHash string) (bool, er
 	return false, nil
 }
 
-// hashBcrypt creates a bcrypt hash
+// hashBcrypt creates a bcrypt hash.
 func (ph *PasswordHasher) hashBcrypt(password string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), ph.config.BcryptCost)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate bcrypt hash: %w", err)
 	}
+
 	return string(hash), nil
 }
 
-// verifyBcrypt verifies a password against a bcrypt hash
+// verifyBcrypt verifies a password against a bcrypt hash.
 func (ph *PasswordHasher) verifyBcrypt(password, hash string) (bool, error) {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	if err != nil {
 		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
 			return false, nil
 		}
+
 		return false, err
 	}
+
 	return true, nil
 }
 
-// GenerateRandomPassword generates a cryptographically secure random password
+// GenerateRandomPassword generates a cryptographically secure random password.
 func GenerateRandomPassword(length int) (string, error) {
 	if length <= 0 {
 		length = 16
@@ -302,7 +314,7 @@ func GenerateRandomPassword(length int) (string, error) {
 
 	// Use a character set that's safe for most systems
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
-	
+
 	bytes := make([]byte, length)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", fmt.Errorf("failed to generate random password: %w", err)
@@ -315,7 +327,7 @@ func GenerateRandomPassword(length int) (string, error) {
 	return string(bytes), nil
 }
 
-// PasswordStrength represents password strength levels
+// PasswordStrength represents password strength levels.
 type PasswordStrength int
 
 const (
@@ -326,12 +338,12 @@ const (
 	PasswordVeryStrong
 )
 
-// String returns the string representation of password strength
+// String returns the string representation of password strength.
 func (ps PasswordStrength) String() string {
 	return [...]string{"very weak", "weak", "fair", "strong", "very strong"}[ps]
 }
 
-// CheckPasswordStrength evaluates password strength
+// CheckPasswordStrength evaluates password strength.
 func CheckPasswordStrength(password string) PasswordStrength {
 	length := len(password)
 	hasLower := false
@@ -357,21 +369,27 @@ func CheckPasswordStrength(password string) PasswordStrength {
 	if length >= 8 {
 		score++
 	}
+
 	if length >= 12 {
 		score++
 	}
+
 	if length >= 16 {
 		score++
 	}
+
 	if hasLower {
 		score++
 	}
+
 	if hasUpper {
 		score++
 	}
+
 	if hasDigit {
 		score++
 	}
+
 	if hasSpecial {
 		score++
 	}
@@ -391,11 +409,12 @@ func CheckPasswordStrength(password string) PasswordStrength {
 	}
 }
 
-// ValidatePassword validates a password against common requirements
+// ValidatePassword validates a password against common requirements.
 func ValidatePassword(password string, minLength, maxLength int, requireUpper, requireLower, requireDigit, requireSpecial bool) error {
 	if len(password) < minLength {
 		return fmt.Errorf("password must be at least %d characters long", minLength)
 	}
+
 	if maxLength > 0 && len(password) > maxLength {
 		return fmt.Errorf("password must be at most %d characters long", maxLength)
 	}
@@ -421,16 +440,18 @@ func ValidatePassword(password string, minLength, maxLength int, requireUpper, r
 	if requireUpper && !hasUpper {
 		return errors.New("password must contain at least one uppercase letter")
 	}
+
 	if requireLower && !hasLower {
 		return errors.New("password must contain at least one lowercase letter")
 	}
+
 	if requireDigit && !hasDigit {
 		return errors.New("password must contain at least one digit")
 	}
+
 	if requireSpecial && !hasSpecial {
 		return errors.New("password must contain at least one special character")
 	}
 
 	return nil
 }
-

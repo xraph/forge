@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// ElectionManager manages leader elections
+// ElectionManager manages leader elections.
 type ElectionManager struct {
 	nodeID   string
 	raftNode internal.RaftNode
@@ -32,7 +32,7 @@ type ElectionManager struct {
 	mu     sync.RWMutex
 }
 
-// ElectionManagerConfig contains election manager configuration
+// ElectionManagerConfig contains election manager configuration.
 type ElectionManagerConfig struct {
 	NodeID             string
 	MinElectionTimeout time.Duration
@@ -40,14 +40,16 @@ type ElectionManagerConfig struct {
 	HeartbeatInterval  time.Duration
 }
 
-// NewElectionManager creates a new election manager
+// NewElectionManager creates a new election manager.
 func NewElectionManager(config ElectionManagerConfig, raftNode internal.RaftNode, logger forge.Logger) *ElectionManager {
 	if config.MinElectionTimeout == 0 {
 		config.MinElectionTimeout = 150 * time.Millisecond
 	}
+
 	if config.MaxElectionTimeout == 0 {
 		config.MaxElectionTimeout = 300 * time.Millisecond
 	}
+
 	if config.HeartbeatInterval == 0 {
 		config.HeartbeatInterval = 50 * time.Millisecond
 	}
@@ -64,7 +66,7 @@ func NewElectionManager(config ElectionManagerConfig, raftNode internal.RaftNode
 	}
 }
 
-// Start starts the election manager
+// Start starts the election manager.
 func (em *ElectionManager) Start(ctx context.Context) error {
 	em.mu.Lock()
 	defer em.mu.Unlock()
@@ -82,7 +84,7 @@ func (em *ElectionManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the election manager
+// Stop stops the election manager.
 func (em *ElectionManager) Stop(ctx context.Context) error {
 	em.mu.Lock()
 	defer em.mu.Unlock()
@@ -96,10 +98,11 @@ func (em *ElectionManager) Stop(ctx context.Context) error {
 	}
 
 	em.logger.Info("election manager stopped")
+
 	return nil
 }
 
-// StartElection starts a new election
+// StartElection starts a new election.
 func (em *ElectionManager) StartElection() error {
 	em.mu.Lock()
 	defer em.mu.Unlock()
@@ -125,7 +128,7 @@ func (em *ElectionManager) StartElection() error {
 	return nil
 }
 
-// ResetElectionTimeout resets the election timeout
+// ResetElectionTimeout resets the election timeout.
 func (em *ElectionManager) ResetElectionTimeout() {
 	em.mu.Lock()
 	defer em.mu.Unlock()
@@ -133,7 +136,7 @@ func (em *ElectionManager) ResetElectionTimeout() {
 	em.resetElectionTimer()
 }
 
-// HandleVoteRequest handles a vote request
+// HandleVoteRequest handles a vote request.
 func (em *ElectionManager) HandleVoteRequest(req internal.RequestVoteRequest) internal.RequestVoteResponse {
 	em.mu.Lock()
 	defer em.mu.Unlock()
@@ -150,6 +153,7 @@ func (em *ElectionManager) HandleVoteRequest(req internal.RequestVoteRequest) in
 			forge.F("req_term", req.Term),
 			forge.F("current_term", em.currentTerm),
 		)
+
 		return response
 	}
 
@@ -184,7 +188,7 @@ func (em *ElectionManager) HandleVoteRequest(req internal.RequestVoteRequest) in
 	return response
 }
 
-// RecordVote records a vote response
+// RecordVote records a vote response.
 func (em *ElectionManager) RecordVote(term uint64, nodeID string, granted bool) {
 	em.votesMu.Lock()
 	defer em.votesMu.Unlock()
@@ -202,7 +206,7 @@ func (em *ElectionManager) RecordVote(term uint64, nodeID string, granted bool) 
 	)
 }
 
-// TallyVotes tallies votes for the given term
+// TallyVotes tallies votes for the given term.
 func (em *ElectionManager) TallyVotes(term uint64, quorumSize int) (votesFor, votesAgainst int, wonElection bool) {
 	em.votesMu.RLock()
 	defer em.votesMu.RUnlock()
@@ -225,14 +229,15 @@ func (em *ElectionManager) TallyVotes(term uint64, quorumSize int) (votesFor, vo
 	return votesFor, votesAgainst, wonElection
 }
 
-// GetCurrentTerm returns the current term
+// GetCurrentTerm returns the current term.
 func (em *ElectionManager) GetCurrentTerm() uint64 {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
+
 	return em.currentTerm
 }
 
-// SetCurrentTerm sets the current term
+// SetCurrentTerm sets the current term.
 func (em *ElectionManager) SetCurrentTerm(term uint64) {
 	em.mu.Lock()
 	defer em.mu.Unlock()
@@ -246,26 +251,28 @@ func (em *ElectionManager) SetCurrentTerm(term uint64) {
 	}
 }
 
-// GetVotedFor returns who we voted for in current term
+// GetVotedFor returns who we voted for in current term.
 func (em *ElectionManager) GetVotedFor() string {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
+
 	return em.votedFor
 }
 
-// GetElectionTimeout returns the current election timeout
+// GetElectionTimeout returns the current election timeout.
 func (em *ElectionManager) GetElectionTimeout() time.Duration {
 	em.mu.RLock()
 	defer em.mu.RUnlock()
+
 	return em.electionTimeout
 }
 
-// GetHeartbeatInterval returns the heartbeat interval
+// GetHeartbeatInterval returns the heartbeat interval.
 func (em *ElectionManager) GetHeartbeatInterval() time.Duration {
 	return em.heartbeatInterval
 }
 
-// resetElectionTimer resets the election timer (must be called with lock held)
+// resetElectionTimer resets the election timer (must be called with lock held).
 func (em *ElectionManager) resetElectionTimer() {
 	if em.electionTimer != nil {
 		em.electionTimer.Stop()
@@ -285,21 +292,24 @@ func (em *ElectionManager) resetElectionTimer() {
 	})
 }
 
-// randomTimeout returns a random timeout between min and max
+// randomTimeout returns a random timeout between min and max.
 func randomTimeout(min, max time.Duration) time.Duration {
 	if min >= max {
 		return min
 	}
+
 	delta := max - min
+
 	return min + time.Duration(rand.Int63n(int64(delta)))
 }
 
-// CleanupOldVotes removes vote records for old terms
+// CleanupOldVotes removes vote records for old terms.
 func (em *ElectionManager) CleanupOldVotes(keepTerms int) {
 	em.votesMu.Lock()
 	defer em.votesMu.Unlock()
 
 	currentTerm := em.GetCurrentTerm()
+
 	minTerm := uint64(0)
 	if currentTerm > uint64(keepTerms) {
 		minTerm = currentTerm - uint64(keepTerms)

@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge/farp"
 )
 
-// mockApp implements farp.Application for testing
+// mockApp implements farp.Application for testing.
 type mockApp struct {
 	name    string
 	version string
@@ -21,7 +21,7 @@ func (m *mockApp) Version() string {
 	return m.version
 }
 
-func (m *mockApp) Routes() interface{} {
+func (m *mockApp) Routes() any {
 	return []map[string]string{
 		{"method": "POST", "path": "/api/data"},
 	}
@@ -64,9 +64,11 @@ func TestNewProvider(t *testing.T) {
 			if p.SpecVersion() != tt.wantVersion {
 				t.Errorf("SpecVersion() = %v, want %v", p.SpecVersion(), tt.wantVersion)
 			}
+
 			if p.Endpoint() != tt.wantEndpoint {
 				t.Errorf("Endpoint() = %v, want %v", p.Endpoint(), tt.wantEndpoint)
 			}
+
 			if p.Type() != farp.SchemaTypeAvro {
 				t.Errorf("Type() = %v, want %v", p.Type(), farp.SchemaTypeAvro)
 			}
@@ -97,6 +99,7 @@ func TestProvider_Generate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewProvider("1.11.1", tt.schemaFiles)
+
 			schema, err := p.Generate(context.Background(), app)
 			if err != nil {
 				t.Fatalf("Generate() error = %v", err)
@@ -119,17 +122,17 @@ func TestProvider_Validate(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		schema  interface{}
+		schema  any
 		wantErr bool
 	}{
 		{
 			name: "valid schema",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"avro_version": "1.11.1",
 				"protocol":     "TestProtocol",
 				"namespace":    "com.test",
-				"types": []interface{}{
-					map[string]interface{}{
+				"types": []any{
+					map[string]any{
 						"type": "record",
 						"name": "TestRecord",
 					},
@@ -144,23 +147,23 @@ func TestProvider_Validate(t *testing.T) {
 		},
 		{
 			name: "missing protocol",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"namespace": "com.test",
-				"types":     []interface{}{},
+				"types":     []any{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing namespace",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"protocol": "TestProtocol",
-				"types":    []interface{}{},
+				"types":    []any{},
 			},
 			wantErr: true,
 		},
 		{
 			name: "missing types",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"protocol":  "TestProtocol",
 				"namespace": "com.test",
 			},
@@ -168,7 +171,7 @@ func TestProvider_Validate(t *testing.T) {
 		},
 		{
 			name: "types not an array",
-			schema: map[string]interface{}{
+			schema: map[string]any{
 				"protocol":  "TestProtocol",
 				"namespace": "com.test",
 				"types":     "not an array",
@@ -194,6 +197,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	}
 
 	p := NewProvider("1.11.1", nil)
+
 	schema, err := p.Generate(context.Background(), app)
 	if err != nil {
 		t.Fatalf("Generate() error = %v", err)
@@ -204,6 +208,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Hash() error = %v", err)
 	}
+
 	if hash == "" {
 		t.Error("Hash() returned empty string")
 	}
@@ -213,6 +218,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Hash() second call error = %v", err)
 	}
+
 	if hash != hash2 {
 		t.Error("Hash() is not deterministic")
 	}
@@ -222,6 +228,7 @@ func TestProvider_HashAndSerialize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Serialize() error = %v", err)
 	}
+
 	if len(data) == 0 {
 		t.Error("Serialize() returned empty data")
 	}
@@ -297,6 +304,7 @@ func TestProvider_GenerateDescriptor(t *testing.T) {
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GenerateDescriptor() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
 
@@ -304,15 +312,19 @@ func TestProvider_GenerateDescriptor(t *testing.T) {
 				if descriptor == nil {
 					t.Fatal("GenerateDescriptor() returned nil descriptor")
 				}
+
 				if descriptor.Type != farp.SchemaTypeAvro {
 					t.Errorf("descriptor.Type = %v, want %v", descriptor.Type, farp.SchemaTypeAvro)
 				}
+
 				if descriptor.Hash == "" {
 					t.Error("descriptor.Hash is empty")
 				}
+
 				if descriptor.Size == 0 {
 					t.Error("descriptor.Size is zero")
 				}
+
 				if tt.locationType == farp.LocationTypeInline && descriptor.InlineSchema == nil {
 					t.Error("descriptor.InlineSchema is nil for inline location")
 				}

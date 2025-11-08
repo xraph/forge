@@ -120,7 +120,7 @@ func TestConfigValidate(t *testing.T) {
 			config: Config{
 				Enabled: true,
 				Session: SessionConfig{
-					Enabled:    false,
+					Enabled: false,
 				},
 				Cookie: CookieConfig{
 					Enabled:  true,
@@ -168,6 +168,7 @@ func TestConfigValidate(t *testing.T) {
 			if tt.expectErr && err == nil {
 				t.Error("expected error, got nil")
 			}
+
 			if !tt.expectErr && err != nil {
 				t.Errorf("expected no error, got %v", err)
 			}
@@ -286,4 +287,3 @@ func TestWithConfig(t *testing.T) {
 		t.Errorf("expected Session.Store to be 'redis', got %s", newConfig.Session.Store)
 	}
 }
-

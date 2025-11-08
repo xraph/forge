@@ -85,6 +85,7 @@ func (rlv *RateLimitValidator) ValidateMetadata(metadata map[string]any) error {
 
 func (rlv *RateLimitValidator) checkUserLimit(userID string) error {
 	rlv.userMu.Lock()
+
 	bucket, ok := rlv.userLimits[userID]
 	if !ok {
 		bucket = &rateLimitBucket{
@@ -94,6 +95,7 @@ func (rlv *RateLimitValidator) checkUserLimit(userID string) error {
 		}
 		rlv.userLimits[userID] = bucket
 	}
+
 	rlv.userMu.Unlock()
 
 	bucket.mu.Lock()
@@ -135,6 +137,7 @@ func (rlv *RateLimitValidator) checkUserLimit(userID string) error {
 
 func (rlv *RateLimitValidator) checkRoomLimit(roomID string) error {
 	rlv.roomMu.Lock()
+
 	bucket, ok := rlv.roomLimits[roomID]
 	if !ok {
 		bucket = &rateLimitBucket{
@@ -143,6 +146,7 @@ func (rlv *RateLimitValidator) checkRoomLimit(roomID string) error {
 		}
 		rlv.roomLimits[roomID] = bucket
 	}
+
 	rlv.roomMu.Unlock()
 
 	bucket.mu.Lock()
@@ -157,7 +161,7 @@ func (rlv *RateLimitValidator) checkRoomLimit(roomID string) error {
 
 	// Check if tokens available
 	if bucket.tokens <= 0 {
-		return NewValidationError("", fmt.Sprintf("room rate limit exceeded: %s", roomID), "RATE_LIMIT_ROOM")
+		return NewValidationError("", "room rate limit exceeded: "+roomID, "RATE_LIMIT_ROOM")
 	}
 
 	// Consume token
@@ -170,5 +174,6 @@ func min(a, b int) int {
 	if a < b {
 		return a
 	}
+
 	return b
 }

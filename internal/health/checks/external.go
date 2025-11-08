@@ -2,6 +2,7 @@ package checks
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,9 +14,10 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// ExternalAPIHealthCheck performs health checks on external APIs
+// ExternalAPIHealthCheck performs health checks on external APIs.
 type ExternalAPIHealthCheck struct {
 	*health.BaseHealthCheck
+
 	url            string
 	method         string
 	headers        map[string]string
@@ -26,7 +28,7 @@ type ExternalAPIHealthCheck struct {
 	mu             sync.RWMutex
 }
 
-// ExternalAPIHealthCheckConfig contains configuration for external API health checks
+// ExternalAPIHealthCheckConfig contains configuration for external API health checks.
 type ExternalAPIHealthCheckConfig struct {
 	Name           string
 	URL            string
@@ -40,7 +42,7 @@ type ExternalAPIHealthCheckConfig struct {
 	Client         *http.Client
 }
 
-// NewExternalAPIHealthCheck creates a new external API health check
+// NewExternalAPIHealthCheck creates a new external API health check.
 func NewExternalAPIHealthCheck(config *ExternalAPIHealthCheckConfig) *ExternalAPIHealthCheck {
 	if config == nil {
 		config = &ExternalAPIHealthCheckConfig{}
@@ -103,19 +105,19 @@ func NewExternalAPIHealthCheck(config *ExternalAPIHealthCheckConfig) *ExternalAP
 	}
 }
 
-// Check performs the external API health check
-func (eahc *ExternalAPIHealthCheck) Check(ctx context.Context) *health.HealthResult {
+// Check performs the external API health check.
+func (each *ExternalAPIHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
-	result := health.NewHealthResult(eahc.Name(), health.HealthStatusHealthy, "external API is healthy").
-		WithCritical(eahc.Critical()).
-		WithTags(eahc.Tags()).
-		WithDetail("url", eahc.url).
-		WithDetail("method", eahc.method).
-		WithDetail("expected_status", eahc.expectedStatus)
+	result := health.NewHealthResult(each.Name(), health.HealthStatusHealthy, "external API is healthy").
+		WithCritical(each.Critical()).
+		WithTags(each.Tags()).
+		WithDetail("url", each.url).
+		WithDetail("method", each.method).
+		WithDetail("expected_status", each.expectedStatus)
 
 	// Perform HTTP request
-	resp, err := eahc.makeRequest(ctx)
+	resp, err := each.makeRequest(ctx)
 	if err != nil {
 		return result.
 			WithError(err).
@@ -125,11 +127,11 @@ func (eahc *ExternalAPIHealthCheck) Check(ctx context.Context) *health.HealthRes
 	defer resp.Body.Close()
 
 	// Check response status
-	if resp.StatusCode != eahc.expectedStatus {
+	if resp.StatusCode != each.expectedStatus {
 		return result.
-			WithError(fmt.Errorf("unexpected status code: got %d, expected %d", resp.StatusCode, eahc.expectedStatus)).
+			WithError(fmt.Errorf("unexpected status code: got %d, expected %d", resp.StatusCode, each.expectedStatus)).
 			WithDetail("actual_status", resp.StatusCode).
-			WithDetail("expected_status", eahc.expectedStatus).
+			WithDetail("expected_status", each.expectedStatus).
 			WithDuration(time.Since(start))
 	}
 
@@ -143,12 +145,12 @@ func (eahc *ExternalAPIHealthCheck) Check(ctx context.Context) *health.HealthRes
 	}
 
 	// Check expected body content if specified
-	if eahc.expectedBody != "" {
+	if each.expectedBody != "" {
 		bodyStr := string(body)
-		if !strings.Contains(bodyStr, eahc.expectedBody) {
+		if !strings.Contains(bodyStr, each.expectedBody) {
 			return result.
-				WithError(fmt.Errorf("expected body content not found")).
-				WithDetail("expected_body", eahc.expectedBody).
+				WithError(errors.New("expected body content not found")).
+				WithDetail("expected_body", each.expectedBody).
 				WithDetail("actual_body", bodyStr[:min(len(bodyStr), 200)]).
 				WithDuration(time.Since(start))
 		}
@@ -164,19 +166,19 @@ func (eahc *ExternalAPIHealthCheck) Check(ctx context.Context) *health.HealthRes
 	return result
 }
 
-// makeRequest makes an HTTP request to the external API
-func (eahc *ExternalAPIHealthCheck) makeRequest(ctx context.Context) (*http.Response, error) {
-	eahc.mu.RLock()
-	defer eahc.mu.RUnlock()
+// makeRequest makes an HTTP request to the external API.
+func (each *ExternalAPIHealthCheck) makeRequest(ctx context.Context) (*http.Response, error) {
+	each.mu.RLock()
+	defer each.mu.RUnlock()
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, eahc.method, eahc.url, nil)
+	req, err := http.NewRequestWithContext(ctx, each.method, each.url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set headers
-	for key, value := range eahc.headers {
+	for key, value := range each.headers {
 		req.Header.Set(key, value)
 	}
 
@@ -184,17 +186,18 @@ func (eahc *ExternalAPIHealthCheck) makeRequest(ctx context.Context) (*http.Resp
 	req.Header.Set("User-Agent", "Forge-Health-Check/1.0")
 
 	// Make request
-	return eahc.client.Do(req)
+	return each.client.Do(req)
 }
 
-// HTTPSHealthCheck is a specialized health check for HTTPS endpoints
+// HTTPSHealthCheck is a specialized health check for HTTPS endpoints.
 type HTTPSHealthCheck struct {
 	*ExternalAPIHealthCheck
+
 	checkCertificate  bool
 	certExpireWarning time.Duration
 }
 
-// NewHTTPSHealthCheck creates a new HTTPS health check
+// NewHTTPSHealthCheck creates a new HTTPS health check.
 func NewHTTPSHealthCheck(config *ExternalAPIHealthCheckConfig) *HTTPSHealthCheck {
 	if config.Name == "" {
 		config.Name = "https-api"
@@ -207,7 +210,7 @@ func NewHTTPSHealthCheck(config *ExternalAPIHealthCheckConfig) *HTTPSHealthCheck
 	}
 }
 
-// Check performs HTTPS-specific health checks
+// Check performs HTTPS-specific health checks.
 func (hsc *HTTPSHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base API check
 	result := hsc.ExternalAPIHealthCheck.Check(ctx)
@@ -234,7 +237,7 @@ func (hsc *HTTPSHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	return result
 }
 
-// checkSSLCertificate checks SSL certificate status
+// checkSSLCertificate checks SSL certificate status.
 func (hsc *HTTPSHealthCheck) checkSSLCertificate(ctx context.Context) map[string]interface{} {
 	// In a real implementation, this would check SSL certificate details
 	return map[string]interface{}{
@@ -245,14 +248,15 @@ func (hsc *HTTPSHealthCheck) checkSSLCertificate(ctx context.Context) map[string
 	}
 }
 
-// GraphQLHealthCheck is a specialized health check for GraphQL endpoints
+// GraphQLHealthCheck is a specialized health check for GraphQL endpoints.
 type GraphQLHealthCheck struct {
 	*ExternalAPIHealthCheck
+
 	query     string
 	variables map[string]interface{}
 }
 
-// NewGraphQLHealthCheck creates a new GraphQL health check
+// NewGraphQLHealthCheck creates a new GraphQL health check.
 func NewGraphQLHealthCheck(config *ExternalAPIHealthCheckConfig) *GraphQLHealthCheck {
 	if config.Name == "" {
 		config.Name = "graphql-api"
@@ -265,6 +269,7 @@ func NewGraphQLHealthCheck(config *ExternalAPIHealthCheckConfig) *GraphQLHealthC
 	if config.Headers == nil {
 		config.Headers = make(map[string]string)
 	}
+
 	config.Headers["Content-Type"] = "application/json"
 
 	return &GraphQLHealthCheck{
@@ -274,7 +279,7 @@ func NewGraphQLHealthCheck(config *ExternalAPIHealthCheckConfig) *GraphQLHealthC
 	}
 }
 
-// Check performs GraphQL-specific health checks
+// Check performs GraphQL-specific health checks.
 func (gqlhc *GraphQLHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Create GraphQL query request
 	if err := gqlhc.setupGraphQLRequest(); err != nil {
@@ -296,20 +301,21 @@ func (gqlhc *GraphQLHealthCheck) Check(ctx context.Context) *health.HealthResult
 	return result
 }
 
-// setupGraphQLRequest sets up the GraphQL request body
+// setupGraphQLRequest sets up the GraphQL request body.
 func (gqlhc *GraphQLHealthCheck) setupGraphQLRequest() error {
 	// In a real implementation, this would create a proper GraphQL request body
 	return nil
 }
 
-// RestAPIHealthCheck is a specialized health check for REST APIs
+// RestAPIHealthCheck is a specialized health check for REST APIs.
 type RestAPIHealthCheck struct {
 	*ExternalAPIHealthCheck
+
 	endpoints []string
 	checkAll  bool
 }
 
-// NewRestAPIHealthCheck creates a new REST API health check
+// NewRestAPIHealthCheck creates a new REST API health check.
 func NewRestAPIHealthCheck(config *ExternalAPIHealthCheckConfig) *RestAPIHealthCheck {
 	if config.Name == "" {
 		config.Name = "rest-api"
@@ -322,17 +328,17 @@ func NewRestAPIHealthCheck(config *ExternalAPIHealthCheckConfig) *RestAPIHealthC
 	}
 }
 
-// AddEndpoint adds an endpoint to check
+// AddEndpoint adds an endpoint to check.
 func (rahc *RestAPIHealthCheck) AddEndpoint(endpoint string) {
 	rahc.endpoints = append(rahc.endpoints, endpoint)
 }
 
-// SetCheckAll sets whether to check all endpoints
+// SetCheckAll sets whether to check all endpoints.
 func (rahc *RestAPIHealthCheck) SetCheckAll(checkAll bool) {
 	rahc.checkAll = checkAll
 }
 
-// Check performs REST API health checks
+// Check performs REST API health checks.
 func (rahc *RestAPIHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	if !rahc.checkAll {
 		// Check only the primary endpoint
@@ -345,6 +351,7 @@ func (rahc *RestAPIHealthCheck) Check(ctx context.Context) *health.HealthResult 
 		WithTags(rahc.Tags())
 
 	var failedEndpoints []string
+
 	endpointResults := make(map[string]interface{})
 
 	for _, endpoint := range rahc.endpoints {
@@ -386,14 +393,15 @@ func (rahc *RestAPIHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	return result
 }
 
-// DatabaseAPIHealthCheck is a specialized health check for database APIs
+// DatabaseAPIHealthCheck is a specialized health check for database APIs.
 type DatabaseAPIHealthCheck struct {
 	*ExternalAPIHealthCheck
+
 	testQuery string
 	database  string
 }
 
-// NewDatabaseAPIHealthCheck creates a new database API health check
+// NewDatabaseAPIHealthCheck creates a new database API health check.
 func NewDatabaseAPIHealthCheck(config *ExternalAPIHealthCheckConfig) *DatabaseAPIHealthCheck {
 	if config.Name == "" {
 		config.Name = "database-api"
@@ -406,7 +414,7 @@ func NewDatabaseAPIHealthCheck(config *ExternalAPIHealthCheckConfig) *DatabaseAP
 	}
 }
 
-// Check performs database API health checks
+// Check performs database API health checks.
 func (dahc *DatabaseAPIHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base API check
 	result := dahc.ExternalAPIHealthCheck.Check(ctx)
@@ -422,19 +430,19 @@ func (dahc *DatabaseAPIHealthCheck) Check(ctx context.Context) *health.HealthRes
 	return result
 }
 
-// ExternalAPIHealthCheckFactory creates external API health checks
+// ExternalAPIHealthCheckFactory creates external API health checks.
 type ExternalAPIHealthCheckFactory struct {
 	container shared.Container
 }
 
-// NewExternalAPIHealthCheckFactory creates a new factory
+// NewExternalAPIHealthCheckFactory creates a new factory.
 func NewExternalAPIHealthCheckFactory(container shared.Container) *ExternalAPIHealthCheckFactory {
 	return &ExternalAPIHealthCheckFactory{
 		container: container,
 	}
 }
 
-// CreateExternalAPIHealthCheck creates an external API health check
+// CreateExternalAPIHealthCheck creates an external API health check.
 func (factory *ExternalAPIHealthCheckFactory) CreateExternalAPIHealthCheck(name string, url string, apiType string, critical bool) (health.HealthCheck, error) {
 	config := &ExternalAPIHealthCheckConfig{
 		Name:           name,
@@ -460,7 +468,7 @@ func (factory *ExternalAPIHealthCheckFactory) CreateExternalAPIHealthCheck(name 
 	}
 }
 
-// RegisterExternalAPIHealthChecks registers external API health checks
+// RegisterExternalAPIHealthChecks registers external API health checks.
 func RegisterExternalAPIHealthChecks(healthService health.HealthService, container shared.Container) error {
 	factory := NewExternalAPIHealthCheckFactory(container)
 
@@ -490,13 +498,14 @@ func RegisterExternalAPIHealthChecks(healthService health.HealthService, contain
 	return nil
 }
 
-// ExternalAPIHealthCheckComposite combines multiple external API health checks
+// ExternalAPIHealthCheckComposite combines multiple external API health checks.
 type ExternalAPIHealthCheckComposite struct {
 	*health.CompositeHealthCheck
+
 	apiChecks []health.HealthCheck
 }
 
-// NewExternalAPIHealthCheckComposite creates a composite external API health check
+// NewExternalAPIHealthCheckComposite creates a composite external API health check.
 func NewExternalAPIHealthCheckComposite(name string, checks ...health.HealthCheck) *ExternalAPIHealthCheckComposite {
 	config := &health.HealthCheckConfig{
 		Name:     name,
@@ -512,20 +521,21 @@ func NewExternalAPIHealthCheckComposite(name string, checks ...health.HealthChec
 	}
 }
 
-// GetAPIChecks returns the individual API checks
+// GetAPIChecks returns the individual API checks.
 func (eahcc *ExternalAPIHealthCheckComposite) GetAPIChecks() []health.HealthCheck {
 	return eahcc.apiChecks
 }
 
-// AddAPICheck adds an API check to the composite
+// AddAPICheck adds an API check to the composite.
 func (eahcc *ExternalAPIHealthCheckComposite) AddAPICheck(check health.HealthCheck) {
 	eahcc.apiChecks = append(eahcc.apiChecks, check)
-	eahcc.CompositeHealthCheck.AddCheck(check)
+	eahcc.AddCheck(check)
 }
 
-// CircuitBreakerHealthCheck wraps external API checks with circuit breaker pattern
+// CircuitBreakerHealthCheck wraps external API checks with circuit breaker pattern.
 type CircuitBreakerHealthCheck struct {
 	*ExternalAPIHealthCheck
+
 	failureThreshold int
 	resetTimeout     time.Duration
 	state            string
@@ -534,7 +544,7 @@ type CircuitBreakerHealthCheck struct {
 	mu               sync.RWMutex
 }
 
-// NewCircuitBreakerHealthCheck creates a new circuit breaker health check
+// NewCircuitBreakerHealthCheck creates a new circuit breaker health check.
 func NewCircuitBreakerHealthCheck(config *ExternalAPIHealthCheckConfig) *CircuitBreakerHealthCheck {
 	return &CircuitBreakerHealthCheck{
 		ExternalAPIHealthCheck: NewExternalAPIHealthCheck(config),
@@ -545,7 +555,7 @@ func NewCircuitBreakerHealthCheck(config *ExternalAPIHealthCheckConfig) *Circuit
 	}
 }
 
-// Check performs health check with circuit breaker pattern
+// Check performs health check with circuit breaker pattern.
 func (cbhc *CircuitBreakerHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	cbhc.mu.Lock()
 	defer cbhc.mu.Unlock()
@@ -592,5 +602,6 @@ func min(a, b int) int {
 	if a < b {
 		return a
 	}
+
 	return b
 }

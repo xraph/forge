@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -33,7 +34,7 @@ type StorageBackend interface {
 	Close() error
 }
 
-// StorageEvent represents a storage change event
+// StorageEvent represents a storage change event.
 type StorageEvent struct {
 	// Type of event
 	Type EventType
@@ -45,24 +46,24 @@ type StorageEvent struct {
 	Value []byte
 }
 
-// StorageHelper provides utility functions for storage operations
+// StorageHelper provides utility functions for storage operations.
 type StorageHelper struct {
-	backend           StorageBackend
+	backend              StorageBackend
 	compressionThreshold int64
-	maxSize           int64
+	maxSize              int64
 }
 
-// NewStorageHelper creates a new storage helper
+// NewStorageHelper creates a new storage helper.
 func NewStorageHelper(backend StorageBackend, compressionThreshold, maxSize int64) *StorageHelper {
 	return &StorageHelper{
-		backend:           backend,
+		backend:              backend,
 		compressionThreshold: compressionThreshold,
-		maxSize:           maxSize,
+		maxSize:              maxSize,
 	}
 }
 
-// PutJSON stores a JSON-serializable value
-func (h *StorageHelper) PutJSON(ctx context.Context, key string, value interface{}) error {
+// PutJSON stores a JSON-serializable value.
+func (h *StorageHelper) PutJSON(ctx context.Context, key string, value any) error {
 	// Serialize to JSON
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -80,6 +81,7 @@ func (h *StorageHelper) PutJSON(ctx context.Context, key string, value interface
 		if err != nil {
 			return fmt.Errorf("failed to compress data: %w", err)
 		}
+
 		data = compressed
 		key = key + ".gz"
 	}
@@ -87,8 +89,8 @@ func (h *StorageHelper) PutJSON(ctx context.Context, key string, value interface
 	return h.backend.Put(ctx, key, data)
 }
 
-// GetJSON retrieves and deserializes a JSON value
-func (h *StorageHelper) GetJSON(ctx context.Context, key string, target interface{}) error {
+// GetJSON retrieves and deserializes a JSON value.
+func (h *StorageHelper) GetJSON(ctx context.Context, key string, target any) error {
 	// Try compressed version first
 	data, err := h.backend.Get(ctx, key+".gz")
 	if err == nil {
@@ -97,6 +99,7 @@ func (h *StorageHelper) GetJSON(ctx context.Context, key string, target interfac
 		if err != nil {
 			return fmt.Errorf("failed to decompress data: %w", err)
 		}
+
 		data = decompressed
 	} else {
 		// Try uncompressed version
@@ -114,13 +117,15 @@ func (h *StorageHelper) GetJSON(ctx context.Context, key string, target interfac
 	return nil
 }
 
-// compressData compresses data using gzip
+// compressData compresses data using gzip.
 func compressData(data []byte) ([]byte, error) {
 	var buf bytes.Buffer
+
 	writer := gzip.NewWriter(&buf)
 
 	if _, err := writer.Write(data); err != nil {
 		writer.Close()
+
 		return nil, err
 	}
 
@@ -131,7 +136,7 @@ func compressData(data []byte) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// decompressData decompresses gzip data
+// decompressData decompresses gzip data.
 func decompressData(data []byte) ([]byte, error) {
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
@@ -142,13 +147,13 @@ func decompressData(data []byte) ([]byte, error) {
 	return io.ReadAll(reader)
 }
 
-// ManifestStorage provides high-level operations for manifest storage
+// ManifestStorage provides high-level operations for manifest storage.
 type ManifestStorage struct {
 	helper    *StorageHelper
 	namespace string
 }
 
-// NewManifestStorage creates a new manifest storage
+// NewManifestStorage creates a new manifest storage.
 func NewManifestStorage(backend StorageBackend, namespace string, compressionThreshold, maxSize int64) *ManifestStorage {
 	return &ManifestStorage{
 		helper:    NewStorageHelper(backend, compressionThreshold, maxSize),
@@ -156,44 +161,50 @@ func NewManifestStorage(backend StorageBackend, namespace string, compressionThr
 	}
 }
 
-// manifestKey generates a storage key for a manifest
+// manifestKey generates a storage key for a manifest.
 func (s *ManifestStorage) manifestKey(serviceName, instanceID string) string {
 	return fmt.Sprintf("%s/services/%s/instances/%s/manifest", s.namespace, serviceName, instanceID)
 }
 
-// schemaKey generates a storage key for a schema
+// schemaKey generates a storage key for a schema.
 func (s *ManifestStorage) schemaKey(path string) string {
 	return fmt.Sprintf("%s%s", s.namespace, path)
 }
 
-// Put stores a manifest
+// Put stores a manifest.
 func (s *ManifestStorage) Put(ctx context.Context, manifest *SchemaManifest) error {
 	key := s.manifestKey(manifest.ServiceName, manifest.InstanceID)
+
 	return s.helper.PutJSON(ctx, key, manifest)
 }
 
-// Get retrieves a manifest
+// Get retrieves a manifest.
 func (s *ManifestStorage) Get(ctx context.Context, serviceName, instanceID string) (*SchemaManifest, error) {
 	key := s.manifestKey(serviceName, instanceID)
+
 	var manifest SchemaManifest
 	if err := s.helper.GetJSON(ctx, key, &manifest); err != nil {
-		if err == ErrSchemaNotFound {
+		if errors.Is(err, ErrSchemaNotFound) {
 			return nil, ErrManifestNotFound
 		}
+
 		return nil, err
 	}
+
 	return &manifest, nil
 }
 
-// Delete removes a manifest
+// Delete removes a manifest.
 func (s *ManifestStorage) Delete(ctx context.Context, serviceName, instanceID string) error {
 	key := s.manifestKey(serviceName, instanceID)
+
 	return s.helper.backend.Delete(ctx, key)
 }
 
-// List lists all manifests for a service
+// List lists all manifests for a service.
 func (s *ManifestStorage) List(ctx context.Context, serviceName string) ([]*SchemaManifest, error) {
 	prefix := fmt.Sprintf("%s/services/%s/instances/", s.namespace, serviceName)
+
 	keys, err := s.helper.backend.List(ctx, prefix)
 	if err != nil {
 		return nil, err
@@ -206,31 +217,35 @@ func (s *ManifestStorage) List(ctx context.Context, serviceName string) ([]*Sche
 			// Skip invalid manifests
 			continue
 		}
+
 		manifests = append(manifests, &manifest)
 	}
 
 	return manifests, nil
 }
 
-// PutSchema stores a schema
-func (s *ManifestStorage) PutSchema(ctx context.Context, path string, schema interface{}) error {
+// PutSchema stores a schema.
+func (s *ManifestStorage) PutSchema(ctx context.Context, path string, schema any) error {
 	key := s.schemaKey(path)
+
 	return s.helper.PutJSON(ctx, key, schema)
 }
 
-// GetSchema retrieves a schema
-func (s *ManifestStorage) GetSchema(ctx context.Context, path string) (interface{}, error) {
+// GetSchema retrieves a schema.
+func (s *ManifestStorage) GetSchema(ctx context.Context, path string) (any, error) {
 	key := s.schemaKey(path)
-	var schema interface{}
+
+	var schema any
 	if err := s.helper.GetJSON(ctx, key, &schema); err != nil {
 		return nil, err
 	}
+
 	return schema, nil
 }
 
-// DeleteSchema removes a schema
+// DeleteSchema removes a schema.
 func (s *ManifestStorage) DeleteSchema(ctx context.Context, path string) error {
 	key := s.schemaKey(path)
+
 	return s.helper.backend.Delete(ctx, key)
 }
-

@@ -2,6 +2,7 @@ package exporters
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"strconv"
@@ -15,26 +16,26 @@ import (
 // STATSD EXPORTER
 // =============================================================================
 
-// StatsDExporter exports metrics in StatsD format
+// StatsDExporter exports metrics in StatsD format.
 type StatsDExporter struct {
 	config *StatsDConfig
 	stats  *StatsDStats
 }
 
-// StatsDConfig contains configuration for the StatsD exporter
+// StatsDConfig contains configuration for the StatsD exporter.
 type StatsDConfig struct {
-	Prefix        string            `yaml:"prefix" json:"prefix"`
-	Suffix        string            `yaml:"suffix" json:"suffix"`
-	TagFormat     string            `yaml:"tag_format" json:"tag_format"` // "datadog", "influx", "graphite"
-	SampleRate    float64           `yaml:"sample_rate" json:"sample_rate"`
-	GlobalTags    map[string]string `yaml:"global_tags" json:"global_tags"`
-	MaxPacketSize int               `yaml:"max_packet_size" json:"max_packet_size"`
-	FlushInterval time.Duration     `yaml:"flush_interval" json:"flush_interval"`
-	IncludeHost   bool              `yaml:"include_host" json:"include_host"`
-	Hostname      string            `yaml:"hostname" json:"hostname"`
+	Prefix        string            `json:"prefix"          yaml:"prefix"`
+	Suffix        string            `json:"suffix"          yaml:"suffix"`
+	TagFormat     string            `json:"tag_format"      yaml:"tag_format"` // "datadog", "influx", "graphite"
+	SampleRate    float64           `json:"sample_rate"     yaml:"sample_rate"`
+	GlobalTags    map[string]string `json:"global_tags"     yaml:"global_tags"`
+	MaxPacketSize int               `json:"max_packet_size" yaml:"max_packet_size"`
+	FlushInterval time.Duration     `json:"flush_interval"  yaml:"flush_interval"`
+	IncludeHost   bool              `json:"include_host"    yaml:"include_host"`
+	Hostname      string            `json:"hostname"        yaml:"hostname"`
 }
 
-// StatsDStats contains statistics about the StatsD exporter
+// StatsDStats contains statistics about the StatsD exporter.
 type StatsDStats struct {
 	ExportsTotal     int64     `json:"exports_total"`
 	LastExportTime   time.Time `json:"last_export_time"`
@@ -44,7 +45,7 @@ type StatsDStats struct {
 	PacketsGenerated int64     `json:"packets_generated"`
 }
 
-// StatsDMetric represents a metric in StatsD format
+// StatsDMetric represents a metric in StatsD format.
 type StatsDMetric struct {
 	Name       string
 	Value      string
@@ -53,7 +54,7 @@ type StatsDMetric struct {
 	Tags       map[string]string
 }
 
-// DefaultStatsDConfig returns default StatsD configuration
+// DefaultStatsDConfig returns default StatsD configuration.
 func DefaultStatsDConfig() *StatsDConfig {
 	return &StatsDConfig{
 		Prefix:        "",
@@ -68,12 +69,12 @@ func DefaultStatsDConfig() *StatsDConfig {
 	}
 }
 
-// NewStatsDExporter creates a new StatsD exporter
+// NewStatsDExporter creates a new StatsD exporter.
 func NewStatsDExporter() shared.Exporter {
 	return NewStatsDExporterWithConfig(DefaultStatsDConfig())
 }
 
-// NewStatsDExporterWithConfig creates a new StatsD exporter with configuration
+// NewStatsDExporterWithConfig creates a new StatsD exporter with configuration.
 func NewStatsDExporterWithConfig(config *StatsDConfig) shared.Exporter {
 	return &StatsDExporter{
 		config: config,
@@ -85,8 +86,8 @@ func NewStatsDExporterWithConfig(config *StatsDConfig) shared.Exporter {
 // EXPORTER INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Export exports metrics in StatsD format
-func (se *StatsDExporter) Export(metrics map[string]interface{}) ([]byte, error) {
+// Export exports metrics in StatsD format.
+func (se *StatsDExporter) Export(metrics map[string]any) ([]byte, error) {
 	se.stats.ExportsTotal++
 	se.stats.LastExportTime = time.Now()
 
@@ -101,6 +102,7 @@ func (se *StatsDExporter) Export(metrics map[string]interface{}) ([]byte, error)
 				lines = append(lines, line)
 			}
 		}
+
 		se.stats.MetricsExported++
 	}
 
@@ -117,13 +119,13 @@ func (se *StatsDExporter) Export(metrics map[string]interface{}) ([]byte, error)
 	return data, nil
 }
 
-// Format returns the export format
+// Format returns the export format.
 func (se *StatsDExporter) Format() string {
 	return "statsd"
 }
 
-// Stats returns exporter statistics
-func (se *StatsDExporter) Stats() interface{} {
+// Stats returns exporter statistics.
+func (se *StatsDExporter) Stats() any {
 	return se.stats
 }
 
@@ -131,8 +133,8 @@ func (se *StatsDExporter) Stats() interface{} {
 // PRIVATE METHODS
 // =============================================================================
 
-// convertMetricToStatsD converts a metric to StatsD format
-func (se *StatsDExporter) convertMetricToStatsD(name string, value interface{}) []StatsDMetric {
+// convertMetricToStatsD converts a metric to StatsD format.
+func (se *StatsDExporter) convertMetricToStatsD(name string, value any) []StatsDMetric {
 	baseName, tags := se.parseMetricName(name)
 
 	// Merge with global tags
@@ -144,6 +146,7 @@ func (se *StatsDExporter) convertMetricToStatsD(name string, value interface{}) 
 		if hostname == "" {
 			hostname = "localhost" // Default hostname
 		}
+
 		allTags["host"] = hostname
 	}
 
@@ -154,7 +157,7 @@ func (se *StatsDExporter) convertMetricToStatsD(name string, value interface{}) 
 		return []StatsDMetric{se.createGaugeMetric(baseName, float64(v), allTags)}
 	case uint64:
 		return []StatsDMetric{se.createGaugeMetric(baseName, float64(v), allTags)}
-	case map[string]interface{}:
+	case map[string]any:
 		return se.convertComplexMetric(baseName, allTags, v)
 	default:
 		// Convert unsupported types to gauge with string value
@@ -163,11 +166,12 @@ func (se *StatsDExporter) convertMetricToStatsD(name string, value interface{}) 
 				return []StatsDMetric{se.createGaugeMetric(baseName, val, allTags)}
 			}
 		}
+
 		return []StatsDMetric{}
 	}
 }
 
-// createGaugeMetric creates a gauge metric
+// createGaugeMetric creates a gauge metric.
 func (se *StatsDExporter) createGaugeMetric(name string, value float64, tags map[string]string) StatsDMetric {
 	return StatsDMetric{
 		Name:       se.buildMetricName(name),
@@ -178,7 +182,7 @@ func (se *StatsDExporter) createGaugeMetric(name string, value float64, tags map
 	}
 }
 
-// createCounterMetric creates a counter metric
+// createCounterMetric creates a counter metric.
 func (se *StatsDExporter) createCounterMetric(name string, value float64, tags map[string]string) StatsDMetric {
 	return StatsDMetric{
 		Name:       se.buildMetricName(name),
@@ -189,7 +193,7 @@ func (se *StatsDExporter) createCounterMetric(name string, value float64, tags m
 	}
 }
 
-// createHistogramMetric creates a histogram metric
+// createHistogramMetric creates a histogram metric.
 func (se *StatsDExporter) createHistogramMetric(name string, value float64, tags map[string]string) StatsDMetric {
 	return StatsDMetric{
 		Name:       se.buildMetricName(name),
@@ -200,7 +204,7 @@ func (se *StatsDExporter) createHistogramMetric(name string, value float64, tags
 	}
 }
 
-// createTimerMetric creates a timer metric
+// createTimerMetric creates a timer metric.
 func (se *StatsDExporter) createTimerMetric(name string, value float64, tags map[string]string) StatsDMetric {
 	return StatsDMetric{
 		Name:       se.buildMetricName(name),
@@ -211,7 +215,7 @@ func (se *StatsDExporter) createTimerMetric(name string, value float64, tags map
 	}
 }
 
-// createSetMetric creates a set metric
+// createSetMetric creates a set metric.
 func (se *StatsDExporter) createSetMetric(name string, value string, tags map[string]string) StatsDMetric {
 	return StatsDMetric{
 		Name:       se.buildMetricName(name),
@@ -222,8 +226,8 @@ func (se *StatsDExporter) createSetMetric(name string, value string, tags map[st
 	}
 }
 
-// convertComplexMetric converts complex metrics (histogram, timer) to StatsD format
-func (se *StatsDExporter) convertComplexMetric(baseName string, tags map[string]string, value map[string]interface{}) []StatsDMetric {
+// convertComplexMetric converts complex metrics (histogram, timer) to StatsD format.
+func (se *StatsDExporter) convertComplexMetric(baseName string, tags map[string]string, value map[string]any) []StatsDMetric {
 	var metrics []StatsDMetric
 
 	// Handle histogram metrics
@@ -240,8 +244,8 @@ func (se *StatsDExporter) convertComplexMetric(baseName string, tags map[string]
 	return metrics
 }
 
-// convertHistogram converts histogram metrics to StatsD format
-func (se *StatsDExporter) convertHistogram(baseName string, tags map[string]string, value map[string]interface{}, buckets map[float64]uint64) []StatsDMetric {
+// convertHistogram converts histogram metrics to StatsD format.
+func (se *StatsDExporter) convertHistogram(baseName string, tags map[string]string, value map[string]any, buckets map[float64]uint64) []StatsDMetric {
 	var metrics []StatsDMetric
 
 	// Export histogram summary
@@ -266,8 +270,8 @@ func (se *StatsDExporter) convertHistogram(baseName string, tags map[string]stri
 	return metrics
 }
 
-// convertTimer converts timer metrics to StatsD format
-func (se *StatsDExporter) convertTimer(baseName string, tags map[string]string, value map[string]interface{}, count uint64) []StatsDMetric {
+// convertTimer converts timer metrics to StatsD format.
+func (se *StatsDExporter) convertTimer(baseName string, tags map[string]string, value map[string]any, count uint64) []StatsDMetric {
 	var metrics []StatsDMetric
 
 	// Export timer count
@@ -298,8 +302,8 @@ func (se *StatsDExporter) convertTimer(baseName string, tags map[string]string, 
 	return metrics
 }
 
-// convertGaugeMetric converts gauge-like metrics to StatsD format
-func (se *StatsDExporter) convertGaugeMetric(baseName string, tags map[string]string, value map[string]interface{}) []StatsDMetric {
+// convertGaugeMetric converts gauge-like metrics to StatsD format.
+func (se *StatsDExporter) convertGaugeMetric(baseName string, tags map[string]string, value map[string]any) []StatsDMetric {
 	var metrics []StatsDMetric
 
 	for k, v := range value {
@@ -319,6 +323,7 @@ func (se *StatsDExporter) convertGaugeMetric(baseName string, tags map[string]st
 			if val {
 				value = 1.0
 			}
+
 			metrics = append(metrics, se.createGaugeMetric(metricName, value, tags))
 		case string:
 			metrics = append(metrics, se.createSetMetric(metricName, val, tags))
@@ -336,7 +341,7 @@ func (se *StatsDExporter) convertGaugeMetric(baseName string, tags map[string]st
 	return metrics
 }
 
-// formatMetric formats a StatsD metric
+// formatMetric formats a StatsD metric.
 func (se *StatsDExporter) formatMetric(metric StatsDMetric) string {
 	var parts []string
 
@@ -345,7 +350,7 @@ func (se *StatsDExporter) formatMetric(metric StatsDMetric) string {
 
 	// Sample rate
 	if metric.SampleRate < 1.0 {
-		parts = append(parts, fmt.Sprintf("@%s", se.formatFloat(metric.SampleRate)))
+		parts = append(parts, "@"+se.formatFloat(metric.SampleRate))
 	}
 
 	// Tags
@@ -359,7 +364,7 @@ func (se *StatsDExporter) formatMetric(metric StatsDMetric) string {
 	return strings.Join(parts, "|")
 }
 
-// formatTags formats tags according to the configured format
+// formatTags formats tags according to the configured format.
 func (se *StatsDExporter) formatTags(tags map[string]string) string {
 	if len(tags) == 0 {
 		return ""
@@ -370,6 +375,7 @@ func (se *StatsDExporter) formatTags(tags map[string]string) string {
 	for key := range tags {
 		keys = append(keys, key)
 	}
+
 	sort.Strings(keys)
 
 	var parts []string
@@ -379,23 +385,27 @@ func (se *StatsDExporter) formatTags(tags map[string]string) string {
 		for _, key := range keys {
 			parts = append(parts, fmt.Sprintf("%s:%s", key, tags[key]))
 		}
+
 		return "#" + strings.Join(parts, ",")
 	case "influx":
 		for _, key := range keys {
 			parts = append(parts, fmt.Sprintf("%s=%s", key, tags[key]))
 		}
+
 		return "#" + strings.Join(parts, ",")
 	case "graphite":
 		// Graphite doesn't support tags, so we encode them in the metric name
 		for _, key := range keys {
 			parts = append(parts, fmt.Sprintf("%s_%s", key, tags[key]))
 		}
+
 		return strings.Join(parts, ".")
 	default:
 		// Default to datadog format
 		for _, key := range keys {
 			parts = append(parts, fmt.Sprintf("%s:%s", key, tags[key]))
 		}
+
 		return "#" + strings.Join(parts, ",")
 	}
 }
@@ -404,7 +414,7 @@ func (se *StatsDExporter) formatTags(tags map[string]string) string {
 // UTILITY METHODS
 // =============================================================================
 
-// parseMetricName parses a metric name and extracts tags
+// parseMetricName parses a metric name and extracts tags.
 func (se *StatsDExporter) parseMetricName(fullName string) (string, map[string]string) {
 	if !strings.Contains(fullName, "{") {
 		return fullName, make(map[string]string)
@@ -423,9 +433,10 @@ func (se *StatsDExporter) parseMetricName(fullName string) (string, map[string]s
 	}
 
 	tags := make(map[string]string)
+
 	if tagsStr != "" {
-		pairs := strings.Split(tagsStr, ",")
-		for _, pair := range pairs {
+		pairs := strings.SplitSeq(tagsStr, ",")
+		for pair := range pairs {
 			if kv := strings.SplitN(pair, "=", 2); len(kv) == 2 {
 				key := strings.TrimSpace(kv[0])
 				value := strings.TrimSpace(kv[1])
@@ -437,7 +448,7 @@ func (se *StatsDExporter) parseMetricName(fullName string) (string, map[string]s
 	return baseName, tags
 }
 
-// buildMetricName builds the full metric name with prefix and suffix
+// buildMetricName builds the full metric name with prefix and suffix.
 func (se *StatsDExporter) buildMetricName(baseName string) string {
 	parts := []string{}
 
@@ -454,32 +465,35 @@ func (se *StatsDExporter) buildMetricName(baseName string) string {
 	return strings.Join(parts, ".")
 }
 
-// mergeTags merges multiple tag maps
+// mergeTags merges multiple tag maps.
 func (se *StatsDExporter) mergeTags(tagMaps ...map[string]string) map[string]string {
 	result := make(map[string]string)
+
 	for _, tags := range tagMaps {
-		for k, v := range tags {
-			result[k] = v
-		}
+		maps.Copy(result, tags)
 	}
+
 	return result
 }
 
-// formatFloat formats a float value for StatsD
+// formatFloat formats a float value for StatsD.
 func (se *StatsDExporter) formatFloat(value float64) string {
 	if value != value { // NaN
 		return "0"
 	}
+
 	if math.IsInf(value, 0) {
 		return "0"
 	}
+
 	return strconv.FormatFloat(value, 'g', -1, 64)
 }
 
-// sanitizeMetricName sanitizes metric name for StatsD
+// sanitizeMetricName sanitizes metric name for StatsD.
 func (se *StatsDExporter) sanitizeMetricName(name string) string {
 	// Replace invalid characters with underscores
 	result := strings.Builder{}
+
 	for _, char := range name {
 		if (char >= 'a' && char <= 'z') ||
 			(char >= 'A' && char <= 'Z') ||
@@ -490,10 +504,11 @@ func (se *StatsDExporter) sanitizeMetricName(name string) string {
 			result.WriteRune('_')
 		}
 	}
+
 	return result.String()
 }
 
-// sanitizeTagValue sanitizes tag value for StatsD
+// sanitizeTagValue sanitizes tag value for StatsD.
 func (se *StatsDExporter) sanitizeTagValue(value string) string {
 	// Remove characters that could break StatsD parsing
 	value = strings.ReplaceAll(value, ":", "_")
@@ -502,6 +517,7 @@ func (se *StatsDExporter) sanitizeTagValue(value string) string {
 	value = strings.ReplaceAll(value, "#", "_")
 	value = strings.ReplaceAll(value, ",", "_")
 	value = strings.ReplaceAll(value, "=", "_")
+
 	return value
 }
 
@@ -509,19 +525,21 @@ func (se *StatsDExporter) sanitizeTagValue(value string) string {
 // UTILITY FUNCTIONS
 // =============================================================================
 
-// ExportMetricsToStatsD exports metrics to StatsD format with default configuration
-func ExportMetricsToStatsD(metrics map[string]interface{}) ([]byte, error) {
+// ExportMetricsToStatsD exports metrics to StatsD format with default configuration.
+func ExportMetricsToStatsD(metrics map[string]any) ([]byte, error) {
 	exporter := NewStatsDExporter()
+
 	return exporter.Export(metrics)
 }
 
-// ExportMetricsToStatsDWithConfig exports metrics to StatsD format with custom configuration
-func ExportMetricsToStatsDWithConfig(metrics map[string]interface{}, config *StatsDConfig) ([]byte, error) {
+// ExportMetricsToStatsDWithConfig exports metrics to StatsD format with custom configuration.
+func ExportMetricsToStatsDWithConfig(metrics map[string]any, config *StatsDConfig) ([]byte, error) {
 	exporter := NewStatsDExporterWithConfig(config)
+
 	return exporter.Export(metrics)
 }
 
-// ValidateStatsDConfig validates StatsD configuration
+// ValidateStatsDConfig validates StatsD configuration.
 func ValidateStatsDConfig(config *StatsDConfig) error {
 	if config.SampleRate <= 0 || config.SampleRate > 1 {
 		return fmt.Errorf("sample rate must be between 0 and 1, got %f", config.SampleRate)
@@ -544,15 +562,18 @@ func ValidateStatsDConfig(config *StatsDConfig) error {
 	return nil
 }
 
-// SplitIntoPackets splits StatsD metrics into packets respecting max packet size
+// SplitIntoPackets splits StatsD metrics into packets respecting max packet size.
 func SplitIntoPackets(data []byte, maxPacketSize int) [][]byte {
 	if len(data) <= maxPacketSize {
 		return [][]byte{data}
 	}
 
 	lines := strings.Split(string(data), "\n")
-	var packets [][]byte
-	var currentPacket strings.Builder
+
+	var (
+		packets       [][]byte
+		currentPacket strings.Builder
+	)
 
 	for _, line := range lines {
 		if line == "" {
@@ -570,6 +591,7 @@ func SplitIntoPackets(data []byte, maxPacketSize int) [][]byte {
 		if currentPacket.Len() > 0 {
 			currentPacket.WriteString("\n")
 		}
+
 		currentPacket.WriteString(line)
 	}
 

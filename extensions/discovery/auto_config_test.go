@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// TestAutoConfigFromApp validates that Service config is optional and reads from app config
+// TestAutoConfigFromApp validates that Service config is optional and reads from app config.
 func TestAutoConfigFromApp(t *testing.T) {
 	// Create app with name, version, and HTTPAddress
 	app := forge.New(forge.WithConfig(forge.AppConfig{
@@ -96,7 +96,7 @@ func TestAutoConfigFromApp(t *testing.T) {
 	}
 }
 
-// TestAutoConfigWithPartialServiceConfig validates mixing Service config with app config
+// TestAutoConfigWithPartialServiceConfig validates mixing Service config with app config.
 func TestAutoConfigWithPartialServiceConfig(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:        "my-app",
@@ -167,7 +167,7 @@ func TestAutoConfigWithPartialServiceConfig(t *testing.T) {
 	}
 }
 
-// TestHTTPAddressParsingVariations validates different HTTPAddress formats
+// TestHTTPAddressParsingVariations validates different HTTPAddress formats.
 func TestHTTPAddressParsingVariations(t *testing.T) {
 	tests := []struct {
 		name            string

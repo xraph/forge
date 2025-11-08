@@ -58,7 +58,7 @@ func (pt *presenceTracker) SetPresence(ctx context.Context, userID, status strin
 	// Get existing presence or create new
 	presence, err := pt.store.Get(ctx, userID)
 	if err != nil {
-		if err == streaming.ErrPresenceNotFound {
+		if errors.Is(err, streaming.ErrPresenceNotFound) {
 			presence = &streaming.UserPresence{
 				UserID:      userID,
 				Status:      status,
@@ -153,6 +153,7 @@ func (pt *presenceTracker) SetCustomStatus(ctx context.Context, userID, customSt
 	}
 
 	presence.CustomStatus = customStatus
+
 	return pt.store.Set(ctx, userID, presence)
 }
 
@@ -218,7 +219,7 @@ func (pt *presenceTracker) cleanupLoop() {
 	}
 }
 
-// Bulk Operations
+// Bulk Operations.
 func (pt *presenceTracker) SetPresenceForUsers(ctx context.Context, updates map[string]string) error {
 	presences := make(map[string]*streaming.UserPresence)
 
@@ -245,16 +246,19 @@ func (pt *presenceTracker) GetPresenceForRooms(ctx context.Context, roomIDs []st
 		if err != nil {
 			// If we can't get users for a room, continue with empty list
 			result[roomID] = []*streaming.UserPresence{}
+
 			continue
 		}
 
 		// Get presence for each online user
 		var presences []*streaming.UserPresence
+
 		for _, userID := range onlineUsers {
 			presence, err := pt.GetPresence(ctx, userID)
 			if err != nil {
 				continue // Skip users without presence
 			}
+
 			presences = append(presences, presence)
 		}
 
@@ -278,7 +282,7 @@ func (pt *presenceTracker) GetPresenceBulk(ctx context.Context, userIDs []string
 	return result, nil
 }
 
-// Advanced Queries
+// Advanced Queries.
 func (pt *presenceTracker) GetUsersByStatus(ctx context.Context, status string) ([]string, error) {
 	presences, err := pt.store.GetByStatus(ctx, status)
 	if err != nil {
@@ -329,7 +333,7 @@ func (pt *presenceTracker) GetBusyUsers(ctx context.Context) ([]string, error) {
 	return pt.GetUsersByStatus(ctx, streaming.StatusBusy)
 }
 
-// Presence History
+// Presence History.
 func (pt *presenceTracker) GetPresenceHistory(ctx context.Context, userID string, since time.Time) ([]*streaming.PresenceEvent, error) {
 	return pt.store.GetHistorySince(ctx, userID, since)
 }
@@ -338,7 +342,7 @@ func (pt *presenceTracker) GetStatusChanges(ctx context.Context, userID string, 
 	return pt.store.GetHistory(ctx, userID, limit)
 }
 
-// Device Management
+// Device Management.
 func (pt *presenceTracker) AddDevice(ctx context.Context, userID, deviceID string, deviceInfo streaming.DeviceInfo) error {
 	return pt.store.SetDevice(ctx, userID, deviceID, deviceInfo)
 }
@@ -358,6 +362,7 @@ func (pt *presenceTracker) GetActiveDevices(ctx context.Context, userID string) 
 	}
 
 	var activeDevices []streaming.DeviceInfo
+
 	for _, device := range devices {
 		if device.Active {
 			activeDevices = append(activeDevices, device)
@@ -367,7 +372,7 @@ func (pt *presenceTracker) GetActiveDevices(ctx context.Context, userID string) 
 	return activeDevices, nil
 }
 
-// Rich Presence
+// Rich Presence.
 func (pt *presenceTracker) SetRichPresence(ctx context.Context, userID string, richData map[string]any) error {
 	presence, err := pt.store.Get(ctx, userID)
 	if err != nil {
@@ -379,6 +384,7 @@ func (pt *presenceTracker) SetRichPresence(ctx context.Context, userID string, r
 	}
 
 	presence.Metadata["rich_presence"] = richData
+
 	return pt.store.Set(ctx, userID, presence)
 }
 
@@ -408,6 +414,7 @@ func (pt *presenceTracker) SetActivity(ctx context.Context, userID string, activ
 	}
 
 	presence.Metadata["activity"] = activity
+
 	return pt.store.Set(ctx, userID, presence)
 }
 
@@ -426,7 +433,7 @@ func (pt *presenceTracker) GetActivity(ctx context.Context, userID string) (*str
 	return nil, nil
 }
 
-// Availability
+// Availability.
 func (pt *presenceTracker) SetAvailability(ctx context.Context, userID string, available bool, message string) error {
 	presence, err := pt.store.Get(ctx, userID)
 	if err != nil {
@@ -444,6 +451,7 @@ func (pt *presenceTracker) SetAvailability(ctx context.Context, userID string, a
 	}
 
 	presence.Metadata["availability"] = availability
+
 	return pt.store.Set(ctx, userID, presence)
 }
 
@@ -462,7 +470,7 @@ func (pt *presenceTracker) IsAvailable(ctx context.Context, userID string) (bool
 	return true, "", nil // Default to available
 }
 
-// Time-based
+// Time-based.
 func (pt *presenceTracker) GetOnlineUsersAt(ctx context.Context, timestamp time.Time) ([]string, error) {
 	// This would require historical data
 	// For now, return current online users
@@ -476,15 +484,18 @@ func (pt *presenceTracker) GetPresenceDuration(ctx context.Context, userID strin
 		return 0, err
 	}
 
-	var duration time.Duration
-	var lastStatusChange time.Time = since
-	var currentStatus string
+	var (
+		duration         time.Duration
+		lastStatusChange time.Time = since
+		currentStatus    string
+	)
 
 	for _, event := range events {
 		if event.Type == "status_change" {
 			if currentStatus == status && !lastStatusChange.IsZero() {
 				duration += event.Timestamp.Sub(lastStatusChange)
 			}
+
 			currentStatus = event.Status
 			lastStatusChange = event.Timestamp
 		}
@@ -498,12 +509,11 @@ func (pt *presenceTracker) GetPresenceDuration(ctx context.Context, userID strin
 	return duration, nil
 }
 
-// Watching/Subscriptions - placeholder implementations
+// Watching/Subscriptions - placeholder implementations.
 func (pt *presenceTracker) WatchPresence(ctx context.Context, userID string, callback func(*streaming.UserPresence)) error {
 	// For now, this is a placeholder implementation
 	// In a real implementation, you'd set up a subscription to presence changes
 	// and call the callback when the user's presence changes
-
 	if pt.logger != nil {
 		pt.logger.Debug("presence watching requested",
 			forge.F("user_id", userID),
@@ -516,7 +526,6 @@ func (pt *presenceTracker) WatchPresence(ctx context.Context, userID string, cal
 func (pt *presenceTracker) UnwatchPresence(ctx context.Context, userID string) error {
 	// For now, this is a placeholder implementation
 	// In a real implementation, you'd remove the subscription
-
 	if pt.logger != nil {
 		pt.logger.Debug("presence unwatching requested",
 			forge.F("user_id", userID),
@@ -560,7 +569,7 @@ func (pt *presenceTracker) UnsubscribeFromPresenceChanges(ctx context.Context, s
 	return nil
 }
 
-// Statistics
+// Statistics.
 func (pt *presenceTracker) GetOnlineStats(ctx context.Context) (*streaming.OnlineStats, error) {
 	onlineUsers, err := pt.store.GetOnline(ctx)
 	if err != nil {
@@ -655,7 +664,7 @@ func (pt *presenceTracker) GetPresenceStats(ctx context.Context, userID string) 
 	return stats, nil
 }
 
-// Watching methods - placeholder implementations
+// Watching methods - placeholder implementations.
 func (pt *presenceTracker) WatchUser(ctx context.Context, watcherID, watchedUserID string) error {
 	pt.watchersMu.Lock()
 	defer pt.watchersMu.Unlock()
@@ -668,6 +677,7 @@ func (pt *presenceTracker) WatchUser(ctx context.Context, watcherID, watchedUser
 				return nil // Already watching
 			}
 		}
+
 		pt.watchers[watchedUserID] = append(watchers, watcherID)
 	} else {
 		pt.watchers[watchedUserID] = []string{watcherID}
@@ -692,6 +702,7 @@ func (pt *presenceTracker) UnwatchUser(ctx context.Context, watcherID, watchedUs
 		for i, w := range watchers {
 			if w == watcherID {
 				pt.watchers[watchedUserID] = append(watchers[:i], watchers[i+1:]...)
+
 				break
 			}
 		}
@@ -738,6 +749,7 @@ func (pt *presenceTracker) GetWatching(ctx context.Context, userID string) ([]st
 		for _, watcherID := range watchers {
 			if watcherID == userID {
 				watching = append(watching, watchedUserID)
+
 				break
 			}
 		}

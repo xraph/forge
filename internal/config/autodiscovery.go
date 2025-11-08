@@ -8,16 +8,17 @@ import (
 	"strings"
 
 	"github.com/xraph/forge/internal/config/sources"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
 
-// F is a helper function to create logger fields
-func F(key string, value interface{}) logger.Field {
+// F is a helper function to create logger fields.
+func F(key string, value any) logger.Field {
 	return logger.Any(key, value)
 }
 
-// AutoDiscoveryConfig configures automatic config file discovery
+// AutoDiscoveryConfig configures automatic config file discovery.
 type AutoDiscoveryConfig struct {
 	// AppName is the application name to look for in app-scoped configs
 	// If provided, will look for "apps.{AppName}" section in config
@@ -59,7 +60,7 @@ type AutoDiscoveryConfig struct {
 	ErrorHandler shared.ErrorHandler
 }
 
-// AutoDiscoveryResult contains the result of config discovery
+// AutoDiscoveryResult contains the result of config discovery.
 type AutoDiscoveryResult struct {
 	// BaseConfigPath is the path to the base config file
 	BaseConfigPath string
@@ -77,7 +78,7 @@ type AutoDiscoveryResult struct {
 	AppName string
 }
 
-// DefaultAutoDiscoveryConfig returns default auto-discovery configuration
+// DefaultAutoDiscoveryConfig returns default auto-discovery configuration.
 func DefaultAutoDiscoveryConfig() AutoDiscoveryConfig {
 	return AutoDiscoveryConfig{
 		ConfigNames:      []string{"config.yaml", "config.yml"},
@@ -89,24 +90,28 @@ func DefaultAutoDiscoveryConfig() AutoDiscoveryConfig {
 	}
 }
 
-// DiscoverAndLoadConfigs automatically discovers and loads config files
+// DiscoverAndLoadConfigs automatically discovers and loads config files.
 func DiscoverAndLoadConfigs(cfg AutoDiscoveryConfig) (ConfigManager, *AutoDiscoveryResult, error) {
 	// Apply defaults
 	if len(cfg.ConfigNames) == 0 {
 		cfg.ConfigNames = []string{"config.yaml", "config.yml"}
 	}
+
 	if len(cfg.LocalConfigNames) == 0 {
 		cfg.LocalConfigNames = []string{"config.local.yaml", "config.local.yml"}
 	}
+
 	if cfg.MaxDepth == 0 {
 		cfg.MaxDepth = 5
 	}
+
 	if len(cfg.SearchPaths) == 0 {
 		// Default to current directory
 		cwd, err := os.Getwd()
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get current directory: %w", err)
 		}
+
 		cfg.SearchPaths = []string{cwd}
 	}
 
@@ -145,7 +150,7 @@ func DiscoverAndLoadConfigs(cfg AutoDiscoveryConfig) (ConfigManager, *AutoDiscov
 			}
 		}
 	} else if cfg.RequireBase {
-		return nil, nil, fmt.Errorf("base config file required but not found")
+		return nil, nil, errors.New("base config file required but not found")
 	}
 
 	// Load local config if found (higher priority - overrides base)
@@ -171,7 +176,7 @@ func DiscoverAndLoadConfigs(cfg AutoDiscoveryConfig) (ConfigManager, *AutoDiscov
 			}
 		}
 	} else if cfg.RequireLocal {
-		return nil, nil, fmt.Errorf("local config file required but not found")
+		return nil, nil, errors.New("local config file required but not found")
 	}
 
 	// Extract app-scoped config if enabled and AppName is provided
@@ -192,7 +197,7 @@ func DiscoverAndLoadConfigs(cfg AutoDiscoveryConfig) (ConfigManager, *AutoDiscov
 	return manager, result, nil
 }
 
-// discoverConfigFiles searches for config files in the specified paths
+// discoverConfigFiles searches for config files in the specified paths.
 func discoverConfigFiles(cfg AutoDiscoveryConfig) (*AutoDiscoveryResult, error) {
 	result := &AutoDiscoveryResult{
 		AppName: cfg.AppName,
@@ -208,6 +213,7 @@ func discoverConfigFiles(cfg AutoDiscoveryConfig) (*AutoDiscoveryResult, error) 
 		if err != nil {
 			continue
 		}
+
 		if found {
 			return result, nil
 		}
@@ -218,19 +224,16 @@ func discoverConfigFiles(cfg AutoDiscoveryConfig) (*AutoDiscoveryResult, error) 
 		return result, nil
 	}
 
-	return nil, fmt.Errorf("config files not found in search paths")
+	return nil, errors.New("config files not found in search paths")
 }
 
-// searchInPathHierarchy searches for config files in a path and its parents
+// searchInPathHierarchy searches for config files in a path and its parents.
 func searchInPathHierarchy(startPath string, cfg AutoDiscoveryConfig, result *AutoDiscoveryResult) (bool, error) {
 	currentPath := startPath
 	depth := 0
 
-	for {
+	for depth < cfg.MaxDepth {
 		// Check if we've exceeded max depth
-		if depth >= cfg.MaxDepth {
-			break
-		}
 
 		// Look for base config files
 		for _, configName := range cfg.ConfigNames {
@@ -238,6 +241,7 @@ func searchInPathHierarchy(startPath string, cfg AutoDiscoveryConfig, result *Au
 			if fileExists(configPath) {
 				result.BaseConfigPath = configPath
 				result.WorkingDirectory = currentPath
+
 				break
 			}
 		}
@@ -270,6 +274,7 @@ func searchInPathHierarchy(startPath string, cfg AutoDiscoveryConfig, result *Au
 			// Reached root
 			break
 		}
+
 		currentPath = parentPath
 		depth++
 	}
@@ -278,12 +283,12 @@ func searchInPathHierarchy(startPath string, cfg AutoDiscoveryConfig, result *Au
 }
 
 // extractAppScopedConfig extracts app-scoped configuration from the manager
-// Looks for config under "apps.{appName}" and promotes it to root level
+// Looks for config under "apps.{appName}" and promotes it to root level.
 func extractAppScopedConfig(manager ConfigManager, appName string) error {
 	// Try to get app-scoped config
-	appConfigKey := fmt.Sprintf("apps.%s", appName)
+	appConfigKey := "apps." + appName
 	appConfig := manager.GetSection(appConfigKey)
-	
+
 	if appConfig == nil || len(appConfig) == 0 {
 		return fmt.Errorf("app-scoped config not found for app: %s", appName)
 	}
@@ -293,8 +298,8 @@ func extractAppScopedConfig(manager ConfigManager, appName string) error {
 
 	// Merge app config with global config using deep merge
 	// Global settings are base, app-specific settings override
-	mergedConfig := make(map[string]interface{})
-	
+	mergedConfig := make(map[string]any)
+
 	// Start with global settings (excluding apps section)
 	for key, value := range allSettings {
 		if key != "apps" {
@@ -316,53 +321,55 @@ func extractAppScopedConfig(manager ConfigManager, appName string) error {
 }
 
 // extractAppScopedWithPriority extracts app-scoped config respecting source priorities
-// This ensures that local global overrides take precedence over base app-scoped settings
+// This ensures that local global overrides take precedence over base app-scoped settings.
 func extractAppScopedWithPriority(mgr *Manager, appName string) error {
 	mgr.mu.Lock()
 	defer mgr.mu.Unlock()
-	
+
 	// Build a priority-aware merged config
 	// We need to extract app-scoped from each source separately, then merge by priority
-	
+
 	type sourceData struct {
 		priority int
-		data     map[string]interface{}
-		appData  map[string]interface{}
+		data     map[string]any
+		appData  map[string]any
 	}
-	
+
 	sources := mgr.registry.GetSources()
 	sourceDataList := make([]sourceData, 0, len(sources))
-	
+
 	// Load each source and extract its app-scoped section
 	for _, source := range sources {
 		data, err := mgr.loader.LoadSource(context.Background(), source)
 		if err != nil {
 			continue
 		}
-		
+
 		// Extract app-scoped section if it exists
-		var appData map[string]interface{}
-		if appsSection, ok := data["apps"].(map[string]interface{}); ok {
-			if appSection, ok := appsSection[appName].(map[string]interface{}); ok {
+		var appData map[string]any
+
+		if appsSection, ok := data["apps"].(map[string]any); ok {
+			if appSection, ok := appsSection[appName].(map[string]any); ok {
 				appData = appSection
 			}
 		}
-		
+
 		// Remove apps section from global data
-		globalData := make(map[string]interface{})
+		globalData := make(map[string]any)
+
 		for k, v := range data {
 			if k != "apps" {
 				globalData[k] = deepCopyValue(v)
 			}
 		}
-		
+
 		sourceDataList = append(sourceDataList, sourceData{
 			priority: source.Priority(),
 			data:     globalData,
 			appData:  appData,
 		})
 	}
-	
+
 	// Sort by priority
 	for i := 0; i < len(sourceDataList); i++ {
 		for j := i + 1; j < len(sourceDataList); j++ {
@@ -371,39 +378,41 @@ func extractAppScopedWithPriority(mgr *Manager, appName string) error {
 			}
 		}
 	}
-	
+
 	// Merge in priority order:
 	// 1. Start with lowest priority global
 	// 2. Merge same-priority app-scoped over global
 	// 3. Merge next priority global
 	// 4. Merge next priority app-scoped
 	// etc.
-	
-	mergedConfig := make(map[string]interface{})
-	
+
+	mergedConfig := make(map[string]any)
+
 	for _, sd := range sourceDataList {
 		// First merge global from this source
 		deepMergeMapRecursive(mergedConfig, sd.data)
-		
+
 		// Then merge app-scoped from this source (app overrides global at same priority)
 		if sd.appData != nil {
 			deepMergeMapRecursive(mergedConfig, sd.appData)
 		}
 	}
-	
+
 	mgr.data = mergedConfig
+
 	return nil
 }
 
 // deepMergeMapRecursive merges source into target recursively
-// Values from source override values in target
-func deepMergeMapRecursive(target, source map[string]interface{}) {
+// Values from source override values in target.
+func deepMergeMapRecursive(target, source map[string]any) {
 	for key, sourceValue := range source {
 		if targetValue, exists := target[key]; exists {
 			// Both are maps - merge recursively
-			if targetMap, ok := targetValue.(map[string]interface{}); ok {
-				if sourceMap, ok := sourceValue.(map[string]interface{}); ok {
+			if targetMap, ok := targetValue.(map[string]any); ok {
+				if sourceMap, ok := sourceValue.(map[string]any); ok {
 					deepMergeMapRecursive(targetMap, sourceMap)
+
 					continue
 				}
 			}
@@ -413,20 +422,22 @@ func deepMergeMapRecursive(target, source map[string]interface{}) {
 	}
 }
 
-// deepCopyValue creates a deep copy of a value
-func deepCopyValue(value interface{}) interface{} {
+// deepCopyValue creates a deep copy of a value.
+func deepCopyValue(value any) any {
 	switch v := value.(type) {
-	case map[string]interface{}:
-		copied := make(map[string]interface{})
+	case map[string]any:
+		copied := make(map[string]any)
 		for k, val := range v {
 			copied[k] = deepCopyValue(val)
 		}
+
 		return copied
-	case []interface{}:
-		copied := make([]interface{}, len(v))
+	case []any:
+		copied := make([]any, len(v))
 		for i, val := range v {
 			copied[i] = deepCopyValue(val)
 		}
+
 		return copied
 	default:
 		return v
@@ -434,18 +445,19 @@ func deepCopyValue(value interface{}) interface{} {
 }
 
 // AutoLoadConfigManager automatically discovers and loads config files
-// This is a convenience function that uses default settings
+// This is a convenience function that uses default settings.
 func AutoLoadConfigManager(appName string, logger logger.Logger) (ConfigManager, error) {
 	cfg := DefaultAutoDiscoveryConfig()
 	cfg.AppName = appName
 	cfg.Logger = logger
 
 	manager, _, err := DiscoverAndLoadConfigs(cfg)
+
 	return manager, err
 }
 
 // LoadConfigWithAppScope loads config with app-scoped extraction
-// This is the recommended way to load configs in a monorepo environment
+// This is the recommended way to load configs in a monorepo environment.
 func LoadConfigWithAppScope(appName string, logger logger.Logger, errorHandler shared.ErrorHandler) (ConfigManager, error) {
 	cfg := DefaultAutoDiscoveryConfig()
 	cfg.AppName = appName
@@ -465,11 +477,13 @@ func LoadConfigWithAppScope(appName string, logger logger.Logger, errorHandler s
 				F("path", result.BaseConfigPath),
 			)
 		}
+
 		if result.LocalConfigPath != "" {
 			logger.Info("discovered local config",
 				F("path", result.LocalConfigPath),
 			)
 		}
+
 		if result.IsMonorepo {
 			logger.Info("detected monorepo layout",
 				F("app", appName),
@@ -487,6 +501,7 @@ func fileExists(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	return !info.IsDir()
 }
 
@@ -495,11 +510,12 @@ func dirExists(path string) bool {
 	if err != nil {
 		return false
 	}
+
 	return info.IsDir()
 }
 
 // LoadConfigFromPaths is a helper that loads config from explicit paths
-// Useful when you know exactly where your config files are
+// Useful when you know exactly where your config files are.
 func LoadConfigFromPaths(basePath, localPath, appName string, logger logger.Logger) (ConfigManager, error) {
 	manager := NewManager(ManagerConfig{
 		Logger: logger,
@@ -517,6 +533,7 @@ func LoadConfigFromPaths(basePath, localPath, appName string, logger logger.Logg
 		if err != nil {
 			return nil, fmt.Errorf("failed to create base config source: %w", err)
 		}
+
 		if err := manager.LoadFrom(source); err != nil {
 			return nil, fmt.Errorf("failed to load base config: %w", err)
 		}
@@ -534,6 +551,7 @@ func LoadConfigFromPaths(basePath, localPath, appName string, logger logger.Logg
 		if err != nil {
 			return nil, fmt.Errorf("failed to create local config source: %w", err)
 		}
+
 		if err := manager.LoadFrom(source); err != nil {
 			return nil, fmt.Errorf("failed to load local config: %w", err)
 		}
@@ -555,12 +573,12 @@ func LoadConfigFromPaths(basePath, localPath, appName string, logger logger.Logg
 }
 
 // GetConfigSearchInfo returns information about where configs would be searched
-// Useful for debugging config loading issues
+// Useful for debugging config loading issues.
 func GetConfigSearchInfo(appName string) string {
 	cwd, _ := os.Getwd()
 	cfg := DefaultAutoDiscoveryConfig()
 	cfg.AppName = appName
-	
+
 	var info strings.Builder
 	info.WriteString(fmt.Sprintf("Config Search Information for app '%s':\n", appName))
 	info.WriteString(fmt.Sprintf("  Working Directory: %s\n", cwd))
@@ -568,11 +586,10 @@ func GetConfigSearchInfo(appName string) string {
 	info.WriteString(fmt.Sprintf("  Local Config Names: %v\n", cfg.LocalConfigNames))
 	info.WriteString(fmt.Sprintf("  Max Search Depth: %d parent directories\n", cfg.MaxDepth))
 	info.WriteString(fmt.Sprintf("  App Scoping: %v\n", cfg.EnableAppScoping))
-	
+
 	if cfg.EnableAppScoping && appName != "" {
 		info.WriteString(fmt.Sprintf("  App-Scoped Key: apps.%s\n", appName))
 	}
 
 	return info.String()
 }
-

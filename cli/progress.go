@@ -8,14 +8,14 @@ import (
 	"time"
 )
 
-// ProgressBar displays a progress bar
+// ProgressBar displays a progress bar.
 type ProgressBar interface {
 	Set(current int)
 	Increment()
 	Finish(message string)
 }
 
-// progressBar implements ProgressBar
+// progressBar implements ProgressBar.
 type progressBar struct {
 	total   int
 	current int
@@ -25,7 +25,7 @@ type progressBar struct {
 	done    bool
 }
 
-// newProgressBar creates a new progress bar
+// newProgressBar creates a new progress bar.
 func newProgressBar(total int, output io.Writer) ProgressBar {
 	return &progressBar{
 		total:  total,
@@ -34,7 +34,7 @@ func newProgressBar(total int, output io.Writer) ProgressBar {
 	}
 }
 
-// Set sets the current progress value
+// Set sets the current progress value.
 func (pb *progressBar) Set(current int) {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
@@ -43,20 +43,17 @@ func (pb *progressBar) Set(current int) {
 		return
 	}
 
-	pb.current = current
-	if pb.current > pb.total {
-		pb.current = pb.total
-	}
+	pb.current = min(current, pb.total)
 
 	pb.render()
 }
 
-// Increment increments the progress by 1
+// Increment increments the progress by 1.
 func (pb *progressBar) Increment() {
 	pb.Set(pb.current + 1)
 }
 
-// Finish completes the progress bar with a message
+// Finish completes the progress bar with a message.
 func (pb *progressBar) Finish(message string) {
 	pb.mu.Lock()
 	defer pb.mu.Unlock()
@@ -75,7 +72,7 @@ func (pb *progressBar) Finish(message string) {
 	}
 }
 
-// render draws the progress bar
+// render draws the progress bar.
 func (pb *progressBar) render() {
 	percent := float64(pb.current) / float64(pb.total)
 	if percent > 1.0 {
@@ -92,13 +89,13 @@ func (pb *progressBar) render() {
 	fmt.Fprintf(pb.output, "\r%s [%s] %s", Gray("Progress:"), bar, percentStr)
 }
 
-// Spinner displays a spinner animation
+// Spinner displays a spinner animation.
 type Spinner interface {
 	Update(message string)
 	Stop(message string)
 }
 
-// spinner implements Spinner
+// spinner implements Spinner.
 type spinner struct {
 	message string
 	output  io.Writer
@@ -110,7 +107,7 @@ type spinner struct {
 	stopCh  chan struct{}
 }
 
-// newSpinner creates a new spinner
+// newSpinner creates a new spinner.
 func newSpinner(message string, output io.Writer) Spinner {
 	s := &spinner{
 		message: message,
@@ -126,7 +123,7 @@ func newSpinner(message string, output io.Writer) Spinner {
 	return s
 }
 
-// animate runs the spinner animation
+// animate runs the spinner animation.
 func (s *spinner) animate() {
 	for {
 		select {
@@ -134,22 +131,24 @@ func (s *spinner) animate() {
 			return
 		case <-s.ticker.C:
 			s.mu.Lock()
+
 			if !s.done {
 				s.render()
 				s.index = (s.index + 1) % len(s.frames)
 			}
+
 			s.mu.Unlock()
 		}
 	}
 }
 
-// render draws the spinner
+// render draws the spinner.
 func (s *spinner) render() {
 	frame := s.frames[s.index]
 	fmt.Fprintf(s.output, "\r%s %s", Cyan(frame), s.message)
 }
 
-// Update updates the spinner message
+// Update updates the spinner message.
 func (s *spinner) Update(message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -161,7 +160,7 @@ func (s *spinner) Update(message string) {
 	s.message = message
 }
 
-// Stop stops the spinner with a final message
+// Stop stops the spinner with a final message.
 func (s *spinner) Stop(message string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

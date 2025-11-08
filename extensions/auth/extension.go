@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Extension implements forge.Extension for authentication and authorization.
@@ -12,6 +13,7 @@ import (
 // integrates with the router for OpenAPI security scheme generation.
 type Extension struct {
 	*forge.BaseExtension
+
 	config   Config
 	registry Registry
 	app      forge.App
@@ -32,6 +34,7 @@ func NewExtension(opts ...ConfigOption) forge.Extension {
 	}
 
 	base := forge.NewBaseExtension("auth", "2.0.0", "Authentication & Authorization")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -51,6 +54,7 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		app.Logger().Info("auth extension disabled")
+
 		return nil
 	}
 
@@ -62,14 +66,14 @@ func (e *Extension) Register(app forge.App) error {
 	e.registry = NewRegistry(container, logger)
 
 	// Register registry as a singleton service
-	if err := container.Register("auth:registry", func(c forge.Container) (interface{}, error) {
+	if err := container.Register("auth:registry", func(c forge.Container) (any, error) {
 		return e.registry, nil
 	}); err != nil {
 		return fmt.Errorf("failed to register auth registry: %w", err)
 	}
 
 	// Register the registry under "auth.Registry" for easier access
-	if err := container.Register("auth.Registry", func(c forge.Container) (interface{}, error) {
+	if err := container.Register("auth.Registry", func(c forge.Container) (any, error) {
 		return e.registry, nil
 	}); err != nil {
 		return fmt.Errorf("failed to register auth.Registry: %w", err)
@@ -87,6 +91,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	}
 
 	e.app.Logger().Info("auth extension started")
+
 	return nil
 }
 
@@ -97,6 +102,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.app.Logger().Info("auth extension stopped")
+
 	return nil
 }
 
@@ -108,7 +114,7 @@ func (e *Extension) Health(ctx context.Context) error {
 
 	// Check if registry is accessible
 	if e.registry == nil {
-		return fmt.Errorf("auth registry is nil")
+		return errors.New("auth registry is nil")
 	}
 
 	return nil

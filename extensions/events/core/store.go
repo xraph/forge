@@ -6,9 +6,10 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// EventStore defines the interface for persisting and retrieving events
+// EventStore defines the interface for persisting and retrieving events.
 type EventStore interface {
 	// SaveEvent persists a single event
 	SaveEvent(ctx context.Context, event *Event) error
@@ -65,21 +66,21 @@ type EventStore interface {
 	HealthCheck(ctx context.Context) error
 }
 
-// EventCriteria defines criteria for querying events
+// EventCriteria defines criteria for querying events.
 type EventCriteria struct {
-	EventTypes   []string               `json:"event_types,omitempty"`
-	AggregateIDs []string               `json:"aggregate_ids,omitempty"`
-	Sources      []string               `json:"sources,omitempty"`
-	StartTime    *time.Time             `json:"start_time,omitempty"`
-	EndTime      *time.Time             `json:"end_time,omitempty"`
-	Metadata     map[string]interface{} `json:"metadata,omitempty"`
-	Limit        int                    `json:"limit,omitempty"`
-	Offset       int64                  `json:"offset,omitempty"`
-	SortBy       string                 `json:"sort_by,omitempty"`    // timestamp, type, aggregate_id
-	SortOrder    string                 `json:"sort_order,omitempty"` // asc, desc
+	EventTypes   []string       `json:"event_types,omitempty"`
+	AggregateIDs []string       `json:"aggregate_ids,omitempty"`
+	Sources      []string       `json:"sources,omitempty"`
+	StartTime    *time.Time     `json:"start_time,omitempty"`
+	EndTime      *time.Time     `json:"end_time,omitempty"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	Limit        int            `json:"limit,omitempty"`
+	Offset       int64          `json:"offset,omitempty"`
+	SortBy       string         `json:"sort_by,omitempty"`    // timestamp, type, aggregate_id
+	SortOrder    string         `json:"sort_order,omitempty"` // asc, desc
 }
 
-// NewEventCriteria creates a new event criteria
+// NewEventCriteria creates a new event criteria.
 func NewEventCriteria() *EventCriteria {
 	return &EventCriteria{
 		Limit:     100,
@@ -89,81 +90,94 @@ func NewEventCriteria() *EventCriteria {
 	}
 }
 
-// WithEventTypes adds event types to the criteria
+// WithEventTypes adds event types to the criteria.
 func (ec *EventCriteria) WithEventTypes(eventTypes ...string) *EventCriteria {
 	ec.EventTypes = append(ec.EventTypes, eventTypes...)
+
 	return ec
 }
 
-// WithAggregateIDs adds aggregate IDs to the criteria
+// WithAggregateIDs adds aggregate IDs to the criteria.
 func (ec *EventCriteria) WithAggregateIDs(aggregateIDs ...string) *EventCriteria {
 	ec.AggregateIDs = append(ec.AggregateIDs, aggregateIDs...)
+
 	return ec
 }
 
-// WithSources adds sources to the criteria
+// WithSources adds sources to the criteria.
 func (ec *EventCriteria) WithSources(sources ...string) *EventCriteria {
 	ec.Sources = append(ec.Sources, sources...)
+
 	return ec
 }
 
-// WithTimeRange sets the time range for the criteria
+// WithTimeRange sets the time range for the criteria.
 func (ec *EventCriteria) WithTimeRange(start, end time.Time) *EventCriteria {
 	ec.StartTime = &start
 	ec.EndTime = &end
+
 	return ec
 }
 
-// WithStartTime sets the start time for the criteria
+// WithStartTime sets the start time for the criteria.
 func (ec *EventCriteria) WithStartTime(start time.Time) *EventCriteria {
 	ec.StartTime = &start
+
 	return ec
 }
 
-// WithEndTime sets the end time for the criteria
+// WithEndTime sets the end time for the criteria.
 func (ec *EventCriteria) WithEndTime(end time.Time) *EventCriteria {
 	ec.EndTime = &end
+
 	return ec
 }
 
-// WithMetadata adds metadata filter to the criteria
-func (ec *EventCriteria) WithMetadata(key string, value interface{}) *EventCriteria {
+// WithMetadata adds metadata filter to the criteria.
+func (ec *EventCriteria) WithMetadata(key string, value any) *EventCriteria {
 	if ec.Metadata == nil {
-		ec.Metadata = make(map[string]interface{})
+		ec.Metadata = make(map[string]any)
 	}
+
 	ec.Metadata[key] = value
+
 	return ec
 }
 
-// WithLimit sets the limit for the criteria
+// WithLimit sets the limit for the criteria.
 func (ec *EventCriteria) WithLimit(limit int) *EventCriteria {
 	ec.Limit = limit
+
 	return ec
 }
 
-// WithOffset sets the offset for the criteria
+// WithOffset sets the offset for the criteria.
 func (ec *EventCriteria) WithOffset(offset int64) *EventCriteria {
 	ec.Offset = offset
+
 	return ec
 }
 
-// WithSort sets the sort parameters for the criteria
+// WithSort sets the sort parameters for the criteria.
 func (ec *EventCriteria) WithSort(sortBy, sortOrder string) *EventCriteria {
 	ec.SortBy = sortBy
 	ec.SortOrder = sortOrder
+
 	return ec
 }
 
-// Validate validates the event criteria
+// Validate validates the event criteria.
 func (ec *EventCriteria) Validate() error {
 	if ec.Limit < 0 {
-		return fmt.Errorf("limit cannot be negative")
+		return errors.New("limit cannot be negative")
 	}
+
 	if ec.Offset < 0 {
-		return fmt.Errorf("offset cannot be negative")
+		return errors.New("offset cannot be negative")
 	}
+
 	if ec.StartTime != nil && ec.EndTime != nil && ec.StartTime.After(*ec.EndTime) {
-		return fmt.Errorf("start time cannot be after end time")
+		return errors.New("start time cannot be after end time")
 	}
 
 	validSortBy := map[string]bool{
@@ -187,19 +201,19 @@ func (ec *EventCriteria) Validate() error {
 	return nil
 }
 
-// Snapshot represents a point-in-time snapshot of aggregate state
+// Snapshot represents a point-in-time snapshot of aggregate state.
 type Snapshot struct {
-	ID          string                 `json:"id"`
-	AggregateID string                 `json:"aggregate_id"`
-	Type        string                 `json:"type"`
-	Data        interface{}            `json:"data"`
-	Version     int                    `json:"version"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	ID          string         `json:"id"`
+	AggregateID string         `json:"aggregate_id"`
+	Type        string         `json:"type"`
+	Data        any            `json:"data"`
+	Version     int            `json:"version"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
-// NewSnapshot creates a new snapshot
-func NewSnapshot(aggregateID, snapshotType string, data interface{}, version int) *Snapshot {
+// NewSnapshot creates a new snapshot.
+func NewSnapshot(aggregateID, snapshotType string, data any, version int) *Snapshot {
 	return &Snapshot{
 		ID:          fmt.Sprintf("%s-%d-%d", aggregateID, version, time.Now().UnixNano()),
 		AggregateID: aggregateID,
@@ -207,59 +221,67 @@ func NewSnapshot(aggregateID, snapshotType string, data interface{}, version int
 		Data:        data,
 		Version:     version,
 		Timestamp:   time.Now().UTC(),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 }
 
-// WithMetadata adds metadata to the snapshot
-func (s *Snapshot) WithMetadata(key string, value interface{}) *Snapshot {
+// WithMetadata adds metadata to the snapshot.
+func (s *Snapshot) WithMetadata(key string, value any) *Snapshot {
 	if s.Metadata == nil {
-		s.Metadata = make(map[string]interface{})
+		s.Metadata = make(map[string]any)
 	}
+
 	s.Metadata[key] = value
+
 	return s
 }
 
-// Validate validates the snapshot
+// Validate validates the snapshot.
 func (s *Snapshot) Validate() error {
 	if s.ID == "" {
-		return fmt.Errorf("snapshot ID is required")
+		return errors.New("snapshot ID is required")
 	}
+
 	if s.AggregateID == "" {
-		return fmt.Errorf("aggregate ID is required")
+		return errors.New("aggregate ID is required")
 	}
+
 	if s.Type == "" {
-		return fmt.Errorf("snapshot type is required")
+		return errors.New("snapshot type is required")
 	}
+
 	if s.Data == nil {
-		return fmt.Errorf("snapshot data is required")
+		return errors.New("snapshot data is required")
 	}
+
 	if s.Version <= 0 {
-		return fmt.Errorf("snapshot version must be positive")
+		return errors.New("snapshot version must be positive")
 	}
+
 	if s.Timestamp.IsZero() {
-		return fmt.Errorf("snapshot timestamp is required")
+		return errors.New("snapshot timestamp is required")
 	}
+
 	return nil
 }
 
-// EventStoreConfig defines configuration for event stores
+// EventStoreConfig defines configuration for event stores.
 type EventStoreConfig struct {
-	Type             string        `yaml:"type" json:"type"`
-	ConnectionName   string        `yaml:"connection_name" json:"connection_name"`
-	ConnectionString string        `yaml:"connection_string" json:"connection_string"`
-	Database         string        `yaml:"database" json:"database"`
-	EventsTable      string        `yaml:"events_table" json:"events_table"`
-	SnapshotsTable   string        `yaml:"snapshots_table" json:"snapshots_table"`
-	MaxConnections   int           `yaml:"max_connections" json:"max_connections"`
-	ConnTimeout      time.Duration `yaml:"connection_timeout" json:"connection_timeout"`
-	ReadTimeout      time.Duration `yaml:"read_timeout" json:"read_timeout"`
-	WriteTimeout     time.Duration `yaml:"write_timeout" json:"write_timeout"`
-	EnableMetrics    bool          `yaml:"enable_metrics" json:"enable_metrics"`
-	EnableTracing    bool          `yaml:"enable_tracing" json:"enable_tracing"`
+	Type             string        `json:"type"               yaml:"type"`
+	ConnectionName   string        `json:"connection_name"    yaml:"connection_name"`
+	ConnectionString string        `json:"connection_string"  yaml:"connection_string"`
+	Database         string        `json:"database"           yaml:"database"`
+	EventsTable      string        `json:"events_table"       yaml:"events_table"`
+	SnapshotsTable   string        `json:"snapshots_table"    yaml:"snapshots_table"`
+	MaxConnections   int           `json:"max_connections"    yaml:"max_connections"`
+	ConnTimeout      time.Duration `json:"connection_timeout" yaml:"connection_timeout"`
+	ReadTimeout      time.Duration `json:"read_timeout"       yaml:"read_timeout"`
+	WriteTimeout     time.Duration `json:"write_timeout"      yaml:"write_timeout"`
+	EnableMetrics    bool          `json:"enable_metrics"     yaml:"enable_metrics"`
+	EnableTracing    bool          `json:"enable_tracing"     yaml:"enable_tracing"`
 }
 
-// DefaultEventStoreConfig returns default configuration
+// DefaultEventStoreConfig returns default configuration.
 func DefaultEventStoreConfig() *EventStoreConfig {
 	return &EventStoreConfig{
 		Type:           "memory",
@@ -275,36 +297,44 @@ func DefaultEventStoreConfig() *EventStoreConfig {
 	}
 }
 
-// Validate validates the event store configuration
+// Validate validates the event store configuration.
 func (cfg *EventStoreConfig) Validate() error {
 	if cfg.Type == "" {
-		return fmt.Errorf("event store type is required")
+		return errors.New("event store type is required")
 	}
+
 	if cfg.Database == "" {
-		return fmt.Errorf("database name is required")
+		return errors.New("database name is required")
 	}
+
 	if cfg.EventsTable == "" {
-		return fmt.Errorf("events table name is required")
+		return errors.New("events table name is required")
 	}
+
 	if cfg.SnapshotsTable == "" {
-		return fmt.Errorf("snapshots table name is required")
+		return errors.New("snapshots table name is required")
 	}
+
 	if cfg.MaxConnections <= 0 {
-		return fmt.Errorf("max connections must be positive")
+		return errors.New("max connections must be positive")
 	}
+
 	if cfg.ConnTimeout <= 0 {
-		return fmt.Errorf("connection timeout must be positive")
+		return errors.New("connection timeout must be positive")
 	}
+
 	if cfg.ReadTimeout <= 0 {
-		return fmt.Errorf("read timeout must be positive")
+		return errors.New("read timeout must be positive")
 	}
+
 	if cfg.WriteTimeout <= 0 {
-		return fmt.Errorf("write timeout must be positive")
+		return errors.New("write timeout must be positive")
 	}
+
 	return nil
 }
 
-// EventStream represents a stream of events
+// EventStream represents a stream of events.
 type EventStream interface {
 	// Subscribe subscribes to the event stream
 	Subscribe(ctx context.Context, handler EventStreamHandler) error
@@ -322,7 +352,7 @@ type EventStream interface {
 	Close() error
 }
 
-// EventStreamHandler handles events from an event stream
+// EventStreamHandler handles events from an event stream.
 type EventStreamHandler interface {
 	// HandleEvent handles an event from the stream
 	HandleEvent(ctx context.Context, event *Event) error
@@ -334,17 +364,17 @@ type EventStreamHandler interface {
 	HandleEnd(ctx context.Context)
 }
 
-// EventStreamConfig defines configuration for event streams
+// EventStreamConfig defines configuration for event streams.
 type EventStreamConfig struct {
-	StartPosition int64         `yaml:"start_position" json:"start_position"`
-	BatchSize     int           `yaml:"batch_size" json:"batch_size"`
-	BufferSize    int           `yaml:"buffer_size" json:"buffer_size"`
-	PollInterval  time.Duration `yaml:"poll_interval" json:"poll_interval"`
-	MaxRetries    int           `yaml:"max_retries" json:"max_retries"`
-	RetryDelay    time.Duration `yaml:"retry_delay" json:"retry_delay"`
+	StartPosition int64         `json:"start_position" yaml:"start_position"`
+	BatchSize     int           `json:"batch_size"     yaml:"batch_size"`
+	BufferSize    int           `json:"buffer_size"    yaml:"buffer_size"`
+	PollInterval  time.Duration `json:"poll_interval"  yaml:"poll_interval"`
+	MaxRetries    int           `json:"max_retries"    yaml:"max_retries"`
+	RetryDelay    time.Duration `json:"retry_delay"    yaml:"retry_delay"`
 }
 
-// DefaultEventStreamConfig returns default stream configuration
+// DefaultEventStreamConfig returns default stream configuration.
 func DefaultEventStreamConfig() *EventStreamConfig {
 	return &EventStreamConfig{
 		StartPosition: 0,
@@ -356,7 +386,7 @@ func DefaultEventStreamConfig() *EventStreamConfig {
 	}
 }
 
-// EventStoreMetrics defines metrics for event stores
+// EventStoreMetrics defines metrics for event stores.
 type EventStoreMetrics struct {
 	EventsSaved       int64         `json:"events_saved"`
 	EventsRead        int64         `json:"events_read"`
@@ -368,20 +398,20 @@ type EventStoreMetrics struct {
 	ConnectionsActive int           `json:"connections_active"`
 }
 
-// EventStoreStats represents statistics for an event store
+// EventStoreStats represents statistics for an event store.
 type EventStoreStats struct {
-	TotalEvents     int64                  `json:"total_events"`
-	EventsByType    map[string]int64       `json:"events_by_type"`
-	TotalSnapshots  int64                  `json:"total_snapshots"`
-	SnapshotsByType map[string]int64       `json:"snapshots_by_type"`
-	OldestEvent     *time.Time             `json:"oldest_event,omitempty"`
-	NewestEvent     *time.Time             `json:"newest_event,omitempty"`
-	Metrics         *EventStoreMetrics     `json:"metrics"`
-	Health          forge.HealthStatus     `json:"health"`
-	ConnectionInfo  map[string]interface{} `json:"connection_info"`
+	TotalEvents     int64              `json:"total_events"`
+	EventsByType    map[string]int64   `json:"events_by_type"`
+	TotalSnapshots  int64              `json:"total_snapshots"`
+	SnapshotsByType map[string]int64   `json:"snapshots_by_type"`
+	OldestEvent     *time.Time         `json:"oldest_event,omitempty"`
+	NewestEvent     *time.Time         `json:"newest_event,omitempty"`
+	Metrics         *EventStoreMetrics `json:"metrics"`
+	Health          forge.HealthStatus `json:"health"`
+	ConnectionInfo  map[string]any     `json:"connection_info"`
 }
 
-// EventProjection represents a projection of events
+// EventProjection represents a projection of events.
 type EventProjection interface {
 	// Name returns the projection name
 	Name() string
@@ -396,13 +426,13 @@ type EventProjection interface {
 	Reset(ctx context.Context) error
 
 	// GetState returns the current projection state
-	GetState(ctx context.Context) (interface{}, error)
+	GetState(ctx context.Context) (any, error)
 
 	// SaveState saves the projection state
-	SaveState(ctx context.Context, state interface{}) error
+	SaveState(ctx context.Context, state any) error
 }
 
-// ProjectionManager manages event projections
+// ProjectionManager manages event projections.
 type ProjectionManager interface {
 	// RegisterProjection registers a projection
 	RegisterProjection(projection EventProjection) error
@@ -429,7 +459,7 @@ type ProjectionManager interface {
 	Stop(ctx context.Context) error
 }
 
-// EventStoreTransaction represents a transaction in the event store
+// EventStoreTransaction represents a transaction in the event store.
 type EventStoreTransaction interface {
 	// SaveEvent saves an event within the transaction
 	SaveEvent(ctx context.Context, event *Event) error
@@ -447,7 +477,7 @@ type EventStoreTransaction interface {
 	Rollback(ctx context.Context) error
 }
 
-// TransactionalEventStore extends EventStore with transaction support
+// TransactionalEventStore extends EventStore with transaction support.
 type TransactionalEventStore interface {
 	EventStore
 
@@ -458,7 +488,7 @@ type TransactionalEventStore interface {
 	ExecuteInTransaction(ctx context.Context, fn func(tx EventStoreTransaction) error) error
 }
 
-// EventStoreMigration represents a migration for the event store
+// EventStoreMigration represents a migration for the event store.
 type EventStoreMigration interface {
 	// Version returns the migration version
 	Version() int
@@ -473,7 +503,7 @@ type EventStoreMigration interface {
 	Down(ctx context.Context, store EventStore) error
 }
 
-// EventStoreMigrator manages event store migrations
+// EventStoreMigrator manages event store migrations.
 type EventStoreMigrator interface {
 	// AddMigration adds a migration
 	AddMigration(migration EventStoreMigration) error

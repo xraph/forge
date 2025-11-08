@@ -8,14 +8,15 @@ import (
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// InitPlugin handles project initialization
+// InitPlugin handles project initialization.
 type InitPlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewInitPlugin creates a new init plugin
+// NewInitPlugin creates a new init plugin.
 func NewInitPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &InitPlugin{config: cfg}
 }
@@ -56,7 +57,7 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 	// Check if .forge.yaml already exists
 	forgeYamlPath := filepath.Join(cwd, ".forge.yaml")
 	if _, err := os.Stat(forgeYamlPath); err == nil && !ctx.Bool("force") {
-		return fmt.Errorf(".forge.yaml already exists. Use --force to overwrite")
+		return errors.New(".forge.yaml already exists. Use --force to overwrite")
 	}
 
 	// Get project name
@@ -71,11 +72,13 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 	// Get module path
 	modulePath := ctx.String("module")
 	if modulePath == "" {
-		defaultModule := fmt.Sprintf("github.com/yourorg/%s", projectName)
+		defaultModule := "github.com/yourorg/" + projectName
+
 		result, err := ctx.Prompt(fmt.Sprintf("Go module path [%s]:", defaultModule))
 		if err != nil {
 			return err
 		}
+
 		if result == "" {
 			modulePath = defaultModule
 		} else {
@@ -93,6 +96,7 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 		if err != nil {
 			return err
 		}
+
 		if layoutChoice[:13] == "single-module" {
 			layout = "single-module"
 		} else {
@@ -117,8 +121,10 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 	if err != nil {
 		return err
 	}
+
 	if !confirmed {
 		ctx.Warning("Cancelled")
+
 		return nil
 	}
 
@@ -130,24 +136,28 @@ func (p *InitPlugin) initProject(ctx cli.CommandContext) error {
 	// Save config
 	if err := config.SaveForgeConfig(newConfig, forgeYamlPath); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
 	// Create directory structure
 	if err := p.createDirectoryStructure(cwd, layout); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to create directory structure: %w", err)
 	}
 
 	// Initialize go module
 	if err := p.initGoModule(cwd, modulePath, layout); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to initialize go module: %w", err)
 	}
 
 	// Create base config file
 	if err := p.createBaseConfig(cwd, projectName, layout); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
@@ -177,7 +187,7 @@ func createProjectConfig(name, module, layout, template string) *config.ForgeCon
 	cfg.Project.Module = module
 	cfg.Project.Layout = layout
 	cfg.Project.Version = "0.1.0"
-	cfg.Project.Description = fmt.Sprintf("%s - A Forge application", name)
+	cfg.Project.Description = name + " - A Forge application"
 
 	// Adjust config based on layout
 	if layout == "multi-module" {
@@ -253,11 +263,13 @@ func (p *InitPlugin) initGoModule(root, module string, layout string) error {
 		// Create single go.mod
 		goModPath := filepath.Join(root, "go.mod")
 		content := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v2.0.0\n", module)
+
 		return os.WriteFile(goModPath, []byte(content), 0644)
 	} else {
 		// Create go.work
 		goWorkPath := filepath.Join(root, "go.work")
 		content := "go 1.24.0\n\nuse (\n    ./pkg\n)\n"
+
 		return os.WriteFile(goWorkPath, []byte(content), 0644)
 	}
 }
@@ -265,6 +277,7 @@ func (p *InitPlugin) initGoModule(root, module string, layout string) error {
 func (p *InitPlugin) initGit(root string) error {
 	// Create .gitignore
 	gitignorePath := filepath.Join(root, ".gitignore")
+
 	gitignoreContent := `# Binaries
 bin/
 *.exe
@@ -314,12 +327,13 @@ config.local.yml
 	readmePath := filepath.Join(root, "README.md")
 	readmeContent := fmt.Sprintf("# %s\n\nA Forge v2 application.\n\n## Getting Started\n\n```bash\nforge dev\n```\n",
 		filepath.Base(root))
+
 	return os.WriteFile(readmePath, []byte(readmeContent), 0644)
 }
 
 func (p *InitPlugin) createBaseConfig(root, projectName, layout string) error {
 	configPath := filepath.Join(root, "config.yaml")
-	
+
 	var configContent string
 	if layout == "multi-module" {
 		// Monorepo config with apps section
@@ -403,11 +417,11 @@ logging:
 #   db: 0
 `, projectName, projectName, projectName)
 	}
-	
+
 	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
 		return err
 	}
-	
+
 	// Create config.local.yaml.example
 	examplePath := filepath.Join(root, "config.local.yaml.example")
 	exampleContent := `# Local Configuration Override Example
@@ -426,6 +440,6 @@ logging:
 #   username: "dev"
 #   password: "dev"
 `
-	
+
 	return os.WriteFile(examplePath, []byte(exampleContent), 0644)
 }

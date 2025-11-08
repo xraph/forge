@@ -2,7 +2,7 @@ package mcp
 
 import "errors"
 
-// Config configures the MCP extension
+// Config configures the MCP extension.
 type Config struct {
 	// Enabled enables or disables the MCP server
 	Enabled bool
@@ -78,7 +78,7 @@ type Config struct {
 	RequireConfig bool
 }
 
-// DefaultConfig returns a default MCP configuration
+// DefaultConfig returns a default MCP configuration.
 func DefaultConfig() Config {
 	return Config{
 		Enabled:            true,
@@ -96,31 +96,31 @@ func DefaultConfig() Config {
 	}
 }
 
-// ConfigOption is a functional option for configuring the MCP extension
+// ConfigOption is a functional option for configuring the MCP extension.
 type ConfigOption func(*Config)
 
-// WithEnabled sets whether MCP is enabled
+// WithEnabled sets whether MCP is enabled.
 func WithEnabled(enabled bool) ConfigOption {
 	return func(c *Config) {
 		c.Enabled = enabled
 	}
 }
 
-// WithBasePath sets the base path for MCP endpoints
+// WithBasePath sets the base path for MCP endpoints.
 func WithBasePath(basePath string) ConfigOption {
 	return func(c *Config) {
 		c.BasePath = basePath
 	}
 }
 
-// WithAutoExposeRoutes sets whether to automatically expose routes
+// WithAutoExposeRoutes sets whether to automatically expose routes.
 func WithAutoExposeRoutes(autoExpose bool) ConfigOption {
 	return func(c *Config) {
 		c.AutoExposeRoutes = autoExpose
 	}
 }
 
-// WithServerInfo sets server name and version
+// WithServerInfo sets server name and version.
 func WithServerInfo(name, version string) ConfigOption {
 	return func(c *Config) {
 		c.ServerName = name
@@ -128,42 +128,42 @@ func WithServerInfo(name, version string) ConfigOption {
 	}
 }
 
-// WithToolPrefix sets the tool prefix
+// WithToolPrefix sets the tool prefix.
 func WithToolPrefix(prefix string) ConfigOption {
 	return func(c *Config) {
 		c.ToolPrefix = prefix
 	}
 }
 
-// WithExcludePatterns sets patterns to exclude from MCP
+// WithExcludePatterns sets patterns to exclude from MCP.
 func WithExcludePatterns(patterns []string) ConfigOption {
 	return func(c *Config) {
 		c.ExcludePatterns = patterns
 	}
 }
 
-// WithIncludePatterns sets patterns to include in MCP
+// WithIncludePatterns sets patterns to include in MCP.
 func WithIncludePatterns(patterns []string) ConfigOption {
 	return func(c *Config) {
 		c.IncludePatterns = patterns
 	}
 }
 
-// WithResources enables MCP resources
+// WithResources enables MCP resources.
 func WithResources(enable bool) ConfigOption {
 	return func(c *Config) {
 		c.EnableResources = enable
 	}
 }
 
-// WithPrompts enables MCP prompts
+// WithPrompts enables MCP prompts.
 func WithPrompts(enable bool) ConfigOption {
 	return func(c *Config) {
 		c.EnablePrompts = enable
 	}
 }
 
-// WithAuth enables authentication with tokens
+// WithAuth enables authentication with tokens.
 func WithAuth(authHeader string, tokens []string) ConfigOption {
 	return func(c *Config) {
 		c.RequireAuth = true
@@ -172,28 +172,28 @@ func WithAuth(authHeader string, tokens []string) ConfigOption {
 	}
 }
 
-// WithRateLimit sets the rate limit per minute
+// WithRateLimit sets the rate limit per minute.
 func WithRateLimit(limit int) ConfigOption {
 	return func(c *Config) {
 		c.RateLimitPerMinute = limit
 	}
 }
 
-// WithRequireConfig sets whether config is required from ConfigManager
+// WithRequireConfig sets whether config is required from ConfigManager.
 func WithRequireConfig(require bool) ConfigOption {
 	return func(c *Config) {
 		c.RequireConfig = require
 	}
 }
 
-// WithConfig applies a complete config
+// WithConfig applies a complete config.
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) {
 		*c = config
 	}
 }
 
-// Validate validates the configuration
+// Validate validates the configuration.
 func (c Config) Validate() error {
 	if !c.Enabled {
 		return nil // Not enabled, validation not needed
@@ -218,7 +218,7 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// ShouldExpose determines if a route should be exposed as an MCP tool
+// ShouldExpose determines if a route should be exposed as an MCP tool.
 func (c Config) ShouldExpose(path string) bool {
 	if !c.Enabled || !c.AutoExposeRoutes {
 		return false
@@ -238,13 +238,14 @@ func (c Config) ShouldExpose(path string) bool {
 				return true
 			}
 		}
+
 		return false
 	}
 
 	return true
 }
 
-// matchPattern performs simple glob-style pattern matching
+// matchPattern performs simple glob-style pattern matching.
 func matchPattern(pattern, path string) bool {
 	// Simple implementation - exact match or prefix with wildcard
 	if pattern == path {
@@ -254,6 +255,7 @@ func matchPattern(pattern, path string) bool {
 	// Pattern ends with /* - match prefix
 	if len(pattern) > 2 && pattern[len(pattern)-2:] == "/*" {
 		prefix := pattern[:len(pattern)-2]
+
 		return len(path) >= len(prefix) && path[:len(prefix)] == prefix
 	}
 

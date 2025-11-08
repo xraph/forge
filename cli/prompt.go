@@ -4,16 +4,19 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/xraph/forge/internal/errors"
 	"golang.org/x/term"
 )
 
-// prompt reads a line of input from the user
+// prompt reads a line of input from the user.
 func prompt(question string) (string, error) {
 	fmt.Print(Blue(question) + " ")
 
 	reader := bufio.NewReader(os.Stdin)
+
 	answer, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -22,25 +25,27 @@ func prompt(question string) (string, error) {
 	return strings.TrimSpace(answer), nil
 }
 
-// confirm asks a yes/no question and returns true if yes
+// confirm asks a yes/no question and returns true if yes.
 func confirm(question string) (bool, error) {
 	fmt.Print(Blue(question) + " " + Gray("(y/n)") + " ")
 
 	reader := bufio.NewReader(os.Stdin)
+
 	answer, err := reader.ReadString('\n')
 	if err != nil {
 		return false, err
 	}
 
 	answer = strings.TrimSpace(strings.ToLower(answer))
+
 	return answer == "y" || answer == "yes", nil
 }
 
 // selectPrompt presents a list of options and returns the selected one
-// Supports arrow key navigation
+// Supports arrow key navigation.
 func selectPrompt(question string, options []string) (string, error) {
 	if len(options) == 0 {
-		return "", fmt.Errorf("no options provided")
+		return "", errors.New("no options provided")
 	}
 
 	// Try interactive mode with arrow keys
@@ -53,7 +58,7 @@ func selectPrompt(question string, options []string) (string, error) {
 	return numberSelectPrompt(question, options)
 }
 
-// numberSelectPrompt is the fallback number-based selection
+// numberSelectPrompt is the fallback number-based selection.
 func numberSelectPrompt(question string, options []string) (string, error) {
 	// Display options in a more visually appealing way
 	fmt.Println(Bold(Blue(question)))
@@ -68,9 +73,10 @@ func numberSelectPrompt(question string, options []string) (string, error) {
 	}
 
 	fmt.Println(Gray("───────────────────────────────────────"))
-	fmt.Print(Gray("Enter your choice (1-") + Gray(fmt.Sprintf("%d", len(options))) + Gray("): "))
+	fmt.Print(Gray("Enter your choice (1-") + Gray(strconv.Itoa(len(options))) + Gray("): "))
 
 	reader := bufio.NewReader(os.Stdin)
+
 	answer, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -80,10 +86,11 @@ func numberSelectPrompt(question string, options []string) (string, error) {
 
 	// Handle empty input
 	if answer == "" {
-		return "", fmt.Errorf("no selection made")
+		return "", errors.New("no selection made")
 	}
 
 	var selection int
+
 	_, err = fmt.Sscanf(answer, "%d", &selection)
 	if err != nil {
 		return "", fmt.Errorf("invalid input: please enter a number between 1 and %d", len(options))
@@ -94,14 +101,15 @@ func numberSelectPrompt(question string, options []string) (string, error) {
 	}
 
 	fmt.Println(Green("✓") + " Selected: " + Bold(options[selection-1]))
+
 	return options[selection-1], nil
 }
 
 // multiSelectPrompt presents a list of options and returns the selected ones
-// Supports arrow keys and space bar for selection
+// Supports arrow keys and space bar for selection.
 func multiSelectPrompt(question string, options []string) ([]string, error) {
 	if len(options) == 0 {
-		return nil, fmt.Errorf("no options provided")
+		return nil, errors.New("no options provided")
 	}
 
 	// Try interactive mode with arrow keys and space
@@ -114,7 +122,7 @@ func multiSelectPrompt(question string, options []string) ([]string, error) {
 	return numberMultiSelectPrompt(question, options)
 }
 
-// numberMultiSelectPrompt is the fallback number-based multi-selection
+// numberMultiSelectPrompt is the fallback number-based multi-selection.
 func numberMultiSelectPrompt(question string, options []string) ([]string, error) {
 	// Display options in a more visually appealing way
 	fmt.Println(Bold(Blue(question)))
@@ -134,6 +142,7 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 	fmt.Print(Gray("Your selection (or press Enter for none): "))
 
 	reader := bufio.NewReader(os.Stdin)
+
 	answer, err := reader.ReadString('\n')
 	if err != nil {
 		return nil, err
@@ -142,6 +151,7 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 	answer = strings.TrimSpace(answer)
 	if answer == "" {
 		fmt.Println(Gray("✓ No selections made"))
+
 		return []string{}, nil
 	}
 
@@ -149,9 +159,9 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 	seen := make(map[int]bool) // Track to avoid duplicates
 
 	// Split by comma
-	selections := strings.Split(answer, ",")
+	selections := strings.SplitSeq(answer, ",")
 
-	for _, sel := range selections {
+	for sel := range selections {
 		sel = strings.TrimSpace(sel)
 
 		// Check if it's a range (e.g., "1-3")
@@ -162,6 +172,7 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 			}
 
 			var start, end int
+
 			_, err1 := fmt.Sscanf(strings.TrimSpace(parts[0]), "%d", &start)
 			_, err2 := fmt.Sscanf(strings.TrimSpace(parts[1]), "%d", &end)
 
@@ -183,6 +194,7 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 		} else {
 			// Single selection
 			var idx int
+
 			_, err := fmt.Sscanf(sel, "%d", &idx)
 			if err != nil {
 				return nil, fmt.Errorf("invalid input: '%s' (expected a number or range)", sel)
@@ -201,7 +213,8 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 
 	// Display selected items
 	if len(results) > 0 {
-		fmt.Println(Green("✓") + " Selected " + Bold(fmt.Sprintf("%d", len(results))) + " item(s):")
+		fmt.Println(Green("✓") + " Selected " + Bold(strconv.Itoa(len(results))) + " item(s):")
+
 		for _, item := range results {
 			fmt.Println(Gray("  • ") + item)
 		}
@@ -210,7 +223,7 @@ func numberMultiSelectPrompt(question string, options []string) ([]string, error
 	return results, nil
 }
 
-// interactiveSelect provides arrow key navigation for selection
+// interactiveSelect provides arrow key navigation for selection.
 func interactiveSelect(question string, options []string, multi bool) ([]string, error) {
 	// Try to enable raw mode for terminal
 	oldState, err := setRawMode()
@@ -233,11 +246,13 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 	fmt.Print(Bold(Blue(question)))
 	fmt.Print("\r\n") // CR+LF after question
 	fmt.Print(Gray("↑/↓: Navigate  │  "))
+
 	if multi {
 		fmt.Print(Gray("Space: Select/Deselect  │  Enter: Confirm  │  Esc/q: Cancel"))
 	} else {
 		fmt.Print(Gray("Enter: Select  │  Esc/q: Cancel"))
 	}
+
 	fmt.Print("\r\n") // CR+LF after instructions
 	fmt.Print("\r\n") // Empty line before options
 	os.Stdout.Sync()  // Flush header before rendering options
@@ -249,6 +264,7 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 
 		// Read single character
 		buf := make([]byte, 3) // Need 3 bytes for arrow keys (ESC [ A/B)
+
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
 			return nil, err
@@ -262,7 +278,8 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 			clearOptions(len(options))
 			fmt.Print("\r\n")
 			fmt.Print(Yellow("✗ Interrupted") + "\r\n")
-			return nil, fmt.Errorf("interrupted by user")
+
+			return nil, errors.New("interrupted by user")
 
 		case 27: // ESC sequence
 			// Arrow keys send ESC [ A/B/C/D
@@ -282,7 +299,8 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 				clearOptions(len(options))
 				fmt.Print("\r\n")
 				fmt.Print(Yellow("✗ Cancelled") + "\r\n")
-				return nil, fmt.Errorf("cancelled")
+
+				return nil, errors.New("cancelled")
 			}
 
 		case ' ': // Space (for multi-select)
@@ -295,6 +313,7 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 
 			if multi {
 				results := []string{}
+
 				for i := range options {
 					if selected[i] {
 						results = append(results, options[i])
@@ -302,7 +321,8 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 				}
 
 				if len(results) > 0 {
-					fmt.Print(Green("✓") + " Selected " + Bold(fmt.Sprintf("%d", len(results))) + " item(s):\r\n")
+					fmt.Print(Green("✓") + " Selected " + Bold(strconv.Itoa(len(results))) + " item(s):\r\n")
+
 					for _, item := range results {
 						fmt.Print(Gray("  • ") + item + "\r\n")
 					}
@@ -314,13 +334,15 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 			}
 
 			fmt.Print(Green("✓") + " Selected: " + Bold(options[cursor]) + "\r\n")
+
 			return []string{options[cursor]}, nil
 
 		case 'q', 'Q': // Quit
 			clearOptions(len(options))
 			fmt.Print("\r\n")
 			fmt.Print(Yellow("✗ Cancelled") + "\r\n")
-			return nil, fmt.Errorf("cancelled")
+
+			return nil, errors.New("cancelled")
 
 		case 'j': // Vim-style down
 			if cursor < len(options)-1 {
@@ -335,12 +357,12 @@ func interactiveSelect(question string, options []string, multi bool) ([]string,
 	}
 }
 
-// renderOptions renders the option list with current cursor position
+// renderOptions renders the option list with current cursor position.
 func renderOptions(options []string, cursor int, selected map[int]bool, multi bool, firstRender bool) {
 	// Clear previous render (skip on first render)
 	if !firstRender {
 		// Move cursor up to the first line of options
-		for i := 0; i < len(options); i++ {
+		for range options {
 			fmt.Print("\033[1A") // Move up one line
 		}
 	}
@@ -362,6 +384,7 @@ func renderOptions(options []string, cursor int, selected map[int]bool, multi bo
 			} else {
 				prefix = Green("▸")
 			}
+
 			optText = Bold(opt)
 		} else if multi && selected[i] {
 			prefix = "  [✓]"
@@ -376,15 +399,16 @@ func renderOptions(options []string, cursor int, selected map[int]bool, multi bo
 	os.Stdout.Sync()
 }
 
-// clearOptions clears n lines from the terminal
+// clearOptions clears n lines from the terminal.
 func clearOptions(n int) {
 	// Move up n lines
-	for i := 0; i < n; i++ {
+	for range n {
 		fmt.Print("\033[1A") // Move up one line
 	}
 	// Clear each line from current position down
-	for i := 0; i < n; i++ {
+	for i := range n {
 		fmt.Print("\033[2K\r") // Clear entire line and return to start
+
 		if i < n-1 {
 			fmt.Print("\r\n") // Move to next line (except last)
 		}
@@ -393,17 +417,18 @@ func clearOptions(n int) {
 	for i := 0; i < n-1; i++ {
 		fmt.Print("\033[1A")
 	}
+
 	fmt.Print("\r") // Return to start of first line
 }
 
-// setRawMode enables raw mode on the terminal
+// setRawMode enables raw mode on the terminal.
 func setRawMode() (*term.State, error) {
 	// Get stdin file descriptor
 	fd := int(os.Stdin.Fd())
 
 	// Check if stdin is a terminal
 	if !term.IsTerminal(fd) {
-		return nil, fmt.Errorf("not a terminal")
+		return nil, errors.New("not a terminal")
 	}
 
 	// Save current terminal state
@@ -415,18 +440,19 @@ func setRawMode() (*term.State, error) {
 	return oldState, nil
 }
 
-// restoreMode restores the terminal to normal mode
+// restoreMode restores the terminal to normal mode.
 func restoreMode(oldState *term.State) {
 	if oldState != nil {
 		term.Restore(int(os.Stdin.Fd()), oldState)
 	}
 }
 
-// PromptWithDefault prompts with a default value
+// PromptWithDefault prompts with a default value.
 func PromptWithDefault(question, defaultValue string) (string, error) {
 	fmt.Print(Blue(question) + " " + Gray(fmt.Sprintf("[%s]", defaultValue)) + " ")
 
 	reader := bufio.NewReader(os.Stdin)
+
 	answer, err := reader.ReadString('\n')
 	if err != nil {
 		return "", err
@@ -440,7 +466,7 @@ func PromptWithDefault(question, defaultValue string) (string, error) {
 	return answer, nil
 }
 
-// PromptPassword prompts for a password (hidden input)
+// PromptPassword prompts for a password (hidden input).
 func PromptPassword(question string) (string, error) {
 	fmt.Print(Blue(question) + " ")
 

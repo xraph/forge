@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// InferenceScaler handles auto-scaling of inference workers
+// InferenceScaler handles auto-scaling of inference workers.
 type InferenceScaler struct {
 	config        InferenceScalerConfig
 	workers       map[string]*InferenceWorker
@@ -28,32 +29,32 @@ type InferenceScaler struct {
 	wg            sync.WaitGroup
 }
 
-// InferenceScalerConfig contains configuration for inference scaling
+// InferenceScalerConfig contains configuration for inference scaling.
 type InferenceScalerConfig struct {
-	MinWorkers       int               `yaml:"min_workers" default:"2"`
-	MaxWorkers       int               `yaml:"max_workers" default:"20"`
-	ScalingThreshold float64           `yaml:"scaling_threshold" default:"0.8"`
-	ScalingCooldown  time.Duration     `yaml:"scaling_cooldown" default:"2m"`
-	MetricsInterval  time.Duration     `yaml:"metrics_interval" default:"30s"`
-	ScalingInterval  time.Duration     `yaml:"scaling_interval" default:"1m"`
-	ScaleUpFactor    float64           `yaml:"scale_up_factor" default:"1.5"`
-	ScaleDownFactor  float64           `yaml:"scale_down_factor" default:"0.7"`
-	Strategy         string            `yaml:"strategy" default:"cpu_memory"`
+	MinWorkers       int               `default:"2"            yaml:"min_workers"`
+	MaxWorkers       int               `default:"20"           yaml:"max_workers"`
+	ScalingThreshold float64           `default:"0.8"          yaml:"scaling_threshold"`
+	ScalingCooldown  time.Duration     `default:"2m"           yaml:"scaling_cooldown"`
+	MetricsInterval  time.Duration     `default:"30s"          yaml:"metrics_interval"`
+	ScalingInterval  time.Duration     `default:"1m"           yaml:"scaling_interval"`
+	ScaleUpFactor    float64           `default:"1.5"          yaml:"scale_up_factor"`
+	ScaleDownFactor  float64           `default:"0.7"          yaml:"scale_down_factor"`
+	Strategy         string            `default:"cpu_memory"   yaml:"strategy"`
 	CustomStrategies []ScalingStrategy `yaml:"-"`
 	ResourceLimits   ResourceLimits    `yaml:"resource_limits"`
 	Logger           logger.Logger     `yaml:"-"`
 	Metrics          forge.Metrics     `yaml:"-"`
 }
 
-// ResourceLimits defines resource limits for scaling
+// ResourceLimits defines resource limits for scaling.
 type ResourceLimits struct {
-	MaxCPU     float64 `yaml:"max_cpu" default:"8.0"`
-	MaxMemory  int64   `yaml:"max_memory" default:"8589934592"` // 8GB
-	MaxGPU     int     `yaml:"max_gpu" default:"1"`
-	MaxNetwork int64   `yaml:"max_network" default:"1073741824"` // 1GB/s
+	MaxCPU     float64 `default:"8.0"        yaml:"max_cpu"`
+	MaxMemory  int64   `default:"8589934592" yaml:"max_memory"` // 8GB
+	MaxGPU     int     `default:"1"          yaml:"max_gpu"`
+	MaxNetwork int64   `default:"1073741824" yaml:"max_network"` // 1GB/s
 }
 
-// ScalingMetrics contains metrics used for scaling decisions
+// ScalingMetrics contains metrics used for scaling decisions.
 type ScalingMetrics struct {
 	CPUUsage          float64       `json:"cpu_usage"`
 	MemoryUsage       float64       `json:"memory_usage"`
@@ -69,7 +70,7 @@ type ScalingMetrics struct {
 	LastUpdated       time.Time     `json:"last_updated"`
 }
 
-// ScalerStats contains statistics for the scaler
+// ScalerStats contains statistics for the scaler.
 type ScalerStats struct {
 	ScaleUpEvents       int64              `json:"scale_up_events"`
 	ScaleDownEvents     int64              `json:"scale_down_events"`
@@ -85,27 +86,27 @@ type ScalerStats struct {
 	LastUpdated         time.Time          `json:"last_updated"`
 }
 
-// ScalingStrategy defines a strategy for scaling decisions
+// ScalingStrategy defines a strategy for scaling decisions.
 type ScalingStrategy interface {
 	Name() string
 	ShouldScale(metrics *ScalingMetrics, config InferenceScalerConfig) ScalingDecision
 	Priority() int
-	Initialize(ctx context.Context, config map[string]interface{}) error
+	Initialize(ctx context.Context, config map[string]any) error
 }
 
-// ScalingDecision represents a scaling decision
+// ScalingDecision represents a scaling decision.
 type ScalingDecision struct {
-	Action      ScalingAction          `json:"action"`
-	TargetScale int                    `json:"target_scale"`
-	Confidence  float64                `json:"confidence"`
-	Reason      string                 `json:"reason"`
-	Metrics     map[string]interface{} `json:"metrics"`
-	Strategy    string                 `json:"strategy"`
-	Priority    int                    `json:"priority"`
-	Timestamp   time.Time              `json:"timestamp"`
+	Action      ScalingAction  `json:"action"`
+	TargetScale int            `json:"target_scale"`
+	Confidence  float64        `json:"confidence"`
+	Reason      string         `json:"reason"`
+	Metrics     map[string]any `json:"metrics"`
+	Strategy    string         `json:"strategy"`
+	Priority    int            `json:"priority"`
+	Timestamp   time.Time      `json:"timestamp"`
 }
 
-// ScalingAction represents the type of scaling action
+// ScalingAction represents the type of scaling action.
 type ScalingAction string
 
 const (
@@ -114,7 +115,7 @@ const (
 	ScalingActionScaleDown ScalingAction = "scale_down"
 )
 
-// InferenceWorker represents an inference worker
+// InferenceWorker represents an inference worker.
 type InferenceWorker struct {
 	id         string
 	config     InferenceWorkerConfig
@@ -125,7 +126,7 @@ type InferenceWorker struct {
 	mu         sync.RWMutex
 }
 
-// InferenceWorkerConfig contains configuration for an inference worker
+// InferenceWorkerConfig contains configuration for an inference worker.
 type InferenceWorkerConfig struct {
 	ID       string
 	Engine   *InferenceEngine
@@ -134,7 +135,7 @@ type InferenceWorkerConfig struct {
 	Metrics  forge.Metrics
 }
 
-// WorkerStatus represents the status of a worker
+// WorkerStatus represents the status of a worker.
 type WorkerStatus string
 
 const (
@@ -146,7 +147,7 @@ const (
 	WorkerStatusError    WorkerStatus = "error"
 )
 
-// WorkerMetrics contains metrics for a worker
+// WorkerMetrics contains metrics for a worker.
 type WorkerMetrics struct {
 	RequestsProcessed int64         `json:"requests_processed"`
 	RequestsError     int64         `json:"requests_error"`
@@ -158,29 +159,36 @@ type WorkerMetrics struct {
 	LastProcessed     time.Time     `json:"last_processed"`
 }
 
-// NewInferenceScaler creates a new inference scaler
+// NewInferenceScaler creates a new inference scaler.
 func NewInferenceScaler(config InferenceScalerConfig) (*InferenceScaler, error) {
 	if config.MinWorkers <= 0 {
 		config.MinWorkers = 2
 	}
+
 	if config.MaxWorkers <= 0 {
 		config.MaxWorkers = 20
 	}
+
 	if config.ScalingThreshold <= 0 {
 		config.ScalingThreshold = 0.8
 	}
+
 	if config.ScalingCooldown == 0 {
 		config.ScalingCooldown = 2 * time.Minute
 	}
+
 	if config.MetricsInterval == 0 {
 		config.MetricsInterval = 30 * time.Second
 	}
+
 	if config.ScalingInterval == 0 {
 		config.ScalingInterval = time.Minute
 	}
+
 	if config.ScaleUpFactor <= 0 {
 		config.ScaleUpFactor = 1.5
 	}
+
 	if config.ScaleDownFactor <= 0 {
 		config.ScaleDownFactor = 0.7
 	}
@@ -205,49 +213,47 @@ func NewInferenceScaler(config InferenceScalerConfig) (*InferenceScaler, error) 
 	}
 
 	// Add custom strategies
-	for _, strategy := range config.CustomStrategies {
-		scaler.strategies = append(scaler.strategies, strategy)
-	}
+	scaler.strategies = append(scaler.strategies, config.CustomStrategies...)
 
 	return scaler, nil
 }
 
-// Start starts the inference scaler
+// Start starts the inference scaler.
 func (s *InferenceScaler) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if s.started {
-		return fmt.Errorf("inference scaler already started")
+		return errors.New("inference scaler already started")
 	}
 
 	// Initialize strategies
 	for _, strategy := range s.strategies {
-		if err := strategy.Initialize(ctx, map[string]interface{}{}); err != nil {
+		if err := strategy.Initialize(ctx, map[string]any{}); err != nil {
 			return fmt.Errorf("failed to initialize strategy %s: %w", strategy.Name(), err)
 		}
 	}
 
 	// Start metrics collection
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+
+	s.wg.Go(func() {
+
 		s.runMetricsCollection(ctx)
-	}()
+	})
 
 	// Start scaling loop
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+
+	s.wg.Go(func() {
+
 		s.runScalingLoop(ctx)
-	}()
+	})
 
 	// Start stats collection
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
+
+	s.wg.Go(func() {
+
 		s.runStatsCollection(ctx)
-	}()
+	})
 
 	s.started = true
 
@@ -268,13 +274,13 @@ func (s *InferenceScaler) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the inference scaler
+// Stop stops the inference scaler.
 func (s *InferenceScaler) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.started {
-		return fmt.Errorf("inference scaler not started")
+		return errors.New("inference scaler not started")
 	}
 
 	// Signal shutdown
@@ -301,26 +307,27 @@ func (s *InferenceScaler) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Scale scales the inference workers to the target number
+// Scale scales the inference workers to the target number.
 func (s *InferenceScaler) Scale(ctx context.Context, targetWorkers int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if !s.started {
-		return fmt.Errorf("inference scaler not started")
+		return errors.New("inference scaler not started")
 	}
 
 	// Validate target
 	if targetWorkers < s.config.MinWorkers {
 		targetWorkers = s.config.MinWorkers
 	}
+
 	if targetWorkers > s.config.MaxWorkers {
 		targetWorkers = s.config.MaxWorkers
 	}
 
 	// Check cooldown
 	if time.Since(s.lastScaleTime) < s.config.ScalingCooldown {
-		return fmt.Errorf("scaling cooldown not yet elapsed")
+		return errors.New("scaling cooldown not yet elapsed")
 	}
 
 	currentWorkers := len(s.workers)
@@ -329,6 +336,7 @@ func (s *InferenceScaler) Scale(ctx context.Context, targetWorkers int) error {
 	}
 
 	startTime := time.Now()
+
 	var err error
 
 	if targetWorkers > currentWorkers {
@@ -375,7 +383,7 @@ func (s *InferenceScaler) Scale(ctx context.Context, targetWorkers int) error {
 	return nil
 }
 
-// GetStats returns scaler statistics
+// GetStats returns scaler statistics.
 func (s *InferenceScaler) GetStats() ScalerStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -390,7 +398,7 @@ func (s *InferenceScaler) GetStats() ScalerStats {
 	return stats
 }
 
-// GetMetrics returns current scaling metrics
+// GetMetrics returns current scaling metrics.
 func (s *InferenceScaler) GetMetrics() *ScalingMetrics {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -398,9 +406,9 @@ func (s *InferenceScaler) GetMetrics() *ScalingMetrics {
 	return s.metrics
 }
 
-// scaleUp adds workers to the pool
+// scaleUp adds workers to the pool.
 func (s *InferenceScaler) scaleUp(ctx context.Context, count int) error {
-	for i := 0; i < count; i++ {
+	for i := range count {
 		workerID := fmt.Sprintf("worker-%d-%d", time.Now().UnixNano(), i)
 		worker := NewInferenceWorker(InferenceWorkerConfig{
 			ID:      workerID,
@@ -418,7 +426,7 @@ func (s *InferenceScaler) scaleUp(ctx context.Context, count int) error {
 	return nil
 }
 
-// scaleDown removes workers from the pool
+// scaleDown removes workers from the pool.
 func (s *InferenceScaler) scaleDown(ctx context.Context, count int) error {
 	// Select workers to remove (prefer idle workers)
 	workersToRemove := make([]*InferenceWorker, 0, count)
@@ -428,6 +436,7 @@ func (s *InferenceScaler) scaleDown(ctx context.Context, count int) error {
 		if len(workersToRemove) >= count {
 			break
 		}
+
 		if worker.status == WorkerStatusIdle {
 			workersToRemove = append(workersToRemove, worker)
 		}
@@ -439,13 +448,17 @@ func (s *InferenceScaler) scaleDown(ctx context.Context, count int) error {
 			if len(workersToRemove) >= count {
 				break
 			}
+
 			found := false
+
 			for _, w := range workersToRemove {
 				if w.id == worker.id {
 					found = true
+
 					break
 				}
 			}
+
 			if !found {
 				workersToRemove = append(workersToRemove, worker)
 			}
@@ -462,13 +475,14 @@ func (s *InferenceScaler) scaleDown(ctx context.Context, count int) error {
 				)
 			}
 		}
+
 		delete(s.workers, worker.id)
 	}
 
 	return nil
 }
 
-// runMetricsCollection runs the metrics collection loop
+// runMetricsCollection runs the metrics collection loop.
 func (s *InferenceScaler) runMetricsCollection(ctx context.Context) {
 	ticker := time.NewTicker(s.config.MetricsInterval)
 	defer ticker.Stop()
@@ -485,7 +499,7 @@ func (s *InferenceScaler) runMetricsCollection(ctx context.Context) {
 	}
 }
 
-// runScalingLoop runs the scaling decision loop
+// runScalingLoop runs the scaling decision loop.
 func (s *InferenceScaler) runScalingLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.config.ScalingInterval)
 	defer ticker.Stop()
@@ -502,7 +516,7 @@ func (s *InferenceScaler) runScalingLoop(ctx context.Context) {
 	}
 }
 
-// runStatsCollection runs the statistics collection loop
+// runStatsCollection runs the statistics collection loop.
 func (s *InferenceScaler) runStatsCollection(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -519,7 +533,7 @@ func (s *InferenceScaler) runStatsCollection(ctx context.Context) {
 	}
 }
 
-// collectMetrics collects scaling metrics
+// collectMetrics collects scaling metrics.
 func (s *InferenceScaler) collectMetrics() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -535,6 +549,7 @@ func (s *InferenceScaler) collectMetrics() {
 	// Collect worker metrics
 	totalLatency := time.Duration(0)
 	activeWorkers := 0
+
 	for _, worker := range s.workers {
 		if worker.status == WorkerStatusBusy {
 			activeWorkers++
@@ -547,7 +562,7 @@ func (s *InferenceScaler) collectMetrics() {
 	}
 }
 
-// makeScalingDecision makes a scaling decision based on current metrics
+// makeScalingDecision makes a scaling decision based on current metrics.
 func (s *InferenceScaler) makeScalingDecision(ctx context.Context) {
 	s.mu.RLock()
 	metrics := s.metrics
@@ -592,7 +607,7 @@ func (s *InferenceScaler) makeScalingDecision(ctx context.Context) {
 	}
 }
 
-// selectBestDecision selects the best scaling decision from multiple strategies
+// selectBestDecision selects the best scaling decision from multiple strategies.
 func (s *InferenceScaler) selectBestDecision(decisions []ScalingDecision) ScalingDecision {
 	if len(decisions) == 0 {
 		return ScalingDecision{Action: ScalingActionNone}
@@ -610,31 +625,31 @@ func (s *InferenceScaler) selectBestDecision(decisions []ScalingDecision) Scalin
 	return bestDecision
 }
 
-// collectCPUUsage collects CPU usage metrics
+// collectCPUUsage collects CPU usage metrics.
 func (s *InferenceScaler) collectCPUUsage() float64 {
 	// Simplified CPU usage collection
 	return 0.5 // 50% usage
 }
 
-// collectMemoryUsage collects memory usage metrics
+// collectMemoryUsage collects memory usage metrics.
 func (s *InferenceScaler) collectMemoryUsage() float64 {
 	// Simplified memory usage collection
 	return 0.6 // 60% usage
 }
 
-// collectGPUUsage collects GPU usage metrics
+// collectGPUUsage collects GPU usage metrics.
 func (s *InferenceScaler) collectGPUUsage() float64 {
 	// Simplified GPU usage collection
 	return 0.7 // 70% usage
 }
 
-// collectNetworkUsage collects network usage metrics
+// collectNetworkUsage collects network usage metrics.
 func (s *InferenceScaler) collectNetworkUsage() float64 {
 	// Simplified network usage collection
 	return 0.3 // 30% usage
 }
 
-// collectStats collects and updates statistics
+// collectStats collects and updates statistics.
 func (s *InferenceScaler) collectStats() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -647,7 +662,7 @@ func (s *InferenceScaler) collectStats() {
 	s.stats.LastUpdated = time.Now()
 }
 
-// initializeDefaultStrategies initializes default scaling strategies
+// initializeDefaultStrategies initializes default scaling strategies.
 func (s *InferenceScaler) initializeDefaultStrategies() error {
 	// CPU/Memory based strategy
 	cpuMemoryStrategy := &CPUMemoryScalingStrategy{
@@ -676,7 +691,7 @@ func (s *InferenceScaler) initializeDefaultStrategies() error {
 	return nil
 }
 
-// NewInferenceWorker creates a new inference worker
+// NewInferenceWorker creates a new inference worker.
 func NewInferenceWorker(config InferenceWorkerConfig) *InferenceWorker {
 	return &InferenceWorker{
 		id:         config.ID,
@@ -688,7 +703,7 @@ func NewInferenceWorker(config InferenceWorkerConfig) *InferenceWorker {
 	}
 }
 
-// start starts the inference worker
+// start starts the inference worker.
 func (w *InferenceWorker) start(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -709,7 +724,7 @@ func (w *InferenceWorker) start(ctx context.Context) error {
 	return nil
 }
 
-// stop stops the inference worker
+// stop stops the inference worker.
 func (w *InferenceWorker) stop(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -729,7 +744,7 @@ func (w *InferenceWorker) stop(ctx context.Context) error {
 	return nil
 }
 
-// Run runs the inference worker
+// Run runs the inference worker.
 func (w *InferenceWorker) Run(ctx context.Context) {
 	// Simplified worker run loop
 	for {
@@ -739,6 +754,7 @@ func (w *InferenceWorker) Run(ctx context.Context) {
 		default:
 			// Process work
 			time.Sleep(time.Millisecond)
+
 			w.lastActive = time.Now()
 		}
 	}
@@ -746,7 +762,7 @@ func (w *InferenceWorker) Run(ctx context.Context) {
 
 // Default scaling strategies
 
-// CPUMemoryScalingStrategy scales based on CPU and memory usage
+// CPUMemoryScalingStrategy scales based on CPU and memory usage.
 type CPUMemoryScalingStrategy struct {
 	name     string
 	priority int
@@ -761,7 +777,7 @@ func (s *CPUMemoryScalingStrategy) Priority() int {
 	return s.priority
 }
 
-func (s *CPUMemoryScalingStrategy) Initialize(ctx context.Context, config map[string]interface{}) error {
+func (s *CPUMemoryScalingStrategy) Initialize(ctx context.Context, config map[string]any) error {
 	return nil
 }
 
@@ -789,7 +805,7 @@ func (s *CPUMemoryScalingStrategy) ShouldScale(metrics *ScalingMetrics, config I
 	return ScalingDecision{Action: ScalingActionNone}
 }
 
-// QueueBasedScalingStrategy scales based on queue size
+// QueueBasedScalingStrategy scales based on queue size.
 type QueueBasedScalingStrategy struct {
 	name     string
 	priority int
@@ -804,7 +820,7 @@ func (s *QueueBasedScalingStrategy) Priority() int {
 	return s.priority
 }
 
-func (s *QueueBasedScalingStrategy) Initialize(ctx context.Context, config map[string]interface{}) error {
+func (s *QueueBasedScalingStrategy) Initialize(ctx context.Context, config map[string]any) error {
 	return nil
 }
 
@@ -832,7 +848,7 @@ func (s *QueueBasedScalingStrategy) ShouldScale(metrics *ScalingMetrics, config 
 	return ScalingDecision{Action: ScalingActionNone}
 }
 
-// LatencyBasedScalingStrategy scales based on latency
+// LatencyBasedScalingStrategy scales based on latency.
 type LatencyBasedScalingStrategy struct {
 	name     string
 	priority int
@@ -847,7 +863,7 @@ func (s *LatencyBasedScalingStrategy) Priority() int {
 	return s.priority
 }
 
-func (s *LatencyBasedScalingStrategy) Initialize(ctx context.Context, config map[string]interface{}) error {
+func (s *LatencyBasedScalingStrategy) Initialize(ctx context.Context, config map[string]any) error {
 	return nil
 }
 

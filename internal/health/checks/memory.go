@@ -1,6 +1,5 @@
 package checks
 
-//nolint:gosec // G115: Integer conversions for memory metrics are safe
 // Conversions are used for calculating memory statistics from runtime data.
 
 import (
@@ -12,16 +11,17 @@ import (
 	health "github.com/xraph/forge/internal/health/internal"
 )
 
-// MemoryHealthCheck performs health checks on memory usage
+// MemoryHealthCheck performs health checks on memory usage.
 type MemoryHealthCheck struct {
 	*health.BaseHealthCheck
+
 	warningThreshold  float64 // Percentage (0-100)
 	criticalThreshold float64 // Percentage (0-100)
 	checkGCStats      bool
 	checkAllocStats   bool
 }
 
-// MemoryHealthCheckConfig contains configuration for memory health checks
+// MemoryHealthCheckConfig contains configuration for memory health checks.
 type MemoryHealthCheckConfig struct {
 	Name              string
 	WarningThreshold  float64 // Percentage (0-100)
@@ -33,7 +33,7 @@ type MemoryHealthCheckConfig struct {
 	Tags              map[string]string
 }
 
-// NewMemoryHealthCheck creates a new memory health check
+// NewMemoryHealthCheck creates a new memory health check.
 func NewMemoryHealthCheck(config *MemoryHealthCheckConfig) *MemoryHealthCheck {
 	if config == nil {
 		config = &MemoryHealthCheckConfig{}
@@ -77,7 +77,7 @@ func NewMemoryHealthCheck(config *MemoryHealthCheckConfig) *MemoryHealthCheck {
 	}
 }
 
-// Check performs the memory health check
+// Check performs the memory health check.
 func (mhc *MemoryHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -129,21 +129,23 @@ func (mhc *MemoryHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// calculateMemoryUsage calculates memory usage percentage
+// calculateMemoryUsage calculates memory usage percentage.
 func (mhc *MemoryHealthCheck) calculateMemoryUsage(memStats *runtime.MemStats) float64 {
 	// Use heap in-use as a percentage of heap system memory
 	if memStats.HeapSys == 0 {
 		return 0.0
 	}
+
 	return float64(memStats.HeapInuse) / float64(memStats.HeapSys) * 100.0
 }
 
-// getGCStats returns garbage collection statistics
-func (mhc *MemoryHealthCheck) getGCStats(memStats *runtime.MemStats) map[string]interface{} {
-	return map[string]interface{}{
+// getGCStats returns garbage collection statistics.
+func (mhc *MemoryHealthCheck) getGCStats(memStats *runtime.MemStats) map[string]any {
+	return map[string]any{
 		"gc_cycles":        memStats.NumGC,
 		"gc_cpu_fraction":  memStats.GCCPUFraction,
 		"gc_sys_bytes":     memStats.GCSys,
@@ -155,9 +157,9 @@ func (mhc *MemoryHealthCheck) getGCStats(memStats *runtime.MemStats) map[string]
 	}
 }
 
-// getAllocStats returns allocation statistics
-func (mhc *MemoryHealthCheck) getAllocStats(memStats *runtime.MemStats) map[string]interface{} {
-	return map[string]interface{}{
+// getAllocStats returns allocation statistics.
+func (mhc *MemoryHealthCheck) getAllocStats(memStats *runtime.MemStats) map[string]any {
+	return map[string]any{
 		"total_alloc_bytes":     memStats.TotalAlloc,
 		"mallocs":               memStats.Mallocs,
 		"frees":                 memStats.Frees,
@@ -173,14 +175,15 @@ func (mhc *MemoryHealthCheck) getAllocStats(memStats *runtime.MemStats) map[stri
 	}
 }
 
-// GoRoutineHealthCheck performs health checks on goroutine usage
+// GoRoutineHealthCheck performs health checks on goroutine usage.
 type GoRoutineHealthCheck struct {
 	*health.BaseHealthCheck
+
 	warningThreshold  int
 	criticalThreshold int
 }
 
-// NewGoRoutineHealthCheck creates a new goroutine health check
+// NewGoRoutineHealthCheck creates a new goroutine health check.
 func NewGoRoutineHealthCheck(config *MemoryHealthCheckConfig) *GoRoutineHealthCheck {
 	if config == nil {
 		config = &MemoryHealthCheckConfig{}
@@ -210,7 +213,7 @@ func NewGoRoutineHealthCheck(config *MemoryHealthCheckConfig) *GoRoutineHealthCh
 	}
 }
 
-// Check performs the goroutine health check
+// Check performs the goroutine health check.
 func (ghc *GoRoutineHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -236,28 +239,30 @@ func (ghc *GoRoutineHealthCheck) Check(ctx context.Context) *health.HealthResult
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// SetWarningThreshold sets the warning threshold for goroutine count
+// SetWarningThreshold sets the warning threshold for goroutine count.
 func (ghc *GoRoutineHealthCheck) SetWarningThreshold(threshold int) {
 	ghc.warningThreshold = threshold
 }
 
-// SetCriticalThreshold sets the critical threshold for goroutine count
+// SetCriticalThreshold sets the critical threshold for goroutine count.
 func (ghc *GoRoutineHealthCheck) SetCriticalThreshold(threshold int) {
 	ghc.criticalThreshold = threshold
 }
 
-// HeapHealthCheck performs detailed heap health checks
+// HeapHealthCheck performs detailed heap health checks.
 type HeapHealthCheck struct {
 	*health.BaseHealthCheck
+
 	maxHeapSize       uint64
 	warningThreshold  float64
 	criticalThreshold float64
 }
 
-// NewHeapHealthCheck creates a new heap health check
+// NewHeapHealthCheck creates a new heap health check.
 func NewHeapHealthCheck(config *MemoryHealthCheckConfig) *HeapHealthCheck {
 	if config == nil {
 		config = &MemoryHealthCheckConfig{}
@@ -296,7 +301,7 @@ func NewHeapHealthCheck(config *MemoryHealthCheckConfig) *HeapHealthCheck {
 	}
 }
 
-// Check performs the heap health check
+// Check performs the heap health check.
 func (hhc *HeapHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -331,23 +336,25 @@ func (hhc *HeapHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// SetMaxHeapSize sets the maximum heap size for calculations
+// SetMaxHeapSize sets the maximum heap size for calculations.
 func (hhc *HeapHealthCheck) SetMaxHeapSize(size uint64) {
 	hhc.maxHeapSize = size
 }
 
-// GCHealthCheck performs garbage collection health checks
+// GCHealthCheck performs garbage collection health checks.
 type GCHealthCheck struct {
 	*health.BaseHealthCheck
+
 	gcPauseThreshold     time.Duration
 	gcCPUThreshold       float64
 	gcFrequencyThreshold uint32
 }
 
-// NewGCHealthCheck creates a new garbage collection health check
+// NewGCHealthCheck creates a new garbage collection health check.
 func NewGCHealthCheck(config *MemoryHealthCheckConfig) *GCHealthCheck {
 	if config == nil {
 		config = &MemoryHealthCheckConfig{}
@@ -378,7 +385,7 @@ func NewGCHealthCheck(config *MemoryHealthCheckConfig) *GCHealthCheck {
 	}
 }
 
-// Check performs the garbage collection health check
+// Check performs the garbage collection health check.
 func (gchc *GCHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -427,31 +434,33 @@ func (gchc *GCHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// SetGCPauseThreshold sets the GC pause time threshold
+// SetGCPauseThreshold sets the GC pause time threshold.
 func (gchc *GCHealthCheck) SetGCPauseThreshold(threshold time.Duration) {
 	gchc.gcPauseThreshold = threshold
 }
 
-// SetGCCPUThreshold sets the GC CPU usage threshold
+// SetGCCPUThreshold sets the GC CPU usage threshold.
 func (gchc *GCHealthCheck) SetGCCPUThreshold(threshold float64) {
 	gchc.gcCPUThreshold = threshold
 }
 
-// SetGCFrequencyThreshold sets the GC frequency threshold
+// SetGCFrequencyThreshold sets the GC frequency threshold.
 func (gchc *GCHealthCheck) SetGCFrequencyThreshold(threshold uint32) {
 	gchc.gcFrequencyThreshold = threshold
 }
 
-// MemoryHealthCheckComposite combines multiple memory health checks
+// MemoryHealthCheckComposite combines multiple memory health checks.
 type MemoryHealthCheckComposite struct {
 	*health.CompositeHealthCheck
+
 	memoryChecks []health.HealthCheck
 }
 
-// NewMemoryHealthCheckComposite creates a composite memory health check
+// NewMemoryHealthCheckComposite creates a composite memory health check.
 func NewMemoryHealthCheckComposite(name string, checks ...health.HealthCheck) *MemoryHealthCheckComposite {
 	config := &health.HealthCheckConfig{
 		Name:     name,
@@ -467,18 +476,18 @@ func NewMemoryHealthCheckComposite(name string, checks ...health.HealthCheck) *M
 	}
 }
 
-// GetMemoryChecks returns the individual memory checks
+// GetMemoryChecks returns the individual memory checks.
 func (mhcc *MemoryHealthCheckComposite) GetMemoryChecks() []health.HealthCheck {
 	return mhcc.memoryChecks
 }
 
-// AddMemoryCheck adds a memory check to the composite
+// AddMemoryCheck adds a memory check to the composite.
 func (mhcc *MemoryHealthCheckComposite) AddMemoryCheck(check health.HealthCheck) {
 	mhcc.memoryChecks = append(mhcc.memoryChecks, check)
-	mhcc.CompositeHealthCheck.AddCheck(check)
+	mhcc.AddCheck(check)
 }
 
-// RegisterMemoryHealthChecks registers memory health checks with the health service
+// RegisterMemoryHealthChecks registers memory health checks with the health service.
 func RegisterMemoryHealthChecks(healthService health.HealthService) error {
 	// Register memory health check
 	memoryCheck := NewMemoryHealthCheck(&MemoryHealthCheckConfig{
@@ -529,7 +538,7 @@ func RegisterMemoryHealthChecks(healthService health.HealthService) error {
 	return nil
 }
 
-// CreateMemoryHealthCheckComposite creates a composite memory health check with all sub-checks
+// CreateMemoryHealthCheckComposite creates a composite memory health check with all sub-checks.
 func CreateMemoryHealthCheckComposite() *MemoryHealthCheckComposite {
 	memoryCheck := NewMemoryHealthCheck(&MemoryHealthCheckConfig{
 		Name:              "memory",

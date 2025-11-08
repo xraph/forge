@@ -4,7 +4,7 @@ import (
 	"context"
 )
 
-// Connection represents a WebSocket connection
+// Connection represents a WebSocket connection.
 type Connection interface {
 	// ID returns unique connection ID
 	ID() string
@@ -34,7 +34,7 @@ type Connection interface {
 	LocalAddr() string
 }
 
-// Stream represents a Server-Sent Events stream
+// Stream represents a Server-Sent Events stream.
 type Stream interface {
 	// Send sends an event to the stream
 	Send(event string, data []byte) error
@@ -58,16 +58,16 @@ type Stream interface {
 	SendComment(comment string) error
 }
 
-// WebSocketHandler handles WebSocket connections
+// WebSocketHandler handles WebSocket connections.
 type WebSocketHandler func(ctx Context, conn Connection) error
 
-// SSEHandler handles Server-Sent Events
+// SSEHandler handles Server-Sent Events.
 type SSEHandler func(ctx Context, stream Stream) error
 
 // WebTransportHandler handles WebTransport sessions (re-export from webtransport.go)
 // type WebTransportHandler func(ctx Context, session WebTransportSession) error
 
-// StreamConfig configures streaming behavior
+// StreamConfig configures streaming behavior.
 type StreamConfig struct {
 	// WebSocket configuration
 	ReadBufferSize    int
@@ -90,7 +90,7 @@ type StreamConfig struct {
 	WebTransportMaxIdle     int // milliseconds
 }
 
-// DefaultStreamConfig returns default streaming configuration
+// DefaultStreamConfig returns default streaming configuration.
 func DefaultStreamConfig() StreamConfig {
 	return StreamConfig{
 		ReadBufferSize:          4096,

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -10,9 +11,10 @@ import (
 )
 
 // safeResponseWriter wraps http.ResponseWriter to prevent race conditions
-// by completely buffering the response until flush is called
+// by completely buffering the response until flush is called.
 type safeResponseWriter struct {
 	http.ResponseWriter
+
 	mu      sync.Mutex
 	header  http.Header
 	code    int
@@ -35,6 +37,7 @@ func (w *safeResponseWriter) Header() http.Header {
 func (w *safeResponseWriter) WriteHeader(code int) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	if !w.flushed {
 		w.code = code
 	}
@@ -43,32 +46,37 @@ func (w *safeResponseWriter) WriteHeader(code int) {
 func (w *safeResponseWriter) Write(data []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	if !w.flushed {
 		w.body = append(w.body, data...)
+
 		return len(data), nil
 	}
+
 	return w.ResponseWriter.Write(data)
 }
 
 func (w *safeResponseWriter) flush() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
 	if !w.flushed {
 		// Copy headers to underlying writer
-		for k, v := range w.header {
-			w.ResponseWriter.Header()[k] = v
-		}
+		maps.Copy(w.ResponseWriter.Header(), w.header)
+
 		w.ResponseWriter.WriteHeader(w.code)
+
 		if len(w.body) > 0 {
 			_, _ = w.ResponseWriter.Write(w.body)
 		}
+
 		w.flushed = true
 	}
 }
 
 // Timeout middleware enforces a timeout on request handling
 // Returns http.StatusGatewayTimeout if request exceeds duration
-// Note: This middleware uses http.Handler pattern due to goroutine requirements
+// Note: This middleware uses http.Handler pattern due to goroutine requirements.
 func Timeout(duration time.Duration, logger forge.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -85,6 +93,7 @@ func Timeout(duration time.Duration, logger forge.Logger) func(http.Handler) htt
 			// Run handler in goroutine
 			go func() {
 				defer close(done)
+
 				next.ServeHTTP(safeW, r.WithContext(ctx))
 			}()
 
@@ -93,6 +102,7 @@ func Timeout(duration time.Duration, logger forge.Logger) func(http.Handler) htt
 			case <-done:
 				// Request completed successfully, flush any buffered data
 				safeW.flush()
+
 				return
 			case <-ctx.Done():
 				// Timeout occurred - write timeout response directly to underlying writer

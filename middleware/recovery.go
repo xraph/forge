@@ -8,7 +8,7 @@ import (
 )
 
 // Recovery middleware recovers from panics and logs them
-// Returns http.StatusInternalServerError on panic
+// Returns http.StatusInternalServerError on panic.
 func Recovery(logger forge.Logger) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {

@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge/internal/errors"
 )
 
-// Consensus error codes
+// Consensus error codes.
 const (
 	ErrCodeNotLeader            = "CONSENSUS_NOT_LEADER"
 	ErrCodeNoLeader             = "CONSENSUS_NO_LEADER"
@@ -42,115 +42,116 @@ const (
 	ErrCodeConnectionTimeout    = "CONSENSUS_CONNECTION_TIMEOUT"
 )
 
-// Sentinel errors for use with errors.Is
+// Sentinel errors for use with errors.Is.
 var (
-	// ErrNotLeader indicates the node is not the leader
+	// ErrNotLeader indicates the node is not the leader.
 	ErrNotLeader = &errors.ForgeError{Code: ErrCodeNotLeader, Message: "node is not the leader"}
 
-	// ErrNoLeader indicates there is no leader
+	// ErrNoLeader indicates there is no leader.
 	ErrNoLeader = &errors.ForgeError{Code: ErrCodeNoLeader, Message: "no leader available"}
 
-	// ErrNotStarted indicates the service is not started
+	// ErrNotStarted indicates the service is not started.
 	ErrNotStarted = &errors.ForgeError{Code: ErrCodeNotStarted, Message: "consensus service not started"}
 
-	// ErrAlreadyStarted indicates the service is already started
+	// ErrAlreadyStarted indicates the service is already started.
 	ErrAlreadyStarted = &errors.ForgeError{Code: ErrCodeAlreadyStarted, Message: "consensus service already started"}
 
-	// ErrNodeNotFound indicates a node was not found
+	// ErrNodeNotFound indicates a node was not found.
 	ErrNodeNotFound = &errors.ForgeError{Code: ErrCodeNodeNotFound, Message: "node not found"}
 
-	// ErrClusterNotFound indicates a cluster was not found
+	// ErrClusterNotFound indicates a cluster was not found.
 	ErrClusterNotFound = &errors.ForgeError{Code: ErrCodeClusterNotFound, Message: "cluster not found"}
 
-	// ErrStorageUnavailable indicates storage is unavailable
+	// ErrStorageUnavailable indicates storage is unavailable.
 	ErrStorageUnavailable = &errors.ForgeError{Code: ErrCodeStorageUnavailable, Message: "storage unavailable"}
 
-	// ErrTransportUnavailable indicates transport is unavailable
+	// ErrTransportUnavailable indicates transport is unavailable.
 	ErrTransportUnavailable = &errors.ForgeError{Code: ErrCodeTransportUnavailable, Message: "transport unavailable"}
 
-	// ErrDiscoveryUnavailable indicates discovery service is unavailable
+	// ErrDiscoveryUnavailable indicates discovery service is unavailable.
 	ErrDiscoveryUnavailable = &errors.ForgeError{Code: ErrCodeDiscoveryUnavailable, Message: "discovery service unavailable"}
 
-	// ErrNoQuorum indicates no quorum is available
+	// ErrNoQuorum indicates no quorum is available.
 	ErrNoQuorum = &errors.ForgeError{Code: ErrCodeNoQuorum, Message: "no quorum available"}
 
-	// ErrInvalidTerm indicates an invalid term
+	// ErrInvalidTerm indicates an invalid term.
 	ErrInvalidTerm = &errors.ForgeError{Code: ErrCodeInvalidTerm, Message: "invalid term"}
 
-	// ErrStaleTerm indicates a stale term
+	// ErrStaleTerm indicates a stale term.
 	ErrStaleTerm = &errors.ForgeError{Code: ErrCodeStaleTerm, Message: "stale term"}
 
-	// ErrLogInconsistent indicates log inconsistency
+	// ErrLogInconsistent indicates log inconsistency.
 	ErrLogInconsistent = &errors.ForgeError{Code: ErrCodeLogInconsistent, Message: "log inconsistent"}
 
-	// ErrSnapshotFailed indicates snapshot operation failed
+	// ErrSnapshotFailed indicates snapshot operation failed.
 	ErrSnapshotFailed = &errors.ForgeError{Code: ErrCodeSnapshotFailed, Message: "snapshot operation failed"}
 
-	// ErrCompactionFailed indicates compaction failed
+	// ErrCompactionFailed indicates compaction failed.
 	ErrCompactionFailed = &errors.ForgeError{Code: ErrCodeCompactionFailed, Message: "compaction failed"}
 
-	// ErrElectionTimeout indicates election timeout
+	// ErrElectionTimeout indicates election timeout.
 	ErrElectionTimeout = &errors.ForgeError{Code: ErrCodeElectionTimeout, Message: "election timeout"}
 
-	// ErrInvalidPeer indicates an invalid peer
+	// ErrInvalidPeer indicates an invalid peer.
 	ErrInvalidPeer = &errors.ForgeError{Code: ErrCodeInvalidPeer, Message: "invalid peer"}
 
-	// ErrPeerExists indicates peer already exists
+	// ErrPeerExists indicates peer already exists.
 	ErrPeerExists = &errors.ForgeError{Code: ErrCodePeerExists, Message: "peer already exists"}
 
-	// ErrPeerNotFound indicates peer not found
+	// ErrPeerNotFound indicates peer not found.
 	ErrPeerNotFound = &errors.ForgeError{Code: ErrCodePeerNotFound, Message: "peer not found"}
 
-	// ErrInsufficientPeers indicates insufficient peers
+	// ErrInsufficientPeers indicates insufficient peers.
 	ErrInsufficientPeers = &errors.ForgeError{Code: ErrCodeInsufficientPeers, Message: "insufficient peers"}
 
-	// ErrNoAvailablePeers indicates no available peers for operation
+	// ErrNoAvailablePeers indicates no available peers for operation.
 	ErrNoAvailablePeers = &errors.ForgeError{Code: ErrCodeNoAvailablePeers, Message: "no available peers"}
 
-	// ErrFailoverFailed indicates failover operation failed
+	// ErrFailoverFailed indicates failover operation failed.
 	ErrFailoverFailed = &errors.ForgeError{Code: ErrCodeFailoverFailed, Message: "failover operation failed"}
 
-	// ErrOperationFailed indicates a generic operation failure
+	// ErrOperationFailed indicates a generic operation failure.
 	ErrOperationFailed = &errors.ForgeError{Code: ErrCodeOperationFailed, Message: "operation failed"}
 
-	// ErrReplicationFailed indicates replication operation failed
+	// ErrReplicationFailed indicates replication operation failed.
 	ErrReplicationFailed = &errors.ForgeError{Code: ErrCodeReplicationFailed, Message: "replication failed"}
 
-	// ErrTimeout indicates operation timeout
+	// ErrTimeout indicates operation timeout.
 	ErrTimeout = &errors.ForgeError{Code: ErrCodeTimeout, Message: "operation timeout"}
 
-	// ErrConnectionFailed indicates connection failure
+	// ErrConnectionFailed indicates connection failure.
 	ErrConnectionFailed = &errors.ForgeError{Code: ErrCodeConnectionFailed, Message: "connection failed"}
 
-	// ErrStaleRead indicates a stale read attempt
+	// ErrStaleRead indicates a stale read attempt.
 	ErrStaleRead = &errors.ForgeError{Code: ErrCodeStaleRead, Message: "stale read"}
 
-	// ErrRateLimitExceeded indicates rate limit exceeded
+	// ErrRateLimitExceeded indicates rate limit exceeded.
 	ErrRateLimitExceeded = &errors.ForgeError{Code: ErrCodeRateLimitExceeded, Message: "rate limit exceeded"}
 
-	// ErrAuthenticationFailed indicates authentication failure
+	// ErrAuthenticationFailed indicates authentication failure.
 	ErrAuthenticationFailed = &errors.ForgeError{Code: ErrCodeAuthenticationFailed, Message: "authentication failed"}
 
-	// ErrPoolExhausted indicates connection pool exhausted
+	// ErrPoolExhausted indicates connection pool exhausted.
 	ErrPoolExhausted = &errors.ForgeError{Code: ErrCodePoolExhausted, Message: "connection pool exhausted"}
 
-	// ErrConnectionTimeout indicates connection timeout
+	// ErrConnectionTimeout indicates connection timeout.
 	ErrConnectionTimeout = &errors.ForgeError{Code: ErrCodeConnectionTimeout, Message: "connection timeout"}
 
-	// ErrInvalidConfig indicates invalid configuration
+	// ErrInvalidConfig indicates invalid configuration.
 	ErrInvalidConfig = errors.ErrInvalidConfigSentinel
 )
 
-// NewNotLeaderError creates a not leader error with context
+// NewNotLeaderError creates a not leader error with context.
 func NewNotLeaderError(nodeID string, leaderID string) *errors.ForgeError {
 	err := &errors.ForgeError{
 		Code:    ErrCodeNotLeader,
 		Message: "node is not the leader",
 	}
+
 	return err.WithContext("node_id", nodeID).WithContext("leader_id", leaderID)
 }
 
-// NewNoLeaderError creates a no leader error
+// NewNoLeaderError creates a no leader error.
 func NewNoLeaderError() *errors.ForgeError {
 	return &errors.ForgeError{
 		Code:    ErrCodeNoLeader,
@@ -158,50 +159,52 @@ func NewNoLeaderError() *errors.ForgeError {
 	}
 }
 
-// NewTimeoutError creates a timeout error
+// NewTimeoutError creates a timeout error.
 func NewTimeoutError(operation string) *errors.ForgeError {
 	return errors.ErrTimeoutError(operation, 30*time.Second)
 }
 
-// NewNoQuorumError creates a no quorum error with context
+// NewNoQuorumError creates a no quorum error with context.
 func NewNoQuorumError(required, available int) *errors.ForgeError {
 	err := &errors.ForgeError{
 		Code:    ErrCodeNoQuorum,
 		Message: "no quorum available",
 	}
+
 	return err.WithContext("required", required).WithContext("available", available)
 }
 
-// NewStaleTermError creates a stale term error with context
+// NewStaleTermError creates a stale term error with context.
 func NewStaleTermError(current, received uint64) *errors.ForgeError {
 	err := &errors.ForgeError{
 		Code:    ErrCodeStaleTerm,
 		Message: "received stale term",
 	}
+
 	return err.WithContext("current_term", current).WithContext("received_term", received)
 }
 
-// IsNotLeaderError returns true if the error is a not leader error
+// IsNotLeaderError returns true if the error is a not leader error.
 func IsNotLeaderError(err error) bool {
 	return errors.Is(err, ErrNotLeader)
 }
 
-// IsNoLeaderError returns true if the error is a no leader error
+// IsNoLeaderError returns true if the error is a no leader error.
 func IsNoLeaderError(err error) bool {
 	return errors.Is(err, ErrNoLeader)
 }
 
-// IsNoQuorumError returns true if the error is a no quorum error
+// IsNoQuorumError returns true if the error is a no quorum error.
 func IsNoQuorumError(err error) bool {
 	return errors.Is(err, ErrNoQuorum)
 }
 
-// IsStaleTermError returns true if the error is a stale term error
+// IsStaleTermError returns true if the error is a stale term error.
 func IsStaleTermError(err error) bool {
 	return errors.Is(err, ErrStaleTerm)
 }
 
-// IsRetryable returns true if the error is retryable
+// IsRetryable returns true if the error is retryable.
 func IsRetryable(err error) bool {
 	if err == nil {
 		return false
@@ -216,7 +219,7 @@ func IsRetryable(err error) bool {
 		errors.IsTimeout(err)
 }
 
-// IsFatal returns true if the error is fatal and should cause shutdown
+// IsFatal returns true if the error is fatal and should cause shutdown.
 func IsFatal(err error) bool {
 	if err == nil {
 		return false
@@ -226,7 +229,7 @@ func IsFatal(err error) bool {
 		errors.IsValidationError(err)
 }
 
-// Is is a helper function that wraps errors.Is from stdlib
+// Is is a helper function that wraps errors.Is from stdlib.
 func Is(err, target error) bool {
 	return stderrors.Is(err, target)
 }

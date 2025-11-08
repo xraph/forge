@@ -7,88 +7,88 @@ import (
 	"github.com/xraph/forge/extensions/ai/internal"
 )
 
-// DI container keys for AI extension services
+// DI container keys for AI extension services.
 const (
-	// ServiceKey is the DI key for the AI service
+	// ServiceKey is the DI key for the AI service.
 	ServiceKey = "forge.ai.service"
-	// ManagerKey is the DI key for the AI manager
+	// ManagerKey is the DI key for the AI manager.
 	ManagerKey = "forge.ai.manager"
-	// AgentFactoryKey is the DI key for the agent factory
+	// AgentFactoryKey is the DI key for the agent factory.
 	AgentFactoryKey = "forge.ai.agentFactory"
-	// LLMManagerKey is the DI key for the LLM manager
+	// LLMManagerKey is the DI key for the LLM manager.
 	LLMManagerKey = "forge.ai.llmManager"
-	// SDKLLMManagerKey is the DI key for the SDK LLM manager interface
+	// SDKLLMManagerKey is the DI key for the SDK LLM manager interface.
 	SDKLLMManagerKey = "forge.ai.sdk.llmManager"
 )
 
-// Config is the public configuration for the AI extension
+// Config is the public configuration for the AI extension.
 type Config struct {
 	// Core features
-	EnableLLM          bool          `yaml:"enable_llm" json:"enable_llm"`
-	EnableAgents       bool          `yaml:"enable_agents" json:"enable_agents"`
-	EnableTraining     bool          `yaml:"enable_training" json:"enable_training"`
-	EnableInference    bool          `yaml:"enable_inference" json:"enable_inference"`
-	EnableCoordination bool          `yaml:"enable_coordination" json:"enable_coordination"`
-	MaxConcurrency     int           `yaml:"max_concurrency" json:"max_concurrency"`
-	RequestTimeout     time.Duration `yaml:"request_timeout" json:"request_timeout"`
-	CacheSize          int           `yaml:"cache_size" json:"cache_size"`
+	EnableLLM          bool          `json:"enable_llm"          yaml:"enable_llm"`
+	EnableAgents       bool          `json:"enable_agents"       yaml:"enable_agents"`
+	EnableTraining     bool          `json:"enable_training"     yaml:"enable_training"`
+	EnableInference    bool          `json:"enable_inference"    yaml:"enable_inference"`
+	EnableCoordination bool          `json:"enable_coordination" yaml:"enable_coordination"`
+	MaxConcurrency     int           `json:"max_concurrency"     yaml:"max_concurrency"`
+	RequestTimeout     time.Duration `json:"request_timeout"     yaml:"request_timeout"`
+	CacheSize          int           `json:"cache_size"          yaml:"cache_size"`
 
 	// LLM configuration
-	LLM LLMConfiguration `yaml:"llm" json:"llm"`
+	LLM LLMConfiguration `json:"llm" yaml:"llm"`
 
 	// Inference configuration
-	Inference InferenceConfiguration `yaml:"inference" json:"inference"`
+	Inference InferenceConfiguration `json:"inference" yaml:"inference"`
 
 	// Agent configuration
-	Agents AgentConfiguration `yaml:"agents" json:"agents"`
+	Agents AgentConfiguration `json:"agents" yaml:"agents"`
 
 	// Middleware configuration
-	Middleware MiddlewareConfiguration `yaml:"middleware" json:"middleware"`
+	Middleware MiddlewareConfiguration `json:"middleware" yaml:"middleware"`
 }
 
-// LLMConfiguration contains LLM-specific settings
+// LLMConfiguration contains LLM-specific settings.
 type LLMConfiguration struct {
-	DefaultProvider string                    `yaml:"default_provider" json:"default_provider"`
-	Providers       map[string]ProviderConfig `yaml:"providers" json:"providers"`
-	MaxRetries      int                       `yaml:"max_retries" json:"max_retries"`
-	RetryDelay      time.Duration             `yaml:"retry_delay" json:"retry_delay"`
-	Timeout         time.Duration             `yaml:"timeout" json:"timeout"`
+	DefaultProvider string                    `json:"default_provider" yaml:"default_provider"`
+	Providers       map[string]ProviderConfig `json:"providers"        yaml:"providers"`
+	MaxRetries      int                       `json:"max_retries"      yaml:"max_retries"`
+	RetryDelay      time.Duration             `json:"retry_delay"      yaml:"retry_delay"`
+	Timeout         time.Duration             `json:"timeout"          yaml:"timeout"`
 }
 
-// ProviderConfig defines configuration for an LLM provider
+// ProviderConfig defines configuration for an LLM provider.
 type ProviderConfig struct {
-	Type    string                 `yaml:"type" json:"type"`
-	APIKey  string                 `yaml:"api_key" json:"api_key"`
-	BaseURL string                 `yaml:"base_url" json:"base_url"`
-	Models  []string               `yaml:"models" json:"models"`
-	Options map[string]interface{} `yaml:"options" json:"options"`
+	Type    string         `json:"type"     yaml:"type"`
+	APIKey  string         `json:"api_key"  yaml:"api_key"`
+	BaseURL string         `json:"base_url" yaml:"base_url"`
+	Models  []string       `json:"models"   yaml:"models"`
+	Options map[string]any `json:"options"  yaml:"options"`
 }
 
-// InferenceConfiguration contains inference engine settings
+// InferenceConfiguration contains inference engine settings.
 type InferenceConfiguration struct {
-	Workers        int           `yaml:"workers" json:"workers"`
-	BatchSize      int           `yaml:"batch_size" json:"batch_size"`
-	BatchTimeout   time.Duration `yaml:"batch_timeout" json:"batch_timeout"`
-	CacheSize      int           `yaml:"cache_size" json:"cache_size"`
-	CacheTTL       time.Duration `yaml:"cache_ttl" json:"cache_ttl"`
-	EnableBatching bool          `yaml:"enable_batching" json:"enable_batching"`
-	EnableCaching  bool          `yaml:"enable_caching" json:"enable_caching"`
-	EnableScaling  bool          `yaml:"enable_scaling" json:"enable_scaling"`
+	Workers        int           `json:"workers"         yaml:"workers"`
+	BatchSize      int           `json:"batch_size"      yaml:"batch_size"`
+	BatchTimeout   time.Duration `json:"batch_timeout"   yaml:"batch_timeout"`
+	CacheSize      int           `json:"cache_size"      yaml:"cache_size"`
+	CacheTTL       time.Duration `json:"cache_ttl"       yaml:"cache_ttl"`
+	EnableBatching bool          `json:"enable_batching" yaml:"enable_batching"`
+	EnableCaching  bool          `json:"enable_caching"  yaml:"enable_caching"`
+	EnableScaling  bool          `json:"enable_scaling"  yaml:"enable_scaling"`
 }
 
-// AgentConfiguration contains agent settings
+// AgentConfiguration contains agent settings.
 type AgentConfiguration struct {
-	EnabledAgents []string               `yaml:"enabled_agents" json:"enabled_agents"`
-	AgentConfigs  map[string]AgentConfig `yaml:"agent_configs" json:"agent_configs"`
+	EnabledAgents []string               `json:"enabled_agents" yaml:"enabled_agents"`
+	AgentConfigs  map[string]AgentConfig `json:"agent_configs"  yaml:"agent_configs"`
 }
 
-// MiddlewareConfiguration contains middleware settings
+// MiddlewareConfiguration contains middleware settings.
 type MiddlewareConfiguration struct {
-	EnabledMiddleware []string                               `yaml:"enabled_middleware" json:"enabled_middleware"`
-	MiddlewareConfigs map[string]internal.AIMiddlewareConfig `yaml:"middleware_configs" json:"middleware_configs"`
+	EnabledMiddleware []string                               `json:"enabled_middleware" yaml:"enabled_middleware"`
+	MiddlewareConfigs map[string]internal.AIMiddlewareConfig `json:"middleware_configs" yaml:"middleware_configs"`
 }
 
-// DefaultConfig returns the default AI configuration
+// DefaultConfig returns the default AI configuration.
 func DefaultConfig() Config {
 	return Config{
 		EnableLLM:          true,
@@ -127,7 +127,7 @@ func DefaultConfig() Config {
 	}
 }
 
-// ToInternal converts public Config to internal AIConfig
+// ToInternal converts public Config to internal AIConfig.
 func (c Config) ToInternal(logger forge.Logger, metrics forge.Metrics) internal.AIConfig {
 	return internal.AIConfig{
 		EnableLLM:          c.EnableLLM,
@@ -143,70 +143,70 @@ func (c Config) ToInternal(logger forge.Logger, metrics forge.Metrics) internal.
 	}
 }
 
-// ConfigOption is a functional option for Config
+// ConfigOption is a functional option for Config.
 type ConfigOption func(*Config)
 
-// WithConfig replaces the entire config
+// WithConfig replaces the entire config.
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) { *c = config }
 }
 
-// WithEnableLLM sets whether LLM is enabled
+// WithEnableLLM sets whether LLM is enabled.
 func WithEnableLLM(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableLLM = enabled }
 }
 
-// WithEnableAgents sets whether agents are enabled
+// WithEnableAgents sets whether agents are enabled.
 func WithEnableAgents(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableAgents = enabled }
 }
 
-// WithEnableTraining sets whether training is enabled
+// WithEnableTraining sets whether training is enabled.
 func WithEnableTraining(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableTraining = enabled }
 }
 
-// WithEnableInference sets whether inference is enabled
+// WithEnableInference sets whether inference is enabled.
 func WithEnableInference(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableInference = enabled }
 }
 
-// WithEnableCoordination sets whether coordination is enabled
+// WithEnableCoordination sets whether coordination is enabled.
 func WithEnableCoordination(enabled bool) ConfigOption {
 	return func(c *Config) { c.EnableCoordination = enabled }
 }
 
-// WithMaxConcurrency sets the maximum concurrency
+// WithMaxConcurrency sets the maximum concurrency.
 func WithMaxConcurrency(max int) ConfigOption {
 	return func(c *Config) { c.MaxConcurrency = max }
 }
 
-// WithRequestTimeout sets the request timeout
+// WithRequestTimeout sets the request timeout.
 func WithRequestTimeout(timeout time.Duration) ConfigOption {
 	return func(c *Config) { c.RequestTimeout = timeout }
 }
 
-// WithCacheSize sets the cache size
+// WithCacheSize sets the cache size.
 func WithCacheSize(size int) ConfigOption {
 	return func(c *Config) { c.CacheSize = size }
 }
 
-// WithLLMConfig sets the LLM configuration
+// WithLLMConfig sets the LLM configuration.
 func WithLLMConfig(llm LLMConfiguration) ConfigOption {
 	return func(c *Config) { c.LLM = llm }
 }
 
-// WithInferenceConfig sets the inference configuration
+// WithInferenceConfig sets the inference configuration.
 func WithInferenceConfig(inference InferenceConfiguration) ConfigOption {
 	return func(c *Config) { c.Inference = inference }
 }
 
-// WithAgentsConfig sets the agents configuration
+// WithAgentsConfig sets the agents configuration.
 func WithAgentsConfig(agents AgentConfiguration) ConfigOption {
 	return func(c *Config) { c.Agents = agents }
 }
 
-// WithMiddlewareConfig sets the middleware configuration
+// WithMiddlewareConfig sets the middleware configuration.
 func WithMiddlewareConfig(middleware MiddlewareConfiguration) ConfigOption {
 	return func(c *Config) { c.Middleware = middleware }
 }

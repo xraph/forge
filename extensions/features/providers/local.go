@@ -4,19 +4,20 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/binary"
+	"slices"
 	"sync"
 )
 
-// LocalProvider is an in-memory feature flags provider
+// LocalProvider is an in-memory feature flags provider.
 type LocalProvider struct {
-	config       LocalProviderConfig
-	defaults     map[string]interface{}
-	flags        map[string]FlagConfig
-	mu           sync.RWMutex
+	config   LocalProviderConfig
+	defaults map[string]any
+	flags    map[string]FlagConfig
+	mu       sync.RWMutex
 }
 
-// NewLocalProvider creates a new local provider
-func NewLocalProvider(config LocalProviderConfig, defaults map[string]interface{}) *LocalProvider {
+// NewLocalProvider creates a new local provider.
+func NewLocalProvider(config LocalProviderConfig, defaults map[string]any) *LocalProvider {
 	return &LocalProvider{
 		config:   config,
 		defaults: defaults,
@@ -24,17 +25,17 @@ func NewLocalProvider(config LocalProviderConfig, defaults map[string]interface{
 	}
 }
 
-// Name returns the provider name
+// Name returns the provider name.
 func (p *LocalProvider) Name() string {
 	return "local"
 }
 
-// Initialize initializes the provider
+// Initialize initializes the provider.
 func (p *LocalProvider) Initialize(ctx context.Context) error {
 	return nil
 }
 
-// IsEnabled checks if a boolean flag is enabled
+// IsEnabled checks if a boolean flag is enabled.
 func (p *LocalProvider) IsEnabled(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue bool) (bool, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -47,6 +48,7 @@ func (p *LocalProvider) IsEnabled(ctx context.Context, flagKey string, userCtx *
 				return boolVal, nil
 			}
 		}
+
 		return defaultValue, nil
 	}
 
@@ -66,13 +68,14 @@ func (p *LocalProvider) IsEnabled(ctx context.Context, flagKey string, userCtx *
 		if p.evaluateRollout(flag.Rollout, userCtx) {
 			return flag.Enabled, nil
 		}
+
 		return !flag.Enabled, nil
 	}
 
 	return flag.Enabled, nil
 }
 
-// GetString gets a string flag value
+// GetString gets a string flag value.
 func (p *LocalProvider) GetString(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue string) (string, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -85,6 +88,7 @@ func (p *LocalProvider) GetString(ctx context.Context, flagKey string, userCtx *
 				return strVal, nil
 			}
 		}
+
 		return defaultValue, nil
 	}
 
@@ -106,7 +110,7 @@ func (p *LocalProvider) GetString(ctx context.Context, flagKey string, userCtx *
 	return defaultValue, nil
 }
 
-// GetInt gets an integer flag value
+// GetInt gets an integer flag value.
 func (p *LocalProvider) GetInt(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue int) (int, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -119,6 +123,7 @@ func (p *LocalProvider) GetInt(ctx context.Context, flagKey string, userCtx *Use
 				return intVal, nil
 			}
 		}
+
 		return defaultValue, nil
 	}
 
@@ -140,7 +145,7 @@ func (p *LocalProvider) GetInt(ctx context.Context, flagKey string, userCtx *Use
 	return defaultValue, nil
 }
 
-// GetFloat gets a float flag value
+// GetFloat gets a float flag value.
 func (p *LocalProvider) GetFloat(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue float64) (float64, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -153,6 +158,7 @@ func (p *LocalProvider) GetFloat(ctx context.Context, flagKey string, userCtx *U
 				return floatVal, nil
 			}
 		}
+
 		return defaultValue, nil
 	}
 
@@ -174,8 +180,8 @@ func (p *LocalProvider) GetFloat(ctx context.Context, flagKey string, userCtx *U
 	return defaultValue, nil
 }
 
-// GetJSON gets a JSON flag value
-func (p *LocalProvider) GetJSON(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue interface{}) (interface{}, error) {
+// GetJSON gets a JSON flag value.
+func (p *LocalProvider) GetJSON(ctx context.Context, flagKey string, userCtx *UserContext, defaultValue any) (any, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -185,6 +191,7 @@ func (p *LocalProvider) GetJSON(ctx context.Context, flagKey string, userCtx *Us
 		if val, ok := p.defaults[flagKey]; ok {
 			return val, nil
 		}
+
 		return defaultValue, nil
 	}
 
@@ -204,12 +211,12 @@ func (p *LocalProvider) GetJSON(ctx context.Context, flagKey string, userCtx *Us
 	return defaultValue, nil
 }
 
-// GetAllFlags gets all flags for a user/context
-func (p *LocalProvider) GetAllFlags(ctx context.Context, userCtx *UserContext) (map[string]interface{}, error) {
+// GetAllFlags gets all flags for a user/context.
+func (p *LocalProvider) GetAllFlags(ctx context.Context, userCtx *UserContext) (map[string]any, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	for key, flag := range p.flags {
 		// Evaluate flag based on type
@@ -231,36 +238,38 @@ func (p *LocalProvider) GetAllFlags(ctx context.Context, userCtx *UserContext) (
 	return result, nil
 }
 
-// Refresh refreshes flags (no-op for local provider)
+// Refresh refreshes flags (no-op for local provider).
 func (p *LocalProvider) Refresh(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the provider
+// Close closes the provider.
 func (p *LocalProvider) Close() error {
 	return nil
 }
 
-// Health checks provider health
+// Health checks provider health.
 func (p *LocalProvider) Health(ctx context.Context) error {
 	return nil
 }
 
-// UpdateFlag updates a flag configuration (for dynamic updates)
+// UpdateFlag updates a flag configuration (for dynamic updates).
 func (p *LocalProvider) UpdateFlag(key string, flag FlagConfig) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.flags[key] = flag
 }
 
-// RemoveFlag removes a flag
+// RemoveFlag removes a flag.
 func (p *LocalProvider) RemoveFlag(key string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	delete(p.flags, key)
 }
 
-// evaluateRule evaluates a targeting rule against user context
+// evaluateRule evaluates a targeting rule against user context.
 func (p *LocalProvider) evaluateRule(rule TargetingRule, userCtx *UserContext) bool {
 	var attrValue string
 
@@ -280,12 +289,11 @@ func (p *LocalProvider) evaluateRule(rule TargetingRule, userCtx *UserContext) b
 		// Special handling for groups
 		if rule.Operator == "in" {
 			for _, group := range userCtx.Groups {
-				for _, value := range rule.Values {
-					if group == value {
-						return true
-					}
+				if slices.Contains(rule.Values, group) {
+					return true
 				}
 			}
+
 			return false
 		}
 	default:
@@ -300,12 +308,8 @@ func (p *LocalProvider) evaluateRule(rule TargetingRule, userCtx *UserContext) b
 	// Evaluate operator
 	switch rule.Operator {
 	case "equals":
-		for _, value := range rule.Values {
-			if attrValue == value {
-				return true
-			}
-		}
-		return false
+
+		return slices.Contains(rule.Values, attrValue)
 
 	case "contains":
 		for _, value := range rule.Values {
@@ -313,34 +317,28 @@ func (p *LocalProvider) evaluateRule(rule TargetingRule, userCtx *UserContext) b
 				return true
 			}
 		}
+
 		return false
 
 	case "in":
-		for _, value := range rule.Values {
-			if attrValue == value {
-				return true
-			}
-		}
-		return false
+
+		return slices.Contains(rule.Values, attrValue)
 
 	case "not_in":
-		for _, value := range rule.Values {
-			if attrValue == value {
-				return false
-			}
-		}
-		return true
+
+		return !slices.Contains(rule.Values, attrValue)
 
 	default:
 		return false
 	}
 }
 
-// evaluateRollout evaluates percentage-based rollout
+// evaluateRollout evaluates percentage-based rollout.
 func (p *LocalProvider) evaluateRollout(rollout *RolloutConfig, userCtx *UserContext) bool {
 	if rollout.Percentage <= 0 {
 		return false
 	}
+
 	if rollout.Percentage >= 100 {
 		return true
 	}
@@ -352,6 +350,7 @@ func (p *LocalProvider) evaluateRollout(rollout *RolloutConfig, userCtx *UserCon
 	}
 
 	var attrValue string
+
 	switch attr {
 	case "user_id":
 		attrValue = userCtx.UserID
@@ -376,16 +375,17 @@ func (p *LocalProvider) evaluateRollout(rollout *RolloutConfig, userCtx *UserCon
 	return int(bucket) < rollout.Percentage
 }
 
-// containsSubstring checks if haystack contains needle (case-insensitive)
+// containsSubstring checks if haystack contains needle (case-insensitive).
 func containsSubstring(haystack, needle string) bool {
 	if len(needle) > len(haystack) {
 		return false
 	}
+
 	for i := 0; i <= len(haystack)-len(needle); i++ {
 		if haystack[i:i+len(needle)] == needle {
 			return true
 		}
 	}
+
 	return false
 }
-

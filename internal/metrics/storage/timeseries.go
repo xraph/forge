@@ -2,7 +2,9 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"sync"
@@ -17,7 +19,7 @@ import (
 // TIME-SERIES STORAGE
 // =============================================================================
 
-// TimeSeriesStorage provides time-series storage for metrics with efficient time-based operations
+// TimeSeriesStorage provides time-series storage for metrics with efficient time-based operations.
 type TimeSeriesStorage struct {
 	name               string
 	logger             logger.Logger
@@ -35,30 +37,30 @@ type TimeSeriesStorage struct {
 	stats              *TimeSeriesStorageStats
 }
 
-// TimeSeries represents a time-series of metric data points
+// TimeSeries represents a time-series of metric data points.
 type TimeSeries struct {
-	Name        string                 `json:"name"`
-	Tags        map[string]string      `json:"tags"`
-	Type        shared.MetricType      `json:"type"`
-	Unit        string                 `json:"unit"`
-	Points      []*TimeSeriesPoint     `json:"points"`
-	Buckets     map[int64]*TimeWindow  `json:"buckets"`
-	Created     time.Time              `json:"created"`
-	Updated     time.Time              `json:"updated"`
-	AccessCount int64                  `json:"access_count"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Name        string                `json:"name"`
+	Tags        map[string]string     `json:"tags"`
+	Type        shared.MetricType     `json:"type"`
+	Unit        string                `json:"unit"`
+	Points      []*TimeSeriesPoint    `json:"points"`
+	Buckets     map[int64]*TimeWindow `json:"buckets"`
+	Created     time.Time             `json:"created"`
+	Updated     time.Time             `json:"updated"`
+	AccessCount int64                 `json:"access_count"`
+	Metadata    map[string]any        `json:"metadata"`
 	mu          sync.RWMutex
 }
 
-// TimeSeriesPoint represents a single data point in a time series
+// TimeSeriesPoint represents a single data point in a time series.
 type TimeSeriesPoint struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Value     float64                `json:"value"`
-	Tags      map[string]string      `json:"tags,omitempty"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp time.Time         `json:"timestamp"`
+	Value     float64           `json:"value"`
+	Tags      map[string]string `json:"tags,omitempty"`
+	Metadata  map[string]any    `json:"metadata,omitempty"`
 }
 
-// TimeWindow represents aggregated data for a time window
+// TimeWindow represents aggregated data for a time window.
 type TimeWindow struct {
 	Start      time.Time `json:"start"`
 	End        time.Time `json:"end"`
@@ -71,19 +73,19 @@ type TimeWindow struct {
 	Compressed bool      `json:"compressed"`
 }
 
-// TimeSeriesStorageConfig contains configuration for time-series storage
+// TimeSeriesStorageConfig contains configuration for time-series storage.
 type TimeSeriesStorageConfig struct {
-	Retention          time.Duration `yaml:"retention" json:"retention"`
-	Resolution         time.Duration `yaml:"resolution" json:"resolution"`
-	MaxSeries          int           `yaml:"max_series" json:"max_series"`
-	MaxPointsPerSeries int           `yaml:"max_points_per_series" json:"max_points_per_series"`
-	CompressionEnabled bool          `yaml:"compression_enabled" json:"compression_enabled"`
-	CompressionDelay   time.Duration `yaml:"compression_delay" json:"compression_delay"`
-	CleanupInterval    time.Duration `yaml:"cleanup_interval" json:"cleanup_interval"`
-	EnableStats        bool          `yaml:"enable_stats" json:"enable_stats"`
+	Retention          time.Duration `json:"retention"             yaml:"retention"`
+	Resolution         time.Duration `json:"resolution"            yaml:"resolution"`
+	MaxSeries          int           `json:"max_series"            yaml:"max_series"`
+	MaxPointsPerSeries int           `json:"max_points_per_series" yaml:"max_points_per_series"`
+	CompressionEnabled bool          `json:"compression_enabled"   yaml:"compression_enabled"`
+	CompressionDelay   time.Duration `json:"compression_delay"     yaml:"compression_delay"`
+	CleanupInterval    time.Duration `json:"cleanup_interval"      yaml:"cleanup_interval"`
+	EnableStats        bool          `json:"enable_stats"          yaml:"enable_stats"`
 }
 
-// TimeSeriesStorageStats contains statistics about time-series storage
+// TimeSeriesStorageStats contains statistics about time-series storage.
 type TimeSeriesStorageStats struct {
 	SeriesCount       int64         `json:"series_count"`
 	TotalPoints       int64         `json:"total_points"`
@@ -104,7 +106,7 @@ type TimeSeriesStorageStats struct {
 	startTime         time.Time
 }
 
-// DefaultTimeSeriesStorageConfig returns default configuration
+// DefaultTimeSeriesStorageConfig returns default configuration.
 func DefaultTimeSeriesStorageConfig() *TimeSeriesStorageConfig {
 	return &TimeSeriesStorageConfig{
 		Retention:          time.Hour * 24 * 7, // 7 days
@@ -118,12 +120,12 @@ func DefaultTimeSeriesStorageConfig() *TimeSeriesStorageConfig {
 	}
 }
 
-// NewTimeSeriesStorage creates a new time-series storage instance
+// NewTimeSeriesStorage creates a new time-series storage instance.
 func NewTimeSeriesStorage() MetricsStorage {
 	return NewTimeSeriesStorageWithConfig(DefaultTimeSeriesStorageConfig())
 }
 
-// NewTimeSeriesStorageWithConfig creates a new time-series storage instance with configuration
+// NewTimeSeriesStorageWithConfig creates a new time-series storage instance with configuration.
 func NewTimeSeriesStorageWithConfig(config *TimeSeriesStorageConfig) *TimeSeriesStorage {
 	return &TimeSeriesStorage{
 		name:               "timeseries",
@@ -146,7 +148,7 @@ func NewTimeSeriesStorageWithConfig(config *TimeSeriesStorageConfig) *TimeSeries
 // METRICS STORAGE INTERFACE IMPLEMENTATION
 // =============================================================================
 
-// Store stores a metric entry as a time-series point
+// Store stores a metric entry as a time-series point.
 func (ts *TimeSeriesStorage) Store(ctx context.Context, entry *MetricEntry) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -171,13 +173,11 @@ func (ts *TimeSeriesStorage) Store(ctx context.Context, entry *MetricEntry) erro
 			Points:   make([]*TimeSeriesPoint, 0),
 			Buckets:  make(map[int64]*TimeWindow),
 			Created:  time.Now(),
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 
 		// Copy tags
-		for k, v := range entry.Tags {
-			series.Tags[k] = v
-		}
+		maps.Copy(series.Tags, entry.Tags)
 
 		ts.series[seriesKey] = series
 	}
@@ -193,14 +193,12 @@ func (ts *TimeSeriesStorage) Store(ctx context.Context, entry *MetricEntry) erro
 		Timestamp: entry.Timestamp,
 		Value:     value,
 		Tags:      make(map[string]string),
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	// Copy point-specific tags and metadata if any
 	if entry.Metadata != nil {
-		for k, v := range entry.Metadata {
-			point.Metadata[k] = v
-		}
+		maps.Copy(point.Metadata, entry.Metadata)
 	}
 
 	// Add point to series
@@ -234,7 +232,7 @@ func (ts *TimeSeriesStorage) Store(ctx context.Context, entry *MetricEntry) erro
 	return nil
 }
 
-// Retrieve retrieves a metric entry (latest point) from time-series
+// Retrieve retrieves a metric entry (latest point) from time-series.
 func (ts *TimeSeriesStorage) Retrieve(ctx context.Context, name string, tags map[string]string) (*MetricEntry, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
@@ -265,24 +263,21 @@ func (ts *TimeSeriesStorage) Retrieve(ctx context.Context, name string, tags map
 		Timestamp:   latestPoint.Timestamp,
 		LastUpdated: series.Updated,
 		AccessCount: series.AccessCount,
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 
 	// Copy tags
-	for k, v := range series.Tags {
-		entry.Tags[k] = v
-	}
+	maps.Copy(entry.Tags, series.Tags)
 
 	// Copy metadata
-	for k, v := range series.Metadata {
-		entry.Metadata[k] = v
-	}
+	maps.Copy(entry.Metadata, series.Metadata)
 
 	ts.stats.TotalReads++
+
 	return entry, nil
 }
 
-// Delete deletes a time series
+// Delete deletes a time series.
 func (ts *TimeSeriesStorage) Delete(ctx context.Context, name string, tags map[string]string) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -308,7 +303,7 @@ func (ts *TimeSeriesStorage) Delete(ctx context.Context, name string, tags map[s
 	return nil
 }
 
-// List lists all time series matching filters
+// List lists all time series matching filters.
 func (ts *TimeSeriesStorage) List(ctx context.Context, filters map[string]string) ([]*MetricEntry, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
@@ -331,18 +326,14 @@ func (ts *TimeSeriesStorage) List(ctx context.Context, filters map[string]string
 					Timestamp:   latestPoint.Timestamp,
 					LastUpdated: series.Updated,
 					AccessCount: series.AccessCount,
-					Metadata:    make(map[string]interface{}),
+					Metadata:    make(map[string]any),
 				}
 
 				// Copy tags
-				for k, v := range series.Tags {
-					entry.Tags[k] = v
-				}
+				maps.Copy(entry.Tags, series.Tags)
 
 				// Copy metadata
-				for k, v := range series.Metadata {
-					entry.Metadata[k] = v
-				}
+				maps.Copy(entry.Metadata, series.Metadata)
 
 				entries = append(entries, entry)
 			}
@@ -352,10 +343,11 @@ func (ts *TimeSeriesStorage) List(ctx context.Context, filters map[string]string
 	}
 
 	ts.stats.TotalReads += int64(len(entries))
+
 	return entries, nil
 }
 
-// Count returns the number of time series
+// Count returns the number of time series.
 func (ts *TimeSeriesStorage) Count(ctx context.Context) (int64, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
@@ -363,7 +355,7 @@ func (ts *TimeSeriesStorage) Count(ctx context.Context) (int64, error) {
 	return int64(len(ts.series)), nil
 }
 
-// Clear clears all time series
+// Clear clears all time series.
 func (ts *TimeSeriesStorage) Clear(ctx context.Context) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -377,13 +369,13 @@ func (ts *TimeSeriesStorage) Clear(ctx context.Context) error {
 	return nil
 }
 
-// Start starts the time-series storage system
+// Start starts the time-series storage system.
 func (ts *TimeSeriesStorage) Start(ctx context.Context) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
 	if ts.started {
-		return fmt.Errorf("time-series storage already started")
+		return errors.New("time-series storage already started")
 	}
 
 	ts.started = true
@@ -400,13 +392,13 @@ func (ts *TimeSeriesStorage) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the time-series storage system
+// Stop stops the time-series storage system.
 func (ts *TimeSeriesStorage) Stop(ctx context.Context) error {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
 	if !ts.started {
-		return fmt.Errorf("time-series storage not started")
+		return errors.New("time-series storage not started")
 	}
 
 	ts.started = false
@@ -415,13 +407,13 @@ func (ts *TimeSeriesStorage) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks the health of the time-series storage system
+// Health checks the health of the time-series storage system.
 func (ts *TimeSeriesStorage) Health(ctx context.Context) error {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	if !ts.started {
-		return fmt.Errorf("time-series storage not started")
+		return errors.New("time-series storage not started")
 	}
 
 	// Check if storage is within limits
@@ -437,8 +429,8 @@ func (ts *TimeSeriesStorage) Health(ctx context.Context) error {
 	return nil
 }
 
-// Stats returns storage statistics
-func (ts *TimeSeriesStorage) Stats(ctx context.Context) (interface{}, error) {
+// Stats returns storage statistics.
+func (ts *TimeSeriesStorage) Stats(ctx context.Context) (any, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
@@ -459,7 +451,7 @@ func (ts *TimeSeriesStorage) Stats(ctx context.Context) (interface{}, error) {
 // TIME-SERIES SPECIFIC OPERATIONS
 // =============================================================================
 
-// QueryRange queries time series data within a time range
+// QueryRange queries time series data within a time range.
 func (ts *TimeSeriesStorage) QueryRange(ctx context.Context, query TimeRangeQuery) (*TimeRangeResult, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
@@ -484,7 +476,7 @@ func (ts *TimeSeriesStorage) QueryRange(ctx context.Context, query TimeRangeQuer
 	return result, nil
 }
 
-// AggregateRange aggregates time series data over time windows
+// AggregateRange aggregates time series data over time windows.
 func (ts *TimeSeriesStorage) AggregateRange(ctx context.Context, query TimeAggregationQuery) (*TimeAggregationResult, error) {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
@@ -513,15 +505,16 @@ func (ts *TimeSeriesStorage) AggregateRange(ctx context.Context, query TimeAggre
 // PRIVATE METHODS
 // =============================================================================
 
-// generateSeriesKey generates a unique key for a time series
+// generateSeriesKey generates a unique key for a time series.
 func (ts *TimeSeriesStorage) generateSeriesKey(name string, tags map[string]string) string {
 	if len(tags) == 0 {
 		return name
 	}
+
 	return name + "{" + metrics.TagsToString(tags) + "}"
 }
 
-// updateBucket updates the time-based bucket for efficient querying
+// updateBucket updates the time-based bucket for efficient querying.
 func (ts *TimeSeriesStorage) updateBucket(series *TimeSeries, point *TimeSeriesPoint) {
 	// Calculate bucket timestamp based on resolution
 	bucketTime := point.Timestamp.Truncate(ts.resolution)
@@ -549,6 +542,7 @@ func (ts *TimeSeriesStorage) updateBucket(series *TimeSeries, point *TimeSeriesP
 	if point.Value < bucket.Min {
 		bucket.Min = point.Value
 	}
+
 	if point.Value > bucket.Max {
 		bucket.Max = point.Value
 	}
@@ -557,9 +551,10 @@ func (ts *TimeSeriesStorage) updateBucket(series *TimeSeries, point *TimeSeriesP
 	bucket.StdDev = ts.calculateStdDev(series, bucketTime, ts.resolution)
 }
 
-// calculateStdDev calculates standard deviation for a time window
+// calculateStdDev calculates standard deviation for a time window.
 func (ts *TimeSeriesStorage) calculateStdDev(series *TimeSeries, start time.Time, duration time.Duration) float64 {
 	end := start.Add(duration)
+
 	var values []float64
 
 	for _, point := range series.Points {
@@ -577,6 +572,7 @@ func (ts *TimeSeriesStorage) calculateStdDev(series *TimeSeries, start time.Time
 	for _, v := range values {
 		sum += v
 	}
+
 	mean := sum / float64(len(values))
 
 	// Calculate variance
@@ -584,12 +580,13 @@ func (ts *TimeSeriesStorage) calculateStdDev(series *TimeSeries, start time.Time
 	for _, v := range values {
 		variance += (v - mean) * (v - mean)
 	}
+
 	variance /= float64(len(values))
 
 	return math.Sqrt(variance)
 }
 
-// querySeriesRange queries a specific series within a time range
+// querySeriesRange queries a specific series within a time range.
 func (ts *TimeSeriesStorage) querySeriesRange(series *TimeSeries, start, end time.Time, step time.Duration) *TimeSeriesData {
 	series.mu.RLock()
 	defer series.mu.RUnlock()
@@ -618,7 +615,7 @@ func (ts *TimeSeriesStorage) querySeriesRange(series *TimeSeries, start, end tim
 	}
 }
 
-// aggregateSeriesRange aggregates a series over time windows
+// aggregateSeriesRange aggregates a series over time windows.
 func (ts *TimeSeriesStorage) aggregateSeriesRange(series *TimeSeries, start, end time.Time, step time.Duration, function string) *TimeAggregationData {
 	series.mu.RLock()
 	defer series.mu.RUnlock()
@@ -634,6 +631,7 @@ func (ts *TimeSeriesStorage) aggregateSeriesRange(series *TimeSeries, start, end
 
 		// Find points in this window
 		var windowPoints []*TimeSeriesPoint
+
 		for _, point := range series.Points {
 			if point.Timestamp.After(current) && point.Timestamp.Before(windowEnd) {
 				windowPoints = append(windowPoints, point)
@@ -656,11 +654,13 @@ func (ts *TimeSeriesStorage) aggregateSeriesRange(series *TimeSeries, start, end
 			for _, point := range windowPoints {
 				window.Sum += point.Value
 			}
+
 			window.Mean = window.Sum
 		case "avg", "mean":
 			for _, point := range windowPoints {
 				window.Sum += point.Value
 			}
+
 			window.Mean = window.Sum / float64(len(windowPoints))
 		case "min":
 			window.Min = windowPoints[0].Value
@@ -669,6 +669,7 @@ func (ts *TimeSeriesStorage) aggregateSeriesRange(series *TimeSeries, start, end
 					window.Min = point.Value
 				}
 			}
+
 			window.Mean = window.Min
 		case "max":
 			window.Max = windowPoints[0].Value
@@ -677,6 +678,7 @@ func (ts *TimeSeriesStorage) aggregateSeriesRange(series *TimeSeries, start, end
 					window.Max = point.Value
 				}
 			}
+
 			window.Mean = window.Max
 		}
 
@@ -695,13 +697,14 @@ func (ts *TimeSeriesStorage) aggregateSeriesRange(series *TimeSeries, start, end
 	}
 }
 
-// downsamplePoints reduces the number of points by sampling
+// downsamplePoints reduces the number of points by sampling.
 func (ts *TimeSeriesStorage) downsamplePoints(points []*TimeSeriesPoint, step time.Duration) []*TimeSeriesPoint {
 	if len(points) == 0 {
 		return points
 	}
 
 	var downsampled []*TimeSeriesPoint
+
 	lastTimestamp := points[0].Timestamp
 
 	for _, point := range points {
@@ -714,7 +717,7 @@ func (ts *TimeSeriesStorage) downsamplePoints(points []*TimeSeriesPoint, step ti
 	return downsampled
 }
 
-// matchesFilters checks if a series matches the given filters
+// matchesFilters checks if a series matches the given filters.
 func (ts *TimeSeriesStorage) matchesFilters(series *TimeSeries, filters map[string]string) bool {
 	if filters == nil {
 		return true
@@ -741,14 +744,16 @@ func (ts *TimeSeriesStorage) matchesFilters(series *TimeSeries, filters map[stri
 	return true
 }
 
-// evictOldestSeries evicts the oldest series to make space
+// evictOldestSeries evicts the oldest series to make space.
 func (ts *TimeSeriesStorage) evictOldestSeries() error {
 	if len(ts.series) == 0 {
 		return nil
 	}
 
-	var oldestKey string
-	var oldestTime time.Time
+	var (
+		oldestKey  string
+		oldestTime time.Time
+	)
 
 	for key, series := range ts.series {
 		if oldestTime.IsZero() || series.Created.Before(oldestTime) {
@@ -771,7 +776,7 @@ func (ts *TimeSeriesStorage) evictOldestSeries() error {
 	return nil
 }
 
-// cleanupLoop runs periodic cleanup
+// cleanupLoop runs periodic cleanup.
 func (ts *TimeSeriesStorage) cleanupLoop() {
 	ticker := time.NewTicker(ts.cleanupInterval)
 	defer ticker.Stop()
@@ -782,6 +787,7 @@ func (ts *TimeSeriesStorage) cleanupLoop() {
 			if !ts.started {
 				return
 			}
+
 			ts.cleanup()
 		case <-ts.stopCh:
 			return
@@ -789,7 +795,7 @@ func (ts *TimeSeriesStorage) cleanupLoop() {
 	}
 }
 
-// cleanup removes expired data
+// cleanup removes expired data.
 func (ts *TimeSeriesStorage) cleanup() {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -799,6 +805,7 @@ func (ts *TimeSeriesStorage) cleanup() {
 	}
 
 	cutoff := time.Now().Add(-ts.retention)
+
 	var deletedPoints int64
 
 	for key, series := range ts.series {
@@ -806,6 +813,7 @@ func (ts *TimeSeriesStorage) cleanup() {
 
 		// Remove old points
 		var validPoints []*TimeSeriesPoint
+
 		for _, point := range series.Points {
 			if point.Timestamp.After(cutoff) {
 				validPoints = append(validPoints, point)
@@ -838,7 +846,7 @@ func (ts *TimeSeriesStorage) cleanup() {
 	ts.updateStorageStats()
 }
 
-// compressionLoop runs periodic compression
+// compressionLoop runs periodic compression.
 func (ts *TimeSeriesStorage) compressionLoop() {
 	ticker := time.NewTicker(ts.compressionDelay)
 	defer ticker.Stop()
@@ -849,6 +857,7 @@ func (ts *TimeSeriesStorage) compressionLoop() {
 			if !ts.started {
 				return
 			}
+
 			ts.compressOldData()
 		case <-ts.stopCh:
 			return
@@ -856,20 +865,23 @@ func (ts *TimeSeriesStorage) compressionLoop() {
 	}
 }
 
-// compressOldData compresses old data points into time windows
+// compressOldData compresses old data points into time windows.
 func (ts *TimeSeriesStorage) compressOldData() {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
 	cutoff := time.Now().Add(-ts.compressionDelay)
+
 	var compressedPoints int64
 
 	for _, series := range ts.series {
 		series.mu.Lock()
 
 		// Find points to compress
-		var toCompress []*TimeSeriesPoint
-		var toKeep []*TimeSeriesPoint
+		var (
+			toCompress []*TimeSeriesPoint
+			toKeep     []*TimeSeriesPoint
+		)
 
 		for _, point := range series.Points {
 			if point.Timestamp.Before(cutoff) {
@@ -900,7 +912,7 @@ func (ts *TimeSeriesStorage) compressOldData() {
 	ts.updateStorageStats()
 }
 
-// compressPointsToWindows compresses points into time windows
+// compressPointsToWindows compresses points into time windows.
 func (ts *TimeSeriesStorage) compressPointsToWindows(points []*TimeSeriesPoint, resolution time.Duration) []*TimeWindow {
 	windowMap := make(map[int64]*TimeWindow)
 
@@ -927,6 +939,7 @@ func (ts *TimeSeriesStorage) compressPointsToWindows(points []*TimeSeriesPoint, 
 		if point.Value < window.Min {
 			window.Min = point.Value
 		}
+
 		if point.Value > window.Max {
 			window.Max = point.Value
 		}
@@ -940,13 +953,15 @@ func (ts *TimeSeriesStorage) compressPointsToWindows(points []*TimeSeriesPoint, 
 	return windows
 }
 
-// updateStorageStats updates storage statistics
+// updateStorageStats updates storage statistics.
 func (ts *TimeSeriesStorage) updateStorageStats() {
 	ts.stats.SeriesCount = int64(len(ts.series))
 
-	var totalPoints int64
-	var memoryUsage int64
-	var oldestPoint, newestPoint time.Time
+	var (
+		totalPoints              int64
+		memoryUsage              int64
+		oldestPoint, newestPoint time.Time
+	)
 
 	for _, series := range ts.series {
 		series.mu.RLock()
@@ -960,10 +975,12 @@ func (ts *TimeSeriesStorage) updateStorageStats() {
 			if oldestPoint.IsZero() || point.Timestamp.Before(oldestPoint) {
 				oldestPoint = point.Timestamp
 			}
+
 			if newestPoint.IsZero() || point.Timestamp.After(newestPoint) {
 				newestPoint = point.Timestamp
 			}
 		}
+
 		series.mu.RUnlock()
 	}
 
@@ -977,8 +994,8 @@ func (ts *TimeSeriesStorage) updateStorageStats() {
 	}
 }
 
-// extractNumericValue extracts numeric value from interface{}
-func (ts *TimeSeriesStorage) extractNumericValue(value interface{}) (float64, bool) {
+// extractNumericValue extracts numeric value from interface{}.
+func (ts *TimeSeriesStorage) extractNumericValue(value any) (float64, bool) {
 	switch v := value.(type) {
 	case int:
 		return float64(v), true
@@ -1001,7 +1018,7 @@ func (ts *TimeSeriesStorage) extractNumericValue(value interface{}) (float64, bo
 	}
 }
 
-// SetLogger sets the logger for the time-series storage
+// SetLogger sets the logger for the time-series storage.
 func (ts *TimeSeriesStorage) SetLogger(logger logger.Logger) {
 	ts.logger = logger
 }
@@ -1010,7 +1027,7 @@ func (ts *TimeSeriesStorage) SetLogger(logger logger.Logger) {
 // SUPPORTING TYPES
 // =============================================================================
 
-// TimeRangeQuery represents a time range query
+// TimeRangeQuery represents a time range query.
 type TimeRangeQuery struct {
 	Filters map[string]string `json:"filters"`
 	Start   time.Time         `json:"start"`
@@ -1018,21 +1035,21 @@ type TimeRangeQuery struct {
 	Step    time.Duration     `json:"step"`
 }
 
-// TimeRangeResult represents the result of a time range query
+// TimeRangeResult represents the result of a time range query.
 type TimeRangeResult struct {
 	Data      []*TimeSeriesData `json:"data"`
 	Query     TimeRangeQuery    `json:"query"`
 	Timestamp time.Time         `json:"timestamp"`
 }
 
-// TimeSeriesData represents time series data
+// TimeSeriesData represents time series data.
 type TimeSeriesData struct {
 	Name   string             `json:"name"`
 	Tags   map[string]string  `json:"tags"`
 	Points []*TimeSeriesPoint `json:"points"`
 }
 
-// TimeAggregationQuery represents a time aggregation query
+// TimeAggregationQuery represents a time aggregation query.
 type TimeAggregationQuery struct {
 	Filters  map[string]string `json:"filters"`
 	Start    time.Time         `json:"start"`
@@ -1041,14 +1058,14 @@ type TimeAggregationQuery struct {
 	Function string            `json:"function"`
 }
 
-// TimeAggregationResult represents the result of a time aggregation query
+// TimeAggregationResult represents the result of a time aggregation query.
 type TimeAggregationResult struct {
 	Data      []*TimeAggregationData `json:"data"`
 	Query     TimeAggregationQuery   `json:"query"`
 	Timestamp time.Time              `json:"timestamp"`
 }
 
-// TimeAggregationData represents aggregated time series data
+// TimeAggregationData represents aggregated time series data.
 type TimeAggregationData struct {
 	Name     string            `json:"name"`
 	Tags     map[string]string `json:"tags"`

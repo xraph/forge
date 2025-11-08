@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,64 +13,65 @@ import (
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// AnomalyDetectionConfig contains configuration for anomaly detection
+// AnomalyDetectionConfig contains configuration for anomaly detection.
 type AnomalyDetectionConfig struct {
-	Enabled             bool           `yaml:"enabled" default:"true"`
-	SensitivityLevel    string         `yaml:"sensitivity_level" default:"medium"`     // low, medium, high
-	DetectionAlgorithm  string         `yaml:"detection_algorithm" default:"ensemble"` // statistical, ml, ensemble
-	ThresholdMultiplier float64        `yaml:"threshold_multiplier" default:"3.0"`     // Standard deviations for outlier detection
-	LearningPeriod      time.Duration  `yaml:"learning_period" default:"24h"`          // Period to establish baseline
-	WindowSize          int            `yaml:"window_size" default:"1000"`             // Size of sliding window for analysis
-	MinDataPoints       int            `yaml:"min_data_points" default:"100"`          // Minimum data points before detection
-	BlockSuspicious     bool           `yaml:"block_suspicious" default:"false"`       // Block suspicious requests
-	LogSuspicious       bool           `yaml:"log_suspicious" default:"true"`          // Log suspicious requests
-	NotifyOnAnomaly     bool           `yaml:"notify_on_anomaly" default:"true"`       // Send notifications for anomalies
-	FeatureWeights      FeatureWeights `yaml:"feature_weights"`                        // Weights for different features
-	ActionConfig        ActionConfig   `yaml:"action_config"`                          // Actions to take on anomalies
+	Enabled             bool           `default:"true"         yaml:"enabled"`
+	SensitivityLevel    string         `default:"medium"       yaml:"sensitivity_level"`    // low, medium, high
+	DetectionAlgorithm  string         `default:"ensemble"     yaml:"detection_algorithm"`  // statistical, ml, ensemble
+	ThresholdMultiplier float64        `default:"3.0"          yaml:"threshold_multiplier"` // Standard deviations for outlier detection
+	LearningPeriod      time.Duration  `default:"24h"          yaml:"learning_period"`      // Period to establish baseline
+	WindowSize          int            `default:"1000"         yaml:"window_size"`          // Size of sliding window for analysis
+	MinDataPoints       int            `default:"100"          yaml:"min_data_points"`      // Minimum data points before detection
+	BlockSuspicious     bool           `default:"false"        yaml:"block_suspicious"`     // Block suspicious requests
+	LogSuspicious       bool           `default:"true"         yaml:"log_suspicious"`       // Log suspicious requests
+	NotifyOnAnomaly     bool           `default:"true"         yaml:"notify_on_anomaly"`    // Send notifications for anomalies
+	FeatureWeights      FeatureWeights `yaml:"feature_weights"`                             // Weights for different features
+	ActionConfig        ActionConfig   `yaml:"action_config"`                               // Actions to take on anomalies
 }
 
-// FeatureWeights defines weights for different request features
+// FeatureWeights defines weights for different request features.
 type FeatureWeights struct {
-	RequestRate  float64 `yaml:"request_rate" default:"0.25"`  // Request rate anomalies
-	ResponseTime float64 `yaml:"response_time" default:"0.20"` // Response time anomalies
-	ErrorRate    float64 `yaml:"error_rate" default:"0.25"`    // Error rate anomalies
-	PayloadSize  float64 `yaml:"payload_size" default:"0.15"`  // Payload size anomalies
-	UserBehavior float64 `yaml:"user_behavior" default:"0.10"` // User behavior anomalies
-	Geographic   float64 `yaml:"geographic" default:"0.05"`    // Geographic anomalies
+	RequestRate  float64 `default:"0.25" yaml:"request_rate"`  // Request rate anomalies
+	ResponseTime float64 `default:"0.20" yaml:"response_time"` // Response time anomalies
+	ErrorRate    float64 `default:"0.25" yaml:"error_rate"`    // Error rate anomalies
+	PayloadSize  float64 `default:"0.15" yaml:"payload_size"`  // Payload size anomalies
+	UserBehavior float64 `default:"0.10" yaml:"user_behavior"` // User behavior anomalies
+	Geographic   float64 `default:"0.05" yaml:"geographic"`    // Geographic anomalies
 }
 
-// ActionConfig defines actions to take when anomalies are detected
+// ActionConfig defines actions to take when anomalies are detected.
 type ActionConfig struct {
-	AutoBlock      bool          `yaml:"auto_block" default:"false"`    // Automatically block anomalous IPs
-	BlockDuration  time.Duration `yaml:"block_duration" default:"1h"`   // Duration to block IPs
-	RateLimit      bool          `yaml:"rate_limit" default:"true"`     // Apply rate limiting to suspicious users
-	AlertThreshold float64       `yaml:"alert_threshold" default:"0.8"` // Confidence threshold for alerts
-	QuarantineTTL  time.Duration `yaml:"quarantine_ttl" default:"30m"`  // Time to quarantine suspicious requests
+	AutoBlock      bool          `default:"false" yaml:"auto_block"`      // Automatically block anomalous IPs
+	BlockDuration  time.Duration `default:"1h"    yaml:"block_duration"`  // Duration to block IPs
+	RateLimit      bool          `default:"true"  yaml:"rate_limit"`      // Apply rate limiting to suspicious users
+	AlertThreshold float64       `default:"0.8"   yaml:"alert_threshold"` // Confidence threshold for alerts
+	QuarantineTTL  time.Duration `default:"30m"   yaml:"quarantine_ttl"`  // Time to quarantine suspicious requests
 }
 
-// RequestFeatures represents features extracted from HTTP request
+// RequestFeatures represents features extracted from HTTP request.
 type RequestFeatures struct {
-	Timestamp    time.Time              `json:"timestamp"`
-	Method       string                 `json:"method"`
-	Path         string                 `json:"path"`
-	StatusCode   int                    `json:"status_code"`
-	ResponseTime time.Duration          `json:"response_time"`
-	PayloadSize  int64                  `json:"payload_size"`
-	UserAgent    string                 `json:"user_agent"`
-	IPAddress    string                 `json:"ip_address"`
-	UserID       string                 `json:"user_id"`
-	SessionID    string                 `json:"session_id"`
-	Headers      map[string]string      `json:"headers"`
-	QueryParams  map[string]string      `json:"query_params"`
-	GeoLocation  *GeoLocation           `json:"geo_location"`
-	Fingerprint  string                 `json:"fingerprint"`
-	Metadata     map[string]interface{} `json:"metadata"`
+	Timestamp    time.Time         `json:"timestamp"`
+	Method       string            `json:"method"`
+	Path         string            `json:"path"`
+	StatusCode   int               `json:"status_code"`
+	ResponseTime time.Duration     `json:"response_time"`
+	PayloadSize  int64             `json:"payload_size"`
+	UserAgent    string            `json:"user_agent"`
+	IPAddress    string            `json:"ip_address"`
+	UserID       string            `json:"user_id"`
+	SessionID    string            `json:"session_id"`
+	Headers      map[string]string `json:"headers"`
+	QueryParams  map[string]string `json:"query_params"`
+	GeoLocation  *GeoLocation      `json:"geo_location"`
+	Fingerprint  string            `json:"fingerprint"`
+	Metadata     map[string]any    `json:"metadata"`
 }
 
-// GeoLocation represents geographic location data
+// GeoLocation represents geographic location data.
 type GeoLocation struct {
 	Country   string  `json:"country"`
 	Region    string  `json:"region"`
@@ -79,21 +81,21 @@ type GeoLocation struct {
 	ISP       string  `json:"isp"`
 }
 
-// AnomalyDetectionResult represents the result of anomaly detection
+// AnomalyDetectionResult represents the result of anomaly detection.
 type AnomalyDetectionResult struct {
-	IsAnomaly         bool                   `json:"is_anomaly"`
-	ConfidenceScore   float64                `json:"confidence_score"`
-	AnomalyType       string                 `json:"anomaly_type"`
-	AnomalyFeatures   []string               `json:"anomaly_features"`
-	Severity          string                 `json:"severity"` // low, medium, high, critical
-	RiskScore         float64                `json:"risk_score"`
-	RecommendedAction string                 `json:"recommended_action"`
-	Explanation       string                 `json:"explanation"`
-	Timestamp         time.Time              `json:"timestamp"`
-	Metadata          map[string]interface{} `json:"metadata"`
+	IsAnomaly         bool           `json:"is_anomaly"`
+	ConfidenceScore   float64        `json:"confidence_score"`
+	AnomalyType       string         `json:"anomaly_type"`
+	AnomalyFeatures   []string       `json:"anomaly_features"`
+	Severity          string         `json:"severity"` // low, medium, high, critical
+	RiskScore         float64        `json:"risk_score"`
+	RecommendedAction string         `json:"recommended_action"`
+	Explanation       string         `json:"explanation"`
+	Timestamp         time.Time      `json:"timestamp"`
+	Metadata          map[string]any `json:"metadata"`
 }
 
-// BaselineMetrics represents baseline metrics for normal behavior
+// BaselineMetrics represents baseline metrics for normal behavior.
 type BaselineMetrics struct {
 	RequestRate      StatisticalMetrics         `json:"request_rate"`
 	ResponseTime     StatisticalMetrics         `json:"response_time"`
@@ -106,7 +108,7 @@ type BaselineMetrics struct {
 	LastUpdated      time.Time                  `json:"last_updated"`
 }
 
-// StatisticalMetrics contains statistical metrics for a feature
+// StatisticalMetrics contains statistical metrics for a feature.
 type StatisticalMetrics struct {
 	Mean         float64   `json:"mean"`
 	StandardDev  float64   `json:"standard_dev"`
@@ -118,24 +120,24 @@ type StatisticalMetrics struct {
 	LastUpdated  time.Time `json:"last_updated"`
 }
 
-// AnomalyDetectionStats contains statistics for anomaly detection
+// AnomalyDetectionStats contains statistics for anomaly detection.
 type AnomalyDetectionStats struct {
-	TotalRequests     int64                  `json:"total_requests"`
-	AnomaliesDetected int64                  `json:"anomalies_detected"`
-	BlockedRequests   int64                  `json:"blocked_requests"`
-	FalsePositives    int64                  `json:"false_positives"`
-	TruePositives     int64                  `json:"true_positives"`
-	DetectionAccuracy float64                `json:"detection_accuracy"`
-	AverageConfidence float64                `json:"average_confidence"`
-	AnomalyTypes      map[string]int64       `json:"anomaly_types"`
-	TopAnomalousIPs   []string               `json:"top_anomalous_ips"`
-	BaselineHealth    string                 `json:"baseline_health"`
-	LastModelUpdate   time.Time              `json:"last_model_update"`
-	ProcessingLatency time.Duration          `json:"processing_latency"`
-	CustomMetrics     map[string]interface{} `json:"custom_metrics"`
+	TotalRequests     int64            `json:"total_requests"`
+	AnomaliesDetected int64            `json:"anomalies_detected"`
+	BlockedRequests   int64            `json:"blocked_requests"`
+	FalsePositives    int64            `json:"false_positives"`
+	TruePositives     int64            `json:"true_positives"`
+	DetectionAccuracy float64          `json:"detection_accuracy"`
+	AverageConfidence float64          `json:"average_confidence"`
+	AnomalyTypes      map[string]int64 `json:"anomaly_types"`
+	TopAnomalousIPs   []string         `json:"top_anomalous_ips"`
+	BaselineHealth    string           `json:"baseline_health"`
+	LastModelUpdate   time.Time        `json:"last_model_update"`
+	ProcessingLatency time.Duration    `json:"processing_latency"`
+	CustomMetrics     map[string]any   `json:"custom_metrics"`
 }
 
-// AnomalyDetection implements AI-powered anomaly detection middleware
+// AnomalyDetection implements AI-powered anomaly detection middleware.
 type AnomalyDetection struct {
 	config         AnomalyDetectionConfig
 	agent          ai.AIAgent
@@ -152,14 +154,14 @@ type AnomalyDetection struct {
 	lastBaseline   time.Time
 }
 
-// NewAnomalyDetection creates a new anomaly detection middleware
+// NewAnomalyDetection creates a new anomaly detection middleware.
 func NewAnomalyDetection(config AnomalyDetectionConfig, logger forge.Logger, metrics forge.Metrics) (*AnomalyDetection, error) {
 	// Create anomaly detection agent
 	capabilities := []ai.Capability{
 		{
 			Name:        "detect_statistical_anomalies",
 			Description: "Detect statistical anomalies in request patterns",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "statistical_analysis",
 				"algorithm": "z_score_isolation_forest",
 				"accuracy":  0.90,
@@ -168,7 +170,7 @@ func NewAnomalyDetection(config AnomalyDetectionConfig, logger forge.Logger, met
 		{
 			Name:        "analyze_behavioral_patterns",
 			Description: "Analyze user behavioral patterns for anomalies",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "behavior_analysis",
 				"algorithm": "sequence_analysis",
 				"accuracy":  0.85,
@@ -177,7 +179,7 @@ func NewAnomalyDetection(config AnomalyDetectionConfig, logger forge.Logger, met
 		{
 			Name:        "classify_anomaly_severity",
 			Description: "Classify severity and risk level of detected anomalies",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "classification",
 				"algorithm": "risk_scoring",
 				"accuracy":  0.88,
@@ -186,7 +188,7 @@ func NewAnomalyDetection(config AnomalyDetectionConfig, logger forge.Logger, met
 		{
 			Name:        "update_baseline_model",
 			Description: "Update baseline behavior model based on new data",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "model_update",
 				"algorithm": "incremental_learning",
 			},
@@ -208,29 +210,29 @@ func NewAnomalyDetection(config AnomalyDetectionConfig, logger forge.Logger, met
 			AnomalyTypes:    make(map[string]int64),
 			TopAnomalousIPs: make([]string, 0),
 			BaselineHealth:  "initializing",
-			CustomMetrics:   make(map[string]interface{}),
+			CustomMetrics:   make(map[string]any),
 		},
 		learningMode: true,
 	}, nil
 }
 
-// Name returns the middleware name
+// Name returns the middleware name.
 func (ad *AnomalyDetection) Name() string {
 	return "anomaly-detection"
 }
 
-// Type returns the middleware type
+// Type returns the middleware type.
 func (ad *AnomalyDetection) Type() ai.AIMiddlewareType {
 	return ai.AIMiddlewareTypeAnomalyDetection
 }
 
-// Initialize initializes the middleware
+// Initialize initializes the middleware.
 func (ad *AnomalyDetection) Initialize(ctx context.Context, config ai.AIMiddlewareConfig) error {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
 
 	if ad.started {
-		return fmt.Errorf("anomaly detection middleware already initialized")
+		return errors.New("anomaly detection middleware already initialized")
 	}
 
 	// Initialize the AI agent
@@ -272,10 +274,11 @@ func (ad *AnomalyDetection) Initialize(ctx context.Context, config ai.AIMiddlewa
 	return nil
 }
 
-// Process processes HTTP requests with anomaly detection
+// Process processes HTTP requests with anomaly detection.
 func (ad *AnomalyDetection) Process(ctx context.Context, req *http.Request, resp http.ResponseWriter, next http.HandlerFunc) error {
 	if !ad.config.Enabled {
 		next.ServeHTTP(resp, req)
+
 		return nil
 	}
 
@@ -285,12 +288,14 @@ func (ad *AnomalyDetection) Process(ctx context.Context, req *http.Request, resp
 	// Check if IP is blocked
 	if ad.isBlocked(clientIP) {
 		ad.handleBlockedRequest(resp, clientIP)
+
 		return nil
 	}
 
 	// Check if IP is quarantined
 	if ad.isQuarantined(clientIP) {
 		ad.handleQuarantinedRequest(resp, clientIP)
+
 		return nil
 	}
 
@@ -318,9 +323,10 @@ func (ad *AnomalyDetection) Process(ctx context.Context, req *http.Request, resp
 	return nil
 }
 
-// extractRequestFeatures extracts features from HTTP request
+// extractRequestFeatures extracts features from HTTP request.
 func (ad *AnomalyDetection) extractRequestFeatures(req *http.Request, startTime time.Time) RequestFeatures {
 	headers := make(map[string]string)
+
 	for name, values := range req.Header {
 		if len(values) > 0 {
 			headers[name] = values[0]
@@ -328,6 +334,7 @@ func (ad *AnomalyDetection) extractRequestFeatures(req *http.Request, startTime 
 	}
 
 	queryParams := make(map[string]string)
+
 	for name, values := range req.URL.Query() {
 		if len(values) > 0 {
 			queryParams[name] = values[0]
@@ -356,26 +363,27 @@ func (ad *AnomalyDetection) extractRequestFeatures(req *http.Request, startTime 
 		QueryParams: queryParams,
 		GeoLocation: geoLocation,
 		Fingerprint: fingerprint,
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 }
 
-// detectAnomalies performs anomaly detection on request features
+// detectAnomalies performs anomaly detection on request features.
 func (ad *AnomalyDetection) detectAnomalies(ctx context.Context, features RequestFeatures) {
 	if ad.learningMode && ad.shouldSkipDetection() {
 		ad.addToBaseline(features)
+
 		return
 	}
 
 	// Create input for AI agent
 	input := ai.AgentInput{
 		Type: "detect_statistical_anomalies",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"features":  features,
 			"baseline":  ad.baseline,
 			"algorithm": ad.config.DetectionAlgorithm,
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"sensitivity":          ad.config.SensitivityLevel,
 			"threshold_multiplier": ad.config.ThresholdMultiplier,
 			"feature_weights":      ad.config.FeatureWeights,
@@ -392,6 +400,7 @@ func (ad *AnomalyDetection) detectAnomalies(ctx context.Context, features Reques
 				logger.Error(err),
 			)
 		}
+
 		return
 	}
 
@@ -406,14 +415,14 @@ func (ad *AnomalyDetection) detectAnomalies(ctx context.Context, features Reques
 	}
 }
 
-// parseDetectionResult parses AI agent output into anomaly detection result
+// parseDetectionResult parses AI agent output into anomaly detection result.
 func (ad *AnomalyDetection) parseDetectionResult(output ai.AgentOutput) AnomalyDetectionResult {
 	result := AnomalyDetectionResult{
 		Timestamp: time.Now(),
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
-	if resultData, ok := output.Data.(map[string]interface{}); ok {
+	if resultData, ok := output.Data.(map[string]any); ok {
 		result.IsAnomaly = getBool(resultData, "is_anomaly")
 		result.ConfidenceScore = getFloat64(resultData, "confidence_score")
 		result.AnomalyType = getString(resultData, "anomaly_type")
@@ -421,7 +430,7 @@ func (ad *AnomalyDetection) parseDetectionResult(output ai.AgentOutput) AnomalyD
 		result.RiskScore = getFloat64(resultData, "risk_score")
 		result.RecommendedAction = getString(resultData, "recommended_action")
 
-		if features, ok := resultData["anomaly_features"].([]interface{}); ok {
+		if features, ok := resultData["anomaly_features"].([]any); ok {
 			for _, f := range features {
 				if feature, ok := f.(string); ok {
 					result.AnomalyFeatures = append(result.AnomalyFeatures, feature)
@@ -431,10 +440,11 @@ func (ad *AnomalyDetection) parseDetectionResult(output ai.AgentOutput) AnomalyD
 	}
 
 	result.Explanation = output.Explanation
+
 	return result
 }
 
-// handleAnomalyDetected handles detected anomalies
+// handleAnomalyDetected handles detected anomalies.
 func (ad *AnomalyDetection) handleAnomalyDetected(ctx context.Context, features RequestFeatures, result AnomalyDetectionResult) {
 	ad.mu.Lock()
 	ad.stats.AnomaliesDetected++
@@ -467,7 +477,7 @@ func (ad *AnomalyDetection) handleAnomalyDetected(ctx context.Context, features 
 	}
 }
 
-// takeAction takes appropriate action based on anomaly detection result
+// takeAction takes appropriate action based on anomaly detection result.
 func (ad *AnomalyDetection) takeAction(features RequestFeatures, result AnomalyDetectionResult) {
 	switch result.Severity {
 	case "critical":
@@ -489,7 +499,7 @@ func (ad *AnomalyDetection) takeAction(features RequestFeatures, result AnomalyD
 	}
 }
 
-// isBlocked checks if an IP is blocked
+// isBlocked checks if an IP is blocked.
 func (ad *AnomalyDetection) isBlocked(ip string) bool {
 	ad.mu.RLock()
 	defer ad.mu.RUnlock()
@@ -501,10 +511,11 @@ func (ad *AnomalyDetection) isBlocked(ip string) bool {
 		// Remove expired blocks
 		delete(ad.blockedIPs, ip)
 	}
+
 	return false
 }
 
-// isQuarantined checks if an IP is quarantined
+// isQuarantined checks if an IP is quarantined.
 func (ad *AnomalyDetection) isQuarantined(ip string) bool {
 	ad.mu.RLock()
 	defer ad.mu.RUnlock()
@@ -516,10 +527,11 @@ func (ad *AnomalyDetection) isQuarantined(ip string) bool {
 		// Remove expired quarantines
 		delete(ad.quarantinedIPs, ip)
 	}
+
 	return false
 }
 
-// blockIP blocks an IP address
+// blockIP blocks an IP address.
 func (ad *AnomalyDetection) blockIP(ip string, duration time.Duration) {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
@@ -535,7 +547,7 @@ func (ad *AnomalyDetection) blockIP(ip string, duration time.Duration) {
 	}
 }
 
-// quarantineIP quarantines an IP address (rate limiting)
+// quarantineIP quarantines an IP address (rate limiting).
 func (ad *AnomalyDetection) quarantineIP(ip string, ttl time.Duration) {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
@@ -550,13 +562,13 @@ func (ad *AnomalyDetection) quarantineIP(ip string, ttl time.Duration) {
 	}
 }
 
-// handleBlockedRequest handles blocked request
+// handleBlockedRequest handles blocked request.
 func (ad *AnomalyDetection) handleBlockedRequest(resp http.ResponseWriter, ip string) {
 	resp.Header().Set("Content-Type", "application/json")
 	resp.WriteHeader(http.StatusForbidden)
 
-	response := map[string]interface{}{
-		"error": map[string]interface{}{
+	response := map[string]any{
+		"error": map[string]any{
 			"code":    "IP_BLOCKED",
 			"message": "Access denied due to suspicious activity",
 		},
@@ -566,14 +578,14 @@ func (ad *AnomalyDetection) handleBlockedRequest(resp http.ResponseWriter, ip st
 	json.NewEncoder(resp).Encode(response)
 }
 
-// handleQuarantinedRequest handles quarantined request
+// handleQuarantinedRequest handles quarantined request.
 func (ad *AnomalyDetection) handleQuarantinedRequest(resp http.ResponseWriter, ip string) {
 	resp.Header().Set("Content-Type", "application/json")
 	resp.Header().Set("X-Rate-Limit-Reason", "quarantined")
 	resp.WriteHeader(http.StatusTooManyRequests)
 
-	response := map[string]interface{}{
-		"error": map[string]interface{}{
+	response := map[string]any{
+		"error": map[string]any{
 			"code":    "IP_QUARANTINED",
 			"message": "Rate limited due to suspicious activity",
 		},
@@ -583,7 +595,7 @@ func (ad *AnomalyDetection) handleQuarantinedRequest(resp http.ResponseWriter, i
 	json.NewEncoder(resp).Encode(response)
 }
 
-// addToBuffer adds request features to the analysis buffer
+// addToBuffer adds request features to the analysis buffer.
 func (ad *AnomalyDetection) addToBuffer(features RequestFeatures) {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
@@ -594,12 +606,12 @@ func (ad *AnomalyDetection) addToBuffer(features RequestFeatures) {
 	}
 }
 
-// shouldSkipDetection checks if detection should be skipped during learning period
+// shouldSkipDetection checks if detection should be skipped during learning period.
 func (ad *AnomalyDetection) shouldSkipDetection() bool {
 	return ad.learningMode && time.Since(ad.lastBaseline) < ad.config.LearningPeriod
 }
 
-// initializeBaseline initializes baseline metrics
+// initializeBaseline initializes baseline metrics.
 func (ad *AnomalyDetection) initializeBaseline() {
 	ad.baseline = &BaselineMetrics{
 		RequestRate:      StatisticalMetrics{},
@@ -616,7 +628,7 @@ func (ad *AnomalyDetection) initializeBaseline() {
 	ad.lastBaseline = time.Now()
 }
 
-// addToBaseline adds normal request to baseline
+// addToBaseline adds normal request to baseline.
 func (ad *AnomalyDetection) addToBaseline(features RequestFeatures) {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
@@ -635,7 +647,7 @@ func (ad *AnomalyDetection) addToBaseline(features RequestFeatures) {
 	ad.baseline.LastUpdated = time.Now()
 }
 
-// baselineUpdateLoop periodically updates baseline metrics
+// baselineUpdateLoop periodically updates baseline metrics.
 func (ad *AnomalyDetection) baselineUpdateLoop(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
@@ -650,7 +662,7 @@ func (ad *AnomalyDetection) baselineUpdateLoop(ctx context.Context) {
 	}
 }
 
-// updateBaseline updates baseline metrics using AI
+// updateBaseline updates baseline metrics using AI.
 func (ad *AnomalyDetection) updateBaseline(ctx context.Context) {
 	ad.mu.RLock()
 	bufferCopy := make([]RequestFeatures, len(ad.requestBuffer))
@@ -663,11 +675,11 @@ func (ad *AnomalyDetection) updateBaseline(ctx context.Context) {
 
 	input := ai.AgentInput{
 		Type: "update_baseline_model",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"request_data":     bufferCopy,
 			"current_baseline": ad.baseline,
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"update_type": "incremental",
 			"window_size": ad.config.WindowSize,
 		},
@@ -680,11 +692,12 @@ func (ad *AnomalyDetection) updateBaseline(ctx context.Context) {
 		if ad.logger != nil {
 			ad.logger.Error("failed to update baseline", logger.Error(err))
 		}
+
 		return
 	}
 
 	// Update baseline with AI recommendations
-	if baselineData, ok := output.Data.(map[string]interface{}); ok {
+	if baselineData, ok := output.Data.(map[string]any); ok {
 		ad.updateBaselineFromAI(baselineData)
 	}
 
@@ -699,22 +712,25 @@ func (ad *AnomalyDetection) updateBaseline(ctx context.Context) {
 	}
 }
 
-// updateBaselineFromAI updates baseline from AI output
-func (ad *AnomalyDetection) updateBaselineFromAI(baselineData map[string]interface{}) {
+// updateBaselineFromAI updates baseline from AI output.
+func (ad *AnomalyDetection) updateBaselineFromAI(baselineData map[string]any) {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
 
 	// Update statistical metrics if provided
-	if requestRate, ok := baselineData["request_rate"].(map[string]interface{}); ok {
+	if requestRate, ok := baselineData["request_rate"].(map[string]any); ok {
 		ad.baseline.RequestRate = ad.parseStatisticalMetrics(requestRate)
 	}
-	if responseTime, ok := baselineData["response_time"].(map[string]interface{}); ok {
+
+	if responseTime, ok := baselineData["response_time"].(map[string]any); ok {
 		ad.baseline.ResponseTime = ad.parseStatisticalMetrics(responseTime)
 	}
-	if errorRate, ok := baselineData["error_rate"].(map[string]interface{}); ok {
+
+	if errorRate, ok := baselineData["error_rate"].(map[string]any); ok {
 		ad.baseline.ErrorRate = ad.parseStatisticalMetrics(errorRate)
 	}
-	if payloadSize, ok := baselineData["payload_size"].(map[string]interface{}); ok {
+
+	if payloadSize, ok := baselineData["payload_size"].(map[string]any); ok {
 		ad.baseline.PayloadSize = ad.parseStatisticalMetrics(payloadSize)
 	}
 
@@ -722,8 +738,8 @@ func (ad *AnomalyDetection) updateBaselineFromAI(baselineData map[string]interfa
 	ad.stats.LastModelUpdate = time.Now()
 }
 
-// parseStatisticalMetrics parses statistical metrics from map
-func (ad *AnomalyDetection) parseStatisticalMetrics(data map[string]interface{}) StatisticalMetrics {
+// parseStatisticalMetrics parses statistical metrics from map.
+func (ad *AnomalyDetection) parseStatisticalMetrics(data map[string]any) StatisticalMetrics {
 	return StatisticalMetrics{
 		Mean:         getFloat64(data, "mean"),
 		StandardDev:  getFloat64(data, "standard_dev"),
@@ -736,7 +752,7 @@ func (ad *AnomalyDetection) parseStatisticalMetrics(data map[string]interface{})
 	}
 }
 
-// cleanupLoop performs periodic cleanup of expired blocks and quarantines
+// cleanupLoop performs periodic cleanup of expired blocks and quarantines.
 func (ad *AnomalyDetection) cleanupLoop(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
@@ -751,7 +767,7 @@ func (ad *AnomalyDetection) cleanupLoop(ctx context.Context) {
 	}
 }
 
-// cleanup removes expired blocks and quarantines
+// cleanup removes expired blocks and quarantines.
 func (ad *AnomalyDetection) cleanup() {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
@@ -773,7 +789,7 @@ func (ad *AnomalyDetection) cleanup() {
 	}
 }
 
-// modelRetrainingLoop periodically retrains the anomaly detection model
+// modelRetrainingLoop periodically retrains the anomaly detection model.
 func (ad *AnomalyDetection) modelRetrainingLoop(ctx context.Context) {
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
@@ -788,7 +804,7 @@ func (ad *AnomalyDetection) modelRetrainingLoop(ctx context.Context) {
 	}
 }
 
-// retrainModel retrains the anomaly detection model
+// retrainModel retrains the anomaly detection model.
 func (ad *AnomalyDetection) retrainModel(ctx context.Context) {
 	if ad.learningMode {
 		return // Skip retraining during learning mode
@@ -803,7 +819,7 @@ func (ad *AnomalyDetection) retrainModel(ctx context.Context) {
 	ad.stats.LastModelUpdate = time.Now()
 }
 
-// sendAnomalyNotification sends notification about detected anomaly
+// sendAnomalyNotification sends notification about detected anomaly.
 func (ad *AnomalyDetection) sendAnomalyNotification(ctx context.Context, features RequestFeatures, result AnomalyDetectionResult) {
 	// Implementation would depend on notification service
 	// For now, just log
@@ -817,25 +833,29 @@ func (ad *AnomalyDetection) sendAnomalyNotification(ctx context.Context, feature
 	}
 }
 
-// Utility functions
+// Utility functions.
 func (ad *AnomalyDetection) extractClientIP(req *http.Request) string {
 	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
 		ips := strings.Split(xff, ",")
+
 		return strings.TrimSpace(ips[0])
 	}
+
 	if xri := req.Header.Get("X-Real-IP"); xri != "" {
 		return strings.TrimSpace(xri)
 	}
+
 	ip := req.RemoteAddr
 	if colon := strings.LastIndex(ip, ":"); colon != -1 {
 		ip = ip[:colon]
 	}
+
 	return ip
 }
 
 func (ad *AnomalyDetection) extractUserID(req *http.Request) string {
 	// Try various methods to extract user ID
-	if userID := req.Header.Get("X-User-ID"); userID != "" {
+	if userID := req.Header.Get("X-User-Id"); userID != "" {
 		return userID
 	}
 	// Add JWT parsing logic here
@@ -846,14 +866,16 @@ func (ad *AnomalyDetection) extractSessionID(req *http.Request) string {
 	if cookie, err := req.Cookie("session_id"); err == nil {
 		return cookie.Value
 	}
-	return req.Header.Get("X-Session-ID")
+
+	return req.Header.Get("X-Session-Id")
 }
 
 func (ad *AnomalyDetection) createRequestFingerprint(req *http.Request) string {
 	// Create unique fingerprint for request
 	data := fmt.Sprintf("%s:%s:%s:%s", req.Method, req.URL.Path, req.UserAgent(), ad.extractClientIP(req))
 	hash := sha256.Sum256([]byte(data))
-	return fmt.Sprintf("%x", hash)[:16]
+
+	return hex.EncodeToString(hash[:])[:16]
 }
 
 func (ad *AnomalyDetection) extractCountryFromIP(ip string) string {
@@ -889,29 +911,32 @@ func (ad *AnomalyDetection) updateStats(startTime time.Time) {
 	}
 }
 
-// Helper functions for data extraction
-func getBool(data map[string]interface{}, key string) bool {
+// Helper functions for data extraction.
+func getBool(data map[string]any, key string) bool {
 	if val, ok := data[key].(bool); ok {
 		return val
 	}
+
 	return false
 }
 
-func getFloat64(data map[string]interface{}, key string) float64 {
+func getFloat64(data map[string]any, key string) float64 {
 	if val, ok := data[key].(float64); ok {
 		return val
 	}
+
 	return 0.0
 }
 
-func getString(data map[string]interface{}, key string) string {
+func getString(data map[string]any, key string) string {
 	if val, ok := data[key].(string); ok {
 		return val
 	}
+
 	return ""
 }
 
-// GetStats returns middleware statistics
+// GetStats returns middleware statistics.
 func (ad *AnomalyDetection) GetStats() ai.AIMiddlewareStats {
 	ad.mu.RLock()
 	defer ad.mu.RUnlock()
@@ -925,7 +950,7 @@ func (ad *AnomalyDetection) GetStats() ai.AIMiddlewareStats {
 		LearningEnabled: true,
 		AdaptiveChanges: 0, // Not applicable for anomaly detection
 		LastUpdated:     ad.baseline.LastUpdated,
-		CustomMetrics: map[string]interface{}{
+		CustomMetrics: map[string]any{
 			"anomalies_detected":    ad.stats.AnomaliesDetected,
 			"detection_accuracy":    ad.stats.DetectionAccuracy,
 			"false_positives":       ad.stats.FalsePositives,

@@ -7,19 +7,19 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// WebSocketGenerator generates WebSocket client code
+// WebSocketGenerator generates WebSocket client code.
 type WebSocketGenerator struct {
 	typesGen *TypesGenerator
 }
 
-// NewWebSocketGenerator creates a new WebSocket generator
+// NewWebSocketGenerator creates a new WebSocket generator.
 func NewWebSocketGenerator() *WebSocketGenerator {
 	return &WebSocketGenerator{
 		typesGen: NewTypesGenerator(),
 	}
 }
 
-// Generate generates the websocket.go file
+// Generate generates the websocket.go file.
 func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -54,7 +54,7 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	return buf.String()
 }
 
-// generateConnectionStateType generates the ConnectionState type
+// generateConnectionStateType generates the ConnectionState type.
 func (w *WebSocketGenerator) generateConnectionStateType() string {
 	var buf strings.Builder
 
@@ -72,7 +72,7 @@ func (w *WebSocketGenerator) generateConnectionStateType() string {
 	return buf.String()
 }
 
-// generateWSHelpers generates WebSocket helper functions
+// generateWSHelpers generates WebSocket helper functions.
 func (w *WebSocketGenerator) generateWSHelpers(config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -109,7 +109,7 @@ func (w *WebSocketGenerator) generateWSHelpers(config client.GeneratorConfig) st
 	return buf.String()
 }
 
-// generateWebSocketClient generates a WebSocket client for an endpoint
+// generateWebSocketClient generates a WebSocket client for an endpoint.
 func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -117,9 +117,11 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	// Client struct
 	buf.WriteString(fmt.Sprintf("// %s is a WebSocket client for %s\n", clientName, ws.Path))
+
 	if ws.Description != "" {
 		buf.WriteString(fmt.Sprintf("// %s\n", ws.Description))
 	}
+
 	buf.WriteString(fmt.Sprintf("type %s struct {\n", clientName))
 	buf.WriteString("\tclient *Client\n")
 	buf.WriteString("\tconn   *websocket.Conn\n")
@@ -190,11 +192,11 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	return buf.String()
 }
 
-// generateConnectMethod generates the Connect method
+// generateConnectMethod generates the Connect method.
 func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.WebSocketEndpoint, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// Connect connects to the WebSocket endpoint\n"))
+	buf.WriteString("// Connect connects to the WebSocket endpoint\n")
 	buf.WriteString(fmt.Sprintf("func (ws *%s) Connect(ctx context.Context) error {\n", clientName))
 	buf.WriteString("\tws.mu.Lock()\n")
 	buf.WriteString("\tdefer ws.mu.Unlock()\n\n")
@@ -215,16 +217,20 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 
 	buf.WriteString("\tconn, _, err := websocket.DefaultDialer.DialContext(ctx, url, header)\n")
 	buf.WriteString("\tif err != nil {\n")
+
 	if config.Features.StateManagement {
 		buf.WriteString("\t\tws.setState(ConnectionStateError)\n")
 	}
+
 	buf.WriteString("\t\treturn fmt.Errorf(\"dial websocket: %w\", err)\n")
 	buf.WriteString("\t}\n\n")
 
 	buf.WriteString("\tws.conn = conn\n")
+
 	if config.Features.StateManagement {
 		buf.WriteString("\tws.setState(ConnectionStateConnected)\n")
 	}
+
 	if config.Features.Reconnection {
 		buf.WriteString("\tws.attempts = 0\n")
 	}
@@ -261,13 +267,13 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 	return buf.String()
 }
 
-// generateSendMethod generates the Send method
+// generateSendMethod generates the Send method.
 func (w *WebSocketGenerator) generateSendMethod(clientName string, ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
 	typeName := w.getSchemaTypeName(ws.SendSchema, spec)
 
-	buf.WriteString(fmt.Sprintf("// Send sends a message to the WebSocket\n"))
+	buf.WriteString("// Send sends a message to the WebSocket\n")
 	buf.WriteString(fmt.Sprintf("func (ws *%s) Send(msg %s) error {\n", clientName, typeName))
 	buf.WriteString("\tws.mu.RLock()\n")
 	buf.WriteString("\tdefer ws.mu.RUnlock()\n\n")
@@ -287,13 +293,13 @@ func (w *WebSocketGenerator) generateSendMethod(clientName string, ws client.Web
 	return buf.String()
 }
 
-// generateOnMessageMethod generates the OnMessage method
+// generateOnMessageMethod generates the OnMessage method.
 func (w *WebSocketGenerator) generateOnMessageMethod(clientName string, ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
 	typeName := w.getSchemaTypeName(ws.ReceiveSchema, spec)
 
-	buf.WriteString(fmt.Sprintf("// OnMessage registers a handler for incoming messages\n"))
+	buf.WriteString("// OnMessage registers a handler for incoming messages\n")
 	buf.WriteString(fmt.Sprintf("func (ws *%s) OnMessage(handler func(%s)) {\n", clientName, typeName))
 	buf.WriteString("\tgo func() {\n")
 	buf.WriteString("\t\tfor {\n")
@@ -312,10 +318,12 @@ func (w *WebSocketGenerator) generateOnMessageMethod(clientName string, ws clien
 
 	buf.WriteString("\t\t\t\t_, data, err := conn.ReadMessage()\n")
 	buf.WriteString("\t\t\t\tif err != nil {\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("\t\t\t\t\t// Connection lost, try to reconnect\n")
 		buf.WriteString("\t\t\t\t\tws.reconnect()\n")
 	}
+
 	buf.WriteString("\t\t\t\t\tcontinue\n")
 	buf.WriteString("\t\t\t\t}\n\n")
 
@@ -335,13 +343,17 @@ func (w *WebSocketGenerator) generateOnMessageMethod(clientName string, ws clien
 		buf.WriteString(fmt.Sprintf("func (ws *%s) reconnect() {\n", clientName))
 		buf.WriteString("\tws.mu.Lock()\n")
 		buf.WriteString("\tdefer ws.mu.Unlock()\n\n")
+
 		if config.Features.StateManagement {
 			buf.WriteString("\tws.setState(ConnectionStateReconnecting)\n\n")
 		}
+
 		buf.WriteString("\tif ws.attempts >= ws.reconnectConfig.maxAttempts {\n")
+
 		if config.Features.StateManagement {
 			buf.WriteString("\t\tws.setState(ConnectionStateClosed)\n")
 		}
+
 		buf.WriteString("\t\treturn\n")
 		buf.WriteString("\t}\n\n")
 		buf.WriteString("\tdelay := calculateBackoff(ws.attempts, ws.reconnectConfig)\n")
@@ -354,11 +366,11 @@ func (w *WebSocketGenerator) generateOnMessageMethod(clientName string, ws clien
 	return buf.String()
 }
 
-// generateCloseMethod generates the Close method
+// generateCloseMethod generates the Close method.
 func (w *WebSocketGenerator) generateCloseMethod(clientName string, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// Close closes the WebSocket connection\n"))
+	buf.WriteString("// Close closes the WebSocket connection\n")
 	buf.WriteString(fmt.Sprintf("func (ws *%s) Close() error {\n", clientName))
 	buf.WriteString("\tws.mu.Lock()\n")
 	buf.WriteString("\tdefer ws.mu.Unlock()\n\n")
@@ -390,11 +402,11 @@ func (w *WebSocketGenerator) generateCloseMethod(clientName string, config clien
 	return buf.String()
 }
 
-// generateOnStateChangeMethod generates the OnStateChange method
+// generateOnStateChangeMethod generates the OnStateChange method.
 func (w *WebSocketGenerator) generateOnStateChangeMethod(clientName string) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// OnStateChange registers a callback for state changes\n"))
+	buf.WriteString("// OnStateChange registers a callback for state changes\n")
 	buf.WriteString(fmt.Sprintf("func (ws *%s) OnStateChange(handler func(ConnectionState)) {\n", clientName))
 	buf.WriteString("\tws.mu.Lock()\n")
 	buf.WriteString("\tdefer ws.mu.Unlock()\n")
@@ -411,7 +423,7 @@ func (w *WebSocketGenerator) generateOnStateChangeMethod(clientName string) stri
 	return buf.String()
 }
 
-// getSchemaTypeName gets the type name for a schema
+// getSchemaTypeName gets the type name for a schema.
 func (w *WebSocketGenerator) getSchemaTypeName(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "interface{}"

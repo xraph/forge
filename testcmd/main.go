@@ -22,6 +22,7 @@ func main() {
 	testPath := flag.String("path", "./extensions/...", "Test path pattern")
 	timeout := flag.String("timeout", "10m", "Test timeout")
 	race := flag.Bool("race", true, "Enable race detector")
+
 	flag.Parse()
 
 	// Build test command
@@ -29,11 +30,13 @@ func main() {
 	if *race {
 		args = append(args, "-race")
 	}
+
 	args = append(args, "-timeout="+*timeout, *testPath)
 
 	fmt.Printf("Running: go %s\n\n", strings.Join(args, " "))
 
 	cmd := exec.Command("go", args...)
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error creating pipe: %v\n", err)
@@ -78,6 +81,7 @@ func main() {
 		for pkg := range failedPackages {
 			packages = append(packages, pkg)
 		}
+
 		sort.Strings(packages)
 
 		fmt.Println("\033[0;31m✗ Tests failed!\033[0m")
@@ -92,11 +96,13 @@ func main() {
 		// Show failed tests per package
 		if len(packages) > 0 {
 			fmt.Println("\n\033[0;34mFailed tests per package:\033[0m")
+
 			for _, pkg := range packages {
 				tests := failedPackages[pkg]
 				if len(tests) > 0 {
 					fmt.Printf("\n\033[1;33m%s:\033[0m\n", pkg)
 					sort.Strings(tests)
+
 					for _, test := range tests {
 						fmt.Printf("    - %s\n", test)
 					}

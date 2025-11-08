@@ -104,6 +104,7 @@ func TestExtensionStart(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start extension: %v", err)
@@ -124,6 +125,7 @@ func TestExtensionStop(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start extension: %v", err)
@@ -149,6 +151,7 @@ func TestExtensionHealth(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start extension: %v", err)
@@ -164,6 +167,7 @@ func TestExtensionHealthNotStarted(t *testing.T) {
 	ext := NewExtension(WithDriver("inmemory"))
 
 	ctx := context.Background()
+
 	err := ext.Health(ctx)
 	if err == nil {
 		t.Fatal("expected error for health check on non-started extension")
@@ -182,6 +186,7 @@ func TestExtensionLifecycle(t *testing.T) {
 
 	// Start
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("failed to start: %v", err)
@@ -208,6 +213,7 @@ func TestExtensionLifecycle(t *testing.T) {
 
 func TestExtensionDependencies(t *testing.T) {
 	ext := NewExtension()
+
 	deps := ext.Dependencies()
 	if len(deps) != 0 {
 		t.Errorf("expected 0 dependencies, got %d", len(deps))
@@ -217,6 +223,7 @@ func TestExtensionDependencies(t *testing.T) {
 func TestConfigOption_WithDriver(t *testing.T) {
 	config := DefaultConfig()
 	WithDriver("rabbitmq")(&config)
+
 	if config.Driver != "rabbitmq" {
 		t.Errorf("expected driver 'rabbitmq', got '%s'", config.Driver)
 	}
@@ -225,6 +232,7 @@ func TestConfigOption_WithDriver(t *testing.T) {
 func TestConfigOption_WithURL(t *testing.T) {
 	config := DefaultConfig()
 	WithURL("amqp://localhost:5672")(&config)
+
 	if config.URL != "amqp://localhost:5672" {
 		t.Errorf("expected url 'amqp://localhost:5672', got '%s'", config.URL)
 	}
@@ -234,6 +242,7 @@ func TestConfigOption_WithHosts(t *testing.T) {
 	config := DefaultConfig()
 	hosts := []string{"host1", "host2"}
 	WithHosts(hosts...)(&config)
+
 	if len(config.Hosts) != 2 {
 		t.Errorf("expected 2 hosts, got %d", len(config.Hosts))
 	}
@@ -242,6 +251,7 @@ func TestConfigOption_WithHosts(t *testing.T) {
 func TestConfigOption_WithAuth(t *testing.T) {
 	config := DefaultConfig()
 	WithAuth("user", "pass")(&config)
+
 	if config.Username != "user" || config.Password != "pass" {
 		t.Error("auth not set correctly")
 	}
@@ -250,6 +260,7 @@ func TestConfigOption_WithAuth(t *testing.T) {
 func TestConfigOption_WithVHost(t *testing.T) {
 	config := DefaultConfig()
 	WithVHost("/test")(&config)
+
 	if config.VHost != "/test" {
 		t.Errorf("expected vhost '/test', got '%s'", config.VHost)
 	}
@@ -258,6 +269,7 @@ func TestConfigOption_WithVHost(t *testing.T) {
 func TestConfigOption_WithMaxConnections(t *testing.T) {
 	config := DefaultConfig()
 	WithMaxConnections(20)(&config)
+
 	if config.MaxConnections != 20 {
 		t.Errorf("expected max_connections 20, got %d", config.MaxConnections)
 	}
@@ -266,6 +278,7 @@ func TestConfigOption_WithMaxConnections(t *testing.T) {
 func TestConfigOption_WithPrefetch(t *testing.T) {
 	config := DefaultConfig()
 	WithPrefetch(50)(&config)
+
 	if config.DefaultPrefetch != 50 {
 		t.Errorf("expected prefetch 50, got %d", config.DefaultPrefetch)
 	}
@@ -274,6 +287,7 @@ func TestConfigOption_WithPrefetch(t *testing.T) {
 func TestConfigOption_WithConcurrency(t *testing.T) {
 	config := DefaultConfig()
 	WithConcurrency(10)(&config)
+
 	if config.DefaultConcurrency != 10 {
 		t.Errorf("expected concurrency 10, got %d", config.DefaultConcurrency)
 	}
@@ -283,6 +297,7 @@ func TestConfigOption_WithTimeout(t *testing.T) {
 	config := DefaultConfig()
 	timeout := 60 * time.Second
 	WithTimeout(timeout)(&config)
+
 	if config.DefaultTimeout != timeout {
 		t.Errorf("expected timeout %v, got %v", timeout, config.DefaultTimeout)
 	}
@@ -291,6 +306,7 @@ func TestConfigOption_WithTimeout(t *testing.T) {
 func TestConfigOption_WithDeadLetter(t *testing.T) {
 	config := DefaultConfig()
 	WithDeadLetter(false)(&config)
+
 	if config.EnableDeadLetter {
 		t.Error("expected dead letter disabled")
 	}
@@ -299,6 +315,7 @@ func TestConfigOption_WithDeadLetter(t *testing.T) {
 func TestConfigOption_WithPersistence(t *testing.T) {
 	config := DefaultConfig()
 	WithPersistence(false)(&config)
+
 	if config.EnablePersistence {
 		t.Error("expected persistence disabled")
 	}
@@ -307,6 +324,7 @@ func TestConfigOption_WithPersistence(t *testing.T) {
 func TestConfigOption_WithPriority(t *testing.T) {
 	config := DefaultConfig()
 	WithPriority(true)(&config)
+
 	if !config.EnablePriority {
 		t.Error("expected priority enabled")
 	}
@@ -315,6 +333,7 @@ func TestConfigOption_WithPriority(t *testing.T) {
 func TestConfigOption_WithDelayed(t *testing.T) {
 	config := DefaultConfig()
 	WithDelayed(true)(&config)
+
 	if !config.EnableDelayed {
 		t.Error("expected delayed enabled")
 	}
@@ -323,6 +342,7 @@ func TestConfigOption_WithDelayed(t *testing.T) {
 func TestConfigOption_WithMetrics(t *testing.T) {
 	config := DefaultConfig()
 	WithMetrics(false)(&config)
+
 	if config.EnableMetrics {
 		t.Error("expected metrics disabled")
 	}
@@ -331,6 +351,7 @@ func TestConfigOption_WithMetrics(t *testing.T) {
 func TestConfigOption_WithTracing(t *testing.T) {
 	config := DefaultConfig()
 	WithTracing(false)(&config)
+
 	if config.EnableTracing {
 		t.Error("expected tracing disabled")
 	}
@@ -339,6 +360,7 @@ func TestConfigOption_WithTracing(t *testing.T) {
 func TestConfigOption_WithRequireConfig(t *testing.T) {
 	config := DefaultConfig()
 	WithRequireConfig(true)(&config)
+
 	if !config.RequireConfig {
 		t.Error("expected require_config enabled")
 	}
@@ -350,6 +372,7 @@ func TestConfigOption_WithConfig(t *testing.T) {
 	}
 	config := DefaultConfig()
 	WithConfig(originalConfig)(&config)
+
 	if config.Driver != "custom" {
 		t.Errorf("expected driver 'custom', got '%s'", config.Driver)
 	}
@@ -360,6 +383,7 @@ func TestDefaultQueueOptions(t *testing.T) {
 	if !opts.Durable {
 		t.Error("expected durable true")
 	}
+
 	if opts.AutoDelete {
 		t.Error("expected auto_delete false")
 	}
@@ -370,12 +394,15 @@ func TestDefaultConsumeOptions(t *testing.T) {
 	if opts.AutoAck {
 		t.Error("expected auto_ack false")
 	}
+
 	if opts.PrefetchCount != 10 {
 		t.Errorf("expected prefetch_count 10, got %d", opts.PrefetchCount)
 	}
+
 	if opts.Concurrency != 1 {
 		t.Errorf("expected concurrency 1, got %d", opts.Concurrency)
 	}
+
 	if opts.RetryStrategy.MaxRetries != 3 {
 		t.Errorf("expected max_retries 3, got %d", opts.RetryStrategy.MaxRetries)
 	}

@@ -66,17 +66,20 @@ func TestLocalTrack(t *testing.T) {
 	}
 
 	audioTrack.SetEnabled(false)
+
 	if audioTrack.Enabled() {
 		t.Error("track should be disabled after SetEnabled(false)")
 	}
 
 	audioTrack.SetEnabled(true)
+
 	if !audioTrack.Enabled() {
 		t.Error("track should be enabled after SetEnabled(true)")
 	}
 
 	// Test track stats
 	ctx := context.Background()
+
 	stats, err := audioTrack.GetStats(ctx)
 	if err != nil {
 		t.Errorf("failed to get track stats: %v", err)
@@ -125,6 +128,7 @@ func TestRemoteTrack(t *testing.T) {
 	_ = remoteTrack.GetSettings()
 
 	ctx := context.Background()
+
 	stats, err := remoteTrack.GetStats(ctx)
 	if err != nil {
 		t.Errorf("failed to get remote track stats: %v", err)
@@ -216,9 +220,9 @@ func TestTrackStats(t *testing.T) {
 func BenchmarkTrackCreation(b *testing.B) {
 	logger := forge.NewNoopLogger()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		trackID := fmt.Sprintf("bench-track-%d", i)
+
 		_, err := NewLocalTrack(TrackKindAudio, trackID, "benchmark-mic", logger)
 		if err != nil {
 			b.Fatalf("failed to create track in benchmark: %v", err)
@@ -228,6 +232,7 @@ func BenchmarkTrackCreation(b *testing.B) {
 
 func BenchmarkTrackStats(b *testing.B) {
 	logger := forge.NewNoopLogger()
+
 	track, err := NewLocalTrack(TrackKindVideo, "bench-stats", "benchmark-cam", logger)
 	if err != nil {
 		b.Fatalf("failed to create track: %v", err)
@@ -235,8 +240,7 @@ func BenchmarkTrackStats(b *testing.B) {
 
 	ctx := context.Background()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := track.GetStats(ctx)
 		if err != nil {
 			b.Fatalf("failed to get stats in benchmark: %v", err)

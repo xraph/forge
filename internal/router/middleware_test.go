@@ -15,6 +15,7 @@ func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
 
 	mw := MiddlewareFunc(func(w http.ResponseWriter, r *http.Request, next http.Handler) {
 		called = true
+
 		next.ServeHTTP(w, r)
 	})
 
@@ -24,6 +25,7 @@ func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
 	// Create a forge handler
 	forgeHandler := func(ctx Context) error {
 		ctx.Response().WriteHeader(200)
+
 		return nil
 	}
 
@@ -31,8 +33,9 @@ func TestMiddlewareFunc_ToMiddleware(t *testing.T) {
 	wrappedHandler := forgeMW(forgeHandler)
 
 	// Execute with a test context
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
+
 	ctx := di.NewContext(rec, req, container)
 	defer ctx.(di.ContextWithClean).Cleanup()
 
@@ -49,7 +52,9 @@ func TestChain(t *testing.T) {
 		return func(ctx Context) error {
 			order = append(order, "mw1-before")
 			err := next(ctx)
+
 			order = append(order, "mw1-after")
+
 			return err
 		}
 	}
@@ -58,7 +63,9 @@ func TestChain(t *testing.T) {
 		return func(ctx Context) error {
 			order = append(order, "mw2-before")
 			err := next(ctx)
+
 			order = append(order, "mw2-after")
+
 			return err
 		}
 	}
@@ -67,7 +74,9 @@ func TestChain(t *testing.T) {
 		return func(ctx Context) error {
 			order = append(order, "mw3-before")
 			err := next(ctx)
+
 			order = append(order, "mw3-after")
+
 			return err
 		}
 	}
@@ -75,7 +84,9 @@ func TestChain(t *testing.T) {
 	// Create a forge handler
 	handler := func(ctx Context) error {
 		order = append(order, "handler")
+
 		ctx.Response().WriteHeader(200)
+
 		return nil
 	}
 
@@ -83,9 +94,10 @@ func TestChain(t *testing.T) {
 	chained := Chain(mw1, mw2, mw3)(handler)
 
 	// Execute with a test context
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	container := di.NewContainer()
+
 	ctx := di.NewContext(rec, req, container)
 	defer ctx.(di.ContextWithClean).Cleanup()
 
@@ -109,14 +121,16 @@ func TestChain(t *testing.T) {
 func TestChain_Empty(t *testing.T) {
 	handler := func(ctx Context) error {
 		ctx.Response().WriteHeader(200)
+
 		return nil
 	}
 
 	chained := Chain()(handler)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	container := di.NewContainer()
+
 	ctx := di.NewContext(rec, req, container)
 	defer ctx.(di.ContextWithClean).Cleanup()
 
@@ -131,20 +145,23 @@ func TestChain_Single(t *testing.T) {
 	mw := func(next Handler) Handler {
 		return func(ctx Context) error {
 			called = true
+
 			return next(ctx)
 		}
 	}
 
 	handler := func(ctx Context) error {
 		ctx.Response().WriteHeader(200)
+
 		return nil
 	}
 
 	chained := Chain(mw)(handler)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	container := di.NewContainer()
+
 	ctx := di.NewContext(rec, req, container)
 	defer ctx.(di.ContextWithClean).Cleanup()
 

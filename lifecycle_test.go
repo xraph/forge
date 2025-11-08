@@ -18,6 +18,7 @@ func TestLifecycleManager_RegisterHook(t *testing.T) {
 	}
 
 	opts := DefaultLifecycleHookOptions("test-hook")
+
 	err := lm.RegisterHook(PhaseBeforeStart, hook, opts)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -59,6 +60,7 @@ func TestLifecycleManager_RegisterHookFn(t *testing.T) {
 	if len(hooks) != 1 {
 		t.Fatalf("expected 1 hook, got %d", len(hooks))
 	}
+
 	if hooks[0].Name != "test-hook" {
 		t.Errorf("expected hook name 'test-hook', got %s", hooks[0].Name)
 	}
@@ -70,25 +72,32 @@ func TestLifecycleManager_ExecuteHooks(t *testing.T) {
 
 	// Track execution order
 	var mu sync.Mutex
+
 	executed := []string{}
 
 	// Register hooks with different priorities
 	hook1 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook1")
+
 		return nil
 	}
 	hook2 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook2")
+
 		return nil
 	}
 	hook3 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook3")
+
 		return nil
 	}
 
@@ -116,12 +125,15 @@ func TestLifecycleManager_ExecuteHooks(t *testing.T) {
 	if len(executed) != 3 {
 		t.Fatalf("expected 3 executions, got %d", len(executed))
 	}
+
 	if executed[0] != "hook2" {
 		t.Errorf("expected hook2 first, got %s", executed[0])
 	}
+
 	if executed[1] != "hook3" {
 		t.Errorf("expected hook3 second, got %s", executed[1])
 	}
+
 	if executed[2] != "hook1" {
 		t.Errorf("expected hook1 third, got %s", executed[2])
 	}
@@ -133,24 +145,31 @@ func TestLifecycleManager_ExecuteHooks_Error(t *testing.T) {
 
 	// Track execution
 	var mu sync.Mutex
+
 	executed := []string{}
 
 	hook1 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook1")
+
 		return nil
 	}
 	hook2 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook2")
+
 		return errors.New("hook2 failed")
 	}
 	hook3 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook3")
+
 		return nil
 	}
 
@@ -178,9 +197,11 @@ func TestLifecycleManager_ExecuteHooks_Error(t *testing.T) {
 	if len(executed) != 2 {
 		t.Fatalf("expected 2 executions, got %d", len(executed))
 	}
+
 	if executed[0] != "hook1" {
 		t.Errorf("expected hook1 first, got %s", executed[0])
 	}
+
 	if executed[1] != "hook2" {
 		t.Errorf("expected hook2 second, got %s", executed[1])
 	}
@@ -192,24 +213,31 @@ func TestLifecycleManager_ExecuteHooks_ContinueOnError(t *testing.T) {
 
 	// Track execution
 	var mu sync.Mutex
+
 	executed := []string{}
 
 	hook1 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook1")
+
 		return nil
 	}
 	hook2 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook2")
+
 		return errors.New("hook2 failed")
 	}
 	hook3 := func(ctx context.Context, app App) error {
 		mu.Lock()
 		defer mu.Unlock()
+
 		executed = append(executed, "hook3")
+
 		return nil
 	}
 
@@ -238,12 +266,15 @@ func TestLifecycleManager_ExecuteHooks_ContinueOnError(t *testing.T) {
 	if len(executed) != 3 {
 		t.Fatalf("expected 3 executions, got %d", len(executed))
 	}
+
 	if executed[0] != "hook1" {
 		t.Errorf("expected hook1 first, got %s", executed[0])
 	}
+
 	if executed[1] != "hook2" {
 		t.Errorf("expected hook2 second, got %s", executed[1])
 	}
+
 	if executed[2] != "hook3" {
 		t.Errorf("expected hook3 third, got %s", executed[2])
 	}
@@ -321,13 +352,16 @@ func TestLifecycleManager_MultiplePhases(t *testing.T) {
 
 	// Track execution per phase
 	var mu sync.Mutex
+
 	executed := make(map[LifecyclePhase][]string)
 
 	createHook := func(phase LifecyclePhase, name string) LifecycleHook {
 		return func(ctx context.Context, app App) error {
 			mu.Lock()
 			defer mu.Unlock()
+
 			executed[phase] = append(executed[phase], name)
+
 			return nil
 		}
 	}
@@ -348,12 +382,15 @@ func TestLifecycleManager_MultiplePhases(t *testing.T) {
 	if len(executed[PhaseBeforeStart]) != 1 || executed[PhaseBeforeStart][0] != "before-start" {
 		t.Error("PhaseBeforeStart hook not executed correctly")
 	}
+
 	if len(executed[PhaseAfterStart]) != 1 || executed[PhaseAfterStart][0] != "after-start" {
 		t.Error("PhaseAfterStart hook not executed correctly")
 	}
+
 	if len(executed[PhaseBeforeRun]) != 1 || executed[PhaseBeforeRun][0] != "before-run" {
 		t.Error("PhaseBeforeRun hook not executed correctly")
 	}
+
 	if len(executed[PhaseAfterRun]) != 1 || executed[PhaseAfterRun][0] != "after-run" {
 		t.Error("PhaseAfterRun hook not executed correctly")
 	}
@@ -362,13 +399,16 @@ func TestLifecycleManager_MultiplePhases(t *testing.T) {
 func TestApp_LifecycleHooks_Integration(t *testing.T) {
 	// Track execution order
 	var mu sync.Mutex
+
 	executed := []string{}
 
 	createHook := func(name string) LifecycleHook {
 		return func(ctx context.Context, app App) error {
 			mu.Lock()
 			defer mu.Unlock()
+
 			executed = append(executed, name)
+
 			return nil
 		}
 	}
@@ -427,6 +467,7 @@ func TestApp_RegisterHook_Methods(t *testing.T) {
 	hookCalled := false
 	hook := func(ctx context.Context, app App) error {
 		hookCalled = true
+
 		return nil
 	}
 
@@ -465,4 +506,3 @@ func TestApp_RegisterHook_Methods(t *testing.T) {
 	// Cleanup
 	_ = app.Stop(ctx)
 }
-

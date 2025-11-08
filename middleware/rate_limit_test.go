@@ -42,7 +42,7 @@ func TestRateLimiter_Allow_TokenRefill(t *testing.T) {
 	limiter := NewRateLimiter(10, 5)
 
 	// Exhaust burst
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		limiter.Allow("key1")
 	}
 
@@ -76,7 +76,7 @@ func TestRateLimit_AllowedRequest(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	ctx := di.NewContext(rec, req, nil)
 
@@ -94,18 +94,20 @@ func TestRateLimit_ExceededRequest(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 
 	// First request allowed
 	rec1 := httptest.NewRecorder()
 	ctx1 := di.NewContext(rec1, req, nil)
 	_ = handler(ctx1)
+
 	assert.Equal(t, http.StatusOK, rec1.Code)
 
 	// Second request blocked
 	rec2 := httptest.NewRecorder()
 	ctx2 := di.NewContext(rec2, req, nil)
 	_ = handler(ctx2)
+
 	assert.Equal(t, http.StatusTooManyRequests, rec2.Code)
 	assert.Contains(t, rec2.Body.String(), "Rate Limit Exceeded")
 	assert.Len(t, logger.messages, 1)
@@ -118,7 +120,7 @@ func TestRateLimit_NilLogger(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec1 := httptest.NewRecorder()
 	ctx1 := di.NewContext(rec1, req, nil)
 	_ = handler(ctx1)
@@ -126,5 +128,6 @@ func TestRateLimit_NilLogger(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	ctx2 := di.NewContext(rec2, req, nil)
 	_ = handler(ctx2)
+
 	assert.Equal(t, http.StatusTooManyRequests, rec2.Code)
 }

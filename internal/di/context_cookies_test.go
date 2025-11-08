@@ -24,21 +24,27 @@ func TestCtx_SetCookie(t *testing.T) {
 	if cookie.Name != "session_id" {
 		t.Errorf("expected cookie name 'session_id', got '%s'", cookie.Name)
 	}
+
 	if cookie.Value != "abc123" {
 		t.Errorf("expected cookie value 'abc123', got '%s'", cookie.Value)
 	}
+
 	if cookie.MaxAge != 3600 {
 		t.Errorf("expected MaxAge 3600, got %d", cookie.MaxAge)
 	}
+
 	if !cookie.HttpOnly {
 		t.Error("expected HttpOnly to be true")
 	}
+
 	if !cookie.Secure {
 		t.Error("expected Secure to be true")
 	}
+
 	if cookie.Path != "/" {
 		t.Errorf("expected Path '/', got '%s'", cookie.Path)
 	}
+
 	if cookie.SameSite != http.SameSiteLaxMode {
 		t.Errorf("expected SameSite Lax, got %v", cookie.SameSite)
 	}
@@ -62,21 +68,27 @@ func TestCtx_SetCookieWithOptions(t *testing.T) {
 	if cookie.Name != "auth_token" {
 		t.Errorf("expected cookie name 'auth_token', got '%s'", cookie.Name)
 	}
+
 	if cookie.Value != "xyz789" {
 		t.Errorf("expected cookie value 'xyz789', got '%s'", cookie.Value)
 	}
+
 	if cookie.Path != "/api" {
 		t.Errorf("expected Path '/api', got '%s'", cookie.Path)
 	}
+
 	if cookie.Domain != "example.com" {
 		t.Errorf("expected Domain 'example.com', got '%s'", cookie.Domain)
 	}
+
 	if cookie.MaxAge != 7200 {
 		t.Errorf("expected MaxAge 7200, got %d", cookie.MaxAge)
 	}
+
 	if cookie.HttpOnly {
 		t.Error("expected HttpOnly to be false")
 	}
+
 	if cookie.Secure {
 		t.Error("expected Secure to be false")
 	}
@@ -84,7 +96,7 @@ func TestCtx_SetCookieWithOptions(t *testing.T) {
 
 func TestCtx_Cookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	
+
 	// Add cookies to request
 	req.AddCookie(&http.Cookie{Name: "user_id", Value: "123"})
 	req.AddCookie(&http.Cookie{Name: "theme", Value: "dark"})
@@ -97,6 +109,7 @@ func TestCtx_Cookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
+
 	if value != "123" {
 		t.Errorf("expected value '123', got '%s'", value)
 	}
@@ -106,6 +119,7 @@ func TestCtx_Cookie(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
+
 	if value != "dark" {
 		t.Errorf("expected value 'dark', got '%s'", value)
 	}
@@ -153,9 +167,11 @@ func TestCtx_DeleteCookie(t *testing.T) {
 	if cookie.Name != "session_id" {
 		t.Errorf("expected cookie name 'session_id', got '%s'", cookie.Name)
 	}
+
 	if cookie.Value != "" {
 		t.Errorf("expected empty cookie value, got '%s'", cookie.Value)
 	}
+
 	if cookie.MaxAge != -1 {
 		t.Errorf("expected MaxAge -1, got %d", cookie.MaxAge)
 	}
@@ -206,6 +222,7 @@ func TestCtx_MultipleCookieOperations(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error reading cookie: %v", err)
 	}
+
 	if value != "old_value" {
 		t.Errorf("expected 'old_value', got '%s'", value)
 	}
@@ -247,4 +264,3 @@ func TestCtx_MultipleCookieOperations(t *testing.T) {
 		t.Errorf("existing cookie MaxAge = %d, want -1", c.MaxAge)
 	}
 }
-

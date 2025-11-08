@@ -7,16 +7,16 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// AIConfig contains configuration for the AI manager
+// AIConfig contains configuration for the AI manager.
 type AIConfig struct {
-	EnableLLM          bool          `yaml:"enable_llm" default:"true"`
-	EnableAgents       bool          `yaml:"enable_agents" default:"true"`
-	EnableTraining     bool          `yaml:"enable_training" default:"false"`
-	EnableInference    bool          `yaml:"enable_inference" default:"true"`
-	EnableCoordination bool          `yaml:"enable_coordination" default:"true"`
-	MaxConcurrency     int           `yaml:"max_concurrency" default:"10"`
-	RequestTimeout     time.Duration `yaml:"request_timeout" default:"30s"`
-	CacheSize          int           `yaml:"cache_size" default:"1000"`
+	EnableLLM          bool          `default:"true"  yaml:"enable_llm"`
+	EnableAgents       bool          `default:"true"  yaml:"enable_agents"`
+	EnableTraining     bool          `default:"false" yaml:"enable_training"`
+	EnableInference    bool          `default:"true"  yaml:"enable_inference"`
+	EnableCoordination bool          `default:"true"  yaml:"enable_coordination"`
+	MaxConcurrency     int           `default:"10"    yaml:"max_concurrency"`
+	RequestTimeout     time.Duration `default:"30s"   yaml:"request_timeout"`
+	CacheSize          int           `default:"1000"  yaml:"cache_size"`
 	Logger             logger.Logger `yaml:"-"`
 	Metrics            forge.Metrics `yaml:"-"`
 }

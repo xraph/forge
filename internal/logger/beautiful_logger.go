@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -13,7 +14,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// FormatConfig controls what components are shown in the output
+// FormatConfig controls what components are shown in the output.
 type FormatConfig struct {
 	// Timestamp options
 	ShowTimestamp   bool
@@ -25,9 +26,9 @@ type FormatConfig struct {
 	SkipCallerPath int    // Number of levels to skip in call stack (default 3)
 
 	// Field options
-	ShowFields      bool
-	FieldsFormat    string // "tree" (├─), "inline" (key=value), "json"
-	MaxFieldLength  int    // Max length per field value (0 = unlimited)
+	ShowFields     bool
+	FieldsFormat   string // "tree" (├─), "inline" (key=value), "json"
+	MaxFieldLength int    // Max length per field value (0 = unlimited)
 
 	// Logger name options
 	ShowLoggerName bool
@@ -37,7 +38,7 @@ type FormatConfig struct {
 	Minimalist bool // Ultra-minimal output
 }
 
-// DefaultFormatConfig provides sensible defaults
+// DefaultFormatConfig provides sensible defaults.
 func DefaultFormatConfig() FormatConfig {
 	return FormatConfig{
 		ShowTimestamp:   true,
@@ -55,7 +56,7 @@ func DefaultFormatConfig() FormatConfig {
 }
 
 // BeautifulLogger is a visually appealing alternative logger implementation
-// with CLI-style output, caller information, and configurable formatting
+// with CLI-style output, caller information, and configurable formatting.
 type BeautifulLogger struct {
 	level       zapcore.Level
 	name        string
@@ -65,39 +66,39 @@ type BeautifulLogger struct {
 	format      FormatConfig
 }
 
-// BeautifulColorScheme defines the color palette for beautiful output
+// BeautifulColorScheme defines the color palette for beautiful output.
 type BeautifulColorScheme struct {
-	Debug      string
-	Info       string
-	Warn       string
-	Error      string
-	Fatal      string
-	Banner     string
-	Text       string
-	Secondary  string
-	Caller     string
-	Dim        string
-	Reset      string
+	Debug     string
+	Info      string
+	Warn      string
+	Error     string
+	Fatal     string
+	Banner    string
+	Text      string
+	Secondary string
+	Caller    string
+	Dim       string
+	Reset     string
 }
 
-// DefaultBeautifulColorScheme provides a modern minimalist color scheme
+// DefaultBeautifulColorScheme provides a modern minimalist color scheme.
 func DefaultBeautifulColorScheme() *BeautifulColorScheme {
 	return &BeautifulColorScheme{
-		Debug:     "\033[36m",      // Cyan
-		Info:      "\033[32m",      // Green
-		Warn:      "\033[33m",      // Yellow
-		Error:     "\033[91m",      // Bright Red
-		Fatal:     "\033[95m",      // Bright Magenta
-		Banner:    "\033[35m",      // Magenta
-		Text:      "\033[37m",      // White
-		Secondary: "\033[90m",      // Bright Black (Gray)
-		Caller:    "\033[34m",      // Blue
-		Dim:       "\033[2m",       // Dim
-		Reset:     "\033[0m",       // Reset
+		Debug:     "\033[36m", // Cyan
+		Info:      "\033[32m", // Green
+		Warn:      "\033[33m", // Yellow
+		Error:     "\033[91m", // Bright Red
+		Fatal:     "\033[95m", // Bright Magenta
+		Banner:    "\033[35m", // Magenta
+		Text:      "\033[37m", // White
+		Secondary: "\033[90m", // Bright Black (Gray)
+		Caller:    "\033[34m", // Blue
+		Dim:       "\033[2m",  // Dim
+		Reset:     "\033[0m",  // Reset
 	}
 }
 
-// NewBeautifulLogger creates a new beautiful logger with defaults
+// NewBeautifulLogger creates a new beautiful logger with defaults.
 func NewBeautifulLogger(name string) *BeautifulLogger {
 	return &BeautifulLogger{
 		level:       zapcore.InfoLevel,
@@ -108,31 +109,35 @@ func NewBeautifulLogger(name string) *BeautifulLogger {
 	}
 }
 
-// WithFormatConfig sets the format configuration
+// WithFormatConfig sets the format configuration.
 func (bl *BeautifulLogger) WithFormatConfig(cfg FormatConfig) *BeautifulLogger {
 	bl.format = cfg
+
 	return bl
 }
 
-// WithLevel sets the log level
+// WithLevel sets the log level.
 func (bl *BeautifulLogger) WithLevel(level zapcore.Level) *BeautifulLogger {
 	bl.level = level
+
 	return bl
 }
 
-// WithShowCaller enables/disables caller information
+// WithShowCaller enables/disables caller information.
 func (bl *BeautifulLogger) WithShowCaller(show bool) *BeautifulLogger {
 	bl.format.ShowCaller = show
+
 	return bl
 }
 
-// WithShowTimestamp enables/disables timestamp
+// WithShowTimestamp enables/disables timestamp.
 func (bl *BeautifulLogger) WithShowTimestamp(show bool) *BeautifulLogger {
 	bl.format.ShowTimestamp = show
+
 	return bl
 }
 
-// WithMinimalist enables ultra-minimal output
+// WithMinimalist enables ultra-minimal output.
 func (bl *BeautifulLogger) WithMinimalist(minimalist bool) *BeautifulLogger {
 	bl.format.Minimalist = minimalist
 	if minimalist {
@@ -141,6 +146,7 @@ func (bl *BeautifulLogger) WithMinimalist(minimalist bool) *BeautifulLogger {
 		bl.format.ShowLoggerName = false
 		bl.format.ShowEmojis = false
 	}
+
 	return bl
 }
 
@@ -152,6 +158,7 @@ func (bl *BeautifulLogger) Debug(msg string, fields ...Field) {
 	if bl.level > zapcore.DebugLevel {
 		return
 	}
+
 	bl.logWithCaller("DEBUG", msg, bl.colorScheme.Debug, "🔍", fields, 2)
 }
 
@@ -159,6 +166,7 @@ func (bl *BeautifulLogger) Info(msg string, fields ...Field) {
 	if bl.level > zapcore.InfoLevel {
 		return
 	}
+
 	bl.logWithCaller("INFO", msg, bl.colorScheme.Info, "ℹ️", fields, 2)
 }
 
@@ -166,6 +174,7 @@ func (bl *BeautifulLogger) Warn(msg string, fields ...Field) {
 	if bl.level > zapcore.WarnLevel {
 		return
 	}
+
 	bl.logWithCaller("WARN", msg, bl.colorScheme.Warn, "⚠️", fields, 2)
 }
 
@@ -173,6 +182,7 @@ func (bl *BeautifulLogger) Error(msg string, fields ...Field) {
 	if bl.level > zapcore.ErrorLevel {
 		return
 	}
+
 	bl.logWithCaller("ERROR", msg, bl.colorScheme.Error, "❌", fields, 2)
 }
 
@@ -206,6 +216,7 @@ func (bl *BeautifulLogger) With(fields ...Field) Logger {
 	for _, f := range fields {
 		newLogger.fields[f.Key()] = f.Value()
 	}
+
 	return newLogger
 }
 
@@ -213,14 +224,17 @@ func (bl *BeautifulLogger) WithContext(ctx context.Context) Logger {
 	if ctx == nil {
 		return bl
 	}
+
 	newLogger := bl.clone()
 
 	if reqID := RequestIDFromContext(ctx); reqID != "" {
 		newLogger.fields["request_id"] = reqID
 	}
+
 	if traceID := TraceIDFromContext(ctx); traceID != "" {
 		newLogger.fields["trace_id"] = traceID
 	}
+
 	if userID := UserIDFromContext(ctx); userID != "" {
 		newLogger.fields["user_id"] = userID
 	}
@@ -235,6 +249,7 @@ func (bl *BeautifulLogger) Named(name string) Logger {
 	} else {
 		newLogger.name = name
 	}
+
 	return newLogger
 }
 
@@ -250,7 +265,7 @@ func (bl *BeautifulLogger) Sync() error {
 // Internal Logging Functions
 // ============================================================================
 
-// getCaller retrieves the caller information
+// getCaller retrieves the caller information.
 func (bl *BeautifulLogger) getCaller(skip int) (file string, line int) {
 	_, file, line, ok := runtime.Caller(skip + bl.format.SkipCallerPath)
 	if !ok {
@@ -270,26 +285,28 @@ func (bl *BeautifulLogger) getCaller(skip int) (file string, line int) {
 	}
 }
 
-// formatCaller formats caller information
+// formatCaller formats caller information.
 func (bl *BeautifulLogger) formatCaller(file string, line int) string {
 	if !bl.format.ShowCaller {
 		return ""
 	}
+
 	return fmt.Sprintf("%s:%d", file, line)
 }
 
-// formatTimestamp formats the timestamp based on config
+// formatTimestamp formats the timestamp based on config.
 func (bl *BeautifulLogger) formatTimestamp() string {
 	if !bl.format.ShowTimestamp {
 		return ""
 	}
 
 	now := time.Now()
+
 	switch bl.format.TimestampFormat {
 	case "unix":
-		return fmt.Sprintf("%d", now.Unix())
+		return strconv.FormatInt(now.Unix(), 10)
 	case "unixmillis":
-		return fmt.Sprintf("%d", now.UnixMilli())
+		return strconv.FormatInt(now.UnixMilli(), 10)
 	case "iso":
 		return now.Format(time.RFC3339)
 	default:
@@ -300,6 +317,7 @@ func (bl *BeautifulLogger) formatTimestamp() string {
 func (bl *BeautifulLogger) logWithCaller(level, msg, color, icon string, fields []Field, skip int) {
 	if bl.format.Minimalist {
 		bl.logMinimalist(level, msg, color, icon, fields, skip)
+
 		return
 	}
 
@@ -319,6 +337,7 @@ func (bl *BeautifulLogger) logWithCaller(level, msg, color, icon string, fields 
 	if bl.format.ShowEmojis {
 		parts = append(parts, icon)
 	}
+
 	parts = append(parts, fmt.Sprintf("%s%-6s%s", color, level, bl.colorScheme.Reset))
 
 	// Logger name
@@ -355,7 +374,7 @@ func (bl *BeautifulLogger) logMinimalist(level, msg, color, icon string, fields 
 	fmt.Fprintln(os.Stdout, output)
 }
 
-// formatFieldsInline formats fields as key=value pairs
+// formatFieldsInline formats fields as key=value pairs.
 func (bl *BeautifulLogger) formatFieldsInline(fields map[string]interface{}) string {
 	if len(fields) == 0 {
 		return ""
@@ -420,18 +439,23 @@ func (bl *BeautifulLogger) mergeFields(fields []Field) map[string]interface{} {
 func stripANSI(s string) string {
 	ansi := "\033["
 	result := ""
+	var resultSb423 strings.Builder
+
 	for i := 0; i < len(s); i++ {
 		if i < len(s)-1 && s[i:i+2] == ansi {
 			for j := i; j < len(s); j++ {
 				if s[j] == 'm' {
 					i = j
+
 					break
 				}
 			}
 		} else {
-			result += string(s[i])
+			resultSb423.WriteString(string(s[i]))
 		}
 	}
+	result += resultSb423.String()
+
 	return result
 }
 
@@ -440,6 +464,7 @@ func getOrderedKeys(m map[string]interface{}) []string {
 	for k := range m {
 		keys = append(keys, k)
 	}
+
 	return keys
 }
 
@@ -478,6 +503,7 @@ func (bsl *beautifulSugarLogger) Fatalw(msg string, keysAndValues ...interface{}
 
 func (bsl *beautifulSugarLogger) With(args ...interface{}) SugarLogger {
 	fields := keysAndValuesToFields(args...)
+
 	return &beautifulSugarLogger{bl: bsl.bl.With(fields...).(*BeautifulLogger)}
 }
 
@@ -488,6 +514,7 @@ func keysAndValuesToFields(keysAndValues ...interface{}) []Field {
 		value := keysAndValues[i+1]
 		fields = append(fields, String(key, fmt.Sprintf("%v", value)))
 	}
+
 	return fields
 }
 
@@ -495,24 +522,26 @@ func keysAndValuesToFields(keysAndValues ...interface{}) []Field {
 // Constructor Shortcuts
 // ============================================================================
 
-// NewBeautifulLoggerCompact creates a compact logger optimized for high-frequency logs
+// NewBeautifulLoggerCompact creates a compact logger optimized for high-frequency logs.
 func NewBeautifulLoggerCompact(name string) *BeautifulLogger {
 	cfg := DefaultFormatConfig()
 	cfg.ShowEmojis = false
 	cfg.FieldsFormat = "inline"
+
 	return NewBeautifulLogger(name).WithFormatConfig(cfg)
 }
 
-// NewBeautifulLoggerMinimal creates an ultra-minimal logger
+// NewBeautifulLoggerMinimal creates an ultra-minimal logger.
 func NewBeautifulLoggerMinimal(name string) *BeautifulLogger {
 	return NewBeautifulLogger(name).WithMinimalist(true)
 }
 
-// NewBeautifulLoggerJSON creates a logger similar to JSON output (caller, fields, timestamp)
+// NewBeautifulLoggerJSON creates a logger similar to JSON output (caller, fields, timestamp).
 func NewBeautifulLoggerJSON(name string) *BeautifulLogger {
 	cfg := DefaultFormatConfig()
 	cfg.ShowEmojis = false
 	cfg.FieldsFormat = "json"
 	cfg.TimestampFormat = "iso"
+
 	return NewBeautifulLogger(name).WithFormatConfig(cfg)
 }

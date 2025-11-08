@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Profiler provides comprehensive performance monitoring and profiling
+// Profiler provides comprehensive performance monitoring and profiling.
 type Profiler struct {
 	config         ProfilerConfig
 	metrics        map[string]*PerformanceMetric
@@ -22,25 +22,25 @@ type Profiler struct {
 	wg             sync.WaitGroup
 }
 
-// ProfilerConfig contains profiler configuration
+// ProfilerConfig contains profiler configuration.
 type ProfilerConfig struct {
-	EnableCPUProfiling       bool           `yaml:"enable_cpu_profiling" default:"true"`
-	EnableMemoryProfiling    bool           `yaml:"enable_memory_profiling" default:"true"`
-	EnableGoroutineProfiling bool           `yaml:"enable_goroutine_profiling" default:"true"`
-	EnableBlockProfiling     bool           `yaml:"enable_block_profiling" default:"true"`
-	EnableMutexProfiling     bool           `yaml:"enable_mutex_profiling" default:"true"`
-	ProfileInterval          time.Duration  `yaml:"profile_interval" default:"30s"`
-	ProfileDuration          time.Duration  `yaml:"profile_duration" default:"10s"`
-	EnableMetrics            bool           `yaml:"enable_metrics" default:"true"`
-	EnableAlerts             bool           `yaml:"enable_alerts" default:"true"`
-	CPUThreshold             float64        `yaml:"cpu_threshold" default:"80.0"`
-	MemoryThreshold          float64        `yaml:"memory_threshold" default:"80.0"`
-	GoroutineThreshold       int            `yaml:"goroutine_threshold" default:"1000"`
+	EnableCPUProfiling       bool           `default:"true" yaml:"enable_cpu_profiling"`
+	EnableMemoryProfiling    bool           `default:"true" yaml:"enable_memory_profiling"`
+	EnableGoroutineProfiling bool           `default:"true" yaml:"enable_goroutine_profiling"`
+	EnableBlockProfiling     bool           `default:"true" yaml:"enable_block_profiling"`
+	EnableMutexProfiling     bool           `default:"true" yaml:"enable_mutex_profiling"`
+	ProfileInterval          time.Duration  `default:"30s"  yaml:"profile_interval"`
+	ProfileDuration          time.Duration  `default:"10s"  yaml:"profile_duration"`
+	EnableMetrics            bool           `default:"true" yaml:"enable_metrics"`
+	EnableAlerts             bool           `default:"true" yaml:"enable_alerts"`
+	CPUThreshold             float64        `default:"80.0" yaml:"cpu_threshold"`
+	MemoryThreshold          float64        `default:"80.0" yaml:"memory_threshold"`
+	GoroutineThreshold       int            `default:"1000" yaml:"goroutine_threshold"`
 	Logger                   logger.Logger  `yaml:"-"`
 	Metrics                  shared.Metrics `yaml:"-"`
 }
 
-// PerformanceMetric represents a performance metric
+// PerformanceMetric represents a performance metric.
 type PerformanceMetric struct {
 	Name        string            `json:"name"`
 	Type        MetricType        `json:"type"`
@@ -53,7 +53,7 @@ type PerformanceMetric struct {
 	Description string            `json:"description"`
 }
 
-// MetricType represents the type of metric
+// MetricType represents the type of metric.
 type MetricType int
 
 const (
@@ -65,7 +65,7 @@ const (
 	MetricTypeCustom
 )
 
-// MetricStatus represents the status of a metric
+// MetricStatus represents the status of a metric.
 type MetricStatus int
 
 const (
@@ -75,7 +75,7 @@ const (
 	MetricStatusUnknown
 )
 
-// Profile represents a performance profile
+// Profile represents a performance profile.
 type Profile struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
@@ -88,7 +88,7 @@ type Profile struct {
 	Description string            `json:"description"`
 }
 
-// ProfileType represents the type of profile
+// ProfileType represents the type of profile.
 type ProfileType int
 
 const (
@@ -100,7 +100,7 @@ const (
 	ProfileTypeTrace
 )
 
-// PerformanceAlert represents a performance alert
+// PerformanceAlert represents a performance alert.
 type PerformanceAlert struct {
 	ID         string            `json:"id"`
 	Metric     string            `json:"metric"`
@@ -115,7 +115,7 @@ type PerformanceAlert struct {
 	ResolvedAt time.Time         `json:"resolved_at,omitempty"`
 }
 
-// AlertType represents the type of alert
+// AlertType represents the type of alert.
 type AlertType int
 
 const (
@@ -127,7 +127,7 @@ const (
 	AlertTypeCustom
 )
 
-// AlertSeverity represents the severity of an alert
+// AlertSeverity represents the severity of an alert.
 type AlertSeverity int
 
 const (
@@ -137,7 +137,7 @@ const (
 	AlertSeverityEmergency
 )
 
-// NewProfiler creates a new profiler
+// NewProfiler creates a new profiler.
 func NewProfiler(config ProfilerConfig) *Profiler {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -155,13 +155,14 @@ func NewProfiler(config ProfilerConfig) *Profiler {
 	// Start profiling goroutines
 	if config.EnableCPUProfiling || config.EnableMemoryProfiling || config.EnableGoroutineProfiling {
 		profiler.wg.Add(1)
+
 		go profiler.startProfiling()
 	}
 
 	return profiler
 }
 
-// startProfiling starts the profiling goroutine
+// startProfiling starts the profiling goroutine.
 func (p *Profiler) startProfiling() {
 	defer p.wg.Done()
 
@@ -178,7 +179,7 @@ func (p *Profiler) startProfiling() {
 	}
 }
 
-// performProfiling performs performance profiling
+// performProfiling performs performance profiling.
 func (p *Profiler) performProfiling() {
 	// CPU profiling
 	if p.config.EnableCPUProfiling {
@@ -221,7 +222,7 @@ func (p *Profiler) performProfiling() {
 	}
 }
 
-// profileCPU performs CPU profiling
+// profileCPU performs CPU profiling.
 func (p *Profiler) profileCPU() error {
 	start := time.Now()
 
@@ -265,7 +266,7 @@ func (p *Profiler) profileCPU() error {
 	return nil
 }
 
-// profileMemory performs memory profiling
+// profileMemory performs memory profiling.
 func (p *Profiler) profileMemory() error {
 	start := time.Now()
 
@@ -309,7 +310,7 @@ func (p *Profiler) profileMemory() error {
 	return nil
 }
 
-// profileGoroutines performs goroutine profiling
+// profileGoroutines performs goroutine profiling.
 func (p *Profiler) profileGoroutines() error {
 	start := time.Now()
 
@@ -349,7 +350,7 @@ func (p *Profiler) profileGoroutines() error {
 	return nil
 }
 
-// profileBlocks performs block profiling
+// profileBlocks performs block profiling.
 func (p *Profiler) profileBlocks() error {
 	start := time.Now()
 
@@ -393,7 +394,7 @@ func (p *Profiler) profileBlocks() error {
 	return nil
 }
 
-// profileMutexes performs mutex profiling
+// profileMutexes performs mutex profiling.
 func (p *Profiler) profileMutexes() error {
 	start := time.Now()
 
@@ -437,17 +438,18 @@ func (p *Profiler) profileMutexes() error {
 	return nil
 }
 
-// getMetricStatus determines the status of a metric
+// getMetricStatus determines the status of a metric.
 func (p *Profiler) getMetricStatus(value, threshold float64) MetricStatus {
 	if value >= threshold {
 		return MetricStatusCritical
 	} else if value >= threshold*0.8 {
 		return MetricStatusWarning
 	}
+
 	return MetricStatusNormal
 }
 
-// recordMetric records a performance metric
+// recordMetric records a performance metric.
 func (p *Profiler) recordMetric(metric *PerformanceMetric) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -460,7 +462,7 @@ func (p *Profiler) recordMetric(metric *PerformanceMetric) {
 	}
 }
 
-// recordProfile records a performance profile
+// recordProfile records a performance profile.
 func (p *Profiler) recordProfile(profile *Profile) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -468,9 +470,10 @@ func (p *Profiler) recordProfile(profile *Profile) {
 	p.profiles[profile.ID] = profile
 }
 
-// recordMetricMetrics records metric metrics
+// recordMetricMetrics records metric metrics.
 func (p *Profiler) recordMetricMetrics(metric *PerformanceMetric) {
 	status := "normal"
+
 	switch metric.Status {
 	case MetricStatusWarning:
 		status = "warning"
@@ -483,13 +486,15 @@ func (p *Profiler) recordMetricMetrics(metric *PerformanceMetric) {
 	p.metricsService.Gauge("performance_metric_value", "name", metric.Name, "type", metric.Type.String()).Set(metric.Value)
 }
 
-// checkAlerts checks for performance alerts
+// checkAlerts checks for performance alerts.
 func (p *Profiler) checkAlerts() {
 	p.mu.RLock()
+
 	metrics := make([]*PerformanceMetric, 0, len(p.metrics))
 	for _, metric := range p.metrics {
 		metrics = append(metrics, metric)
 	}
+
 	p.mu.RUnlock()
 
 	for _, metric := range metrics {
@@ -516,7 +521,7 @@ func (p *Profiler) checkAlerts() {
 	}
 }
 
-// getAlertType converts metric type to alert type
+// getAlertType converts metric type to alert type.
 func (p *Profiler) getAlertType(metricType MetricType) AlertType {
 	switch metricType {
 	case MetricTypeCPU:
@@ -534,7 +539,7 @@ func (p *Profiler) getAlertType(metricType MetricType) AlertType {
 	}
 }
 
-// getAlertSeverity converts metric status to alert severity
+// getAlertSeverity converts metric status to alert severity.
 func (p *Profiler) getAlertSeverity(status MetricStatus) AlertSeverity {
 	switch status {
 	case MetricStatusWarning:
@@ -546,7 +551,7 @@ func (p *Profiler) getAlertSeverity(status MetricStatus) AlertSeverity {
 	}
 }
 
-// GetMetrics returns all performance metrics
+// GetMetrics returns all performance metrics.
 func (p *Profiler) GetMetrics() map[string]*PerformanceMetric {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -559,7 +564,7 @@ func (p *Profiler) GetMetrics() map[string]*PerformanceMetric {
 	return metrics
 }
 
-// GetProfiles returns all performance profiles
+// GetProfiles returns all performance profiles.
 func (p *Profiler) GetProfiles() map[string]*Profile {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -572,7 +577,7 @@ func (p *Profiler) GetProfiles() map[string]*Profile {
 	return profiles
 }
 
-// GetProfile returns a specific profile
+// GetProfile returns a specific profile.
 func (p *Profiler) GetProfile(id string) (*Profile, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -585,10 +590,11 @@ func (p *Profiler) GetProfile(id string) (*Profile, error) {
 	return profile, nil
 }
 
-// Close closes the profiler
+// Close closes the profiler.
 func (p *Profiler) Close() error {
 	close(p.stopC)
 	p.wg.Wait()
+
 	return nil
 }
 

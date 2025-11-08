@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 )
 
-// KubernetesDiscovery implements Kubernetes-based service discovery
+// KubernetesDiscovery implements Kubernetes-based service discovery.
 type KubernetesDiscovery struct {
 	clientset     *kubernetes.Clientset
 	namespace     string
@@ -40,7 +40,7 @@ type KubernetesDiscovery struct {
 	checkInterval time.Duration
 }
 
-// KubernetesDiscoveryConfig contains Kubernetes discovery configuration
+// KubernetesDiscoveryConfig contains Kubernetes discovery configuration.
 type KubernetesDiscoveryConfig struct {
 	Namespace     string
 	ServiceName   string
@@ -51,10 +51,12 @@ type KubernetesDiscoveryConfig struct {
 	CacheTTL      time.Duration
 }
 
-// NewKubernetesDiscovery creates a new Kubernetes service discovery
+// NewKubernetesDiscovery creates a new Kubernetes service discovery.
 func NewKubernetesDiscovery(config KubernetesDiscoveryConfig, logger forge.Logger) (*KubernetesDiscovery, error) {
-	var clientConfig *rest.Config
-	var err error
+	var (
+		clientConfig *rest.Config
+		err          error
+	)
 
 	// Try to use in-cluster config first
 	clientConfig, err = rest.InClusterConfig()
@@ -64,6 +66,7 @@ func NewKubernetesDiscovery(config KubernetesDiscoveryConfig, logger forge.Logge
 		if kubeconfigPath == "" {
 			kubeconfigPath = os.Getenv("KUBECONFIG")
 		}
+
 		if kubeconfigPath == "" {
 			home := os.Getenv("HOME")
 			if home != "" {
@@ -111,7 +114,7 @@ func NewKubernetesDiscovery(config KubernetesDiscoveryConfig, logger forge.Logge
 	}, nil
 }
 
-// Start starts the discovery service
+// Start starts the discovery service.
 func (kd *KubernetesDiscovery) Start(ctx context.Context) error {
 	kd.mu.Lock()
 	defer kd.mu.Unlock()
@@ -125,6 +128,7 @@ func (kd *KubernetesDiscovery) Start(ctx context.Context) error {
 
 	// Start peer discovery loop
 	kd.wg.Add(1)
+
 	go kd.discoveryLoop()
 
 	kd.logger.Info("kubernetes discovery started",
@@ -136,13 +140,16 @@ func (kd *KubernetesDiscovery) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the discovery service
+// Stop stops the discovery service.
 func (kd *KubernetesDiscovery) Stop(ctx context.Context) error {
 	kd.mu.Lock()
+
 	if !kd.started {
 		kd.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	kd.mu.Unlock()
 
 	if kd.cancel != nil {
@@ -151,6 +158,7 @@ func (kd *KubernetesDiscovery) Stop(ctx context.Context) error {
 
 	// Wait for goroutines
 	done := make(chan struct{})
+
 	go func() {
 		kd.wg.Wait()
 		close(done)
@@ -166,16 +174,19 @@ func (kd *KubernetesDiscovery) Stop(ctx context.Context) error {
 	return nil
 }
 
-// DiscoverPeers discovers peer nodes from Kubernetes endpoints
+// DiscoverPeers discovers peer nodes from Kubernetes endpoints.
 func (kd *KubernetesDiscovery) DiscoverPeers(ctx context.Context) ([]internal.NodeInfo, error) {
 	// Check cache first
 	kd.cacheMu.RLock()
+
 	if time.Now().Before(kd.cacheExpiry) && len(kd.cachedPeers) > 0 {
 		peers := make([]internal.NodeInfo, len(kd.cachedPeers))
 		copy(peers, kd.cachedPeers)
 		kd.cacheMu.RUnlock()
+
 		return peers, nil
 	}
+
 	kd.cacheMu.RUnlock()
 
 	// Discover using pods
@@ -187,7 +198,7 @@ func (kd *KubernetesDiscovery) DiscoverPeers(ctx context.Context) ([]internal.No
 	return kd.discoverViaEndpoints(ctx)
 }
 
-// discoverViaEndpoints discovers peers using Kubernetes service endpoints
+// discoverViaEndpoints discovers peers using Kubernetes service endpoints.
 func (kd *KubernetesDiscovery) discoverViaEndpoints(ctx context.Context) ([]internal.NodeInfo, error) {
 	endpoints, err := kd.clientset.CoreV1().Endpoints(kd.namespace).Get(ctx, kd.serviceName, metav1.GetOptions{})
 	if err != nil {
@@ -195,6 +206,7 @@ func (kd *KubernetesDiscovery) discoverViaEndpoints(ctx context.Context) ([]inte
 	}
 
 	var peers []internal.NodeInfo
+
 	for _, subset := range endpoints.Subsets {
 		port := kd.port
 		if port == 0 && len(subset.Ports) > 0 {
@@ -230,7 +242,7 @@ func (kd *KubernetesDiscovery) discoverViaEndpoints(ctx context.Context) ([]inte
 	return peers, nil
 }
 
-// discoverViaPods discovers peers using Kubernetes pod labels
+// discoverViaPods discovers peers using Kubernetes pod labels.
 func (kd *KubernetesDiscovery) discoverViaPods(ctx context.Context) ([]internal.NodeInfo, error) {
 	pods, err := kd.clientset.CoreV1().Pods(kd.namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: kd.labelSelector,
@@ -240,6 +252,7 @@ func (kd *KubernetesDiscovery) discoverViaPods(ctx context.Context) ([]internal.
 	}
 
 	var peers []internal.NodeInfo
+
 	for _, pod := range pods.Items {
 		// Only include running pods
 		if pod.Status.Phase != v1.PodRunning {
@@ -273,7 +286,7 @@ func (kd *KubernetesDiscovery) discoverViaPods(ctx context.Context) ([]internal.
 	return peers, nil
 }
 
-// discoveryLoop periodically discovers peers
+// discoveryLoop periodically discovers peers.
 func (kd *KubernetesDiscovery) discoveryLoop() {
 	defer kd.wg.Done()
 
@@ -296,7 +309,7 @@ func (kd *KubernetesDiscovery) discoveryLoop() {
 	}
 }
 
-// GetNodeInfo returns information about a specific node
+// GetNodeInfo returns information about a specific node.
 func (kd *KubernetesDiscovery) GetNodeInfo(nodeID string) (*internal.NodeInfo, error) {
 	peers, err := kd.DiscoverPeers(kd.ctx)
 	if err != nil {
@@ -312,13 +325,11 @@ func (kd *KubernetesDiscovery) GetNodeInfo(nodeID string) (*internal.NodeInfo, e
 	return nil, internal.ErrNodeNotFound
 }
 
-// WatchPeers watches for peer changes using Kubernetes watch API
+// WatchPeers watches for peer changes using Kubernetes watch API.
 func (kd *KubernetesDiscovery) WatchPeers(ctx context.Context) (<-chan []internal.NodeInfo, error) {
 	ch := make(chan []internal.NodeInfo, 1)
 
-	kd.wg.Add(1)
-	go func() {
-		defer kd.wg.Done()
+	kd.wg.Go(func() {
 		defer close(ch)
 
 		ticker := time.NewTicker(5 * time.Second)
@@ -334,6 +345,7 @@ func (kd *KubernetesDiscovery) WatchPeers(ctx context.Context) (<-chan []interna
 					kd.logger.Error("failed to watch peers",
 						forge.F("error", err),
 					)
+
 					continue
 				}
 
@@ -353,7 +365,7 @@ func (kd *KubernetesDiscovery) WatchPeers(ctx context.Context) (<-chan []interna
 				return
 			}
 		}
-	}()
+	})
 
 	return ch, nil
 }

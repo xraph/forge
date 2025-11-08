@@ -32,7 +32,6 @@ func TestPromptTemplateManager_RegisterTemplate(t *testing.T) {
 	}
 
 	err := ptm.RegisterTemplate(tmpl)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -50,7 +49,6 @@ func TestPromptTemplateManager_RegisterTemplate_NoName(t *testing.T) {
 	}
 
 	err := ptm.RegisterTemplate(tmpl)
-
 	if err == nil {
 		t.Error("expected error for template without name")
 	}
@@ -64,7 +62,6 @@ func TestPromptTemplateManager_RegisterTemplate_NoTemplate(t *testing.T) {
 	}
 
 	err := ptm.RegisterTemplate(tmpl)
-
 	if err == nil {
 		t.Error("expected error for template without content")
 	}
@@ -75,11 +72,10 @@ func TestPromptTemplateManager_RegisterTemplate_InvalidSyntax(t *testing.T) {
 
 	tmpl := &PromptTemplate{
 		Name:     "test",
-		Template: "Hello {{.Name",  // Missing closing brace
+		Template: "Hello {{.Name", // Missing closing brace
 	}
 
 	err := ptm.RegisterTemplate(tmpl)
-
 	if err == nil {
 		t.Error("expected error for invalid template syntax")
 	}
@@ -121,7 +117,6 @@ func TestPromptTemplateManager_GetTemplate(t *testing.T) {
 	ptm.RegisterTemplate(original)
 
 	retrieved, err := ptm.GetTemplate("greeting", "1.0.0")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -149,7 +144,6 @@ func TestPromptTemplateManager_GetTemplate_LatestVersion(t *testing.T) {
 	})
 
 	retrieved, err := ptm.GetTemplate("test", "")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -163,7 +157,6 @@ func TestPromptTemplateManager_GetTemplate_NotFound(t *testing.T) {
 	ptm := NewPromptTemplateManager(nil, nil)
 
 	_, err := ptm.GetTemplate("nonexistent", "1.0.0")
-
 	if err == nil {
 		t.Error("expected error for nonexistent template")
 	}
@@ -180,10 +173,9 @@ func TestPromptTemplateManager_Render(t *testing.T) {
 		Template: "Hello, {{.Name}}!",
 	})
 
-	result, err := ptm.Render("greeting", "1.0.0", map[string]interface{}{
+	result, err := ptm.Render("greeting", "1.0.0", map[string]any{
 		"Name": "Alice",
 	})
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -203,8 +195,7 @@ func TestPromptTemplateManager_Render_MissingVariable(t *testing.T) {
 	})
 
 	// Template execution will succeed but output "<no value>"
-	result, err := ptm.Render("greeting", "1.0.0", map[string]interface{}{})
-
+	result, err := ptm.Render("greeting", "1.0.0", map[string]any{})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -227,7 +218,6 @@ func TestPromptTemplateManager_UpdateTemplate(t *testing.T) {
 	})
 
 	newVersion, err := ptm.UpdateTemplate("greeting", "Hi there!")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -253,7 +243,6 @@ func TestPromptTemplateManager_UpdateTemplate_NotFound(t *testing.T) {
 	ptm := NewPromptTemplateManager(nil, nil)
 
 	_, err := ptm.UpdateTemplate("nonexistent", "New template")
-
 	if err == nil {
 		t.Error("expected error for nonexistent template")
 	}
@@ -271,7 +260,6 @@ func TestPromptTemplateManager_DeleteTemplate(t *testing.T) {
 	})
 
 	err := ptm.DeleteTemplate("greeting", "1.0.0")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -298,7 +286,6 @@ func TestPromptTemplateManager_DeleteTemplate_AllVersions(t *testing.T) {
 	})
 
 	err := ptm.DeleteTemplate("greeting", "")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -313,10 +300,10 @@ func TestPromptTemplateManager_DeleteTemplate_AllVersions(t *testing.T) {
 func TestPromptTemplateManager_ListTemplates(t *testing.T) {
 	ptm := NewPromptTemplateManager(nil, nil)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		ptm.RegisterTemplate(&PromptTemplate{
 			Name:     "template",
-			Version:  string(rune('1' + i)) + ".0.0",
+			Version:  string(rune('1'+i)) + ".0.0",
 			Template: "Test",
 		})
 	}
@@ -346,7 +333,6 @@ func TestPromptTemplateManager_ListVersions(t *testing.T) {
 	})
 
 	versions, err := ptm.ListVersions("greeting")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -370,7 +356,6 @@ func TestPromptTemplateManager_CreateABTest(t *testing.T) {
 	}
 
 	err := ptm.CreateABTest(test)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -392,7 +377,6 @@ func TestPromptTemplateManager_CreateABTest_InvalidWeights(t *testing.T) {
 	}
 
 	err := ptm.CreateABTest(test)
-
 	if err == nil {
 		t.Error("expected error for weights not summing to 1.0")
 	}
@@ -409,7 +393,6 @@ func TestPromptTemplateManager_CreateABTest_TooFewVariants(t *testing.T) {
 	}
 
 	err := ptm.CreateABTest(test)
-
 	if err == nil {
 		t.Error("expected error for too few variants")
 	}
@@ -429,7 +412,6 @@ func TestPromptTemplateManager_RecordABTestResult(t *testing.T) {
 	ptm.CreateABTest(test)
 
 	err := ptm.RecordABTestResult("test", "control", true, 100*time.Millisecond, 0.05)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -456,7 +438,6 @@ func TestPromptTemplateManager_GetABTestResults(t *testing.T) {
 	ptm.CreateABTest(test)
 
 	results, err := ptm.GetABTestResults("test")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -480,7 +461,6 @@ func TestPromptTemplateManager_StopABTest(t *testing.T) {
 	ptm.CreateABTest(test)
 
 	err := ptm.StopABTest("test")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -509,7 +489,6 @@ func TestPromptTemplateManager_CompareTemplates_Same(t *testing.T) {
 	})
 
 	diff, err := ptm.CompareTemplates("greeting", "1.0.0", "2.0.0")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -535,7 +514,6 @@ func TestPromptTemplateManager_CompareTemplates_Different(t *testing.T) {
 	})
 
 	diff, err := ptm.CompareTemplates("greeting", "1.0.0", "2.0.0")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -561,15 +539,14 @@ func TestPromptTemplateManager_ExportImport(t *testing.T) {
 	ptm.RegisterTemplate(original)
 
 	exported, err := ptm.ExportTemplate("greeting", "1.0.0")
-
 	if err != nil {
 		t.Fatalf("expected no error exporting, got %v", err)
 	}
 
 	// Create new manager and import
 	ptm2 := NewPromptTemplateManager(nil, nil)
-	err = ptm2.ImportTemplate(exported)
 
+	err = ptm2.ImportTemplate(exported)
 	if err != nil {
 		t.Fatalf("expected no error importing, got %v", err)
 	}
@@ -596,10 +573,9 @@ func TestPromptTemplateManager_ValidateVariables_Success(t *testing.T) {
 		Template: "Hello, {{.Name}}!",
 	})
 
-	err := ptm.ValidateVariables("greeting", "1.0.0", map[string]interface{}{
+	err := ptm.ValidateVariables("greeting", "1.0.0", map[string]any{
 		"Name": "Alice",
 	})
-
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -614,10 +590,9 @@ func TestPromptTemplateManager_ValidateVariables_Missing(t *testing.T) {
 		Template: "Hello, {{.Name}} {{.Age}}!",
 	})
 
-	err := ptm.ValidateVariables("greeting", "1.0.0", map[string]interface{}{
+	err := ptm.ValidateVariables("greeting", "1.0.0", map[string]any{
 		"Name": "Alice",
 	})
-
 	if err == nil {
 		t.Error("expected error for missing variable")
 	}
@@ -631,27 +606,29 @@ func TestPromptTemplateManager_ThreadSafety(t *testing.T) {
 	done := make(chan bool)
 
 	// Concurrent registrations
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		go func(index int) {
 			ptm.RegisterTemplate(&PromptTemplate{
 				Name:     string(rune('a' + index)),
 				Version:  "1.0.0",
 				Template: "Test",
 			})
+
 			done <- true
 		}(i)
 	}
 
 	// Concurrent reads
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
 			ptm.ListTemplates()
+
 			done <- true
 		}()
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -661,4 +638,3 @@ func TestPromptTemplateManager_ThreadSafety(t *testing.T) {
 		t.Errorf("expected at least 5 templates, got %d", len(templates))
 	}
 }
-

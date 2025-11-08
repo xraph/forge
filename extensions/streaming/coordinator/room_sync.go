@@ -101,9 +101,11 @@ func (rss *RoomStateSynchronizer) HandleRoomStateUpdate(ctx context.Context, sta
 	if name, ok := state.Settings["name"].(string); ok {
 		updates["name"] = name
 	}
+
 	if desc, ok := state.Settings["description"].(string); ok {
 		updates["description"] = desc
 	}
+
 	if private, ok := state.Settings["private"].(bool); ok {
 		if private {
 			_ = room.SetPrivate(ctx, true)
@@ -132,6 +134,7 @@ func (rss *RoomStateSynchronizer) getNextVersion(roomID string) int64 {
 
 	version := rss.versions[roomID] + 1
 	rss.versions[roomID] = version
+
 	return version
 }
 
@@ -141,5 +144,6 @@ func (rss *RoomStateSynchronizer) ResolveConflict(ctx context.Context, local, re
 	if remote.UpdatedAt.After(local.UpdatedAt) {
 		return remote, nil
 	}
+
 	return local, nil
 }

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// TestBasicConsensus tests basic consensus operations
+// TestBasicConsensus tests basic consensus operations.
 func TestBasicConsensus(t *testing.T) {
 	t.Skip("Integration test - requires running cluster")
 
@@ -33,7 +33,7 @@ func TestBasicConsensus(t *testing.T) {
 	t.Logf("Leader elected: %s", leaderID)
 }
 
-// TestLeaderElection tests leader election process
+// TestLeaderElection tests leader election process.
 func TestLeaderElection(t *testing.T) {
 	t.Skip("Integration test - requires running cluster")
 
@@ -57,6 +57,7 @@ func TestLeaderElection(t *testing.T) {
 
 	// Stop leader
 	t.Logf("Stopping leader: %s", leaderID)
+
 	if err := harness.StopNode(ctx, leaderID); err != nil {
 		t.Fatalf("Failed to stop leader: %v", err)
 	}
@@ -74,7 +75,7 @@ func TestLeaderElection(t *testing.T) {
 	t.Logf("New leader elected: %s", newLeaderID)
 }
 
-// TestLogReplicationIntegration tests log replication (integration test)
+// TestLogReplicationIntegration tests log replication (integration test).
 func TestLogReplicationIntegration(t *testing.T) {
 	t.Skip("Integration test - requires running cluster")
 
@@ -118,7 +119,7 @@ func TestLogReplicationIntegration(t *testing.T) {
 	}
 }
 
-// TestSnapshotting tests snapshot creation and restoration
+// TestSnapshotting tests snapshot creation and restoration.
 func TestSnapshotting(t *testing.T) {
 	t.Skip("Integration test - requires running cluster")
 
@@ -145,7 +146,7 @@ func TestSnapshotting(t *testing.T) {
 	}
 
 	// Add many entries to trigger snapshot
-	for i := 0; i < 1000; i++ {
+	for range 1000 {
 		if err := leader.RaftNode.Propose(context.Background(), []byte("entry")); err != nil {
 			t.Fatalf("Failed to propose entry: %v", err)
 		}
@@ -158,7 +159,7 @@ func TestSnapshotting(t *testing.T) {
 	t.Log("Snapshot created successfully")
 }
 
-// TestMembershipChanges tests adding and removing nodes
+// TestMembershipChanges tests adding and removing nodes.
 func TestMembershipChanges(t *testing.T) {
 	t.Skip("Integration test - requires running cluster")
 
@@ -202,7 +203,7 @@ func TestMembershipChanges(t *testing.T) {
 	}
 }
 
-// TestNetworkPartitionIntegration tests behavior during network partition (integration test)
+// TestNetworkPartitionIntegration tests behavior during network partition (integration test).
 func TestNetworkPartitionIntegration(t *testing.T) {
 	t.Skip("Integration test - requires running cluster")
 
@@ -230,6 +231,7 @@ func TestNetworkPartitionIntegration(t *testing.T) {
 		if err := harness.CreatePartition(partitionNodes); err != nil {
 			t.Fatalf("Failed to create partition: %v", err)
 		}
+
 		t.Log("Created network partition")
 	}
 
@@ -240,6 +242,7 @@ func TestNetworkPartitionIntegration(t *testing.T) {
 	if err := harness.HealAllPartitions(); err != nil {
 		t.Fatalf("Failed to heal partition: %v", err)
 	}
+
 	t.Log("Healed network partition")
 
 	// Wait for recovery
@@ -254,7 +257,7 @@ func TestNetworkPartitionIntegration(t *testing.T) {
 	t.Logf("Cluster recovered with leader: %s", newLeaderID)
 }
 
-// TestConcurrentWrites tests concurrent write operations
+// TestConcurrentWrites tests concurrent write operations.
 func TestConcurrentWrites(t *testing.T) {
 	t.Skip("Integration test - requires running cluster")
 
@@ -286,21 +289,23 @@ func TestConcurrentWrites(t *testing.T) {
 
 	done := make(chan error, numWriters)
 
-	for i := 0; i < numWriters; i++ {
+	for i := range numWriters {
 		go func(id int) {
-			for j := 0; j < entriesPerWriter; j++ {
+			for j := range entriesPerWriter {
 				data := []byte(string(rune('A'+id)) + string(rune('0'+j)))
 				if err := leader.RaftNode.Propose(context.Background(), data); err != nil {
 					done <- err
+
 					return
 				}
 			}
+
 			done <- nil
 		}(i)
 	}
 
 	// Wait for all writers
-	for i := 0; i < numWriters; i++ {
+	for range numWriters {
 		if err := <-done; err != nil {
 			t.Fatalf("Writer failed: %v", err)
 		}
@@ -336,9 +341,7 @@ func BenchmarkPropose(b *testing.B) {
 		b.Fatalf("Failed to get leader: %v", err)
 	}
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		leader.RaftNode.Propose(context.Background(), []byte("benchmark-entry"))
 	}
 }
@@ -371,9 +374,7 @@ func BenchmarkRead(b *testing.B) {
 	// Populate some data
 	leader.RaftNode.Propose(context.Background(), []byte("test-key:test-value"))
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Perform read operation
 		_ = leader.RaftNode.GetCommitIndex()
 	}

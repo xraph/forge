@@ -10,14 +10,15 @@ import (
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// GeneratePlugin handles code generation
+// GeneratePlugin handles code generation.
 type GeneratePlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewGeneratePlugin creates a new generate plugin
+// NewGeneratePlugin creates a new generate plugin.
 func NewGeneratePlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &GeneratePlugin{config: cfg}
 }
@@ -95,17 +96,19 @@ func (p *GeneratePlugin) Commands() []cli.Command {
 
 func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	name := ctx.String("name")
 	if name == "" {
 		var err error
+
 		name, err = ctx.Prompt("App name:")
 		if err != nil {
 			return err
@@ -117,6 +120,7 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 	spinner := ctx.Spinner(fmt.Sprintf("Generating app %s...", name))
 
 	var appPath string
+
 	if p.config.IsSingleModule() {
 		// Single-module: create cmd/app-name and apps/app-name
 		cmdPath := filepath.Join(p.config.RootDir, p.config.Project.Structure.Cmd, name)
@@ -125,10 +129,13 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		// Create directories
 		if err := os.MkdirAll(cmdPath, 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
+
 		if err := os.MkdirAll(filepath.Join(appPath, "internal", "handlers"), 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 
@@ -136,6 +143,7 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		mainContent := p.generateMainFile(name, template)
 		if err := os.WriteFile(filepath.Join(cmdPath, "main.go"), []byte(mainContent), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 
@@ -143,15 +151,16 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		appConfig := p.generateAppConfig(name)
 		if err := os.WriteFile(filepath.Join(appPath, ".forge.yaml"), []byte(appConfig), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 
 		// Create app-specific config.yaml
 		if err := p.createAppConfig(appPath, name, false); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
-
 	} else {
 		// Multi-module: create apps/app-name with go.mod
 		appPath = filepath.Join(p.config.RootDir, "apps", name)
@@ -160,18 +169,23 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		// Create directories
 		if err := os.MkdirAll(cmdPath, 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
+
 		if err := os.MkdirAll(filepath.Join(appPath, "internal", "handlers"), 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 
 		// Create go.mod
 		modulePath := fmt.Sprintf("%s/apps/%s", p.config.Project.Module, name)
+
 		goModContent := fmt.Sprintf("module %s\n\ngo 1.24.0\n\nrequire github.com/xraph/forge v2.0.0\n", modulePath)
 		if err := os.WriteFile(filepath.Join(appPath, "go.mod"), []byte(goModContent), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 
@@ -179,6 +193,7 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		mainContent := p.generateMainFile(name, template)
 		if err := os.WriteFile(filepath.Join(cmdPath, "main.go"), []byte(mainContent), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 
@@ -186,12 +201,14 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 		appConfig := p.generateAppConfig(name)
 		if err := os.WriteFile(filepath.Join(appPath, ".forge.yaml"), []byte(appConfig), 0644); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 
 		// Create app-specific config.yaml
 		if err := p.createAppConfig(appPath, name, true); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 	}
@@ -209,17 +226,19 @@ func (p *GeneratePlugin) generateApp(ctx cli.CommandContext) error {
 
 func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	name := ctx.String("name")
 	if name == "" {
 		var err error
+
 		name, err = ctx.Prompt("Service name:")
 		if err != nil {
 			return err
@@ -233,15 +252,16 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 	}
 
 	if len(dirs) == 0 {
-		return fmt.Errorf("no valid service directories found (pkg, internal, or extensions)")
+		return errors.New("no valid service directories found (pkg, internal, or extensions)")
 	}
 
 	var selectedDir string
 	if len(dirs) == 1 {
 		selectedDir = dirs[0]
-		ctx.Info(fmt.Sprintf("Using directory: %s", selectedDir))
+		ctx.Info("Using directory: " + selectedDir)
 	} else {
 		var err error
+
 		selectedDir, err = ctx.Select("Select directory for service:", dirs)
 		if err != nil {
 			return err
@@ -249,20 +269,24 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 	}
 
 	// Build service path based on selected directory
-	var servicePath string
-	var serviceFileName string
-	var isExtensionService bool
+	var (
+		servicePath        string
+		serviceFileName    string
+		isExtensionService bool
+	)
 
-	if selectedDir == "pkg" {
+	switch selectedDir {
+
+	case "pkg":
 		servicePath = filepath.Join(p.config.RootDir, "pkg", "services", name)
 		serviceFileName = "service.go"
-	} else if selectedDir == "internal" {
+	case "internal":
 		servicePath = filepath.Join(p.config.RootDir, "internal", "services", name)
 		serviceFileName = "service.go"
-	} else {
+	default:
 		// It's an extension directory - use flat naming
 		servicePath = filepath.Join(p.config.RootDir, "extensions", selectedDir)
-		serviceFileName = fmt.Sprintf("%s.service.go", strings.ToLower(name))
+		serviceFileName = strings.ToLower(name) + ".service.go"
 		isExtensionService = true
 	}
 
@@ -272,12 +296,14 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 	if !isExtensionService {
 		if err := os.MkdirAll(servicePath, 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 	} else {
 		// Ensure extension directory exists
 		if err := os.MkdirAll(servicePath, 0755); err != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
+
 			return err
 		}
 	}
@@ -286,6 +312,7 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 	serviceContent := p.generateServiceFile(name)
 	if err := os.WriteFile(filepath.Join(servicePath, serviceFileName), []byte(serviceContent), 0644); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -305,6 +332,7 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 
 		if len(targets) == 0 {
 			ctx.Warning("No apps or extensions found for controller registration")
+
 			return nil
 		}
 
@@ -315,6 +343,7 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 			if target.IsExtension {
 				prefix = "🔌 "
 			}
+
 			targetNames[i] = fmt.Sprintf("%s%s (%s)", prefix, target.Name, target.Type)
 		}
 
@@ -325,9 +354,11 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 
 		// Find selected target
 		selectedIdx := -1
+
 		for i, tn := range targetNames {
 			if strings.Contains(tn, targetStr) || strings.HasPrefix(targetStr, tn) {
 				selectedIdx = i
+
 				break
 			}
 		}
@@ -337,6 +368,7 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 			for i, t := range targets {
 				if strings.Contains(targetStr, t.Name) {
 					selectedIdx = i
+
 					break
 				}
 			}
@@ -344,6 +376,7 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 
 		if selectedIdx >= 0 && selectedIdx < len(targets) {
 			target := targets[selectedIdx]
+
 			controllerName, err := ctx.Prompt("Controller name (leave empty to skip):")
 			if err != nil {
 				return err
@@ -352,6 +385,7 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 			if controllerName != "" {
 				// For extensions, offer placement options
 				var placementPath string
+
 				if target.IsExtension {
 					placement, err := ctx.Select("Where to place the controller in extension?",
 						[]string{
@@ -384,7 +418,7 @@ func (p *GeneratePlugin) generateService(ctx cli.CommandContext) error {
 	return nil
 }
 
-// discoverServiceDirs returns available directories where services can be placed
+// discoverServiceDirs returns available directories where services can be placed.
 func (p *GeneratePlugin) discoverServiceDirs() ([]string, error) {
 	var dirs []string
 
@@ -411,7 +445,7 @@ func (p *GeneratePlugin) discoverServiceDirs() ([]string, error) {
 	return dirs, nil
 }
 
-// TargetInfo represents an app or extension that can receive a controller
+// TargetInfo represents an app or extension that can receive a controller.
 type TargetInfo struct {
 	Name        string
 	Type        string // "app" or "extension"
@@ -419,12 +453,13 @@ type TargetInfo struct {
 	Path        string
 }
 
-// discoverTargets returns available apps and extensions
+// discoverTargets returns available apps and extensions.
 func (p *GeneratePlugin) discoverTargets() ([]TargetInfo, error) {
 	var targets []TargetInfo
 
 	// Discover apps using DevPlugin's method
 	devPlugin := &DevPlugin{config: p.config}
+
 	apps, err := devPlugin.discoverApps()
 	if err == nil {
 		for _, app := range apps {
@@ -458,12 +493,13 @@ func (p *GeneratePlugin) discoverTargets() ([]TargetInfo, error) {
 // addControllerToTarget adds a controller to the specified app or extension
 // placementPath specifies where to place the controller (relative to target):
 // - "internal/controllers" for organized structure
-// - "" (empty) for root of extension
+// - "" (empty) for root of extension.
 func (p *GeneratePlugin) addControllerToTarget(ctx cli.CommandContext, controllerName string, target TargetInfo, serviceName string, placementPath string) error {
 	spinner := ctx.Spinner(fmt.Sprintf("Adding controller %s to %s...", controllerName, target.Name))
 	defer spinner.Stop(cli.Green("✓ Done"))
 
 	var controllersPath string
+
 	if target.IsExtension {
 		if placementPath == "" {
 			// Place at root of extension
@@ -498,7 +534,8 @@ func (p *GeneratePlugin) addControllerToTarget(ctx cli.CommandContext, controlle
 	}
 
 	// Generate controller file
-	fileName := fmt.Sprintf("%s.controller.go", strings.ToLower(controllerName))
+	fileName := strings.ToLower(controllerName) + ".controller.go"
+
 	controllerContent := p.generateControllerFile(controllerName, packageName)
 	if err := os.WriteFile(filepath.Join(controllersPath, fileName), []byte(controllerContent), 0644); err != nil {
 		return err
@@ -506,27 +543,31 @@ func (p *GeneratePlugin) addControllerToTarget(ctx cli.CommandContext, controlle
 
 	var location string
 	if placementPath == "" {
-		location = fmt.Sprintf("%s (root)", target.Name)
+		location = target.Name + " (root)"
 	} else {
 		location = fmt.Sprintf("%s/%s", target.Name, placementPath)
 	}
+
 	spinner.Stop(cli.Green(fmt.Sprintf("✓ Controller %s added to %s!", controllerName, location)))
+
 	return nil
 }
 
 func (p *GeneratePlugin) generateExtension(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	name := ctx.String("name")
 	if name == "" {
 		var err error
+
 		name, err = ctx.Prompt("Extension name:")
 		if err != nil {
 			return err
@@ -540,6 +581,7 @@ func (p *GeneratePlugin) generateExtension(ctx cli.CommandContext) error {
 	// Create directory
 	if err := os.MkdirAll(extensionPath, 0755); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -547,27 +589,31 @@ func (p *GeneratePlugin) generateExtension(ctx cli.CommandContext) error {
 	extensionContent := p.generateExtensionFile(name)
 	if err := os.WriteFile(filepath.Join(extensionPath, "extension.go"), []byte(extensionContent), 0644); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	configContent := p.generateExtensionConfigFile(name)
 	if err := os.WriteFile(filepath.Join(extensionPath, "config.go"), []byte(configContent), 0644); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green(fmt.Sprintf("✓ Extension %s created!", name)))
+
 	return nil
 }
 
 func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	name := ctx.String("name")
@@ -575,6 +621,7 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 
 	if name == "" {
 		var err error
+
 		name, err = ctx.Prompt("Controller name:")
 		if err != nil {
 			return err
@@ -582,6 +629,7 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 	}
 
 	var selectedTarget *TargetInfo
+
 	if appName == "" {
 		// Discover all targets (apps and extensions)
 		targets, err := p.discoverTargets()
@@ -590,7 +638,7 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 		}
 
 		if len(targets) == 0 {
-			return fmt.Errorf("no apps or extensions found")
+			return errors.New("no apps or extensions found")
 		}
 
 		// Format targets for display
@@ -600,6 +648,7 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 			if target.IsExtension {
 				prefix = "🔌 "
 			}
+
 			targetNames[i] = fmt.Sprintf("%s%s (%s)", prefix, target.Name, target.Type)
 		}
 
@@ -612,12 +661,13 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 		for i, tn := range targetNames {
 			if tn == targetStr || strings.Contains(targetStr, targets[i].Name) {
 				selectedTarget = &targets[i]
+
 				break
 			}
 		}
 
 		if selectedTarget == nil {
-			return fmt.Errorf("failed to identify selected target")
+			return errors.New("failed to identify selected target")
 		}
 	} else {
 		// Try to find target by name
@@ -629,6 +679,7 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 		for _, target := range targets {
 			if target.Name == appName {
 				selectedTarget = &target
+
 				break
 			}
 		}
@@ -640,6 +691,7 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 
 	// For extensions, ask for placement
 	var placementPath string
+
 	if selectedTarget.IsExtension {
 		placement, err := ctx.Select("Where to place the controller in extension?",
 			[]string{
@@ -666,17 +718,19 @@ func (p *GeneratePlugin) generateController(ctx cli.CommandContext) error {
 
 func (p *GeneratePlugin) generateModel(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	name := ctx.String("name")
 	if name == "" {
 		var err error
+
 		name, err = ctx.Prompt("Model name:")
 		if err != nil {
 			return err
@@ -740,14 +794,17 @@ func (p *GeneratePlugin) generateModel(ctx cli.CommandContext) error {
 	modelPath := filepath.Join(p.config.RootDir, modelsPath)
 	if err := os.MkdirAll(modelPath, 0755); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
 	// Generate model file
-	fileName := fmt.Sprintf("%s.go", strings.ToLower(name))
+	fileName := strings.ToLower(name) + ".go"
+
 	modelContent := p.generateModelFile(name, fields, baseType, addTableTag)
 	if err := os.WriteFile(filepath.Join(modelPath, fileName), []byte(modelContent), 0644); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -839,6 +896,7 @@ build:
 func (p *GeneratePlugin) generateServiceFile(name string) string {
 	titleName := strings.Title(name)
 	lowerName := strings.ToLower(name)
+
 	return fmt.Sprintf(`package %s
 
 import (
@@ -949,6 +1007,7 @@ func WithEnabled(enabled bool) Option {
 func (p *GeneratePlugin) generateControllerFile(name, packageName string) string {
 	titleName := strings.Title(name)
 	lowerName := strings.ToLower(name)
+
 	return fmt.Sprintf(`package %s
 
 import (
@@ -1014,6 +1073,8 @@ var _ forge.Controller = (*%sController)(nil)
 func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseType string, addTableTag bool) string {
 	// Prepare custom fields
 	fieldsCode := ""
+	var fieldsCodeSb1017 strings.Builder
+
 	for _, field := range fields {
 		parts := strings.Split(field, ":")
 		if len(parts) >= 2 {
@@ -1024,9 +1085,10 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 			bunTag := fmt.Sprintf(`bun:"%s"`, strings.ToLower(parts[0]))
 			jsonTag := fmt.Sprintf(`json:"%s"`, strings.ToLower(parts[0]))
 
-			fieldsCode += fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, bunTag, jsonTag)
+			fieldsCodeSb1017.WriteString(fmt.Sprintf("\t%s %s `%s %s`\n", fieldName, fieldType, bunTag, jsonTag))
 		}
 	}
+	fieldsCode += fieldsCodeSb1017.String()
 
 	// Default example field if none provided and no base model
 	if fieldsCode == "" && baseType == "none" {
@@ -1043,9 +1105,11 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	if needsDatabase {
 		imports = append(imports, `"github.com/xraph/forge/extensions/database"`)
 	}
+
 	if needsUUID {
 		imports = append(imports, `"github.com/google/uuid"`)
 	}
+
 	if needsXID {
 		imports = append(imports, `"github.com/rs/xid"`)
 	}
@@ -1054,6 +1118,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 	for _, field := range fields {
 		if strings.Contains(field, "time.Time") || strings.Contains(field, "*time.Time") {
 			needsTime = true
+
 			break
 		}
 	}
@@ -1065,40 +1130,51 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 
 	// Build imports section
 	importSection := ""
+
 	if len(imports) > 0 {
 		if len(imports) == 1 {
 			importSection = fmt.Sprintf("import %s\n\n", imports[0])
 		} else {
 			importSection = "import (\n"
+			var importSectionSb1073 strings.Builder
 			for _, imp := range imports {
-				importSection += fmt.Sprintf("\t%s\n", imp)
+				importSectionSb1073.WriteString(fmt.Sprintf("\t%s\n", imp))
 			}
+			importSection += importSectionSb1073.String()
+
 			importSection += ")\n\n"
 		}
 	}
 
 	// Add bun import if using any base model (do this before building imports section)
 	hasBunImport := false
+
 	for _, imp := range imports {
 		if strings.Contains(imp, "bun") {
 			hasBunImport = true
+
 			break
 		}
 	}
+
 	if baseType != "none" && !hasBunImport {
 		imports = append(imports, `"github.com/uptrace/bun"`)
 	}
 
 	// Rebuild imports section now that we have all imports
 	importSection = ""
+
 	if len(imports) > 0 {
 		if len(imports) == 1 {
 			importSection = fmt.Sprintf("import %s\n\n", imports[0])
 		} else {
 			importSection = "import (\n"
+			var importSectionSb1099 strings.Builder
 			for _, imp := range imports {
-				importSection += fmt.Sprintf("\t%s\n", imp)
+				importSectionSb1099.WriteString(fmt.Sprintf("\t%s\n", imp))
 			}
+			importSection += importSectionSb1099.String()
+
 			importSection += ")\n\n"
 		}
 	}
@@ -1114,6 +1190,7 @@ func (p *GeneratePlugin) generateModelFile(name string, fields []string, baseTyp
 
 	// Build bun.BaseModel with appropriate tag
 	bunBaseModel := ""
+
 	if baseType != "none" {
 		if addTableTag {
 			// Add table configuration to bun.BaseModel
@@ -1221,14 +1298,17 @@ func getBaseModelName(baseType string) string {
 }
 
 // generateAlias creates a short alias from a model name by taking the first letter
-// of each capital letter in the name (e.g., "PersonalAccessToken" -> "pat")
+// of each capital letter in the name (e.g., "PersonalAccessToken" -> "pat").
 func generateAlias(name string) string {
 	var alias string
+	var aliasSb1227 strings.Builder
+
 	for _, c := range name {
 		if c >= 'A' && c <= 'Z' {
-			alias += string(c + 32) // Convert to lowercase
+			aliasSb1227.WriteString(string(c + 32)) // Convert to lowercase
 		}
 	}
+	alias += aliasSb1227.String()
 	// Fallback to first 3 chars if no capitals found or alias is empty
 	if alias == "" {
 		if len(name) >= 3 {
@@ -1237,22 +1317,25 @@ func generateAlias(name string) string {
 			alias = strings.ToLower(name)
 		}
 	}
+
 	return alias
 }
 
 func (p *GeneratePlugin) generateMigration(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	name := ctx.String("name")
 	if name == "" {
 		var err error
+
 		name, err = ctx.Prompt("Migration name (e.g., create_users_table):")
 		if err != nil {
 			return err
@@ -1269,6 +1352,7 @@ func (p *GeneratePlugin) generateMigration(ctx cli.CommandContext) error {
 	migrationsPath := filepath.Join(p.config.RootDir, "database", "migrations")
 	if err := os.MkdirAll(migrationsPath, 0755); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -1277,9 +1361,11 @@ func (p *GeneratePlugin) generateMigration(ctx cli.CommandContext) error {
 
 	// Generate migration file
 	fileName := fmt.Sprintf("%s_%s.go", timestamp, name)
+
 	migrationContent := p.generateMigrationFile(name, timestamp)
 	if err := os.WriteFile(filepath.Join(migrationsPath, fileName), []byte(migrationContent), 0644); err != nil {
 		spinner.Stop(cli.Red("✗ Failed"))
+
 		return err
 	}
 
@@ -1349,7 +1435,7 @@ func down%s_%s(ctx context.Context, db *bun.DB) error {
 		timestamp, name)
 }
 
-// createAppConfig creates app-specific config.yaml file
+// createAppConfig creates app-specific config.yaml file.
 func (p *GeneratePlugin) createAppConfig(appPath, appName string, isMultiModule bool) error {
 	configPath := filepath.Join(appPath, "config.yaml")
 

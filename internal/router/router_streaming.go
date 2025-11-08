@@ -6,7 +6,7 @@ import (
 	"github.com/xraph/forge/internal/di"
 )
 
-// WebSocket registers a WebSocket handler
+// WebSocket registers a WebSocket handler.
 func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteOption) error {
 	// Convert WebSocketHandler to http.Handler
 	httpHandler := func(w http.ResponseWriter, req *http.Request) {
@@ -16,12 +16,15 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 			if r.logger != nil {
 				r.logger.Error("failed to upgrade websocket connection")
 			}
+
 			http.Error(w, "Failed to upgrade connection", http.StatusInternalServerError)
+
 			return
 		}
 
 		// Create WebSocket connection wrapper
 		connID := generateConnectionID()
+
 		wsConn := newWSConnection(connID, conn, req.Context())
 		defer wsConn.Close()
 
@@ -43,18 +46,21 @@ func (r *router) WebSocket(path string, handler WebSocketHandler, opts ...RouteO
 	return r.register(http.MethodGet, path, httpHandler, optsWithType...)
 }
 
-// EventStream registers a Server-Sent Events handler
+// EventStream registers a Server-Sent Events handler.
 func (r *router) EventStream(path string, handler SSEHandler, opts ...RouteOption) error {
 	// Convert SSEHandler to http.Handler
 	httpHandler := func(w http.ResponseWriter, req *http.Request) {
 		// Create SSE stream
 		config := DefaultStreamConfig()
+
 		stream, err := newSSEStream(w, req, config.RetryInterval)
 		if err != nil {
 			if r.logger != nil {
 				r.logger.Error("failed to create SSE stream")
 			}
+
 			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+
 			return
 		}
 		defer stream.Close()

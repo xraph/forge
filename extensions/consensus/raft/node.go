@@ -10,9 +10,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Node implements the Raft consensus algorithm
+// Node implements the Raft consensus algorithm.
 type Node struct {
 	// Configuration
 	config Config
@@ -78,7 +79,7 @@ type Node struct {
 	configChangeCh chan ConfigChangeMsg
 
 	// RPC response channels
-	pendingRequests map[string]chan interface{}
+	pendingRequests map[string]chan any
 	requestMu       sync.RWMutex
 
 	// State
@@ -86,7 +87,7 @@ type Node struct {
 	startTime time.Time
 }
 
-// PeerState represents the state of a peer node
+// PeerState represents the state of a peer node.
 type PeerState struct {
 	ID            string
 	Address       string
@@ -98,7 +99,7 @@ type PeerState struct {
 	ReplicationMu sync.Mutex
 }
 
-// ApplyMsg represents a message to apply to the state machine
+// ApplyMsg represents a message to apply to the state machine.
 type ApplyMsg struct {
 	Index    uint64
 	Term     uint64
@@ -106,14 +107,14 @@ type ApplyMsg struct {
 	ResultCh chan error
 }
 
-// SnapshotMsg represents a snapshot message
+// SnapshotMsg represents a snapshot message.
 type SnapshotMsg struct {
 	Index    uint64
 	Term     uint64
 	ResultCh chan error
 }
 
-// ConfigChangeMsg represents a configuration change message
+// ConfigChangeMsg represents a configuration change message.
 type ConfigChangeMsg struct {
 	Type     ConfigChangeType
 	NodeID   string
@@ -122,17 +123,17 @@ type ConfigChangeMsg struct {
 	ResultCh chan error
 }
 
-// ConfigChangeType represents the type of configuration change
+// ConfigChangeType represents the type of configuration change.
 type ConfigChangeType int
 
 const (
-	// ConfigChangeAdd adds a node to the cluster
+	// ConfigChangeAdd adds a node to the cluster.
 	ConfigChangeAdd ConfigChangeType = iota
-	// ConfigChangeRemove removes a node from the cluster
+	// ConfigChangeRemove removes a node from the cluster.
 	ConfigChangeRemove
 )
 
-// NewNode creates a new Raft node
+// NewNode creates a new Raft node.
 func NewNode(
 	config Config,
 	logger forge.Logger,
@@ -141,7 +142,7 @@ func NewNode(
 	storage internal.Storage,
 ) (*Node, error) {
 	if config.NodeID == "" {
-		return nil, fmt.Errorf("node ID is required")
+		return nil, errors.New("node ID is required")
 	}
 
 	if config.HeartbeatInterval == 0 {
@@ -186,7 +187,7 @@ func NewNode(
 		applyCh:         make(chan ApplyMsg, 100),
 		snapshotCh:      make(chan SnapshotMsg, 10),
 		configChangeCh:  make(chan ConfigChangeMsg, 10),
-		pendingRequests: make(map[string]chan interface{}),
+		pendingRequests: make(map[string]chan any),
 	}
 
 	// Initialize role as follower
@@ -197,6 +198,7 @@ func NewNode(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log: %w", err)
 	}
+
 	n.log = log
 
 	// Restore persistent state
@@ -207,11 +209,13 @@ func NewNode(
 	return n, nil
 }
 
-// Start starts the Raft node
+// Start starts the Raft node.
 func (n *Node) Start(ctx context.Context) error {
 	n.mu.Lock()
+
 	if n.started {
 		n.mu.Unlock()
+
 		return internal.ErrAlreadyStarted
 	}
 
@@ -228,6 +232,7 @@ func (n *Node) Start(ctx context.Context) error {
 
 	// Start background goroutines
 	n.wg.Add(5)
+
 	go n.runStateMachine()
 	go n.runSnapshotManager()
 	go n.runElectionTimer()
@@ -237,13 +242,16 @@ func (n *Node) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the Raft node
+// Stop stops the Raft node.
 func (n *Node) Stop(ctx context.Context) error {
 	n.mu.Lock()
+
 	if !n.started {
 		n.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	n.mu.Unlock()
 
 	n.logger.Info("stopping raft node", forge.F("node_id", n.id))
@@ -255,6 +263,7 @@ func (n *Node) Stop(ctx context.Context) error {
 
 	// Wait for goroutines to finish with timeout
 	done := make(chan struct{})
+
 	go func() {
 		n.wg.Wait()
 		close(done)
@@ -275,36 +284,38 @@ func (n *Node) Stop(ctx context.Context) error {
 	return nil
 }
 
-// IsLeader returns true if this node is the leader
+// IsLeader returns true if this node is the leader.
 func (n *Node) IsLeader() bool {
 	return n.GetRole() == internal.RoleLeader
 }
 
-// GetLeader returns the current leader ID
+// GetLeader returns the current leader ID.
 func (n *Node) GetLeader() string {
 	n.leaderLock.RLock()
 	defer n.leaderLock.RUnlock()
+
 	return n.leader
 }
 
-// GetTerm returns the current term
+// GetTerm returns the current term.
 func (n *Node) GetTerm() uint64 {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
+
 	return n.currentTerm
 }
 
-// GetRole returns the current role
+// GetRole returns the current role.
 func (n *Node) GetRole() internal.NodeRole {
 	return n.role.Load().(internal.NodeRole)
 }
 
-// GetCurrentTerm returns the current term (alias for GetTerm for RPC handler compatibility)
+// GetCurrentTerm returns the current term (alias for GetTerm for RPC handler compatibility).
 func (n *Node) GetCurrentTerm() uint64 {
 	return n.GetTerm()
 }
 
-// handleAppendEntries handles an AppendEntries request
+// handleAppendEntries handles an AppendEntries request.
 func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.AppendEntriesResponse {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -358,25 +369,23 @@ func (n *Node) handleAppendEntries(req internal.AppendEntriesRequest) internal.A
 	// min(leaderCommit, index of last new entry)
 	if req.LeaderCommit > n.commitIndex {
 		lastNewIndex := n.log.LastIndex()
-		if req.LeaderCommit < lastNewIndex {
-			n.commitIndex = req.LeaderCommit
-		} else {
-			n.commitIndex = lastNewIndex
-		}
+		n.commitIndex = min(req.LeaderCommit, lastNewIndex)
 	}
 
 	resp.Success = true
 	resp.Term = n.currentTerm
+
 	return resp
 }
 
-// handleRequestVote handles a RequestVote request
+// handleRequestVote handles a RequestVote request.
 func (n *Node) handleRequestVote(req internal.RequestVoteRequest) internal.RequestVoteResponse {
 	resp, _ := n.RequestVote(context.Background(), &req)
+
 	return *resp
 }
 
-// handleInstallSnapshot handles an InstallSnapshot request
+// handleInstallSnapshot handles an InstallSnapshot request.
 func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) internal.InstallSnapshotResponse {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -410,7 +419,7 @@ func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) intern
 	return resp
 }
 
-// Apply applies a log entry
+// Apply applies a log entry.
 func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
 	if !n.IsLeader() {
 		return internal.NewNotLeaderError(n.id, n.GetLeader())
@@ -424,12 +433,14 @@ func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
 
 	if err := n.log.Append(entry); err != nil {
 		n.mu.Unlock()
+
 		return fmt.Errorf("failed to append log entry: %w", err)
 	}
 
 	// Persist immediately
 	if err := n.persistState(); err != nil {
 		n.mu.Unlock()
+
 		return fmt.Errorf("failed to persist state: %w", err)
 	}
 
@@ -463,7 +474,7 @@ func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
 	}
 }
 
-// GetStats returns Raft statistics
+// GetStats returns Raft statistics.
 func (n *Node) GetStats() internal.RaftStats {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -486,7 +497,7 @@ func (n *Node) GetStats() internal.RaftStats {
 	}
 }
 
-// Propose proposes a new command to the cluster
+// Propose proposes a new command to the cluster.
 func (n *Node) Propose(ctx context.Context, command []byte) error {
 	if !n.IsLeader() {
 		return internal.NewNotLeaderError(n.id, n.GetLeader())
@@ -502,14 +513,15 @@ func (n *Node) Propose(ctx context.Context, command []byte) error {
 	return n.Apply(ctx, entry)
 }
 
-// GetCommitIndex returns the current commit index
+// GetCommitIndex returns the current commit index.
 func (n *Node) GetCommitIndex() uint64 {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
+
 	return n.commitIndex
 }
 
-// restoreState restores persistent state from storage
+// restoreState restores persistent state from storage.
 func (n *Node) restoreState() error {
 	// Restore current term
 	termBytes, err := n.storage.Get([]byte("currentTerm"))
@@ -532,7 +544,7 @@ func (n *Node) restoreState() error {
 	return nil
 }
 
-// persistState persists current state to storage
+// persistState persists current state to storage.
 func (n *Node) persistState() error {
 	// Persist current term
 	if err := n.storage.Set([]byte("currentTerm"), uint64ToBytes(n.currentTerm)); err != nil {
@@ -547,15 +559,16 @@ func (n *Node) persistState() error {
 	return nil
 }
 
-// randomElectionTimeout returns a random election timeout
+// randomElectionTimeout returns a random election timeout.
 func (n *Node) randomElectionTimeout() time.Duration {
 	min := n.config.ElectionTimeoutMin.Milliseconds()
 	max := n.config.ElectionTimeoutMax.Milliseconds()
 	timeout := min + rand.Int63n(max-min+1)
+
 	return time.Duration(timeout) * time.Millisecond
 }
 
-// setLeader sets the current leader
+// setLeader sets the current leader.
 func (n *Node) setLeader(leaderID string) {
 	n.leaderLock.Lock()
 	defer n.leaderLock.Unlock()
@@ -571,7 +584,7 @@ func (n *Node) setLeader(leaderID string) {
 	}
 }
 
-// setRole sets the current role
+// setRole sets the current role.
 func (n *Node) setRole(role internal.NodeRole) {
 	oldRole := n.GetRole()
 	if oldRole != role {
@@ -585,12 +598,13 @@ func (n *Node) setRole(role internal.NodeRole) {
 	}
 }
 
-// Helper functions for byte conversion
+// Helper functions for byte conversion.
 func uint64ToBytes(v uint64) []byte {
 	b := make([]byte, 8)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		b[i] = byte(v >> (56 - uint(i)*8))
 	}
+
 	return b
 }
 
@@ -599,16 +613,17 @@ func bytesToUint64(b []byte) uint64 {
 	for i := 0; i < 8 && i < len(b); i++ {
 		v |= uint64(b[i]) << (56 - uint(i)*8)
 	}
+
 	return v
 }
 
-// generateRequestID generates a unique request ID
+// generateRequestID generates a unique request ID.
 func (n *Node) generateRequestID() string {
 	return fmt.Sprintf("%s-%d", n.id, time.Now().UnixNano())
 }
 
-// waitForResponse waits for a response to a pending request
-func (n *Node) waitForResponse(requestID string, timeout time.Duration) (interface{}, error) {
+// waitForResponse waits for a response to a pending request.
+func (n *Node) waitForResponse(requestID string, timeout time.Duration) (any, error) {
 	n.requestMu.RLock()
 	responseCh, exists := n.pendingRequests[requestID]
 	n.requestMu.RUnlock()
@@ -623,18 +638,20 @@ func (n *Node) waitForResponse(requestID string, timeout time.Duration) (interfa
 		n.requestMu.Lock()
 		delete(n.pendingRequests, requestID)
 		n.requestMu.Unlock()
+
 		return response, nil
 	case <-time.After(timeout):
 		// Clean up
 		n.requestMu.Lock()
 		delete(n.pendingRequests, requestID)
 		n.requestMu.Unlock()
+
 		return nil, fmt.Errorf("request %s timed out", requestID)
 	}
 }
 
-// sendResponse sends a response to a pending request
-func (n *Node) sendResponse(requestID string, response interface{}) {
+// sendResponse sends a response to a pending request.
+func (n *Node) sendResponse(requestID string, response any) {
 	n.requestMu.RLock()
 	responseCh, exists := n.pendingRequests[requestID]
 	n.requestMu.RUnlock()
@@ -651,7 +668,7 @@ func (n *Node) sendResponse(requestID string, response interface{}) {
 	}
 }
 
-// AddPeer adds a peer to the Raft node
+// AddPeer adds a peer to the Raft node.
 func (n *Node) AddPeer(peerID string) {
 	n.peersLock.Lock()
 	defer n.peersLock.Unlock()

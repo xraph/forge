@@ -12,9 +12,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// TCPTransport implements TCP-based network transport
+// TCPTransport implements TCP-based network transport.
 type TCPTransport struct {
 	id       string
 	address  string
@@ -33,7 +34,7 @@ type TCPTransport struct {
 	mu      sync.RWMutex
 }
 
-// tcpPeerConn represents a TCP connection to a peer
+// tcpPeerConn represents a TCP connection to a peer.
 type tcpPeerConn struct {
 	nodeID   string
 	address  string
@@ -45,7 +46,7 @@ type tcpPeerConn struct {
 	lastUsed time.Time
 }
 
-// TCPTransportConfig contains TCP transport configuration
+// TCPTransportConfig contains TCP transport configuration.
 type TCPTransportConfig struct {
 	NodeID            string
 	Address           string
@@ -58,20 +59,24 @@ type TCPTransportConfig struct {
 	MaxRetries        int
 }
 
-// NewTCPTransport creates a new TCP transport
+// NewTCPTransport creates a new TCP transport.
 func NewTCPTransport(config TCPTransportConfig, logger forge.Logger) *TCPTransport {
 	if config.BufferSize == 0 {
 		config.BufferSize = 100
 	}
+
 	if config.ConnectionTimeout == 0 {
 		config.ConnectionTimeout = 10 * time.Second
 	}
+
 	if config.ReadTimeout == 0 {
 		config.ReadTimeout = 30 * time.Second
 	}
+
 	if config.WriteTimeout == 0 {
 		config.WriteTimeout = 30 * time.Second
 	}
+
 	if config.KeepAlive == 0 {
 		config.KeepAlive = 30 * time.Second
 	}
@@ -86,7 +91,7 @@ func NewTCPTransport(config TCPTransportConfig, logger forge.Logger) *TCPTranspo
 	}
 }
 
-// Start starts the TCP transport
+// Start starts the TCP transport.
 func (tt *TCPTransport) Start(ctx context.Context) error {
 	tt.mu.Lock()
 	defer tt.mu.Unlock()
@@ -99,6 +104,7 @@ func (tt *TCPTransport) Start(ctx context.Context) error {
 
 	// Start listener
 	listenAddr := fmt.Sprintf("%s:%d", tt.address, tt.port)
+
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		return fmt.Errorf("failed to start TCP listener: %w", err)
@@ -109,6 +115,7 @@ func (tt *TCPTransport) Start(ctx context.Context) error {
 
 	// Start accept loop
 	tt.wg.Add(1)
+
 	go tt.acceptLoop()
 
 	tt.logger.Info("TCP transport started",
@@ -119,13 +126,16 @@ func (tt *TCPTransport) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the TCP transport
+// Stop stops the TCP transport.
 func (tt *TCPTransport) Stop(ctx context.Context) error {
 	tt.mu.Lock()
+
 	if !tt.started {
 		tt.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	tt.mu.Unlock()
 
 	if tt.cancel != nil {
@@ -139,18 +149,23 @@ func (tt *TCPTransport) Stop(ctx context.Context) error {
 
 	// Close all peer connections
 	tt.peersMu.Lock()
+
 	for _, peer := range tt.peers {
 		peer.connMu.Lock()
+
 		if peer.conn != nil {
 			peer.conn.Close()
 		}
+
 		peer.connMu.Unlock()
 	}
+
 	tt.peers = make(map[string]*tcpPeerConn)
 	tt.peersMu.Unlock()
 
 	// Wait for goroutines
 	done := make(chan struct{})
+
 	go func() {
 		tt.wg.Wait()
 		close(done)
@@ -166,8 +181,8 @@ func (tt *TCPTransport) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Send sends a message to a peer
-func (tt *TCPTransport) Send(ctx context.Context, target string, message interface{}) error {
+// Send sends a message to a peer.
+func (tt *TCPTransport) Send(ctx context.Context, target string, message any) error {
 	peer, err := tt.getPeerConn(target)
 	if err != nil {
 		return fmt.Errorf("failed to get peer connection: %w", err)
@@ -186,6 +201,7 @@ func (tt *TCPTransport) Send(ctx context.Context, target string, message interfa
 		// Connection may be broken, close it
 		peer.conn.Close()
 		peer.conn = nil
+
 		return fmt.Errorf("failed to encode message: %w", err)
 	}
 
@@ -199,12 +215,12 @@ func (tt *TCPTransport) Send(ctx context.Context, target string, message interfa
 	return nil
 }
 
-// Receive returns a channel for receiving messages
+// Receive returns a channel for receiving messages.
 func (tt *TCPTransport) Receive() <-chan internal.Message {
 	return tt.inbox
 }
 
-// AddPeer adds a peer to the transport
+// AddPeer adds a peer to the transport.
 func (tt *TCPTransport) AddPeer(nodeID, address string, port int) error {
 	tt.peersMu.Lock()
 	defer tt.peersMu.Unlock()
@@ -229,7 +245,7 @@ func (tt *TCPTransport) AddPeer(nodeID, address string, port int) error {
 	return nil
 }
 
-// RemovePeer removes a peer from the transport
+// RemovePeer removes a peer from the transport.
 func (tt *TCPTransport) RemovePeer(nodeID string) error {
 	tt.peersMu.Lock()
 	defer tt.peersMu.Unlock()
@@ -241,9 +257,11 @@ func (tt *TCPTransport) RemovePeer(nodeID string) error {
 
 	// Close connection
 	peer.connMu.Lock()
+
 	if peer.conn != nil {
 		peer.conn.Close()
 	}
+
 	peer.connMu.Unlock()
 
 	delete(tt.peers, nodeID)
@@ -256,12 +274,12 @@ func (tt *TCPTransport) RemovePeer(nodeID string) error {
 	return nil
 }
 
-// GetAddress returns the local address
+// GetAddress returns the local address.
 func (tt *TCPTransport) GetAddress() string {
 	return fmt.Sprintf("%s:%d", tt.address, tt.port)
 }
 
-// acceptLoop accepts incoming connections
+// acceptLoop accepts incoming connections.
 func (tt *TCPTransport) acceptLoop() {
 	defer tt.wg.Done()
 
@@ -275,17 +293,19 @@ func (tt *TCPTransport) acceptLoop() {
 				tt.logger.Error("failed to accept connection",
 					forge.F("error", err),
 				)
+
 				continue
 			}
 		}
 
 		// Handle connection in goroutine
 		tt.wg.Add(1)
+
 		go tt.handleConnection(conn)
 	}
 }
 
-// handleConnection handles an incoming connection
+// handleConnection handles an incoming connection.
 func (tt *TCPTransport) handleConnection(conn net.Conn) {
 	defer tt.wg.Done()
 	defer conn.Close()
@@ -306,16 +326,18 @@ func (tt *TCPTransport) handleConnection(conn net.Conn) {
 			tt.logger.Error("failed to set read deadline",
 				forge.F("error", err),
 			)
+
 			return
 		}
 
 		// Decode message
 		if err := decoder.Decode(&msg); err != nil {
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				tt.logger.Error("failed to decode message",
 					forge.F("error", err),
 				)
 			}
+
 			return
 		}
 
@@ -332,7 +354,7 @@ func (tt *TCPTransport) handleConnection(conn net.Conn) {
 	}
 }
 
-// getPeerConn gets or creates a connection to a peer
+// getPeerConn gets or creates a connection to a peer.
 func (tt *TCPTransport) getPeerConn(nodeID string) (*tcpPeerConn, error) {
 	tt.peersMu.RLock()
 	peer, exists := tt.peers[nodeID]

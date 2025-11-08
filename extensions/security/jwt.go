@@ -14,7 +14,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// JWT errors
+// JWT errors.
 var (
 	ErrJWTMissing     = errors.New("jwt token missing")
 	ErrJWTInvalid     = errors.New("jwt token invalid")
@@ -22,7 +22,7 @@ var (
 	ErrJWTNotYetValid = errors.New("jwt token not yet valid")
 )
 
-// JWTConfig holds JWT configuration
+// JWTConfig holds JWT configuration.
 type JWTConfig struct {
 	// Enabled determines if JWT authentication is enabled
 	Enabled bool
@@ -71,7 +71,7 @@ type JWTConfig struct {
 	ErrorHandler func(forge.Context, error) error
 }
 
-// DefaultJWTConfig returns the default JWT configuration
+// DefaultJWTConfig returns the default JWT configuration.
 func DefaultJWTConfig() JWTConfig {
 	return JWTConfig{
 		Enabled:             true,
@@ -90,7 +90,7 @@ func DefaultJWTConfig() JWTConfig {
 	}
 }
 
-// JWTClaims represents JWT claims
+// JWTClaims represents JWT claims.
 type JWTClaims struct {
 	UserID   string                 `json:"user_id"`
 	Username string                 `json:"username,omitempty"`
@@ -100,28 +100,32 @@ type JWTClaims struct {
 	jwt.RegisteredClaims
 }
 
-// JWTManager manages JWT token generation and validation
+// JWTManager manages JWT token generation and validation.
 type JWTManager struct {
 	config        JWTConfig
 	logger        forge.Logger
 	signingMethod jwt.SigningMethod
 }
 
-// NewJWTManager creates a new JWT manager
+// NewJWTManager creates a new JWT manager.
 func NewJWTManager(config JWTConfig, logger forge.Logger) (*JWTManager, error) {
 	// Set defaults
 	if config.SigningMethod == "" {
 		config.SigningMethod = "HS256"
 	}
+
 	if config.TokenLookup == "" {
 		config.TokenLookup = "header:Authorization"
 	}
+
 	if config.TokenPrefix == "" {
 		config.TokenPrefix = "Bearer"
 	}
+
 	if config.TTL == 0 {
 		config.TTL = 1 * time.Hour
 	}
+
 	if config.RefreshTTL == 0 {
 		config.RefreshTTL = 7 * 24 * time.Hour
 	}
@@ -144,7 +148,7 @@ func NewJWTManager(config JWTConfig, logger forge.Logger) (*JWTManager, error) {
 	}, nil
 }
 
-// GenerateToken generates a new JWT token
+// GenerateToken generates a new JWT token.
 func (jm *JWTManager) GenerateToken(claims *JWTClaims) (string, error) {
 	now := time.Now()
 
@@ -161,6 +165,7 @@ func (jm *JWTManager) GenerateToken(claims *JWTClaims) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to generate token ID: %w", err)
 		}
+
 		claims.ID = id
 	}
 
@@ -176,7 +181,7 @@ func (jm *JWTManager) GenerateToken(claims *JWTClaims) (string, error) {
 	return signedToken, nil
 }
 
-// GenerateRefreshToken generates a new refresh token
+// GenerateRefreshToken generates a new refresh token.
 func (jm *JWTManager) GenerateRefreshToken(userID string) (string, error) {
 	now := time.Now()
 
@@ -196,6 +201,7 @@ func (jm *JWTManager) GenerateRefreshToken(userID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to generate token ID: %w", err)
 	}
+
 	claims.ID = id
 
 	// Create token with "refresh" type
@@ -210,7 +216,7 @@ func (jm *JWTManager) GenerateRefreshToken(userID string) (string, error) {
 	return signedToken, nil
 }
 
-// ValidateToken validates a JWT token and returns the claims
+// ValidateToken validates a JWT token and returns the claims.
 func (jm *JWTManager) ValidateToken(tokenString string) (*JWTClaims, error) {
 	// Parse token
 	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
@@ -218,16 +224,18 @@ func (jm *JWTManager) ValidateToken(tokenString string) (*JWTClaims, error) {
 		if token.Method != jm.signingMethod {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
+
 		return []byte(jm.config.SigningKey), nil
 	})
-
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, ErrJWTExpired
 		}
+
 		if errors.Is(err, jwt.ErrTokenNotValidYet) {
 			return nil, ErrJWTNotYetValid
 		}
+
 		return nil, ErrJWTInvalid
 	}
 
@@ -240,12 +248,15 @@ func (jm *JWTManager) ValidateToken(tokenString string) (*JWTClaims, error) {
 	// Validate audience
 	if jm.config.Audience != "" {
 		validAudience := false
+
 		for _, aud := range claims.Audience {
 			if aud == jm.config.Audience {
 				validAudience = true
+
 				break
 			}
 		}
+
 		if !validAudience {
 			return nil, ErrJWTInvalid
 		}
@@ -261,7 +272,7 @@ func (jm *JWTManager) ValidateToken(tokenString string) (*JWTClaims, error) {
 	return claims, nil
 }
 
-// extractTokenFromRequest extracts the JWT token from request based on TokenLookup config
+// extractTokenFromRequest extracts the JWT token from request based on TokenLookup config.
 func (jm *JWTManager) extractTokenFromRequest(r *http.Request) string {
 	lookups := strings.Split(jm.config.TokenLookup, ",")
 
@@ -275,6 +286,7 @@ func (jm *JWTManager) extractTokenFromRequest(r *http.Request) string {
 		key := parts[1]
 
 		var token string
+
 		switch extractor {
 		case "header":
 			auth := r.Header.Get(key)
@@ -307,20 +319,21 @@ func (jm *JWTManager) extractTokenFromRequest(r *http.Request) string {
 	return ""
 }
 
-// shouldSkipPath checks if the path should skip JWT authentication
+// shouldSkipPath checks if the path should skip JWT authentication.
 func (jm *JWTManager) shouldSkipPath(path string) bool {
 	for _, skipPath := range jm.config.SkipPaths {
 		if path == skipPath || strings.HasPrefix(path, skipPath) {
 			return true
 		}
 	}
+
 	return false
 }
 
-// jwtContextKey is the context key for JWT claims
+// jwtContextKey is the context key for JWT claims.
 type jwtContextKey struct{}
 
-// JWTMiddleware returns a middleware function for JWT authentication
+// JWTMiddleware returns a middleware function for JWT authentication.
 func JWTMiddleware(jwtManager *JWTManager) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -341,6 +354,7 @@ func JWTMiddleware(jwtManager *JWTManager) forge.Middleware {
 				jwtManager.logger.Debug("jwt token missing",
 					forge.F("path", r.URL.Path),
 				)
+
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
@@ -351,6 +365,7 @@ func JWTMiddleware(jwtManager *JWTManager) forge.Middleware {
 					forge.F("error", err),
 					forge.F("path", r.URL.Path),
 				)
+
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
@@ -362,23 +377,26 @@ func JWTMiddleware(jwtManager *JWTManager) forge.Middleware {
 	}
 }
 
-// GetJWTClaims retrieves JWT claims from Forge context
+// GetJWTClaims retrieves JWT claims from Forge context.
 func GetJWTClaims(ctx forge.Context) (*JWTClaims, bool) {
 	val := ctx.Get("jwt_claims")
 	if val == nil {
 		return nil, false
 	}
+
 	claims, ok := val.(*JWTClaims)
+
 	return claims, ok
 }
 
-// GetJWTClaimsFromStdContext retrieves JWT claims from standard context (for backward compatibility)
+// GetJWTClaimsFromStdContext retrieves JWT claims from standard context (for backward compatibility).
 func GetJWTClaimsFromStdContext(ctx context.Context) (*JWTClaims, bool) {
 	claims, ok := ctx.Value(jwtContextKey{}).(*JWTClaims)
+
 	return claims, ok
 }
 
-// RequireRoles returns a middleware that checks if the user has required roles
+// RequireRoles returns a middleware that checks if the user has required roles.
 func RequireRoles(roles ...string) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -389,13 +407,16 @@ func RequireRoles(roles ...string) forge.Middleware {
 
 			// Check if user has any of the required roles
 			hasRole := false
+
 			for _, requiredRole := range roles {
 				for _, userRole := range claims.Roles {
 					if userRole == requiredRole {
 						hasRole = true
+
 						break
 					}
 				}
+
 				if hasRole {
 					break
 				}
@@ -410,11 +431,12 @@ func RequireRoles(roles ...string) forge.Middleware {
 	}
 }
 
-// generateTokenID generates a random token ID
+// generateTokenID generates a random token ID.
 func generateTokenID() (string, error) {
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
+
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }

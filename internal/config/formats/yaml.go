@@ -9,12 +9,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// YAMLProcessor implements YAML format processing
+// YAMLProcessor implements YAML format processing.
 type YAMLProcessor struct {
 	options YAMLOptions
 }
 
-// YAMLOptions contains options for YAML processing
+// YAMLOptions contains options for YAML processing.
 type YAMLOptions struct {
 	Strict           bool              // Strict parsing mode
 	AllowDuplicates  bool              // Allow duplicate keys
@@ -24,7 +24,7 @@ type YAMLOptions struct {
 	DeprecatedFields map[string]string // Deprecated field mappings
 }
 
-// NewYAMLProcessor creates a new YAML processor
+// NewYAMLProcessor creates a new YAML processor.
 func NewYAMLProcessor() FormatProcessor {
 	return &YAMLProcessor{
 		options: YAMLOptions{
@@ -36,36 +36,36 @@ func NewYAMLProcessor() FormatProcessor {
 	}
 }
 
-// NewYAMLProcessorWithOptions creates a new YAML processor with options
+// NewYAMLProcessorWithOptions creates a new YAML processor with options.
 func NewYAMLProcessorWithOptions(options YAMLOptions) FormatProcessor {
 	return &YAMLProcessor{
 		options: options,
 	}
 }
 
-// Name returns the processor name
+// Name returns the processor name.
 func (p *YAMLProcessor) Name() string {
 	return "yaml"
 }
 
-// Extensions returns supported file extensions
+// Extensions returns supported file extensions.
 func (p *YAMLProcessor) Extensions() []string {
 	return []string{".yaml", ".yml"}
 }
 
-// Parse parses YAML data into a configuration map
-func (p *YAMLProcessor) Parse(data []byte) (map[string]interface{}, error) {
+// Parse parses YAML data into a configuration map.
+func (p *YAMLProcessor) Parse(data []byte) (map[string]any, error) {
 	if len(data) == 0 {
-		return make(map[string]interface{}), nil
+		return make(map[string]any), nil
 	}
 
 	// Check if content is only whitespace
 	content := strings.TrimSpace(string(data))
 	if content == "" {
-		return make(map[string]interface{}), nil
+		return make(map[string]any), nil
 	}
 
-	var result map[string]interface{}
+	var result map[string]any
 
 	// Create decoder with options
 	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
@@ -77,7 +77,7 @@ func (p *YAMLProcessor) Parse(data []byte) (map[string]interface{}, error) {
 
 	// Handle null result
 	if result == nil {
-		result = make(map[string]interface{})
+		result = make(map[string]any)
 	}
 
 	// Process the result
@@ -106,10 +106,10 @@ func (p *YAMLProcessor) Parse(data []byte) (map[string]interface{}, error) {
 	return processedResult, nil
 }
 
-// Validate validates a configuration map against YAML rules
-func (p *YAMLProcessor) Validate(data map[string]interface{}) error {
+// Validate validates a configuration map against YAML rules.
+func (p *YAMLProcessor) Validate(data map[string]any) error {
 	if data == nil {
-		return ErrValidationError("data", fmt.Errorf("configuration data is nil"))
+		return ErrValidationError("data", errors.New("configuration data is nil"))
 	}
 
 	// Check required fields
@@ -132,58 +132,65 @@ func (p *YAMLProcessor) Validate(data map[string]interface{}) error {
 	return nil
 }
 
-// processYAMLData processes YAML data to normalize types
-func (p *YAMLProcessor) processYAMLData(data map[string]interface{}) (map[string]interface{}, error) {
-	result := make(map[string]interface{})
+// processYAMLData processes YAML data to normalize types.
+func (p *YAMLProcessor) processYAMLData(data map[string]any) (map[string]any, error) {
+	result := make(map[string]any)
 
 	for key, value := range data {
 		processedValue, err := p.processYAMLValue(value)
 		if err != nil {
 			return nil, ErrConfigError(fmt.Sprintf("failed to process key '%s'", key), err)
 		}
+
 		result[key] = processedValue
 	}
 
 	return result, nil
 }
 
-// processYAMLValue processes a single YAML value
-func (p *YAMLProcessor) processYAMLValue(value interface{}) (interface{}, error) {
+// processYAMLValue processes a single YAML value.
+func (p *YAMLProcessor) processYAMLValue(value any) (any, error) {
 	if value == nil {
 		return nil, nil
 	}
 
 	switch v := value.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		// Recursively process nested maps
 		return p.processYAMLData(v)
 
-	case map[interface{}]interface{}:
+	case map[any]any:
 		// Convert map[interface{}]interface{} to map[string]interface{}
-		result := make(map[string]interface{})
+		result := make(map[string]any)
+
 		for k, val := range v {
 			keyStr, ok := k.(string)
 			if !ok {
 				keyStr = fmt.Sprintf("%v", k)
 			}
+
 			processedVal, err := p.processYAMLValue(val)
 			if err != nil {
 				return nil, err
 			}
+
 			result[keyStr] = processedVal
 		}
+
 		return result, nil
 
-	case []interface{}:
+	case []any:
 		// Process array elements
-		result := make([]interface{}, len(v))
+		result := make([]any, len(v))
 		for i, item := range v {
 			processedItem, err := p.processYAMLValue(item)
 			if err != nil {
 				return nil, err
 			}
+
 			result[i] = processedItem
 		}
+
 		return result, nil
 
 	case string:
@@ -196,8 +203,8 @@ func (p *YAMLProcessor) processYAMLValue(value interface{}) (interface{}, error)
 	}
 }
 
-// processStringValue processes string values for special YAML constructs
-func (p *YAMLProcessor) processStringValue(value string) (interface{}, error) {
+// processStringValue processes string values for special YAML constructs.
+func (p *YAMLProcessor) processStringValue(value string) (any, error) {
 	// Handle YAML null values
 	if value == "null" || value == "~" || value == "" {
 		return nil, nil
@@ -217,10 +224,10 @@ func (p *YAMLProcessor) processStringValue(value string) (interface{}, error) {
 	return value, nil
 }
 
-// validateYAMLStructure validates the YAML structure
-func (p *YAMLProcessor) validateYAMLStructure(data map[string]interface{}) error {
+// validateYAMLStructure validates the YAML structure.
+func (p *YAMLProcessor) validateYAMLStructure(data map[string]any) error {
 	// Check for circular references
-	if err := p.checkCircularReferences(data, make(map[interface{}]bool)); err != nil {
+	if err := p.checkCircularReferences(data, make(map[any]bool)); err != nil {
 		return err
 	}
 
@@ -228,8 +235,8 @@ func (p *YAMLProcessor) validateYAMLStructure(data map[string]interface{}) error
 	return p.validateNestedStructure(data, "")
 }
 
-// checkCircularReferences checks for circular references in the data
-func (p *YAMLProcessor) checkCircularReferences(data interface{}, visited map[interface{}]bool) error {
+// checkCircularReferences checks for circular references in the data.
+func (p *YAMLProcessor) checkCircularReferences(data any, visited map[any]bool) error {
 	if data == nil {
 		return nil
 	}
@@ -242,7 +249,7 @@ func (p *YAMLProcessor) checkCircularReferences(data interface{}, visited map[in
 
 	// Check if we've seen this exact object before
 	if visited[dataPtr.Interface()] {
-		return ErrValidationError("circular_reference", fmt.Errorf("circular reference detected"))
+		return ErrValidationError("circular_reference", errors.New("circular reference detected"))
 	}
 
 	// Mark as visited
@@ -250,13 +257,13 @@ func (p *YAMLProcessor) checkCircularReferences(data interface{}, visited map[in
 	defer delete(visited, dataPtr.Interface())
 
 	switch v := data.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		for _, value := range v {
 			if err := p.checkCircularReferences(value, visited); err != nil {
 				return err
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, item := range v {
 			if err := p.checkCircularReferences(item, visited); err != nil {
 				return err
@@ -267,8 +274,8 @@ func (p *YAMLProcessor) checkCircularReferences(data interface{}, visited map[in
 	return nil
 }
 
-// validateNestedStructure validates nested structure constraints
-func (p *YAMLProcessor) validateNestedStructure(data map[string]interface{}, path string) error {
+// validateNestedStructure validates nested structure constraints.
+func (p *YAMLProcessor) validateNestedStructure(data map[string]any, path string) error {
 	for key, value := range data {
 		currentPath := key
 		if path != "" {
@@ -281,14 +288,14 @@ func (p *YAMLProcessor) validateNestedStructure(data map[string]interface{}, pat
 		}
 
 		// Recursively validate nested maps
-		if nestedMap, ok := value.(map[string]interface{}); ok {
+		if nestedMap, ok := value.(map[string]any); ok {
 			if err := p.validateNestedStructure(nestedMap, currentPath); err != nil {
 				return err
 			}
 		}
 
 		// Validate arrays
-		if array, ok := value.([]interface{}); ok {
+		if array, ok := value.([]any); ok {
 			if err := p.validateArrayStructure(array, currentPath); err != nil {
 				return err
 			}
@@ -298,11 +305,11 @@ func (p *YAMLProcessor) validateNestedStructure(data map[string]interface{}, pat
 	return nil
 }
 
-// validateKeyFormat validates configuration key format
+// validateKeyFormat validates configuration key format.
 func (p *YAMLProcessor) validateKeyFormat(key string) error {
 	// Check for empty keys
 	if strings.TrimSpace(key) == "" {
-		return fmt.Errorf("empty key not allowed")
+		return errors.New("empty key not allowed")
 	}
 
 	// Check for reserved characters in strict mode
@@ -318,20 +325,20 @@ func (p *YAMLProcessor) validateKeyFormat(key string) error {
 	return nil
 }
 
-// validateArrayStructure validates array structure
-func (p *YAMLProcessor) validateArrayStructure(array []interface{}, path string) error {
+// validateArrayStructure validates array structure.
+func (p *YAMLProcessor) validateArrayStructure(array []any, path string) error {
 	for i, item := range array {
 		itemPath := fmt.Sprintf("%s[%d]", path, i)
 
 		// Recursively validate nested maps in arrays
-		if nestedMap, ok := item.(map[string]interface{}); ok {
+		if nestedMap, ok := item.(map[string]any); ok {
 			if err := p.validateNestedStructure(nestedMap, itemPath); err != nil {
 				return err
 			}
 		}
 
 		// Recursively validate nested arrays
-		if nestedArray, ok := item.([]interface{}); ok {
+		if nestedArray, ok := item.([]any); ok {
 			if err := p.validateArrayStructure(nestedArray, itemPath); err != nil {
 				return err
 			}
@@ -341,18 +348,19 @@ func (p *YAMLProcessor) validateArrayStructure(array []interface{}, path string)
 	return nil
 }
 
-// checkRequiredFields checks for required fields
-func (p *YAMLProcessor) checkRequiredFields(data map[string]interface{}) error {
+// checkRequiredFields checks for required fields.
+func (p *YAMLProcessor) checkRequiredFields(data map[string]any) error {
 	for _, required := range p.options.RequiredFields {
 		if !p.hasNestedKey(data, required) {
 			return ErrValidationError("required_field", fmt.Errorf("required field missing: %s", required))
 		}
 	}
+
 	return nil
 }
 
-// checkDeprecatedFields checks for deprecated fields
-func (p *YAMLProcessor) checkDeprecatedFields(data map[string]interface{}) error {
+// checkDeprecatedFields checks for deprecated fields.
+func (p *YAMLProcessor) checkDeprecatedFields(data map[string]any) error {
 	var warnings []string
 
 	for deprecated, replacement := range p.options.DeprecatedFields {
@@ -361,6 +369,7 @@ func (p *YAMLProcessor) checkDeprecatedFields(data map[string]interface{}) error
 			if replacement != "" {
 				warning += fmt.Sprintf(", use '%s' instead", replacement)
 			}
+
 			warnings = append(warnings, warning)
 		}
 	}
@@ -373,13 +382,13 @@ func (p *YAMLProcessor) checkDeprecatedFields(data map[string]interface{}) error
 	return nil
 }
 
-// hasNestedKey checks if a nested key exists
-func (p *YAMLProcessor) hasNestedKey(data map[string]interface{}, key string) bool {
+// hasNestedKey checks if a nested key exists.
+func (p *YAMLProcessor) hasNestedKey(data map[string]any, key string) bool {
 	keys := strings.Split(key, ".")
-	current := interface{}(data)
+	current := any(data)
 
 	for _, k := range keys {
-		if currentMap, ok := current.(map[string]interface{}); ok {
+		if currentMap, ok := current.(map[string]any); ok {
 			if value, exists := currentMap[k]; exists {
 				current = value
 			} else {
@@ -393,15 +402,16 @@ func (p *YAMLProcessor) hasNestedKey(data map[string]interface{}, key string) bo
 	return true
 }
 
-// Marshal marshals a configuration map to YAML
-func (p *YAMLProcessor) Marshal(data map[string]interface{}) ([]byte, error) {
+// Marshal marshals a configuration map to YAML.
+func (p *YAMLProcessor) Marshal(data map[string]any) ([]byte, error) {
 	return yaml.Marshal(data)
 }
 
-// MarshalIndent marshals a configuration map to indented YAML
-func (p *YAMLProcessor) MarshalIndent(data map[string]interface{}, indent string) ([]byte, error) {
+// MarshalIndent marshals a configuration map to indented YAML.
+func (p *YAMLProcessor) MarshalIndent(data map[string]any, indent string) ([]byte, error) {
 	// YAML doesn't have a direct indent option like JSON, but we can configure the encoder
 	var buf strings.Builder
+
 	encoder := yaml.NewEncoder(&buf)
 	encoder.SetIndent(len(indent))
 
@@ -416,22 +426,25 @@ func (p *YAMLProcessor) MarshalIndent(data map[string]interface{}, indent string
 	return []byte(buf.String()), nil
 }
 
-// ParseMultiDocument parses multi-document YAML
-func (p *YAMLProcessor) ParseMultiDocument(data []byte) ([]map[string]interface{}, error) {
+// ParseMultiDocument parses multi-document YAML.
+func (p *YAMLProcessor) ParseMultiDocument(data []byte) ([]map[string]any, error) {
 	if len(data) == 0 {
-		return []map[string]interface{}{}, nil
+		return []map[string]any{}, nil
 	}
 
-	var documents []map[string]interface{}
+	var documents []map[string]any
+
 	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
 
 	for {
-		var doc map[string]interface{}
+		var doc map[string]any
+
 		err := decoder.Decode(&doc)
 		if err != nil {
 			if err.Error() == "EOF" {
 				break
 			}
+
 			return nil, ErrConfigError("failed to parse YAML document", err)
 		}
 
@@ -440,6 +453,7 @@ func (p *YAMLProcessor) ParseMultiDocument(data []byte) ([]map[string]interface{
 			if err != nil {
 				return nil, err
 			}
+
 			documents = append(documents, processedDoc)
 		}
 	}
@@ -447,8 +461,8 @@ func (p *YAMLProcessor) ParseMultiDocument(data []byte) ([]map[string]interface{
 	return documents, nil
 }
 
-// ValidateWithSchema validates YAML against a JSON schema
-func (p *YAMLProcessor) ValidateWithSchema(data map[string]interface{}, schema interface{}) error {
+// ValidateWithSchema validates YAML against a JSON schema.
+func (p *YAMLProcessor) ValidateWithSchema(data map[string]any, schema any) error {
 	// This is a placeholder for JSON schema validation
 	// In a real implementation, you would use a JSON schema validation library
 	// like github.com/xeipuuv/gojsonschema
@@ -466,29 +480,34 @@ func (p *YAMLProcessor) ValidateWithSchema(data map[string]interface{}, schema i
 	return nil
 }
 
-// convertToJSONCompatible converts YAML data to JSON-compatible format
-func (p *YAMLProcessor) convertToJSONCompatible(data interface{}) (interface{}, error) {
+// convertToJSONCompatible converts YAML data to JSON-compatible format.
+func (p *YAMLProcessor) convertToJSONCompatible(data any) (any, error) {
 	switch v := data.(type) {
-	case map[string]interface{}:
-		result := make(map[string]interface{})
+	case map[string]any:
+		result := make(map[string]any)
+
 		for key, value := range v {
 			convertedValue, err := p.convertToJSONCompatible(value)
 			if err != nil {
 				return nil, err
 			}
+
 			result[key] = convertedValue
 		}
+
 		return result, nil
 
-	case []interface{}:
-		result := make([]interface{}, len(v))
+	case []any:
+		result := make([]any, len(v))
 		for i, item := range v {
 			convertedItem, err := p.convertToJSONCompatible(item)
 			if err != nil {
 				return nil, err
 			}
+
 			result[i] = convertedItem
 		}
+
 		return result, nil
 
 	case nil:
@@ -499,9 +518,9 @@ func (p *YAMLProcessor) convertToJSONCompatible(data interface{}) (interface{}, 
 	}
 }
 
-// GetMetadata returns metadata about the YAML processor
-func (p *YAMLProcessor) GetMetadata() map[string]interface{} {
-	return map[string]interface{}{
+// GetMetadata returns metadata about the YAML processor.
+func (p *YAMLProcessor) GetMetadata() map[string]any {
+	return map[string]any{
 		"name":              p.Name(),
 		"extensions":        p.Extensions(),
 		"strict_mode":       p.options.Strict,
@@ -513,27 +532,29 @@ func (p *YAMLProcessor) GetMetadata() map[string]interface{} {
 	}
 }
 
-// SetOptions updates the processor options
+// SetOptions updates the processor options.
 func (p *YAMLProcessor) SetOptions(options YAMLOptions) {
 	p.options = options
 }
 
-// GetOptions returns the current processor options
+// GetOptions returns the current processor options.
 func (p *YAMLProcessor) GetOptions() YAMLOptions {
 	return p.options
 }
 
 // YAML-specific utility functions
 
-// ExtractComments extracts comments from YAML content
+// ExtractComments extracts comments from YAML content.
 func ExtractComments(data []byte) ([]string, error) {
 	var comments []string
-	lines := strings.Split(string(data), "\n")
 
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(data), "\n")
+
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			comment := strings.TrimPrefix(trimmed, "#")
+		if after, ok := strings.CutPrefix(trimmed, "#"); ok {
+			comment := after
+
 			comment = strings.TrimSpace(comment)
 			if comment != "" {
 				comments = append(comments, comment)
@@ -544,15 +565,16 @@ func ExtractComments(data []byte) ([]string, error) {
 	return comments, nil
 }
 
-// ValidateYAMLSyntax validates YAML syntax without full parsing
+// ValidateYAMLSyntax validates YAML syntax without full parsing.
 func ValidateYAMLSyntax(data []byte) error {
-	var temp interface{}
+	var temp any
+
 	return yaml.Unmarshal(data, &temp)
 }
 
-// FormatYAML formats YAML content with consistent indentation
+// FormatYAML formats YAML content with consistent indentation.
 func FormatYAML(data []byte) ([]byte, error) {
-	var content interface{}
+	var content any
 	if err := yaml.Unmarshal(data, &content); err != nil {
 		return nil, err
 	}
@@ -560,9 +582,9 @@ func FormatYAML(data []byte) ([]byte, error) {
 	return yaml.Marshal(content)
 }
 
-// MergeYAMLDocuments merges multiple YAML documents
-func MergeYAMLDocuments(documents ...map[string]interface{}) (map[string]interface{}, error) {
-	result := make(map[string]interface{})
+// MergeYAMLDocuments merges multiple YAML documents.
+func MergeYAMLDocuments(documents ...map[string]any) (map[string]any, error) {
+	result := make(map[string]any)
 
 	for _, doc := range documents {
 		if err := mergeMap(result, doc); err != nil {
@@ -573,16 +595,17 @@ func MergeYAMLDocuments(documents ...map[string]interface{}) (map[string]interfa
 	return result, nil
 }
 
-// mergeMap recursively merges maps
-func mergeMap(dst, src map[string]interface{}) error {
+// mergeMap recursively merges maps.
+func mergeMap(dst, src map[string]any) error {
 	for key, srcValue := range src {
 		if dstValue, exists := dst[key]; exists {
 			// Both values exist, try to merge if both are maps
-			if dstMap, ok := dstValue.(map[string]interface{}); ok {
-				if srcMap, ok := srcValue.(map[string]interface{}); ok {
+			if dstMap, ok := dstValue.(map[string]any); ok {
+				if srcMap, ok := srcValue.(map[string]any); ok {
 					if err := mergeMap(dstMap, srcMap); err != nil {
 						return err
 					}
+
 					continue
 				}
 			}
@@ -590,5 +613,6 @@ func mergeMap(dst, src map[string]interface{}) error {
 		// Set or override the value
 		dst[key] = srcValue
 	}
+
 	return nil
 }

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Session represents a user session (mirrors security.Session)
+// Session represents a user session (mirrors security.Session).
 type Session interface {
 	GetID() string
 	GetUserID() string
@@ -22,7 +22,7 @@ type Session interface {
 	GetLastAccessedAt() time.Time
 }
 
-// ResponseBuilder provides fluent response building
+// ResponseBuilder provides fluent response building.
 type ResponseBuilder interface {
 	JSON(v any) error
 	XML(v any) error
@@ -32,7 +32,7 @@ type ResponseBuilder interface {
 	Header(key, value string) ResponseBuilder
 }
 
-// Context wraps http.Request with convenience methods
+// Context wraps http.Request with convenience methods.
 type Context interface {
 
 	// Request access
@@ -42,13 +42,13 @@ type Context interface {
 	// Path parameters
 	Param(name string) string
 	Params() map[string]string
-	
+
 	// Path parameters with type conversion
 	ParamInt(name string) (int, error)
 	ParamInt64(name string) (int64, error)
 	ParamFloat64(name string) (float64, error)
 	ParamBool(name string) (bool, error)
-	
+
 	// Path parameters with defaults
 	ParamIntDefault(name string, defaultValue int) int
 	ParamInt64Default(name string, defaultValue int64) int64
@@ -100,7 +100,7 @@ type Context interface {
 	Scope() Scope
 	Resolve(name string) (any, error)
 	Must(name string) any
-	
+
 	// Cookie management
 	Cookie(name string) (string, error)
 	SetCookie(name, value string, maxAge int)
@@ -108,7 +108,7 @@ type Context interface {
 	DeleteCookie(name string)
 	HasCookie(name string) bool
 	GetAllCookies() map[string]string
-	
+
 	// Session management
 	Session() (Session, error)
 	SetSession(session Session)

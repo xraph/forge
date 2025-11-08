@@ -11,10 +11,10 @@ import (
 	"github.com/xraph/forge/extensions/ai/sdk/testhelpers"
 )
 
-// Test structs
+// Test structs.
 type Person struct {
-	Name string `json:"name" description:"Full name of the person"`
-	Age  int    `json:"age" description:"Age in years"`
+	Name string `description:"Full name of the person" json:"name"`
+	Age  int    `description:"Age in years"            json:"age"`
 }
 
 type Address struct {
@@ -29,12 +29,12 @@ type NestedStruct struct {
 }
 
 type ComplexTypes struct {
-	StringSlice []string           `json:"string_slice"`
-	IntSlice    []int              `json:"int_slice"`
-	FloatValue  float64            `json:"float_value"`
-	BoolValue   bool               `json:"bool_value"`
-	MapValue    map[string]string  `json:"map_value"`
-	PointerStr  *string            `json:"pointer_str,omitempty"`
+	StringSlice []string          `json:"string_slice"`
+	IntSlice    []int             `json:"int_slice"`
+	FloatValue  float64           `json:"float_value"`
+	BoolValue   bool              `json:"bool_value"`
+	MapValue    map[string]string `json:"map_value"`
+	PointerStr  *string           `json:"pointer_str,omitempty"`
 }
 
 func TestNewGenerateObjectBuilder(t *testing.T) {
@@ -356,6 +356,7 @@ func TestGenerateObjectBuilder_WithValidator(t *testing.T) {
 		if p.Age < 0 {
 			return errors.New("age cannot be negative")
 		}
+
 		return nil
 	}
 	result := builder.WithValidator(validator)
@@ -400,7 +401,9 @@ func TestGenerateObjectBuilder_Execute_Success(t *testing.T) {
 	metrics := testhelpers.NewMockMetrics()
 
 	startCalled := false
+
 	var completedPerson Person
+
 	errorCalled := false
 
 	builder := NewGenerateObjectBuilder[Person](context.Background(), mockLLM, logger, metrics)
@@ -413,7 +416,6 @@ func TestGenerateObjectBuilder_Execute_Success(t *testing.T) {
 		OnComplete(func(p Person) { completedPerson = p }).
 		OnError(func(e error) { errorCalled = true }).
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -477,7 +479,6 @@ func TestGenerateObjectBuilder_Execute_WithTemplateVars(t *testing.T) {
 		WithVar("name", "Bob").
 		WithVar("age", 25).
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -515,10 +516,10 @@ func TestGenerateObjectBuilder_Execute_WithValidator(t *testing.T) {
 			if p.Age < 0 {
 				return errors.New("age cannot be negative")
 			}
+
 			return nil
 		}).
 		Execute()
-
 	if err == nil {
 		t.Error("expected validation error")
 	} else {
@@ -543,7 +544,6 @@ func TestGenerateObjectBuilder_Execute_LLMError(t *testing.T) {
 		WithRetries(0, 0). // No retries
 		OnError(func(e error) { errorCalled = true }).
 		Execute()
-
 	if err == nil {
 		t.Error("expected error")
 	}
@@ -575,7 +575,6 @@ func TestGenerateObjectBuilder_Execute_JSONParseError(t *testing.T) {
 		WithPrompt("Extract person").
 		WithRetries(0, 0). // No retries
 		Execute()
-
 	if err == nil {
 		t.Error("expected JSON parse error")
 	}
@@ -604,7 +603,6 @@ func TestGenerateObjectBuilder_Execute_FallbackOnFail(t *testing.T) {
 		WithRetries(0, 0).
 		WithFallbackOnFail(true).
 		Execute()
-
 	if err != nil {
 		t.Errorf("expected no error with fallback, got %v", err)
 	}
@@ -630,7 +628,6 @@ func TestGenerateObjectBuilder_Execute_NoChoices(t *testing.T) {
 		WithPrompt("Extract person").
 		WithRetries(0, 0).
 		Execute()
-
 	if err == nil {
 		t.Error("expected error when no choices")
 	}
@@ -640,7 +637,6 @@ func TestGenerateObjectBuilder_GenerateSchema_SimpleStruct(t *testing.T) {
 	builder := NewGenerateObjectBuilder[Person](context.Background(), nil, nil, nil)
 
 	schema, err := builder.generateSchema()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -683,7 +679,6 @@ func TestGenerateObjectBuilder_GenerateSchema_NestedStruct(t *testing.T) {
 	builder := NewGenerateObjectBuilder[NestedStruct](context.Background(), nil, nil, nil)
 
 	schema, err := builder.generateSchema()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -709,7 +704,6 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 	builder := NewGenerateObjectBuilder[ComplexTypes](context.Background(), nil, nil, nil)
 
 	schema, err := builder.generateSchema()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -720,6 +714,7 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 	if props["string_slice"] == nil {
 		t.Error("expected string_slice property")
 	}
+
 	sliceSchema := props["string_slice"].(map[string]interface{})
 	if sliceSchema["type"] != "array" {
 		t.Error("expected string_slice type to be array")
@@ -729,6 +724,7 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 	if props["float_value"] == nil {
 		t.Error("expected float_value property")
 	}
+
 	floatSchema := props["float_value"].(map[string]interface{})
 	if floatSchema["type"] != "number" {
 		t.Error("expected float_value type to be number")
@@ -738,6 +734,7 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 	if props["bool_value"] == nil {
 		t.Error("expected bool_value property")
 	}
+
 	boolSchema := props["bool_value"].(map[string]interface{})
 	if boolSchema["type"] != "boolean" {
 		t.Error("expected bool_value type to be boolean")
@@ -747,6 +744,7 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 	if props["map_value"] == nil {
 		t.Error("expected map_value property")
 	}
+
 	mapSchema := props["map_value"].(map[string]interface{})
 	if mapSchema["type"] != "object" {
 		t.Error("expected map_value type to be object")
@@ -757,7 +755,6 @@ func TestGenerateObjectBuilder_GenerateSchema_WithOmitempty(t *testing.T) {
 	builder := NewGenerateObjectBuilder[Address](context.Background(), nil, nil, nil)
 
 	schema, err := builder.generateSchema()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -766,9 +763,11 @@ func TestGenerateObjectBuilder_GenerateSchema_WithOmitempty(t *testing.T) {
 
 	// zip_code has omitempty, so it should not be in required
 	hasZipCode := false
+
 	for _, field := range required {
 		if field == "zip_code" {
 			hasZipCode = true
+
 			break
 		}
 	}
@@ -780,10 +779,12 @@ func TestGenerateObjectBuilder_GenerateSchema_WithOmitempty(t *testing.T) {
 	// street and city should be required
 	hasStreet := false
 	hasCity := false
+
 	for _, field := range required {
 		if field == "street" {
 			hasStreet = true
 		}
+
 		if field == "city" {
 			hasCity = true
 		}
@@ -836,7 +837,6 @@ func TestGenerateObjectBuilder_Execute_WithCustomSchema(t *testing.T) {
 		WithPrompt("Extract").
 		WithSchema(customSchema).
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -876,7 +876,6 @@ func TestGenerateObjectBuilder_Execute_WithRetries(t *testing.T) {
 		WithPrompt("Extract").
 		WithRetries(5, 10*time.Millisecond).
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error after retries, got %v", err)
 	}
@@ -955,7 +954,6 @@ func TestGenerateObjectBuilder_GenerateSchema_NonStructType(t *testing.T) {
 	builder := NewGenerateObjectBuilder[string](context.Background(), nil, nil, nil)
 
 	_, err := builder.generateSchema()
-
 	if err == nil {
 		t.Error("expected error for non-struct type")
 	}
@@ -969,7 +967,6 @@ func TestGenerateObjectBuilder_GenerateSchema_PointerType(t *testing.T) {
 	builder := NewGenerateObjectBuilder[*TestStruct](context.Background(), nil, nil, nil)
 
 	schema, err := builder.generateSchema()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -983,7 +980,6 @@ func TestGenerateObjectBuilder_Execute_SchemaGenerationError(t *testing.T) {
 	builder := NewGenerateObjectBuilder[string](context.Background(), nil, nil, nil)
 
 	_, err := builder.WithPrompt("test").Execute()
-
 	if err == nil {
 		t.Error("expected schema generation error")
 	}
@@ -991,27 +987,26 @@ func TestGenerateObjectBuilder_Execute_SchemaGenerationError(t *testing.T) {
 
 func TestGenerateObjectBuilder_GeneratePropertySchema_AllTypes(t *testing.T) {
 	type AllTypes struct {
-		String  string          `json:"string"`
-		Int8    int8            `json:"int8"`
-		Int16   int16           `json:"int16"`
-		Int32   int32           `json:"int32"`
-		Int64   int64           `json:"int64"`
-		Uint    uint            `json:"uint"`
-		Uint8   uint8           `json:"uint8"`
-		Uint16  uint16          `json:"uint16"`
-		Uint32  uint32          `json:"uint32"`
-		Uint64  uint64          `json:"uint64"`
-		Float32 float32         `json:"float32"`
-		Float64 float64         `json:"float64"`
-		Bool    bool            `json:"bool"`
-		Slice   []string        `json:"slice"`
-		Map     map[string]int  `json:"map"`
+		String  string         `json:"string"`
+		Int8    int8           `json:"int8"`
+		Int16   int16          `json:"int16"`
+		Int32   int32          `json:"int32"`
+		Int64   int64          `json:"int64"`
+		Uint    uint           `json:"uint"`
+		Uint8   uint8          `json:"uint8"`
+		Uint16  uint16         `json:"uint16"`
+		Uint32  uint32         `json:"uint32"`
+		Uint64  uint64         `json:"uint64"`
+		Float32 float32        `json:"float32"`
+		Float64 float64        `json:"float64"`
+		Bool    bool           `json:"bool"`
+		Slice   []string       `json:"slice"`
+		Map     map[string]int `json:"map"`
 	}
 
 	builder := NewGenerateObjectBuilder[AllTypes](context.Background(), nil, nil, nil)
 
 	schema, err := builder.generateSchema()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1072,7 +1067,6 @@ func TestGenerateObjectBuilder_Execute_NilLogger(t *testing.T) {
 	result, err := builder.
 		WithPrompt("Extract person").
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1111,7 +1105,6 @@ func TestGenerateObjectBuilder_Execute_NilMetrics(t *testing.T) {
 	result, err := builder.
 		WithPrompt("Extract person").
 		Execute()
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -1139,7 +1132,7 @@ func TestGenerateObjectBuilder_BuildMessages_EmptyPrompt(t *testing.T) {
 	}
 }
 
-// Helper function
+// Helper function.
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsSubstring(s, substr))
 }
@@ -1150,6 +1143,6 @@ func containsSubstring(s, substr string) bool {
 			return true
 		}
 	}
+
 	return false
 }
-

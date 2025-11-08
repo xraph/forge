@@ -20,11 +20,11 @@ func (m *mockLogger) Info(msg string, fields ...forge.Field)       { m.messages 
 func (m *mockLogger) Warn(msg string, fields ...forge.Field)       { m.messages = append(m.messages, msg) }
 func (m *mockLogger) Error(msg string, fields ...forge.Field)      { m.messages = append(m.messages, msg) }
 func (m *mockLogger) Fatal(msg string, fields ...forge.Field)      { m.messages = append(m.messages, msg) }
-func (m *mockLogger) Debugf(template string, args ...interface{})  {}
-func (m *mockLogger) Infof(template string, args ...interface{})   {}
-func (m *mockLogger) Warnf(template string, args ...interface{})   {}
-func (m *mockLogger) Errorf(template string, args ...interface{})  {}
-func (m *mockLogger) Fatalf(template string, args ...interface{})  {}
+func (m *mockLogger) Debugf(template string, args ...any)          {}
+func (m *mockLogger) Infof(template string, args ...any)           {}
+func (m *mockLogger) Warnf(template string, args ...any)           {}
+func (m *mockLogger) Errorf(template string, args ...any)          {}
+func (m *mockLogger) Fatalf(template string, args ...any)          {}
 func (m *mockLogger) With(fields ...forge.Field) forge.Logger      { return m }
 func (m *mockLogger) WithContext(ctx context.Context) forge.Logger { return m }
 func (m *mockLogger) Named(name string) forge.Logger               { return m }
@@ -37,7 +37,7 @@ func TestRecovery_NoPanic(t *testing.T) {
 		return ctx.String(http.StatusOK, "ok")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	ctx := di.NewContext(rec, req, nil)
 
@@ -55,7 +55,7 @@ func TestRecovery_WithPanic(t *testing.T) {
 		panic("something went wrong")
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	rec := httptest.NewRecorder()
 	ctx := di.NewContext(rec, req, nil)
 

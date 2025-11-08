@@ -7,18 +7,18 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Type aliases for AsyncAPI types
+// Type aliases for AsyncAPI types.
 type AsyncAPIMessage = shared.AsyncAPIMessage
 type AsyncAPIParameter = shared.AsyncAPIParameter
 
 // asyncAPISchemaGenerator generates AsyncAPI message schemas from Go types
-// It reuses the OpenAPI schema generator since AsyncAPI uses JSON Schema
+// It reuses the OpenAPI schema generator since AsyncAPI uses JSON Schema.
 type asyncAPISchemaGenerator struct {
 	schemaGen  *schemaGenerator
 	components map[string]*Schema // Reference to AsyncAPI components for nested types
 }
 
-// newAsyncAPISchemaGenerator creates a new AsyncAPI schema generator
+// newAsyncAPISchemaGenerator creates a new AsyncAPI schema generator.
 func newAsyncAPISchemaGenerator(components map[string]*Schema) *asyncAPISchemaGenerator {
 	return &asyncAPISchemaGenerator{
 		schemaGen:  newSchemaGenerator(components), // AsyncAPI supports component references
@@ -26,8 +26,8 @@ func newAsyncAPISchemaGenerator(components map[string]*Schema) *asyncAPISchemaGe
 	}
 }
 
-// GenerateMessageSchema generates an AsyncAPI message schema from a Go type
-func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t interface{}, contentType string) *AsyncAPIMessage {
+// GenerateMessageSchema generates an AsyncAPI message schema from a Go type.
+func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t any, contentType string) *AsyncAPIMessage {
 	if t == nil {
 		return nil
 	}
@@ -57,8 +57,8 @@ func (g *asyncAPISchemaGenerator) GenerateMessageSchema(t interface{}, contentTy
 }
 
 // GenerateHeadersSchema generates headers schema from a Go type
-// Headers are extracted from struct fields with `header:"name"` tag
-func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t interface{}) *Schema {
+// Headers are extracted from struct fields with `header:"name"` tag.
+func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t any) *Schema {
 	if t == nil {
 		return nil
 	}
@@ -116,13 +116,13 @@ func (g *asyncAPISchemaGenerator) GenerateHeadersSchema(t interface{}) *Schema {
 	return schema
 }
 
-// GeneratePayloadSchema generates only the payload schema from a Go type
-func (g *asyncAPISchemaGenerator) GeneratePayloadSchema(t interface{}) *Schema {
+// GeneratePayloadSchema generates only the payload schema from a Go type.
+func (g *asyncAPISchemaGenerator) GeneratePayloadSchema(t any) *Schema {
 	return g.schemaGen.GenerateSchema(t)
 }
 
-// ExtractMessageMetadata extracts AsyncAPI message metadata from struct tags
-func (g *asyncAPISchemaGenerator) ExtractMessageMetadata(t interface{}) (name, title, summary, description string) {
+// ExtractMessageMetadata extracts AsyncAPI message metadata from struct tags.
+func (g *asyncAPISchemaGenerator) ExtractMessageMetadata(t any) (name, title, summary, description string) {
 	if t == nil {
 		return
 	}
@@ -134,6 +134,7 @@ func (g *asyncAPISchemaGenerator) ExtractMessageMetadata(t interface{}) (name, t
 
 	if typ.Kind() != reflect.Struct {
 		name = typ.Name()
+
 		return
 	}
 
@@ -146,8 +147,8 @@ func (g *asyncAPISchemaGenerator) ExtractMessageMetadata(t interface{}) (name, t
 }
 
 // SplitMessageComponents splits a Go type into separate header and payload schemas
-// This is useful when a struct has both header:"" and json:"" tags
-func (g *asyncAPISchemaGenerator) SplitMessageComponents(t interface{}) (headers *Schema, payload *Schema) {
+// This is useful when a struct has both header:"" and json:"" tags.
+func (g *asyncAPISchemaGenerator) SplitMessageComponents(t any) (headers *Schema, payload *Schema) {
 	if t == nil {
 		return nil, nil
 	}
@@ -171,6 +172,7 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t interface{}) (headers
 	}
 
 	var required []string
+
 	hasPayloadFields := false
 
 	for i := 0; i < typ.NumField(); i++ {
@@ -221,7 +223,7 @@ func (g *asyncAPISchemaGenerator) SplitMessageComponents(t interface{}) (headers
 	return headers, payloadSchema
 }
 
-// CreateMessageWithSchema creates an AsyncAPI message with the given schema
+// CreateMessageWithSchema creates an AsyncAPI message with the given schema.
 func (g *asyncAPISchemaGenerator) CreateMessageWithSchema(schema *Schema, contentType string) *AsyncAPIMessage {
 	return &AsyncAPIMessage{
 		ContentType: contentType,
@@ -230,7 +232,7 @@ func (g *asyncAPISchemaGenerator) CreateMessageWithSchema(schema *Schema, conten
 }
 
 // pathToChannelID converts a route path to a valid AsyncAPI channel ID
-// Example: /ws/chat/{roomId} -> ws-chat-roomId
+// Example: /ws/chat/{roomId} -> ws-chat-roomId.
 func pathToChannelID(path string) string {
 	// Remove leading slash
 	path = strings.TrimPrefix(path, "/")
@@ -249,13 +251,13 @@ func pathToChannelID(path string) string {
 }
 
 // extractChannelParameters extracts parameter definitions from a route path
-// Example: /ws/chat/{roomId}/{userId} -> roomId, userId parameters
+// Example: /ws/chat/{roomId}/{userId} -> roomId, userId parameters.
 func extractChannelParameters(path string) map[string]*AsyncAPIParameter {
 	params := make(map[string]*AsyncAPIParameter)
 
 	// Find all parameters in path
 	start := -1
-	for i := 0; i < len(path); i++ {
+	for i := range len(path) {
 		if path[i] == '{' {
 			start = i + 1
 		} else if path[i] == '}' && start != -1 {
@@ -274,7 +276,7 @@ func extractChannelParameters(path string) map[string]*AsyncAPIParameter {
 }
 
 // createChannelAddress creates a channel address from a route path
-// It keeps the path format for AsyncAPI channel addresses
+// It keeps the path format for AsyncAPI channel addresses.
 func createChannelAddress(path string) string {
 	// AsyncAPI channel addresses can use parameter syntax like {paramName}
 	return path

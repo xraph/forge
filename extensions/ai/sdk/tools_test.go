@@ -30,13 +30,12 @@ func TestToolRegistry_RegisterTool(t *testing.T) {
 		Name:        "test_tool",
 		Version:     "1.0.0",
 		Description: "A test tool",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return "success", nil
 		},
 	}
 
 	err := registry.RegisterTool(tool)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -50,13 +49,12 @@ func TestToolRegistry_RegisterTool_NoName(t *testing.T) {
 	registry := NewToolRegistry(nil, nil)
 
 	tool := &ToolDefinition{
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
 
 	err := registry.RegisterTool(tool)
-
 	if err == nil {
 		t.Error("expected error for tool without name")
 	}
@@ -70,7 +68,6 @@ func TestToolRegistry_RegisterTool_NoHandler(t *testing.T) {
 	}
 
 	err := registry.RegisterTool(tool)
-
 	if err == nil {
 		t.Error("expected error for tool without handler")
 	}
@@ -82,14 +79,14 @@ func TestToolRegistry_RegisterTool_Duplicate(t *testing.T) {
 	tool := &ToolDefinition{
 		Name:    "test_tool",
 		Version: "1.0.0",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
 
 	registry.RegisterTool(tool)
-	err := registry.RegisterTool(tool)
 
+	err := registry.RegisterTool(tool)
 	if err == nil {
 		t.Error("expected error for duplicate tool")
 	}
@@ -100,7 +97,7 @@ func TestToolRegistry_RegisterTool_Defaults(t *testing.T) {
 
 	tool := &ToolDefinition{
 		Name: "test_tool",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
@@ -126,7 +123,6 @@ func TestToolRegistry_RegisterFunc_Simple(t *testing.T) {
 	}
 
 	err := registry.RegisterFunc("greet", "Greets a person", fn)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -144,7 +140,6 @@ func TestToolRegistry_RegisterFunc_NoContext(t *testing.T) {
 	}
 
 	err := registry.RegisterFunc("add", "Adds two numbers", fn)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -154,7 +149,6 @@ func TestToolRegistry_RegisterFunc_NotAFunction(t *testing.T) {
 	registry := NewToolRegistry(nil, nil)
 
 	err := registry.RegisterFunc("invalid", "Not a function", "not a function")
-
 	if err == nil {
 		t.Error("expected error for non-function")
 	}
@@ -168,7 +162,7 @@ func TestToolRegistry_GetTool(t *testing.T) {
 	original := &ToolDefinition{
 		Name:    "test_tool",
 		Version: "1.0.0",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
@@ -176,7 +170,6 @@ func TestToolRegistry_GetTool(t *testing.T) {
 	registry.RegisterTool(original)
 
 	retrieved, err := registry.GetTool("test_tool", "1.0.0")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -192,7 +185,7 @@ func TestToolRegistry_GetTool_DefaultVersion(t *testing.T) {
 	tool := &ToolDefinition{
 		Name:    "test_tool",
 		Version: "1.0.0",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
@@ -200,7 +193,6 @@ func TestToolRegistry_GetTool_DefaultVersion(t *testing.T) {
 	registry.RegisterTool(tool)
 
 	retrieved, err := registry.GetTool("test_tool", "")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -214,7 +206,6 @@ func TestToolRegistry_GetTool_NotFound(t *testing.T) {
 	registry := NewToolRegistry(nil, nil)
 
 	_, err := registry.GetTool("nonexistent", "1.0.0")
-
 	if err == nil {
 		t.Error("expected error for nonexistent tool")
 	}
@@ -225,11 +216,11 @@ func TestToolRegistry_GetTool_NotFound(t *testing.T) {
 func TestToolRegistry_ListTools(t *testing.T) {
 	registry := NewToolRegistry(nil, nil)
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		tool := &ToolDefinition{
 			Name:    "tool_" + string(rune('a'+i)),
 			Version: "1.0.0",
-			Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+			Handler: func(ctx context.Context, params map[string]any) (any, error) {
 				return nil, nil
 			},
 		}
@@ -254,7 +245,7 @@ func TestToolRegistry_ListToolsByCategory(t *testing.T) {
 			Name:     "tool_" + string(rune('a'+i)),
 			Version:  "1.0.0",
 			Category: cat,
-			Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+			Handler: func(ctx context.Context, params map[string]any) (any, error) {
 				return nil, nil
 			},
 		}
@@ -276,7 +267,7 @@ func TestToolRegistry_SearchTools_ByName(t *testing.T) {
 	tool := &ToolDefinition{
 		Name:    "calculator",
 		Version: "1.0.0",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
@@ -297,7 +288,7 @@ func TestToolRegistry_SearchTools_ByDescription(t *testing.T) {
 		Name:        "tool_a",
 		Version:     "1.0.0",
 		Description: "Performs mathematical operations",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
@@ -318,7 +309,7 @@ func TestToolRegistry_SearchTools_ByTag(t *testing.T) {
 		Name:    "tool_a",
 		Version: "1.0.0",
 		Tags:    []string{"utility", "text"},
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
@@ -347,17 +338,16 @@ func TestToolRegistry_ExecuteTool_Success(t *testing.T) {
 			},
 			Required: []string{"message"},
 		},
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return params["message"], nil
 		},
 	}
 
 	registry.RegisterTool(tool)
 
-	result, err := registry.ExecuteTool(context.Background(), "echo", "1.0.0", map[string]interface{}{
+	result, err := registry.ExecuteTool(context.Background(), "echo", "1.0.0", map[string]any{
 		"message": "hello",
 	})
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -383,15 +373,14 @@ func TestToolRegistry_ExecuteTool_Error(t *testing.T) {
 			Type:       "object",
 			Properties: map[string]ToolParameterProperty{},
 		},
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, testErr
 		},
 	}
 
 	registry.RegisterTool(tool)
 
-	result, err := registry.ExecuteTool(context.Background(), "failing_tool", "1.0.0", map[string]interface{}{})
-
+	result, err := registry.ExecuteTool(context.Background(), "failing_tool", "1.0.0", map[string]any{})
 	if err == nil {
 		t.Error("expected error from tool execution")
 	}
@@ -414,15 +403,14 @@ func TestToolRegistry_ExecuteTool_MissingParameter(t *testing.T) {
 			},
 			Required: []string{"required_param"},
 		},
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
 
 	registry.RegisterTool(tool)
 
-	_, err := registry.ExecuteTool(context.Background(), "tool", "1.0.0", map[string]interface{}{})
-
+	_, err := registry.ExecuteTool(context.Background(), "tool", "1.0.0", map[string]any{})
 	if err == nil {
 		t.Error("expected error for missing parameter")
 	}
@@ -439,7 +427,7 @@ func TestToolRegistry_ExecuteTool_Timeout(t *testing.T) {
 			Type:       "object",
 			Properties: map[string]ToolParameterProperty{},
 		},
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			// Respect context cancellation
 			select {
 			case <-time.After(200 * time.Millisecond):
@@ -452,8 +440,7 @@ func TestToolRegistry_ExecuteTool_Timeout(t *testing.T) {
 
 	registry.RegisterTool(tool)
 
-	result, err := registry.ExecuteTool(context.Background(), "slow_tool", "1.0.0", map[string]interface{}{})
-
+	result, err := registry.ExecuteTool(context.Background(), "slow_tool", "1.0.0", map[string]any{})
 	if err == nil {
 		t.Error("expected timeout error")
 	}
@@ -471,7 +458,7 @@ func TestToolRegistry_UnregisterTool(t *testing.T) {
 	tool := &ToolDefinition{
 		Name:    "test_tool",
 		Version: "1.0.0",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
@@ -479,7 +466,6 @@ func TestToolRegistry_UnregisterTool(t *testing.T) {
 	registry.RegisterTool(tool)
 
 	err := registry.UnregisterTool("test_tool", "1.0.0")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -493,7 +479,6 @@ func TestToolRegistry_UnregisterTool_NotFound(t *testing.T) {
 	registry := NewToolRegistry(nil, nil)
 
 	err := registry.UnregisterTool("nonexistent", "1.0.0")
-
 	if err == nil {
 		t.Error("expected error for unregistering nonexistent tool")
 	}
@@ -514,7 +499,7 @@ func TestToolRegistry_ExportSchema(t *testing.T) {
 				"param1": {Type: "string"},
 			},
 		},
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
@@ -625,6 +610,7 @@ func TestToolRegistry_WrapFunction_WithContext(t *testing.T) {
 	called := false
 	fn := func(ctx context.Context, name string) (string, error) {
 		called = true
+
 		return "Hello, " + name, nil
 	}
 
@@ -638,10 +624,9 @@ func TestToolRegistry_WrapFunction_WithContext(t *testing.T) {
 	}
 
 	// Execute wrapped function
-	result, err := handler(context.Background(), map[string]interface{}{
+	result, err := handler(context.Background(), map[string]any{
 		"param0": "World",
 	})
-
 	if err != nil {
 		t.Fatalf("expected no error executing wrapped function, got %v", err)
 	}
@@ -667,11 +652,10 @@ func TestToolRegistry_WrapFunction_NoContext(t *testing.T) {
 		t.Fatalf("expected no error wrapping function, got %v", err)
 	}
 
-	result, err := handler(context.Background(), map[string]interface{}{
+	result, err := handler(context.Background(), map[string]any{
 		"param0": 5,
 		"param1": 3,
 	})
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -694,7 +678,7 @@ func TestToolRegistry_WrapFunction_ErrorReturn(t *testing.T) {
 		t.Fatalf("expected no error wrapping function, got %v", err)
 	}
 
-	_, err = handler(context.Background(), map[string]interface{}{})
+	_, err = handler(context.Background(), map[string]any{})
 
 	if !errors.Is(err, testErr) {
 		t.Errorf("expected test error, got %v", err)
@@ -708,13 +692,12 @@ func TestToolDefinition_MarshalJSON(t *testing.T) {
 		Name:        "test_tool",
 		Version:     "1.0.0",
 		Description: "A test tool",
-		Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, params map[string]any) (any, error) {
 			return nil, nil
 		},
 	}
 
 	data, err := tool.MarshalJSON()
-
 	if err != nil {
 		t.Fatalf("expected no error marshaling, got %v", err)
 	}
@@ -737,31 +720,33 @@ func TestToolRegistry_ThreadSafety(t *testing.T) {
 	done := make(chan bool)
 
 	// Concurrent registrations
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		go func(index int) {
 			tool := &ToolDefinition{
 				Name:    "tool_" + string(rune('a'+index)),
 				Version: "1.0.0",
-				Handler: func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+				Handler: func(ctx context.Context, params map[string]any) (any, error) {
 					return nil, nil
 				},
 			}
 			registry.RegisterTool(tool)
+
 			done <- true
 		}(i)
 	}
 
 	// Concurrent reads
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		go func() {
 			registry.ListTools()
 			registry.SearchTools("tool")
+
 			done <- true
 		}()
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
@@ -770,4 +755,3 @@ func TestToolRegistry_ThreadSafety(t *testing.T) {
 		t.Errorf("expected 5 tools, got %d", len(registry.tools))
 	}
 }
-

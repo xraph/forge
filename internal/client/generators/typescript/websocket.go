@@ -7,15 +7,15 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// WebSocketGenerator generates TypeScript WebSocket client code
+// WebSocketGenerator generates TypeScript WebSocket client code.
 type WebSocketGenerator struct{}
 
-// NewWebSocketGenerator creates a new WebSocket generator
+// NewWebSocketGenerator creates a new WebSocket generator.
 func NewWebSocketGenerator() *WebSocketGenerator {
 	return &WebSocketGenerator{}
 }
 
-// Generate generates the WebSocket clients
+// Generate generates the WebSocket clients.
 func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -43,7 +43,7 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 	return buf.String()
 }
 
-// generateWebSocketClient generates a WebSocket client for an endpoint
+// generateWebSocketClient generates a WebSocket client for an endpoint.
 func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -53,9 +53,11 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	// Class definition
 	buf.WriteString(fmt.Sprintf("/**\n * %s\n", className))
+
 	if ws.Description != "" {
 		buf.WriteString(fmt.Sprintf(" * %s\n", ws.Description))
 	}
+
 	buf.WriteString(" */\n")
 	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
 	buf.WriteString("  private ws: WebSocket | null = null;\n")
@@ -104,12 +106,15 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	buf.WriteString("      this.ws.on('open', () => {\n")
 	buf.WriteString("        this.setState(ConnectionState.CONNECTED);\n")
+
 	if config.Features.Reconnection {
 		buf.WriteString("        this.reconnectAttempts = 0;\n")
 	}
+
 	if config.Features.Heartbeat {
 		buf.WriteString("        this.startHeartbeat();\n")
 	}
+
 	buf.WriteString("        resolve();\n")
 	buf.WriteString("      });\n\n")
 
@@ -130,14 +135,17 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	buf.WriteString("      this.ws.on('close', () => {\n")
 	buf.WriteString("        this.setState(ConnectionState.DISCONNECTED);\n")
+
 	if config.Features.Heartbeat {
 		buf.WriteString("        this.stopHeartbeat();\n")
 	}
+
 	if config.Features.Reconnection {
 		buf.WriteString("        if (!this.closed) {\n")
 		buf.WriteString("          this.reconnect();\n")
 		buf.WriteString("        }\n")
 	}
+
 	buf.WriteString("      });\n")
 
 	buf.WriteString("    });\n")
@@ -220,9 +228,11 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	// Close method
 	buf.WriteString("  close(): void {\n")
 	buf.WriteString("    this.closed = true;\n")
+
 	if config.Features.Heartbeat {
 		buf.WriteString("    this.stopHeartbeat();\n")
 	}
+
 	buf.WriteString("    if (this.ws) {\n")
 	buf.WriteString("      this.ws.close();\n")
 	buf.WriteString("      this.ws = null;\n")
@@ -235,15 +245,16 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	return buf.String()
 }
 
-// generateClassName generates a class name for a WebSocket endpoint
+// generateClassName generates a class name for a WebSocket endpoint.
 func (w *WebSocketGenerator) generateClassName(ws client.WebSocketEndpoint) string {
 	if ws.ID != "" {
 		return w.toPascalCase(ws.ID) + "WSClient"
 	}
+
 	return "WebSocketClient"
 }
 
-// getSchemaTypeName gets the type name for a schema
+// getSchemaTypeName gets the type name for a schema.
 func (w *WebSocketGenerator) getSchemaTypeName(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "any"
@@ -251,24 +262,28 @@ func (w *WebSocketGenerator) getSchemaTypeName(schema *client.Schema, spec *clie
 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
+
 		return "types." + parts[len(parts)-1]
 	}
 
 	return "any"
 }
 
-// toPascalCase converts a string to PascalCase
+// toPascalCase converts a string to PascalCase.
 func (w *WebSocketGenerator) toPascalCase(s string) string {
 	parts := strings.FieldsFunc(s, func(r rune) bool {
 		return r == '_' || r == '-' || r == ' '
 	})
 
 	var result string
+	var resultSb267 strings.Builder
+
 	for _, part := range parts {
 		if len(part) > 0 {
-			result += strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+			resultSb267.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
 		}
 	}
+	result += resultSb267.String()
 
 	return result
 }

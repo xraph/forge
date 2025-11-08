@@ -43,8 +43,10 @@ func TestNewRedisQueue(t *testing.T) {
 			queue, err := NewRedisQueue(tt.config, logger, metrics)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewRedisQueue() error = %v, wantErr %v", err, tt.wantErr)
+
 				return
 			}
+
 			if !tt.wantErr && queue == nil {
 				t.Error("NewRedisQueue() returned nil queue")
 			}
@@ -79,7 +81,7 @@ func TestRedisQueue_ConnectDisconnect(t *testing.T) {
 
 	// Test double connect
 	err = queue.Connect(ctx)
-	if err != ErrAlreadyConnected {
+	if !errors.Is(err, ErrAlreadyConnected) {
 		t.Errorf("Connect() second time should return ErrAlreadyConnected, got %v", err)
 	}
 
@@ -97,7 +99,7 @@ func TestRedisQueue_ConnectDisconnect(t *testing.T) {
 
 	// Test double disconnect
 	err = queue.Disconnect(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("Disconnect() second time should return ErrNotConnected, got %v", err)
 	}
 }
@@ -142,6 +144,7 @@ func TestRedisQueue_QueueOperations(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetQueueInfo() error = %v", err)
 	}
+
 	if info.Name != queueName {
 		t.Errorf("GetQueueInfo() name = %v, want %v", info.Name, queueName)
 	}
@@ -151,13 +154,17 @@ func TestRedisQueue_QueueOperations(t *testing.T) {
 	if err != nil {
 		t.Errorf("ListQueues() error = %v", err)
 	}
+
 	found := false
+
 	for _, q := range queues {
 		if q == queueName {
 			found = true
+
 			break
 		}
 	}
+
 	if !found {
 		t.Errorf("ListQueues() did not include %s", queueName)
 	}
@@ -226,6 +233,7 @@ func TestRedisQueue_PublishConsume(t *testing.T) {
 	if err != nil {
 		t.Errorf("GetQueueInfo() error = %v", err)
 	}
+
 	if info.Messages == 0 {
 		t.Logf("GetQueueInfo() messages = %d, expected > 0 (may be consumed already)", info.Messages)
 	}

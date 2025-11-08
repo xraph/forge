@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Retry provides retry functionality with various backoff strategies
+// Retry provides retry functionality with various backoff strategies.
 type Retry struct {
 	config  RetryConfig
 	stats   RetryStats
@@ -20,23 +21,23 @@ type Retry struct {
 	metrics shared.Metrics
 }
 
-// RetryConfig contains retry configuration
+// RetryConfig contains retry configuration.
 type RetryConfig struct {
 	Name               string          `yaml:"name"`
-	MaxAttempts        int             `yaml:"max_attempts" default:"3"`
-	InitialDelay       time.Duration   `yaml:"initial_delay" default:"100ms"`
-	MaxDelay           time.Duration   `yaml:"max_delay" default:"30s"`
-	Multiplier         float64         `yaml:"multiplier" default:"2.0"`
-	Jitter             bool            `yaml:"jitter" default:"true"`
-	BackoffStrategy    BackoffStrategy `yaml:"backoff_strategy" default:"exponential"`
+	MaxAttempts        int             `default:"3"                 yaml:"max_attempts"`
+	InitialDelay       time.Duration   `default:"100ms"             yaml:"initial_delay"`
+	MaxDelay           time.Duration   `default:"30s"               yaml:"max_delay"`
+	Multiplier         float64         `default:"2.0"               yaml:"multiplier"`
+	Jitter             bool            `default:"true"              yaml:"jitter"`
+	BackoffStrategy    BackoffStrategy `default:"exponential"       yaml:"backoff_strategy"`
 	RetryableErrors    []string        `yaml:"retryable_errors"`
 	NonRetryableErrors []string        `yaml:"non_retryable_errors"`
-	EnableMetrics      bool            `yaml:"enable_metrics" default:"true"`
+	EnableMetrics      bool            `default:"true"              yaml:"enable_metrics"`
 	Logger             logger.Logger   `yaml:"-"`
 	Metrics            shared.Metrics  `yaml:"-"`
 }
 
-// BackoffStrategy represents the backoff strategy
+// BackoffStrategy represents the backoff strategy.
 type BackoffStrategy int
 
 const (
@@ -46,7 +47,7 @@ const (
 	BackoffStrategyFibonacci
 )
 
-// RetryStats represents retry statistics
+// RetryStats represents retry statistics.
 type RetryStats struct {
 	TotalAttempts     int64         `json:"total_attempts"`
 	SuccessfulRetries int64         `json:"successful_retries"`
@@ -57,7 +58,7 @@ type RetryStats struct {
 	LastFailure       time.Time     `json:"last_failure"`
 }
 
-// RetryError represents a retry error
+// RetryError represents a retry error.
 type RetryError struct {
 	Attempts   int           `json:"attempts"`
 	TotalDelay time.Duration `json:"total_delay"`
@@ -70,7 +71,7 @@ func (e *RetryError) Error() string {
 	return fmt.Sprintf("retry failed after %d attempts: %v", e.Attempts, e.LastError)
 }
 
-// NewRetry creates a new retry instance
+// NewRetry creates a new retry instance.
 func NewRetry(config RetryConfig) *Retry {
 	if config.Logger == nil {
 		config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
@@ -86,11 +87,13 @@ func NewRetry(config RetryConfig) *Retry {
 	}
 }
 
-// Execute executes a function with retry logic
-func (r *Retry) Execute(ctx context.Context, fn func() (interface{}, error)) (interface{}, error) {
-	var lastError error
-	var allErrors []error
-	var totalDelay time.Duration
+// Execute executes a function with retry logic.
+func (r *Retry) Execute(ctx context.Context, fn func() (any, error)) (any, error) {
+	var (
+		lastError  error
+		allErrors  []error
+		totalDelay time.Duration
+	)
 
 	for attempt := 1; attempt <= r.config.MaxAttempts; attempt++ {
 		// Check if context is cancelled
@@ -105,12 +108,14 @@ func (r *Retry) Execute(ctx context.Context, fn func() (interface{}, error)) (in
 		if err == nil {
 			// Success
 			r.recordSuccess(attempt, totalDelay)
+
 			return result, nil
 		}
 
 		// Check if error is retryable
 		if !r.isRetryableError(err) {
 			r.recordFailure(attempt, totalDelay, err)
+
 			return nil, err
 		}
 
@@ -138,6 +143,7 @@ func (r *Retry) Execute(ctx context.Context, fn func() (interface{}, error)) (in
 
 	// All attempts failed
 	r.recordFailure(r.config.MaxAttempts, totalDelay, lastError)
+
 	return nil, &RetryError{
 		Attempts:   r.config.MaxAttempts,
 		TotalDelay: totalDelay,
@@ -147,32 +153,26 @@ func (r *Retry) Execute(ctx context.Context, fn func() (interface{}, error)) (in
 	}
 }
 
-// isRetryableError checks if an error is retryable
+// isRetryableError checks if an error is retryable.
 func (r *Retry) isRetryableError(err error) bool {
 	errorStr := err.Error()
 
 	// Check non-retryable errors first
-	for _, nonRetryable := range r.config.NonRetryableErrors {
-		if errorStr == nonRetryable {
-			return false
-		}
+	if slices.Contains(r.config.NonRetryableErrors, errorStr) {
+		return false
 	}
 
 	// Check retryable errors
 	if len(r.config.RetryableErrors) > 0 {
-		for _, retryable := range r.config.RetryableErrors {
-			if errorStr == retryable {
-				return true
-			}
-		}
-		return false
+
+		return slices.Contains(r.config.RetryableErrors, errorStr)
 	}
 
 	// Default: all errors are retryable
 	return true
 }
 
-// calculateDelay calculates the delay for the next attempt
+// calculateDelay calculates the delay for the next attempt.
 func (r *Retry) calculateDelay(attempt int) time.Duration {
 	var delay time.Duration
 
@@ -200,26 +200,29 @@ func (r *Retry) calculateDelay(attempt int) time.Duration {
 	return delay
 }
 
-// addJitter adds random jitter to the delay
+// addJitter adds random jitter to the delay.
 func (r *Retry) addJitter(delay time.Duration) time.Duration {
 	// Simple jitter: ±25% of the delay
 	jitter := time.Duration(float64(delay) * 0.25)
+
 	return delay + time.Duration(float64(jitter)*(2*math.Mod(float64(time.Now().UnixNano()), 1.0)-1.0))
 }
 
-// fibonacci calculates the nth Fibonacci number
+// fibonacci calculates the nth Fibonacci number.
 func fibonacci(n int) float64 {
 	if n <= 1 {
 		return 1
 	}
+
 	a, b := 1.0, 1.0
 	for i := 2; i < n; i++ {
 		a, b = b, a+b
 	}
+
 	return b
 }
 
-// recordSuccess records a successful retry
+// recordSuccess records a successful retry.
 func (r *Retry) recordSuccess(attempts int, totalDelay time.Duration) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -238,7 +241,7 @@ func (r *Retry) recordSuccess(attempts int, totalDelay time.Duration) {
 		logger.String("total_delay", totalDelay.String()))
 }
 
-// recordFailure records a failed retry
+// recordFailure records a failed retry.
 func (r *Retry) recordFailure(attempts int, totalDelay time.Duration, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -258,7 +261,7 @@ func (r *Retry) recordFailure(attempts int, totalDelay time.Duration, err error)
 		logger.String("error", err.Error()))
 }
 
-// recordMetrics records retry metrics
+// recordMetrics records retry metrics.
 func (r *Retry) recordMetrics(attempts int, totalDelay time.Duration, success bool) {
 	result := "success"
 	if !success {
@@ -289,14 +292,15 @@ func (r *Retry) recordMetrics(attempts int, totalDelay time.Duration, success bo
 	}
 }
 
-// GetStats returns the retry statistics
+// GetStats returns the retry statistics.
 func (r *Retry) GetStats() RetryStats {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
 	return r.stats
 }
 
-// Reset resets the retry statistics
+// Reset resets the retry statistics.
 func (r *Retry) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -306,12 +310,12 @@ func (r *Retry) Reset() {
 	}
 }
 
-// GetConfig returns the retry configuration
+// GetConfig returns the retry configuration.
 func (r *Retry) GetConfig() RetryConfig {
 	return r.config
 }
 
-// UpdateConfig updates the retry configuration
+// UpdateConfig updates the retry configuration.
 func (r *Retry) UpdateConfig(config RetryConfig) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

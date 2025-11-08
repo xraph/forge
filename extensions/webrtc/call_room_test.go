@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/extensions/streaming"
 )
 
-// mockSignalingManager for testing
+// mockSignalingManager for testing.
 type mockSignalingManager struct{}
 
 func (m *mockSignalingManager) SendOffer(ctx context.Context, roomID, peerID string, offer *SessionDescription) error {
@@ -24,11 +24,11 @@ func (m *mockSignalingManager) SendICECandidate(ctx context.Context, roomID, pee
 	return nil
 }
 
-func (m *mockSignalingManager) OnOffer(handler OfferHandler)                    {}
-func (m *mockSignalingManager) OnAnswer(handler AnswerHandler)                  {}
+func (m *mockSignalingManager) OnOffer(handler OfferHandler)                       {}
+func (m *mockSignalingManager) OnAnswer(handler AnswerHandler)                     {}
 func (m *mockSignalingManager) OnICECandidate(handler ICECandidateReceivedHandler) {}
-func (m *mockSignalingManager) Start(ctx context.Context) error                  { return nil }
-func (m *mockSignalingManager) Stop(ctx context.Context) error                   { return nil }
+func (m *mockSignalingManager) Start(ctx context.Context) error                    { return nil }
+func (m *mockSignalingManager) Stop(ctx context.Context) error                     { return nil }
 
 func TestCallRoom_JoinLeave(t *testing.T) {
 	// Create streaming extension
@@ -38,6 +38,7 @@ func TestCallRoom_JoinLeave(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -45,6 +46,7 @@ func TestCallRoom_JoinLeave(t *testing.T) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		t.Fatalf("failed to create WebRTC extension: %v", err)
@@ -154,6 +156,7 @@ func TestCallRoom_MultipleUsers(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -161,6 +164,7 @@ func TestCallRoom_MultipleUsers(t *testing.T) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		t.Fatalf("failed to create WebRTC extension: %v", err)
@@ -201,6 +205,7 @@ func TestCallRoom_MultipleUsers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to join user %s: %v", userID, err)
 		}
+
 		peers = append(peers, peer)
 	}
 
@@ -245,6 +250,7 @@ func TestCallRoom_Close(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -252,6 +258,7 @@ func TestCallRoom_Close(t *testing.T) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		t.Fatalf("failed to create WebRTC extension: %v", err)
@@ -316,6 +323,7 @@ func TestCallRoom_MediaControls(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -323,6 +331,7 @@ func TestCallRoom_MediaControls(t *testing.T) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		t.Fatalf("failed to create WebRTC extension: %v", err)
@@ -401,6 +410,7 @@ func TestCallRoom_DuplicateRoomCreation(t *testing.T) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		t.Fatalf("failed to register streaming extension: %v", err)
@@ -408,6 +418,7 @@ func TestCallRoom_DuplicateRoomCreation(t *testing.T) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		t.Fatalf("failed to create WebRTC extension: %v", err)
@@ -452,6 +463,7 @@ func BenchmarkCallRoom_JoinLeave(b *testing.B) {
 
 	// Register streaming extension to initialize manager
 	app := newMockApp()
+
 	err := streamingExt.Register(app)
 	if err != nil {
 		b.Fatalf("failed to register streaming extension: %v", err)
@@ -459,6 +471,7 @@ func BenchmarkCallRoom_JoinLeave(b *testing.B) {
 
 	// Create WebRTC extension
 	config := DefaultConfig()
+
 	webrtcExt, err := New(streamingExt, config)
 	if err != nil {
 		b.Fatalf("failed to create WebRTC extension: %v", err)
@@ -490,13 +503,14 @@ func BenchmarkCallRoom_JoinLeave(b *testing.B) {
 		VideoEnabled: true,
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		userID := fmt.Sprintf("bench-user-%d", i)
+
 		peer, err := room.JoinCall(ctx, userID, joinOpts)
 		if err != nil {
 			b.Fatalf("failed to join in benchmark: %v", err)
 		}
+
 		room.Leave(ctx, userID)
 		peer.Close(ctx)
 	}

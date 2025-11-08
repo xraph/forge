@@ -3,8 +3,8 @@ package router
 import "reflect"
 
 // WithPaginatedResponse creates a route option for paginated list responses
-// itemType should be a pointer to the item struct type
-func WithPaginatedResponse(itemType interface{}, statusCode int) RouteOption {
+// itemType should be a pointer to the item struct type.
+func WithPaginatedResponse(itemType any, statusCode int) RouteOption {
 	// Create a paginated wrapper struct dynamically
 	paginatedSchema := &Schema{
 		Type: "object",
@@ -45,7 +45,7 @@ func WithPaginatedResponse(itemType interface{}, statusCode int) RouteOption {
 }
 
 // WithErrorResponses adds standard HTTP error responses to a route
-// Includes 400, 401, 403, 404, 500
+// Includes 400, 401, 403, 404, 500.
 func WithErrorResponses() RouteOption {
 	return &errorResponsesOpt{}
 }
@@ -54,7 +54,7 @@ type errorResponsesOpt struct{}
 
 func (o *errorResponsesOpt) Apply(config *RouteConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
 
 	responses, ok := config.Metadata["openapi.responseSchemas"].(map[int]*ResponseSchemaDef)
@@ -89,24 +89,28 @@ func (o *errorResponsesOpt) Apply(config *RouteConfig) {
 			Schema:      errorSchema,
 		}
 	}
+
 	if _, exists := responses[401]; !exists {
 		responses[401] = &ResponseSchemaDef{
 			Description: "Unauthorized",
 			Schema:      errorSchema,
 		}
 	}
+
 	if _, exists := responses[403]; !exists {
 		responses[403] = &ResponseSchemaDef{
 			Description: "Forbidden",
 			Schema:      errorSchema,
 		}
 	}
+
 	if _, exists := responses[404]; !exists {
 		responses[404] = &ResponseSchemaDef{
 			Description: "Not Found",
 			Schema:      errorSchema,
 		}
 	}
+
 	if _, exists := responses[500]; !exists {
 		responses[500] = &ResponseSchemaDef{
 			Description: "Internal Server Error",
@@ -116,18 +120,18 @@ func (o *errorResponsesOpt) Apply(config *RouteConfig) {
 }
 
 // WithStandardRESTResponses adds standard REST CRUD responses for a resource
-// Includes 200 (GET/list), 201 (POST), 204 (DELETE), 400, 404, 500
-func WithStandardRESTResponses(resourceType interface{}) RouteOption {
+// Includes 200 (GET/list), 201 (POST), 204 (DELETE), 400, 404, 500.
+func WithStandardRESTResponses(resourceType any) RouteOption {
 	return &standardRESTResponsesOpt{resourceType: resourceType}
 }
 
 type standardRESTResponsesOpt struct {
-	resourceType interface{}
+	resourceType any
 }
 
 func (o *standardRESTResponsesOpt) Apply(config *RouteConfig) {
 	if config.Metadata == nil {
-		config.Metadata = make(map[string]interface{})
+		config.Metadata = make(map[string]any)
 	}
 
 	responses, ok := config.Metadata["openapi.responseSchemas"].(map[int]*ResponseSchemaDef)
@@ -165,7 +169,7 @@ func (o *standardRESTResponsesOpt) Apply(config *RouteConfig) {
 	errorOpt.Apply(config)
 }
 
-// WithFileUploadResponse creates a response for file upload success
+// WithFileUploadResponse creates a response for file upload success.
 func WithFileUploadResponse(statusCode int) RouteOption {
 	uploadResponseSchema := &Schema{
 		Type: "object",
@@ -198,17 +202,17 @@ func WithFileUploadResponse(statusCode int) RouteOption {
 	return WithResponseSchema(statusCode, "File upload successful", uploadResponseSchema)
 }
 
-// WithNoContentResponse creates a 204 No Content response
+// WithNoContentResponse creates a 204 No Content response.
 func WithNoContentResponse() RouteOption {
 	return WithResponseSchema(204, "No Content", nil)
 }
 
-// WithCreatedResponse creates a 201 Created response with Location header
-func WithCreatedResponse(resourceType interface{}) RouteOption {
+// WithCreatedResponse creates a 201 Created response with Location header.
+func WithCreatedResponse(resourceType any) RouteOption {
 	return WithResponseSchema(201, "Created", resourceType)
 }
 
-// WithAcceptedResponse creates a 202 Accepted response for async operations
+// WithAcceptedResponse creates a 202 Accepted response for async operations.
 func WithAcceptedResponse() RouteOption {
 	asyncSchema := &Schema{
 		Type: "object",
@@ -220,7 +224,7 @@ func WithAcceptedResponse() RouteOption {
 			"status": {
 				Type:        "string",
 				Description: "Current status of the job",
-				Enum:        []interface{}{"pending", "processing", "completed", "failed"},
+				Enum:        []any{"pending", "processing", "completed", "failed"},
 			},
 			"statusUrl": {
 				Type:        "string",
@@ -234,14 +238,15 @@ func WithAcceptedResponse() RouteOption {
 	return WithResponseSchema(202, "Accepted", asyncSchema)
 }
 
-// generateSchemaForType generates a schema from a type
-func generateSchemaForType(itemType interface{}) *Schema {
+// generateSchemaForType generates a schema from a type.
+func generateSchemaForType(itemType any) *Schema {
 	gen := newSchemaGenerator(nil) // Inline schema generation
+
 	return gen.GenerateSchema(itemType)
 }
 
-// WithListResponse creates a simple list response (array of items)
-func WithListResponse(itemType interface{}, statusCode int) RouteOption {
+// WithListResponse creates a simple list response (array of items).
+func WithListResponse(itemType any, statusCode int) RouteOption {
 	listSchema := &Schema{
 		Type:  "array",
 		Items: generateSchemaForType(itemType),
@@ -250,8 +255,8 @@ func WithListResponse(itemType interface{}, statusCode int) RouteOption {
 	return WithResponseSchema(statusCode, "List of items", listSchema)
 }
 
-// WithBatchResponse creates a response for batch operations
-func WithBatchResponse(itemType interface{}, statusCode int) RouteOption {
+// WithBatchResponse creates a response for batch operations.
+func WithBatchResponse(itemType any, statusCode int) RouteOption {
 	batchSchema := &Schema{
 		Type: "object",
 		Properties: map[string]*Schema{
@@ -293,7 +298,7 @@ func WithBatchResponse(itemType interface{}, statusCode int) RouteOption {
 	return WithResponseSchema(statusCode, "Batch operation result", batchSchema)
 }
 
-// WithValidationErrorResponse adds a 422 Unprocessable Entity response for validation errors
+// WithValidationErrorResponse adds a 422 Unprocessable Entity response for validation errors.
 func WithValidationErrorResponse() RouteOption {
 	validationSchema := &Schema{
 		Type: "object",
@@ -330,12 +335,15 @@ func WithValidationErrorResponse() RouteOption {
 	return WithResponseSchema(422, "Validation Error", validationSchema)
 }
 
-// GetSchemaFromType is a helper to get schema from a type
+// GetSchemaFromType is a helper to get schema from a type.
 func GetSchemaFromType(t reflect.Type) *Schema {
 	gen := newSchemaGenerator(nil) // Inline schema generation
+
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
+
 	instance := reflect.New(t).Interface()
+
 	return gen.GenerateSchema(instance)
 }

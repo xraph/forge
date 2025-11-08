@@ -100,6 +100,7 @@ func TestLDAPProvider_Name(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	assert.Equal(t, "ldap", provider.Name())
@@ -117,6 +118,7 @@ func TestLDAPProvider_Type(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	assert.Equal(t, auth.SecurityTypeHTTP, provider.Type())
@@ -134,6 +136,7 @@ func TestLDAPProvider_OpenAPIScheme(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	scheme := provider.OpenAPIScheme()
@@ -154,10 +157,11 @@ func TestLDAPProvider_Authenticate_MissingCredentials(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	// Create request without auth header
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 
 	authCtx, err := provider.Authenticate(context.Background(), req)
 	assert.Error(t, err)
@@ -177,10 +181,11 @@ func TestLDAPProvider_Authenticate_EmptyCredentials(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	// Create request with empty credentials
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.SetBasicAuth("", "")
 
 	authCtx, err := provider.Authenticate(context.Background(), req)
@@ -201,6 +206,7 @@ func TestLDAPProvider_Middleware(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	middleware := provider.Middleware()
@@ -210,10 +216,11 @@ func TestLDAPProvider_Middleware(t *testing.T) {
 	handlerCalled := false
 	handler := func(ctx forge.Context) error {
 		handlerCalled = true
+
 		return ctx.String(http.StatusOK, "OK")
 	}
 
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
 	ctx := di.NewContext(rec, req, nil)
 
@@ -231,7 +238,7 @@ func TestLDAPCache_SetAndGet(t *testing.T) {
 
 	authCtx := &auth.AuthContext{
 		Subject: "testuser",
-		Claims: map[string]interface{}{
+		Claims: map[string]any{
 			"email": "test@example.com",
 		},
 		Scopes: []string{"user"},
@@ -314,16 +321,18 @@ func TestLDAPCache_Cleanup(t *testing.T) {
 
 	// Manually trigger cleanup (normally runs in goroutine)
 	cache.mu.Lock()
+
 	now := time.Now()
 	for key, entry := range cache.entries {
 		if now.After(entry.expiresAt) {
 			delete(cache.entries, key)
 		}
 	}
+
 	cache.mu.Unlock()
 
 	// All entries should be cleaned up
-	assert.Len(t, cache.entries, 0)
+	assert.Empty(t, cache.entries)
 }
 
 func TestLDAPProvider_MapGroupsToRoles(t *testing.T) {
@@ -343,6 +352,7 @@ func TestLDAPProvider_MapGroupsToRoles(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	tests := []struct {
@@ -409,6 +419,7 @@ func TestLDAPProvider_MapGroupsToRoles_NoMapping(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	groups := []string{
@@ -433,6 +444,7 @@ func TestLDAPProvider_ConfigDefaults(t *testing.T) {
 
 	provider, err := NewLDAPProvider(config, newMockLogger())
 	require.NoError(t, err)
+
 	defer provider.Close()
 
 	// Check defaults were applied
@@ -481,7 +493,7 @@ func TestLDAPConnPool_CloseIdempotent(t *testing.T) {
 	assert.True(t, pool.closed)
 }
 
-// Benchmark tests
+// Benchmark tests.
 func BenchmarkLDAPCache_Set(b *testing.B) {
 	cache := &ldapCache{
 		entries: make(map[string]*cacheEntry),
@@ -490,11 +502,10 @@ func BenchmarkLDAPCache_Set(b *testing.B) {
 
 	authCtx := &auth.AuthContext{
 		Subject: "testuser",
-		Claims:  map[string]interface{}{"email": "test@example.com"},
+		Claims:  map[string]any{"email": "test@example.com"},
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		username := fmt.Sprintf("user%d", i%1000)
 		cache.set(username, "password", authCtx)
 	}
@@ -508,17 +519,16 @@ func BenchmarkLDAPCache_Get(b *testing.B) {
 
 	authCtx := &auth.AuthContext{
 		Subject: "testuser",
-		Claims:  map[string]interface{}{"email": "test@example.com"},
+		Claims:  map[string]any{"email": "test@example.com"},
 	}
 
 	// Pre-populate cache
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		username := fmt.Sprintf("user%d", i)
 		cache.set(username, "password", authCtx)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		username := fmt.Sprintf("user%d", i%1000)
 		cache.get(username, "password")
 	}
@@ -551,19 +561,19 @@ func BenchmarkLDAPProvider_MapGroupsToRoles(b *testing.B) {
 		"cn=other,ou=groups,dc=example,dc=com",
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		provider.mapGroupsToRoles(groups)
 	}
 }
 
-// Helper function to create basic auth header
+// Helper function to create basic auth header.
 func createBasicAuthHeader(username, password string) string {
 	auth := username + ":" + password
+
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
-// Test concurrent cache access
+// Test concurrent cache access.
 func TestLDAPCache_ConcurrentAccess(t *testing.T) {
 	cache := &ldapCache{
 		entries: make(map[string]*cacheEntry),
@@ -572,42 +582,45 @@ func TestLDAPCache_ConcurrentAccess(t *testing.T) {
 
 	authCtx := &auth.AuthContext{
 		Subject: "testuser",
-		Claims:  map[string]interface{}{"email": "test@example.com"},
+		Claims:  map[string]any{"email": "test@example.com"},
 	}
 
 	// Concurrent writes
 	done := make(chan bool)
-	for i := 0; i < 10; i++ {
+
+	for i := range 10 {
 		go func(id int) {
-			for j := 0; j < 100; j++ {
+			for j := range 100 {
 				username := fmt.Sprintf("user%d-%d", id, j)
 				cache.set(username, "password", authCtx)
 			}
+
 			done <- true
 		}(i)
 	}
 
 	// Wait for all writes
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
 	// Concurrent reads
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
-			for j := 0; j < 100; j++ {
+			for j := range 100 {
 				username := fmt.Sprintf("user%d-%d", id, j)
 				cache.get(username, "password")
 			}
+
 			done <- true
 		}(i)
 	}
 
 	// Wait for all reads
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 
 	// Should not panic or race
-	assert.True(t, len(cache.entries) > 0)
+	assert.Positive(t, len(cache.entries))
 }

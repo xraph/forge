@@ -2,20 +2,22 @@ package forge
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 // =============================================================================
 // Test RunnableExtension Interface
 // =============================================================================
 
-// MockRunnableExtension is a test implementation of RunnableExtension
+// MockRunnableExtension is a test implementation of RunnableExtension.
 type MockRunnableExtension struct {
 	*BaseExtension
+
 	runCalled      atomic.Bool
 	shutdownCalled atomic.Bool
 	runError       error
@@ -34,7 +36,9 @@ func (e *MockRunnableExtension) Run(ctx context.Context) error {
 	if e.runDelay > 0 {
 		time.Sleep(e.runDelay)
 	}
+
 	e.runCalled.Store(true)
+
 	return e.runError
 }
 
@@ -42,7 +46,9 @@ func (e *MockRunnableExtension) Shutdown(ctx context.Context) error {
 	if e.shutdownDelay > 0 {
 		time.Sleep(e.shutdownDelay)
 	}
+
 	e.shutdownCalled.Store(true)
+
 	return e.shutdownError
 }
 
@@ -76,17 +82,21 @@ func TestRunnableExtension_AutoRegistration(t *testing.T) {
 
 	// Should have auto-registered hooks
 	foundRun := false
+
 	for _, hook := range afterRunHooks {
 		if hook.Name == "run-test-runnable" {
 			foundRun = true
+
 			break
 		}
 	}
 
 	foundShutdown := false
+
 	for _, hook := range beforeStopHooks {
 		if hook.Name == "shutdown-test-runnable" {
 			foundShutdown = true
+
 			break
 		}
 	}
@@ -139,7 +149,7 @@ func TestRunnableExtension_LifecycleIntegration(t *testing.T) {
 
 func TestRunnableExtension_ErrorHandling(t *testing.T) {
 	mockExt := NewMockRunnableExtension("test-error")
-	mockExt.runError = fmt.Errorf("run failed")
+	mockExt.runError = errors.New("run failed")
 
 	config := DefaultAppConfig()
 	config.HTTPAddress = ":0"
@@ -246,9 +256,11 @@ func TestExternalAppExtension_GracefulShutdown(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
+
 	if err := ext.Shutdown(shutdownCtx); err != nil {
 		t.Fatalf("failed to shutdown external app: %v", err)
 	}
+
 	elapsed := time.Since(start)
 
 	// Should have shut down quickly (< 1s) since it handles SIGTERM
@@ -331,17 +343,18 @@ func TestExternalAppExtension_WithEnvironment(t *testing.T) {
 	}
 
 	// Create a temp file to write output
-	tmpFile, err := os.CreateTemp("", "forge-test-")
+	tmpFile, err := os.CreateTemp(t.TempDir(), "forge-test-")
 	if err != nil {
 		t.Fatalf("failed to create temp file: %v", err)
 	}
 	defer os.Remove(tmpFile.Name())
+
 	tmpFile.Close()
 
 	config := DefaultExternalAppConfig()
 	config.Name = "env-test"
 	config.Command = "bash"
-	config.Args = []string{"-c", fmt.Sprintf("echo $TEST_VAR > %s", tmpFile.Name())}
+	config.Args = []string{"-c", "echo $TEST_VAR > " + tmpFile.Name()}
 	config.Env = []string{"TEST_VAR=hello-world"}
 	config.ForwardOutput = false
 
@@ -385,7 +398,7 @@ func BenchmarkRunnableExtension_Registration(b *testing.B) {
 	config := DefaultAppConfig()
 	config.HTTPAddress = ":0"
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		app := NewApp(config)
 		mockExt := NewMockRunnableExtension("test")
 		app.RegisterExtension(mockExt)
@@ -393,11 +406,10 @@ func BenchmarkRunnableExtension_Registration(b *testing.B) {
 }
 
 func BenchmarkRunnableExtension_Lifecycle(b *testing.B) {
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		mockExt := NewMockRunnableExtension("test")
 		ctx := context.Background()
 		mockExt.Run(ctx)
 		mockExt.Shutdown(ctx)
 	}
 }
-

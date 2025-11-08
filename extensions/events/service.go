@@ -9,9 +9,10 @@ import (
 	"github.com/xraph/forge/extensions/events/brokers"
 	"github.com/xraph/forge/extensions/events/core"
 	"github.com/xraph/forge/extensions/events/stores"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// EventService provides event-driven architecture capabilities
+// EventService provides event-driven architecture capabilities.
 type EventService struct {
 	config          Config
 	bus             core.EventBus
@@ -23,7 +24,7 @@ type EventService struct {
 	mu              sync.RWMutex
 }
 
-// NewEventService creates a new event service
+// NewEventService creates a new event service.
 func NewEventService(config Config, logger forge.Logger, metrics forge.Metrics) *EventService {
 	return &EventService{
 		config:          config,
@@ -33,13 +34,13 @@ func NewEventService(config Config, logger forge.Logger, metrics forge.Metrics) 
 	}
 }
 
-// Start starts the event service
+// Start starts the event service.
 func (es *EventService) Start(ctx context.Context) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
 
 	if es.started {
-		return fmt.Errorf("event service already started")
+		return errors.New("event service already started")
 	}
 
 	if es.logger != nil {
@@ -69,7 +70,7 @@ func (es *EventService) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the event service
+// Stop stops the event service.
 func (es *EventService) Stop(ctx context.Context) error {
 	es.mu.Lock()
 	defer es.mu.Unlock()
@@ -113,13 +114,13 @@ func (es *EventService) Stop(ctx context.Context) error {
 	return nil
 }
 
-// HealthCheck checks the health of the event service
+// HealthCheck checks the health of the event service.
 func (es *EventService) HealthCheck(ctx context.Context) error {
 	es.mu.RLock()
 	defer es.mu.RUnlock()
 
 	if !es.started {
-		return fmt.Errorf("event service not started")
+		return errors.New("event service not started")
 	}
 
 	// Check bus health
@@ -139,22 +140,22 @@ func (es *EventService) HealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// GetEventBus returns the event bus
+// GetEventBus returns the event bus.
 func (es *EventService) GetEventBus() core.EventBus {
 	return es.bus
 }
 
-// GetEventStore returns the event store
+// GetEventStore returns the event store.
 func (es *EventService) GetEventStore() core.EventStore {
 	return es.store
 }
 
-// GetHandlerRegistry returns the handler registry
+// GetHandlerRegistry returns the handler registry.
 func (es *EventService) GetHandlerRegistry() *core.HandlerRegistry {
 	return es.handlerRegistry
 }
 
-// initializeEventStore initializes the event store
+// initializeEventStore initializes the event store.
 func (es *EventService) initializeEventStore(ctx context.Context) error {
 	switch es.config.Store.Type {
 	case "memory":
@@ -170,7 +171,7 @@ func (es *EventService) initializeEventStore(ctx context.Context) error {
 	return nil
 }
 
-// initializeEventBus initializes the event bus
+// initializeEventBus initializes the event bus.
 func (es *EventService) initializeEventBus(ctx context.Context) error {
 	// Convert BusConfig to EventBusConfig
 	busConfig := EventBusOptions{
@@ -189,17 +190,17 @@ func (es *EventService) initializeEventBus(ctx context.Context) error {
 			ProcessingTimeout: es.config.Bus.ProcessingTimeout,
 		},
 	}
-	
+
 	busInstance, err := NewEventBus(busConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create event bus: %w", err)
 	}
-	
+
 	bus, ok := busInstance.(*EventBusImpl)
 	if !ok {
-		return fmt.Errorf("unexpected bus type")
+		return errors.New("unexpected bus type")
 	}
-	
+
 	// Set default broker
 	bus.defaultBroker = es.config.Bus.DefaultBroker
 
@@ -209,8 +210,10 @@ func (es *EventService) initializeEventBus(ctx context.Context) error {
 			continue
 		}
 
-		var broker core.MessageBroker
-		var err error
+		var (
+			broker core.MessageBroker
+			err    error
+		)
 
 		switch brokerConfig.Type {
 		case "memory":
@@ -229,6 +232,7 @@ func (es *EventService) initializeEventBus(ctx context.Context) error {
 			if es.logger != nil {
 				es.logger.Warn("unsupported broker type", forge.F("type", brokerConfig.Type), forge.F("name", brokerConfig.Name))
 			}
+
 			continue
 		}
 

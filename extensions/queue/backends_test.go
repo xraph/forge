@@ -45,6 +45,7 @@ func TestRedisQueue_Constructor(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewRedisQueue() error = %v, wantErr %v", err, tt.wantErr)
 			}
+
 			if !tt.wantErr && q == nil {
 				t.Error("expected non-nil queue")
 			}
@@ -90,6 +91,7 @@ func TestRabbitMQQueue_Constructor(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewRabbitMQQueue() error = %v, wantErr %v", err, tt.wantErr)
 			}
+
 			if !tt.wantErr && q == nil {
 				t.Error("expected non-nil queue")
 			}
@@ -133,6 +135,7 @@ func TestNATSQueue_Constructor(t *testing.T) {
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewNATSQueue() error = %v, wantErr %v", err, tt.wantErr)
 			}
+
 			if !tt.wantErr && q == nil {
 				t.Error("expected non-nil queue")
 			}
@@ -161,23 +164,35 @@ func TestRedisQueue_NotConnectedErrors(t *testing.T) {
 		{"Ping", func() error { return q.Ping(ctx) }},
 		{"DeclareQueue", func() error { return q.DeclareQueue(ctx, "test", QueueOptions{}) }},
 		{"DeleteQueue", func() error { return q.DeleteQueue(ctx, "test") }},
-		{"ListQueues", func() error { _, err := q.ListQueues(ctx); return err }},
-		{"GetQueueInfo", func() error { _, err := q.GetQueueInfo(ctx, "test"); return err }},
+		{"ListQueues", func() error {
+			_, err := q.ListQueues(ctx)
+			return err
+		}},
+		{"GetQueueInfo", func() error {
+			_, err := q.GetQueueInfo(ctx, "test")
+			return err
+		}},
 		{"PurgeQueue", func() error { return q.PurgeQueue(ctx, "test") }},
 		{"Publish", func() error { return q.Publish(ctx, "test", Message{}) }},
 		{"PublishBatch", func() error { return q.PublishBatch(ctx, "test", []Message{}) }},
 		{"PublishDelayed", func() error { return q.PublishDelayed(ctx, "test", Message{}, 0) }},
 		{"Consume", func() error { return q.Consume(ctx, "test", nil, ConsumeOptions{}) }},
 		{"StopConsuming", func() error { return q.StopConsuming(ctx, "test") }},
-		{"GetDeadLetterQueue", func() error { _, err := q.GetDeadLetterQueue(ctx, "test"); return err }},
+		{"GetDeadLetterQueue", func() error {
+			_, err := q.GetDeadLetterQueue(ctx, "test")
+			return err
+		}},
 		{"RequeueDeadLetter", func() error { return q.RequeueDeadLetter(ctx, "test", "id") }},
-		{"Stats", func() error { _, err := q.Stats(ctx); return err }},
+		{"Stats", func() error {
+			_, err := q.Stats(ctx)
+			return err
+		}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.fn()
-			if err != ErrNotConnected {
+			if !errors.Is(err, ErrNotConnected) {
 				t.Errorf("%s() error = %v, want ErrNotConnected", tt.name, err)
 			}
 		})
@@ -185,7 +200,7 @@ func TestRedisQueue_NotConnectedErrors(t *testing.T) {
 
 	// Test double disconnect
 	err = q.Disconnect(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("Disconnect() on not connected = %v, want ErrNotConnected", err)
 	}
 }
@@ -209,20 +224,32 @@ func TestRabbitMQQueue_NotConnectedErrors(t *testing.T) {
 		{"Ping", func() error { return q.Ping(ctx) }},
 		{"DeclareQueue", func() error { return q.DeclareQueue(ctx, "test", QueueOptions{}) }},
 		{"DeleteQueue", func() error { return q.DeleteQueue(ctx, "test") }},
-		{"ListQueues", func() error { _, err := q.ListQueues(ctx); return err }},
-		{"GetQueueInfo", func() error { _, err := q.GetQueueInfo(ctx, "test"); return err }},
+		{"ListQueues", func() error {
+			_, err := q.ListQueues(ctx)
+			return err
+		}},
+		{"GetQueueInfo", func() error {
+			_, err := q.GetQueueInfo(ctx, "test")
+			return err
+		}},
 		{"PurgeQueue", func() error { return q.PurgeQueue(ctx, "test") }},
 		{"Publish", func() error { return q.Publish(ctx, "test", Message{}) }},
 		{"PublishBatch", func() error { return q.PublishBatch(ctx, "test", []Message{}) }},
-		{"GetDeadLetterQueue", func() error { _, err := q.GetDeadLetterQueue(ctx, "test"); return err }},
+		{"GetDeadLetterQueue", func() error {
+			_, err := q.GetDeadLetterQueue(ctx, "test")
+			return err
+		}},
 		{"RequeueDeadLetter", func() error { return q.RequeueDeadLetter(ctx, "test", "id") }},
-		{"Stats", func() error { _, err := q.Stats(ctx); return err }},
+		{"Stats", func() error {
+			_, err := q.Stats(ctx)
+			return err
+		}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.fn()
-			if err != ErrNotConnected {
+			if !errors.Is(err, ErrNotConnected) {
 				t.Errorf("%s() error = %v, want ErrNotConnected", tt.name, err)
 			}
 		})
@@ -232,16 +259,18 @@ func TestRabbitMQQueue_NotConnectedErrors(t *testing.T) {
 	if err := q.Ack(ctx, "id"); err != nil {
 		t.Errorf("Ack() error = %v, want nil", err)
 	}
+
 	if err := q.Nack(ctx, "id", false); err != nil {
 		t.Errorf("Nack() error = %v, want nil", err)
 	}
+
 	if err := q.Reject(ctx, "id"); err != nil {
 		t.Errorf("Reject() error = %v, want nil", err)
 	}
 
 	// Test double disconnect
 	err = q.Disconnect(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("Disconnect() on not connected = %v, want ErrNotConnected", err)
 	}
 }
@@ -265,21 +294,33 @@ func TestNATSQueue_NotConnectedErrors(t *testing.T) {
 		{"Ping", func() error { return q.Ping(ctx) }},
 		{"DeclareQueue", func() error { return q.DeclareQueue(ctx, "test", QueueOptions{}) }},
 		{"DeleteQueue", func() error { return q.DeleteQueue(ctx, "test") }},
-		{"ListQueues", func() error { _, err := q.ListQueues(ctx); return err }},
-		{"GetQueueInfo", func() error { _, err := q.GetQueueInfo(ctx, "test"); return err }},
+		{"ListQueues", func() error {
+			_, err := q.ListQueues(ctx)
+			return err
+		}},
+		{"GetQueueInfo", func() error {
+			_, err := q.GetQueueInfo(ctx, "test")
+			return err
+		}},
 		{"PurgeQueue", func() error { return q.PurgeQueue(ctx, "test") }},
 		{"Publish", func() error { return q.Publish(ctx, "test", Message{}) }},
 		{"PublishBatch", func() error { return q.PublishBatch(ctx, "test", []Message{}) }},
 		{"PublishDelayed", func() error { return q.PublishDelayed(ctx, "test", Message{}, 0) }},
-		{"GetDeadLetterQueue", func() error { _, err := q.GetDeadLetterQueue(ctx, "test"); return err }},
+		{"GetDeadLetterQueue", func() error {
+			_, err := q.GetDeadLetterQueue(ctx, "test")
+			return err
+		}},
 		{"RequeueDeadLetter", func() error { return q.RequeueDeadLetter(ctx, "test", "id") }},
-		{"Stats", func() error { _, err := q.Stats(ctx); return err }},
+		{"Stats", func() error {
+			_, err := q.Stats(ctx)
+			return err
+		}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.fn()
-			if err != ErrNotConnected {
+			if !errors.Is(err, ErrNotConnected) {
 				t.Errorf("%s() error = %v, want ErrNotConnected", tt.name, err)
 			}
 		})
@@ -289,16 +330,18 @@ func TestNATSQueue_NotConnectedErrors(t *testing.T) {
 	if err := q.Ack(ctx, "id"); err != nil {
 		t.Errorf("Ack() error = %v, want nil", err)
 	}
+
 	if err := q.Nack(ctx, "id", false); err != nil {
 		t.Errorf("Nack() error = %v, want nil", err)
 	}
+
 	if err := q.Reject(ctx, "id"); err != nil {
 		t.Errorf("Reject() error = %v, want nil", err)
 	}
 
 	// Test double disconnect
 	err = q.Disconnect(ctx)
-	if err != ErrNotConnected {
+	if !errors.Is(err, ErrNotConnected) {
 		t.Errorf("Disconnect() on not connected = %v, want ErrNotConnected", err)
 	}
 }
@@ -322,6 +365,7 @@ func TestExtension_RedisDriver(t *testing.T) {
 	if err != nil {
 		t.Errorf("Resolve() error = %v", err)
 	}
+
 	if queue == nil {
 		t.Error("expected non-nil queue")
 	}
@@ -344,6 +388,7 @@ func TestExtension_RabbitMQDriver(t *testing.T) {
 	if err != nil {
 		t.Errorf("Resolve() error = %v", err)
 	}
+
 	if queue == nil {
 		t.Error("expected non-nil queue")
 	}
@@ -366,6 +411,7 @@ func TestExtension_NATSDriver(t *testing.T) {
 	if err != nil {
 		t.Errorf("Resolve() error = %v", err)
 	}
+
 	if queue == nil {
 		t.Error("expected non-nil queue")
 	}
@@ -402,6 +448,7 @@ func TestExtension_StopWithError(t *testing.T) {
 	}
 
 	ctx := context.Background()
+
 	err = ext.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)

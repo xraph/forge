@@ -8,14 +8,14 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// RedirectMiddleware redirects requests to the leader
+// RedirectMiddleware redirects requests to the leader.
 type RedirectMiddleware struct {
 	raftNode internal.RaftNode
 	manager  *cluster.Manager
 	logger   forge.Logger
 }
 
-// NewRedirectMiddleware creates redirect middleware
+// NewRedirectMiddleware creates redirect middleware.
 func NewRedirectMiddleware(raftNode internal.RaftNode, manager *cluster.Manager, logger forge.Logger) *RedirectMiddleware {
 	return &RedirectMiddleware{
 		raftNode: raftNode,
@@ -24,7 +24,7 @@ func NewRedirectMiddleware(raftNode internal.RaftNode, manager *cluster.Manager,
 	}
 }
 
-// Handle redirects non-leader requests to the leader
+// Handle redirects non-leader requests to the leader.
 func (rm *RedirectMiddleware) Handle() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// If this node is the leader, continue
@@ -52,7 +52,7 @@ func (rm *RedirectMiddleware) Handle() func(forge.Context) error {
 		leaderURL := fmt.Sprintf("http://%s:%d%s", leader.Address, leader.Port, ctx.Request().URL.Path)
 
 		// Return redirect response
-		return ctx.JSON(307, map[string]interface{}{
+		return ctx.JSON(307, map[string]any{
 			"error":      "not leader",
 			"leader_id":  leaderID,
 			"leader_url": leaderURL,
@@ -61,7 +61,7 @@ func (rm *RedirectMiddleware) Handle() func(forge.Context) error {
 	}
 }
 
-// HandleWithAutoRedirect performs HTTP redirect
+// HandleWithAutoRedirect performs HTTP redirect.
 func (rm *RedirectMiddleware) HandleWithAutoRedirect() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// If this node is the leader, continue
@@ -93,7 +93,7 @@ func (rm *RedirectMiddleware) HandleWithAutoRedirect() func(forge.Context) error
 	}
 }
 
-// HandleWithForward forwards request to leader (proxy)
+// HandleWithForward forwards request to leader (proxy).
 func (rm *RedirectMiddleware) HandleWithForward() func(forge.Context) error {
 	return func(ctx forge.Context) error {
 		// If this node is the leader, continue
@@ -126,7 +126,7 @@ func (rm *RedirectMiddleware) HandleWithForward() func(forge.Context) error {
 			forge.F("leader_url", leaderURL),
 		)
 
-		return ctx.JSON(307, map[string]interface{}{
+		return ctx.JSON(307, map[string]any{
 			"error":      "not leader - forwarding required",
 			"leader_url": leaderURL,
 		})

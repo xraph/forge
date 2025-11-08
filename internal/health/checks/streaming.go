@@ -2,7 +2,9 @@ package checks
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -10,10 +12,11 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// StreamingHealthCheck performs health checks on streaming services
+// StreamingHealthCheck performs health checks on streaming services.
 type StreamingHealthCheck struct {
 	*health.BaseHealthCheck
-	streamingManager interface{} // Would be streaming.Manager
+
+	streamingManager any // Would be streaming.Manager
 	checkConnections bool
 	checkRooms       bool
 	checkPresence    bool
@@ -21,10 +24,10 @@ type StreamingHealthCheck struct {
 	mu               sync.RWMutex
 }
 
-// StreamingHealthCheckConfig contains configuration for streaming health checks
+// StreamingHealthCheckConfig contains configuration for streaming health checks.
 type StreamingHealthCheckConfig struct {
 	Name             string
-	StreamingManager interface{}
+	StreamingManager any
 	CheckConnections bool
 	CheckRooms       bool
 	CheckPresence    bool
@@ -34,7 +37,7 @@ type StreamingHealthCheckConfig struct {
 	Tags             map[string]string
 }
 
-// NewStreamingHealthCheck creates a new streaming health check
+// NewStreamingHealthCheck creates a new streaming health check.
 func NewStreamingHealthCheck(config *StreamingHealthCheckConfig) *StreamingHealthCheck {
 	if config == nil {
 		config = &StreamingHealthCheckConfig{}
@@ -71,7 +74,7 @@ func NewStreamingHealthCheck(config *StreamingHealthCheckConfig) *StreamingHealt
 	}
 }
 
-// Check performs the streaming health check
+// Check performs the streaming health check.
 func (shc *StreamingHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -136,10 +139,11 @@ func (shc *StreamingHealthCheck) Check(ctx context.Context) *health.HealthResult
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// checkServiceStatus checks if the streaming service is running
+// checkServiceStatus checks if the streaming service is running.
 func (shc *StreamingHealthCheck) checkServiceStatus(ctx context.Context) error {
 	shc.mu.RLock()
 	defer shc.mu.RUnlock()
@@ -152,26 +156,24 @@ func (shc *StreamingHealthCheck) checkServiceStatus(ctx context.Context) error {
 	// Check if streaming manager implements status interface
 	if statusProvider, ok := shc.streamingManager.(interface{ IsRunning() bool }); ok {
 		if !statusProvider.IsRunning() {
-			return fmt.Errorf("streaming service is not running")
+			return errors.New("streaming service is not running")
 		}
 	}
 
 	return nil
 }
 
-// checkConnectionStatus checks WebSocket/SSE connection status
-func (shc *StreamingHealthCheck) checkConnectionStatus(ctx context.Context) map[string]interface{} {
+// checkConnectionStatus checks WebSocket/SSE connection status.
+func (shc *StreamingHealthCheck) checkConnectionStatus(ctx context.Context) map[string]any {
 	shc.mu.RLock()
 	defer shc.mu.RUnlock()
 
-	status := make(map[string]interface{})
+	status := make(map[string]any)
 
 	// Check if streaming manager provides connection stats
-	if statsProvider, ok := shc.streamingManager.(interface{ GetConnectionStats() map[string]interface{} }); ok {
+	if statsProvider, ok := shc.streamingManager.(interface{ GetConnectionStats() map[string]any }); ok {
 		connStats := statsProvider.GetConnectionStats()
-		for k, v := range connStats {
-			status[k] = v
-		}
+		maps.Copy(status, connStats)
 	} else {
 		// Default connection status
 		status["total_connections"] = 0
@@ -190,19 +192,17 @@ func (shc *StreamingHealthCheck) checkConnectionStatus(ctx context.Context) map[
 	return status
 }
 
-// checkRoomStatus checks room management status
-func (shc *StreamingHealthCheck) checkRoomStatus(ctx context.Context) map[string]interface{} {
+// checkRoomStatus checks room management status.
+func (shc *StreamingHealthCheck) checkRoomStatus(ctx context.Context) map[string]any {
 	shc.mu.RLock()
 	defer shc.mu.RUnlock()
 
-	status := make(map[string]interface{})
+	status := make(map[string]any)
 
 	// Check if streaming manager provides room stats
-	if statsProvider, ok := shc.streamingManager.(interface{ GetRoomStats() map[string]interface{} }); ok {
+	if statsProvider, ok := shc.streamingManager.(interface{ GetRoomStats() map[string]any }); ok {
 		roomStats := statsProvider.GetRoomStats()
-		for k, v := range roomStats {
-			status[k] = v
-		}
+		maps.Copy(status, roomStats)
 	} else {
 		// Default room status
 		status["total_rooms"] = 0
@@ -220,19 +220,17 @@ func (shc *StreamingHealthCheck) checkRoomStatus(ctx context.Context) map[string
 	return status
 }
 
-// checkPresenceStatus checks presence tracking status
-func (shc *StreamingHealthCheck) checkPresenceStatus(ctx context.Context) map[string]interface{} {
+// checkPresenceStatus checks presence tracking status.
+func (shc *StreamingHealthCheck) checkPresenceStatus(ctx context.Context) map[string]any {
 	shc.mu.RLock()
 	defer shc.mu.RUnlock()
 
-	status := make(map[string]interface{})
+	status := make(map[string]any)
 
 	// Check if streaming manager provides presence stats
-	if statsProvider, ok := shc.streamingManager.(interface{ GetPresenceStats() map[string]interface{} }); ok {
+	if statsProvider, ok := shc.streamingManager.(interface{ GetPresenceStats() map[string]any }); ok {
 		presenceStats := statsProvider.GetPresenceStats()
-		for k, v := range presenceStats {
-			status[k] = v
-		}
+		maps.Copy(status, presenceStats)
 	} else {
 		// Default presence status
 		status["total_users"] = 0
@@ -250,19 +248,17 @@ func (shc *StreamingHealthCheck) checkPresenceStatus(ctx context.Context) map[st
 	return status
 }
 
-// checkScalingStatus checks horizontal scaling status
-func (shc *StreamingHealthCheck) checkScalingStatus(ctx context.Context) map[string]interface{} {
+// checkScalingStatus checks horizontal scaling status.
+func (shc *StreamingHealthCheck) checkScalingStatus(ctx context.Context) map[string]any {
 	shc.mu.RLock()
 	defer shc.mu.RUnlock()
 
-	status := make(map[string]interface{})
+	status := make(map[string]any)
 
 	// Check if streaming manager provides scaling stats
-	if statsProvider, ok := shc.streamingManager.(interface{ GetScalingStats() map[string]interface{} }); ok {
+	if statsProvider, ok := shc.streamingManager.(interface{ GetScalingStats() map[string]any }); ok {
 		scalingStats := statsProvider.GetScalingStats()
-		for k, v := range scalingStats {
-			status[k] = v
-		}
+		maps.Copy(status, scalingStats)
 	} else {
 		// Default scaling status
 		status["scaling_enabled"] = false
@@ -273,33 +269,32 @@ func (shc *StreamingHealthCheck) checkScalingStatus(ctx context.Context) map[str
 	return status
 }
 
-// getStreamingStats returns general streaming statistics
-func (shc *StreamingHealthCheck) getStreamingStats() map[string]interface{} {
+// getStreamingStats returns general streaming statistics.
+func (shc *StreamingHealthCheck) getStreamingStats() map[string]any {
 	shc.mu.RLock()
 	defer shc.mu.RUnlock()
 
-	stats := make(map[string]interface{})
+	stats := make(map[string]any)
 
 	// Check if streaming manager provides general stats
-	if statsProvider, ok := shc.streamingManager.(interface{ GetStats() map[string]interface{} }); ok {
+	if statsProvider, ok := shc.streamingManager.(interface{ GetStats() map[string]any }); ok {
 		generalStats := statsProvider.GetStats()
-		for k, v := range generalStats {
-			stats[k] = v
-		}
+		maps.Copy(stats, generalStats)
 	}
 
 	return stats
 }
 
-// WebSocketHealthCheck is a specialized health check for WebSocket connections
+// WebSocketHealthCheck is a specialized health check for WebSocket connections.
 type WebSocketHealthCheck struct {
 	*StreamingHealthCheck
+
 	testEndpoint      string
 	testMessage       string
 	connectionTimeout time.Duration
 }
 
-// NewWebSocketHealthCheck creates a new WebSocket health check
+// NewWebSocketHealthCheck creates a new WebSocket health check.
 func NewWebSocketHealthCheck(config *StreamingHealthCheckConfig) *WebSocketHealthCheck {
 	if config.Name == "" {
 		config.Name = "websocket"
@@ -313,7 +308,7 @@ func NewWebSocketHealthCheck(config *StreamingHealthCheckConfig) *WebSocketHealt
 	}
 }
 
-// Check performs WebSocket-specific health checks
+// Check performs WebSocket-specific health checks.
 func (wshc *WebSocketHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base streaming check
 	result := wshc.StreamingHealthCheck.Check(ctx)
@@ -332,24 +327,25 @@ func (wshc *WebSocketHealthCheck) Check(ctx context.Context) *health.HealthResul
 	return result
 }
 
-// checkWebSocketEndpoint checks WebSocket endpoint availability
-func (wshc *WebSocketHealthCheck) checkWebSocketEndpoint(ctx context.Context) map[string]interface{} {
+// checkWebSocketEndpoint checks WebSocket endpoint availability.
+func (wshc *WebSocketHealthCheck) checkWebSocketEndpoint(ctx context.Context) map[string]any {
 	// In a real implementation, this would test WebSocket connectivity
-	return map[string]interface{}{
+	return map[string]any{
 		"websocket_endpoint": wshc.testEndpoint,
 		"endpoint_healthy":   true,
 		"connection_timeout": wshc.connectionTimeout.String(),
 	}
 }
 
-// SSEHealthCheck is a specialized health check for Server-Sent Events
+// SSEHealthCheck is a specialized health check for Server-Sent Events.
 type SSEHealthCheck struct {
 	*StreamingHealthCheck
+
 	testEndpoint string
 	testMessage  string
 }
 
-// NewSSEHealthCheck creates a new SSE health check
+// NewSSEHealthCheck creates a new SSE health check.
 func NewSSEHealthCheck(config *StreamingHealthCheckConfig) *SSEHealthCheck {
 	if config.Name == "" {
 		config.Name = "sse"
@@ -362,7 +358,7 @@ func NewSSEHealthCheck(config *StreamingHealthCheckConfig) *SSEHealthCheck {
 	}
 }
 
-// Check performs SSE-specific health checks
+// Check performs SSE-specific health checks.
 func (ssehc *SSEHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base streaming check
 	result := ssehc.StreamingHealthCheck.Check(ctx)
@@ -381,25 +377,26 @@ func (ssehc *SSEHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	return result
 }
 
-// checkSSEEndpoint checks SSE endpoint availability
-func (ssehc *SSEHealthCheck) checkSSEEndpoint(ctx context.Context) map[string]interface{} {
+// checkSSEEndpoint checks SSE endpoint availability.
+func (ssehc *SSEHealthCheck) checkSSEEndpoint(ctx context.Context) map[string]any {
 	// In a real implementation, this would test SSE connectivity
-	return map[string]interface{}{
+	return map[string]any{
 		"sse_endpoint":     ssehc.testEndpoint,
 		"endpoint_healthy": true,
 	}
 }
 
-// StreamingClusterHealthCheck checks the health of streaming clusters
+// StreamingClusterHealthCheck checks the health of streaming clusters.
 type StreamingClusterHealthCheck struct {
 	*StreamingHealthCheck
+
 	clusterNodes  []string
-	redisCluster  interface{} // Would be redis cluster client
+	redisCluster  any // Would be redis cluster client
 	checkRedis    bool
 	checkNodeSync bool
 }
 
-// NewStreamingClusterHealthCheck creates a new streaming cluster health check
+// NewStreamingClusterHealthCheck creates a new streaming cluster health check.
 func NewStreamingClusterHealthCheck(config *StreamingHealthCheckConfig) *StreamingClusterHealthCheck {
 	if config.Name == "" {
 		config.Name = "streaming-cluster"
@@ -413,7 +410,7 @@ func NewStreamingClusterHealthCheck(config *StreamingHealthCheckConfig) *Streami
 	}
 }
 
-// Check performs streaming cluster health checks
+// Check performs streaming cluster health checks.
 func (schc *StreamingClusterHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base streaming check
 	result := schc.StreamingHealthCheck.Check(ctx)
@@ -448,9 +445,9 @@ func (schc *StreamingClusterHealthCheck) Check(ctx context.Context) *health.Heal
 	return result
 }
 
-// checkClusterStatus checks the overall cluster status
-func (schc *StreamingClusterHealthCheck) checkClusterStatus(ctx context.Context) map[string]interface{} {
-	return map[string]interface{}{
+// checkClusterStatus checks the overall cluster status.
+func (schc *StreamingClusterHealthCheck) checkClusterStatus(ctx context.Context) map[string]any {
+	return map[string]any{
 		"cluster_enabled": len(schc.clusterNodes) > 1,
 		"node_count":      len(schc.clusterNodes),
 		"nodes":           schc.clusterNodes,
@@ -458,10 +455,10 @@ func (schc *StreamingClusterHealthCheck) checkClusterStatus(ctx context.Context)
 	}
 }
 
-// checkRedisHealth checks Redis cluster health for scaling
-func (schc *StreamingClusterHealthCheck) checkRedisHealth(ctx context.Context) map[string]interface{} {
+// checkRedisHealth checks Redis cluster health for scaling.
+func (schc *StreamingClusterHealthCheck) checkRedisHealth(ctx context.Context) map[string]any {
 	// In a real implementation, this would check Redis cluster health
-	return map[string]interface{}{
+	return map[string]any{
 		"redis_cluster_healthy": true,
 		"redis_nodes":           3,
 		"redis_master_count":    3,
@@ -469,29 +466,29 @@ func (schc *StreamingClusterHealthCheck) checkRedisHealth(ctx context.Context) m
 	}
 }
 
-// checkNodeSynchronization checks synchronization between nodes
-func (schc *StreamingClusterHealthCheck) checkNodeSynchronization(ctx context.Context) map[string]interface{} {
+// checkNodeSynchronization checks synchronization between nodes.
+func (schc *StreamingClusterHealthCheck) checkNodeSynchronization(ctx context.Context) map[string]any {
 	// In a real implementation, this would check node synchronization
-	return map[string]interface{}{
+	return map[string]any{
 		"nodes_synchronized": true,
 		"sync_lag":           "0ms",
 		"sync_errors":        0,
 	}
 }
 
-// StreamingHealthCheckFactory creates streaming health checks based on configuration
+// StreamingHealthCheckFactory creates streaming health checks based on configuration.
 type StreamingHealthCheckFactory struct {
 	container shared.Container
 }
 
-// NewStreamingHealthCheckFactory creates a new factory
+// NewStreamingHealthCheckFactory creates a new factory.
 func NewStreamingHealthCheckFactory(container shared.Container) *StreamingHealthCheckFactory {
 	return &StreamingHealthCheckFactory{
 		container: container,
 	}
 }
 
-// CreateStreamingHealthCheck creates a streaming health check
+// CreateStreamingHealthCheck creates a streaming health check.
 func (factory *StreamingHealthCheckFactory) CreateStreamingHealthCheck(name string, checkType string, critical bool) (health.HealthCheck, error) {
 	config := &StreamingHealthCheckConfig{
 		Name:             name,
@@ -522,7 +519,7 @@ func (factory *StreamingHealthCheckFactory) CreateStreamingHealthCheck(name stri
 	}
 }
 
-// RegisterStreamingHealthChecks registers streaming health checks with the health service
+// RegisterStreamingHealthChecks registers streaming health checks with the health service.
 func RegisterStreamingHealthChecks(healthService health.HealthService, container shared.Container) error {
 	factory := NewStreamingHealthCheckFactory(container)
 
@@ -552,13 +549,14 @@ func RegisterStreamingHealthChecks(healthService health.HealthService, container
 	return nil
 }
 
-// StreamingHealthCheckComposite combines multiple streaming health checks
+// StreamingHealthCheckComposite combines multiple streaming health checks.
 type StreamingHealthCheckComposite struct {
 	*health.CompositeHealthCheck
+
 	streamingChecks []health.HealthCheck
 }
 
-// NewStreamingHealthCheckComposite creates a composite streaming health check
+// NewStreamingHealthCheckComposite creates a composite streaming health check.
 func NewStreamingHealthCheckComposite(name string, checks ...health.HealthCheck) *StreamingHealthCheckComposite {
 	config := &health.HealthCheckConfig{
 		Name:     name,
@@ -574,26 +572,27 @@ func NewStreamingHealthCheckComposite(name string, checks ...health.HealthCheck)
 	}
 }
 
-// GetStreamingChecks returns the individual streaming checks
+// GetStreamingChecks returns the individual streaming checks.
 func (shcc *StreamingHealthCheckComposite) GetStreamingChecks() []health.HealthCheck {
 	return shcc.streamingChecks
 }
 
-// AddStreamingCheck adds a streaming check to the composite
+// AddStreamingCheck adds a streaming check to the composite.
 func (shcc *StreamingHealthCheckComposite) AddStreamingCheck(check health.HealthCheck) {
 	shcc.streamingChecks = append(shcc.streamingChecks, check)
-	shcc.CompositeHealthCheck.AddCheck(check)
+	shcc.AddCheck(check)
 }
 
-// StreamingPerformanceHealthCheck checks streaming performance metrics
+// StreamingPerformanceHealthCheck checks streaming performance metrics.
 type StreamingPerformanceHealthCheck struct {
 	*StreamingHealthCheck
+
 	latencyThreshold    time.Duration
 	throughputThreshold int
 	errorRateThreshold  float64
 }
 
-// NewStreamingPerformanceHealthCheck creates a new streaming performance health check
+// NewStreamingPerformanceHealthCheck creates a new streaming performance health check.
 func NewStreamingPerformanceHealthCheck(config *StreamingHealthCheckConfig) *StreamingPerformanceHealthCheck {
 	if config.Name == "" {
 		config.Name = "streaming-performance"
@@ -607,7 +606,7 @@ func NewStreamingPerformanceHealthCheck(config *StreamingHealthCheckConfig) *Str
 	}
 }
 
-// Check performs streaming performance health checks
+// Check performs streaming performance health checks.
 func (sphc *StreamingPerformanceHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	// Perform base streaming check
 	result := sphc.StreamingHealthCheck.Check(ctx)
@@ -632,10 +631,10 @@ func (sphc *StreamingPerformanceHealthCheck) Check(ctx context.Context) *health.
 	return result
 }
 
-// checkPerformanceMetrics checks streaming performance metrics
-func (sphc *StreamingPerformanceHealthCheck) checkPerformanceMetrics(ctx context.Context) map[string]interface{} {
+// checkPerformanceMetrics checks streaming performance metrics.
+func (sphc *StreamingPerformanceHealthCheck) checkPerformanceMetrics(ctx context.Context) map[string]any {
 	// In a real implementation, this would collect actual performance metrics
-	return map[string]interface{}{
+	return map[string]any{
 		"average_latency":      "50ms",
 		"message_throughput":   1500,
 		"error_rate":           0.005,
@@ -644,8 +643,8 @@ func (sphc *StreamingPerformanceHealthCheck) checkPerformanceMetrics(ctx context
 	}
 }
 
-// isPerformanceDegraded checks if performance is below acceptable thresholds
-func (sphc *StreamingPerformanceHealthCheck) isPerformanceDegraded(metrics map[string]interface{}) bool {
+// isPerformanceDegraded checks if performance is below acceptable thresholds.
+func (sphc *StreamingPerformanceHealthCheck) isPerformanceDegraded(metrics map[string]any) bool {
 	// Check throughput
 	if throughput, ok := metrics["message_throughput"].(int); ok {
 		if throughput < sphc.throughputThreshold {

@@ -1,6 +1,6 @@
 package router
 
-// WithAsyncAPI enables AsyncAPI 3.0.0 spec generation
+// WithAsyncAPI enables AsyncAPI 3.0.0 spec generation.
 func WithAsyncAPI(config AsyncAPIConfig) RouterOption {
 	return &asyncAPIOption{config: config}
 }
@@ -13,7 +13,7 @@ func (o *asyncAPIOption) Apply(cfg *routerConfig) {
 	cfg.asyncAPIConfig = &o.config
 }
 
-// setupAsyncAPI initializes AsyncAPI generation if configured
+// setupAsyncAPI initializes AsyncAPI generation if configured.
 func (r *router) setupAsyncAPI() {
 	if r.asyncAPIConfig == nil {
 		return
@@ -30,7 +30,7 @@ func (r *router) setupAsyncAPI() {
 }
 
 // AsyncAPISpec returns the generated AsyncAPI specification
-// Returns nil if AsyncAPI is not enabled
+// Returns nil if AsyncAPI is not enabled.
 func (r *router) AsyncAPISpec() *AsyncAPISpec {
 	if r.asyncAPIGenerator == nil {
 		return nil

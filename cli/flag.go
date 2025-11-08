@@ -2,12 +2,15 @@ package cli
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Flag represents a command-line flag
+// Flag represents a command-line flag.
 type Flag interface {
 	Name() string
 	ShortName() string
@@ -18,7 +21,7 @@ type Flag interface {
 	Validate(value any) error
 }
 
-// FlagValue represents a parsed flag value
+// FlagValue represents a parsed flag value.
 type FlagValue interface {
 	String() string
 	Int() int
@@ -29,7 +32,7 @@ type FlagValue interface {
 	Raw() any
 }
 
-// FlagType represents the type of a flag
+// FlagType represents the type of a flag.
 type FlagType int
 
 const (
@@ -40,10 +43,10 @@ const (
 	DurationFlagType
 )
 
-// FlagOption is a functional option for configuring flags
+// FlagOption is a functional option for configuring flags.
 type FlagOption func(*flagConfig)
 
-// flagConfig holds flag configuration
+// flagConfig holds flag configuration.
 type flagConfig struct {
 	shortName    string
 	description  string
@@ -52,7 +55,7 @@ type flagConfig struct {
 	validator    func(any) error
 }
 
-// flag implements the Flag interface
+// flag implements the Flag interface.
 type flag struct {
 	name         string
 	shortName    string
@@ -74,10 +77,11 @@ func (f *flag) Validate(value any) error {
 	if f.validator != nil {
 		return f.validator(value)
 	}
+
 	return nil
 }
 
-// flagValue implements the FlagValue interface
+// flagValue implements the FlagValue interface.
 type flagValue struct {
 	rawValue any
 	isSet    bool
@@ -87,6 +91,7 @@ func (fv *flagValue) String() string {
 	if fv.rawValue == nil {
 		return ""
 	}
+
 	return fmt.Sprintf("%v", fv.rawValue)
 }
 
@@ -94,11 +99,13 @@ func (fv *flagValue) Int() int {
 	if fv.rawValue == nil {
 		return 0
 	}
+
 	switch v := fv.rawValue.(type) {
 	case int:
 		return v
 	case string:
 		i, _ := strconv.Atoi(v)
+
 		return i
 	default:
 		return 0
@@ -109,6 +116,7 @@ func (fv *flagValue) Bool() bool {
 	if fv.rawValue == nil {
 		return false
 	}
+
 	switch v := fv.rawValue.(type) {
 	case bool:
 		return v
@@ -123,6 +131,7 @@ func (fv *flagValue) StringSlice() []string {
 	if fv.rawValue == nil {
 		return []string{}
 	}
+
 	switch v := fv.rawValue.(type) {
 	case []string:
 		return v
@@ -137,11 +146,13 @@ func (fv *flagValue) Duration() time.Duration {
 	if fv.rawValue == nil {
 		return 0
 	}
+
 	switch v := fv.rawValue.(type) {
 	case time.Duration:
 		return v
 	case string:
 		d, _ := time.ParseDuration(v)
+
 		return d
 	case int64:
 		return time.Duration(v)
@@ -155,74 +166,76 @@ func (fv *flagValue) Raw() any    { return fv.rawValue }
 
 // Flag option constructors
 
-// WithAlias sets a short name alias for the flag
+// WithAlias sets a short name alias for the flag.
 func WithAlias(alias string) FlagOption {
 	return func(c *flagConfig) {
 		c.shortName = alias
 	}
 }
 
-// WithDefault sets a default value for the flag
+// WithDefault sets a default value for the flag.
 func WithDefault(value any) FlagOption {
 	return func(c *flagConfig) {
 		c.defaultValue = value
 	}
 }
 
-// WithDescription sets the description for the flag
+// WithDescription sets the description for the flag.
 func WithDescription(desc string) FlagOption {
 	return func(c *flagConfig) {
 		c.description = desc
 	}
 }
 
-// Required marks the flag as required
+// Required marks the flag as required.
 func Required() FlagOption {
 	return func(c *flagConfig) {
 		c.required = true
 	}
 }
 
-// WithValidator sets a custom validator for the flag
+// WithValidator sets a custom validator for the flag.
 func WithValidator(validator func(any) error) FlagOption {
 	return func(c *flagConfig) {
 		c.validator = validator
 	}
 }
 
-// ValidateRange validates that an int flag is within a range
+// ValidateRange validates that an int flag is within a range.
 func ValidateRange(min, max int) FlagOption {
 	return WithValidator(func(value any) error {
 		v, ok := value.(int)
 		if !ok {
-			return fmt.Errorf("expected int value")
+			return errors.New("expected int value")
 		}
+
 		if v < min || v > max {
 			return fmt.Errorf("value must be between %d and %d", min, max)
 		}
+
 		return nil
 	})
 }
 
-// ValidateEnum validates that a string flag is one of the allowed values
+// ValidateEnum validates that a string flag is one of the allowed values.
 func ValidateEnum(allowed ...string) FlagOption {
 	return WithValidator(func(value any) error {
 		v, ok := value.(string)
 		if !ok {
-			return fmt.Errorf("expected string value")
+			return errors.New("expected string value")
 		}
-		for _, a := range allowed {
-			if v == a {
-				return nil
-			}
+
+		if slices.Contains(allowed, v) {
+			return nil
 		}
+
 		return fmt.Errorf("value must be one of: %s", strings.Join(allowed, ", "))
 	})
 }
 
 // Flag constructors
 
-// WithStringFlag creates a string flag
+// WithStringFlag creates a string flag.
 func WithStringFlag(name, shortName, description, defaultValue string, opts ...FlagOption) FlagOption {
 	return func(c *flagConfig) {
 		// This is used as a command option, not a flag option
@@ -230,7 +243,7 @@ func WithStringFlag(name, shortName, description, defaultValue string, opts ...F
 	}
 }
 
-// WithIntFlag creates an int flag
+// WithIntFlag creates an int flag.
 func WithIntFlag(name, shortName, description string, defaultValue int, opts ...FlagOption) FlagOption {
 	return func(c *flagConfig) {
 		// This is used as a command option, not a flag option
@@ -238,7 +251,7 @@ func WithIntFlag(name, shortName, description string, defaultValue int, opts ...
 	}
 }
 
-// WithBoolFlag creates a bool flag
+// WithBoolFlag creates a bool flag.
 func WithBoolFlag(name, shortName, description string, defaultValue bool, opts ...FlagOption) FlagOption {
 	return func(c *flagConfig) {
 		// This is used as a command option, not a flag option
@@ -246,7 +259,7 @@ func WithBoolFlag(name, shortName, description string, defaultValue bool, opts .
 	}
 }
 
-// WithStringSliceFlag creates a string slice flag
+// WithStringSliceFlag creates a string slice flag.
 func WithStringSliceFlag(name, shortName, description string, defaultValue []string, opts ...FlagOption) FlagOption {
 	return func(c *flagConfig) {
 		// This is used as a command option, not a flag option
@@ -254,7 +267,7 @@ func WithStringSliceFlag(name, shortName, description string, defaultValue []str
 	}
 }
 
-// WithDurationFlag creates a duration flag
+// WithDurationFlag creates a duration flag.
 func WithDurationFlag(name, shortName, description string, defaultValue time.Duration, opts ...FlagOption) FlagOption {
 	return func(c *flagConfig) {
 		// This is used as a command option, not a flag option
@@ -262,7 +275,7 @@ func WithDurationFlag(name, shortName, description string, defaultValue time.Dur
 	}
 }
 
-// NewFlag creates a new flag
+// NewFlag creates a new flag.
 func NewFlag(name string, flagType FlagType, opts ...FlagOption) Flag {
 	config := &flagConfig{}
 	for _, opt := range opts {
@@ -280,32 +293,37 @@ func NewFlag(name string, flagType FlagType, opts ...FlagOption) Flag {
 	}
 }
 
-// NewStringFlag creates a string flag
+// NewStringFlag creates a string flag.
 func NewStringFlag(name, shortName, description, defaultValue string, opts ...FlagOption) Flag {
 	opts = append([]FlagOption{WithAlias(shortName), WithDescription(description), WithDefault(defaultValue)}, opts...)
+
 	return NewFlag(name, StringFlagType, opts...)
 }
 
-// NewIntFlag creates an int flag
+// NewIntFlag creates an int flag.
 func NewIntFlag(name, shortName, description string, defaultValue int, opts ...FlagOption) Flag {
 	opts = append([]FlagOption{WithAlias(shortName), WithDescription(description), WithDefault(defaultValue)}, opts...)
+
 	return NewFlag(name, IntFlagType, opts...)
 }
 
-// NewBoolFlag creates a bool flag
+// NewBoolFlag creates a bool flag.
 func NewBoolFlag(name, shortName, description string, defaultValue bool, opts ...FlagOption) Flag {
 	opts = append([]FlagOption{WithAlias(shortName), WithDescription(description), WithDefault(defaultValue)}, opts...)
+
 	return NewFlag(name, BoolFlagType, opts...)
 }
 
-// NewStringSliceFlag creates a string slice flag
+// NewStringSliceFlag creates a string slice flag.
 func NewStringSliceFlag(name, shortName, description string, defaultValue []string, opts ...FlagOption) Flag {
 	opts = append([]FlagOption{WithAlias(shortName), WithDescription(description), WithDefault(defaultValue)}, opts...)
+
 	return NewFlag(name, StringSliceFlagType, opts...)
 }
 
-// NewDurationFlag creates a duration flag
+// NewDurationFlag creates a duration flag.
 func NewDurationFlag(name, shortName, description string, defaultValue time.Duration, opts ...FlagOption) Flag {
 	opts = append([]FlagOption{WithAlias(shortName), WithDescription(description), WithDefault(defaultValue)}, opts...)
+
 	return NewFlag(name, DurationFlagType, opts...)
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// FollowerState manages follower-specific state and operations
+// FollowerState manages follower-specific state and operations.
 type FollowerState struct {
 	nodeID string
 	logger forge.Logger
@@ -28,7 +28,7 @@ type FollowerState struct {
 	wg     sync.WaitGroup
 }
 
-// NewFollowerState creates a new follower state
+// NewFollowerState creates a new follower state.
 func NewFollowerState(nodeID string, electionTimeout time.Duration, logger forge.Logger) *FollowerState {
 	return &FollowerState{
 		nodeID:          nodeID,
@@ -38,7 +38,7 @@ func NewFollowerState(nodeID string, electionTimeout time.Duration, logger forge
 	}
 }
 
-// Start starts the follower state
+// Start starts the follower state.
 func (fs *FollowerState) Start(ctx context.Context) error {
 	fs.ctx, fs.cancel = context.WithCancel(ctx)
 
@@ -50,7 +50,7 @@ func (fs *FollowerState) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the follower state
+// Stop stops the follower state.
 func (fs *FollowerState) Stop(ctx context.Context) error {
 	if fs.cancel != nil {
 		fs.cancel()
@@ -58,6 +58,7 @@ func (fs *FollowerState) Stop(ctx context.Context) error {
 
 	// Wait for goroutines
 	done := make(chan struct{})
+
 	go func() {
 		fs.wg.Wait()
 		close(done)
@@ -73,7 +74,7 @@ func (fs *FollowerState) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RecordHeartbeat records a heartbeat from the leader
+// RecordHeartbeat records a heartbeat from the leader.
 func (fs *FollowerState) RecordHeartbeat(leaderID string) {
 	fs.leaderMu.Lock()
 	defer fs.leaderMu.Unlock()
@@ -86,21 +87,23 @@ func (fs *FollowerState) RecordHeartbeat(leaderID string) {
 	)
 }
 
-// GetCurrentLeader returns the current leader
+// GetCurrentLeader returns the current leader.
 func (fs *FollowerState) GetCurrentLeader() string {
 	fs.leaderMu.RLock()
 	defer fs.leaderMu.RUnlock()
+
 	return fs.currentLeader
 }
 
-// GetLastHeartbeat returns the last heartbeat time
+// GetLastHeartbeat returns the last heartbeat time.
 func (fs *FollowerState) GetLastHeartbeat() time.Time {
 	fs.leaderMu.RLock()
 	defer fs.leaderMu.RUnlock()
+
 	return fs.lastHeartbeat
 }
 
-// HasHeartbeatTimedOut checks if election timeout has expired
+// HasHeartbeatTimedOut checks if election timeout has expired.
 func (fs *FollowerState) HasHeartbeatTimedOut() bool {
 	fs.leaderMu.RLock()
 	defer fs.leaderMu.RUnlock()
@@ -118,7 +121,7 @@ func (fs *FollowerState) HasHeartbeatTimedOut() bool {
 	return timedOut
 }
 
-// ClearLeader clears the current leader
+// ClearLeader clears the current leader.
 func (fs *FollowerState) ClearLeader() {
 	fs.leaderMu.Lock()
 	defer fs.leaderMu.Unlock()
@@ -133,10 +136,11 @@ func (fs *FollowerState) ClearLeader() {
 	}
 }
 
-// SetElectionTimeout sets the election timeout
+// SetElectionTimeout sets the election timeout.
 func (fs *FollowerState) SetElectionTimeout(timeout time.Duration) {
 	fs.timeoutMu.Lock()
 	defer fs.timeoutMu.Unlock()
+
 	fs.electionTimeout = timeout
 
 	fs.logger.Debug("election timeout updated",
@@ -144,33 +148,36 @@ func (fs *FollowerState) SetElectionTimeout(timeout time.Duration) {
 	)
 }
 
-// GetElectionTimeout returns the election timeout
+// GetElectionTimeout returns the election timeout.
 func (fs *FollowerState) GetElectionTimeout() time.Duration {
 	fs.timeoutMu.RLock()
 	defer fs.timeoutMu.RUnlock()
+
 	return fs.electionTimeout
 }
 
-// ResetHeartbeatTimer resets the heartbeat timer
+// ResetHeartbeatTimer resets the heartbeat timer.
 func (fs *FollowerState) ResetHeartbeatTimer() {
 	fs.leaderMu.Lock()
 	defer fs.leaderMu.Unlock()
+
 	fs.lastHeartbeat = time.Now()
 }
 
-// GetTimeSinceLastHeartbeat returns time since last heartbeat
+// GetTimeSinceLastHeartbeat returns time since last heartbeat.
 func (fs *FollowerState) GetTimeSinceLastHeartbeat() time.Duration {
 	fs.leaderMu.RLock()
 	defer fs.leaderMu.RUnlock()
+
 	return time.Since(fs.lastHeartbeat)
 }
 
-// IsHealthy checks if follower is healthy (receiving heartbeats)
+// IsHealthy checks if follower is healthy (receiving heartbeats).
 func (fs *FollowerState) IsHealthy() bool {
 	return !fs.HasHeartbeatTimedOut()
 }
 
-// GetStatus returns follower status
+// GetStatus returns follower status.
 func (fs *FollowerState) GetStatus() FollowerStatus {
 	fs.leaderMu.RLock()
 	defer fs.leaderMu.RUnlock()
@@ -186,7 +193,7 @@ func (fs *FollowerState) GetStatus() FollowerStatus {
 	}
 }
 
-// FollowerStatus represents follower status
+// FollowerStatus represents follower status.
 type FollowerStatus struct {
 	NodeID             string
 	CurrentLeader      string

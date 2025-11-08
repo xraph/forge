@@ -14,6 +14,7 @@ import (
 func TestPrintStartupBanner(t *testing.T) {
 	// Disable colors for consistent output in tests
 	color.NoColor = true
+
 	defer func() { color.NoColor = false }()
 
 	tests := []struct {
@@ -116,6 +117,7 @@ func TestPrintStartupBanner(t *testing.T) {
 
 			// Restore stdout
 			w.Close()
+
 			os.Stdout = old
 
 			// Read captured output
@@ -153,7 +155,7 @@ func TestBannerEnvironmentColors(t *testing.T) {
 		t.Run(tt.environment, func(t *testing.T) {
 			colorFunc := getEnvColor(tt.environment)
 			result := colorFunc(tt.expected)
-			
+
 			// The function should return the input (colors disabled in tests)
 			if !strings.Contains(result, tt.expected) {
 				t.Errorf("getEnvColor(%q) did not preserve text, got %q", tt.environment, result)
@@ -177,17 +179,18 @@ func TestBannerFormatEndpoint(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Disable colors for consistent testing
 			color.NoColor = true
+
 			defer func() { color.NoColor = false }()
 
 			result := formatEndpoint(tt.name, tt.path, color.New(color.FgGreen).SprintFunc())
-			
+
 			if !strings.Contains(result, tt.expected) {
 				t.Errorf("formatEndpoint did not contain expected name, got %q", result)
 			}
+
 			if !strings.Contains(result, tt.path) {
 				t.Errorf("formatEndpoint did not contain expected path, got %q", result)
 			}
 		})
 	}
 }
-

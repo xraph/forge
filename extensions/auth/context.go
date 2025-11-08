@@ -14,6 +14,7 @@ const authContextKey contextKey = "forge:auth:context"
 // Returns the auth context and true if found, nil and false otherwise.
 func FromContext(ctx context.Context) (*AuthContext, bool) {
 	authCtx, ok := ctx.Value(authContextKey).(*AuthContext)
+
 	return authCtx, ok
 }
 
@@ -25,6 +26,7 @@ func MustFromContext(ctx context.Context) *AuthContext {
 	if !ok {
 		panic("auth context not found in request context")
 	}
+
 	return authCtx
 }
 
@@ -37,6 +39,7 @@ func WithContext(ctx context.Context, authCtx *AuthContext) context.Context {
 // Returns the auth context and true if found, nil and false otherwise.
 func GetAuthContext(ctx forge.Context) (*AuthContext, bool) {
 	authCtx, ok := ctx.Get("auth_context").(*AuthContext)
+
 	return authCtx, ok
 }
 
@@ -48,6 +51,7 @@ func MustGetAuthContext(ctx forge.Context) *AuthContext {
 	if !ok {
 		panic("auth context not found in forge context")
 	}
+
 	return authCtx
 }
 

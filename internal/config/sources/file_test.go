@@ -2,9 +2,10 @@ package sources
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -53,6 +54,7 @@ func TestNewFileSource(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSource() error = %v", err)
 			}
+
 			if source == nil {
 				t.Fatal("NewFileSource() returned nil")
 			}
@@ -77,6 +79,7 @@ func TestNewFileSourceWithConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSource() error = %v", err)
 	}
+
 	if source == nil {
 		t.Fatal("NewFileSourceWithConfig() returned nil")
 	}
@@ -138,6 +141,7 @@ list:
 	if err != nil {
 		t.Fatalf("NewFileSource() error = %v", err)
 	}
+
 	ctx := context.Background()
 
 	data, err := source.Load(ctx)
@@ -163,7 +167,7 @@ list:
 	}
 
 	// Check nested
-	if nested, ok := data["nested"].(map[string]interface{}); ok {
+	if nested, ok := data["nested"].(map[string]any); ok {
 		if nested["key"] != "nested_value" {
 			t.Errorf("nested.key = %v, want nested_value", nested["key"])
 		}
@@ -172,7 +176,7 @@ list:
 	}
 
 	// Check list
-	if list, ok := data["list"].([]interface{}); ok {
+	if list, ok := data["list"].([]any); ok {
 		if len(list) != 3 {
 			t.Errorf("list length = %d, want 3", len(list))
 		}
@@ -204,6 +208,7 @@ func TestFileSource_Load_JSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSource() error = %v", err)
 	}
+
 	ctx := context.Background()
 
 	data, err := source.Load(ctx)
@@ -249,6 +254,7 @@ list = ["item1", "item2", "item3"]
 	if err != nil {
 		t.Fatalf("NewFileSource() error = %v", err)
 	}
+
 	ctx := context.Background()
 
 	data, err := source.Load(ctx)
@@ -285,6 +291,7 @@ func TestFileSource_Get(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSource() error = %v", err)
 	}
+
 	ctx := context.Background()
 	source.Load(ctx)
 
@@ -293,10 +300,12 @@ func TestFileSource_Get(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
+
 		value, ok := data["key"]
 		if !ok {
 			t.Fatal("Load() did not return existing key")
 		}
+
 		if value != "value" {
 			t.Errorf("Load() = %v, want value", value)
 		}
@@ -307,6 +316,7 @@ func TestFileSource_Get(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Load() error = %v", err)
 		}
+
 		_, ok := data["nonexistent"]
 		if ok {
 			t.Error("Load() should not return non-existent key")
@@ -353,9 +363,10 @@ func TestFileSource_Watch(t *testing.T) {
 	// Start watching
 	go func() {
 		err := source.Watch(ctx, nil)
-		if err != nil && err != context.Canceled {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			t.Errorf("Watch() error = %v", err)
 		}
+
 		close(changes)
 	}()
 
@@ -364,6 +375,7 @@ func TestFileSource_Watch(t *testing.T) {
 
 	// Modify file
 	newContent := []byte("key: modified\n")
+
 	err = os.WriteFile(testFile, newContent, 0644)
 	if err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -409,8 +421,8 @@ func TestFileSource_Watch_Disabled(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err = source.Watch(ctx, nil)
 
+	err = source.Watch(ctx, nil)
 	if err == nil {
 		t.Error("Watch() should return error when watching is disabled")
 	}
@@ -473,8 +485,8 @@ func TestFileSource_Load_NonExistentFile(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, err = source.Load(ctx)
 
+	_, err = source.Load(ctx)
 	if err == nil {
 		t.Error("Load() should return error for non-existent file")
 	}
@@ -494,8 +506,8 @@ func TestFileSource_Load_InvalidYAML(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, err = source.Load(ctx)
 
+	_, err = source.Load(ctx)
 	if err == nil {
 		t.Error("Load() should return error for invalid YAML")
 	}
@@ -515,8 +527,8 @@ func TestFileSource_Load_InvalidJSON(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, err = source.Load(ctx)
 
+	_, err = source.Load(ctx)
 	if err == nil {
 		t.Error("Load() should return error for invalid JSON")
 	}
@@ -543,8 +555,8 @@ func TestFileSource_Load_UnreadableFile(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, err = source.Load(ctx)
 
+	_, err = source.Load(ctx)
 	if err == nil {
 		t.Error("Load() should return error for unreadable file")
 	}
@@ -570,8 +582,8 @@ func TestFileSource_Backup(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	_, err = source.Load(ctx)
 
+	_, err = source.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
@@ -713,6 +725,7 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewFileSource() error = %v", err)
 		}
+
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -736,6 +749,7 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewFileSource() error = %v", err)
 		}
+
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -754,15 +768,17 @@ func TestFileSource_EdgeCases(t *testing.T) {
 
 		// Create a large YAML file with unique keys
 		var content []byte
-		for i := 0; i < 10000; i++ {
-			content = append(content, []byte("key"+fmt.Sprintf("%d", i)+": value\n")...)
+		for i := range 10000 {
+			content = append(content, []byte("key"+strconv.Itoa(i)+": value\n")...)
 		}
+
 		os.WriteFile(testFile, content, 0644)
 
 		source, err := NewFileSource(testFile, FileSourceOptions{})
 		if err != nil {
 			t.Fatalf("NewFileSource() error = %v", err)
 		}
+
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -792,6 +808,7 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewFileSource() error = %v", err)
 		}
+
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -815,6 +832,7 @@ func TestFileSource_EdgeCases(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewFileSource() error = %v", err)
 		}
+
 		ctx := context.Background()
 
 		data, err := source.Load(ctx)
@@ -907,6 +925,7 @@ func TestFileSource_FormatDetection(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewFileSource() error = %v", err)
 			}
+
 			ctx := context.Background()
 
 			data, err := source.Load(ctx)
@@ -947,7 +966,7 @@ func TestFileSource_ContextCancellation(t *testing.T) {
 	_, err = source.Load(ctx)
 
 	// Should either complete successfully or handle cancellation gracefully
-	if err != nil && err != context.Canceled {
+	if err != nil && !errors.Is(err, context.Canceled) {
 		t.Errorf("Load() error = %v", err)
 	}
 }
@@ -968,6 +987,7 @@ func TestFileSource_Reload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSource() error = %v", err)
 	}
+
 	ctx := context.Background()
 
 	// First load
@@ -1025,6 +1045,7 @@ func TestFileSource_Symlink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileSource() error = %v", err)
 	}
+
 	ctx := context.Background()
 
 	data, err := source.Load(ctx)

@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge/farp"
 )
 
-// TestFARPIntegration validates FARP schema publisher integration with service discovery
+// TestFARPIntegration validates FARP schema publisher integration with service discovery.
 func TestFARPIntegration(t *testing.T) {
 	// Create a test app
 	app := forge.New(forge.WithConfig(forge.AppConfig{
@@ -98,7 +98,7 @@ func TestFARPIntegration(t *testing.T) {
 	}
 }
 
-// TestFARPMetadataGeneration validates that FARP metadata is correctly generated
+// TestFARPMetadataGeneration validates that FARP metadata is correctly generated.
 func TestFARPMetadataGeneration(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
@@ -163,7 +163,7 @@ func TestFARPMetadataGeneration(t *testing.T) {
 	}
 }
 
-// TestFARPWithDifferentBackends validates FARP works with different discovery backends
+// TestFARPWithDifferentBackends validates FARP works with different discovery backends.
 func TestFARPWithDifferentBackends(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -227,7 +227,7 @@ func TestFARPWithDifferentBackends(t *testing.T) {
 	}
 }
 
-// TestFARPSchemaTypes validates all schema types are supported
+// TestFARPSchemaTypes validates all schema types are supported.
 func TestFARPSchemaTypes(t *testing.T) {
 	schemaTypes := []farp.SchemaType{
 		farp.SchemaTypeOpenAPI,
@@ -248,7 +248,7 @@ func TestFARPSchemaTypes(t *testing.T) {
 	}
 }
 
-// TestServiceInstanceWithFARPMetadata validates service instance contains FARP metadata
+// TestServiceInstanceWithFARPMetadata validates service instance contains FARP metadata.
 func TestServiceInstanceWithFARPMetadata(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
@@ -278,6 +278,7 @@ func TestServiceInstanceWithFARPMetadata(t *testing.T) {
 	}
 
 	ext := NewExtension(WithConfig(config))
+
 	discExt := ext.(*Extension)
 	if err := discExt.Register(app); err != nil {
 		t.Fatalf("failed to register extension: %v", err)
@@ -321,7 +322,7 @@ func TestServiceInstanceWithFARPMetadata(t *testing.T) {
 	}
 }
 
-// TestFARPRegistryIntegration validates FARP manifest registration
+// TestFARPRegistryIntegration validates FARP manifest registration.
 func TestFARPRegistryIntegration(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",

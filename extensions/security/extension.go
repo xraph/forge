@@ -7,9 +7,10 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements forge.Extension and forge.MiddlewareExtension for comprehensive security features
+// Extension implements forge.Extension and forge.MiddlewareExtension for comprehensive security features.
 type Extension struct {
 	*forge.BaseExtension
+
 	config          Config
 	sessionStore    SessionStore
 	cookieManager   *CookieManager
@@ -24,7 +25,7 @@ type Extension struct {
 	middlewares     []forge.Middleware
 }
 
-// Compile-time interface enforcement
+// Compile-time interface enforcement.
 var (
 	_ forge.Extension           = (*Extension)(nil)
 	_ forge.MiddlewareExtension = (*Extension)(nil)
@@ -53,6 +54,7 @@ func NewExtension(opts ...ConfigOption) *Extension {
 	}
 
 	base := forge.NewBaseExtension("security", "2.0.0", "Comprehensive Security Features: Sessions, CSRF, Rate Limiting, JWT, CORS, Password Hashing, API Keys, Audit Logging, Security Headers")
+
 	return &Extension{
 		BaseExtension: base,
 		config:        config,
@@ -65,7 +67,7 @@ func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the security extension with the app
+// Register registers the security extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	// Call base registration (sets logger, metrics)
 	if err := e.BaseExtension.Register(app); err != nil {
@@ -74,20 +76,24 @@ func (e *Extension) Register(app forge.App) error {
 
 	if !e.config.Enabled {
 		e.Logger().Info("security extension disabled")
+
 		return nil
 	}
 
 	// Load config from ConfigManager with dual-key support
 	programmaticConfig := e.config
+
 	finalConfig := DefaultConfig()
 	if err := e.LoadConfig("security", &finalConfig, programmaticConfig, DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("security: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("security: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate config
@@ -169,7 +175,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the security extension
+// Start starts the security extension.
 func (e *Extension) Start(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -182,6 +188,7 @@ func (e *Extension) Start(ctx context.Context) error {
 		if err := e.sessionStore.Connect(ctx); err != nil {
 			return fmt.Errorf("failed to connect session store: %w", err)
 		}
+
 		e.Logger().Info("session store connected",
 			forge.F("store", e.config.Session.Store),
 		)
@@ -193,7 +200,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the security extension
+// Stop stops the security extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -218,7 +225,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks if the security extension is healthy
+// Health checks if the security extension is healthy.
 func (e *Extension) Health(ctx context.Context) error {
 	if !e.config.Enabled {
 		return nil
@@ -227,7 +234,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	// Check session store health if enabled
 	if e.config.Session.Enabled {
 		if e.sessionStore == nil {
-			return fmt.Errorf("session store not initialized")
+			return errors.New("session store not initialized")
 		}
 
 		if err := e.sessionStore.Ping(ctx); err != nil {
@@ -238,7 +245,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	return nil
 }
 
-// initSessionStore initializes the session store based on configuration
+// initSessionStore initializes the session store based on configuration.
 func (e *Extension) initSessionStore() error {
 	switch e.config.Session.Store {
 	case "inmemory":
@@ -247,7 +254,7 @@ func (e *Extension) initSessionStore() error {
 
 	case "redis":
 		// TODO: Implement Redis session store
-		return fmt.Errorf("redis session store not yet implemented")
+		return errors.New("redis session store not yet implemented")
 
 	default:
 		return fmt.Errorf("unknown session store: %s", e.config.Session.Store)
@@ -256,7 +263,7 @@ func (e *Extension) initSessionStore() error {
 	return nil
 }
 
-// initCookieManager initializes the cookie manager
+// initCookieManager initializes the cookie manager.
 func (e *Extension) initCookieManager() {
 	opts := CookieOptions{
 		Path:     e.config.Cookie.Path,
@@ -275,26 +282,27 @@ func (e *Extension) initCookieManager() {
 	)
 }
 
-// SessionStore returns the session store (for advanced usage)
+// SessionStore returns the session store (for advanced usage).
 func (e *Extension) SessionStore() SessionStore {
 	return e.sessionStore
 }
 
-// CookieManager returns the cookie manager (for advanced usage)
+// CookieManager returns the cookie manager (for advanced usage).
 func (e *Extension) CookieManager() *CookieManager {
 	return e.cookieManager
 }
 
 // Middlewares returns global middlewares for session management
-// This implements the forge.MiddlewareExtension interface
+// This implements the forge.MiddlewareExtension interface.
 func (e *Extension) Middlewares() []forge.Middleware {
 	return e.middlewares
 }
 
-// prepareSessionMiddleware prepares the session middleware for global application
+// prepareSessionMiddleware prepares the session middleware for global application.
 func (e *Extension) prepareSessionMiddleware() {
 	if !e.config.Cookie.Enabled {
 		e.Logger().Warn("cookie management is disabled, session middleware will not be applied")
+
 		return
 	}
 
@@ -315,7 +323,7 @@ func (e *Extension) prepareSessionMiddleware() {
 	)
 }
 
-// prepareAutoApplyMiddlewares prepares all auto-apply middlewares for global application
+// prepareAutoApplyMiddlewares prepares all auto-apply middlewares for global application.
 func (e *Extension) prepareAutoApplyMiddlewares() {
 	// CSRF middleware
 	if e.config.CSRF.Enabled && e.config.CSRF.AutoApplyMiddleware && e.csrfProtection != nil {
@@ -374,7 +382,7 @@ func (e *Extension) prepareAutoApplyMiddlewares() {
 	}
 }
 
-// initSecurityManagers initializes all security managers
+// initSecurityManagers initializes all security managers.
 func (e *Extension) initSecurityManagers() error {
 	// Initialize CSRF protection
 	if e.config.CSRF.Enabled {
@@ -409,6 +417,7 @@ func (e *Extension) initSecurityManagers() error {
 		if err != nil {
 			return fmt.Errorf("failed to initialize JWT manager: %w", err)
 		}
+
 		e.jwtManager = jwtManager
 		e.Logger().Info("initialized JWT manager",
 			forge.F("signing_method", e.config.JWT.SigningMethod),
@@ -440,7 +449,7 @@ func (e *Extension) initSecurityManagers() error {
 	return nil
 }
 
-// registerWithDI registers all managers with the DI container
+// registerWithDI registers all managers with the DI container.
 func (e *Extension) registerWithDI(app forge.App) error {
 	// Register CSRF protection
 	if e.csrfProtection != nil {
@@ -519,42 +528,42 @@ func (e *Extension) registerWithDI(app forge.App) error {
 
 // Accessor methods for all managers
 
-// CSRFProtection returns the CSRF protection instance
+// CSRFProtection returns the CSRF protection instance.
 func (e *Extension) CSRFProtection() *CSRFProtection {
 	return e.csrfProtection
 }
 
-// RateLimiter returns the rate limiter instance
+// RateLimiter returns the rate limiter instance.
 func (e *Extension) RateLimiter() *MemoryRateLimiter {
 	return e.rateLimiter
 }
 
-// SecurityHeadersManager returns the security headers manager
+// SecurityHeadersManager returns the security headers manager.
 func (e *Extension) SecurityHeadersManager() *SecurityHeadersManager {
 	return e.securityHeaders
 }
 
-// PasswordHasher returns the password hasher instance
+// PasswordHasher returns the password hasher instance.
 func (e *Extension) PasswordHasher() *PasswordHasher {
 	return e.passwordHasher
 }
 
-// JWTManager returns the JWT manager instance
+// JWTManager returns the JWT manager instance.
 func (e *Extension) JWTManager() *JWTManager {
 	return e.jwtManager
 }
 
-// CORSManager returns the CORS manager instance
+// CORSManager returns the CORS manager instance.
 func (e *Extension) CORSManager() *CORSManager {
 	return e.corsManager
 }
 
-// APIKeyManager returns the API key manager instance
+// APIKeyManager returns the API key manager instance.
 func (e *Extension) APIKeyManager() *APIKeyManager {
 	return e.apiKeyManager
 }
 
-// AuditLogger returns the audit logger instance
+// AuditLogger returns the audit logger instance.
 func (e *Extension) AuditLogger() *AuditLogger {
 	return e.auditLogger
 }

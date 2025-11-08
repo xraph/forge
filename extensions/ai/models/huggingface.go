@@ -4,21 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// HuggingFaceAdapter implements ModelAdapter for Hugging Face models
+// HuggingFaceAdapter implements ModelAdapter for Hugging Face models.
 type HuggingFaceAdapter struct {
 	config HuggingFaceConfig
 	client *http.Client
 	logger logger.Logger
 }
 
-// HuggingFaceConfig contains configuration for Hugging Face models
+// HuggingFaceConfig contains configuration for Hugging Face models.
 type HuggingFaceConfig struct {
 	APIKey     string        `json:"api_key"`
 	BaseURL    string        `json:"base_url"`
@@ -29,9 +31,10 @@ type HuggingFaceConfig struct {
 	TaskType   string        `json:"task_type"` // text-generation, text-classification, etc.
 }
 
-// HuggingFaceModel implements Model for Hugging Face models
+// HuggingFaceModel implements Model for Hugging Face models.
 type HuggingFaceModel struct {
 	*BaseModel
+
 	adapter     *HuggingFaceAdapter
 	modelID     string
 	task        string
@@ -39,35 +42,38 @@ type HuggingFaceModel struct {
 	pipeline    string
 }
 
-// HuggingFaceRequest represents a request to Hugging Face API
+// HuggingFaceRequest represents a request to Hugging Face API.
 type HuggingFaceRequest struct {
-	Inputs     interface{}            `json:"inputs"`
-	Parameters map[string]interface{} `json:"parameters,omitempty"`
-	Options    map[string]interface{} `json:"options,omitempty"`
+	Inputs     any            `json:"inputs"`
+	Parameters map[string]any `json:"parameters,omitempty"`
+	Options    map[string]any `json:"options,omitempty"`
 }
 
-// HuggingFaceResponse represents a response from Hugging Face API
+// HuggingFaceResponse represents a response from Hugging Face API.
 type HuggingFaceResponse struct {
-	GeneratedText string                 `json:"generated_text,omitempty"`
-	Label         string                 `json:"label,omitempty"`
-	Score         float64                `json:"score,omitempty"`
-	Embeddings    []float64              `json:"embeddings,omitempty"`
-	Error         string                 `json:"error,omitempty"`
-	Warnings      []string               `json:"warnings,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	GeneratedText string         `json:"generated_text,omitempty"`
+	Label         string         `json:"label,omitempty"`
+	Score         float64        `json:"score,omitempty"`
+	Embeddings    []float64      `json:"embeddings,omitempty"`
+	Error         string         `json:"error,omitempty"`
+	Warnings      []string       `json:"warnings,omitempty"`
+	Metadata      map[string]any `json:"metadata,omitempty"`
 }
 
-// NewHuggingFaceAdapter creates a new Hugging Face adapter
+// NewHuggingFaceAdapter creates a new Hugging Face adapter.
 func NewHuggingFaceAdapter(config HuggingFaceConfig, logger logger.Logger) ModelAdapter {
 	if config.BaseURL == "" {
 		config.BaseURL = "https://api-inference.huggingface.co"
 	}
+
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
+
 	if config.MaxRetries == 0 {
 		config.MaxRetries = 3
 	}
+
 	if config.CacheTTL == 0 {
 		config.CacheTTL = 1 * time.Hour
 	}
@@ -81,27 +87,27 @@ func NewHuggingFaceAdapter(config HuggingFaceConfig, logger logger.Logger) Model
 	}
 }
 
-// Name returns the adapter name
+// Name returns the adapter name.
 func (a *HuggingFaceAdapter) Name() string {
 	return "huggingface"
 }
 
-// Framework returns the ML framework
+// Framework returns the ML framework.
 func (a *HuggingFaceAdapter) Framework() MLFramework {
 	return MLFrameworkHuggingFace
 }
 
-// SupportsModel checks if the adapter supports the model configuration
+// SupportsModel checks if the adapter supports the model configuration.
 func (a *HuggingFaceAdapter) SupportsModel(config ModelConfig) bool {
 	return config.Framework == MLFrameworkHuggingFace ||
 		strings.HasPrefix(config.ModelPath, "huggingface://") ||
 		a.isHuggingFaceModel(config.ModelPath)
 }
 
-// CreateModel creates a new Hugging Face model
+// CreateModel creates a new Hugging Face model.
 func (a *HuggingFaceAdapter) CreateModel(config ModelConfig) (Model, error) {
 	if !a.SupportsModel(config) {
-		return nil, fmt.Errorf("model configuration not supported by Hugging Face adapter")
+		return nil, errors.New("model configuration not supported by Hugging Face adapter")
 	}
 
 	// Extract model ID from path
@@ -137,30 +143,30 @@ func (a *HuggingFaceAdapter) CreateModel(config ModelConfig) (Model, error) {
 	return model, nil
 }
 
-// ValidateConfig validates the model configuration
+// ValidateConfig validates the model configuration.
 func (a *HuggingFaceAdapter) ValidateConfig(config ModelConfig) error {
 	if config.Framework != MLFrameworkHuggingFace {
-		return fmt.Errorf("framework must be 'huggingface'")
+		return errors.New("framework must be 'huggingface'")
 	}
 
 	if config.ModelPath == "" {
-		return fmt.Errorf("model path is required")
+		return errors.New("model path is required")
 	}
 
 	if a.config.APIKey == "" {
-		return fmt.Errorf("Hugging Face API key is required")
+		return errors.New("Hugging Face API key is required")
 	}
 
 	// Validate model ID format
 	modelID := a.extractModelID(config.ModelPath)
 	if modelID == "" {
-		return fmt.Errorf("invalid model path format")
+		return errors.New("invalid model path format")
 	}
 
 	return nil
 }
 
-// Load loads the Hugging Face model
+// Load loads the Hugging Face model.
 func (m *HuggingFaceModel) Load(ctx context.Context) error {
 	// Call base Load first
 	if err := m.BaseModel.Load(ctx); err != nil {
@@ -183,7 +189,7 @@ func (m *HuggingFaceModel) Load(ctx context.Context) error {
 	return nil
 }
 
-// Predict performs prediction using Hugging Face API
+// Predict performs prediction using Hugging Face API.
 func (m *HuggingFaceModel) Predict(ctx context.Context, input ModelInput) (ModelOutput, error) {
 	startTime := time.Now()
 
@@ -199,6 +205,7 @@ func (m *HuggingFaceModel) Predict(ctx context.Context, input ModelInput) (Model
 	response, err := m.makeAPICall(ctx, request)
 	if err != nil {
 		m.updateErrorCount()
+
 		return ModelOutput{}, err
 	}
 
@@ -211,7 +218,7 @@ func (m *HuggingFaceModel) Predict(ctx context.Context, input ModelInput) (Model
 	return output, nil
 }
 
-// BatchPredict performs batch prediction
+// BatchPredict performs batch prediction.
 func (m *HuggingFaceModel) BatchPredict(ctx context.Context, inputs []ModelInput) ([]ModelOutput, error) {
 	if len(inputs) == 0 {
 		return []ModelOutput{}, nil
@@ -223,12 +230,15 @@ func (m *HuggingFaceModel) BatchPredict(ctx context.Context, inputs []ModelInput
 
 	// Simple parallel processing with goroutines
 	const maxConcurrency = 5
+
 	sem := make(chan struct{}, maxConcurrency)
 
 	for i, input := range inputs {
 		sem <- struct{}{}
+
 		go func(idx int, inp ModelInput) {
 			defer func() { <-sem }()
+
 			output, err := m.Predict(ctx, inp)
 			outputs[idx] = output
 			errors[idx] = err
@@ -236,7 +246,7 @@ func (m *HuggingFaceModel) BatchPredict(ctx context.Context, inputs []ModelInput
 	}
 
 	// Wait for all to complete
-	for i := 0; i < maxConcurrency; i++ {
+	for range maxConcurrency {
 		sem <- struct{}{}
 	}
 
@@ -250,12 +260,12 @@ func (m *HuggingFaceModel) BatchPredict(ctx context.Context, inputs []ModelInput
 	return outputs, nil
 }
 
-// testModelAvailability tests if the model is available
+// testModelAvailability tests if the model is available.
 func (m *HuggingFaceModel) testModelAvailability(ctx context.Context) error {
 	// Create a simple test request
 	testInput := ModelInput{
 		Data: "test",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"test": true,
 		},
 	}
@@ -264,15 +274,16 @@ func (m *HuggingFaceModel) testModelAvailability(ctx context.Context) error {
 
 	// Make test API call
 	_, err := m.makeAPICall(ctx, request)
+
 	return err
 }
 
-// prepareRequest prepares the API request
+// prepareRequest prepares the API request.
 func (m *HuggingFaceModel) prepareRequest(input ModelInput) HuggingFaceRequest {
 	request := HuggingFaceRequest{
 		Inputs:     input.Data,
-		Parameters: make(map[string]interface{}),
-		Options:    make(map[string]interface{}),
+		Parameters: make(map[string]any),
+		Options:    make(map[string]any),
 	}
 
 	// Add task-specific parameters
@@ -281,12 +292,15 @@ func (m *HuggingFaceModel) prepareRequest(input ModelInput) HuggingFaceRequest {
 		if maxLength, ok := input.Features["max_length"]; ok {
 			request.Parameters["max_length"] = maxLength
 		}
+
 		if temperature, ok := input.Features["temperature"]; ok {
 			request.Parameters["temperature"] = temperature
 		}
+
 		if topK, ok := input.Features["top_k"]; ok {
 			request.Parameters["top_k"] = topK
 		}
+
 		if topP, ok := input.Features["top_p"]; ok {
 			request.Parameters["top_p"] = topP
 		}
@@ -298,7 +312,7 @@ func (m *HuggingFaceModel) prepareRequest(input ModelInput) HuggingFaceRequest {
 
 	case "question-answering":
 		if context, ok := input.Features["context"]; ok {
-			request.Inputs = map[string]interface{}{
+			request.Inputs = map[string]any{
 				"question": input.Data,
 				"context":  context,
 			}
@@ -308,6 +322,7 @@ func (m *HuggingFaceModel) prepareRequest(input ModelInput) HuggingFaceRequest {
 		if maxLength, ok := input.Features["max_length"]; ok {
 			request.Parameters["max_length"] = maxLength
 		}
+
 		if minLength, ok := input.Features["min_length"]; ok {
 			request.Parameters["min_length"] = minLength
 		}
@@ -322,7 +337,7 @@ func (m *HuggingFaceModel) prepareRequest(input ModelInput) HuggingFaceRequest {
 	return request
 }
 
-// makeAPICall makes the API call to Hugging Face
+// makeAPICall makes the API call to Hugging Face.
 func (m *HuggingFaceModel) makeAPICall(ctx context.Context, request HuggingFaceRequest) (*HuggingFaceResponse, error) {
 	requestBody, err := json.Marshal(request)
 	if err != nil {
@@ -330,8 +345,9 @@ func (m *HuggingFaceModel) makeAPICall(ctx context.Context, request HuggingFaceR
 	}
 
 	var lastErr error
+
 	for attempt := 0; attempt < m.adapter.config.MaxRetries; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, "POST", m.apiEndpoint, strings.NewReader(string(requestBody)))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.apiEndpoint, strings.NewReader(string(requestBody)))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)
 		}
@@ -342,14 +358,18 @@ func (m *HuggingFaceModel) makeAPICall(ctx context.Context, request HuggingFaceR
 		resp, err := m.adapter.client.Do(req)
 		if err != nil {
 			lastErr = err
+
 			time.Sleep(time.Duration(attempt+1) * time.Second)
+
 			continue
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = fmt.Errorf("API returned status %d", resp.StatusCode)
+
 			time.Sleep(time.Duration(attempt+1) * time.Second)
+
 			continue
 		}
 
@@ -372,12 +392,12 @@ func (m *HuggingFaceModel) makeAPICall(ctx context.Context, request HuggingFaceR
 	return nil, fmt.Errorf("API call failed after %d attempts: %w", m.adapter.config.MaxRetries, lastErr)
 }
 
-// processResponse processes the API response
+// processResponse processes the API response.
 func (m *HuggingFaceModel) processResponse(response *HuggingFaceResponse, input ModelInput, latency time.Duration) ModelOutput {
 	output := ModelOutput{
 		Predictions: []Prediction{},
 		Confidence:  response.Score,
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 		RequestID:   input.RequestID,
 		Timestamp:   time.Now(),
 		Latency:     latency,
@@ -426,9 +446,7 @@ func (m *HuggingFaceModel) processResponse(response *HuggingFaceResponse, input 
 
 	// Add metadata
 	if response.Metadata != nil {
-		for k, v := range response.Metadata {
-			output.Metadata[k] = v
-		}
+		maps.Copy(output.Metadata, response.Metadata)
 	}
 
 	if len(response.Warnings) > 0 {
@@ -449,13 +467,12 @@ func (a *HuggingFaceAdapter) extractModelID(modelPath string) string {
 	// - huggingface://bert-base-uncased
 	// - bert-base-uncased
 	// - https://huggingface.co/bert-base-uncased
-
-	if strings.HasPrefix(modelPath, "huggingface://") {
-		return strings.TrimPrefix(modelPath, "huggingface://")
+	if after, ok := strings.CutPrefix(modelPath, "huggingface://"); ok {
+		return after
 	}
 
-	if strings.HasPrefix(modelPath, "https://huggingface.co/") {
-		return strings.TrimPrefix(modelPath, "https://huggingface.co/")
+	if after, ok := strings.CutPrefix(modelPath, "https://huggingface.co/"); ok {
+		return after
 	}
 
 	// Assume it's already a model ID
@@ -508,17 +525,17 @@ func (a *HuggingFaceAdapter) setModelSchemas(model *BaseModel, task string) {
 	case "text-generation":
 		model.SetInputSchema(InputSchema{
 			Type: "object",
-			Properties: map[string]interface{}{
-				"text": map[string]interface{}{
+			Properties: map[string]any{
+				"text": map[string]any{
 					"type":        "string",
 					"description": "Input text for generation",
 				},
-				"max_length": map[string]interface{}{
+				"max_length": map[string]any{
 					"type":        "integer",
 					"description": "Maximum length of generated text",
 					"default":     100,
 				},
-				"temperature": map[string]interface{}{
+				"temperature": map[string]any{
 					"type":        "number",
 					"description": "Sampling temperature",
 					"minimum":     0.1,
@@ -531,8 +548,8 @@ func (a *HuggingFaceAdapter) setModelSchemas(model *BaseModel, task string) {
 
 		model.SetOutputSchema(OutputSchema{
 			Type: "object",
-			Properties: map[string]interface{}{
-				"generated_text": map[string]interface{}{
+			Properties: map[string]any{
+				"generated_text": map[string]any{
 					"type":        "string",
 					"description": "Generated text",
 				},
@@ -542,8 +559,8 @@ func (a *HuggingFaceAdapter) setModelSchemas(model *BaseModel, task string) {
 	case "text-classification":
 		model.SetInputSchema(InputSchema{
 			Type: "object",
-			Properties: map[string]interface{}{
-				"text": map[string]interface{}{
+			Properties: map[string]any{
+				"text": map[string]any{
 					"type":        "string",
 					"description": "Input text for classification",
 				},
@@ -553,12 +570,12 @@ func (a *HuggingFaceAdapter) setModelSchemas(model *BaseModel, task string) {
 
 		model.SetOutputSchema(OutputSchema{
 			Type: "object",
-			Properties: map[string]interface{}{
-				"label": map[string]interface{}{
+			Properties: map[string]any{
+				"label": map[string]any{
 					"type":        "string",
 					"description": "Predicted label",
 				},
-				"score": map[string]interface{}{
+				"score": map[string]any{
 					"type":        "number",
 					"description": "Confidence score",
 				},
@@ -568,8 +585,8 @@ func (a *HuggingFaceAdapter) setModelSchemas(model *BaseModel, task string) {
 	case "feature-extraction":
 		model.SetInputSchema(InputSchema{
 			Type: "object",
-			Properties: map[string]interface{}{
-				"text": map[string]interface{}{
+			Properties: map[string]any{
+				"text": map[string]any{
 					"type":        "string",
 					"description": "Input text for feature extraction",
 				},
@@ -579,10 +596,10 @@ func (a *HuggingFaceAdapter) setModelSchemas(model *BaseModel, task string) {
 
 		model.SetOutputSchema(OutputSchema{
 			Type: "array",
-			Properties: map[string]interface{}{
-				"embeddings": map[string]interface{}{
+			Properties: map[string]any{
+				"embeddings": map[string]any{
 					"type":        "array",
-					"items":       map[string]interface{}{"type": "number"},
+					"items":       map[string]any{"type": "number"},
 					"description": "Feature embeddings",
 				},
 			},

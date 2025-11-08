@@ -51,6 +51,7 @@ func TestMCPExtension(t *testing.T) {
 				if !tt.wantErr {
 					t.Fatalf("Start() error = %v, wantErr %v", err, tt.wantErr)
 				}
+
 				return
 			}
 			defer app.Stop(ctx)
@@ -224,10 +225,12 @@ func TestMCPListTools(t *testing.T) {
 	// Check that tools were generated from routes
 	hasGetUsers := false
 	hasCreateUsers := false
+
 	for _, tool := range response.Tools {
 		if tool.Name == "get_users_id" {
 			hasGetUsers = true
 		}
+
 		if tool.Name == "create_users" {
 			hasCreateUsers = true
 		}
@@ -236,6 +239,7 @@ func TestMCPListTools(t *testing.T) {
 	if !hasGetUsers {
 		t.Error("expected 'get_users_id' tool")
 	}
+
 	if !hasCreateUsers {
 		t.Error("expected 'create_users' tool")
 	}
@@ -282,9 +286,11 @@ func TestMCPCallTool(t *testing.T) {
 
 	// Find the create_users tool
 	var toolFound bool
+
 	for _, tool := range listResp.Tools {
 		if tool.Name == "create_users" {
 			toolFound = true
+
 			break
 		}
 	}
@@ -298,6 +304,7 @@ func TestMCPCallTool(t *testing.T) {
 	reqBody := `{"name": "create_users", "arguments": {"name": "John"}}`
 	req := httptest.NewRequest(http.MethodPost, "/_/mcp/tools/create_users", strings.NewReader(reqBody))
 	req.Header.Set("Content-Type", "application/json")
+
 	rec := httptest.NewRecorder()
 
 	app.Router().ServeHTTP(rec, req)
@@ -453,9 +460,11 @@ func TestMCPToolPrefix(t *testing.T) {
 
 	// Check that tool has prefix
 	foundPrefixed := false
+
 	for _, tool := range response.Tools {
 		if tool.Name == "myapi_get_users" {
 			foundPrefixed = true
+
 			break
 		}
 	}
@@ -590,7 +599,7 @@ func TestMCPExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 
 	// Create config manager with namespaced config
 	configManager := forge.NewManager(forge.ManagerConfig{})
-	configManager.Set("extensions.mcp", map[string]interface{}{
+	configManager.Set("extensions.mcp", map[string]any{
 		"enabled":            true,
 		"base_path":          "/_/mcp",
 		"auto_expose_routes": true,
@@ -612,12 +621,14 @@ func TestMCPExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 	if err != nil && strings.Contains(err.Error(), "already exists") {
 		t.Skip("ConfigManager already registered, skipping test")
 	}
+
 	if err != nil {
 		t.Fatalf("Failed to register ConfigManager: %v", err)
 	}
 
 	// Create extension (no options)
 	ext := mcp.NewExtension()
+
 	err = ext.Register(app)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
@@ -637,7 +648,7 @@ func TestMCPExtension_ConfigLoading_FromLegacyKey(t *testing.T) {
 
 	// Create config manager with legacy key
 	configManager := forge.NewManager(forge.ManagerConfig{})
-	configManager.Set("mcp", map[string]interface{}{
+	configManager.Set("mcp", map[string]any{
 		"enabled":   true,
 		"base_path": "/_/mcp",
 	})
@@ -654,12 +665,14 @@ func TestMCPExtension_ConfigLoading_FromLegacyKey(t *testing.T) {
 	if err != nil && strings.Contains(err.Error(), "already exists") {
 		t.Skip("ConfigManager already registered, skipping test")
 	}
+
 	if err != nil {
 		t.Fatalf("Failed to register ConfigManager: %v", err)
 	}
 
 	// Create extension
 	ext := mcp.NewExtension()
+
 	err = ext.Register(app)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
@@ -679,7 +692,7 @@ func TestMCPExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 
 	// Create config manager
 	configManager := forge.NewManager(forge.ManagerConfig{})
-	configManager.Set("extensions.mcp", map[string]interface{}{
+	configManager.Set("extensions.mcp", map[string]any{
 		"enabled":          true,
 		"base_path":        "/_/mcp",
 		"enable_resources": false,
@@ -697,6 +710,7 @@ func TestMCPExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 	if err != nil && strings.Contains(err.Error(), "already exists") {
 		t.Skip("ConfigManager already registered, skipping test")
 	}
+
 	if err != nil {
 		t.Fatalf("Failed to register ConfigManager: %v", err)
 	}
@@ -706,6 +720,7 @@ func TestMCPExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 		mcp.WithBasePath("/_/mcp/custom"), // Override config
 		mcp.WithResources(true),           // Override config
 	)
+
 	err = ext.Register(app)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
@@ -743,6 +758,7 @@ func TestMCPExtension_ConfigLoading_NoConfigManager(t *testing.T) {
 		mcp.WithEnabled(true),
 		mcp.WithBasePath("/_/mcp"),
 	)
+
 	err := ext.Register(app)
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
@@ -762,7 +778,7 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 
 	// Create config manager
 	configManager := forge.NewManager(forge.ManagerConfig{})
-	configManager.Set("extensions.mcp", map[string]interface{}{
+	configManager.Set("extensions.mcp", map[string]any{
 		"enabled":   true,
 		"base_path": "/_/mcp",
 	})
@@ -779,6 +795,7 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 	if err != nil && strings.Contains(err.Error(), "already exists") {
 		t.Skip("ConfigManager already registered, skipping test")
 	}
+
 	if err != nil {
 		t.Fatalf("Failed to register ConfigManager: %v", err)
 	}
@@ -787,6 +804,7 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 	ext := mcp.NewExtension(
 		mcp.WithRequireConfig(true),
 	)
+
 	err = ext.Register(app)
 	if err != nil {
 		t.Fatalf("Register should succeed when config exists, got: %v", err)
@@ -811,10 +829,12 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithoutConfig(t *testing.T
 	ext := mcp.NewExtension(
 		mcp.WithRequireConfig(true),
 	)
+
 	err := ext.Register(app)
 	if err == nil {
 		t.Fatal("Expected error when config required but not available")
 	}
+
 	if !strings.Contains(err.Error(), "required") {
 		t.Errorf("Expected error to contain 'required', got: %v", err)
 	}
@@ -831,6 +851,7 @@ func TestMCPExtension_ConfigLoading_RequireConfigFalse_WithoutConfig(t *testing.
 
 	// Create extension with RequireConfig=false (default)
 	ext := mcp.NewExtension()
+
 	err := ext.Register(app)
 	if err != nil {
 		t.Fatalf("Register should succeed with defaults, got: %v", err)

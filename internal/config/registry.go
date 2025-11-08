@@ -2,16 +2,18 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge/internal/config/sources"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
 
-// SourceRegistryImpl implements the SourceRegistry interface
+// SourceRegistryImpl implements the SourceRegistry interface.
 type SourceRegistryImpl struct {
 	sources  map[string]ConfigSource
 	metadata map[string]*SourceMetadata
@@ -20,7 +22,7 @@ type SourceRegistryImpl struct {
 	mu       sync.RWMutex
 }
 
-// NewSourceRegistry creates a new source registry
+// NewSourceRegistry creates a new source registry.
 func NewSourceRegistry(logger logger.Logger) SourceRegistry {
 	return &SourceRegistryImpl{
 		sources:  make(map[string]ConfigSource),
@@ -29,18 +31,18 @@ func NewSourceRegistry(logger logger.Logger) SourceRegistry {
 	}
 }
 
-// RegisterSource registers a configuration source
+// RegisterSource registers a configuration source.
 func (sr *SourceRegistryImpl) RegisterSource(source ConfigSource) error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
 
 	if source == nil {
-		return ErrValidationError("source", fmt.Errorf("source cannot be nil"))
+		return ErrValidationError("source", errors.New("source cannot be nil"))
 	}
 
 	sourceName := source.Name()
 	if sourceName == "" {
-		return ErrValidationError("source_name", fmt.Errorf("source name cannot be empty"))
+		return ErrValidationError("source_name", errors.New("source name cannot be empty"))
 	}
 
 	// Check if source already exists
@@ -61,7 +63,7 @@ func (sr *SourceRegistryImpl) RegisterSource(source ConfigSource) error {
 		IsWatching:   false,       // Will be updated when watching starts
 		KeyCount:     0,           // Will be updated on load
 		ErrorCount:   0,
-		Properties:   make(map[string]interface{}),
+		Properties:   make(map[string]any),
 	}
 
 	sr.metadata[sourceName] = metadata
@@ -84,7 +86,7 @@ func (sr *SourceRegistryImpl) RegisterSource(source ConfigSource) error {
 	return nil
 }
 
-// UnregisterSource unregisters a configuration source
+// UnregisterSource unregisters a configuration source.
 func (sr *SourceRegistryImpl) UnregisterSource(name string) error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
@@ -124,7 +126,7 @@ func (sr *SourceRegistryImpl) UnregisterSource(name string) error {
 	return nil
 }
 
-// GetSource retrieves a configuration source by name
+// GetSource retrieves a configuration source by name.
 func (sr *SourceRegistryImpl) GetSource(name string) (ConfigSource, error) {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
@@ -137,7 +139,7 @@ func (sr *SourceRegistryImpl) GetSource(name string) (ConfigSource, error) {
 	return source, nil
 }
 
-// GetSources returns all registered sources ordered by priority
+// GetSources returns all registered sources ordered by priority.
 func (sr *SourceRegistryImpl) GetSources() []ConfigSource {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
@@ -161,6 +163,7 @@ func (sr *SourceRegistryImpl) GetSources() []ConfigSource {
 		if sourcesWithPriority[i].priority != sourcesWithPriority[j].priority {
 			return sourcesWithPriority[i].priority > sourcesWithPriority[j].priority
 		}
+
 		return sourcesWithPriority[i].source.Name() < sourcesWithPriority[j].source.Name()
 	})
 
@@ -173,7 +176,7 @@ func (sr *SourceRegistryImpl) GetSources() []ConfigSource {
 	return result
 }
 
-// GetSourceMetadata returns metadata for a source
+// GetSourceMetadata returns metadata for a source.
 func (sr *SourceRegistryImpl) GetSourceMetadata(name string) (*SourceMetadata, error) {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
@@ -185,34 +188,34 @@ func (sr *SourceRegistryImpl) GetSourceMetadata(name string) (*SourceMetadata, e
 
 	// Return a copy to prevent external modification
 	metadataCopy := *metadata
-	metadataCopy.Properties = make(map[string]interface{})
-	for k, v := range metadata.Properties {
-		metadataCopy.Properties[k] = v
-	}
+
+	metadataCopy.Properties = make(map[string]any)
+	maps.Copy(metadataCopy.Properties, metadata.Properties)
 
 	return &metadataCopy, nil
 }
 
-// GetAllMetadata returns metadata for all sources
+// GetAllMetadata returns metadata for all sources.
 func (sr *SourceRegistryImpl) GetAllMetadata() map[string]*SourceMetadata {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
 	result := make(map[string]*SourceMetadata)
+
 	for name, metadata := range sr.metadata {
 		// Return copies to prevent external modification
 		metadataCopy := *metadata
-		metadataCopy.Properties = make(map[string]interface{})
-		for k, v := range metadata.Properties {
-			metadataCopy.Properties[k] = v
-		}
+
+		metadataCopy.Properties = make(map[string]any)
+		maps.Copy(metadataCopy.Properties, metadata.Properties)
+
 		result[name] = &metadataCopy
 	}
 
 	return result
 }
 
-// UpdateSourceMetadata updates metadata for a source (internal use)
+// UpdateSourceMetadata updates metadata for a source (internal use).
 func (sr *SourceRegistryImpl) UpdateSourceMetadata(name string, updater func(*SourceMetadata)) error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
@@ -223,13 +226,15 @@ func (sr *SourceRegistryImpl) UpdateSourceMetadata(name string, updater func(*So
 	}
 
 	updater(metadata)
+
 	return nil
 }
 
-// UpdateLoadStats updates load statistics for a source
+// UpdateLoadStats updates load statistics for a source.
 func (sr *SourceRegistryImpl) UpdateLoadStats(name string, keyCount int, err error) error {
 	return sr.UpdateSourceMetadata(name, func(metadata *SourceMetadata) {
 		metadata.LastLoaded = time.Now()
+
 		metadata.KeyCount = keyCount
 		if err != nil {
 			metadata.ErrorCount++
@@ -240,26 +245,27 @@ func (sr *SourceRegistryImpl) UpdateLoadStats(name string, keyCount int, err err
 	})
 }
 
-// UpdateWatchStatus updates watch status for a source
+// UpdateWatchStatus updates watch status for a source.
 func (sr *SourceRegistryImpl) UpdateWatchStatus(name string, isWatching bool) error {
 	return sr.UpdateSourceMetadata(name, func(metadata *SourceMetadata) {
 		metadata.IsWatching = isWatching
 	})
 }
 
-// UpdateModifiedTime updates the last modified time for a source
+// UpdateModifiedTime updates the last modified time for a source.
 func (sr *SourceRegistryImpl) UpdateModifiedTime(name string, modifiedTime time.Time) error {
 	return sr.UpdateSourceMetadata(name, func(metadata *SourceMetadata) {
 		metadata.LastModified = modifiedTime
 	})
 }
 
-// GetSourcesByType returns sources of a specific type
+// GetSourcesByType returns sources of a specific type.
 func (sr *SourceRegistryImpl) GetSourcesByType(sourceType string) []ConfigSource {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
 	var result []ConfigSource
+
 	for _, source := range sr.sources {
 		if sr.getSourceType(source) == sourceType {
 			result = append(result, source)
@@ -269,12 +275,13 @@ func (sr *SourceRegistryImpl) GetSourcesByType(sourceType string) []ConfigSource
 	return result
 }
 
-// GetWatchableSources returns all sources that support watching
+// GetWatchableSources returns all sources that support watching.
 func (sr *SourceRegistryImpl) GetWatchableSources() []ConfigSource {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
 	var result []ConfigSource
+
 	for _, source := range sr.sources {
 		if source.IsWatchable() {
 			result = append(result, source)
@@ -284,12 +291,13 @@ func (sr *SourceRegistryImpl) GetWatchableSources() []ConfigSource {
 	return result
 }
 
-// GetSourcesWithSecrets returns all sources that support secrets
+// GetSourcesWithSecrets returns all sources that support secrets.
 func (sr *SourceRegistryImpl) GetSourcesWithSecrets() []ConfigSource {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
 	var result []ConfigSource
+
 	for _, source := range sr.sources {
 		if source.SupportsSecrets() {
 			result = append(result, source)
@@ -299,7 +307,7 @@ func (sr *SourceRegistryImpl) GetSourcesWithSecrets() []ConfigSource {
 	return result
 }
 
-// ValidateSourceDependencies validates that all source dependencies are met
+// ValidateSourceDependencies validates that all source dependencies are met.
 func (sr *SourceRegistryImpl) ValidateSourceDependencies() error {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
@@ -309,12 +317,12 @@ func (sr *SourceRegistryImpl) ValidateSourceDependencies() error {
 	return nil
 }
 
-// GetSourceStats returns statistics about the registry
-func (sr *SourceRegistryImpl) GetSourceStats() map[string]interface{} {
+// GetSourceStats returns statistics about the registry.
+func (sr *SourceRegistryImpl) GetSourceStats() map[string]any {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
-	stats := map[string]interface{}{
+	stats := map[string]any{
 		"total_sources":     len(sr.sources),
 		"watchable_sources": 0,
 		"secret_sources":    0,
@@ -331,6 +339,7 @@ func (sr *SourceRegistryImpl) GetSourceStats() map[string]interface{} {
 		if source.IsWatchable() {
 			watchableCount++
 		}
+
 		if source.SupportsSecrets() {
 			secretCount++
 		}
@@ -350,13 +359,13 @@ func (sr *SourceRegistryImpl) GetSourceStats() map[string]interface{} {
 	return stats
 }
 
-// getSourceType determines the type of a configuration source
+// getSourceType determines the type of a configuration source.
 func (sr *SourceRegistryImpl) getSourceType(source ConfigSource) string {
 	// Use GetType() method first
 	if sourceType := source.GetType(); sourceType != "" && sourceType != "unknown" {
 		return sourceType
 	}
-	
+
 	// Fall back to type assertion for known types
 	switch source.(type) {
 	case *sources.FileSource:
@@ -372,7 +381,7 @@ func (sr *SourceRegistryImpl) getSourceType(source ConfigSource) string {
 	}
 }
 
-// Clear removes all registered sources
+// Clear removes all registered sources.
 func (sr *SourceRegistryImpl) Clear() error {
 	sr.mu.Lock()
 	defer sr.mu.Unlock()
@@ -407,14 +416,15 @@ func (sr *SourceRegistryImpl) Clear() error {
 	return nil
 }
 
-// IsEmpty returns true if no sources are registered
+// IsEmpty returns true if no sources are registered.
 func (sr *SourceRegistryImpl) IsEmpty() bool {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
+
 	return len(sr.sources) == 0
 }
 
-// GetSourceNames returns the names of all registered sources
+// GetSourceNames returns the names of all registered sources.
 func (sr *SourceRegistryImpl) GetSourceNames() []string {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
@@ -427,11 +437,12 @@ func (sr *SourceRegistryImpl) GetSourceNames() []string {
 	return names
 }
 
-// HasSource returns true if a source with the given name is registered
+// HasSource returns true if a source with the given name is registered.
 func (sr *SourceRegistryImpl) HasSource(name string) bool {
 	sr.mu.RLock()
 	defer sr.mu.RUnlock()
 
 	_, exists := sr.sources[name]
+
 	return exists
 }

@@ -8,9 +8,10 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/events/core"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// MemoryBroker implements MessageBroker interface using in-memory channels
+// MemoryBroker implements MessageBroker interface using in-memory channels.
 type MemoryBroker struct {
 	name          string
 	subscriptions map[string][]core.EventHandler
@@ -24,7 +25,7 @@ type MemoryBroker struct {
 	cancel        context.CancelFunc
 }
 
-// NewMemoryBroker creates a new memory broker
+// NewMemoryBroker creates a new memory broker.
 func NewMemoryBroker(logger forge.Logger, metrics forge.Metrics) core.MessageBroker {
 	return &MemoryBroker{
 		name:          "memory",
@@ -36,13 +37,13 @@ func NewMemoryBroker(logger forge.Logger, metrics forge.Metrics) core.MessageBro
 	}
 }
 
-// Connect implements MessageBroker
-func (mb *MemoryBroker) Connect(ctx context.Context, config interface{}) error {
+// Connect implements MessageBroker.
+func (mb *MemoryBroker) Connect(ctx context.Context, config any) error {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
 	if mb.connected {
-		return fmt.Errorf("memory broker already connected")
+		return errors.New("memory broker already connected")
 	}
 
 	mb.ctx, mb.cancel = context.WithCancel(ctx)
@@ -59,12 +60,14 @@ func (mb *MemoryBroker) Connect(ctx context.Context, config interface{}) error {
 	return nil
 }
 
-// Publish implements MessageBroker
+// Publish implements MessageBroker.
 func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event core.Event) error {
 	mb.mu.RLock()
+
 	if !mb.connected {
 		mb.mu.RUnlock()
-		return fmt.Errorf("memory broker not connected")
+
+		return errors.New("memory broker not connected")
 	}
 
 	// Get or create topic channel
@@ -80,11 +83,14 @@ func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event core.Ev
 
 			// Start topic processor
 			mb.wg.Add(1)
+
 			go mb.processTopicEvents(topic, topicChan)
 		}
+
 		mb.mu.Unlock()
 		mb.mu.RLock()
 	}
+
 	mb.mu.RUnlock()
 
 	start := time.Now()
@@ -95,6 +101,7 @@ func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event core.Ev
 		// Successfully published
 		if mb.metrics != nil {
 			duration := time.Since(start)
+
 			mb.metrics.Counter("forge.events.broker.published", "broker", mb.name, "topic", topic).Inc()
 			mb.metrics.Histogram("forge.events.broker.publish_duration", "broker", mb.name).Observe(duration.Seconds())
 		}
@@ -111,13 +118,13 @@ func (mb *MemoryBroker) Publish(ctx context.Context, topic string, event core.Ev
 	}
 }
 
-// Subscribe implements MessageBroker
+// Subscribe implements MessageBroker.
 func (mb *MemoryBroker) Subscribe(ctx context.Context, topic string, handler core.EventHandler) error {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
 	if !mb.connected {
-		return fmt.Errorf("memory broker not connected")
+		return errors.New("memory broker not connected")
 	}
 
 	if mb.subscriptions[topic] == nil {
@@ -137,13 +144,13 @@ func (mb *MemoryBroker) Subscribe(ctx context.Context, topic string, handler cor
 	return nil
 }
 
-// Unsubscribe implements MessageBroker
+// Unsubscribe implements MessageBroker.
 func (mb *MemoryBroker) Unsubscribe(ctx context.Context, topic string, handlerName string) error {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
 
 	if !mb.connected {
-		return fmt.Errorf("memory broker not connected")
+		return errors.New("memory broker not connected")
 	}
 
 	handlers, exists := mb.subscriptions[topic]
@@ -166,7 +173,7 @@ func (mb *MemoryBroker) Unsubscribe(ctx context.Context, topic string, handlerNa
 	return fmt.Errorf("handler %s not found for topic %s", handlerName, topic)
 }
 
-// Close implements MessageBroker
+// Close implements MessageBroker.
 func (mb *MemoryBroker) Close(ctx context.Context) error {
 	mb.mu.Lock()
 	defer mb.mu.Unlock()
@@ -210,24 +217,24 @@ func (mb *MemoryBroker) Close(ctx context.Context) error {
 	return nil
 }
 
-// HealthCheck implements MessageBroker
+// HealthCheck implements MessageBroker.
 func (mb *MemoryBroker) HealthCheck(ctx context.Context) error {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
 	if !mb.connected {
-		return fmt.Errorf("memory broker not connected")
+		return errors.New("memory broker not connected")
 	}
 
 	return nil
 }
 
-// GetStats implements MessageBroker
-func (mb *MemoryBroker) GetStats() map[string]interface{} {
+// GetStats implements MessageBroker.
+func (mb *MemoryBroker) GetStats() map[string]any {
 	mb.mu.RLock()
 	defer mb.mu.RUnlock()
 
-	return map[string]interface{}{
+	return map[string]any{
 		"name":          mb.name,
 		"connected":     mb.connected,
 		"topics_count":  len(mb.topics),
@@ -235,7 +242,7 @@ func (mb *MemoryBroker) GetStats() map[string]interface{} {
 	}
 }
 
-// processTopicEvents processes events for a topic
+// processTopicEvents processes events for a topic.
 func (mb *MemoryBroker) processTopicEvents(topic string, eventChan <-chan core.Event) {
 	defer mb.wg.Done()
 
@@ -254,7 +261,7 @@ func (mb *MemoryBroker) processTopicEvents(topic string, eventChan <-chan core.E
 	}
 }
 
-// dispatchToHandlers dispatches an event to all topic handlers
+// dispatchToHandlers dispatches an event to all topic handlers.
 func (mb *MemoryBroker) dispatchToHandlers(topic string, event *core.Event) {
 	mb.mu.RLock()
 	handlers, exists := mb.subscriptions[topic]

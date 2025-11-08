@@ -40,17 +40,17 @@ func NewBasicAuthProvider(name string, opts ...BasicAuthOption) auth.AuthProvide
 
 type BasicAuthOption func(*BasicAuthProvider)
 
-// WithBasicAuthValidator sets the validator function
+// WithBasicAuthValidator sets the validator function.
 func WithBasicAuthValidator(validator BasicAuthValidator) BasicAuthOption {
 	return func(p *BasicAuthProvider) { p.validator = validator }
 }
 
-// WithBasicAuthDescription sets the OpenAPI description
+// WithBasicAuthDescription sets the OpenAPI description.
 func WithBasicAuthDescription(desc string) BasicAuthOption {
 	return func(p *BasicAuthProvider) { p.description = desc }
 }
 
-// WithBasicAuthContainer sets the DI container (for accessing services)
+// WithBasicAuthContainer sets the DI container (for accessing services).
 func WithBasicAuthContainer(container forge.Container) BasicAuthOption {
 	return func(p *BasicAuthProvider) { p.container = container }
 }
@@ -116,10 +116,12 @@ func (p *BasicAuthProvider) Middleware() forge.Middleware {
 			authCtx, err := p.Authenticate(ctx.Context(), ctx.Request())
 			if err != nil {
 				ctx.Response().Header().Set("WWW-Authenticate", `Basic realm="Restricted"`)
+
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			ctx.Set("auth_context", authCtx)
+
 			return next(ctx)
 		}
 	}

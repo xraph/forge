@@ -1,6 +1,6 @@
 package shared
 
-// AsyncAPIConfig configures AsyncAPI 3.0.0 generation
+// AsyncAPIConfig configures AsyncAPI 3.0.0 generation.
 type AsyncAPIConfig struct {
 	// Basic info
 	Title       string
@@ -33,7 +33,7 @@ type AsyncAPIConfig struct {
 	IncludeDescriptions bool
 }
 
-// AsyncAPISpec represents the complete AsyncAPI 3.0.0 specification
+// AsyncAPISpec represents the complete AsyncAPI 3.0.0 specification.
 type AsyncAPISpec struct {
 	AsyncAPI   string                        `json:"asyncapi"` // "3.0.0"
 	ID         string                        `json:"id,omitempty"`
@@ -43,10 +43,10 @@ type AsyncAPISpec struct {
 	Operations map[string]*AsyncAPIOperation `json:"operations"`
 	Components *AsyncAPIComponents           `json:"components,omitempty"`
 	Tags       []AsyncAPITag                 `json:"tags,omitempty"`
-	Extensions map[string]interface{}        `json:"-"` // x-* extensions
+	Extensions map[string]any                `json:"-"` // x-* extensions
 }
 
-// AsyncAPIInfo provides metadata about the API
+// AsyncAPIInfo provides metadata about the API.
 type AsyncAPIInfo struct {
 	Title          string        `json:"title"`
 	Description    string        `json:"description,omitempty"`
@@ -58,7 +58,7 @@ type AsyncAPIInfo struct {
 	ExternalDocs   *ExternalDocs `json:"externalDocs,omitempty"`
 }
 
-// AsyncAPIServer represents a server in the AsyncAPI spec
+// AsyncAPIServer represents a server in the AsyncAPI spec.
 type AsyncAPIServer struct {
 	Host            string                        `json:"host,omitempty"`
 	Protocol        string                        `json:"protocol"` // ws, wss, sse, http, https
@@ -74,25 +74,25 @@ type AsyncAPIServer struct {
 	Bindings        *AsyncAPIServerBindings       `json:"bindings,omitempty"`
 }
 
-// AsyncAPIServerBindings contains protocol-specific server bindings
+// AsyncAPIServerBindings contains protocol-specific server bindings.
 type AsyncAPIServerBindings struct {
 	WS   *WebSocketServerBinding `json:"ws,omitempty"`
 	HTTP *HTTPServerBinding      `json:"http,omitempty"`
 }
 
-// WebSocketServerBinding represents WebSocket-specific server configuration
+// WebSocketServerBinding represents WebSocket-specific server configuration.
 type WebSocketServerBinding struct {
 	Headers        *Schema `json:"headers,omitempty"`
 	Query          *Schema `json:"query,omitempty"`
 	BindingVersion string  `json:"bindingVersion,omitempty"`
 }
 
-// HTTPServerBinding represents HTTP-specific server configuration
+// HTTPServerBinding represents HTTP-specific server configuration.
 type HTTPServerBinding struct {
 	BindingVersion string `json:"bindingVersion,omitempty"`
 }
 
-// AsyncAPIChannel represents a channel in the AsyncAPI spec
+// AsyncAPIChannel represents a channel in the AsyncAPI spec.
 type AsyncAPIChannel struct {
 	Address      string                        `json:"address,omitempty"` // Channel address (can include params)
 	Messages     map[string]*AsyncAPIMessage   `json:"messages,omitempty"`
@@ -106,13 +106,13 @@ type AsyncAPIChannel struct {
 	Bindings     *AsyncAPIChannelBindings      `json:"bindings,omitempty"`
 }
 
-// AsyncAPIChannelBindings contains protocol-specific channel bindings
+// AsyncAPIChannelBindings contains protocol-specific channel bindings.
 type AsyncAPIChannelBindings struct {
 	WS   *WebSocketChannelBinding `json:"ws,omitempty"`
 	HTTP *HTTPChannelBinding      `json:"http,omitempty"`
 }
 
-// WebSocketChannelBinding represents WebSocket-specific channel configuration
+// WebSocketChannelBinding represents WebSocket-specific channel configuration.
 type WebSocketChannelBinding struct {
 	Method         string  `json:"method,omitempty"` // GET, POST
 	Query          *Schema `json:"query,omitempty"`
@@ -120,18 +120,18 @@ type WebSocketChannelBinding struct {
 	BindingVersion string  `json:"bindingVersion,omitempty"`
 }
 
-// HTTPChannelBinding represents HTTP-specific channel configuration
+// HTTPChannelBinding represents HTTP-specific channel configuration.
 type HTTPChannelBinding struct {
 	Method         string `json:"method,omitempty"` // GET, POST, etc.
 	BindingVersion string `json:"bindingVersion,omitempty"`
 }
 
-// AsyncAPIServerReference references a server
+// AsyncAPIServerReference references a server.
 type AsyncAPIServerReference struct {
 	Ref string `json:"$ref" yaml:"$ref"` // #/servers/serverName
 }
 
-// AsyncAPIParameter represents a parameter in channel address
+// AsyncAPIParameter represents a parameter in channel address.
 type AsyncAPIParameter struct {
 	Description string   `json:"description,omitempty"`
 	Enum        []string `json:"enum,omitempty"`
@@ -141,7 +141,7 @@ type AsyncAPIParameter struct {
 	Schema      *Schema  `json:"schema,omitempty"`
 }
 
-// AsyncAPIOperation represents an operation in the AsyncAPI spec
+// AsyncAPIOperation represents an operation in the AsyncAPI spec.
 type AsyncAPIOperation struct {
 	Action       string                        `json:"action"` // send, receive
 	Channel      *AsyncAPIChannelReference     `json:"channel"`
@@ -157,35 +157,35 @@ type AsyncAPIOperation struct {
 	Reply        *AsyncAPIOperationReply       `json:"reply,omitempty"`
 }
 
-// AsyncAPIChannelReference references a channel
+// AsyncAPIChannelReference references a channel.
 type AsyncAPIChannelReference struct {
 	Ref string `json:"$ref" yaml:"$ref"` // #/channels/channelName
 }
 
-// AsyncAPIMessageReference references a message
+// AsyncAPIMessageReference references a message.
 type AsyncAPIMessageReference struct {
 	Ref string `json:"$ref" yaml:"$ref"` // #/components/messages/messageName or #/channels/channelName/messages/messageName
 }
 
-// AsyncAPIOperationBindings contains protocol-specific operation bindings
+// AsyncAPIOperationBindings contains protocol-specific operation bindings.
 type AsyncAPIOperationBindings struct {
 	WS   *WebSocketOperationBinding `json:"ws,omitempty"`
 	HTTP *HTTPOperationBinding      `json:"http,omitempty"`
 }
 
-// WebSocketOperationBinding represents WebSocket-specific operation configuration
+// WebSocketOperationBinding represents WebSocket-specific operation configuration.
 type WebSocketOperationBinding struct {
 	BindingVersion string `json:"bindingVersion,omitempty"`
 }
 
-// HTTPOperationBinding represents HTTP-specific operation configuration
+// HTTPOperationBinding represents HTTP-specific operation configuration.
 type HTTPOperationBinding struct {
 	Method         string  `json:"method,omitempty"`
 	Query          *Schema `json:"query,omitempty"`
 	BindingVersion string  `json:"bindingVersion,omitempty"`
 }
 
-// AsyncAPIOperationTrait represents reusable operation characteristics
+// AsyncAPIOperationTrait represents reusable operation characteristics.
 type AsyncAPIOperationTrait struct {
 	Title        string                        `json:"title,omitempty"`
 	Summary      string                        `json:"summary,omitempty"`
@@ -196,20 +196,20 @@ type AsyncAPIOperationTrait struct {
 	Bindings     *AsyncAPIOperationBindings    `json:"bindings,omitempty"`
 }
 
-// AsyncAPIOperationReply represents the reply configuration for an operation
+// AsyncAPIOperationReply represents the reply configuration for an operation.
 type AsyncAPIOperationReply struct {
 	Address  *AsyncAPIOperationReplyAddress `json:"address,omitempty"`
 	Channel  *AsyncAPIChannelReference      `json:"channel,omitempty"`
 	Messages []AsyncAPIMessageReference     `json:"messages,omitempty"`
 }
 
-// AsyncAPIOperationReplyAddress represents the reply address
+// AsyncAPIOperationReplyAddress represents the reply address.
 type AsyncAPIOperationReplyAddress struct {
 	Description string `json:"description,omitempty"`
 	Location    string `json:"location,omitempty"` // Runtime expression like $message.header#/replyTo
 }
 
-// AsyncAPIMessage represents a message in the AsyncAPI spec
+// AsyncAPIMessage represents a message in the AsyncAPI spec.
 type AsyncAPIMessage struct {
 	MessageID     string                   `json:"messageId,omitempty"`
 	Headers       *Schema                  `json:"headers,omitempty"`
@@ -227,39 +227,39 @@ type AsyncAPIMessage struct {
 	Traits        []AsyncAPIMessageTrait   `json:"traits,omitempty"`
 }
 
-// AsyncAPICorrelationID specifies a correlation ID for request-reply patterns
+// AsyncAPICorrelationID specifies a correlation ID for request-reply patterns.
 type AsyncAPICorrelationID struct {
 	Description string `json:"description,omitempty"`
 	Location    string `json:"location"` // Runtime expression like $message.header#/correlationId
 }
 
-// AsyncAPIMessageBindings contains protocol-specific message bindings
+// AsyncAPIMessageBindings contains protocol-specific message bindings.
 type AsyncAPIMessageBindings struct {
 	WS   *WebSocketMessageBinding `json:"ws,omitempty"`
 	HTTP *HTTPMessageBinding      `json:"http,omitempty"`
 }
 
-// WebSocketMessageBinding represents WebSocket-specific message configuration
+// WebSocketMessageBinding represents WebSocket-specific message configuration.
 type WebSocketMessageBinding struct {
 	BindingVersion string `json:"bindingVersion,omitempty"`
 }
 
-// HTTPMessageBinding represents HTTP-specific message configuration
+// HTTPMessageBinding represents HTTP-specific message configuration.
 type HTTPMessageBinding struct {
 	Headers        *Schema `json:"headers,omitempty"`
 	StatusCode     int     `json:"statusCode,omitempty"`
 	BindingVersion string  `json:"bindingVersion,omitempty"`
 }
 
-// AsyncAPIMessageExample represents an example of a message
+// AsyncAPIMessageExample represents an example of a message.
 type AsyncAPIMessageExample struct {
-	Name    string                 `json:"name,omitempty"`
-	Summary string                 `json:"summary,omitempty"`
-	Headers map[string]interface{} `json:"headers,omitempty"`
-	Payload interface{}            `json:"payload,omitempty"`
+	Name    string         `json:"name,omitempty"`
+	Summary string         `json:"summary,omitempty"`
+	Headers map[string]any `json:"headers,omitempty"`
+	Payload any            `json:"payload,omitempty"`
 }
 
-// AsyncAPIMessageTrait represents reusable message characteristics
+// AsyncAPIMessageTrait represents reusable message characteristics.
 type AsyncAPIMessageTrait struct {
 	MessageID     string                   `json:"messageId,omitempty"`
 	Headers       *Schema                  `json:"headers,omitempty"`
@@ -275,7 +275,7 @@ type AsyncAPIMessageTrait struct {
 	Examples      []AsyncAPIMessageExample `json:"examples,omitempty"`
 }
 
-// AsyncAPIComponents holds reusable objects for the API spec
+// AsyncAPIComponents holds reusable objects for the API spec.
 type AsyncAPIComponents struct {
 	Schemas           map[string]*Schema                    `json:"schemas,omitempty"`
 	Servers           map[string]*AsyncAPIServer            `json:"servers,omitempty"`
@@ -293,7 +293,7 @@ type AsyncAPIComponents struct {
 	MessageBindings   map[string]*AsyncAPIMessageBindings   `json:"messageBindings,omitempty"`
 }
 
-// AsyncAPISecurityScheme defines a security scheme
+// AsyncAPISecurityScheme defines a security scheme.
 type AsyncAPISecurityScheme struct {
 	Type             string              `json:"type"` // userPassword, apiKey, X509, symmetricEncryption, asymmetricEncryption, httpApiKey, http, oauth2, openIdConnect
 	Description      string              `json:"description,omitempty"`
@@ -306,7 +306,7 @@ type AsyncAPISecurityScheme struct {
 	Scopes           []string            `json:"scopes,omitempty"`
 }
 
-// AsyncAPIOAuthFlows defines OAuth 2.0 flows (compatible with OpenAPI OAuthFlows)
+// AsyncAPIOAuthFlows defines OAuth 2.0 flows (compatible with OpenAPI OAuthFlows).
 type AsyncAPIOAuthFlows struct {
 	Implicit          *OAuthFlow `json:"implicit,omitempty"`
 	Password          *OAuthFlow `json:"password,omitempty"`
@@ -314,10 +314,10 @@ type AsyncAPIOAuthFlows struct {
 	AuthorizationCode *OAuthFlow `json:"authorizationCode,omitempty"`
 }
 
-// AsyncAPISecurityRequirement lists required security schemes
+// AsyncAPISecurityRequirement lists required security schemes.
 type AsyncAPISecurityRequirement map[string][]string
 
-// AsyncAPITag represents a tag in the AsyncAPI spec
+// AsyncAPITag represents a tag in the AsyncAPI spec.
 type AsyncAPITag struct {
 	Name         string        `json:"name"`
 	Description  string        `json:"description,omitempty"`

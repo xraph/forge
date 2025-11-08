@@ -8,38 +8,38 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Integration test for nested struct component generation in full OpenAPI spec
+// Integration test for nested struct component generation in full OpenAPI spec.
 func TestOpenAPIGenerator_NestedStructComponents(t *testing.T) {
 	// Define nested struct types
 	type testAddress struct {
-		Street  string `json:"street" description:"Street address"`
-		City    string `json:"city" description:"City name"`
-		ZipCode string `json:"zipCode" description:"Postal code"`
+		Street  string `description:"Street address" json:"street"`
+		City    string `description:"City name"      json:"city"`
+		ZipCode string `description:"Postal code"    json:"zipCode"`
 	}
 
 	type testMetadata struct {
-		CreatedAt time.Time         `json:"created_at" description:"Creation timestamp"`
-		Tags      []string          `json:"tags,omitempty" description:"Tags"`
-		Custom    map[string]string `json:"custom,omitempty" description:"Custom fields"`
+		CreatedAt time.Time         `description:"Creation timestamp" json:"created_at"`
+		Tags      []string          `description:"Tags"               json:"tags,omitempty"`
+		Custom    map[string]string `description:"Custom fields"      json:"custom,omitempty"`
 	}
 
 	type testAuthFactor struct {
-		FactorID int          `json:"factor_id" description:"Factor ID"`
-		Type     string       `json:"type" description:"Factor type"`
-		Metadata testMetadata `json:"metadata,omitempty" description:"Metadata"`
+		FactorID int          `description:"Factor ID"   json:"factor_id"`
+		Type     string       `description:"Factor type" json:"type"`
+		Metadata testMetadata `description:"Metadata"    json:"metadata,omitempty"`
 	}
 
 	type testChallengeResponse struct {
-		ChallengeID      int              `json:"challenge_id" description:"Challenge ID"`
-		SessionID        string           `json:"session_id" description:"Session ID"`
-		AvailableFactors []testAuthFactor `json:"available_factors" description:"Available factors"`
-		ExpiresAt        time.Time        `json:"expires_at" description:"Expiration time"`
+		ChallengeID      int              `description:"Challenge ID"      json:"challenge_id"`
+		SessionID        string           `description:"Session ID"        json:"session_id"`
+		AvailableFactors []testAuthFactor `description:"Available factors" json:"available_factors"`
+		ExpiresAt        time.Time        `description:"Expiration time"   json:"expires_at"`
 	}
 
 	type testUserProfile struct {
-		UserID  string         `json:"user_id" description:"User ID"`
-		Address testAddress    `json:"address" description:"Primary address"`
-		Factors []testAuthFactor `json:"factors,omitempty" description:"Auth factors"`
+		UserID  string           `description:"User ID"         json:"user_id"`
+		Address testAddress      `description:"Primary address" json:"address"`
+		Factors []testAuthFactor `description:"Auth factors"    json:"factors,omitempty"`
 	}
 
 	// Create router with OpenAPI enabled
@@ -84,12 +84,14 @@ func TestOpenAPIGenerator_NestedStructComponents(t *testing.T) {
 
 	// Debug: Print what components were actually registered
 	t.Logf("Components registered: %d", len(spec.Components.Schemas))
+
 	for name := range spec.Components.Schemas {
 		t.Logf("  - %s", name)
 	}
 
 	// Debug: Print paths
 	t.Logf("Paths registered: %d", len(spec.Paths))
+
 	for path := range spec.Paths {
 		t.Logf("  - %s", path)
 	}
@@ -166,4 +168,3 @@ func TestOpenAPIGenerator_NestedStructComponents(t *testing.T) {
 	t.Logf("✓ Successfully verified nested struct component generation")
 	t.Logf("✓ Components registered: %v", expectedComponents)
 }
-

@@ -2,7 +2,7 @@ package shared
 
 import "context"
 
-// Container provides dependency injection with lifecycle management
+// Container provides dependency injection with lifecycle management.
 type Container interface {
 	// Register adds a service factory to the container
 	// Returns error if name already registered or factory is invalid
@@ -36,7 +36,7 @@ type Container interface {
 }
 
 // Scope represents a lifetime scope for scoped services
-// Typically used for HTTP requests or other bounded operations
+// Typically used for HTTP requests or other bounded operations.
 type Scope interface {
 	// Resolve returns a service by name from this scope
 	// Scoped services are cached within the scope
@@ -48,10 +48,10 @@ type Scope interface {
 	End() error
 }
 
-// Factory creates a service instance
+// Factory creates a service instance.
 type Factory func(c Container) (any, error)
 
-// ServiceInfo contains diagnostic information
+// ServiceInfo contains diagnostic information.
 type ServiceInfo struct {
 	Name         string
 	Type         string

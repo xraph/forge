@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// Extension implements the storage extension
+// Extension implements the storage extension.
 type Extension struct {
 	config  Config
 	manager *StorageManager
@@ -16,43 +16,45 @@ type Extension struct {
 	app     forge.App
 }
 
-// NewExtension creates a new storage extension
+// NewExtension creates a new storage extension.
 func NewExtension(config Config) forge.Extension {
 	return &Extension{
 		config: config,
 	}
 }
 
-// Name returns the extension name
+// Name returns the extension name.
 func (e *Extension) Name() string {
 	return "storage"
 }
 
-// Version returns the extension version
+// Version returns the extension version.
 func (e *Extension) Version() string {
 	return "2.0.0"
 }
 
-// Description returns the extension description
+// Description returns the extension description.
 func (e *Extension) Description() string {
 	return "Unified object storage (S3, GCS, Azure, Local)"
 }
 
-// Dependencies returns the list of extension dependencies
+// Dependencies returns the list of extension dependencies.
 func (e *Extension) Dependencies() []string {
 	return []string{} // No dependencies
 }
 
-// Register registers the extension with the application
+// Register registers the extension with the application.
 func (e *Extension) Register(app forge.App) error {
 	e.app = app
 
 	// Get dependencies from DI
 	var err error
+
 	e.logger, err = forge.GetLogger(app.Container())
 	if err != nil {
 		return fmt.Errorf("failed to resolve logger: %w", err)
 	}
+
 	e.metrics, err = forge.GetMetrics(app.Container())
 	if err != nil {
 		return fmt.Errorf("failed to resolve metrics: %w", err)
@@ -63,6 +65,7 @@ func (e *Extension) Register(app forge.App) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve config manager: %w", err)
 	}
+
 	var tempConfig Config
 	if err := configMgr.Bind("extensions.storage", &tempConfig); err == nil {
 		e.config = tempConfig
@@ -95,7 +98,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the extension
+// Start starts the extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.logger.Info("starting storage extension")
 
@@ -105,10 +108,11 @@ func (e *Extension) Start(ctx context.Context) error {
 	}
 
 	e.logger.Info("storage extension started")
+
 	return nil
 }
 
-// Stop stops the extension
+// Stop stops the extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.logger.Info("stopping storage extension")
 
@@ -118,10 +122,11 @@ func (e *Extension) Stop(ctx context.Context) error {
 	}
 
 	e.logger.Info("storage extension stopped")
+
 	return nil
 }
 
-// Health checks the extension health
+// Health checks the extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	return e.manager.Health(ctx)
 }

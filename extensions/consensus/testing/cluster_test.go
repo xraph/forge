@@ -180,6 +180,7 @@ func TestLogReplication(t *testing.T) {
 		// Create context with timeout for each command
 		cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		err := harness.SubmitToLeader(cmdCtx, cmd)
+
 		cancel()
 
 		if err != nil {

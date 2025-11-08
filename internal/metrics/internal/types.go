@@ -1,6 +1,5 @@
 package internal
 
-//nolint:gosec // G115: Integer conversions for metrics storage are safe and intentional
 // These conversions are used for encoding float64 values using bit patterns.
 
 import (
@@ -26,26 +25,26 @@ type MetricsConfig = shared.MetricsConfig
 
 type CollectorStats = shared.CollectorStats
 
-// Counter represents a counter metric
+// Counter represents a counter metric.
 type Counter = shared.Counter
 
-// Gauge represents a gauge metric
+// Gauge represents a gauge metric.
 type Gauge = shared.Gauge
 
-// Histogram represents a histogram metric
+// Histogram represents a histogram metric.
 type Histogram = shared.Histogram
 
-// Timer represents a timer metric
+// Timer represents a timer metric.
 type Timer = shared.Timer
 
-// CustomCollector defines interface for custom metrics collectors
+// CustomCollector defines interface for custom metrics collectors.
 type CustomCollector = shared.CustomCollector
 
 // =============================================================================
 // METRIC METADATA
 // =============================================================================
 
-// MetricType represents the type of metric
+// MetricType represents the type of metric.
 type MetricType = shared.MetricType
 
 const (
@@ -55,7 +54,7 @@ const (
 	MetricTypeTimer     = shared.MetricTypeTimer
 )
 
-// MetricMetadata contains metadata about a metric
+// MetricMetadata contains metadata about a metric.
 type MetricMetadata struct {
 	Name        string            `json:"name"`
 	Type        MetricType        `json:"type"`
@@ -66,14 +65,14 @@ type MetricMetadata struct {
 	Updated     time.Time         `json:"updated"`
 }
 
-// MetricValue represents a metric value with metadata
+// MetricValue represents a metric value with metadata.
 type MetricValue struct {
 	Metadata  *MetricMetadata `json:"metadata"`
 	Value     interface{}     `json:"value"`
 	Timestamp time.Time       `json:"timestamp"`
 }
 
-// ExportFormat represents the format for metrics export
+// ExportFormat represents the format for metrics export.
 type ExportFormat = shared.ExportFormat
 
 const (
@@ -87,7 +86,7 @@ const (
 // METRIC SAMPLE
 // =============================================================================
 
-// MetricSample represents a single metric sample
+// MetricSample represents a single metric sample.
 type MetricSample struct {
 	Name      string            `json:"name"`
 	Type      MetricType        `json:"type"`
@@ -97,7 +96,7 @@ type MetricSample struct {
 	Unit      string            `json:"unit"`
 }
 
-// HistogramSample represents a histogram sample
+// HistogramSample represents a histogram sample.
 type HistogramSample struct {
 	Name      string             `json:"name"`
 	Count     uint64             `json:"count"`
@@ -107,7 +106,7 @@ type HistogramSample struct {
 	Timestamp time.Time          `json:"timestamp"`
 }
 
-// TimerSample represents a timer sample
+// TimerSample represents a timer sample.
 type TimerSample struct {
 	Name      string            `json:"name"`
 	Count     uint64            `json:"count"`
@@ -121,7 +120,7 @@ type TimerSample struct {
 	Timestamp time.Time         `json:"timestamp"`
 }
 
-// Exporter defines the interface for metrics export
+// Exporter defines the interface for metrics export.
 type Exporter = shared.Exporter
 
 // =============================================================================
@@ -129,20 +128,20 @@ type Exporter = shared.Exporter
 // =============================================================================
 
 const (
-	// MaxLabelsPerMetric limits labels per metric to prevent cardinality explosion
+	// MaxLabelsPerMetric limits labels per metric to prevent cardinality explosion.
 	MaxLabelsPerMetric = 20
 
-	// MaxLabelKeyLength limits label key length
+	// MaxLabelKeyLength limits label key length.
 	MaxLabelKeyLength = 128
 
-	// MaxLabelValueLength limits label value length
+	// MaxLabelValueLength limits label value length.
 	MaxLabelValueLength = 256
 
-	// MaxLabelCardinality limits unique label combinations
+	// MaxLabelCardinality limits unique label combinations.
 	MaxLabelCardinality = 10000
 )
 
-// ReservedLabels are protected system labels
+// ReservedLabels are protected system labels.
 var ReservedLabels = map[string]bool{
 	"__name__":     true,
 	"__instance__": true,
@@ -155,7 +154,7 @@ var ReservedLabels = map[string]bool{
 	"quantile":     true, // Prometheus summary quantile
 }
 
-// LabelValidationError represents a label validation error
+// LabelValidationError represents a label validation error.
 type LabelValidationError struct {
 	Label  string
 	Reason string
@@ -170,7 +169,7 @@ func (e *LabelValidationError) Error() string {
 // UTILITY FUNCTIONS
 // =============================================================================
 
-// TagsToString converts tags map to string representation
+// TagsToString converts tags map to string representation.
 func TagsToString(tags map[string]string) string {
 	if len(tags) == 0 {
 		return ""
@@ -180,19 +179,25 @@ func TagsToString(tags map[string]string) string {
 	for k, v := range tags {
 		parts = append(parts, k+"="+v)
 	}
+
 	sort.Strings(parts)
 
 	result := ""
+	var resultSb186 strings.Builder
+
 	for i, part := range parts {
 		if i > 0 {
-			result += ","
+			resultSb186.WriteString(",")
 		}
-		result += part
+
+		resultSb186.WriteString(part)
 	}
+	result += resultSb186.String()
+
 	return result
 }
 
-// ParseTags parses tags from string array
+// ParseTags parses tags from string array.
 func ParseTags(tags ...string) map[string]string {
 	result := make(map[string]string)
 
@@ -205,7 +210,7 @@ func ParseTags(tags ...string) map[string]string {
 	return result
 }
 
-// MergeTags merges multiple tag maps with validation
+// MergeTags merges multiple tag maps with validation.
 func MergeTags(tagMaps ...map[string]string) map[string]string {
 	result := make(map[string]string)
 
@@ -218,7 +223,7 @@ func MergeTags(tagMaps ...map[string]string) map[string]string {
 	return result
 }
 
-// ValidateAndSanitizeTags validates and sanitizes tags for production use
+// ValidateAndSanitizeTags validates and sanitizes tags for production use.
 func ValidateAndSanitizeTags(tags map[string]string) (map[string]string, error) {
 	if len(tags) > MaxLabelsPerMetric {
 		return nil, &LabelValidationError{
@@ -250,7 +255,7 @@ func ValidateAndSanitizeTags(tags map[string]string) (map[string]string, error) 
 	return sanitized, nil
 }
 
-// ValidateLabelKey validates a label key
+// ValidateLabelKey validates a label key.
 func ValidateLabelKey(key string) error {
 	if key == "" {
 		return &LabelValidationError{
@@ -298,7 +303,7 @@ func ValidateLabelKey(key string) error {
 	return nil
 }
 
-// ValidateLabelValue validates a label value
+// ValidateLabelValue validates a label value.
 func ValidateLabelValue(key, value string) error {
 	if len(value) > MaxLabelValueLength {
 		return &LabelValidationError{
@@ -322,7 +327,7 @@ func ValidateLabelValue(key, value string) error {
 	return nil
 }
 
-// SanitizeLabelKey sanitizes a label key for safe use
+// SanitizeLabelKey sanitizes a label key for safe use.
 func SanitizeLabelKey(key string) string {
 	if key == "" {
 		return "unknown"
@@ -335,16 +340,19 @@ func SanitizeLabelKey(key string) string {
 
 	// Replace invalid characters with underscores
 	sanitized := ""
+	var sanitizedSb338 strings.Builder
+
 	for _, char := range key {
 		if (char >= 'a' && char <= 'z') ||
 			(char >= 'A' && char <= 'Z') ||
 			(char >= '0' && char <= '9') ||
 			char == '_' {
-			sanitized += string(char)
+			sanitizedSb338.WriteString(string(char))
 		} else {
-			sanitized += "_"
+			sanitizedSb338.WriteString("_")
 		}
 	}
+	sanitized += sanitizedSb338.String()
 
 	// Truncate if too long
 	if len(sanitized) > MaxLabelKeyLength {
@@ -354,15 +362,18 @@ func SanitizeLabelKey(key string) string {
 	return sanitized
 }
 
-// SanitizeLabelValue sanitizes a label value for safe use
+// SanitizeLabelValue sanitizes a label value for safe use.
 func SanitizeLabelValue(value string) string {
 	// Remove null bytes and control characters
 	sanitized := ""
+	var sanitizedSb361 strings.Builder
+
 	for _, char := range value {
 		if char >= 32 || char == '\t' || char == '\n' || char == '\r' {
-			sanitized += string(char)
+			sanitizedSb361.WriteString(string(char))
 		}
 	}
+	sanitized += sanitizedSb361.String()
 
 	// Truncate if too long
 	if len(sanitized) > MaxLabelValueLength {
@@ -372,7 +383,7 @@ func SanitizeLabelValue(value string) string {
 	return sanitized
 }
 
-// CopyLabels creates a deep copy of labels map
+// CopyLabels creates a deep copy of labels map.
 func CopyLabels(labels map[string]string) map[string]string {
 	if labels == nil {
 		return make(map[string]string)
@@ -382,48 +393,53 @@ func CopyLabels(labels map[string]string) map[string]string {
 	for k, v := range labels {
 		copied[k] = v
 	}
+
 	return copied
 }
 
-// FilterReservedLabels removes reserved labels from a tag map
+// FilterReservedLabels removes reserved labels from a tag map.
 func FilterReservedLabels(tags map[string]string) map[string]string {
 	filtered := make(map[string]string)
+
 	for k, v := range tags {
 		if !ReservedLabels[k] {
 			filtered[k] = v
 		}
 	}
+
 	return filtered
 }
 
-// LabelCardinality tracks label cardinality to prevent metric explosion
+// LabelCardinality tracks label cardinality to prevent metric explosion.
 type LabelCardinality struct {
 	mu             sync.RWMutex
 	combinations   map[string]int
 	maxCardinality int
 }
 
-// NewLabelCardinality creates a new label cardinality tracker
+// NewLabelCardinality creates a new label cardinality tracker.
 func NewLabelCardinality(maxCardinality int) *LabelCardinality {
 	if maxCardinality <= 0 {
 		maxCardinality = MaxLabelCardinality
 	}
+
 	return &LabelCardinality{
 		combinations:   make(map[string]int),
 		maxCardinality: maxCardinality,
 	}
 }
 
-// Check checks if adding this label combination would exceed cardinality limits
+// Check checks if adding this label combination would exceed cardinality limits.
 func (lc *LabelCardinality) Check(metricName string, labels map[string]string) bool {
 	lc.mu.RLock()
 	defer lc.mu.RUnlock()
 
 	key := lc.buildKey(metricName, labels)
+
 	return len(lc.combinations) < lc.maxCardinality || lc.combinations[key] > 0
 }
 
-// Record records a label combination
+// Record records a label combination.
 func (lc *LabelCardinality) Record(metricName string, labels map[string]string) error {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
@@ -435,49 +451,56 @@ func (lc *LabelCardinality) Record(metricName string, labels map[string]string) 
 	}
 
 	lc.combinations[key]++
+
 	return nil
 }
 
-// GetCardinality returns current cardinality count
+// GetCardinality returns current cardinality count.
 func (lc *LabelCardinality) GetCardinality() int {
 	lc.mu.RLock()
 	defer lc.mu.RUnlock()
+
 	return len(lc.combinations)
 }
 
-// Reset resets the cardinality tracker
+// Reset resets the cardinality tracker.
 func (lc *LabelCardinality) Reset() {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
+
 	lc.combinations = make(map[string]int)
 }
 
-// buildKey builds a unique key for metric name and labels
+// buildKey builds a unique key for metric name and labels.
 func (lc *LabelCardinality) buildKey(metricName string, labels map[string]string) string {
 	// Sort labels for consistent key generation
 	keys := make([]string, 0, len(labels))
 	for k := range labels {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
 
 	var buf bytes.Buffer
 	buf.WriteString(metricName)
 	buf.WriteString("{")
+
 	for i, k := range keys {
 		if i > 0 {
 			buf.WriteString(",")
 		}
+
 		buf.WriteString(k)
 		buf.WriteString("=")
 		buf.WriteString(labels[k])
 	}
+
 	buf.WriteString("}")
 
 	return buf.String()
 }
 
-// ValidateMetricName validates metric name format
+// ValidateMetricName validates metric name format.
 func ValidateMetricName(name string) bool {
 	if name == "" {
 		return false
@@ -496,20 +519,24 @@ func ValidateMetricName(name string) bool {
 	return true
 }
 
-// NormalizeMetricName normalizes metric name
+// NormalizeMetricName normalizes metric name.
 func NormalizeMetricName(name string) string {
 	// Replace invalid characters with underscore
 	normalized := ""
+	var normalizedSb503 strings.Builder
+
 	for _, char := range name {
 		if (char >= 'a' && char <= 'z') ||
 			(char >= 'A' && char <= 'Z') ||
 			(char >= '0' && char <= '9') ||
 			char == '_' || char == '.' || char == '-' {
-			normalized += string(char)
+			normalizedSb503.WriteString(string(char))
 		} else {
-			normalized += "_"
+			normalizedSb503.WriteString("_")
 		}
 	}
+	normalized += normalizedSb503.String()
+
 	return normalized
 }
 
@@ -517,20 +544,20 @@ func NormalizeMetricName(name string) string {
 // METRIC IMPLEMENTATIONS
 // =============================================================================
 
-// counterImpl implements Counter interface
+// counterImpl implements Counter interface.
 type counterImpl struct {
 	labels map[string]string
 	value  int64
 }
 
-// NewCounter creates a new counter
+// NewCounter creates a new counter.
 func NewCounter() Counter {
 	return &counterImpl{
 		labels: make(map[string]string),
 	}
 }
 
-// NewCounterWithLabels creates a new counter with labels
+// NewCounterWithLabels creates a new counter with labels.
 func NewCounterWithLabels(labels map[string]string) Counter {
 	return &counterImpl{
 		labels: CopyLabels(labels),
@@ -543,6 +570,7 @@ func (c *counterImpl) WithLabels(labels map[string]string) Counter {
 		labels: CopyLabels(labels),
 		value:  atomic.LoadInt64(&c.value),
 	}
+
 	return newCounter
 }
 
@@ -558,6 +586,7 @@ func (c *counterImpl) Add(value float64) {
 	if value < 0 {
 		return // Counters can only increase
 	}
+
 	atomic.AddInt64(&c.value, int64(value))
 }
 
@@ -567,6 +596,7 @@ func (c *counterImpl) Get() float64 {
 
 func (c *counterImpl) Reset() error {
 	atomic.StoreInt64(&c.value, 0)
+
 	return nil
 }
 
@@ -574,20 +604,20 @@ func (c *counterImpl) GetLabels() map[string]string {
 	return CopyLabels(c.labels)
 }
 
-// gaugeImpl implements Gauge interface
+// gaugeImpl implements Gauge interface.
 type gaugeImpl struct {
 	value  int64 // Store as bits for atomic operations
 	labels map[string]string
 }
 
-// NewGauge creates a new gauge
+// NewGauge creates a new gauge.
 func NewGauge() Gauge {
 	return &gaugeImpl{
 		labels: make(map[string]string),
 	}
 }
 
-// NewGaugeWithLabels creates a new gauge with labels
+// NewGaugeWithLabels creates a new gauge with labels.
 func NewGaugeWithLabels(labels map[string]string) Gauge {
 	return &gaugeImpl{
 		labels: CopyLabels(labels),
@@ -600,6 +630,7 @@ func (g *gaugeImpl) WithLabels(labels map[string]string) Gauge {
 		labels: CopyLabels(labels),
 		value:  atomic.LoadInt64(&g.value),
 	}
+
 	return newGauge
 }
 
@@ -619,6 +650,7 @@ func (g *gaugeImpl) Add(value float64) {
 	for {
 		old := atomic.LoadInt64(&g.value)
 		oldVal := math.Float64frombits(uint64(old))
+
 		newVal := oldVal + value
 		if atomic.CompareAndSwapInt64(&g.value, old, int64(math.Float64bits(newVal))) {
 			break
@@ -632,6 +664,7 @@ func (g *gaugeImpl) Get() float64 {
 
 func (g *gaugeImpl) Reset() error {
 	atomic.StoreInt64(&g.value, 0)
+
 	return nil
 }
 
@@ -639,7 +672,7 @@ func (g *gaugeImpl) GetLabels() map[string]string {
 	return CopyLabels(g.labels)
 }
 
-// histogramImpl implements Histogram interface
+// histogramImpl implements Histogram interface.
 type histogramImpl struct {
 	labels  map[string]string
 	mu      sync.RWMutex
@@ -649,12 +682,12 @@ type histogramImpl struct {
 	values  []float64 // For percentile calculation
 }
 
-// NewHistogram creates a new histogram with default buckets
+// NewHistogram creates a new histogram with default buckets.
 func NewHistogram() Histogram {
 	return NewHistogramWithBuckets(DefaultBuckets)
 }
 
-// NewHistogramWithBuckets creates a new histogram with custom buckets
+// NewHistogramWithBuckets creates a new histogram with custom buckets.
 func NewHistogramWithBuckets(buckets []float64) Histogram {
 	bucketMap := make(map[float64]uint64)
 	for _, bucket := range buckets {
@@ -668,7 +701,7 @@ func NewHistogramWithBuckets(buckets []float64) Histogram {
 	}
 }
 
-// NewHistogramWithLabels creates a new histogram with labels
+// NewHistogramWithLabels creates a new histogram with labels.
 func NewHistogramWithLabels(labels map[string]string, buckets []float64) Histogram {
 	if buckets == nil {
 		buckets = DefaultBuckets
@@ -687,7 +720,7 @@ func NewHistogramWithLabels(labels map[string]string, buckets []float64) Histogr
 }
 
 // DefaultBuckets provides default histogram buckets
-// Values in seconds for latency measurements
+// Values in seconds for latency measurements.
 var DefaultBuckets = []float64{
 	0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1000,
 }
@@ -716,18 +749,21 @@ func (h *histogramImpl) GetBuckets() map[float64]uint64 {
 	for k, v := range h.buckets {
 		buckets[k] = v
 	}
+
 	return buckets
 }
 
 func (h *histogramImpl) GetCount() uint64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return h.count
 }
 
 func (h *histogramImpl) GetSum() float64 {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
+
 	return h.sum
 }
 
@@ -738,6 +774,7 @@ func (h *histogramImpl) GetMean() float64 {
 	if h.count == 0 {
 		return 0
 	}
+
 	return h.sum / float64(h.count)
 }
 
@@ -784,6 +821,7 @@ func (h *histogramImpl) GetPercentile(percentile float64) float64 {
 	if index < 0 {
 		index = 0
 	}
+
 	if index >= len(sortedValues) {
 		index = len(sortedValues) - 1
 	}
@@ -806,7 +844,7 @@ func (h *histogramImpl) Reset() error {
 	return nil
 }
 
-// timerImpl implements Timer interface
+// timerImpl implements Timer interface.
 type timerImpl struct {
 	mu        sync.RWMutex
 	labels    map[string]string
@@ -817,7 +855,7 @@ type timerImpl struct {
 	max       time.Duration
 }
 
-// NewTimer creates a new timer
+// NewTimer creates a new timer.
 func NewTimer() Timer {
 	return &timerImpl{
 		labels:    make(map[string]string),
@@ -827,7 +865,7 @@ func NewTimer() Timer {
 	}
 }
 
-// NewTimerWithLabels creates a new timer with labels
+// NewTimerWithLabels creates a new timer with labels.
 func NewTimerWithLabels(labels map[string]string) Timer {
 	return &timerImpl{
 		labels:    CopyLabels(labels),
@@ -848,6 +886,7 @@ func (t *timerImpl) Record(duration time.Duration) {
 	if duration < t.min {
 		t.min = duration
 	}
+
 	if duration > t.max {
 		t.max = duration
 	}
@@ -856,17 +895,20 @@ func (t *timerImpl) Record(duration time.Duration) {
 func (t *timerImpl) Get() time.Duration {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.sum
 }
 
 func (t *timerImpl) GetDurations() []time.Duration {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.durations
 }
 
 func (t *timerImpl) Time() func() {
 	start := time.Now()
+
 	return func() {
 		t.Record(time.Since(start))
 	}
@@ -875,6 +917,7 @@ func (t *timerImpl) Time() func() {
 func (t *timerImpl) GetCount() uint64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
+
 	return t.count
 }
 
@@ -885,6 +928,7 @@ func (t *timerImpl) GetMean() time.Duration {
 	if t.count == 0 {
 		return 0
 	}
+
 	return t.sum / time.Duration(t.count)
 }
 
@@ -907,6 +951,7 @@ func (t *timerImpl) GetPercentile(percentile float64) time.Duration {
 	if index < 0 {
 		index = 0
 	}
+
 	if index >= len(sortedDurations) {
 		index = len(sortedDurations) - 1
 	}
@@ -921,6 +966,7 @@ func (t *timerImpl) GetMin() time.Duration {
 	if t.count == 0 {
 		return 0
 	}
+
 	return t.min
 }
 
@@ -931,6 +977,7 @@ func (t *timerImpl) GetMax() time.Duration {
 	if t.count == 0 {
 		return 0
 	}
+
 	return t.max
 }
 
@@ -953,7 +1000,7 @@ func (t *timerImpl) GetLabels() map[string]string {
 // PRODUCTION LABEL UTILITIES
 // =============================================================================
 
-// LabelMetadata tracks metadata about labels for production observability
+// LabelMetadata tracks metadata about labels for production observability.
 type LabelMetadata struct {
 	Key               string    `json:"key"`
 	ValueCount        int       `json:"value_count"`         // Number of unique values seen
@@ -962,14 +1009,14 @@ type LabelMetadata struct {
 	SampleValues      []string  `json:"sample_values"`       // Sample of values for debugging
 }
 
-// LabelRegistry tracks label usage for production monitoring
+// LabelRegistry tracks label usage for production monitoring.
 type LabelRegistry struct {
 	mu         sync.RWMutex
 	labels     map[string]*LabelMetadata
 	maxSamples int
 }
 
-// NewLabelRegistry creates a new label registry
+// NewLabelRegistry creates a new label registry.
 func NewLabelRegistry() *LabelRegistry {
 	return &LabelRegistry{
 		labels:     make(map[string]*LabelMetadata),
@@ -977,7 +1024,7 @@ func NewLabelRegistry() *LabelRegistry {
 	}
 }
 
-// RecordLabel records usage of a label
+// RecordLabel records usage of a label.
 func (lr *LabelRegistry) RecordLabel(key, value string) {
 	lr.mu.Lock()
 	defer lr.mu.Unlock()
@@ -1002,34 +1049,40 @@ func (lr *LabelRegistry) RecordLabel(key, value string) {
 	// Add sample value if not already present and room available
 	if len(meta.SampleValues) < lr.maxSamples {
 		found := false
+
 		for _, sample := range meta.SampleValues {
 			if sample == value {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			meta.SampleValues = append(meta.SampleValues, value)
 		}
 	}
 }
 
-// GetHighCardinalityLabels returns labels with high cardinality
+// GetHighCardinalityLabels returns labels with high cardinality.
 func (lr *LabelRegistry) GetHighCardinalityLabels() []string {
 	lr.mu.RLock()
 	defer lr.mu.RUnlock()
 
 	var result []string
+
 	for key, meta := range lr.labels {
 		if meta.IsHighCardinality {
 			result = append(result, key)
 		}
 	}
+
 	sort.Strings(result)
+
 	return result
 }
 
-// GetLabelStats returns statistics about labels
+// GetLabelStats returns statistics about labels.
 func (lr *LabelRegistry) GetLabelStats() map[string]*LabelMetadata {
 	lr.mu.RLock()
 	defer lr.mu.RUnlock()
@@ -1038,6 +1091,7 @@ func (lr *LabelRegistry) GetLabelStats() map[string]*LabelMetadata {
 	for k, v := range lr.labels {
 		stats[k] = v
 	}
+
 	return stats
 }
 
@@ -1045,7 +1099,7 @@ func (lr *LabelRegistry) GetLabelStats() map[string]*LabelMetadata {
 // FORMAT-SPECIFIC LABEL SANITIZATION
 // =============================================================================
 
-// SanitizeLabelForPrometheus sanitizes labels for Prometheus format
+// SanitizeLabelForPrometheus sanitizes labels for Prometheus format.
 func SanitizeLabelForPrometheus(key, value string) (string, string) {
 	// Prometheus label naming: [a-zA-Z_][a-zA-Z0-9_]*
 	sanitizedKey := SanitizeLabelKey(key)
@@ -1059,7 +1113,7 @@ func SanitizeLabelForPrometheus(key, value string) (string, string) {
 	return sanitizedKey, sanitizedValue
 }
 
-// SanitizeLabelForInflux sanitizes labels for InfluxDB format
+// SanitizeLabelForInflux sanitizes labels for InfluxDB format.
 func SanitizeLabelForInflux(key, value string) (string, string) {
 	// InfluxDB tags: escape spaces, commas, equals
 	sanitizedKey := SanitizeLabelKey(key)
@@ -1080,7 +1134,7 @@ func SanitizeLabelForInflux(key, value string) (string, string) {
 	return sanitizedKey, sanitizedValue
 }
 
-// SanitizeLabelForStatsD sanitizes labels for StatsD format
+// SanitizeLabelForStatsD sanitizes labels for StatsD format.
 func SanitizeLabelForStatsD(key, value string) (string, string) {
 	// StatsD: replace dots, colons, pipes with underscores
 	sanitizedKey := SanitizeLabelKey(key)
@@ -1100,7 +1154,7 @@ func SanitizeLabelForStatsD(key, value string) (string, string) {
 	return sanitizedKey, sanitizedValue
 }
 
-// FormatLabelsPrometheus formats labels for Prometheus export
+// FormatLabelsPrometheus formats labels for Prometheus export.
 func FormatLabelsPrometheus(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""
@@ -1110,27 +1164,33 @@ func FormatLabelsPrometheus(labels map[string]string) string {
 	for k := range labels {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
 
 	var buf bytes.Buffer
 	buf.WriteString("{")
+
 	first := true
+
 	for _, k := range keys {
 		key, value := SanitizeLabelForPrometheus(k, labels[k])
+
 		if !first {
 			buf.WriteString(",")
 		}
 		// Escape quotes in value
 		escapedValue := strings.ReplaceAll(value, "\"", "\\\"")
 		buf.WriteString(fmt.Sprintf("%s=\"%s\"", key, escapedValue))
+
 		first = false
 	}
+
 	buf.WriteString("}")
 
 	return buf.String()
 }
 
-// FormatLabelsInflux formats labels for InfluxDB export
+// FormatLabelsInflux formats labels for InfluxDB export.
 func FormatLabelsInflux(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""
@@ -1140,28 +1200,35 @@ func FormatLabelsInflux(labels map[string]string) string {
 	for k := range labels {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
 
 	var buf bytes.Buffer
+
 	first := true
+
 	for _, k := range keys {
 		key, value := SanitizeLabelForInflux(k, labels[k])
+
 		if !first {
 			buf.WriteString(",")
 		}
+
 		buf.WriteString(fmt.Sprintf("%s=%s", key, value))
+
 		first = false
 	}
 
 	return buf.String()
 }
 
-// FormatLabelsJSON formats labels for JSON export (no special formatting needed)
+// FormatLabelsJSON formats labels for JSON export (no special formatting needed).
 func FormatLabelsJSON(labels map[string]string) map[string]string {
 	sanitized := make(map[string]string, len(labels))
 	for k, v := range labels {
 		sanitized[SanitizeLabelKey(k)] = SanitizeLabelValue(v)
 	}
+
 	return sanitized
 }
 
@@ -1169,7 +1236,7 @@ func FormatLabelsJSON(labels map[string]string) map[string]string {
 // COMMON LABEL PATTERNS FOR PRODUCTION
 // =============================================================================
 
-// CommonLabels provides standard labels for production metrics
+// CommonLabels provides standard labels for production metrics.
 type CommonLabels struct {
 	Service     string
 	Environment string
@@ -1179,25 +1246,30 @@ type CommonLabels struct {
 	Zone        string
 }
 
-// ToMap converts CommonLabels to map
+// ToMap converts CommonLabels to map.
 func (cl *CommonLabels) ToMap() map[string]string {
 	labels := make(map[string]string)
 
 	if cl.Service != "" {
 		labels["service"] = cl.Service
 	}
+
 	if cl.Environment != "" {
 		labels["environment"] = cl.Environment
 	}
+
 	if cl.Version != "" {
 		labels["version"] = cl.Version
 	}
+
 	if cl.Instance != "" {
 		labels["instance"] = cl.Instance
 	}
+
 	if cl.Region != "" {
 		labels["region"] = cl.Region
 	}
+
 	if cl.Zone != "" {
 		labels["zone"] = cl.Zone
 	}
@@ -1205,11 +1277,12 @@ func (cl *CommonLabels) ToMap() map[string]string {
 	return labels
 }
 
-// AddCommonLabels adds common production labels to existing labels
+// AddCommonLabels adds common production labels to existing labels.
 func AddCommonLabels(labels map[string]string, common *CommonLabels) map[string]string {
 	if common == nil {
 		return labels
 	}
+
 	return MergeTags(labels, common.ToMap())
 }
 
@@ -1217,7 +1290,7 @@ func AddCommonLabels(labels map[string]string, common *CommonLabels) map[string]
 // HELPER FUNCTIONS
 // =============================================================================
 
-// Helper functions
+// Helper functions.
 func formatLabels(labels map[string]string) string {
 	return FormatLabelsPrometheus(labels)
 }
@@ -1227,14 +1300,16 @@ func mergeMaps(m1, m2 map[string]string) map[string]string {
 	for k, v := range m1 {
 		result[k] = v
 	}
+
 	for k, v := range m2 {
 		result[k] = v
 	}
+
 	return result
 }
 
 // parseLabels parses variadic label parameters into a map
-// Labels should be provided as key-value pairs: "key1", "value1", "key2", "value2"
+// Labels should be provided as key-value pairs: "key1", "value1", "key2", "value2".
 func parseLabels(labels []string) map[string]string {
 	if len(labels) == 0 {
 		return make(map[string]string)
@@ -1244,5 +1319,6 @@ func parseLabels(labels []string) map[string]string {
 	for i := 0; i < len(labels)-1; i += 2 {
 		result[labels[i]] = labels[i+1]
 	}
+
 	return result
 }

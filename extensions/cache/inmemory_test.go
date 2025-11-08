@@ -43,6 +43,7 @@ func TestInMemoryCache_ConnectDisconnect(t *testing.T) {
 func TestInMemoryCache_BasicOperations(t *testing.T) {
 	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
@@ -101,6 +102,7 @@ func TestInMemoryCache_BasicOperations(t *testing.T) {
 func TestInMemoryCache_TTL(t *testing.T) {
 	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
@@ -150,6 +152,7 @@ func TestInMemoryCache_TTL(t *testing.T) {
 func TestInMemoryCache_Keys(t *testing.T) {
 	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
@@ -187,6 +190,7 @@ func TestInMemoryCache_Prefix(t *testing.T) {
 	config.Prefix = "myapp:"
 	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
@@ -205,6 +209,7 @@ func TestInMemoryCache_MaxSize(t *testing.T) {
 	config.MaxSize = 3
 	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
@@ -232,6 +237,7 @@ func TestInMemoryCache_MaxSize(t *testing.T) {
 func TestInMemoryCache_TypedOperations(t *testing.T) {
 	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
@@ -255,6 +261,7 @@ func TestInMemoryCache_TypedOperations(t *testing.T) {
 		assert.NoError(t, err)
 
 		var retrieved User
+
 		err = cache.GetJSON(ctx, "user:1", &retrieved)
 		assert.NoError(t, err)
 		assert.Equal(t, user, retrieved)
@@ -267,6 +274,7 @@ func TestInMemoryCache_Validation(t *testing.T) {
 	config.MaxValueSize = 20
 	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
@@ -288,6 +296,7 @@ func TestInMemoryCache_Cleanup(t *testing.T) {
 	config.CleanupInterval = 100 * time.Millisecond
 	cache := NewInMemoryCache(config, forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
@@ -312,23 +321,26 @@ func TestInMemoryCache_Cleanup(t *testing.T) {
 func TestInMemoryCache_Concurrent(t *testing.T) {
 	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
 	// Run concurrent operations
 	done := make(chan bool)
-	for i := 0; i < 100; i++ {
+
+	for i := range 100 {
 		go func(idx int) {
 			key := fmt.Sprintf("key%d", idx)
-			_ = cache.Set(ctx, key, []byte(fmt.Sprintf("value%d", idx)), 0)
+			_ = cache.Set(ctx, key, fmt.Appendf(nil, "value%d", idx), 0)
 			_, _ = cache.Get(ctx, key)
 			_, _ = cache.Exists(ctx, key)
 			_ = cache.Delete(ctx, key)
+
 			done <- true
 		}(i)
 	}
 
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		<-done
 	}
 }
@@ -338,13 +350,13 @@ func TestInMemoryCache_Concurrent(t *testing.T) {
 func BenchmarkInMemoryCache_Set(b *testing.B) {
 	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
 	value := []byte("test value")
-	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		_ = cache.Set(ctx, fmt.Sprintf("key%d", i), value, 0)
 	}
 }
@@ -352,17 +364,16 @@ func BenchmarkInMemoryCache_Set(b *testing.B) {
 func BenchmarkInMemoryCache_Get(b *testing.B) {
 	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
 	// Pre-populate
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		_ = cache.Set(ctx, fmt.Sprintf("key%d", i), []byte("value"), 0)
 	}
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		_, _ = cache.Get(ctx, fmt.Sprintf("key%d", i%1000))
 	}
 }
@@ -370,17 +381,16 @@ func BenchmarkInMemoryCache_Get(b *testing.B) {
 func BenchmarkInMemoryCache_Exists(b *testing.B) {
 	cache := NewInMemoryCache(DefaultConfig(), forge.NewNoopLogger(), forge.NewNoOpMetrics())
 	ctx := context.Background()
+
 	_ = cache.Connect(ctx)
 	defer cache.Disconnect(ctx)
 
 	// Pre-populate
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		_ = cache.Set(ctx, fmt.Sprintf("key%d", i), []byte("value"), 0)
 	}
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		_, _ = cache.Exists(ctx, fmt.Sprintf("key%d", i%1000))
 	}
 }

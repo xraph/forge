@@ -15,7 +15,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// LocalBackend implements storage using local filesystem
+// LocalBackend implements storage using local filesystem.
 type LocalBackend struct {
 	rootDir string
 	baseURL string
@@ -24,8 +24,8 @@ type LocalBackend struct {
 	metrics forge.Metrics
 }
 
-// NewLocalBackend creates a new local filesystem backend
-func NewLocalBackend(config map[string]interface{}, logger forge.Logger, metrics forge.Metrics) (*LocalBackend, error) {
+// NewLocalBackend creates a new local filesystem backend.
+func NewLocalBackend(config map[string]any, logger forge.Logger, metrics forge.Metrics) (*LocalBackend, error) {
 	rootDir, ok := config["root_dir"].(string)
 	if !ok {
 		rootDir = "./storage"
@@ -55,7 +55,7 @@ func NewLocalBackend(config map[string]interface{}, logger forge.Logger, metrics
 	}, nil
 }
 
-// Upload uploads a file
+// Upload uploads a file.
 func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error {
 	start := time.Now()
 
@@ -73,6 +73,7 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 	// Create directory structure
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "local").Inc()
+
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
@@ -80,6 +81,7 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 	file, err := os.Create(path)
 	if err != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "local").Inc()
+
 		return fmt.Errorf("failed to create file: %w", err)
 	}
 	defer file.Close()
@@ -88,6 +90,7 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 	written, err := io.Copy(file, data)
 	if err != nil {
 		b.metrics.Counter("storage_upload_errors", "backend", "local").Inc()
+
 		return fmt.Errorf("failed to write data: %w", err)
 	}
 
@@ -110,7 +113,7 @@ func (b *LocalBackend) Upload(ctx context.Context, key string, data io.Reader, o
 	return nil
 }
 
-// Download downloads a file
+// Download downloads a file.
 func (b *LocalBackend) Download(ctx context.Context, key string) (io.ReadCloser, error) {
 	path := filepath.Join(b.rootDir, key)
 
@@ -119,7 +122,9 @@ func (b *LocalBackend) Download(ctx context.Context, key string) (io.ReadCloser,
 		if os.IsNotExist(err) {
 			return nil, ErrObjectNotFound
 		}
+
 		b.metrics.Counter("storage_download_errors", "backend", "local").Inc()
+
 		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
 
@@ -128,7 +133,7 @@ func (b *LocalBackend) Download(ctx context.Context, key string) (io.ReadCloser,
 	return file, nil
 }
 
-// Delete deletes a file
+// Delete deletes a file.
 func (b *LocalBackend) Delete(ctx context.Context, key string) error {
 	path := filepath.Join(b.rootDir, key)
 
@@ -136,7 +141,9 @@ func (b *LocalBackend) Delete(ctx context.Context, key string) error {
 		if os.IsNotExist(err) {
 			return ErrObjectNotFound
 		}
+
 		b.metrics.Counter("storage_delete_errors", "backend", "local").Inc()
+
 		return fmt.Errorf("failed to delete file: %w", err)
 	}
 
@@ -149,11 +156,12 @@ func (b *LocalBackend) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// List lists files with a prefix
+// List lists files with a prefix.
 func (b *LocalBackend) List(ctx context.Context, prefix string, opts ...ListOption) ([]Object, error) {
 	options := applyListOptions(opts...)
 
 	basePath := filepath.Join(b.rootDir, prefix)
+
 	var objects []Object
 
 	err := filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
@@ -165,6 +173,7 @@ func (b *LocalBackend) List(ctx context.Context, prefix string, opts ...ListOpti
 			if !options.Recursive && path != basePath {
 				return filepath.SkipDir
 			}
+
 			return nil
 		}
 
@@ -198,14 +207,14 @@ func (b *LocalBackend) List(ctx context.Context, prefix string, opts ...ListOpti
 		return nil
 	})
 
-	if err != nil && err != filepath.SkipAll {
+	if err != nil && !errors.Is(err, filepath.SkipAll) {
 		return nil, err
 	}
 
 	return objects, nil
 }
 
-// Metadata retrieves object metadata
+// Metadata retrieves object metadata.
 func (b *LocalBackend) Metadata(ctx context.Context, key string) (*ObjectMetadata, error) {
 	path := filepath.Join(b.rootDir, key)
 
@@ -214,6 +223,7 @@ func (b *LocalBackend) Metadata(ctx context.Context, key string) (*ObjectMetadat
 		if os.IsNotExist(err) {
 			return nil, ErrObjectNotFound
 		}
+
 		return nil, err
 	}
 
@@ -229,20 +239,23 @@ func (b *LocalBackend) Metadata(ctx context.Context, key string) (*ObjectMetadat
 	return metadata, nil
 }
 
-// Exists checks if an object exists
+// Exists checks if an object exists.
 func (b *LocalBackend) Exists(ctx context.Context, key string) (bool, error) {
 	path := filepath.Join(b.rootDir, key)
+
 	_, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
+
 		return false, err
 	}
+
 	return true, nil
 }
 
-// Copy copies a file
+// Copy copies a file.
 func (b *LocalBackend) Copy(ctx context.Context, srcKey, dstKey string) error {
 	srcPath := filepath.Join(b.rootDir, srcKey)
 	dstPath := filepath.Join(b.rootDir, dstKey)
@@ -259,6 +272,7 @@ func (b *LocalBackend) Copy(ctx context.Context, srcKey, dstKey string) error {
 		if os.IsNotExist(err) {
 			return ErrObjectNotFound
 		}
+
 		return err
 	}
 	defer src.Close()
@@ -276,7 +290,7 @@ func (b *LocalBackend) Copy(ctx context.Context, srcKey, dstKey string) error {
 	return nil
 }
 
-// Move moves a file
+// Move moves a file.
 func (b *LocalBackend) Move(ctx context.Context, srcKey, dstKey string) error {
 	srcPath := filepath.Join(b.rootDir, srcKey)
 	dstPath := filepath.Join(b.rootDir, dstKey)
@@ -295,7 +309,7 @@ func (b *LocalBackend) Move(ctx context.Context, srcKey, dstKey string) error {
 	return nil
 }
 
-// PresignUpload generates a presigned URL for upload
+// PresignUpload generates a presigned URL for upload.
 func (b *LocalBackend) PresignUpload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	token := b.generateSignedToken(key, expiry)
 	expires := time.Now().Add(expiry).Unix()
@@ -308,7 +322,7 @@ func (b *LocalBackend) PresignUpload(ctx context.Context, key string, expiry tim
 	return url, nil
 }
 
-// PresignDownload generates a presigned URL for download
+// PresignDownload generates a presigned URL for download.
 func (b *LocalBackend) PresignDownload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	token := b.generateSignedToken(key, expiry)
 	expires := time.Now().Add(expiry).Unix()
@@ -321,7 +335,7 @@ func (b *LocalBackend) PresignDownload(ctx context.Context, key string, expiry t
 	return url, nil
 }
 
-// Helper: Calculate ETag (MD5 hash)
+// Helper: Calculate ETag (MD5 hash).
 func (b *LocalBackend) calculateETag(path string) string {
 	file, err := os.Open(path)
 	if err != nil {
@@ -337,7 +351,7 @@ func (b *LocalBackend) calculateETag(path string) string {
 	return hex.EncodeToString(hash.Sum(nil))
 }
 
-// Helper: Get content type from file extension
+// Helper: Get content type from file extension.
 func (b *LocalBackend) getContentType(path string) string {
 	ext := filepath.Ext(path)
 	switch ext {
@@ -360,22 +374,24 @@ func (b *LocalBackend) getContentType(path string) string {
 	}
 }
 
-// Helper: Generate signed token for presigned URLs
+// Helper: Generate signed token for presigned URLs.
 func (b *LocalBackend) generateSignedToken(key string, expiry time.Duration) string {
 	expires := time.Now().Add(expiry).Unix()
 	data := fmt.Sprintf("%s:%d:%s", key, expires, b.secret)
 
 	hash := sha256.Sum256([]byte(data))
+
 	return hex.EncodeToString(hash[:])
 }
 
-// Helper: Save metadata to file
+// Helper: Save metadata to file.
 func (b *LocalBackend) saveMetadata(path string, metadata map[string]string) error {
 	if len(metadata) == 0 {
 		return nil
 	}
 
 	metaPath := path + ".meta"
+
 	file, err := os.Create(metaPath)
 	if err != nil {
 		return err
@@ -389,18 +405,19 @@ func (b *LocalBackend) saveMetadata(path string, metadata map[string]string) err
 	return nil
 }
 
-// Helper: Load metadata from file
+// Helper: Load metadata from file.
 func (b *LocalBackend) loadMetadata(path string) map[string]string {
 	metadata := make(map[string]string)
 
 	metaPath := path + ".meta"
+
 	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		return metadata
 	}
 
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(data), "\n")
+	for line := range lines {
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) == 2 {
 			metadata[parts[0]] = parts[1]

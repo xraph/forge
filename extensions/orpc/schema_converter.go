@@ -9,18 +9,17 @@ import (
 )
 
 // ResponseSchemaDef mirrors the OpenAPI response schema definition
-// This is imported from the router package's internal structure
+// This is imported from the router package's internal structure.
 type ResponseSchemaDef struct {
 	Description string
-	Schema      interface{}
+	Schema      any
 }
 
-// selectPrimaryResponseSchema selects the best response schema for oRPC from multiple OpenAPI responses
+// selectPrimaryResponseSchema selects the best response schema for oRPC from multiple OpenAPI responses.
 func (s *server) selectPrimaryResponseSchema(
 	route forge.RouteInfo,
 	responseSchemas map[int]*ResponseSchemaDef,
 ) (int, *ResponseSchemaDef) {
-
 	// 1. Check for explicit oRPC primary response annotation
 	if primaryCode, ok := route.Metadata["orpc.primaryResponse"].(int); ok {
 		if schema, exists := responseSchemas[primaryCode]; exists {
@@ -28,6 +27,7 @@ func (s *server) selectPrimaryResponseSchema(
 				forge.F("route", route.Path),
 				forge.F("status_code", primaryCode),
 			)
+
 			return primaryCode, schema
 		}
 	}
@@ -52,6 +52,7 @@ func (s *server) selectPrimaryResponseSchema(
 				forge.F("status_code", statusCode),
 				forge.F("available_codes", getStatusCodes(responseSchemas)),
 			)
+
 			return statusCode, schema
 		}
 	}
@@ -64,6 +65,7 @@ func (s *server) selectPrimaryResponseSchema(
 					forge.F("route", route.Path),
 					forge.F("status_code", statusCode),
 				)
+
 				return statusCode, schema
 			}
 		}
@@ -74,10 +76,11 @@ func (s *server) selectPrimaryResponseSchema(
 		forge.F("route", route.Path),
 		forge.F("available_codes", getStatusCodes(responseSchemas)),
 	)
+
 	return 0, nil
 }
 
-// getResponsePriorityByMethod returns priority order of status codes by HTTP method
+// getResponsePriorityByMethod returns priority order of status codes by HTTP method.
 func getResponsePriorityByMethod(method string) []int {
 	switch method {
 	case "POST":
@@ -102,17 +105,19 @@ func getResponsePriorityByMethod(method string) []int {
 	}
 }
 
-// getStatusCodes extracts and sorts status codes for logging
+// getStatusCodes extracts and sorts status codes for logging.
 func getStatusCodes(schemas map[int]*ResponseSchemaDef) []int {
 	codes := make([]int, 0, len(schemas))
 	for code := range schemas {
 		codes = append(codes, code)
 	}
+
 	sort.Ints(codes)
+
 	return codes
 }
 
-// convertOpenAPIResponseToORPC converts OpenAPI response to oRPC result schema
+// convertOpenAPIResponseToORPC converts OpenAPI response to oRPC result schema.
 func convertOpenAPIResponseToORPC(responseDef *ResponseSchemaDef) *ResultSchema {
 	if responseDef == nil || responseDef.Schema == nil {
 		return &ResultSchema{
@@ -122,7 +127,7 @@ func convertOpenAPIResponseToORPC(responseDef *ResponseSchemaDef) *ResultSchema 
 	}
 
 	// Check if schema is already a map (from OpenAPI generator)
-	if schemaMap, ok := responseDef.Schema.(map[string]interface{}); ok {
+	if schemaMap, ok := responseDef.Schema.(map[string]any); ok {
 		return convertSchemaMapToORPC(schemaMap, responseDef.Description)
 	}
 
@@ -130,8 +135,8 @@ func convertOpenAPIResponseToORPC(responseDef *ResponseSchemaDef) *ResultSchema 
 	return generateResultSchemaFromType(responseDef.Schema, responseDef.Description)
 }
 
-// convertSchemaMapToORPC converts OpenAPI schema map to oRPC ResultSchema
-func convertSchemaMapToORPC(schemaMap map[string]interface{}, description string) *ResultSchema {
+// convertSchemaMapToORPC converts OpenAPI schema map to oRPC ResultSchema.
+func convertSchemaMapToORPC(schemaMap map[string]any, description string) *ResultSchema {
 	result := &ResultSchema{
 		Description: description,
 	}
@@ -142,19 +147,19 @@ func convertSchemaMapToORPC(schemaMap map[string]interface{}, description string
 		result.Type = "object"
 	}
 
-	if props, ok := schemaMap["properties"].(map[string]interface{}); ok {
+	if props, ok := schemaMap["properties"].(map[string]any); ok {
 		result.Properties = convertPropertiesMapToORPC(props)
 	}
 
 	return result
 }
 
-// convertPropertiesMapToORPC converts properties map to oRPC PropertySchema map
-func convertPropertiesMapToORPC(props map[string]interface{}) map[string]*PropertySchema {
+// convertPropertiesMapToORPC converts properties map to oRPC PropertySchema map.
+func convertPropertiesMapToORPC(props map[string]any) map[string]*PropertySchema {
 	result := make(map[string]*PropertySchema)
 
 	for name, prop := range props {
-		if propMap, ok := prop.(map[string]interface{}); ok {
+		if propMap, ok := prop.(map[string]any); ok {
 			propSchema := &PropertySchema{
 				Type:        getStringField(propMap, "type"),
 				Description: getStringField(propMap, "description"),
@@ -162,7 +167,7 @@ func convertPropertiesMapToORPC(props map[string]interface{}) map[string]*Proper
 
 			// Handle nested properties for object types
 			if propSchema.Type == "object" {
-				if nestedProps, ok := propMap["properties"].(map[string]interface{}); ok {
+				if nestedProps, ok := propMap["properties"].(map[string]any); ok {
 					propSchema.Properties = convertPropertiesMapToORPC(nestedProps)
 				}
 			}
@@ -179,8 +184,8 @@ func convertPropertiesMapToORPC(props map[string]interface{}) map[string]*Proper
 	return result
 }
 
-// generateResultSchemaFromType generates ResultSchema from Go type using reflection
-func generateResultSchemaFromType(schemaType interface{}, description string) *ResultSchema {
+// generateResultSchemaFromType generates ResultSchema from Go type using reflection.
+func generateResultSchemaFromType(schemaType any, description string) *ResultSchema {
 	result := &ResultSchema{
 		Description: description,
 	}
@@ -188,6 +193,7 @@ func generateResultSchemaFromType(schemaType interface{}, description string) *R
 	rt := reflect.TypeOf(schemaType)
 	if rt == nil {
 		result.Type = "object"
+
 		return result
 	}
 
@@ -227,7 +233,7 @@ func generateResultSchemaFromType(schemaType interface{}, description string) *R
 	return result
 }
 
-// generatePropertiesFromStruct generates properties from struct fields
+// generatePropertiesFromStruct generates properties from struct fields.
 func generatePropertiesFromStruct(rt reflect.Type) map[string]*PropertySchema {
 	props := make(map[string]*PropertySchema)
 
@@ -245,6 +251,7 @@ func generatePropertiesFromStruct(rt reflect.Type) map[string]*PropertySchema {
 			if name != "" && name != "-" {
 				jsonName = name
 			}
+
 			_ = omitempty // Could use for required fields
 		}
 
@@ -260,7 +267,7 @@ func generatePropertiesFromStruct(rt reflect.Type) map[string]*PropertySchema {
 }
 
 // generatePropertySchemaFromType generates PropertySchema from a reflect.Type
-// This handles nested structs recursively
+// This handles nested structs recursively.
 func generatePropertySchemaFromType(rt reflect.Type, description string) *PropertySchema {
 	propSchema := &PropertySchema{
 		Type:        getJSONTypeFromReflectType(rt),
@@ -283,6 +290,7 @@ func generatePropertySchemaFromType(rt reflect.Type, description string) *Proper
 		if elemType.Kind() == reflect.Ptr {
 			elemType = elemType.Elem()
 		}
+
 		if elemType.Kind() == reflect.Struct {
 			// For arrays of structs, add an items property
 			propSchema.Items = &PropertySchema{
@@ -295,7 +303,7 @@ func generatePropertySchemaFromType(rt reflect.Type, description string) *Proper
 	return propSchema
 }
 
-// getJSONTypeFromReflectType maps Go types to JSON Schema types
+// getJSONTypeFromReflectType maps Go types to JSON Schema types.
 func getJSONTypeFromReflectType(rt reflect.Type) string {
 	if rt.Kind() == reflect.Ptr {
 		rt = rt.Elem()
@@ -320,7 +328,7 @@ func getJSONTypeFromReflectType(rt reflect.Type) string {
 	}
 }
 
-// parseJSONTag parses json tag and returns name and omitempty flag
+// parseJSONTag parses json tag and returns name and omitempty flag.
 func parseJSONTag(tag string) (string, bool) {
 	parts := strings.Split(tag, ",")
 	name := parts[0]
@@ -329,6 +337,7 @@ func parseJSONTag(tag string) (string, bool) {
 	for i := 1; i < len(parts); i++ {
 		if strings.TrimSpace(parts[i]) == "omitempty" {
 			omitempty = true
+
 			break
 		}
 	}
@@ -336,16 +345,17 @@ func parseJSONTag(tag string) (string, bool) {
 	return name, omitempty
 }
 
-// getStringField safely gets string field from map
-func getStringField(m map[string]interface{}, key string) string {
+// getStringField safely gets string field from map.
+func getStringField(m map[string]any, key string) string {
 	if val, ok := m[key].(string); ok {
 		return val
 	}
+
 	return ""
 }
 
-// convertUnifiedSchemaToORPCParams converts unified OpenAPI request schema to oRPC params
-func (s *server) convertUnifiedSchemaToORPCParams(unifiedSchema interface{}, route forge.RouteInfo) *ParamsSchema {
+// convertUnifiedSchemaToORPCParams converts unified OpenAPI request schema to oRPC params.
+func (s *server) convertUnifiedSchemaToORPCParams(unifiedSchema any, route forge.RouteInfo) *ParamsSchema {
 	schema := &ParamsSchema{
 		Type:       "object",
 		Properties: make(map[string]*PropertySchema),
@@ -367,6 +377,7 @@ func (s *server) convertUnifiedSchemaToORPCParams(unifiedSchema interface{}, rou
 			Type:        getJSONTypeFromReflectType(rt),
 			Description: "Request body",
 		}
+
 		return schema
 	}
 
@@ -391,34 +402,34 @@ func (s *server) convertUnifiedSchemaToORPCParams(unifiedSchema interface{}, rou
 			if paramName == "" {
 				paramName = field.Name
 			}
+
 			schema.Properties[paramName] = &PropertySchema{
 				Type:        fieldType,
 				Description: description,
 			}
 			schema.Required = append(schema.Required, paramName)
-
 		} else if queryTag := field.Tag.Get("query"); queryTag != "" {
 			// Query parameters
 			paramName, _ := parseTagValue(queryTag)
 			if paramName == "" {
 				paramName = field.Name
 			}
+
 			queryProps[paramName] = &PropertySchema{
 				Type:        fieldType,
 				Description: description,
 			}
-
 		} else if headerTag := field.Tag.Get("header"); headerTag != "" {
 			// Header parameters
 			paramName, _ := parseTagValue(headerTag)
 			if paramName == "" {
 				paramName = field.Name
 			}
+
 			headerProps[paramName] = &PropertySchema{
 				Type:        fieldType,
 				Description: description,
 			}
-
 		} else if field.Tag.Get("json") != "" || field.Tag.Get("body") != "" {
 			// Body fields
 			jsonName := field.Name
@@ -474,7 +485,7 @@ func (s *server) convertUnifiedSchemaToORPCParams(unifiedSchema interface{}, rou
 	return schema
 }
 
-// parseTagValue parses a tag value and returns the name and omitempty flag
+// parseTagValue parses a tag value and returns the name and omitempty flag.
 func parseTagValue(tag string) (string, bool) {
 	parts := strings.Split(tag, ",")
 	name := parts[0]
@@ -483,6 +494,7 @@ func parseTagValue(tag string) (string, bool) {
 	for i := 1; i < len(parts); i++ {
 		if strings.TrimSpace(parts[i]) == "omitempty" {
 			omitempty = true
+
 			break
 		}
 	}

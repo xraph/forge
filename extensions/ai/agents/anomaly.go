@@ -9,9 +9,10 @@ import (
 	"time"
 
 	internalai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// AnomalyDetectionAgent detects anomalies in system behavior and performance
+// AnomalyDetectionAgent detects anomalies in system behavior and performance.
 type AnomalyDetectionAgent struct {
 	*internalai.BaseAgent
 
@@ -32,7 +33,7 @@ type AnomalyDetectionAgent struct {
 	confidenceThreshold float64
 }
 
-// AnomalyEvent represents a detected anomaly
+// AnomalyEvent represents a detected anomaly.
 type AnomalyEvent struct {
 	ID          string                 `json:"id"`
 	Type        AnomalyType            `json:"type"`
@@ -47,7 +48,7 @@ type AnomalyEvent struct {
 	Actions     []AnomalyAction        `json:"actions"`
 }
 
-// AnomalyType represents the type of anomaly
+// AnomalyType represents the type of anomaly.
 type AnomalyType string
 
 const (
@@ -61,7 +62,7 @@ const (
 	AnomalyTypeCollective  AnomalyType = "collective"
 )
 
-// AnomalySeverity represents the severity of an anomaly
+// AnomalySeverity represents the severity of an anomaly.
 type AnomalySeverity string
 
 const (
@@ -71,7 +72,7 @@ const (
 	AnomalySeverityCritical AnomalySeverity = "critical"
 )
 
-// SensitivityLevel represents the sensitivity level for anomaly detection
+// SensitivityLevel represents the sensitivity level for anomaly detection.
 type SensitivityLevel string
 
 const (
@@ -80,7 +81,7 @@ const (
 	SensitivityLevelHigh   SensitivityLevel = "high"
 )
 
-// DataPoint represents a data point for anomaly detection
+// DataPoint represents a data point for anomaly detection.
 type DataPoint struct {
 	Timestamp time.Time              `json:"timestamp"`
 	Value     float64                `json:"value"`
@@ -89,7 +90,7 @@ type DataPoint struct {
 	Context   map[string]interface{} `json:"context"`
 }
 
-// BaselineModel represents a baseline model for normal behavior
+// BaselineModel represents a baseline model for normal behavior.
 type BaselineModel struct {
 	Metric          string             `json:"metric"`
 	Mean            float64            `json:"mean"`
@@ -103,7 +104,7 @@ type BaselineModel struct {
 	SeasonalPattern map[string]float64 `json:"seasonal_pattern"`
 }
 
-// AnomalyRule represents a rule for anomaly detection
+// AnomalyRule represents a rule for anomaly detection.
 type AnomalyRule struct {
 	ID        string                 `json:"id"`
 	Name      string                 `json:"name"`
@@ -116,7 +117,7 @@ type AnomalyRule struct {
 	Metadata  map[string]interface{} `json:"metadata"`
 }
 
-// AnomalyAction represents an action to take for an anomaly
+// AnomalyAction represents an action to take for an anomaly.
 type AnomalyAction struct {
 	Type        string                 `json:"type"`
 	Description string                 `json:"description"`
@@ -125,7 +126,7 @@ type AnomalyAction struct {
 	Automated   bool                   `json:"automated"`
 }
 
-// NewAnomalyDetectionAgent creates a new anomaly detection agent
+// NewAnomalyDetectionAgent creates a new anomaly detection agent.
 func NewAnomalyDetectionAgent(id, name string) internalai.AIAgent {
 	capabilities := []internalai.Capability{
 		{
@@ -180,7 +181,7 @@ func NewAnomalyDetectionAgent(id, name string) internalai.AIAgent {
 	return agent
 }
 
-// Process processes anomaly detection requests
+// Process processes anomaly detection requests.
 func (a *AnomalyDetectionAgent) Process(ctx context.Context, input internalai.AgentInput) (internalai.AgentOutput, error) {
 	// Call base implementation first
 	output, err := a.BaseAgent.Process(ctx, input)
@@ -201,18 +202,18 @@ func (a *AnomalyDetectionAgent) Process(ctx context.Context, input internalai.Ag
 	}
 }
 
-// processAnomalyDetection processes anomaly detection requests
+// processAnomalyDetection processes anomaly detection requests.
 func (a *AnomalyDetectionAgent) processAnomalyDetection(ctx context.Context, input internalai.AgentInput) (internalai.AgentOutput, error) {
 	// Parse input
 	data, ok := input.Data.(map[string]interface{})
 	if !ok {
-		return internalai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return internalai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	// Extract data points
 	dataPoints := a.extractDataPoints(data)
 	if len(dataPoints) == 0 {
-		return internalai.AgentOutput{}, fmt.Errorf("no data points provided")
+		return internalai.AgentOutput{}, errors.New("no data points provided")
 	}
 
 	// Detect anomalies using multiple methods
@@ -244,6 +245,7 @@ func (a *AnomalyDetectionAgent) processAnomalyDetection(ctx context.Context, inp
 
 	// Generate actions for each anomaly
 	actions := make([]internalai.AgentAction, 0)
+
 	for _, anomaly := range filteredAnomalies {
 		for _, anomalyAction := range anomaly.Actions {
 			action := internalai.AgentAction{
@@ -279,18 +281,18 @@ func (a *AnomalyDetectionAgent) processAnomalyDetection(ctx context.Context, inp
 	}, nil
 }
 
-// processBaselineModeling processes baseline modeling requests
+// processBaselineModeling processes baseline modeling requests.
 func (a *AnomalyDetectionAgent) processBaselineModeling(ctx context.Context, input internalai.AgentInput) (internalai.AgentOutput, error) {
 	// Parse input
 	data, ok := input.Data.(map[string]interface{})
 	if !ok {
-		return internalai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return internalai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	// Extract data points
 	dataPoints := a.extractDataPoints(data)
 	if len(dataPoints) == 0 {
-		return internalai.AgentOutput{}, fmt.Errorf("no data points provided")
+		return internalai.AgentOutput{}, errors.New("no data points provided")
 	}
 
 	// Group data points by metric
@@ -301,6 +303,7 @@ func (a *AnomalyDetectionAgent) processBaselineModeling(ctx context.Context, inp
 
 	// Build baseline models for each metric
 	updatedModels := make(map[string]*BaselineModel)
+
 	for metric, points := range metricGroups {
 		model := a.buildBaselineModel(metric, points)
 		updatedModels[metric] = model
@@ -309,6 +312,7 @@ func (a *AnomalyDetectionAgent) processBaselineModeling(ctx context.Context, inp
 
 	// Generate baseline actions
 	actions := make([]internalai.AgentAction, 0)
+
 	for metric, model := range updatedModels {
 		if model.Confidence > a.confidenceThreshold {
 			action := internalai.AgentAction{
@@ -340,12 +344,12 @@ func (a *AnomalyDetectionAgent) processBaselineModeling(ctx context.Context, inp
 	}, nil
 }
 
-// processAnomalyAnalysis processes anomaly analysis requests
+// processAnomalyAnalysis processes anomaly analysis requests.
 func (a *AnomalyDetectionAgent) processAnomalyAnalysis(ctx context.Context, input internalai.AgentInput) (internalai.AgentOutput, error) {
 	// Parse input
 	data, ok := input.Data.(map[string]interface{})
 	if !ok {
-		return internalai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return internalai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	// Extract time range for analysis
@@ -371,7 +375,7 @@ func (a *AnomalyDetectionAgent) processAnomalyAnalysis(ctx context.Context, inpu
 	}, nil
 }
 
-// extractDataPoints extracts data points from input data
+// extractDataPoints extracts data points from input data.
 func (a *AnomalyDetectionAgent) extractDataPoints(data map[string]interface{}) []DataPoint {
 	dataPoints := make([]DataPoint, 0)
 
@@ -395,7 +399,7 @@ func (a *AnomalyDetectionAgent) extractDataPoints(data map[string]interface{}) [
 	return dataPoints
 }
 
-// convertToDataPoint converts a map to a DataPoint
+// convertToDataPoint converts a map to a DataPoint.
 func (a *AnomalyDetectionAgent) convertToDataPoint(dpMap map[string]interface{}) DataPoint {
 	dp := DataPoint{
 		Timestamp: time.Now(),
@@ -406,15 +410,19 @@ func (a *AnomalyDetectionAgent) convertToDataPoint(dpMap map[string]interface{})
 	if timestamp, ok := dpMap["timestamp"].(time.Time); ok {
 		dp.Timestamp = timestamp
 	}
+
 	if value, ok := dpMap["value"].(float64); ok {
 		dp.Value = value
 	}
+
 	if metric, ok := dpMap["metric"].(string); ok {
 		dp.Metric = metric
 	}
+
 	if labels, ok := dpMap["labels"].(map[string]string); ok {
 		dp.Labels = labels
 	}
+
 	if context, ok := dpMap["context"].(map[string]interface{}); ok {
 		dp.Context = context
 	}
@@ -422,7 +430,7 @@ func (a *AnomalyDetectionAgent) convertToDataPoint(dpMap map[string]interface{})
 	return dp
 }
 
-// buildBaselineModel builds a baseline model from data points
+// buildBaselineModel builds a baseline model from data points.
 func (a *AnomalyDetectionAgent) buildBaselineModel(metric string, points []DataPoint) *BaselineModel {
 	if len(points) == 0 {
 		return nil
@@ -460,7 +468,7 @@ func (a *AnomalyDetectionAgent) buildBaselineModel(metric string, points []DataP
 	}
 }
 
-// mergeAnomalies merges and deduplicates anomalies from different detectors
+// mergeAnomalies merges and deduplicates anomalies from different detectors.
 func (a *AnomalyDetectionAgent) mergeAnomalies(anomalies []AnomalyEvent) []AnomalyEvent {
 	// Simple deduplication based on timestamp and metric
 	seen := make(map[string]bool)
@@ -470,6 +478,7 @@ func (a *AnomalyDetectionAgent) mergeAnomalies(anomalies []AnomalyEvent) []Anoma
 		key := fmt.Sprintf("%s_%s_%d", anomaly.DataPoint.Metric, anomaly.Type, anomaly.DetectedAt.Unix())
 		if !seen[key] {
 			seen[key] = true
+
 			merged = append(merged, anomaly)
 		}
 	}
@@ -479,13 +488,14 @@ func (a *AnomalyDetectionAgent) mergeAnomalies(anomalies []AnomalyEvent) []Anoma
 		if merged[i].Severity != merged[j].Severity {
 			return a.severityWeight(merged[i].Severity) > a.severityWeight(merged[j].Severity)
 		}
+
 		return merged[i].Score > merged[j].Score
 	})
 
 	return merged
 }
 
-// filterBySensitivity filters anomalies based on sensitivity level
+// filterBySensitivity filters anomalies based on sensitivity level.
 func (a *AnomalyDetectionAgent) filterBySensitivity(anomalies []AnomalyEvent) []AnomalyEvent {
 	threshold := a.getSensitivityThreshold()
 	filtered := make([]AnomalyEvent, 0)
@@ -499,7 +509,7 @@ func (a *AnomalyDetectionAgent) filterBySensitivity(anomalies []AnomalyEvent) []
 	return filtered
 }
 
-// getSensitivityThreshold returns the threshold based on sensitivity level
+// getSensitivityThreshold returns the threshold based on sensitivity level.
 func (a *AnomalyDetectionAgent) getSensitivityThreshold() float64 {
 	switch a.sensitivityLevel {
 	case SensitivityLevelLow:
@@ -513,7 +523,7 @@ func (a *AnomalyDetectionAgent) getSensitivityThreshold() float64 {
 	}
 }
 
-// severityWeight returns the weight for severity comparison
+// severityWeight returns the weight for severity comparison.
 func (a *AnomalyDetectionAgent) severityWeight(severity AnomalySeverity) int {
 	switch severity {
 	case AnomalySeverityCritical:
@@ -529,7 +539,7 @@ func (a *AnomalyDetectionAgent) severityWeight(severity AnomalySeverity) int {
 	}
 }
 
-// calculateDetectionConfidence calculates confidence for anomaly detection
+// calculateDetectionConfidence calculates confidence for anomaly detection.
 func (a *AnomalyDetectionAgent) calculateDetectionConfidence(anomalies []AnomalyEvent) float64 {
 	if len(anomalies) == 0 {
 		return 0.5
@@ -541,10 +551,11 @@ func (a *AnomalyDetectionAgent) calculateDetectionConfidence(anomalies []Anomaly
 	}
 
 	averageScore := totalScore / float64(len(anomalies))
+
 	return math.Min(0.99, averageScore)
 }
 
-// calculateModelingConfidence calculates confidence for baseline modeling
+// calculateModelingConfidence calculates confidence for baseline modeling.
 func (a *AnomalyDetectionAgent) calculateModelingConfidence(models map[string]*BaselineModel) float64 {
 	if len(models) == 0 {
 		return 0.5
@@ -558,7 +569,7 @@ func (a *AnomalyDetectionAgent) calculateModelingConfidence(models map[string]*B
 	return totalConfidence / float64(len(models))
 }
 
-// initializeDefaultRules initializes default anomaly detection rules
+// initializeDefaultRules initializes default anomaly detection rules.
 func (a *AnomalyDetectionAgent) initializeDefaultRules() {
 	a.detectionRules = []AnomalyRule{
 		{
@@ -600,10 +611,12 @@ func (a *AnomalyDetectionAgent) calculateMean(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	sum := 0.0
 	for _, v := range values {
 		sum += v
 	}
+
 	return sum / float64(len(values))
 }
 
@@ -611,11 +624,14 @@ func (a *AnomalyDetectionAgent) calculateStandardDeviation(values []float64, mea
 	if len(values) < 2 {
 		return 0
 	}
+
 	variance := 0.0
 	for _, v := range values {
-		variance += math.Pow(v-mean, 2)
+		variance += (v - mean) * (v - mean)
 	}
+
 	variance /= float64(len(values) - 1)
+
 	return math.Sqrt(variance)
 }
 
@@ -623,12 +639,14 @@ func (a *AnomalyDetectionAgent) calculateMin(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	min := values[0]
 	for _, v := range values {
 		if v < min {
 			min = v
 		}
 	}
+
 	return min
 }
 
@@ -636,12 +654,14 @@ func (a *AnomalyDetectionAgent) calculateMax(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}
+
 	max := values[0]
 	for _, v := range values {
 		if v > max {
 			max = v
 		}
 	}
+
 	return max
 }
 
@@ -666,10 +686,12 @@ func (a *AnomalyDetectionAgent) percentile(sortedValues []float64, p float64) fl
 	if len(sortedValues) == 0 {
 		return 0
 	}
+
 	index := int(p * float64(len(sortedValues)-1))
 	if index >= len(sortedValues) {
 		index = len(sortedValues) - 1
 	}
+
 	return sortedValues[index]
 }
 
@@ -677,6 +699,7 @@ func (a *AnomalyDetectionAgent) calculateModelConfidence(sampleSize int, stdDev 
 	// Simple confidence calculation based on sample size and variability
 	sizeScore := math.Min(1.0, float64(sampleSize)/1000.0)
 	variabilityScore := math.Max(0.0, 1.0-stdDev/10.0)
+
 	return (sizeScore + variabilityScore) / 2.0
 }
 
@@ -686,6 +709,7 @@ func (a *AnomalyDetectionAgent) buildSeasonalPattern(points []DataPoint) map[str
 
 	// Group by hour of day
 	hourlyValues := make(map[int][]float64)
+
 	for _, point := range points {
 		hour := point.Timestamp.Hour()
 		hourlyValues[hour] = append(hourlyValues[hour], point.Value)
@@ -707,12 +731,13 @@ func (a *AnomalyDetectionAgent) extractTimeRange(data map[string]interface{}) (T
 	if startTime, ok := data["start_time"].(time.Time); ok {
 		timeRange.Start = startTime
 	}
+
 	if endTime, ok := data["end_time"].(time.Time); ok {
 		timeRange.End = endTime
 	}
 
 	if timeRange.Start.IsZero() || timeRange.End.IsZero() {
-		return timeRange, fmt.Errorf("invalid time range")
+		return timeRange, errors.New("invalid time range")
 	}
 
 	return timeRange, nil
@@ -721,6 +746,7 @@ func (a *AnomalyDetectionAgent) extractTimeRange(data map[string]interface{}) (T
 func (a *AnomalyDetectionAgent) analyzeAnomalies(timeRange TimeRange) AnomalyAnalysis {
 	// Filter anomalies by time range
 	filteredAnomalies := make([]AnomalyEvent, 0)
+
 	for _, anomaly := range a.anomalyHistory {
 		if anomaly.DetectedAt.After(timeRange.Start) && anomaly.DetectedAt.Before(timeRange.End) {
 			filteredAnomalies = append(filteredAnomalies, anomaly)
@@ -889,6 +915,7 @@ func (rbad *RuleBasedAnomalyDetector) DetectAnomalies(dataPoints []DataPoint, ru
 			}
 
 			violated := false
+
 			switch rule.Condition {
 			case "greater_than":
 				violated = dp.Value > rule.Threshold
@@ -904,7 +931,7 @@ func (rbad *RuleBasedAnomalyDetector) DetectAnomalies(dataPoints []DataPoint, ru
 					Type:        AnomalyTypePattern,
 					Severity:    rule.Severity,
 					Score:       0.8, // Fixed score for rule-based detection
-					Description: fmt.Sprintf("Rule violation: %s", rule.Name),
+					Description: "Rule violation: " + rule.Name,
 					DataPoint:   dp,
 					DetectedAt:  time.Now(),
 					Actions:     []AnomalyAction{},

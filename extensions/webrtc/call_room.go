@@ -3,17 +3,19 @@ package webrtc
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/streaming"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Basic implementation of CallRoom interface
 // This provides a foundation that can be extended for specific topologies
 
-// baseCallRoom provides common functionality for call rooms
+// baseCallRoom provides common functionality for call rooms.
 type baseCallRoom struct {
 	id        string
 	name      string
@@ -40,7 +42,7 @@ type baseCallRoom struct {
 	mu      sync.RWMutex
 }
 
-// newBaseCallRoom creates a new base call room
+// newBaseCallRoom creates a new base call room.
 func newBaseCallRoom(
 	id string,
 	name string,
@@ -63,17 +65,17 @@ func newBaseCallRoom(
 	}
 }
 
-// ID returns room ID
+// ID returns room ID.
 func (r *baseCallRoom) ID() string {
 	return r.id
 }
 
-// Name returns room name
+// Name returns room name.
 func (r *baseCallRoom) Name() string {
 	return r.name
 }
 
-// GetPeers returns all peer connections
+// GetPeers returns all peer connections.
 func (r *baseCallRoom) GetPeers() []PeerConnection {
 	r.peersMu.RLock()
 	defer r.peersMu.RUnlock()
@@ -82,10 +84,11 @@ func (r *baseCallRoom) GetPeers() []PeerConnection {
 	for _, peer := range r.peers {
 		peers = append(peers, peer)
 	}
+
 	return peers
 }
 
-// GetParticipants returns participant information
+// GetParticipants returns participant information.
 func (r *baseCallRoom) GetParticipants() []Participant {
 	r.peersMu.RLock()
 	defer r.peersMu.RUnlock()
@@ -104,10 +107,11 @@ func (r *baseCallRoom) GetParticipants() []Participant {
 			JoinedAt: time.Now(), // Would need to track actual join time
 		})
 	}
+
 	return participants
 }
 
-// GetPeer returns peer connection for user
+// GetPeer returns peer connection for user.
 func (r *baseCallRoom) GetPeer(userID string) (PeerConnection, error) {
 	r.peersMu.RLock()
 	defer r.peersMu.RUnlock()
@@ -116,10 +120,11 @@ func (r *baseCallRoom) GetPeer(userID string) (PeerConnection, error) {
 	if !exists {
 		return nil, fmt.Errorf("webrtc: peer not found for user %s: %w", userID, ErrPeerNotFound)
 	}
+
 	return peer, nil
 }
 
-// Leave leaves the call
+// Leave leaves the call.
 func (r *baseCallRoom) Leave(ctx context.Context, userID string) error {
 	// Check if room is closed
 	r.mu.RLock()
@@ -141,10 +146,12 @@ func (r *baseCallRoom) Leave(ctx context.Context, userID string) error {
 
 	// Stop quality monitoring
 	r.monitorsMu.Lock()
+
 	if monitor, exists := r.qualityMonitors[userID]; exists {
 		monitor.Stop(peer.ID())
 		delete(r.qualityMonitors, userID)
 	}
+
 	r.monitorsMu.Unlock()
 
 	// Close peer connection
@@ -166,13 +173,13 @@ func (r *baseCallRoom) Leave(ctx context.Context, userID string) error {
 
 	// Track metrics
 	if r.metrics != nil {
-		r.metrics.Gauge("webrtc.room.peers", "count", fmt.Sprintf("%d", len(r.peers))).Set(float64(len(r.peers)))
+		r.metrics.Gauge("webrtc.room.peers", "count", strconv.Itoa(len(r.peers))).Set(float64(len(r.peers)))
 	}
 
 	return nil
 }
 
-// Close closes the call room
+// Close closes the call room.
 func (r *baseCallRoom) Close(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -188,6 +195,7 @@ func (r *baseCallRoom) Close(ctx context.Context) error {
 
 	// Close all peer connections
 	r.peersMu.Lock()
+
 	for userID, peer := range r.peers {
 		if err := peer.Close(ctx); err != nil {
 			r.logger.Error("failed to close peer connection during room close",
@@ -196,13 +204,16 @@ func (r *baseCallRoom) Close(ctx context.Context) error {
 			)
 		}
 	}
+
 	r.peersMu.Unlock()
 
 	// Stop quality monitors
 	r.monitorsMu.Lock()
+
 	for userID, monitor := range r.qualityMonitors {
 		monitor.Stop(userID)
 	}
+
 	r.qualityMonitors = make(map[string]QualityMonitor)
 	r.monitorsMu.Unlock()
 
@@ -224,7 +235,7 @@ func (r *baseCallRoom) Close(ctx context.Context) error {
 	return nil
 }
 
-// MuteUser mutes a user's audio
+// MuteUser mutes a user's audio.
 func (r *baseCallRoom) MuteUser(ctx context.Context, userID string) error {
 	peer, err := r.GetPeer(userID)
 	if err != nil {
@@ -245,7 +256,7 @@ func (r *baseCallRoom) MuteUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-// UnmuteUser unmutes a user's audio
+// UnmuteUser unmutes a user's audio.
 func (r *baseCallRoom) UnmuteUser(ctx context.Context, userID string) error {
 	peer, err := r.GetPeer(userID)
 	if err != nil {
@@ -266,7 +277,7 @@ func (r *baseCallRoom) UnmuteUser(ctx context.Context, userID string) error {
 	return nil
 }
 
-// EnableVideo enables user's video
+// EnableVideo enables user's video.
 func (r *baseCallRoom) EnableVideo(ctx context.Context, userID string) error {
 	peer, err := r.GetPeer(userID)
 	if err != nil {
@@ -287,7 +298,7 @@ func (r *baseCallRoom) EnableVideo(ctx context.Context, userID string) error {
 	return nil
 }
 
-// DisableVideo disables user's video
+// DisableVideo disables user's video.
 func (r *baseCallRoom) DisableVideo(ctx context.Context, userID string) error {
 	peer, err := r.GetPeer(userID)
 	if err != nil {
@@ -308,27 +319,27 @@ func (r *baseCallRoom) DisableVideo(ctx context.Context, userID string) error {
 	return nil
 }
 
-// StartScreenShare starts screen sharing (stub implementation)
+// StartScreenShare starts screen sharing (stub implementation).
 func (r *baseCallRoom) StartScreenShare(ctx context.Context, userID string, track MediaTrack) error {
 	return ErrNotImplemented
 }
 
-// StopScreenShare stops screen sharing (stub implementation)
+// StopScreenShare stops screen sharing (stub implementation).
 func (r *baseCallRoom) StopScreenShare(ctx context.Context, userID string) error {
 	return ErrNotImplemented
 }
 
-// GetQuality returns call quality metrics (stub implementation)
+// GetQuality returns call quality metrics (stub implementation).
 func (r *baseCallRoom) GetQuality(ctx context.Context) (*CallQuality, error) {
 	return nil, ErrNotImplemented
 }
 
-// MeshCallRoom implements CallRoom with mesh topology
+// MeshCallRoom implements CallRoom with mesh topology.
 type MeshCallRoom struct {
 	*baseCallRoom
 }
 
-// NewMeshCallRoom creates a call room with mesh topology
+// NewMeshCallRoom creates a call room with mesh topology.
 func NewMeshCallRoom(
 	streamingRoom streaming.Room,
 	config Config,
@@ -336,7 +347,7 @@ func NewMeshCallRoom(
 	logger forge.Logger,
 	metrics forge.Metrics,
 ) CallRoom {
-	roomID := fmt.Sprintf("mesh-%s", streamingRoom.GetID())
+	roomID := "mesh-" + streamingRoom.GetID()
 
 	base := newBaseCallRoom(
 		roomID,
@@ -351,7 +362,7 @@ func NewMeshCallRoom(
 	return &MeshCallRoom{baseCallRoom: base}
 }
 
-// NewMeshCallRoomFromOptions creates a mesh call room from streaming room options
+// NewMeshCallRoomFromOptions creates a mesh call room from streaming room options.
 func NewMeshCallRoomFromOptions(
 	opts streaming.RoomOptions,
 	config Config,
@@ -360,13 +371,13 @@ func NewMeshCallRoomFromOptions(
 	metrics forge.Metrics,
 ) (CallRoom, error) {
 	if opts.ID == "" {
-		return nil, fmt.Errorf("webrtc: room ID is required")
+		return nil, errors.New("webrtc: room ID is required")
 	}
 
 	// Create streaming room
 	streamingRoom := streaming.NewLocalRoom(opts)
 
-	roomID := fmt.Sprintf("mesh-%s", streamingRoom.GetID())
+	roomID := "mesh-" + streamingRoom.GetID()
 
 	base := newBaseCallRoom(
 		roomID,
@@ -381,7 +392,7 @@ func NewMeshCallRoomFromOptions(
 	return &MeshCallRoom{baseCallRoom: base}, nil
 }
 
-// NewSFUCallRoomFromOptions creates an SFU call room from streaming room options
+// NewSFUCallRoomFromOptions creates an SFU call room from streaming room options.
 func NewSFUCallRoomFromOptions(
 	opts streaming.RoomOptions,
 	config Config,
@@ -391,13 +402,13 @@ func NewSFUCallRoomFromOptions(
 	metrics forge.Metrics,
 ) (CallRoom, error) {
 	if opts.ID == "" {
-		return nil, fmt.Errorf("webrtc: room ID is required")
+		return nil, errors.New("webrtc: room ID is required")
 	}
 
 	// Create streaming room
 	streamingRoom := streaming.NewLocalRoom(opts)
 
-	roomID := fmt.Sprintf("sfu-%s", streamingRoom.GetID())
+	roomID := "sfu-" + streamingRoom.GetID()
 
 	base := newBaseCallRoom(
 		roomID,
@@ -415,14 +426,17 @@ func NewSFUCallRoomFromOptions(
 	}, nil
 }
 
-// JoinCall joins the mesh call
+// JoinCall joins the mesh call.
 func (r *MeshCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOptions) (PeerConnection, error) {
 	// Check if room is closed first
 	r.mu.RLock()
+
 	if r.closed {
 		r.mu.RUnlock()
+
 		return nil, fmt.Errorf("webrtc: room %s is closed: %w", r.id, ErrConnectionClosed)
 	}
+
 	r.mu.RUnlock()
 
 	r.peersMu.Lock()
@@ -445,25 +459,31 @@ func (r *MeshCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOp
 	// Add local media tracks if requested
 	if opts != nil {
 		if opts.AudioEnabled {
-			audioTrack, err := NewLocalTrack(TrackKindAudio, fmt.Sprintf("audio-%s", peerID), "audio", r.logger)
+			audioTrack, err := NewLocalTrack(TrackKindAudio, "audio-"+peerID, "audio", r.logger)
 			if err != nil {
 				peer.Close(ctx)
+
 				return nil, fmt.Errorf("webrtc: failed to create audio track: %w", err)
 			}
+
 			if err := peer.AddTrack(ctx, audioTrack); err != nil {
 				peer.Close(ctx)
+
 				return nil, fmt.Errorf("webrtc: failed to add audio track: %w", err)
 			}
 		}
 
 		if opts.VideoEnabled {
-			videoTrack, err := NewLocalTrack(TrackKindVideo, fmt.Sprintf("video-%s", peerID), "video", r.logger)
+			videoTrack, err := NewLocalTrack(TrackKindVideo, "video-"+peerID, "video", r.logger)
 			if err != nil {
 				peer.Close(ctx)
+
 				return nil, fmt.Errorf("webrtc: failed to create video track: %w", err)
 			}
+
 			if err := peer.AddTrack(ctx, videoTrack); err != nil {
 				peer.Close(ctx)
+
 				return nil, fmt.Errorf("webrtc: failed to add video track: %w", err)
 			}
 		}
@@ -500,7 +520,7 @@ func (r *MeshCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOp
 		// Track metrics
 		if r.metrics != nil {
 			r.metrics.Gauge("webrtc.peer.state",
-				"state", fmt.Sprintf("%d", stateToInt(state)),
+				"state", strconv.Itoa(stateToInt(state)),
 				"peer_id", peerID,
 			).Set(float64(stateToInt(state)))
 		}
@@ -518,7 +538,7 @@ func (r *MeshCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOp
 
 	// Track metrics
 	if r.metrics != nil {
-		r.metrics.Gauge("webrtc.mesh.peers", "count", fmt.Sprintf("%d", len(r.peers))).Set(float64(len(r.peers)))
+		r.metrics.Gauge("webrtc.mesh.peers", "count", strconv.Itoa(len(r.peers))).Set(float64(len(r.peers)))
 	}
 
 	return peer, nil
@@ -543,20 +563,24 @@ func stateToInt(state ConnectionState) int {
 	}
 }
 
-// SFUCallRoom implements CallRoom with SFU topology
+// SFUCallRoom implements CallRoom with SFU topology.
 type SFUCallRoom struct {
 	*baseCallRoom
+
 	router SFURouter
 }
 
-// JoinCall joins the SFU call
+// JoinCall joins the SFU call.
 func (r *SFUCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOptions) (PeerConnection, error) {
 	// Check if room is closed first
 	r.mu.RLock()
+
 	if r.closed {
 		r.mu.RUnlock()
+
 		return nil, fmt.Errorf("webrtc: room %s is closed: %w", r.id, ErrConnectionClosed)
 	}
+
 	r.mu.RUnlock()
 
 	r.peersMu.Lock()
@@ -583,30 +607,37 @@ func (r *SFUCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOpt
 		// Add as publisher to SFU
 		if err := r.router.AddPublisher(ctx, userID, peer); err != nil {
 			peer.Close(ctx)
+
 			return nil, fmt.Errorf("webrtc: failed to add publisher: %w", err)
 		}
 
 		// Add local media tracks
 		if opts.AudioEnabled {
-			audioTrack, err := NewLocalTrack(TrackKindAudio, fmt.Sprintf("audio-%s", peerID), "audio", r.logger)
+			audioTrack, err := NewLocalTrack(TrackKindAudio, "audio-"+peerID, "audio", r.logger)
 			if err != nil {
 				peer.Close(ctx)
+
 				return nil, fmt.Errorf("webrtc: failed to create audio track: %w", err)
 			}
+
 			if err := peer.AddTrack(ctx, audioTrack); err != nil {
 				peer.Close(ctx)
+
 				return nil, fmt.Errorf("webrtc: failed to add audio track: %w", err)
 			}
 		}
 
 		if opts.VideoEnabled {
-			videoTrack, err := NewLocalTrack(TrackKindVideo, fmt.Sprintf("video-%s", peerID), "video", r.logger)
+			videoTrack, err := NewLocalTrack(TrackKindVideo, "video-"+peerID, "video", r.logger)
 			if err != nil {
 				peer.Close(ctx)
+
 				return nil, fmt.Errorf("webrtc: failed to create video track: %w", err)
 			}
+
 			if err := peer.AddTrack(ctx, videoTrack); err != nil {
 				peer.Close(ctx)
+
 				return nil, fmt.Errorf("webrtc: failed to add video track: %w", err)
 			}
 		}
@@ -614,6 +645,7 @@ func (r *SFUCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOpt
 		// Add as subscriber to SFU
 		if err := r.router.AddSubscriber(ctx, userID, peer); err != nil {
 			peer.Close(ctx)
+
 			return nil, fmt.Errorf("webrtc: failed to add subscriber: %w", err)
 		}
 
@@ -632,6 +664,7 @@ func (r *SFUCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOpt
 
 	// Setup quality monitoring
 	qualityConfig := DefaultQualityConfig()
+
 	monitor := NewQualityMonitor(peerID, peer, qualityConfig, r.logger, r.metrics)
 	if err := monitor.Monitor(ctx, peer); err != nil {
 		r.logger.Error("failed to start quality monitor", forge.F("error", err))
@@ -654,7 +687,7 @@ func (r *SFUCallRoom) JoinCall(ctx context.Context, userID string, opts *JoinOpt
 
 	// Track metrics
 	if r.metrics != nil {
-		r.metrics.Gauge("webrtc.sfu.peers", "count", fmt.Sprintf("%d", len(r.peers))).Set(float64(len(r.peers)))
+		r.metrics.Gauge("webrtc.sfu.peers", "count", strconv.Itoa(len(r.peers))).Set(float64(len(r.peers)))
 	}
 
 	return peer, nil

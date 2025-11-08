@@ -15,7 +15,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// ValidationMode defines the validation mode
+// ValidationMode defines the validation mode.
 type ValidationMode string
 
 const (
@@ -25,7 +25,7 @@ const (
 	ValidationModeDisabled   ValidationMode = "disabled"
 )
 
-// Validator handles configuration validation
+// Validator handles configuration validation.
 type Validator struct {
 	mode         ValidationMode
 	rules        map[string][]ValidationRule
@@ -36,7 +36,7 @@ type Validator struct {
 	mu           sync.RWMutex
 }
 
-// ValidatorConfig contains configuration for the validator
+// ValidatorConfig contains configuration for the validator.
 type ValidatorConfig struct {
 	Mode           ValidationMode
 	DefaultRules   []ValidationRule
@@ -48,7 +48,7 @@ type ValidatorConfig struct {
 	ValidateOnSet  bool
 }
 
-// ValidationSchema defines a schema for validating configuration sections
+// ValidationSchema defines a schema for validating configuration sections.
 type ValidationSchema struct {
 	Name        string                    `json:"name"`
 	Path        string                    `json:"path"`
@@ -58,15 +58,15 @@ type ValidationSchema struct {
 	Custom      []ValidationRule          `json:"-"`
 }
 
-// PropertySchema defines validation for a specific property
+// PropertySchema defines validation for a specific property.
 type PropertySchema struct {
 	Type        PropertyType              `json:"type"`
 	Required    bool                      `json:"required"`
-	Default     interface{}               `json:"default,omitempty"`
+	Default     any                       `json:"default,omitempty"`
 	Description string                    `json:"description,omitempty"`
 	Format      string                    `json:"format,omitempty"`
 	Pattern     string                    `json:"pattern,omitempty"`
-	Enum        []interface{}             `json:"enum,omitempty"`
+	Enum        []any                     `json:"enum,omitempty"`
 	Minimum     *float64                  `json:"minimum,omitempty"`
 	Maximum     *float64                  `json:"maximum,omitempty"`
 	MinLength   *int                      `json:"min_length,omitempty"`
@@ -76,7 +76,7 @@ type PropertySchema struct {
 	Constraints []ConstraintRule          `json:"constraints,omitempty"`
 }
 
-// PropertyType represents the type of a configuration property
+// PropertyType represents the type of a configuration property.
 type PropertyType string
 
 const (
@@ -89,15 +89,15 @@ const (
 	PropertyTypeAny     PropertyType = "any"
 )
 
-// ConstraintRule defines a constraint that must be satisfied
+// ConstraintRule defines a constraint that must be satisfied.
 type ConstraintRule interface {
 	Name() string
 	Description() string
-	Validate(key string, value interface{}, config map[string]interface{}) error
+	Validate(key string, value any, config map[string]any) error
 	AppliesTo(key string) bool
 }
 
-// ValidationResult contains the result of validation
+// ValidationResult contains the result of validation.
 type ValidationResult struct {
 	Valid    bool                `json:"valid"`
 	Errors   []ValidationError   `json:"errors,omitempty"`
@@ -105,7 +105,7 @@ type ValidationResult struct {
 	Schema   string              `json:"schema,omitempty"`
 }
 
-// Re-export error types from internal/errors
+// Re-export error types from internal/errors.
 type ValidationError = errors.ValidationError
 type Severity = errors.Severity
 
@@ -115,15 +115,15 @@ const (
 	SeverityInfo    = errors.SeverityInfo
 )
 
-// ValidationWarning represents a validation warning
+// ValidationWarning represents a validation warning.
 type ValidationWarning struct {
-	Key        string      `json:"key"`
-	Value      interface{} `json:"value,omitempty"`
-	Message    string      `json:"message"`
-	Suggestion string      `json:"suggestion,omitempty"`
+	Key        string `json:"key"`
+	Value      any    `json:"value,omitempty"`
+	Message    string `json:"message"`
+	Suggestion string `json:"suggestion,omitempty"`
 }
 
-// NewValidator creates a new configuration validator
+// NewValidator creates a new configuration validator.
 func NewValidator(config ValidatorConfig) *Validator {
 	if config.Mode == "" {
 		config.Mode = ValidationModePermissive
@@ -157,8 +157,8 @@ func NewValidator(config ValidatorConfig) *Validator {
 	return validator
 }
 
-// ValidateAll validates the entire configuration
-func (v *Validator) ValidateAll(config map[string]interface{}) error {
+// ValidateAll validates the entire configuration.
+func (v *Validator) ValidateAll(config map[string]any) error {
 	if v.mode == ValidationModeDisabled {
 		return nil
 	}
@@ -177,8 +177,8 @@ func (v *Validator) ValidateAll(config map[string]interface{}) error {
 	return nil
 }
 
-// ValidateConfig validates a configuration map
-func (v *Validator) ValidateConfig(config map[string]interface{}) ValidationResult {
+// ValidateConfig validates a configuration map.
+func (v *Validator) ValidateConfig(config map[string]any) ValidationResult {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 
@@ -192,6 +192,7 @@ func (v *Validator) ValidateConfig(config map[string]interface{}) ValidationResu
 	for _, schema := range v.schemas {
 		schemaResult := v.validateSchema(config, schema)
 		result.Errors = append(result.Errors, schemaResult.Errors...)
+
 		result.Warnings = append(result.Warnings, schemaResult.Warnings...)
 		if !schemaResult.Valid {
 			result.Valid = false
@@ -202,6 +203,7 @@ func (v *Validator) ValidateConfig(config map[string]interface{}) ValidationResu
 	for key, value := range config {
 		keyResult := v.validateKey(key, value, config)
 		result.Errors = append(result.Errors, keyResult.Errors...)
+
 		result.Warnings = append(result.Warnings, keyResult.Warnings...)
 		if !keyResult.Valid {
 			result.Valid = false
@@ -211,8 +213,8 @@ func (v *Validator) ValidateConfig(config map[string]interface{}) ValidationResu
 	return result
 }
 
-// ValidateKey validates a specific configuration key
-func (v *Validator) ValidateKey(key string, value interface{}, config map[string]interface{}) error {
+// ValidateKey validates a specific configuration key.
+func (v *Validator) ValidateKey(key string, value any, config map[string]any) error {
 	if v.mode == ValidationModeDisabled {
 		return nil
 	}
@@ -226,8 +228,8 @@ func (v *Validator) ValidateKey(key string, value interface{}, config map[string
 	return nil
 }
 
-// validateKey validates a specific key-value pair
-func (v *Validator) validateKey(key string, value interface{}, config map[string]interface{}) ValidationResult {
+// validateKey validates a specific key-value pair.
+func (v *Validator) validateKey(key string, value any, config map[string]any) ValidationResult {
 	result := ValidationResult{
 		Valid:    true,
 		Errors:   []ValidationError{},
@@ -271,8 +273,8 @@ func (v *Validator) validateKey(key string, value interface{}, config map[string
 	return result
 }
 
-// validateSchema validates configuration against a schema
-func (v *Validator) validateSchema(config map[string]interface{}, schema ValidationSchema) ValidationResult {
+// validateSchema validates configuration against a schema.
+func (v *Validator) validateSchema(config map[string]any, schema ValidationSchema) ValidationResult {
 	result := ValidationResult{
 		Valid:    true,
 		Errors:   []ValidationError{},
@@ -281,7 +283,7 @@ func (v *Validator) validateSchema(config map[string]interface{}, schema Validat
 	}
 
 	// Get the configuration section for this schema
-	var sectionData interface{}
+	var sectionData any
 	if schema.Path == "" {
 		sectionData = config
 	} else {
@@ -301,10 +303,11 @@ func (v *Validator) validateSchema(config map[string]interface{}, schema Validat
 				})
 			}
 		}
+
 		return result
 	}
 
-	sectionMap, ok := sectionData.(map[string]interface{})
+	sectionMap, ok := sectionData.(map[string]any)
 	if !ok {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
@@ -314,6 +317,7 @@ func (v *Validator) validateSchema(config map[string]interface{}, schema Validat
 			Message:  "expected object type",
 			Severity: SeverityError,
 		})
+
 		return result
 	}
 
@@ -335,6 +339,7 @@ func (v *Validator) validateSchema(config map[string]interface{}, schema Validat
 		if value, exists := sectionMap[propName]; exists {
 			propResult := v.validateProperty(fmt.Sprintf("%s.%s", schema.Path, propName), value, propSchema)
 			result.Errors = append(result.Errors, propResult.Errors...)
+
 			result.Warnings = append(result.Warnings, propResult.Warnings...)
 			if !propResult.Valid {
 				result.Valid = false
@@ -367,8 +372,8 @@ func (v *Validator) validateSchema(config map[string]interface{}, schema Validat
 	return result
 }
 
-// validateProperty validates a property against its schema
-func (v *Validator) validateProperty(key string, value interface{}, schema PropertySchema) ValidationResult {
+// validateProperty validates a property against its schema.
+func (v *Validator) validateProperty(key string, value any, schema PropertySchema) ValidationResult {
 	result := ValidationResult{
 		Valid:    true,
 		Errors:   []ValidationError{},
@@ -385,6 +390,7 @@ func (v *Validator) validateProperty(key string, value interface{}, schema Prope
 			Message:  fmt.Sprintf("expected type %s, got %T", schema.Type, value),
 			Severity: SeverityError,
 		})
+
 		return result // Don't continue if type is wrong
 	}
 
@@ -411,7 +417,7 @@ func (v *Validator) validateProperty(key string, value interface{}, schema Prope
 					Key:      key,
 					Value:    value,
 					Rule:     "pattern",
-					Message:  fmt.Sprintf("value does not match pattern: %s", schema.Pattern),
+					Message:  "value does not match pattern: " + schema.Pattern,
 					Severity: SeverityError,
 				})
 			}
@@ -445,6 +451,7 @@ func (v *Validator) validateProperty(key string, value interface{}, schema Prope
 					Severity: SeverityError,
 				})
 			}
+
 			if schema.Maximum != nil && num > *schema.Maximum {
 				result.Valid = false
 				result.Errors = append(result.Errors, ValidationError{
@@ -472,6 +479,7 @@ func (v *Validator) validateProperty(key string, value interface{}, schema Prope
 					Severity: SeverityError,
 				})
 			}
+
 			if schema.MaxLength != nil && length > *schema.MaxLength {
 				result.Valid = false
 				result.Errors = append(result.Errors, ValidationError{
@@ -487,11 +495,12 @@ func (v *Validator) validateProperty(key string, value interface{}, schema Prope
 
 	// Validate array items
 	if schema.Type == PropertyTypeArray && schema.Items != nil {
-		if arr, ok := value.([]interface{}); ok {
+		if arr, ok := value.([]any); ok {
 			for i, item := range arr {
 				itemKey := fmt.Sprintf("%s[%d]", key, i)
 				itemResult := v.validateProperty(itemKey, item, *schema.Items)
 				result.Errors = append(result.Errors, itemResult.Errors...)
+
 				result.Warnings = append(result.Warnings, itemResult.Warnings...)
 				if !itemResult.Valid {
 					result.Valid = false
@@ -502,12 +511,13 @@ func (v *Validator) validateProperty(key string, value interface{}, schema Prope
 
 	// Validate object properties
 	if schema.Type == PropertyTypeObject && len(schema.Properties) > 0 {
-		if obj, ok := value.(map[string]interface{}); ok {
+		if obj, ok := value.(map[string]any); ok {
 			for propName, propSchema := range schema.Properties {
 				if propValue, exists := obj[propName]; exists {
 					propKey := fmt.Sprintf("%s.%s", key, propName)
 					propResult := v.validateProperty(propKey, propValue, propSchema)
 					result.Errors = append(result.Errors, propResult.Errors...)
+
 					result.Warnings = append(result.Warnings, propResult.Warnings...)
 					if !propResult.Valid {
 						result.Valid = false
@@ -542,7 +552,7 @@ func (v *Validator) validateProperty(key string, value interface{}, schema Prope
 	return result
 }
 
-// AddRule adds a validation rule for a specific key pattern
+// AddRule adds a validation rule for a specific key pattern.
 func (v *Validator) AddRule(keyPattern string, rule ValidationRule) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -550,6 +560,7 @@ func (v *Validator) AddRule(keyPattern string, rule ValidationRule) {
 	if v.rules[keyPattern] == nil {
 		v.rules[keyPattern] = make([]ValidationRule, 0)
 	}
+
 	v.rules[keyPattern] = append(v.rules[keyPattern], rule)
 
 	if v.logger != nil {
@@ -560,7 +571,7 @@ func (v *Validator) AddRule(keyPattern string, rule ValidationRule) {
 	}
 }
 
-// AddConstraint adds a constraint rule for a specific key pattern
+// AddConstraint adds a constraint rule for a specific key pattern.
 func (v *Validator) AddConstraint(keyPattern string, constraint ConstraintRule) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -568,6 +579,7 @@ func (v *Validator) AddConstraint(keyPattern string, constraint ConstraintRule) 
 	if v.constraints[keyPattern] == nil {
 		v.constraints[keyPattern] = make([]ConstraintRule, 0)
 	}
+
 	v.constraints[keyPattern] = append(v.constraints[keyPattern], constraint)
 
 	if v.logger != nil {
@@ -578,7 +590,7 @@ func (v *Validator) AddConstraint(keyPattern string, constraint ConstraintRule) 
 	}
 }
 
-// RegisterSchema registers a validation schema
+// RegisterSchema registers a validation schema.
 func (v *Validator) RegisterSchema(schema ValidationSchema) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -593,15 +605,16 @@ func (v *Validator) RegisterSchema(schema ValidationSchema) {
 	}
 }
 
-// IsStrictMode returns true if the validator is in strict mode
+// IsStrictMode returns true if the validator is in strict mode.
 func (v *Validator) IsStrictMode() bool {
 	return v.mode == ValidationModeStrict
 }
 
-// SetMode sets the validation mode
+// SetMode sets the validation mode.
 func (v *Validator) SetMode(mode ValidationMode) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+
 	v.mode = mode
 }
 
@@ -638,22 +651,24 @@ func (v *Validator) matchesPattern(key, pattern string) bool {
 
 	// Simple glob-style matching
 	matched, _ := regexp.MatchString(strings.ReplaceAll(pattern, "*", ".*"), key)
+
 	return matched
 }
 
-func (v *Validator) getNestedValue(config map[string]interface{}, path string) interface{} {
+func (v *Validator) getNestedValue(config map[string]any, path string) any {
 	if path == "" {
 		return config
 	}
 
 	keys := strings.Split(path, ".")
-	current := interface{}(config)
+	current := any(config)
 
 	for _, key := range keys {
 		if current == nil {
 			return nil
 		}
-		if m, ok := current.(map[string]interface{}); ok {
+
+		if m, ok := current.(map[string]any); ok {
 			current = m[key]
 		} else {
 			return nil
@@ -663,86 +678,94 @@ func (v *Validator) getNestedValue(config map[string]interface{}, path string) i
 	return current
 }
 
-func (v *Validator) validateType(value interface{}, expectedType PropertyType) bool {
+func (v *Validator) validateType(value any, expectedType PropertyType) bool {
 	switch expectedType {
 	case PropertyTypeString:
 		_, ok := value.(string)
+
 		return ok
 	case PropertyTypeInteger:
 		switch value.(type) {
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 			return true
 		}
+
 		return false
 	case PropertyTypeNumber:
 		switch value.(type) {
 		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
 			return true
 		}
+
 		return false
 	case PropertyTypeBoolean:
 		_, ok := value.(bool)
+
 		return ok
 	case PropertyTypeArray:
-		_, ok := value.([]interface{})
+		_, ok := value.([]any)
+
 		return ok
 	case PropertyTypeObject:
-		_, ok := value.(map[string]interface{})
+		_, ok := value.(map[string]any)
+
 		return ok
 	case PropertyTypeAny:
 		return true
 	}
+
 	return false
 }
 
-func (v *Validator) validateFormat(value interface{}, format string) error {
+func (v *Validator) validateFormat(value any, format string) error {
 	str, ok := value.(string)
 	if !ok {
-		return fmt.Errorf("format validation only applies to strings")
+		return errors.New("format validation only applies to strings")
 	}
 
 	switch format {
 	case "email":
 		emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 		if !emailRegex.MatchString(str) {
-			return fmt.Errorf("invalid email format")
+			return errors.New("invalid email format")
 		}
 	case "uri", "url":
 		// Simple URL validation
 		if !strings.HasPrefix(str, "http://") && !strings.HasPrefix(str, "https://") {
-			return fmt.Errorf("invalid URL format")
+			return errors.New("invalid URL format")
 		}
 	case "date":
 		if _, err := time.Parse("2006-01-02", str); err != nil {
-			return fmt.Errorf("invalid date format, expected YYYY-MM-DD")
+			return errors.New("invalid date format, expected YYYY-MM-DD")
 		}
 	case "time":
 		if _, err := time.Parse("15:04:05", str); err != nil {
-			return fmt.Errorf("invalid time format, expected HH:MM:SS")
+			return errors.New("invalid time format, expected HH:MM:SS")
 		}
 	case "datetime":
 		if _, err := time.Parse(time.RFC3339, str); err != nil {
-			return fmt.Errorf("invalid datetime format, expected RFC3339")
+			return errors.New("invalid datetime format, expected RFC3339")
 		}
 	case "duration":
 		if _, err := time.ParseDuration(str); err != nil {
-			return fmt.Errorf("invalid duration format")
+			return errors.New("invalid duration format")
 		}
 	}
 
 	return nil
 }
 
-func (v *Validator) isInEnum(value interface{}, enum []interface{}) bool {
+func (v *Validator) isInEnum(value any, enum []any) bool {
 	for _, item := range enum {
 		if reflect.DeepEqual(value, item) {
 			return true
 		}
 	}
+
 	return false
 }
 
-func (v *Validator) toFloat64(value interface{}) (float64, bool) {
+func (v *Validator) toFloat64(value any) (float64, bool) {
 	switch v := value.(type) {
 	case float64:
 		return v, true
@@ -765,6 +788,7 @@ func (v *Validator) toFloat64(value interface{}) (float64, bool) {
 			return f, true
 		}
 	}
+
 	return 0, false
 }
 
@@ -821,12 +845,13 @@ type PortRule struct{}
 
 func (r *PortRule) Name() string              { return "port" }
 func (r *PortRule) AppliesTo(key string) bool { return strings.Contains(key, "port") }
-func (r *PortRule) Validate(key string, value interface{}) error {
+func (r *PortRule) Validate(key string, value any) error {
 	if port, ok := value.(int); ok {
 		if port < 1 || port > 65535 {
-			return fmt.Errorf("port must be between 1 and 65535")
+			return errors.New("port must be between 1 and 65535")
 		}
 	}
+
 	return nil
 }
 
@@ -834,13 +859,14 @@ type EmailRule struct{}
 
 func (r *EmailRule) Name() string              { return "email" }
 func (r *EmailRule) AppliesTo(key string) bool { return strings.Contains(key, "email") }
-func (r *EmailRule) Validate(key string, value interface{}) error {
+func (r *EmailRule) Validate(key string, value any) error {
 	if email, ok := value.(string); ok {
 		emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 		if !emailRegex.MatchString(email) {
-			return fmt.Errorf("invalid email format")
+			return errors.New("invalid email format")
 		}
 	}
+
 	return nil
 }
 
@@ -848,12 +874,13 @@ type URLRule struct{}
 
 func (r *URLRule) Name() string              { return "url" }
 func (r *URLRule) AppliesTo(key string) bool { return strings.Contains(key, "url") }
-func (r *URLRule) Validate(key string, value interface{}) error {
+func (r *URLRule) Validate(key string, value any) error {
 	if url, ok := value.(string); ok {
 		if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-			return fmt.Errorf("URL must start with http:// or https://")
+			return errors.New("URL must start with http:// or https://")
 		}
 	}
+
 	return nil
 }
 
@@ -863,11 +890,12 @@ func (r *DurationRule) Name() string { return "duration" }
 func (r *DurationRule) AppliesTo(key string) bool {
 	return strings.Contains(key, "duration") || strings.Contains(key, "timeout")
 }
-func (r *DurationRule) Validate(key string, value interface{}) error {
+func (r *DurationRule) Validate(key string, value any) error {
 	if duration, ok := value.(string); ok {
 		if _, err := time.ParseDuration(duration); err != nil {
 			return fmt.Errorf("invalid duration format: %s", err.Error())
 		}
 	}
+
 	return nil
 }

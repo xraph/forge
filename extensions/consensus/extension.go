@@ -7,17 +7,19 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// Extension implements forge.Extension for distributed consensus
+// Extension implements forge.Extension for distributed consensus.
 type Extension struct {
 	*forge.BaseExtension
+
 	config  internal.Config
 	service *Service
 	started bool
 }
 
-// NewExtension creates a new consensus extension with functional options
+// NewExtension creates a new consensus extension with functional options.
 func NewExtension(opts ...internal.ConfigOption) forge.Extension {
 	config := internal.DefaultConfig()
 	for _, opt := range opts {
@@ -36,12 +38,12 @@ func NewExtension(opts ...internal.ConfigOption) forge.Extension {
 	}
 }
 
-// NewExtensionWithConfig creates a new consensus extension with a complete config
+// NewExtensionWithConfig creates a new consensus extension with a complete config.
 func NewExtensionWithConfig(config Config) forge.Extension {
 	return NewExtension(WithConfig(config))
 }
 
-// Register registers the extension with the app
+// Register registers the extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	if err := e.BaseExtension.Register(app); err != nil {
 		return err
@@ -49,15 +51,18 @@ func (e *Extension) Register(app forge.App) error {
 
 	// Load configuration from ConfigManager
 	programmaticConfig := e.config
+
 	finalConfig := internal.DefaultConfig()
 	if err := e.LoadConfig("consensus", &finalConfig, programmaticConfig, internal.DefaultConfig(), programmaticConfig.RequireConfig); err != nil {
 		if programmaticConfig.RequireConfig {
 			return fmt.Errorf("consensus: failed to load required config: %w", err)
 		}
+
 		e.Logger().Warn("consensus: using default/programmatic config",
 			forge.F("error", err.Error()),
 		)
 	}
+
 	e.config = finalConfig
 
 	// Validate configuration
@@ -71,6 +76,7 @@ func (e *Extension) Register(app forge.App) error {
 	if err != nil {
 		return fmt.Errorf("failed to create consensus service: %w", err)
 	}
+
 	e.service = service
 
 	// Register services with DI
@@ -96,7 +102,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the consensus extension
+// Start starts the consensus extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.Logger().Info("starting consensus extension",
 		forge.F("node_id", e.config.NodeID),
@@ -116,7 +122,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	)
 
 	// Emit startup event
-	e.emitEvent(ConsensusEventNodeStarted, map[string]interface{}{
+	e.emitEvent(ConsensusEventNodeStarted, map[string]any{
 		"node_id":    e.config.NodeID,
 		"cluster_id": e.config.ClusterID,
 	})
@@ -124,7 +130,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the consensus extension
+// Stop stops the consensus extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("stopping consensus extension")
 
@@ -142,7 +148,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 	e.Logger().Info("consensus extension stopped")
 
 	// Emit shutdown event
-	e.emitEvent(ConsensusEventNodeStopped, map[string]interface{}{
+	e.emitEvent(ConsensusEventNodeStopped, map[string]any{
 		"node_id":    e.config.NodeID,
 		"cluster_id": e.config.ClusterID,
 	})
@@ -150,16 +156,16 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks the health of the consensus system
+// Health checks the health of the consensus system.
 func (e *Extension) Health(ctx context.Context) error {
 	if e.service == nil {
-		return fmt.Errorf("consensus service not initialized")
+		return errors.New("consensus service not initialized")
 	}
 
 	return e.service.HealthCheck(ctx)
 }
 
-// Dependencies returns extension dependencies
+// Dependencies returns extension dependencies.
 func (e *Extension) Dependencies() []string {
 	deps := e.BaseExtension.Dependencies()
 
@@ -171,13 +177,14 @@ func (e *Extension) Dependencies() []string {
 	return deps
 }
 
-// Metrics returns observable metrics (implements ObservableExtension)
+// Metrics returns observable metrics (implements ObservableExtension).
 func (e *Extension) Metrics() map[string]any {
 	if e.service == nil {
 		return map[string]any{}
 	}
 
 	stats := e.service.GetStats()
+
 	return map[string]any{
 		"node_id":            stats.NodeID,
 		"cluster_id":         stats.ClusterID,
@@ -197,7 +204,7 @@ func (e *Extension) Metrics() map[string]any {
 	}
 }
 
-// Reload reloads the extension configuration (implements HotReloadableExtension)
+// Reload reloads the extension configuration (implements HotReloadableExtension).
 func (e *Extension) Reload(ctx context.Context) error {
 	e.Logger().Info("reloading consensus extension")
 
@@ -222,7 +229,7 @@ func (e *Extension) Reload(ctx context.Context) error {
 	e.Logger().Info("consensus extension reloaded")
 
 	// Emit config updated event
-	e.emitEvent(ConsensusEventConfigReloaded, map[string]interface{}{
+	e.emitEvent(ConsensusEventConfigReloaded, map[string]any{
 		"node_id":    e.config.NodeID,
 		"cluster_id": e.config.ClusterID,
 	})
@@ -230,7 +237,7 @@ func (e *Extension) Reload(ctx context.Context) error {
 	return nil
 }
 
-// registerServices registers consensus services with DI
+// registerServices registers consensus services with DI.
 func (e *Extension) registerServices(app forge.App) error {
 	container := app.Container()
 
@@ -279,15 +286,15 @@ func (e *Extension) registerServices(app forge.App) error {
 	return nil
 }
 
-// emitEvent emits a consensus event
-func (e *Extension) emitEvent(eventType internal.ConsensusEventType, data map[string]interface{}) {
+// emitEvent emits a consensus event.
+func (e *Extension) emitEvent(eventType internal.ConsensusEventType, data map[string]any) {
 	if !e.config.Events.Enabled {
 		return
 	}
 
 	// Try to resolve event bus from DI
 	eventBus, err := forge.Resolve[interface {
-		Publish(ctx context.Context, topic string, event interface{}) error
+		Publish(ctx context.Context, topic string, event any) error
 	}](e.App().Container(), "eventBus")
 	if err != nil {
 		return // Events extension not available
@@ -312,99 +319,107 @@ func (e *Extension) emitEvent(eventType internal.ConsensusEventType, data map[st
 	}
 }
 
-// Service returns the consensus service (for advanced usage)
+// Service returns the consensus service (for advanced usage).
 func (e *Extension) Service() *Service {
 	return e.service
 }
 
-// IsLeader returns true if this node is the leader
+// IsLeader returns true if this node is the leader.
 func (e *Extension) IsLeader() bool {
 	return e.service != nil && e.service.IsLeader()
 }
 
-// GetLeader returns the current leader node ID
+// GetLeader returns the current leader node ID.
 func (e *Extension) GetLeader() string {
 	if e.service == nil {
 		return ""
 	}
+
 	return e.service.GetLeader()
 }
 
-// GetRole returns the current node role
+// GetRole returns the current node role.
 func (e *Extension) GetRole() NodeRole {
 	if e.service == nil {
 		return RoleFollower
 	}
+
 	return e.service.GetRole()
 }
 
-// GetStats returns consensus statistics
+// GetStats returns consensus statistics.
 func (e *Extension) GetStats() ConsensusStats {
 	if e.service == nil {
 		return ConsensusStats{}
 	}
+
 	return e.service.GetStats()
 }
 
-// GetClusterInfo returns cluster information
+// GetClusterInfo returns cluster information.
 func (e *Extension) GetClusterInfo() ClusterInfo {
 	if e.service == nil {
 		return ClusterInfo{}
 	}
+
 	return e.service.GetClusterInfo()
 }
 
-// Apply applies a command to the consensus system
+// Apply applies a command to the consensus system.
 func (e *Extension) Apply(ctx context.Context, cmd Command) error {
 	if e.service == nil {
 		return ErrNotStarted
 	}
+
 	return e.service.Apply(ctx, cmd)
 }
 
-// Read performs a consistent read operation
-func (e *Extension) Read(ctx context.Context, query interface{}) (interface{}, error) {
+// Read performs a consistent read operation.
+func (e *Extension) Read(ctx context.Context, query any) (any, error) {
 	if e.service == nil {
 		return nil, ErrNotStarted
 	}
+
 	return e.service.Read(ctx, query)
 }
 
-// LeadershipChecker provides middleware support for checking leadership
+// LeadershipChecker provides middleware support for checking leadership.
 type LeadershipChecker struct {
 	service ConsensusService
 }
 
-// NewLeadershipChecker creates a new leadership checker
+// NewLeadershipChecker creates a new leadership checker.
 func NewLeadershipChecker(service ConsensusService) *LeadershipChecker {
 	return &LeadershipChecker{
 		service: service,
 	}
 }
 
-// IsLeader returns true if this node is the leader
+// IsLeader returns true if this node is the leader.
 func (lc *LeadershipChecker) IsLeader() bool {
 	return lc.service.IsLeader()
 }
 
-// GetLeader returns the current leader node ID
+// GetLeader returns the current leader node ID.
 func (lc *LeadershipChecker) GetLeader() string {
 	return lc.service.GetLeader()
 }
 
-// RequireLeader returns an error if this node is not the leader
+// RequireLeader returns an error if this node is not the leader.
 func (lc *LeadershipChecker) RequireLeader() error {
 	if !lc.service.IsLeader() {
 		return NewNotLeaderError("", lc.service.GetLeader())
 	}
+
 	return nil
 }
 
-// RequireQuorum returns an error if there is no quorum
+// RequireQuorum returns an error if there is no quorum.
 func (lc *LeadershipChecker) RequireQuorum() error {
 	info := lc.service.GetClusterInfo()
 	if !info.HasQuorum {
 		return ErrNoQuorum
 	}
+
 	return nil
 }

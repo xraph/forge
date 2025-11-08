@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// MetricsCollector collects and exports consensus metrics
+// MetricsCollector collects and exports consensus metrics.
 type MetricsCollector struct {
 	metrics forge.Metrics
 	logger  forge.Logger
@@ -48,7 +48,7 @@ type MetricsCollector struct {
 	wg      sync.WaitGroup
 }
 
-// MetricsConfig contains metrics collector configuration
+// MetricsConfig contains metrics collector configuration.
 type MetricsConfig struct {
 	NodeID             string
 	CollectionInterval time.Duration
@@ -56,7 +56,7 @@ type MetricsConfig struct {
 	HistogramSize      int
 }
 
-// NewMetricsCollector creates a new metrics collector
+// NewMetricsCollector creates a new metrics collector.
 func NewMetricsCollector(config MetricsConfig, metrics forge.Metrics, logger forge.Logger) *MetricsCollector {
 	if config.CollectionInterval == 0 {
 		config.CollectionInterval = 10 * time.Second
@@ -74,7 +74,7 @@ func NewMetricsCollector(config MetricsConfig, metrics forge.Metrics, logger for
 	}
 }
 
-// Start starts the metrics collector
+// Start starts the metrics collector.
 func (mc *MetricsCollector) Start(ctx context.Context) error {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -88,19 +88,24 @@ func (mc *MetricsCollector) Start(ctx context.Context) error {
 
 	// Start collection goroutine
 	mc.wg.Add(1)
+
 	go mc.runCollector()
 
 	mc.logger.Info("metrics collector started")
+
 	return nil
 }
 
-// Stop stops the metrics collector
+// Stop stops the metrics collector.
 func (mc *MetricsCollector) Stop(ctx context.Context) error {
 	mc.mu.Lock()
+
 	if !mc.started {
 		mc.mu.Unlock()
+
 		return internal.ErrNotStarted
 	}
+
 	mc.mu.Unlock()
 
 	if mc.cancel != nil {
@@ -109,6 +114,7 @@ func (mc *MetricsCollector) Stop(ctx context.Context) error {
 
 	// Wait for goroutines with timeout
 	done := make(chan struct{})
+
 	go func() {
 		mc.wg.Wait()
 		close(done)
@@ -124,41 +130,44 @@ func (mc *MetricsCollector) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RecordElection records an election event
+// RecordElection records an election event.
 func (mc *MetricsCollector) RecordElection(success bool) {
 	atomic.AddInt64(&mc.electionCount, 1)
+
 	if !success {
 		atomic.AddInt64(&mc.electionFailures, 1)
 	}
 }
 
-// RecordLogAppend records a log append event
+// RecordLogAppend records a log append event.
 func (mc *MetricsCollector) RecordLogAppend(success bool) {
 	atomic.AddInt64(&mc.logAppends, 1)
+
 	if !success {
 		atomic.AddInt64(&mc.logAppendFailures, 1)
 	}
 }
 
-// RecordSnapshot records a snapshot event
+// RecordSnapshot records a snapshot event.
 func (mc *MetricsCollector) RecordSnapshot(success bool) {
 	atomic.AddInt64(&mc.snapshotCount, 1)
+
 	if !success {
 		atomic.AddInt64(&mc.snapshotFailures, 1)
 	}
 }
 
-// RecordConfigChange records a configuration change
+// RecordConfigChange records a configuration change.
 func (mc *MetricsCollector) RecordConfigChange() {
 	atomic.AddInt64(&mc.configChanges, 1)
 }
 
-// RecordLeadershipTransfer records a leadership transfer
+// RecordLeadershipTransfer records a leadership transfer.
 func (mc *MetricsCollector) RecordLeadershipTransfer() {
 	atomic.AddInt64(&mc.leadershipTransfers, 1)
 }
 
-// RecordReplicationLatency records a replication latency
+// RecordReplicationLatency records a replication latency.
 func (mc *MetricsCollector) RecordReplicationLatency(latencyMs float64) {
 	mc.histogramMu.Lock()
 	defer mc.histogramMu.Unlock()
@@ -171,7 +180,7 @@ func (mc *MetricsCollector) RecordReplicationLatency(latencyMs float64) {
 	}
 }
 
-// RecordApplyLatency records a state machine apply latency
+// RecordApplyLatency records a state machine apply latency.
 func (mc *MetricsCollector) RecordApplyLatency(latencyMs float64) {
 	mc.histogramMu.Lock()
 	defer mc.histogramMu.Unlock()
@@ -184,7 +193,7 @@ func (mc *MetricsCollector) RecordApplyLatency(latencyMs float64) {
 	}
 }
 
-// UpdateGauges updates gauge metrics
+// UpdateGauges updates gauge metrics.
 func (mc *MetricsCollector) UpdateGauges(stats internal.ConsensusStats) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
@@ -199,7 +208,7 @@ func (mc *MetricsCollector) UpdateGauges(stats internal.ConsensusStats) {
 	mc.currentRole = stats.Role
 }
 
-// runCollector runs the metrics collection loop
+// runCollector runs the metrics collection loop.
 func (mc *MetricsCollector) runCollector() {
 	defer mc.wg.Done()
 
@@ -217,7 +226,7 @@ func (mc *MetricsCollector) runCollector() {
 	}
 }
 
-// exportMetrics exports all metrics to the metrics backend
+// exportMetrics exports all metrics to the metrics backend.
 func (mc *MetricsCollector) exportMetrics() {
 	if mc.metrics == nil {
 		return
@@ -254,6 +263,7 @@ func (mc *MetricsCollector) exportMetrics() {
 
 	// Export latency histograms
 	mc.histogramMu.Lock()
+
 	if len(mc.replicationLatencies) > 0 {
 		avg := calculateAverage(mc.replicationLatencies)
 		p95 := calculatePercentile(mc.replicationLatencies, 0.95)
@@ -277,15 +287,16 @@ func (mc *MetricsCollector) exportMetrics() {
 			forge.F("p99_ms", p99),
 		)
 	}
+
 	mc.histogramMu.Unlock()
 }
 
-// GetMetrics returns current metrics as a map
-func (mc *MetricsCollector) GetMetrics() map[string]interface{} {
+// GetMetrics returns current metrics as a map.
+func (mc *MetricsCollector) GetMetrics() map[string]any {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
 
-	metrics := map[string]interface{}{
+	metrics := map[string]any{
 		// Counters
 		"elections":            atomic.LoadInt64(&mc.electionCount),
 		"election_failures":    atomic.LoadInt64(&mc.electionFailures),
@@ -309,6 +320,7 @@ func (mc *MetricsCollector) GetMetrics() map[string]interface{} {
 
 	// Add latency stats
 	mc.histogramMu.Lock()
+
 	if len(mc.replicationLatencies) > 0 {
 		metrics["replication_latency_avg"] = calculateAverage(mc.replicationLatencies)
 		metrics["replication_latency_p95"] = calculatePercentile(mc.replicationLatencies, 0.95)
@@ -320,6 +332,7 @@ func (mc *MetricsCollector) GetMetrics() map[string]interface{} {
 		metrics["apply_latency_p95"] = calculatePercentile(mc.applyLatencies, 0.95)
 		metrics["apply_latency_p99"] = calculatePercentile(mc.applyLatencies, 0.99)
 	}
+
 	mc.histogramMu.Unlock()
 
 	return metrics
@@ -352,14 +365,17 @@ func calculatePercentile(values []float64, percentile float64) float64 {
 	// Insertion sort for simplicity
 	for i := 1; i < len(sorted); i++ {
 		key := sorted[i]
+
 		j := i - 1
 		for j >= 0 && sorted[j] > key {
 			sorted[j+1] = sorted[j]
 			j--
 		}
+
 		sorted[j+1] = key
 	}
 
 	index := int(float64(len(sorted)-1) * percentile)
+
 	return sorted[index]
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// CORSConfig holds CORS configuration
+// CORSConfig holds CORS configuration.
 type CORSConfig struct {
 	// Enabled determines if CORS is enabled
 	Enabled bool
@@ -50,7 +50,7 @@ type CORSConfig struct {
 	AutoApplyMiddleware bool
 }
 
-// DefaultCORSConfig returns the default CORS configuration
+// DefaultCORSConfig returns the default CORS configuration.
 func DefaultCORSConfig() CORSConfig {
 	return CORSConfig{
 		Enabled:             true,
@@ -66,7 +66,7 @@ func DefaultCORSConfig() CORSConfig {
 	}
 }
 
-// SecureCORSConfig returns a more restrictive CORS configuration
+// SecureCORSConfig returns a more restrictive CORS configuration.
 func SecureCORSConfig(allowedOrigins []string) CORSConfig {
 	return CORSConfig{
 		Enabled:             true,
@@ -81,21 +81,23 @@ func SecureCORSConfig(allowedOrigins []string) CORSConfig {
 	}
 }
 
-// CORSManager manages CORS policies
+// CORSManager manages CORS policies.
 type CORSManager struct {
 	config CORSConfig
 	logger forge.Logger
 }
 
-// NewCORSManager creates a new CORS manager
+// NewCORSManager creates a new CORS manager.
 func NewCORSManager(config CORSConfig, logger forge.Logger) *CORSManager {
 	// Set defaults
 	if len(config.AllowMethods) == 0 {
 		config.AllowMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 	}
+
 	if len(config.AllowHeaders) == 0 {
 		config.AllowHeaders = []string{"Origin", "Content-Type", "Accept", "Authorization"}
 	}
+
 	if config.MaxAge == 0 {
 		config.MaxAge = 3600
 	}
@@ -106,17 +108,18 @@ func NewCORSManager(config CORSConfig, logger forge.Logger) *CORSManager {
 	}
 }
 
-// shouldSkipPath checks if the path should skip CORS handling
+// shouldSkipPath checks if the path should skip CORS handling.
 func (m *CORSManager) shouldSkipPath(path string) bool {
 	for _, skipPath := range m.config.SkipPaths {
 		if path == skipPath || strings.HasPrefix(path, skipPath) {
 			return true
 		}
 	}
+
 	return false
 }
 
-// isOriginAllowed checks if an origin is allowed
+// isOriginAllowed checks if an origin is allowed.
 func (m *CORSManager) isOriginAllowed(origin string) bool {
 	if len(m.config.AllowOrigins) == 0 {
 		return false
@@ -127,6 +130,7 @@ func (m *CORSManager) isOriginAllowed(origin string) bool {
 		if allowedOrigin == "*" {
 			return true
 		}
+
 		if allowedOrigin == origin {
 			return true
 		}
@@ -142,7 +146,7 @@ func (m *CORSManager) isOriginAllowed(origin string) bool {
 	return false
 }
 
-// getAllowOrigin returns the appropriate Access-Control-Allow-Origin value
+// getAllowOrigin returns the appropriate Access-Control-Allow-Origin value.
 func (m *CORSManager) getAllowOrigin(origin string) string {
 	// If credentials are allowed, we must return the specific origin, not "*"
 	if m.config.AllowCredentials && m.isOriginAllowed(origin) {
@@ -164,7 +168,7 @@ func (m *CORSManager) getAllowOrigin(origin string) string {
 	return ""
 }
 
-// CORSMiddleware returns a middleware function for CORS handling
+// CORSMiddleware returns a middleware function for CORS handling.
 func CORSMiddleware(manager *CORSManager) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -196,6 +200,7 @@ func CORSMiddleware(manager *CORSManager) forge.Middleware {
 					forge.F("origin", origin),
 					forge.F("path", r.URL.Path),
 				)
+
 				return next(ctx)
 			}
 
@@ -213,7 +218,7 @@ func CORSMiddleware(manager *CORSManager) forge.Middleware {
 			}
 
 			// Handle preflight requests
-			if r.Method == "OPTIONS" {
+			if r.Method == http.MethodOptions {
 				return manager.handlePreflight(ctx)
 			}
 
@@ -222,7 +227,7 @@ func CORSMiddleware(manager *CORSManager) forge.Middleware {
 	}
 }
 
-// handlePreflight handles CORS preflight requests
+// handlePreflight handles CORS preflight requests.
 func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 	r := ctx.Request()
 	w := ctx.Response()
@@ -235,9 +240,11 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 
 	// Check if method is allowed
 	methodAllowed := false
+
 	for _, method := range m.config.AllowMethods {
 		if method == requestMethod {
 			methodAllowed = true
+
 			break
 		}
 	}
@@ -247,6 +254,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 			forge.F("method", requestMethod),
 			forge.F("path", r.URL.Path),
 		)
+
 		return ctx.String(http.StatusForbidden, "Method not allowed by CORS policy")
 	}
 
@@ -264,15 +272,17 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 
 	// Return 204 No Content for successful preflight
 	w.WriteHeader(http.StatusNoContent)
+
 	return nil
 }
 
 // Vary header management for CORS
-// This is important for caching
+// This is important for caching.
 func addVaryHeader(header http.Header, value string) {
 	vary := header.Get("Vary")
 	if vary == "" {
 		header.Set("Vary", value)
+
 		return
 	}
 

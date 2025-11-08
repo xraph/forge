@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/xraph/forge/extensions/ai/llm"
 )
 
-// AgentFactory creates agents dynamically from templates
+// AgentFactory creates agents dynamically from templates.
 type AgentFactory struct {
 	llm       *llm.LLMManager
 	templates map[string]AgentTemplate
@@ -20,21 +21,21 @@ type AgentFactory struct {
 	mu        sync.RWMutex
 }
 
-// AgentTemplate defines a template for agent creation
+// AgentTemplate defines a template for agent creation.
 type AgentTemplate struct {
-	Type         string                 `json:"type"`
-	Name         string                 `json:"name"`
-	Description  string                 `json:"description"`
-	SystemPrompt string                 `json:"system_prompt"`
-	Model        string                 `json:"model"`
-	Provider     string                 `json:"provider,omitempty"`
-	Temperature  *float64               `json:"temperature,omitempty"`
-	MaxTokens    *int                   `json:"max_tokens,omitempty"`
-	Tools        []llm.Tool             `json:"tools,omitempty"`
-	Config       map[string]interface{} `json:"config,omitempty"`
+	Type         string         `json:"type"`
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	SystemPrompt string         `json:"system_prompt"`
+	Model        string         `json:"model"`
+	Provider     string         `json:"provider,omitempty"`
+	Temperature  *float64       `json:"temperature,omitempty"`
+	MaxTokens    *int           `json:"max_tokens,omitempty"`
+	Tools        []llm.Tool     `json:"tools,omitempty"`
+	Config       map[string]any `json:"config,omitempty"`
 }
 
-// NewAgentFactory creates a new agent factory
+// NewAgentFactory creates a new agent factory.
 func NewAgentFactory(llmManager *llm.LLMManager, logger forge.Logger) *AgentFactory {
 	return &AgentFactory{
 		llm:       llmManager,
@@ -43,22 +44,25 @@ func NewAgentFactory(llmManager *llm.LLMManager, logger forge.Logger) *AgentFact
 	}
 }
 
-// RegisterTemplate registers a new agent template
+// RegisterTemplate registers a new agent template.
 func (f *AgentFactory) RegisterTemplate(name string, template AgentTemplate) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+
 	f.templates[name] = template
 }
 
-// GetTemplate retrieves a template by name
+// GetTemplate retrieves a template by name.
 func (f *AgentFactory) GetTemplate(name string) (AgentTemplate, bool) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
+
 	template, exists := f.templates[name]
+
 	return template, exists
 }
 
-// ListTemplates returns all registered templates
+// ListTemplates returns all registered templates.
 func (f *AgentFactory) ListTemplates() []AgentTemplate {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -67,22 +71,20 @@ func (f *AgentFactory) ListTemplates() []AgentTemplate {
 	for _, template := range f.templates {
 		templates = append(templates, template)
 	}
+
 	return templates
 }
 
-// CreateAgent creates an agent from a template
-func (f *AgentFactory) CreateAgent(template AgentTemplate, config map[string]interface{}) (internal.AIAgent, error) {
+// CreateAgent creates an agent from a template.
+func (f *AgentFactory) CreateAgent(template AgentTemplate, config map[string]any) (internal.AIAgent, error) {
 	// Generate unique ID
 	id := uuid.New().String()
 
 	// Merge template config with provided config
-	mergedConfig := make(map[string]interface{})
-	for k, v := range template.Config {
-		mergedConfig[k] = v
-	}
-	for k, v := range config {
-		mergedConfig[k] = v
-	}
+	mergedConfig := make(map[string]any)
+	maps.Copy(mergedConfig, template.Config)
+
+	maps.Copy(mergedConfig, config)
 
 	// Create LLM-based agent
 	agent := &LLMAgent{
@@ -111,7 +113,7 @@ func (f *AgentFactory) CreateAgent(template AgentTemplate, config map[string]int
 	return agent, nil
 }
 
-// CreateAgentFromDefinition creates an agent from an AgentDefinition
+// CreateAgentFromDefinition creates an agent from an AgentDefinition.
 func (f *AgentFactory) CreateAgentFromDefinition(def *AgentDefinition) (internal.AIAgent, error) {
 	agent := &LLMAgent{
 		id:           def.ID,
@@ -131,7 +133,7 @@ func (f *AgentFactory) CreateAgentFromDefinition(def *AgentDefinition) (internal
 	return agent, nil
 }
 
-// LLMAgent is a dynamically created agent powered by LLMs
+// LLMAgent is a dynamically created agent powered by LLMs.
 type LLMAgent struct {
 	id           string
 	name         string
@@ -143,28 +145,28 @@ type LLMAgent struct {
 	temperature  *float64
 	maxTokens    *int
 	tools        []llm.Tool
-	config       map[string]interface{}
+	config       map[string]any
 	logger       forge.Logger
 	session      *llm.ChatSession
 	mu           sync.RWMutex
 }
 
-// ID returns the agent ID
+// ID returns the agent ID.
 func (a *LLMAgent) ID() string {
 	return a.id
 }
 
-// Name returns the agent name
+// Name returns the agent name.
 func (a *LLMAgent) Name() string {
 	return a.name
 }
 
-// Type returns the agent type
+// Type returns the agent type.
 func (a *LLMAgent) Type() internal.AgentType {
 	return internal.AgentType(a.agentType)
 }
 
-// Capabilities returns the agent capabilities
+// Capabilities returns the agent capabilities.
 func (a *LLMAgent) Capabilities() []internal.Capability {
 	return []internal.Capability{
 		{
@@ -178,7 +180,7 @@ func (a *LLMAgent) Capabilities() []internal.Capability {
 	}
 }
 
-// Initialize initializes the agent
+// Initialize initializes the agent.
 func (a *LLMAgent) Initialize(ctx context.Context, config internal.AgentConfig) error {
 	// Initialize session
 	a.mu.Lock()
@@ -201,23 +203,25 @@ func (a *LLMAgent) Initialize(ctx context.Context, config internal.AgentConfig) 
 	return nil
 }
 
-// Start starts the agent
+// Start starts the agent.
 func (a *LLMAgent) Start(ctx context.Context) error {
 	if a.logger != nil {
 		a.logger.Info("agent started", forge.F("agent_id", a.id))
 	}
+
 	return nil
 }
 
-// Stop stops the agent
+// Stop stops the agent.
 func (a *LLMAgent) Stop(ctx context.Context) error {
 	if a.logger != nil {
 		a.logger.Info("agent stopped", forge.F("agent_id", a.id))
 	}
+
 	return nil
 }
 
-// Process processes input and returns output
+// Process processes input and returns output.
 func (a *LLMAgent) Process(ctx context.Context, input internal.AgentInput) (internal.AgentOutput, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -228,6 +232,7 @@ func (a *LLMAgent) Process(ctx context.Context, input internal.AgentInput) (inte
 		if provider == "" {
 			provider = "openai"
 		}
+
 		a.session = llm.NewChatSession(a.id, a.model, provider)
 		if a.systemPrompt != "" {
 			a.session.SetSystemPrompt(a.systemPrompt)
@@ -246,9 +251,11 @@ func (a *LLMAgent) Process(ctx context.Context, input internal.AgentInput) (inte
 	if a.temperature != nil {
 		request.Temperature = a.temperature
 	}
+
 	if a.maxTokens != nil {
 		request.MaxTokens = a.maxTokens
 	}
+
 	if len(a.tools) > 0 {
 		request.Tools = a.tools
 	}
@@ -268,7 +275,7 @@ func (a *LLMAgent) Process(ctx context.Context, input internal.AgentInput) (inte
 	output := internal.AgentOutput{
 		Type:       "llm_response",
 		Confidence: 0.8, // Default confidence
-		Metadata:   make(map[string]interface{}),
+		Metadata:   make(map[string]any),
 	}
 
 	if len(response.Choices) > 0 {
@@ -279,7 +286,7 @@ func (a *LLMAgent) Process(ctx context.Context, input internal.AgentInput) (inte
 	return output, nil
 }
 
-// Learn learns from feedback
+// Learn learns from feedback.
 func (a *LLMAgent) Learn(ctx context.Context, feedback internal.AgentFeedback) error {
 	// For LLM agents, learning is handled through conversation context
 	// More sophisticated learning could be implemented here
@@ -289,10 +296,11 @@ func (a *LLMAgent) Learn(ctx context.Context, feedback internal.AgentFeedback) e
 			forge.F("success", feedback.Success),
 		)
 	}
+
 	return nil
 }
 
-// GetStats returns agent statistics
+// GetStats returns agent statistics.
 func (a *LLMAgent) GetStats() internal.AgentStats {
 	return internal.AgentStats{
 		TotalProcessed: 0, // Would need to track this
@@ -303,13 +311,14 @@ func (a *LLMAgent) GetStats() internal.AgentStats {
 	}
 }
 
-// GetHealth returns agent health status
+// GetHealth returns agent health status.
 func (a *LLMAgent) GetHealth() internal.AgentHealth {
 	now := time.Now()
+
 	return internal.AgentHealth{
 		Status:      internal.AgentHealthStatusHealthy,
 		Message:     "Agent is operational",
-		Details:     make(map[string]interface{}),
+		Details:     make(map[string]any),
 		CheckedAt:   now,
 		LastHealthy: now,
 	}

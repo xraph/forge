@@ -101,6 +101,7 @@ func (fc *filterChain) List() []MessageFilter {
 
 	result := make([]MessageFilter, len(fc.sorted))
 	copy(result, fc.sorted)
+
 	return result
 }
 

@@ -2,14 +2,16 @@ package cluster
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// TopologyManager manages cluster topology and node relationships
+// TopologyManager manages cluster topology and node relationships.
 type TopologyManager struct {
 	manager *Manager
 	logger  forge.Logger
@@ -21,7 +23,7 @@ type TopologyManager struct {
 	mu      sync.RWMutex
 }
 
-// NodeLocation represents a node's physical/logical location
+// NodeLocation represents a node's physical/logical location.
 type NodeLocation struct {
 	NodeID string
 	Region string
@@ -29,7 +31,7 @@ type NodeLocation struct {
 	Rack   string
 }
 
-// TopologyView represents a view of the cluster topology
+// TopologyView represents a view of the cluster topology.
 type TopologyView struct {
 	TotalNodes  int
 	RegionCount int
@@ -40,7 +42,7 @@ type TopologyView struct {
 	Racks       map[string]RackInfo
 }
 
-// RegionInfo contains information about a region
+// RegionInfo contains information about a region.
 type RegionInfo struct {
 	Name      string
 	NodeCount int
@@ -50,7 +52,7 @@ type RegionInfo struct {
 	Unhealthy int
 }
 
-// ZoneInfo contains information about a zone
+// ZoneInfo contains information about a zone.
 type ZoneInfo struct {
 	Name      string
 	Region    string
@@ -61,7 +63,7 @@ type ZoneInfo struct {
 	Unhealthy int
 }
 
-// RackInfo contains information about a rack
+// RackInfo contains information about a rack.
 type RackInfo struct {
 	Name      string
 	Zone      string
@@ -71,7 +73,7 @@ type RackInfo struct {
 	Unhealthy int
 }
 
-// NewTopologyManager creates a new topology manager
+// NewTopologyManager creates a new topology manager.
 func NewTopologyManager(manager *Manager, logger forge.Logger) *TopologyManager {
 	return &TopologyManager{
 		manager: manager,
@@ -82,14 +84,14 @@ func NewTopologyManager(manager *Manager, logger forge.Logger) *TopologyManager 
 	}
 }
 
-// RegisterNodeLocation registers a node's location
+// RegisterNodeLocation registers a node's location.
 func (tm *TopologyManager) RegisterNodeLocation(location NodeLocation) error {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
 
 	// Validate location
 	if location.NodeID == "" {
-		return fmt.Errorf("node ID is required")
+		return errors.New("node ID is required")
 	}
 
 	// Register in region
@@ -123,7 +125,7 @@ func (tm *TopologyManager) RegisterNodeLocation(location NodeLocation) error {
 	return nil
 }
 
-// UnregisterNode removes a node from topology
+// UnregisterNode removes a node from topology.
 func (tm *TopologyManager) UnregisterNode(nodeID string) {
 	tm.mu.Lock()
 	defer tm.mu.Unlock()
@@ -157,7 +159,7 @@ func (tm *TopologyManager) UnregisterNode(nodeID string) {
 	)
 }
 
-// GetTopologyView returns a complete view of the cluster topology
+// GetTopologyView returns a complete view of the cluster topology.
 func (tm *TopologyManager) GetTopologyView() TopologyView {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -169,6 +171,7 @@ func (tm *TopologyManager) GetTopologyView() TopologyView {
 	}
 
 	allNodes := tm.manager.GetNodes()
+
 	nodeHealthMap := make(map[string]bool)
 	for _, node := range allNodes {
 		nodeHealthMap[node.ID] = node.Status == internal.StatusActive
@@ -179,6 +182,7 @@ func (tm *TopologyManager) GetTopologyView() TopologyView {
 	// Build region info
 	for region, nodes := range tm.regions {
 		healthy, unhealthy := 0, 0
+
 		for _, nodeID := range nodes {
 			if nodeHealthMap[nodeID] {
 				healthy++
@@ -195,11 +199,13 @@ func (tm *TopologyManager) GetTopologyView() TopologyView {
 			Unhealthy: unhealthy,
 		}
 	}
+
 	view.RegionCount = len(view.Regions)
 
 	// Build zone info
 	for zone, nodes := range tm.zones {
 		healthy, unhealthy := 0, 0
+
 		for _, nodeID := range nodes {
 			if nodeHealthMap[nodeID] {
 				healthy++
@@ -216,11 +222,13 @@ func (tm *TopologyManager) GetTopologyView() TopologyView {
 			Unhealthy: unhealthy,
 		}
 	}
+
 	view.ZoneCount = len(view.Zones)
 
 	// Build rack info
 	for rack, nodes := range tm.racks {
 		healthy, unhealthy := 0, 0
+
 		for _, nodeID := range nodes {
 			if nodeHealthMap[nodeID] {
 				healthy++
@@ -237,12 +245,13 @@ func (tm *TopologyManager) GetTopologyView() TopologyView {
 			Unhealthy: unhealthy,
 		}
 	}
+
 	view.RackCount = len(view.Racks)
 
 	return view
 }
 
-// GetNodesInRegion returns all nodes in a region
+// GetNodesInRegion returns all nodes in a region.
 func (tm *TopologyManager) GetNodesInRegion(region string) []string {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -254,7 +263,7 @@ func (tm *TopologyManager) GetNodesInRegion(region string) []string {
 	return result
 }
 
-// GetNodesInZone returns all nodes in a zone
+// GetNodesInZone returns all nodes in a zone.
 func (tm *TopologyManager) GetNodesInZone(zone string) []string {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -266,7 +275,7 @@ func (tm *TopologyManager) GetNodesInZone(zone string) []string {
 	return result
 }
 
-// GetNodesInRack returns all nodes in a rack
+// GetNodesInRack returns all nodes in a rack.
 func (tm *TopologyManager) GetNodesInRack(rack string) []string {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -278,7 +287,7 @@ func (tm *TopologyManager) GetNodesInRack(rack string) []string {
 	return result
 }
 
-// IsTopologyAware returns true if topology information is being tracked
+// IsTopologyAware returns true if topology information is being tracked.
 func (tm *TopologyManager) IsTopologyAware() bool {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
@@ -286,8 +295,8 @@ func (tm *TopologyManager) IsTopologyAware() bool {
 	return len(tm.regions) > 0 || len(tm.zones) > 0 || len(tm.racks) > 0
 }
 
-// GetTopologyDistribution returns distribution statistics
-func (tm *TopologyManager) GetTopologyDistribution() map[string]interface{} {
+// GetTopologyDistribution returns distribution statistics.
+func (tm *TopologyManager) GetTopologyDistribution() map[string]any {
 	view := tm.GetTopologyView()
 
 	// Calculate distribution
@@ -295,21 +304,24 @@ func (tm *TopologyManager) GetTopologyDistribution() map[string]interface{} {
 	for _, region := range view.Regions {
 		regionSizes = append(regionSizes, region.NodeCount)
 	}
+
 	sort.Ints(regionSizes)
 
 	zoneSizes := make([]int, 0, len(view.Zones))
 	for _, zone := range view.Zones {
 		zoneSizes = append(zoneSizes, zone.NodeCount)
 	}
+
 	sort.Ints(zoneSizes)
 
 	rackSizes := make([]int, 0, len(view.Racks))
 	for _, rack := range view.Racks {
 		rackSizes = append(rackSizes, rack.NodeCount)
 	}
+
 	sort.Ints(rackSizes)
 
-	return map[string]interface{}{
+	return map[string]any{
 		"total_nodes":         view.TotalNodes,
 		"region_count":        view.RegionCount,
 		"zone_count":          view.ZoneCount,
@@ -321,7 +333,7 @@ func (tm *TopologyManager) GetTopologyDistribution() map[string]interface{} {
 	}
 }
 
-// ValidateTopology validates cluster topology for fault tolerance
+// ValidateTopology validates cluster topology for fault tolerance.
 func (tm *TopologyManager) ValidateTopology() []string {
 	var warnings []string
 
@@ -330,6 +342,7 @@ func (tm *TopologyManager) ValidateTopology() []string {
 	// Check if we have topology information
 	if !tm.IsTopologyAware() {
 		warnings = append(warnings, "No topology information configured - all nodes considered in same location")
+
 		return warnings
 	}
 
@@ -345,6 +358,7 @@ func (tm *TopologyManager) ValidateTopology() []string {
 			if maxNodes == 0 || region.NodeCount > maxNodes {
 				maxNodes = region.NodeCount
 			}
+
 			if minNodes == 0 || region.NodeCount < minNodes {
 				minNodes = region.NodeCount
 			}
@@ -364,14 +378,10 @@ func (tm *TopologyManager) ValidateTopology() []string {
 	return warnings
 }
 
-// Helper functions
+// Helper functions.
 func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(slice, item)
 }
 
 func removeString(slice []string, item string) []string {
@@ -381,5 +391,6 @@ func removeString(slice []string, item string) []string {
 			result = append(result, s)
 		}
 	}
+
 	return result
 }

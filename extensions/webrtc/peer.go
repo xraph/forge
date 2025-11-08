@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge"
 )
 
-// peerConnection implements PeerConnection using pion/webrtc
+// peerConnection implements PeerConnection using pion/webrtc.
 type peerConnection struct {
 	id     string
 	userID string
@@ -33,7 +33,7 @@ type peerConnection struct {
 	mu sync.RWMutex
 }
 
-// NewPeerConnection creates a new peer connection
+// NewPeerConnection creates a new peer connection.
 func NewPeerConnection(id, userID string, config Config, logger forge.Logger) (PeerConnection, error) {
 	// Build pion config
 	pionConfig := webrtc.Configuration{
@@ -61,7 +61,7 @@ func NewPeerConnection(id, userID string, config Config, logger forge.Logger) (P
 	return peer, nil
 }
 
-// setupEventHandlers sets up pion event handlers
+// setupEventHandlers sets up pion event handlers.
 func (p *peerConnection) setupEventHandlers() {
 	// ICE candidate handler
 	p.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
@@ -143,24 +143,25 @@ func (p *peerConnection) setupEventHandlers() {
 	})
 }
 
-// ID returns the peer connection ID
+// ID returns the peer connection ID.
 func (p *peerConnection) ID() string {
 	return p.id
 }
 
-// UserID returns the user ID
+// UserID returns the user ID.
 func (p *peerConnection) UserID() string {
 	return p.userID
 }
 
-// State returns current connection state
+// State returns current connection state.
 func (p *peerConnection) State() ConnectionState {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+
 	return p.state
 }
 
-// CreateOffer creates an SDP offer
+// CreateOffer creates an SDP offer.
 func (p *peerConnection) CreateOffer(ctx context.Context) (*SessionDescription, error) {
 	// Create offer with ICE gathering
 	offer, err := p.pc.CreateOffer(nil)
@@ -175,6 +176,7 @@ func (p *peerConnection) CreateOffer(ctx context.Context) (*SessionDescription, 
 
 	// Wait for ICE gathering to complete
 	iceGatheringComplete := make(chan struct{})
+
 	p.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
 			close(iceGatheringComplete)
@@ -193,7 +195,7 @@ func (p *peerConnection) CreateOffer(ctx context.Context) (*SessionDescription, 
 	// Get the updated local description with ICE candidates
 	localDesc := p.pc.LocalDescription()
 	if localDesc == nil {
-		return nil, fmt.Errorf("no local description available")
+		return nil, errors.New("no local description available")
 	}
 
 	return &SessionDescription{
@@ -202,7 +204,7 @@ func (p *peerConnection) CreateOffer(ctx context.Context) (*SessionDescription, 
 	}, nil
 }
 
-// CreateAnswer creates an SDP answer
+// CreateAnswer creates an SDP answer.
 func (p *peerConnection) CreateAnswer(ctx context.Context) (*SessionDescription, error) {
 	// Create answer with ICE gathering
 	answer, err := p.pc.CreateAnswer(nil)
@@ -217,6 +219,7 @@ func (p *peerConnection) CreateAnswer(ctx context.Context) (*SessionDescription,
 
 	// Wait for ICE gathering to complete
 	iceGatheringComplete := make(chan struct{})
+
 	p.pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
 			close(iceGatheringComplete)
@@ -235,7 +238,7 @@ func (p *peerConnection) CreateAnswer(ctx context.Context) (*SessionDescription,
 	// Get the updated local description with ICE candidates
 	localDesc := p.pc.LocalDescription()
 	if localDesc == nil {
-		return nil, fmt.Errorf("no local description available")
+		return nil, errors.New("no local description available")
 	}
 
 	return &SessionDescription{
@@ -244,7 +247,7 @@ func (p *peerConnection) CreateAnswer(ctx context.Context) (*SessionDescription,
 	}, nil
 }
 
-// SetLocalDescription sets local SDP
+// SetLocalDescription sets local SDP.
 func (p *peerConnection) SetLocalDescription(ctx context.Context, sdp *SessionDescription) error {
 	desc := webrtc.SessionDescription{
 		Type: convertToWebRTCSDPType(sdp.Type),
@@ -263,7 +266,7 @@ func (p *peerConnection) SetLocalDescription(ctx context.Context, sdp *SessionDe
 	return nil
 }
 
-// SetRemoteDescription sets remote SDP
+// SetRemoteDescription sets remote SDP.
 func (p *peerConnection) SetRemoteDescription(ctx context.Context, sdp *SessionDescription) error {
 	desc := webrtc.SessionDescription{
 		Type: convertToWebRTCSDPType(sdp.Type),
@@ -282,7 +285,7 @@ func (p *peerConnection) SetRemoteDescription(ctx context.Context, sdp *SessionD
 	return nil
 }
 
-// AddICECandidate adds an ICE candidate
+// AddICECandidate adds an ICE candidate.
 func (p *peerConnection) AddICECandidate(ctx context.Context, candidate *ICECandidate) error {
 	iceCandidate := webrtc.ICECandidateInit{
 		Candidate:        candidate.Candidate,
@@ -298,7 +301,7 @@ func (p *peerConnection) AddICECandidate(ctx context.Context, candidate *ICECand
 	return nil
 }
 
-// AddTrack adds a media track
+// AddTrack adds a media track.
 func (p *peerConnection) AddTrack(ctx context.Context, track MediaTrack) error {
 	p.tracksMu.Lock()
 	defer p.tracksMu.Unlock()
@@ -311,6 +314,7 @@ func (p *peerConnection) AddTrack(ctx context.Context, track MediaTrack) error {
 		}
 
 		localTrack.sender = sender
+
 		p.tracks = append(p.tracks, track)
 
 		p.logger.Debug("added track",
@@ -322,10 +326,10 @@ func (p *peerConnection) AddTrack(ctx context.Context, track MediaTrack) error {
 		return nil
 	}
 
-	return fmt.Errorf("can only add local tracks")
+	return errors.New("can only add local tracks")
 }
 
-// RemoveTrack removes a media track
+// RemoveTrack removes a media track.
 func (p *peerConnection) RemoveTrack(ctx context.Context, trackID string) error {
 	p.tracksMu.Lock()
 	defer p.tracksMu.Unlock()
@@ -353,17 +357,18 @@ func (p *peerConnection) RemoveTrack(ctx context.Context, trackID string) error 
 	return fmt.Errorf("track not found: %s", trackID)
 }
 
-// GetTracks returns all media tracks
+// GetTracks returns all media tracks.
 func (p *peerConnection) GetTracks() []MediaTrack {
 	p.tracksMu.RLock()
 	defer p.tracksMu.RUnlock()
 
 	tracks := make([]MediaTrack, len(p.tracks))
 	copy(tracks, p.tracks)
+
 	return tracks
 }
 
-// GetStats returns connection statistics
+// GetStats returns connection statistics.
 func (p *peerConnection) GetStats(ctx context.Context) (*PeerStats, error) {
 	stats := p.pc.GetStats()
 
@@ -392,7 +397,7 @@ func (p *peerConnection) GetStats(ctx context.Context) (*PeerStats, error) {
 	return peerStats, nil
 }
 
-// Close closes the peer connection
+// Close closes the peer connection.
 func (p *peerConnection) Close(ctx context.Context) error {
 	if err := p.pc.Close(); err != nil {
 		return fmt.Errorf("failed to close peer connection: %w", err)
@@ -406,31 +411,35 @@ func (p *peerConnection) Close(ctx context.Context) error {
 	return nil
 }
 
-// OnICECandidate sets ICE candidate callback
+// OnICECandidate sets ICE candidate callback.
 func (p *peerConnection) OnICECandidate(handler ICECandidateHandler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.iceHandler = handler
 }
 
-// OnTrack sets track received callback
+// OnTrack sets track received callback.
 func (p *peerConnection) OnTrack(handler TrackHandler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.trackHandler = handler
 }
 
-// OnConnectionStateChange sets state change callback
+// OnConnectionStateChange sets state change callback.
 func (p *peerConnection) OnConnectionStateChange(handler ConnectionStateHandler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.stateHandler = handler
 }
 
-// OnDataChannel sets data channel callback
+// OnDataChannel sets data channel callback.
 func (p *peerConnection) OnDataChannel(handler DataChannelHandler) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.dataChannelHandler = handler
 }
 
@@ -445,6 +454,7 @@ func convertICEServers(servers []ICEServer) []webrtc.ICEServer {
 			Credential: server.Credential,
 		}
 	}
+
 	return result
 }
 

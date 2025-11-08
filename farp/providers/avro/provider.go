@@ -3,12 +3,13 @@ package avro
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/xraph/forge/farp"
 )
 
-// Provider generates Apache Avro schemas from applications
+// Provider generates Apache Avro schemas from applications.
 type Provider struct {
 	specVersion string
 	endpoint    string
@@ -16,7 +17,7 @@ type Provider struct {
 }
 
 // NewProvider creates a new Avro schema provider
-// specVersion should be the Avro specification version (e.g., "1.11.1")
+// specVersion should be the Avro specification version (e.g., "1.11.1").
 func NewProvider(specVersion string, schemaFiles []string) *Provider {
 	if specVersion == "" {
 		specVersion = "1.11.1"
@@ -29,28 +30,28 @@ func NewProvider(specVersion string, schemaFiles []string) *Provider {
 	}
 }
 
-// Type returns the schema type
+// Type returns the schema type.
 func (p *Provider) Type() farp.SchemaType {
 	return farp.SchemaTypeAvro
 }
 
-// SpecVersion returns the Avro specification version
+// SpecVersion returns the Avro specification version.
 func (p *Provider) SpecVersion() string {
 	return p.specVersion
 }
 
-// ContentType returns the content type
+// ContentType returns the content type.
 func (p *Provider) ContentType() string {
 	return "application/json" // Avro schemas are JSON
 }
 
-// Endpoint returns the HTTP endpoint where the schema is served
+// Endpoint returns the HTTP endpoint where the schema is served.
 func (p *Provider) Endpoint() string {
 	return p.endpoint
 }
 
-// Generate generates an Avro schema from the application
-func (p *Provider) Generate(ctx context.Context, app farp.Application) (interface{}, error) {
+// Generate generates an Avro schema from the application.
+func (p *Provider) Generate(ctx context.Context, app farp.Application) (any, error) {
 	// For Avro, we have several options:
 	// 1. Parse .avsc schema files
 	// 2. Generate schemas from application data structures
@@ -58,7 +59,6 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	//
 	// Avro schemas define data serialization format
 	// They are commonly used with Kafka, Hadoop, and other big data systems
-
 	if len(p.schemaFiles) > 0 {
 		return p.generateFromSchemaFiles(ctx, app)
 	}
@@ -66,27 +66,27 @@ func (p *Provider) Generate(ctx context.Context, app farp.Application) (interfac
 	return p.generateFromApplication(ctx, app)
 }
 
-// generateFromSchemaFiles generates schema by parsing .avsc files
-func (p *Provider) generateFromSchemaFiles(ctx context.Context, app farp.Application) (interface{}, error) {
+// generateFromSchemaFiles generates schema by parsing .avsc files.
+func (p *Provider) generateFromSchemaFiles(ctx context.Context, app farp.Application) (any, error) {
 	// This would parse Avro schema files (.avsc)
 	// For now, return a minimal structure
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"avro_version": p.specVersion,
 		"protocol":     app.Name() + "Protocol",
 		"namespace":    "com." + app.Name(),
-		"types": []interface{}{
-			map[string]interface{}{
+		"types": []any{
+			map[string]any{
 				"type": "record",
 				"name": "HealthStatus",
-				"fields": []interface{}{
-					map[string]interface{}{"name": "status", "type": "string"},
-					map[string]interface{}{"name": "timestamp", "type": "long"},
+				"fields": []any{
+					map[string]any{"name": "status", "type": "string"},
+					map[string]any{"name": "timestamp", "type": "long"},
 				},
 			},
 		},
-		"messages": map[string]interface{}{
-			"getVersion": map[string]interface{}{
-				"request":  []interface{}{},
+		"messages": map[string]any{
+			"getVersion": map[string]any{
+				"request":  []any{},
 				"response": "string",
 			},
 		},
@@ -96,61 +96,61 @@ func (p *Provider) generateFromSchemaFiles(ctx context.Context, app farp.Applica
 	return schema, nil
 }
 
-// generateFromApplication generates schema from application structure
-func (p *Provider) generateFromApplication(ctx context.Context, app farp.Application) (interface{}, error) {
+// generateFromApplication generates schema from application structure.
+func (p *Provider) generateFromApplication(ctx context.Context, app farp.Application) (any, error) {
 	// This would analyze the application's data structures
 	// and generate Avro schema definitions
 	//
 	// Avro Protocol format includes types and messages
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"avro_version": p.specVersion,
 		"protocol":     app.Name() + "Protocol",
 		"namespace":    "com." + app.Name(),
 		"doc":          "Avro protocol for " + app.Name(),
-		"types": []interface{}{
-			map[string]interface{}{
+		"types": []any{
+			map[string]any{
 				"type": "record",
 				"name": "HealthStatus",
 				"doc":  "Health status response",
-				"fields": []interface{}{
-					map[string]interface{}{
+				"fields": []any{
+					map[string]any{
 						"name": "status",
 						"type": "string",
 						"doc":  "Current health status",
 					},
-					map[string]interface{}{
+					map[string]any{
 						"name": "timestamp",
 						"type": "long",
 						"doc":  "Unix timestamp in milliseconds",
 					},
 				},
 			},
-			map[string]interface{}{
+			map[string]any{
 				"type": "record",
 				"name": "VersionInfo",
 				"doc":  "Version information",
-				"fields": []interface{}{
-					map[string]interface{}{
+				"fields": []any{
+					map[string]any{
 						"name": "version",
 						"type": "string",
 					},
-					map[string]interface{}{
+					map[string]any{
 						"name":    "buildTime",
-						"type":    []interface{}{"null", "long"},
+						"type":    []any{"null", "long"},
 						"default": nil,
 					},
 				},
 			},
 		},
-		"messages": map[string]interface{}{
-			"health": map[string]interface{}{
+		"messages": map[string]any{
+			"health": map[string]any{
 				"doc":      "Get health status",
-				"request":  []interface{}{},
+				"request":  []any{},
 				"response": "HealthStatus",
 			},
-			"getVersion": map[string]interface{}{
+			"getVersion": map[string]any{
 				"doc":      "Get version information",
-				"request":  []interface{}{},
+				"request":  []any{},
 				"response": "VersionInfo",
 			},
 		},
@@ -159,10 +159,10 @@ func (p *Provider) generateFromApplication(ctx context.Context, app farp.Applica
 	return schema, nil
 }
 
-// Validate validates an Avro schema
-func (p *Provider) Validate(schema interface{}) error {
+// Validate validates an Avro schema.
+func (p *Provider) Validate(schema any) error {
 	// Basic validation - check for required fields
-	schemaMap, ok := schema.(map[string]interface{})
+	schemaMap, ok := schema.(map[string]any)
 	if !ok {
 		return fmt.Errorf("%w: schema must be a map", farp.ErrInvalidSchema)
 	}
@@ -184,24 +184,24 @@ func (p *Provider) Validate(schema interface{}) error {
 	}
 
 	// Ensure types is an array
-	if _, ok := types.([]interface{}); !ok {
+	if _, ok := types.([]any); !ok {
 		return fmt.Errorf("%w: 'types' must be an array", farp.ErrInvalidSchema)
 	}
 
 	return nil
 }
 
-// Hash calculates SHA256 hash of the schema
-func (p *Provider) Hash(schema interface{}) (string, error) {
+// Hash calculates SHA256 hash of the schema.
+func (p *Provider) Hash(schema any) (string, error) {
 	return farp.CalculateSchemaChecksum(schema)
 }
 
-// Serialize converts schema to JSON bytes
-func (p *Provider) Serialize(schema interface{}) ([]byte, error) {
+// Serialize converts schema to JSON bytes.
+func (p *Provider) Serialize(schema any) ([]byte, error) {
 	return json.Marshal(schema)
 }
 
-// GenerateDescriptor generates a complete SchemaDescriptor for this schema
+// GenerateDescriptor generates a complete SchemaDescriptor for this schema.
 func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application, locationType farp.LocationType, locationConfig map[string]string) (*farp.SchemaDescriptor, error) {
 	// Generate schema
 	schema, err := p.Generate(ctx, app)
@@ -230,9 +230,11 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeHTTP:
 		url := locationConfig["url"]
 		if url == "" {
-			return nil, fmt.Errorf("url required for HTTP location")
+			return nil, errors.New("url required for HTTP location")
 		}
+
 		location.URL = url
+
 		if headers := locationConfig["headers"]; headers != "" {
 			var headersMap map[string]string
 			if err := json.Unmarshal([]byte(headers), &headersMap); err == nil {
@@ -243,8 +245,9 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	case farp.LocationTypeRegistry:
 		registryPath := locationConfig["registry_path"]
 		if registryPath == "" {
-			return nil, fmt.Errorf("registry_path required for registry location")
+			return nil, errors.New("registry_path required for registry location")
 		}
+
 		location.RegistryPath = registryPath
 
 	case farp.LocationTypeInline:
@@ -268,17 +271,17 @@ func (p *Provider) GenerateDescriptor(ctx context.Context, app farp.Application,
 	return descriptor, nil
 }
 
-// SetSchemaFiles sets the .avsc schema files to parse
+// SetSchemaFiles sets the .avsc schema files to parse.
 func (p *Provider) SetSchemaFiles(files []string) {
 	p.schemaFiles = files
 }
 
-// GetSchemaFiles returns the configured schema files
+// GetSchemaFiles returns the configured schema files.
 func (p *Provider) GetSchemaFiles() []string {
 	return p.schemaFiles
 }
 
-// SetEndpoint sets the HTTP endpoint for the Avro schema
+// SetEndpoint sets the HTTP endpoint for the Avro schema.
 func (p *Provider) SetEndpoint(endpoint string) {
 	p.endpoint = endpoint
 }

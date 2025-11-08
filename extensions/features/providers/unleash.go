@@ -4,41 +4,43 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	unleash "github.com/Unleash/unleash-client-go/v4"
 	unleashContext "github.com/Unleash/unleash-client-go/v4/context"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// UnleashConfig holds configuration for Unleash
+// UnleashConfig holds configuration for Unleash.
 type UnleashConfig struct {
 	// URL is the Unleash API URL
-	URL string `yaml:"url" json:"url"`
+	URL string `json:"url" yaml:"url"`
 
 	// APIToken for authentication
-	APIToken string `yaml:"api_token" json:"api_token"`
+	APIToken string `json:"api_token" yaml:"api_token"`
 
 	// AppName identifies your application
-	AppName string `yaml:"app_name" json:"app_name"`
+	AppName string `json:"app_name" yaml:"app_name"`
 
 	// InstanceID uniquely identifies this instance (optional)
-	InstanceID string `yaml:"instance_id" json:"instance_id"`
+	InstanceID string `json:"instance_id" yaml:"instance_id"`
 
 	// Environment name (optional)
-	Environment string `yaml:"environment" json:"environment"`
+	Environment string `json:"environment" yaml:"environment"`
 
 	// ProjectName for multi-project setups (optional)
-	ProjectName string `yaml:"project_name" json:"project_name"`
+	ProjectName string `json:"project_name" yaml:"project_name"`
 
 	// CustomHeaders for additional HTTP headers (optional)
-	CustomHeaders map[string]string `yaml:"custom_headers" json:"custom_headers"`
+	CustomHeaders map[string]string `json:"custom_headers" yaml:"custom_headers"`
 
 	// DisableMetrics disables metrics reporting
-	DisableMetrics bool `yaml:"disable_metrics" json:"disable_metrics"`
+	DisableMetrics bool `json:"disable_metrics" yaml:"disable_metrics"`
 }
 
-// UnleashProvider implements feature flags using Unleash
+// UnleashProvider implements feature flags using Unleash.
 type UnleashProvider struct {
 	config UnleashConfig
 	client *unleash.Client
@@ -47,16 +49,18 @@ type UnleashProvider struct {
 	ready  bool
 }
 
-// NewUnleashProvider creates a new Unleash provider
+// NewUnleashProvider creates a new Unleash provider.
 func NewUnleashProvider(config UnleashConfig, logger forge.Logger) (*UnleashProvider, error) {
 	if config.URL == "" {
-		return nil, fmt.Errorf("unleash url is required")
+		return nil, errors.New("unleash url is required")
 	}
+
 	if config.APIToken == "" {
-		return nil, fmt.Errorf("unleash api_token is required")
+		return nil, errors.New("unleash api_token is required")
 	}
+
 	if config.AppName == "" {
-		return nil, fmt.Errorf("unleash app_name is required")
+		return nil, errors.New("unleash app_name is required")
 	}
 
 	p := &UnleashProvider{
@@ -102,6 +106,7 @@ func NewUnleashProvider(config UnleashConfig, logger forge.Logger) (*UnleashProv
 
 	// Wait for client to be ready
 	<-client.Ready()
+
 	p.ready = true
 
 	logger.Info("Unleash provider initialized")
@@ -109,26 +114,29 @@ func NewUnleashProvider(config UnleashConfig, logger forge.Logger) (*UnleashProv
 	return p, nil
 }
 
-// Name returns the provider name
+// Name returns the provider name.
 func (p *UnleashProvider) Name() string {
 	return "unleash"
 }
 
-// IsEnabled checks if a feature flag is enabled
+// IsEnabled checks if a feature flag is enabled.
 func (p *UnleashProvider) IsEnabled(ctx context.Context, key string, userCtx *UserContext) bool {
 	if !p.ready {
 		p.logger.Warn("Unleash client not ready")
+
 		return false
 	}
 
 	unleashCtx := p.buildContext(userCtx)
+
 	return p.client.IsEnabled(key, unleash.WithContext(*unleashCtx))
 }
 
-// GetValue returns the value of a feature flag
+// GetValue returns the value of a feature flag.
 func (p *UnleashProvider) GetValue(ctx context.Context, key string, userCtx *UserContext, defaultValue interface{}) interface{} {
 	if !p.ready {
 		p.logger.Warn("Unleash client not ready")
+
 		return defaultValue
 	}
 
@@ -149,10 +157,10 @@ func (p *UnleashProvider) GetValue(ctx context.Context, key string, userCtx *Use
 	return defaultValue
 }
 
-// Evaluate evaluates a feature flag
+// Evaluate evaluates a feature flag.
 func (p *UnleashProvider) Evaluate(ctx context.Context, key string, userCtx *UserContext) (interface{}, error) {
 	if !p.ready {
-		return nil, fmt.Errorf("Unleash client not ready")
+		return nil, errors.New("Unleash client not ready")
 	}
 
 	unleashCtx := p.buildContext(userCtx)
@@ -169,7 +177,7 @@ func (p *UnleashProvider) Evaluate(ctx context.Context, key string, userCtx *Use
 	return enabled, nil
 }
 
-// buildContext converts UserContext to Unleash context
+// buildContext converts UserContext to Unleash context.
 func (p *UnleashProvider) buildContext(userCtx *UserContext) *unleashContext.Context {
 	if userCtx == nil {
 		return &unleashContext.Context{}
@@ -200,12 +208,17 @@ func (p *UnleashProvider) buildContext(userCtx *UserContext) *unleashContext.Con
 		}
 		// Store all groups as comma-separated
 		groupsStr := ""
+		var groupsStrSb203 strings.Builder
+
 		for i, g := range userCtx.Groups {
 			if i > 0 {
-				groupsStr += ","
+				groupsStrSb203.WriteString(",")
 			}
-			groupsStr += g
+
+			groupsStrSb203.WriteString(g)
 		}
+		groupsStr += groupsStrSb203.String()
+
 		ctx.Properties["groups"] = groupsStr
 	}
 
@@ -217,16 +230,17 @@ func (p *UnleashProvider) buildContext(userCtx *UserContext) *unleashContext.Con
 	return &ctx
 }
 
-// GetAllFlags returns all feature flags
+// GetAllFlags returns all feature flags.
 func (p *UnleashProvider) GetAllFlags(ctx context.Context, userCtx *UserContext) (map[string]interface{}, error) {
 	if !p.ready {
-		return nil, fmt.Errorf("Unleash client not ready")
+		return nil, errors.New("Unleash client not ready")
 	}
 
 	unleashCtx := p.buildContext(userCtx)
 	features := p.client.ListFeatures()
 
 	result := make(map[string]interface{})
+
 	for _, feature := range features {
 		// Check if enabled
 		enabled := p.client.IsEnabled(feature.Name, unleash.WithContext(*unleashCtx))
@@ -243,22 +257,23 @@ func (p *UnleashProvider) GetAllFlags(ctx context.Context, userCtx *UserContext)
 	return result, nil
 }
 
-// Refresh forces a refresh of flags
+// Refresh forces a refresh of flags.
 func (p *UnleashProvider) Refresh(ctx context.Context) error {
 	if !p.ready || p.client == nil {
-		return fmt.Errorf("Unleash client not ready")
+		return errors.New("Unleash client not ready")
 	}
 
 	// Unleash SDK handles flag updates automatically via polling
 	// This is a no-op but provided for interface compatibility
 	p.logger.Debug("Unleash handles flag updates automatically")
+
 	return nil
 }
 
-// Start starts the provider
+// Start starts the provider.
 func (p *UnleashProvider) Start(ctx context.Context) error {
 	if p.client == nil {
-		return fmt.Errorf("Unleash client not initialized")
+		return errors.New("Unleash client not initialized")
 	}
 
 	// Client is already started in constructor
@@ -267,10 +282,11 @@ func (p *UnleashProvider) Start(ctx context.Context) error {
 	p.mu.Unlock()
 
 	p.logger.Info("Unleash provider started")
+
 	return nil
 }
 
-// Stop stops the provider
+// Stop stops the provider.
 func (p *UnleashProvider) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -281,20 +297,21 @@ func (p *UnleashProvider) Stop(ctx context.Context) error {
 
 	p.ready = false
 	p.logger.Info("Unleash provider stopped")
+
 	return nil
 }
 
-// Health checks the provider health
+// Health checks the provider health.
 func (p *UnleashProvider) Health(ctx context.Context) error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	if p.client == nil {
-		return fmt.Errorf("Unleash client not initialized")
+		return errors.New("Unleash client not initialized")
 	}
 
 	if !p.ready {
-		return fmt.Errorf("Unleash client not ready")
+		return errors.New("Unleash client not ready")
 	}
 
 	// Check if we have received any features
@@ -306,10 +323,10 @@ func (p *UnleashProvider) Health(ctx context.Context) error {
 	return nil
 }
 
-// GetVariant gets a feature variant
+// GetVariant gets a feature variant.
 func (p *UnleashProvider) GetVariant(ctx context.Context, key string, userCtx *UserContext) (string, map[string]interface{}, error) {
 	if !p.ready {
-		return "", nil, fmt.Errorf("Unleash client not ready")
+		return "", nil, errors.New("Unleash client not ready")
 	}
 
 	variant := p.client.GetVariant(key)
@@ -326,13 +343,14 @@ func (p *UnleashProvider) GetVariant(ctx context.Context, key string, userCtx *U
 	return variant.Name, payload, nil
 }
 
-// ListFeatures lists all available features
+// ListFeatures lists all available features.
 func (p *UnleashProvider) ListFeatures() []string {
 	if !p.ready || p.client == nil {
 		return []string{}
 	}
 
 	features := p.client.ListFeatures()
+
 	names := make([]string, len(features))
 	for i, f := range features {
 		names[i] = f.Name

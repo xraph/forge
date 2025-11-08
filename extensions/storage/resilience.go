@@ -11,30 +11,30 @@ import (
 	"github.com/xraph/forge"
 )
 
-// ResilienceConfig configures resilience features
+// ResilienceConfig configures resilience features.
 type ResilienceConfig struct {
 	// Retry configuration
-	MaxRetries        int           `yaml:"max_retries" json:"max_retries" default:"3"`
-	InitialBackoff    time.Duration `yaml:"initial_backoff" json:"initial_backoff" default:"100ms"`
-	MaxBackoff        time.Duration `yaml:"max_backoff" json:"max_backoff" default:"10s"`
-	BackoffMultiplier float64       `yaml:"backoff_multiplier" json:"backoff_multiplier" default:"2.0"`
+	MaxRetries        int           `default:"3"     json:"max_retries"        yaml:"max_retries"`
+	InitialBackoff    time.Duration `default:"100ms" json:"initial_backoff"    yaml:"initial_backoff"`
+	MaxBackoff        time.Duration `default:"10s"   json:"max_backoff"        yaml:"max_backoff"`
+	BackoffMultiplier float64       `default:"2.0"   json:"backoff_multiplier" yaml:"backoff_multiplier"`
 
 	// Circuit breaker configuration
-	CircuitBreakerEnabled     bool          `yaml:"circuit_breaker_enabled" json:"circuit_breaker_enabled" default:"true"`
-	CircuitBreakerThreshold   uint32        `yaml:"circuit_breaker_threshold" json:"circuit_breaker_threshold" default:"5"`
-	CircuitBreakerTimeout     time.Duration `yaml:"circuit_breaker_timeout" json:"circuit_breaker_timeout" default:"60s"`
-	CircuitBreakerHalfOpenMax uint32        `yaml:"circuit_breaker_half_open_max" json:"circuit_breaker_half_open_max" default:"3"`
+	CircuitBreakerEnabled     bool          `default:"true" json:"circuit_breaker_enabled"       yaml:"circuit_breaker_enabled"`
+	CircuitBreakerThreshold   uint32        `default:"5"    json:"circuit_breaker_threshold"     yaml:"circuit_breaker_threshold"`
+	CircuitBreakerTimeout     time.Duration `default:"60s"  json:"circuit_breaker_timeout"       yaml:"circuit_breaker_timeout"`
+	CircuitBreakerHalfOpenMax uint32        `default:"3"    json:"circuit_breaker_half_open_max" yaml:"circuit_breaker_half_open_max"`
 
 	// Rate limiting
-	RateLimitEnabled bool `yaml:"rate_limit_enabled" json:"rate_limit_enabled" default:"true"`
-	RateLimitPerSec  int  `yaml:"rate_limit_per_sec" json:"rate_limit_per_sec" default:"100"`
-	RateLimitBurst   int  `yaml:"rate_limit_burst" json:"rate_limit_burst" default:"200"`
+	RateLimitEnabled bool `default:"true" json:"rate_limit_enabled" yaml:"rate_limit_enabled"`
+	RateLimitPerSec  int  `default:"100"  json:"rate_limit_per_sec" yaml:"rate_limit_per_sec"`
+	RateLimitBurst   int  `default:"200"  json:"rate_limit_burst"   yaml:"rate_limit_burst"`
 
 	// Timeout configuration
-	OperationTimeout time.Duration `yaml:"operation_timeout" json:"operation_timeout" default:"30s"`
+	OperationTimeout time.Duration `default:"30s" json:"operation_timeout" yaml:"operation_timeout"`
 }
 
-// DefaultResilienceConfig returns default resilience configuration
+// DefaultResilienceConfig returns default resilience configuration.
 func DefaultResilienceConfig() ResilienceConfig {
 	return ResilienceConfig{
 		MaxRetries:                3,
@@ -52,7 +52,7 @@ func DefaultResilienceConfig() ResilienceConfig {
 	}
 }
 
-// CircuitState represents circuit breaker state
+// CircuitState represents circuit breaker state.
 type CircuitState int
 
 const (
@@ -74,7 +74,7 @@ func (s CircuitState) String() string {
 	}
 }
 
-// CircuitBreaker implements circuit breaker pattern
+// CircuitBreaker implements circuit breaker pattern.
 type CircuitBreaker struct {
 	config           ResilienceConfig
 	state            CircuitState
@@ -86,7 +86,7 @@ type CircuitBreaker struct {
 	metrics          forge.Metrics
 }
 
-// NewCircuitBreaker creates a new circuit breaker
+// NewCircuitBreaker creates a new circuit breaker.
 func NewCircuitBreaker(config ResilienceConfig, logger forge.Logger, metrics forge.Metrics) *CircuitBreaker {
 	return &CircuitBreaker{
 		config:  config,
@@ -96,7 +96,7 @@ func NewCircuitBreaker(config ResilienceConfig, logger forge.Logger, metrics for
 	}
 }
 
-// Execute executes a function with circuit breaker protection
+// Execute executes a function with circuit breaker protection.
 func (cb *CircuitBreaker) Execute(ctx context.Context, name string, fn func() error) error {
 	if !cb.config.CircuitBreakerEnabled {
 		return fn()
@@ -105,6 +105,7 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, name string, fn func() er
 	// Check if circuit is open
 	if !cb.CanAttempt() {
 		cb.metrics.Counter("storage_circuit_breaker_open", "operation", name).Inc()
+
 		return ErrCircuitBreakerOpen
 	}
 
@@ -125,7 +126,7 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, name string, fn func() er
 	return err
 }
 
-// CanAttempt checks if a request can be attempted
+// CanAttempt checks if a request can be attempted.
 func (cb *CircuitBreaker) CanAttempt() bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -139,8 +140,10 @@ func (cb *CircuitBreaker) CanAttempt() bool {
 			cb.state = CircuitHalfOpen
 			cb.halfOpenAttempts = 0
 			cb.logger.Info("circuit breaker half-open")
+
 			return true
 		}
+
 		return false
 	case CircuitHalfOpen:
 		return cb.halfOpenAttempts < cb.config.CircuitBreakerHalfOpenMax
@@ -149,7 +152,7 @@ func (cb *CircuitBreaker) CanAttempt() bool {
 	}
 }
 
-// RecordSuccess records a successful execution
+// RecordSuccess records a successful execution.
 func (cb *CircuitBreaker) RecordSuccess() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -165,7 +168,7 @@ func (cb *CircuitBreaker) RecordSuccess() {
 	}
 }
 
-// RecordFailure records a failed execution
+// RecordFailure records a failed execution.
 func (cb *CircuitBreaker) RecordFailure() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -196,14 +199,15 @@ func (cb *CircuitBreaker) RecordFailure() {
 	}
 }
 
-// GetState returns current circuit state
+// GetState returns current circuit state.
 func (cb *CircuitBreaker) GetState() CircuitState {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
+
 	return cb.state
 }
 
-// Reset resets the circuit breaker
+// Reset resets the circuit breaker.
 func (cb *CircuitBreaker) Reset() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -214,7 +218,7 @@ func (cb *CircuitBreaker) Reset() {
 	cb.logger.Info("circuit breaker reset")
 }
 
-// RateLimiter implements token bucket rate limiting
+// RateLimiter implements token bucket rate limiting.
 type RateLimiter struct {
 	config   ResilienceConfig
 	tokens   int
@@ -223,7 +227,7 @@ type RateLimiter struct {
 	metrics  forge.Metrics
 }
 
-// NewRateLimiter creates a new rate limiter
+// NewRateLimiter creates a new rate limiter.
 func NewRateLimiter(config ResilienceConfig, metrics forge.Metrics) *RateLimiter {
 	return &RateLimiter{
 		config:   config,
@@ -233,7 +237,7 @@ func NewRateLimiter(config ResilienceConfig, metrics forge.Metrics) *RateLimiter
 	}
 }
 
-// Allow checks if a request is allowed
+// Allow checks if a request is allowed.
 func (rl *RateLimiter) Allow() bool {
 	if !rl.config.RateLimitEnabled {
 		return true
@@ -252,6 +256,7 @@ func (rl *RateLimiter) Allow() bool {
 		if rl.tokens > rl.config.RateLimitBurst {
 			rl.tokens = rl.config.RateLimitBurst
 		}
+
 		rl.lastFill = now
 	}
 
@@ -259,14 +264,16 @@ func (rl *RateLimiter) Allow() bool {
 	if rl.tokens > 0 {
 		rl.tokens--
 		rl.metrics.Counter("storage_rate_limit_allowed").Inc()
+
 		return true
 	}
 
 	rl.metrics.Counter("storage_rate_limit_rejected").Inc()
+
 	return false
 }
 
-// ResilientStorage wraps a storage backend with resilience features
+// ResilientStorage wraps a storage backend with resilience features.
 type ResilientStorage struct {
 	backend        Storage
 	config         ResilienceConfig
@@ -277,7 +284,7 @@ type ResilientStorage struct {
 	metrics        forge.Metrics
 }
 
-// NewResilientStorage creates a resilient storage wrapper
+// NewResilientStorage creates a resilient storage wrapper.
 func NewResilientStorage(backend Storage, config ResilienceConfig, logger forge.Logger, metrics forge.Metrics) *ResilientStorage {
 	return &ResilientStorage{
 		backend:        backend,
@@ -290,106 +297,130 @@ func NewResilientStorage(backend Storage, config ResilienceConfig, logger forge.
 	}
 }
 
-// Upload uploads with resilience
+// Upload uploads with resilience.
 func (rs *ResilientStorage) Upload(ctx context.Context, key string, data io.Reader, opts ...UploadOption) error {
 	return rs.executeWithResilience(ctx, "upload", func(ctx context.Context) error {
 		return rs.backend.Upload(ctx, key, data, opts...)
 	})
 }
 
-// Download downloads with resilience
+// Download downloads with resilience.
 func (rs *ResilientStorage) Download(ctx context.Context, key string) (io.ReadCloser, error) {
 	var result io.ReadCloser
+
 	err := rs.executeWithResilience(ctx, "download", func(ctx context.Context) error {
 		var err error
+
 		result, err = rs.backend.Download(ctx, key)
+
 		return err
 	})
+
 	return result, err
 }
 
-// Delete deletes with resilience
+// Delete deletes with resilience.
 func (rs *ResilientStorage) Delete(ctx context.Context, key string) error {
 	// Validate key before calling backend
 	if err := rs.validator.ValidateKey(key); err != nil {
 		return fmt.Errorf("invalid key: %w", err)
 	}
-	
+
 	return rs.executeWithResilience(ctx, "delete", func(ctx context.Context) error {
 		return rs.backend.Delete(ctx, key)
 	})
 }
 
-// List lists with resilience
+// List lists with resilience.
 func (rs *ResilientStorage) List(ctx context.Context, prefix string, opts ...ListOption) ([]Object, error) {
 	var result []Object
+
 	err := rs.executeWithResilience(ctx, "list", func(ctx context.Context) error {
 		var err error
+
 		result, err = rs.backend.List(ctx, prefix, opts...)
+
 		return err
 	})
+
 	return result, err
 }
 
-// Metadata gets metadata with resilience
+// Metadata gets metadata with resilience.
 func (rs *ResilientStorage) Metadata(ctx context.Context, key string) (*ObjectMetadata, error) {
 	var result *ObjectMetadata
+
 	err := rs.executeWithResilience(ctx, "metadata", func(ctx context.Context) error {
 		var err error
+
 		result, err = rs.backend.Metadata(ctx, key)
+
 		return err
 	})
+
 	return result, err
 }
 
-// Exists checks existence with resilience
+// Exists checks existence with resilience.
 func (rs *ResilientStorage) Exists(ctx context.Context, key string) (bool, error) {
 	var result bool
+
 	err := rs.executeWithResilience(ctx, "exists", func(ctx context.Context) error {
 		var err error
+
 		result, err = rs.backend.Exists(ctx, key)
+
 		return err
 	})
+
 	return result, err
 }
 
-// Copy copies with resilience
+// Copy copies with resilience.
 func (rs *ResilientStorage) Copy(ctx context.Context, srcKey, dstKey string) error {
 	return rs.executeWithResilience(ctx, "copy", func(ctx context.Context) error {
 		return rs.backend.Copy(ctx, srcKey, dstKey)
 	})
 }
 
-// Move moves with resilience
+// Move moves with resilience.
 func (rs *ResilientStorage) Move(ctx context.Context, srcKey, dstKey string) error {
 	return rs.executeWithResilience(ctx, "move", func(ctx context.Context) error {
 		return rs.backend.Move(ctx, srcKey, dstKey)
 	})
 }
 
-// PresignUpload presigns upload URL with resilience
+// PresignUpload presigns upload URL with resilience.
 func (rs *ResilientStorage) PresignUpload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	var result string
+
 	err := rs.executeWithResilience(ctx, "presign_upload", func(ctx context.Context) error {
 		var err error
+
 		result, err = rs.backend.PresignUpload(ctx, key, expiry)
+
 		return err
 	})
+
 	return result, err
 }
 
-// PresignDownload presigns download URL with resilience
+// PresignDownload presigns download URL with resilience.
 func (rs *ResilientStorage) PresignDownload(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	var result string
+
 	err := rs.executeWithResilience(ctx, "presign_download", func(ctx context.Context) error {
 		var err error
+
 		result, err = rs.backend.PresignDownload(ctx, key, expiry)
+
 		return err
 	})
+
 	return result, err
 }
 
-// executeWithResilience executes a function with retry, circuit breaker, and rate limiting
+// executeWithResilience executes a function with retry, circuit breaker, and rate limiting.
 func (rs *ResilientStorage) executeWithResilience(ctx context.Context, operation string, fn func(context.Context) error) error {
 	// Check rate limit
 	if !rs.rateLimiter.Allow() {
@@ -399,6 +430,7 @@ func (rs *ResilientStorage) executeWithResilience(ctx context.Context, operation
 	// Apply timeout (only if configured and not zero)
 	if rs.config.OperationTimeout > 0 {
 		var cancel context.CancelFunc
+
 		ctx, cancel = context.WithTimeout(ctx, rs.config.OperationTimeout)
 		defer cancel()
 	}
@@ -411,11 +443,12 @@ func (rs *ResilientStorage) executeWithResilience(ctx context.Context, operation
 	})
 }
 
-// retryWithBackoff implements exponential backoff retry
+// retryWithBackoff implements exponential backoff retry.
 func (rs *ResilientStorage) retryWithBackoff(ctx context.Context, operation string, fn func() error) error {
 	var lastErr error
+
 	backoff := rs.config.InitialBackoff
-	
+
 	// Ensure backoff has a minimum value to prevent tight retry loops
 	if backoff == 0 {
 		backoff = 10 * time.Millisecond
@@ -438,6 +471,7 @@ func (rs *ResilientStorage) retryWithBackoff(ctx context.Context, operation stri
 					forge.F("attempts", attempt+1),
 				)
 			}
+
 			return nil
 		}
 
@@ -446,12 +480,14 @@ func (rs *ResilientStorage) retryWithBackoff(ctx context.Context, operation stri
 		// Don't retry non-retryable errors
 		if !isRetryableError(err) {
 			rs.metrics.Counter("storage_non_retryable_errors", "operation", operation).Inc()
+
 			return err
 		}
 
 		// Last attempt?
 		if attempt == rs.config.MaxRetries {
 			rs.metrics.Counter("storage_max_retries_exceeded", "operation", operation).Inc()
+
 			break
 		}
 
@@ -474,16 +510,13 @@ func (rs *ResilientStorage) retryWithBackoff(ctx context.Context, operation stri
 		}
 
 		// Increase backoff
-		backoff = time.Duration(float64(backoff) * rs.config.BackoffMultiplier)
-		if backoff > rs.config.MaxBackoff {
-			backoff = rs.config.MaxBackoff
-		}
+		backoff = min(time.Duration(float64(backoff)*rs.config.BackoffMultiplier), rs.config.MaxBackoff)
 	}
 
 	return fmt.Errorf("operation failed after %d attempts: %w", rs.config.MaxRetries+1, lastErr)
 }
 
-// isRetryableError determines if an error is retryable
+// isRetryableError determines if an error is retryable.
 func isRetryableError(err error) bool {
 	// Don't retry these errors
 	if errors.Is(err, ErrObjectNotFound) ||
@@ -500,12 +533,12 @@ func isRetryableError(err error) bool {
 	return true
 }
 
-// ResetCircuitBreaker resets the circuit breaker
+// ResetCircuitBreaker resets the circuit breaker.
 func (rs *ResilientStorage) ResetCircuitBreaker() {
 	rs.circuitBreaker.Reset()
 }
 
-// GetCircuitBreakerState returns circuit breaker state
+// GetCircuitBreakerState returns circuit breaker state.
 func (rs *ResilientStorage) GetCircuitBreakerState() CircuitState {
 	return rs.circuitBreaker.GetState()
 }

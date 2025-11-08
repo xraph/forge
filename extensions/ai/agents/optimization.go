@@ -9,9 +9,10 @@ import (
 	"time"
 
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// OptimizationAgent performs performance optimization tasks
+// OptimizationAgent performs performance optimization tasks.
 type OptimizationAgent struct {
 	*ai.BaseAgent
 
@@ -26,7 +27,7 @@ type OptimizationAgent struct {
 	resourcePredictor  *ResourcePredictor
 }
 
-// OptimizationEvent represents an optimization event
+// OptimizationEvent represents an optimization event.
 type OptimizationEvent struct {
 	Timestamp     time.Time          `json:"timestamp"`
 	Component     string             `json:"component"`
@@ -37,16 +38,16 @@ type OptimizationEvent struct {
 	Success       bool               `json:"success"`
 }
 
-// OptimizationAction represents an optimization action
+// OptimizationAction represents an optimization action.
 type OptimizationAction struct {
-	Type        string                 `json:"type"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Impact      ImpactLevel            `json:"impact"`
-	Confidence  float64                `json:"confidence"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Parameters  map[string]any `json:"parameters"`
+	Impact      ImpactLevel    `json:"impact"`
+	Confidence  float64        `json:"confidence"`
 }
 
-// ImpactLevel represents the impact level of an optimization
+// ImpactLevel represents the impact level of an optimization.
 type ImpactLevel string
 
 const (
@@ -55,7 +56,7 @@ const (
 	ImpactLevelHigh   ImpactLevel = "high"
 )
 
-// PerformanceBaseline represents a performance baseline
+// PerformanceBaseline represents a performance baseline.
 type PerformanceBaseline struct {
 	Timestamp          time.Time          `json:"timestamp"`
 	Component          string             `json:"component"`
@@ -64,7 +65,7 @@ type PerformanceBaseline struct {
 	ConfidenceInterval float64            `json:"confidence_interval"`
 }
 
-// PerformanceMetrics represents performance metrics
+// PerformanceMetrics represents performance metrics.
 type PerformanceMetrics struct {
 	Latency      time.Duration `json:"latency"`
 	Throughput   float64       `json:"throughput"`
@@ -77,7 +78,7 @@ type PerformanceMetrics struct {
 	ResponseSize int64         `json:"response_size"`
 }
 
-// OptimizationThresholds represents thresholds for optimization
+// OptimizationThresholds represents thresholds for optimization.
 type OptimizationThresholds struct {
 	MaxLatency      time.Duration `json:"max_latency"`
 	MinThroughput   float64       `json:"min_throughput"`
@@ -88,15 +89,15 @@ type OptimizationThresholds struct {
 	MaxDiskUsage    float64       `json:"max_disk_usage"`
 }
 
-// NewOptimizationAgent creates a new optimization agent
+// NewOptimizationAgent creates a new optimization agent.
 func NewOptimizationAgent(id, name string) ai.AIAgent {
 	capabilities := []ai.Capability{
 		{
 			Name:        "performance-optimization",
 			Description: "Optimize system performance based on metrics",
-			InputType:   reflect.TypeOf(PerformanceOptimizationInput{}),
-			OutputType:  reflect.TypeOf(PerformanceOptimizationOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[PerformanceOptimizationInput](),
+			OutputType:  reflect.TypeFor[PerformanceOptimizationOutput](),
+			Metadata: map[string]any{
 				"category": "performance",
 				"priority": "high",
 			},
@@ -104,9 +105,9 @@ func NewOptimizationAgent(id, name string) ai.AIAgent {
 		{
 			Name:        "bottleneck-detection",
 			Description: "Detect performance bottlenecks in the system",
-			InputType:   reflect.TypeOf(BottleneckDetectionInput{}),
-			OutputType:  reflect.TypeOf(BottleneckDetectionOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[BottleneckDetectionInput](),
+			OutputType:  reflect.TypeFor[BottleneckDetectionOutput](),
+			Metadata: map[string]any{
 				"category": "analysis",
 				"priority": "medium",
 			},
@@ -114,9 +115,9 @@ func NewOptimizationAgent(id, name string) ai.AIAgent {
 		{
 			Name:        "resource-prediction",
 			Description: "Predict future resource requirements",
-			InputType:   reflect.TypeOf(ResourcePredictionInput{}),
-			OutputType:  reflect.TypeOf(ResourcePredictionOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[ResourcePredictionInput](),
+			OutputType:  reflect.TypeFor[ResourcePredictionOutput](),
+			Metadata: map[string]any{
 				"category": "prediction",
 				"priority": "low",
 			},
@@ -143,7 +144,7 @@ func NewOptimizationAgent(id, name string) ai.AIAgent {
 	return agent
 }
 
-// Process processes optimization requests
+// Process processes optimization requests.
 func (a *OptimizationAgent) Process(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Call base implementation first
 	output, err := a.BaseAgent.Process(ctx, input)
@@ -164,12 +165,12 @@ func (a *OptimizationAgent) Process(ctx context.Context, input ai.AgentInput) (a
 	}
 }
 
-// processPerformanceOptimization processes performance optimization requests
+// processPerformanceOptimization processes performance optimization requests.
 func (a *OptimizationAgent) processPerformanceOptimization(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Parse input
-	data, ok := input.Data.(map[string]interface{})
+	data, ok := input.Data.(map[string]any)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return ai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	component, _ := data["component"].(string)
@@ -183,6 +184,7 @@ func (a *OptimizationAgent) processPerformanceOptimization(ctx context.Context, 
 
 	// Generate optimization actions
 	actions := make([]ai.AgentAction, 0)
+
 	for _, optimization := range optimizations {
 		action := ai.AgentAction{
 			Type:       "optimization",
@@ -212,7 +214,7 @@ func (a *OptimizationAgent) processPerformanceOptimization(ctx context.Context, 
 		Confidence:  confidence,
 		Explanation: fmt.Sprintf("Generated %d optimization recommendations for %s", len(optimizations), component),
 		Actions:     actions,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"component":            component,
 			"optimizations_count":  len(optimizations),
 			"baseline_established": a.hasBaseline(component),
@@ -221,12 +223,12 @@ func (a *OptimizationAgent) processPerformanceOptimization(ctx context.Context, 
 	}, nil
 }
 
-// processBottleneckDetection processes bottleneck detection requests
+// processBottleneckDetection processes bottleneck detection requests.
 func (a *OptimizationAgent) processBottleneckDetection(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Parse input
-	data, ok := input.Data.(map[string]interface{})
+	data, ok := input.Data.(map[string]any)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return ai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	component, _ := data["component"].(string)
@@ -240,6 +242,7 @@ func (a *OptimizationAgent) processBottleneckDetection(ctx context.Context, inpu
 
 	// Generate bottleneck actions
 	actions := make([]ai.AgentAction, 0)
+
 	for _, bottleneck := range bottlenecks {
 		action := ai.AgentAction{
 			Type:       "bottleneck-mitigation",
@@ -257,7 +260,7 @@ func (a *OptimizationAgent) processBottleneckDetection(ctx context.Context, inpu
 		Confidence:  0.8, // High confidence for bottleneck detection
 		Explanation: fmt.Sprintf("Detected %d bottlenecks in %s", len(bottlenecks), component),
 		Actions:     actions,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"component":         component,
 			"bottlenecks_count": len(bottlenecks),
 		},
@@ -265,15 +268,16 @@ func (a *OptimizationAgent) processBottleneckDetection(ctx context.Context, inpu
 	}, nil
 }
 
-// processResourcePrediction processes resource prediction requests
+// processResourcePrediction processes resource prediction requests.
 func (a *OptimizationAgent) processResourcePrediction(ctx context.Context, input ai.AgentInput) (ai.AgentOutput, error) {
 	// Parse input
-	data, ok := input.Data.(map[string]interface{})
+	data, ok := input.Data.(map[string]any)
 	if !ok {
-		return ai.AgentOutput{}, fmt.Errorf("invalid input data format")
+		return ai.AgentOutput{}, errors.New("invalid input data format")
 	}
 
 	component, _ := data["component"].(string)
+
 	horizonData, _ := data["horizon"].(time.Duration)
 	if horizonData == 0 {
 		horizonData = 1 * time.Hour // Default horizon
@@ -287,6 +291,7 @@ func (a *OptimizationAgent) processResourcePrediction(ctx context.Context, input
 
 	// Generate prediction actions
 	actions := make([]ai.AgentAction, 0)
+
 	for _, prediction := range predictions {
 		if prediction.RequiresAction {
 			action := ai.AgentAction{
@@ -306,7 +311,7 @@ func (a *OptimizationAgent) processResourcePrediction(ctx context.Context, input
 		Confidence:  a.calculatePredictionConfidence(predictions),
 		Explanation: fmt.Sprintf("Generated %d resource predictions for %s", len(predictions), component),
 		Actions:     actions,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"component":         component,
 			"horizon":           horizonData.String(),
 			"predictions_count": len(predictions),
@@ -315,7 +320,7 @@ func (a *OptimizationAgent) processResourcePrediction(ctx context.Context, input
 	}, nil
 }
 
-// analyzePerformance analyzes performance metrics and generates optimizations
+// analyzePerformance analyzes performance metrics and generates optimizations.
 func (a *OptimizationAgent) analyzePerformance(component string, metrics PerformanceMetrics) []OptimizationAction {
 	optimizations := make([]OptimizationAction, 0)
 
@@ -324,7 +329,7 @@ func (a *OptimizationAgent) analyzePerformance(component string, metrics Perform
 		optimizations = append(optimizations, OptimizationAction{
 			Type:        "latency-optimization",
 			Description: fmt.Sprintf("Reduce latency from %v to below %v", metrics.Latency, a.thresholds.MaxLatency),
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"current_latency":   metrics.Latency,
 				"target_latency":    a.thresholds.MaxLatency,
 				"optimization_type": "cache_warming",
@@ -339,7 +344,7 @@ func (a *OptimizationAgent) analyzePerformance(component string, metrics Perform
 		optimizations = append(optimizations, OptimizationAction{
 			Type:        "throughput-optimization",
 			Description: fmt.Sprintf("Increase throughput from %.2f to above %.2f", metrics.Throughput, a.thresholds.MinThroughput),
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"current_throughput": metrics.Throughput,
 				"target_throughput":  a.thresholds.MinThroughput,
 				"optimization_type":  "connection_pooling",
@@ -354,7 +359,7 @@ func (a *OptimizationAgent) analyzePerformance(component string, metrics Perform
 		optimizations = append(optimizations, OptimizationAction{
 			Type:        "error-reduction",
 			Description: fmt.Sprintf("Reduce error rate from %.4f to below %.4f", metrics.ErrorRate, a.thresholds.MaxErrorRate),
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"current_error_rate": metrics.ErrorRate,
 				"target_error_rate":  a.thresholds.MaxErrorRate,
 				"optimization_type":  "retry_mechanism",
@@ -369,7 +374,7 @@ func (a *OptimizationAgent) analyzePerformance(component string, metrics Perform
 		optimizations = append(optimizations, OptimizationAction{
 			Type:        "cpu-optimization",
 			Description: fmt.Sprintf("Reduce CPU usage from %.2f to below %.2f", metrics.CPUUsage, a.thresholds.MaxCPUUsage),
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"current_cpu":       metrics.CPUUsage,
 				"target_cpu":        a.thresholds.MaxCPUUsage,
 				"optimization_type": "algorithm_optimization",
@@ -384,7 +389,7 @@ func (a *OptimizationAgent) analyzePerformance(component string, metrics Perform
 		optimizations = append(optimizations, OptimizationAction{
 			Type:        "memory-optimization",
 			Description: fmt.Sprintf("Reduce memory usage from %.2f to below %.2f", metrics.MemoryUsage, a.thresholds.MaxMemoryUsage),
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"current_memory":    metrics.MemoryUsage,
 				"target_memory":     a.thresholds.MaxMemoryUsage,
 				"optimization_type": "garbage_collection",
@@ -402,9 +407,10 @@ func (a *OptimizationAgent) analyzePerformance(component string, metrics Perform
 	return optimizations
 }
 
-// calculateOptimizationScore calculates a score for optimization prioritization
+// calculateOptimizationScore calculates a score for optimization prioritization.
 func (a *OptimizationAgent) calculateOptimizationScore(optimization OptimizationAction) float64 {
 	impactScore := 0.0
+
 	switch optimization.Impact {
 	case ImpactLevelLow:
 		impactScore = 1.0
@@ -417,7 +423,7 @@ func (a *OptimizationAgent) calculateOptimizationScore(optimization Optimization
 	return impactScore * optimization.Confidence
 }
 
-// calculateOptimizationConfidence calculates confidence based on historical success
+// calculateOptimizationConfidence calculates confidence based on historical success.
 func (a *OptimizationAgent) calculateOptimizationConfidence(component string, metrics PerformanceMetrics) float64 {
 	// Base confidence
 	confidence := 0.5
@@ -429,6 +435,7 @@ func (a *OptimizationAgent) calculateOptimizationConfidence(component string, me
 	for _, event := range a.optimizationHistory {
 		if event.Component == component {
 			totalOptimizations++
+
 			if event.Success {
 				successfulOptimizations++
 			}
@@ -447,7 +454,7 @@ func (a *OptimizationAgent) calculateOptimizationConfidence(component string, me
 	return math.Max(0.1, math.Min(0.99, confidence))
 }
 
-// calculateMetricsQuality calculates the quality of metrics
+// calculateMetricsQuality calculates the quality of metrics.
 func (a *OptimizationAgent) calculateMetricsQuality(metrics PerformanceMetrics) float64 {
 	quality := 1.0
 
@@ -455,15 +462,19 @@ func (a *OptimizationAgent) calculateMetricsQuality(metrics PerformanceMetrics) 
 	if metrics.Latency <= 0 {
 		quality -= 0.2
 	}
+
 	if metrics.Throughput <= 0 {
 		quality -= 0.2
 	}
+
 	if metrics.ErrorRate < 0 || metrics.ErrorRate > 1 {
 		quality -= 0.2
 	}
+
 	if metrics.CPUUsage < 0 || metrics.CPUUsage > 1 {
 		quality -= 0.2
 	}
+
 	if metrics.MemoryUsage < 0 || metrics.MemoryUsage > 1 {
 		quality -= 0.2
 	}
@@ -471,34 +482,42 @@ func (a *OptimizationAgent) calculateMetricsQuality(metrics PerformanceMetrics) 
 	return math.Max(0.0, quality)
 }
 
-// convertMetrics converts map metrics to structured metrics
+// convertMetrics converts map metrics to structured metrics.
 func (a *OptimizationAgent) convertMetrics(metricsData map[string]float64) PerformanceMetrics {
 	metrics := PerformanceMetrics{}
 
 	if latency, ok := metricsData["latency"]; ok {
 		metrics.Latency = time.Duration(latency) * time.Millisecond
 	}
+
 	if throughput, ok := metricsData["throughput"]; ok {
 		metrics.Throughput = throughput
 	}
+
 	if errorRate, ok := metricsData["error_rate"]; ok {
 		metrics.ErrorRate = errorRate
 	}
+
 	if cpuUsage, ok := metricsData["cpu_usage"]; ok {
 		metrics.CPUUsage = cpuUsage
 	}
+
 	if memoryUsage, ok := metricsData["memory_usage"]; ok {
 		metrics.MemoryUsage = memoryUsage
 	}
+
 	if networkUsage, ok := metricsData["network_usage"]; ok {
 		metrics.NetworkUsage = networkUsage
 	}
+
 	if diskUsage, ok := metricsData["disk_usage"]; ok {
 		metrics.DiskUsage = diskUsage
 	}
+
 	if queueSize, ok := metricsData["queue_size"]; ok {
 		metrics.QueueSize = int(queueSize)
 	}
+
 	if responseSize, ok := metricsData["response_size"]; ok {
 		metrics.ResponseSize = int64(responseSize)
 	}
@@ -506,7 +525,7 @@ func (a *OptimizationAgent) convertMetrics(metricsData map[string]float64) Perfo
 	return metrics
 }
 
-// calculatePriority calculates priority based on impact level
+// calculatePriority calculates priority based on impact level.
 func (a *OptimizationAgent) calculatePriority(impact ImpactLevel) int {
 	switch impact {
 	case ImpactLevelHigh:
@@ -520,12 +539,12 @@ func (a *OptimizationAgent) calculatePriority(impact ImpactLevel) int {
 	}
 }
 
-// hasBaseline checks if a baseline exists for a component
+// hasBaseline checks if a baseline exists for a component.
 func (a *OptimizationAgent) hasBaseline(component string) bool {
 	return a.currentBaseline.Component == component && !a.currentBaseline.Timestamp.IsZero()
 }
 
-// getHistoricalMetrics gets historical metrics for a component
+// getHistoricalMetrics gets historical metrics for a component.
 func (a *OptimizationAgent) getHistoricalMetrics(component string) []PerformanceMetrics {
 	metrics := make([]PerformanceMetrics, 0)
 
@@ -544,9 +563,9 @@ func (a *OptimizationAgent) getHistoricalMetrics(component string) []Performance
 // Input/Output types for optimization operations
 
 type PerformanceOptimizationInput struct {
-	Component string                 `json:"component"`
-	Metrics   map[string]float64     `json:"metrics"`
-	Options   map[string]interface{} `json:"options"`
+	Component string             `json:"component"`
+	Metrics   map[string]float64 `json:"metrics"`
+	Options   map[string]any     `json:"options"`
 }
 
 type PerformanceOptimizationOutput struct {
@@ -556,9 +575,9 @@ type PerformanceOptimizationOutput struct {
 }
 
 type BottleneckDetectionInput struct {
-	Component string                 `json:"component"`
-	Metrics   map[string]float64     `json:"metrics"`
-	Options   map[string]interface{} `json:"options"`
+	Component string             `json:"component"`
+	Metrics   map[string]float64 `json:"metrics"`
+	Options   map[string]any     `json:"options"`
 }
 
 type BottleneckDetectionOutput struct {
@@ -567,9 +586,9 @@ type BottleneckDetectionOutput struct {
 }
 
 type ResourcePredictionInput struct {
-	Component string                 `json:"component"`
-	Horizon   time.Duration          `json:"horizon"`
-	Options   map[string]interface{} `json:"options"`
+	Component string         `json:"component"`
+	Horizon   time.Duration  `json:"horizon"`
+	Options   map[string]any `json:"options"`
 }
 
 type ResourcePredictionOutput struct {
@@ -580,18 +599,18 @@ type ResourcePredictionOutput struct {
 // Supporting types
 
 type Bottleneck struct {
-	Type                 string                 `json:"type"`
-	Severity             string                 `json:"severity"`
-	Description          string                 `json:"description"`
-	MitigationParameters map[string]interface{} `json:"mitigation_parameters"`
+	Type                 string         `json:"type"`
+	Severity             string         `json:"severity"`
+	Description          string         `json:"description"`
+	MitigationParameters map[string]any `json:"mitigation_parameters"`
 }
 
 type ResourcePrediction struct {
-	Resource          string                 `json:"resource"`
-	PredictedUsage    float64                `json:"predicted_usage"`
-	Confidence        float64                `json:"confidence"`
-	RequiresAction    bool                   `json:"requires_action"`
-	ScalingParameters map[string]interface{} `json:"scaling_parameters"`
+	Resource          string         `json:"resource"`
+	PredictedUsage    float64        `json:"predicted_usage"`
+	Confidence        float64        `json:"confidence"`
+	RequiresAction    bool           `json:"requires_action"`
+	ScalingParameters map[string]any `json:"scaling_parameters"`
 }
 
 // Helper functions for calculations
@@ -657,7 +676,7 @@ func (bd *BottleneckDetector) DetectBottlenecks(metrics PerformanceMetrics) []Bo
 			Type:        "cpu",
 			Severity:    "high",
 			Description: "High CPU usage detected",
-			MitigationParameters: map[string]interface{}{
+			MitigationParameters: map[string]any{
 				"action": "scale_out",
 				"factor": 1.5,
 			},
@@ -684,7 +703,7 @@ func (rp *ResourcePredictor) PredictResources(historical []PerformanceMetrics, h
 			PredictedUsage: lastMetrics.CPUUsage * 1.1, // Simple trend
 			Confidence:     0.7,
 			RequiresAction: lastMetrics.CPUUsage*1.1 > 0.8,
-			ScalingParameters: map[string]interface{}{
+			ScalingParameters: map[string]any{
 				"target_cpu":   0.6,
 				"scale_factor": 1.2,
 			},

@@ -9,21 +9,21 @@ import (
 )
 
 // Migrations is the global migration collection
-// All migrations should register themselves here using init()
+// All migrations should register themselves here using init().
 var Migrations = migrate.NewMigrations(
 	migrate.WithMigrationsDirectory("./migrations"),
 )
 
 // Models is the list of all models that should be auto-registered
-// Add your models here for automatic table creation in development
-var Models = []interface{}{}
+// Add your models here for automatic table creation in development.
+var Models = []any{}
 
-// RegisterModel adds a model to the auto-registration list
-func RegisterModel(model interface{}) {
+// RegisterModel adds a model to the auto-registration list.
+func RegisterModel(model any) {
 	Models = append(Models, model)
 }
 
-// RegisterMigration is a helper to register a migration
+// RegisterMigration is a helper to register a migration.
 func RegisterMigration(up, down func(ctx context.Context, db *bun.DB) error) {
 	Migrations.MustRegister(up, down)
 }

@@ -51,6 +51,7 @@ func (s *MessageStore) Save(ctx context.Context, message *streaming.Message) err
 		if _, exists := s.threads[message.RoomID]; !exists {
 			s.threads[message.RoomID] = make(map[string][]string)
 		}
+
 		s.threads[message.RoomID][message.ThreadID] = append(
 			s.threads[message.RoomID][message.ThreadID],
 			message.ID,
@@ -66,6 +67,7 @@ func (s *MessageStore) SaveBatch(ctx context.Context, messages []*streaming.Mess
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -94,9 +96,11 @@ func (s *MessageStore) Delete(ctx context.Context, messageID string) error {
 	if msg.RoomID != "" {
 		s.removeFromSlice(s.roomMsgs[msg.RoomID], messageID)
 	}
+
 	if msg.UserID != "" {
 		s.removeFromSlice(s.userMsgs[msg.UserID], messageID)
 	}
+
 	if msg.ThreadID != "" && msg.RoomID != "" {
 		if threads, exists := s.threads[msg.RoomID]; exists {
 			s.removeFromSlice(threads[msg.ThreadID], messageID)
@@ -160,6 +164,7 @@ func (s *MessageStore) Search(ctx context.Context, roomID, searchTerm string, qu
 
 	// Apply search filter
 	query.SearchTerm = searchTerm
+
 	return s.filterAndSortMessages(messageIDs, query), nil
 }
 
@@ -185,6 +190,7 @@ func (s *MessageStore) GetMessageCountByUser(ctx context.Context, roomID, userID
 	}
 
 	count := int64(0)
+
 	for _, msgID := range messageIDs {
 		if msg, exists := s.messages[msgID]; exists && msg.UserID == userID {
 			count++
@@ -213,14 +219,17 @@ func (s *MessageStore) DeleteOld(ctx context.Context, olderThan time.Duration) e
 			if msg.RoomID != "" {
 				s.removeFromSlice(s.roomMsgs[msg.RoomID], msgID)
 			}
+
 			if msg.UserID != "" {
 				s.removeFromSlice(s.userMsgs[msg.UserID], msgID)
 			}
+
 			if msg.ThreadID != "" && msg.RoomID != "" {
 				if threads, exists := s.threads[msg.RoomID]; exists {
 					s.removeFromSlice(threads[msg.ThreadID], msgID)
 				}
 			}
+
 			delete(s.messages, msgID)
 		}
 	}
@@ -243,6 +252,7 @@ func (s *MessageStore) DeleteByRoom(ctx context.Context, roomID string) error {
 			if msg.UserID != "" {
 				s.removeFromSlice(s.userMsgs[msg.UserID], msgID)
 			}
+
 			delete(s.messages, msgID)
 		}
 	}
@@ -274,6 +284,7 @@ func (s *MessageStore) DeleteByUser(ctx context.Context, userID string) error {
 					s.removeFromSlice(threads[msg.ThreadID], msgID)
 				}
 			}
+
 			delete(s.messages, msgID)
 		}
 	}
@@ -310,15 +321,19 @@ func (s *MessageStore) filterAndSortMessages(messageIDs []string, query streamin
 		if !query.Before.IsZero() && msg.Timestamp.After(query.Before) {
 			continue
 		}
+
 		if !query.After.IsZero() && msg.Timestamp.Before(query.After) {
 			continue
 		}
+
 		if query.ThreadID != "" && msg.ThreadID != query.ThreadID {
 			continue
 		}
+
 		if query.UserID != "" && msg.UserID != query.UserID {
 			continue
 		}
+
 		if query.SearchTerm != "" {
 			if !s.matchesSearch(msg, query.SearchTerm) {
 				continue
@@ -365,5 +380,6 @@ func (s *MessageStore) removeFromSlice(slice []string, value string) []string {
 			return append(slice[:i], slice[i+1:]...)
 		}
 	}
+
 	return slice
 }

@@ -1,9 +1,9 @@
 package core
 
-// BindOptions provides flexible options for binding configuration to structs
+// BindOptions provides flexible options for binding configuration to structs.
 type BindOptions struct {
 	// DefaultValue to use when the key is not found or is nil
-	DefaultValue interface{}
+	DefaultValue any
 
 	// UseDefaults when true, uses struct field default values for missing keys
 	UseDefaults bool
@@ -24,7 +24,7 @@ type BindOptions struct {
 	DeepMerge bool
 }
 
-// DefaultBindOptions returns default bind options
+// DefaultBindOptions returns default bind options.
 func DefaultBindOptions() BindOptions {
 	return BindOptions{
 		UseDefaults:    true,

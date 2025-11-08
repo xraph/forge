@@ -3,7 +3,9 @@ package health
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -13,7 +15,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// ManagerImpl implements comprehensive health monitoring for all services
+// ManagerImpl implements comprehensive health monitoring for all services.
 type ManagerImpl struct {
 	checks      map[string]healthinternal.HealthCheck
 	aggregator  *healthinternal.SmartAggregator
@@ -43,15 +45,15 @@ type ManagerImpl struct {
 	environment string
 }
 
-// HealthConfig contains configuration for the health checker
+// HealthConfig contains configuration for the health checker.
 type HealthConfig = healthinternal.HealthConfig
 
-// DefaultHealthConfig returns default configuration
+// DefaultHealthConfig returns default configuration.
 func DefaultHealthConfig() *HealthConfig {
 	return healthinternal.DefaultHealthCheckerConfig()
 }
 
-// New creates a new health checker
+// New creates a new health checker.
 func New(config *HealthConfig, logger logger.Logger, metrics shared.Metrics, container shared.Container) shared.HealthManager {
 	if config == nil {
 		config = DefaultHealthConfig()
@@ -100,12 +102,12 @@ func New(config *HealthConfig, logger logger.Logger, metrics shared.Metrics, con
 	}
 }
 
-// Name returns the service name
+// Name returns the service name.
 func (hc *ManagerImpl) Name() string {
 	return "forge.health.service"
 }
 
-// Start starts the health checker service
+// Start starts the health checker service.
 func (hc *ManagerImpl) Start(ctx context.Context) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
@@ -173,7 +175,7 @@ func (hc *ManagerImpl) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the health checker service
+// Stop stops the health checker service.
 func (hc *ManagerImpl) Stop(ctx context.Context) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
@@ -212,7 +214,7 @@ func (hc *ManagerImpl) Stop(ctx context.Context) error {
 	return nil
 }
 
-// OnHealthCheck performs a health check on the health checker itself
+// OnHealthCheck performs a health check on the health checker itself.
 func (hc *ManagerImpl) OnHealthCheck(ctx context.Context) error {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
@@ -238,17 +240,19 @@ func (hc *ManagerImpl) OnHealthCheck(ctx context.Context) error {
 	return nil
 }
 
-// Register registers a health check
+// Register registers a health check.
 func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 	hc.mu.Lock()
+
 	name := check.Name()
 	if _, exists := hc.checks[name]; exists {
 		hc.mu.Unlock()
+
 		return errors.ErrServiceAlreadyExists(name)
 	}
 
 	hc.checks[name] = check
-	
+
 	// Get check count while holding lock
 	checkCount := len(hc.checks)
 	metrics := hc.metrics
@@ -273,21 +277,24 @@ func (hc *ManagerImpl) Register(check healthinternal.HealthCheck) error {
 	return nil
 }
 
-// RegisterFn registers a function-based health check
+// RegisterFn registers a function-based health check.
 func (hc *ManagerImpl) RegisterFn(name string, checkFn healthinternal.HealthCheckFunc) error {
 	config := &healthinternal.HealthCheckConfig{
 		Name:    name,
 		Timeout: hc.config.DefaultTimeout,
 	}
 	check := healthinternal.NewSimpleHealthCheck(config, checkFn)
+
 	return hc.Register(check)
 }
 
-// Unregister unregisters a health check
+// Unregister unregisters a health check.
 func (hc *ManagerImpl) Unregister(name string) error {
 	hc.mu.Lock()
+
 	if _, exists := hc.checks[name]; !exists {
 		hc.mu.Unlock()
+
 		return errors.ErrServiceNotFound(name)
 	}
 
@@ -314,13 +321,13 @@ func (hc *ManagerImpl) Unregister(name string) error {
 	return nil
 }
 
-// CheckAll performs all health checks and returns a comprehensive report
+// CheckAll performs all health checks and returns a comprehensive report.
 func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 	hc.mu.RLock()
+
 	checks := make(map[string]healthinternal.HealthCheck)
-	for name, check := range hc.checks {
-		checks[name] = check
-	}
+	maps.Copy(checks, hc.checks)
+
 	hc.mu.RUnlock()
 
 	start := time.Now()
@@ -328,16 +335,21 @@ func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 
 	// Perform checks concurrently with semaphore
 	sem := make(chan struct{}, hc.config.MaxConcurrentChecks)
-	var wg sync.WaitGroup
-	var resultsMu sync.Mutex
+
+	var (
+		wg        sync.WaitGroup
+		resultsMu sync.Mutex
+	)
 
 	for name, check := range checks {
 		wg.Add(1)
+
 		go func(name string, check healthinternal.HealthCheck) {
 			defer wg.Done()
 
 			// Acquire semaphore
 			sem <- struct{}{}
+
 			defer func() { <-sem }()
 
 			// Create timeout context
@@ -349,7 +361,9 @@ func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 
 			// Store result
 			resultsMu.Lock()
+
 			results[name] = result
+
 			resultsMu.Unlock()
 
 			// Send result to processor
@@ -391,7 +405,7 @@ func (hc *ManagerImpl) Check(ctx context.Context) *healthinternal.HealthReport {
 	return report
 }
 
-// CheckOne performs a single health check
+// CheckOne performs a single health check.
 func (hc *ManagerImpl) CheckOne(ctx context.Context, name string) *healthinternal.HealthResult {
 	hc.mu.RLock()
 	check, exists := hc.checks[name]
@@ -423,7 +437,7 @@ func (hc *ManagerImpl) CheckOne(ctx context.Context, name string) *healthinterna
 	return result
 }
 
-// GetStatus returns the current overall health status
+// GetStatus returns the current overall health status.
 func (hc *ManagerImpl) GetStatus() healthinternal.HealthStatus {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
@@ -435,7 +449,7 @@ func (hc *ManagerImpl) GetStatus() healthinternal.HealthStatus {
 	return hc.lastReport.Overall
 }
 
-// Subscribe adds a callback for health status changes
+// Subscribe adds a callback for health status changes.
 func (hc *ManagerImpl) Subscribe(callback healthinternal.HealthCallback) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
@@ -451,26 +465,26 @@ func (hc *ManagerImpl) Subscribe(callback healthinternal.HealthCallback) error {
 	return nil
 }
 
-// GetLastReport returns the last health report
+// GetLastReport returns the last health report.
 func (hc *ManagerImpl) GetLastReport() *healthinternal.HealthReport {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
+
 	return hc.lastReport
 }
 
-// GetChecks returns all registered health checks
+// GetChecks returns all registered health checks.
 func (hc *ManagerImpl) GetChecks() map[string]healthinternal.HealthCheck {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
 
 	checks := make(map[string]healthinternal.HealthCheck)
-	for name, check := range hc.checks {
-		checks[name] = check
-	}
+	maps.Copy(checks, hc.checks)
+
 	return checks
 }
 
-// GetStats returns health checker statistics
+// GetStats returns health checker statistics.
 func (hc *ManagerImpl) GetStats() *healthinternal.HealthCheckerStats {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
@@ -491,12 +505,12 @@ func (hc *ManagerImpl) GetStats() *healthinternal.HealthCheckerStats {
 	return stats
 }
 
-// autoDiscoverServices automatically discovers services for health checking
+// autoDiscoverServices automatically discovers services for health checking.
 func (hc *ManagerImpl) autoDiscoverServices() {
 	hc.mu.RLock()
 	container := hc.container
 	hc.mu.RUnlock()
-	
+
 	if container == nil {
 		return
 	}
@@ -509,7 +523,7 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 		hc.mu.RLock()
 		_, exists := hc.checks[serviceName]
 		hc.mu.RUnlock()
-		
+
 		if exists {
 			continue
 		}
@@ -535,6 +549,7 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 		if _, exists := hc.checks[serviceName]; !exists {
 			hc.checks[serviceName] = check
 		}
+
 		hc.mu.Unlock()
 
 		if hc.logger != nil {
@@ -546,17 +561,17 @@ func (hc *ManagerImpl) autoDiscoverServices() {
 	}
 }
 
-// checkService performs a health check on a service
+// checkService performs a health check on a service.
 func (hc *ManagerImpl) checkService(ctx context.Context, serviceName string) *healthinternal.HealthResult {
 	// Try to resolve the service
 	hc.mu.RLock()
 	container := hc.container
 	hc.mu.RUnlock()
-	
+
 	if container == nil {
 		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "container not available")
 	}
-	
+
 	service, err := container.Resolve(serviceName)
 	if err != nil {
 		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "service not found").WithError(err)
@@ -567,6 +582,7 @@ func (hc *ManagerImpl) checkService(ctx context.Context, serviceName string) *he
 		if err := healthCheckable.OnHealthCheck(ctx); err != nil {
 			return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusUnhealthy, "service health check failed").WithError(err)
 		}
+
 		return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusHealthy, "service health check passed")
 	}
 
@@ -574,26 +590,23 @@ func (hc *ManagerImpl) checkService(ctx context.Context, serviceName string) *he
 	return healthinternal.NewHealthResult(serviceName, healthinternal.HealthStatusHealthy, "service exists and is resolvable")
 }
 
-// isCriticalService checks if a service is marked as critical
+// isCriticalService checks if a service is marked as critical.
 func (hc *ManagerImpl) isCriticalService(serviceName string) bool {
-	for _, critical := range hc.config.CriticalServices {
-		if critical == serviceName {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(hc.config.CriticalServices, serviceName)
 }
 
-// enrichContext adds framework information to the context
+// enrichContext adds framework information to the context.
 func (hc *ManagerImpl) enrichContext(ctx context.Context) context.Context {
 	ctx = context.WithValue(ctx, "version", hc.version)
 	ctx = context.WithValue(ctx, "environment", hc.environment)
 	ctx = context.WithValue(ctx, "hostname", hc.hostname)
 	ctx = context.WithValue(ctx, "uptime", time.Since(hc.startTime))
+
 	return ctx
 }
 
-// checkLoop runs the periodic health check loop
+// checkLoop runs the periodic health check loop.
 func (hc *ManagerImpl) checkLoop(ctx context.Context) {
 	ticker := time.NewTicker(hc.config.CheckInterval)
 	defer ticker.Stop()
@@ -610,7 +623,7 @@ func (hc *ManagerImpl) checkLoop(ctx context.Context) {
 	}
 }
 
-// reportLoop runs the periodic report generation loop
+// reportLoop runs the periodic report generation loop.
 func (hc *ManagerImpl) reportLoop(ctx context.Context) {
 	ticker := time.NewTicker(hc.config.ReportInterval)
 	defer ticker.Stop()
@@ -639,7 +652,7 @@ func (hc *ManagerImpl) reportLoop(ctx context.Context) {
 	}
 }
 
-// resultProcessor processes health check results
+// resultProcessor processes health check results.
 func (hc *ManagerImpl) resultProcessor(ctx context.Context) {
 	for {
 		select {
@@ -660,6 +673,7 @@ func (hc *ManagerImpl) resultProcessor(ctx context.Context) {
 							}
 						}
 					}()
+
 					cb(result)
 				}(callback)
 			}
@@ -670,7 +684,7 @@ func (hc *ManagerImpl) resultProcessor(ctx context.Context) {
 	}
 }
 
-// processReport processes a health report
+// processReport processes a health report.
 func (hc *ManagerImpl) processReport(report *healthinternal.HealthReport) {
 	// TODO: Implement persistence and alerting
 	// This would integrate with the persistence and alerting packages
@@ -709,10 +723,11 @@ func (hc *ManagerImpl) StartTime() time.Time {
 // CONTAINER MANAGEMENT
 // =============================================================================
 
-// SetContainer sets the container reference for health checks
+// SetContainer sets the container reference for health checks.
 func (hc *ManagerImpl) SetContainer(container shared.Container) {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
+
 	hc.container = container
 
 	if hc.logger != nil {
@@ -724,14 +739,14 @@ func (hc *ManagerImpl) SetContainer(container shared.Container) {
 // RELOAD CONFIGURATION
 // =============================================================================
 
-// Reload reloads the health configuration at runtime
+// Reload reloads the health configuration at runtime.
 func (hc *ManagerImpl) Reload(config *HealthConfig) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
 
 	if config == nil {
 		return errors.ErrInvalidConfig("health_config",
-			fmt.Errorf("config cannot be nil"))
+			errors.New("config cannot be nil"))
 	}
 
 	if hc.logger != nil {
@@ -779,6 +794,7 @@ func (hc *ManagerImpl) Reload(config *HealthConfig) error {
 	if config.Environment != "" && config.Environment != hc.environment {
 		hc.environment = config.Environment
 	}
+
 	if config.Version != "" && config.Version != hc.version {
 		hc.version = config.Version
 	}
@@ -790,15 +806,17 @@ func (hc *ManagerImpl) Reload(config *HealthConfig) error {
 	return nil
 }
 
-// equalStringSlices checks if two string slices are equal
+// equalStringSlices checks if two string slices are equal.
 func equalStringSlices(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
+
 	for i := range a {
 		if a[i] != b[i] {
 			return false
 		}
 	}
+
 	return true
 }

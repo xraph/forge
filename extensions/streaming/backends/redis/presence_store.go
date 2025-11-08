@@ -21,6 +21,7 @@ func NewPresenceStore(client *redis.Client, prefix string) streaming.PresenceSto
 	if prefix == "" {
 		prefix = "streaming:presence"
 	}
+
 	return &PresenceStore{
 		client: client,
 		prefix: prefix,
@@ -42,9 +43,10 @@ func (s *PresenceStore) Get(ctx context.Context, userID string) (*streaming.User
 	key := s.prefix + ":" + userID
 
 	data, err := s.client.Get(ctx, key).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return nil, streaming.ErrPresenceNotFound
 	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +127,7 @@ func (s *PresenceStore) SetOnline(ctx context.Context, userID string, ttl time.D
 
 	// Add to online set with score as expiration time
 	expiresAt := time.Now().Add(ttl).Unix()
+
 	return s.client.ZAdd(ctx, onlineKey, redis.Z{
 		Score:  float64(expiresAt),
 		Member: userID,
@@ -133,6 +136,7 @@ func (s *PresenceStore) SetOnline(ctx context.Context, userID string, ttl time.D
 
 func (s *PresenceStore) SetOffline(ctx context.Context, userID string) error {
 	onlineKey := s.prefix + ":online"
+
 	return s.client.ZRem(ctx, onlineKey, userID).Err()
 }
 
@@ -140,9 +144,10 @@ func (s *PresenceStore) IsOnline(ctx context.Context, userID string) (bool, erro
 	onlineKey := s.prefix + ":online"
 
 	score, err := s.client.ZScore(ctx, onlineKey, userID).Result()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		return false, nil
 	}
+
 	if err != nil {
 		return false, err
 	}
@@ -158,6 +163,7 @@ func (s *PresenceStore) UpdateActivity(ctx context.Context, userID string, times
 	}
 
 	presence.LastSeen = timestamp
+
 	return s.Set(ctx, userID, presence)
 }
 
@@ -175,6 +181,7 @@ func (s *PresenceStore) CleanupExpired(ctx context.Context, olderThan time.Durat
 
 	// Remove expired users from online set
 	now := time.Now().Unix()
+
 	return s.client.ZRemRangeByScore(ctx, onlineKey, "-inf", string(rune(now))).Err()
 }
 
@@ -199,14 +206,17 @@ func (s *PresenceStore) SetMultiple(ctx context.Context, presences map[string]*s
 	pipe := s.client.Pipeline()
 	for userID, presence := range presences {
 		key := s.prefix + ":" + userID
+
 		dataJSON, err := json.Marshal(presence)
 		if err != nil {
 			return err
 		}
+
 		pipe.Set(ctx, key, dataJSON, 0)
 	}
 
 	_, err := pipe.Exec(ctx)
+
 	return err
 }
 
@@ -223,7 +233,7 @@ func (s *PresenceStore) DeleteMultiple(ctx context.Context, userIDs []string) er
 
 	pipe := s.client.Pipeline()
 	pipe.Del(ctx, keys...)
-	
+
 	// Also remove from online set
 	onlineKey := s.prefix + ":online"
 	for _, userID := range userIDs {
@@ -231,6 +241,7 @@ func (s *PresenceStore) DeleteMultiple(ctx context.Context, userIDs []string) er
 	}
 
 	_, err := pipe.Exec(ctx)
+
 	return err
 }
 
@@ -238,6 +249,7 @@ func (s *PresenceStore) DeleteMultiple(ctx context.Context, userIDs []string) er
 func (s *PresenceStore) GetByStatus(ctx context.Context, status string) ([]*streaming.UserPresence, error) {
 	// Get all presence keys
 	pattern := s.prefix + ":*"
+
 	keys, err := s.client.Keys(ctx, pattern).Result()
 	if err != nil {
 		return nil, err
@@ -254,6 +266,7 @@ func (s *PresenceStore) GetByStatus(ctx context.Context, status string) ([]*stre
 	}
 
 	var presences []*streaming.UserPresence
+
 	for _, result := range results {
 		if result == nil {
 			continue
@@ -280,9 +293,10 @@ func (s *PresenceStore) GetByStatus(ctx context.Context, status string) ([]*stre
 // GetRecent returns presence records with the specified status updated since the given duration.
 func (s *PresenceStore) GetRecent(ctx context.Context, status string, since time.Duration) ([]*streaming.UserPresence, error) {
 	cutoff := time.Now().Add(-since)
-	
+
 	// Get all presence keys
 	pattern := s.prefix + ":*"
+
 	keys, err := s.client.Keys(ctx, pattern).Result()
 	if err != nil {
 		return nil, err
@@ -299,6 +313,7 @@ func (s *PresenceStore) GetRecent(ctx context.Context, status string, since time
 	}
 
 	var presences []*streaming.UserPresence
+
 	for _, result := range results {
 		if result == nil {
 			continue
@@ -326,6 +341,7 @@ func (s *PresenceStore) GetRecent(ctx context.Context, status string, since time
 func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.PresenceFilters) ([]*streaming.UserPresence, error) {
 	// Get all presence keys
 	pattern := s.prefix + ":*"
+
 	keys, err := s.client.Keys(ctx, pattern).Result()
 	if err != nil {
 		return nil, err
@@ -342,6 +358,7 @@ func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.Pr
 	}
 
 	var presences []*streaming.UserPresence
+
 	for _, result := range results {
 		if result == nil {
 			continue
@@ -360,12 +377,15 @@ func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.Pr
 		// Apply filters
 		if len(filters.Status) > 0 {
 			found := false
+
 			for _, status := range filters.Status {
 				if presence.Status == status {
 					found = true
+
 					break
 				}
 			}
+
 			if !found {
 				continue
 			}
@@ -384,7 +404,7 @@ func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.Pr
 // SaveHistory saves a presence event to history.
 func (s *PresenceStore) SaveHistory(ctx context.Context, userID string, event *streaming.PresenceEvent) error {
 	historyKey := s.prefix + ":history:" + userID
-	
+
 	eventJSON, err := json.Marshal(event)
 	if err != nil {
 		return err
@@ -392,6 +412,7 @@ func (s *PresenceStore) SaveHistory(ctx context.Context, userID string, event *s
 
 	// Add to sorted set with timestamp as score
 	score := float64(event.Timestamp.Unix())
+
 	return s.client.ZAdd(ctx, historyKey, redis.Z{
 		Score:  score,
 		Member: string(eventJSON),
@@ -401,7 +422,7 @@ func (s *PresenceStore) SaveHistory(ctx context.Context, userID string, event *s
 // GetHistory returns presence history for a user.
 func (s *PresenceStore) GetHistory(ctx context.Context, userID string, limit int) ([]*streaming.PresenceEvent, error) {
 	historyKey := s.prefix + ":history:" + userID
-	
+
 	// Get latest events (highest scores first)
 	results, err := s.client.ZRevRange(ctx, historyKey, 0, int64(limit-1)).Result()
 	if err != nil {
@@ -414,6 +435,7 @@ func (s *PresenceStore) GetHistory(ctx context.Context, userID string, limit int
 		if err := json.Unmarshal([]byte(result), &event); err != nil {
 			continue
 		}
+
 		events = append(events, &event)
 	}
 
@@ -423,9 +445,10 @@ func (s *PresenceStore) GetHistory(ctx context.Context, userID string, limit int
 // GetHistorySince returns presence history for a user since the specified time.
 func (s *PresenceStore) GetHistorySince(ctx context.Context, userID string, since time.Time) ([]*streaming.PresenceEvent, error) {
 	historyKey := s.prefix + ":history:" + userID
-	
+
 	// Get events since timestamp
 	minScore := float64(since.Unix())
+
 	results, err := s.client.ZRangeByScore(ctx, historyKey, &redis.ZRangeBy{
 		Min: string(rune(int(minScore))),
 		Max: "+inf",
@@ -440,6 +463,7 @@ func (s *PresenceStore) GetHistorySince(ctx context.Context, userID string, sinc
 		if err := json.Unmarshal([]byte(result), &event); err != nil {
 			continue
 		}
+
 		events = append(events, &event)
 	}
 
@@ -449,7 +473,7 @@ func (s *PresenceStore) GetHistorySince(ctx context.Context, userID string, sinc
 // SetDevice sets device information for a user.
 func (s *PresenceStore) SetDevice(ctx context.Context, userID, deviceID string, device streaming.DeviceInfo) error {
 	deviceKey := s.prefix + ":devices:" + userID + ":" + deviceID
-	
+
 	deviceJSON, err := json.Marshal(device)
 	if err != nil {
 		return err
@@ -461,6 +485,7 @@ func (s *PresenceStore) SetDevice(ctx context.Context, userID, deviceID string, 
 // GetDevices returns all devices for a user.
 func (s *PresenceStore) GetDevices(ctx context.Context, userID string) ([]streaming.DeviceInfo, error) {
 	pattern := s.prefix + ":devices:" + userID + ":*"
+
 	keys, err := s.client.Keys(ctx, pattern).Result()
 	if err != nil {
 		return nil, err
@@ -500,6 +525,7 @@ func (s *PresenceStore) GetDevices(ctx context.Context, userID string) ([]stream
 // RemoveDevice removes a device for a user.
 func (s *PresenceStore) RemoveDevice(ctx context.Context, userID, deviceID string) error {
 	deviceKey := s.prefix + ":devices:" + userID + ":" + deviceID
+
 	return s.client.Del(ctx, deviceKey).Err()
 }
 
@@ -507,6 +533,7 @@ func (s *PresenceStore) RemoveDevice(ctx context.Context, userID, deviceID strin
 func (s *PresenceStore) CountByStatus(ctx context.Context) (map[string]int, error) {
 	// Get all presence keys
 	pattern := s.prefix + ":*"
+
 	keys, err := s.client.Keys(ctx, pattern).Result()
 	if err != nil {
 		return nil, err
@@ -518,6 +545,7 @@ func (s *PresenceStore) CountByStatus(ctx context.Context) (map[string]int, erro
 
 	// Filter out non-presence keys (history, devices, etc.)
 	var presenceKeys []string
+
 	for _, key := range keys {
 		if !strings.Contains(key, ":history:") && !strings.Contains(key, ":devices:") && !strings.Contains(key, ":online") {
 			presenceKeys = append(presenceKeys, key)
@@ -535,6 +563,7 @@ func (s *PresenceStore) CountByStatus(ctx context.Context) (map[string]int, erro
 	}
 
 	counts := make(map[string]int)
+
 	for _, result := range results {
 		if result == nil {
 			continue
@@ -559,9 +588,10 @@ func (s *PresenceStore) CountByStatus(ctx context.Context) (map[string]int, erro
 // GetActiveCount returns count of users active since the specified duration.
 func (s *PresenceStore) GetActiveCount(ctx context.Context, since time.Duration) (int, error) {
 	cutoff := time.Now().Add(-since)
-	
+
 	// Get all presence keys
 	pattern := s.prefix + ":*"
+
 	keys, err := s.client.Keys(ctx, pattern).Result()
 	if err != nil {
 		return 0, err
@@ -573,6 +603,7 @@ func (s *PresenceStore) GetActiveCount(ctx context.Context, since time.Duration)
 
 	// Filter out non-presence keys
 	var presenceKeys []string
+
 	for _, key := range keys {
 		if !strings.Contains(key, ":history:") && !strings.Contains(key, ":devices:") && !strings.Contains(key, ":online") {
 			presenceKeys = append(presenceKeys, key)
@@ -590,6 +621,7 @@ func (s *PresenceStore) GetActiveCount(ctx context.Context, since time.Duration)
 	}
 
 	count := 0
+
 	for _, result := range results {
 		if result == nil {
 			continue

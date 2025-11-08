@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/database/migrate"
 )
 
-// DatabaseType represents the type of database
+// DatabaseType represents the type of database.
 type DatabaseType string
 
 const (
@@ -21,7 +21,7 @@ const (
 	TypeRedis    DatabaseType = "redis"
 )
 
-// ConnectionState represents the state of a database connection
+// ConnectionState represents the state of a database connection.
 type ConnectionState int32
 
 const (
@@ -49,7 +49,7 @@ func (s ConnectionState) String() string {
 	}
 }
 
-// Database represents a database connection
+// Database represents a database connection.
 type Database interface {
 	// Identity
 	Name() string
@@ -69,40 +69,40 @@ type Database interface {
 	Stats() DatabaseStats
 
 	// Access to native driver/ORM
-	Driver() interface{}
+	Driver() any
 }
 
-// DatabaseConfig is the configuration for a database connection
+// DatabaseConfig is the configuration for a database connection.
 type DatabaseConfig struct {
-	Name string       `yaml:"name" json:"name"`
-	Type DatabaseType `yaml:"type" json:"type"`
-	DSN  string       `yaml:"dsn" json:"dsn"`
+	Name string       `json:"name" yaml:"name"`
+	Type DatabaseType `json:"type" yaml:"type"`
+	DSN  string       `json:"dsn"  yaml:"dsn"`
 
 	// Connection pool settings
-	MaxOpenConns    int           `yaml:"max_open_conns" json:"max_open_conns" default:"25"`
-	MaxIdleConns    int           `yaml:"max_idle_conns" json:"max_idle_conns" default:"5"`
-	ConnMaxLifetime time.Duration `yaml:"conn_max_lifetime" json:"conn_max_lifetime" default:"5m"`
-	ConnMaxIdleTime time.Duration `yaml:"conn_max_idle_time" json:"conn_max_idle_time" default:"5m"`
+	MaxOpenConns    int           `default:"25" json:"max_open_conns"     yaml:"max_open_conns"`
+	MaxIdleConns    int           `default:"5"  json:"max_idle_conns"     yaml:"max_idle_conns"`
+	ConnMaxLifetime time.Duration `default:"5m" json:"conn_max_lifetime"  yaml:"conn_max_lifetime"`
+	ConnMaxIdleTime time.Duration `default:"5m" json:"conn_max_idle_time" yaml:"conn_max_idle_time"`
 
 	// Retry settings
-	MaxRetries int           `yaml:"max_retries" json:"max_retries" default:"3"`
-	RetryDelay time.Duration `yaml:"retry_delay" json:"retry_delay" default:"1s"`
+	MaxRetries int           `default:"3"  json:"max_retries" yaml:"max_retries"`
+	RetryDelay time.Duration `default:"1s" json:"retry_delay" yaml:"retry_delay"`
 
 	// Timeout settings
-	ConnectionTimeout time.Duration `yaml:"connection_timeout" json:"connection_timeout" default:"10s"`
-	QueryTimeout      time.Duration `yaml:"query_timeout" json:"query_timeout" default:"30s"`
+	ConnectionTimeout time.Duration `default:"10s" json:"connection_timeout" yaml:"connection_timeout"`
+	QueryTimeout      time.Duration `default:"30s" json:"query_timeout"      yaml:"query_timeout"`
 
 	// Observability settings
-	SlowQueryThreshold time.Duration `yaml:"slow_query_threshold" json:"slow_query_threshold" default:"100ms"`
+	SlowQueryThreshold time.Duration `default:"100ms" json:"slow_query_threshold" yaml:"slow_query_threshold"`
 
 	// Health check
-	HealthCheckInterval time.Duration `yaml:"health_check_interval" json:"health_check_interval" default:"30s"`
+	HealthCheckInterval time.Duration `default:"30s" json:"health_check_interval" yaml:"health_check_interval"`
 
 	// Additional config (database-specific)
-	Config map[string]interface{} `yaml:"config" json:"config"`
+	Config map[string]any `json:"config" yaml:"config"`
 }
 
-// DatabaseStats provides connection pool statistics
+// DatabaseStats provides connection pool statistics.
 type DatabaseStats struct {
 	OpenConnections   int           `json:"open_connections"`
 	InUse             int           `json:"in_use"`
@@ -113,7 +113,7 @@ type DatabaseStats struct {
 	MaxLifetimeClosed int64         `json:"max_lifetime_closed"`
 }
 
-// HealthStatus provides database health status
+// HealthStatus provides database health status.
 type HealthStatus struct {
 	Healthy   bool          `json:"healthy"`
 	Message   string        `json:"message"`
@@ -121,7 +121,7 @@ type HealthStatus struct {
 	CheckedAt time.Time     `json:"checked_at"`
 }
 
-// MigrationStatus provides migration status
+// MigrationStatus provides migration status.
 type MigrationStatus struct {
 	ID        int64     `json:"id"`
 	Applied   bool      `json:"applied"`
@@ -130,18 +130,18 @@ type MigrationStatus struct {
 
 // Re-export migrate package for convenience
 // This allows users to import "github.com/xraph/forge/extensions/database"
-// and use database.Migrations instead of importing the migrate subpackage
+// and use database.Migrations instead of importing the migrate subpackage.
 var (
 	// Migrations is the global migration collection
-	// All migrations should register themselves here using init()
+	// All migrations should register themselves here using init().
 	Migrations = migrate.Migrations
 
-	// RegisterMigration is a helper to register a migration
+	// RegisterMigration is a helper to register a migration.
 	RegisterMigration = migrate.RegisterMigration
 
-	// RegisterModel adds a model to the auto-registration list
+	// RegisterModel adds a model to the auto-registration list.
 	RegisterModel = migrate.RegisterModel
 
-	// Models is the list of all models that should be auto-registered
+	// Models is the list of all models that should be auto-registered.
 	Models = &migrate.Models
 )

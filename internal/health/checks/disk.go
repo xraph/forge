@@ -2,7 +2,6 @@
 
 package checks
 
-//nolint:gosec // G115: Integer conversions for disk metrics are safe
 // Conversions are used for calculating file sizes from file system operations.
 
 import (
@@ -18,9 +17,10 @@ import (
 	health "github.com/xraph/forge/internal/health/internal"
 )
 
-// DiskHealthCheck performs health checks on disk usage
+// DiskHealthCheck performs health checks on disk usage.
 type DiskHealthCheck struct {
 	*health.BaseHealthCheck
+
 	paths             []string
 	warningThreshold  float64 // Percentage (0-100)
 	criticalThreshold float64 // Percentage (0-100)
@@ -29,7 +29,7 @@ type DiskHealthCheck struct {
 	mu                sync.RWMutex
 }
 
-// DiskHealthCheckConfig contains configuration for disk health checks
+// DiskHealthCheckConfig contains configuration for disk health checks.
 type DiskHealthCheckConfig struct {
 	Name              string
 	Paths             []string
@@ -42,7 +42,7 @@ type DiskHealthCheckConfig struct {
 	Tags              map[string]string
 }
 
-// NewDiskHealthCheck creates a new disk health check
+// NewDiskHealthCheck creates a new disk health check.
 func NewDiskHealthCheck(config *DiskHealthCheckConfig) *DiskHealthCheck {
 	if config == nil {
 		config = &DiskHealthCheckConfig{}
@@ -91,7 +91,7 @@ func NewDiskHealthCheck(config *DiskHealthCheckConfig) *DiskHealthCheck {
 	}
 }
 
-// Check performs the disk health check
+// Check performs the disk health check.
 func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -99,10 +99,13 @@ func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
 		WithCritical(dhc.Critical()).
 		WithTags(dhc.Tags())
 
-	var maxUsagePercent float64
-	var criticalPaths []string
-	var warningPaths []string
-	pathStats := make(map[string]interface{})
+	var (
+		maxUsagePercent float64
+		criticalPaths   []string
+		warningPaths    []string
+	)
+
+	pathStats := make(map[string]any)
 
 	// Check each path
 	for _, path := range dhc.paths {
@@ -114,7 +117,8 @@ func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
 
 		pathInfo, err := dhc.checkPath(path)
 		if err != nil {
-			result.WithDetail(fmt.Sprintf("path_error_%s", sanitizePath(path)), err.Error())
+			result.WithDetail("path_error_"+sanitizePath(path), err.Error())
+
 			continue
 		}
 
@@ -159,11 +163,12 @@ func (dhc *DiskHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// checkPath checks disk usage for a specific path
-func (dhc *DiskHealthCheck) checkPath(path string) (map[string]interface{}, error) {
+// checkPath checks disk usage for a specific path.
+func (dhc *DiskHealthCheck) checkPath(path string) (map[string]any, error) {
 	dhc.mu.RLock()
 	defer dhc.mu.RUnlock()
 
@@ -184,7 +189,7 @@ func (dhc *DiskHealthCheck) checkPath(path string) (map[string]interface{}, erro
 	usedBytes := totalBytes - freeBytes
 	usagePercent := float64(usedBytes) / float64(totalBytes) * 100.0
 
-	pathInfo := map[string]interface{}{
+	pathInfo := map[string]any{
 		"path":          path,
 		"total_bytes":   totalBytes,
 		"used_bytes":    usedBytes,
@@ -200,6 +205,7 @@ func (dhc *DiskHealthCheck) checkPath(path string) (map[string]interface{}, erro
 		totalInodes := stat.Files
 		freeInodes := stat.Ffree
 		usedInodes := totalInodes - freeInodes
+
 		var inodeUsagePercent float64
 		if totalInodes > 0 {
 			inodeUsagePercent = float64(usedInodes) / float64(totalInodes) * 100.0
@@ -214,11 +220,11 @@ func (dhc *DiskHealthCheck) checkPath(path string) (map[string]interface{}, erro
 	return pathInfo, nil
 }
 
-// getIOStats returns disk I/O statistics
-func (dhc *DiskHealthCheck) getIOStats() map[string]interface{} {
+// getIOStats returns disk I/O statistics.
+func (dhc *DiskHealthCheck) getIOStats() map[string]any {
 	// In a real implementation, this would read from /proc/diskstats or similar
 	// For now, return placeholder data
-	return map[string]interface{}{
+	return map[string]any{
 		"io_reads":       1000,
 		"io_writes":      500,
 		"io_read_bytes":  1024 * 1024 * 100, // 100MB
@@ -227,44 +233,50 @@ func (dhc *DiskHealthCheck) getIOStats() map[string]interface{} {
 	}
 }
 
-// AddPath adds a path to monitor
+// AddPath adds a path to monitor.
 func (dhc *DiskHealthCheck) AddPath(path string) {
 	dhc.mu.Lock()
 	defer dhc.mu.Unlock()
+
 	dhc.paths = append(dhc.paths, path)
 }
 
-// RemovePath removes a path from monitoring
+// RemovePath removes a path from monitoring.
 func (dhc *DiskHealthCheck) RemovePath(path string) {
 	dhc.mu.Lock()
 	defer dhc.mu.Unlock()
+
 	for i, p := range dhc.paths {
 		if p == path {
 			dhc.paths = append(dhc.paths[:i], dhc.paths[i+1:]...)
+
 			break
 		}
 	}
 }
 
-// GetPaths returns the paths being monitored
+// GetPaths returns the paths being monitored.
 func (dhc *DiskHealthCheck) GetPaths() []string {
 	dhc.mu.RLock()
 	defer dhc.mu.RUnlock()
+
 	paths := make([]string, len(dhc.paths))
 	copy(paths, dhc.paths)
+
 	return paths
 }
 
-// DiskIOHealthCheck performs health checks on disk I/O performance
+// DiskIOHealthCheck performs health checks on disk I/O performance.
 type DiskIOHealthCheck struct {
 	*health.BaseHealthCheck
+
 	readLatencyThreshold  time.Duration
 	writeLatencyThreshold time.Duration
 	utilizationThreshold  float64
 	devices               []string
 }
 
-// NewDiskIOHealthCheck creates a new disk I/O health check
+// NewDiskIOHealthCheck creates a new disk I/O health check.
 func NewDiskIOHealthCheck(config *DiskHealthCheckConfig) *DiskIOHealthCheck {
 	if config == nil {
 		config = &DiskHealthCheckConfig{}
@@ -296,7 +308,7 @@ func NewDiskIOHealthCheck(config *DiskHealthCheckConfig) *DiskIOHealthCheck {
 	}
 }
 
-// Check performs the disk I/O health check
+// Check performs the disk I/O health check.
 func (diohc *DiskIOHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -305,9 +317,12 @@ func (diohc *DiskIOHealthCheck) Check(ctx context.Context) *health.HealthResult 
 		WithTags(diohc.Tags())
 
 	// Check I/O statistics for each device
-	deviceStats := make(map[string]interface{})
-	var maxUtilization float64
-	var highUtilizationDevices []string
+	deviceStats := make(map[string]any)
+
+	var (
+		maxUtilization         float64
+		highUtilizationDevices []string
+	)
 
 	for _, device := range diohc.devices {
 		select {
@@ -342,14 +357,15 @@ func (diohc *DiskIOHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// checkDevice checks I/O statistics for a specific device
-func (diohc *DiskIOHealthCheck) checkDevice(device string) map[string]interface{} {
+// checkDevice checks I/O statistics for a specific device.
+func (diohc *DiskIOHealthCheck) checkDevice(device string) map[string]any {
 	// In a real implementation, this would read from /proc/diskstats
 	// For now, return placeholder data
-	return map[string]interface{}{
+	return map[string]any{
 		"device":         device,
 		"reads_per_sec":  150,
 		"writes_per_sec": 75,
@@ -360,15 +376,16 @@ func (diohc *DiskIOHealthCheck) checkDevice(device string) map[string]interface{
 	}
 }
 
-// TempDirHealthCheck performs health checks on temporary directories
+// TempDirHealthCheck performs health checks on temporary directories.
 type TempDirHealthCheck struct {
 	*health.BaseHealthCheck
+
 	tempDirs         []string
 	sizeThreshold    uint64
 	oldFileThreshold time.Duration
 }
 
-// NewTempDirHealthCheck creates a new temporary directory health check
+// NewTempDirHealthCheck creates a new temporary directory health check.
 func NewTempDirHealthCheck(config *DiskHealthCheckConfig) *TempDirHealthCheck {
 	if config == nil {
 		config = &DiskHealthCheckConfig{}
@@ -399,7 +416,7 @@ func NewTempDirHealthCheck(config *DiskHealthCheckConfig) *TempDirHealthCheck {
 	}
 }
 
-// Check performs the temporary directory health check
+// Check performs the temporary directory health check.
 func (tdhc *TempDirHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -407,7 +424,8 @@ func (tdhc *TempDirHealthCheck) Check(ctx context.Context) *health.HealthResult 
 		WithCritical(tdhc.Critical()).
 		WithTags(tdhc.Tags())
 
-	tempDirStats := make(map[string]interface{})
+	tempDirStats := make(map[string]any)
+
 	var warnings []string
 
 	for _, tempDir := range tdhc.tempDirs {
@@ -445,12 +463,13 @@ func (tdhc *TempDirHealthCheck) Check(ctx context.Context) *health.HealthResult 
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// checkTempDir checks a temporary directory
-func (tdhc *TempDirHealthCheck) checkTempDir(tempDir string) map[string]interface{} {
-	info := map[string]interface{}{
+// checkTempDir checks a temporary directory.
+func (tdhc *TempDirHealthCheck) checkTempDir(tempDir string) map[string]any {
+	info := map[string]any{
 		"path":       tempDir,
 		"total_size": uint64(0),
 		"file_count": 0,
@@ -458,12 +477,15 @@ func (tdhc *TempDirHealthCheck) checkTempDir(tempDir string) map[string]interfac
 	}
 
 	// Walk through the directory
-	var totalSize uint64
-	var fileCount int
-	var oldFiles int
+	var (
+		totalSize uint64
+		fileCount int
+		oldFiles  int
+	)
+
 	cutoff := time.Now().Add(-tdhc.oldFileThreshold)
 
-	// nolint:gosec // G104: filepath.Walk error is not critical, we still return info
+	//nolint:gosec // G104: filepath.Walk error is not critical, we still return info
 	if err := filepath.Walk(tempDir, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
@@ -492,15 +514,16 @@ func (tdhc *TempDirHealthCheck) checkTempDir(tempDir string) map[string]interfac
 	return info
 }
 
-// LogDirHealthCheck performs health checks on log directories
+// LogDirHealthCheck performs health checks on log directories.
 type LogDirHealthCheck struct {
 	*health.BaseHealthCheck
+
 	logDirs       []string
 	sizeThreshold uint64
 	rotationCheck bool
 }
 
-// NewLogDirHealthCheck creates a new log directory health check
+// NewLogDirHealthCheck creates a new log directory health check.
 func NewLogDirHealthCheck(config *DiskHealthCheckConfig) *LogDirHealthCheck {
 	if config == nil {
 		config = &DiskHealthCheckConfig{}
@@ -531,7 +554,7 @@ func NewLogDirHealthCheck(config *DiskHealthCheckConfig) *LogDirHealthCheck {
 	}
 }
 
-// Check performs the log directory health check
+// Check performs the log directory health check.
 func (ldhc *LogDirHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	start := time.Now()
 
@@ -539,7 +562,8 @@ func (ldhc *LogDirHealthCheck) Check(ctx context.Context) *health.HealthResult {
 		WithCritical(ldhc.Critical()).
 		WithTags(ldhc.Tags())
 
-	logDirStats := make(map[string]interface{})
+	logDirStats := make(map[string]any)
+
 	var warnings []string
 
 	for _, logDir := range ldhc.logDirs {
@@ -579,23 +603,27 @@ func (ldhc *LogDirHealthCheck) Check(ctx context.Context) *health.HealthResult {
 	}
 
 	result.WithDuration(time.Since(start))
+
 	return result
 }
 
-// checkLogDir checks a log directory
-func (ldhc *LogDirHealthCheck) checkLogDir(logDir string) map[string]interface{} {
-	info := map[string]interface{}{
+// checkLogDir checks a log directory.
+func (ldhc *LogDirHealthCheck) checkLogDir(logDir string) map[string]any {
+	info := map[string]any{
 		"path":       logDir,
 		"total_size": uint64(0),
 		"log_files":  0,
 	}
 
 	// Walk through the directory
-	var totalSize uint64
-	var logFiles int
-	var rotationIssues []string
+	var (
+		totalSize      uint64
+		logFiles       int
+		rotationIssues []string
+	)
 
-	// nolint:gosec // G104: filepath.Walk error is not critical, we still return info
+	//nolint:gosec // G104: filepath.Walk error is not critical, we still return info
+
 	if err := filepath.Walk(logDir, func(path string, fileInfo os.FileInfo, err error) error {
 		if err != nil {
 			return nil // Skip files we can't access
@@ -630,26 +658,28 @@ func (ldhc *LogDirHealthCheck) checkLogDir(logDir string) map[string]interface{}
 
 // Helper functions
 
-// formatBytes formats bytes in human-readable format
+// formatBytes formats bytes in human-readable format.
 func formatBytes(bytes uint64) string {
 	const unit = 1024
 	if bytes < unit {
 		return fmt.Sprintf("%d B", bytes)
 	}
+
 	div, exp := int64(unit), 0
 	for n := bytes / unit; n >= unit; n /= unit {
 		div *= unit
 		exp++
 	}
+
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-// sanitizePath sanitizes a path for use as a map key
+// sanitizePath sanitizes a path for use as a map key.
 func sanitizePath(path string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(path, "/", "_"), ":", "_")
 }
 
-// RegisterDiskHealthChecks registers disk health checks with the health service
+// RegisterDiskHealthChecks registers disk health checks with the health service.
 func RegisterDiskHealthChecks(healthService health.HealthService) error {
 	// Register main disk health check
 	diskCheck := NewDiskHealthCheck(&DiskHealthCheckConfig{

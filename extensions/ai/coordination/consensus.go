@@ -6,10 +6,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// ConsensusAlgorithm defines different consensus algorithms
+// ConsensusAlgorithm defines different consensus algorithms.
 type ConsensusAlgorithm string
 
 const (
@@ -20,20 +21,20 @@ const (
 	ConsensusAlgorithmQuorum   ConsensusAlgorithm = "quorum"   // Quorum-based consensus
 )
 
-// ConsensusConfig contains configuration for consensus management
+// ConsensusConfig contains configuration for consensus management.
 type ConsensusConfig struct {
-	Algorithm               ConsensusAlgorithm `yaml:"algorithm" default:"majority"`
-	Timeout                 time.Duration      `yaml:"timeout" default:"30s"`
-	MinParticipants         int                `yaml:"min_participants" default:"3"`
-	QuorumSize              int                `yaml:"quorum_size" default:"2"`
-	MaxRetries              int                `yaml:"max_retries" default:"3"`
-	RetryDelay              time.Duration      `yaml:"retry_delay" default:"1s"`
-	ByzantineFaultTolerance bool               `yaml:"byzantine_fault_tolerance" default:"false"`
-	WeightingEnabled        bool               `yaml:"weighting_enabled" default:"true"`
-	ConflictResolution      string             `yaml:"conflict_resolution" default:"highest_weight"`
+	Algorithm               ConsensusAlgorithm `default:"majority"       yaml:"algorithm"`
+	Timeout                 time.Duration      `default:"30s"            yaml:"timeout"`
+	MinParticipants         int                `default:"3"              yaml:"min_participants"`
+	QuorumSize              int                `default:"2"              yaml:"quorum_size"`
+	MaxRetries              int                `default:"3"              yaml:"max_retries"`
+	RetryDelay              time.Duration      `default:"1s"             yaml:"retry_delay"`
+	ByzantineFaultTolerance bool               `default:"false"          yaml:"byzantine_fault_tolerance"`
+	WeightingEnabled        bool               `default:"true"           yaml:"weighting_enabled"`
+	ConflictResolution      string             `default:"highest_weight" yaml:"conflict_resolution"`
 }
 
-// ConsensusParticipant represents a participant in consensus
+// ConsensusParticipant represents a participant in consensus.
 type ConsensusParticipant struct {
 	ID         string                 `json:"id"`
 	Weight     float64                `json:"weight"`
@@ -45,7 +46,7 @@ type ConsensusParticipant struct {
 	Reputation float64                `json:"reputation"`
 }
 
-// ConsensusProposal represents a proposal for consensus
+// ConsensusProposal represents a proposal for consensus.
 type ConsensusProposal struct {
 	ID        string                 `json:"id"`
 	Type      string                 `json:"type"`
@@ -59,7 +60,7 @@ type ConsensusProposal struct {
 	Votes     []Vote                 `json:"votes"`
 }
 
-// ProposalStatus represents the status of a consensus proposal
+// ProposalStatus represents the status of a consensus proposal.
 type ProposalStatus string
 
 const (
@@ -72,7 +73,7 @@ const (
 	ProposalStatusCancelled ProposalStatus = "cancelled"
 )
 
-// Vote represents a vote in the consensus process
+// Vote represents a vote in the consensus process.
 type Vote struct {
 	ParticipantID string                 `json:"participant_id"`
 	Decision      interface{}            `json:"decision"`
@@ -83,7 +84,7 @@ type Vote struct {
 	Metadata      map[string]interface{} `json:"metadata"`
 }
 
-// ConsensusResult represents the result of a consensus process
+// ConsensusResult represents the result of a consensus process.
 type ConsensusResult struct {
 	ProposalID    string                           `json:"proposal_id"`
 	Decision      interface{}                      `json:"decision"`
@@ -104,7 +105,7 @@ type ConsensusResult struct {
 	Metadata      map[string]interface{}           `json:"metadata"`
 }
 
-// ConsensusStats contains statistics about consensus processes
+// ConsensusStats contains statistics about consensus processes.
 type ConsensusStats struct {
 	TotalProposals      int64                                 `json:"total_proposals"`
 	AcceptedProposals   int64                                 `json:"accepted_proposals"`
@@ -117,7 +118,7 @@ type ConsensusStats struct {
 	LastUpdated         time.Time                             `json:"last_updated"`
 }
 
-// ParticipantStats contains statistics for a consensus participant
+// ParticipantStats contains statistics for a consensus participant.
 type ParticipantStats struct {
 	TotalVotes       int64         `json:"total_votes"`
 	AgreedVotes      int64         `json:"agreed_votes"`
@@ -128,7 +129,7 @@ type ParticipantStats struct {
 	ReliabilityScore float64       `json:"reliability_score"`
 }
 
-// AlgorithmStats contains statistics for a consensus algorithm
+// AlgorithmStats contains statistics for a consensus algorithm.
 type AlgorithmStats struct {
 	TimesUsed         int64         `json:"times_used"`
 	SuccessRate       float64       `json:"success_rate"`
@@ -137,7 +138,7 @@ type AlgorithmStats struct {
 	ByzantineFailures int64         `json:"byzantine_failures"`
 }
 
-// ConsensusManager manages consensus-based decision making
+// ConsensusManager manages consensus-based decision making.
 type ConsensusManager struct {
 	config       ConsensusConfig
 	proposals    map[string]*ConsensusProposal
@@ -149,7 +150,7 @@ type ConsensusManager struct {
 	mu           sync.RWMutex
 }
 
-// NewConsensusManager creates a new consensus manager
+// NewConsensusManager creates a new consensus manager.
 func NewConsensusManager(timeout time.Duration, logger logger.Logger) *ConsensusManager {
 	return &ConsensusManager{
 		config: ConsensusConfig{
@@ -172,7 +173,7 @@ func NewConsensusManager(timeout time.Duration, logger logger.Logger) *Consensus
 	}
 }
 
-// consensusManager is the concrete implementation
+// consensusManager is the concrete implementation.
 type consensusManager struct {
 	config       ConsensusConfig
 	proposals    map[string]*ConsensusProposal
@@ -184,13 +185,13 @@ type consensusManager struct {
 	mu           sync.RWMutex
 }
 
-// Start starts the consensus manager
+// Start starts the consensus manager.
 func (cm *consensusManager) Start(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if cm.started {
-		return fmt.Errorf("consensus manager already started")
+		return errors.New("consensus manager already started")
 	}
 
 	// Start background processes
@@ -210,13 +211,13 @@ func (cm *consensusManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the consensus manager
+// Stop stops the consensus manager.
 func (cm *consensusManager) Stop(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if !cm.started {
-		return fmt.Errorf("consensus manager not started")
+		return errors.New("consensus manager not started")
 	}
 
 	cm.started = false
@@ -228,7 +229,7 @@ func (cm *consensusManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// RegisterParticipant registers a participant for consensus
+// RegisterParticipant registers a participant for consensus.
 func (cm *consensusManager) RegisterParticipant(id string, weight float64) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -258,7 +259,7 @@ func (cm *consensusManager) RegisterParticipant(id string, weight float64) error
 	return nil
 }
 
-// UnregisterParticipant removes a participant from consensus
+// UnregisterParticipant removes a participant from consensus.
 func (cm *consensusManager) UnregisterParticipant(id string) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -278,13 +279,13 @@ func (cm *consensusManager) UnregisterParticipant(id string) error {
 	return nil
 }
 
-// ProposeDecision proposes a decision for consensus
+// ProposeDecision proposes a decision for consensus.
 func (cm *consensusManager) ProposeDecision(proposal *ConsensusProposal) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if !cm.started {
-		return fmt.Errorf("consensus manager not started")
+		return errors.New("consensus manager not started")
 	}
 
 	proposal.ID = cm.generateProposalID()
@@ -303,10 +304,11 @@ func (cm *consensusManager) ProposeDecision(proposal *ConsensusProposal) error {
 	}
 
 	cm.stats.TotalProposals++
+
 	return nil
 }
 
-// ReachConsensus attempts to reach consensus on a decision
+// ReachConsensus attempts to reach consensus on a decision.
 func (cm *consensusManager) ReachConsensus(ctx context.Context, decision *CoordinationDecision) error {
 	// Create proposal from decision
 	proposal := &ConsensusProposal{
@@ -326,7 +328,7 @@ func (cm *consensusManager) ReachConsensus(ctx context.Context, decision *Coordi
 	return cm.waitForConsensus(ctx, proposal.ID, decision)
 }
 
-// VoteOnProposal allows a participant to vote on a proposal
+// VoteOnProposal allows a participant to vote on a proposal.
 func (cm *consensusManager) VoteOnProposal(proposalID, participantID string, vote interface{}) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -347,6 +349,7 @@ func (cm *consensusManager) VoteOnProposal(proposalID, participantID string, vot
 
 	if time.Now().After(proposal.Deadline) {
 		proposal.Status = ProposalStatusTimeout
+
 		return fmt.Errorf("proposal %s has timed out", proposalID)
 	}
 
@@ -370,7 +373,7 @@ func (cm *consensusManager) VoteOnProposal(proposalID, participantID string, vot
 	return nil
 }
 
-// GetConsensusResult returns the result of a consensus process
+// GetConsensusResult returns the result of a consensus process.
 func (cm *consensusManager) GetConsensusResult(proposalID string) (*ConsensusResult, error) {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
@@ -383,7 +386,7 @@ func (cm *consensusManager) GetConsensusResult(proposalID string) (*ConsensusRes
 	return result, nil
 }
 
-// GetStats returns consensus statistics
+// GetStats returns consensus statistics.
 func (cm *consensusManager) GetStats() ConsensusStats {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
@@ -561,6 +564,7 @@ func (cm *consensusManager) checkWeightedConsensus(proposal *ConsensusProposal) 
 
 func (cm *consensusManager) checkQuorumConsensus(proposal *ConsensusProposal) bool {
 	votesReceived := 0
+
 	for _, participant := range cm.participants {
 		if participant.Vote != nil && participant.Online {
 			votesReceived++
@@ -587,6 +591,7 @@ func (cm *consensusManager) checkPBFTConsensus(proposal *ConsensusProposal) bool
 	votesNeeded := 2*f + 1
 
 	agreementVotes := 0
+
 	for _, participant := range cm.participants {
 		if participant.Vote != nil && participant.Online && participant.Reputation > 0.5 {
 			agreementVotes++
@@ -617,6 +622,7 @@ func (cm *consensusManager) finalizeConsensus(proposal *ConsensusProposal) {
 			} else {
 				stats.DisagreedVotes++
 			}
+
 			stats.AgreementRate = float64(stats.AgreedVotes) / float64(stats.TotalVotes)
 			cm.stats.ParticipantStats[id] = stats
 		} else {
@@ -658,10 +664,12 @@ func (cm *consensusManager) calculateConsensusResult(proposal *ConsensusProposal
 	}
 
 	// Determine winning decision
-	var decision interface{}
-	var confidence float64
-	var quorumReached bool
-	var unanimity bool
+	var (
+		decision      interface{}
+		confidence    float64
+		quorumReached bool
+		unanimity     bool
+	)
 
 	switch cm.config.Algorithm {
 	case ConsensusAlgorithmWeighted:
@@ -699,7 +707,9 @@ func (cm *consensusManager) calculateMajorityDecision(participants map[string]*C
 
 	// Find majority vote
 	maxVotes := 0
+
 	var majorityVote string
+
 	for vote, count := range voteCounts {
 		if count > maxVotes {
 			maxVotes = count
@@ -708,6 +718,7 @@ func (cm *consensusManager) calculateMajorityDecision(participants map[string]*C
 	}
 
 	confidence := float64(maxVotes) / float64(len(participants))
+
 	return majorityVote, confidence
 }
 
@@ -723,6 +734,7 @@ func (cm *consensusManager) calculateWeightedDecision(participants map[string]*C
 
 	// Find weighted majority
 	var majorityVote string
+
 	maxWeight := 0.0
 	for vote, weight := range voteWeights {
 		if weight > maxWeight {
@@ -732,6 +744,7 @@ func (cm *consensusManager) calculateWeightedDecision(participants map[string]*C
 	}
 
 	confidence := maxWeight / totalWeight
+
 	return majorityVote, confidence
 }
 
@@ -745,6 +758,7 @@ func (cm *consensusManager) calculateStatistics() {
 
 	// Calculate average decision time
 	var totalTime time.Duration
+
 	completedProposals := int64(0)
 
 	for _, result := range cm.results {
@@ -758,6 +772,7 @@ func (cm *consensusManager) calculateStatistics() {
 
 	// Calculate quorum success rate
 	quorumSuccesses := int64(0)
+
 	for _, result := range cm.results {
 		if result.QuorumReached {
 			quorumSuccesses++
@@ -775,7 +790,7 @@ func (cm *consensusManager) generateProposalID() string {
 	return fmt.Sprintf("proposal-%d", time.Now().UnixNano())
 }
 
-// UpdateParticipantReputation updates a participant's reputation
+// UpdateParticipantReputation updates a participant's reputation.
 func (cm *consensusManager) UpdateParticipantReputation(participantID string, delta float64) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -805,7 +820,7 @@ func (cm *consensusManager) UpdateParticipantReputation(participantID string, de
 	return nil
 }
 
-// SetParticipantOnlineStatus sets the online status of a participant
+// SetParticipantOnlineStatus sets the online status of a participant.
 func (cm *consensusManager) SetParticipantOnlineStatus(participantID string, online bool) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -827,13 +842,13 @@ func (cm *consensusManager) SetParticipantOnlineStatus(participantID string, onl
 	return nil
 }
 
-// Start starts the consensus manager
+// Start starts the consensus manager.
 func (cm *ConsensusManager) Start(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if cm.started {
-		return fmt.Errorf("consensus manager already started")
+		return errors.New("consensus manager already started")
 	}
 
 	// Start background processes
@@ -853,13 +868,13 @@ func (cm *ConsensusManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the consensus manager
+// Stop stops the consensus manager.
 func (cm *ConsensusManager) Stop(ctx context.Context) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if !cm.started {
-		return fmt.Errorf("consensus manager not started")
+		return errors.New("consensus manager not started")
 	}
 
 	// Cancel all pending proposals
@@ -878,10 +893,10 @@ func (cm *ConsensusManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// ReachConsensus attempts to reach consensus on a decision
+// ReachConsensus attempts to reach consensus on a decision.
 func (cm *ConsensusManager) ReachConsensus(ctx context.Context, decision *CoordinationDecision) error {
 	if decision == nil {
-		return fmt.Errorf("decision cannot be nil")
+		return errors.New("decision cannot be nil")
 	}
 
 	// Create a new proposal
@@ -904,21 +919,24 @@ func (cm *ConsensusManager) ReachConsensus(ctx context.Context, decision *Coordi
 	return cm.processConsensus(ctx, proposal)
 }
 
-// processConsensus processes a consensus proposal
+// processConsensus processes a consensus proposal.
 func (cm *ConsensusManager) processConsensus(ctx context.Context, proposal *ConsensusProposal) error {
 	// Get active participants
 	cm.mu.RLock()
+
 	participants := make([]string, 0)
 	for participantID, participant := range cm.participants {
 		if participant.Online {
 			participants = append(participants, participantID)
 		}
 	}
+
 	cm.mu.RUnlock()
 
 	// Check if we have enough participants
 	if len(participants) < cm.config.MinParticipants {
 		proposal.Status = ProposalStatusFailed
+
 		return fmt.Errorf("insufficient participants for consensus: %d < %d", len(participants), cm.config.MinParticipants)
 	}
 
@@ -979,16 +997,17 @@ func (cm *ConsensusManager) processConsensus(ctx context.Context, proposal *Cons
 		return nil
 	} else {
 		proposal.Status = ProposalStatusRejected
+
 		return fmt.Errorf("consensus not reached: %d/%d votes", yesVotes, totalVotes)
 	}
 }
 
-// generateProposalID generates a unique proposal ID
+// generateProposalID generates a unique proposal ID.
 func generateProposalID() string {
 	return fmt.Sprintf("proposal-%d", time.Now().UnixNano())
 }
 
-// healthMonitor monitors consensus health
+// healthMonitor monitors consensus health.
 func (cm *ConsensusManager) healthMonitor(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -1003,7 +1022,7 @@ func (cm *ConsensusManager) healthMonitor(ctx context.Context) {
 	}
 }
 
-// statisticsCollector collects consensus statistics
+// statisticsCollector collects consensus statistics.
 func (cm *ConsensusManager) statisticsCollector(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -1018,7 +1037,7 @@ func (cm *ConsensusManager) statisticsCollector(ctx context.Context) {
 	}
 }
 
-// checkHealth checks consensus health
+// checkHealth checks consensus health.
 func (cm *ConsensusManager) checkHealth() {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
@@ -1034,7 +1053,7 @@ func (cm *ConsensusManager) checkHealth() {
 	}
 }
 
-// updateStatistics updates consensus statistics
+// updateStatistics updates consensus statistics.
 func (cm *ConsensusManager) updateStatistics() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()

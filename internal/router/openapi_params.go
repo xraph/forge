@@ -1,12 +1,11 @@
 package router
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 )
 
-// PathParam represents a parsed path parameter
+// PathParam represents a parsed path parameter.
 type PathParam struct {
 	Name        string
 	Description string
@@ -14,18 +13,18 @@ type PathParam struct {
 }
 
 // extractPathParamsFromPath parses path parameters from a URL path
-// Supports both :param and {param} style parameters
+// Supports both :param and {param} style parameters.
 func extractPathParamsFromPath(path string) []PathParam {
 	var params []PathParam
 
 	// Parse path for :param style parameters
-	parts := strings.Split(path, "/")
-	for _, part := range parts {
+	parts := strings.SplitSeq(path, "/")
+	for part := range parts {
 		var paramName string
 
-		if strings.HasPrefix(part, ":") {
+		if after, ok := strings.CutPrefix(part, ":"); ok {
 			// :param style (e.g., /users/:id)
-			paramName = strings.TrimPrefix(part, ":")
+			paramName = after
 		} else if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
 			// {param} style (e.g., /users/{id})
 			paramName = strings.TrimPrefix(strings.TrimSuffix(part, "}"), "{")
@@ -34,7 +33,7 @@ func extractPathParamsFromPath(path string) []PathParam {
 		if paramName != "" {
 			params = append(params, PathParam{
 				Name:        paramName,
-				Description: fmt.Sprintf("Path parameter: %s", paramName),
+				Description: "Path parameter: " + paramName,
 				Schema: &Schema{
 					Type: "string",
 				},
@@ -45,7 +44,7 @@ func extractPathParamsFromPath(path string) []PathParam {
 	return params
 }
 
-// convertPathParamsToOpenAPIParams converts PathParam to OpenAPI Parameter
+// convertPathParamsToOpenAPIParams converts PathParam to OpenAPI Parameter.
 func convertPathParamsToOpenAPIParams(pathParams []PathParam) []Parameter {
 	params := make([]Parameter, len(pathParams))
 	for i, pp := range pathParams {
@@ -57,11 +56,12 @@ func convertPathParamsToOpenAPIParams(pathParams []PathParam) []Parameter {
 			Schema:      pp.Schema,
 		}
 	}
+
 	return params
 }
 
-// generateQueryParamsFromStruct generates query parameters from a struct type
-func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType interface{}) []Parameter {
+// generateQueryParamsFromStruct generates query parameters from a struct type.
+func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType any) []Parameter {
 	rt := reflect.TypeOf(structType)
 	if rt == nil {
 		return nil
@@ -76,6 +76,7 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType interf
 	}
 
 	var params []Parameter
+
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 
@@ -120,8 +121,8 @@ func generateQueryParamsFromStruct(schemaGen *schemaGenerator, structType interf
 	return params
 }
 
-// generateHeaderParamsFromStruct generates header parameters from a struct type
-func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType interface{}) []Parameter {
+// generateHeaderParamsFromStruct generates header parameters from a struct type.
+func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType any) []Parameter {
 	rt := reflect.TypeOf(structType)
 	if rt == nil {
 		return nil
@@ -136,6 +137,7 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType inter
 	}
 
 	var params []Parameter
+
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
 
@@ -180,7 +182,7 @@ func generateHeaderParamsFromStruct(schemaGen *schemaGenerator, structType inter
 	return params
 }
 
-// parseTagWithOmitempty parses a struct tag and returns the name and omitempty flag
+// parseTagWithOmitempty parses a struct tag and returns the name and omitempty flag.
 func parseTagWithOmitempty(tag string) (name string, omitempty bool) {
 	if tag == "" {
 		return "", false
@@ -192,6 +194,7 @@ func parseTagWithOmitempty(tag string) (name string, omitempty bool) {
 	for i := 1; i < len(parts); i++ {
 		if parts[i] == "omitempty" {
 			omitempty = true
+
 			break
 		}
 	}
@@ -199,9 +202,10 @@ func parseTagWithOmitempty(tag string) (name string, omitempty bool) {
 	return name, omitempty
 }
 
-// mergeParameters merges multiple parameter slices, removing duplicates by name and location
+// mergeParameters merges multiple parameter slices, removing duplicates by name and location.
 func mergeParameters(paramSets ...[]Parameter) []Parameter {
 	seen := make(map[string]bool)
+
 	var result []Parameter
 
 	for _, params := range paramSets {
@@ -209,6 +213,7 @@ func mergeParameters(paramSets ...[]Parameter) []Parameter {
 			key := param.In + ":" + param.Name
 			if !seen[key] {
 				seen[key] = true
+
 				result = append(result, param)
 			}
 		}

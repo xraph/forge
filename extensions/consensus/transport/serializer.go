@@ -7,39 +7,41 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/internal/errors"
 	"google.golang.org/protobuf/proto"
 )
 
-// SerializerType represents the type of serializer
+// SerializerType represents the type of serializer.
 type SerializerType string
 
 const (
-	// SerializerGob uses Go's gob encoding
+	// SerializerGob uses Go's gob encoding.
 	SerializerGob SerializerType = "gob"
-	// SerializerJSON uses JSON encoding
+	// SerializerJSON uses JSON encoding.
 	SerializerJSON SerializerType = "json"
-	// SerializerProtobuf uses Protocol Buffers
+	// SerializerProtobuf uses Protocol Buffers.
 	SerializerProtobuf SerializerType = "protobuf"
 )
 
-// Serializer defines the interface for message serialization
+// Serializer defines the interface for message serialization.
 type Serializer interface {
-	Serialize(msg interface{}) ([]byte, error)
-	Deserialize(data []byte, msg interface{}) error
+	Serialize(msg any) ([]byte, error)
+	Deserialize(data []byte, msg any) error
 	Type() SerializerType
 }
 
-// GobSerializer implements gob-based serialization
+// GobSerializer implements gob-based serialization.
 type GobSerializer struct{}
 
-// NewGobSerializer creates a new gob serializer
+// NewGobSerializer creates a new gob serializer.
 func NewGobSerializer() *GobSerializer {
 	return &GobSerializer{}
 }
 
-// Serialize serializes a message using gob
-func (gs *GobSerializer) Serialize(msg interface{}) ([]byte, error) {
+// Serialize serializes a message using gob.
+func (gs *GobSerializer) Serialize(msg any) ([]byte, error) {
 	var buf bytes.Buffer
+
 	encoder := gob.NewEncoder(&buf)
 
 	if err := encoder.Encode(msg); err != nil {
@@ -49,8 +51,8 @@ func (gs *GobSerializer) Serialize(msg interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// Deserialize deserializes a message using gob
-func (gs *GobSerializer) Deserialize(data []byte, msg interface{}) error {
+// Deserialize deserializes a message using gob.
+func (gs *GobSerializer) Deserialize(data []byte, msg any) error {
 	buf := bytes.NewReader(data)
 	decoder := gob.NewDecoder(buf)
 
@@ -61,21 +63,21 @@ func (gs *GobSerializer) Deserialize(data []byte, msg interface{}) error {
 	return nil
 }
 
-// Type returns the serializer type
+// Type returns the serializer type.
 func (gs *GobSerializer) Type() SerializerType {
 	return SerializerGob
 }
 
-// JSONSerializer implements JSON-based serialization
+// JSONSerializer implements JSON-based serialization.
 type JSONSerializer struct{}
 
-// NewJSONSerializer creates a new JSON serializer
+// NewJSONSerializer creates a new JSON serializer.
 func NewJSONSerializer() *JSONSerializer {
 	return &JSONSerializer{}
 }
 
-// Serialize serializes a message using JSON
-func (js *JSONSerializer) Serialize(msg interface{}) ([]byte, error) {
+// Serialize serializes a message using JSON.
+func (js *JSONSerializer) Serialize(msg any) ([]byte, error) {
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return nil, fmt.Errorf("json marshal failed: %w", err)
@@ -84,8 +86,8 @@ func (js *JSONSerializer) Serialize(msg interface{}) ([]byte, error) {
 	return data, nil
 }
 
-// Deserialize deserializes a message using JSON
-func (js *JSONSerializer) Deserialize(data []byte, msg interface{}) error {
+// Deserialize deserializes a message using JSON.
+func (js *JSONSerializer) Deserialize(data []byte, msg any) error {
 	if err := json.Unmarshal(data, msg); err != nil {
 		return fmt.Errorf("json unmarshal failed: %w", err)
 	}
@@ -93,24 +95,24 @@ func (js *JSONSerializer) Deserialize(data []byte, msg interface{}) error {
 	return nil
 }
 
-// Type returns the serializer type
+// Type returns the serializer type.
 func (js *JSONSerializer) Type() SerializerType {
 	return SerializerJSON
 }
 
-// ProtobufSerializer implements Protocol Buffers serialization
+// ProtobufSerializer implements Protocol Buffers serialization.
 type ProtobufSerializer struct{}
 
-// NewProtobufSerializer creates a new protobuf serializer
+// NewProtobufSerializer creates a new protobuf serializer.
 func NewProtobufSerializer() *ProtobufSerializer {
 	return &ProtobufSerializer{}
 }
 
-// Serialize serializes a message using protobuf
-func (ps *ProtobufSerializer) Serialize(msg interface{}) ([]byte, error) {
+// Serialize serializes a message using protobuf.
+func (ps *ProtobufSerializer) Serialize(msg any) ([]byte, error) {
 	pbMsg, ok := msg.(proto.Message)
 	if !ok {
-		return nil, fmt.Errorf("message does not implement proto.Message")
+		return nil, errors.New("message does not implement proto.Message")
 	}
 
 	data, err := proto.Marshal(pbMsg)
@@ -121,11 +123,11 @@ func (ps *ProtobufSerializer) Serialize(msg interface{}) ([]byte, error) {
 	return data, nil
 }
 
-// Deserialize deserializes a message using protobuf
-func (ps *ProtobufSerializer) Deserialize(data []byte, msg interface{}) error {
+// Deserialize deserializes a message using protobuf.
+func (ps *ProtobufSerializer) Deserialize(data []byte, msg any) error {
 	pbMsg, ok := msg.(proto.Message)
 	if !ok {
-		return fmt.Errorf("message does not implement proto.Message")
+		return errors.New("message does not implement proto.Message")
 	}
 
 	if err := proto.Unmarshal(data, pbMsg); err != nil {
@@ -135,12 +137,12 @@ func (ps *ProtobufSerializer) Deserialize(data []byte, msg interface{}) error {
 	return nil
 }
 
-// Type returns the serializer type
+// Type returns the serializer type.
 func (ps *ProtobufSerializer) Type() SerializerType {
 	return SerializerProtobuf
 }
 
-// MessageEnvelope wraps a message with metadata
+// MessageEnvelope wraps a message with metadata.
 type MessageEnvelope struct {
 	Type           internal.MessageType
 	From           string
@@ -150,12 +152,12 @@ type MessageEnvelope struct {
 	SerializerType SerializerType
 }
 
-// MessageCodec provides encoding/decoding with envelope
+// MessageCodec provides encoding/decoding with envelope.
 type MessageCodec struct {
 	serializer Serializer
 }
 
-// NewMessageCodec creates a new message codec
+// NewMessageCodec creates a new message codec.
 func NewMessageCodec(serializerType SerializerType) *MessageCodec {
 	var serializer Serializer
 
@@ -173,7 +175,7 @@ func NewMessageCodec(serializerType SerializerType) *MessageCodec {
 	}
 }
 
-// Encode encodes a message into an envelope
+// Encode encodes a message into an envelope.
 func (mc *MessageCodec) Encode(msg internal.Message) ([]byte, error) {
 	// Serialize the message data
 	data, err := mc.serializer.Serialize(msg)
@@ -195,7 +197,7 @@ func (mc *MessageCodec) Encode(msg internal.Message) ([]byte, error) {
 	return json.Marshal(envelope)
 }
 
-// Decode decodes an envelope into a message
+// Decode decodes an envelope into a message.
 func (mc *MessageCodec) Decode(data []byte) (*internal.Message, error) {
 	// Deserialize envelope
 	var envelope MessageEnvelope
@@ -218,26 +220,26 @@ func (mc *MessageCodec) Decode(data []byte) (*internal.Message, error) {
 	return &msg, nil
 }
 
-// GetSerializer returns the underlying serializer
+// GetSerializer returns the underlying serializer.
 func (mc *MessageCodec) GetSerializer() Serializer {
 	return mc.serializer
 }
 
-// CompressedSerializer wraps a serializer with compression
+// CompressedSerializer wraps a serializer with compression.
 type CompressedSerializer struct {
 	serializer Serializer
 	// TODO: Add compression (gzip, snappy, etc.)
 }
 
-// NewCompressedSerializer creates a compressed serializer
+// NewCompressedSerializer creates a compressed serializer.
 func NewCompressedSerializer(serializer Serializer) *CompressedSerializer {
 	return &CompressedSerializer{
 		serializer: serializer,
 	}
 }
 
-// Serialize compresses and serializes
-func (cs *CompressedSerializer) Serialize(msg interface{}) ([]byte, error) {
+// Serialize compresses and serializes.
+func (cs *CompressedSerializer) Serialize(msg any) ([]byte, error) {
 	// First serialize
 	data, err := cs.serializer.Serialize(msg)
 	if err != nil {
@@ -249,8 +251,8 @@ func (cs *CompressedSerializer) Serialize(msg interface{}) ([]byte, error) {
 	return data, nil
 }
 
-// Deserialize decompresses and deserializes
-func (cs *CompressedSerializer) Deserialize(data []byte, msg interface{}) error {
+// Deserialize decompresses and deserializes.
+func (cs *CompressedSerializer) Deserialize(data []byte, msg any) error {
 	// TODO: Decompress data
 	// For now, data is uncompressed
 
@@ -258,7 +260,7 @@ func (cs *CompressedSerializer) Deserialize(data []byte, msg interface{}) error 
 	return cs.serializer.Deserialize(data, msg)
 }
 
-// Type returns the underlying serializer type
+// Type returns the underlying serializer type.
 func (cs *CompressedSerializer) Type() SerializerType {
 	return cs.serializer.Type()
 }

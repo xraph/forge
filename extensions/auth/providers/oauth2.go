@@ -40,17 +40,17 @@ func NewOAuth2Provider(name string, flows *auth.OAuthFlows, opts ...OAuth2Option
 
 type OAuth2Option func(*OAuth2Provider)
 
-// WithOAuth2Validator sets the validator function
+// WithOAuth2Validator sets the validator function.
 func WithOAuth2Validator(validator OAuth2TokenValidator) OAuth2Option {
 	return func(p *OAuth2Provider) { p.validator = validator }
 }
 
-// WithOAuth2Description sets the OpenAPI description
+// WithOAuth2Description sets the OpenAPI description.
 func WithOAuth2Description(desc string) OAuth2Option {
 	return func(p *OAuth2Provider) { p.description = desc }
 }
 
-// WithOAuth2Container sets the DI container (for accessing services)
+// WithOAuth2Container sets the DI container (for accessing services).
 func WithOAuth2Container(container forge.Container) OAuth2Option {
 	return func(p *OAuth2Provider) { p.container = container }
 }
@@ -70,9 +70,11 @@ func (p *OAuth2Provider) Authenticate(ctx context.Context, r *http.Request) (*au
 			if p.validator != nil {
 				return p.validator(ctx, token)
 			}
+
 			return nil, auth.ErrInvalidConfiguration
 		},
 	}
+
 	return bearer.Authenticate(ctx, r)
 }
 
@@ -93,6 +95,7 @@ func (p *OAuth2Provider) Middleware() forge.Middleware {
 			}
 
 			ctx.Set("auth_context", authCtx)
+
 			return next(ctx)
 		}
 	}

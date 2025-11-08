@@ -2,21 +2,22 @@ package golang
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
 )
 
-// TypesGenerator generates Go type definitions
+// TypesGenerator generates Go type definitions.
 type TypesGenerator struct{}
 
-// NewTypesGenerator creates a new types generator
+// NewTypesGenerator creates a new types generator.
 func NewTypesGenerator() *TypesGenerator {
 	return &TypesGenerator{}
 }
 
-// Generate generates the types.go file
+// Generate generates the types.go file.
 func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -35,6 +36,7 @@ func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 		for name := range spec.Schemas {
 			names = append(names, name)
 		}
+
 		sort.Strings(names)
 
 		for _, name := range names {
@@ -77,7 +79,7 @@ func (t *TypesGenerator) Generate(spec *client.APISpec, config client.GeneratorC
 	return buf.String()
 }
 
-// generateType generates a Go type definition from a schema
+// generateType generates a Go type definition from a schema.
 func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return ""
@@ -109,6 +111,7 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 		for propName := range schema.Properties {
 			propNames = append(propNames, propName)
 		}
+
 		sort.Strings(propNames)
 
 		for _, propName := range propNames {
@@ -126,7 +129,7 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 			// Add description as comment
 			comment := ""
 			if prop.Description != "" {
-				comment = fmt.Sprintf(" // %s", prop.Description)
+				comment = " // " + prop.Description
 			}
 
 			buf.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\"`%s\n",
@@ -151,7 +154,7 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 	return buf.String()
 }
 
-// schemaToGoType converts a schema to a Go type string
+// schemaToGoType converts a schema to a Go type string.
 func (t *TypesGenerator) schemaToGoType(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "interface{}"
@@ -160,6 +163,7 @@ func (t *TypesGenerator) schemaToGoType(schema *client.Schema, spec *client.APIS
 	// Handle references
 	if schema.Ref != "" {
 		refName := t.extractRefName(schema.Ref)
+
 		return refName
 	}
 
@@ -232,10 +236,11 @@ func (t *TypesGenerator) schemaToGoType(schema *client.Schema, spec *client.APIS
 	if needsPointer {
 		return "*" + baseType
 	}
+
 	return baseType
 }
 
-// generateAnonymousStruct generates an anonymous struct for inline objects
+// generateAnonymousStruct generates an anonymous struct for inline objects.
 func (t *TypesGenerator) generateAnonymousStruct(schema *client.Schema, spec *client.APISpec) string {
 	var buf strings.Builder
 
@@ -246,6 +251,7 @@ func (t *TypesGenerator) generateAnonymousStruct(schema *client.Schema, spec *cl
 	for propName := range schema.Properties {
 		propNames = append(propNames, propName)
 	}
+
 	sort.Strings(propNames)
 
 	for _, propName := range propNames {
@@ -267,7 +273,7 @@ func (t *TypesGenerator) generateAnonymousStruct(schema *client.Schema, spec *cl
 	return buf.String()
 }
 
-// toGoFieldName converts a field name to Go naming convention
+// toGoFieldName converts a field name to Go naming convention.
 func (t *TypesGenerator) toGoFieldName(name string) string {
 	// Split by underscore or dash
 	parts := strings.FieldsFunc(name, func(r rune) bool {
@@ -275,48 +281,49 @@ func (t *TypesGenerator) toGoFieldName(name string) string {
 	})
 
 	var result string
+	var resultSb278 strings.Builder
+
 	for _, part := range parts {
 		if len(part) > 0 {
-			result += strings.ToUpper(part[:1]) + part[1:]
+			resultSb278.WriteString(strings.ToUpper(part[:1]) + part[1:])
 		}
 	}
+	result += resultSb278.String()
 
 	// If empty, return the original name capitalized
 	if result == "" {
 		if len(name) > 0 {
 			return strings.ToUpper(name[:1]) + name[1:]
 		}
+
 		return name
 	}
 
 	return result
 }
 
-// isRequired checks if a property is required
+// isRequired checks if a property is required.
 func (t *TypesGenerator) isRequired(propName string, required []string) bool {
-	for _, req := range required {
-		if req == propName {
-			return true
-		}
-	}
-	return false
+
+	return slices.Contains(required, propName)
 }
 
-// isSchemaRef checks if a schema is a reference
+// isSchemaRef checks if a schema is a reference.
 func (t *TypesGenerator) isSchemaRef(schema *client.Schema) bool {
 	return schema != nil && schema.Ref != ""
 }
 
-// extractRefName extracts the type name from a schema reference
+// extractRefName extracts the type name from a schema reference.
 func (t *TypesGenerator) extractRefName(ref string) string {
 	parts := strings.Split(ref, "/")
 	if len(parts) > 0 {
 		return parts[len(parts)-1]
 	}
+
 	return "Unknown"
 }
 
-// generateRequestTypeName generates a name for a request type
+// generateRequestTypeName generates a name for a request type.
 func (t *TypesGenerator) generateRequestTypeName(endpoint client.Endpoint) string {
 	if endpoint.OperationID != "" {
 		return t.toGoFieldName(endpoint.OperationID) + "Request"
@@ -325,10 +332,11 @@ func (t *TypesGenerator) generateRequestTypeName(endpoint client.Endpoint) strin
 	path := strings.ReplaceAll(endpoint.Path, "/", "_")
 	path = strings.ReplaceAll(path, "{", "")
 	path = strings.ReplaceAll(path, "}", "")
+
 	return t.toGoFieldName(endpoint.Method + path + "Request")
 }
 
-// generateResponseTypeName generates a name for a response type
+// generateResponseTypeName generates a name for a response type.
 func (t *TypesGenerator) generateResponseTypeName(endpoint client.Endpoint, statusCode int) string {
 	if endpoint.OperationID != "" {
 		return t.toGoFieldName(endpoint.OperationID) + "Response"
@@ -337,5 +345,6 @@ func (t *TypesGenerator) generateResponseTypeName(endpoint client.Endpoint, stat
 	path := strings.ReplaceAll(endpoint.Path, "/", "_")
 	path = strings.ReplaceAll(path, "{", "")
 	path = strings.ReplaceAll(path, "}", "")
+
 	return t.toGoFieldName(fmt.Sprintf("%s%sResponse%d", endpoint.Method, path, statusCode))
 }

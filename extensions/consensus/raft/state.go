@@ -11,7 +11,7 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// runElectionTimer manages the election timeout and triggers elections
+// runElectionTimer manages the election timeout and triggers elections.
 func (n *Node) runElectionTimer() {
 	defer n.wg.Done()
 
@@ -19,11 +19,14 @@ func (n *Node) runElectionTimer() {
 	n.electionTimeout = n.randomElectionTimeout()
 	n.electionTimer = time.NewTimer(n.electionTimeout)
 	n.mu.Unlock()
+
 	defer func() {
 		n.mu.Lock()
+
 		if n.electionTimer != nil {
 			n.electionTimer.Stop()
 		}
+
 		n.mu.Unlock()
 	}()
 
@@ -47,15 +50,16 @@ func (n *Node) runElectionTimer() {
 	}
 }
 
-// resetElectionTimer resets the election timer
+// resetElectionTimer resets the election timer.
 func (n *Node) resetElectionTimer() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
 	n.resetElectionTimerUnsafe()
 }
 
 // resetElectionTimerUnsafe resets the election timer without acquiring the lock
-// This should only be called when the caller already holds the lock
+// This should only be called when the caller already holds the lock.
 func (n *Node) resetElectionTimerUnsafe() {
 	if n.electionTimer != nil {
 		n.electionTimeout = n.randomElectionTimeout()
@@ -63,7 +67,7 @@ func (n *Node) resetElectionTimerUnsafe() {
 	}
 }
 
-// startElection starts a new election
+// startElection starts a new election.
 func (n *Node) startElection() {
 	n.mu.Lock()
 
@@ -80,6 +84,7 @@ func (n *Node) startElection() {
 			forge.F("error", err),
 		)
 		n.mu.Unlock()
+
 		return
 	}
 
@@ -110,15 +115,19 @@ func (n *Node) startElection() {
 
 	// Send RequestVote RPCs to all peers
 	n.peersLock.RLock()
+
 	peerCount := len(n.peers)
 	for _, peer := range n.peers {
 		voteWg.Add(1)
+
 		go func(p *PeerState) {
 			defer voteWg.Done()
+
 			granted := n.requestVote(p, currentTerm, lastLogIndex, lastLogTerm)
 			voteCh <- granted
 		}(peer)
 	}
+
 	n.peersLock.RUnlock()
 
 	// Goroutine to close voteCh when all votes are collected
@@ -142,6 +151,7 @@ func (n *Node) startElection() {
 				forge.F("votes", votes),
 				forge.F("needed", votesNeeded),
 			)
+
 			return
 
 		case granted, ok := <-voteCh:
@@ -149,12 +159,14 @@ func (n *Node) startElection() {
 				// Channel closed, all votes collected
 				break
 			}
+
 			n.logger.Debug("received vote response",
 				forge.F("node_id", n.id),
 				forge.F("granted", granted),
 				forge.F("current_votes", votes),
 				forge.F("needed", votesNeeded),
 			)
+
 			if granted {
 				votes++
 				n.logger.Info("vote granted",
@@ -162,6 +174,7 @@ func (n *Node) startElection() {
 					forge.F("votes", votes),
 					forge.F("needed", votesNeeded),
 				)
+
 				if votes >= votesNeeded {
 					// Won election! Wait for all vote goroutines to finish
 					n.logger.Info("won election!",
@@ -172,6 +185,7 @@ func (n *Node) startElection() {
 					// Wait for remaining vote goroutines to complete
 					voteWg.Wait()
 					n.becomeLeader(currentTerm)
+
 					return
 				}
 			}
@@ -184,7 +198,7 @@ func (n *Node) startElection() {
 	}
 }
 
-// requestVote sends a RequestVote RPC to a peer
+// requestVote sends a RequestVote RPC to a peer.
 func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint64) bool {
 	req := &internal.RequestVoteRequest{
 		Term:         term,
@@ -199,7 +213,7 @@ func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint
 
 	// Generate unique request ID
 	requestID := fmt.Sprintf("request_vote_%s_%s", n.id, peer.ID)
-	responseCh := make(chan interface{}, 1)
+	responseCh := make(chan any, 1)
 
 	// Register pending request
 	n.requestMu.Lock()
@@ -224,6 +238,7 @@ func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint
 		n.requestMu.Lock()
 		delete(n.pendingRequests, requestID)
 		n.requestMu.Unlock()
+
 		return false
 	}
 
@@ -245,10 +260,13 @@ func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint
 			// Check if we need to step down
 			if resp.Term > term {
 				n.stepDown(resp.Term)
+
 				return false
 			}
+
 			return resp.VoteGranted
 		}
+
 		return false
 
 	case <-ctx.Done():
@@ -256,11 +274,12 @@ func (n *Node) requestVote(peer *PeerState, term, lastLogIndex, lastLogTerm uint
 		n.requestMu.Lock()
 		delete(n.pendingRequests, requestID)
 		n.requestMu.Unlock()
+
 		return false
 	}
 }
 
-// RequestVote handles a RequestVote RPC
+// RequestVote handles a RequestVote RPC.
 func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest) (*internal.RequestVoteResponse, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -292,6 +311,7 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 
 		resp.VoteGranted = true
 		resp.Term = n.currentTerm
+
 		return resp, nil
 	}
 
@@ -302,6 +322,7 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 			forge.F("req_term", req.Term),
 			forge.F("current_term", n.currentTerm),
 		)
+
 		return resp, nil
 	}
 
@@ -342,7 +363,7 @@ func (n *Node) RequestVote(ctx context.Context, req *internal.RequestVoteRequest
 	return resp, nil
 }
 
-// isLogUpToDate checks if the candidate's log is at least as up-to-date as ours
+// isLogUpToDate checks if the candidate's log is at least as up-to-date as ours.
 func (n *Node) isLogUpToDate(candidateIndex, candidateTerm uint64) bool {
 	lastLogIndex := n.log.LastIndex()
 	lastLogTerm := n.log.LastTerm()
@@ -358,25 +379,29 @@ func (n *Node) isLogUpToDate(candidateIndex, candidateTerm uint64) bool {
 	return candidateIndex >= lastLogIndex
 }
 
-// becomeLeader transitions to leader state
+// becomeLeader transitions to leader state.
 func (n *Node) becomeLeader(term uint64) {
 	// Step 1: Verify term and transition role (minimize lock time)
 	n.mu.Lock()
+
 	if n.currentTerm != term {
 		n.mu.Unlock()
+
 		return
 	}
-	
+
 	n.setRole(internal.RoleLeader)
 	n.setLeader(n.id)
 	n.mu.Unlock()
 
 	// Step 2: Get peer list without holding n.mu
 	n.peersLock.RLock()
+
 	peerIDs := make([]string, 0, len(n.peers))
 	for peerID := range n.peers {
 		peerIDs = append(peerIDs, peerID)
 	}
+
 	n.peersLock.RUnlock()
 
 	// Step 3: Get log index (no locks needed for read-only operation)
@@ -385,16 +410,18 @@ func (n *Node) becomeLeader(term uint64) {
 	// Step 4: Initialize leader state (acquire lock only for this)
 	n.mu.Lock()
 	n.nextIndex = make(map[string]uint64)
+
 	n.matchIndex = make(map[string]uint64)
 	for _, peerID := range peerIDs {
 		n.nextIndex[peerID] = lastLogIndex + 1
 		n.matchIndex[peerID] = 0
 	}
-	
+
 	// Stop old heartbeat ticker if exists
 	if n.heartbeatTicker != nil {
 		n.heartbeatTicker.Stop()
 	}
+
 	n.heartbeatTicker = time.NewTicker(n.config.HeartbeatInterval)
 	n.mu.Unlock()
 
@@ -417,6 +444,7 @@ func (n *Node) becomeLeader(term uint64) {
 		n.logger.Error("failed to append no-op entry",
 			forge.F("error", err),
 		)
+
 		return
 	}
 
@@ -424,14 +452,15 @@ func (n *Node) becomeLeader(term uint64) {
 	go n.sendHeartbeats()
 }
 
-// stepDown transitions to follower state
+// stepDown transitions to follower state.
 func (n *Node) stepDown(term uint64) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+
 	n.stepDownLocked(term)
 }
 
-// stepDownLocked transitions to follower state (assumes n.mu is already held)
+// stepDownLocked transitions to follower state (assumes n.mu is already held).
 func (n *Node) stepDownLocked(term uint64) {
 	if term > n.currentTerm {
 		n.currentTerm = term
@@ -458,7 +487,7 @@ func (n *Node) stepDownLocked(term uint64) {
 	n.resetElectionTimerUnsafe()
 }
 
-// runHeartbeat sends periodic heartbeats when leader
+// runHeartbeat sends periodic heartbeats when leader.
 func (n *Node) runHeartbeat() {
 	defer n.wg.Done()
 
@@ -475,17 +504,19 @@ func (n *Node) runHeartbeat() {
 	}
 }
 
-// sendHeartbeats sends heartbeat messages to all peers
+// sendHeartbeats sends heartbeat messages to all peers.
 func (n *Node) sendHeartbeats() {
 	n.lastHeartbeatMux.Lock()
 	n.lastHeartbeat = time.Now()
 	n.lastHeartbeatMux.Unlock()
 
 	n.peersLock.RLock()
+
 	peers := make([]*PeerState, 0, len(n.peers))
 	for _, peer := range n.peers {
 		peers = append(peers, peer)
 	}
+
 	n.peersLock.RUnlock()
 
 	n.logger.Debug("sending heartbeats",
@@ -498,7 +529,7 @@ func (n *Node) sendHeartbeats() {
 	}
 }
 
-// triggerReplication triggers log replication to all peers
+// triggerReplication triggers log replication to all peers.
 func (n *Node) triggerReplication() {
 	if !n.IsLeader() {
 		return

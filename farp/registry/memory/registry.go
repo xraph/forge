@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -10,25 +11,25 @@ import (
 )
 
 // Registry is an in-memory implementation of SchemaRegistry
-// Useful for testing and development
+// Useful for testing and development.
 type Registry struct {
 	mu        sync.RWMutex
 	manifests map[string]*farp.SchemaManifest // key: instanceID
-	schemas   map[string]interface{}          // key: registry path
+	schemas   map[string]any                  // key: registry path
 	watchers  map[string][]chan *farp.ManifestEvent
 	closed    bool
 }
 
-// NewRegistry creates a new in-memory registry
+// NewRegistry creates a new in-memory registry.
 func NewRegistry() *Registry {
 	return &Registry{
 		manifests: make(map[string]*farp.SchemaManifest),
-		schemas:   make(map[string]interface{}),
+		schemas:   make(map[string]any),
 		watchers:  make(map[string][]chan *farp.ManifestEvent),
 	}
 }
 
-// RegisterManifest registers a new schema manifest
+// RegisterManifest registers a new schema manifest.
 func (r *Registry) RegisterManifest(ctx context.Context, manifest *farp.SchemaManifest) error {
 	if err := manifest.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: %w", err)
@@ -53,7 +54,7 @@ func (r *Registry) RegisterManifest(ctx context.Context, manifest *farp.SchemaMa
 	return nil
 }
 
-// GetManifest retrieves a schema manifest by instance ID
+// GetManifest retrieves a schema manifest by instance ID.
 func (r *Registry) GetManifest(ctx context.Context, instanceID string) (*farp.SchemaManifest, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -66,7 +67,7 @@ func (r *Registry) GetManifest(ctx context.Context, instanceID string) (*farp.Sc
 	return manifest.Clone(), nil
 }
 
-// UpdateManifest updates an existing schema manifest
+// UpdateManifest updates an existing schema manifest.
 func (r *Registry) UpdateManifest(ctx context.Context, manifest *farp.SchemaManifest) error {
 	if err := manifest.Validate(); err != nil {
 		return fmt.Errorf("invalid manifest: %w", err)
@@ -95,7 +96,7 @@ func (r *Registry) UpdateManifest(ctx context.Context, manifest *farp.SchemaMani
 	return nil
 }
 
-// DeleteManifest removes a schema manifest
+// DeleteManifest removes a schema manifest.
 func (r *Registry) DeleteManifest(ctx context.Context, instanceID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -121,7 +122,7 @@ func (r *Registry) DeleteManifest(ctx context.Context, instanceID string) error 
 	return nil
 }
 
-// ListManifests lists all manifests for a service name
+// ListManifests lists all manifests for a service name.
 func (r *Registry) ListManifests(ctx context.Context, serviceName string) ([]*farp.SchemaManifest, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -137,8 +138,8 @@ func (r *Registry) ListManifests(ctx context.Context, serviceName string) ([]*fa
 	return manifests, nil
 }
 
-// PublishSchema stores a schema in the registry
-func (r *Registry) PublishSchema(ctx context.Context, path string, schema interface{}) error {
+// PublishSchema stores a schema in the registry.
+func (r *Registry) PublishSchema(ctx context.Context, path string, schema any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -147,11 +148,12 @@ func (r *Registry) PublishSchema(ctx context.Context, path string, schema interf
 	}
 
 	r.schemas[path] = schema
+
 	return nil
 }
 
-// FetchSchema retrieves a schema from the registry
-func (r *Registry) FetchSchema(ctx context.Context, path string) (interface{}, error) {
+// FetchSchema retrieves a schema from the registry.
+func (r *Registry) FetchSchema(ctx context.Context, path string) (any, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -163,7 +165,7 @@ func (r *Registry) FetchSchema(ctx context.Context, path string) (interface{}, e
 	return schema, nil
 }
 
-// DeleteSchema removes a schema from the registry
+// DeleteSchema removes a schema from the registry.
 func (r *Registry) DeleteSchema(ctx context.Context, path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -173,15 +175,17 @@ func (r *Registry) DeleteSchema(ctx context.Context, path string) error {
 	}
 
 	delete(r.schemas, path)
+
 	return nil
 }
 
-// WatchManifests watches for manifest changes for a service
+// WatchManifests watches for manifest changes for a service.
 func (r *Registry) WatchManifests(ctx context.Context, serviceName string, onChange farp.ManifestChangeHandler) error {
 	r.mu.Lock()
 
 	if r.closed {
 		r.mu.Unlock()
+
 		return farp.ErrBackendUnavailable
 	}
 
@@ -195,6 +199,7 @@ func (r *Registry) WatchManifests(ctx context.Context, serviceName string, onCha
 			select {
 			case <-ctx.Done():
 				r.removeWatcher(serviceName, eventChan)
+
 				return
 			case event := <-eventChan:
 				onChange(event)
@@ -205,14 +210,14 @@ func (r *Registry) WatchManifests(ctx context.Context, serviceName string, onCha
 	return nil
 }
 
-// WatchSchemas watches for schema changes at a specific path
+// WatchSchemas watches for schema changes at a specific path.
 func (r *Registry) WatchSchemas(ctx context.Context, path string, onChange farp.SchemaChangeHandler) error {
 	// For memory registry, schema watches are not implemented
 	// This would require tracking individual schema paths
-	return fmt.Errorf("schema watching not supported in memory registry")
+	return errors.New("schema watching not supported in memory registry")
 }
 
-// Close closes the registry and cleans up resources
+// Close closes the registry and cleans up resources.
 func (r *Registry) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -231,10 +236,11 @@ func (r *Registry) Close() error {
 	}
 
 	r.watchers = nil
+
 	return nil
 }
 
-// Health checks if the registry is healthy
+// Health checks if the registry is healthy.
 func (r *Registry) Health(ctx context.Context) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -246,7 +252,7 @@ func (r *Registry) Health(ctx context.Context) error {
 	return nil
 }
 
-// notifyWatchers notifies all watchers for a service (must be called with lock held)
+// notifyWatchers notifies all watchers for a service (must be called with lock held).
 func (r *Registry) notifyWatchers(serviceName string, event *farp.ManifestEvent) {
 	// Notify specific service watchers
 	if watchers, ok := r.watchers[serviceName]; ok {
@@ -271,7 +277,7 @@ func (r *Registry) notifyWatchers(serviceName string, event *farp.ManifestEvent)
 	}
 }
 
-// removeWatcher removes a watcher channel
+// removeWatcher removes a watcher channel.
 func (r *Registry) removeWatcher(serviceName string, eventChan chan *farp.ManifestEvent) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -280,18 +286,19 @@ func (r *Registry) removeWatcher(serviceName string, eventChan chan *farp.Manife
 	for i, ch := range watchers {
 		if ch == eventChan {
 			r.watchers[serviceName] = append(watchers[:i], watchers[i+1:]...)
+
 			close(eventChan)
+
 			break
 		}
 	}
 }
 
-// Clear removes all manifests and schemas (useful for testing)
+// Clear removes all manifests and schemas (useful for testing).
 func (r *Registry) Clear() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.manifests = make(map[string]*farp.SchemaManifest)
-	r.schemas = make(map[string]interface{})
+	r.schemas = make(map[string]any)
 }
-

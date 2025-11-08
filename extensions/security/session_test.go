@@ -8,7 +8,8 @@ import (
 func TestGenerateSessionID(t *testing.T) {
 	// Generate multiple session IDs
 	ids := make(map[string]bool)
-	for i := 0; i < 1000; i++ {
+
+	for range 1000 {
 		id, err := GenerateSessionID()
 		if err != nil {
 			t.Fatalf("failed to generate session ID: %v", err)
@@ -21,6 +22,7 @@ func TestGenerateSessionID(t *testing.T) {
 		if ids[id] {
 			t.Fatalf("duplicate session ID generated: %s", id)
 		}
+
 		ids[id] = true
 	}
 
@@ -153,6 +155,7 @@ func TestSessionTouch(t *testing.T) {
 	}
 
 	oldAccessTime := session.LastAccessedAt
+
 	time.Sleep(10 * time.Millisecond)
 
 	session.Touch()

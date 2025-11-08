@@ -1,6 +1,5 @@
 package metrics
 
-//nolint:gosec // G104: Reset() methods in metrics don't return errors by design
 // The Reset() implementations are intentionally void for testability and simplicity.
 
 import (
@@ -16,7 +15,7 @@ import (
 // REGISTRY INTERFACE
 // =============================================================================
 
-// Registry manages metric storage and retrieval
+// Registry manages metric storage and retrieval.
 type Registry interface {
 	// Metric creation and retrieval
 	GetOrCreateCounter(name string, tags map[string]string) internal.Counter
@@ -25,14 +24,14 @@ type Registry interface {
 	GetOrCreateTimer(name string, tags map[string]string) internal.Timer
 
 	// Metric retrieval
-	GetMetric(name string, tags map[string]string) interface{}
-	GetAllMetrics() map[string]interface{}
-	GetMetricsByType(metricType internal.MetricType) map[string]interface{}
-	GetMetricsByTag(tagKey, tagValue string) map[string]interface{}
-	GetMetricsByNamePattern(pattern string) map[string]interface{}
+	GetMetric(name string, tags map[string]string) any
+	GetAllMetrics() map[string]any
+	GetMetricsByType(metricType internal.MetricType) map[string]any
+	GetMetricsByTag(tagKey, tagValue string) map[string]any
+	GetMetricsByNamePattern(pattern string) map[string]any
 
 	// Metric management
-	RegisterMetric(name string, metric interface{}, metricType internal.MetricType, tags map[string]string) error
+	RegisterMetric(name string, metric any, metricType internal.MetricType, tags map[string]string) error
 	UnregisterMetric(name string, tags map[string]string) error
 	ResetMetric(name string) error
 	Reset() error
@@ -51,12 +50,12 @@ type Registry interface {
 // REGISTERED METRIC
 // =============================================================================
 
-// RegisteredMetric represents a registered metric with metadata
+// RegisteredMetric represents a registered metric with metadata.
 type RegisteredMetric struct {
 	Name        string                   `json:"name"`
 	Type        internal.MetricType      `json:"type"`
 	Tags        map[string]string        `json:"tags"`
-	Metric      interface{}              `json:"-"`
+	Metric      any                      `json:"-"`
 	Metadata    *internal.MetricMetadata `json:"metadata"`
 	CreatedAt   time.Time                `json:"created_at"`
 	UpdatedAt   time.Time                `json:"updated_at"`
@@ -64,8 +63,8 @@ type RegisteredMetric struct {
 	LastAccess  time.Time                `json:"last_access"`
 }
 
-// GetValue returns the current value of the metric
-func (rm *RegisteredMetric) GetValue() interface{} {
+// GetValue returns the current value of the metric.
+func (rm *RegisteredMetric) GetValue() any {
 	switch rm.Type {
 	case internal.MetricTypeCounter:
 		if counter, ok := rm.Metric.(internal.Counter); ok {
@@ -77,7 +76,7 @@ func (rm *RegisteredMetric) GetValue() interface{} {
 		}
 	case internal.MetricTypeHistogram:
 		if histogram, ok := rm.Metric.(internal.Histogram); ok {
-			return map[string]interface{}{
+			return map[string]any{
 				"count":   histogram.GetCount(),
 				"sum":     histogram.GetSum(),
 				"mean":    histogram.GetMean(),
@@ -86,7 +85,7 @@ func (rm *RegisteredMetric) GetValue() interface{} {
 		}
 	case internal.MetricTypeTimer:
 		if timer, ok := rm.Metric.(internal.Timer); ok {
-			return map[string]interface{}{
+			return map[string]any{
 				"count": timer.GetCount(),
 				"mean":  timer.GetMean(),
 				"min":   timer.GetMin(),
@@ -97,10 +96,11 @@ func (rm *RegisteredMetric) GetValue() interface{} {
 			}
 		}
 	}
+
 	return nil
 }
 
-// Reset resets the metric
+// Reset resets the metric.
 func (rm *RegisteredMetric) Reset() error {
 	switch rm.Type {
 	case internal.MetricTypeCounter:
@@ -120,11 +120,13 @@ func (rm *RegisteredMetric) Reset() error {
 			timer.Reset()
 		}
 	}
+
 	rm.UpdatedAt = time.Now()
+
 	return nil
 }
 
-// UpdateAccess updates access statistics
+// UpdateAccess updates access statistics.
 func (rm *RegisteredMetric) UpdateAccess() {
 	rm.AccessCount++
 	rm.LastAccess = time.Now()
@@ -134,7 +136,7 @@ func (rm *RegisteredMetric) UpdateAccess() {
 // REGISTRY IMPLEMENTATION
 // =============================================================================
 
-// registry implements Registry interface
+// registry implements Registry interface.
 type registry struct {
 	metrics         map[string]*RegisteredMetric
 	nameIndex       map[string][]*RegisteredMetric
@@ -147,14 +149,14 @@ type registry struct {
 	lastCleanup     time.Time
 }
 
-// RegistryConfig contains configuration for the registry
+// RegistryConfig contains configuration for the registry.
 type RegistryConfig struct {
-	MaxMetrics      int           `yaml:"max_metrics" json:"max_metrics"`
-	CleanupInterval time.Duration `yaml:"cleanup_interval" json:"cleanup_interval"`
-	EnableIndexing  bool          `yaml:"enable_indexing" json:"enable_indexing"`
+	MaxMetrics      int           `json:"max_metrics"      yaml:"max_metrics"`
+	CleanupInterval time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
+	EnableIndexing  bool          `json:"enable_indexing"  yaml:"enable_indexing"`
 }
 
-// DefaultRegistryConfig returns default registry configuration
+// DefaultRegistryConfig returns default registry configuration.
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
 		MaxMetrics:      10000,
@@ -163,12 +165,12 @@ func DefaultRegistryConfig() *RegistryConfig {
 	}
 }
 
-// NewRegistry creates a new metrics registry
+// NewRegistry creates a new metrics registry.
 func NewRegistry() Registry {
 	return NewRegistryWithConfig(DefaultRegistryConfig())
 }
 
-// NewRegistryWithConfig creates a new metrics registry with custom configuration
+// NewRegistryWithConfig creates a new metrics registry with custom configuration.
 func NewRegistryWithConfig(config *RegistryConfig) Registry {
 	return &registry{
 		metrics:         make(map[string]*RegisteredMetric),
@@ -184,7 +186,7 @@ func NewRegistryWithConfig(config *RegistryConfig) Registry {
 // METRIC CREATION AND RETRIEVAL
 // =============================================================================
 
-// GetOrCreateCounter creates or retrieves a counter metric
+// GetOrCreateCounter creates or retrieves a counter metric.
 func (r *registry) GetOrCreateCounter(name string, tags map[string]string) internal.Counter {
 	key := r.buildKey(name, tags)
 
@@ -193,6 +195,7 @@ func (r *registry) GetOrCreateCounter(name string, tags map[string]string) inter
 
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
+
 		if counter, ok := registered.Metric.(internal.Counter); ok {
 			return counter
 		}
@@ -201,10 +204,11 @@ func (r *registry) GetOrCreateCounter(name string, tags map[string]string) inter
 	// Create new counter
 	counter := internal.NewCounter()
 	r.registerMetricInternal(name, counter, internal.MetricTypeCounter, tags)
+
 	return counter
 }
 
-// GetOrCreateGauge creates or retrieves a gauge metric
+// GetOrCreateGauge creates or retrieves a gauge metric.
 func (r *registry) GetOrCreateGauge(name string, tags map[string]string) internal.Gauge {
 	key := r.buildKey(name, tags)
 
@@ -213,6 +217,7 @@ func (r *registry) GetOrCreateGauge(name string, tags map[string]string) interna
 
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
+
 		if gauge, ok := registered.Metric.(internal.Gauge); ok {
 			return gauge
 		}
@@ -221,10 +226,11 @@ func (r *registry) GetOrCreateGauge(name string, tags map[string]string) interna
 	// Create new gauge
 	gauge := internal.NewGauge()
 	r.registerMetricInternal(name, gauge, internal.MetricTypeGauge, tags)
+
 	return gauge
 }
 
-// GetOrCreateHistogram creates or retrieves a histogram metric
+// GetOrCreateHistogram creates or retrieves a histogram metric.
 func (r *registry) GetOrCreateHistogram(name string, tags map[string]string) internal.Histogram {
 	key := r.buildKey(name, tags)
 
@@ -233,6 +239,7 @@ func (r *registry) GetOrCreateHistogram(name string, tags map[string]string) int
 
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
+
 		if histogram, ok := registered.Metric.(internal.Histogram); ok {
 			return histogram
 		}
@@ -241,10 +248,11 @@ func (r *registry) GetOrCreateHistogram(name string, tags map[string]string) int
 	// Create new histogram
 	histogram := internal.NewHistogram()
 	r.registerMetricInternal(name, histogram, internal.MetricTypeHistogram, tags)
+
 	return histogram
 }
 
-// GetOrCreateTimer creates or retrieves a timer metric
+// GetOrCreateTimer creates or retrieves a timer metric.
 func (r *registry) GetOrCreateTimer(name string, tags map[string]string) internal.Timer {
 	key := r.buildKey(name, tags)
 
@@ -253,6 +261,7 @@ func (r *registry) GetOrCreateTimer(name string, tags map[string]string) interna
 
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
+
 		if timer, ok := registered.Metric.(internal.Timer); ok {
 			return timer
 		}
@@ -261,6 +270,7 @@ func (r *registry) GetOrCreateTimer(name string, tags map[string]string) interna
 	// Create new timer
 	timer := internal.NewTimer()
 	r.registerMetricInternal(name, timer, internal.MetricTypeTimer, tags)
+
 	return timer
 }
 
@@ -268,8 +278,8 @@ func (r *registry) GetOrCreateTimer(name string, tags map[string]string) interna
 // METRIC RETRIEVAL
 // =============================================================================
 
-// GetMetric retrieves a specific metric
-func (r *registry) GetMetric(name string, tags map[string]string) interface{} {
+// GetMetric retrieves a specific metric.
+func (r *registry) GetMetric(name string, tags map[string]string) any {
 	key := r.buildKey(name, tags)
 
 	r.mu.RLock()
@@ -277,18 +287,20 @@ func (r *registry) GetMetric(name string, tags map[string]string) interface{} {
 
 	if registered, exists := r.metrics[key]; exists {
 		registered.UpdateAccess()
+
 		return registered.Metric
 	}
 
 	return nil
 }
 
-// GetAllMetrics returns all metrics
-func (r *registry) GetAllMetrics() map[string]interface{} {
+// GetAllMetrics returns all metrics.
+func (r *registry) GetAllMetrics() map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
+
 	for key, registered := range r.metrics {
 		registered.UpdateAccess()
 		result[key] = registered.GetValue()
@@ -297,12 +309,12 @@ func (r *registry) GetAllMetrics() map[string]interface{} {
 	return result
 }
 
-// GetMetricsByType returns metrics filtered by type
-func (r *registry) GetMetricsByType(metricType internal.MetricType) map[string]interface{} {
+// GetMetricsByType returns metrics filtered by type.
+func (r *registry) GetMetricsByType(metricType internal.MetricType) map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	if metrics, exists := r.typeIndex[metricType]; exists {
 		for _, registered := range metrics {
@@ -315,12 +327,12 @@ func (r *registry) GetMetricsByType(metricType internal.MetricType) map[string]i
 	return result
 }
 
-// GetMetricsByTag returns metrics filtered by tag
-func (r *registry) GetMetricsByTag(tagKey, tagValue string) map[string]interface{} {
+// GetMetricsByTag returns metrics filtered by tag.
+func (r *registry) GetMetricsByTag(tagKey, tagValue string) map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	if tagMap, exists := r.tagIndex[tagKey]; exists {
 		if metrics, exists := tagMap[tagValue]; exists {
@@ -335,12 +347,12 @@ func (r *registry) GetMetricsByTag(tagKey, tagValue string) map[string]interface
 	return result
 }
 
-// GetMetricsByNamePattern returns metrics filtered by name pattern
-func (r *registry) GetMetricsByNamePattern(pattern string) map[string]interface{} {
+// GetMetricsByNamePattern returns metrics filtered by name pattern.
+func (r *registry) GetMetricsByNamePattern(pattern string) map[string]any {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	// Simple pattern matching - could be enhanced with regex
 	for key, registered := range r.metrics {
@@ -357,15 +369,15 @@ func (r *registry) GetMetricsByNamePattern(pattern string) map[string]interface{
 // METRIC MANAGEMENT
 // =============================================================================
 
-// RegisterMetric registers a metric manually
-func (r *registry) RegisterMetric(name string, metric interface{}, metricType internal.MetricType, tags map[string]string) error {
+// RegisterMetric registers a metric manually.
+func (r *registry) RegisterMetric(name string, metric any, metricType internal.MetricType, tags map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	return r.registerMetricInternal(name, metric, metricType, tags)
 }
 
-// UnregisterMetric unregisters a metric
+// UnregisterMetric unregisters a metric.
 func (r *registry) UnregisterMetric(name string, tags map[string]string) error {
 	key := r.buildKey(name, tags)
 
@@ -386,15 +398,17 @@ func (r *registry) UnregisterMetric(name string, tags map[string]string) error {
 	return nil
 }
 
-// ResetMetric resets a specific metric
+// ResetMetric resets a specific metric.
 func (r *registry) ResetMetric(name string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	found := false
+
 	for _, registered := range r.metrics {
 		if registered.Name == name {
 			registered.Reset()
+
 			found = true
 		}
 	}
@@ -406,7 +420,7 @@ func (r *registry) ResetMetric(name string) error {
 	return nil
 }
 
-// Reset resets all metrics
+// Reset resets all metrics.
 func (r *registry) Reset() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -427,7 +441,7 @@ func (r *registry) Reset() error {
 // STATISTICS
 // =============================================================================
 
-// Count returns the number of registered metrics
+// Count returns the number of registered metrics.
 func (r *registry) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -435,7 +449,7 @@ func (r *registry) Count() int {
 	return len(r.metrics)
 }
 
-// GetRegisteredMetrics returns all registered metrics
+// GetRegisteredMetrics returns all registered metrics.
 func (r *registry) GetRegisteredMetrics() []*RegisteredMetric {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -448,7 +462,7 @@ func (r *registry) GetRegisteredMetrics() []*RegisteredMetric {
 	return metrics
 }
 
-// GetMetricMetadata returns metadata for a specific metric
+// GetMetricMetadata returns metadata for a specific metric.
 func (r *registry) GetMetricMetadata(name string, tags map[string]string) *internal.MetricMetadata {
 	key := r.buildKey(name, tags)
 
@@ -466,7 +480,7 @@ func (r *registry) GetMetricMetadata(name string, tags map[string]string) *inter
 // LIFECYCLE
 // =============================================================================
 
-// Start starts the registry
+// Start starts the registry.
 func (r *registry) Start() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -484,7 +498,7 @@ func (r *registry) Start() error {
 	return nil
 }
 
-// Stop stops the registry
+// Stop stops the registry.
 func (r *registry) Stop() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -494,6 +508,7 @@ func (r *registry) Stop() error {
 	}
 
 	r.started = false
+
 	return nil
 }
 
@@ -501,7 +516,7 @@ func (r *registry) Stop() error {
 // PRIVATE METHODS
 // =============================================================================
 
-// buildKey builds a unique key for a metric
+// buildKey builds a unique key for a metric.
 func (r *registry) buildKey(name string, tags map[string]string) string {
 	if len(tags) == 0 {
 		return name
@@ -510,8 +525,8 @@ func (r *registry) buildKey(name string, tags map[string]string) string {
 	return name + "{" + internal.TagsToString(tags) + "}"
 }
 
-// registerMetricInternal registers a metric internally (assumes lock held)
-func (r *registry) registerMetricInternal(name string, metric interface{}, metricType internal.MetricType, tags map[string]string) error {
+// registerMetricInternal registers a metric internally (assumes lock held).
+func (r *registry) registerMetricInternal(name string, metric any, metricType internal.MetricType, tags map[string]string) error {
 	if len(r.metrics) >= r.maxMetrics {
 		return errors.ErrInvalidConfig("max_metrics", fmt.Errorf("maximum number of metrics reached: %d", r.maxMetrics))
 	}
@@ -543,7 +558,7 @@ func (r *registry) registerMetricInternal(name string, metric interface{}, metri
 	return nil
 }
 
-// createMetadata creates metadata for a metric
+// createMetadata creates metadata for a metric.
 func (r *registry) createMetadata(name string, metricType internal.MetricType, tags map[string]string) *internal.MetricMetadata {
 	return &internal.MetricMetadata{
 		Name:        name,
@@ -556,23 +571,23 @@ func (r *registry) createMetadata(name string, metricType internal.MetricType, t
 	}
 }
 
-// generateDescription generates a description for a metric
+// generateDescription generates a description for a metric.
 func (r *registry) generateDescription(name string, metricType internal.MetricType) string {
 	switch metricType {
 	case internal.MetricTypeCounter:
-		return fmt.Sprintf("Counter metric: %s", name)
+		return "Counter metric: " + name
 	case internal.MetricTypeGauge:
-		return fmt.Sprintf("Gauge metric: %s", name)
+		return "Gauge metric: " + name
 	case internal.MetricTypeHistogram:
-		return fmt.Sprintf("Histogram metric: %s", name)
+		return "Histogram metric: " + name
 	case internal.MetricTypeTimer:
-		return fmt.Sprintf("Timer metric: %s", name)
+		return "Timer metric: " + name
 	default:
-		return fmt.Sprintf("Metric: %s", name)
+		return "Metric: " + name
 	}
 }
 
-// inferUnit infers the unit for a metric based on name and type
+// inferUnit infers the unit for a metric based on name and type.
 func (r *registry) inferUnit(name string, metricType internal.MetricType) string {
 	// Simple unit inference based on common patterns
 	switch metricType {
@@ -582,25 +597,30 @@ func (r *registry) inferUnit(name string, metricType internal.MetricType) string
 		if name == "requests" || name == "errors" {
 			return "count"
 		}
+
 		return "count"
 	case internal.MetricTypeGauge:
 		if name == "memory" || name == "bytes" {
 			return "bytes"
 		}
+
 		if name == "cpu" {
 			return "percent"
 		}
+
 		return "value"
 	case internal.MetricTypeHistogram:
 		if name == "latency" || name == "duration" {
 			return "seconds"
 		}
+
 		return "value"
 	}
+
 	return "value"
 }
 
-// addToIndexes adds a metric to all indexes
+// addToIndexes adds a metric to all indexes.
 func (r *registry) addToIndexes(registered *RegisteredMetric) {
 	// Add to name index
 	r.nameIndex[registered.Name] = append(r.nameIndex[registered.Name], registered)
@@ -613,20 +633,23 @@ func (r *registry) addToIndexes(registered *RegisteredMetric) {
 		if r.tagIndex[tagKey] == nil {
 			r.tagIndex[tagKey] = make(map[string][]*RegisteredMetric)
 		}
+
 		r.tagIndex[tagKey][tagValue] = append(r.tagIndex[tagKey][tagValue], registered)
 	}
 }
 
-// removeFromIndexes removes a metric from all indexes
+// removeFromIndexes removes a metric from all indexes.
 func (r *registry) removeFromIndexes(registered *RegisteredMetric) {
 	// Remove from name index
 	if metrics, exists := r.nameIndex[registered.Name]; exists {
 		for i, metric := range metrics {
 			if metric == registered {
 				r.nameIndex[registered.Name] = append(metrics[:i], metrics[i+1:]...)
+
 				break
 			}
 		}
+
 		if len(r.nameIndex[registered.Name]) == 0 {
 			delete(r.nameIndex, registered.Name)
 		}
@@ -637,9 +660,11 @@ func (r *registry) removeFromIndexes(registered *RegisteredMetric) {
 		for i, metric := range metrics {
 			if metric == registered {
 				r.typeIndex[registered.Type] = append(metrics[:i], metrics[i+1:]...)
+
 				break
 			}
 		}
+
 		if len(r.typeIndex[registered.Type]) == 0 {
 			delete(r.typeIndex, registered.Type)
 		}
@@ -652,13 +677,16 @@ func (r *registry) removeFromIndexes(registered *RegisteredMetric) {
 				for i, metric := range metrics {
 					if metric == registered {
 						tagMap[tagValue] = append(metrics[:i], metrics[i+1:]...)
+
 						break
 					}
 				}
+
 				if len(tagMap[tagValue]) == 0 {
 					delete(tagMap, tagValue)
 				}
 			}
+
 			if len(tagMap) == 0 {
 				delete(r.tagIndex, tagKey)
 			}
@@ -666,7 +694,7 @@ func (r *registry) removeFromIndexes(registered *RegisteredMetric) {
 	}
 }
 
-// matchesPattern checks if a name matches a pattern
+// matchesPattern checks if a name matches a pattern.
 func (r *registry) matchesPattern(name, pattern string) bool {
 	// Simple pattern matching - could be enhanced with regex
 	// For now, just check if pattern is a substring
@@ -675,7 +703,7 @@ func (r *registry) matchesPattern(name, pattern string) bool {
 			len(name) >= len(pattern)-1 && name[:len(pattern)-1] == pattern[:len(pattern)-1])
 }
 
-// cleanupLoop runs periodic cleanup
+// cleanupLoop runs periodic cleanup.
 func (r *registry) cleanupLoop() {
 	ticker := time.NewTicker(r.cleanupInterval)
 	defer ticker.Stop()
@@ -686,12 +714,13 @@ func (r *registry) cleanupLoop() {
 			if !r.started {
 				return
 			}
+
 			r.cleanup()
 		}
 	}
 }
 
-// cleanup performs registry cleanup
+// cleanup performs registry cleanup.
 func (r *registry) cleanup() {
 	r.mu.Lock()
 	defer r.mu.Unlock()

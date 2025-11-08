@@ -3,68 +3,69 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 )
 
-// SelfHealingAgent wraps an agent with automatic error recovery and learning
+// SelfHealingAgent wraps an agent with automatic error recovery and learning.
 type SelfHealingAgent struct {
-	agent          *Agent
-	logger         forge.Logger
-	metrics        forge.Metrics
-	
+	agent   *Agent
+	logger  forge.Logger
+	metrics forge.Metrics
+
 	// Error tracking
-	errorHistory   []ErrorRecord
-	recoveryStats  map[string]*RecoveryStats
-	mu             sync.RWMutex
-	
+	errorHistory  []ErrorRecord
+	recoveryStats map[string]*RecoveryStats
+	mu            sync.RWMutex
+
 	// Configuration
-	config         SelfHealingConfig
-	
+	config SelfHealingConfig
+
 	// Learning
 	strategies     []RecoveryStrategy
 	learnedPattern map[string]RecoveryAction
 }
 
-// SelfHealingConfig configures self-healing behavior
+// SelfHealingConfig configures self-healing behavior.
 type SelfHealingConfig struct {
-	MaxRetries             int
-	RetryDelay             time.Duration
-	BackoffMultiplier      float64
-	MaxRetryDelay          time.Duration
-	EnableLearning         bool
-	ErrorHistorySize       int
-	AdaptiveThreshold      int // Number of failures before adapting
-	HealthCheckInterval    time.Duration
-	AutoRecover            bool
-	FallbackEnabled        bool
-	CircuitBreakerEnabled  bool
+	MaxRetries              int
+	RetryDelay              time.Duration
+	BackoffMultiplier       float64
+	MaxRetryDelay           time.Duration
+	EnableLearning          bool
+	ErrorHistorySize        int
+	AdaptiveThreshold       int // Number of failures before adapting
+	HealthCheckInterval     time.Duration
+	AutoRecover             bool
+	FallbackEnabled         bool
+	CircuitBreakerEnabled   bool
 	CircuitBreakerThreshold int
 }
 
-// ErrorRecord tracks a single error occurrence
+// ErrorRecord tracks a single error occurrence.
 type ErrorRecord struct {
-	Timestamp     time.Duration
-	Error         error
-	Context       map[string]interface{}
-	RecoveryUsed  string
-	Recovered     bool
-	Attempts      int
+	Timestamp    time.Duration
+	Error        error
+	Context      map[string]any
+	RecoveryUsed string
+	Recovered    bool
+	Attempts     int
 }
 
-// RecoveryStats tracks recovery success rates
+// RecoveryStats tracks recovery success rates.
 type RecoveryStats struct {
-	TotalAttempts    int
+	TotalAttempts        int
 	SuccessfulRecoveries int
-	FailedRecoveries int
-	AverageAttempts  float64
-	LastSuccess      time.Time
-	LastFailure      time.Time
+	FailedRecoveries     int
+	AverageAttempts      float64
+	LastSuccess          time.Time
+	LastFailure          time.Time
 }
 
-// RecoveryStrategy defines a strategy for recovering from errors
+// RecoveryStrategy defines a strategy for recovering from errors.
 type RecoveryStrategy interface {
 	Name() string
 	CanHandle(err error) bool
@@ -72,7 +73,7 @@ type RecoveryStrategy interface {
 	Priority() int
 }
 
-// RecoveryAction represents a learned recovery action
+// RecoveryAction represents a learned recovery action.
 type RecoveryAction struct {
 	StrategyName string
 	SuccessRate  float64
@@ -80,26 +81,32 @@ type RecoveryAction struct {
 	LastUsed     time.Time
 }
 
-// NewSelfHealingAgent creates a new self-healing agent
+// NewSelfHealingAgent creates a new self-healing agent.
 func NewSelfHealingAgent(agent *Agent, config SelfHealingConfig, logger forge.Logger, metrics forge.Metrics) *SelfHealingAgent {
 	if config.MaxRetries == 0 {
 		config.MaxRetries = 3
 	}
+
 	if config.RetryDelay == 0 {
 		config.RetryDelay = time.Second
 	}
+
 	if config.BackoffMultiplier == 0 {
 		config.BackoffMultiplier = 2.0
 	}
+
 	if config.MaxRetryDelay == 0 {
 		config.MaxRetryDelay = 30 * time.Second
 	}
+
 	if config.ErrorHistorySize == 0 {
 		config.ErrorHistorySize = 100
 	}
+
 	if config.AdaptiveThreshold == 0 {
 		config.AdaptiveThreshold = 3
 	}
+
 	if config.CircuitBreakerThreshold == 0 {
 		config.CircuitBreakerThreshold = 5
 	}
@@ -124,16 +131,18 @@ func NewSelfHealingAgent(agent *Agent, config SelfHealingConfig, logger forge.Lo
 	return sha
 }
 
-// RegisterStrategy registers a recovery strategy
+// RegisterStrategy registers a recovery strategy.
 func (sha *SelfHealingAgent) RegisterStrategy(strategy RecoveryStrategy) {
 	sha.mu.Lock()
 	defer sha.mu.Unlock()
+
 	sha.strategies = append(sha.strategies, strategy)
 }
 
-// Process processes a request with self-healing
+// Process processes a request with self-healing.
 func (sha *SelfHealingAgent) Process(ctx context.Context, input string) (string, error) {
 	var lastErr error
+
 	delay := sha.config.RetryDelay
 
 	for attempt := 0; attempt <= sha.config.MaxRetries; attempt++ {
@@ -144,6 +153,7 @@ func (sha *SelfHealingAgent) Process(ctx context.Context, input string) (string,
 			if attempt > 0 {
 				sha.recordRecovery(lastErr, true, attempt)
 			}
+
 			return response.Content, nil
 		}
 
@@ -167,10 +177,12 @@ func (sha *SelfHealingAgent) Process(ctx context.Context, input string) (string,
 				}
 				// Wait before retry
 				time.Sleep(delay)
+
 				delay = time.Duration(float64(delay) * sha.config.BackoffMultiplier)
 				if delay > sha.config.MaxRetryDelay {
 					delay = sha.config.MaxRetryDelay
 				}
+
 				continue
 			}
 
@@ -185,6 +197,7 @@ func (sha *SelfHealingAgent) Process(ctx context.Context, input string) (string,
 		// Wait before retry
 		if attempt < sha.config.MaxRetries {
 			time.Sleep(delay)
+
 			delay = time.Duration(float64(delay) * sha.config.BackoffMultiplier)
 			if delay > sha.config.MaxRetryDelay {
 				delay = sha.config.MaxRetryDelay
@@ -194,10 +207,11 @@ func (sha *SelfHealingAgent) Process(ctx context.Context, input string) (string,
 
 	// All retries failed
 	sha.recordRecovery(lastErr, false, sha.config.MaxRetries+1)
+
 	return "", fmt.Errorf("all recovery attempts failed: %w", lastErr)
 }
 
-// tryRecover attempts to recover from an error
+// tryRecover attempts to recover from an error.
 func (sha *SelfHealingAgent) tryRecover(ctx context.Context, err error) error {
 	// Check if we have a learned pattern for this error
 	if sha.config.EnableLearning {
@@ -212,6 +226,7 @@ func (sha *SelfHealingAgent) tryRecover(ctx context.Context, err error) error {
 							F("success_rate", action.SuccessRate),
 						)
 					}
+
 					return strategy.Recover(ctx, sha.agent, err)
 				}
 			}
@@ -234,19 +249,21 @@ func (sha *SelfHealingAgent) tryRecover(ctx context.Context, err error) error {
 		if recoveryErr == nil {
 			// Strategy succeeded!
 			sha.updateRecoveryStats(strategy.Name(), true)
+
 			if sha.config.EnableLearning {
 				sha.learnPattern(err, strategy.Name())
 			}
+
 			return nil
 		}
 
 		sha.updateRecoveryStats(strategy.Name(), false)
 	}
 
-	return fmt.Errorf("no recovery strategy succeeded")
+	return errors.New("no recovery strategy succeeded")
 }
 
-// recordRecovery records a recovery attempt
+// recordRecovery records a recovery attempt.
 func (sha *SelfHealingAgent) recordRecovery(err error, recovered bool, attempts int) {
 	sha.mu.Lock()
 	defer sha.mu.Unlock()
@@ -256,7 +273,7 @@ func (sha *SelfHealingAgent) recordRecovery(err error, recovered bool, attempts 
 		Error:     err,
 		Recovered: recovered,
 		Attempts:  attempts,
-		Context:   make(map[string]interface{}),
+		Context:   make(map[string]any),
 	}
 
 	sha.errorHistory = append(sha.errorHistory, record)
@@ -273,11 +290,12 @@ func (sha *SelfHealingAgent) recordRecovery(err error, recovered bool, attempts 
 		} else {
 			sha.metrics.Counter("ai.selfhealing.recoveries", "status", "failure").Inc()
 		}
+
 		sha.metrics.Gauge("ai.selfhealing.attempts", "type", "total").Set(float64(attempts))
 	}
 }
 
-// updateRecoveryStats updates recovery statistics for a strategy
+// updateRecoveryStats updates recovery statistics for a strategy.
 func (sha *SelfHealingAgent) updateRecoveryStats(strategyName string, success bool) {
 	sha.mu.Lock()
 	defer sha.mu.Unlock()
@@ -300,13 +318,13 @@ func (sha *SelfHealingAgent) updateRecoveryStats(strategyName string, success bo
 	stats.AverageAttempts = float64(stats.TotalAttempts) / float64(stats.SuccessfulRecoveries+1)
 }
 
-// learnPattern learns from a successful recovery
+// learnPattern learns from a successful recovery.
 func (sha *SelfHealingAgent) learnPattern(err error, strategyName string) {
 	sha.mu.Lock()
 	defer sha.mu.Unlock()
 
 	errorType := fmt.Sprintf("%T", err)
-	
+
 	action, exists := sha.learnedPattern[errorType]
 	if !exists {
 		action = RecoveryAction{
@@ -326,6 +344,7 @@ func (sha *SelfHealingAgent) learnPattern(err error, strategyName string) {
 			if newConfidence < 0.0 {
 				newConfidence = 0.0
 			}
+
 			action.Confidence = newConfidence
 			if action.Confidence < 0.5 {
 				// Switch to new strategy
@@ -334,64 +353,67 @@ func (sha *SelfHealingAgent) learnPattern(err error, strategyName string) {
 				action.Confidence = 0.5
 			}
 		}
+
 		action.LastUsed = time.Now()
 	}
 
 	sha.learnedPattern[errorType] = action
 }
 
-// GetRecoveryStats returns recovery statistics
+// GetRecoveryStats returns recovery statistics.
 func (sha *SelfHealingAgent) GetRecoveryStats() map[string]*RecoveryStats {
 	sha.mu.RLock()
 	defer sha.mu.RUnlock()
 
 	stats := make(map[string]*RecoveryStats)
+
 	for k, v := range sha.recoveryStats {
 		statsCopy := *v
 		stats[k] = &statsCopy
 	}
+
 	return stats
 }
 
-// GetErrorHistory returns the error history
+// GetErrorHistory returns the error history.
 func (sha *SelfHealingAgent) GetErrorHistory() []ErrorRecord {
 	sha.mu.RLock()
 	defer sha.mu.RUnlock()
 
 	history := make([]ErrorRecord, len(sha.errorHistory))
 	copy(history, sha.errorHistory)
+
 	return history
 }
 
-// GetLearnedPatterns returns learned patterns
+// GetLearnedPatterns returns learned patterns.
 func (sha *SelfHealingAgent) GetLearnedPatterns() map[string]RecoveryAction {
 	sha.mu.RLock()
 	defer sha.mu.RUnlock()
 
 	patterns := make(map[string]RecoveryAction)
-	for k, v := range sha.learnedPattern {
-		patterns[k] = v
-	}
+	maps.Copy(patterns, sha.learnedPattern)
+
 	return patterns
 }
 
 // --- Built-in Recovery Strategies ---
 
-// RetryStrategy simply retries the operation
+// RetryStrategy simply retries the operation.
 type RetryStrategy struct{}
 
-func (s *RetryStrategy) Name() string { return "retry" }
-func (s *RetryStrategy) Priority() int { return 10 }
+func (s *RetryStrategy) Name() string             { return "retry" }
+func (s *RetryStrategy) Priority() int            { return 10 }
 func (s *RetryStrategy) CanHandle(err error) bool { return true }
 func (s *RetryStrategy) Recover(ctx context.Context, agent *Agent, err error) error {
 	// Just a simple retry, the actual retry logic is in Process()
 	return nil
 }
 
-// ResetStateStrategy resets the agent state
+// ResetStateStrategy resets the agent state.
 type ResetStateStrategy struct{}
 
-func (s *ResetStateStrategy) Name() string { return "reset_state" }
+func (s *ResetStateStrategy) Name() string  { return "reset_state" }
 func (s *ResetStateStrategy) Priority() int { return 20 }
 func (s *ResetStateStrategy) CanHandle(err error) bool {
 	// Handle state-related errors
@@ -400,13 +422,14 @@ func (s *ResetStateStrategy) CanHandle(err error) bool {
 func (s *ResetStateStrategy) Recover(ctx context.Context, agent *Agent, err error) error {
 	// Clear conversation history to reset context
 	agent.state.History = agent.state.History[:0]
+
 	return nil
 }
 
-// SimplifyPromptStrategy simplifies the prompt to reduce complexity
+// SimplifyPromptStrategy simplifies the prompt to reduce complexity.
 type SimplifyPromptStrategy struct{}
 
-func (s *SimplifyPromptStrategy) Name() string { return "simplify_prompt" }
+func (s *SimplifyPromptStrategy) Name() string  { return "simplify_prompt" }
 func (s *SimplifyPromptStrategy) Priority() int { return 30 }
 func (s *SimplifyPromptStrategy) CanHandle(err error) bool {
 	// Handle complexity-related errors
@@ -415,13 +438,14 @@ func (s *SimplifyPromptStrategy) CanHandle(err error) bool {
 func (s *SimplifyPromptStrategy) Recover(ctx context.Context, agent *Agent, err error) error {
 	// Add system message to simplify responses
 	agent.state.Data["simplified_mode"] = true
+
 	return nil
 }
 
-// FallbackModelStrategy switches to a fallback model
+// FallbackModelStrategy switches to a fallback model.
 type FallbackModelStrategy struct{}
 
-func (s *FallbackModelStrategy) Name() string { return "fallback_model" }
+func (s *FallbackModelStrategy) Name() string  { return "fallback_model" }
 func (s *FallbackModelStrategy) Priority() int { return 40 }
 func (s *FallbackModelStrategy) CanHandle(err error) bool {
 	// Handle model-related errors
@@ -430,6 +454,6 @@ func (s *FallbackModelStrategy) CanHandle(err error) bool {
 func (s *FallbackModelStrategy) Recover(ctx context.Context, agent *Agent, err error) error {
 	// Switch to a more reliable model (this would need model config)
 	agent.state.Data["use_fallback_model"] = true
+
 	return nil
 }
-

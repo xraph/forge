@@ -152,6 +152,7 @@ func (tb *tokenBucket) allowInMemory(key string, action string, limit RateLimit,
 	fullKey := tb.makeKey(key, action)
 
 	tb.mu.Lock()
+
 	b, ok := tb.buckets[fullKey]
 	if !ok {
 		b = &bucket{
@@ -160,6 +161,7 @@ func (tb *tokenBucket) allowInMemory(key string, action string, limit RateLimit,
 		}
 		tb.buckets[fullKey] = b
 	}
+
 	tb.mu.Unlock()
 
 	b.mu.Lock()
@@ -181,6 +183,7 @@ func (tb *tokenBucket) allowInMemory(key string, action string, limit RateLimit,
 
 	// Consume tokens
 	b.tokens -= float64(n)
+
 	return true, nil
 }
 
@@ -212,6 +215,7 @@ func (tb *tokenBucket) allowWithStore(ctx context.Context, key string, action st
 	if data.Tokens < n {
 		// Save state even on rejection
 		_ = tb.store.Set(ctx, fullKey, data, limit.Window*2)
+
 		return false, nil
 	}
 
@@ -230,7 +234,8 @@ func (tb *tokenBucket) makeKey(key, action string) string {
 	if action != "" {
 		return fmt.Sprintf("ratelimit:%s:%s", key, action)
 	}
-	return fmt.Sprintf("ratelimit:%s", key)
+
+	return "ratelimit:" + key
 }
 
 func (tb *tokenBucket) cleanup() {
@@ -239,14 +244,19 @@ func (tb *tokenBucket) cleanup() {
 
 	for range ticker.C {
 		tb.mu.Lock()
+
 		now := time.Now()
+
 		for key, b := range tb.buckets {
 			b.mu.Lock()
+
 			if now.Sub(b.lastRefill) > time.Hour {
 				delete(tb.buckets, key)
 			}
+
 			b.mu.Unlock()
 		}
+
 		tb.mu.Unlock()
 	}
 }
@@ -255,6 +265,7 @@ func min(a, b int) int {
 	if a < b {
 		return a
 	}
+
 	return b
 }
 
@@ -262,5 +273,6 @@ func min64(a, b float64) float64 {
 	if a < b {
 		return a
 	}
+
 	return b
 }

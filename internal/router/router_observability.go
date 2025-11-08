@@ -4,7 +4,7 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// WithMetrics enables metrics collection
+// WithMetrics enables metrics collection.
 func WithMetrics(config shared.MetricsConfig) RouterOption {
 	return &metricsOption{config: config}
 }
@@ -17,7 +17,7 @@ func (o *metricsOption) Apply(cfg *routerConfig) {
 	cfg.metricsConfig = &o.config
 }
 
-// WithHealth enables health checks
+// WithHealth enables health checks.
 func WithHealth(config shared.HealthConfig) RouterOption {
 	return &healthOption{config: config}
 }

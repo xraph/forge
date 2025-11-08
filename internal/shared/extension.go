@@ -59,7 +59,7 @@ type HotReloadableExtension interface {
 	Reload(ctx context.Context) error
 }
 
-// ExtensionInfo contains information about a registered extension
+// ExtensionInfo contains information about a registered extension.
 type ExtensionInfo struct {
 	Name         string   `json:"name"`
 	Version      string   `json:"version"`

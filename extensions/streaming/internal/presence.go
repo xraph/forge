@@ -190,7 +190,7 @@ type ActivityInfo struct {
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
-// Activity types
+// Activity types.
 const (
 	ActivityTypePlaying   = "playing"
 	ActivityTypeListening = "listening"

@@ -11,26 +11,27 @@ import (
 
 	"github.com/xraph/forge"
 	ai "github.com/xraph/forge/extensions/ai/internal"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// IntelligentRateLimitConfig contains configuration for AI-powered rate limiting
+// IntelligentRateLimitConfig contains configuration for AI-powered rate limiting.
 type IntelligentRateLimitConfig struct {
-	BaseLimit           int64         `yaml:"base_limit" default:"1000"`          // Base requests per window
-	WindowDuration      time.Duration `yaml:"window_duration" default:"1m"`       // Time window
-	BurstMultiplier     float64       `yaml:"burst_multiplier" default:"2.0"`     // Burst allowance multiplier
-	LearningEnabled     bool          `yaml:"learning_enabled" default:"true"`    // Enable learning from patterns
-	AdaptiveEnabled     bool          `yaml:"adaptive_enabled" default:"true"`    // Enable adaptive limits
-	MinLimit            int64         `yaml:"min_limit" default:"100"`            // Minimum limit
-	MaxLimit            int64         `yaml:"max_limit" default:"10000"`          // Maximum limit
-	UserBehaviorWeight  float64       `yaml:"user_behavior_weight" default:"0.3"` // Weight for user behavior
-	SystemLoadWeight    float64       `yaml:"system_load_weight" default:"0.4"`   // Weight for system load
-	HistoricalWeight    float64       `yaml:"historical_weight" default:"0.3"`    // Weight for historical data
-	ReputationThreshold float64       `yaml:"reputation_threshold" default:"0.7"` // Trust threshold for users
-	AnomalyThreshold    float64       `yaml:"anomaly_threshold" default:"3.0"`    // Standard deviations for anomaly
+	BaseLimit           int64         `default:"1000"  yaml:"base_limit"`           // Base requests per window
+	WindowDuration      time.Duration `default:"1m"    yaml:"window_duration"`      // Time window
+	BurstMultiplier     float64       `default:"2.0"   yaml:"burst_multiplier"`     // Burst allowance multiplier
+	LearningEnabled     bool          `default:"true"  yaml:"learning_enabled"`     // Enable learning from patterns
+	AdaptiveEnabled     bool          `default:"true"  yaml:"adaptive_enabled"`     // Enable adaptive limits
+	MinLimit            int64         `default:"100"   yaml:"min_limit"`            // Minimum limit
+	MaxLimit            int64         `default:"10000" yaml:"max_limit"`            // Maximum limit
+	UserBehaviorWeight  float64       `default:"0.3"   yaml:"user_behavior_weight"` // Weight for user behavior
+	SystemLoadWeight    float64       `default:"0.4"   yaml:"system_load_weight"`   // Weight for system load
+	HistoricalWeight    float64       `default:"0.3"   yaml:"historical_weight"`    // Weight for historical data
+	ReputationThreshold float64       `default:"0.7"   yaml:"reputation_threshold"` // Trust threshold for users
+	AnomalyThreshold    float64       `default:"3.0"   yaml:"anomaly_threshold"`    // Standard deviations for anomaly
 }
 
-// IntelligentRateLimitStats contains statistics for intelligent rate limiting
+// IntelligentRateLimitStats contains statistics for intelligent rate limiting.
 type IntelligentRateLimitStats struct {
 	TotalRequests    int64                    `json:"total_requests"`
 	RateLimitedCount int64                    `json:"rate_limited_count"`
@@ -44,7 +45,7 @@ type IntelligentRateLimitStats struct {
 	LastUpdated      time.Time                `json:"last_updated"`
 }
 
-// RateLimitInfo contains rate limit information for a user or endpoint
+// RateLimitInfo contains rate limit information for a user or endpoint.
 type RateLimitInfo struct {
 	CurrentLimit    int64     `json:"current_limit"`
 	RequestCount    int64     `json:"request_count"`
@@ -56,7 +57,7 @@ type RateLimitInfo struct {
 	PatternScore    float64   `json:"pattern_score"`
 }
 
-// LearningMetrics contains metrics about the learning process
+// LearningMetrics contains metrics about the learning process.
 type LearningMetrics struct {
 	ModelAccuracy      float64   `json:"model_accuracy"`
 	PredictionCount    int64     `json:"prediction_count"`
@@ -65,7 +66,7 @@ type LearningMetrics struct {
 	TrainingDataPoints int64     `json:"training_data_points"`
 }
 
-// UserBehaviorPattern represents user behavior patterns
+// UserBehaviorPattern represents user behavior patterns.
 type UserBehaviorPattern struct {
 	UserID             string    `json:"user_id"`
 	TypicalRequestRate float64   `json:"typical_request_rate"`
@@ -78,7 +79,7 @@ type UserBehaviorPattern struct {
 	LastAnalysis       time.Time `json:"last_analysis"`
 }
 
-// IntelligentRateLimit implements AI-powered rate limiting middleware
+// IntelligentRateLimit implements AI-powered rate limiting middleware.
 type IntelligentRateLimit struct {
 	config         IntelligentRateLimitConfig
 	agent          ai.AIAgent
@@ -93,7 +94,7 @@ type IntelligentRateLimit struct {
 	started        bool
 }
 
-// SystemLoadMonitor monitors system load for adaptive rate limiting
+// SystemLoadMonitor monitors system load for adaptive rate limiting.
 type SystemLoadMonitor struct {
 	CPUUsage    float64   `json:"cpu_usage"`
 	MemoryUsage float64   `json:"memory_usage"`
@@ -102,14 +103,14 @@ type SystemLoadMonitor struct {
 	LastUpdate  time.Time `json:"last_update"`
 }
 
-// NewIntelligentRateLimit creates a new intelligent rate limiting middleware
+// NewIntelligentRateLimit creates a new intelligent rate limiting middleware.
 func NewIntelligentRateLimit(config IntelligentRateLimitConfig, logger forge.Logger, metrics forge.Metrics) (*IntelligentRateLimit, error) {
 	// Create learning agent for rate limiting
 	capabilities := []ai.Capability{
 		{
 			Name:        "predict_user_behavior",
 			Description: "Predict user behavior patterns for rate limiting",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":     "prediction",
 				"accuracy": 0.85,
 			},
@@ -117,7 +118,7 @@ func NewIntelligentRateLimit(config IntelligentRateLimitConfig, logger forge.Log
 		{
 			Name:        "detect_anomalies",
 			Description: "Detect anomalous request patterns",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "anomaly_detection",
 				"threshold": config.AnomalyThreshold,
 			},
@@ -125,7 +126,7 @@ func NewIntelligentRateLimit(config IntelligentRateLimitConfig, logger forge.Log
 		{
 			Name:        "adaptive_limits",
 			Description: "Dynamically adjust rate limits based on system conditions",
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"type":      "optimization",
 				"min_limit": config.MinLimit,
 				"max_limit": config.MaxLimit,
@@ -152,23 +153,23 @@ func NewIntelligentRateLimit(config IntelligentRateLimitConfig, logger forge.Log
 	}, nil
 }
 
-// Name returns the middleware name
+// Name returns the middleware name.
 func (irl *IntelligentRateLimit) Name() string {
 	return "intelligent-rate-limit"
 }
 
-// Type returns the middleware type
+// Type returns the middleware type.
 func (irl *IntelligentRateLimit) Type() ai.AIMiddlewareType {
 	return ai.AIMiddlewareTypeRateLimit
 }
 
-// Initialize initializes the middleware
+// Initialize initializes the middleware.
 func (irl *IntelligentRateLimit) Initialize(ctx context.Context, config ai.AIMiddlewareConfig) error {
 	irl.mu.Lock()
 	defer irl.mu.Unlock()
 
 	if irl.started {
-		return fmt.Errorf("intelligent rate limit middleware already initialized")
+		return errors.New("intelligent rate limit middleware already initialized")
 	}
 
 	// Initialize the AI agent
@@ -207,7 +208,7 @@ func (irl *IntelligentRateLimit) Initialize(ctx context.Context, config ai.AIMid
 	return nil
 }
 
-// Process processes HTTP requests with intelligent rate limiting
+// Process processes HTTP requests with intelligent rate limiting.
 func (irl *IntelligentRateLimit) Process(ctx context.Context, req *http.Request, resp http.ResponseWriter, next http.HandlerFunc) error {
 	start := time.Now()
 
@@ -223,6 +224,7 @@ func (irl *IntelligentRateLimit) Process(ctx context.Context, req *http.Request,
 	if !allowed {
 		irl.handleRateLimitExceeded(resp, reason, waitTime)
 		irl.updateRateLimitStats(userID, endpoint, false)
+
 		return nil
 	}
 
@@ -241,7 +243,7 @@ func (irl *IntelligentRateLimit) Process(ctx context.Context, req *http.Request,
 	return nil
 }
 
-// checkRateLimit checks if the request should be rate limited
+// checkRateLimit checks if the request should be rate limited.
 func (irl *IntelligentRateLimit) checkRateLimit(ctx context.Context, userID, endpoint string, req *http.Request) (bool, string, time.Duration) {
 	irl.mu.Lock()
 	defer irl.mu.Unlock()
@@ -256,6 +258,7 @@ func (irl *IntelligentRateLimit) checkRateLimit(ctx context.Context, userID, end
 		userLimit.RequestCount = 0
 		userLimit.WindowStart = now
 	}
+
 	if now.Sub(endpointLimit.WindowStart) >= irl.config.WindowDuration {
 		endpointLimit.RequestCount = 0
 		endpointLimit.WindowStart = now
@@ -264,6 +267,7 @@ func (irl *IntelligentRateLimit) checkRateLimit(ctx context.Context, userID, end
 	// Check if user is currently blocked
 	if userLimit.IsBlocked && now.Before(userLimit.BlockedUntil) {
 		waitTime := userLimit.BlockedUntil.Sub(now)
+
 		return false, "user_blocked", waitTime
 	}
 
@@ -272,10 +276,7 @@ func (irl *IntelligentRateLimit) checkRateLimit(ctx context.Context, userID, end
 	endpointDynamicLimit := irl.calculateDynamicLimit(endpoint, endpointLimit)
 
 	// Apply the most restrictive limit
-	effectiveLimit := userDynamicLimit
-	if endpointDynamicLimit < effectiveLimit {
-		effectiveLimit = endpointDynamicLimit
-	}
+	effectiveLimit := min(endpointDynamicLimit, userDynamicLimit)
 
 	// Check limits
 	if userLimit.RequestCount >= effectiveLimit {
@@ -284,8 +285,10 @@ func (irl *IntelligentRateLimit) checkRateLimit(ctx context.Context, userID, end
 			// Block user temporarily
 			userLimit.IsBlocked = true
 			userLimit.BlockedUntil = now.Add(time.Duration(effectiveLimit) * time.Second)
+
 			return false, "anomalous_behavior", userLimit.BlockedUntil.Sub(now)
 		}
+
 		return false, "rate_limit_exceeded", irl.config.WindowDuration
 	}
 
@@ -298,7 +301,7 @@ func (irl *IntelligentRateLimit) checkRateLimit(ctx context.Context, userID, end
 	return true, "", 0
 }
 
-// calculateDynamicLimit calculates dynamic rate limit using AI
+// calculateDynamicLimit calculates dynamic rate limit using AI.
 func (irl *IntelligentRateLimit) calculateDynamicLimit(identifier string, limitInfo *RateLimitInfo) int64 {
 	baseLimit := irl.config.BaseLimit
 
@@ -325,6 +328,7 @@ func (irl *IntelligentRateLimit) calculateDynamicLimit(identifier string, limitI
 	if adaptiveLimit < float64(irl.config.MinLimit) {
 		adaptiveLimit = float64(irl.config.MinLimit)
 	}
+
 	if adaptiveLimit > float64(irl.config.MaxLimit) {
 		adaptiveLimit = float64(irl.config.MaxLimit)
 	}
@@ -332,7 +336,7 @@ func (irl *IntelligentRateLimit) calculateDynamicLimit(identifier string, limitI
 	return int64(adaptiveLimit)
 }
 
-// isAnomalousRequest determines if a request is anomalous using AI
+// isAnomalousRequest determines if a request is anomalous using AI.
 func (irl *IntelligentRateLimit) isAnomalousRequest(ctx context.Context, userID string, req *http.Request) bool {
 	if !irl.config.LearningEnabled {
 		return false
@@ -347,7 +351,7 @@ func (irl *IntelligentRateLimit) isAnomalousRequest(ctx context.Context, userID 
 	// Create input for anomaly detection
 	input := ai.AgentInput{
 		Type: "detect_anomalies",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"user_id":      userID,
 			"request_rate": pattern.TypicalRequestRate,
 			"current_time": time.Now().Hour(),
@@ -355,7 +359,7 @@ func (irl *IntelligentRateLimit) isAnomalousRequest(ctx context.Context, userID 
 			"user_agent":   req.UserAgent(),
 			"ip_address":   irl.extractClientIP(req),
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"threshold": irl.config.AnomalyThreshold,
 		},
 		RequestID: fmt.Sprintf("anomaly-%s-%d", userID, time.Now().UnixNano()),
@@ -370,11 +374,12 @@ func (irl *IntelligentRateLimit) isAnomalousRequest(ctx context.Context, userID 
 				logger.Error(err),
 			)
 		}
+
 		return false
 	}
 
 	// Check if anomaly detected
-	if anomalyData, ok := output.Data.(map[string]interface{}); ok {
+	if anomalyData, ok := output.Data.(map[string]any); ok {
 		if isAnomaly, exists := anomalyData["is_anomaly"].(bool); exists {
 			return isAnomaly && output.Confidence > 0.7
 		}
@@ -383,7 +388,7 @@ func (irl *IntelligentRateLimit) isAnomalousRequest(ctx context.Context, userID 
 	return false
 }
 
-// getUserLimitInfo gets or creates user limit info
+// getUserLimitInfo gets or creates user limit info.
 func (irl *IntelligentRateLimit) getUserLimitInfo(userID string) *RateLimitInfo {
 	if limitInfo, exists := irl.userLimits[userID]; exists {
 		return limitInfo
@@ -400,10 +405,11 @@ func (irl *IntelligentRateLimit) getUserLimitInfo(userID string) *RateLimitInfo 
 	}
 
 	irl.userLimits[userID] = limitInfo
+
 	return limitInfo
 }
 
-// getEndpointLimitInfo gets or creates endpoint limit info
+// getEndpointLimitInfo gets or creates endpoint limit info.
 func (irl *IntelligentRateLimit) getEndpointLimitInfo(endpoint string) *RateLimitInfo {
 	if limitInfo, exists := irl.endpointLimits[endpoint]; exists {
 		return limitInfo
@@ -420,38 +426,40 @@ func (irl *IntelligentRateLimit) getEndpointLimitInfo(endpoint string) *RateLimi
 	}
 
 	irl.endpointLimits[endpoint] = limitInfo
+
 	return limitInfo
 }
 
-// extractUserID extracts user ID from request
+// extractUserID extracts user ID from request.
 func (irl *IntelligentRateLimit) extractUserID(req *http.Request) string {
 	// Try JWT token first
 	if authHeader := req.Header.Get("Authorization"); authHeader != "" {
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			// In a real implementation, you'd decode the JWT
-			return fmt.Sprintf("jwt:%s", authHeader[7:20]) // Use part of token as ID
+			return "jwt:" + authHeader[7:20] // Use part of token as ID
 		}
 	}
 
 	// Try API key
-	if apiKey := req.Header.Get("X-API-Key"); apiKey != "" {
-		return fmt.Sprintf("api:%s", apiKey)
+	if apiKey := req.Header.Get("X-Api-Key"); apiKey != "" {
+		return "api:" + apiKey
 	}
 
 	// Fallback to IP address
-	return fmt.Sprintf("ip:%s", irl.extractClientIP(req))
+	return "ip:" + irl.extractClientIP(req)
 }
 
-// extractEndpoint extracts endpoint identifier from request
+// extractEndpoint extracts endpoint identifier from request.
 func (irl *IntelligentRateLimit) extractEndpoint(req *http.Request) string {
 	return fmt.Sprintf("%s:%s", req.Method, req.URL.Path)
 }
 
-// extractClientIP extracts client IP address
+// extractClientIP extracts client IP address.
 func (irl *IntelligentRateLimit) extractClientIP(req *http.Request) string {
 	// Check X-Forwarded-For header
 	if xff := req.Header.Get("X-Forwarded-For"); xff != "" {
 		ips := strings.Split(xff, ",")
+
 		return strings.TrimSpace(ips[0])
 	}
 
@@ -465,18 +473,19 @@ func (irl *IntelligentRateLimit) extractClientIP(req *http.Request) string {
 	if colon := strings.LastIndex(ip, ":"); colon != -1 {
 		ip = ip[:colon]
 	}
+
 	return ip
 }
 
-// handleRateLimitExceeded handles rate limit exceeded responses
+// handleRateLimitExceeded handles rate limit exceeded responses.
 func (irl *IntelligentRateLimit) handleRateLimitExceeded(resp http.ResponseWriter, reason string, waitTime time.Duration) {
 	resp.Header().Set("Content-Type", "application/json")
 	resp.Header().Set("X-Rate-Limit-Reason", reason)
 	resp.Header().Set("X-Rate-Limit-Retry-After", fmt.Sprintf("%.0f", waitTime.Seconds()))
 	resp.WriteHeader(http.StatusTooManyRequests)
 
-	response := map[string]interface{}{
-		"error": map[string]interface{}{
+	response := map[string]any{
+		"error": map[string]any{
 			"code":        "RATE_LIMIT_EXCEEDED",
 			"message":     "Rate limit exceeded",
 			"reason":      reason,
@@ -486,6 +495,7 @@ func (irl *IntelligentRateLimit) handleRateLimitExceeded(resp http.ResponseWrite
 	}
 
 	resp.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(resp).Encode(response); err != nil {
 		if irl.logger != nil {
 			irl.logger.Error("failed to write rate limit response", logger.Error(err))
@@ -493,7 +503,7 @@ func (irl *IntelligentRateLimit) handleRateLimitExceeded(resp http.ResponseWrite
 	}
 }
 
-// recordRequest records a successful request
+// recordRequest records a successful request.
 func (irl *IntelligentRateLimit) recordRequest(userID, endpoint string, latency time.Duration) {
 	// Update user pattern data
 	if pattern, exists := irl.userPatterns[userID]; exists {
@@ -506,7 +516,7 @@ func (irl *IntelligentRateLimit) recordRequest(userID, endpoint string, latency 
 	}
 }
 
-// updateRequestStats updates request statistics
+// updateRequestStats updates request statistics.
 func (irl *IntelligentRateLimit) updateRequestStats() {
 	irl.mu.Lock()
 	defer irl.mu.Unlock()
@@ -515,7 +525,7 @@ func (irl *IntelligentRateLimit) updateRequestStats() {
 	irl.stats.LastUpdated = time.Now()
 }
 
-// updateRateLimitStats updates rate limit statistics
+// updateRateLimitStats updates rate limit statistics.
 func (irl *IntelligentRateLimit) updateRateLimitStats(userID, endpoint string, allowed bool) {
 	irl.mu.Lock()
 	defer irl.mu.Unlock()
@@ -528,19 +538,21 @@ func (irl *IntelligentRateLimit) updateRateLimitStats(userID, endpoint string, a
 	if userLimit, exists := irl.userLimits[userID]; exists {
 		irl.stats.UserLimits[userID] = *userLimit
 	}
+
 	if endpointLimit, exists := irl.endpointLimits[endpoint]; exists {
 		irl.stats.EndpointLimits[endpoint] = *endpointLimit
 	}
 
 	if irl.metrics != nil {
 		irl.metrics.Counter("forge.ai.rate_limit_total").Inc()
+
 		if !allowed {
 			irl.metrics.Counter("forge.ai.rate_limit_exceeded").Inc()
 		}
 	}
 }
 
-// monitorSystemLoad monitors system load for adaptive rate limiting
+// monitorSystemLoad monitors system load for adaptive rate limiting.
 func (irl *IntelligentRateLimit) monitorSystemLoad(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
@@ -555,7 +567,7 @@ func (irl *IntelligentRateLimit) monitorSystemLoad(ctx context.Context) {
 	}
 }
 
-// updateSystemLoad updates system load metrics
+// updateSystemLoad updates system load metrics.
 func (irl *IntelligentRateLimit) updateSystemLoad() {
 	// In a real implementation, you'd get actual system metrics
 	// For now, simulate system load
@@ -569,7 +581,7 @@ func (irl *IntelligentRateLimit) updateSystemLoad() {
 	irl.systemLoad.RequestLoad = float64(irl.stats.TotalRequests) / 1000.0
 }
 
-// analyzeUserPatterns analyzes user behavior patterns
+// analyzeUserPatterns analyzes user behavior patterns.
 func (irl *IntelligentRateLimit) analyzeUserPatterns(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
@@ -584,13 +596,15 @@ func (irl *IntelligentRateLimit) analyzeUserPatterns(ctx context.Context) {
 	}
 }
 
-// updateUserPatterns updates user behavior patterns using AI
+// updateUserPatterns updates user behavior patterns using AI.
 func (irl *IntelligentRateLimit) updateUserPatterns(ctx context.Context) {
 	irl.mu.RLock()
+
 	users := make([]string, 0, len(irl.userLimits))
 	for userID := range irl.userLimits {
 		users = append(users, userID)
 	}
+
 	irl.mu.RUnlock()
 
 	for _, userID := range users {
@@ -606,11 +620,11 @@ func (irl *IntelligentRateLimit) updateUserPatterns(ctx context.Context) {
 		// Analyze pattern using AI agent
 		input := ai.AgentInput{
 			Type: "predict_user_behavior",
-			Data: map[string]interface{}{
+			Data: map[string]any{
 				"user_id":      userID,
 				"request_data": irl.userLimits[userID],
 			},
-			Context: map[string]interface{}{
+			Context: map[string]any{
 				"analysis_type": "pattern_update",
 			},
 			RequestID: fmt.Sprintf("pattern-%s-%d", userID, time.Now().UnixNano()),
@@ -625,24 +639,27 @@ func (irl *IntelligentRateLimit) updateUserPatterns(ctx context.Context) {
 					logger.Error(err),
 				)
 			}
+
 			continue
 		}
 
 		// Update pattern based on AI output
-		if patternData, ok := output.Data.(map[string]interface{}); ok {
+		if patternData, ok := output.Data.(map[string]any); ok {
 			pattern := irl.userPatterns[userID]
 			if rate, exists := patternData["typical_rate"].(float64); exists {
 				pattern.TypicalRequestRate = rate
 			}
+
 			if reputation, exists := patternData["reputation"].(float64); exists {
 				pattern.ReputationScore = reputation
 			}
+
 			pattern.LastAnalysis = time.Now()
 		}
 	}
 }
 
-// updateAdaptiveLimits updates adaptive rate limits based on AI analysis
+// updateAdaptiveLimits updates adaptive rate limits based on AI analysis.
 func (irl *IntelligentRateLimit) updateAdaptiveLimits(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Minute)
 	defer ticker.Stop()
@@ -659,16 +676,16 @@ func (irl *IntelligentRateLimit) updateAdaptiveLimits(ctx context.Context) {
 	}
 }
 
-// adjustAdaptiveLimits adjusts rate limits adaptively
+// adjustAdaptiveLimits adjusts rate limits adaptively.
 func (irl *IntelligentRateLimit) adjustAdaptiveLimits(ctx context.Context) {
 	input := ai.AgentInput{
 		Type: "adaptive_limits",
-		Data: map[string]interface{}{
+		Data: map[string]any{
 			"system_load":   irl.systemLoad,
 			"user_patterns": irl.userPatterns,
 			"stats":         irl.stats,
 		},
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"adjustment_type": "global_optimization",
 		},
 		RequestID: fmt.Sprintf("adaptive-%d", time.Now().UnixNano()),
@@ -680,17 +697,18 @@ func (irl *IntelligentRateLimit) adjustAdaptiveLimits(ctx context.Context) {
 		if irl.logger != nil {
 			irl.logger.Error("failed to adjust adaptive limits", logger.Error(err))
 		}
+
 		return
 	}
 
 	// Apply adaptive changes
-	if adjustments, ok := output.Data.(map[string]interface{}); ok {
+	if adjustments, ok := output.Data.(map[string]any); ok {
 		irl.applyAdaptiveAdjustments(adjustments)
 	}
 }
 
-// applyAdaptiveAdjustments applies adaptive limit adjustments
-func (irl *IntelligentRateLimit) applyAdaptiveAdjustments(adjustments map[string]interface{}) {
+// applyAdaptiveAdjustments applies adaptive limit adjustments.
+func (irl *IntelligentRateLimit) applyAdaptiveAdjustments(adjustments map[string]any) {
 	irl.mu.Lock()
 	defer irl.mu.Unlock()
 
@@ -711,13 +729,13 @@ func (irl *IntelligentRateLimit) applyAdaptiveAdjustments(adjustments map[string
 	}
 }
 
-// learnFromRequest learns from individual requests
+// learnFromRequest learns from individual requests.
 func (irl *IntelligentRateLimit) learnFromRequest(ctx context.Context, userID, endpoint string, req *http.Request, resp http.ResponseWriter) {
 	// Create feedback based on request outcome
 	feedback := ai.AgentFeedback{
 		ActionID: fmt.Sprintf("request-%s-%d", userID, time.Now().UnixNano()),
 		Success:  resp.Header().Get("Status") != "429", // Not rate limited
-		Context: map[string]interface{}{
+		Context: map[string]any{
 			"user_id":  userID,
 			"endpoint": endpoint,
 			"method":   req.Method,
@@ -735,7 +753,7 @@ func (irl *IntelligentRateLimit) learnFromRequest(ctx context.Context, userID, e
 	}
 }
 
-// GetStats returns middleware statistics
+// GetStats returns middleware statistics.
 func (irl *IntelligentRateLimit) GetStats() ai.AIMiddlewareStats {
 	irl.mu.RLock()
 	defer irl.mu.RUnlock()
@@ -749,7 +767,7 @@ func (irl *IntelligentRateLimit) GetStats() ai.AIMiddlewareStats {
 		LearningEnabled: irl.config.LearningEnabled,
 		AdaptiveChanges: irl.stats.AdaptiveChanges,
 		LastUpdated:     irl.stats.LastUpdated,
-		CustomMetrics: map[string]interface{}{
+		CustomMetrics: map[string]any{
 			"users_tracked":     len(irl.userLimits),
 			"endpoints_tracked": len(irl.endpointLimits),
 			"false_positives":   irl.stats.FalsePositives,

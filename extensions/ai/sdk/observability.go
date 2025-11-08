@@ -4,48 +4,50 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/xraph/forge"
 )
 
-// Tracer provides distributed tracing capabilities
+// Tracer provides distributed tracing capabilities.
 type TracerImpl struct {
 	logger  forge.Logger
 	metrics forge.Metrics
-	
+
 	mu     sync.RWMutex
 	spans  map[string]*SpanImpl
 	active map[string]*SpanImpl
 }
 
-// SpanImpl represents a trace span
+// SpanImpl represents a trace span.
 type SpanImpl struct {
-	TraceID    string
-	SpanID     string
-	ParentID   string
-	Name       string
-	StartTime  time.Time
-	EndTime    time.Time
-	Tags       map[string]string
-	Logs       []SpanLog
-	Status     SpanStatus
-	Error      error
-	
+	TraceID   string
+	SpanID    string
+	ParentID  string
+	Name      string
+	StartTime time.Time
+	EndTime   time.Time
+	Tags      map[string]string
+	Logs      []SpanLog
+	Status    SpanStatus
+	Error     error
+
 	mu sync.Mutex
 }
 
-// SpanLog represents a log entry in a span
+// SpanLog represents a log entry in a span.
 type SpanLog struct {
 	Timestamp time.Time
 	Level     string
 	Message   string
-	Fields    map[string]interface{}
+	Fields    map[string]any
 }
 
-// SpanStatus represents the status of a span
+// SpanStatus represents the status of a span.
 type SpanStatus string
 
 const (
@@ -53,7 +55,7 @@ const (
 	SpanStatusError SpanStatus = "error"
 )
 
-// NewTracer creates a new tracer
+// NewTracer creates a new tracer.
 func NewTracer(logger forge.Logger, metrics forge.Metrics) *TracerImpl {
 	return &TracerImpl{
 		logger:  logger,
@@ -63,7 +65,7 @@ func NewTracer(logger forge.Logger, metrics forge.Metrics) *TracerImpl {
 	}
 }
 
-// StartSpan starts a new trace span
+// StartSpan starts a new trace span.
 func (t *TracerImpl) StartSpan(ctx context.Context, name string) *SpanImpl {
 	span := &SpanImpl{
 		TraceID:   generateID(),
@@ -101,7 +103,7 @@ func (t *TracerImpl) StartSpan(ctx context.Context, name string) *SpanImpl {
 	return span
 }
 
-// Finish completes a span
+// Finish completes a span.
 func (s *SpanImpl) Finish() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -114,23 +116,25 @@ func (s *SpanImpl) Finish() {
 	}
 }
 
-// SetTag sets a tag on the span
+// SetTag sets a tag on the span.
 func (s *SpanImpl) SetTag(key, value string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.Tags[key] = value
 }
 
-// SetError sets an error on the span
+// SetError sets an error on the span.
 func (s *SpanImpl) SetError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.Error = err
 	s.Status = SpanStatusError
 }
 
-// LogEvent logs an event in the span
-func (s *SpanImpl) LogEvent(level, message string, fields map[string]interface{}) {
+// LogEvent logs an event in the span.
+func (s *SpanImpl) LogEvent(level, message string, fields map[string]any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -142,26 +146,28 @@ func (s *SpanImpl) LogEvent(level, message string, fields map[string]interface{}
 	})
 }
 
-// Duration returns the span duration
+// Duration returns the span duration.
 func (s *SpanImpl) Duration() time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.EndTime.IsZero() {
 		return time.Since(s.StartTime)
 	}
+
 	return s.EndTime.Sub(s.StartTime)
 }
 
-// SpanFromContext retrieves a span from context
+// SpanFromContext retrieves a span from context.
 func SpanFromContext(ctx context.Context) *SpanImpl {
 	if span, ok := ctx.Value(spanKey).(*SpanImpl); ok {
 		return span
 	}
+
 	return nil
 }
 
-// ContextWithSpan adds a span to context
+// ContextWithSpan adds a span to context.
 func ContextWithSpan(ctx context.Context, span *SpanImpl) context.Context {
 	return context.WithValue(ctx, spanKey, span)
 }
@@ -170,22 +176,22 @@ type contextKey string
 
 const spanKey contextKey = "span"
 
-// generateID generates a unique ID
+// generateID generates a unique ID.
 func generateID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	return strconv.FormatInt(time.Now().UnixNano(), 10)
 }
 
-// DebugInfo provides debugging information
+// DebugInfo provides debugging information.
 type DebugInfo struct {
-	Timestamp     time.Time
-	Goroutines    int
-	MemoryStats   RuntimeMemoryStats
-	ActiveSpans   int
-	RecentErrors  []ErrorInfo
-	RequestStats  RequestStats
+	Timestamp    time.Time
+	Goroutines   int
+	MemoryStats  RuntimeMemoryStats
+	ActiveSpans  int
+	RecentErrors []ErrorInfo
+	RequestStats RequestStats
 }
 
-// RuntimeMemoryStats provides memory usage statistics
+// RuntimeMemoryStats provides memory usage statistics.
 type RuntimeMemoryStats struct {
 	Alloc      uint64
 	TotalAlloc uint64
@@ -193,15 +199,15 @@ type RuntimeMemoryStats struct {
 	NumGC      uint32
 }
 
-// ErrorInfo represents error information
+// ErrorInfo represents error information.
 type ErrorInfo struct {
 	Timestamp time.Time
 	Message   string
 	Stack     string
-	Context   map[string]interface{}
+	Context   map[string]any
 }
 
-// RequestStats provides request statistics
+// RequestStats provides request statistics.
 type RequestStats struct {
 	Total       int64
 	Success     int64
@@ -212,16 +218,16 @@ type RequestStats struct {
 	P99Duration time.Duration
 }
 
-// Debugger provides debugging capabilities
+// Debugger provides debugging capabilities.
 type Debugger struct {
 	logger forge.Logger
-	
+
 	mu           sync.RWMutex
 	recentErrors []ErrorInfo
 	maxErrors    int
 }
 
-// NewDebugger creates a new debugger
+// NewDebugger creates a new debugger.
 func NewDebugger(logger forge.Logger) *Debugger {
 	return &Debugger{
 		logger:       logger,
@@ -230,7 +236,7 @@ func NewDebugger(logger forge.Logger) *Debugger {
 	}
 }
 
-// GetDebugInfo retrieves current debug information
+// GetDebugInfo retrieves current debug information.
 func (d *Debugger) GetDebugInfo() *DebugInfo {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
@@ -238,14 +244,17 @@ func (d *Debugger) GetDebugInfo() *DebugInfo {
 	d.mu.RLock()
 	errorCount := len(d.recentErrors)
 	recentErrors := make([]ErrorInfo, 0)
+
 	if errorCount > 0 {
 		// Get last 10 errors
 		start := 0
 		if errorCount > 10 {
 			start = errorCount - 10
 		}
+
 		recentErrors = d.recentErrors[start:]
 	}
+
 	d.mu.RUnlock()
 
 	return &DebugInfo{
@@ -261,8 +270,8 @@ func (d *Debugger) GetDebugInfo() *DebugInfo {
 	}
 }
 
-// RecordError records an error for debugging
-func (d *Debugger) RecordError(err error, context map[string]interface{}) {
+// RecordError records an error for debugging.
+func (d *Debugger) RecordError(err error, context map[string]any) {
 	if err == nil {
 		return
 	}
@@ -285,7 +294,7 @@ func (d *Debugger) RecordError(err error, context map[string]interface{}) {
 	}
 }
 
-// GetRecentErrors retrieves recent errors
+// GetRecentErrors retrieves recent errors.
 func (d *Debugger) GetRecentErrors(count int) []ErrorInfo {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -301,44 +310,46 @@ func (d *Debugger) GetRecentErrors(count int) []ErrorInfo {
 	return errors
 }
 
-// ClearErrors clears all recorded errors
+// ClearErrors clears all recorded errors.
 func (d *Debugger) ClearErrors() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
 	d.recentErrors = make([]ErrorInfo, 0)
 }
 
-// getStackTrace captures the current stack trace
+// getStackTrace captures the current stack trace.
 func getStackTrace() string {
 	buf := make([]byte, 4096)
 	n := runtime.Stack(buf, false)
+
 	return string(buf[:n])
 }
 
-// Profiler provides performance profiling
+// Profiler provides performance profiling.
 type Profiler struct {
 	logger  forge.Logger
 	metrics forge.Metrics
-	
-	mu         sync.RWMutex
-	profiles   map[string]*Profile
+
+	mu       sync.RWMutex
+	profiles map[string]*Profile
 }
 
-// Profile represents a performance profile
+// Profile represents a performance profile.
 type Profile struct {
-	Name       string
-	Count      int64
-	TotalTime  time.Duration
-	MinTime    time.Duration
-	MaxTime    time.Duration
-	AvgTime    time.Duration
+	Name        string
+	Count       int64
+	TotalTime   time.Duration
+	MinTime     time.Duration
+	MaxTime     time.Duration
+	AvgTime     time.Duration
 	Percentiles map[int]time.Duration
-	
-	mu       sync.Mutex
+
+	mu        sync.Mutex
 	durations []time.Duration
 }
 
-// NewProfiler creates a new profiler
+// NewProfiler creates a new profiler.
 func NewProfiler(logger forge.Logger, metrics forge.Metrics) *Profiler {
 	return &Profiler{
 		logger:   logger,
@@ -347,7 +358,7 @@ func NewProfiler(logger forge.Logger, metrics forge.Metrics) *Profiler {
 	}
 }
 
-// StartProfile starts profiling an operation
+// StartProfile starts profiling an operation.
 func (p *Profiler) StartProfile(name string) *ProfileSession {
 	return &ProfileSession{
 		profiler:  p,
@@ -356,22 +367,23 @@ func (p *Profiler) StartProfile(name string) *ProfileSession {
 	}
 }
 
-// ProfileSession represents an active profiling session
+// ProfileSession represents an active profiling session.
 type ProfileSession struct {
 	profiler  *Profiler
 	name      string
 	startTime time.Time
 }
 
-// End ends the profiling session
+// End ends the profiling session.
 func (ps *ProfileSession) End() {
 	duration := time.Since(ps.startTime)
 	ps.profiler.recordDuration(ps.name, duration)
 }
 
-// recordDuration records a duration for a profile
+// recordDuration records a duration for a profile.
 func (p *Profiler) recordDuration(name string, duration time.Duration) {
 	p.mu.Lock()
+
 	profile, exists := p.profiles[name]
 	if !exists {
 		profile = &Profile{
@@ -383,6 +395,7 @@ func (p *Profiler) recordDuration(name string, duration time.Duration) {
 		}
 		p.profiles[name] = profile
 	}
+
 	p.mu.Unlock()
 
 	profile.mu.Lock()
@@ -395,6 +408,7 @@ func (p *Profiler) recordDuration(name string, duration time.Duration) {
 	if duration < profile.MinTime {
 		profile.MinTime = duration
 	}
+
 	if duration > profile.MaxTime {
 		profile.MaxTime = duration
 	}
@@ -406,16 +420,16 @@ func (p *Profiler) recordDuration(name string, duration time.Duration) {
 	}
 }
 
-// GetProfile retrieves a profile by name
+// GetProfile retrieves a profile by name.
 func (p *Profiler) GetProfile(name string) *Profile {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	if profile, exists := p.profiles[name]; exists {
 		// Return a copy without the mutex
 		profile.mu.Lock()
 		defer profile.mu.Unlock()
-		
+
 		// Copy only the public fields to avoid copying the mutex
 		profileCopy := &Profile{
 			Name:        profile.Name,
@@ -427,13 +441,14 @@ func (p *Profiler) GetProfile(name string) *Profile {
 			Percentiles: profile.Percentiles,
 			// Don't copy mu or durations as they're private implementation details
 		}
+
 		return profileCopy
 	}
-	
+
 	return nil
 }
 
-// GetAllProfiles returns all profiles
+// GetAllProfiles returns all profiles.
 func (p *Profiler) GetAllProfiles() map[string]*Profile {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -453,23 +468,25 @@ func (p *Profiler) GetAllProfiles() map[string]*Profile {
 			// Don't copy mu or durations as they're private implementation details
 		}
 		profile.mu.Unlock()
+
 		profiles[name] = profileCopy
 	}
 
 	return profiles
 }
 
-// Reset resets all profiles
+// Reset resets all profiles.
 func (p *Profiler) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.profiles = make(map[string]*Profile)
 }
 
-// ExportJSON exports profiles as JSON
+// ExportJSON exports profiles as JSON.
 func (p *Profiler) ExportJSON() (string, error) {
 	profiles := p.GetAllProfiles()
-	
+
 	data, err := json.MarshalIndent(profiles, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("export failed: %w", err)
@@ -478,18 +495,18 @@ func (p *Profiler) ExportJSON() (string, error) {
 	return string(data), nil
 }
 
-// HealthChecker provides health check capabilities
+// HealthChecker provides health check capabilities.
 type HealthChecker struct {
 	logger forge.Logger
-	
+
 	mu     sync.RWMutex
 	checks map[string]HealthCheckFunc
 }
 
-// HealthCheckFunc is a function that performs a health check
+// HealthCheckFunc is a function that performs a health check.
 type HealthCheckFunc func(context.Context) error
 
-// HealthCheckResult represents the result of a health check
+// HealthCheckResult represents the result of a health check.
 type HealthCheckResult struct {
 	Name      string
 	Status    string // "healthy", "degraded", "unhealthy"
@@ -499,7 +516,7 @@ type HealthCheckResult struct {
 	Error     error
 }
 
-// NewHealthChecker creates a new health checker
+// NewHealthChecker creates a new health checker.
 func NewHealthChecker(logger forge.Logger) *HealthChecker {
 	return &HealthChecker{
 		logger: logger,
@@ -507,31 +524,36 @@ func NewHealthChecker(logger forge.Logger) *HealthChecker {
 	}
 }
 
-// RegisterCheck registers a health check
+// RegisterCheck registers a health check.
 func (hc *HealthChecker) RegisterCheck(name string, check HealthCheckFunc) {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
+
 	hc.checks[name] = check
 }
 
-// RunChecks runs all registered health checks
+// RunChecks runs all registered health checks.
 func (hc *HealthChecker) RunChecks(ctx context.Context) map[string]*HealthCheckResult {
 	hc.mu.RLock()
+
 	checks := make(map[string]HealthCheckFunc)
-	for name, check := range hc.checks {
-		checks[name] = check
-	}
+	maps.Copy(checks, hc.checks)
+
 	hc.mu.RUnlock()
 
 	results := make(map[string]*HealthCheckResult)
-	var wg sync.WaitGroup
-	var resultsMu sync.Mutex
+
+	var (
+		wg        sync.WaitGroup
+		resultsMu sync.Mutex
+	)
 
 	for name, check := range checks {
 		wg.Add(1)
+
 		go func(n string, c HealthCheckFunc) {
 			defer wg.Done()
-			
+
 			result := &HealthCheckResult{
 				Name:      n,
 				Timestamp: time.Now(),
@@ -551,7 +573,9 @@ func (hc *HealthChecker) RunChecks(ctx context.Context) map[string]*HealthCheckR
 			}
 
 			resultsMu.Lock()
+
 			results[n] = result
+
 			resultsMu.Unlock()
 		}(name, check)
 	}
@@ -561,11 +585,12 @@ func (hc *HealthChecker) RunChecks(ctx context.Context) map[string]*HealthCheckR
 	return results
 }
 
-// GetOverallHealth returns the overall health status
+// GetOverallHealth returns the overall health status.
 func (hc *HealthChecker) GetOverallHealth(ctx context.Context) string {
 	results := hc.RunChecks(ctx)
 
 	unhealthy := 0
+
 	for _, result := range results {
 		if result.Status == "unhealthy" {
 			unhealthy++
@@ -577,6 +602,6 @@ func (hc *HealthChecker) GetOverallHealth(ctx context.Context) string {
 	} else if unhealthy < len(results) {
 		return "degraded"
 	}
+
 	return "unhealthy"
 }
-

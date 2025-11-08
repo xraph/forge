@@ -7,9 +7,10 @@ import (
 	"os"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// TLSConfig contains TLS configuration
+// TLSConfig contains TLS configuration.
 type TLSConfig struct {
 	Enabled            bool
 	CertFile           string
@@ -22,14 +23,14 @@ type TLSConfig struct {
 	CipherSuites       []uint16
 }
 
-// TLSManager manages TLS configuration
+// TLSManager manages TLS configuration.
 type TLSManager struct {
 	config    TLSConfig
 	logger    forge.Logger
 	tlsConfig *tls.Config
 }
 
-// NewTLSManager creates a new TLS manager
+// NewTLSManager creates a new TLS manager.
 func NewTLSManager(config TLSConfig, logger forge.Logger) (*TLSManager, error) {
 	tm := &TLSManager{
 		config: config,
@@ -45,7 +46,7 @@ func NewTLSManager(config TLSConfig, logger forge.Logger) (*TLSManager, error) {
 	return tm, nil
 }
 
-// initialize initializes the TLS configuration
+// initialize initializes the TLS configuration.
 func (tm *TLSManager) initialize() error {
 	// Load server certificate and key
 	cert, err := tls.LoadX509KeyPair(tm.config.CertFile, tm.config.KeyFile)
@@ -87,16 +88,18 @@ func (tm *TLSManager) initialize() error {
 
 		caCertPool := x509.NewCertPool()
 		if !caCertPool.AppendCertsFromPEM(caCert) {
-			return fmt.Errorf("failed to append CA certificate")
+			return errors.New("failed to append CA certificate")
 		}
 
 		tlsConfig.ClientCAs = caCertPool
 
 		if tm.config.ClientAuthRequired {
 			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+
 			tm.logger.Info("mTLS enabled - client certificates required")
 		} else {
 			tlsConfig.ClientAuth = tls.VerifyClientCertIfGiven
+
 			tm.logger.Info("TLS enabled - client certificates optional")
 		}
 	}
@@ -104,6 +107,7 @@ func (tm *TLSManager) initialize() error {
 	// Configure for InsecureSkipVerify (not recommended for production)
 	if tm.config.InsecureSkipVerify {
 		tlsConfig.InsecureSkipVerify = true
+
 		tm.logger.Warn("TLS certificate verification disabled - NOT RECOMMENDED FOR PRODUCTION")
 	}
 
@@ -119,33 +123,33 @@ func (tm *TLSManager) initialize() error {
 	return nil
 }
 
-// GetTLSConfig returns the TLS configuration
+// GetTLSConfig returns the TLS configuration.
 func (tm *TLSManager) GetTLSConfig() *tls.Config {
 	return tm.tlsConfig
 }
 
-// IsEnabled returns true if TLS is enabled
+// IsEnabled returns true if TLS is enabled.
 func (tm *TLSManager) IsEnabled() bool {
 	return tm.config.Enabled
 }
 
-// IsMTLSEnabled returns true if mTLS is enabled
+// IsMTLSEnabled returns true if mTLS is enabled.
 func (tm *TLSManager) IsMTLSEnabled() bool {
 	return tm.config.Enabled && tm.config.ClientAuthRequired
 }
 
-// VerifyPeerCertificate verifies a peer certificate
+// VerifyPeerCertificate verifies a peer certificate.
 func (tm *TLSManager) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 	if !tm.config.Enabled {
 		return nil
 	}
 
 	if len(verifiedChains) == 0 {
-		return fmt.Errorf("no verified certificate chains")
+		return errors.New("no verified certificate chains")
 	}
 
 	if len(verifiedChains[0]) == 0 {
-		return fmt.Errorf("empty certificate chain")
+		return errors.New("empty certificate chain")
 	}
 
 	cert := verifiedChains[0][0]
@@ -159,7 +163,7 @@ func (tm *TLSManager) VerifyPeerCertificate(rawCerts [][]byte, verifiedChains []
 	return nil
 }
 
-// getTLSVersionName returns the name of a TLS version
+// getTLSVersionName returns the name of a TLS version.
 func (tm *TLSManager) getTLSVersionName(version uint16) string {
 	switch version {
 	case tls.VersionTLS10:
@@ -175,7 +179,7 @@ func (tm *TLSManager) getTLSVersionName(version uint16) string {
 	}
 }
 
-// DefaultSecureTLSConfig returns a secure default TLS configuration
+// DefaultSecureTLSConfig returns a secure default TLS configuration.
 func DefaultSecureTLSConfig() TLSConfig {
 	return TLSConfig{
 		Enabled:            true,
@@ -192,7 +196,7 @@ func DefaultSecureTLSConfig() TLSConfig {
 	}
 }
 
-// CreateClientTLSConfig creates a TLS config for client connections
+// CreateClientTLSConfig creates a TLS config for client connections.
 func CreateClientTLSConfig(certFile, keyFile, caFile string, insecureSkipVerify bool) (*tls.Config, error) {
 	// Load client certificate
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
@@ -208,7 +212,7 @@ func CreateClientTLSConfig(certFile, keyFile, caFile string, insecureSkipVerify 
 
 	caCertPool := x509.NewCertPool()
 	if !caCertPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to append CA certificate")
+		return nil, errors.New("failed to append CA certificate")
 	}
 
 	return &tls.Config{

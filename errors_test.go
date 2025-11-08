@@ -28,7 +28,7 @@ func TestServiceError_ErrorsAs(t *testing.T) {
 	serviceErr := NewServiceError("test-service", "stop", innerErr)
 
 	var svcErr *ServiceError
-	assert.True(t, errors.As(serviceErr, &svcErr))
+	assert.ErrorAs(t, serviceErr, &svcErr)
 	assert.Equal(t, "test-service", svcErr.Service)
 	assert.Equal(t, "stop", svcErr.Operation)
 	assert.Equal(t, innerErr, svcErr.Err)
@@ -38,15 +38,15 @@ func TestServiceError_ErrorsIs(t *testing.T) {
 	innerErr := errors.New("inner error")
 	serviceErr := NewServiceError("test-service", "health", innerErr)
 
-	assert.True(t, errors.Is(serviceErr, innerErr))
+	assert.ErrorIs(t, serviceErr, innerErr)
 }
 
 func TestStandardErrors(t *testing.T) {
 	// Test error constructors exist
 	assert.NotNil(t, ErrServiceNotFound)
 	assert.NotNil(t, ErrCircularDependency)
-	assert.NotNil(t, ErrContainerStarted)
-	assert.NotNil(t, ErrScopeEnded)
+	assert.Error(t, ErrContainerStarted)
+	assert.Error(t, ErrScopeEnded)
 
 	// Test error constructor outputs
 	assert.Contains(t, ErrServiceNotFound("test").Error(), "not found")

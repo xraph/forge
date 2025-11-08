@@ -12,7 +12,7 @@ import (
 // ERROR CODES
 // =============================================================================
 
-// Error code constants for structured errors
+// Error code constants for structured errors.
 const (
 	CodeConfigError          = "CONFIG_ERROR"
 	CodeValidationError      = "VALIDATION_ERROR"
@@ -31,11 +31,11 @@ const (
 // DI/SERVICE ERRORS
 // =============================================================================
 
-// Standard DI/service errors
+// Standard DI/service errors.
 var (
 	// ErrServiceNotFound      = errors.New("service not found")
 	// ErrServiceAlreadyExists = errors.New("service already registered")
-	// ErrCircularDependency   = errors.New("circular dependency detected")
+	// ErrCircularDependency   = errors.New("circular dependency detected").
 	ErrInvalidFactory   = errors.New("factory must be a function")
 	ErrTypeMismatch     = errors.New("service type mismatch")
 	ErrLifecycleTimeout = errors.New("lifecycle operation timed out")
@@ -44,7 +44,7 @@ var (
 	ErrScopeEnded       = errors.New("scope already ended")
 )
 
-// ServiceError wraps service-specific errors
+// ServiceError wraps service-specific errors.
 type ServiceError struct {
 	Service   string
 	Operation string
@@ -59,17 +59,18 @@ func (e *ServiceError) Unwrap() error {
 	return e.Err
 }
 
-// Is implements errors.Is interface for ServiceError
+// Is implements errors.Is interface for ServiceError.
 func (e *ServiceError) Is(target error) bool {
 	t, ok := target.(*ServiceError)
 	if !ok {
 		return false
 	}
+
 	return (e.Service == "" || t.Service == "" || e.Service == t.Service) &&
 		(e.Operation == "" || t.Operation == "" || e.Operation == t.Operation)
 }
 
-// NewServiceError creates a new service error
+// NewServiceError creates a new service error.
 func NewServiceError(service, operation string, err error) *ServiceError {
 	return &ServiceError{
 		Service:   service,
@@ -82,19 +83,20 @@ func NewServiceError(service, operation string, err error) *ServiceError {
 // FORGE ERROR (STRUCTURED ERROR)
 // =============================================================================
 
-// ForgeError represents a structured error with context
+// ForgeError represents a structured error with context.
 type ForgeError struct {
 	Code      string
 	Message   string
 	Cause     error
 	Timestamp time.Time
-	Context   map[string]interface{}
+	Context   map[string]any
 }
 
 func (e *ForgeError) Error() string {
 	if e.Cause != nil {
 		return e.Message + ": " + e.Cause.Error()
 	}
+
 	return e.Message
 }
 
@@ -103,7 +105,7 @@ func (e *ForgeError) Unwrap() error {
 }
 
 // Is implements errors.Is interface for ForgeError
-// Compares by error code, allowing matching against sentinel errors
+// Compares by error code, allowing matching against sentinel errors.
 func (e *ForgeError) Is(target error) bool {
 	t, ok := target.(*ForgeError)
 	if !ok {
@@ -113,45 +115,47 @@ func (e *ForgeError) Is(target error) bool {
 	return e.Code != "" && e.Code == t.Code
 }
 
-// WithContext adds context to the error
-func (e *ForgeError) WithContext(key string, value interface{}) *ForgeError {
+// WithContext adds context to the error.
+func (e *ForgeError) WithContext(key string, value any) *ForgeError {
 	if e.Context == nil {
-		e.Context = make(map[string]interface{})
+		e.Context = make(map[string]any)
 	}
+
 	e.Context[key] = value
+
 	return e
 }
 
-// ErrConfigError creates a config error
+// ErrConfigError creates a config error.
 func ErrConfigError(message string, cause error) *ForgeError {
 	return &ForgeError{
 		Code:      CodeConfigError,
 		Message:   message,
 		Cause:     cause,
 		Timestamp: time.Now(),
-		Context:   make(map[string]interface{}),
+		Context:   make(map[string]any),
 	}
 }
 
-// ErrValidationError creates a validation error
+// ErrValidationError creates a validation error.
 func ErrValidationError(field string, cause error) *ForgeError {
 	return &ForgeError{
 		Code:      CodeValidationError,
 		Message:   fmt.Sprintf("validation error for field '%s'", field),
 		Cause:     cause,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"field": field},
+		Context:   map[string]any{"field": field},
 	}
 }
 
-// ErrLifecycleError creates a lifecycle error
+// ErrLifecycleError creates a lifecycle error.
 func ErrLifecycleError(phase string, cause error) *ForgeError {
 	return &ForgeError{
 		Code:      CodeLifecycleError,
 		Message:   "lifecycle error during " + phase,
 		Cause:     cause,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"phase": phase},
+		Context:   map[string]any{"phase": phase},
 	}
 }
 
@@ -161,7 +165,7 @@ func ErrContextCancelled(operation string) *ForgeError {
 		Message:   "context cancelled during " + operation,
 		Cause:     nil,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"operation": operation},
+		Context:   map[string]any{"operation": operation},
 	}
 }
 
@@ -171,7 +175,7 @@ func ErrServiceNotFound(serviceName string) *ForgeError {
 		Message:   "service '" + serviceName + "' not found",
 		Cause:     nil,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"service_name": serviceName},
+		Context:   map[string]any{"service_name": serviceName},
 	}
 }
 
@@ -181,7 +185,7 @@ func ErrDependencyNotFound(deps ...string) *ForgeError {
 		Message:   "dependency not found: " + strings.Join(deps, ", "),
 		Cause:     nil,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"dependencies": deps},
+		Context:   map[string]any{"dependencies": deps},
 	}
 }
 
@@ -191,7 +195,7 @@ func ErrServiceAlreadyExists(serviceName string) *ForgeError {
 		Message:   "service '" + serviceName + "' already exists",
 		Cause:     nil,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"service_name": serviceName},
+		Context:   map[string]any{"service_name": serviceName},
 	}
 }
 
@@ -201,7 +205,7 @@ func ErrCircularDependency(services []string) *ForgeError {
 		Message:   "circular dependency detected: " + strings.Join(services, " -> "),
 		Cause:     nil,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"services": services},
+		Context:   map[string]any{"services": services},
 	}
 }
 
@@ -211,7 +215,7 @@ func ErrInvalidConfig(configKey string, cause error) *ForgeError {
 		Message:   "invalid configuration for key '" + configKey + "'",
 		Cause:     cause,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"config_key": configKey},
+		Context:   map[string]any{"config_key": configKey},
 	}
 }
 
@@ -221,7 +225,6 @@ func ErrContainerError(operation string, cause error) *ForgeError {
 		Message: "container error during " + operation,
 		Cause:   cause,
 	}
-
 }
 
 func ErrTimeoutError(operation string, timeout time.Duration) *ForgeError {
@@ -230,7 +233,7 @@ func ErrTimeoutError(operation string, timeout time.Duration) *ForgeError {
 		Message:   "timeout during " + operation + " after " + timeout.String(),
 		Cause:     nil,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"operation": operation, "timeout": timeout.String()},
+		Context:   map[string]any{"operation": operation, "timeout": timeout.String()},
 	}
 }
 
@@ -240,7 +243,7 @@ func ErrHealthCheckFailed(serviceName string, cause error) *ForgeError {
 		Message:   "health check failed for service '" + serviceName + "'",
 		Cause:     cause,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"service_name": serviceName},
+		Context:   map[string]any{"service_name": serviceName},
 	}
 }
 
@@ -250,7 +253,7 @@ func ErrServiceStartFailed(serviceName string, cause error) *ForgeError {
 		Message:   "failed to start service '" + serviceName + "'",
 		Cause:     cause,
 		Timestamp: time.Now(),
-		Context:   map[string]interface{}{"service_name": serviceName},
+		Context:   map[string]any{"service_name": serviceName},
 	}
 }
 
@@ -258,7 +261,7 @@ func ErrServiceStartFailed(serviceName string, cause error) *ForgeError {
 // VALIDATION ERROR
 // =============================================================================
 
-// Severity represents the severity of a validation issue
+// Severity represents the severity of a validation issue.
 type Severity string
 
 const (
@@ -267,21 +270,21 @@ const (
 	SeverityInfo    Severity = "info"
 )
 
-// ValidationError represents a validation error
+// ValidationError represents a validation error.
 type ValidationError struct {
-	Key        string      `json:"key"`
-	Value      interface{} `json:"value,omitempty"`
-	Rule       string      `json:"rule"`
-	Message    string      `json:"message"`
-	Severity   Severity    `json:"severity"`
-	Suggestion string      `json:"suggestion,omitempty"`
+	Key        string   `json:"key"`
+	Value      any      `json:"value,omitempty"`
+	Rule       string   `json:"rule"`
+	Message    string   `json:"message"`
+	Severity   Severity `json:"severity"`
+	Suggestion string   `json:"suggestion,omitempty"`
 }
 
 // =============================================================================
 // HTTP ERRORS
 // =============================================================================
 
-// HTTPError represents an HTTP error with status code
+// HTTPError represents an HTTP error with status code.
 type HTTPError struct {
 	Code    int
 	Message string
@@ -292,9 +295,11 @@ func (e *HTTPError) Error() string {
 	if e.Message != "" {
 		return e.Message
 	}
+
 	if e.Err != nil {
 		return e.Err.Error()
 	}
+
 	return http.StatusText(e.Code)
 }
 
@@ -303,16 +308,17 @@ func (e *HTTPError) Unwrap() error {
 }
 
 // Is implements errors.Is interface for HTTPError
-// Compares by HTTP status code
+// Compares by HTTP status code.
 func (e *HTTPError) Is(target error) bool {
 	t, ok := target.(*HTTPError)
 	if !ok {
 		return false
 	}
+
 	return e.Code == t.Code
 }
 
-// HTTP error constructors
+// HTTP error constructors.
 func NewHTTPError(code int, message string) *HTTPError {
 	return &HTTPError{Code: code, Message: message}
 }
@@ -364,7 +370,7 @@ func Is(err, target error) bool {
 //	if As(err, &httpErr) {
 //	    // handle HTTP error with httpErr.Code
 //	}
-func As(err error, target interface{}) bool {
+func As(err error, target any) bool {
 	return errors.As(err, target)
 }
 
@@ -384,7 +390,7 @@ func New(text string) error {
 // Join returns an error that wraps the given errors.
 // Any nil error values are discarded.
 // This is a convenience wrapper around errors.Join from the standard library.
-// Requires Go 1.20+
+// Requires Go 1.20+.
 func Join(errs ...error) error {
 	return errors.Join(errs...)
 }
@@ -393,33 +399,33 @@ func Join(errs ...error) error {
 // SENTINEL ERRORS (for use with Is)
 // =============================================================================
 
-// Sentinel errors that can be used with errors.Is comparisons
+// Sentinel errors that can be used with errors.Is comparisons.
 var (
-	// ErrServiceNotFoundSentinel is a sentinel error for service not found
+	// ErrServiceNotFoundSentinel is a sentinel error for service not found.
 	ErrServiceNotFoundSentinel = &ForgeError{Code: CodeServiceNotFound}
 
-	// ErrServiceAlreadyExistsSentinel is a sentinel error for service already exists
+	// ErrServiceAlreadyExistsSentinel is a sentinel error for service already exists.
 	ErrServiceAlreadyExistsSentinel = &ForgeError{Code: CodeServiceAlreadyExists}
 
-	// ErrCircularDependencySentinel is a sentinel error for circular dependency
+	// ErrCircularDependencySentinel is a sentinel error for circular dependency.
 	ErrCircularDependencySentinel = &ForgeError{Code: CodeCircularDependency}
 
-	// ErrInvalidConfigSentinel is a sentinel error for invalid config
+	// ErrInvalidConfigSentinel is a sentinel error for invalid config.
 	ErrInvalidConfigSentinel = &ForgeError{Code: CodeInvalidConfig}
 
-	// ErrValidationErrorSentinel is a sentinel error for validation errors
+	// ErrValidationErrorSentinel is a sentinel error for validation errors.
 	ErrValidationErrorSentinel = &ForgeError{Code: CodeValidationError}
 
-	// ErrLifecycleErrorSentinel is a sentinel error for lifecycle errors
+	// ErrLifecycleErrorSentinel is a sentinel error for lifecycle errors.
 	ErrLifecycleErrorSentinel = &ForgeError{Code: CodeLifecycleError}
 
-	// ErrContextCancelledSentinel is a sentinel error for context cancellation
+	// ErrContextCancelledSentinel is a sentinel error for context cancellation.
 	ErrContextCancelledSentinel = &ForgeError{Code: CodeContextCancelled}
 
-	// ErrTimeoutErrorSentinel is a sentinel error for timeout errors
+	// ErrTimeoutErrorSentinel is a sentinel error for timeout errors.
 	ErrTimeoutErrorSentinel = &ForgeError{Code: CodeTimeoutError}
 
-	// ErrConfigErrorSentinel is a sentinel error for config errors
+	// ErrConfigErrorSentinel is a sentinel error for config errors.
 	ErrConfigErrorSentinel = &ForgeError{Code: CodeConfigError}
 )
 
@@ -427,41 +433,42 @@ var (
 // ERROR HELPERS
 // =============================================================================
 
-// IsServiceNotFound checks if the error is a service not found error
+// IsServiceNotFound checks if the error is a service not found error.
 func IsServiceNotFound(err error) bool {
 	return Is(err, ErrServiceNotFoundSentinel)
 }
 
-// IsServiceAlreadyExists checks if the error is a service already exists error
+// IsServiceAlreadyExists checks if the error is a service already exists error.
 func IsServiceAlreadyExists(err error) bool {
 	return Is(err, ErrServiceAlreadyExistsSentinel)
 }
 
-// IsCircularDependency checks if the error is a circular dependency error
+// IsCircularDependency checks if the error is a circular dependency error.
 func IsCircularDependency(err error) bool {
 	return Is(err, ErrCircularDependencySentinel)
 }
 
-// IsValidationError checks if the error is a validation error
+// IsValidationError checks if the error is a validation error.
 func IsValidationError(err error) bool {
 	return Is(err, ErrValidationErrorSentinel)
 }
 
-// IsContextCancelled checks if the error is a context cancelled error
+// IsContextCancelled checks if the error is a context cancelled error.
 func IsContextCancelled(err error) bool {
 	return Is(err, ErrContextCancelledSentinel)
 }
 
-// IsTimeout checks if the error is a timeout error
+// IsTimeout checks if the error is a timeout error.
 func IsTimeout(err error) bool {
 	return Is(err, ErrTimeoutErrorSentinel)
 }
 
-// GetHTTPStatusCode extracts HTTP status code from error, returns 500 if not found
+// GetHTTPStatusCode extracts HTTP status code from error, returns 500 if not found.
 func GetHTTPStatusCode(err error) int {
 	var httpErr *HTTPError
 	if As(err, &httpErr) {
 		return httpErr.Code
 	}
+
 	return http.StatusInternalServerError
 }

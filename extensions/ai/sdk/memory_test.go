@@ -67,12 +67,11 @@ func TestMemoryManager_Store(t *testing.T) {
 		WorkingCapacity: 10,
 	})
 
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"type": "conversation",
 	}
 
 	entry, err := mm.Store(context.Background(), "User asked about weather", metadata, 0.8)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -111,7 +110,6 @@ func TestMemoryManager_Store_WithEmbedding(t *testing.T) {
 	})
 
 	entry, err := mm.Store(context.Background(), "Test content", nil, 0.5)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -144,22 +142,24 @@ func TestMemoryManager_Recall_Working(t *testing.T) {
 	if err1 != nil {
 		t.Fatalf("failed to store memory 1: %v", err1)
 	}
+
 	t.Logf("After mem1: working=%d", len(mm.working))
-	
+
 	_, err2 := mm.Store(context.Background(), "Memory 2", nil, 0.7)
 	if err2 != nil {
 		t.Fatalf("failed to store memory 2: %v", err2)
 	}
+
 	t.Logf("After mem2: working=%d", len(mm.working))
-	
+
 	_, err3 := mm.Store(context.Background(), "Memory 3", nil, 0.5)
 	if err3 != nil {
 		t.Fatalf("failed to store memory 3: %v", err3)
 	}
+
 	t.Logf("After mem3: working=%d", len(mm.working))
 
 	memories, err := mm.Recall(context.Background(), "test query", MemoryTierWorking, 10)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -177,12 +177,12 @@ func TestMemoryManager_Recall_Working(t *testing.T) {
 func TestMemoryManager_Recall_ShortTerm(t *testing.T) {
 	// Mock vector store that returns results
 	mockVector := &MockVectorStore{
-		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]interface{}) ([]VectorMatch, error) {
+		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error) {
 			return []VectorMatch{
 				{
 					ID:    "mem1",
 					Score: 0.9,
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"content":    "Short term memory",
 						"importance": 0.8,
 					},
@@ -201,7 +201,6 @@ func TestMemoryManager_Recall_ShortTerm(t *testing.T) {
 	})
 
 	memories, err := mm.Recall(context.Background(), "test query", MemoryTierShortTerm, 5)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -234,13 +233,12 @@ func TestMemoryManager_Recall_Limit(t *testing.T) {
 	})
 
 	// Store 5 memories (more than capacity)
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		mm.Store(context.Background(), "Memory", nil, 0.5)
 	}
 
 	// Recall with limit of 3
 	memories, err := mm.Recall(context.Background(), "", MemoryTierWorking, 3)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -283,12 +281,12 @@ func TestMemoryManager_Promote(t *testing.T) {
 		UpsertFunc: func(ctx context.Context, vectors []Vector) error {
 			return nil
 		},
-		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]interface{}) ([]VectorMatch, error) {
+		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error) {
 			return []VectorMatch{
 				{
 					ID:    "mem1",
 					Score: 0.9,
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"content":    "Memory to promote",
 						"importance": 0.8,
 					},
@@ -307,7 +305,6 @@ func TestMemoryManager_Promote(t *testing.T) {
 	})
 
 	err := mm.Promote(context.Background(), "mem1")
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -315,7 +312,7 @@ func TestMemoryManager_Promote(t *testing.T) {
 
 func TestMemoryManager_Promote_NotFound(t *testing.T) {
 	mockVector := &MockVectorStore{
-		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]interface{}) ([]VectorMatch, error) {
+		QueryFunc: func(ctx context.Context, vector []float64, limit int, filter map[string]any) ([]VectorMatch, error) {
 			return []VectorMatch{}, nil
 		},
 	}
@@ -330,7 +327,6 @@ func TestMemoryManager_Promote_NotFound(t *testing.T) {
 	})
 
 	err := mm.Promote(context.Background(), "nonexistent")
-
 	if err == nil {
 		t.Error("expected error for non-existent memory")
 	}
@@ -348,7 +344,7 @@ func TestMemoryManager_CreateEpisode(t *testing.T) {
 	})
 
 	memoryIDs := []string{"mem1", "mem2", "mem3"}
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"category": "meeting",
 	}
 
@@ -359,7 +355,6 @@ func TestMemoryManager_CreateEpisode(t *testing.T) {
 		memoryIDs,
 		metadata,
 	)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -402,7 +397,6 @@ func TestMemoryManager_GetEpisode(t *testing.T) {
 
 	// Retrieve it
 	retrieved, err := mm.GetEpisode(episode.ID)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -422,7 +416,6 @@ func TestMemoryManager_GetEpisode_NotFound(t *testing.T) {
 	})
 
 	_, err := mm.GetEpisode("nonexistent")
-
 	if err == nil {
 		t.Error("expected error for non-existent episode")
 	}
@@ -449,7 +442,6 @@ func TestMemoryManager_Forget(t *testing.T) {
 
 	// Forget it
 	err := mm.Forget(context.Background(), entry.ID)
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -466,7 +458,6 @@ func TestMemoryManager_PruneExpired(t *testing.T) {
 	})
 
 	count, err := mm.PruneExpired(context.Background())
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -522,7 +513,6 @@ func TestMemoryManager_Clear(t *testing.T) {
 
 	// Clear
 	err := mm.Clear(context.Background())
-
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -584,18 +574,20 @@ func TestMemoryManager_ThreadSafety(t *testing.T) {
 
 	// Concurrent writes
 	go func() {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			mm.Store(context.Background(), "Memory", nil, 0.5)
 		}
+
 		done <- true
 	}()
 
 	// Concurrent reads
 	go func() {
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			mm.Recall(context.Background(), "", MemoryTierWorking, 10)
 			mm.GetStats()
 		}
+
 		done <- true
 	}()
 
@@ -605,4 +597,3 @@ func TestMemoryManager_ThreadSafety(t *testing.T) {
 
 	// If we get here without data races, the test passes
 }
-

@@ -14,6 +14,7 @@ func TestDataChannel(t *testing.T) {
 	// Create peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("test-peer", "test-user", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer connection: %v", err)
@@ -41,6 +42,7 @@ func TestDataChannel(t *testing.T) {
 
 	// Test message handler
 	messageReceived := make(chan []byte, 1)
+
 	dc.OnMessage(func(data []byte) {
 		select {
 		case messageReceived <- data:
@@ -50,6 +52,7 @@ func TestDataChannel(t *testing.T) {
 
 	// Test open handler
 	openCalled := make(chan bool, 1)
+
 	dc.OnOpen(func() {
 		select {
 		case openCalled <- true:
@@ -59,6 +62,7 @@ func TestDataChannel(t *testing.T) {
 
 	// Test close handler
 	closeCalled := make(chan bool, 1)
+
 	dc.OnClose(func() {
 		select {
 		case closeCalled <- true:
@@ -68,20 +72,24 @@ func TestDataChannel(t *testing.T) {
 
 	// Send text message - will fail because channel isn't open yet
 	testText := "Hello, WebRTC!"
+
 	err = dc.SendText(testText)
 	if err == nil {
 		t.Error("expected error when sending on non-open channel")
 	}
+
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Errorf("expected ErrConnectionClosed, got %v", err)
 	}
 
 	// Send binary data - will also fail
 	testData := []byte("Binary data test")
+
 	err = dc.Send(testData)
 	if err == nil {
 		t.Error("expected error when sending on non-open channel")
 	}
+
 	if !errors.Is(err, ErrConnectionClosed) {
 		t.Errorf("expected ErrConnectionClosed, got %v", err)
 	}
@@ -103,6 +111,7 @@ func TestDataChannel_States(t *testing.T) {
 	// Create peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("test-peer-2", "test-user-2", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer connection: %v", err)
@@ -123,6 +132,7 @@ func TestDataChannel_States(t *testing.T) {
 
 	// Wait a bit for state changes
 	time.Sleep(100 * time.Millisecond)
+
 	currentState = dc.State()
 	t.Logf("State after wait: %s", currentState)
 
@@ -137,6 +147,7 @@ func TestDataChannel_InvalidOperations(t *testing.T) {
 	// Create peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("test-peer-3", "test-user-3", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer connection: %v", err)
@@ -156,6 +167,7 @@ func TestDataChannel_ConcurrentMessages(t *testing.T) {
 	// Create peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("test-peer-4", "test-user-4", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer connection: %v", err)
@@ -170,6 +182,7 @@ func TestDataChannel_ConcurrentMessages(t *testing.T) {
 
 	// Track received messages
 	messagesReceived := make(chan int, 100)
+
 	dc.OnMessage(func(data []byte) {
 		select {
 		case messagesReceived <- len(data):
@@ -181,13 +194,15 @@ func TestDataChannel_ConcurrentMessages(t *testing.T) {
 	// Note: these will fail because the channel isn't open without a full peer connection
 	done := make(chan bool, 1)
 	errorCount := 0
+
 	go func() {
-		for i := 0; i < 50; i++ {
+		for i := range 50 {
 			text := fmt.Sprintf("Message %d", i)
 			if err := dc.SendText(text); err != nil {
 				errorCount++
 			}
 		}
+
 		done <- true
 	}()
 
@@ -207,6 +222,7 @@ func BenchmarkDataChannel_SendText(b *testing.B) {
 	// Create peer connection
 	config := DefaultConfig()
 	logger := forge.NewNoopLogger()
+
 	peer, err := NewPeerConnection("bench-peer", "bench-user", config, logger)
 	if err != nil {
 		b.Fatalf("failed to create peer connection: %v", err)
@@ -221,8 +237,7 @@ func BenchmarkDataChannel_SendText(b *testing.B) {
 
 	testText := "Benchmark message text"
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		// Note: this will fail because channel isn't open, but we benchmark the path
 		_ = dc.SendText(testText)
 	}

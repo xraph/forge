@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -15,14 +16,15 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// DevPlugin handles development commands
+// DevPlugin handles development commands.
 type DevPlugin struct {
 	config *config.ForgeConfig
 }
 
-// NewDevPlugin creates a new development plugin
+// NewDevPlugin creates a new development plugin.
 func NewDevPlugin(cfg *config.ForgeConfig) cli.Plugin {
 	return &DevPlugin{config: cfg}
 }
@@ -64,12 +66,13 @@ func (p *DevPlugin) Commands() []cli.Command {
 
 func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	appName := ctx.String("app")
@@ -85,6 +88,7 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 
 		if len(apps) == 0 {
 			ctx.Warning("No apps found. Create one with: forge generate:app")
+
 			return nil
 		}
 
@@ -95,6 +99,7 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 			for i, app := range apps {
 				appNames[i] = app.Name
 			}
+
 			appName, err = ctx.Select("Select app to run:", appNames)
 			if err != nil {
 				return err
@@ -112,11 +117,12 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 
 	// Set port if specified
 	if port > 0 {
-		os.Setenv("PORT", fmt.Sprintf("%d", port))
+		os.Setenv("PORT", strconv.Itoa(port))
 	}
 
 	if watch {
 		ctx.Info("Watching for changes (hot reload enabled)...")
+
 		return p.runWithWatch(ctx, app)
 	}
 
@@ -125,12 +131,13 @@ func (p *DevPlugin) runDev(ctx cli.CommandContext) error {
 
 func (p *DevPlugin) listApps(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	apps, err := p.discoverApps()
@@ -143,6 +150,7 @@ func (p *DevPlugin) listApps(ctx cli.CommandContext) error {
 		ctx.Println("")
 		ctx.Info("To create an app, run:")
 		ctx.Println("  forge generate app --name=my-app")
+
 		return nil
 	}
 
@@ -159,22 +167,24 @@ func (p *DevPlugin) listApps(ctx cli.CommandContext) error {
 	}
 
 	table.Render()
+
 	return nil
 }
 
 func (p *DevPlugin) buildDev(ctx cli.CommandContext) error {
 	if p.config == nil {
-		ctx.Error(fmt.Errorf("no .forge.yaml found in current directory or any parent"))
+		ctx.Error(errors.New("no .forge.yaml found in current directory or any parent"))
 		ctx.Println("")
 		ctx.Info("This doesn't appear to be a Forge project.")
 		ctx.Info("To initialize a new project, run:")
 		ctx.Println("  forge init")
-		return fmt.Errorf("not a forge project")
+
+		return errors.New("not a forge project")
 	}
 
 	appName := ctx.String("app")
 	if appName == "" {
-		return fmt.Errorf("--app flag is required")
+		return errors.New("--app flag is required")
 	}
 
 	app, err := p.findApp(appName)
@@ -191,14 +201,16 @@ func (p *DevPlugin) buildDev(ctx cli.CommandContext) error {
 
 	if err := cmd.Run(); err != nil {
 		spinner.Stop(cli.Red("✗ Build failed"))
+
 		return err
 	}
 
 	spinner.Stop(cli.Green(fmt.Sprintf("✓ Built %s successfully", appName)))
+
 	return nil
 }
 
-// AppInfo represents a discoverable app
+// AppInfo represents a discoverable app.
 type AppInfo struct {
 	Name string
 	Path string
@@ -211,11 +223,13 @@ func (p *DevPlugin) discoverApps() ([]AppInfo, error) {
 	if p.config.IsSingleModule() {
 		// For single-module, scan cmd directory
 		cmdDir := filepath.Join(p.config.RootDir, p.config.Project.Structure.Cmd)
+
 		entries, err := os.ReadDir(cmdDir)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return apps, nil
 			}
+
 			return nil, err
 		}
 
@@ -234,11 +248,13 @@ func (p *DevPlugin) discoverApps() ([]AppInfo, error) {
 	} else {
 		// For multi-module, scan apps directory
 		appsDir := filepath.Join(p.config.RootDir, "apps")
+
 		entries, err := os.ReadDir(appsDir)
 		if err != nil {
 			if os.IsNotExist(err) {
 				return apps, nil
 			}
+
 			return nil, err
 		}
 
@@ -284,7 +300,7 @@ func (p *DevPlugin) runApp(ctx cli.CommandContext, app *AppInfo) error {
 		return err
 	}
 
-	ctx.Info(fmt.Sprintf("Running: go run %s", mainPath))
+	ctx.Info("Running: go run " + mainPath)
 
 	cmd := exec.Command("go", "run", mainPath)
 	cmd.Dir = p.config.RootDir
@@ -318,11 +334,11 @@ func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
 	}
 
 	// Watch for file changes
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+
+	wg.Go(func() {
+
 		watcher.Watch(watchCtx, ctx)
-	}()
+	})
 
 	// Wait for interrupt signal
 	<-sigChan
@@ -368,10 +384,12 @@ func (p *DevPlugin) findMainFile(dir string) (string, error) {
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
 			filePath := filepath.Join(dir, entry.Name())
+
 			content, err := os.ReadFile(filePath)
 			if err != nil {
 				continue
 			}
+
 			if strings.Contains(string(content), "func main()") {
 				return filePath, nil
 			}
@@ -381,7 +399,7 @@ func (p *DevPlugin) findMainFile(dir string) (string, error) {
 	return "", fmt.Errorf("no main.go found in %s", dir)
 }
 
-// appWatcher manages file watching and process lifecycle for hot reload
+// appWatcher manages file watching and process lifecycle for hot reload.
 type appWatcher struct {
 	watcher   *fsnotify.Watcher
 	rootDir   string
@@ -392,7 +410,7 @@ type appWatcher struct {
 	mainFile  string
 }
 
-// newAppWatcher creates a new app watcher
+// newAppWatcher creates a new app watcher.
 func newAppWatcher(rootDir string, app *AppInfo) (*appWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -410,20 +428,23 @@ func newAppWatcher(rootDir string, app *AppInfo) (*appWatcher, error) {
 	mainFile, err := aw.findMainFile(app.Path)
 	if err != nil {
 		watcher.Close()
+
 		return nil, err
 	}
+
 	aw.mainFile = mainFile
 
 	// Setup watch directories
 	if err := aw.setupWatchers(); err != nil {
 		watcher.Close()
+
 		return nil, err
 	}
 
 	return aw, nil
 }
 
-// setupWatchers adds directories to watch
+// setupWatchers adds directories to watch.
 func (aw *appWatcher) setupWatchers() error {
 	// Watch the app directory
 	if err := aw.addWatchRecursive(aw.app.Path); err != nil {
@@ -448,7 +469,7 @@ func (aw *appWatcher) setupWatchers() error {
 	return nil
 }
 
-// addWatchRecursive adds a directory and all its subdirectories to the watcher
+// addWatchRecursive adds a directory and all its subdirectories to the watcher.
 func (aw *appWatcher) addWatchRecursive(dir string) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -466,13 +487,15 @@ func (aw *appWatcher) addWatchRecursive(dir string) error {
 				name == "tmp" {
 				return filepath.SkipDir
 			}
+
 			return aw.watcher.Add(path)
 		}
+
 		return nil
 	})
 }
 
-// Start starts the application process
+// Start starts the application process.
 func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	aw.mu.Lock()
 	defer aw.mu.Unlock()
@@ -494,6 +517,7 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	if portStr := os.Getenv("PORT"); portStr != "" {
 		if !isPortAvailable(portStr) {
 			ctx.Warning(fmt.Sprintf("Port %s is still in use, waiting for release...", portStr))
+
 			if err := waitForPort(portStr, 5*time.Second); err != nil {
 				return fmt.Errorf("port %s is not available: %w", portStr, err)
 			}
@@ -531,7 +555,7 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 			if !strings.Contains(err.Error(), "killed") &&
 				!strings.Contains(err.Error(), "signal: killed") &&
 				!strings.Contains(err.Error(), "terminated") {
-				ctx.Error(fmt.Errorf("process exited: %v", err))
+				ctx.Error(fmt.Errorf("process exited: %w", err))
 			}
 		}
 	}()
@@ -542,14 +566,15 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 	return nil
 }
 
-// Stop stops the application process
+// Stop stops the application process.
 func (aw *appWatcher) Stop() {
 	aw.mu.Lock()
 	defer aw.mu.Unlock()
+
 	aw.killProcess()
 }
 
-// WaitForTermination waits for the process to fully terminate
+// WaitForTermination waits for the process to fully terminate.
 func (aw *appWatcher) WaitForTermination(timeout time.Duration) {
 	aw.mu.Lock()
 	cmd := aw.cmd
@@ -563,7 +588,7 @@ func (aw *appWatcher) WaitForTermination(timeout time.Duration) {
 	waitForProcessTermination(cmd, timeout)
 }
 
-// killProcess kills the running process and its children
+// killProcess kills the running process and its children.
 func (aw *appWatcher) killProcess() {
 	if aw.cmd == nil || aw.cmd.Process == nil {
 		return
@@ -575,7 +600,7 @@ func (aw *appWatcher) killProcess() {
 	aw.cmd = nil
 }
 
-// Watch watches for file changes and triggers restarts
+// Watch watches for file changes and triggers restarts.
 func (aw *appWatcher) Watch(ctx context.Context, cliCtx cli.CommandContext) {
 	cliCtx.Success(fmt.Sprintf("Watching for changes in %s...", aw.app.Name))
 	cliCtx.Info("Press Ctrl+C to stop")
@@ -599,11 +624,11 @@ func (aw *appWatcher) Watch(ctx context.Context, cliCtx cli.CommandContext) {
 			// Debounce rapid file changes
 			aw.debouncer.Debounce(func() {
 				cliCtx.Println("")
-				cliCtx.Warning(fmt.Sprintf("Detected change in %s", filepath.Base(event.Name)))
+				cliCtx.Warning("Detected change in " + filepath.Base(event.Name))
 				cliCtx.Info("Reloading...")
 
 				if err := aw.Start(cliCtx); err != nil {
-					cliCtx.Error(fmt.Errorf("restart failed: %v", err))
+					cliCtx.Error(fmt.Errorf("restart failed: %w", err))
 				}
 			})
 
@@ -611,12 +636,13 @@ func (aw *appWatcher) Watch(ctx context.Context, cliCtx cli.CommandContext) {
 			if !ok {
 				return
 			}
-			cliCtx.Error(fmt.Errorf("watcher error: %v", err))
+
+			cliCtx.Error(fmt.Errorf("watcher error: %w", err))
 		}
 	}
 }
 
-// shouldReload determines if a file change should trigger a reload
+// shouldReload determines if a file change should trigger a reload.
 func (aw *appWatcher) shouldReload(event fsnotify.Event) bool {
 	// Only process write, create, and remove events
 	if event.Op&fsnotify.Write != fsnotify.Write &&
@@ -642,13 +668,14 @@ func (aw *appWatcher) shouldReload(event fsnotify.Event) bool {
 	return true
 }
 
-// Close closes the watcher
+// Close closes the watcher.
 func (aw *appWatcher) Close() error {
 	aw.Stop()
+
 	return aw.watcher.Close()
 }
 
-// findMainFile finds the main.go file for the app
+// findMainFile finds the main.go file for the app.
 func (aw *appWatcher) findMainFile(dir string) (string, error) {
 	// Check for main.go directly
 	mainPath := filepath.Join(dir, "main.go")
@@ -675,10 +702,12 @@ func (aw *appWatcher) findMainFile(dir string) (string, error) {
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
 			filePath := filepath.Join(dir, entry.Name())
+
 			content, err := os.ReadFile(filePath)
 			if err != nil {
 				continue
 			}
+
 			if strings.Contains(string(content), "func main()") {
 				return filePath, nil
 			}
@@ -688,19 +717,19 @@ func (aw *appWatcher) findMainFile(dir string) (string, error) {
 	return "", fmt.Errorf("no main.go found in %s", dir)
 }
 
-// debouncer prevents rapid successive calls
+// debouncer prevents rapid successive calls.
 type debouncer struct {
 	mu    sync.Mutex
 	timer *time.Timer
 	delay time.Duration
 }
 
-// newDebouncer creates a new debouncer with the specified delay
+// newDebouncer creates a new debouncer with the specified delay.
 func newDebouncer(delay time.Duration) *debouncer {
 	return &debouncer{delay: delay}
 }
 
-// Debounce debounces function calls
+// Debounce debounces function calls.
 func (d *debouncer) Debounce(fn func()) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -712,13 +741,14 @@ func (d *debouncer) Debounce(fn func()) {
 	d.timer = time.AfterFunc(d.delay, fn)
 }
 
-// waitForProcessTermination waits for a process to fully terminate
+// waitForProcessTermination waits for a process to fully terminate.
 func waitForProcessTermination(cmd *exec.Cmd, timeout time.Duration) {
 	if cmd == nil || cmd.Process == nil {
 		return
 	}
 
 	done := make(chan struct{})
+
 	go func() {
 		cmd.Process.Wait()
 		close(done)
@@ -733,7 +763,7 @@ func waitForProcessTermination(cmd *exec.Cmd, timeout time.Duration) {
 	}
 }
 
-// isPortAvailable checks if a port is available for binding
+// isPortAvailable checks if a port is available for binding.
 func isPortAvailable(port string) bool {
 	// Try to bind to the port using lsof
 	// This is more reliable than trying to bind since we want to detect
@@ -745,9 +775,10 @@ func isPortAvailable(port string) bool {
 	return err != nil || len(output) == 0
 }
 
-// waitForPort waits for a port to become available
+// waitForPort waits for a port to become available.
 func waitForPort(port string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -755,8 +786,9 @@ func waitForPort(port string, timeout time.Duration) error {
 		if isPortAvailable(port) {
 			return nil
 		}
+
 		<-ticker.C
 	}
 
-	return fmt.Errorf("timeout waiting for port to become available")
+	return errors.New("timeout waiting for port to become available")
 }

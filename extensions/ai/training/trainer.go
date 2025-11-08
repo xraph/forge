@@ -11,22 +11,22 @@ import (
 	"github.com/xraph/forge/internal/logger"
 )
 
-// TrainerConfig contains configuration for a trainer
+// TrainerConfig contains configuration for a trainer.
 type TrainerConfig struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	ModelType   string                 `json:"model_type"`
-	Config      map[string]interface{} `json:"config"`
-	Resources   ResourceConfig         `json:"resources"`
-	Environment map[string]string      `json:"environment"`
-	Tags        map[string]string      `json:"tags"`
-	Enabled     bool                   `json:"enabled"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
+	ModelType   string            `json:"model_type"`
+	Config      map[string]any    `json:"config"`
+	Resources   ResourceConfig    `json:"resources"`
+	Environment map[string]string `json:"environment"`
+	Tags        map[string]string `json:"tags"`
+	Enabled     bool              `json:"enabled"`
+	CreatedAt   time.Time         `json:"created_at"`
+	UpdatedAt   time.Time         `json:"updated_at"`
 }
 
-// ModelTrainer defines the interface for model training
+// ModelTrainer defines the interface for model training.
 type ModelTrainer interface {
 	// Training lifecycle
 	StartTraining(ctx context.Context, request TrainingRequest) (TrainingJob, error)
@@ -50,22 +50,22 @@ type ModelTrainer interface {
 	GetTrainingStatus(jobID string) (TrainingStatus, error)
 }
 
-// TrainingRequest represents a training request
+// TrainingRequest represents a training request.
 type TrainingRequest struct {
-	ID               string                 `json:"id"`
-	ModelType        string                 `json:"model_type"`
-	ModelConfig      ModelConfig            `json:"model_config"`
-	TrainingConfig   TrainingConfig         `json:"training_config"`
-	DatasetConfig    DatasetConfig          `json:"dataset_config"`
-	HyperParameters  map[string]interface{} `json:"hyperparameters"`
-	ValidationConfig ValidationConfig       `json:"validation_config"`
-	Callbacks        []TrainingCallback     `json:"callbacks"`
-	Resources        ResourceConfig         `json:"resources"`
-	Tags             map[string]string      `json:"tags"`
-	Priority         int                    `json:"priority"`
+	ID               string             `json:"id"`
+	ModelType        string             `json:"model_type"`
+	ModelConfig      ModelConfig        `json:"model_config"`
+	TrainingConfig   TrainingConfig     `json:"training_config"`
+	DatasetConfig    DatasetConfig      `json:"dataset_config"`
+	HyperParameters  map[string]any     `json:"hyperparameters"`
+	ValidationConfig ValidationConfig   `json:"validation_config"`
+	Callbacks        []TrainingCallback `json:"callbacks"`
+	Resources        ResourceConfig     `json:"resources"`
+	Tags             map[string]string  `json:"tags"`
+	Priority         int                `json:"priority"`
 }
 
-// TrainingJob represents a training job
+// TrainingJob represents a training job.
 type TrainingJob interface {
 	ID() string
 	Name() string
@@ -83,7 +83,7 @@ type TrainingJob interface {
 	Resume(ctx context.Context) error
 }
 
-// TrainingStatus represents the status of a training job
+// TrainingStatus represents the status of a training job.
 type TrainingStatus string
 
 const (
@@ -95,7 +95,7 @@ const (
 	TrainingStatusCancelled TrainingStatus = "cancelled"
 )
 
-// TrainingProgress represents training progress information
+// TrainingProgress represents training progress information.
 type TrainingProgress struct {
 	Epoch         int           `json:"epoch"`
 	TotalEpochs   int           `json:"total_epochs"`
@@ -106,16 +106,16 @@ type TrainingProgress struct {
 	ElapsedTime   time.Duration `json:"elapsed_time"`
 }
 
-// ModelConfig contains model configuration
+// ModelConfig contains model configuration.
 type ModelConfig struct {
-	Architecture   string                 `json:"architecture"`
-	Framework      string                 `json:"framework"`
-	Version        string                 `json:"version"`
-	Parameters     map[string]interface{} `json:"parameters"`
-	PretrainedPath string                 `json:"pretrained_path,omitempty"`
+	Architecture   string         `json:"architecture"`
+	Framework      string         `json:"framework"`
+	Version        string         `json:"version"`
+	Parameters     map[string]any `json:"parameters"`
+	PretrainedPath string         `json:"pretrained_path,omitempty"`
 }
 
-// TrainingConfig contains training configuration
+// TrainingConfig contains training configuration.
 type TrainingConfig struct {
 	Epochs         int                   `json:"epochs"`
 	BatchSize      int                   `json:"batch_size"`
@@ -129,7 +129,7 @@ type TrainingConfig struct {
 	Environment    map[string]string     `json:"environment"`
 }
 
-// ValidationConfig contains validation configuration
+// ValidationConfig contains validation configuration.
 type ValidationConfig struct {
 	SplitRatio      float64               `json:"split_ratio"`
 	ValidationSet   string                `json:"validation_set,omitempty"`
@@ -138,7 +138,7 @@ type ValidationConfig struct {
 	CrossValidation CrossValidationConfig `json:"cross_validation"`
 }
 
-// ResourceConfig contains resource allocation configuration
+// ResourceConfig contains resource allocation configuration.
 type ResourceConfig struct {
 	CPU        string        `json:"cpu"`
 	Memory     string        `json:"memory"`
@@ -149,15 +149,15 @@ type ResourceConfig struct {
 	MaxRuntime time.Duration `json:"max_runtime"`
 }
 
-// TrainingCallback represents a training callback
+// TrainingCallback represents a training callback.
 type TrainingCallback struct {
-	Name     string                 `json:"name"`
-	Type     string                 `json:"type"`
-	Config   map[string]interface{} `json:"config"`
-	Priority int                    `json:"priority"`
+	Name     string         `json:"name"`
+	Type     string         `json:"type"`
+	Config   map[string]any `json:"config"`
+	Priority int            `json:"priority"`
 }
 
-// RegularizationConfig contains regularization settings
+// RegularizationConfig contains regularization settings.
 type RegularizationConfig struct {
 	L1          float64 `json:"l1"`
 	L2          float64 `json:"l2"`
@@ -166,7 +166,7 @@ type RegularizationConfig struct {
 	WeightDecay float64 `json:"weight_decay"`
 }
 
-// EarlyStoppingConfig contains early stopping settings
+// EarlyStoppingConfig contains early stopping settings.
 type EarlyStoppingConfig struct {
 	Enabled   bool    `json:"enabled"`
 	Metric    string  `json:"metric"`
@@ -175,13 +175,13 @@ type EarlyStoppingConfig struct {
 	Threshold float64 `json:"threshold"`
 }
 
-// LearningRateScheduler contains learning rate scheduler settings
+// LearningRateScheduler contains learning rate scheduler settings.
 type LearningRateScheduler struct {
-	Type       string                 `json:"type"`
-	Parameters map[string]interface{} `json:"parameters"`
+	Type       string         `json:"type"`
+	Parameters map[string]any `json:"parameters"`
 }
 
-// CheckpointConfig contains checkpoint settings
+// CheckpointConfig contains checkpoint settings.
 type CheckpointConfig struct {
 	Enabled    bool   `json:"enabled"`
 	Frequency  int    `json:"frequency"` // epochs
@@ -191,7 +191,7 @@ type CheckpointConfig struct {
 	MaxKeep    int    `json:"max_keep"`
 }
 
-// CrossValidationConfig contains cross-validation settings
+// CrossValidationConfig contains cross-validation settings.
 type CrossValidationConfig struct {
 	Enabled bool `json:"enabled"`
 	Folds   int  `json:"folds"`
@@ -199,7 +199,7 @@ type CrossValidationConfig struct {
 	Seed    int  `json:"seed"`
 }
 
-// TrainedModel represents a trained model
+// TrainedModel represents a trained model.
 type TrainedModel interface {
 	ID() string
 	Name() string
@@ -214,7 +214,7 @@ type TrainedModel interface {
 	Validate(ctx context.Context, dataset Dataset) (ValidationResults, error)
 }
 
-// ValidationResults contains validation results
+// ValidationResults contains validation results.
 type ValidationResults struct {
 	Accuracy  float64            `json:"accuracy"`
 	Loss      float64            `json:"loss"`
@@ -223,17 +223,17 @@ type ValidationResults struct {
 	Report    string             `json:"classification_report,omitempty"`
 }
 
-// TrainingLogEntry represents a training log entry
+// TrainingLogEntry represents a training log entry.
 type TrainingLogEntry struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Level     string                 `json:"level"`
-	Message   string                 `json:"message"`
-	Epoch     int                    `json:"epoch,omitempty"`
-	Step      int64                  `json:"step,omitempty"`
-	Metrics   map[string]interface{} `json:"metrics,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
+	Level     string         `json:"level"`
+	Message   string         `json:"message"`
+	Epoch     int            `json:"epoch,omitempty"`
+	Step      int64          `json:"step,omitempty"`
+	Metrics   map[string]any `json:"metrics,omitempty"`
 }
 
-// ModelTrainerImpl implements the ModelTrainer interface
+// ModelTrainerImpl implements the ModelTrainer interface.
 type ModelTrainerImpl struct {
 	jobs     map[string]TrainingJob
 	datasets map[string]Dataset
@@ -247,7 +247,7 @@ type ModelTrainerImpl struct {
 	started  bool
 }
 
-// NewModelTrainer creates a new model trainer
+// NewModelTrainer creates a new model trainer.
 func NewModelTrainer(logger logger.Logger, metrics forge.Metrics) ModelTrainer {
 	return &ModelTrainerImpl{
 		jobs:     make(map[string]TrainingJob),
@@ -258,7 +258,7 @@ func NewModelTrainer(logger logger.Logger, metrics forge.Metrics) ModelTrainer {
 	}
 }
 
-// StartTraining starts a new training job
+// StartTraining starts a new training job.
 func (t *ModelTrainerImpl) StartTraining(ctx context.Context, request TrainingRequest) (TrainingJob, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -301,7 +301,7 @@ func (t *ModelTrainerImpl) StartTraining(ctx context.Context, request TrainingRe
 	return job, nil
 }
 
-// StopTraining stops a training job
+// StopTraining stops a training job.
 func (t *ModelTrainerImpl) StopTraining(ctx context.Context, jobID string) error {
 	t.mu.RLock()
 	job, exists := t.jobs[jobID]
@@ -326,7 +326,7 @@ func (t *ModelTrainerImpl) StopTraining(ctx context.Context, jobID string) error
 	return nil
 }
 
-// ResumeTraining resumes a paused training job
+// ResumeTraining resumes a paused training job.
 func (t *ModelTrainerImpl) ResumeTraining(ctx context.Context, jobID string) error {
 	t.mu.RLock()
 	job, exists := t.jobs[jobID]
@@ -347,7 +347,7 @@ func (t *ModelTrainerImpl) ResumeTraining(ctx context.Context, jobID string) err
 	return nil
 }
 
-// GetTrainingJob returns a training job by ID
+// GetTrainingJob returns a training job by ID.
 func (t *ModelTrainerImpl) GetTrainingJob(jobID string) (TrainingJob, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -360,7 +360,7 @@ func (t *ModelTrainerImpl) GetTrainingJob(jobID string) (TrainingJob, error) {
 	return job, nil
 }
 
-// ListTrainingJobs returns all training jobs
+// ListTrainingJobs returns all training jobs.
 func (t *ModelTrainerImpl) ListTrainingJobs() []TrainingJob {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -373,7 +373,7 @@ func (t *ModelTrainerImpl) ListTrainingJobs() []TrainingJob {
 	return jobs
 }
 
-// SaveModel saves a trained model
+// SaveModel saves a trained model.
 func (t *ModelTrainerImpl) SaveModel(ctx context.Context, jobID string, path string) error {
 	job, err := t.GetTrainingJob(jobID)
 	if err != nil {
@@ -397,7 +397,7 @@ func (t *ModelTrainerImpl) SaveModel(ctx context.Context, jobID string, path str
 	return nil
 }
 
-// LoadModel loads a trained model
+// LoadModel loads a trained model.
 func (t *ModelTrainerImpl) LoadModel(ctx context.Context, path string) (TrainedModel, error) {
 	model, err := t.storage.LoadModel(ctx, path)
 	if err != nil {
@@ -416,7 +416,7 @@ func (t *ModelTrainerImpl) LoadModel(ctx context.Context, path string) (TrainedM
 	return model, nil
 }
 
-// ExportModel exports a model in the specified format
+// ExportModel exports a model in the specified format.
 func (t *ModelTrainerImpl) ExportModel(ctx context.Context, jobID string, format string) ([]byte, error) {
 	job, err := t.GetTrainingJob(jobID)
 	if err != nil {
@@ -442,7 +442,7 @@ func (t *ModelTrainerImpl) ExportModel(ctx context.Context, jobID string, format
 	return data, nil
 }
 
-// PrepareDataset prepares a dataset for training
+// PrepareDataset prepares a dataset for training.
 func (t *ModelTrainerImpl) PrepareDataset(ctx context.Context, config DatasetConfig) (Dataset, error) {
 	dataset := NewDataset(config, t.logger)
 
@@ -462,7 +462,7 @@ func (t *ModelTrainerImpl) PrepareDataset(ctx context.Context, config DatasetCon
 	return dataset, nil
 }
 
-// ValidateDataset validates a dataset
+// ValidateDataset validates a dataset.
 func (t *ModelTrainerImpl) ValidateDataset(ctx context.Context, dataset Dataset) error {
 	if err := dataset.Validate(ctx); err != nil {
 		return fmt.Errorf("dataset validation failed: %w", err)
@@ -475,7 +475,7 @@ func (t *ModelTrainerImpl) ValidateDataset(ctx context.Context, dataset Dataset)
 	return nil
 }
 
-// GetTrainingMetrics returns training metrics for a job
+// GetTrainingMetrics returns training metrics for a job.
 func (t *ModelTrainerImpl) GetTrainingMetrics(jobID string) (TrainingMetrics, error) {
 	job, err := t.GetTrainingJob(jobID)
 	if err != nil {
@@ -485,7 +485,7 @@ func (t *ModelTrainerImpl) GetTrainingMetrics(jobID string) (TrainingMetrics, er
 	return job.GetMetrics(), nil
 }
 
-// GetTrainingLogs returns training logs for a job
+// GetTrainingLogs returns training logs for a job.
 func (t *ModelTrainerImpl) GetTrainingLogs(jobID string) ([]TrainingLogEntry, error) {
 	job, err := t.GetTrainingJob(jobID)
 	if err != nil {
@@ -495,7 +495,7 @@ func (t *ModelTrainerImpl) GetTrainingLogs(jobID string) ([]TrainingLogEntry, er
 	return job.GetLogs(), nil
 }
 
-// GetTrainingStatus returns training status for a job
+// GetTrainingStatus returns training status for a job.
 func (t *ModelTrainerImpl) GetTrainingStatus(jobID string) (TrainingStatus, error) {
 	job, err := t.GetTrainingJob(jobID)
 	if err != nil {
@@ -509,29 +509,29 @@ func (t *ModelTrainerImpl) GetTrainingStatus(jobID string) (TrainingStatus, erro
 
 func (t *ModelTrainerImpl) validateTrainingRequest(request TrainingRequest) error {
 	if request.ID == "" {
-		return fmt.Errorf("training request ID is required")
+		return errors.New("training request ID is required")
 	}
 
 	if request.ModelType == "" {
-		return fmt.Errorf("model type is required")
+		return errors.New("model type is required")
 	}
 
 	if request.TrainingConfig.Epochs <= 0 {
-		return fmt.Errorf("epochs must be greater than 0")
+		return errors.New("epochs must be greater than 0")
 	}
 
 	if request.TrainingConfig.BatchSize <= 0 {
-		return fmt.Errorf("batch size must be greater than 0")
+		return errors.New("batch size must be greater than 0")
 	}
 
 	if request.TrainingConfig.LearningRate <= 0 {
-		return fmt.Errorf("learning rate must be greater than 0")
+		return errors.New("learning rate must be greater than 0")
 	}
 
 	return nil
 }
 
-// TrainingExecutor defines the interface for training execution
+// TrainingExecutor defines the interface for training execution.
 type TrainingExecutor interface {
 	Execute(ctx context.Context, job TrainingJob) error
 	Pause(ctx context.Context, jobID string) error
@@ -539,7 +539,7 @@ type TrainingExecutor interface {
 	Cancel(ctx context.Context, jobID string) error
 }
 
-// TrainingMonitor defines the interface for training monitoring
+// TrainingMonitor defines the interface for training monitoring.
 type TrainingMonitor interface {
 	StartMonitoring(ctx context.Context, jobID string) error
 	StopMonitoring(ctx context.Context, jobID string) error
@@ -547,7 +547,7 @@ type TrainingMonitor interface {
 	GetLogs(jobID string) ([]TrainingLogEntry, error)
 }
 
-// ModelStorage defines the interface for model storage
+// ModelStorage defines the interface for model storage.
 type ModelStorage interface {
 	SaveModel(ctx context.Context, jobID string, path string) error
 	LoadModel(ctx context.Context, path string) (TrainedModel, error)
@@ -556,7 +556,7 @@ type ModelStorage interface {
 	ListModels(ctx context.Context) ([]TrainedModel, error)
 }
 
-// NewTrainingJob creates a new training job
+// NewTrainingJob creates a new training job.
 func NewTrainingJob(request TrainingRequest, logger logger.Logger, metrics forge.Metrics) TrainingJob {
 	return &TrainingJobImpl{
 		request:   request,
@@ -567,7 +567,7 @@ func NewTrainingJob(request TrainingRequest, logger logger.Logger, metrics forge
 	}
 }
 
-// TrainingJobImpl implements the TrainingJob interface
+// TrainingJobImpl implements the TrainingJob interface.
 type TrainingJobImpl struct {
 	request          TrainingRequest
 	status           TrainingStatus
@@ -593,12 +593,14 @@ func (j *TrainingJobImpl) Name() string {
 func (j *TrainingJobImpl) Status() TrainingStatus {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
+
 	return j.status
 }
 
 func (j *TrainingJobImpl) Progress() TrainingProgress {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
+
 	return j.progress
 }
 
@@ -609,36 +611,43 @@ func (j *TrainingJobImpl) CreatedAt() time.Time {
 func (j *TrainingJobImpl) StartedAt() time.Time {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
+
 	return j.startedAt
 }
 
 func (j *TrainingJobImpl) CompletedAt() time.Time {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
+
 	return j.completedAt
 }
 
 func (j *TrainingJobImpl) Duration() time.Duration {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
+
 	if j.startedAt.IsZero() {
 		return 0
 	}
+
 	if j.completedAt.IsZero() {
 		return time.Since(j.startedAt)
 	}
+
 	return j.completedAt.Sub(j.startedAt)
 }
 
 func (j *TrainingJobImpl) GetMetrics() TrainingMetrics {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
+
 	return j.metrics
 }
 
 func (j *TrainingJobImpl) GetLogs() []TrainingLogEntry {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
+
 	return j.logs
 }
 
@@ -649,21 +658,27 @@ func (j *TrainingJobImpl) GetConfig() TrainingConfig {
 func (j *TrainingJobImpl) Cancel(ctx context.Context) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+
 	j.status = TrainingStatusCancelled
 	j.completedAt = time.Now()
+
 	return nil
 }
 
 func (j *TrainingJobImpl) Pause(ctx context.Context) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+
 	j.status = TrainingStatusPaused
+
 	return nil
 }
 
 func (j *TrainingJobImpl) Resume(ctx context.Context) error {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+
 	j.status = TrainingStatusRunning
+
 	return nil
 }

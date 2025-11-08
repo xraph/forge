@@ -320,6 +320,7 @@ func TestMustScope_Success(t *testing.T) {
 
 func TestMustScope_Panic(t *testing.T) {
 	c := NewContainer()
+
 	scope := c.BeginScope()
 	defer scope.End()
 
@@ -328,7 +329,7 @@ func TestMustScope_Panic(t *testing.T) {
 	})
 }
 
-// Test complex scenarios
+// Test complex scenarios.
 func TestComplexDependencies(t *testing.T) {
 	c := NewContainer()
 
@@ -341,6 +342,7 @@ func TestComplexDependencies(t *testing.T) {
 	// Register database with logger dependency
 	err = c.Register("database", func(c Container) (any, error) {
 		logger := Must[*testService](c, "logger")
+
 		return &testService{value: "db-with-" + logger.value}, nil
 	}, WithDependencies("logger"))
 	require.NoError(t, err)

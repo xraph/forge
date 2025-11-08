@@ -7,19 +7,19 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// RESTGenerator generates REST client code
+// RESTGenerator generates REST client code.
 type RESTGenerator struct {
 	typesGen *TypesGenerator
 }
 
-// NewRESTGenerator creates a new REST generator
+// NewRESTGenerator creates a new REST generator.
 func NewRESTGenerator() *RESTGenerator {
 	return &RESTGenerator{
 		typesGen: NewTypesGenerator(),
 	}
 }
 
-// Generate generates the rest.go file
+// Generate generates the rest.go file.
 func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -50,7 +50,7 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 	return buf.String()
 }
 
-// generateHelpers generates helper functions
+// generateHelpers generates helper functions.
 func (r *RESTGenerator) generateHelpers(config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -104,7 +104,7 @@ func (r *RESTGenerator) generateHelpers(config client.GeneratorConfig) string {
 	return buf.String()
 }
 
-// generateEndpointMethod generates a method for an endpoint
+// generateEndpointMethod generates a method for an endpoint.
 func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -112,9 +112,11 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 
 	// Generate method signature
 	buf.WriteString(fmt.Sprintf("// %s %s\n", methodName, endpoint.Summary))
+
 	if endpoint.Description != "" {
 		buf.WriteString(fmt.Sprintf("// %s\n", endpoint.Description))
 	}
+
 	if endpoint.Deprecated {
 		buf.WriteString("// Deprecated: This endpoint is deprecated\n")
 	}
@@ -124,9 +126,11 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	returnType := r.generateReturnType(endpoint, spec)
 
 	buf.WriteString(fmt.Sprintf("func (c *Client) %s(ctx context.Context", methodName))
+
 	if params != "" {
 		buf.WriteString(", " + params)
 	}
+
 	buf.WriteString(") ")
 
 	if returnType != "" {
@@ -144,6 +148,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	// Add query parameters
 	if len(endpoint.QueryParams) > 0 {
 		buf.WriteString("\tq := url.Values{}\n")
+
 		for _, param := range endpoint.QueryParams {
 			paramName := r.toGoParamName(param.Name)
 			if param.Required {
@@ -154,6 +159,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 				buf.WriteString("\t}\n")
 			}
 		}
+
 		buf.WriteString("\tif len(q) > 0 {\n")
 		buf.WriteString("\t\tpath += \"?\" + q.Encode()\n")
 		buf.WriteString("\t}\n\n")
@@ -171,6 +177,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	var resultVar string
 	if returnType != "" {
 		resultVar = "&result"
+
 		buf.WriteString(fmt.Sprintf("\tvar result %s\n", returnType))
 	}
 
@@ -181,11 +188,13 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 		r.orNil(resultVar)))
 
 	buf.WriteString("\tif err != nil {\n")
+
 	if returnType != "" {
 		buf.WriteString("\t\treturn nil, err\n")
 	} else {
 		buf.WriteString("\t\treturn err\n")
 	}
+
 	buf.WriteString("\t}\n\n")
 
 	if returnType != "" {
@@ -199,7 +208,7 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	return buf.String()
 }
 
-// generateMethodName generates a method name from an endpoint
+// generateMethodName generates a method name from an endpoint.
 func (r *RESTGenerator) generateMethodName(endpoint client.Endpoint) string {
 	if endpoint.OperationID != "" {
 		return r.typesGen.toGoFieldName(endpoint.OperationID)
@@ -213,10 +222,11 @@ func (r *RESTGenerator) generateMethodName(endpoint client.Endpoint) string {
 	path = strings.ReplaceAll(path, "-", "_")
 
 	method := strings.Title(strings.ToLower(endpoint.Method))
+
 	return method + r.typesGen.toGoFieldName(path)
 }
 
-// generateParameters generates method parameters
+// generateParameters generates method parameters.
 func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *client.APISpec) string {
 	var params []string
 
@@ -230,10 +240,12 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 	// Query parameters
 	for _, param := range endpoint.QueryParams {
 		paramName := r.toGoParamName(param.Name)
+
 		goType := r.typesGen.schemaToGoType(param.Schema, spec)
 		if !param.Required {
 			goType = "*" + goType
 		}
+
 		params = append(params, fmt.Sprintf("%s %s", paramName, goType))
 	}
 
@@ -247,9 +259,9 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 			}
 
 			if endpoint.RequestBody.Required {
-				params = append(params, fmt.Sprintf("req %s", typeName))
+				params = append(params, "req "+typeName)
 			} else {
-				params = append(params, fmt.Sprintf("req *%s", typeName))
+				params = append(params, "req *"+typeName)
 			}
 		}
 	}
@@ -257,7 +269,7 @@ func (r *RESTGenerator) generateParameters(endpoint client.Endpoint, spec *clien
 	return strings.Join(params, ", ")
 }
 
-// generateReturnType generates the return type for an endpoint
+// generateReturnType generates the return type for an endpoint.
 func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *client.APISpec) string {
 	// Look for 200 or 201 response
 	for _, statusCode := range []int{200, 201} {
@@ -266,6 +278,7 @@ func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *clien
 				if r.typesGen.isSchemaRef(media.Schema) {
 					return r.typesGen.extractRefName(media.Schema.Ref)
 				}
+
 				return r.typesGen.generateResponseTypeName(endpoint, statusCode)
 			}
 		}
@@ -274,7 +287,7 @@ func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *clien
 	return ""
 }
 
-// generatePathExpression generates the path expression with parameters
+// generatePathExpression generates the path expression with parameters.
 func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string {
 	path := endpoint.Path
 
@@ -288,7 +301,7 @@ func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string 
 	return fmt.Sprintf("\"%s\"", path)
 }
 
-// toGoParamName converts a parameter name to Go naming convention
+// toGoParamName converts a parameter name to Go naming convention.
 func (r *RESTGenerator) toGoParamName(name string) string {
 	// Convert to camelCase
 	parts := strings.FieldsFunc(name, func(r rune) bool {
@@ -300,19 +313,22 @@ func (r *RESTGenerator) toGoParamName(name string) string {
 	}
 
 	result := strings.ToLower(parts[0])
+	var resultSb303 strings.Builder
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
-			result += strings.ToUpper(parts[i][:1]) + parts[i][1:]
+			resultSb303.WriteString(strings.ToUpper(parts[i][:1]) + parts[i][1:])
 		}
 	}
+	result += resultSb303.String()
 
 	return result
 }
 
-// orNil returns the variable name or "nil"
+// orNil returns the variable name or "nil".
 func (r *RESTGenerator) orNil(varName string) string {
 	if varName == "" {
 		return "nil"
 	}
+
 	return varName
 }

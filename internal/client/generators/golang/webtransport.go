@@ -7,15 +7,15 @@ import (
 	"github.com/xraph/forge/internal/client"
 )
 
-// WebTransportGenerator generates Go WebTransport client code
+// WebTransportGenerator generates Go WebTransport client code.
 type WebTransportGenerator struct{}
 
-// NewWebTransportGenerator creates a new WebTransport generator
+// NewWebTransportGenerator creates a new WebTransport generator.
 func NewWebTransportGenerator() *WebTransportGenerator {
 	return &WebTransportGenerator{}
 }
 
-// Generate generates the WebTransport clients
+// Generate generates the WebTransport clients.
 func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -73,7 +73,7 @@ func (w *WebTransportGenerator) Generate(spec *client.APISpec, config client.Gen
 	return buf.String()
 }
 
-// generateWebTransportClient generates a WebTransport client for an endpoint
+// generateWebTransportClient generates a WebTransport client for an endpoint.
 func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTransportEndpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
@@ -81,6 +81,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	// Client documentation
 	buf.WriteString(fmt.Sprintf("// %s is a WebTransport client for %s\n", className, wt.Path))
+
 	if wt.Description != "" {
 		buf.WriteString(fmt.Sprintf("// %s\n", wt.Description))
 	}
@@ -136,7 +137,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	buf.WriteString("\tc.setState(WebTransportStateConnecting)\n\n")
 
-	buf.WriteString(fmt.Sprintf("\t// Build WebTransport URL\n"))
+	buf.WriteString("\t// Build WebTransport URL\n")
 	buf.WriteString(fmt.Sprintf("\twtURL := c.baseURL + \"%s\"\n\n", wt.Path))
 
 	buf.WriteString("\t// Create dialer\n")
@@ -194,7 +195,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	}
 
 	// Close method
-	buf.WriteString(fmt.Sprintf("// Close closes the WebTransport connection\n"))
+	buf.WriteString("// Close closes the WebTransport connection\n")
 	buf.WriteString(fmt.Sprintf("func (c *%s) Close() error {\n", className))
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tdefer c.mu.Unlock()\n\n")
@@ -210,7 +211,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("}\n\n")
 
 	// Get state method
-	buf.WriteString(fmt.Sprintf("// GetState returns the current connection state\n"))
+	buf.WriteString("// GetState returns the current connection state\n")
 	buf.WriteString(fmt.Sprintf("func (c *%s) GetState() WebTransportState {\n", className))
 	buf.WriteString("\tc.mu.RLock()\n")
 	buf.WriteString("\tdefer c.mu.RUnlock()\n")
@@ -220,17 +221,19 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	// setState helper
 	buf.WriteString(fmt.Sprintf("func (c *%s) setState(state WebTransportState) {\n", className))
 	buf.WriteString("\tc.state = state\n")
+
 	if config.Features.StateManagement {
 		buf.WriteString("\tfor _, handler := range c.stateHandlers {\n")
 		buf.WriteString("\t\tgo handler(state)\n")
 		buf.WriteString("\t}\n")
 	}
+
 	buf.WriteString("}\n\n")
 
 	return buf.String()
 }
 
-// generateBiStreamMethods generates bidirectional stream methods
+// generateBiStreamMethods generates bidirectional stream methods.
 func (w *WebTransportGenerator) generateBiStreamMethods(className string, schema *client.StreamSchema, spec *client.APISpec) string {
 	var buf strings.Builder
 
@@ -295,7 +298,7 @@ func (w *WebTransportGenerator) generateBiStreamMethods(className string, schema
 	return buf.String()
 }
 
-// generateUniStreamMethods generates unidirectional stream methods
+// generateUniStreamMethods generates unidirectional stream methods.
 func (w *WebTransportGenerator) generateUniStreamMethods(className string, schema *client.StreamSchema, spec *client.APISpec) string {
 	var buf strings.Builder
 
@@ -344,7 +347,7 @@ func (w *WebTransportGenerator) generateUniStreamMethods(className string, schem
 	return buf.String()
 }
 
-// generateDatagramMethods generates datagram methods
+// generateDatagramMethods generates datagram methods.
 func (w *WebTransportGenerator) generateDatagramMethods(className string, schema *client.Schema, spec *client.APISpec) string {
 	var buf strings.Builder
 
@@ -394,7 +397,7 @@ func (w *WebTransportGenerator) generateDatagramMethods(className string, schema
 	return buf.String()
 }
 
-// generateIncomingStreamHandler generates handler for incoming streams
+// generateIncomingStreamHandler generates handler for incoming streams.
 func (w *WebTransportGenerator) generateIncomingStreamHandler(className string, wt client.WebTransportEndpoint, spec *client.APISpec) string {
 	var buf strings.Builder
 
@@ -443,11 +446,11 @@ func (w *WebTransportGenerator) generateIncomingStreamHandler(className string, 
 	return buf.String()
 }
 
-// generateStateManagement generates state management methods
+// generateStateManagement generates state management methods.
 func (w *WebTransportGenerator) generateStateManagement(className string) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// OnStateChange registers a handler for state changes\n"))
+	buf.WriteString("// OnStateChange registers a handler for state changes\n")
 	buf.WriteString(fmt.Sprintf("func (c *%s) OnStateChange(handler func(WebTransportState)) {\n", className))
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tdefer c.mu.Unlock()\n")
@@ -457,11 +460,11 @@ func (w *WebTransportGenerator) generateStateManagement(className string) string
 	return buf.String()
 }
 
-// generateErrorHandling generates error handling methods
+// generateErrorHandling generates error handling methods.
 func (w *WebTransportGenerator) generateErrorHandling(className string) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// OnError registers an error handler\n"))
+	buf.WriteString("// OnError registers an error handler\n")
 	buf.WriteString(fmt.Sprintf("func (c *%s) OnError(handler func(error)) {\n", className))
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tdefer c.mu.Unlock()\n")
@@ -486,11 +489,11 @@ func (w *WebTransportGenerator) generateErrorHandling(className string) string {
 	return buf.String()
 }
 
-// generateReconnection generates reconnection logic
+// generateReconnection generates reconnection logic.
 func (w *WebTransportGenerator) generateReconnection(className string) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("// Reconnect attempts to reconnect to the WebTransport server\n"))
+	buf.WriteString("// Reconnect attempts to reconnect to the WebTransport server\n")
 	buf.WriteString(fmt.Sprintf("func (c *%s) Reconnect(ctx context.Context) error {\n", className))
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tif c.reconnectAttempts >= c.maxReconnectAttempts {\n")
@@ -521,15 +524,16 @@ func (w *WebTransportGenerator) generateReconnection(className string) string {
 	return buf.String()
 }
 
-// generateClassName generates a class name for a WebTransport endpoint
+// generateClassName generates a class name for a WebTransport endpoint.
 func (w *WebTransportGenerator) generateClassName(wt client.WebTransportEndpoint) string {
 	if wt.ID != "" {
 		return toPascalCase(wt.ID) + "WTClient"
 	}
+
 	return "WebTransportClient"
 }
 
-// getSchemaTypeName gets the type name for a schema
+// getSchemaTypeName gets the type name for a schema.
 func (w *WebTransportGenerator) getSchemaTypeName(schema *client.Schema, spec *client.APISpec) string {
 	if schema == nil {
 		return "interface{}"
@@ -537,26 +541,31 @@ func (w *WebTransportGenerator) getSchemaTypeName(schema *client.Schema, spec *c
 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
+
 		return parts[len(parts)-1]
 	}
 
 	// Use types generator for schema conversion
 	typesGen := NewTypesGenerator()
+
 	return typesGen.schemaToGoType(schema, spec)
 }
 
-// toPascalCase converts a string to PascalCase
+// toPascalCase converts a string to PascalCase.
 func toPascalCase(s string) string {
 	parts := strings.FieldsFunc(s, func(r rune) bool {
 		return r == '_' || r == '-' || r == ' ' || r == '/'
 	})
 
 	var result string
+	var resultSb555 strings.Builder
+
 	for _, part := range parts {
 		if len(part) > 0 {
-			result += strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+			resultSb555.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
 		}
 	}
+	result += resultSb555.String()
 
 	return result
 }

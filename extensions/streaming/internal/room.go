@@ -165,7 +165,7 @@ type Member interface {
 	SetMetadata(key string, value any)
 }
 
-// Common room roles
+// Common room roles.
 const (
 	RoleOwner  = "owner"
 	RoleAdmin  = "admin"
@@ -173,7 +173,7 @@ const (
 	RoleGuest  = "guest"
 )
 
-// Common permissions
+// Common permissions.
 const (
 	PermissionSendMessage   = "send_message"
 	PermissionDeleteMessage = "delete_message"
@@ -211,7 +211,7 @@ type RoomEvent struct {
 	Data      map[string]any `json:"data,omitempty"`
 }
 
-// Room event types
+// Room event types.
 const (
 	RoomEventCreated      = "created"
 	RoomEventUpdated      = "updated"
@@ -265,7 +265,7 @@ type ModerationEvent struct {
 	Metadata    map[string]any `json:"metadata,omitempty"`
 }
 
-// Moderation event types
+// Moderation event types.
 const (
 	ModerationEventBan      = "ban"
 	ModerationEventUnban    = "unban"

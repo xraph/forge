@@ -127,7 +127,7 @@ func (sv *SecurityValidator) ValidateMetadata(metadata map[string]any) error {
 	for key := range metadata {
 		for _, suspicious := range suspiciousKeys {
 			if strings.Contains(strings.ToLower(key), suspicious) {
-				return NewValidationError("metadata", fmt.Sprintf("suspicious metadata key: %s", key), "SECURITY_METADATA")
+				return NewValidationError("metadata", "suspicious metadata key: "+key, "SECURITY_METADATA")
 			}
 		}
 	}
@@ -143,27 +143,30 @@ func (sv *SecurityValidator) checkLinkSafety(text string) error {
 	for _, urlStr := range urls {
 		parsedURL, err := url.Parse(urlStr)
 		if err != nil {
-			return NewValidationError("content", fmt.Sprintf("invalid URL: %s", urlStr), "SECURITY_INVALID_URL")
+			return NewValidationError("content", "invalid URL: "+urlStr, "SECURITY_INVALID_URL")
 		}
 
 		// Check protocol
 		if len(sv.config.AllowedProtocols) > 0 {
 			allowed := false
+
 			for _, protocol := range sv.config.AllowedProtocols {
 				if parsedURL.Scheme == protocol {
 					allowed = true
+
 					break
 				}
 			}
+
 			if !allowed {
-				return NewValidationError("content", fmt.Sprintf("disallowed protocol: %s", parsedURL.Scheme), "SECURITY_PROTOCOL")
+				return NewValidationError("content", "disallowed protocol: "+parsedURL.Scheme, "SECURITY_PROTOCOL")
 			}
 		}
 
 		// Check blocked domains
 		for _, blocked := range sv.config.BlockedDomains {
 			if strings.Contains(parsedURL.Host, blocked) {
-				return NewValidationError("content", fmt.Sprintf("blocked domain: %s", parsedURL.Host), "SECURITY_BLOCKED_DOMAIN")
+				return NewValidationError("content", "blocked domain: "+parsedURL.Host, "SECURITY_BLOCKED_DOMAIN")
 			}
 		}
 	}

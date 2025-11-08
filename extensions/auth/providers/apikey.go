@@ -43,32 +43,32 @@ func NewAPIKeyProvider(name string, opts ...APIKeyOption) auth.AuthProvider {
 
 type APIKeyOption func(*APIKeyProvider)
 
-// WithAPIKeyHeader sets the header name to look for the API key
+// WithAPIKeyHeader sets the header name to look for the API key.
 func WithAPIKeyHeader(name string) APIKeyOption {
 	return func(p *APIKeyProvider) { p.headerName = name }
 }
 
-// WithAPIKeyQuery sets the query parameter name to look for the API key
+// WithAPIKeyQuery sets the query parameter name to look for the API key.
 func WithAPIKeyQuery(param string) APIKeyOption {
 	return func(p *APIKeyProvider) { p.queryParam = param }
 }
 
-// WithAPIKeyCookie sets the cookie name to look for the API key
+// WithAPIKeyCookie sets the cookie name to look for the API key.
 func WithAPIKeyCookie(name string) APIKeyOption {
 	return func(p *APIKeyProvider) { p.cookieName = name }
 }
 
-// WithAPIKeyValidator sets the validator function
+// WithAPIKeyValidator sets the validator function.
 func WithAPIKeyValidator(validator APIKeyValidator) APIKeyOption {
 	return func(p *APIKeyProvider) { p.validator = validator }
 }
 
-// WithAPIKeyDescription sets the OpenAPI description
+// WithAPIKeyDescription sets the OpenAPI description.
 func WithAPIKeyDescription(desc string) APIKeyOption {
 	return func(p *APIKeyProvider) { p.description = desc }
 }
 
-// WithAPIKeyContainer sets the DI container (for accessing services)
+// WithAPIKeyContainer sets the DI container (for accessing services).
 func WithAPIKeyContainer(container forge.Container) APIKeyOption {
 	return func(p *APIKeyProvider) { p.container = container }
 }
@@ -88,9 +88,11 @@ func (p *APIKeyProvider) Authenticate(ctx context.Context, r *http.Request) (*au
 	if p.headerName != "" {
 		apiKey = r.Header.Get(p.headerName)
 	}
+
 	if apiKey == "" && p.queryParam != "" {
 		apiKey = r.URL.Query().Get(p.queryParam)
 	}
+
 	if apiKey == "" && p.cookieName != "" {
 		if cookie, err := r.Cookie(p.cookieName); err == nil {
 			apiKey = cookie.Value
@@ -139,6 +141,7 @@ func (p *APIKeyProvider) Middleware() forge.Middleware {
 			}
 
 			ctx.Set("auth_context", authCtx)
+
 			return next(ctx)
 		}
 	}

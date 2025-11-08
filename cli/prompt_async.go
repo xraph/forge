@@ -7,11 +7,11 @@ import (
 	"time"
 )
 
-// OptionsLoader is a function that loads options asynchronously
+// OptionsLoader is a function that loads options asynchronously.
 type OptionsLoader func(ctx context.Context) ([]string, error)
 
 // SelectAsync prompts for selection with async-loaded options
-// Shows a spinner while loading options
+// Shows a spinner while loading options.
 func SelectAsync(ctx context.Context, question string, loader OptionsLoader) (string, error) {
 	// Start spinner
 	spinner := newSpinner("Loading options...", os.Stdout)
@@ -23,6 +23,7 @@ func SelectAsync(ctx context.Context, question string, loader OptionsLoader) (st
 	}
 
 	resultCh := make(chan result, 1)
+
 	go func() {
 		opts, err := loader(ctx)
 		resultCh <- result{options: opts, err: err}
@@ -30,16 +31,21 @@ func SelectAsync(ctx context.Context, question string, loader OptionsLoader) (st
 
 	// Wait for options or context cancellation
 	var options []string
+
 	select {
 	case <-ctx.Done():
 		spinner.Stop(Red("✗ Cancelled"))
+
 		return "", ctx.Err()
 	case res := <-resultCh:
 		if res.err != nil {
 			spinner.Stop(Red("✗ Failed to load options"))
+
 			return "", fmt.Errorf("failed to load options: %w", res.err)
 		}
+
 		options = res.options
+
 		spinner.Stop(Green("✓ Options loaded"))
 	}
 
@@ -51,7 +57,7 @@ func SelectAsync(ctx context.Context, question string, loader OptionsLoader) (st
 }
 
 // MultiSelectAsync prompts for multiple selections with async-loaded options
-// Shows a spinner while loading options
+// Shows a spinner while loading options.
 func MultiSelectAsync(ctx context.Context, question string, loader OptionsLoader) ([]string, error) {
 	// Start spinner
 	spinner := newSpinner("Loading options...", os.Stdout)
@@ -63,6 +69,7 @@ func MultiSelectAsync(ctx context.Context, question string, loader OptionsLoader
 	}
 
 	resultCh := make(chan result, 1)
+
 	go func() {
 		opts, err := loader(ctx)
 		resultCh <- result{options: opts, err: err}
@@ -70,16 +77,21 @@ func MultiSelectAsync(ctx context.Context, question string, loader OptionsLoader
 
 	// Wait for options or context cancellation
 	var options []string
+
 	select {
 	case <-ctx.Done():
 		spinner.Stop(Red("✗ Cancelled"))
+
 		return nil, ctx.Err()
 	case res := <-resultCh:
 		if res.err != nil {
 			spinner.Stop(Red("✗ Failed to load options"))
+
 			return nil, fmt.Errorf("failed to load options: %w", res.err)
 		}
+
 		options = res.options
+
 		spinner.Stop(Green("✓ Options loaded"))
 	}
 
@@ -91,7 +103,7 @@ func MultiSelectAsync(ctx context.Context, question string, loader OptionsLoader
 }
 
 // SelectWithRetry prompts for selection with retry on failure
-// Useful for loading from flaky sources
+// Useful for loading from flaky sources.
 func SelectWithRetry(ctx context.Context, question string, loader OptionsLoader, maxRetries int) (string, error) {
 	var lastErr error
 
@@ -102,10 +114,12 @@ func SelectWithRetry(ctx context.Context, question string, loader OptionsLoader,
 		if err == nil {
 			spinner.Stop(Green("✓ Options loaded"))
 			time.Sleep(300 * time.Millisecond)
+
 			return selectPrompt(question, options)
 		}
 
 		lastErr = err
+
 		spinner.Stop(Yellow(fmt.Sprintf("⚠ Attempt %d failed, retrying...", attempt)))
 
 		if attempt < maxRetries {
@@ -116,7 +130,7 @@ func SelectWithRetry(ctx context.Context, question string, loader OptionsLoader,
 	return "", fmt.Errorf("failed to load options after %d attempts: %w", maxRetries, lastErr)
 }
 
-// MultiSelectWithRetry prompts for multiple selections with retry on failure
+// MultiSelectWithRetry prompts for multiple selections with retry on failure.
 func MultiSelectWithRetry(ctx context.Context, question string, loader OptionsLoader, maxRetries int) ([]string, error) {
 	var lastErr error
 
@@ -127,10 +141,12 @@ func MultiSelectWithRetry(ctx context.Context, question string, loader OptionsLo
 		if err == nil {
 			spinner.Stop(Green("✓ Options loaded"))
 			time.Sleep(300 * time.Millisecond)
+
 			return multiSelectPrompt(question, options)
 		}
 
 		lastErr = err
+
 		spinner.Stop(Yellow(fmt.Sprintf("⚠ Attempt %d failed, retrying...", attempt)))
 
 		if attempt < maxRetries {
@@ -142,12 +158,13 @@ func MultiSelectWithRetry(ctx context.Context, question string, loader OptionsLo
 }
 
 // SelectWithProgress prompts for selection with progress feedback
-// Useful when loading takes multiple steps
+// Useful when loading takes multiple steps.
 type ProgressLoader func(ctx context.Context, progress func(current, total int, message string)) ([]string, error)
 
-// SelectWithProgressFeedback prompts with detailed progress feedback
+// SelectWithProgressFeedback prompts with detailed progress feedback.
 func SelectWithProgressFeedback(ctx context.Context, question string, loader ProgressLoader) (string, error) {
 	var currentMsg string
+
 	spinner := newSpinner("Starting...", os.Stdout)
 
 	updateProgress := func(current, total int, message string) {
@@ -158,6 +175,7 @@ func SelectWithProgressFeedback(ctx context.Context, question string, loader Pro
 	options, err := loader(ctx, updateProgress)
 	if err != nil {
 		spinner.Stop(Red("✗ Failed: " + err.Error()))
+
 		return "", err
 	}
 
@@ -167,9 +185,10 @@ func SelectWithProgressFeedback(ctx context.Context, question string, loader Pro
 	return selectPrompt(question, options)
 }
 
-// MultiSelectWithProgressFeedback prompts for multiple selections with progress feedback
+// MultiSelectWithProgressFeedback prompts for multiple selections with progress feedback.
 func MultiSelectWithProgressFeedback(ctx context.Context, question string, loader ProgressLoader) ([]string, error) {
 	var currentMsg string
+
 	spinner := newSpinner("Starting...", os.Stdout)
 
 	updateProgress := func(current, total int, message string) {
@@ -180,6 +199,7 @@ func MultiSelectWithProgressFeedback(ctx context.Context, question string, loade
 	options, err := loader(ctx, updateProgress)
 	if err != nil {
 		spinner.Stop(Red("✗ Failed: " + err.Error()))
+
 		return nil, err
 	}
 

@@ -15,11 +15,11 @@ import (
 type mockConfigSource struct {
 	name     string
 	priority int
-	loadData map[string]interface{}
+	loadData map[string]any
 	loadErr  error
 }
 
-func newMockSource(name string, data map[string]interface{}) *mockConfigSource {
+func newMockSource(name string, data map[string]any) *mockConfigSource {
 	return &mockConfigSource{
 		name:     name,
 		priority: 1,
@@ -31,22 +31,25 @@ func (m *mockConfigSource) Name() string      { return m.name }
 func (m *mockConfigSource) GetName() string   { return m.name }
 func (m *mockConfigSource) Priority() int     { return m.priority }
 func (m *mockConfigSource) IsWatchable() bool { return false }
-func (m *mockConfigSource) Get(key string) (interface{}, bool) {
+func (m *mockConfigSource) Get(key string) (any, bool) {
 	if m.loadData == nil {
 		return nil, false
 	}
+
 	val, ok := m.loadData[key]
+
 	return val, ok
 }
 
-func (m *mockConfigSource) Load(ctx context.Context) (map[string]interface{}, error) {
+func (m *mockConfigSource) Load(ctx context.Context) (map[string]any, error) {
 	if m.loadErr != nil {
 		return nil, m.loadErr
 	}
+
 	return m.loadData, nil
 }
 
-func (m *mockConfigSource) Watch(ctx context.Context, callback func(map[string]interface{})) error {
+func (m *mockConfigSource) Watch(ctx context.Context, callback func(map[string]any)) error {
 	return nil
 }
 
@@ -143,7 +146,7 @@ func TestNewLoader(t *testing.T) {
 func TestLoader_LoadSource(t *testing.T) {
 	loader := NewLoader(LoaderConfig{})
 
-	source := newMockSource("test", map[string]interface{}{
+	source := newMockSource("test", map[string]any{
 		"key1": "value1",
 		"key2": 42,
 		"key3": true,
@@ -165,7 +168,6 @@ func TestLoader_LoadSource(t *testing.T) {
 			t.Errorf("key1 = %v, want value1", result["key1"])
 		}
 	})
-
 }
 
 // Tests below use obsolete API (RegisterSource, LoadFrom, LoadWithOptions)
@@ -220,7 +222,6 @@ func TestLoader_Merge(t *testing.T) {
 				"nested": map[string]interface{}{
 					"a": "from_source1",
 				},
-			},
 		})
 
 		nestedSource2 := newMockSource("nested2", map[string]interface{}{
@@ -229,7 +230,6 @@ func TestLoader_Merge(t *testing.T) {
 				"nested": map[string]interface{}{
 					"b": "from_source2",
 				},
-			},
 		})
 
 		deepLoader := NewLoader(LoaderConfig{})
@@ -250,7 +250,6 @@ func TestLoader_Merge(t *testing.T) {
 			if config["key1"] == nil || config["key2"] == nil {
 				t.Error("Deep merge should preserve both nested keys")
 			}
-		}
 	})
 }
 
@@ -326,7 +325,7 @@ func TestLoader_Retry(t *testing.T) {
 
 	// Make source fail first few times
 	originalLoad := source.Load
-	source.Load = func(ctx context.Context) (map[string]interface{}, error) {
+	= func(ctx context.Context) (map[string]interface{}, error) {
 		attemptCount++
 		if attemptCount < 3 {
 			return nil, configcore.ErrConfigError("temporary error", nil)
@@ -346,7 +345,6 @@ func TestLoader_Retry(t *testing.T) {
 			if attemptCount < 2 {
 				t.Error("Expected multiple attempts due to retry")
 			}
-		}
 	})
 }
 
@@ -379,7 +377,6 @@ func TestLoader_EnvExpansion(t *testing.T) {
 	if config.ExpandEnv && result.Data["key"] != "expanded_value" {
 		t.Logf("key = %v, expected env expansion", result.Data["key"])
 	}
-}
 
 // =============================================================================
 // LOADER SECRET EXPANSION TESTS
@@ -419,7 +416,6 @@ func TestLoader_Transformers(t *testing.T) {
 			if str, ok := value.(string); ok {
 				data[key] = str + "_TRANSFORMED"
 			}
-		}
 		return data, nil
 	}
 
@@ -441,7 +437,6 @@ func TestLoader_Transformers(t *testing.T) {
 	if result.Data["key"] != "value_TRANSFORMED" {
 		t.Errorf("key = %v, want value_TRANSFORMED", result.Data["key"])
 	}
-}
 
 // =============================================================================
 // LOADER FORMAT PROCESSOR TESTS
@@ -507,7 +502,6 @@ func TestLoader_GetAllSources(t *testing.T) {
 	if len(sources) != 2 {
 		t.Errorf("GetAllSources() returned %d sources, want 2", len(sources))
 	}
-}
 
 func TestLoader_HasSource(t *testing.T) {
 	loader := NewLoader(LoaderConfig{})
@@ -522,7 +516,6 @@ func TestLoader_HasSource(t *testing.T) {
 	if loader.HasSource("nonexistent") {
 		t.Error("HasSource() should return false for non-existent source")
 	}
-}
 
 // =============================================================================
 // LOADER VALIDATION TESTS
@@ -540,7 +533,6 @@ func TestLoader_Validate(t *testing.T) {
 	if err != nil {
 		t.Errorf("Validate() error = %v, want nil", err)
 	}
-}
 
 // =============================================================================
 // LOADER LIFECYCLE TESTS
@@ -560,7 +552,6 @@ func TestLoader_Start_Stop(t *testing.T) {
 	if err != nil {
 		t.Errorf("Stop() error = %v, want nil", err)
 	}
-}
 
 // =============================================================================
 // LOADER EDGE CASES
@@ -672,7 +663,6 @@ func TestLoader_SourcePriority(t *testing.T) {
 	if result.Data["key2"] != "value2" {
 		t.Errorf("key2 = %v, want value2", result.Data["key2"])
 	}
-}
 
 // =============================================================================
 // LOADER CONTEXT CANCELLATION TESTS
@@ -693,7 +683,6 @@ func TestLoader_ContextCancellation(t *testing.T) {
 	if err != nil && err != context.Canceled {
 		t.Errorf("Load() error = %v", err)
 	}
-}
 
 // =============================================================================
 // LOADER CONCURRENCY TESTS
@@ -730,8 +719,6 @@ func TestLoader_Concurrency(t *testing.T) {
 		case <-timeout:
 			t.Fatal("Timeout waiting for concurrent operations")
 		}
-	}
-}
 
 // =============================================================================
 // LOADER RESULT TESTS
@@ -817,19 +804,16 @@ func TestLoader_ComplexMerge(t *testing.T) {
 	if db, ok := result.Data["database"].(map[string]interface{}); ok {
 		if db["host"] == nil || db["port"] == nil || db["user"] == nil {
 			t.Error("Deep merge should preserve all nested keys")
-		}
-	} else {
+		} else {
 		t.Error("database is not a map")
 	}
 
 	if app, ok := result.Data["app"].(map[string]interface{}); ok {
 		if app["name"] == nil || app["version"] == nil {
 			t.Error("Deep merge should preserve all app keys")
-		}
-	} else {
+		} else {
 		t.Error("app is not a map")
 	}
-}
 
 func TestLoader_MultipleTransformers(t *testing.T) {
 	loader := NewLoader(LoaderConfig{})
@@ -840,7 +824,6 @@ func TestLoader_MultipleTransformers(t *testing.T) {
 			if str, ok := value.(string); ok {
 				data[key] = "prefix_" + str
 			}
-		}
 		return data, nil
 	}
 
@@ -850,7 +833,6 @@ func TestLoader_MultipleTransformers(t *testing.T) {
 			if str, ok := value.(string); ok {
 				data[key] = str + "_suffix"
 			}
-		}
 		return data, nil
 	}
 
@@ -874,5 +856,4 @@ func TestLoader_MultipleTransformers(t *testing.T) {
 	if result.Data["key"] != "prefix_value_suffix" {
 		t.Errorf("key = %v, want prefix_value_suffix", result.Data["key"])
 	}
-}
 */

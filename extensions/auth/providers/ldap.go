@@ -11,50 +11,51 @@ import (
 	"github.com/go-ldap/ldap/v3"
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/auth"
+	"github.com/xraph/forge/internal/errors"
 )
 
-// LDAPConfig holds LDAP/Active Directory configuration
+// LDAPConfig holds LDAP/Active Directory configuration.
 type LDAPConfig struct {
 	// Connection settings
-	Host string `yaml:"host" json:"host"`
-	Port int    `yaml:"port" json:"port"`
+	Host string `json:"host" yaml:"host"`
+	Port int    `json:"port" yaml:"port"`
 
 	// Bind credentials (service account)
-	BindDN       string `yaml:"bind_dn" json:"bind_dn"`
-	BindPassword string `yaml:"bind_password" json:"bind_password"`
+	BindDN       string `json:"bind_dn"       yaml:"bind_dn"`
+	BindPassword string `json:"bind_password" yaml:"bind_password"`
 
 	// Search settings
-	BaseDN       string   `yaml:"base_dn" json:"base_dn"`
-	SearchFilter string   `yaml:"search_filter" json:"search_filter"` // e.g., "(uid=%s)" or "(sAMAccountName=%s)"
-	Attributes   []string `yaml:"attributes" json:"attributes"`       // Attributes to fetch
+	BaseDN       string   `json:"base_dn"       yaml:"base_dn"`
+	SearchFilter string   `json:"search_filter" yaml:"search_filter"` // e.g., "(uid=%s)" or "(sAMAccountName=%s)"
+	Attributes   []string `json:"attributes"    yaml:"attributes"`    // Attributes to fetch
 
 	// TLS settings
-	UseTLS             bool `yaml:"use_tls" json:"use_tls"`
-	InsecureSkipVerify bool `yaml:"insecure_skip_verify" json:"insecure_skip_verify"`
+	UseTLS             bool `json:"use_tls"              yaml:"use_tls"`
+	InsecureSkipVerify bool `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
 
 	// Connection pool
-	PoolSize          int           `yaml:"pool_size" json:"pool_size"`
-	ConnectionTimeout time.Duration `yaml:"connection_timeout" json:"connection_timeout"`
-	RequestTimeout    time.Duration `yaml:"request_timeout" json:"request_timeout"`
-	IdleTimeout       time.Duration `yaml:"idle_timeout" json:"idle_timeout"`
-	MaxRetries        int           `yaml:"max_retries" json:"max_retries"`
-	RetryDelay        time.Duration `yaml:"retry_delay" json:"retry_delay"`
+	PoolSize          int           `json:"pool_size"          yaml:"pool_size"`
+	ConnectionTimeout time.Duration `json:"connection_timeout" yaml:"connection_timeout"`
+	RequestTimeout    time.Duration `json:"request_timeout"    yaml:"request_timeout"`
+	IdleTimeout       time.Duration `json:"idle_timeout"       yaml:"idle_timeout"`
+	MaxRetries        int           `json:"max_retries"        yaml:"max_retries"`
+	RetryDelay        time.Duration `json:"retry_delay"        yaml:"retry_delay"`
 
 	// Cache settings
-	EnableCache bool          `yaml:"enable_cache" json:"enable_cache"`
-	CacheTTL    time.Duration `yaml:"cache_ttl" json:"cache_ttl"`
+	EnableCache bool          `json:"enable_cache" yaml:"enable_cache"`
+	CacheTTL    time.Duration `json:"cache_ttl"    yaml:"cache_ttl"`
 
 	// Group mapping
-	GroupBaseDN string            `yaml:"group_base_dn" json:"group_base_dn"` // e.g., "ou=groups,dc=company,dc=com"
-	GroupFilter string            `yaml:"group_filter" json:"group_filter"`   // e.g., "(member=%s)"
-	RoleMapping map[string]string `yaml:"role_mapping" json:"role_mapping"`   // LDAP group DN -> app role
+	GroupBaseDN string            `json:"group_base_dn" yaml:"group_base_dn"` // e.g., "ou=groups,dc=company,dc=com"
+	GroupFilter string            `json:"group_filter"  yaml:"group_filter"`  // e.g., "(member=%s)"
+	RoleMapping map[string]string `json:"role_mapping"  yaml:"role_mapping"`  // LDAP group DN -> app role
 
 	// Advanced
-	EnableReferrals bool `yaml:"enable_referrals" json:"enable_referrals"` // Handle AD referrals
-	PageSize        int  `yaml:"page_size" json:"page_size"`               // Paging for large result sets
+	EnableReferrals bool `json:"enable_referrals" yaml:"enable_referrals"` // Handle AD referrals
+	PageSize        int  `json:"page_size"        yaml:"page_size"`        // Paging for large result sets
 }
 
-// DefaultLDAPConfig returns default LDAP configuration
+// DefaultLDAPConfig returns default LDAP configuration.
 func DefaultLDAPConfig() LDAPConfig {
 	return LDAPConfig{
 		Port:               389,
@@ -76,7 +77,7 @@ func DefaultLDAPConfig() LDAPConfig {
 	}
 }
 
-// LDAPProvider implements LDAP/Active Directory authentication
+// LDAPProvider implements LDAP/Active Directory authentication.
 type LDAPProvider struct {
 	config   LDAPConfig
 	connPool *ldapConnPool
@@ -95,7 +96,7 @@ type ldapConnPool struct {
 	closed  bool
 }
 
-// ldapCache caches authentication results
+// ldapCache caches authentication results.
 type ldapCache struct {
 	entries map[string]*cacheEntry
 	mu      sync.RWMutex
@@ -107,28 +108,33 @@ type cacheEntry struct {
 	expiresAt time.Time
 }
 
-// NewLDAPProvider creates a new LDAP authentication provider
+// NewLDAPProvider creates a new LDAP authentication provider.
 func NewLDAPProvider(config LDAPConfig, logger forge.Logger) (*LDAPProvider, error) {
 	if config.Host == "" {
-		return nil, fmt.Errorf("ldap host is required")
+		return nil, errors.New("ldap host is required")
 	}
+
 	if config.BaseDN == "" {
-		return nil, fmt.Errorf("ldap base_dn is required")
+		return nil, errors.New("ldap base_dn is required")
 	}
+
 	if config.BindDN == "" {
-		return nil, fmt.Errorf("ldap bind_dn is required")
+		return nil, errors.New("ldap bind_dn is required")
 	}
 
 	// Apply defaults
 	if config.PoolSize == 0 {
 		config.PoolSize = 10
 	}
+
 	if config.ConnectionTimeout == 0 {
 		config.ConnectionTimeout = 10 * time.Second
 	}
+
 	if config.RequestTimeout == 0 {
 		config.RequestTimeout = 30 * time.Second
 	}
+
 	if config.CacheTTL == 0 {
 		config.CacheTTL = 5 * time.Minute
 	}
@@ -145,15 +151,17 @@ func NewLDAPProvider(config LDAPConfig, logger forge.Logger) (*LDAPProvider, err
 	}
 
 	// Pre-populate pool
-	for i := 0; i < config.PoolSize; i++ {
+	for i := range config.PoolSize {
 		conn, err := pool.factory()
 		if err != nil {
 			logger.Warn("failed to pre-populate connection pool",
 				forge.F("error", err),
 				forge.F("attempt", i+1),
 			)
+
 			continue
 		}
+
 		pool.conns <- conn
 	}
 
@@ -185,28 +193,29 @@ func NewLDAPProvider(config LDAPConfig, logger forge.Logger) (*LDAPProvider, err
 	return provider, nil
 }
 
-// Name returns the provider name
+// Name returns the provider name.
 func (p *LDAPProvider) Name() string {
 	return "ldap"
 }
 
-// Type returns the security scheme type
+// Type returns the security scheme type.
 func (p *LDAPProvider) Type() auth.SecuritySchemeType {
 	return auth.SecurityTypeHTTP
 }
 
-// Authenticate authenticates a user against LDAP/AD
+// Authenticate authenticates a user against LDAP/AD.
 func (p *LDAPProvider) Authenticate(ctx context.Context, r *http.Request) (*auth.AuthContext, error) {
 	// Extract Basic Auth credentials
 	username, password, ok := r.BasicAuth()
 	if !ok || username == "" || password == "" {
-		return nil, fmt.Errorf("missing or invalid basic auth credentials")
+		return nil, errors.New("missing or invalid basic auth credentials")
 	}
 
 	// Check cache first (if enabled)
 	if p.config.EnableCache && p.cache != nil {
 		if authCtx := p.cache.get(username, password); authCtx != nil {
 			p.logger.Debug("ldap auth cache hit", forge.F("username", username))
+
 			return authCtx, nil
 		}
 	}
@@ -218,6 +227,7 @@ func (p *LDAPProvider) Authenticate(ctx context.Context, r *http.Request) (*auth
 			forge.F("username", username),
 			forge.F("error", err),
 		)
+
 		return nil, err
 	}
 
@@ -234,7 +244,7 @@ func (p *LDAPProvider) Authenticate(ctx context.Context, r *http.Request) (*auth
 	return authCtx, nil
 }
 
-// authenticateLDAP performs the actual LDAP authentication
+// authenticateLDAP performs the actual LDAP authentication.
 func (p *LDAPProvider) authenticateLDAP(ctx context.Context, username, password string) (*auth.AuthContext, error) {
 	// Get connection from pool with timeout
 	conn, err := p.connPool.getConn(ctx)
@@ -282,7 +292,8 @@ func (p *LDAPProvider) authenticateLDAP(ctx context.Context, username, password 
 	}
 
 	// Extract user attributes
-	claims := make(map[string]interface{})
+	claims := make(map[string]any)
+
 	for _, attr := range p.config.Attributes {
 		value := userEntry.GetAttributeValue(attr)
 		if value != "" {
@@ -297,6 +308,7 @@ func (p *LDAPProvider) authenticateLDAP(ctx context.Context, username, password 
 			forge.F("username", username),
 			forge.F("error", err),
 		)
+
 		groups = []string{}
 	}
 
@@ -308,7 +320,7 @@ func (p *LDAPProvider) authenticateLDAP(ctx context.Context, username, password 
 		Claims:       claims,
 		Scopes:       roles,
 		ProviderName: "ldap",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"dn":     userDN,
 			"groups": groups,
 		},
@@ -317,7 +329,7 @@ func (p *LDAPProvider) authenticateLDAP(ctx context.Context, username, password 
 	return authCtx, nil
 }
 
-// fetchGroups fetches group memberships for a user
+// fetchGroups fetches group memberships for a user.
 func (p *LDAPProvider) fetchGroups(ctx context.Context, conn *ldap.Conn, userDN string) ([]string, error) {
 	if p.config.GroupBaseDN == "" {
 		return []string{}, nil
@@ -353,7 +365,7 @@ func (p *LDAPProvider) fetchGroups(ctx context.Context, conn *ldap.Conn, userDN 
 	return groups, nil
 }
 
-// mapGroupsToRoles maps LDAP group DNs to application roles
+// mapGroupsToRoles maps LDAP group DNs to application roles.
 func (p *LDAPProvider) mapGroupsToRoles(groups []string) []string {
 	if len(p.config.RoleMapping) == 0 {
 		return groups
@@ -369,7 +381,7 @@ func (p *LDAPProvider) mapGroupsToRoles(groups []string) []string {
 	return roles
 }
 
-// OpenAPIScheme returns the OpenAPI security scheme
+// OpenAPIScheme returns the OpenAPI security scheme.
 func (p *LDAPProvider) OpenAPIScheme() auth.SecurityScheme {
 	return auth.SecurityScheme{
 		Type:        string(auth.SecurityTypeHTTP),
@@ -378,7 +390,7 @@ func (p *LDAPProvider) OpenAPIScheme() auth.SecurityScheme {
 	}
 }
 
-// Middleware returns the authentication middleware
+// Middleware returns the authentication middleware.
 func (p *LDAPProvider) Middleware() forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {
@@ -388,17 +400,19 @@ func (p *LDAPProvider) Middleware() forge.Middleware {
 					forge.F("path", ctx.Request().URL.Path),
 					forge.F("error", err),
 				)
+
 				return ctx.String(http.StatusUnauthorized, "Unauthorized")
 			}
 
 			// Store auth context in forge context
 			ctx.Set("auth_context", authCtx)
+
 			return next(ctx)
 		}
 	}
 }
 
-// Close closes the LDAP connection pool
+// Close closes the LDAP connection pool.
 func (p *LDAPProvider) Close() error {
 	return p.connPool.close()
 }
@@ -408,11 +422,14 @@ func (p *LDAPProvider) Close() error {
 func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 	addr := fmt.Sprintf("%s:%d", pool.config.Host, pool.config.Port)
 
-	var conn *ldap.Conn
-	var err error
+	var (
+		conn *ldap.Conn
+		err  error
+	)
 
 	// Retry with exponential backoff
-	for attempt := 0; attempt < pool.config.MaxRetries; attempt++ {
+
+	for attempt := range pool.config.MaxRetries {
 		if attempt > 0 {
 			time.Sleep(pool.config.RetryDelay * time.Duration(1<<uint(attempt-1)))
 		}
@@ -422,7 +439,9 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 			conn *ldap.Conn
 			err  error
 		}
+
 		resultCh := make(chan result, 1)
+
 		go func() {
 			c, e := ldap.Dial("tcp", addr)
 			resultCh <- result{conn: c, err: e}
@@ -458,6 +477,7 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 
 		if err := conn.StartTLS(tlsConfig); err != nil {
 			conn.Close()
+
 			return nil, fmt.Errorf("failed to start tls: %w", err)
 		}
 	}
@@ -470,10 +490,13 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 
 func (pool *ldapConnPool) getConn(ctx context.Context) (*ldap.Conn, error) {
 	pool.mu.Lock()
+
 	if pool.closed {
 		pool.mu.Unlock()
-		return nil, fmt.Errorf("connection pool is closed")
+
+		return nil, errors.New("connection pool is closed")
 	}
+
 	pool.mu.Unlock()
 
 	select {
@@ -481,8 +504,10 @@ func (pool *ldapConnPool) getConn(ctx context.Context) (*ldap.Conn, error) {
 		// Test connection health
 		if err := pool.healthCheck(conn); err != nil {
 			conn.Close()
+
 			return pool.createConnection()
 		}
+
 		return conn, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -494,11 +519,14 @@ func (pool *ldapConnPool) getConn(ctx context.Context) (*ldap.Conn, error) {
 
 func (pool *ldapConnPool) putConn(conn *ldap.Conn) {
 	pool.mu.Lock()
+
 	if pool.closed {
 		pool.mu.Unlock()
 		conn.Close()
+
 		return
 	}
+
 	pool.mu.Unlock()
 
 	select {
@@ -545,6 +573,7 @@ func (c *ldapCache) get(username, password string) *auth.AuthContext {
 	defer c.mu.RUnlock()
 
 	key := c.cacheKey(username, password)
+
 	entry, ok := c.entries[key]
 	if !ok {
 		return nil
@@ -583,12 +612,14 @@ func (c *ldapCache) cleanup() {
 
 	for range ticker.C {
 		c.mu.Lock()
+
 		now := time.Now()
 		for key, entry := range c.entries {
 			if now.After(entry.expiresAt) {
 				delete(c.entries, key)
 			}
 		}
+
 		c.mu.Unlock()
 	}
 }

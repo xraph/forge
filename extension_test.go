@@ -6,13 +6,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	metrics2 "github.com/xraph/forge/internal/metrics"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
+	metrics2 "github.com/xraph/forge/internal/metrics"
 )
 
-// Mock extension for testing
+// Mock extension for testing.
 type mockExtension struct {
 	*BaseExtension
+
 	registerCalled bool
 	startCalled    bool
 	stopCalled     bool
@@ -22,8 +24,9 @@ type mockExtension struct {
 }
 
 func newMockExtension(name, version string, deps ...string) *mockExtension {
-	base := NewBaseExtension(name, version, fmt.Sprintf("Mock extension %s", name))
+	base := NewBaseExtension(name, version, "Mock extension "+name)
 	base.SetDependencies(deps)
+
 	return &mockExtension{
 		BaseExtension: base,
 	}
@@ -31,6 +34,7 @@ func newMockExtension(name, version string, deps ...string) *mockExtension {
 
 func (e *mockExtension) Register(app App) error {
 	e.registerCalled = true
+
 	return e.BaseExtension.Register(app)
 }
 
@@ -38,8 +42,10 @@ func (e *mockExtension) Start(ctx context.Context) error {
 	if e.startError != nil {
 		return e.startError
 	}
+
 	e.startCalled = true
 	e.MarkStarted()
+
 	return nil
 }
 
@@ -47,8 +53,10 @@ func (e *mockExtension) Stop(ctx context.Context) error {
 	if e.stopError != nil {
 		return e.stopError
 	}
+
 	e.stopCalled = true
 	e.MarkStopped()
+
 	return nil
 }
 
@@ -56,7 +64,7 @@ func (e *mockExtension) Health(ctx context.Context) error {
 	return e.healthError
 }
 
-// Test BaseExtension
+// Test BaseExtension.
 func TestBaseExtension(t *testing.T) {
 	t.Run("BasicProperties", func(t *testing.T) {
 		ext := NewBaseExtension("test", "1.0.0", "Test extension")
@@ -133,7 +141,7 @@ func TestBaseExtension(t *testing.T) {
 	})
 }
 
-// Test Extension registration with App
+// Test Extension registration with App.
 func TestAppRegisterExtension(t *testing.T) {
 	t.Run("RegisterSingleExtension", func(t *testing.T) {
 		config := DefaultAppConfig()
@@ -198,7 +206,7 @@ func TestAppRegisterExtension(t *testing.T) {
 	})
 }
 
-// Test Extension retrieval
+// Test Extension retrieval.
 func TestAppGetExtension(t *testing.T) {
 	t.Run("GetExistingExtension", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
@@ -225,7 +233,7 @@ func TestAppGetExtension(t *testing.T) {
 	})
 }
 
-// Test Extension lifecycle
+// Test Extension lifecycle.
 func TestExtensionLifecycle(t *testing.T) {
 	t.Run("StartCallsRegisterAndStart", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
@@ -267,7 +275,7 @@ func TestExtensionLifecycle(t *testing.T) {
 
 	t.Run("StartErrorPropagates", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
-		ext.startError = fmt.Errorf("start failed")
+		ext.startError = errors.New("start failed")
 		config := DefaultAppConfig()
 		config.Logger = logger.NewTestLogger()
 
@@ -284,7 +292,7 @@ func TestExtensionLifecycle(t *testing.T) {
 
 	t.Run("StopErrorDoesNotPropagate", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
-		ext.stopError = fmt.Errorf("stop failed")
+		ext.stopError = errors.New("stop failed")
 		config := DefaultAppConfig()
 		config.Logger = logger.NewTestLogger()
 
@@ -301,7 +309,7 @@ func TestExtensionLifecycle(t *testing.T) {
 	})
 }
 
-// Test Extension dependencies
+// Test Extension dependencies.
 func TestExtensionDependencies(t *testing.T) {
 	t.Run("StartInDependencyOrder", func(t *testing.T) {
 		ext1 := newMockExtension("ext1", "1.0.0")
@@ -391,7 +399,7 @@ func TestExtensionDependencies(t *testing.T) {
 	})
 }
 
-// Test Extension health checks
+// Test Extension health checks.
 func TestExtensionHealthChecks(t *testing.T) {
 	t.Run("HealthCheckRegistered", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
@@ -418,7 +426,7 @@ func TestExtensionHealthChecks(t *testing.T) {
 
 	t.Run("UnhealthyExtension", func(t *testing.T) {
 		ext := newMockExtension("test", "1.0.0")
-		ext.healthError = fmt.Errorf("extension unhealthy")
+		ext.healthError = errors.New("extension unhealthy")
 		config := DefaultAppConfig()
 		config.Logger = logger.NewTestLogger()
 
@@ -441,7 +449,7 @@ func TestExtensionHealthChecks(t *testing.T) {
 	})
 }
 
-// Test Extension info endpoint
+// Test Extension info endpoint.
 func TestExtensionInfoEndpoint(t *testing.T) {
 	t.Run("InfoIncludesExtensions", func(t *testing.T) {
 		ext1 := newMockExtension("ext1", "1.0.0")
@@ -475,7 +483,7 @@ func TestExtensionInfoEndpoint(t *testing.T) {
 	})
 }
 
-// Test Extension thread safety
+// Test Extension thread safety.
 func TestExtensionThreadSafety(t *testing.T) {
 	t.Run("ConcurrentRegister", func(t *testing.T) {
 		config := DefaultAppConfig()
@@ -483,15 +491,17 @@ func TestExtensionThreadSafety(t *testing.T) {
 		app := NewApp(config)
 
 		done := make(chan bool)
-		for i := 0; i < 10; i++ {
+
+		for i := range 10 {
 			go func(idx int) {
 				ext := newMockExtension(fmt.Sprintf("ext%d", idx), "1.0.0")
 				_ = app.RegisterExtension(ext)
+
 				done <- true
 			}(i)
 		}
 
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			<-done
 		}
 
@@ -512,15 +522,17 @@ func TestExtensionThreadSafety(t *testing.T) {
 		_ = app.Start(ctx)
 
 		done := make(chan bool)
-		for i := 0; i < 100; i++ {
+
+		for range 100 {
 			go func() {
 				_ = app.Extensions()
 				_, _ = app.GetExtension("test")
+
 				done <- true
 			}()
 		}
 
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			<-done
 		}
 
@@ -528,14 +540,13 @@ func TestExtensionThreadSafety(t *testing.T) {
 	})
 }
 
-// Benchmark Extension operations
+// Benchmark Extension operations.
 func BenchmarkExtensionRegister(b *testing.B) {
 	config := DefaultAppConfig()
 	config.Logger = logger.NewTestLogger()
 	app := NewApp(config)
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		ext := newMockExtension(fmt.Sprintf("ext%d", i), "1.0.0")
 		_ = app.RegisterExtension(ext)
 	}
@@ -550,8 +561,7 @@ func BenchmarkExtensionGetExtension(b *testing.B) {
 		Extensions: []Extension{ext},
 	})
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, _ = app.GetExtension("test")
 	}
 }
@@ -560,8 +570,7 @@ func BenchmarkBaseExtensionIsStarted(b *testing.B) {
 	ext := NewBaseExtension("test", "1.0.0", "Test")
 	ext.MarkStarted()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = ext.IsStarted()
 	}
 }

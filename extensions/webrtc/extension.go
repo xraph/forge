@@ -9,7 +9,7 @@ import (
 	"github.com/xraph/forge/extensions/streaming"
 )
 
-// Extension is the WebRTC extension
+// Extension is the WebRTC extension.
 type Extension struct {
 	config Config
 
@@ -38,7 +38,7 @@ type Extension struct {
 	mu      sync.RWMutex
 }
 
-// New creates a new WebRTC extension
+// New creates a new WebRTC extension.
 func New(streamingExt *streaming.Extension, config Config, opts ...ConfigOption) (*Extension, error) {
 	// Apply options
 	for _, opt := range opts {
@@ -59,27 +59,27 @@ func New(streamingExt *streaming.Extension, config Config, opts ...ConfigOption)
 	return ext, nil
 }
 
-// Name returns the extension name
+// Name returns the extension name.
 func (e *Extension) Name() string {
 	return "webrtc"
 }
 
-// Version returns the extension version
+// Version returns the extension version.
 func (e *Extension) Version() string {
 	return "1.0.0"
 }
 
-// Description returns the extension description
+// Description returns the extension description.
 func (e *Extension) Description() string {
 	return "WebRTC video calling with mesh and SFU topologies"
 }
 
-// Dependencies returns the extensions this extension depends on
+// Dependencies returns the extensions this extension depends on.
 func (e *Extension) Dependencies() []string {
 	return []string{"streaming"}
 }
 
-// Register registers the extension with the app
+// Register registers the extension with the app.
 func (e *Extension) Register(app forge.App) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -102,8 +102,9 @@ func (e *Extension) Register(app forge.App) error {
 	// Initialize SFU router if enabled
 	if e.config.Topology == TopologySFU {
 		if e.config.SFUConfig == nil {
-			return fmt.Errorf("webrtc: SFU enabled but no config provided")
+			return errors.New("webrtc: SFU enabled but no config provided")
 		}
+
 		e.sfuRouter = NewSFURouter("default-room", e.logger, e.metrics)
 	}
 
@@ -131,7 +132,7 @@ func (e *Extension) Register(app forge.App) error {
 	return nil
 }
 
-// Start starts the extension
+// Start starts the extension.
 func (e *Extension) Start(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -156,7 +157,7 @@ func (e *Extension) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the extension
+// Stop stops the extension.
 func (e *Extension) Stop(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -172,6 +173,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 	// Close all rooms
 	e.roomsMu.Lock()
+
 	for roomID, room := range e.rooms {
 		if err := room.Close(ctx); err != nil {
 			e.logger.Error("webrtc: failed to close room",
@@ -180,6 +182,7 @@ func (e *Extension) Stop(ctx context.Context) error {
 			)
 		}
 	}
+
 	e.rooms = make(map[string]CallRoom)
 	e.roomsMu.Unlock()
 
@@ -189,18 +192,18 @@ func (e *Extension) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Health checks extension health
+// Health checks extension health.
 func (e *Extension) Health(ctx context.Context) error {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
 	if !e.started {
-		return fmt.Errorf("webrtc: extension not started")
+		return errors.New("webrtc: extension not started")
 	}
 
 	// Check dependencies
 	if e.streaming == nil {
-		return fmt.Errorf("webrtc: streaming extension not available")
+		return errors.New("webrtc: streaming extension not available")
 	}
 
 	// Check streaming health
@@ -210,7 +213,7 @@ func (e *Extension) Health(ctx context.Context) error {
 
 	// Check signaling
 	if e.signaling == nil {
-		return fmt.Errorf("webrtc: signaling manager not initialized")
+		return errors.New("webrtc: signaling manager not initialized")
 	}
 
 	// Check room count (warn if too many)
@@ -243,7 +246,7 @@ func (e *Extension) Health(ctx context.Context) error {
 	return nil
 }
 
-// CreateCallRoom creates a new call room
+// CreateCallRoom creates a new call room.
 func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts streaming.RoomOptions) (CallRoom, error) {
 	e.roomsMu.Lock()
 	defer e.roomsMu.Unlock()
@@ -257,7 +260,7 @@ func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts stre
 	// Convert RoomOptions to create a streaming room
 	// For local backend, we can create a LocalRoom directly
 	if opts.ID == "" {
-		return nil, fmt.Errorf("webrtc: room ID is required")
+		return nil, errors.New("webrtc: room ID is required")
 	}
 
 	// Create streaming room using the exported constructor
@@ -275,8 +278,10 @@ func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts stre
 	}
 
 	// Create call room
-	var callRoom CallRoom
-	var err error
+	var (
+		callRoom CallRoom
+		err      error
+	)
 
 	switch e.config.Topology {
 	case TopologyMesh:
@@ -321,6 +326,7 @@ func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts stre
 	if e.metrics != nil {
 		counter := e.metrics.Counter("webrtc.rooms.created")
 		counter.Inc()
+
 		gauge := e.metrics.Gauge("webrtc.rooms.active")
 		gauge.Set(float64(len(e.rooms)))
 	}
@@ -328,7 +334,7 @@ func (e *Extension) CreateCallRoom(ctx context.Context, roomID string, opts stre
 	return callRoom, nil
 }
 
-// GetCallRoom retrieves a call room
+// GetCallRoom retrieves a call room.
 func (e *Extension) GetCallRoom(roomID string) (CallRoom, error) {
 	e.roomsMu.RLock()
 	defer e.roomsMu.RUnlock()
@@ -341,7 +347,7 @@ func (e *Extension) GetCallRoom(roomID string) (CallRoom, error) {
 	return room, nil
 }
 
-// DeleteCallRoom deletes a call room
+// DeleteCallRoom deletes a call room.
 func (e *Extension) DeleteCallRoom(ctx context.Context, roomID string) error {
 	e.roomsMu.Lock()
 	defer e.roomsMu.Unlock()
@@ -367,6 +373,7 @@ func (e *Extension) DeleteCallRoom(ctx context.Context, roomID string) error {
 	if e.metrics != nil {
 		counter := e.metrics.Counter("webrtc.rooms.deleted")
 		counter.Inc()
+
 		gauge := e.metrics.Gauge("webrtc.rooms.active")
 		gauge.Set(float64(len(e.rooms)))
 	}
@@ -374,7 +381,7 @@ func (e *Extension) DeleteCallRoom(ctx context.Context, roomID string) error {
 	return nil
 }
 
-// GetCallRooms returns all call rooms
+// GetCallRooms returns all call rooms.
 func (e *Extension) GetCallRooms() []CallRoom {
 	e.roomsMu.RLock()
 	defer e.roomsMu.RUnlock()
@@ -387,7 +394,7 @@ func (e *Extension) GetCallRooms() []CallRoom {
 	return rooms
 }
 
-// JoinCall is a convenience method to join a call
+// JoinCall is a convenience method to join a call.
 func (e *Extension) JoinCall(ctx context.Context, roomID, userID string, opts *JoinOptions) (PeerConnection, error) {
 	room, err := e.GetCallRoom(roomID)
 	if err != nil {
@@ -407,6 +414,7 @@ func (e *Extension) JoinCall(ctx context.Context, roomID, userID string, opts *J
 			counter := e.metrics.Counter("webrtc.calls.join_failures")
 			counter.Inc()
 		}
+
 		return nil, fmt.Errorf("webrtc: failed to join call in room %s: %w", roomID, err)
 	}
 
@@ -414,6 +422,7 @@ func (e *Extension) JoinCall(ctx context.Context, roomID, userID string, opts *J
 	if e.metrics != nil {
 		counter := e.metrics.Counter("webrtc.calls.joined")
 		counter.Inc()
+
 		gauge := e.metrics.Gauge("webrtc.peers.active")
 		gauge.Set(float64(len(room.GetPeers())))
 	}
@@ -421,7 +430,7 @@ func (e *Extension) JoinCall(ctx context.Context, roomID, userID string, opts *J
 	return peer, nil
 }
 
-// LeaveCall is a convenience method to leave a call
+// LeaveCall is a convenience method to leave a call.
 func (e *Extension) LeaveCall(ctx context.Context, roomID, userID string) error {
 	room, err := e.GetCallRoom(roomID)
 	if err != nil {
@@ -437,6 +446,7 @@ func (e *Extension) LeaveCall(ctx context.Context, roomID, userID string) error 
 	if e.metrics != nil {
 		counter := e.metrics.Counter("webrtc.calls.left")
 		counter.Inc()
+
 		gauge := e.metrics.Gauge("webrtc.peers.active")
 		gauge.Set(float64(len(room.GetPeers())))
 	}
@@ -444,32 +454,32 @@ func (e *Extension) LeaveCall(ctx context.Context, roomID, userID string) error 
 	return nil
 }
 
-// GetConfig returns the extension configuration
+// GetConfig returns the extension configuration.
 func (e *Extension) GetConfig() Config {
 	return e.config
 }
 
-// GetSignalingManager returns the signaling manager
+// GetSignalingManager returns the signaling manager.
 func (e *Extension) GetSignalingManager() SignalingManager {
 	return e.signaling
 }
 
-// GetSFURouter returns the SFU router (if enabled)
+// GetSFURouter returns the SFU router (if enabled).
 func (e *Extension) GetSFURouter() SFURouter {
 	return e.sfuRouter
 }
 
-// GetQualityMonitor returns the quality monitor
+// GetQualityMonitor returns the quality monitor.
 func (e *Extension) GetQualityMonitor() QualityMonitor {
 	return e.qualityMonitor
 }
 
-// GetRecorder returns the recorder
+// GetRecorder returns the recorder.
 func (e *Extension) GetRecorder() Recorder {
 	return e.recorder
 }
 
-// RegisterRoutes registers WebRTC HTTP routes
+// RegisterRoutes registers WebRTC HTTP routes.
 func (e *Extension) RegisterRoutes(router forge.Router) error {
 	// WebSocket endpoint for signaling
 	return router.WebSocket("/webrtc/signal/{roomID}", func(ctx forge.Context, conn forge.Connection) error {
@@ -481,7 +491,7 @@ func (e *Extension) RegisterRoutes(router forge.Router) error {
 	})
 }
 
-// handleSignaling handles WebRTC signaling for a connection
+// handleSignaling handles WebRTC signaling for a connection.
 func (e *Extension) handleSignaling(fctx forge.Context, roomID, userID string, conn forge.Connection) error {
 	ctx := fctx.Request().Context()
 

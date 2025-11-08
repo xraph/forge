@@ -11,6 +11,7 @@ func TestNewSFURouter(t *testing.T) {
 	logger := forge.NewNoopLogger()
 
 	metrics := forge.NewNoOpMetrics()
+
 	router := NewSFURouter("test-room", logger, metrics)
 	if router == nil {
 		t.Fatal("router is nil")
@@ -23,6 +24,7 @@ func TestSFURouter_AddPublisher(t *testing.T) {
 	ctx := context.Background()
 
 	config := DefaultConfig()
+
 	peer, err := NewPeerConnection("peer-1", "user-1", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer: %v", err)
@@ -47,6 +49,7 @@ func TestSFURouter_AddSubscriber(t *testing.T) {
 	ctx := context.Background()
 
 	config := DefaultConfig()
+
 	peer, err := NewPeerConnection("peer-2", "user-2", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer: %v", err)
@@ -71,6 +74,7 @@ func TestSFURouter_RemovePublisher(t *testing.T) {
 	ctx := context.Background()
 
 	config := DefaultConfig()
+
 	peer, err := NewPeerConnection("peer-3", "user-3", config, logger)
 	if err != nil {
 		t.Fatalf("failed to create peer: %v", err)

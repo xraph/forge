@@ -9,10 +9,11 @@ import (
 
 	"github.com/xraph/forge"
 	eventscore "github.com/xraph/forge/extensions/events/core"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// EventSchemaValidator validates events against registered schemas
+// EventSchemaValidator validates events against registered schemas.
 type EventSchemaValidator struct {
 	registry   *SchemaRegistry
 	validators map[string]Validator
@@ -22,17 +23,17 @@ type EventSchemaValidator struct {
 	mu         sync.RWMutex
 }
 
-// ValidationConfig defines configuration for event validation
+// ValidationConfig defines configuration for event validation.
 type ValidationConfig struct {
-	StrictMode       bool     `yaml:"strict_mode" json:"strict_mode"`
-	RequiredFields   []string `yaml:"required_fields" json:"required_fields"`
-	AllowExtraFields bool     `yaml:"allow_extra_fields" json:"allow_extra_fields"`
-	ValidateMetadata bool     `yaml:"validate_metadata" json:"validate_metadata"`
-	MaxDepth         int      `yaml:"max_depth" json:"max_depth"`
-	MaxSize          int      `yaml:"max_size" json:"max_size"`
+	StrictMode       bool     `json:"strict_mode"        yaml:"strict_mode"`
+	RequiredFields   []string `json:"required_fields"    yaml:"required_fields"`
+	AllowExtraFields bool     `json:"allow_extra_fields" yaml:"allow_extra_fields"`
+	ValidateMetadata bool     `json:"validate_metadata"  yaml:"validate_metadata"`
+	MaxDepth         int      `json:"max_depth"          yaml:"max_depth"`
+	MaxSize          int      `json:"max_size"           yaml:"max_size"`
 }
 
-// Validator defines the interface for validating data
+// Validator defines the interface for validating data.
 type Validator interface {
 	// Validate validates data against the schema
 	Validate(data interface{}) error
@@ -44,7 +45,7 @@ type Validator interface {
 	GetType() string
 }
 
-// Schema represents an event schema
+// Schema represents an event schema.
 type Schema struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
@@ -59,7 +60,7 @@ type Schema struct {
 	UpdatedAt   string                 `json:"updated_at"`
 }
 
-// Property represents a schema property
+// Property represents a schema property.
 type Property struct {
 	Type        string                 `json:"type"`
 	Description string                 `json:"description"`
@@ -78,7 +79,7 @@ type Property struct {
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// ValidationError represents a validation error
+// ValidationError represents a validation error.
 type ValidationError struct {
 	Field    string      `json:"field"`
 	Value    interface{} `json:"value"`
@@ -87,12 +88,12 @@ type ValidationError struct {
 	Code     string      `json:"code"`
 }
 
-// Error implements error interface
+// Error implements error interface.
 func (ve *ValidationError) Error() string {
 	return fmt.Sprintf("validation error in field '%s': %s", ve.Field, ve.Message)
 }
 
-// ValidationResult contains validation results
+// ValidationResult contains validation results.
 type ValidationResult struct {
 	Valid   bool               `json:"valid"`
 	Errors  []*ValidationError `json:"errors"`
@@ -100,7 +101,7 @@ type ValidationResult struct {
 	EventID string             `json:"event_id"`
 }
 
-// NewEventSchemaValidator creates a new event schema validator
+// NewEventSchemaValidator creates a new event schema validator.
 func NewEventSchemaValidator(registry *SchemaRegistry, config *ValidationConfig, logger forge.Logger, metrics forge.Metrics) *EventSchemaValidator {
 	if config == nil {
 		config = DefaultValidationConfig()
@@ -115,7 +116,7 @@ func NewEventSchemaValidator(registry *SchemaRegistry, config *ValidationConfig,
 	}
 }
 
-// DefaultValidationConfig returns default validation configuration
+// DefaultValidationConfig returns default validation configuration.
 func DefaultValidationConfig() *ValidationConfig {
 	return &ValidationConfig{
 		StrictMode:       false,
@@ -127,7 +128,7 @@ func DefaultValidationConfig() *ValidationConfig {
 	}
 }
 
-// ValidateEvent validates an event against its schema
+// ValidateEvent validates an event against its schema.
 func (esv *EventSchemaValidator) ValidateEvent(event *eventscore.Event) *ValidationResult {
 	start := time.Now()
 
@@ -148,6 +149,7 @@ func (esv *EventSchemaValidator) ValidateEvent(event *eventscore.Event) *Validat
 					logger.Int("version", event.Version),
 				)
 			}
+
 			return result
 		}
 
@@ -159,6 +161,7 @@ func (esv *EventSchemaValidator) ValidateEvent(event *eventscore.Event) *Validat
 			Message:  fmt.Sprintf("no schema found for event type '%s' version %d", event.Type, event.Version),
 			Code:     "SCHEMA_NOT_FOUND",
 		})
+
 		return result
 	}
 
@@ -167,7 +170,8 @@ func (esv *EventSchemaValidator) ValidateEvent(event *eventscore.Event) *Validat
 	// Validate required fields
 	if err := esv.validateRequiredFields(event); err != nil {
 		result.Valid = false
-		if validationErr, ok := err.(*ValidationError); ok {
+		validationErr := &ValidationError{}
+		if errors.As(err, &validationErr) {
 			result.Errors = append(result.Errors, validationErr)
 		} else {
 			result.Errors = append(result.Errors, &ValidationError{
@@ -187,13 +191,15 @@ func (esv *EventSchemaValidator) ValidateEvent(event *eventscore.Event) *Validat
 			Message: fmt.Sprintf("failed to get validator: %v", err),
 			Code:    "VALIDATOR_ERROR",
 		})
+
 		return result
 	}
 
 	// Validate event data
 	if err := validator.Validate(event.Data); err != nil {
 		result.Valid = false
-		if validationErr, ok := err.(*ValidationError); ok {
+		validationErr := &ValidationError{}
+		if errors.As(err, &validationErr) {
 			result.Errors = append(result.Errors, validationErr)
 		} else {
 			result.Errors = append(result.Errors, &ValidationError{
@@ -208,7 +214,8 @@ func (esv *EventSchemaValidator) ValidateEvent(event *eventscore.Event) *Validat
 	if esv.config.ValidateMetadata && event.Metadata != nil {
 		if err := esv.validateMetadata(event.Metadata, schema); err != nil {
 			result.Valid = false
-			if validationErr, ok := err.(*ValidationError); ok {
+			validationErr := &ValidationError{}
+			if errors.As(err, &validationErr) {
 				result.Errors = append(result.Errors, validationErr)
 			} else {
 				result.Errors = append(result.Errors, &ValidationError{
@@ -254,7 +261,7 @@ func (esv *EventSchemaValidator) ValidateEvent(event *eventscore.Event) *Validat
 	return result
 }
 
-// validateRequiredFields validates that required fields are present
+// validateRequiredFields validates that required fields are present.
 func (esv *EventSchemaValidator) validateRequiredFields(event *eventscore.Event) error {
 	for _, field := range esv.config.RequiredFields {
 		switch field {
@@ -314,7 +321,7 @@ func (esv *EventSchemaValidator) validateRequiredFields(event *eventscore.Event)
 	return nil
 }
 
-// validateMetadata validates event metadata
+// validateMetadata validates event metadata.
 func (esv *EventSchemaValidator) validateMetadata(metadata map[string]interface{}, schema *Schema) error {
 	// Basic metadata validation
 	if len(metadata) == 0 {
@@ -328,7 +335,7 @@ func (esv *EventSchemaValidator) validateMetadata(metadata map[string]interface{
 				if requiredStr, ok := required.(string); ok {
 					if _, exists := metadata[requiredStr]; !exists {
 						return &ValidationError{
-							Field:    fmt.Sprintf("metadata.%s", requiredStr),
+							Field:    "metadata." + requiredStr,
 							Expected: "value",
 							Message:  fmt.Sprintf("required metadata field '%s' is missing", requiredStr),
 							Code:     "REQUIRED_METADATA_MISSING",
@@ -342,7 +349,7 @@ func (esv *EventSchemaValidator) validateMetadata(metadata map[string]interface{
 	return nil
 }
 
-// getValidator gets or creates a validator for a schema
+// getValidator gets or creates a validator for a schema.
 func (esv *EventSchemaValidator) getValidator(schema *Schema) (Validator, error) {
 	esv.mu.RLock()
 	validator, exists := esv.validators[schema.ID]
@@ -361,8 +368,10 @@ func (esv *EventSchemaValidator) getValidator(schema *Schema) (Validator, error)
 	}
 
 	// Create new validator based on schema type
-	var newValidator Validator
-	var err error
+	var (
+		newValidator Validator
+		err          error
+	)
 
 	switch schema.Type {
 	case "json-schema":
@@ -380,24 +389,27 @@ func (esv *EventSchemaValidator) getValidator(schema *Schema) (Validator, error)
 	}
 
 	esv.validators[schema.ID] = newValidator
+
 	return newValidator, nil
 }
 
-// AddValidator adds a custom validator
+// AddValidator adds a custom validator.
 func (esv *EventSchemaValidator) AddValidator(schemaID string, validator Validator) {
 	esv.mu.Lock()
 	defer esv.mu.Unlock()
+
 	esv.validators[schemaID] = validator
 }
 
-// RemoveValidator removes a validator
+// RemoveValidator removes a validator.
 func (esv *EventSchemaValidator) RemoveValidator(schemaID string) {
 	esv.mu.Lock()
 	defer esv.mu.Unlock()
+
 	delete(esv.validators, schemaID)
 }
 
-// GetStats returns validation statistics
+// GetStats returns validation statistics.
 func (esv *EventSchemaValidator) GetStats() map[string]interface{} {
 	esv.mu.RLock()
 	defer esv.mu.RUnlock()
@@ -411,13 +423,13 @@ func (esv *EventSchemaValidator) GetStats() map[string]interface{} {
 	}
 }
 
-// JSONSchemaValidator validates against JSON Schema
+// JSONSchemaValidator validates against JSON Schema.
 type JSONSchemaValidator struct {
 	schema *Schema
 	config *ValidationConfig
 }
 
-// NewJSONSchemaValidator creates a new JSON schema validator
+// NewJSONSchemaValidator creates a new JSON schema validator.
 func NewJSONSchemaValidator(schema *Schema) (*JSONSchemaValidator, error) {
 	return &JSONSchemaValidator{
 		schema: schema,
@@ -425,12 +437,12 @@ func NewJSONSchemaValidator(schema *Schema) (*JSONSchemaValidator, error) {
 	}, nil
 }
 
-// Validate implements Validator
+// Validate implements Validator.
 func (jsv *JSONSchemaValidator) Validate(data interface{}) error {
 	return jsv.validateValue(data, jsv.schema.Properties, "", 0)
 }
 
-// validateValue validates a value against properties
+// validateValue validates a value against properties.
 func (jsv *JSONSchemaValidator) validateValue(value interface{}, properties map[string]*Property, path string, depth int) error {
 	if depth > jsv.config.MaxDepth {
 		return &ValidationError{
@@ -493,6 +505,7 @@ func (jsv *JSONSchemaValidator) validateValue(value interface{}, properties map[
 					Code:    "UNEXPECTED_PROPERTY",
 				}
 			}
+
 			continue
 		}
 
@@ -504,7 +517,7 @@ func (jsv *JSONSchemaValidator) validateValue(value interface{}, properties map[
 	return nil
 }
 
-// validateProperty validates a single property
+// validateProperty validates a single property.
 func (jsv *JSONSchemaValidator) validateProperty(value interface{}, property *Property, path string, depth int) error {
 	// Validate type
 	if err := jsv.validateType(value, property.Type, path); err != nil {
@@ -514,12 +527,15 @@ func (jsv *JSONSchemaValidator) validateProperty(value interface{}, property *Pr
 	// Validate enum
 	if len(property.Enum) > 0 {
 		found := false
+
 		for _, enumValue := range property.Enum {
 			if value == enumValue {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			return &ValidationError{
 				Field:    path,
@@ -543,6 +559,7 @@ func (jsv *JSONSchemaValidator) validateProperty(value interface{}, property *Pr
 					Code:     "MIN_LENGTH_VALIDATION_FAILED",
 				}
 			}
+
 			if property.MaxLength != nil && len(str) > *property.MaxLength {
 				return &ValidationError{
 					Field:    path,
@@ -552,6 +569,7 @@ func (jsv *JSONSchemaValidator) validateProperty(value interface{}, property *Pr
 					Code:     "MAX_LENGTH_VALIDATION_FAILED",
 				}
 			}
+
 			if property.Pattern != "" {
 				// Pattern validation would go here
 			}
@@ -570,6 +588,7 @@ func (jsv *JSONSchemaValidator) validateProperty(value interface{}, property *Pr
 					Code:     "MIN_VALUE_VALIDATION_FAILED",
 				}
 			}
+
 			if property.Maximum != nil && num > *property.Maximum {
 				return &ValidationError{
 					Field:    path,
@@ -604,7 +623,7 @@ func (jsv *JSONSchemaValidator) validateProperty(value interface{}, property *Pr
 	return nil
 }
 
-// validateType validates the type of a value
+// validateType validates the type of a value.
 func (jsv *JSONSchemaValidator) validateType(value interface{}, expectedType string, path string) error {
 	actualType := jsv.getJSONType(value)
 
@@ -621,7 +640,7 @@ func (jsv *JSONSchemaValidator) validateType(value interface{}, expectedType str
 	return nil
 }
 
-// getJSONType returns the JSON type of a value
+// getJSONType returns the JSON type of a value.
 func (jsv *JSONSchemaValidator) getJSONType(value interface{}) string {
 	if value == nil {
 		return "null"
@@ -643,71 +662,71 @@ func (jsv *JSONSchemaValidator) getJSONType(value interface{}) string {
 	}
 }
 
-// GetSchema implements Validator
+// GetSchema implements Validator.
 func (jsv *JSONSchemaValidator) GetSchema() *Schema {
 	return jsv.schema
 }
 
-// GetType implements Validator
+// GetType implements Validator.
 func (jsv *JSONSchemaValidator) GetType() string {
 	return "json-schema"
 }
 
-// StructValidator validates against Go struct definitions
+// StructValidator validates against Go struct definitions.
 type StructValidator struct {
 	schema     *Schema
 	structType reflect.Type
 }
 
-// NewStructValidator creates a new struct validator
+// NewStructValidator creates a new struct validator.
 func NewStructValidator(schema *Schema) (*StructValidator, error) {
 	return &StructValidator{
 		schema: schema,
 	}, nil
 }
 
-// Validate implements Validator
+// Validate implements Validator.
 func (sv *StructValidator) Validate(data interface{}) error {
 	// This would implement struct-based validation
 	// For now, return nil (not implemented)
 	return nil
 }
 
-// GetSchema implements Validator
+// GetSchema implements Validator.
 func (sv *StructValidator) GetSchema() *Schema {
 	return sv.schema
 }
 
-// GetType implements Validator
+// GetType implements Validator.
 func (sv *StructValidator) GetType() string {
 	return "struct"
 }
 
-// RegexValidator validates using regular expressions
+// RegexValidator validates using regular expressions.
 type RegexValidator struct {
 	schema *Schema
 }
 
-// NewRegexValidator creates a new regex validator
+// NewRegexValidator creates a new regex validator.
 func NewRegexValidator(schema *Schema) (*RegexValidator, error) {
 	return &RegexValidator{
 		schema: schema,
 	}, nil
 }
 
-// Validate implements Validator
+// Validate implements Validator.
 func (rv *RegexValidator) Validate(data interface{}) error {
 	// This would implement regex-based validation
 	// For now, return nil (not implemented)
 	return nil
 }
 
-// GetSchema implements Validator
+// GetSchema implements Validator.
 func (rv *RegexValidator) GetSchema() *Schema {
 	return rv.schema
 }
 
-// GetType implements Validator
+// GetType implements Validator.
 func (rv *RegexValidator) GetType() string {
 	return "regex"
 }

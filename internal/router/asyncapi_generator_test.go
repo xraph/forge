@@ -8,23 +8,23 @@ import (
 	"github.com/xraph/forge/internal/shared"
 )
 
-// Test message types
+// Test message types.
 type ChatMessage struct {
-	Text   string `json:"text" description:"Message text"`
-	RoomID string `json:"room_id" description:"Room identifier"`
+	Text   string `description:"Message text"    json:"text"`
+	RoomID string `description:"Room identifier" json:"room_id"`
 }
 
 type ChatEvent struct {
-	ID        string    `json:"id" description:"Event ID"`
-	UserID    string    `json:"user_id" description:"User ID"`
-	Text      string    `json:"text" description:"Message text"`
-	RoomID    string    `json:"room_id" description:"Room ID"`
-	Timestamp time.Time `json:"timestamp" format:"date-time" description:"Event timestamp"`
+	ID        string    `description:"Event ID"        json:"id"`
+	UserID    string    `description:"User ID"         json:"user_id"`
+	Text      string    `description:"Message text"    json:"text"`
+	RoomID    string    `description:"Room ID"         json:"room_id"`
+	Timestamp time.Time `description:"Event timestamp" format:"date-time" json:"timestamp"`
 }
 
 type NotificationEvent struct {
-	Type    string `json:"type" enum:"info,warning,error" description:"Notification type"`
-	Message string `json:"message" description:"Notification message"`
+	Type    string `description:"Notification type"    enum:"info,warning,error" json:"type"`
+	Message string `description:"Notification message" json:"message"`
 }
 
 func TestAsyncAPIGenerator_WebSocket(t *testing.T) {
@@ -76,9 +76,11 @@ func TestAsyncAPIGenerator_WebSocket(t *testing.T) {
 
 	// Check for chat channel
 	var chatChannel *shared.AsyncAPIChannel
+
 	for _, channel := range spec.Channels {
 		if channel.Address == "/ws/chat/{roomId}" {
 			chatChannel = channel
+
 			break
 		}
 	}
@@ -100,10 +102,12 @@ func TestAsyncAPIGenerator_WebSocket(t *testing.T) {
 	// Verify send and receive operations exist
 	hasSend := false
 	hasReceive := false
+
 	for _, op := range spec.Operations {
 		if op.Action == "send" {
 			hasSend = true
 		}
+
 		if op.Action == "receive" {
 			hasReceive = true
 		}
@@ -112,6 +116,7 @@ func TestAsyncAPIGenerator_WebSocket(t *testing.T) {
 	if !hasSend {
 		t.Error("Expected a send operation")
 	}
+
 	if !hasReceive {
 		t.Error("Expected a receive operation")
 	}
@@ -155,9 +160,11 @@ func TestAsyncAPIGenerator_SSE(t *testing.T) {
 
 	// Verify channel has SSE message
 	var notificationChannel *shared.AsyncAPIChannel
+
 	for _, channel := range spec.Channels {
 		if channel.Address == "/sse/notifications" {
 			notificationChannel = channel
+
 			break
 		}
 	}
@@ -176,6 +183,7 @@ func TestAsyncAPIGenerator_SSE(t *testing.T) {
 		if op.Action == "send" {
 			t.Error("SSE should not have send operation")
 		}
+
 		if op.Action != "receive" {
 			t.Errorf("Expected receive action, got %s", op.Action)
 		}
@@ -209,9 +217,11 @@ func TestAsyncAPIGenerator_MultipleMessages(t *testing.T) {
 
 	// Find feed channel
 	var feedChannel *shared.AsyncAPIChannel
+
 	for _, channel := range spec.Channels {
 		if channel.Address == "/sse/feed" {
 			feedChannel = channel
+
 			break
 		}
 	}
@@ -257,6 +267,7 @@ func TestAsyncAPIGenerator_ChannelParameters(t *testing.T) {
 	var roomChannel *shared.AsyncAPIChannel
 	for _, channel := range spec.Channels {
 		roomChannel = channel
+
 		break
 	}
 
@@ -396,12 +407,15 @@ func TestAsyncAPIGenerator_Tags(t *testing.T) {
 		expectedTags := []string{"chat", "messaging", "real-time"}
 		for _, expected := range expectedTags {
 			found := false
+
 			for _, actual := range tagNames {
 				if actual == expected {
 					found = true
+
 					break
 				}
 			}
+
 			if !found {
 				t.Errorf("Expected tag '%s' not found", expected)
 			}
