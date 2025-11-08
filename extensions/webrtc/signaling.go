@@ -10,7 +10,7 @@ import (
 	"github.com/xraph/forge/extensions/streaming"
 )
 
-// signalingManager implements SignalingManager using streaming extension
+// signalingManager implements SignalingManager using streaming extension.
 type signalingManager struct {
 	streaming streaming.Manager
 	logger    forge.Logger
@@ -24,7 +24,7 @@ type signalingManager struct {
 	started bool
 }
 
-// NewSignalingManager creates a new signaling manager
+// NewSignalingManager creates a new signaling manager.
 func NewSignalingManager(streamingExt *streaming.Extension, logger forge.Logger) SignalingManager {
 	return &signalingManager{
 		streaming: streamingExt.Manager(),
@@ -32,14 +32,14 @@ func NewSignalingManager(streamingExt *streaming.Extension, logger forge.Logger)
 	}
 }
 
-// Message types for signaling
+// Message types for signaling.
 const (
 	MessageTypeOffer        = "webrtc.offer"
 	MessageTypeAnswer       = "webrtc.answer"
 	MessageTypeICECandidate = "webrtc.ice_candidate"
 )
 
-// SendOffer sends an SDP offer to a peer via streaming
+// SendOffer sends an SDP offer to a peer via streaming.
 func (s *signalingManager) SendOffer(ctx context.Context, roomID, peerID string, offer *SessionDescription) error {
 	msg := &streaming.Message{
 		Type: MessageTypeOffer,
@@ -67,7 +67,7 @@ func (s *signalingManager) SendOffer(ctx context.Context, roomID, peerID string,
 	return nil
 }
 
-// SendAnswer sends an SDP answer to a peer via streaming
+// SendAnswer sends an SDP answer to a peer via streaming.
 func (s *signalingManager) SendAnswer(ctx context.Context, roomID, peerID string, answer *SessionDescription) error {
 	msg := &streaming.Message{
 		Type: MessageTypeAnswer,
@@ -95,7 +95,7 @@ func (s *signalingManager) SendAnswer(ctx context.Context, roomID, peerID string
 	return nil
 }
 
-// SendICECandidate sends an ICE candidate to a peer via streaming
+// SendICECandidate sends an ICE candidate to a peer via streaming.
 func (s *signalingManager) SendICECandidate(ctx context.Context, roomID, peerID string, candidate *ICECandidate) error {
 	msg := &streaming.Message{
 		Type: MessageTypeICECandidate,
@@ -123,7 +123,7 @@ func (s *signalingManager) SendICECandidate(ctx context.Context, roomID, peerID 
 	return nil
 }
 
-// OnOffer registers offer received callback
+// OnOffer registers offer received callback.
 func (s *signalingManager) OnOffer(handler OfferHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -131,7 +131,7 @@ func (s *signalingManager) OnOffer(handler OfferHandler) {
 	s.offerHandler = handler
 }
 
-// OnAnswer registers answer received callback
+// OnAnswer registers answer received callback.
 func (s *signalingManager) OnAnswer(handler AnswerHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -139,7 +139,7 @@ func (s *signalingManager) OnAnswer(handler AnswerHandler) {
 	s.answerHandler = handler
 }
 
-// OnICECandidate registers ICE candidate received callback
+// OnICECandidate registers ICE candidate received callback.
 func (s *signalingManager) OnICECandidate(handler ICECandidateReceivedHandler) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -147,7 +147,7 @@ func (s *signalingManager) OnICECandidate(handler ICECandidateReceivedHandler) {
 	s.iceCandidateHandler = handler
 }
 
-// Start begins listening for signaling messages
+// Start begins listening for signaling messages.
 func (s *signalingManager) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -165,7 +165,7 @@ func (s *signalingManager) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops listening for signaling messages
+// Stop stops listening for signaling messages.
 func (s *signalingManager) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -180,7 +180,7 @@ func (s *signalingManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// HandleConnection handles signaling for a specific connection
+// HandleConnection handles signaling for a specific connection.
 func (s *signalingManager) HandleConnection(ctx context.Context, roomID, userID string, peer PeerConnection, conn forge.Connection) error {
 	s.logger.Debug("starting signaling handler",
 		forge.F("room_id", roomID),
@@ -387,7 +387,7 @@ func (s *signalingManager) handleICECandidate(ctx context.Context, roomID, userI
 	return nil
 }
 
-// parseSessionDescription parses a session description from raw data
+// parseSessionDescription parses a session description from raw data.
 func parseSessionDescription(data any) (*SessionDescription, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -402,7 +402,7 @@ func parseSessionDescription(data any) (*SessionDescription, error) {
 	return &sdp, nil
 }
 
-// parseICECandidate parses an ICE candidate from raw data
+// parseICECandidate parses an ICE candidate from raw data.
 func parseICECandidate(data any) (*ICECandidate, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
