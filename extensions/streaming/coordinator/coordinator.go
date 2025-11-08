@@ -51,11 +51,11 @@ type StreamCoordinator interface {
 
 // RoomState represents room state for synchronization.
 type RoomState struct {
-	RoomID    string
-	Members   []string
-	Settings  map[string]any
-	UpdatedAt time.Time
-	Version   int64
+	RoomID    string         `json:"roomId"`
+	Members   []string       `json:"members"`
+	Settings  map[string]any `json:"settings"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	Version   int64          `json:"version"`
 }
 
 // MessageHandler handles coordinator messages.
@@ -63,13 +63,13 @@ type MessageHandler func(ctx context.Context, msg *CoordinatorMessage) error
 
 // CoordinatorMessage represents a message in the coordination system.
 type CoordinatorMessage struct {
-	Type      string
-	NodeID    string
-	UserID    string
-	RoomID    string
-	ChannelID string
-	Payload   any
-	Timestamp time.Time
+	Type      string    `json:"type"`
+	NodeID    string    `json:"nodeId"`
+	UserID    string    `json:"userId"`
+	RoomID    string    `json:"roomId"`
+	ChannelID string    `json:"channelId"`
+	Payload   any       `json:"payload"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 // MessageType defines coordinator message types.

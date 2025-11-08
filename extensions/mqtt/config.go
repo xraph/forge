@@ -19,11 +19,11 @@ type Config struct {
 	MaxReconnectDelay time.Duration `json:"max_reconnect_delay" yaml:"max_reconnect_delay" mapstructure:"max_reconnect_delay"`
 
 	// TLS/SSL
-	EnableTLS      bool   `json:"enable_tls" yaml:"enable_tls" mapstructure:"enable_tls"`
-	TLSCertFile    string `json:"tls_cert_file,omitempty" yaml:"tls_cert_file,omitempty" mapstructure:"tls_cert_file"`
-	TLSKeyFile     string `json:"tls_key_file,omitempty" yaml:"tls_key_file,omitempty" mapstructure:"tls_key_file"`
-	TLSCAFile      string `json:"tls_ca_file,omitempty" yaml:"tls_ca_file,omitempty" mapstructure:"tls_ca_file"`
-	TLSSkipVerify  bool   `json:"tls_skip_verify" yaml:"tls_skip_verify" mapstructure:"tls_skip_verify"`
+	EnableTLS     bool   `json:"enable_tls" yaml:"enable_tls" mapstructure:"enable_tls"`
+	TLSCertFile   string `json:"tls_cert_file,omitempty" yaml:"tls_cert_file,omitempty" mapstructure:"tls_cert_file"`
+	TLSKeyFile    string `json:"tls_key_file,omitempty" yaml:"tls_key_file,omitempty" mapstructure:"tls_key_file"`
+	TLSCAFile     string `json:"tls_ca_file,omitempty" yaml:"tls_ca_file,omitempty" mapstructure:"tls_ca_file"`
+	TLSSkipVerify bool   `json:"tls_skip_verify" yaml:"tls_skip_verify" mapstructure:"tls_skip_verify"`
 
 	// QoS settings
 	DefaultQoS byte `json:"default_qos" yaml:"default_qos" mapstructure:"default_qos"`
@@ -35,17 +35,17 @@ type Config struct {
 	WriteTimeout         time.Duration `json:"write_timeout" yaml:"write_timeout" mapstructure:"write_timeout"`
 
 	// Message handling
-	MessageChannelDepth uint          `json:"message_channel_depth" yaml:"message_channel_depth" mapstructure:"message_channel_depth"`
-	OrderMatters        bool          `json:"order_matters" yaml:"order_matters" mapstructure:"order_matters"`
-	MessageStore        string        `json:"message_store" yaml:"message_store" mapstructure:"message_store"` // "memory", "file"
-	StoreDirectory      string        `json:"store_directory,omitempty" yaml:"store_directory,omitempty" mapstructure:"store_directory"`
+	MessageChannelDepth uint   `json:"message_channel_depth" yaml:"message_channel_depth" mapstructure:"message_channel_depth"`
+	OrderMatters        bool   `json:"order_matters" yaml:"order_matters" mapstructure:"order_matters"`
+	MessageStore        string `json:"message_store" yaml:"message_store" mapstructure:"message_store"` // "memory", "file"
+	StoreDirectory      string `json:"store_directory,omitempty" yaml:"store_directory,omitempty" mapstructure:"store_directory"`
 
 	// Last Will and Testament
-	WillEnabled bool   `json:"will_enabled" yaml:"will_enabled" mapstructure:"will_enabled"`
-	WillTopic   string `json:"will_topic,omitempty" yaml:"will_topic,omitempty" mapstructure:"will_topic"`
-	WillPayload string `json:"will_payload,omitempty" yaml:"will_payload,omitempty" mapstructure:"will_payload"`
-	WillQoS     byte   `json:"will_qos" yaml:"will_qos" mapstructure:"will_qos"`
-	WillRetained bool  `json:"will_retained" yaml:"will_retained" mapstructure:"will_retained"`
+	WillEnabled  bool   `json:"will_enabled" yaml:"will_enabled" mapstructure:"will_enabled"`
+	WillTopic    string `json:"will_topic,omitempty" yaml:"will_topic,omitempty" mapstructure:"will_topic"`
+	WillPayload  string `json:"will_payload,omitempty" yaml:"will_payload,omitempty" mapstructure:"will_payload"`
+	WillQoS      byte   `json:"will_qos" yaml:"will_qos" mapstructure:"will_qos"`
+	WillRetained bool   `json:"will_retained" yaml:"will_retained" mapstructure:"will_retained"`
 
 	// Observability
 	EnableMetrics bool `json:"enable_metrics" yaml:"enable_metrics" mapstructure:"enable_metrics"`

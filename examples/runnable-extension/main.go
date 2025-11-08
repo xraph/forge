@@ -354,11 +354,10 @@ func main() {
 	fmt.Println("   GET /            - App info")
 	fmt.Println("   GET /worker/stats - Worker statistics")
 	fmt.Println("   GET /health      - Health check")
-	fmt.Println("\n⌨️  Press Ctrl+C to shutdown gracefully\n")
+	fmt.Println("\n⌨️  Press Ctrl+C to shutdown gracefully")
 
 	if err := app.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "❌ Error: %v\n", err)
 		os.Exit(1)
 	}
 }
-

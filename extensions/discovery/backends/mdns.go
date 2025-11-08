@@ -201,25 +201,25 @@ func (b *MDNSBackend) Register(ctx context.Context, instance *ServiceInstance) e
 		server: server,
 	}
 
-	// Log successful registration with details
-	fmt.Printf("[mDNS] Service registered successfully:\n")
-	fmt.Printf("  - Instance ID: %s\n", instance.ID)
-	fmt.Printf("  - Service Type: %s\n", serviceType)
-	fmt.Printf("  - Domain: %s\n", b.config.Domain)
-	fmt.Printf("  - Address: %s:%d\n", addresses[0], instance.Port)
-	fmt.Printf("  - TXT Records: %d records\n", len(txt))
+	// // Log successful registration with details
+	// fmt.Printf("[mDNS] Service registered successfully:\n")
+	// fmt.Printf("  - Instance ID: %s\n", instance.ID)
+	// fmt.Printf("  - Service Type: %s\n", serviceType)
+	// fmt.Printf("  - Domain: %s\n", b.config.Domain)
+	// fmt.Printf("  - Address: %s:%d\n", addresses[0], instance.Port)
+	// fmt.Printf("  - TXT Records: %d records\n", len(txt))
 
-	if b.config.Interface != "" {
-		fmt.Printf("  - Interface: %s\n", b.config.Interface)
-	} else {
-		fmt.Printf("  - Interface: all interfaces\n")
-	}
+	// if b.config.Interface != "" {
+	// 	fmt.Printf("  - Interface: %s\n", b.config.Interface)
+	// } else {
+	// 	fmt.Printf("  - Interface: all interfaces\n")
+	// }
 
 	// Give the mDNS server time to fully initialize and start responding
 	// This ensures the service is discoverable immediately
 	time.Sleep(100 * time.Millisecond)
 
-	fmt.Printf("[mDNS] Service is now discoverable\n")
+	// fmt.Printf("[mDNS] Service is now discoverable\n")
 
 	return nil
 }

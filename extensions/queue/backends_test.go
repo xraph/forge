@@ -6,6 +6,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // Test all backend constructors and basic error paths
@@ -362,7 +363,14 @@ func TestNATSQueue_NotConnectedErrors(t *testing.T) {
 // Test extension with different drivers
 
 func TestExtension_RedisDriver(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(
 		WithDriver("redis"),
 		WithURL("redis://localhost:6379"),
@@ -385,7 +393,14 @@ func TestExtension_RedisDriver(t *testing.T) {
 }
 
 func TestExtension_RabbitMQDriver(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(
 		WithDriver("rabbitmq"),
 		WithURL("amqp://guest:guest@localhost:5672/"),
@@ -408,7 +423,14 @@ func TestExtension_RabbitMQDriver(t *testing.T) {
 }
 
 func TestExtension_NATSDriver(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(
 		WithDriver("nats"),
 		WithURL("nats://localhost:4222"),
@@ -431,7 +453,14 @@ func TestExtension_NATSDriver(t *testing.T) {
 }
 
 func TestExtension_Queue(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithDriver("inmemory"))
 
 	err := ext.(*Extension).Register(app)
@@ -452,7 +481,14 @@ func TestExtension_Queue(t *testing.T) {
 }
 
 func TestExtension_StopWithError(t *testing.T) {
-	app := forge.NewApp(forge.DefaultAppConfig())
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
+
 	ext := NewExtension(WithDriver("inmemory"))
 
 	err := ext.(*Extension).Register(app)

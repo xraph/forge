@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 	forgeTesting "github.com/xraph/forge/testing"
 )
 
@@ -37,10 +38,13 @@ func TestExtension_BasicInfo(t *testing.T) {
 
 func TestExtension_SQLiteLifecycle(t *testing.T) {
 	// Create test app
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with SQLite using options
 	ext := NewExtension(

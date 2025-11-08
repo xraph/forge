@@ -46,10 +46,12 @@ func TestExtension_Lifecycle(t *testing.T) {
 	defer os.RemoveAll(testDir)
 
 	// Create test app
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with local backend
 	config := Config{

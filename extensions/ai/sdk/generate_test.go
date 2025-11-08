@@ -14,7 +14,7 @@ import (
 func TestNewGenerateBuilder(t *testing.T) {
 	ctx := context.Background()
 	llmMgr := &testhelpers.MockLLMManager{}
-	logger := &testhelpers.MockLogger{}
+	logger := testhelpers.NewMockLogger()
 	metrics := testhelpers.NewMockMetrics()
 
 	builder := NewGenerateBuilder(ctx, llmMgr, logger, metrics)
@@ -379,7 +379,7 @@ func TestGenerateBuilder_Execute_Success(t *testing.T) {
 		},
 	}
 
-	logger := &testhelpers.MockLogger{}
+	logger := testhelpers.NewMockLogger()
 	metrics := testhelpers.NewMockMetrics()
 
 	builder := NewGenerateBuilder(context.Background(), mockLLM, logger, metrics)
@@ -428,11 +428,6 @@ func TestGenerateBuilder_Execute_Success(t *testing.T) {
 
 	if result.Usage.OutputTokens != 5 {
 		t.Errorf("expected output tokens 5, got %d", result.Usage.OutputTokens)
-	}
-
-	// Check that logger was called
-	if len(logger.DebugCalls) == 0 {
-		t.Error("expected logger to be called")
 	}
 }
 

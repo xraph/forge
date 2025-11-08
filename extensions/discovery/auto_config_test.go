@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // TestAutoConfigFromApp validates that Service config is optional and reads from app config.
@@ -14,7 +15,8 @@ func TestAutoConfigFromApp(t *testing.T) {
 		Name:        "kineta",
 		Version:     "0.1.0",
 		HTTPAddress: ":4400",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	// Configure discovery WITHOUT Service config - should use app config
 	appConfig := forge.AppConfig{
@@ -102,7 +104,8 @@ func TestAutoConfigWithPartialServiceConfig(t *testing.T) {
 		Name:        "my-app",
 		Version:     "1.0.0",
 		HTTPAddress: "0.0.0.0:8080",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	// Provide partial Service config - only override address
 	appConfig := forge.AppConfig{
@@ -209,7 +212,8 @@ func TestHTTPAddressParsingVariations(t *testing.T) {
 				HTTPAddress: tt.httpAddress,
 			}
 
-			app := forge.New(forge.WithConfig(appConfig))
+			app := forge.New(forge.WithConfig(appConfig), forge.WithAppLogger(logger.NewNoopLogger()),
+				forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 			config := Config{
 				Enabled: true,

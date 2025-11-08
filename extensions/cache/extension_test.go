@@ -16,7 +16,12 @@ func TestCacheExtension_Register(t *testing.T) {
 	config := DefaultConfig()
 	ext := NewExtension(WithConfig(config))
 
-	app := forge.NewApp(forge.DefaultAppConfig())
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	err := ext.Register(app)
 	require.NoError(t, err)
@@ -31,10 +36,13 @@ func TestCacheExtension_Lifecycle(t *testing.T) {
 	config := DefaultConfig()
 	ext := NewExtension(WithConfig(config))
 
-	app := forge.NewApp(forge.AppConfig{
-		Name:       "test-app",
-		Extensions: []forge.Extension{ext},
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
 	ctx := context.Background()
 
@@ -70,9 +78,13 @@ func TestCacheExtension_Health(t *testing.T) {
 	config := DefaultConfig()
 	ext := NewExtension(WithConfig(config))
 
-	app := forge.NewApp(forge.AppConfig{
-		Extensions: []forge.Extension{ext},
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
 	ctx := context.Background()
 
@@ -109,7 +121,12 @@ func TestCacheExtension_InvalidConfig(t *testing.T) {
 		}
 		ext := NewExtension(WithConfig(config))
 
-		app := forge.NewApp(forge.DefaultAppConfig())
+		app := forge.New(
+			forge.WithAppName("test-app"),
+			forge.WithAppVersion("1.0.0"),
+			forge.WithAppLogger(logger.NewNoopLogger()),
+			forge.WithConfig(forge.DefaultAppConfig()),
+		)
 
 		err := ext.Register(app)
 		assert.Error(t, err)
@@ -122,7 +139,12 @@ func TestCacheExtension_InvalidConfig(t *testing.T) {
 		}
 		ext := NewExtension(WithConfig(config))
 
-		app := forge.NewApp(forge.DefaultAppConfig())
+		app := forge.New(
+			forge.WithAppName("test-app"),
+			forge.WithAppVersion("1.0.0"),
+			forge.WithAppLogger(logger.NewNoopLogger()),
+			forge.WithConfig(forge.DefaultAppConfig()),
+		)
 
 		err := ext.Register(app)
 		assert.Error(t, err)
@@ -138,9 +160,13 @@ func TestCacheExtension_UsageInService(t *testing.T) {
 	config := DefaultConfig()
 	ext := NewExtension(WithConfig(config))
 
-	app := forge.NewApp(forge.AppConfig{
-		Extensions: []forge.Extension{ext},
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
 	// Register user service that depends on cache
 	err := forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
@@ -206,9 +232,13 @@ func TestCacheExtension_ConcurrentAccess(t *testing.T) {
 	config := DefaultConfig()
 	ext := NewExtension(WithConfig(config))
 
-	app := forge.NewApp(forge.AppConfig{
-		Extensions: []forge.Extension{ext},
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(ext),
+	)
 
 	ctx := context.Background()
 
@@ -254,9 +284,13 @@ func TestCacheExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 	}
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with config
 	ext := NewExtension(WithConfig(config))
@@ -293,9 +327,13 @@ func TestCacheExtension_ConfigLoading_FromLegacyKey(t *testing.T) {
 	}
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with config
 	ext := NewExtension(WithConfig(config))
@@ -326,9 +364,13 @@ func TestCacheExtension_ConfigLoading_NamespacedTakesPrecedence(t *testing.T) {
 	}
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with config
 	ext := NewExtension(WithConfig(config))
@@ -351,9 +393,13 @@ func TestCacheExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 	ctx := context.Background()
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with programmatic overrides
 	ext := NewExtension(
@@ -384,9 +430,13 @@ func TestCacheExtension_ConfigLoading_NoConfigManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Create app without ConfigManager
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with some options
 	ext := NewExtension(
@@ -429,9 +479,13 @@ func TestCacheExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T)
 	}
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with config (no RequireConfig to avoid ConfigManager dependency)
 	ext := NewExtension(WithConfig(config))
@@ -454,9 +508,13 @@ func TestCacheExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T)
 func TestCacheExtension_ConfigLoading_RequireConfigTrue_WithoutConfig(t *testing.T) {
 	// RequireConfig=true without config should fail
 	// Create app without ConfigManager
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with RequireConfig=true
 	ext := NewExtension(
@@ -472,9 +530,13 @@ func TestCacheExtension_ConfigLoading_RequireConfigFalse_WithoutConfig(t *testin
 	ctx := context.Background()
 
 	// Create app without ConfigManager
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with RequireConfig=false (default)
 	ext := NewExtension()
@@ -506,9 +568,13 @@ func TestCacheExtension_ConfigLoading_PartialConfig(t *testing.T) {
 	}
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with partial config
 	ext := NewExtension(WithConfig(config))
@@ -569,9 +635,12 @@ func TestCacheExtension_NewExtensionWithConfig(t *testing.T) {
 
 	ext := NewExtensionWithConfig(config)
 
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	err := ext.Register(app)
 	require.NoError(t, err)
@@ -602,7 +671,14 @@ func BenchmarkCacheExtension_Register(b *testing.B) {
 		ext := NewExtension(WithConfig(config))
 		appConfig := forge.DefaultAppConfig()
 		appConfig.Logger = logger.NewTestLogger()
-		app := forge.NewApp(appConfig)
+
+		app := forge.New(
+			forge.WithAppName("test-app"),
+			forge.WithAppVersion("1.0.0"),
+			forge.WithAppLogger(logger.NewNoopLogger()),
+			forge.WithConfig(forge.DefaultAppConfig()),
+		)
+
 		_ = ext.Register(app)
 	}
 }
@@ -618,7 +694,14 @@ func BenchmarkCacheExtension_RegisterWithConfigManager(b *testing.B) {
 	for b.Loop() {
 		appConfig := forge.DefaultAppConfig()
 		appConfig.Logger = logger.NewTestLogger()
-		app := forge.NewApp(appConfig)
+
+		app := forge.New(
+			forge.WithAppName("test-app"),
+			forge.WithAppVersion("1.0.0"),
+			forge.WithAppLogger(logger.NewNoopLogger()),
+			forge.WithConfig(forge.DefaultAppConfig()),
+		)
+
 		_ = forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
 			return configManager, nil
 		})

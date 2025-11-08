@@ -920,7 +920,7 @@ func (m *manager) SearchRooms(ctx context.Context, query string, filters map[str
 		roomDesc := room.GetDescription()
 
 		// Check if query matches room name or description
-		matches := false
+		var matches bool
 		if query == "" {
 			matches = true
 		} else {

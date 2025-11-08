@@ -424,7 +424,7 @@ func (s *sfuRouter) SetQuality(ctx context.Context, trackID, receiverID, quality
 	}
 
 	// Map quality string to layer index
-	layerIndex := 0
+	var layerIndex int
 
 	switch quality {
 	case "low":

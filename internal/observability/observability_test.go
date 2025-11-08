@@ -11,7 +11,7 @@ import (
 // createTestConfig creates a test configuration with unique port.
 func createTestConfig(port string) ObservabilityConfig {
 	config := CreateDefaultConfig()
-	config.Logger = logger.NewLogger(logger.LoggingConfig{Level: "info"})
+	config.Logger = logger.NewNoopLogger()
 	config.Prometheus.ListenAddress = port
 
 	return config

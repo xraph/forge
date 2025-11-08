@@ -6,6 +6,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/farp"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // TestFARPIntegration validates FARP schema publisher integration with service discovery.
@@ -14,7 +15,8 @@ func TestFARPIntegration(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	// Configure discovery extension with FARP enabled
 	config := Config{
@@ -103,7 +105,8 @@ func TestFARPMetadataGeneration(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	config := FARPConfig{
 		Enabled:      true,
@@ -178,7 +181,8 @@ func TestFARPWithDifferentBackends(t *testing.T) {
 			app := forge.New(forge.WithConfig(forge.AppConfig{
 				Name:    "test-service",
 				Version: "1.0.0",
-			}))
+			}), forge.WithAppLogger(logger.NewNoopLogger()),
+				forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 			config := Config{
 				Enabled: true,
@@ -253,7 +257,8 @@ func TestServiceInstanceWithFARPMetadata(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	config := Config{
 		Enabled: true,
@@ -327,7 +332,8 @@ func TestFARPRegistryIntegration(t *testing.T) {
 	app := forge.New(forge.WithConfig(forge.AppConfig{
 		Name:    "test-service",
 		Version: "1.0.0",
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	config := FARPConfig{
 		Enabled:      true,

@@ -54,6 +54,7 @@ type AppConfig struct {
 	// Components
 	ConfigManager ConfigManager
 	Logger        Logger
+	Metrics       Metrics
 
 	// Router options
 	RouterOptions []RouterOption
@@ -157,6 +158,13 @@ func WithAppEnvironment(environment string) AppOption {
 func WithAppConfigManager(configManager ConfigManager) AppOption {
 	return func(c *AppConfig) {
 		c.ConfigManager = configManager
+	}
+}
+
+// WithAppConfigManager sets the config manager.
+func WithAppMetrics(metrics Metrics) AppOption {
+	return func(c *AppConfig) {
+		c.Metrics = metrics
 	}
 }
 

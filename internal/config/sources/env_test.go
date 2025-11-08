@@ -136,7 +136,7 @@ func TestEnvSource_Load(t *testing.T) {
 }
 
 func TestEnvSource_Load_WithoutPrefix(t *testing.T) {
-	os.Setenv("NO_PREFIX_VAR", "test_value")
+	t.Setenv("NO_PREFIX_VAR", "test_value")
 
 	defer os.Unsetenv("NO_PREFIX_VAR")
 
@@ -169,8 +169,8 @@ func TestEnvSource_Load_WithoutPrefix(t *testing.T) {
 }
 
 func TestEnvSource_Load_WithSeparator(t *testing.T) {
-	os.Setenv("APP_DB_HOST", "localhost")
-	os.Setenv("APP_DB_PORT", "5432")
+	t.Setenv("APP_DB_HOST", "localhost")
+	t.Setenv("APP_DB_PORT", "5432")
 
 	defer os.Unsetenv("APP_DB_HOST")
 	defer os.Unsetenv("APP_DB_PORT")
@@ -206,7 +206,7 @@ func TestEnvSource_Load_WithSeparator(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_Get(t *testing.T) {
-	os.Setenv("TEST_KEY", "test_value")
+	t.Setenv("TEST_KEY", "test_value")
 
 	defer os.Unsetenv("TEST_KEY")
 
@@ -251,7 +251,7 @@ func TestEnvSource_Get(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_KeyTransform(t *testing.T) {
-	os.Setenv("TEST_lower_case", "value")
+	t.Setenv("TEST_lower_case", "value")
 
 	defer os.Unsetenv("TEST_lower_case")
 
@@ -278,7 +278,7 @@ func TestEnvSource_KeyTransform(t *testing.T) {
 }
 
 func TestEnvSource_ValueTransform(t *testing.T) {
-	os.Setenv("TEST_VALUE", "original")
+	t.Setenv("TEST_VALUE", "original")
 
 	defer os.Unsetenv("TEST_VALUE")
 
@@ -315,7 +315,7 @@ func TestEnvSource_TypeConversion(t *testing.T) {
 	}
 
 	for key, value := range testVars {
-		os.Setenv(key, value)
+		t.Setenv(key, value)
 		defer os.Unsetenv(key)
 	}
 
@@ -356,8 +356,8 @@ func TestEnvSource_TypeConversion(t *testing.T) {
 
 func TestEnvSource_RequiredVars(t *testing.T) {
 	t.Run("all required vars present", func(t *testing.T) {
-		os.Setenv("REQ_VAR1", "value1")
-		os.Setenv("REQ_VAR2", "value2")
+		t.Setenv("REQ_VAR1", "value1")
+		t.Setenv("REQ_VAR2", "value2")
 
 		defer os.Unsetenv("REQ_VAR1")
 		defer os.Unsetenv("REQ_VAR2")
@@ -376,7 +376,7 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 	})
 
 	t.Run("missing required var", func(t *testing.T) {
-		os.Setenv("REQ_VAR1", "value1")
+		t.Setenv("REQ_VAR1", "value1")
 
 		defer os.Unsetenv("REQ_VAR1")
 
@@ -399,8 +399,8 @@ func TestEnvSource_RequiredVars(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_SecretVars(t *testing.T) {
-	os.Setenv("SECRET_PASSWORD", "secret123")
-	os.Setenv("NORMAL_VAR", "normal")
+	t.Setenv("SECRET_PASSWORD", "secret123")
+	t.Setenv("NORMAL_VAR", "normal")
 
 	defer os.Unsetenv("SECRET_PASSWORD")
 	defer os.Unsetenv("NORMAL_VAR")
@@ -608,7 +608,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("empty var value", func(t *testing.T) {
-		os.Setenv("TEST_EMPTY_VAR", "")
+		t.Setenv("TEST_EMPTY_VAR", "")
 
 		defer os.Unsetenv("TEST_EMPTY_VAR")
 
@@ -635,7 +635,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 
 	t.Run("special characters in value", func(t *testing.T) {
 		specialValue := "value with spaces and !@#$%^&*()"
-		os.Setenv("TEST_SPECIAL_VAR", specialValue)
+		t.Setenv("TEST_SPECIAL_VAR", specialValue)
 
 		defer os.Unsetenv("TEST_SPECIAL_VAR")
 
@@ -659,7 +659,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 
 	t.Run("very long value", func(t *testing.T) {
 		longValue := strings.Repeat("a", 10000)
-		os.Setenv("TEST_LONG_VAR", longValue)
+		t.Setenv("TEST_LONG_VAR", longValue)
 
 		defer os.Unsetenv("TEST_LONG_VAR")
 
@@ -683,7 +683,7 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 
 	t.Run("unicode in value", func(t *testing.T) {
 		unicodeValue := "Hello 世界 🌍"
-		os.Setenv("TEST_UNICODE_VAR", unicodeValue)
+		t.Setenv("TEST_UNICODE_VAR", unicodeValue)
 
 		defer os.Unsetenv("TEST_UNICODE_VAR")
 
@@ -711,10 +711,10 @@ func TestEnvSource_EdgeCases(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_ComplexNesting(t *testing.T) {
-	os.Setenv("APP_DB_MASTER_HOST", "master.db")
-	os.Setenv("APP_DB_MASTER_PORT", "5432")
-	os.Setenv("APP_DB_REPLICA_HOST", "replica.db")
-	os.Setenv("APP_DB_REPLICA_PORT", "5433")
+	t.Setenv("APP_DB_MASTER_HOST", "master.db")
+	t.Setenv("APP_DB_MASTER_PORT", "5432")
+	t.Setenv("APP_DB_REPLICA_HOST", "replica.db")
+	t.Setenv("APP_DB_REPLICA_PORT", "5433")
 
 	defer os.Unsetenv("APP_DB_MASTER_HOST")
 	defer os.Unsetenv("APP_DB_MASTER_PORT")
@@ -759,11 +759,11 @@ func TestEnvSource_ComplexNesting(t *testing.T) {
 }
 
 func TestEnvSource_MixedTypes(t *testing.T) {
-	os.Setenv("MIX_STRING", "text")
-	os.Setenv("MIX_INT", "42")
-	os.Setenv("MIX_FLOAT", "3.14")
-	os.Setenv("MIX_BOOL", "true")
-	os.Setenv("MIX_LIST", "a,b,c")
+	t.Setenv("MIX_STRING", "text")
+	t.Setenv("MIX_INT", "42")
+	t.Setenv("MIX_FLOAT", "3.14")
+	t.Setenv("MIX_BOOL", "true")
+	t.Setenv("MIX_LIST", "a,b,c")
 
 	defer func() {
 		os.Unsetenv("MIX_STRING")
@@ -852,9 +852,7 @@ func TestEnvSource_ContextCancellation(t *testing.T) {
 // =============================================================================
 
 func TestEnvSource_ReloadConsistency(t *testing.T) {
-	os.Setenv("RELOAD_VAR", "value")
-
-	defer os.Unsetenv("RELOAD_VAR")
+	t.Setenv("RELOAD_VAR", "value")
 
 	source, _ := NewEnvSource("TEST_", EnvSourceOptions{})
 	ctx := context.Background()

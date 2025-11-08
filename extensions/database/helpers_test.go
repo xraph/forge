@@ -6,14 +6,17 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 func TestHelpers_Manager(t *testing.T) {
 	// Create test app with database extension
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-helpers",
-		Version: "1.0.0",
-	})
+	app := forge.New(
+		forge.WithAppName("test-helpers"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	ext := NewExtension(
 		WithDatabases(DatabaseConfig{
@@ -105,10 +108,12 @@ func TestHelpers_Manager(t *testing.T) {
 }
 
 func TestHelpers_Database(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-helpers-db",
-		Version: "1.0.0",
-	})
+	app := forge.New(
+		forge.WithAppName("test-helpers-db"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	ext := NewExtension(
 		WithDatabases(DatabaseConfig{
@@ -188,10 +193,12 @@ func TestHelpers_Database(t *testing.T) {
 }
 
 func TestHelpers_SQL(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-helpers-sql",
-		Version: "1.0.0",
-	})
+	app := forge.New(
+		forge.WithAppName("test-helpers-sql"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	ext := NewExtension(
 		WithDatabases(DatabaseConfig{
@@ -267,10 +274,12 @@ func TestHelpers_SQL(t *testing.T) {
 }
 
 func TestHelpers_NamedDatabases(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-helpers-named",
-		Version: "1.0.0",
-	})
+	app := forge.New(
+		forge.WithAppName("test-helpers-named"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	ext := NewExtension(
 		WithDatabases(
@@ -410,10 +419,12 @@ func TestHelpers_NamedDatabases(t *testing.T) {
 
 func TestHelpers_NotRegistered(t *testing.T) {
 	// Create app without database extension
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-not-registered",
-		Version: "1.0.0",
-	})
+	app := forge.New(
+		forge.WithAppName("test-not-registered"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	t.Run("GetManager_NotRegistered", func(t *testing.T) {
 		_, err := GetManager(app.Container())
@@ -449,10 +460,12 @@ func TestHelpers_NotRegistered(t *testing.T) {
 
 // BenchmarkHelpers tests the performance of helper functions.
 func BenchmarkHelpers(b *testing.B) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "bench-helpers",
-		Version: "1.0.0",
-	})
+	app := forge.New(
+		forge.WithAppName("bench-helpers"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	ext := NewExtension(
 		WithDatabases(DatabaseConfig{

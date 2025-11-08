@@ -18,7 +18,7 @@ func TestNewOTelTracer(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -47,7 +47,7 @@ func TestOTelTracer_StartSpan(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -85,7 +85,7 @@ func TestOTelTracer_EndSpan(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -115,7 +115,7 @@ func TestOTelTracer_AddEvent(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -149,7 +149,7 @@ func TestOTelTracer_SetAttribute(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -180,7 +180,7 @@ func TestOTelTracer_SetStatus(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -210,7 +210,7 @@ func TestOTelTracer_AddLink(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -244,7 +244,7 @@ func TestOTelTracer_InjectTraceContext(t *testing.T) {
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
 		EnableW3C:      true,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -281,7 +281,7 @@ func TestOTelTracer_ExtractTraceContext(t *testing.T) {
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
 		EnableW3C:      true,
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -315,7 +315,7 @@ func TestOTelTracer_GetSpanFromContext(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -348,7 +348,7 @@ func TestOTelTracer_GetStats(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)
@@ -382,7 +382,7 @@ func TestOTelTracer_ConcurrentAccess(t *testing.T) {
 		FlushInterval:  5 * time.Second,
 		EnableOTLP:     true,
 		OTLPEndpoint:   "http://localhost:4318/v1/traces",
-		Logger:         logger.NewLogger(logger.LoggingConfig{Level: "info"}),
+		Logger:         logger.NewNoopLogger(),
 	}
 
 	tracer, err := NewOTelTracer(config)

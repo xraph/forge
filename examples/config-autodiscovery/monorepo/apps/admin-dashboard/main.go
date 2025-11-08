@@ -57,7 +57,7 @@ func main() {
 func displayConfig(cfg forge.ConfigManager) {
 	fmt.Println("📋 Loaded Configuration for Admin Dashboard:")
 	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	
+
 	fmt.Println("\n🚀 App:")
 	fmt.Printf("  Name: %s\n", cfg.GetString("app.name"))
 	fmt.Printf("  Port: %d\n", cfg.GetInt("app.port"))
@@ -78,4 +78,3 @@ func displayConfig(cfg forge.ConfigManager) {
 	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println()
 }
-

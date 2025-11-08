@@ -10,6 +10,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/mcp"
+	"github.com/xraph/forge/internal/logger"
 )
 
 func TestMCPExtension(t *testing.T) {
@@ -38,13 +39,15 @@ func TestMCPExtension(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			app := forge.NewApp(forge.AppConfig{
-				Name:    "test-app",
-				Version: "1.0.0",
-				Extensions: []forge.Extension{
+			app := forge.New(
+				forge.WithAppName("test-app"),
+				forge.WithAppVersion("1.0.0"),
+				forge.WithAppLogger(logger.NewNoopLogger()),
+				forge.WithConfig(forge.DefaultAppConfig()),
+				forge.WithExtensions(
 					mcp.NewExtensionWithConfig(tt.config),
-				},
-			})
+				),
+			)
 
 			ctx := context.Background()
 			if err := app.Start(ctx); err != nil {
@@ -128,17 +131,19 @@ func TestMCPConfigValidation(t *testing.T) {
 }
 
 func TestMCPServerInfo(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-		Extensions: []forge.Extension{
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
 				BasePath:          "/_/mcp",
 				MaxToolNameLength: 64,
 			}),
-		},
-	})
+		),
+	)
 
 	ctx := context.Background()
 	if err := app.Start(ctx); err != nil {
@@ -175,18 +180,20 @@ func TestMCPServerInfo(t *testing.T) {
 }
 
 func TestMCPListTools(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-		Extensions: []forge.Extension{
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
 				BasePath:          "/_/mcp",
 				AutoExposeRoutes:  true,
 				MaxToolNameLength: 64,
 			}),
-		},
-	})
+		),
+	)
 
 	// Add some routes
 	app.Router().GET("/users/:id", func(ctx forge.Context) error {
@@ -246,18 +253,20 @@ func TestMCPListTools(t *testing.T) {
 }
 
 func TestMCPCallTool(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-		Extensions: []forge.Extension{
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
 				BasePath:          "/_/mcp",
 				AutoExposeRoutes:  true,
 				MaxToolNameLength: 64,
 			}),
-		},
-	})
+		),
+	)
 
 	// Add a route before starting
 	app.Router().POST("/users", func(ctx forge.Context) error {
@@ -422,10 +431,12 @@ func TestMCPIncludePatterns(t *testing.T) {
 }
 
 func TestMCPToolPrefix(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-		Extensions: []forge.Extension{
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
 				BasePath:          "/_/mcp",
@@ -433,8 +444,8 @@ func TestMCPToolPrefix(t *testing.T) {
 				ToolPrefix:        "myapi_",
 				MaxToolNameLength: 64,
 			}),
-		},
-	})
+		),
+	)
 
 	// Add a route
 	app.Router().GET("/users", func(ctx forge.Context) error {
@@ -479,10 +490,12 @@ func TestMCPDisabled(t *testing.T) {
 	config := mcp.DefaultConfig()
 	config.Enabled = false // Explicitly set to false after getting defaults
 
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	ext := mcp.NewExtensionWithConfig(config)
 	if err := app.RegisterExtension(ext); err != nil {
@@ -508,18 +521,20 @@ func TestMCPDisabled(t *testing.T) {
 }
 
 func TestMCPResources(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-		Extensions: []forge.Extension{
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
 				BasePath:          "/_/mcp",
 				EnableResources:   true,
 				MaxToolNameLength: 64,
 			}),
-		},
-	})
+		),
+	)
 
 	ctx := context.Background()
 	if err := app.Start(ctx); err != nil {
@@ -549,18 +564,20 @@ func TestMCPResources(t *testing.T) {
 }
 
 func TestMCPPrompts(t *testing.T) {
-	app := forge.NewApp(forge.AppConfig{
-		Name:    "test-app",
-		Version: "1.0.0",
-		Extensions: []forge.Extension{
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
 				BasePath:          "/_/mcp",
 				EnablePrompts:     true,
 				MaxToolNameLength: 64,
 			}),
-		},
-	})
+		),
+	)
 
 	ctx := context.Background()
 	if err := app.Start(ctx); err != nil {
@@ -610,9 +627,12 @@ func TestMCPExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 	})
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Try to register ConfigManager (skip if already exists from another test)
 	err := forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
@@ -654,9 +674,12 @@ func TestMCPExtension_ConfigLoading_FromLegacyKey(t *testing.T) {
 	})
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Try to register ConfigManager (skip if already exists from another test)
 	err := forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
@@ -699,9 +722,12 @@ func TestMCPExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 	})
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Try to register ConfigManager (skip if already exists from another test)
 	err := forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
@@ -749,9 +775,12 @@ func TestMCPExtension_ConfigLoading_NoConfigManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Create app without ConfigManager
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with some options
 	ext := mcp.NewExtension(
@@ -784,9 +813,12 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 	})
 
 	// Create app
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Try to register ConfigManager (skip if already exists from another test)
 	err := forge.RegisterSingleton(app.Container(), forge.ConfigKey, func(c forge.Container) (forge.ConfigManager, error) {
@@ -821,9 +853,12 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithoutConfig(t *testing.T) {
 	// RequireConfig=true without config should fail
 	// Create app without ConfigManager
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with RequireConfig=true
 	ext := mcp.NewExtension(
@@ -845,9 +880,12 @@ func TestMCPExtension_ConfigLoading_RequireConfigFalse_WithoutConfig(t *testing.
 	ctx := context.Background()
 
 	// Create app without ConfigManager
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Create extension with RequireConfig=false (default)
 	ext := mcp.NewExtension()
@@ -907,9 +945,12 @@ func TestMCPExtension_NewExtensionWithConfig(t *testing.T) {
 
 	ext := mcp.NewExtensionWithConfig(config)
 
-	app := forge.NewApp(forge.AppConfig{
-		Name: "test-app",
-	})
+	app := forge.New(
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithConfig(forge.DefaultAppConfig()),
+	)
 
 	// Register extension properly
 	err := app.RegisterExtension(ext)

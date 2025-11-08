@@ -48,11 +48,11 @@ type Stream struct {
 	Variants []*Variant
 
 	// Metadata
-	Duration    time.Duration
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	StartedAt   *time.Time
-	EndedAt     *time.Time
+	Duration  time.Duration
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	StartedAt *time.Time
+	EndedAt   *time.Time
 
 	// Configuration
 	TargetDuration int // Segment duration in seconds
@@ -80,14 +80,14 @@ type Variant struct {
 
 // Segment represents an HLS segment
 type Segment struct {
-	StreamID   string
-	VariantID  string
+	StreamID    string
+	VariantID   string
 	SequenceNum int
-	Duration   float64
-	Data       []byte
-	URL        string
-	Size       int64
-	CreatedAt  time.Time
+	Duration    float64
+	Data        []byte
+	URL         string
+	Size        int64
+	CreatedAt   time.Time
 }
 
 // MasterPlaylist represents an HLS master playlist
@@ -126,13 +126,13 @@ type SegmentInfo struct {
 
 // StreamStats contains statistics about a stream
 type StreamStats struct {
-	StreamID        string
-	CurrentViewers  int
-	TotalViews      int64
-	TotalBandwidth  int64
-	AverageLatency  time.Duration
-	SegmentsServed  int64
-	ErrorRate       float64
+	StreamID       string
+	CurrentViewers int
+	TotalViews     int64
+	TotalBandwidth int64
+	AverageLatency time.Duration
+	SegmentsServed int64
+	ErrorRate      float64
 
 	// Per-variant stats
 	VariantStats map[string]*VariantStats
@@ -140,11 +140,11 @@ type StreamStats struct {
 
 // VariantStats contains statistics about a specific variant
 type VariantStats struct {
-	VariantID       string
-	RequestCount    int64
-	BytesServed     int64
-	CurrentViewers  int
-	AverageLatency  time.Duration
+	VariantID      string
+	RequestCount   int64
+	BytesServed    int64
+	CurrentViewers int
+	AverageLatency time.Duration
 }
 
 // StreamOptions contains options for creating a stream
@@ -193,8 +193,8 @@ type TranscodeProfile struct {
 type StreamType string
 
 const (
-	StreamTypeLive StreamType = "live"
-	StreamTypeVOD  StreamType = "vod"
+	StreamTypeLive  StreamType = "live"
+	StreamTypeVOD   StreamType = "vod"
 	StreamTypeEvent StreamType = "event" // Live stream that becomes VOD
 )
 
@@ -202,11 +202,11 @@ const (
 type StreamStatus string
 
 const (
-	StreamStatusCreated  StreamStatus = "created"
-	StreamStatusActive   StreamStatus = "active"
-	StreamStatusStopped  StreamStatus = "stopped"
-	StreamStatusError    StreamStatus = "error"
-	StreamStatusEnded    StreamStatus = "ended"
+	StreamStatusCreated StreamStatus = "created"
+	StreamStatusActive  StreamStatus = "active"
+	StreamStatusStopped StreamStatus = "stopped"
+	StreamStatusError   StreamStatus = "error"
+	StreamStatusEnded   StreamStatus = "ended"
 )
 
 // Common transcoding profiles
@@ -216,7 +216,7 @@ var (
 		Name:       "360p",
 		Width:      640,
 		Height:     360,
-		Bitrate:    800000,   // 800 Kbps
+		Bitrate:    800000, // 800 Kbps
 		FrameRate:  30,
 		VideoCodec: "h264",
 		AudioCodec: "aac",
@@ -227,7 +227,7 @@ var (
 		Name:       "480p",
 		Width:      854,
 		Height:     480,
-		Bitrate:    1400000,  // 1.4 Mbps
+		Bitrate:    1400000, // 1.4 Mbps
 		FrameRate:  30,
 		VideoCodec: "h264",
 		AudioCodec: "aac",
@@ -239,7 +239,7 @@ var (
 		Name:       "720p",
 		Width:      1280,
 		Height:     720,
-		Bitrate:    2800000,  // 2.8 Mbps
+		Bitrate:    2800000, // 2.8 Mbps
 		FrameRate:  30,
 		VideoCodec: "h264",
 		AudioCodec: "aac",
@@ -250,7 +250,7 @@ var (
 		Name:       "1080p",
 		Width:      1920,
 		Height:     1080,
-		Bitrate:    5000000,  // 5 Mbps
+		Bitrate:    5000000, // 5 Mbps
 		FrameRate:  30,
 		VideoCodec: "h264",
 		AudioCodec: "aac",

@@ -16,7 +16,7 @@ func TestMessageHandlerType(t *testing.T) {
 	handler := func(message *sarama.ConsumerMessage) error {
 		return nil
 	}
-	
+
 	if handler == nil {
 		t.Error("handler should not be nil")
 	}

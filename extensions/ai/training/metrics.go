@@ -809,7 +809,8 @@ func (me *MetricsEvaluatorImpl) EvaluateClassification(predictions, labels []int
 		tp := confusionMatrix[i][i]
 		fn := 0
 		fp := 0
-		tn := 0
+
+		var tn int
 
 		for j := range numClasses {
 			if j != i {

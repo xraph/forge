@@ -86,7 +86,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("✓ Registered manifest with registry\n")
+	fmt.Println("✓ Registered manifest with registry")
 
 	// Fetch manifest back
 	fetchedManifest, err := registry.GetManifest(ctx, manifest.InstanceID)
@@ -195,4 +195,3 @@ func main() {
 	fmt.Println()
 	fmt.Println("=== Example Complete ===")
 }
-

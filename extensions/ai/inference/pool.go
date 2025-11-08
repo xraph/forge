@@ -241,7 +241,7 @@ func (p *ObjectPool) PutBuffer(buffer []byte) {
 	}
 	// Only pool buffers with reasonable capacity
 	if cap(buffer) <= 65536 { // 64KB max
-		p.bufferPool.Put(buffer)
+		p.bufferPool.Put(&buffer)
 	}
 }
 

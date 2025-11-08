@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // TestRealWorldUsageWithAppConfigExtensions tests the exact scenario from user's code
@@ -34,7 +35,8 @@ func TestRealWorldUsageWithAppConfigExtensions(t *testing.T) {
 				}),
 			),
 		},
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 	// Start the app (which starts extensions)
 	ctx := context.Background()
@@ -111,7 +113,9 @@ func TestMinimalAppConfig(t *testing.T) {
 				}),
 			),
 		},
-	}))
+	}), forge.WithAppLogger(logger.NewNoopLogger()),
+		forge.WithAppMetrics(forge.NewNoOpMetrics()),
+	)
 
 	ctx := context.Background()
 	if err := app.Start(ctx); err != nil {
@@ -193,7 +197,8 @@ func TestComplexHTTPAddress(t *testing.T) {
 						}),
 					),
 				},
-			}))
+			}), forge.WithAppLogger(logger.NewNoopLogger()),
+				forge.WithAppMetrics(forge.NewNoOpMetrics()))
 
 			ctx := context.Background()
 			if err := app.Start(ctx); err != nil {

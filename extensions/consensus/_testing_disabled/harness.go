@@ -110,11 +110,11 @@ func (h *TestHarness) CreateCluster(ctx context.Context, numNodes int) error {
 
 		// Create Raft node
 		raftCfg := raft.Config{
-			NodeID:              nodeID,
-			HeartbeatInterval:   50 * time.Millisecond,
-			ElectionTimeoutMin:  200 * time.Millisecond,
-			ElectionTimeoutMax:  400 * time.Millisecond,
-			MaxAppendEntries:    64,
+			NodeID:             nodeID,
+			HeartbeatInterval:  50 * time.Millisecond,
+			ElectionTimeoutMin: 200 * time.Millisecond,
+			ElectionTimeoutMax: 400 * time.Millisecond,
+			MaxAppendEntries:   64,
 		}
 
 		raftNode, err := raft.NewNode(raftCfg, h.logger, sm, trans, stor)

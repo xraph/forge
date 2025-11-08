@@ -7,7 +7,6 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/config"
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/forge/internal/metrics"
 )
 
 func TestNewExtension(t *testing.T) {
@@ -135,8 +134,8 @@ func TestExtensionStopNotStarted(t *testing.T) {
 
 	// Create a mock client
 	config := DefaultConfig()
-	log := logger.NewLogger(logger.Config{Level: "info"})
-	met := metrics.NewMetrics(metrics.Config{})
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
 
 	ext.client = &kafkaClient{
 		config:  config,
@@ -167,21 +166,15 @@ func TestExtensionHealthNotInitialized(t *testing.T) {
 func createTestApp(t *testing.T) forge.App {
 	t.Helper()
 
-	log := logger.NewLogger(logger.Config{
-		Level:  "info",
-		Format: "text",
-	})
+	log := logger.NewNoopLogger()
 
-	met := metrics.NewMetrics(metrics.Config{})
-
-	cfg := config.NewConfigManager()
+	cfg := config.NewTestConfigManager()
 
 	testApp := forge.New(
-		forge.WithName("test-app"),
-		forge.WithVersion("1.0.0"),
-		forge.WithLogger(log),
-		forge.WithMetrics(met),
-		forge.WithConfig(cfg),
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(log),
+		forge.WithAppConfigManager(cfg),
 	)
 
 	return testApp
