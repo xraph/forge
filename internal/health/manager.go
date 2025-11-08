@@ -592,7 +592,6 @@ func (hc *ManagerImpl) checkService(ctx context.Context, serviceName string) *he
 
 // isCriticalService checks if a service is marked as critical.
 func (hc *ManagerImpl) isCriticalService(serviceName string) bool {
-
 	return slices.Contains(hc.config.CriticalServices, serviceName)
 }
 

@@ -167,10 +167,12 @@ func TestRedisQueue_NotConnectedErrors(t *testing.T) {
 		{"DeleteQueue", func() error { return q.DeleteQueue(ctx, "test") }},
 		{"ListQueues", func() error {
 			_, err := q.ListQueues(ctx)
+
 			return err
 		}},
 		{"GetQueueInfo", func() error {
 			_, err := q.GetQueueInfo(ctx, "test")
+
 			return err
 		}},
 		{"PurgeQueue", func() error { return q.PurgeQueue(ctx, "test") }},
@@ -181,11 +183,13 @@ func TestRedisQueue_NotConnectedErrors(t *testing.T) {
 		{"StopConsuming", func() error { return q.StopConsuming(ctx, "test") }},
 		{"GetDeadLetterQueue", func() error {
 			_, err := q.GetDeadLetterQueue(ctx, "test")
+
 			return err
 		}},
 		{"RequeueDeadLetter", func() error { return q.RequeueDeadLetter(ctx, "test", "id") }},
 		{"Stats", func() error {
 			_, err := q.Stats(ctx)
+
 			return err
 		}},
 	}
@@ -227,10 +231,12 @@ func TestRabbitMQQueue_NotConnectedErrors(t *testing.T) {
 		{"DeleteQueue", func() error { return q.DeleteQueue(ctx, "test") }},
 		{"ListQueues", func() error {
 			_, err := q.ListQueues(ctx)
+
 			return err
 		}},
 		{"GetQueueInfo", func() error {
 			_, err := q.GetQueueInfo(ctx, "test")
+
 			return err
 		}},
 		{"PurgeQueue", func() error { return q.PurgeQueue(ctx, "test") }},
@@ -238,11 +244,13 @@ func TestRabbitMQQueue_NotConnectedErrors(t *testing.T) {
 		{"PublishBatch", func() error { return q.PublishBatch(ctx, "test", []Message{}) }},
 		{"GetDeadLetterQueue", func() error {
 			_, err := q.GetDeadLetterQueue(ctx, "test")
+
 			return err
 		}},
 		{"RequeueDeadLetter", func() error { return q.RequeueDeadLetter(ctx, "test", "id") }},
 		{"Stats", func() error {
 			_, err := q.Stats(ctx)
+
 			return err
 		}},
 	}
@@ -297,10 +305,12 @@ func TestNATSQueue_NotConnectedErrors(t *testing.T) {
 		{"DeleteQueue", func() error { return q.DeleteQueue(ctx, "test") }},
 		{"ListQueues", func() error {
 			_, err := q.ListQueues(ctx)
+
 			return err
 		}},
 		{"GetQueueInfo", func() error {
 			_, err := q.GetQueueInfo(ctx, "test")
+
 			return err
 		}},
 		{"PurgeQueue", func() error { return q.PurgeQueue(ctx, "test") }},
@@ -309,11 +319,13 @@ func TestNATSQueue_NotConnectedErrors(t *testing.T) {
 		{"PublishDelayed", func() error { return q.PublishDelayed(ctx, "test", Message{}, 0) }},
 		{"GetDeadLetterQueue", func() error {
 			_, err := q.GetDeadLetterQueue(ctx, "test")
+
 			return err
 		}},
 		{"RequeueDeadLetter", func() error { return q.RequeueDeadLetter(ctx, "test", "id") }},
 		{"Stats", func() error {
 			_, err := q.Stats(ctx)
+
 			return err
 		}},
 	}

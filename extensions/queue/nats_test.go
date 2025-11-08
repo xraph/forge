@@ -2,6 +2,7 @@ package queue
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -155,15 +156,7 @@ func TestNATSQueue_QueueOperations(t *testing.T) {
 		t.Errorf("ListQueues() error = %v", err)
 	}
 
-	found := false
-
-	for _, q := range queues {
-		if q == queueName {
-			found = true
-
-			break
-		}
-	}
+	found := slices.Contains(queues, queueName)
 
 	if !found {
 		t.Errorf("ListQueues() did not include %s", queueName)

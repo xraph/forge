@@ -468,7 +468,7 @@ func TestInMemorySearch_Search(t *testing.T) {
 
 	// Verify results are sorted by score
 	if len(results.Hits) > 1 {
-		for i := 0; i < len(results.Hits)-1; i++ {
+		for i := range len(results.Hits) - 1 {
 			if results.Hits[i].Score < results.Hits[i+1].Score {
 				t.Error("results not sorted by score")
 			}
@@ -722,34 +722,41 @@ func TestInMemorySearch_NotConnectedErrors(t *testing.T) {
 		{"DeleteIndex", func() error { return search.DeleteIndex(ctx, "test") }},
 		{"ListIndexes", func() error {
 			_, err := search.ListIndexes(ctx)
+
 			return err
 		}},
 		{"GetIndexInfo", func() error {
 			_, err := search.GetIndexInfo(ctx, "test")
+
 			return err
 		}},
 		{"Index", func() error { return search.Index(ctx, "test", doc) }},
 		{"BulkIndex", func() error { return search.BulkIndex(ctx, "test", []Document{doc}) }},
 		{"Get", func() error {
 			_, err := search.Get(ctx, "test", "1")
+
 			return err
 		}},
 		{"Delete", func() error { return search.Delete(ctx, "test", "1") }},
 		{"Update", func() error { return search.Update(ctx, "test", "1", doc) }},
 		{"Search", func() error {
 			_, err := search.Search(ctx, SearchQuery{Index: "test"})
+
 			return err
 		}},
 		{"Suggest", func() error {
 			_, err := search.Suggest(ctx, SuggestQuery{Index: "test"})
+
 			return err
 		}},
 		{"Autocomplete", func() error {
 			_, err := search.Autocomplete(ctx, AutocompleteQuery{Index: "test"})
+
 			return err
 		}},
 		{"Stats", func() error {
 			_, err := search.Stats(ctx)
+
 			return err
 		}},
 	}

@@ -454,7 +454,6 @@ func BenchmarkService_WithTargeting(b *testing.B) {
 }
 
 func BenchmarkUserContext_Creation(b *testing.B) {
-
 	for b.Loop() {
 		NewUserContext("test-user").
 			WithEmail("user@example.com").

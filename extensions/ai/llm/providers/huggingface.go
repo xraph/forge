@@ -716,7 +716,6 @@ func (p *HuggingFaceProvider) cleanupRateLimit(now time.Time) {
 
 // IsModelSupported checks if a model is supported.
 func (p *HuggingFaceProvider) IsModelSupported(model string) bool {
-
 	return slices.Contains(p.models, model)
 }
 

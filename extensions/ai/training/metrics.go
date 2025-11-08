@@ -785,7 +785,7 @@ func (me *MetricsEvaluatorImpl) EvaluateClassification(predictions, labels []int
 	// Build confusion matrix
 	correct := 0
 
-	for i := range len(predictions) {
+	for i := range predictions {
 		pred := predictions[i]
 		label := labels[i]
 
@@ -892,7 +892,7 @@ func (me *MetricsEvaluatorImpl) EvaluateRegression(predictions, targets []float6
 		absErrors                                                   []float64
 	)
 
-	for i := range len(predictions) {
+	for i := range predictions {
 		pred := predictions[i]
 		target := targets[i]
 
@@ -944,7 +944,7 @@ func (me *MetricsEvaluatorImpl) EvaluateRegression(predictions, targets []float6
 
 	validCount := 0
 
-	for i := range len(predictions) {
+	for i := range predictions {
 		if targets[i] != 0 {
 			percentageError := math.Abs((targets[i] - predictions[i]) / targets[i])
 			sumPercentageError += percentageError
@@ -1012,7 +1012,7 @@ func (me *MetricsEvaluatorImpl) EvaluateTimeSeries(predictions, targets []float6
 
 	validCount := 0
 
-	for i := range len(predictions) {
+	for i := range predictions {
 		if targets[i] != 0 {
 			absPercentageError := math.Abs(targets[i] - predictions[i])
 			sumAbsPercentageError += absPercentageError
@@ -1034,7 +1034,7 @@ func (me *MetricsEvaluatorImpl) EvaluateTimeSeries(predictions, targets []float6
 
 	// Calculate bias
 	var sumError float64
-	for i := range len(predictions) {
+	for i := range predictions {
 		sumError += predictions[i] - targets[i]
 	}
 

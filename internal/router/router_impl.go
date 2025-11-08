@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 
 	"github.com/xraph/forge/internal/di"
@@ -46,7 +47,7 @@ type router struct {
 	// WebTransport support
 	webTransportEnabled bool
 	webTransportConfig  WebTransportConfig
-	http3Server         interface{} // *http3.Server
+	http3Server         any // *http3.Server
 
 	mu sync.RWMutex
 }
@@ -276,24 +277,20 @@ func (r *router) RoutesByTag(tag string) []RouteInfo {
 	var infos []RouteInfo
 
 	for _, route := range *r.routes {
-		for _, t := range route.config.Tags {
-			if t == tag {
-				infos = append(infos, RouteInfo{
-					Name:        route.config.Name,
-					Method:      route.method,
-					Path:        route.path,
-					Pattern:     route.path,
-					Handler:     route.handler,
-					Middleware:  route.middleware,
-					Tags:        route.config.Tags,
-					Metadata:    route.config.Metadata,
-					Extensions:  route.config.Extensions,
-					Summary:     route.config.Summary,
-					Description: route.config.Description,
-				})
-
-				break
-			}
+		if slices.Contains(route.config.Tags, tag) {
+			infos = append(infos, RouteInfo{
+				Name:        route.config.Name,
+				Method:      route.method,
+				Path:        route.path,
+				Pattern:     route.path,
+				Handler:     route.handler,
+				Middleware:  route.middleware,
+				Tags:        route.config.Tags,
+				Metadata:    route.config.Metadata,
+				Extensions:  route.config.Extensions,
+				Summary:     route.config.Summary,
+				Description: route.config.Description,
+			})
 		}
 	}
 

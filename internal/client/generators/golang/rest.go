@@ -313,12 +313,15 @@ func (r *RESTGenerator) toGoParamName(name string) string {
 	}
 
 	result := strings.ToLower(parts[0])
+
 	var resultSb303 strings.Builder
+
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
 			resultSb303.WriteString(strings.ToUpper(parts[i][:1]) + parts[i][1:])
 		}
 	}
+
 	result += resultSb303.String()
 
 	return result

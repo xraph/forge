@@ -3,6 +3,7 @@ package models
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,7 +71,7 @@ func (a *ScikitAdapter) CreateModel(config ModelConfig) (Model, error) {
 	model.SetOutputSchema(a.getDefaultOutputSchema(config))
 
 	// Set Scikit-learn-specific metadata
-	metadata := map[string]interface{}{
+	metadata := map[string]any{
 		"framework":  "scikit-learn",
 		"version":    "1.x",
 		"format":     a.detectModelFormat(config.ModelPath),
@@ -125,15 +126,7 @@ func (a *ScikitAdapter) ValidateConfig(config ModelConfig) error {
 		ModelTypeAnomalyDetect,
 	}
 
-	isValidType := false
-
-	for _, validType := range validTypes {
-		if config.Type == validType {
-			isValidType = true
-
-			break
-		}
-	}
+	isValidType := slices.Contains(validTypes, config.Type)
 
 	if !isValidType {
 		return fmt.Errorf("invalid model type for Scikit-learn: %s", config.Type)
@@ -157,28 +150,28 @@ func (a *ScikitAdapter) detectModelFormat(modelPath string) string {
 func (a *ScikitAdapter) getDefaultInputSchema(config ModelConfig) InputSchema {
 	return InputSchema{
 		Type: "object",
-		Properties: map[string]interface{}{
-			"features": map[string]interface{}{
+		Properties: map[string]any{
+			"features": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "number",
 				},
 			},
-			"feature_names": map[string]interface{}{
+			"feature_names": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "string",
 				},
 			},
 		},
 		Required: []string{"features"},
-		Examples: []interface{}{
-			map[string]interface{}{
+		Examples: []any{
+			map[string]any{
 				"features":      []float64{1.0, 2.0, 3.0, 4.0},
 				"feature_names": []string{"feature1", "feature2", "feature3", "feature4"},
 			},
 		},
-		Constraints: map[string]interface{}{
+		Constraints: map[string]any{
 			"max_features": 1000,
 			"model_type":   config.Type,
 		},
@@ -189,16 +182,16 @@ func (a *ScikitAdapter) getDefaultInputSchema(config ModelConfig) InputSchema {
 func (a *ScikitAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema {
 	schema := OutputSchema{
 		Type: "object",
-		Properties: map[string]interface{}{
-			"predictions": map[string]interface{}{
+		Properties: map[string]any{
+			"predictions": map[string]any{
 				"type": "array",
-				"items": map[string]interface{}{
+				"items": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"label":       map[string]interface{}{"type": "string"},
-						"value":       map[string]interface{}{"type": "number"},
-						"confidence":  map[string]interface{}{"type": "number"},
-						"probability": map[string]interface{}{"type": "number"},
+					"properties": map[string]any{
+						"label":       map[string]any{"type": "string"},
+						"value":       map[string]any{"type": "number"},
+						"confidence":  map[string]any{"type": "number"},
+						"probability": map[string]any{"type": "number"},
 					},
 				},
 			},
@@ -209,34 +202,34 @@ func (a *ScikitAdapter) getDefaultOutputSchema(config ModelConfig) OutputSchema 
 	// Add type-specific properties
 	switch config.Type {
 	case ModelTypeClassification:
-		schema.Properties["probabilities"] = map[string]interface{}{
+		schema.Properties["probabilities"] = map[string]any{
 			"type": "array",
-			"items": map[string]interface{}{
+			"items": map[string]any{
 				"type": "number",
 			},
 		}
-		schema.Properties["classes"] = map[string]interface{}{
+		schema.Properties["classes"] = map[string]any{
 			"type": "array",
-			"items": map[string]interface{}{
+			"items": map[string]any{
 				"type": "string",
 			},
 		}
 	case ModelTypeRegression:
-		schema.Properties["prediction"] = map[string]interface{}{
+		schema.Properties["prediction"] = map[string]any{
 			"type": "number",
 		}
 	case ModelTypeClustering:
-		schema.Properties["cluster"] = map[string]interface{}{
+		schema.Properties["cluster"] = map[string]any{
 			"type": "integer",
 		}
-		schema.Properties["distance"] = map[string]interface{}{
+		schema.Properties["distance"] = map[string]any{
 			"type": "number",
 		}
 	case ModelTypeAnomalyDetect:
-		schema.Properties["is_anomaly"] = map[string]interface{}{
+		schema.Properties["is_anomaly"] = map[string]any{
 			"type": "boolean",
 		}
-		schema.Properties["anomaly_score"] = map[string]interface{}{
+		schema.Properties["anomaly_score"] = map[string]any{
 			"type": "number",
 		}
 	}
@@ -249,7 +242,7 @@ type ScikitModel struct {
 	*BaseModel
 
 	adapter *ScikitAdapter
-	model   interface{} // Scikit-learn model object
+	model   any // Scikit-learn model object
 
 	// Model information
 	featureNames []string
@@ -259,7 +252,7 @@ type ScikitModel struct {
 	// Model-specific properties
 	modelType  ModelType
 	algorithm  string
-	parameters map[string]interface{}
+	parameters map[string]any
 }
 
 // Load loads the Scikit-learn model.
@@ -479,9 +472,9 @@ func (m *ScikitModel) ValidateInput(input ModelInput) error {
 		if m.numFeatures > 0 && len(data) != m.numFeatures {
 			return fmt.Errorf("expected %d features, got %d", m.numFeatures, len(data))
 		}
-	case map[string]interface{}:
+	case map[string]any:
 		if features, ok := data["features"]; ok {
-			if featureSlice, ok := features.([]interface{}); ok {
+			if featureSlice, ok := features.([]any); ok {
 				if len(featureSlice) == 0 {
 					return errors.New("feature array cannot be empty")
 				}
@@ -507,7 +500,7 @@ func (m *ScikitModel) prepareFeatures(input ModelInput) ([]float64, error) {
 	switch data := input.Data.(type) {
 	case []float64:
 		return data, nil
-	case []interface{}:
+	case []any:
 		features := make([]float64, len(data))
 		for i, val := range data {
 			if f, ok := val.(float64); ok {
@@ -520,9 +513,9 @@ func (m *ScikitModel) prepareFeatures(input ModelInput) ([]float64, error) {
 		}
 
 		return features, nil
-	case map[string]interface{}:
+	case map[string]any:
 		if featureData, ok := data["features"]; ok {
-			if featureSlice, ok := featureData.([]interface{}); ok {
+			if featureSlice, ok := featureData.([]any); ok {
 				features := make([]float64, len(featureSlice))
 				for i, val := range featureSlice {
 					if f, ok := val.(float64); ok {
@@ -572,7 +565,7 @@ func (m *ScikitModel) predictClassification(features []float64, requestID string
 			Value:       probabilities[i],
 			Confidence:  probabilities[i],
 			Probability: probabilities[i],
-			Metadata: map[string]interface{}{
+			Metadata: map[string]any{
 				"class_index": i,
 			},
 		}
@@ -582,7 +575,7 @@ func (m *ScikitModel) predictClassification(features []float64, requestID string
 		Predictions:   predictions,
 		Probabilities: probabilities,
 		Confidence:    probabilities[predictedClass],
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"predicted_class": m.classes[predictedClass],
 			"algorithm":       m.algorithm,
 		},
@@ -602,13 +595,13 @@ func (m *ScikitModel) predictRegression(features []float64, requestID string) (M
 				Label:      "regression_value",
 				Value:      prediction,
 				Confidence: confidence,
-				Metadata: map[string]interface{}{
+				Metadata: map[string]any{
 					"prediction_type": "regression",
 				},
 			},
 		},
 		Confidence: confidence,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"prediction": prediction,
 			"algorithm":  m.algorithm,
 		},
@@ -628,14 +621,14 @@ func (m *ScikitModel) predictClustering(features []float64, requestID string) (M
 				Label:      fmt.Sprintf("cluster_%d", cluster),
 				Value:      float64(cluster),
 				Confidence: 1.0 - distance, // Closer to center = higher confidence
-				Metadata: map[string]interface{}{
+				Metadata: map[string]any{
 					"cluster":  cluster,
 					"distance": distance,
 				},
 			},
 		},
 		Confidence: 1.0 - distance,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"cluster":   cluster,
 			"distance":  distance,
 			"algorithm": m.algorithm,
@@ -656,7 +649,7 @@ func (m *ScikitModel) predictAnomaly(features []float64, requestID string) (Mode
 				Label:      fmt.Sprintf("is_anomaly_%t", isAnomaly),
 				Value:      anomalyScore,
 				Confidence: 1.0 - anomalyScore,
-				Metadata: map[string]interface{}{
+				Metadata: map[string]any{
 					"is_anomaly":    isAnomaly,
 					"anomaly_score": anomalyScore,
 					"threshold":     0.5,
@@ -664,7 +657,7 @@ func (m *ScikitModel) predictAnomaly(features []float64, requestID string) (Mode
 			},
 		},
 		Confidence: 1.0 - anomalyScore,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"is_anomaly":    isAnomaly,
 			"anomaly_score": anomalyScore,
 			"algorithm":     m.algorithm,
@@ -732,8 +725,8 @@ func (m *ScikitModel) inferAlgorithm(modelName string) string {
 }
 
 // getDefaultParameters returns default parameters for the model.
-func (m *ScikitModel) getDefaultParameters() map[string]interface{} {
-	return map[string]interface{}{
+func (m *ScikitModel) getDefaultParameters() map[string]any {
+	return map[string]any{
 		"n_estimators": 100,
 		"max_depth":    nil,
 		"random_state": 42,
@@ -756,7 +749,7 @@ func (m *ScikitModel) GetAlgorithm() string {
 }
 
 // GetParameters returns the model parameters.
-func (m *ScikitModel) GetParameters() map[string]interface{} {
+func (m *ScikitModel) GetParameters() map[string]any {
 	return m.parameters
 }
 
@@ -765,5 +758,5 @@ type scikitModel struct {
 	modelPath  string
 	modelType  ModelType
 	algorithm  string
-	parameters map[string]interface{}
+	parameters map[string]any
 }

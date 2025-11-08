@@ -414,7 +414,7 @@ func clearOptions(n int) {
 		}
 	}
 	// Move back up to start
-	for i := 0; i < n-1; i++ {
+	for range n - 1 {
 		fmt.Print("\033[1A")
 	}
 

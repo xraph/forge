@@ -1194,7 +1194,7 @@ func (r *PerformanceTestRunner) runTest(workerFn func(int)) PerformanceResult {
 	start := time.Now()
 
 	// Start workers
-	for i := 0; i < r.workers; i++ {
+	for i := range r.workers {
 		wg.Add(1)
 
 		go func(worker int) {

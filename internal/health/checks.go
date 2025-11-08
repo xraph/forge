@@ -3,6 +3,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	healthinternal "github.com/xraph/forge/internal/health/internal"
@@ -92,15 +93,7 @@ func (hc *ManagerImpl) registerServiceChecks() error {
 		}
 
 		// Check if service is marked as critical
-		critical := false
-
-		for _, criticalService := range hc.config.CriticalServices {
-			if criticalService == serviceName {
-				critical = true
-
-				break
-			}
-		}
+		critical := slices.Contains(hc.config.CriticalServices, serviceName)
 
 		// Create local copy for closure capture (avoid loop variable capture bug)
 		svcName := serviceName

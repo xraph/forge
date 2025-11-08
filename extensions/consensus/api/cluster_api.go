@@ -266,6 +266,7 @@ func (ca *ClusterAPI) GetClusterHealth(ctx forge.Context) error {
 	}
 
 	statusCode := 200
+
 	switch healthStatus {
 	case "critical":
 		statusCode = 503

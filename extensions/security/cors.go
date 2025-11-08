@@ -2,6 +2,7 @@ package security
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -154,10 +155,8 @@ func (m *CORSManager) getAllowOrigin(origin string) string {
 	}
 
 	// Check for wildcard
-	for _, allowedOrigin := range m.config.AllowOrigins {
-		if allowedOrigin == "*" {
-			return "*"
-		}
+	if slices.Contains(m.config.AllowOrigins, "*") {
+		return "*"
 	}
 
 	// Return the origin if it's allowed
@@ -239,15 +238,7 @@ func (m *CORSManager) handlePreflight(ctx forge.Context) error {
 	}
 
 	// Check if method is allowed
-	methodAllowed := false
-
-	for _, method := range m.config.AllowMethods {
-		if method == requestMethod {
-			methodAllowed = true
-
-			break
-		}
-	}
+	methodAllowed := slices.Contains(m.config.AllowMethods, requestMethod)
 
 	if !methodAllowed {
 		m.logger.Debug("cors method not allowed",
@@ -287,8 +278,8 @@ func addVaryHeader(header http.Header, value string) {
 	}
 
 	// Check if the value already exists
-	values := strings.Split(vary, ",")
-	for _, v := range values {
+	values := strings.SplitSeq(vary, ",")
+	for v := range values {
 		if strings.TrimSpace(v) == value {
 			return
 		}

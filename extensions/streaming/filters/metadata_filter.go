@@ -2,6 +2,7 @@ package filters
 
 import (
 	"context"
+	"slices"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
 )
@@ -64,23 +65,13 @@ func (mf *metadataFilter) Filter(ctx context.Context, msg *streaming.Message, re
 	// Filter by message type
 	if mf.config.FilterByType {
 		// Check blocked types
-		for _, blockedType := range mf.config.BlockedTypes {
-			if msg.Type == blockedType {
-				return nil, nil // Blocked type
-			}
+		if slices.Contains(mf.config.BlockedTypes, msg.Type) {
+			return nil, nil // Blocked type
 		}
 
 		// Check allowed types
 		if len(mf.config.AllowedTypes) > 0 {
-			allowed := false
-
-			for _, allowedType := range mf.config.AllowedTypes {
-				if msg.Type == allowedType {
-					allowed = true
-
-					break
-				}
-			}
+			allowed := slices.Contains(mf.config.AllowedTypes, msg.Type)
 
 			if !allowed {
 				return nil, nil // Not in allowed list

@@ -346,7 +346,7 @@ func (m *HuggingFaceModel) makeAPICall(ctx context.Context, request HuggingFaceR
 
 	var lastErr error
 
-	for attempt := 0; attempt < m.adapter.config.MaxRetries; attempt++ {
+	for attempt := range m.adapter.config.MaxRetries {
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.apiEndpoint, strings.NewReader(string(requestBody)))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create request: %w", err)

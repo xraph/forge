@@ -164,7 +164,7 @@ func (cm *ChaosMonkey) createRandomPartition() {
 	}
 
 	partitionNodes := make([]string, partitionSize)
-	for i := 0; i < partitionSize; i++ {
+	for i := range partitionSize {
 		partitionNodes[i] = nodes[rand.Intn(len(nodes))].ID
 	}
 
@@ -324,7 +324,7 @@ var PredefinedScenarios = []ChaosScenario{
 			}
 
 			// Fail nodes one by one
-			for i := 0; i < len(nodes)-2; i++ {
+			for i := range len(nodes) - 2 {
 				cluster.StopNode(context.Background(), nodes[i].ID)
 				time.Sleep(2 * time.Second)
 			}

@@ -310,14 +310,17 @@ func toPascalCase(s string) string {
 	// Split by common separators
 	parts := splitBySeparators(s)
 
-	var result string
-	var resultSb309 strings.Builder
+	var (
+		result      string
+		resultSb309 strings.Builder
+	)
 
 	for _, part := range parts {
 		if len(part) > 0 {
 			resultSb309.WriteString(capitalize(part))
 		}
 	}
+
 	result += resultSb309.String()
 
 	return result

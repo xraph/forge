@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,18 +26,18 @@ type ToolRegistry struct {
 
 // ToolDefinition defines a tool that can be used by agents.
 type ToolDefinition struct {
-	Name        string                 `json:"name"`
-	Version     string                 `json:"version"`
-	Description string                 `json:"description"`
-	Category    string                 `json:"category"`
-	Tags        []string               `json:"tags"`
-	Parameters  ToolParameterSchema    `json:"parameters"`
-	Handler     ToolHandler            `json:"-"`
-	Async       bool                   `json:"async"`
-	Timeout     time.Duration          `json:"timeout"`
-	RetryConfig *RetryConfig           `json:"retry_config,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
+	Name        string              `json:"name"`
+	Version     string              `json:"version"`
+	Description string              `json:"description"`
+	Category    string              `json:"category"`
+	Tags        []string            `json:"tags"`
+	Parameters  ToolParameterSchema `json:"parameters"`
+	Handler     ToolHandler         `json:"-"`
+	Async       bool                `json:"async"`
+	Timeout     time.Duration       `json:"timeout"`
+	RetryConfig *RetryConfig        `json:"retry_config,omitempty"`
+	Metadata    map[string]any      `json:"metadata,omitempty"`
+	CreatedAt   time.Time           `json:"created_at"`
 }
 
 // ToolParameterSchema defines the JSON schema for tool parameters.
@@ -48,26 +49,26 @@ type ToolParameterSchema struct {
 
 // ToolParameterProperty defines a single parameter.
 type ToolParameterProperty struct {
-	Type        string      `json:"type"`
-	Description string      `json:"description"`
-	Enum        []string    `json:"enum,omitempty"`
-	Default     interface{} `json:"default,omitempty"`
-	Minimum     *float64    `json:"minimum,omitempty"`
-	Maximum     *float64    `json:"maximum,omitempty"`
+	Type        string   `json:"type"`
+	Description string   `json:"description"`
+	Enum        []string `json:"enum,omitempty"`
+	Default     any      `json:"default,omitempty"`
+	Minimum     *float64 `json:"minimum,omitempty"`
+	Maximum     *float64 `json:"maximum,omitempty"`
 }
 
 // ToolHandler is the function signature for tool implementations.
-type ToolHandler func(ctx context.Context, params map[string]interface{}) (interface{}, error)
+type ToolHandler func(ctx context.Context, params map[string]any) (any, error)
 
 // ToolExecutionResult represents the result of a tool execution.
 type ToolExecutionResult struct {
 	ToolName  string
 	Success   bool
-	Result    interface{}
+	Result    any
 	Error     error
 	Duration  time.Duration
 	Timestamp time.Time
-	Metadata  map[string]interface{}
+	Metadata  map[string]any
 }
 
 // NewToolRegistry creates a new tool registry.
@@ -129,7 +130,7 @@ func (tr *ToolRegistry) RegisterTool(tool *ToolDefinition) error {
 }
 
 // RegisterFunc is a convenience method to register a function as a tool.
-func (tr *ToolRegistry) RegisterFunc(name, description string, fn interface{}) error {
+func (tr *ToolRegistry) RegisterFunc(name, description string, fn any) error {
 	handler, schema, err := tr.wrapFunction(fn)
 	if err != nil {
 		return fmt.Errorf("failed to wrap function: %w", err)
@@ -147,7 +148,7 @@ func (tr *ToolRegistry) RegisterFunc(name, description string, fn interface{}) e
 }
 
 // wrapFunction wraps a Go function as a ToolHandler.
-func (tr *ToolRegistry) wrapFunction(fn interface{}) (ToolHandler, ToolParameterSchema, error) {
+func (tr *ToolRegistry) wrapFunction(fn any) (ToolHandler, ToolParameterSchema, error) {
 	fnValue := reflect.ValueOf(fn)
 	fnType := fnValue.Type()
 
@@ -187,7 +188,7 @@ func (tr *ToolRegistry) wrapFunction(fn interface{}) (ToolHandler, ToolParameter
 	}
 
 	// Create handler wrapper
-	handler := func(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	handler := func(ctx context.Context, params map[string]any) (any, error) {
 		// Build function arguments
 		args := make([]reflect.Value, 0)
 
@@ -231,7 +232,7 @@ func (tr *ToolRegistry) wrapFunction(fn interface{}) (ToolHandler, ToolParameter
 
 		if len(results) == 1 {
 			// Single return value
-			if results[0].Type().Implements(reflect.TypeOf((*error)(nil)).Elem()) {
+			if results[0].Type().Implements(reflect.TypeFor[error]()) {
 				// It's an error
 				if results[0].IsNil() {
 					return nil, nil
@@ -360,13 +361,13 @@ func (tr *ToolRegistry) SearchTools(query string) []*ToolDefinition {
 }
 
 // ExecuteTool executes a tool with the given parameters.
-func (tr *ToolRegistry) ExecuteTool(ctx context.Context, name, version string, params map[string]interface{}) (*ToolExecutionResult, error) {
+func (tr *ToolRegistry) ExecuteTool(ctx context.Context, name, version string, params map[string]any) (*ToolExecutionResult, error) {
 	startTime := time.Now()
 
 	result := &ToolExecutionResult{
 		ToolName:  name,
 		Timestamp: startTime,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	// Get tool
@@ -393,7 +394,7 @@ func (tr *ToolRegistry) ExecuteTool(ctx context.Context, name, version string, p
 	// Execute with retry if configured
 	var (
 		execErr    error
-		execResult interface{}
+		execResult any
 	)
 
 	executeFunc := func(ctx context.Context) error {
@@ -450,7 +451,7 @@ func (tr *ToolRegistry) ExecuteTool(ctx context.Context, name, version string, p
 }
 
 // validateParameters validates tool parameters against the schema.
-func (tr *ToolRegistry) validateParameters(tool *ToolDefinition, params map[string]interface{}) error {
+func (tr *ToolRegistry) validateParameters(tool *ToolDefinition, params map[string]any) error {
 	// Check required parameters
 	for _, required := range tool.Parameters.Required {
 		if _, exists := params[required]; !exists {
@@ -475,7 +476,7 @@ func (tr *ToolRegistry) validateParameters(tool *ToolDefinition, params map[stri
 }
 
 // validateParameterType validates a parameter value against its schema.
-func (tr *ToolRegistry) validateParameterType(value interface{}, prop ToolParameterProperty) error {
+func (tr *ToolRegistry) validateParameterType(value any, prop ToolParameterProperty) error {
 	if value == nil {
 		return nil
 	}
@@ -492,15 +493,7 @@ func (tr *ToolRegistry) validateParameterType(value interface{}, prop ToolParame
 		// Check enum
 		if len(prop.Enum) > 0 {
 			strValue := value.(string)
-			found := false
-
-			for _, enumValue := range prop.Enum {
-				if strValue == enumValue {
-					found = true
-
-					break
-				}
-			}
+			found := slices.Contains(prop.Enum, strValue)
 
 			if !found {
 				return fmt.Errorf("value must be one of: %v", prop.Enum)
@@ -578,14 +571,14 @@ func (tr *ToolRegistry) UnregisterTool(name, version string) error {
 }
 
 // ExportSchema exports all tools as OpenAI function calling format.
-func (tr *ToolRegistry) ExportSchema() []map[string]interface{} {
+func (tr *ToolRegistry) ExportSchema() []map[string]any {
 	tr.mu.RLock()
 	defer tr.mu.RUnlock()
 
-	schemas := make([]map[string]interface{}, 0, len(tr.tools))
+	schemas := make([]map[string]any, 0, len(tr.tools))
 
 	for _, tool := range tr.tools {
-		schema := map[string]interface{}{
+		schema := map[string]any{
 			"name":        tool.Name,
 			"description": tool.Description,
 			"parameters":  tool.Parameters,
@@ -617,7 +610,7 @@ func (td *ToolDefinition) MarshalJSON() ([]byte, error) {
 	return json.Marshal(&struct {
 		*Alias
 
-		Handler interface{} `json:"handler,omitempty"`
+		Handler any `json:"handler,omitempty"`
 	}{
 		Alias:   (*Alias)(td),
 		Handler: nil, // Exclude handler from JSON

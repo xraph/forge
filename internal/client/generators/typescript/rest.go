@@ -307,12 +307,15 @@ func (r *RESTGenerator) toCamelCase(s string) string {
 	}
 
 	result := strings.ToLower(parts[0])
+
 	var resultSb292 strings.Builder
+
 	for i := 1; i < len(parts); i++ {
 		if len(parts[i]) > 0 {
 			resultSb292.WriteString(strings.ToUpper(parts[i][:1]) + strings.ToLower(parts[i][1:]))
 		}
 	}
+
 	result += resultSb292.String()
 
 	return result

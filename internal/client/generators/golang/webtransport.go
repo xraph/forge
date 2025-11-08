@@ -557,14 +557,17 @@ func toPascalCase(s string) string {
 		return r == '_' || r == '-' || r == ' ' || r == '/'
 	})
 
-	var result string
-	var resultSb555 strings.Builder
+	var (
+		result      string
+		resultSb555 strings.Builder
+	)
 
 	for _, part := range parts {
 		if len(part) > 0 {
 			resultSb555.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
 		}
 	}
+
 	result += resultSb555.String()
 
 	return result

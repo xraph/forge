@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
@@ -377,15 +378,7 @@ func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.Pr
 
 		// Apply filters
 		if len(filters.Status) > 0 {
-			found := false
-
-			for _, status := range filters.Status {
-				if presence.Status == status {
-					found = true
-
-					break
-				}
-			}
+			found := slices.Contains(filters.Status, presence.Status)
 
 			if !found {
 				continue

@@ -132,7 +132,7 @@ func (p *SchemaPublisher) Publish(ctx context.Context, instanceID string) error 
 func (p *SchemaPublisher) createSchemaDescriptor(ctx context.Context, config FARPSchemaConfig) (*farp.SchemaDescriptor, error) {
 	// Generate or fetch schema based on type
 	var (
-		schema interface{}
+		schema any
 		err    error
 	)
 
@@ -200,7 +200,7 @@ func (p *SchemaPublisher) createSchemaDescriptor(ctx context.Context, config FAR
 }
 
 // generateOpenAPISchema generates OpenAPI schema from the app.
-func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (interface{}, error) {
+func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (any, error) {
 	p.logger.Debug("generating OpenAPI schema from Forge router")
 
 	// Get router from app
@@ -239,19 +239,19 @@ func (p *SchemaPublisher) generateOpenAPISchema(ctx context.Context) (interface{
 }
 
 // generateMinimalOpenAPISchema returns a minimal valid OpenAPI schema.
-func (p *SchemaPublisher) generateMinimalOpenAPISchema() map[string]interface{} {
-	return map[string]interface{}{
+func (p *SchemaPublisher) generateMinimalOpenAPISchema() map[string]any {
+	return map[string]any{
 		"openapi": "3.1.0",
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   p.app.Name(),
 			"version": p.app.Version(),
 		},
-		"paths": map[string]interface{}{},
+		"paths": map[string]any{},
 	}
 }
 
 // generateAsyncAPISchema generates AsyncAPI schema from the app.
-func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (interface{}, error) {
+func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (any, error) {
 	p.logger.Debug("generating AsyncAPI schema from Forge router")
 
 	// Get router from app
@@ -290,15 +290,15 @@ func (p *SchemaPublisher) generateAsyncAPISchema(ctx context.Context) (interface
 }
 
 // generateMinimalAsyncAPISchema returns a minimal valid AsyncAPI schema.
-func (p *SchemaPublisher) generateMinimalAsyncAPISchema() map[string]interface{} {
-	return map[string]interface{}{
+func (p *SchemaPublisher) generateMinimalAsyncAPISchema() map[string]any {
+	return map[string]any{
 		"asyncapi": "3.0.0",
-		"info": map[string]interface{}{
+		"info": map[string]any{
 			"title":   p.app.Name(),
 			"version": p.app.Version(),
 		},
-		"channels":   map[string]interface{}{},
-		"operations": map[string]interface{}{},
+		"channels":   map[string]any{},
+		"operations": map[string]any{},
 	}
 }
 
@@ -310,7 +310,7 @@ func (p *SchemaPublisher) publishSchemaContent(ctx context.Context, descriptor *
 
 	// Generate schema
 	var (
-		schema interface{}
+		schema any
 		err    error
 	)
 
@@ -454,10 +454,10 @@ func (p *SchemaPublisher) autoDetectSchemas() []FARPSchemaConfig {
 }
 
 // supportsOpenAPI checks if the router supports OpenAPI schema generation.
-func (p *SchemaPublisher) supportsOpenAPI(router interface{}) bool {
+func (p *SchemaPublisher) supportsOpenAPI(router any) bool {
 	// Check if router has OpenAPISpec method
 	type hasOpenAPISpec interface {
-		OpenAPISpec() interface{}
+		OpenAPISpec() any
 	}
 
 	if specProvider, ok := router.(hasOpenAPISpec); ok {
@@ -470,10 +470,10 @@ func (p *SchemaPublisher) supportsOpenAPI(router interface{}) bool {
 }
 
 // supportsAsyncAPI checks if the router supports AsyncAPI schema generation.
-func (p *SchemaPublisher) supportsAsyncAPI(router interface{}) bool {
+func (p *SchemaPublisher) supportsAsyncAPI(router any) bool {
 	// Check if router has AsyncAPISpec method
 	type hasAsyncAPISpec interface {
-		AsyncAPISpec() interface{}
+		AsyncAPISpec() any
 	}
 
 	if specProvider, ok := router.(hasAsyncAPISpec); ok {

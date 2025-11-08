@@ -191,14 +191,12 @@ func (b *RequestBatcher) Start(ctx context.Context) error {
 	// Start batch timeout monitor
 
 	b.wg.Go(func() {
-
 		b.runBatchTimeoutMonitor(ctx)
 	})
 
 	// Start stats collection
 
 	b.wg.Go(func() {
-
 		b.runStatsCollection(ctx)
 	})
 
@@ -713,11 +711,7 @@ func (s *DynamicBatchingStrategy) BatchTimeout(modelID string, batchSize int) ti
 	metrics.mu.RUnlock()
 
 	// Timeout should be proportional to expected latency
-	timeout := max(avgLatency/10, 50*time.Millisecond)
-
-	if timeout > 500*time.Millisecond {
-		timeout = 500 * time.Millisecond
-	}
+	timeout := min(max(avgLatency/10, 50*time.Millisecond), 500*time.Millisecond)
 
 	return timeout
 }

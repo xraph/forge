@@ -744,12 +744,10 @@ func (s *AISecurityScanner) getClientIP(request *http.Request) string {
 }
 
 func (s *AISecurityScanner) isBlacklisted(ip string) bool {
-
 	return slices.Contains(s.config.BlacklistIPs, ip)
 }
 
 func (s *AISecurityScanner) isWhitelisted(ip string) bool {
-
 	return slices.Contains(s.config.WhitelistIPs, ip)
 }
 

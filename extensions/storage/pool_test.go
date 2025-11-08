@@ -35,9 +35,7 @@ func TestBufferPool_Concurrent(t *testing.T) {
 	goroutines := 10
 
 	for range goroutines {
-
 		wg.Go(func() {
-
 			for range iterations {
 				buf := pool.Get()
 				// Use buffer
@@ -123,7 +121,6 @@ func BenchmarkBufferPool(b *testing.B) {
 }
 
 func BenchmarkBufferPool_NoPool(b *testing.B) {
-
 	for b.Loop() {
 		buf := make([]byte, 4096)
 		_ = buf

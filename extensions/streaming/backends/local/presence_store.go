@@ -2,6 +2,8 @@ package local
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -320,15 +322,7 @@ func (s *PresenceStore) GetWithFilters(ctx context.Context, filters streaming.Pr
 	for _, presence := range s.presence {
 		// Check status filter
 		if len(filters.Status) > 0 {
-			statusMatch := false
-
-			for _, status := range filters.Status {
-				if presence.Status == status {
-					statusMatch = true
-
-					break
-				}
-			}
+			statusMatch := slices.Contains(filters.Status, presence.Status)
 
 			if !statusMatch {
 				continue
@@ -567,9 +561,7 @@ func copyMap(m map[string]any) map[string]any {
 	}
 
 	copy := make(map[string]any, len(m))
-	for k, v := range m {
-		copy[k] = v
-	}
+	maps.Copy(copy, m)
 
 	return copy
 }

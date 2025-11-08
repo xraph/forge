@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )
@@ -352,7 +353,7 @@ func (rp *RetryPolicy) ShouldRetry(err error) bool {
 	}
 
 	// Default: retry on most errors except context cancellation
-	return err != context.Canceled && err != context.DeadlineExceeded
+	return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }
 
 // HandlerRegistry manages event handlers.

@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/xraph/forge"
@@ -36,9 +37,9 @@ func TestExecuteTool(t *testing.T) {
 	}
 
 	// Execute the tool
-	result, err := server.ExecuteTool(context.Background(), tool, map[string]interface{}{
+	result, err := server.ExecuteTool(context.Background(), tool, map[string]any{
 		"id": "123",
-		"query": map[string]interface{}{
+		"query": map[string]any{
 			"filter": "active",
 		},
 	})
@@ -120,15 +121,7 @@ func TestGenerateInputSchema(t *testing.T) {
 				}
 
 				// Check if required
-				found := false
-
-				for _, req := range tool.InputSchema.Required {
-					if req == param {
-						found = true
-
-						break
-					}
-				}
+				found := slices.Contains(tool.InputSchema.Required, param)
 
 				if !found {
 					t.Errorf("Parameter %s should be required", param)
@@ -231,7 +224,7 @@ func TestPromptGenerator(t *testing.T) {
 	}
 
 	// Test default generator
-	messages, err := server.GeneratePrompt(context.Background(), prompt, map[string]interface{}{
+	messages, err := server.GeneratePrompt(context.Background(), prompt, map[string]any{
 		"input": "test",
 	})
 	if err != nil {
@@ -245,7 +238,7 @@ func TestPromptGenerator(t *testing.T) {
 	// Register a custom generator
 	customMessage := "Custom prompt message"
 
-	err = server.RegisterPromptGenerator("test-prompt", func(ctx context.Context, p *mcp.Prompt, args map[string]interface{}) ([]mcp.PromptMessage, error) {
+	err = server.RegisterPromptGenerator("test-prompt", func(ctx context.Context, p *mcp.Prompt, args map[string]any) ([]mcp.PromptMessage, error) {
 		return []mcp.PromptMessage{
 			{
 				Role: "assistant",
@@ -260,7 +253,7 @@ func TestPromptGenerator(t *testing.T) {
 	}
 
 	// Test custom generator
-	messages, err = server.GeneratePrompt(context.Background(), prompt, map[string]interface{}{
+	messages, err = server.GeneratePrompt(context.Background(), prompt, map[string]any{
 		"input": "test",
 	})
 	if err != nil {

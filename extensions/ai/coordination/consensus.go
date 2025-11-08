@@ -36,28 +36,28 @@ type ConsensusConfig struct {
 
 // ConsensusParticipant represents a participant in consensus.
 type ConsensusParticipant struct {
-	ID         string                 `json:"id"`
-	Weight     float64                `json:"weight"`
-	Vote       interface{}            `json:"vote"`
-	Timestamp  time.Time              `json:"timestamp"`
-	Signature  string                 `json:"signature,omitempty"`
-	Metadata   map[string]interface{} `json:"metadata"`
-	Online     bool                   `json:"online"`
-	Reputation float64                `json:"reputation"`
+	ID         string         `json:"id"`
+	Weight     float64        `json:"weight"`
+	Vote       any            `json:"vote"`
+	Timestamp  time.Time      `json:"timestamp"`
+	Signature  string         `json:"signature,omitempty"`
+	Metadata   map[string]any `json:"metadata"`
+	Online     bool           `json:"online"`
+	Reputation float64        `json:"reputation"`
 }
 
 // ConsensusProposal represents a proposal for consensus.
 type ConsensusProposal struct {
-	ID        string                 `json:"id"`
-	Type      string                 `json:"type"`
-	Content   interface{}            `json:"content"`
-	Proposer  string                 `json:"proposer"`
-	Timestamp time.Time              `json:"timestamp"`
-	Deadline  time.Time              `json:"deadline"`
-	Priority  int                    `json:"priority"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	Status    ProposalStatus         `json:"status"`
-	Votes     []Vote                 `json:"votes"`
+	ID        string         `json:"id"`
+	Type      string         `json:"type"`
+	Content   any            `json:"content"`
+	Proposer  string         `json:"proposer"`
+	Timestamp time.Time      `json:"timestamp"`
+	Deadline  time.Time      `json:"deadline"`
+	Priority  int            `json:"priority"`
+	Metadata  map[string]any `json:"metadata"`
+	Status    ProposalStatus `json:"status"`
+	Votes     []Vote         `json:"votes"`
 }
 
 // ProposalStatus represents the status of a consensus proposal.
@@ -75,19 +75,19 @@ const (
 
 // Vote represents a vote in the consensus process.
 type Vote struct {
-	ParticipantID string                 `json:"participant_id"`
-	Decision      interface{}            `json:"decision"`
-	Vote          bool                   `json:"vote"`
-	Timestamp     time.Time              `json:"timestamp"`
-	Confidence    float64                `json:"confidence"`
-	Signature     string                 `json:"signature,omitempty"`
-	Metadata      map[string]interface{} `json:"metadata"`
+	ParticipantID string         `json:"participant_id"`
+	Decision      any            `json:"decision"`
+	Vote          bool           `json:"vote"`
+	Timestamp     time.Time      `json:"timestamp"`
+	Confidence    float64        `json:"confidence"`
+	Signature     string         `json:"signature,omitempty"`
+	Metadata      map[string]any `json:"metadata"`
 }
 
 // ConsensusResult represents the result of a consensus process.
 type ConsensusResult struct {
 	ProposalID    string                           `json:"proposal_id"`
-	Decision      interface{}                      `json:"decision"`
+	Decision      any                              `json:"decision"`
 	Participants  map[string]*ConsensusParticipant `json:"participants"`
 	Algorithm     ConsensusAlgorithm               `json:"algorithm"`
 	StartTime     time.Time                        `json:"start_time"`
@@ -102,7 +102,7 @@ type ConsensusResult struct {
 	Timestamp     time.Time                        `json:"timestamp"`
 	QuorumReached bool                             `json:"quorum_reached"`
 	VoteBreakdown map[string]int                   `json:"vote_breakdown"`
-	Metadata      map[string]interface{}           `json:"metadata"`
+	Metadata      map[string]any                   `json:"metadata"`
 }
 
 // ConsensusStats contains statistics about consensus processes.
@@ -242,7 +242,7 @@ func (cm *consensusManager) RegisterParticipant(id string, weight float64) error
 		ID:         id,
 		Weight:     weight,
 		Timestamp:  time.Now(),
-		Metadata:   make(map[string]interface{}),
+		Metadata:   make(map[string]any),
 		Online:     true,
 		Reputation: 1.0, // Start with perfect reputation
 	}
@@ -329,7 +329,7 @@ func (cm *consensusManager) ReachConsensus(ctx context.Context, decision *Coordi
 }
 
 // VoteOnProposal allows a participant to vote on a proposal.
-func (cm *consensusManager) VoteOnProposal(proposalID, participantID string, vote interface{}) error {
+func (cm *consensusManager) VoteOnProposal(proposalID, participantID string, vote any) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -476,7 +476,7 @@ func (cm *consensusManager) waitForConsensus(ctx context.Context, proposalID str
 				// Update decision with consensus result
 				decision.Result = result.Decision
 				decision.Confidence = result.Confidence
-				decision.Votes = make(map[string]interface{})
+				decision.Votes = make(map[string]any)
 
 				for id, participant := range result.Participants {
 					decision.Votes[id] = participant.Vote
@@ -665,7 +665,7 @@ func (cm *consensusManager) calculateConsensusResult(proposal *ConsensusProposal
 
 	// Determine winning decision
 	var (
-		decision      interface{}
+		decision      any
 		confidence    float64
 		quorumReached bool
 		unanimity     bool
@@ -693,11 +693,11 @@ func (cm *consensusManager) calculateConsensusResult(proposal *ConsensusProposal
 		Unanimity:     unanimity,
 		QuorumReached: quorumReached,
 		VoteBreakdown: voteBreakdown,
-		Metadata:      make(map[string]interface{}),
+		Metadata:      make(map[string]any),
 	}
 }
 
-func (cm *consensusManager) calculateMajorityDecision(participants map[string]*ConsensusParticipant) (interface{}, float64) {
+func (cm *consensusManager) calculateMajorityDecision(participants map[string]*ConsensusParticipant) (any, float64) {
 	voteCounts := make(map[string]int)
 
 	for _, participant := range participants {
@@ -722,7 +722,7 @@ func (cm *consensusManager) calculateMajorityDecision(participants map[string]*C
 	return majorityVote, confidence
 }
 
-func (cm *consensusManager) calculateWeightedDecision(participants map[string]*ConsensusParticipant) (interface{}, float64) {
+func (cm *consensusManager) calculateWeightedDecision(participants map[string]*ConsensusParticipant) (any, float64) {
 	voteWeights := make(map[string]float64)
 	totalWeight := 0.0
 
@@ -748,7 +748,7 @@ func (cm *consensusManager) calculateWeightedDecision(participants map[string]*C
 	return majorityVote, confidence
 }
 
-func (cm *consensusManager) isAgreementVote(vote, decision interface{}) bool {
+func (cm *consensusManager) isAgreementVote(vote, decision any) bool {
 	return fmt.Sprintf("%v", vote) == fmt.Sprintf("%v", decision)
 }
 
@@ -907,7 +907,7 @@ func (cm *ConsensusManager) ReachConsensus(ctx context.Context, decision *Coordi
 		Proposer:  "system",
 		Timestamp: time.Now(),
 		Status:    ProposalStatusPending,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	// Add proposal to tracking
@@ -987,7 +987,7 @@ func (cm *ConsensusManager) processConsensus(ctx context.Context, proposal *Cons
 			Timestamp:     time.Now(),
 			QuorumReached: true,
 			VoteBreakdown: make(map[string]int),
-			Metadata:      make(map[string]interface{}),
+			Metadata:      make(map[string]any),
 		}
 
 		cm.mu.Lock()

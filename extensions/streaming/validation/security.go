@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
@@ -147,15 +148,7 @@ func (sv *SecurityValidator) checkLinkSafety(text string) error {
 
 		// Check protocol
 		if len(sv.config.AllowedProtocols) > 0 {
-			allowed := false
-
-			for _, protocol := range sv.config.AllowedProtocols {
-				if parsedURL.Scheme == protocol {
-					allowed = true
-
-					break
-				}
-			}
+			allowed := slices.Contains(sv.config.AllowedProtocols, parsedURL.Scheme)
 
 			if !allowed {
 				return NewValidationError("content", "disallowed protocol: "+parsedURL.Scheme, "SECURITY_PROTOCOL")

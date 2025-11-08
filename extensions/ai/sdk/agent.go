@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -42,29 +43,29 @@ type Agent struct {
 
 // AgentState represents the persistent state of an agent.
 type AgentState struct {
-	AgentID   string                 `json:"agent_id"`
-	SessionID string                 `json:"session_id"`
-	Version   int                    `json:"version"`
-	Data      map[string]interface{} `json:"data"`
-	History   []AgentMessage         `json:"history"`
-	Context   map[string]interface{} `json:"context"`
-	CreatedAt time.Time              `json:"created_at"`
-	UpdatedAt time.Time              `json:"updated_at"`
+	AgentID   string         `json:"agent_id"`
+	SessionID string         `json:"session_id"`
+	Version   int            `json:"version"`
+	Data      map[string]any `json:"data"`
+	History   []AgentMessage `json:"history"`
+	Context   map[string]any `json:"context"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
 }
 
 // AgentMessage represents a message in the agent's history.
 type AgentMessage struct {
-	Role      string                 `json:"role"`
-	Content   string                 `json:"content"`
-	Timestamp time.Time              `json:"timestamp"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	Role      string         `json:"role"`
+	Content   string         `json:"content"`
+	Timestamp time.Time      `json:"timestamp"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 // AgentCallbacks provides hooks into agent execution.
 type AgentCallbacks struct {
 	OnStart      func(context.Context) error
 	OnMessage    func(AgentMessage)
-	OnToolCall   func(string, map[string]interface{})
+	OnToolCall   func(string, map[string]any)
 	OnIteration  func(int)
 	OnComplete   func(*AgentState)
 	OnError      func(error)
@@ -84,10 +85,10 @@ type AgentOptions struct {
 
 // Tool represents a tool/function the agent can use.
 type Tool struct {
-	Name        string                                                             `json:"name"`
-	Description string                                                             `json:"description"`
-	Parameters  map[string]interface{}                                             `json:"parameters"`
-	Handler     func(context.Context, map[string]interface{}) (interface{}, error) `json:"-"`
+	Name        string                                             `json:"name"`
+	Description string                                             `json:"description"`
+	Parameters  map[string]any                                     `json:"parameters"`
+	Handler     func(context.Context, map[string]any) (any, error) `json:"-"`
 }
 
 // AgentResponse represents the result of an agent execution.
@@ -96,14 +97,14 @@ type AgentResponse struct {
 	ToolCalls  []ToolExecution
 	Iterations int
 	State      *AgentState
-	Metadata   map[string]interface{}
+	Metadata   map[string]any
 }
 
 // ToolExecution represents a tool that was executed.
 type ToolExecution struct {
 	Name      string
-	Arguments map[string]interface{}
-	Result    interface{}
+	Arguments map[string]any
+	Result    any
 	Error     error
 	Duration  time.Duration
 }
@@ -146,9 +147,9 @@ func NewAgent(
 			AgentID:   id,
 			SessionID: sessionID,
 			Version:   1,
-			Data:      make(map[string]interface{}),
+			Data:      make(map[string]any),
 			History:   make([]AgentMessage, 0),
-			Context:   make(map[string]interface{}),
+			Context:   make(map[string]any),
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
@@ -222,7 +223,7 @@ func (a *Agent) Execute(ctx context.Context, input string) (*AgentResponse, erro
 
 	response := &AgentResponse{
 		ToolCalls: make([]ToolExecution, 0),
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	// Execute agent loop with max iterations
@@ -283,7 +284,7 @@ func (a *Agent) Execute(ctx context.Context, input string) (*AgentResponse, erro
 					Role:      "tool",
 					Content:   fmt.Sprintf("Tool: %s, Result: %v", toolCall.Name, execution.Result),
 					Timestamp: time.Now(),
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"tool_name": toolCall.Name,
 						"duration":  execution.Duration.Milliseconds(),
 					},
@@ -326,8 +327,10 @@ func (a *Agent) generateResponse(ctx context.Context) (*Result, error) {
 	agentMessages := a.buildMessages()
 
 	// Convert AgentMessage to string messages for generate builder
-	var prompt string
-	var promptSb322 strings.Builder
+	var (
+		prompt      string
+		promptSb322 strings.Builder
+	)
 
 	for i, msg := range agentMessages {
 		if msg.Role == "system" {
@@ -341,6 +344,7 @@ func (a *Agent) generateResponse(ctx context.Context) (*Result, error) {
 
 		promptSb322.WriteString(fmt.Sprintf("%s: %s", msg.Role, msg.Content))
 	}
+
 	prompt += promptSb322.String()
 
 	// Create generate builder
@@ -459,31 +463,27 @@ func (a *Agent) GetState() *AgentState {
 		AgentID:   a.state.AgentID,
 		SessionID: a.state.SessionID,
 		Version:   a.state.Version,
-		Data:      make(map[string]interface{}),
+		Data:      make(map[string]any),
 		History:   make([]AgentMessage, len(a.state.History)),
-		Context:   make(map[string]interface{}),
+		Context:   make(map[string]any),
 		CreatedAt: a.state.CreatedAt,
 		UpdatedAt: a.state.UpdatedAt,
 	}
 
 	// Copy data
-	for k, v := range a.state.Data {
-		stateCopy.Data[k] = v
-	}
+	maps.Copy(stateCopy.Data, a.state.Data)
 
 	// Copy history
 	copy(stateCopy.History, a.state.History)
 
 	// Copy context
-	for k, v := range a.state.Context {
-		stateCopy.Context[k] = v
-	}
+	maps.Copy(stateCopy.Context, a.state.Context)
 
 	return stateCopy
 }
 
 // SetStateData sets a value in the agent's state data.
-func (a *Agent) SetStateData(key string, value interface{}) error {
+func (a *Agent) SetStateData(key string, value any) error {
 	a.stateMu.Lock()
 	defer a.stateMu.Unlock()
 
@@ -494,7 +494,7 @@ func (a *Agent) SetStateData(key string, value interface{}) error {
 }
 
 // GetStateData gets a value from the agent's state data.
-func (a *Agent) GetStateData(key string) (interface{}, bool) {
+func (a *Agent) GetStateData(key string) (any, bool) {
 	a.stateMu.RLock()
 	defer a.stateMu.RUnlock()
 
@@ -572,9 +572,9 @@ func (a *Agent) Reset() {
 	defer a.stateMu.Unlock()
 
 	a.state.Version++
-	a.state.Data = make(map[string]interface{})
+	a.state.Data = make(map[string]any)
 	a.state.History = make([]AgentMessage, 0)
-	a.state.Context = make(map[string]interface{})
+	a.state.Context = make(map[string]any)
 	a.state.UpdatedAt = time.Now()
 }
 

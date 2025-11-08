@@ -240,14 +240,17 @@ func (s *SSEGenerator) toPascalCase(str string) string {
 		return r == '_' || r == '-' || r == ' '
 	})
 
-	var result string
-	var resultSb237 strings.Builder
+	var (
+		result      string
+		resultSb237 strings.Builder
+	)
 
 	for _, part := range parts {
 		if len(part) > 0 {
 			resultSb237.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
 		}
 	}
+
 	result += resultSb237.String()
 
 	return result

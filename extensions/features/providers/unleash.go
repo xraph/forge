@@ -133,7 +133,7 @@ func (p *UnleashProvider) IsEnabled(ctx context.Context, key string, userCtx *Us
 }
 
 // GetValue returns the value of a feature flag.
-func (p *UnleashProvider) GetValue(ctx context.Context, key string, userCtx *UserContext, defaultValue interface{}) interface{} {
+func (p *UnleashProvider) GetValue(ctx context.Context, key string, userCtx *UserContext, defaultValue any) any {
 	if !p.ready {
 		p.logger.Warn("Unleash client not ready")
 
@@ -158,7 +158,7 @@ func (p *UnleashProvider) GetValue(ctx context.Context, key string, userCtx *Use
 }
 
 // Evaluate evaluates a feature flag.
-func (p *UnleashProvider) Evaluate(ctx context.Context, key string, userCtx *UserContext) (interface{}, error) {
+func (p *UnleashProvider) Evaluate(ctx context.Context, key string, userCtx *UserContext) (any, error) {
 	if !p.ready {
 		return nil, errors.New("Unleash client not ready")
 	}
@@ -208,6 +208,7 @@ func (p *UnleashProvider) buildContext(userCtx *UserContext) *unleashContext.Con
 		}
 		// Store all groups as comma-separated
 		groupsStr := ""
+
 		var groupsStrSb203 strings.Builder
 
 		for i, g := range userCtx.Groups {
@@ -217,6 +218,7 @@ func (p *UnleashProvider) buildContext(userCtx *UserContext) *unleashContext.Con
 
 			groupsStrSb203.WriteString(g)
 		}
+
 		groupsStr += groupsStrSb203.String()
 
 		ctx.Properties["groups"] = groupsStr
@@ -231,7 +233,7 @@ func (p *UnleashProvider) buildContext(userCtx *UserContext) *unleashContext.Con
 }
 
 // GetAllFlags returns all feature flags.
-func (p *UnleashProvider) GetAllFlags(ctx context.Context, userCtx *UserContext) (map[string]interface{}, error) {
+func (p *UnleashProvider) GetAllFlags(ctx context.Context, userCtx *UserContext) (map[string]any, error) {
 	if !p.ready {
 		return nil, errors.New("Unleash client not ready")
 	}
@@ -239,7 +241,7 @@ func (p *UnleashProvider) GetAllFlags(ctx context.Context, userCtx *UserContext)
 	unleashCtx := p.buildContext(userCtx)
 	features := p.client.ListFeatures()
 
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	for _, feature := range features {
 		// Check if enabled
@@ -324,7 +326,7 @@ func (p *UnleashProvider) Health(ctx context.Context) error {
 }
 
 // GetVariant gets a feature variant.
-func (p *UnleashProvider) GetVariant(ctx context.Context, key string, userCtx *UserContext) (string, map[string]interface{}, error) {
+func (p *UnleashProvider) GetVariant(ctx context.Context, key string, userCtx *UserContext) (string, map[string]any, error) {
 	if !p.ready {
 		return "", nil, errors.New("Unleash client not ready")
 	}
@@ -335,7 +337,7 @@ func (p *UnleashProvider) GetVariant(ctx context.Context, key string, userCtx *U
 		return "", nil, fmt.Errorf("variant not enabled for flag: %s", key)
 	}
 
-	payload := make(map[string]interface{})
+	payload := make(map[string]any)
 	// Note: Unleash v4 API Payload is a struct, not a pointer
 	payload["type"] = variant.Payload.Type
 	payload["value"] = variant.Payload.Value

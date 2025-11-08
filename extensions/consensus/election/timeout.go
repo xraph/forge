@@ -265,13 +265,11 @@ func (tm *TimeoutManager) calculateAdaptiveTimeout() time.Duration {
 	average := total / time.Duration(len(tm.recentElections))
 
 	// Apply multiplier for safety margin
-	adaptive := max(
+	adaptive := min(
 		// Clamp to min/max bounds
-		time.Duration(float64(average)*tm.multiplier), tm.minTimeout)
+		max(
 
-	if adaptive > tm.maxTimeout {
-		adaptive = tm.maxTimeout
-	}
+			time.Duration(float64(average)*tm.multiplier), tm.minTimeout), tm.maxTimeout)
 
 	// Add randomization (±10%)
 	variance := time.Duration(float64(adaptive) * 0.1)

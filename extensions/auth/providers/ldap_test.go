@@ -622,5 +622,5 @@ func TestLDAPCache_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Should not panic or race
-	assert.Positive(t, len(cache.entries))
+	assert.NotEmpty(t, cache.entries)
 }

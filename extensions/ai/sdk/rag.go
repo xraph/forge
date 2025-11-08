@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -51,7 +52,7 @@ type RAGOptions struct {
 type Document struct {
 	ID       string
 	Content  string
-	Metadata map[string]interface{}
+	Metadata map[string]any
 	Chunks   []DocumentChunk
 }
 
@@ -60,7 +61,7 @@ type DocumentChunk struct {
 	ID       string
 	Content  string
 	Index    int
-	Metadata map[string]interface{}
+	Metadata map[string]any
 }
 
 // RetrievalResult contains documents retrieved for a query
@@ -165,15 +166,13 @@ func (r *RAG) IndexDocument(ctx context.Context, doc Document) error {
 		chunk := chunks[i]
 		chunkID := fmt.Sprintf("%s_chunk_%d", doc.ID, i)
 
-		metadata := make(map[string]interface{})
+		metadata := make(map[string]any)
 		metadata["doc_id"] = doc.ID
 		metadata["chunk_index"] = i
 		metadata["content"] = chunk.Content
 
 		if r.includeMetadata && doc.Metadata != nil {
-			for k, v := range doc.Metadata {
-				metadata[k] = v
-			}
+			maps.Copy(metadata, doc.Metadata)
 		}
 
 		vectors[i] = Vector{
@@ -233,7 +232,7 @@ func (r *RAG) Retrieve(ctx context.Context, query string) (*RetrievalResult, err
 	queryEmbedding := embeddings[0]
 
 	// Build filter for similarity threshold (if vector store supports it)
-	filter := make(map[string]interface{})
+	filter := make(map[string]any)
 	filter["min_score"] = r.similarityThresh
 
 	// Query vector store
@@ -326,15 +325,6 @@ Answer based on the context above:`, context, query)
 	return generator.
 		WithPrompt(enhancedPrompt).
 		Execute()
-}
-
-// max returns the larger of two ints
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-
-	return b
 }
 
 // chunkDocument splits a document into chunks

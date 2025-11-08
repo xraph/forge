@@ -2,6 +2,7 @@ package router
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -197,7 +198,7 @@ func TestAsyncAPIGenerator_MultipleMessages(t *testing.T) {
 	err := router.EventStream("/sse/feed", func(ctx Context, stream Stream) error {
 		return nil
 	},
-		WithSSEMessages(map[string]interface{}{
+		WithSSEMessages(map[string]any{
 			"post":    map[string]string{"title": "string"},
 			"comment": map[string]string{"text": "string"},
 			"like":    map[string]string{"user_id": "string"},
@@ -318,7 +319,7 @@ func TestAsyncAPIGenerator_JSONSerialization(t *testing.T) {
 	}
 
 	// Verify it's valid JSON
-	var decoded map[string]interface{}
+	var decoded map[string]any
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("Failed to parse generated JSON: %v", err)
 	}
@@ -328,7 +329,7 @@ func TestAsyncAPIGenerator_JSONSerialization(t *testing.T) {
 		t.Error("Missing or incorrect asyncapi field")
 	}
 
-	if info, ok := decoded["info"].(map[string]interface{}); !ok {
+	if info, ok := decoded["info"].(map[string]any); !ok {
 		t.Error("Missing info field")
 	} else {
 		if title, ok := info["title"].(string); !ok || title != "Test API" {
@@ -336,11 +337,11 @@ func TestAsyncAPIGenerator_JSONSerialization(t *testing.T) {
 		}
 	}
 
-	if channels, ok := decoded["channels"].(map[string]interface{}); !ok || len(channels) == 0 {
+	if channels, ok := decoded["channels"].(map[string]any); !ok || len(channels) == 0 {
 		t.Error("Missing or empty channels field")
 	}
 
-	if operations, ok := decoded["operations"].(map[string]interface{}); !ok || len(operations) == 0 {
+	if operations, ok := decoded["operations"].(map[string]any); !ok || len(operations) == 0 {
 		t.Error("Missing or empty operations field")
 	}
 }
@@ -406,15 +407,7 @@ func TestAsyncAPIGenerator_Tags(t *testing.T) {
 
 		expectedTags := []string{"chat", "messaging", "real-time"}
 		for _, expected := range expectedTags {
-			found := false
-
-			for _, actual := range tagNames {
-				if actual == expected {
-					found = true
-
-					break
-				}
-			}
+			found := slices.Contains(tagNames, expected)
 
 			if !found {
 				t.Errorf("Expected tag '%s' not found", expected)

@@ -35,23 +35,23 @@ type PredictorAgent struct {
 
 // PredictionModel represents a predictive model.
 type PredictionModel struct {
-	ID              string                 `json:"id"`
-	Name            string                 `json:"name"`
-	Type            ModelType              `json:"type"`
-	Algorithm       string                 `json:"algorithm"`
-	Features        []string               `json:"features"`
-	Target          string                 `json:"target"`
-	TrainingData    []PredictorDataPoint   `json:"training_data"`
-	ValidationData  []PredictorDataPoint   `json:"validation_data"`
-	Parameters      map[string]interface{} `json:"parameters"`
-	Metrics         ModelMetrics           `json:"metrics"`
-	LastTrained     time.Time              `json:"last_trained"`
-	LastUsed        time.Time              `json:"last_used"`
-	PredictionCount int64                  `json:"prediction_count"`
-	AccuracyHistory []float64              `json:"accuracy_history"`
-	Status          string                 `json:"status"`
-	Version         string                 `json:"version"`
-	Metadata        map[string]interface{} `json:"metadata"`
+	ID              string               `json:"id"`
+	Name            string               `json:"name"`
+	Type            ModelType            `json:"type"`
+	Algorithm       string               `json:"algorithm"`
+	Features        []string             `json:"features"`
+	Target          string               `json:"target"`
+	TrainingData    []PredictorDataPoint `json:"training_data"`
+	ValidationData  []PredictorDataPoint `json:"validation_data"`
+	Parameters      map[string]any       `json:"parameters"`
+	Metrics         ModelMetrics         `json:"metrics"`
+	LastTrained     time.Time            `json:"last_trained"`
+	LastUsed        time.Time            `json:"last_used"`
+	PredictionCount int64                `json:"prediction_count"`
+	AccuracyHistory []float64            `json:"accuracy_history"`
+	Status          string               `json:"status"`
+	Version         string               `json:"version"`
+	Metadata        map[string]any       `json:"metadata"`
 }
 
 // ModelType defines the type of prediction model.
@@ -70,28 +70,28 @@ const (
 
 // PredictorDataPoint represents a data point for training/prediction.
 type PredictorDataPoint struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Features  map[string]interface{} `json:"features"`
-	Target    interface{}            `json:"target"`
-	Weight    float64                `json:"weight"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Timestamp time.Time      `json:"timestamp"`
+	Features  map[string]any `json:"features"`
+	Target    any            `json:"target"`
+	Weight    float64        `json:"weight"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 // ModelMetrics contains model performance metrics.
 type ModelMetrics struct {
-	Accuracy        float64                `json:"accuracy"`
-	Precision       float64                `json:"precision"`
-	Recall          float64                `json:"recall"`
-	F1Score         float64                `json:"f1_score"`
-	RMSE            float64                `json:"rmse"`
-	MAE             float64                `json:"mae"`
-	R2Score         float64                `json:"r2_score"`
-	AUC             float64                `json:"auc"`
-	LogLoss         float64                `json:"log_loss"`
-	CustomMetrics   map[string]float64     `json:"custom_metrics"`
-	ConfusionMatrix [][]int                `json:"confusion_matrix"`
-	LastUpdated     time.Time              `json:"last_updated"`
-	Metadata        map[string]interface{} `json:"metadata"`
+	Accuracy        float64            `json:"accuracy"`
+	Precision       float64            `json:"precision"`
+	Recall          float64            `json:"recall"`
+	F1Score         float64            `json:"f1_score"`
+	RMSE            float64            `json:"rmse"`
+	MAE             float64            `json:"mae"`
+	R2Score         float64            `json:"r2_score"`
+	AUC             float64            `json:"auc"`
+	LogLoss         float64            `json:"log_loss"`
+	CustomMetrics   map[string]float64 `json:"custom_metrics"`
+	ConfusionMatrix [][]int            `json:"confusion_matrix"`
+	LastUpdated     time.Time          `json:"last_updated"`
+	Metadata        map[string]any     `json:"metadata"`
 }
 
 // Forecaster handles time series forecasting.
@@ -102,69 +102,69 @@ type Forecaster struct {
 	SeasonalityDetection bool                      `json:"seasonality_detection"`
 	TrendDetection       bool                      `json:"trend_detection"`
 	Enabled              bool                      `json:"enabled"`
-	Metadata             map[string]interface{}    `json:"metadata"`
+	Metadata             map[string]any            `json:"metadata"`
 }
 
 // ForecastModel represents a forecasting model.
 type ForecastModel struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Algorithm   string                 `json:"algorithm"`
-	Series      []TimeSeriesPoint      `json:"series"`
-	Seasonality SeasonalityInfo        `json:"seasonality"`
-	Trend       TrendInfo              `json:"trend"`
-	Parameters  map[string]interface{} `json:"parameters"`
-	Accuracy    float64                `json:"accuracy"`
-	LastUpdated time.Time              `json:"last_updated"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Algorithm   string            `json:"algorithm"`
+	Series      []TimeSeriesPoint `json:"series"`
+	Seasonality SeasonalityInfo   `json:"seasonality"`
+	Trend       TrendInfo         `json:"trend"`
+	Parameters  map[string]any    `json:"parameters"`
+	Accuracy    float64           `json:"accuracy"`
+	LastUpdated time.Time         `json:"last_updated"`
+	Metadata    map[string]any    `json:"metadata"`
 }
 
 // TimeSeriesPoint represents a time series data point.
 type TimeSeriesPoint struct {
-	Timestamp time.Time              `json:"timestamp"`
-	Value     float64                `json:"value"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	Timestamp time.Time      `json:"timestamp"`
+	Value     float64        `json:"value"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 // SeasonalityInfo contains seasonality information.
 type SeasonalityInfo struct {
-	Detected   bool                   `json:"detected"`
-	Period     time.Duration          `json:"period"`
-	Strength   float64                `json:"strength"`
-	Patterns   []Pattern              `json:"patterns"`
-	Confidence float64                `json:"confidence"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Detected   bool           `json:"detected"`
+	Period     time.Duration  `json:"period"`
+	Strength   float64        `json:"strength"`
+	Patterns   []Pattern      `json:"patterns"`
+	Confidence float64        `json:"confidence"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 // TrendInfo contains trend information.
 type TrendInfo struct {
-	Detected     bool                   `json:"detected"`
-	Direction    string                 `json:"direction"`
-	Strength     float64                `json:"strength"`
-	ChangePoints []TrendChangePoint     `json:"change_points"`
-	Slope        float64                `json:"slope"`
-	Confidence   float64                `json:"confidence"`
-	Metadata     map[string]interface{} `json:"metadata"`
+	Detected     bool               `json:"detected"`
+	Direction    string             `json:"direction"`
+	Strength     float64            `json:"strength"`
+	ChangePoints []TrendChangePoint `json:"change_points"`
+	Slope        float64            `json:"slope"`
+	Confidence   float64            `json:"confidence"`
+	Metadata     map[string]any     `json:"metadata"`
 }
 
 // Pattern represents a recurring pattern.
 type Pattern struct {
-	ID         string                 `json:"id"`
-	Type       string                 `json:"type"`
-	Period     time.Duration          `json:"period"`
-	Amplitude  float64                `json:"amplitude"`
-	Phase      float64                `json:"phase"`
-	Confidence float64                `json:"confidence"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Period     time.Duration  `json:"period"`
+	Amplitude  float64        `json:"amplitude"`
+	Phase      float64        `json:"phase"`
+	Confidence float64        `json:"confidence"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 // TrendChangePoint represents a point where trend changes.
 type TrendChangePoint struct {
-	Timestamp  time.Time              `json:"timestamp"`
-	OldSlope   float64                `json:"old_slope"`
-	NewSlope   float64                `json:"new_slope"`
-	Confidence float64                `json:"confidence"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Timestamp  time.Time      `json:"timestamp"`
+	OldSlope   float64        `json:"old_slope"`
+	NewSlope   float64        `json:"new_slope"`
+	Confidence float64        `json:"confidence"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 // AnomalyDetector detects anomalies in data.
@@ -175,44 +175,44 @@ type AnomalyDetector struct {
 	MinAnomalyScore float64                  `json:"min_anomaly_score"`
 	Algorithms      []string                 `json:"algorithms"`
 	Enabled         bool                     `json:"enabled"`
-	Metadata        map[string]interface{}   `json:"metadata"`
+	Metadata        map[string]any           `json:"metadata"`
 }
 
 // AnomalyModel represents an anomaly detection model.
 type AnomalyModel struct {
-	ID                string                 `json:"id"`
-	Name              string                 `json:"name"`
-	Algorithm         string                 `json:"algorithm"`
-	Threshold         float64                `json:"threshold"`
-	WindowData        []PredictorDataPoint   `json:"window_data"`
-	Baseline          BaselineInfo           `json:"baseline"`
-	Parameters        map[string]interface{} `json:"parameters"`
-	Accuracy          float64                `json:"accuracy"`
-	FalsePositiveRate float64                `json:"false_positive_rate"`
-	LastUpdated       time.Time              `json:"last_updated"`
-	Metadata          map[string]interface{} `json:"metadata"`
+	ID                string               `json:"id"`
+	Name              string               `json:"name"`
+	Algorithm         string               `json:"algorithm"`
+	Threshold         float64              `json:"threshold"`
+	WindowData        []PredictorDataPoint `json:"window_data"`
+	Baseline          BaselineInfo         `json:"baseline"`
+	Parameters        map[string]any       `json:"parameters"`
+	Accuracy          float64              `json:"accuracy"`
+	FalsePositiveRate float64              `json:"false_positive_rate"`
+	LastUpdated       time.Time            `json:"last_updated"`
+	Metadata          map[string]any       `json:"metadata"`
 }
 
 // BaselineInfo contains baseline information for anomaly detection.
 type BaselineInfo struct {
-	Mean        float64                `json:"mean"`
-	StdDev      float64                `json:"std_dev"`
-	Median      float64                `json:"median"`
-	Min         float64                `json:"min"`
-	Max         float64                `json:"max"`
-	Percentiles map[string]float64     `json:"percentiles"`
-	LastUpdated time.Time              `json:"last_updated"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Mean        float64            `json:"mean"`
+	StdDev      float64            `json:"std_dev"`
+	Median      float64            `json:"median"`
+	Min         float64            `json:"min"`
+	Max         float64            `json:"max"`
+	Percentiles map[string]float64 `json:"percentiles"`
+	LastUpdated time.Time          `json:"last_updated"`
+	Metadata    map[string]any     `json:"metadata"`
 }
 
 // PredictorTrendAnalyzer analyzes trends in data.
 type PredictorTrendAnalyzer struct {
-	WindowSize       time.Duration          `json:"window_size"`
-	MinTrendStrength float64                `json:"min_trend_strength"`
-	Algorithms       []string               `json:"algorithms"`
-	TrendHistory     []TrendInfo            `json:"trend_history"`
-	Enabled          bool                   `json:"enabled"`
-	Metadata         map[string]interface{} `json:"metadata"`
+	WindowSize       time.Duration  `json:"window_size"`
+	MinTrendStrength float64        `json:"min_trend_strength"`
+	Algorithms       []string       `json:"algorithms"`
+	TrendHistory     []TrendInfo    `json:"trend_history"`
+	Enabled          bool           `json:"enabled"`
+	Metadata         map[string]any `json:"metadata"`
 }
 
 // Predictor handles general predictions.
@@ -224,65 +224,65 @@ type Predictor struct {
 	CacheSize       int                          `json:"cache_size"`
 	PredictionCache map[string]*CachedPrediction `json:"prediction_cache"`
 	Enabled         bool                         `json:"enabled"`
-	Metadata        map[string]interface{}       `json:"metadata"`
+	Metadata        map[string]any               `json:"metadata"`
 }
 
 // CachedPrediction represents a cached prediction.
 type CachedPrediction struct {
-	ID        string                 `json:"id"`
-	Input     PredictionInput        `json:"input"`
-	Output    PredictionOutput       `json:"output"`
-	Timestamp time.Time              `json:"timestamp"`
-	ExpiresAt time.Time              `json:"expires_at"`
-	HitCount  int64                  `json:"hit_count"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	ID        string           `json:"id"`
+	Input     PredictionInput  `json:"input"`
+	Output    PredictionOutput `json:"output"`
+	Timestamp time.Time        `json:"timestamp"`
+	ExpiresAt time.Time        `json:"expires_at"`
+	HitCount  int64            `json:"hit_count"`
+	Metadata  map[string]any   `json:"metadata"`
 }
 
 // PredictionStats tracks prediction statistics.
 type PredictionStats struct {
-	TotalPredictions      int64                  `json:"total_predictions"`
-	SuccessfulPredictions int64                  `json:"successful_predictions"`
-	FailedPredictions     int64                  `json:"failed_predictions"`
-	AverageLatency        time.Duration          `json:"average_latency"`
-	AverageAccuracy       float64                `json:"average_accuracy"`
-	PredictionsByType     map[string]int64       `json:"predictions_by_type"`
-	PredictionsByModel    map[string]int64       `json:"predictions_by_model"`
-	ModelAccuracy         map[string]float64     `json:"model_accuracy"`
-	TrendAccuracy         map[string]float64     `json:"trend_accuracy"`
-	AnomalyDetectionStats AnomalyDetectionStats  `json:"anomaly_detection_stats"`
-	ForecastStats         ForecastStats          `json:"forecast_stats"`
-	LastPrediction        time.Time              `json:"last_prediction"`
-	LastModelUpdate       time.Time              `json:"last_model_update"`
-	Metadata              map[string]interface{} `json:"metadata"`
+	TotalPredictions      int64                 `json:"total_predictions"`
+	SuccessfulPredictions int64                 `json:"successful_predictions"`
+	FailedPredictions     int64                 `json:"failed_predictions"`
+	AverageLatency        time.Duration         `json:"average_latency"`
+	AverageAccuracy       float64               `json:"average_accuracy"`
+	PredictionsByType     map[string]int64      `json:"predictions_by_type"`
+	PredictionsByModel    map[string]int64      `json:"predictions_by_model"`
+	ModelAccuracy         map[string]float64    `json:"model_accuracy"`
+	TrendAccuracy         map[string]float64    `json:"trend_accuracy"`
+	AnomalyDetectionStats AnomalyDetectionStats `json:"anomaly_detection_stats"`
+	ForecastStats         ForecastStats         `json:"forecast_stats"`
+	LastPrediction        time.Time             `json:"last_prediction"`
+	LastModelUpdate       time.Time             `json:"last_model_update"`
+	Metadata              map[string]any        `json:"metadata"`
 }
 
 // AnomalyDetectionStats tracks anomaly detection statistics.
 type AnomalyDetectionStats struct {
-	TotalAnomalies      int64                  `json:"total_anomalies"`
-	TruePositives       int64                  `json:"true_positives"`
-	FalsePositives      int64                  `json:"false_positives"`
-	TrueNegatives       int64                  `json:"true_negatives"`
-	FalseNegatives      int64                  `json:"false_negatives"`
-	Precision           float64                `json:"precision"`
-	Recall              float64                `json:"recall"`
-	F1Score             float64                `json:"f1_score"`
-	AverageAnomalyScore float64                `json:"average_anomaly_score"`
-	LastAnomaly         time.Time              `json:"last_anomaly"`
-	Metadata            map[string]interface{} `json:"metadata"`
+	TotalAnomalies      int64          `json:"total_anomalies"`
+	TruePositives       int64          `json:"true_positives"`
+	FalsePositives      int64          `json:"false_positives"`
+	TrueNegatives       int64          `json:"true_negatives"`
+	FalseNegatives      int64          `json:"false_negatives"`
+	Precision           float64        `json:"precision"`
+	Recall              float64        `json:"recall"`
+	F1Score             float64        `json:"f1_score"`
+	AverageAnomalyScore float64        `json:"average_anomaly_score"`
+	LastAnomaly         time.Time      `json:"last_anomaly"`
+	Metadata            map[string]any `json:"metadata"`
 }
 
 // ForecastStats tracks forecasting statistics.
 type ForecastStats struct {
-	TotalForecasts      int64                  `json:"total_forecasts"`
-	SuccessfulForecasts int64                  `json:"successful_forecasts"`
-	FailedForecasts     int64                  `json:"failed_forecasts"`
-	AverageAccuracy     float64                `json:"average_accuracy"`
-	AverageHorizon      time.Duration          `json:"average_horizon"`
-	ForecastsByHorizon  map[string]int64       `json:"forecasts_by_horizon"`
-	SeasonalityDetected int64                  `json:"seasonality_detected"`
-	TrendDetected       int64                  `json:"trend_detected"`
-	LastForecast        time.Time              `json:"last_forecast"`
-	Metadata            map[string]interface{} `json:"metadata"`
+	TotalForecasts      int64            `json:"total_forecasts"`
+	SuccessfulForecasts int64            `json:"successful_forecasts"`
+	FailedForecasts     int64            `json:"failed_forecasts"`
+	AverageAccuracy     float64          `json:"average_accuracy"`
+	AverageHorizon      time.Duration    `json:"average_horizon"`
+	ForecastsByHorizon  map[string]int64 `json:"forecasts_by_horizon"`
+	SeasonalityDetected int64            `json:"seasonality_detected"`
+	TrendDetected       int64            `json:"trend_detected"`
+	LastForecast        time.Time        `json:"last_forecast"`
+	Metadata            map[string]any   `json:"metadata"`
 }
 
 // ModelRegistry manages prediction models.
@@ -290,10 +290,10 @@ type ModelRegistry struct {
 	Models        map[string]*PredictionModel `json:"models"`
 	DefaultModels map[string]string           `json:"default_models"`
 	ModelVersions map[string][]string         `json:"model_versions"`
-	ModelMetadata map[string]interface{}      `json:"model_metadata"`
+	ModelMetadata map[string]any              `json:"model_metadata"`
 	AutoCleanup   bool                        `json:"auto_cleanup"`
 	MaxModels     int                         `json:"max_models"`
-	Metadata      map[string]interface{}      `json:"metadata"`
+	Metadata      map[string]any              `json:"metadata"`
 }
 
 // DataProcessor processes data for predictions.
@@ -303,139 +303,139 @@ type DataProcessor struct {
 	Normalizers       map[string]*Normalizer       `json:"normalizers"`
 	Validators        map[string]*DataValidator    `json:"validators"`
 	Enabled           bool                         `json:"enabled"`
-	Metadata          map[string]interface{}       `json:"metadata"`
+	Metadata          map[string]any               `json:"metadata"`
 }
 
 // Preprocessor handles data preprocessing.
 type Preprocessor struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Type       string                 `json:"type"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Enabled    bool                   `json:"enabled"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Parameters map[string]any `json:"parameters"`
+	Enabled    bool           `json:"enabled"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 // FeatureExtractor extracts features from data.
 type FeatureExtractor struct {
-	ID           string                 `json:"id"`
-	Name         string                 `json:"name"`
-	Type         string                 `json:"type"`
-	InputFields  []string               `json:"input_fields"`
-	OutputFields []string               `json:"output_fields"`
-	Parameters   map[string]interface{} `json:"parameters"`
-	Enabled      bool                   `json:"enabled"`
-	Metadata     map[string]interface{} `json:"metadata"`
+	ID           string         `json:"id"`
+	Name         string         `json:"name"`
+	Type         string         `json:"type"`
+	InputFields  []string       `json:"input_fields"`
+	OutputFields []string       `json:"output_fields"`
+	Parameters   map[string]any `json:"parameters"`
+	Enabled      bool           `json:"enabled"`
+	Metadata     map[string]any `json:"metadata"`
 }
 
 // Normalizer normalizes data.
 type Normalizer struct {
-	ID         string                 `json:"id"`
-	Name       string                 `json:"name"`
-	Type       string                 `json:"type"`
-	Parameters map[string]interface{} `json:"parameters"`
-	Enabled    bool                   `json:"enabled"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Type       string         `json:"type"`
+	Parameters map[string]any `json:"parameters"`
+	Enabled    bool           `json:"enabled"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 // DataValidator validates data quality.
 type DataValidator struct {
-	ID       string                 `json:"id"`
-	Name     string                 `json:"name"`
-	Type     string                 `json:"type"`
-	Rules    []ValidationRule       `json:"rules"`
-	Enabled  bool                   `json:"enabled"`
-	Metadata map[string]interface{} `json:"metadata"`
+	ID       string           `json:"id"`
+	Name     string           `json:"name"`
+	Type     string           `json:"type"`
+	Rules    []ValidationRule `json:"rules"`
+	Enabled  bool             `json:"enabled"`
+	Metadata map[string]any   `json:"metadata"`
 }
 
 // ValidationRule defines a data validation rule.
 type ValidationRule struct {
-	ID        string                 `json:"id"`
-	Name      string                 `json:"name"`
-	Field     string                 `json:"field"`
-	Condition string                 `json:"condition"`
-	Value     interface{}            `json:"value"`
-	Severity  string                 `json:"severity"`
-	Message   string                 `json:"message"`
-	Enabled   bool                   `json:"enabled"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Field     string         `json:"field"`
+	Condition string         `json:"condition"`
+	Value     any            `json:"value"`
+	Severity  string         `json:"severity"`
+	Message   string         `json:"message"`
+	Enabled   bool           `json:"enabled"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 // ModelEvaluator evaluates model performance.
 type ModelEvaluator struct {
-	EvaluationMetrics []string               `json:"evaluation_metrics"`
-	TestDataRatio     float64                `json:"test_data_ratio"`
-	CrossValidation   CrossValidationConfig  `json:"cross_validation"`
-	EvaluationHistory []EvaluationResult     `json:"evaluation_history"`
-	Enabled           bool                   `json:"enabled"`
-	Metadata          map[string]interface{} `json:"metadata"`
+	EvaluationMetrics []string              `json:"evaluation_metrics"`
+	TestDataRatio     float64               `json:"test_data_ratio"`
+	CrossValidation   CrossValidationConfig `json:"cross_validation"`
+	EvaluationHistory []EvaluationResult    `json:"evaluation_history"`
+	Enabled           bool                  `json:"enabled"`
+	Metadata          map[string]any        `json:"metadata"`
 }
 
 // CrossValidationConfig defines cross-validation configuration.
 type CrossValidationConfig struct {
-	Enabled    bool                   `json:"enabled"`
-	Folds      int                    `json:"folds"`
-	Strategy   string                 `json:"strategy"`
-	Shuffle    bool                   `json:"shuffle"`
-	RandomSeed int64                  `json:"random_seed"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Enabled    bool           `json:"enabled"`
+	Folds      int            `json:"folds"`
+	Strategy   string         `json:"strategy"`
+	Shuffle    bool           `json:"shuffle"`
+	RandomSeed int64          `json:"random_seed"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 // EvaluationResult contains model evaluation results.
 type EvaluationResult struct {
-	ID        string                 `json:"id"`
-	ModelID   string                 `json:"model_id"`
-	Timestamp time.Time              `json:"timestamp"`
-	Metrics   ModelMetrics           `json:"metrics"`
-	TestSize  int                    `json:"test_size"`
-	TrainSize int                    `json:"train_size"`
-	Duration  time.Duration          `json:"duration"`
-	Passed    bool                   `json:"passed"`
-	Notes     string                 `json:"notes"`
-	Metadata  map[string]interface{} `json:"metadata"`
+	ID        string         `json:"id"`
+	ModelID   string         `json:"model_id"`
+	Timestamp time.Time      `json:"timestamp"`
+	Metrics   ModelMetrics   `json:"metrics"`
+	TestSize  int            `json:"test_size"`
+	TrainSize int            `json:"train_size"`
+	Duration  time.Duration  `json:"duration"`
+	Passed    bool           `json:"passed"`
+	Notes     string         `json:"notes"`
+	Metadata  map[string]any `json:"metadata"`
 }
 
 // PredictionInput represents input for predictions.
 type PredictionInput struct {
-	Type       string                 `json:"type"`
-	Data       interface{}            `json:"data"`
-	Features   map[string]interface{} `json:"features"`
-	Context    PredictionContext      `json:"context"`
-	Options    PredictionOptions      `json:"options"`
-	TimeWindow TimeWindow             `json:"time_window"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Type       string            `json:"type"`
+	Data       any               `json:"data"`
+	Features   map[string]any    `json:"features"`
+	Context    PredictionContext `json:"context"`
+	Options    PredictionOptions `json:"options"`
+	TimeWindow TimeWindow        `json:"time_window"`
+	Metadata   map[string]any    `json:"metadata"`
 }
 
 // PredictionContext provides context for predictions.
 type PredictionContext struct {
-	Domain      string                 `json:"domain"`
-	Environment string                 `json:"environment"`
-	UserID      string                 `json:"user_id"`
-	SessionID   string                 `json:"session_id"`
-	RequestID   string                 `json:"request_id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Domain      string         `json:"domain"`
+	Environment string         `json:"environment"`
+	UserID      string         `json:"user_id"`
+	SessionID   string         `json:"session_id"`
+	RequestID   string         `json:"request_id"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 // PredictionOptions defines prediction options.
 type PredictionOptions struct {
-	ModelID        string                 `json:"model_id"`
-	Horizon        time.Duration          `json:"horizon"`
-	Confidence     float64                `json:"confidence"`
-	IncludeDetails bool                   `json:"include_details"`
-	IncludeMetrics bool                   `json:"include_metrics"`
-	EnsembleMethod string                 `json:"ensemble_method"`
-	CustomOptions  map[string]interface{} `json:"custom_options"`
-	Metadata       map[string]interface{} `json:"metadata"`
+	ModelID        string         `json:"model_id"`
+	Horizon        time.Duration  `json:"horizon"`
+	Confidence     float64        `json:"confidence"`
+	IncludeDetails bool           `json:"include_details"`
+	IncludeMetrics bool           `json:"include_metrics"`
+	EnsembleMethod string         `json:"ensemble_method"`
+	CustomOptions  map[string]any `json:"custom_options"`
+	Metadata       map[string]any `json:"metadata"`
 }
 
 // TimeWindow defines a time window for analysis.
 type TimeWindow struct {
-	StartTime   time.Time              `json:"start_time"`
-	EndTime     time.Time              `json:"end_time"`
-	Duration    time.Duration          `json:"duration"`
-	Granularity string                 `json:"granularity"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	StartTime   time.Time      `json:"start_time"`
+	EndTime     time.Time      `json:"end_time"`
+	Duration    time.Duration  `json:"duration"`
+	Granularity string         `json:"granularity"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 // PredictionOutput represents prediction results.
@@ -450,109 +450,109 @@ type PredictionOutput struct {
 	Accuracy        float64                    `json:"accuracy"`
 	ModelInfo       ModelInfo                  `json:"model_info"`
 	ProcessingTime  time.Duration              `json:"processing_time"`
-	Metadata        map[string]interface{}     `json:"metadata"`
+	Metadata        map[string]any             `json:"metadata"`
 }
 
 // Prediction represents a single prediction.
 type Prediction struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Value       interface{}            `json:"value"`
-	Confidence  float64                `json:"confidence"`
-	Probability float64                `json:"probability"`
-	Bounds      PredictionBounds       `json:"bounds"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Horizon     time.Duration          `json:"horizon"`
-	Features    map[string]interface{} `json:"features"`
-	ModelID     string                 `json:"model_id"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string           `json:"id"`
+	Type        string           `json:"type"`
+	Value       any              `json:"value"`
+	Confidence  float64          `json:"confidence"`
+	Probability float64          `json:"probability"`
+	Bounds      PredictionBounds `json:"bounds"`
+	Timestamp   time.Time        `json:"timestamp"`
+	Horizon     time.Duration    `json:"horizon"`
+	Features    map[string]any   `json:"features"`
+	ModelID     string           `json:"model_id"`
+	Metadata    map[string]any   `json:"metadata"`
 }
 
 // PredictionBounds represents prediction bounds.
 type PredictionBounds struct {
-	Lower      float64                `json:"lower"`
-	Upper      float64                `json:"upper"`
-	Confidence float64                `json:"confidence"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Lower      float64        `json:"lower"`
+	Upper      float64        `json:"upper"`
+	Confidence float64        `json:"confidence"`
+	Metadata   map[string]any `json:"metadata"`
 }
 
 // Anomaly represents an anomaly detection result.
 type Anomaly struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Value       interface{}            `json:"value"`
-	Score       float64                `json:"score"`
-	Severity    string                 `json:"severity"`
-	Description string                 `json:"description"`
-	Context     map[string]interface{} `json:"context"`
-	ModelID     string                 `json:"model_id"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Timestamp   time.Time      `json:"timestamp"`
+	Value       any            `json:"value"`
+	Score       float64        `json:"score"`
+	Severity    string         `json:"severity"`
+	Description string         `json:"description"`
+	Context     map[string]any `json:"context"`
+	ModelID     string         `json:"model_id"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 // Forecast represents a forecast result.
 type Forecast struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Series      []ForecastPoint        `json:"series"`
-	Horizon     time.Duration          `json:"horizon"`
-	Confidence  float64                `json:"confidence"`
-	Seasonality SeasonalityInfo        `json:"seasonality"`
-	Trend       TrendInfo              `json:"trend"`
-	ModelID     string                 `json:"model_id"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string          `json:"id"`
+	Type        string          `json:"type"`
+	Series      []ForecastPoint `json:"series"`
+	Horizon     time.Duration   `json:"horizon"`
+	Confidence  float64         `json:"confidence"`
+	Seasonality SeasonalityInfo `json:"seasonality"`
+	Trend       TrendInfo       `json:"trend"`
+	ModelID     string          `json:"model_id"`
+	Metadata    map[string]any  `json:"metadata"`
 }
 
 // ForecastPoint represents a point in a forecast.
 type ForecastPoint struct {
-	Timestamp  time.Time              `json:"timestamp"`
-	Value      float64                `json:"value"`
-	Confidence float64                `json:"confidence"`
-	Bounds     PredictionBounds       `json:"bounds"`
-	Metadata   map[string]interface{} `json:"metadata"`
+	Timestamp  time.Time        `json:"timestamp"`
+	Value      float64          `json:"value"`
+	Confidence float64          `json:"confidence"`
+	Bounds     PredictionBounds `json:"bounds"`
+	Metadata   map[string]any   `json:"metadata"`
 }
 
 // Trend represents a trend analysis result.
 type Trend struct {
-	ID           string                 `json:"id"`
-	Type         string                 `json:"type"`
-	Direction    string                 `json:"direction"`
-	Strength     float64                `json:"strength"`
-	Confidence   float64                `json:"confidence"`
-	StartTime    time.Time              `json:"start_time"`
-	EndTime      time.Time              `json:"end_time"`
-	Duration     time.Duration          `json:"duration"`
-	Slope        float64                `json:"slope"`
-	ChangePoints []TrendChangePoint     `json:"change_points"`
-	Metadata     map[string]interface{} `json:"metadata"`
-	Impact       string                 `json:"impact"`
+	ID           string             `json:"id"`
+	Type         string             `json:"type"`
+	Direction    string             `json:"direction"`
+	Strength     float64            `json:"strength"`
+	Confidence   float64            `json:"confidence"`
+	StartTime    time.Time          `json:"start_time"`
+	EndTime      time.Time          `json:"end_time"`
+	Duration     time.Duration      `json:"duration"`
+	Slope        float64            `json:"slope"`
+	ChangePoints []TrendChangePoint `json:"change_points"`
+	Metadata     map[string]any     `json:"metadata"`
+	Impact       string             `json:"impact"`
 }
 
 // PredictionRecommendation represents a recommendation based on predictions.
 type PredictionRecommendation struct {
-	ID          string                 `json:"id"`
-	Type        string                 `json:"type"`
-	Title       string                 `json:"title"`
-	Description string                 `json:"description"`
-	Action      string                 `json:"action"`
-	Priority    int                    `json:"priority"`
-	Confidence  float64                `json:"confidence"`
-	Impact      string                 `json:"impact"`
-	Timeline    time.Duration          `json:"timeline"`
-	Resources   []string               `json:"resources"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Title       string         `json:"title"`
+	Description string         `json:"description"`
+	Action      string         `json:"action"`
+	Priority    int            `json:"priority"`
+	Confidence  float64        `json:"confidence"`
+	Impact      string         `json:"impact"`
+	Timeline    time.Duration  `json:"timeline"`
+	Resources   []string       `json:"resources"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 // ModelInfo provides information about the model used.
 type ModelInfo struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	Version     string                 `json:"version"`
-	Algorithm   string                 `json:"algorithm"`
-	Accuracy    float64                `json:"accuracy"`
-	LastTrained time.Time              `json:"last_trained"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Type        string         `json:"type"`
+	Version     string         `json:"version"`
+	Algorithm   string         `json:"algorithm"`
+	Accuracy    float64        `json:"accuracy"`
+	LastTrained time.Time      `json:"last_trained"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 // NewPredictorAgent creates a new predictive analytics agent.
@@ -561,9 +561,9 @@ func NewPredictorAgent() ai.AIAgent {
 		{
 			Name:        "time-series-forecasting",
 			Description: "Forecast future values based on historical time series data",
-			InputType:   reflect.TypeOf(PredictionInput{}),
-			OutputType:  reflect.TypeOf(PredictionOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[PredictionInput](),
+			OutputType:  reflect.TypeFor[PredictionOutput](),
+			Metadata: map[string]any{
 				"forecast_accuracy": 0.85,
 				"max_horizon":       "90d",
 			},
@@ -571,9 +571,9 @@ func NewPredictorAgent() ai.AIAgent {
 		{
 			Name:        "anomaly-detection",
 			Description: "Detect anomalies and outliers in data streams",
-			InputType:   reflect.TypeOf(PredictionInput{}),
-			OutputType:  reflect.TypeOf(PredictionOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[PredictionInput](),
+			OutputType:  reflect.TypeFor[PredictionOutput](),
+			Metadata: map[string]any{
 				"detection_accuracy":  0.92,
 				"false_positive_rate": 0.03,
 			},
@@ -581,9 +581,9 @@ func NewPredictorAgent() ai.AIAgent {
 		{
 			Name:        "trend-analysis",
 			Description: "Analyze trends and patterns in data",
-			InputType:   reflect.TypeOf(PredictionInput{}),
-			OutputType:  reflect.TypeOf(PredictionOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[PredictionInput](),
+			OutputType:  reflect.TypeFor[PredictionOutput](),
+			Metadata: map[string]any{
 				"trend_accuracy":    0.88,
 				"pattern_detection": 0.90,
 			},
@@ -591,9 +591,9 @@ func NewPredictorAgent() ai.AIAgent {
 		{
 			Name:        "predictive-modeling",
 			Description: "Build and use predictive models for various use cases",
-			InputType:   reflect.TypeOf(PredictionInput{}),
-			OutputType:  reflect.TypeOf(PredictionOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[PredictionInput](),
+			OutputType:  reflect.TypeFor[PredictionOutput](),
+			Metadata: map[string]any{
 				"model_accuracy":       0.87,
 				"supported_algorithms": []string{"linear_regression", "random_forest", "neural_network"},
 			},
@@ -601,9 +601,9 @@ func NewPredictorAgent() ai.AIAgent {
 		{
 			Name:        "recommendation-engine",
 			Description: "Generate recommendations based on predictive insights",
-			InputType:   reflect.TypeOf(PredictionInput{}),
-			OutputType:  reflect.TypeOf(PredictionOutput{}),
-			Metadata: map[string]interface{}{
+			InputType:   reflect.TypeFor[PredictionInput](),
+			OutputType:  reflect.TypeFor[PredictionOutput](),
+			Metadata: map[string]any{
 				"recommendation_accuracy": 0.82,
 				"personalization_level":   "high",
 			},
@@ -657,7 +657,7 @@ func NewPredictorAgent() ai.AIAgent {
 			Models:        make(map[string]*PredictionModel),
 			DefaultModels: make(map[string]string),
 			ModelVersions: make(map[string][]string),
-			ModelMetadata: make(map[string]interface{}),
+			ModelMetadata: make(map[string]any),
 			AutoCleanup:   true,
 			MaxModels:     50,
 		},
@@ -695,7 +695,7 @@ func (a *PredictorAgent) Initialize(ctx context.Context, config ai.AgentConfig) 
 
 	// Initialize predictor-specific configuration
 	if predictorConfig, ok := config.Metadata["predictor"]; ok {
-		if configMap, ok := predictorConfig.(map[string]interface{}); ok {
+		if configMap, ok := predictorConfig.(map[string]any); ok {
 			if autoRetrain, ok := configMap["auto_retrain"].(bool); ok {
 				a.autoRetrain = autoRetrain
 			}
@@ -786,7 +786,7 @@ func (a *PredictorAgent) Process(ctx context.Context, input ai.AgentInput) (ai.A
 		Accuracy:        accuracy,
 		ModelInfo:       modelInfo,
 		ProcessingTime:  time.Since(startTime),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"processing_time": time.Since(startTime),
 			"data_points":     len(processedData),
 			"models_used":     a.getModelsUsed(predictionInput),
@@ -803,7 +803,7 @@ func (a *PredictorAgent) Process(ctx context.Context, input ai.AgentInput) (ai.A
 		Confidence:  confidence,
 		Explanation: a.generatePredictionExplanation(output),
 		Actions:     a.convertToAgentActions(recommendations),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"processing_time":       time.Since(startTime),
 			"predictions_count":     len(predictions),
 			"anomalies_count":       len(anomalies),
@@ -839,7 +839,7 @@ func (a *PredictorAgent) initializeDefaultModels() {
 		Algorithm: "arima",
 		Features:  []string{"timestamp", "value"},
 		Target:    "value",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"p": 2,
 			"d": 1,
 			"q": 2,
@@ -863,7 +863,7 @@ func (a *PredictorAgent) initializeDefaultModels() {
 		Algorithm: "isolation_forest",
 		Features:  []string{"*"},
 		Target:    "anomaly_score",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"contamination": 0.1,
 			"n_estimators":  100,
 		},
@@ -887,7 +887,7 @@ func (a *PredictorAgent) initializeDefaultModels() {
 		Algorithm: "linear_regression",
 		Features:  []string{"timestamp", "value"},
 		Target:    "trend",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"window_size": 24,
 			"min_periods": 5,
 		},
@@ -924,7 +924,7 @@ func (a *PredictorAgent) initializeDataProcessors() {
 		ID:   "ts_preprocessor",
 		Name: "Time Series Preprocessor",
 		Type: "time_series",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"resample_frequency": "1h",
 			"interpolation":      "linear",
 			"outlier_removal":    true,
@@ -937,7 +937,7 @@ func (a *PredictorAgent) initializeDataProcessors() {
 		ID:   "stat_normalizer",
 		Name: "Statistical Normalizer",
 		Type: "z_score",
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"method": "z_score",
 			"robust": true,
 		},
@@ -951,7 +951,7 @@ func (a *PredictorAgent) initializeDataProcessors() {
 		Type:         "statistical",
 		InputFields:  []string{"value"},
 		OutputFields: []string{"mean", "std", "min", "max", "trend"},
-		Parameters: map[string]interface{}{
+		Parameters: map[string]any{
 			"window_size":  24,
 			"lag_features": 5,
 		},
@@ -978,7 +978,7 @@ func (a *PredictorAgent) initializeDataProcessors() {
 				Name:      "Outlier Detection",
 				Field:     "value",
 				Condition: "within_bounds",
-				Value:     map[string]interface{}{"std_dev": 3},
+				Value:     map[string]any{"std_dev": 3},
 				Severity:  "info",
 				Message:   "Outliers detected",
 				Enabled:   true,
@@ -999,13 +999,13 @@ func (a *PredictorAgent) processData(input PredictionInput) ([]PredictorDataPoin
 	dataPoints := []PredictorDataPoint{}
 
 	// Simple conversion for demonstration
-	if data, ok := input.Data.([]interface{}); ok {
+	if data, ok := input.Data.([]any); ok {
 		for i, item := range data {
 			point := PredictorDataPoint{
 				Timestamp: time.Now().Add(-time.Duration(len(data)-i) * time.Hour),
-				Features:  make(map[string]interface{}),
+				Features:  make(map[string]any),
 				Weight:    1.0,
-				Metadata:  make(map[string]interface{}),
+				Metadata:  make(map[string]any),
 			}
 
 			if value, ok := item.(float64); ok {
@@ -1084,7 +1084,7 @@ func (a *PredictorAgent) generatePredictionWithModel(data []PredictorDataPoint, 
 
 	// Calculate prediction based on model type
 	var (
-		value      interface{}
+		value      any
 		confidence float64
 	)
 
@@ -1131,8 +1131,8 @@ func (a *PredictorAgent) generatePredictionWithModel(data []PredictorDataPoint, 
 		},
 		Timestamp: time.Now(),
 		Horizon:   time.Hour,
-		Features:  make(map[string]interface{}),
-		Metadata:  make(map[string]interface{}),
+		Features:  make(map[string]any),
+		Metadata:  make(map[string]any),
 	}
 
 	// Update model statistics
@@ -1184,14 +1184,14 @@ func (a *PredictorAgent) detectAnomalies(data []PredictorDataPoint) ([]Anomaly, 
 					Score:       zScore,
 					Severity:    a.determineSeverity(zScore),
 					Description: fmt.Sprintf("Statistical outlier detected with z-score: %.2f", zScore),
-					Context: map[string]interface{}{
+					Context: map[string]any{
 						"z_score":   zScore,
 						"mean":      mean,
 						"std_dev":   stdDev,
 						"threshold": a.anomalyDetector.Threshold,
 					},
 					ModelID: "anomaly_default",
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"detection_method": "statistical",
 						"algorithm":        "z_score",
 					},
@@ -1225,7 +1225,7 @@ func (a *PredictorAgent) generateForecasts(data []PredictorDataPoint) ([]Forecas
 			series = append(series, TimeSeriesPoint{
 				Timestamp: point.Timestamp,
 				Value:     val,
-				Metadata:  make(map[string]interface{}),
+				Metadata:  make(map[string]any),
 			})
 		}
 	}
@@ -1254,7 +1254,7 @@ func (a *PredictorAgent) generateForecasts(data []PredictorDataPoint) ([]Forecas
 				Upper:      forecastValue * 1.1,
 				Confidence: 0.8,
 			},
-			Metadata: make(map[string]interface{}),
+			Metadata: make(map[string]any),
 		}
 		forecastPoints = append(forecastPoints, forecastPoint)
 	}
@@ -1274,7 +1274,7 @@ func (a *PredictorAgent) generateForecasts(data []PredictorDataPoint) ([]Forecas
 		Seasonality: seasonality,
 		Trend:       trend,
 		ModelID:     "ts_forecast_default",
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"forecast_method": "linear",
 			"data_points":     len(series),
 		},
@@ -1339,7 +1339,7 @@ func (a *PredictorAgent) analyzeTrends(data []PredictorDataPoint) ([]Trend, erro
 		Duration:     timestamps[len(timestamps)-1].Sub(timestamps[0]),
 		Slope:        slope,
 		ChangePoints: []TrendChangePoint{},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"algorithm":   "linear_regression",
 			"data_points": len(values),
 		},
@@ -1368,7 +1368,7 @@ func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anoma
 				Impact:      "high",
 				Timeline:    time.Hour,
 				Resources:   []string{"operations_team", "monitoring_system"},
-				Metadata: map[string]interface{}{
+				Metadata: map[string]any{
 					"anomaly_id":   anomaly.ID,
 					"anomaly_type": anomaly.Type,
 					"severity":     anomaly.Severity,
@@ -1409,7 +1409,7 @@ func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anoma
 					Impact:      "medium",
 					Timeline:    6 * time.Hour,
 					Resources:   []string{"planning_team", "infrastructure_team"},
-					Metadata: map[string]interface{}{
+					Metadata: map[string]any{
 						"trend_id":   trend.ID,
 						"trend_type": trend.Type,
 						"direction":  trend.Direction,
@@ -1453,7 +1453,7 @@ func (a *PredictorAgent) generateRecommendations(predictions []Prediction, anoma
 						Impact:      "medium",
 						Timeline:    forecast.Horizon / 2,
 						Resources:   []string{"planning_team", "resource_management"},
-						Metadata: map[string]interface{}{
+						Metadata: map[string]any{
 							"forecast_id":      forecast.ID,
 							"predicted_change": change,
 							"horizon":          forecast.Horizon,
@@ -1562,7 +1562,7 @@ func (a *PredictorAgent) detectSeasonality(series []TimeSeriesPoint) Seasonality
 		Strength:   0.0,
 		Patterns:   []Pattern{},
 		Confidence: 0.5,
-		Metadata:   make(map[string]interface{}),
+		Metadata:   make(map[string]any),
 	}
 }
 
@@ -1575,7 +1575,7 @@ func (a *PredictorAgent) detectTrend(series []TimeSeriesPoint) TrendInfo {
 			ChangePoints: []TrendChangePoint{},
 			Slope:        0.0,
 			Confidence:   0.5,
-			Metadata:     make(map[string]interface{}),
+			Metadata:     make(map[string]any),
 		}
 	}
 
@@ -1598,7 +1598,7 @@ func (a *PredictorAgent) detectTrend(series []TimeSeriesPoint) TrendInfo {
 		ChangePoints: []TrendChangePoint{},
 		Slope:        change,
 		Confidence:   0.8,
-		Metadata:     make(map[string]interface{}),
+		Metadata:     make(map[string]any),
 	}
 }
 
@@ -1652,7 +1652,7 @@ func (a *PredictorAgent) getModelInfo(modelID string) ModelInfo {
 			Algorithm:   model.Algorithm,
 			Accuracy:    model.Metrics.Accuracy,
 			LastTrained: model.LastTrained,
-			Metadata:    make(map[string]interface{}),
+			Metadata:    make(map[string]any),
 		}
 	}
 
@@ -1664,7 +1664,7 @@ func (a *PredictorAgent) getModelInfo(modelID string) ModelInfo {
 		Algorithm:   "unknown",
 		Accuracy:    0.5,
 		LastTrained: time.Now(),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]any),
 	}
 }
 
@@ -1748,7 +1748,7 @@ func (a *PredictorAgent) convertToAgentActions(recommendations []PredictionRecom
 		action := ai.AgentAction{
 			Type:   rec.Type,
 			Target: rec.Action,
-			Parameters: map[string]interface{}{
+			Parameters: map[string]any{
 				"title":       rec.Title,
 				"description": rec.Description,
 				"impact":      rec.Impact,

@@ -119,7 +119,6 @@ func (ht *HTTPTransport) Start(ctx context.Context) error {
 	// Start server in goroutine
 
 	ht.wg.Go(func() {
-
 		if err := ht.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			ht.logger.Error("HTTP server error",
 				forge.F("error", err),

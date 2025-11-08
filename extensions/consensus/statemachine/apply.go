@@ -110,7 +110,7 @@ func (am *ApplyManager) Start(ctx context.Context) error {
 	am.started = true
 
 	// Start worker pool
-	for i := 0; i < am.workerCount; i++ {
+	for i := range am.workerCount {
 		am.wg.Add(1)
 
 		go am.applyWorker(i)

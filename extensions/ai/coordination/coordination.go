@@ -666,7 +666,7 @@ func (ds *DistributedStrategy) Execute(ctx context.Context, plan *CoordinationPl
 
 	// Wait for all actions to complete
 	var firstError error
-	for i := 0; i < len(plan.Actions); i++ {
+	for range len(plan.Actions) {
 		if err := <-resultCh; err != nil && firstError == nil {
 			firstError = err
 		}
@@ -935,7 +935,7 @@ func (hs *HybridStrategy) Execute(ctx context.Context, plan *CoordinationPlan, e
 	}
 
 	var firstError error
-	for i := 0; i < len(normalActions); i++ {
+	for range len(normalActions) {
 		if err := <-resultCh; err != nil && firstError == nil {
 			firstError = err
 		}

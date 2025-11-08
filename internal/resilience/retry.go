@@ -164,7 +164,6 @@ func (r *Retry) isRetryableError(err error) bool {
 
 	// Check retryable errors
 	if len(r.config.RetryableErrors) > 0 {
-
 		return slices.Contains(r.config.RetryableErrors, errorStr)
 	}
 

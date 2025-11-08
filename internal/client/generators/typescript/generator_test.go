@@ -3,6 +3,7 @@ package typescript_test
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -29,15 +30,7 @@ func TestTypeScriptGenerator(t *testing.T) {
 	}
 
 	for _, expected := range expectedFeatures {
-		found := false
-
-		for _, feature := range features {
-			if feature == expected {
-				found = true
-
-				break
-			}
-		}
+		found := slices.Contains(features, expected)
 
 		if !found {
 			t.Errorf("Expected feature '%s' not found", expected)
@@ -178,7 +171,7 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 	// Validate package.json
 	packageJSON := result.Files["package.json"]
 
-	var pkg map[string]interface{}
+	var pkg map[string]any
 	if err := json.Unmarshal([]byte(packageJSON), &pkg); err != nil {
 		t.Errorf("Invalid package.json: %v", err)
 	}
@@ -448,7 +441,7 @@ func TestTypeScriptGeneratorTypeConversion(t *testing.T) {
 					},
 					"enumField": {
 						Type: "string",
-						Enum: []interface{}{"option1", "option2", "option3"},
+						Enum: []any{"option1", "option2", "option3"},
 					},
 				},
 			},

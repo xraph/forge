@@ -468,14 +468,17 @@ func (w *WebTransportGenerator) toPascalCase(str string) string {
 		return r == '_' || r == '-' || r == ' '
 	})
 
-	var result string
-	var resultSb468 strings.Builder
+	var (
+		result      string
+		resultSb468 strings.Builder
+	)
 
 	for _, part := range parts {
 		if len(part) > 0 {
 			resultSb468.WriteString(strings.ToUpper(part[:1]) + strings.ToLower(part[1:]))
 		}
 	}
+
 	result += resultSb468.String()
 
 	return result

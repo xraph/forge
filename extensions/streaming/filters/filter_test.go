@@ -28,7 +28,6 @@ func (m *mockConnection) GetJoinedRooms() []string           { return m.rooms }
 func (m *mockConnection) AddRoom(roomID string)              { m.rooms = append(m.rooms, roomID) }
 func (m *mockConnection) RemoveRoom(roomID string)           {}
 func (m *mockConnection) IsInRoom(roomID string) bool {
-
 	return slices.Contains(m.rooms, roomID)
 }
 func (m *mockConnection) GetSubscriptions() []string { return m.channels }
@@ -37,7 +36,6 @@ func (m *mockConnection) AddSubscription(channelID string) {
 }
 func (m *mockConnection) RemoveSubscription(channelID string) {}
 func (m *mockConnection) IsSubscribed(channelID string) bool {
-
 	return slices.Contains(m.channels, channelID)
 }
 func (m *mockConnection) Read() ([]byte, error)      { return nil, nil }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -107,7 +108,7 @@ func TestGenerateObjectBuilder_WithPrompt(t *testing.T) {
 
 func TestGenerateObjectBuilder_WithVars(t *testing.T) {
 	builder := NewGenerateObjectBuilder[Person](context.Background(), &testhelpers.MockLLMManager{}, nil, nil)
-	vars := map[string]interface{}{
+	vars := map[string]any{
 		"name": "Alice",
 		"age":  30,
 	}
@@ -237,7 +238,7 @@ func TestGenerateObjectBuilder_WithStop(t *testing.T) {
 
 func TestGenerateObjectBuilder_WithSchema(t *testing.T) {
 	builder := NewGenerateObjectBuilder[Person](context.Background(), &testhelpers.MockLLMManager{}, nil, nil)
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"type": "object",
 	}
 	result := builder.WithSchema(schema)
@@ -645,13 +646,13 @@ func TestGenerateObjectBuilder_GenerateSchema_SimpleStruct(t *testing.T) {
 		t.Error("expected type to be object")
 	}
 
-	props := schema["properties"].(map[string]interface{})
+	props := schema["properties"].(map[string]any)
 
 	if props["name"] == nil {
 		t.Error("expected name property")
 	}
 
-	nameSchema := props["name"].(map[string]interface{})
+	nameSchema := props["name"].(map[string]any)
 	if nameSchema["type"] != "string" {
 		t.Error("expected name type to be string")
 	}
@@ -664,7 +665,7 @@ func TestGenerateObjectBuilder_GenerateSchema_SimpleStruct(t *testing.T) {
 		t.Error("expected age property")
 	}
 
-	ageSchema := props["age"].(map[string]interface{})
+	ageSchema := props["age"].(map[string]any)
 	if ageSchema["type"] != "integer" {
 		t.Error("expected age type to be integer")
 	}
@@ -683,18 +684,18 @@ func TestGenerateObjectBuilder_GenerateSchema_NestedStruct(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	props := schema["properties"].(map[string]interface{})
+	props := schema["properties"].(map[string]any)
 
 	if props["person"] == nil {
 		t.Error("expected person property")
 	}
 
-	personSchema := props["person"].(map[string]interface{})
+	personSchema := props["person"].(map[string]any)
 	if personSchema["type"] != "object" {
 		t.Error("expected person type to be object")
 	}
 
-	personProps := personSchema["properties"].(map[string]interface{})
+	personProps := personSchema["properties"].(map[string]any)
 	if personProps["name"] == nil {
 		t.Error("expected nested name property")
 	}
@@ -708,14 +709,14 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	props := schema["properties"].(map[string]interface{})
+	props := schema["properties"].(map[string]any)
 
 	// Check array type
 	if props["string_slice"] == nil {
 		t.Error("expected string_slice property")
 	}
 
-	sliceSchema := props["string_slice"].(map[string]interface{})
+	sliceSchema := props["string_slice"].(map[string]any)
 	if sliceSchema["type"] != "array" {
 		t.Error("expected string_slice type to be array")
 	}
@@ -725,7 +726,7 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 		t.Error("expected float_value property")
 	}
 
-	floatSchema := props["float_value"].(map[string]interface{})
+	floatSchema := props["float_value"].(map[string]any)
 	if floatSchema["type"] != "number" {
 		t.Error("expected float_value type to be number")
 	}
@@ -735,7 +736,7 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 		t.Error("expected bool_value property")
 	}
 
-	boolSchema := props["bool_value"].(map[string]interface{})
+	boolSchema := props["bool_value"].(map[string]any)
 	if boolSchema["type"] != "boolean" {
 		t.Error("expected bool_value type to be boolean")
 	}
@@ -745,7 +746,7 @@ func TestGenerateObjectBuilder_GenerateSchema_ComplexTypes(t *testing.T) {
 		t.Error("expected map_value property")
 	}
 
-	mapSchema := props["map_value"].(map[string]interface{})
+	mapSchema := props["map_value"].(map[string]any)
 	if mapSchema["type"] != "object" {
 		t.Error("expected map_value type to be object")
 	}
@@ -762,15 +763,7 @@ func TestGenerateObjectBuilder_GenerateSchema_WithOmitempty(t *testing.T) {
 	required := schema["required"].([]string)
 
 	// zip_code has omitempty, so it should not be in required
-	hasZipCode := false
-
-	for _, field := range required {
-		if field == "zip_code" {
-			hasZipCode = true
-
-			break
-		}
-	}
+	hasZipCode := slices.Contains(required, "zip_code")
 
 	if hasZipCode {
 		t.Error("expected zip_code not to be required (has omitempty)")
@@ -796,10 +789,10 @@ func TestGenerateObjectBuilder_GenerateSchema_WithOmitempty(t *testing.T) {
 }
 
 func TestGenerateObjectBuilder_Execute_WithCustomSchema(t *testing.T) {
-	customSchema := map[string]interface{}{
+	customSchema := map[string]any{
 		"type": "object",
-		"properties": map[string]interface{}{
-			"custom_name": map[string]interface{}{
+		"properties": map[string]any{
+			"custom_name": map[string]any{
 				"type": "string",
 			},
 		},
@@ -893,10 +886,10 @@ func TestGenerateObjectBuilder_BuildMessages(t *testing.T) {
 	builder := NewGenerateObjectBuilder[Person](context.Background(), nil, nil, nil)
 	builder.systemPrompt = "Custom system"
 
-	schema := map[string]interface{}{
+	schema := map[string]any{
 		"type": "object",
-		"properties": map[string]interface{}{
-			"name": map[string]interface{}{"type": "string"},
+		"properties": map[string]any{
+			"name": map[string]any{"type": "string"},
 		},
 	}
 
@@ -936,7 +929,7 @@ func TestGenerateObjectBuilder_BuildMessages_WithCustomMessages(t *testing.T) {
 		{Role: "user", Content: "Previous message"},
 	}
 
-	schema := map[string]interface{}{"type": "object"}
+	schema := map[string]any{"type": "object"}
 
 	messages := builder.buildMessages("New prompt", schema)
 
@@ -1011,34 +1004,34 @@ func TestGenerateObjectBuilder_GeneratePropertySchema_AllTypes(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 
-	props := schema["properties"].(map[string]interface{})
+	props := schema["properties"].(map[string]any)
 
 	// Check all types are handled correctly
-	if props["string"].(map[string]interface{})["type"] != "string" {
+	if props["string"].(map[string]any)["type"] != "string" {
 		t.Error("expected string type")
 	}
 
-	if props["int8"].(map[string]interface{})["type"] != "integer" {
+	if props["int8"].(map[string]any)["type"] != "integer" {
 		t.Error("expected integer type for int8")
 	}
 
-	if props["uint"].(map[string]interface{})["type"] != "integer" {
+	if props["uint"].(map[string]any)["type"] != "integer" {
 		t.Error("expected integer type for uint")
 	}
 
-	if props["float32"].(map[string]interface{})["type"] != "number" {
+	if props["float32"].(map[string]any)["type"] != "number" {
 		t.Error("expected number type for float32")
 	}
 
-	if props["bool"].(map[string]interface{})["type"] != "boolean" {
+	if props["bool"].(map[string]any)["type"] != "boolean" {
 		t.Error("expected boolean type")
 	}
 
-	if props["slice"].(map[string]interface{})["type"] != "array" {
+	if props["slice"].(map[string]any)["type"] != "array" {
 		t.Error("expected array type for slice")
 	}
 
-	if props["map"].(map[string]interface{})["type"] != "object" {
+	if props["map"].(map[string]any)["type"] != "object" {
 		t.Error("expected object type for map")
 	}
 }
@@ -1118,7 +1111,7 @@ func TestGenerateObjectBuilder_BuildMessages_EmptyPrompt(t *testing.T) {
 	builder := NewGenerateObjectBuilder[Person](context.Background(), nil, nil, nil)
 	builder.systemPrompt = "System"
 
-	schema := map[string]interface{}{"type": "object"}
+	schema := map[string]any{"type": "object"}
 
 	messages := builder.buildMessages("", schema)
 

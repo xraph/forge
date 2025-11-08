@@ -237,21 +237,18 @@ func (s *InferenceScaler) Start(ctx context.Context) error {
 	// Start metrics collection
 
 	s.wg.Go(func() {
-
 		s.runMetricsCollection(ctx)
 	})
 
 	// Start scaling loop
 
 	s.wg.Go(func() {
-
 		s.runScalingLoop(ctx)
 	})
 
 	// Start stats collection
 
 	s.wg.Go(func() {
-
 		s.runStatsCollection(ctx)
 	})
 

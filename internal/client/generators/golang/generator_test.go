@@ -2,6 +2,7 @@ package golang_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -29,15 +30,7 @@ func TestGoGenerator(t *testing.T) {
 	}
 
 	for _, expected := range expectedFeatures {
-		found := false
-
-		for _, feature := range features {
-			if feature == expected {
-				found = true
-
-				break
-			}
-		}
+		found := slices.Contains(features, expected)
 
 		if !found {
 			t.Errorf("Expected feature '%s' not found", expected)

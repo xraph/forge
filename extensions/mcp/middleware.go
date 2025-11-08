@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,20 +32,12 @@ func AuthMiddleware(config Config, logger forge.Logger) forge.PureMiddleware {
 
 			// Extract token (handle "Bearer <token>" format)
 			token := authHeader
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token = after
 			}
 
 			// Validate token
-			valid := false
-
-			for _, validToken := range config.AuthTokens {
-				if token == validToken {
-					valid = true
-
-					break
-				}
-			}
+			valid := slices.Contains(config.AuthTokens, token)
 
 			if !valid {
 				logger.Warn("mcp: invalid auth token", forge.F("path", r.URL.Path))
@@ -209,8 +202,8 @@ func getClientID(r *http.Request, config Config) string {
 		authHeader := r.Header.Get(config.AuthHeader)
 		if authHeader != "" {
 			token := authHeader
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token = strings.TrimPrefix(authHeader, "Bearer ")
+			if after, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
+				token = after
 			}
 
 			return "token:" + token
