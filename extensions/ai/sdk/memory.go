@@ -68,6 +68,9 @@ type MemoryManager struct {
 	episodic map[string]*EpisodicMemory
 	mu       sync.RWMutex
 
+	// ID generation
+	idCounter uint64
+
 	// Configuration
 	workingCapacity   int
 	shortTermTTL      time.Duration
@@ -134,8 +137,9 @@ func (mm *MemoryManager) Store(ctx context.Context, content string, metadata map
 	mm.mu.Lock()
 	defer mm.mu.Unlock()
 
+	mm.idCounter++
 	entry := &MemoryEntry{
-		ID:          fmt.Sprintf("mem_%d", time.Now().UnixNano()),
+		ID:          fmt.Sprintf("mem_%s_%d", mm.agentID, mm.idCounter),
 		Tier:        MemoryTierWorking,
 		Content:     content,
 		Metadata:    metadata,
@@ -301,7 +305,9 @@ func (mm *MemoryManager) consolidateWorking(ctx context.Context) error {
 		return nil
 	}
 
-	for i := range toMove {
+	// Move entries until we've removed enough from working memory
+	moved := 0
+	for i := 0; i < len(scored) && moved < toMove; i++ {
 		entry := scored[i].entry
 
 		// Only consolidate if we have vector store and embedding
@@ -335,6 +341,7 @@ func (mm *MemoryManager) consolidateWorking(ctx context.Context) error {
 
 		// Remove from working memory only after successful storage
 		delete(mm.working, entry.ID)
+		moved++
 
 		if mm.logger != nil {
 			mm.logger.Debug("Consolidated memory to short-term",
@@ -346,7 +353,7 @@ func (mm *MemoryManager) consolidateWorking(ctx context.Context) error {
 
 	if mm.metrics != nil {
 		mm.metrics.Counter("forge.ai.sdk.memory.consolidations").Inc()
-		mm.metrics.Histogram("forge.ai.sdk.memory.consolidated_count").Observe(float64(toMove))
+		mm.metrics.Histogram("forge.ai.sdk.memory.consolidated_count").Observe(float64(moved))
 	}
 
 	return nil

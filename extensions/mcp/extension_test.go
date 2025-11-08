@@ -43,7 +43,6 @@ func TestMCPExtension(t *testing.T) {
 				forge.WithAppName("test-app"),
 				forge.WithAppVersion("1.0.0"),
 				forge.WithAppLogger(logger.NewNoopLogger()),
-				forge.WithConfig(forge.DefaultAppConfig()),
 				forge.WithExtensions(
 					mcp.NewExtensionWithConfig(tt.config),
 				),
@@ -135,7 +134,6 @@ func TestMCPServerInfo(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
@@ -184,7 +182,6 @@ func TestMCPListTools(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
@@ -257,7 +254,6 @@ func TestMCPCallTool(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
@@ -435,7 +431,6 @@ func TestMCPToolPrefix(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
@@ -494,7 +489,6 @@ func TestMCPDisabled(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	ext := mcp.NewExtensionWithConfig(config)
@@ -525,7 +519,6 @@ func TestMCPResources(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
@@ -568,7 +561,6 @@ func TestMCPPrompts(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 		forge.WithExtensions(
 			mcp.NewExtensionWithConfig(mcp.Config{
 				Enabled:           true,
@@ -631,7 +623,6 @@ func TestMCPExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	// Try to register ConfigManager (skip if already exists from another test)
@@ -649,12 +640,10 @@ func TestMCPExtension_ConfigLoading_FromNamespacedKey(t *testing.T) {
 	// Create extension (no options)
 	ext := mcp.NewExtension()
 
-	err = ext.Register(app)
-	if err != nil {
-		t.Fatalf("Register failed: %v", err)
-	}
+	// Register extension with app before starting
+	app.RegisterExtension(ext)
 
-	// Start and verify
+	// Start - this will call Register() and Start() on the extension
 	err = app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -678,7 +667,6 @@ func TestMCPExtension_ConfigLoading_FromLegacyKey(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	// Try to register ConfigManager (skip if already exists from another test)
@@ -696,12 +684,10 @@ func TestMCPExtension_ConfigLoading_FromLegacyKey(t *testing.T) {
 	// Create extension
 	ext := mcp.NewExtension()
 
-	err = ext.Register(app)
-	if err != nil {
-		t.Fatalf("Register failed: %v", err)
-	}
+	// Register extension with app before starting
+	app.RegisterExtension(ext)
 
-	// Start and verify
+	// Start - this will call Register() and Start() on the extension
 	err = app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -726,7 +712,6 @@ func TestMCPExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	// Try to register ConfigManager (skip if already exists from another test)
@@ -747,12 +732,10 @@ func TestMCPExtension_ConfigLoading_ProgrammaticOverrides(t *testing.T) {
 		mcp.WithResources(true),           // Override config
 	)
 
-	err = ext.Register(app)
-	if err != nil {
-		t.Fatalf("Register failed: %v", err)
-	}
+	// Register extension with app before starting
+	app.RegisterExtension(ext)
 
-	// Start
+	// Start - this will call Register() and Start() on the extension
 	err = app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -779,7 +762,6 @@ func TestMCPExtension_ConfigLoading_NoConfigManager(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	// Create extension with some options
@@ -788,13 +770,11 @@ func TestMCPExtension_ConfigLoading_NoConfigManager(t *testing.T) {
 		mcp.WithBasePath("/_/mcp"),
 	)
 
-	err := ext.Register(app)
-	if err != nil {
-		t.Fatalf("Register failed: %v", err)
-	}
+	// Register extension with app before starting
+	app.RegisterExtension(ext)
 
-	// Start
-	err = app.Start(ctx)
+	// Start - this will call Register() and Start() on the extension
+	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -817,7 +797,6 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	// Try to register ConfigManager (skip if already exists from another test)
@@ -837,12 +816,10 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T) {
 		mcp.WithRequireConfig(true),
 	)
 
-	err = ext.Register(app)
-	if err != nil {
-		t.Fatalf("Register should succeed when config exists, got: %v", err)
-	}
+	// Register extension with app before starting
+	app.RegisterExtension(ext)
 
-	// Start
+	// Start - this will call Register() and Start() on the extension
 	err = app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -857,7 +834,6 @@ func TestMCPExtension_ConfigLoading_RequireConfigTrue_WithoutConfig(t *testing.T
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	// Create extension with RequireConfig=true
@@ -884,19 +860,16 @@ func TestMCPExtension_ConfigLoading_RequireConfigFalse_WithoutConfig(t *testing.
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	// Create extension with RequireConfig=false (default)
 	ext := mcp.NewExtension()
 
-	err := ext.Register(app)
-	if err != nil {
-		t.Fatalf("Register should succeed with defaults, got: %v", err)
-	}
+	// Register extension with app before starting
+	app.RegisterExtension(ext)
 
-	// Start
-	err = app.Start(ctx)
+	// Start - this will call Register() and Start() on the extension
+	err := app.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
@@ -949,7 +922,6 @@ func TestMCPExtension_NewExtensionWithConfig(t *testing.T) {
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
 		forge.WithAppLogger(logger.NewNoopLogger()),
-		forge.WithConfig(forge.DefaultAppConfig()),
 	)
 
 	// Register extension properly

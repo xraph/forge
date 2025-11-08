@@ -468,6 +468,11 @@ func (pool *ldapConnPool) createConnection() (*ldap.Conn, error) {
 		return nil, fmt.Errorf("failed to connect to ldap after %d attempts: %w", pool.config.MaxRetries, err)
 	}
 
+	// Safety check - ensure connection was established
+	if conn == nil {
+		return nil, fmt.Errorf("ldap connection is nil after dial")
+	}
+
 	// Start TLS if enabled
 	if pool.config.UseTLS {
 		tlsConfig := &tls.Config{

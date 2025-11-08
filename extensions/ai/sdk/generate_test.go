@@ -653,8 +653,8 @@ func TestStringHelpers(t *testing.T) {
 
 	// Test replaceFirst
 	result := replaceFirst("hello world", "world", "universe")
-	if result != "hello universe world" {
-		t.Errorf("expected 'hello universe world', got '%s'", result)
+	if result != "hello universe" {
+		t.Errorf("expected 'hello universe', got '%s'", result)
 	}
 
 	// Test replaceAll
