@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // Extension implements forge.Extension for oRPC (JSON-RPC 2.0 / OpenRPC) functionality.

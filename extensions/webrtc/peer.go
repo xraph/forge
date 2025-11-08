@@ -8,6 +8,7 @@ import (
 
 	"github.com/pion/webrtc/v3"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // peerConnection implements PeerConnection using pion/webrtc.

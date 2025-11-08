@@ -2,6 +2,7 @@ package extras
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/xraph/forge"

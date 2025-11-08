@@ -2,9 +2,9 @@ package auth
 
 import (
 	"context"
-	"fmt"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // roomAuthorizer implements RoomAuthorizer with role-based access control.

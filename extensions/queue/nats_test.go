@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 func TestNewNATSQueue(t *testing.T) {

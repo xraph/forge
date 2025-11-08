@@ -9,6 +9,7 @@ import (
 
 	"github.com/pion/webrtc/v3"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // sfuRouter implements SFURouter for selective forwarding.

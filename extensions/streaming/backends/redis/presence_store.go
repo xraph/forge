@@ -8,6 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // PresenceStore implements streaming.PresenceStore with Redis backend.

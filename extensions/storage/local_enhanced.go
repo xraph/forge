@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // EnhancedLocalBackend implements enhanced local filesystem storage with proper locking and pooling.

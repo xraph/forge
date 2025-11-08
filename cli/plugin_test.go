@@ -2,6 +2,8 @@ package cli
 
 import (
 	"testing"
+
+	"github.com/xraph/forge/internal/errors"
 )
 
 func TestNewBasePlugin(t *testing.T) {

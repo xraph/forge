@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // SelfHealingAgent wraps an agent with automatic error recovery and learning.

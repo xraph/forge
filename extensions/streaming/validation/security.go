@@ -2,7 +2,6 @@ package validation
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 	"regexp"
 	"strings"

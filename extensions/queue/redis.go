@@ -9,6 +9,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/errors"
 )
 
 // RedisQueue implements Queue interface using Redis Streams.
