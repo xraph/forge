@@ -1,4 +1,3 @@
 ### Features
 
-* **farp:** add new FARP extension with initial implementation ([67fed23](https://github.com/xraph/forge/commit/67fed23eb5620914a4b435c083b40698f5a820ca))
-* **lifecycle:** introduce LifecycleManager for managing application lifecycle hooks ([52b2cff](https://github.com/xraph/forge/commit/52b2cffeae98b6f7ed53dd782b75bfdb5ceaf7b3))
+* **discovery:** remove outdated discovery examples and introduce database helpers ([25f2ab0](https://github.com/xraph/forge/commit/25f2ab07fc7ed7d17a7beb2c476e9e03c2a67f7d))
