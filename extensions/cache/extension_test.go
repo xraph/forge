@@ -508,7 +508,6 @@ func TestCacheExtension_ConfigLoading_RequireConfigTrue_WithConfig(t *testing.T)
 func TestCacheExtension_ConfigLoading_RequireConfigTrue_WithoutConfig(t *testing.T) {
 	// RequireConfig=true without config should fail
 	// Create app without ConfigManager
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),

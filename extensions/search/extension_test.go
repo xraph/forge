@@ -73,7 +73,6 @@ func TestExtensionRegister(t *testing.T) {
 }
 
 func TestExtensionRegisterInvalidDriver(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -90,7 +89,6 @@ func TestExtensionRegisterInvalidDriver(t *testing.T) {
 }
 
 func TestExtensionRegisterInvalidConfig(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -114,7 +112,6 @@ func TestExtensionRegisterInvalidConfig(t *testing.T) {
 }
 
 func TestExtensionStart(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -142,7 +139,6 @@ func TestExtensionStart(t *testing.T) {
 }
 
 func TestExtensionStop(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -175,7 +171,6 @@ func TestExtensionStop(t *testing.T) {
 }
 
 func TestExtensionHealth(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
@@ -215,7 +210,6 @@ func TestExtensionHealthNotStarted(t *testing.T) {
 }
 
 func TestExtensionLifecycle(t *testing.T) {
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),

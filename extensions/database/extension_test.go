@@ -38,7 +38,6 @@ func TestExtension_BasicInfo(t *testing.T) {
 
 func TestExtension_SQLiteLifecycle(t *testing.T) {
 	// Create test app
-
 	app := forge.New(
 		forge.WithAppName("test-app"),
 		forge.WithAppVersion("1.0.0"),
