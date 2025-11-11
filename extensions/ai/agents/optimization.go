@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/xraph/forge/errors"
 	ai "github.com/xraph/forge/extensions/ai/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // OptimizationAgent performs performance optimization tasks.

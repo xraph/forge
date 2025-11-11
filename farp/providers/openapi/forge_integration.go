@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xraph/forge/farp"
+	"github.com/xraph/farp"
 )
 
 // OpenAPISpecProvider is an interface for types that can provide an OpenAPI spec.

@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/auth"
-	"github.com/xraph/forge/internal/errors"
 )
 
 func TestAPIKeyProvider_Authenticate_Header(t *testing.T) {

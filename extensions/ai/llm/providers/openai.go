@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/ai/llm"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // OpenAIProvider implements LLM provider for OpenAI.

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // consistentHashBalancer implements consistent hashing.

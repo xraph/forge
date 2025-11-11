@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xraph/forge/farp"
+	"github.com/xraph/farp"
 )
 
 // Registry is an in-memory implementation of SchemaRegistry

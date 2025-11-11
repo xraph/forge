@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/xraph/forge/errors"
 	configcore "github.com/xraph/forge/internal/config/core"
 	"github.com/xraph/forge/internal/config/formats"
-	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )

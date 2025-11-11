@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 
 	nats "github.com/nats-io/nats.go"
 	"github.com/xraph/forge"

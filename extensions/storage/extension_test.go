@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 

@@ -11,7 +11,7 @@ import (
 	ld "github.com/launchdarkly/go-server-sdk/v7"
 	"github.com/launchdarkly/go-server-sdk/v7/ldcomponents"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // LaunchDarklyConfig holds configuration for LaunchDarkly.

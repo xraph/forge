@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // EventStore defines the interface for persisting and retrieving events.

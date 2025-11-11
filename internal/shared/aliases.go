@@ -3,7 +3,7 @@ package shared
 import (
 	"time"
 
-	ferrors "github.com/xraph/forge/internal/errors"
+	ferrors "github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 

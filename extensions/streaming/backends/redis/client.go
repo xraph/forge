@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // ClientConfig holds Redis client configuration.

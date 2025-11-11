@@ -10,8 +10,8 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/events/core"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // MongoEventStore implements EventStore using MongoDB.

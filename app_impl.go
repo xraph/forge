@@ -12,9 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xraph/forge/errors"
 	configM "github.com/xraph/forge/internal/config"
 	"github.com/xraph/forge/internal/di"
-	"github.com/xraph/forge/internal/errors"
 	healthinternal "github.com/xraph/forge/internal/health"
 	"github.com/xraph/forge/internal/logger"
 	metricsinternal "github.com/xraph/forge/internal/metrics"

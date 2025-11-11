@@ -10,7 +10,7 @@ import (
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // RabbitMQQueue implements Queue interface using RabbitMQ.

@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/ai/llm"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // MultiModalContentType represents the type of multi-modal content.

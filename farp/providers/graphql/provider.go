@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xraph/forge/farp"
+	"github.com/xraph/farp"
 )
 
 // Provider generates GraphQL schemas (SDL - Schema Definition Language) from applications.

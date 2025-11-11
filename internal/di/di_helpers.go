@@ -3,7 +3,7 @@ package di
 import (
 	"fmt"
 
-	errors2 "github.com/xraph/forge/internal/errors"
+	errors2 "github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/metrics"
 	"github.com/xraph/forge/internal/shared"

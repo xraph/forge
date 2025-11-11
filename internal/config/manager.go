@@ -15,9 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xraph/forge/errors"
 	configcore "github.com/xraph/forge/internal/config/core"
 	configformats "github.com/xraph/forge/internal/config/formats"
-	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"
 )

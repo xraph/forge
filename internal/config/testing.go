@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xraph/forge/errors"
 	configcore "github.com/xraph/forge/internal/config/core"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // TestConfigManager is a lightweight, in-memory implementation of ConfigManager

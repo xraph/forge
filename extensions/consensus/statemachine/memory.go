@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // MemoryStateMachine implements a simple in-memory state machine.

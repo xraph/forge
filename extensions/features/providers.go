@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/features/providers"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // NewLocalProvider creates a new local in-memory provider.

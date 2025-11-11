@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // StreamingClient handles streaming responses from LLM providers.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/ai/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // CreateAgent creates and persists an agent from a definition.

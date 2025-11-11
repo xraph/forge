@@ -1,7 +1,7 @@
 package di
 
 import (
-	errors2 "github.com/xraph/forge/internal/errors"
+	errors2 "github.com/xraph/forge/errors"
 )
 
 // DependencyGraph manages service dependencies.

@@ -9,8 +9,8 @@ import (
 
 	nats "github.com/nats-io/nats.go"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/events/core"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // NATSBroker implements MessageBroker for NATS.

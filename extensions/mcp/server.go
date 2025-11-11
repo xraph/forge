@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // Server represents an MCP server that exposes tools, resources, and prompts.

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	errors2 "github.com/xraph/forge/internal/errors"
+	errors2 "github.com/xraph/forge/errors"
 )
 
 type testService struct {

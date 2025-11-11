@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 func TestServer_RegisterMethod(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/internal/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"

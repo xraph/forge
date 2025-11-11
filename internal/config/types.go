@@ -1,8 +1,8 @@
 package config
 
 import (
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/config/core"
-	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/shared"
 )
 

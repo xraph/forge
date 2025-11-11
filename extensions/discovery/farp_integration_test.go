@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/xraph/farp"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/farp"
 	"github.com/xraph/forge/internal/logger"
 )
 

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/xraph/forge/farp"
+	"github.com/xraph/farp"
 )
 
 // Provider generates OpenAPI 3.x schemas from applications.

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 	metrics2 "github.com/xraph/forge/internal/metrics"
 )

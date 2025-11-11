@@ -6,9 +6,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/client"
 	"github.com/xraph/forge/internal/client/generators"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // Generator generates TypeScript clients.

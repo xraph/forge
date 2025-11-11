@@ -4,7 +4,7 @@ import (
 	stderrors "errors"
 	"time"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // Consensus error codes.

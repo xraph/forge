@@ -42,6 +42,7 @@ require (
 	github.com/uptrace/bun/dialect/mysqldialect v1.2.15
 	github.com/uptrace/bun/dialect/pgdialect v1.2.15
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.15
+	github.com/xraph/farp v1.0.1
 	go.etcd.io/bbolt v1.4.3
 	go.etcd.io/etcd/client/v3 v3.5.17
 	go.mongodb.org/mongo-driver v1.17.4
@@ -53,8 +54,9 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.43.0
 	golang.org/x/term v0.36.0
+	golang.org/x/text v0.30.0
 	google.golang.org/grpc v1.75.0
-	google.golang.org/protobuf v1.36.8
+	google.golang.org/protobuf v1.36.10
 	k8s.io/api v0.33.2
 	k8s.io/apimachinery v0.33.2
 	k8s.io/client-go v0.33.2
@@ -184,7 +186,6 @@ require (
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.17.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
-	golang.org/x/text v0.30.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
 	golang.org/x/tools v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20250825161204-c5933d9347a5 // indirect

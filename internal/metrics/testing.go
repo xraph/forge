@@ -15,7 +15,7 @@ import (
 	"time"
 
 	json "github.com/json-iterator/go"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/metrics/exporters"
 	"github.com/xraph/forge/internal/metrics/internal"

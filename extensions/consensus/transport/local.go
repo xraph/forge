@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // LocalTransport implements an in-memory transport for testing.

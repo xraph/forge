@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/xraph/forge/errors"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // MessageStore implements streaming.MessageStore with Redis backend using Redis Streams.

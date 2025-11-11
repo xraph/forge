@@ -3,7 +3,7 @@ package database
 import (
 	"fmt"
 
-	ierrors "github.com/xraph/forge/internal/errors"
+	ierrors "github.com/xraph/forge/errors"
 )
 
 // Error codes for database operations.

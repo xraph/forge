@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // PluginSystem manages dynamic plugin loading and execution.

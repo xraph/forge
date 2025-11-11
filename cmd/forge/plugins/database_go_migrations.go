@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/xraph/forge/cli"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // hasGoMigrations checks if there are any .go migration files (excluding migrations.go).

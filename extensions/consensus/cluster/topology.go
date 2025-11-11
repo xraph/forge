@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // TopologyManager manages cluster topology and node relationships.

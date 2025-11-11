@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // WAL implements Write-Ahead Logging for consensus operations.

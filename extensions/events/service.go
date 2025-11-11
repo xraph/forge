@@ -6,10 +6,10 @@ import (
 	"sync"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/events/brokers"
 	"github.com/xraph/forge/extensions/events/core"
 	"github.com/xraph/forge/extensions/events/stores"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // EventService provides event-driven architecture capabilities.
