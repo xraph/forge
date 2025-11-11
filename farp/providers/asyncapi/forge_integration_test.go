@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/xraph/forge/farp"
+	"github.com/xraph/farp"
 )
 
 // Mock router that implements AsyncAPISpec().

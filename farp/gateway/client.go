@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/xraph/forge/farp"
+	"github.com/xraph/farp"
 )
 
 // Client is a reference implementation for API gateway integration

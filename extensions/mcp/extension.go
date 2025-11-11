@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // Extension implements forge.Extension for MCP (Model Context Protocol) server.

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	errors2 "github.com/xraph/forge/internal/errors"
+	errors2 "github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/shared"
 )
 

@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/xraph/farp"
+	"github.com/xraph/farp/providers/asyncapi"
+	"github.com/xraph/farp/providers/openapi"
+	farpregistry "github.com/xraph/farp/registry/memory"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/farp"
-	"github.com/xraph/forge/farp/providers/asyncapi"
-	"github.com/xraph/forge/farp/providers/openapi"
-	"github.com/xraph/forge/farp/registry/memory"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // SchemaPublisher handles FARP schema registration.
@@ -24,7 +24,7 @@ type SchemaPublisher struct {
 // NewSchemaPublisher creates a new schema publisher.
 func NewSchemaPublisher(config FARPConfig, app forge.App) *SchemaPublisher {
 	// For now, use memory registry - in production, this should use the same backend as discovery
-	registry := memory.NewRegistry()
+	registry := farpregistry.NewRegistry()
 
 	return &SchemaPublisher{
 		config:   config,

@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // RunnableExtension is an optional interface for extensions that need to run

@@ -1,7 +1,7 @@
 package forge
 
 import (
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // Re-export error constructors for backward compatibility.

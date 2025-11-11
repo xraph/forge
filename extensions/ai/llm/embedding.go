@@ -7,7 +7,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // EmbeddingRequest represents an embedding request.

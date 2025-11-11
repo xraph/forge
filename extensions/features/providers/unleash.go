@@ -10,7 +10,7 @@ import (
 	unleash "github.com/Unleash/unleash-client-go/v4"
 	unleashContext "github.com/Unleash/unleash-client-go/v4/context"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // UnleashConfig holds configuration for Unleash.

@@ -10,8 +10,8 @@ import (
 
 	"github.com/go-ldap/ldap/v3"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/auth"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // LDAPConfig holds LDAP/Active Directory configuration.

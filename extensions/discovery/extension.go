@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/discovery/backends"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // Extension implements forge.Extension for service discovery.

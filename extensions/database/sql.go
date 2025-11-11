@@ -19,7 +19,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 

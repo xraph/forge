@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/cluster"
 	"github.com/xraph/forge/extensions/consensus/discovery"
 	"github.com/xraph/forge/extensions/consensus/internal"
@@ -15,7 +16,6 @@ import (
 	"github.com/xraph/forge/extensions/consensus/statemachine"
 	"github.com/xraph/forge/extensions/consensus/storage"
 	"github.com/xraph/forge/extensions/consensus/transport"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // TestHarness provides utilities for testing consensus.

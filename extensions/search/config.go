@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // Config contains configuration for the search extension.

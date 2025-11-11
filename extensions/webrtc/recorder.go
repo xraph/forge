@@ -13,7 +13,7 @@ import (
 	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // recorder implements Recorder for media recording.

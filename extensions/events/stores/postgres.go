@@ -9,8 +9,8 @@ import (
 
 	"github.com/lib/pq"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/events/core"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // PostgresEventStore implements EventStore using PostgreSQL.

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 func TestCookieManager_SetCookie(t *testing.T) {

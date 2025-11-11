@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // ORPC represents the oRPC server interface.

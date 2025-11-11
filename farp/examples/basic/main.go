@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/xraph/forge/farp"
-	"github.com/xraph/forge/farp/providers/openapi"
-	"github.com/xraph/forge/farp/registry/memory"
+	"github.com/xraph/farp"
+	"github.com/xraph/farp/providers/openapi"
+	"github.com/xraph/farp/registry/memory"
 )
 
 func main() {

@@ -15,8 +15,8 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/database"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // DatabasePlugin handles database operations.

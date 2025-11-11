@@ -9,8 +9,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/events/core"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // RedisBroker implements MessageBroker for Redis pub/sub.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // Extension implements a simple health and metrics dashboard.

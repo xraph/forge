@@ -7,7 +7,6 @@ import (
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/config"
 	"github.com/xraph/forge/internal/logger"
-	"github.com/xraph/forge/internal/metrics"
 )
 
 func TestNewExtension(t *testing.T) {
@@ -195,21 +194,16 @@ func TestExtensionDescription(t *testing.T) {
 func createTestApp(t *testing.T) forge.App {
 	t.Helper()
 
-	log := logger.NewLogger(logger.Config{
-		Level:  "info",
-		Format: "text",
-	})
-
-	met := metrics.NewMetrics(metrics.Config{})
-
-	cfg := config.NewConfigManager()
+	log := logger.NewNoopLogger()
+	met := forge.NewNoOpMetrics()
+	cfg := config.NewTestConfigManager()
 
 	testApp := forge.New(
-		forge.WithName("test-app"),
-		forge.WithVersion("1.0.0"),
-		forge.WithLogger(log),
-		forge.WithMetrics(met),
-		forge.WithConfig(cfg),
+		forge.WithAppName("test-app"),
+		forge.WithAppVersion("1.0.0"),
+		forge.WithAppLogger(log),
+		forge.WithAppMetrics(met),
+		forge.WithAppConfigManager(cfg),
 	)
 
 	return testApp

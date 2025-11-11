@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/consensus/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // Extension implements forge.Extension for distributed consensus.

@@ -8,8 +8,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/xraph/forge/errors"
 	internalai "github.com/xraph/forge/extensions/ai/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // AnomalyDetectionAgent detects anomalies in system behavior and performance.

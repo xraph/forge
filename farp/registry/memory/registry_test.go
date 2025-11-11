@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xraph/forge/farp"
+	"github.com/xraph/farp"
 )
 
 func TestNewRegistry(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 	"golang.org/x/term"
 )
 

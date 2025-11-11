@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // ChaosMonkey implements chaos engineering for consensus testing.

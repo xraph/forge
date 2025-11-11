@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/events/core"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // MemoryBroker implements MessageBroker interface using in-memory channels.

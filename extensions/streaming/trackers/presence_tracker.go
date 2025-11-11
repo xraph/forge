@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // presenceTracker implements streaming.PresenceTracker.

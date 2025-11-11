@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // Flag represents a command-line flag.

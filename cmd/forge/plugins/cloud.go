@@ -7,7 +7,7 @@ import (
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
 	"github.com/xraph/forge/cmd/forge/plugins/infra"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // CloudPlugin handles Forge Cloud operations.

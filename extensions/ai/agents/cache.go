@@ -6,8 +6,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/xraph/forge/errors"
 	ai "github.com/xraph/forge/extensions/ai/internal"
-	"github.com/xraph/forge/internal/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 

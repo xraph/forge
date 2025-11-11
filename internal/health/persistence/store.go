@@ -9,7 +9,7 @@ import (
 	"time"
 
 	json "github.com/json-iterator/go"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 	health "github.com/xraph/forge/internal/health/internal"
 	"github.com/xraph/forge/internal/logger"
 	"github.com/xraph/forge/internal/shared"

@@ -7,7 +7,7 @@ import (
 
 	flagsmith "github.com/Flagsmith/flagsmith-go-client/v3"
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // FlagsmithConfig holds configuration for Flagsmith.

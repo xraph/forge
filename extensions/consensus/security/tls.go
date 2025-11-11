@@ -7,7 +7,7 @@ import (
 	"os"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // TLSConfig contains TLS configuration.

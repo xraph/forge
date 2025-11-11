@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // leastConnectionsBalancer selects node with fewest connections.

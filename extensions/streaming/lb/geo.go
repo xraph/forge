@@ -6,7 +6,7 @@ import (
 	"math"
 	"sync"
 
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // geoProximityBalancer routes to nearest node.

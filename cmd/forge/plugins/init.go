@@ -8,7 +8,7 @@ import (
 
 	"github.com/xraph/forge/cli"
 	"github.com/xraph/forge/cmd/forge/config"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // InitPlugin handles project initialization.

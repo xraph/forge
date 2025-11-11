@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
-	"github.com/xraph/forge/internal/errors"
+	"github.com/xraph/forge/errors"
 )
 
 // HealthChecker performs comprehensive health checks on storage backends.

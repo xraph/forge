@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/extensions/ai/internal"
-	"github.com/xraph/forge/internal/errors"
 )
 
 // AgentTeam represents a group of agents working together.
