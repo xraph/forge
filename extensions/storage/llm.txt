@@ -1,0 +1,153 @@
+# Forge Storage Extension
+
+## Purpose
+
+Multi-backend object storage providing file uploads, downloads, and management with support for S3, Google Cloud Storage, Azure Blob Storage, and local filesystem.
+
+## Key Components
+
+- **Storage Interface**: Upload, download, delete files
+- **Multiple Backends**: S3, GCS, Azure Blob, Local
+- **Streaming**: Large file handling
+- **Presigned URLs**: Temporary access links
+- **Metadata**: File attributes and tags
+
+## Architecture
+
+```
+Storage Extension
+├── Storage Interface
+│   ├── Upload
+│   ├── Download
+│   └── Delete
+├── Backends
+│   ├── AWS S3
+│   ├── Google Cloud Storage
+│   ├── Azure Blob Storage
+│   └── Local Filesystem
+├── Streaming
+│   └── Large File Support
+└── Access Control
+    └── Presigned URLs
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Storage interface {
+    Upload(ctx context.Context, key string, data io.Reader, metadata Metadata) error
+    Download(ctx context.Context, key string) (io.ReadCloser, error)
+    Delete(ctx context.Context, key string) error
+    List(ctx context.Context, prefix string) ([]Object, error)
+    PresignedURL(ctx context.Context, key string, expiry time.Duration) (string, error)
+}
+
+type Object struct {
+    Key          string
+    Size         int64
+    LastModified time.Time
+    Metadata     map[string]string
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get storage service
+func GetStorage(c forge.Container) (Storage, error)
+
+// Upload file
+storage.Upload(ctx, "uploads/file.pdf", file, Metadata{
+    ContentType: "application/pdf",
+})
+
+// Download file
+reader, _ := storage.Download(ctx, "uploads/file.pdf")
+defer reader.Close()
+
+// Get presigned URL
+url, _ := storage.PresignedURL(ctx, "uploads/file.pdf", 1*time.Hour)
+```
+
+## Usage Examples
+
+### S3 Storage
+
+```go
+import "github.com/xraph/forge/extensions/storage"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        storage.NewExtension(storage.Config{
+            Driver: "s3",
+            S3Config: &storage.S3Config{
+                Bucket: "my-bucket",
+                Region: "us-east-1",
+            },
+        }),
+    },
+})
+
+// Get storage
+s, _ := storage.GetStorage(app.Container())
+
+// Upload file
+file, _ := os.Open("document.pdf")
+defer file.Close()
+
+s.Upload(ctx, "documents/doc.pdf", file, storage.Metadata{
+    ContentType: "application/pdf",
+    Metadata: map[string]string{
+        "user":   "123",
+        "project": "abc",
+    },
+})
+
+// Download file
+reader, _ := s.Download(ctx, "documents/doc.pdf")
+defer reader.Close()
+io.Copy(os.Stdout, reader)
+
+// Get temporary URL
+url, _ := s.PresignedURL(ctx, "documents/doc.pdf", 24*time.Hour)
+// Share URL with users for temporary access
+```
+
+## Configuration
+
+```yaml
+extensions:
+  storage:
+    driver: s3
+    
+    s3:
+      bucket: my-bucket
+      region: us-east-1
+      access_key: ${AWS_ACCESS_KEY}
+      secret_key: ${AWS_SECRET_KEY}
+    
+    gcs:
+      bucket: my-bucket
+      project: my-project
+      credentials: ${GCS_CREDENTIALS}
+    
+    local:
+      path: ./uploads
+```
+
+## Notes
+
+### Production Readiness
+- ✅ Multiple backend support
+- ✅ Streaming uploads/downloads
+- ✅ Presigned URLs
+- ✅ Metadata support
+
+### License
+MIT License - Part of Forge Framework
+

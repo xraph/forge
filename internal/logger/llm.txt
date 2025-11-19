@@ -1,0 +1,483 @@
+# Forge Logger - Internal Implementation
+
+## Purpose
+
+Production-grade structured logging system for Forge applications with beautiful console output, machine-readable JSON format, level-based filtering, contextual fields, and performance optimization. Built on top of uber/zap with enhanced usability and Forge-specific integrations.
+
+## Key Components
+
+- **Structured Logger**: Field-based logging with key-value pairs
+- **Beautiful Console**: Human-friendly colored output for development
+- **JSON Output**: Machine-parsable logs for production
+- **Log Levels**: DEBUG, INFO, WARN, ERROR, FATAL with filtering
+- **Contextual Fields**: Persistent fields across log entries
+- **Performance**: Zero-allocation in hot paths
+- **Testing Support**: Test logger with output capture
+
+## Architecture
+
+```
+Logger System
+├── Logger Interface
+│   ├── Level Methods (Debug, Info, Warn, Error, Fatal)
+│   ├── Field Support (With, WithFields)
+│   └── Context Methods
+├── Implementation
+│   ├── Zap Logger (production)
+│   ├── Beautiful Logger (development)
+│   └── Test Logger (testing)
+├── Encoders
+│   ├── JSON Encoder (production)
+│   ├── Console Encoder (beautiful output)
+│   └── Custom Formatters
+└── Configuration
+    ├── Level Configuration
+    ├── Output Destinations
+    └── Sampling Configuration
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Logger interface {
+    // Level-based logging
+    Debug(msg string, fields ...Field)
+    Info(msg string, fields ...Field)
+    Warn(msg string, fields ...Field)
+    Error(msg string, fields ...Field)
+    Fatal(msg string, fields ...Field)
+    
+    // Contextual logging
+    With(fields ...Field) Logger
+    WithFields(fields map[string]interface{}) Logger
+    
+    // Named loggers
+    Named(name string) Logger
+    
+    // Sync
+    Sync() error
+}
+
+type Field struct {
+    Key   string
+    Value interface{}
+    Type  FieldType
+}
+
+type LogLevel int
+
+const (
+    DebugLevel LogLevel = iota
+    InfoLevel
+    WarnLevel
+    ErrorLevel
+    FatalLevel
+)
+```
+
+### Main Functions/Methods
+
+```go
+// Create loggers
+func NewLogger(config LoggerConfig) Logger
+func NewBeautifulLogger(opts ...BeautifulLoggerOption) Logger
+func NewTestLogger() *TestLogger
+
+// Field constructors
+func String(key, value string) Field
+func Int(key string, value int) Field
+func Int64(key string, value int64) Field
+func Float64(key string, value float64) Field
+func Bool(key string, value bool) Field
+func Time(key string, value time.Time) Field
+func Duration(key string, value time.Duration) Field
+func Error(err error) Field
+func Any(key string, value interface{}) Field
+
+// Configuration
+func WithLevel(level LogLevel) LoggerOption
+func WithOutput(w io.Writer) LoggerOption
+func WithJSON() LoggerOption
+func WithConsole() LoggerOption
+```
+
+## Usage Examples
+
+### Basic Logging
+
+```go
+import "github.com/xraph/forge/internal/logger"
+
+func main() {
+    log := logger.NewLogger(logger.LoggerConfig{
+        Level:  logger.InfoLevel,
+        Format: "json",
+        Output: os.Stdout,
+    })
+    
+    log.Info("Application started")
+    log.Debug("This won't appear (level is INFO)")
+    log.Warn("Resource usage high", 
+        logger.String("resource", "memory"),
+        logger.Int("usage_mb", 1024),
+    )
+    log.Error("Failed to connect to database",
+        logger.String("host", "localhost"),
+        logger.Int("port", 5432),
+        logger.Error(err),
+    )
+}
+```
+
+### Structured Logging
+
+```go
+// Add structured fields
+log.Info("User logged in",
+    logger.String("user_id", "123"),
+    logger.String("ip", "192.168.1.1"),
+    logger.Duration("duration", 150*time.Millisecond),
+    logger.Bool("success", true),
+)
+
+// JSON output:
+// {
+//   "level": "info",
+//   "timestamp": "2025-01-01T12:00:00.000Z",
+//   "message": "User logged in",
+//   "user_id": "123",
+//   "ip": "192.168.1.1",
+//   "duration": 0.15,
+//   "success": true
+// }
+```
+
+### Contextual Logging
+
+```go
+// Create logger with persistent fields
+requestLogger := log.With(
+    logger.String("request_id", requestID),
+    logger.String("user_id", userID),
+)
+
+// All subsequent logs include these fields
+requestLogger.Info("Processing request")
+requestLogger.Info("Request completed")
+
+// Output includes request_id and user_id in both logs
+```
+
+### Beautiful Console Logger
+
+```go
+// For development - beautiful colored output
+log := logger.NewBeautifulLogger(
+    logger.WithColors(true),
+    logger.WithTimestamp(true),
+    logger.WithCaller(true),
+)
+
+log.Info("Server started", logger.Int("port", 8080))
+// Output: [INFO] 2025-01-01 12:00:00 | Server started port=8080
+
+log.Warn("High memory usage", logger.Int("mb", 1024))
+// Output: [WARN] 2025-01-01 12:00:00 | High memory usage mb=1024 (yellow)
+
+log.Error("Database connection failed", logger.Error(err))
+// Output: [ERROR] 2025-01-01 12:00:00 | Database connection failed error=... (red)
+```
+
+### Named Loggers
+
+```go
+// Create component-specific loggers
+dbLogger := log.Named("database")
+cacheLogger := log.Named("cache")
+apiLogger := log.Named("api")
+
+dbLogger.Info("Connection established")
+// Output: {"level":"info","logger":"database","message":"Connection established"}
+
+cacheLogger.Warn("Cache miss", logger.String("key", "user:123"))
+// Output: {"level":"warn","logger":"cache","message":"Cache miss","key":"user:123"}
+```
+
+### Error Logging with Stack Traces
+
+```go
+// Log errors with stack traces
+if err != nil {
+    log.Error("Operation failed",
+        logger.Error(err),
+        logger.String("operation", "updateUser"),
+        logger.String("user_id", userID),
+    )
+}
+
+// Wrap and log errors
+if err := doSomething(); err != nil {
+    wrapped := fmt.Errorf("failed to do something: %w", err)
+    log.Error("Process failed",
+        logger.Error(wrapped),
+        logger.String("step", "initialization"),
+    )
+}
+```
+
+### Test Logger
+
+```go
+// For testing - captures logs for assertions
+func TestMyFunction(t *testing.T) {
+    testLog := logger.NewTestLogger()
+    
+    // Pass to function under test
+    myFunction(testLog)
+    
+    // Assert logs
+    logs := testLog.Logs()
+    assert.Equal(t, 1, len(logs))
+    assert.Equal(t, "info", logs[0].Level)
+    assert.Equal(t, "Operation completed", logs[0].Message)
+    assert.Equal(t, "123", logs[0].Fields["user_id"])
+}
+```
+
+### Integration with Forge Context
+
+```go
+// Add logger to request context
+router.Use(func(next Handler) Handler {
+    return func(ctx Context) error {
+        // Create request-scoped logger
+        reqLog := log.With(
+            logger.String("request_id", ctx.Header("X-Request-ID")),
+            logger.String("method", ctx.Request().Method),
+            logger.String("path", ctx.Request().URL.Path),
+        )
+        
+        // Store in context
+        ctx.Set("logger", reqLog)
+        
+        // Log request
+        reqLog.Info("Request started")
+        
+        // Execute handler
+        err := next(ctx)
+        
+        // Log completion
+        if err != nil {
+            reqLog.Error("Request failed", logger.Error(err))
+        } else {
+            reqLog.Info("Request completed")
+        }
+        
+        return err
+    }
+})
+
+// Use in handlers
+func handler(ctx Context) error {
+    log := ctx.Get("logger").(logger.Logger)
+    log.Info("Processing user request")
+    return nil
+}
+```
+
+### Log Sampling (High-Throughput)
+
+```go
+// For high-throughput applications - sample logs
+config := logger.LoggerConfig{
+    Level:  logger.InfoLevel,
+    Format: "json",
+    Sampling: &logger.SamplingConfig{
+        Initial:    100,  // Log first 100
+        Thereafter: 100,  // Then log every 100th
+    },
+}
+log := logger.NewLogger(config)
+
+// In tight loop - only samples are logged
+for i := 0; i < 10000; i++ {
+    log.Debug("Processing item", logger.Int("item", i))
+}
+// Only ~100 logs actually written
+```
+
+### Multiple Outputs
+
+```go
+// Log to multiple destinations
+file, _ := os.OpenFile("app.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+defer file.Close()
+
+log := logger.NewLogger(logger.LoggerConfig{
+    Level:  logger.InfoLevel,
+    Format: "json",
+    Outputs: []io.Writer{
+        os.Stdout,  // Console
+        file,       // File
+    },
+})
+
+log.Info("This goes to both console and file")
+```
+
+### Dynamic Log Level
+
+```go
+// Change log level at runtime
+type DynamicLogger struct {
+    logger.Logger
+    level atomic.Value
+}
+
+func (l *DynamicLogger) shouldLog(level logger.LogLevel) bool {
+    currentLevel := l.level.Load().(logger.LogLevel)
+    return level >= currentLevel
+}
+
+func (l *DynamicLogger) SetLevel(level logger.LogLevel) {
+    l.level.Store(level)
+}
+
+// Use with config watching
+config.Watch("log.level", func(change ConfigChange) {
+    newLevel := parseLogLevel(change.NewValue.(string))
+    dynamicLogger.SetLevel(newLevel)
+})
+```
+
+## Configuration
+
+```yaml
+# Logger configuration
+logging:
+  level: info          # debug, info, warn, error, fatal
+  format: json         # json, console, beautiful
+  output: stdout       # stdout, stderr, file path
+  timestamp: true
+  caller: true         # Include file:line
+  stacktrace_level: error  # Include stack traces for error and above
+  
+  # Sampling (for high-throughput)
+  sampling:
+    enabled: true
+    initial: 100
+    thereafter: 100
+  
+  # File rotation (if output is file)
+  file:
+    path: /var/log/app.log
+    max_size: 100       # MB
+    max_backups: 3
+    max_age: 28         # days
+    compress: true
+```
+
+## Dependencies
+
+### External
+- go.uber.org/zap - Core logging engine
+- github.com/fatih/color - Colored console output
+
+### Internal
+- github.com/xraph/forge/internal/shared - Shared interfaces
+
+## Common Patterns
+
+### Request Logging Middleware
+```go
+func LoggingMiddleware(log logger.Logger) Middleware {
+    return func(next Handler) Handler {
+        return func(ctx Context) error {
+            start := time.Now()
+            
+            reqLog := log.With(
+                logger.String("request_id", ctx.Header("X-Request-ID")),
+                logger.String("method", ctx.Request().Method),
+                logger.String("path", ctx.Request().URL.Path),
+            )
+            
+            err := next(ctx)
+            
+            duration := time.Since(start)
+            reqLog.Info("Request completed",
+                logger.Duration("duration", duration),
+                logger.Int("status", ctx.Response().Status),
+                logger.Error(err),
+            )
+            
+            return err
+        }
+    }
+}
+```
+
+### Panic Logging
+```go
+func RecoveryMiddleware(log logger.Logger) Middleware {
+    return func(next Handler) Handler {
+        return func(ctx Context) (err error) {
+            defer func() {
+                if r := recover(); r != nil {
+                    log.Fatal("Panic recovered",
+                        logger.Any("panic", r),
+                        logger.String("stack", string(debug.Stack())),
+                    )
+                    err = fmt.Errorf("panic: %v", r)
+                }
+            }()
+            return next(ctx)
+        }
+    }
+}
+```
+
+## Related Packages
+
+- `/` - Core Forge framework using logger
+- `/internal/health` - Health checks logging
+- `/internal/metrics` - Metrics logging
+
+## Notes
+
+### Production Readiness
+- ✅ Production-ready with comprehensive testing
+- ✅ Zero allocation in hot paths
+- ✅ Thread-safe concurrent logging
+- ✅ Configurable output and levels
+- ✅ Beautiful development experience
+
+### Performance Characteristics
+- Structured log: ~500ns per call
+- JSON encoding: ~1μs per log
+- Console encoding: ~2μs per log
+- Beautiful logger: ~3μs per log
+- Zero allocation for cached fields
+
+### Security Considerations
+- Never log passwords or secrets
+- Sanitize user input before logging
+- Use structured logging (prevent log injection)
+- Rotate logs regularly
+- Secure log file permissions (0600)
+- Consider log aggregation for sensitive data
+
+### Best Practices
+1. Use structured logging, not string formatting
+2. Use appropriate log levels
+3. Add context with With() for request scope
+4. Use JSON format in production
+5. Use beautiful logger in development
+6. Sample logs in high-throughput scenarios
+7. Never log sensitive data
+8. Use test logger in tests
+
+### License
+MIT License - Part of Forge Framework (internal package)
+

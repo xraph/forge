@@ -1,0 +1,166 @@
+# Forge Testing Package
+
+## Purpose
+
+Testing utilities and helpers for writing comprehensive tests for Forge applications, providing test servers, mocks, fixtures, and assertions.
+
+## Key Components
+
+- **Test Server**: HTTP test server for integration tests
+- **Mocks**: Mock implementations of Forge interfaces
+- **Fixtures**: Test data generators
+- **Assertions**: Custom test assertions
+- **Test Helpers**: Common testing patterns
+
+## Architecture
+
+```
+Testing Package
+├── Test Server
+│   ├── HTTP Test Server
+│   └── Request/Response Helpers
+├── Mocks
+│   ├── Mock Container
+│   ├── Mock Logger
+│   └── Mock Services
+├── Fixtures
+│   └── Test Data
+└── Assertions
+    └── Custom Assertions
+```
+
+## Public API
+
+### Core Types
+
+```go
+type TestServer struct {
+    App    *forge.App
+    Server *httptest.Server
+}
+
+type MockLogger struct {
+    Logs []LogEntry
+}
+
+type MockContainer struct {
+    services map[string]interface{}
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Test server
+func NewTestServer(app *forge.App) *TestServer
+func (s *TestServer) Request(method, path string, body io.Reader) *httptest.ResponseRecorder
+
+// Mocks
+func NewMockLogger() *MockLogger
+func NewMockContainer() *MockContainer
+
+// Assertions
+func AssertStatusCode(t *testing.T, expected, actual int)
+func AssertJSON(t *testing.T, expected, actual interface{})
+```
+
+## Usage Examples
+
+### HTTP Test Server
+
+```go
+import (
+    "testing"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/testing"
+)
+
+func TestUserAPI(t *testing.T) {
+    // Create test app
+    app := forge.NewApp(forge.DefaultAppConfig())
+    
+    // Register routes
+    app.Router().GET("/users/:id", getUserHandler)
+    
+    // Create test server
+    ts := testing.NewTestServer(app)
+    defer ts.Close()
+    
+    // Make request
+    resp := ts.Request("GET", "/users/123", nil)
+    
+    // Assert response
+    testing.AssertStatusCode(t, 200, resp.Code)
+    testing.AssertJSON(t, expectedUser, resp.Body)
+}
+```
+
+### Mock Services
+
+```go
+func TestService(t *testing.T) {
+    // Create mock container
+    container := testing.NewMockContainer()
+    
+    // Register mock services
+    container.Register("database", &MockDatabase{})
+    container.Register("cache", &MockCache{})
+    
+    // Use in tests
+    service := NewUserService(container)
+    user, err := service.GetUser("123")
+    
+    // Assertions
+    if err != nil {
+        t.Fatalf("unexpected error: %v", err)
+    }
+    if user.ID != "123" {
+        t.Errorf("expected ID 123, got %s", user.ID)
+    }
+}
+```
+
+### Test Fixtures
+
+```go
+// Generate test data
+func TestCreateUser(t *testing.T) {
+    user := testing.FixtureUser()
+    
+    // user has realistic test data
+    result, err := createUser(user)
+    
+    if err != nil {
+        t.Fatal(err)
+    }
+    testing.AssertEqual(t, user.Email, result.Email)
+}
+```
+
+## Dependencies
+
+### External
+- testing - Standard library
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ Comprehensive test utilities
+- ✅ HTTP test server
+- ✅ Mock implementations
+- ✅ Test fixtures
+
+### Best Practices
+1. Use test server for integration tests
+2. Use mocks for unit tests
+3. Generate fixtures for test data
+4. Use table-driven tests
+5. Test error cases
+6. Maintain test coverage >80%
+
+### License
+MIT License - Part of Forge Framework
+

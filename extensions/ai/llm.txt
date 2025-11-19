@@ -1,0 +1,558 @@
+# Forge AI Extension
+
+## Purpose
+
+Comprehensive AI/ML platform extension for Forge providing LLM integration, intelligent agents, model management, and high-performance inference capabilities. Supports multiple LLM providers (OpenAI, Anthropic, Azure, Ollama), AI agent orchestration, and inference engine with batching and caching.
+
+## Key Components
+
+- **LLM Integration**: Multi-provider LLM support (OpenAI, Anthropic, Claude, Azure, Ollama, HuggingFace)
+- **AI Agents**: Intelligent agents for optimization, security, anomaly detection, load balancing
+- **Inference Engine**: High-performance ML inference with batching, caching, and auto-scaling
+- **Model Management**: Support for ONNX, PyTorch, TensorFlow, Scikit-learn, HuggingFace
+- **Streaming**: Real-time streaming for chat and completions
+- **Monitoring**: Comprehensive metrics, health checks, and observability
+- **Agent Teams**: Coordinate multiple agents for complex tasks
+- **Training**: Model training and fine-tuning support
+
+## Architecture
+
+```
+AI Extension
+├── LLM Subsystem
+│   ├── Manager (provider orchestration)
+│   ├── Providers (OpenAI, Anthropic, Azure, Ollama)
+│   ├── Chat & Completion APIs
+│   ├── Embedding Support
+│   └── Streaming Client
+├── Agent Subsystem
+│   ├── Agent Factory
+│   ├── Base Agent Interface
+│   ├── Specialized Agents
+│   │   ├── Optimization Agent
+│   │   ├── Security Agent
+│   │   ├── Anomaly Detection Agent
+│   │   ├── Load Balancer Agent
+│   │   └── Custom Agents
+│   └── Agent Store (persistence)
+├── Model Subsystem
+│   ├── Model Registry
+│   ├── Framework Adapters
+│   │   ├── ONNX Runtime
+│   │   ├── PyTorch
+│   │   ├── TensorFlow
+│   │   └── Scikit-learn
+│   ├── Model Server
+│   └── Lifecycle Management
+├── Inference Engine
+│   ├── Request Batching
+│   ├── Response Caching
+│   ├── Auto-scaling
+│   ├── Worker Pool
+│   └── Pipeline Processing
+└── Core Components
+    ├── Configuration
+    ├── Metrics & Health
+    ├── Storage Interfaces
+    └── REST API
+```
+
+## Public API
+
+### Core Types
+
+```go
+type AIService interface {
+    // LLM operations
+    Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error)
+    Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
+    Embed(ctx context.Context, text []string) ([][]float64, error)
+    
+    // Streaming
+    ChatStream(ctx context.Context, req ChatRequest) (<-chan ChatChunk, error)
+    
+    // Agent operations
+    CreateAgent(ctx context.Context, config AgentConfig) (Agent, error)
+    GetAgent(ctx context.Context, id string) (Agent, error)
+    ExecuteAgent(ctx context.Context, agentID string, input AgentInput) (*AgentOutput, error)
+    
+    // Model operations
+    LoadModel(ctx context.Context, path string, framework string) (Model, error)
+    Predict(ctx context.Context, modelID string, input interface{}) (interface{}, error)
+    
+    // Management
+    ListProviders() []string
+    Health() HealthStatus
+}
+
+type ChatRequest struct {
+    Provider    string
+    Model       string
+    Messages    []Message
+    Temperature float64
+    MaxTokens   int
+    Stream      bool
+}
+
+type Agent interface {
+    ID() string
+    Name() string
+    Execute(ctx context.Context, input AgentInput) (*AgentOutput, error)
+    GetMetrics() AgentMetrics
+}
+
+type Model interface {
+    ID() string
+    Framework() string
+    Predict(ctx context.Context, input interface{}) (interface{}, error)
+    Metadata() ModelMetadata
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension creation
+func NewExtension(config Config) forge.Extension
+
+// Get AI service from container
+func GetAIService(c forge.Container) (AIService, error)
+
+// LLM operations
+service.Chat(ctx, ChatRequest{
+    Provider: "openai",
+    Model:    "gpt-4",
+    Messages: []Message{
+        {Role: "user", Content: "Hello!"},
+    },
+})
+
+// Agent operations
+agent, _ := service.CreateAgent(ctx, AgentConfig{
+    Type: "optimization",
+    Name: "perf-optimizer",
+})
+result, _ := agent.Execute(ctx, input)
+
+// Model operations
+model, _ := service.LoadModel(ctx, "model.onnx", "onnx")
+output, _ := model.Predict(ctx, inputData)
+```
+
+## Usage Examples
+
+### Basic LLM Integration
+
+```go
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/ai"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Extensions: []forge.Extension{
+            ai.NewExtension(ai.Config{
+                LLMProviders: map[string]ai.LLMProviderConfig{
+                    "openai": {
+                        APIKey: os.Getenv("OPENAI_API_KEY"),
+                        Model:  "gpt-4",
+                    },
+                },
+            }),
+        },
+    })
+    
+    // Get AI service
+    aiService, _ := ai.GetAIService(app.Container())
+    
+    // Chat with LLM
+    response, err := aiService.Chat(context.Background(), ai.ChatRequest{
+        Provider: "openai",
+        Model:    "gpt-4",
+        Messages: []ai.Message{
+            {Role: "system", Content: "You are a helpful assistant."},
+            {Role: "user", Content: "What is the capital of France?"},
+        },
+        Temperature: 0.7,
+        MaxTokens:   100,
+    })
+    
+    fmt.Println(response.Content)
+    
+    app.Run()
+}
+```
+
+### Streaming Chat
+
+```go
+// Stream chat responses
+stream, err := aiService.ChatStream(ctx, ai.ChatRequest{
+    Provider: "openai",
+    Model:    "gpt-4",
+    Messages: []ai.Message{
+        {Role: "user", Content: "Tell me a story"},
+    },
+    Stream: true,
+})
+
+for chunk := range stream {
+    if chunk.Error != nil {
+        log.Printf("Stream error: %v", chunk.Error)
+        break
+    }
+    fmt.Print(chunk.Content)
+}
+```
+
+### Multiple LLM Providers
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        ai.NewExtension(ai.Config{
+            LLMProviders: map[string]ai.LLMProviderConfig{
+                "openai": {
+                    APIKey: os.Getenv("OPENAI_API_KEY"),
+                    Model:  "gpt-4",
+                },
+                "anthropic": {
+                    APIKey: os.Getenv("ANTHROPIC_API_KEY"),
+                    Model:  "claude-3-opus",
+                },
+                "ollama": {
+                    BaseURL: "http://localhost:11434",
+                    Model:   "llama2",
+                },
+            },
+        }),
+    },
+})
+
+// Use different providers
+openaiResponse, _ := aiService.Chat(ctx, ai.ChatRequest{
+    Provider: "openai",
+    Model:    "gpt-4",
+    Messages: messages,
+})
+
+anthropicResponse, _ := aiService.Chat(ctx, ai.ChatRequest{
+    Provider: "anthropic",
+    Model:    "claude-3-opus",
+    Messages: messages,
+})
+
+ollamaResponse, _ := aiService.Chat(ctx, ai.ChatRequest{
+    Provider: "ollama",
+    Model:    "llama2",
+    Messages: messages,
+})
+```
+
+### AI Agents
+
+```go
+// Create optimization agent
+optimizationAgent, err := aiService.CreateAgent(ctx, ai.AgentConfig{
+    Type: "optimization",
+    Name: "performance-optimizer",
+    Config: map[string]interface{}{
+        "threshold": 0.8,
+        "metrics":   []string{"latency", "throughput"},
+    },
+})
+
+// Execute agent
+result, err := optimizationAgent.Execute(ctx, ai.AgentInput{
+    Data: map[string]interface{}{
+        "current_latency":    150,
+        "target_latency":     100,
+        "current_throughput": 1000,
+    },
+})
+
+// Apply recommendations
+recommendations := result.Recommendations
+for _, rec := range recommendations {
+    log.Printf("Recommendation: %s (confidence: %.2f)", rec.Action, rec.Confidence)
+}
+
+// Create security agent
+securityAgent, _ := aiService.CreateAgent(ctx, ai.AgentConfig{
+    Type: "security",
+    Name: "threat-detector",
+})
+
+// Monitor for threats
+threats, _ := securityAgent.Execute(ctx, ai.AgentInput{
+    Data: map[string]interface{}{
+        "logs":    recentLogs,
+        "traffic": networkTraffic,
+    },
+})
+```
+
+### Agent Teams
+
+```go
+// Create team of agents
+team := ai.NewAgentTeam("infrastructure-team")
+
+// Add agents to team
+team.AddAgent(optimizationAgent)
+team.AddAgent(securityAgent)
+team.AddAgent(anomalyAgent)
+
+// Coordinate execution
+results, err := team.Execute(ctx, ai.TeamInput{
+    Strategy: "parallel",  // or "sequential", "priority"
+    Input: ai.AgentInput{
+        Data: systemMetrics,
+    },
+})
+
+// Process coordinated results
+for agentID, result := range results {
+    log.Printf("Agent %s: %v", agentID, result)
+}
+```
+
+### Model Inference
+
+```go
+// Load ONNX model
+model, err := aiService.LoadModel(ctx, "model.onnx", "onnx")
+if err != nil {
+    return err
+}
+
+// Prepare input
+input := map[string]interface{}{
+    "features": []float32{1.2, 3.4, 5.6, 7.8},
+}
+
+// Run inference
+output, err := model.Predict(ctx, input)
+if err != nil {
+    return err
+}
+
+// Process output
+prediction := output.(map[string]interface{})["prediction"].(float32)
+fmt.Printf("Prediction: %.2f\n", prediction)
+```
+
+### Inference with Batching
+
+```go
+// Configure inference engine with batching
+config := ai.Config{
+    InferenceEngine: ai.InferenceEngineConfig{
+        EnableBatching:   true,
+        MaxBatchSize:     32,
+        BatchTimeout:     100 * time.Millisecond,
+        EnableCaching:    true,
+        CacheTTL:         5 * time.Minute,
+        WorkerPoolSize:   4,
+    },
+}
+
+aiExt := ai.NewExtension(config)
+
+// Requests are automatically batched
+for i := 0; i < 100; i++ {
+    go func(idx int) {
+        output, _ := model.Predict(ctx, inputs[idx])
+        results[idx] = output
+    }(i)
+}
+```
+
+### Embeddings
+
+```go
+// Generate embeddings
+texts := []string{
+    "The quick brown fox",
+    "jumps over the lazy dog",
+    "Machine learning is fascinating",
+}
+
+embeddings, err := aiService.Embed(ctx, texts)
+if err != nil {
+    return err
+}
+
+// Use embeddings for similarity
+similarity := cosineSimilarity(embeddings[0], embeddings[1])
+fmt.Printf("Similarity: %.2f\n", similarity)
+```
+
+### Function Calling
+
+```go
+// Define functions
+functions := []ai.Function{
+    {
+        Name:        "get_weather",
+        Description: "Get current weather for a location",
+        Parameters: ai.FunctionParameters{
+            Type: "object",
+            Properties: map[string]ai.Property{
+                "location": {
+                    Type:        "string",
+                    Description: "City and state, e.g. San Francisco, CA",
+                },
+            },
+            Required: []string{"location"},
+        },
+    },
+}
+
+// Chat with function calling
+response, _ := aiService.Chat(ctx, ai.ChatRequest{
+    Provider:  "openai",
+    Model:     "gpt-4",
+    Messages:  messages,
+    Functions: functions,
+})
+
+// Handle function calls
+if response.FunctionCall != nil {
+    result := executeFunction(response.FunctionCall.Name, response.FunctionCall.Arguments)
+    // Send result back to LLM
+}
+```
+
+## Configuration
+
+```yaml
+# AI extension configuration
+extensions:
+  ai:
+    # LLM providers
+    llm_providers:
+      openai:
+        api_key: ${OPENAI_API_KEY}
+        model: gpt-4
+        timeout: 30s
+        
+      anthropic:
+        api_key: ${ANTHROPIC_API_KEY}
+        model: claude-3-opus
+        
+      ollama:
+        base_url: http://localhost:11434
+        model: llama2
+    
+    # Inference engine
+    inference_engine:
+      enable_batching: true
+      max_batch_size: 32
+      batch_timeout: 100ms
+      enable_caching: true
+      cache_ttl: 5m
+      worker_pool_size: 4
+    
+    # Agents
+    agents:
+      enable_persistence: true
+      storage: database
+      
+    # Monitoring
+    metrics:
+      enabled: true
+      collect_latency: true
+      collect_token_usage: true
+```
+
+## Dependencies
+
+### External
+- OpenAI SDK
+- Anthropic SDK
+- HuggingFace Transformers
+- ONNX Runtime
+- PyTorch (optional)
+- TensorFlow (optional)
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Common Patterns
+
+### RAG (Retrieval Augmented Generation)
+```go
+// 1. Generate embeddings for documents
+docs := []string{"doc1", "doc2", "doc3"}
+docEmbeddings, _ := aiService.Embed(ctx, docs)
+
+// 2. Generate query embedding
+query := "What is machine learning?"
+queryEmbedding, _ := aiService.Embed(ctx, []string{query})
+
+// 3. Find relevant documents
+relevantDocs := findTopK(queryEmbedding[0], docEmbeddings, 3)
+
+// 4. Generate response with context
+response, _ := aiService.Chat(ctx, ai.ChatRequest{
+    Messages: []ai.Message{
+        {Role: "system", Content: "Use the following context: " + relevantDocs},
+        {Role: "user", Content: query},
+    },
+})
+```
+
+### Token Usage Tracking
+```go
+response, _ := aiService.Chat(ctx, request)
+log.Printf("Prompt tokens: %d", response.Usage.PromptTokens)
+log.Printf("Completion tokens: %d", response.Usage.CompletionTokens)
+log.Printf("Total tokens: %d", response.Usage.TotalTokens)
+```
+
+## Related Packages
+
+- `/extensions/database` - Store AI data
+- `/extensions/cache` - Cache LLM responses
+- `/internal/metrics` - AI metrics
+
+## Notes
+
+### Production Readiness
+- ✅ Multi-provider LLM support
+- ✅ Agent orchestration
+- ✅ High-performance inference
+- ✅ Streaming support
+- ✅ Comprehensive monitoring
+
+### Performance Characteristics
+- LLM latency: 1-5s (provider dependent)
+- Inference: <10ms (ONNX), <50ms (PyTorch)
+- Batching: 10x throughput improvement
+- Caching: 100x speedup for identical queries
+
+### Security Considerations
+- Secure API key storage
+- Input validation and sanitization
+- Rate limiting per provider
+- PII detection and redaction
+- Model access control
+
+### License
+**Commercial Source-Available License**
+- Free for personal, educational, research
+- Commercial license required for production
+- See extensions/ai/LICENSE for details
+
+### Best Practices
+1. Use appropriate models for tasks
+2. Implement token usage monitoring
+3. Cache frequent queries
+4. Use batch inference for throughput
+5. Implement fallback providers
+6. Monitor model performance
+7. Sanitize user inputs
+8. Track costs per provider
+

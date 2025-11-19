@@ -1,0 +1,101 @@
+# Forge oRPC Extension
+
+## Purpose
+
+oRPC (OpenAPI-based RPC) transport protocol implementation providing RPC-style APIs with OpenAPI compatibility, type-safe clients, and automatic code generation.
+
+## Key Components
+
+- **oRPC Server**: RPC endpoint handler
+- **OpenAPI Integration**: Full OpenAPI 3.x compatibility
+- **Type Safety**: Compile-time type checking
+- **Code Generation**: Automatic client generation
+- **Streaming**: Bidirectional streaming support
+
+## Architecture
+
+```
+oRPC Extension
+├── Server
+│   ├── RPC Handlers
+│   └── Request/Response
+├── OpenAPI Schema
+│   └── Automatic Generation
+├── Type System
+│   └── Type Validation
+└── Client Generation
+    └── TypeScript/Go Clients
+```
+
+## Public API
+
+### Core Types
+
+```go
+type ORPC interface {
+    RegisterProcedure(name string, handler ProcedureHandler) error
+    Call(ctx context.Context, procedure string, input interface{}) (interface{}, error)
+}
+
+type ProcedureHandler func(ctx context.Context, input interface{}) (interface{}, error)
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get oRPC service
+func GetORPC(c forge.Container) (ORPC, error)
+
+// Register procedure
+orpc.RegisterProcedure("createUser", createUserHandler)
+
+// Call procedure
+result, _ := orpc.Call(ctx, "createUser", userInput)
+```
+
+## Usage Examples
+
+### Basic oRPC Server
+
+```go
+import "github.com/xraph/forge/extensions/orpc"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        orpc.NewExtension(orpc.Config{
+            Endpoint: "/orpc",
+        }),
+    },
+})
+
+// Register procedure
+orpcSvc, _ := orpc.GetORPC(app.Container())
+orpcSvc.RegisterProcedure("getUser", func(ctx context.Context, input interface{}) (interface{}, error) {
+    id := input.(map[string]interface{})["id"].(string)
+    return getUserFromDB(ctx, id)
+})
+```
+
+## Configuration
+
+```yaml
+extensions:
+  orpc:
+    endpoint: /orpc
+    enable_docs: true
+```
+
+## Notes
+
+### Production Readiness
+- ✅ oRPC protocol
+- ✅ OpenAPI compatibility
+- ✅ Type safety
+- ✅ Client generation
+
+### License
+MIT License - Part of Forge Framework
+

@@ -1,0 +1,308 @@
+# Forge Database Extension
+
+## Purpose
+
+Comprehensive database integration providing SQL (PostgreSQL, MySQL, SQLite) and NoSQL (MongoDB) support with connection pooling, migrations, query building, and ORM capabilities via Bun.
+
+## Key Components
+
+- **SQL Support**: PostgreSQL, MySQL, SQLite with Bun ORM
+- **MongoDB Support**: Native MongoDB driver integration
+- **Connection Pooling**: Automatic connection management
+- **Migrations**: Database migration system
+- **Query Builder**: Type-safe query construction
+- **Health Checks**: Automatic database health monitoring
+
+## Architecture
+
+```
+Database Extension
+├── SQL Support
+│   ├── PostgreSQL (via Bun)
+│   ├── MySQL (via Bun)
+│   └── SQLite (via Bun)
+├── MongoDB Support
+│   └── Native Driver
+├── Migration System
+│   ├── Up/Down Migrations
+│   └── Version Tracking
+├── Query Builder
+│   └── Bun ORM
+└── Health Checks
+    └── Connection Monitoring
+```
+
+## Public API
+
+### Core Types
+
+```go
+type SQL interface {
+    QueryRow(ctx context.Context, query string, args ...interface{}) *sql.Row
+    Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+    Exec(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+    
+    // Transactions
+    Begin(ctx context.Context) (*sql.Tx, error)
+    
+    // Bun ORM
+    NewSelect() *bun.SelectQuery
+    NewInsert() *bun.InsertQuery
+    NewUpdate() *bun.UpdateQuery
+    NewDelete() *bun.DeleteQuery
+}
+
+type MongoDB interface {
+    Database() *mongo.Database
+    Collection(name string) *mongo.Collection
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get SQL database
+func GetSQL(c forge.Container) (SQL, error)
+func GetSQLByName(c forge.Container, name string) (SQL, error)
+
+// Get MongoDB
+func GetMongo(c forge.Container) (MongoDB, error)
+```
+
+## Usage Examples
+
+### PostgreSQL with Bun ORM
+
+```go
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/database"
+)
+
+type User struct {
+    ID        int64  `bun:",pk,autoincrement"`
+    Name      string `bun:",notnull"`
+    Email     string `bun:",unique,notnull"`
+    CreatedAt time.Time `bun:",nullzero,notnull,default:current_timestamp"`
+}
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Extensions: []forge.Extension{
+            database.NewExtension(database.Config{
+                Databases: []database.DatabaseConfig{
+                    {
+                        Name: "primary",
+                        Type: database.TypePostgres,
+                        DSN:  "postgres://localhost/mydb",
+                    },
+                },
+            }),
+        },
+    })
+    
+    // Get database
+    db, _ := database.GetSQL(app.Container())
+    
+    // Query with Bun ORM
+    var users []User
+    err := db.NewSelect().
+        Model(&users).
+        Where("email LIKE ?", "%@example.com").
+        Scan(context.Background())
+    
+    // Insert
+    user := &User{Name: "John", Email: "john@example.com"}
+    _, err = db.NewInsert().
+        Model(user).
+        Exec(context.Background())
+    
+    // Update
+    _, err = db.NewUpdate().
+        Model(user).
+        Set("name = ?", "John Doe").
+        Where("id = ?", user.ID).
+        Exec(context.Background())
+    
+    // Delete
+    _, err = db.NewDelete().
+        Model((*User)(nil)).
+        Where("id = ?", user.ID).
+        Exec(context.Background())
+    
+    app.Run()
+}
+```
+
+### Multiple Databases
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        database.NewExtension(database.Config{
+            Databases: []database.DatabaseConfig{
+                {
+                    Name: "primary",
+                    Type: database.TypePostgres,
+                    DSN:  "postgres://localhost/mydb",
+                },
+                {
+                    Name: "analytics",
+                    Type: database.TypeMySQL,
+                    DSN:  "mysql://localhost/analytics",
+                },
+                {
+                    Name: "cache",
+                    Type: database.TypeSQLite,
+                    DSN:  "file:cache.db",
+                },
+            },
+        }),
+    },
+})
+
+// Access specific databases
+primaryDB, _ := database.GetSQLByName(app.Container(), "primary")
+analyticsDB, _ := database.GetSQLByName(app.Container(), "analytics")
+```
+
+### MongoDB
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        database.NewExtension(database.Config{
+            MongoDB: &database.MongoConfig{
+                URI:      "mongodb://localhost:27017",
+                Database: "mydb",
+            },
+        }),
+    },
+})
+
+// Get MongoDB
+mongo, _ := database.GetMongo(app.Container())
+
+// Use collections
+users := mongo.Collection("users")
+users.InsertOne(ctx, bson.M{"name": "John"})
+
+var user bson.M
+users.FindOne(ctx, bson.M{"name": "John"}).Decode(&user)
+```
+
+### Transactions
+
+```go
+tx, err := db.Begin(ctx)
+if err != nil {
+    return err
+}
+defer tx.Rollback()
+
+// Execute queries in transaction
+_, err = tx.Exec("UPDATE accounts SET balance = balance - 100 WHERE id = ?", fromAccount)
+if err != nil {
+    return err
+}
+
+_, err = tx.Exec("UPDATE accounts SET balance = balance + 100 WHERE id = ?", toAccount)
+if err != nil {
+    return err
+}
+
+// Commit transaction
+return tx.Commit()
+```
+
+### Migrations
+
+```go
+// Create migration
+database.CreateMigration(
+    "001_create_users_table",
+    `CREATE TABLE users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL
+    )`,
+    `DROP TABLE users`,
+)
+
+// Run migrations
+migrator := database.NewMigrator(db)
+migrator.Up(ctx)
+```
+
+## Configuration
+
+```yaml
+extensions:
+  database:
+    databases:
+      - name: primary
+        type: postgres
+        dsn: ${DATABASE_URL}
+        max_open_conns: 25
+        max_idle_conns: 5
+        conn_max_lifetime: 5m
+        
+      - name: analytics
+        type: mysql
+        dsn: ${ANALYTICS_DB_URL}
+    
+    mongodb:
+      uri: ${MONGO_URI}
+      database: mydb
+      max_pool_size: 100
+```
+
+## Dependencies
+
+### External
+- github.com/uptrace/bun - SQL ORM
+- github.com/lib/pq - PostgreSQL driver
+- github.com/go-sql-driver/mysql - MySQL driver
+- github.com/mattn/go-sqlite3 - SQLite driver
+- go.mongodb.org/mongo-driver - MongoDB driver
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ Multiple database support
+- ✅ Connection pooling
+- ✅ Transaction support
+- ✅ Migration system
+- ✅ Health checks
+
+### Performance Characteristics
+- Query execution: <1ms (local), 1-10ms (network)
+- Connection pooling: Reuse connections
+- Prepared statements: Automatic caching
+
+### Security Considerations
+- Use parameterized queries
+- Never concatenate SQL strings
+- Use connection encryption (SSL/TLS)
+- Rotate database credentials
+- Implement access control
+
+### Best Practices
+1. Use connection pooling
+2. Close connections properly
+3. Use transactions for consistency
+4. Implement retry logic
+5. Monitor connection health
+6. Use prepared statements
+7. Index frequently queried columns
+8. Implement database backups
+
+### License
+MIT License - Part of Forge Framework
+

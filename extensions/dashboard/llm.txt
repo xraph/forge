@@ -1,0 +1,91 @@
+# Forge Dashboard Extension
+
+## Purpose
+
+Real-time monitoring dashboard providing web-based UI for viewing application metrics, health status, logs, and system information. Built-in WebSocket support for live updates.
+
+## Key Components
+
+- **Web Dashboard**: HTML/JS interface for monitoring
+- **Metrics Collection**: Gather runtime and application metrics
+- **Health Monitoring**: Display health check status
+- **Log Streaming**: Real-time log viewing
+- **System Info**: CPU, memory, goroutine stats
+
+## Architecture
+
+```
+Dashboard Extension
+├── Web UI
+│   ├── HTML Templates
+│   ├── JavaScript Client
+│   └── WebSocket Handler
+├── Data Collection
+│   ├── Metrics Collector
+│   ├── Health Aggregator
+│   └── Log Collector
+└── API Endpoints
+    ├── GET /dashboard
+    ├── GET /dashboard/metrics
+    └── WS /dashboard/ws
+```
+
+## Public API
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Access dashboard
+// http://localhost:8080/dashboard
+```
+
+## Usage Examples
+
+### Enable Dashboard
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        dashboard.NewExtension(dashboard.Config{
+            Path:         "/dashboard",
+            EnableAuth:   true,
+            RefreshRate:  5 * time.Second,
+        }),
+    },
+})
+
+// Dashboard available at http://localhost:8080/dashboard
+```
+
+## Configuration
+
+```yaml
+extensions:
+  dashboard:
+    path: /dashboard
+    enable_auth: true
+    refresh_rate: 5s
+    max_history: 1000
+```
+
+## Dependencies
+
+### Internal
+- github.com/xraph/forge - Core framework
+- github.com/xraph/forge/internal/metrics - Metrics
+- github.com/xraph/forge/internal/health - Health checks
+
+## Notes
+
+### Production Readiness
+- ✅ Real-time monitoring
+- ✅ WebSocket updates
+- ✅ Responsive UI
+- ✅ Authentication support
+
+### License
+MIT License - Part of Forge Framework
+

@@ -1,0 +1,104 @@
+# Forge MCP Extension
+
+## Purpose
+
+Model Context Protocol (MCP) implementation providing standardized communication between AI models and applications for context sharing, model management, and inference coordination.
+
+## Key Components
+
+- **Protocol Server**: MCP server implementation
+- **Context Management**: Shared context across models
+- **Model Registry**: Model discovery and selection
+- **Inference Routing**: Route requests to appropriate models
+- **Context Windows**: Manage context window sizes
+
+## Architecture
+
+```
+MCP Extension
+├── Protocol Server
+│   ├── Request Handling
+│   └── Response Formatting
+├── Context Manager
+│   ├── Context Storage
+│   └── Context Retrieval
+├── Model Registry
+│   └── Model Information
+└── Inference Router
+    └── Request Routing
+```
+
+## Public API
+
+### Core Types
+
+```go
+type MCP interface {
+    RegisterModel(model ModelInfo) error
+    GetContext(id string) (*Context, error)
+    UpdateContext(id string, data ContextData) error
+    Route(req InferenceRequest) (*InferenceResponse, error)
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get MCP service
+func GetMCP(c forge.Container) (MCP, error)
+
+// Register model
+mcp.RegisterModel(ModelInfo{
+    ID:   "gpt-4",
+    Type: "llm",
+})
+
+// Manage context
+mcp.UpdateContext("session-1", contextData)
+```
+
+## Usage Examples
+
+### Basic MCP Server
+
+```go
+import "github.com/xraph/forge/extensions/mcp"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        mcp.NewExtension(mcp.Config{
+            Endpoint: "/mcp",
+        }),
+    },
+})
+
+// MCP server available at /mcp
+```
+
+## Configuration
+
+```yaml
+extensions:
+  mcp:
+    endpoint: /mcp
+    max_context_size: 8192
+```
+
+## Dependencies
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ MCP protocol
+- ✅ Context management
+- ✅ Model registry
+
+### License
+MIT License - Part of Forge Framework
+

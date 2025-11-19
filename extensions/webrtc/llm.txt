@@ -1,0 +1,124 @@
+# Forge WebRTC Extension
+
+## Purpose
+
+WebRTC (Web Real-Time Communication) support for peer-to-peer audio, video, and data streaming with signaling server, ICE handling, and TURN/STUN server integration.
+
+## Key Components
+
+- **Signaling Server**: WebSocket-based signaling
+- **Peer Connections**: WebRTC peer management
+- **ICE Handling**: NAT traversal with STUN/TURN
+- **Media Streaming**: Audio/video streams
+- **Data Channels**: Arbitrary data transfer
+
+## Architecture
+
+```
+WebRTC Extension
+├── Signaling Server
+│   ├── Offer/Answer Exchange
+│   ├── ICE Candidate Exchange
+│   └── Room Management
+├── Peer Management
+│   ├── Connection Tracking
+│   └── State Management
+├── STUN/TURN
+│   └── NAT Traversal
+└── Media & Data
+    ├── Audio/Video Streams
+    └── Data Channels
+```
+
+## Public API
+
+### Core Types
+
+```go
+type WebRTC interface {
+    CreateRoom(id string) (*Room, error)
+    GetRoom(id string) (*Room, error)
+    HandleSignaling(conn WebSocketConn) error
+}
+
+type Room struct {
+    ID    string
+    Peers []Peer
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get WebRTC service
+func GetWebRTC(c forge.Container) (WebRTC, error)
+
+// Create room
+room, _ := webrtc.CreateRoom("meeting-123")
+
+// Handle signaling
+webrtc.HandleSignaling(wsConn)
+```
+
+## Usage Examples
+
+### Video Conferencing
+
+```go
+import "github.com/xraph/forge/extensions/webrtc"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        webrtc.NewExtension(webrtc.Config{
+            STUNServers: []string{"stun:stun.l.google.com:19302"},
+            TURNServers: []webrtc.TURNServer{
+                {
+                    URLs:       []string{"turn:turn.example.com:3478"},
+                    Username:   "user",
+                    Credential: "pass",
+                },
+            },
+        }),
+    },
+})
+
+// Get WebRTC service
+rtc, _ := webrtc.GetWebRTC(app.Container())
+
+// Signaling endpoint
+router.WebSocket("/ws/webrtc", func(conn forge.WebSocketConn) {
+    rtc.HandleSignaling(conn)
+})
+
+// Client joins: ws://localhost:8080/ws/webrtc?room=meeting-123
+```
+
+## Configuration
+
+```yaml
+extensions:
+  webrtc:
+    stun_servers:
+      - stun:stun.l.google.com:19302
+    
+    turn_servers:
+      - urls:
+          - turn:turn.example.com:3478
+        username: ${TURN_USERNAME}
+        credential: ${TURN_CREDENTIAL}
+```
+
+## Notes
+
+### Production Readiness
+- ✅ WebRTC signaling
+- ✅ STUN/TURN support
+- ✅ Room management
+- ✅ Peer tracking
+
+### License
+MIT License - Part of Forge Framework
+

@@ -1,0 +1,181 @@
+# Forge GraphQL Extension
+
+## Purpose
+
+GraphQL server implementation providing schema-first GraphQL APIs with automatic schema generation, resolvers, subscriptions, and GraphQL Playground for interactive API exploration.
+
+## Key Components
+
+- **GraphQL Server**: Schema-based GraphQL endpoint
+- **Schema Generation**: Automatic schema from Go types
+- **Resolvers**: Query, mutation, and subscription resolvers
+- **Subscriptions**: Real-time data via WebSocket
+- **Playground**: Interactive GraphQL IDE
+
+## Architecture
+
+```
+GraphQL Extension
+├── Schema
+│   ├── Types
+│   ├── Queries
+│   ├── Mutations
+│   └── Subscriptions
+├── Resolvers
+│   ├── Query Resolvers
+│   ├── Mutation Resolvers
+│   └── Subscription Resolvers
+├── Server
+│   ├── HTTP Handler
+│   └── WebSocket Handler
+└── Playground
+    └── GraphiQL/Playground UI
+```
+
+## Public API
+
+### Core Types
+
+```go
+type GraphQL interface {
+    RegisterQuery(name string, resolver Resolver) error
+    RegisterMutation(name string, resolver Resolver) error
+    RegisterSubscription(name string, resolver SubscriptionResolver) error
+    Schema() *graphql.Schema
+}
+
+type Resolver func(ctx context.Context, args map[string]interface{}) (interface{}, error)
+type SubscriptionResolver func(ctx context.Context, args map[string]interface{}) (<-chan interface{}, error)
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get GraphQL service
+func GetGraphQL(c forge.Container) (GraphQL, error)
+
+// Register resolvers
+gql.RegisterQuery("user", getUserResolver)
+gql.RegisterMutation("createUser", createUserResolver)
+gql.RegisterSubscription("userUpdated", userUpdatedResolver)
+```
+
+## Usage Examples
+
+### Basic GraphQL Server
+
+```go
+import "github.com/xraph/forge/extensions/graphql"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        graphql.NewExtension(graphql.Config{
+            Endpoint:   "/graphql",
+            Playground: true,  // Enable GraphQL Playground at /graphql
+        }),
+    },
+})
+
+// Get GraphQL service
+gql, _ := graphql.GetGraphQL(app.Container())
+
+// Register query resolver
+gql.RegisterQuery("user", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+    id := args["id"].(string)
+    return db.GetUser(ctx, id)
+})
+
+// Register mutation resolver
+gql.RegisterMutation("createUser", func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+    input := args["input"].(map[string]interface{})
+    return db.CreateUser(ctx, input)
+})
+
+// GraphQL Playground at: http://localhost:8080/graphql
+```
+
+### GraphQL Schema
+
+```graphql
+# Schema is generated automatically
+
+type User {
+  id: ID!
+  name: String!
+  email: String!
+}
+
+type Query {
+  user(id: ID!): User
+  users: [User!]!
+}
+
+type Mutation {
+  createUser(input: CreateUserInput!): User!
+  updateUser(id: ID!, input: UpdateUserInput!): User!
+}
+
+input CreateUserInput {
+  name: String!
+  email: String!
+}
+```
+
+### Subscriptions (Real-time)
+
+```go
+// Register subscription
+gql.RegisterSubscription("userUpdated", func(ctx context.Context, args map[string]interface{}) (<-chan interface{}, error) {
+    ch := make(chan interface{})
+    
+    go func() {
+        defer close(ch)
+        for {
+            select {
+            case update := <-userUpdateStream:
+                ch <- update
+            case <-ctx.Done():
+                return
+            }
+        }
+    }()
+    
+    return ch, nil
+})
+
+// Client subscribes via WebSocket
+```
+
+## Configuration
+
+```yaml
+extensions:
+  graphql:
+    endpoint: /graphql
+    playground: true
+    max_complexity: 1000
+    introspection: true
+```
+
+## Dependencies
+
+### External
+- github.com/graphql-go/graphql - GraphQL implementation
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ GraphQL server
+- ✅ Schema generation
+- ✅ Subscriptions
+- ✅ Playground
+
+### License
+MIT License - Part of Forge Framework
+

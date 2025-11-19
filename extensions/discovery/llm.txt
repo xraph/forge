@@ -1,0 +1,192 @@
+# Forge Service Discovery Extension
+
+## Purpose
+
+Service discovery system providing automatic service registration and discovery with multiple backends (Consul, etcd, Kubernetes, mDNS/Bonjour). Integrates with FARP protocol for schema-aware service discovery.
+
+## Key Components
+
+- **Service Registry**: Register and discover services
+- **Multiple Backends**: Consul, etcd, Kubernetes, mDNS
+- **FARP Integration**: Schema-aware discovery with OpenAPI/AsyncAPI
+- **Health Checks**: Automatic health monitoring
+- **Load Balancing**: Client-side load balancing
+- **Service Mesh**: Integration with service mesh platforms
+
+## Architecture
+
+```
+Discovery Extension
+├── Service Registry
+│   ├── Registration
+│   ├── Deregistration
+│   └── Query
+├── Backends
+│   ├── Consul
+│   ├── etcd
+│   ├── Kubernetes
+│   └── mDNS/Bonjour
+├── FARP Integration
+│   ├── Schema Publishing
+│   └── Schema Discovery
+├── Health Monitoring
+│   └── Service Health Checks
+└── Load Balancing
+    └── Client-Side LB
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Discovery interface {
+    Register(ctx context.Context, service *Service) error
+    Deregister(ctx context.Context, serviceID string) error
+    GetService(ctx context.Context, serviceName string) ([]*Service, error)
+    Watch(ctx context.Context, serviceName string) (<-chan []*Service, error)
+}
+
+type Service struct {
+    ID      string
+    Name    string
+    Address string
+    Port    int
+    Tags    []string
+    Meta    map[string]string
+    Health  HealthStatus
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get discovery service
+func GetDiscovery(c forge.Container) (Discovery, error)
+
+// Register service
+discovery.Register(ctx, &Service{
+    Name:    "user-service",
+    Address: "localhost",
+    Port:    8080,
+})
+
+// Discover services
+services, _ := discovery.GetService(ctx, "user-service")
+```
+
+## Usage Examples
+
+### Consul Service Discovery
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        discovery.NewExtension(discovery.Config{
+            Backend: "consul",
+            ConsulConfig: &discovery.ConsulConfig{
+                Address: "localhost:8500",
+            },
+        }),
+    },
+})
+
+// Auto-register on startup
+discovery, _ := discovery.GetDiscovery(app.Container())
+discovery.Register(ctx, &discovery.Service{
+    ID:      "user-service-1",
+    Name:    "user-service",
+    Address: "localhost",
+    Port:    8080,
+    Tags:    []string{"v1", "production"},
+})
+
+// Discover services
+services, _ := discovery.GetService(ctx, "payment-service")
+for _, svc := range services {
+    fmt.Printf("Found: %s at %s:%d\n", svc.Name, svc.Address, svc.Port)
+}
+```
+
+### mDNS/Bonjour (Zero-Config)
+
+```go
+// No infrastructure required - works on local network
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        discovery.NewExtension(discovery.Config{
+            Backend: "mdns",
+            MDNSConfig: &discovery.MDNSConfig{
+                Domain: "local",
+            },
+        }),
+    },
+})
+
+// Services automatically discoverable on local network
+```
+
+### FARP Integration
+
+```go
+// Register with API schema
+discovery.Register(ctx, &discovery.Service{
+    Name:    "api-service",
+    Address: "localhost",
+    Port:    8080,
+    Meta: map[string]string{
+        "openapi_url":  "http://localhost:8080/openapi.json",
+        "api_version":  "v1",
+    },
+})
+
+// Gateway discovers services with schemas
+services, _ := discovery.GetService(ctx, "api-service")
+for _, svc := range services {
+    openapiURL := svc.Meta["openapi_url"]
+    // Load schema and configure routes
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  discovery:
+    backend: consul
+    
+    consul:
+      address: localhost:8500
+      token: ${CONSUL_TOKEN}
+      
+    mdns:
+      domain: local
+      service_type: _forge._tcp
+```
+
+## Dependencies
+
+### External
+- github.com/hashicorp/consul/api - Consul client
+- go.etcd.io/etcd/client/v3 - etcd client
+- k8s.io/client-go - Kubernetes client
+- github.com/grandcat/zeroconf - mDNS/Bonjour
+
+### Internal
+- github.com/xraph/forge - Core framework
+- github.com/xraph/forge/farp - FARP protocol
+
+## Notes
+
+### Production Readiness
+- ✅ Multiple backend support
+- ✅ FARP integration
+- ✅ Health monitoring
+- ✅ Zero-config with mDNS
+
+### License
+MIT License - Part of Forge Framework
+

@@ -1,0 +1,110 @@
+# Forge Security Extension
+
+## Purpose
+
+Security features including rate limiting, IP filtering, CORS, CSP, security headers, and vulnerability scanning for building secure applications.
+
+## Key Components
+
+- **Rate Limiting**: Request rate limiting per IP/user
+- **IP Filtering**: Whitelist/blacklist IP addresses
+- **Security Headers**: HSTS, CSP, X-Frame-Options
+- **CORS**: Cross-origin resource sharing
+- **Input Validation**: XSS and injection prevention
+
+## Architecture
+
+```
+Security Extension
+├── Rate Limiting
+│   ├── Per IP
+│   ├── Per User
+│   └── Per Endpoint
+├── IP Filtering
+│   ├── Whitelist
+│   └── Blacklist
+├── Security Headers
+│   ├── HSTS
+│   ├── CSP
+│   └── X-Frame-Options
+└── Input Validation
+    ├── XSS Prevention
+    └── SQL Injection Prevention
+```
+
+## Public API
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Middleware
+func RateLimitMiddleware(limit int, window time.Duration) forge.Middleware
+func SecurityHeadersMiddleware() forge.Middleware
+func CORSMiddleware(config CORSConfig) forge.Middleware
+```
+
+## Usage Examples
+
+### Rate Limiting
+
+```go
+import "github.com/xraph/forge/extensions/security"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        security.NewExtension(security.Config{
+            RateLimit: security.RateLimitConfig{
+                Enabled: true,
+                Limit:   100,  // 100 requests
+                Window:  1 * time.Minute,
+            },
+        }),
+    },
+})
+
+// Rate limiting automatically applied to all routes
+```
+
+### Security Headers
+
+```go
+// Automatic security headers
+// X-Frame-Options: DENY
+// X-Content-Type-Options: nosniff
+// X-XSS-Protection: 1; mode=block
+// Strict-Transport-Security: max-age=31536000
+// Content-Security-Policy: default-src 'self'
+```
+
+## Configuration
+
+```yaml
+extensions:
+  security:
+    rate_limit:
+      enabled: true
+      limit: 100
+      window: 1m
+    
+    cors:
+      allowed_origins:
+        - https://example.com
+      allowed_methods:
+        - GET
+        - POST
+```
+
+## Notes
+
+### Production Readiness
+- ✅ Rate limiting
+- ✅ Security headers
+- ✅ CORS
+- ✅ Input validation
+
+### License
+MIT License - Part of Forge Framework
+

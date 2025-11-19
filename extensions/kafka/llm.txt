@@ -1,0 +1,146 @@
+# Forge Kafka Extension
+
+## Purpose
+
+Apache Kafka integration providing high-throughput message streaming with producer and consumer support, consumer groups, and automatic offset management.
+
+## Key Components
+
+- **Producer**: Publish messages to Kafka topics
+- **Consumer**: Subscribe to Kafka topics
+- **Consumer Groups**: Load-balanced message consumption
+- **Offset Management**: Automatic and manual offset control
+- **Admin Client**: Topic and partition management
+
+## Architecture
+
+```
+Kafka Extension
+├── Producer
+│   ├── Sync Publishing
+│   ├── Async Publishing
+│   └── Batching
+├── Consumer
+│   ├── Subscription
+│   ├── Consumer Groups
+│   └── Offset Management
+├── Admin
+│   ├── Topic Management
+│   └── Partition Management
+└── Health Checks
+    └── Connection Monitoring
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Kafka interface {
+    Producer() Producer
+    Consumer(group string) (Consumer, error)
+    Admin() Admin
+}
+
+type Producer interface {
+    Publish(ctx context.Context, topic string, key, value []byte) error
+    PublishAsync(ctx context.Context, topic string, key, value []byte) error
+}
+
+type Consumer interface {
+    Subscribe(topics ...string) error
+    Consume(ctx context.Context) (<-chan Message, error)
+    Commit(ctx context.Context, msg Message) error
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get Kafka service
+func GetKafka(c forge.Container) (Kafka, error)
+
+// Produce messages
+producer := kafka.Producer()
+producer.Publish(ctx, "events", []byte("key"), []byte("value"))
+
+// Consume messages
+consumer, _ := kafka.Consumer("my-group")
+consumer.Subscribe("events")
+messages, _ := consumer.Consume(ctx)
+for msg := range messages {
+    // Process message
+    consumer.Commit(ctx, msg)
+}
+```
+
+## Usage Examples
+
+### Basic Producer/Consumer
+
+```go
+import "github.com/xraph/forge/extensions/kafka"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        kafka.NewExtension(kafka.Config{
+            Brokers: []string{"localhost:9092"},
+        }),
+    },
+})
+
+// Get Kafka service
+k, _ := kafka.GetKafka(app.Container())
+
+// Produce messages
+producer := k.Producer()
+producer.Publish(ctx, "events", []byte("user-123"), []byte(`{"action":"login"}`))
+
+// Consume messages
+consumer, _ := k.Consumer("myapp-group")
+consumer.Subscribe("events")
+
+messages, _ := consumer.Consume(ctx)
+for msg := range messages {
+    log.Printf("Received: %s = %s", msg.Key, msg.Value)
+    consumer.Commit(ctx, msg)
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  kafka:
+    brokers:
+      - localhost:9092
+    producer:
+      compression: snappy
+      batch_size: 1000
+    consumer:
+      group_id: myapp-group
+      auto_commit: false
+```
+
+## Dependencies
+
+### External
+- github.com/segmentio/kafka-go - Kafka client
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ Kafka producer/consumer
+- ✅ Consumer groups
+- ✅ Offset management
+- ✅ High throughput
+
+### License
+MIT License - Part of Forge Framework
+

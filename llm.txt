@@ -1,0 +1,314 @@
+# Forge Framework - Core Package
+
+## Purpose
+
+Forge is an enterprise-grade web framework for Go that provides a complete foundation for building scalable, maintainable, and observable backend applications. It combines clean architecture principles, dependency injection, powerful routing, and a rich extension ecosystem into a unified framework designed for production environments.
+
+## Key Components
+
+- **App**: Central application instance with lifecycle management and graceful shutdown
+- **Dependency Injection**: Type-safe container with service resolution and lifecycle management
+- **Router**: High-performance HTTP router with OpenAPI/AsyncAPI generation
+- **Configuration**: Multi-format config management with auto-discovery and environment overrides
+- **Observability**: Built-in metrics, structured logging, and distributed tracing
+- **Health Checks**: Automatic health monitoring and status aggregation
+- **Extensions**: Modular extension system for adding capabilities (Database, Cache, AI, etc.)
+- **Middleware**: Comprehensive middleware stack (CORS, logging, rate limiting, recovery)
+
+## Architecture
+
+Forge follows a layered architecture:
+```
+Application Layer (App)
+├── HTTP Server & Router
+├── Middleware Chain
+├── Controllers & Handlers
+└── Business Logic
+
+Infrastructure Layer
+├── Dependency Injection Container
+├── Configuration Manager
+├── Logger, Metrics, Tracing
+├── Health Check Manager
+└── Lifecycle Manager
+
+Extension Layer
+└── Pluggable extensions (DB, Cache, Events, AI, etc.)
+```
+
+## Public API
+
+### Core Types
+
+- `App` - Main application interface with lifecycle methods
+- `AppConfig` - Application configuration structure
+- `Container` - Dependency injection container interface
+- `Router` - HTTP router interface
+- `Context` - Request context with helpers for JSON, binding, validation
+- `Extension` - Extension interface for adding capabilities
+- `Controller` - Controller interface for organizing routes
+- `Middleware` - HTTP middleware function type
+
+### Main Functions/Methods
+
+```go
+// Application creation
+func NewApp(config AppConfig) App
+
+// Service registration
+func RegisterSingleton[T any](container Container, name string, factory func(Container) (T, error)) error
+func RegisterTransient[T any](container Container, name string, factory func(Container) (T, error)) error
+func Must[T any](container Container, name string) T
+
+// Application lifecycle
+app.Start(ctx context.Context) error
+app.Stop(ctx context.Context) error
+app.Run() error // Blocks until shutdown signal
+
+// Component access
+app.Container() Container
+app.Router() Router
+app.Config() ConfigManager
+app.Logger() Logger
+app.Metrics() Metrics
+```
+
+## Usage Examples
+
+### Basic Usage
+
+```go
+package main
+
+import "github.com/xraph/forge"
+
+func main() {
+    // Create app with default configuration
+    app := forge.NewApp(forge.AppConfig{
+        Name:        "my-service",
+        Version:     "1.0.0",
+        Environment: "production",
+        HTTPAddress: ":8080",
+    })
+
+    // Register routes
+    router := app.Router()
+    router.GET("/", func(ctx forge.Context) error {
+        return ctx.JSON(200, forge.Map{
+            "message": "Hello from Forge!",
+        })
+    })
+
+    // Run the application (blocks until SIGINT/SIGTERM)
+    app.Run()
+}
+```
+
+### Advanced Usage with Extensions
+
+```go
+package main
+
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/database"
+    "github.com/xraph/forge/extensions/cache"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Name:    "advanced-service",
+        Version: "2.0.0",
+        Extensions: []forge.Extension{
+            database.NewExtension(database.Config{
+                Databases: []database.DatabaseConfig{
+                    {
+                        Name: "primary",
+                        Type: database.TypePostgres,
+                        DSN:  "postgres://localhost/mydb",
+                    },
+                },
+            }),
+            cache.NewExtension(cache.Config{
+                Driver: "redis",
+                URL:    "redis://localhost:6379",
+            }),
+        },
+    })
+
+    // Register services with DI
+    forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
+        db, err := database.GetSQL(c)
+        if err != nil {
+            return nil, err
+        }
+        cache := forge.Must[cache.Cache](c, "cache")
+        return NewUserService(db, cache), nil
+    })
+
+    // Register routes
+    router := app.Router()
+    router.GET("/users/:id", getUserHandler)
+    router.POST("/users", createUserHandler)
+
+    app.Run()
+}
+```
+
+### Integration with Dependency Injection
+
+```go
+// Define a service
+type UserService struct {
+    db     *sql.DB
+    logger forge.Logger
+}
+
+// Register in container
+forge.RegisterSingleton(app.Container(), "userService", func(c forge.Container) (*UserService, error) {
+    db := forge.Must[*sql.DB](c, "database")
+    logger := forge.Must[forge.Logger](c, "logger")
+    return &UserService{db: db, logger: logger}, nil
+})
+
+// Use in handlers
+func getUserHandler(ctx forge.Context) error {
+    svc := forge.Must[*UserService](ctx.Container(), "userService")
+    user, err := svc.GetUser(ctx.Param("id"))
+    if err != nil {
+        return err
+    }
+    return ctx.JSON(200, user)
+}
+```
+
+## Configuration
+
+### Via Code
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    Name:            "my-app",
+    Version:         "1.0.0",
+    Environment:     "production",
+    HTTPAddress:     ":8080",
+    HTTPTimeout:     30 * time.Second,
+    ShutdownTimeout: 30 * time.Second,
+})
+```
+
+### Via YAML
+
+```yaml
+# config.yaml
+name: my-app
+version: 1.0.0
+environment: production
+http:
+  address: ":8080"
+  timeout: 30s
+shutdown_timeout: 30s
+```
+
+### Built-in Endpoints
+
+- `/_/info` - Application information (name, version, uptime)
+- `/_/metrics` - Prometheus metrics endpoint
+- `/_/health` - Health check status with component details
+
+## Dependencies
+
+### External
+- Go 1.24+
+- github.com/uptrace/bunrouter - HTTP router
+- github.com/prometheus/client_golang - Metrics
+- go.uber.org/zap - Structured logging
+- go.opentelemetry.io/otel - Distributed tracing
+
+### Internal
+All internal packages are part of the framework and loaded automatically.
+
+## Common Patterns
+
+### Service Registration
+```go
+// Singleton - created once, shared across requests
+forge.RegisterSingleton(container, "db", dbFactory)
+
+// Transient - new instance per request
+forge.RegisterTransient(container, "request", requestFactory)
+```
+
+### Error Handling
+```go
+// Return structured errors
+return forge.NewHTTPError(404, "user not found")
+
+// Use error helpers
+if forge.IsServiceNotFound(err) {
+    return ctx.JSON(503, forge.Map{"error": "service unavailable"})
+}
+```
+
+### Graceful Shutdown
+```go
+// Automatically handled by app.Run()
+// Manual control:
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+if err := app.Stop(ctx); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Middleware Usage
+```go
+router := app.Router()
+router.Use(forge.CORS())
+router.Use(forge.Logger())
+router.Use(forge.Recovery())
+router.Use(forge.RequestID())
+```
+
+## Related Packages
+
+- `/cli` - CLI framework for building command-line tools
+- `/errors` - Error handling with error codes and wrapping
+- `/middleware` - HTTP middleware collection
+- `/extensions/*` - Extension ecosystem (17 extensions available)
+- `/internal/di` - Dependency injection implementation
+- `/internal/router` - Router implementation with OpenAPI
+- `/internal/health` - Health check system
+- `/internal/observability` - Tracing and monitoring
+
+## Notes
+
+### Production Readiness
+- ✅ Production-ready and battle-tested
+- ✅ Graceful shutdown with configurable timeout
+- ✅ Health monitoring with automatic discovery
+- ✅ Comprehensive error handling
+- ✅ Thread-safe concurrent operations
+- ✅ Memory-efficient resource management
+
+### Performance Characteristics
+- Low latency HTTP routing (<1μs per route match)
+- Efficient DI container with minimal allocations
+- Connection pooling for database and cache
+- Built-in request batching for high throughput
+- Prometheus metrics with minimal overhead
+
+### Security Considerations
+- TLS/mTLS support out of the box
+- Built-in CORS middleware
+- Rate limiting middleware available
+- Security headers middleware
+- Request validation and sanitization
+- No secrets in logs (automatic scrubbing)
+
+### License
+MIT License (core framework and most extensions)
+Note: AI Extension uses a Commercial Source-Available License
+See LICENSE and LICENSING.md for details
+

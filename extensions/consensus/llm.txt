@@ -1,0 +1,160 @@
+# Forge Consensus Extension
+
+## Purpose
+
+Raft consensus protocol implementation for building highly available distributed systems. Provides leader election, log replication, and state machine replication for creating fault-tolerant services that maintain consistency across multiple nodes.
+
+## Key Components
+
+- **Raft Implementation**: Leader election and log replication
+- **State Machine**: Pluggable state machine interface
+- **Cluster Management**: Node discovery and membership
+- **Snapshot Support**: State snapshots for fast recovery
+- **Transport Layer**: Multiple transport options (gRPC, HTTP, in-memory)
+
+## Architecture
+
+```
+Consensus Extension
+├── Raft Core
+│   ├── Leader Election
+│   ├── Log Replication
+│   └── State Machine
+├── Cluster Management
+│   ├── Node Discovery
+│   ├── Membership Changes
+│   └── Health Monitoring
+├── Storage
+│   ├── Log Storage
+│   ├── Snapshot Storage
+│   └── State Persistence
+└── Transport
+    ├── gRPC Transport
+    ├── HTTP Transport
+    └── In-Memory Transport
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Node interface {
+    // Lifecycle
+    Start(ctx context.Context) error
+    Stop(ctx context.Context) error
+    
+    // Cluster operations
+    Join(ctx context.Context, nodeID, address string) error
+    Leave(ctx context.Context, nodeID string) error
+    
+    // Proposals
+    Propose(ctx context.Context, data []byte) error
+    
+    // State
+    IsLeader() bool
+    Leader() string
+    State() NodeState
+}
+
+type StateMachine interface {
+    Apply(data []byte) error
+    Snapshot() ([]byte, error)
+    Restore(snapshot []byte) error
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Create node
+node := consensus.NewNode(config)
+node.Start(ctx)
+
+// Propose change
+node.Propose(ctx, []byte("data"))
+
+// Check leadership
+if node.IsLeader() {
+    // Handle as leader
+}
+```
+
+## Usage Examples
+
+### Basic Raft Cluster
+
+```go
+import "github.com/xraph/forge/extensions/consensus"
+
+// Create state machine
+type KVStore struct {
+    data map[string]string
+    mu   sync.RWMutex
+}
+
+func (s *KVStore) Apply(data []byte) error {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    
+    var cmd Command
+    json.Unmarshal(data, &cmd)
+    s.data[cmd.Key] = cmd.Value
+    return nil
+}
+
+// Start Raft node
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        consensus.NewExtension(consensus.Config{
+            NodeID:      "node1",
+            RaftAddress: "localhost:7000",
+            DataDir:     "./raft-data",
+            StateMachine: &KVStore{data: make(map[string]string)},
+        }),
+    },
+})
+
+// Join cluster
+node, _ := consensus.GetNode(app.Container())
+node.Join(ctx, "node2", "localhost:7001")
+node.Join(ctx, "node3", "localhost:7002")
+```
+
+## Configuration
+
+```yaml
+extensions:
+  consensus:
+    node_id: node1
+    raft_address: localhost:7000
+    data_dir: ./raft-data
+    heartbeat_timeout: 1s
+    election_timeout: 3s
+    snapshot_interval: 5m
+```
+
+## Dependencies
+
+### External
+- github.com/hashicorp/raft - Raft implementation
+- go.etcd.io/bbolt - Log storage
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ Raft consensus protocol
+- ✅ Leader election
+- ✅ Log replication
+- ✅ Snapshots
+- ✅ Cluster management
+
+### License
+MIT License - Part of Forge Framework
+

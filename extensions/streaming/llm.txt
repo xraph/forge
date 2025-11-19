@@ -1,0 +1,155 @@
+# Forge Streaming Extension
+
+## Purpose
+
+Real-time streaming capabilities providing WebSocket, Server-Sent Events (SSE), and WebTransport support for bidirectional communication and live updates.
+
+## Key Components
+
+- **WebSocket**: Full-duplex communication
+- **SSE**: Server-sent events for live updates
+- **WebTransport**: HTTP/3-based streaming
+- **Pub/Sub**: Message broadcasting
+- **Room Management**: User grouping
+
+## Architecture
+
+```
+Streaming Extension
+├── WebSocket
+│   ├── Connection Management
+│   ├── Message Handling
+│   └── Broadcasting
+├── SSE
+│   ├── Event Streaming
+│   └── Reconnection
+├── WebTransport
+│   ├── HTTP/3 Support
+│   └── Bidirectional Streams
+└── Rooms
+    └── Group Messaging
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Streaming interface {
+    HandleWebSocket(path string, handler WebSocketHandler) error
+    HandleSSE(path string, handler SSEHandler) error
+    Broadcast(room string, message []byte) error
+}
+
+type WebSocketHandler func(conn WebSocketConn)
+type SSEHandler func(stream SSEStream)
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get streaming service
+func GetStreaming(c forge.Container) (Streaming, error)
+
+// WebSocket handler
+streaming.HandleWebSocket("/ws", func(conn WebSocketConn) {
+    for {
+        msg, _ := conn.ReadMessage()
+        conn.WriteMessage(msg)  // Echo
+    }
+})
+
+// Broadcast to room
+streaming.Broadcast("chat-room-1", []byte("Hello everyone!"))
+```
+
+## Usage Examples
+
+### WebSocket Chat
+
+```go
+import "github.com/xraph/forge/extensions/streaming"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        streaming.NewExtension(streaming.Config{}),
+    },
+})
+
+// Get streaming service
+s, _ := streaming.GetStreaming(app.Container())
+
+// WebSocket endpoint
+s.HandleWebSocket("/ws/chat", func(conn streaming.WebSocketConn) {
+    // Join room
+    room := conn.Query("room")
+    conn.JoinRoom(room)
+    
+    // Handle messages
+    for {
+        msg, err := conn.ReadMessage()
+        if err != nil {
+            break
+        }
+        
+        // Broadcast to room
+        conn.BroadcastToRoom(room, msg)
+    }
+})
+
+// Client connects: ws://localhost:8080/ws/chat?room=general
+```
+
+### Server-Sent Events
+
+```go
+// SSE endpoint
+s.HandleSSE("/events", func(stream streaming.SSEStream) {
+    ticker := time.NewTicker(1 * time.Second)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-ticker.C:
+            stream.SendEvent(streaming.Event{
+                Type: "update",
+                Data: fmt.Sprintf("Time: %s", time.Now()),
+            })
+        case <-stream.Context().Done():
+            return
+        }
+    }
+})
+
+// Client: EventSource("http://localhost:8080/events")
+```
+
+## Configuration
+
+```yaml
+extensions:
+  streaming:
+    websocket:
+      read_buffer_size: 1024
+      write_buffer_size: 1024
+      enable_compression: true
+    
+    sse:
+      keep_alive_interval: 15s
+```
+
+## Notes
+
+### Production Readiness
+- ✅ WebSocket support
+- ✅ SSE support
+- ✅ WebTransport
+- ✅ Room management
+- ✅ Broadcasting
+
+### License
+MIT License - Part of Forge Framework
+
