@@ -6,6 +6,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/internal/config"
+	"github.com/xraph/forge/internal/di"
 	"github.com/xraph/forge/internal/logger"
 )
 
@@ -76,8 +77,7 @@ func TestExtensionRegister(t *testing.T) {
 	}
 
 	// Verify client is registered in DI
-	var client MQTT
-	err = testApp.Container().Resolve(&client)
+	client, err := di.Resolve[MQTT](testApp.Container(), "mqtt")
 	if err != nil {
 		t.Fatalf("failed to resolve mqtt client: %v", err)
 	}

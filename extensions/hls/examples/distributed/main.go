@@ -38,8 +38,8 @@ func main() {
 
 	// Create Forge app
 	app := forge.New(
-		forge.WithName("hls-distributed"),
-		forge.WithVersion("1.0.0"),
+		forge.WithAppName("hls-distributed"),
+		forge.WithAppVersion("1.0.0"),
 	)
 
 	// Configure storage extension (shared storage required for distributed mode)
@@ -87,9 +87,9 @@ func main() {
 	)
 
 	// Register extensions
-	app.UseExtension(storageExt)
-	app.UseExtension(consensusExt) // Consensus must be registered before HLS
-	app.UseExtension(hlsExt)
+	app.RegisterExtension(storageExt)
+	app.RegisterExtension(consensusExt) // Consensus must be registered before HLS
+	app.RegisterExtension(hlsExt)
 
 	// Start app
 	ctx := context.Background()
@@ -115,7 +115,7 @@ func main() {
 		log.Printf("")
 		log.Printf("Node: %s", *nodeID)
 
-		if err := app.Listen(addr); err != nil {
+		if err := app.Run(); err != nil {
 			log.Printf("Server error: %v", err)
 		}
 	}()
