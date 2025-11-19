@@ -2,6 +2,7 @@ package backends
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,11 +17,14 @@ func TestMDNSCustomServiceType(t *testing.T) {
 		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
 	}
 
+	// Use unique service name to avoid collisions
+	serviceName := fmt.Sprintf("my-service-%d", time.Now().UnixNano())
+
 	// Create backend with custom service type (using unique test service type)
 	backend, err := NewMDNSBackend(MDNSConfig{
 		Domain:        "local.",
 		ServiceType:   "_forgetest._tcp", // Unique test service type to avoid collisions
-		BrowseTimeout: 2 * time.Second,
+		BrowseTimeout: 3 * time.Second,   // Increased for Mac reliability
 	})
 	require.NoError(t, err)
 
@@ -30,11 +34,11 @@ func TestMDNSCustomServiceType(t *testing.T) {
 
 	defer backend.Close()
 
-	// Register a service
+	// Register a service without explicit address (let backend auto-detect)
 	instance := &ServiceInstance{
-		ID:      "test-service-1",
-		Name:    "my-service", // Name doesn't matter, type is "_octopus._tcp"
-		Address: "192.168.1.100",
+		ID:   fmt.Sprintf("test-service-1-%d", time.Now().UnixNano()),
+		Name: serviceName,
+		// Address removed - let backend auto-detect valid addresses
 		Port:    8080,
 		Version: "1.0.0",
 		Metadata: map[string]string{
@@ -45,33 +49,28 @@ func TestMDNSCustomServiceType(t *testing.T) {
 	err = backend.Register(ctx, instance)
 	require.NoError(t, err)
 
-	// Give mDNS time to propagate
-	time.Sleep(500 * time.Millisecond)
+	// Wait longer for mDNS to propagate on Mac
+	time.Sleep(1 * time.Second)
 
 	// Discover should find the service using custom type
-	discovered, err := backend.Discover(ctx, "my-service")
+	discovered, err := backend.Discover(ctx, serviceName)
 	require.NoError(t, err)
 
 	// Filter to only our test service (in case other services exist on the machine)
-	filtered := make([]*ServiceInstance, 0)
+	var found *ServiceInstance
 	for _, inst := range discovered {
 		if inst.ID == instance.ID {
-			filtered = append(filtered, inst)
+			found = inst
+			break
 		}
 	}
-	discovered = filtered
 
-	assert.Len(t, discovered, 1, "should discover our test service")
+	require.NotNil(t, found, "should discover our test service")
+	assert.Equal(t, instance.ID, found.ID)
+	assert.Equal(t, instance.Port, found.Port)
 
-	// Verify the service
-	if len(discovered) > 0 {
-		found := discovered[0]
-		assert.Equal(t, instance.ID, found.ID)
-		assert.Equal(t, instance.Port, found.Port)
-
-		// Should have mdns.service_type in metadata
-		assert.Equal(t, "_forgetest._tcp", found.Metadata["mdns.service_type"])
-	}
+	// Should have mdns.service_type in metadata
+	assert.Equal(t, "_forgetest._tcp", found.Metadata["mdns.service_type"])
 
 	// Cleanup
 	err = backend.Deregister(ctx, instance.ID)
@@ -93,7 +92,7 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 			"_farp._tcp",
 			"_http._tcp",
 		},
-		BrowseTimeout: 2 * time.Second,
+		BrowseTimeout: 3 * time.Second, // Increased for Mac
 	})
 	require.NoError(t, err)
 
@@ -121,11 +120,13 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 	backend2.Initialize(ctx)
 	defer backend2.Close()
 
-	// Register service 1 with _octopus._tcp
+	// Use unique IDs to avoid collisions
+	timestamp := time.Now().UnixNano()
+
+	// Register service 1 with _octopus._tcp (no explicit address)
 	service1 := &ServiceInstance{
-		ID:      "octopus-service-1",
+		ID:      fmt.Sprintf("octopus-service-1-%d", timestamp),
 		Name:    "octopus",
-		Address: "192.168.1.100",
 		Port:    8080,
 		Version: "1.0.0",
 	}
@@ -134,11 +135,10 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 
 	defer backend1.Deregister(ctx, service1.ID)
 
-	// Register service 2 with _farp._tcp
+	// Register service 2 with _farp._tcp (no explicit address)
 	service2 := &ServiceInstance{
-		ID:      "farp-service-1",
+		ID:      fmt.Sprintf("farp-service-1-%d", timestamp),
 		Name:    "farp",
-		Address: "192.168.1.101",
 		Port:    9090,
 		Version: "1.0.0",
 	}
@@ -147,20 +147,28 @@ func TestMDNSMultiTypeDiscovery(t *testing.T) {
 
 	defer backend2.Deregister(ctx, service2.ID)
 
-	// Give mDNS time to propagate
-	time.Sleep(500 * time.Millisecond)
+	// Wait longer for mDNS to propagate on Mac
+	time.Sleep(2 * time.Second)
 
 	// Discover all types
 	allServices, err := backend.DiscoverAllTypes(ctx)
 	require.NoError(t, err)
 
+	// Filter to only our test services
+	filtered := make([]*ServiceInstance, 0)
+	for _, svc := range allServices {
+		if svc.ID == service1.ID || svc.ID == service2.ID {
+			filtered = append(filtered, svc)
+		}
+	}
+
 	// Should find both services
-	assert.GreaterOrEqual(t, len(allServices), 2, "should discover services from multiple types")
+	assert.GreaterOrEqual(t, len(filtered), 2, "should discover services from multiple types")
 
 	// Verify we have both service types
 	serviceTypes := make(map[string]bool)
 
-	for _, svc := range allServices {
+	for _, svc := range filtered {
 		if svcType, ok := svc.Metadata["mdns.service_type"]; ok {
 			serviceTypes[svcType] = true
 		}
@@ -219,10 +227,13 @@ func TestMDNSDefaultServiceType(t *testing.T) {
 		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
 	}
 
+	// Use unique service name to avoid collisions
+	serviceName := fmt.Sprintf("my-service-%d", time.Now().UnixNano())
+
 	// Create backend without custom service type
 	backend, err := NewMDNSBackend(MDNSConfig{
 		Domain:        "local.",
-		BrowseTimeout: 2 * time.Second,
+		BrowseTimeout: 3 * time.Second, // Increased for Mac
 	})
 	require.NoError(t, err)
 
@@ -232,11 +243,10 @@ func TestMDNSDefaultServiceType(t *testing.T) {
 
 	defer backend.Close()
 
-	// Register a service (should use _my-service._tcp as default)
+	// Register a service without explicit address
 	instance := &ServiceInstance{
-		ID:      "test-default-type",
-		Name:    "my-service",
-		Address: "192.168.1.100",
+		ID:      fmt.Sprintf("test-default-type-%d", time.Now().UnixNano()),
+		Name:    serviceName,
 		Port:    8080,
 		Version: "1.0.0",
 	}
@@ -246,19 +256,27 @@ func TestMDNSDefaultServiceType(t *testing.T) {
 
 	defer backend.Deregister(ctx, instance.ID)
 
-	// Give mDNS time to propagate
-	time.Sleep(500 * time.Millisecond)
+	// Wait longer for mDNS to propagate on Mac
+	time.Sleep(1 * time.Second)
 
 	// Discover should work with default type
-	discovered, err := backend.Discover(ctx, "my-service")
+	discovered, err := backend.Discover(ctx, serviceName)
 	require.NoError(t, err)
-	assert.Len(t, discovered, 1, "should discover service with default type")
 
-	if len(discovered) > 0 {
-		found := discovered[0]
-		// Should have default service type in metadata
-		assert.Equal(t, "_my-service._tcp", found.Metadata["mdns.service_type"])
+	// Filter to only our test service
+	var found *ServiceInstance
+	for _, inst := range discovered {
+		if inst.ID == instance.ID {
+			found = inst
+			break
+		}
 	}
+
+	require.NotNil(t, found, "should discover service with default type")
+
+	// Should have default service type in metadata (sanitized)
+	expectedType := fmt.Sprintf("_%s._tcp", sanitizeServiceName(serviceName))
+	assert.Equal(t, expectedType, found.Metadata["mdns.service_type"])
 }
 
 // TestMDNSWatchIntervalConfig tests watch interval configuration.
