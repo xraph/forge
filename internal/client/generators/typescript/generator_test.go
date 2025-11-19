@@ -201,8 +201,8 @@ func TestTypeScriptGeneratorRESTEndpoints(t *testing.T) {
 		t.Error("client.ts should contain APIClient class")
 	}
 
-	if !strings.Contains(clientCode, "axios") {
-		t.Error("client.ts should use axios")
+	if !strings.Contains(clientCode, "HTTPClient") {
+		t.Error("client.ts should use HTTPClient from fetch module")
 	}
 
 	// Check rest.ts contains methods
