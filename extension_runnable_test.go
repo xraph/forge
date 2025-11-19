@@ -68,6 +68,8 @@ func TestRunnableExtension_AutoRegistration(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HTTPAddress = ":0" // Use random port
 	app := NewApp(config)
+	config.Logger = NewNoopLogger()
+	config.Metrics = NewNoOpMetrics()
 
 	mockExt := NewMockRunnableExtension("test-runnable")
 
@@ -117,6 +119,8 @@ func TestRunnableExtension_LifecycleIntegration(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HTTPAddress = ":0"
 	config.Extensions = []Extension{mockExt}
+	config.Logger = NewNoopLogger()
+	config.Metrics = NewNoOpMetrics()
 
 	app := NewApp(config)
 
@@ -154,6 +158,8 @@ func TestRunnableExtension_ErrorHandling(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HTTPAddress = ":0"
 	config.Extensions = []Extension{mockExt}
+	config.Logger = NewNoopLogger()
+	config.Metrics = NewNoOpMetrics()
 
 	app := NewApp(config)
 
@@ -191,7 +197,7 @@ func TestExternalAppExtension_BasicLifecycle(t *testing.T) {
 
 	ext := NewExternalAppExtension(config)
 	ext.SetLogger(NewNoopLogger())
-
+	ext.SetMetrics(NewNoOpMetrics())
 	ctx := context.Background()
 
 	// Run the app
