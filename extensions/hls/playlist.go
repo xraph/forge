@@ -110,20 +110,20 @@ func (g *PlaylistGenerator) GenerateLiveMediaPlaylist(stream *Stream, variant *V
 	b.WriteString("#EXT-X-VERSION:3\n")
 	b.WriteString(fmt.Sprintf("#EXT-X-TARGETDURATION:%d\n", stream.TargetDuration))
 
-	// Media sequence (first segment number in window)
-	mediaSequence := 0
-	if len(segments) > 0 {
-		mediaSequence = segments[0].Index
-	}
-	b.WriteString(fmt.Sprintf("#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence))
-
-	b.WriteString("\n")
-
 	// Add segments (only last N segments based on DVR window)
 	startIdx := 0
 	if len(segments) > stream.DVRWindowSize {
 		startIdx = len(segments) - stream.DVRWindowSize
 	}
+
+	// Media sequence (first segment number in window)
+	mediaSequence := 0
+	if len(segments) > 0 {
+		mediaSequence = segments[startIdx].Index
+	}
+	b.WriteString(fmt.Sprintf("#EXT-X-MEDIA-SEQUENCE:%d\n", mediaSequence))
+
+	b.WriteString("\n")
 
 	for i := startIdx; i < len(segments); i++ {
 		segment := segments[i]

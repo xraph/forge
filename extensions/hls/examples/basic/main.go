@@ -16,8 +16,8 @@ import (
 func main() {
 	// Create Forge app
 	app := forge.New(
-		forge.WithName("hls-demo"),
-		forge.WithVersion("1.0.0"),
+		forge.WithAppName("hls-demo"),
+		forge.WithAppVersion("1.0.0"),
 	)
 
 	// Configure storage extension (required by HLS)
@@ -50,8 +50,8 @@ func main() {
 	)
 
 	// Register extensions
-	app.UseExtension(storageExt)
-	app.UseExtension(hlsExt)
+	app.RegisterExtension(storageExt)
+	app.RegisterExtension(hlsExt)
 
 	// Start app
 	ctx := context.Background()
@@ -64,7 +64,7 @@ func main() {
 
 	// Start HTTP server
 	go func() {
-		if err := app.Listen(":8080"); err != nil {
+		if err := app.Run(); err != nil {
 			log.Printf("Server error: %v", err)
 		}
 	}()

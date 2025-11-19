@@ -41,16 +41,17 @@ type MQTT interface {
 }
 
 // MessageHandler processes incoming MQTT messages
-type MessageHandler func(client mqttclient.Client, msg mqttclient.Message)
+// This is an alias to the paho MQTT MessageHandler for compatibility
+type MessageHandler = mqttclient.MessageHandler
 
 // ConnectHandler is called when connection is established
-type ConnectHandler func(client mqttclient.Client)
+type ConnectHandler = mqttclient.OnConnectHandler
 
 // ConnectionLostHandler is called when connection is lost
-type ConnectionLostHandler func(client mqttclient.Client, err error)
+type ConnectionLostHandler = mqttclient.ConnectionLostHandler
 
 // ReconnectingHandler is called when client is reconnecting
-type ReconnectingHandler func(client mqttclient.Client, options *mqttclient.ClientOptions)
+type ReconnectingHandler = mqttclient.ReconnectHandler
 
 // SubscriptionInfo contains subscription metadata
 type SubscriptionInfo struct {
