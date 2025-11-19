@@ -11,6 +11,11 @@ import (
 
 // TestMDNSCustomServiceType tests registration and discovery with custom service type.
 func TestMDNSCustomServiceType(t *testing.T) {
+	// Skip in CI environments where multicast mDNS may be restricted
+	if testing.Short() {
+		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
+	}
+
 	// Create backend with custom service type (using unique test service type)
 	backend, err := NewMDNSBackend(MDNSConfig{
 		Domain:        "local.",
@@ -75,6 +80,11 @@ func TestMDNSCustomServiceType(t *testing.T) {
 
 // TestMDNSMultiTypeDiscovery tests discovering multiple service types (gateway use case).
 func TestMDNSMultiTypeDiscovery(t *testing.T) {
+	// Skip in CI environments where multicast mDNS may be restricted
+	if testing.Short() {
+		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
+	}
+
 	// Create backend with multiple service types
 	backend, err := NewMDNSBackend(MDNSConfig{
 		Domain: "local.",
@@ -204,6 +214,11 @@ func TestExtractServiceNameFromType(t *testing.T) {
 
 // TestMDNSDefaultServiceType tests that service type defaults to service name.
 func TestMDNSDefaultServiceType(t *testing.T) {
+	// Skip in CI environments where multicast mDNS may be restricted
+	if testing.Short() {
+		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
+	}
+
 	// Create backend without custom service type
 	backend, err := NewMDNSBackend(MDNSConfig{
 		Domain:        "local.",

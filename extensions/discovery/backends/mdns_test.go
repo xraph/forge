@@ -71,6 +71,11 @@ func TestMDNSBackend_Initialize(t *testing.T) {
 }
 
 func TestMDNSBackend_RegisterAndDiscover(t *testing.T) {
+	// Skip in CI environments where multicast mDNS may be restricted
+	if testing.Short() {
+		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
+	}
+
 	backend, err := NewMDNSBackend(MDNSConfig{
 		BrowseTimeout: 2 * time.Second,
 	})
@@ -223,6 +228,11 @@ func TestMDNSBackend_RegisterValidation(t *testing.T) {
 }
 
 func TestMDNSBackend_DiscoverWithTags(t *testing.T) {
+	// Skip in CI environments where multicast mDNS may be restricted
+	if testing.Short() {
+		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
+	}
+
 	backend, err := NewMDNSBackend(MDNSConfig{
 		BrowseTimeout: 2 * time.Second,
 	})
@@ -659,6 +669,11 @@ func TestMDNSBackend_SanitizeServiceName(t *testing.T) {
 }
 
 func TestMDNSBackend_ConcurrentOperations(t *testing.T) {
+	// Skip in CI environments where multicast mDNS may be restricted
+	if testing.Short() {
+		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
+	}
+
 	backend, err := NewMDNSBackend(MDNSConfig{
 		BrowseTimeout: 2 * time.Second,
 	})
@@ -716,6 +731,11 @@ func TestMDNSBackend_ConcurrentOperations(t *testing.T) {
 }
 
 func TestMDNSBackend_MetadataEncoding(t *testing.T) {
+	// Skip in CI environments where multicast mDNS may be restricted
+	if testing.Short() {
+		t.Skip("Skipping mDNS discovery test in short mode (CI environments)")
+	}
+
 	backend, err := NewMDNSBackend(MDNSConfig{
 		BrowseTimeout: 2 * time.Second,
 	})
