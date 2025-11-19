@@ -49,11 +49,25 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		cli.WithFlag(cli.NewStringFlag("package", "p", "Package/module name", "client")),
 		cli.WithFlag(cli.NewStringFlag("base-url", "b", "API base URL", "")),
 		cli.WithFlag(cli.NewStringFlag("module", "m", "Go module path (for Go only)", "")),
+		
+		// Authentication and streaming
 		cli.WithFlag(cli.NewBoolFlag("auth", "", "Include authentication", true)),
 		cli.WithFlag(cli.NewBoolFlag("streaming", "", "Include streaming (WebSocket/SSE)", true)),
+		
+		// Streaming features
 		cli.WithFlag(cli.NewBoolFlag("reconnection", "", "Enable reconnection", true)),
 		cli.WithFlag(cli.NewBoolFlag("heartbeat", "", "Enable heartbeat", true)),
 		cli.WithFlag(cli.NewBoolFlag("state-management", "", "Enable state management", true)),
+		
+		// Enhanced features
+		cli.WithFlag(cli.NewBoolFlag("use-fetch", "", "Use native fetch instead of axios (TypeScript)", true)),
+		cli.WithFlag(cli.NewBoolFlag("dual-package", "", "Generate dual ESM+CJS package (TypeScript)", true)),
+		cli.WithFlag(cli.NewBoolFlag("generate-tests", "", "Generate test setup", true)),
+		cli.WithFlag(cli.NewBoolFlag("generate-linting", "", "Generate linting setup", true)),
+		cli.WithFlag(cli.NewBoolFlag("generate-ci", "", "Generate CI configuration", true)),
+		cli.WithFlag(cli.NewBoolFlag("error-taxonomy", "", "Generate typed error classes", true)),
+		cli.WithFlag(cli.NewBoolFlag("interceptors", "", "Generate interceptor support", true)),
+		cli.WithFlag(cli.NewBoolFlag("pagination", "", "Generate pagination helpers", true)),
 	))
 
 	clientCmd.AddSubcommand(cli.NewCommand(
@@ -81,11 +95,25 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 	packageName := ctx.String("package")
 	baseURL := ctx.String("base-url")
 	module := ctx.String("module")
+	
+	// Authentication and streaming
 	includeAuth := ctx.Bool("auth")
 	includeStreaming := ctx.Bool("streaming")
+	
+	// Streaming features
 	reconnection := ctx.Bool("reconnection")
 	heartbeat := ctx.Bool("heartbeat")
 	stateManagement := ctx.Bool("state-management")
+	
+	// Enhanced features
+	useFetch := ctx.Bool("use-fetch")
+	dualPackage := ctx.Bool("dual-package")
+	generateTests := ctx.Bool("generate-tests")
+	generateLinting := ctx.Bool("generate-linting")
+	generateCI := ctx.Bool("generate-ci")
+	errorTaxonomy := ctx.Bool("error-taxonomy")
+	interceptors := ctx.Bool("interceptors")
+	pagination := ctx.Bool("pagination")
 
 	// Validate required flags
 	if fromSpec == "" {
@@ -123,6 +151,15 @@ func (p *ClientPlugin) generateClient(ctx cli.CommandContext) error {
 			RequestRetry:    false,
 			Timeout:         true,
 		},
+		// Enhanced features
+		UseFetch:        useFetch,
+		DualPackage:     dualPackage,
+		GenerateTests:   generateTests,
+		GenerateLinting: generateLinting,
+		GenerateCI:      generateCI,
+		ErrorTaxonomy:   errorTaxonomy,
+		Interceptors:    interceptors,
+		Pagination:      pagination,
 	}
 
 	// Validate config

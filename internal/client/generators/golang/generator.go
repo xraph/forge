@@ -93,13 +93,21 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	genClient.Files["types.go"] = typesCode
 
 	// Generate errors.go
-	errorsCode := g.generateErrorsFile(spec, config)
+	errGen := NewErrorGenerator()
+	errorsCode := errGen.Generate(spec, config)
 	genClient.Files["errors.go"] = errorsCode
 
 	// Generate REST endpoints if any
 	if len(spec.Endpoints) > 0 {
 		restCode := g.restGen.Generate(spec, config)
 		genClient.Files["rest.go"] = restCode
+	}
+
+	// Generate pagination helpers if enabled
+	if config.Pagination && len(spec.Endpoints) > 0 {
+		paginationGen := NewPaginationGenerator()
+		paginationCode := paginationGen.Generate(spec, config)
+		genClient.Files["pagination.go"] = paginationCode
 	}
 
 	// Generate WebSocket clients if any

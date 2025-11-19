@@ -102,6 +102,19 @@ func (t *TypesGenerator) generateType(name string, schema *client.Schema, spec *
 		buf.WriteString(fmt.Sprintf("// %s represents a %s\n", name, name))
 	}
 
+	// Handle polymorphic types
+	if len(schema.OneOf) > 0 {
+		return t.generateOneOfType(name, schema, spec)
+	}
+
+	if len(schema.AnyOf) > 0 {
+		return t.generateAnyOfType(name, schema, spec)
+	}
+
+	if len(schema.AllOf) > 0 {
+		return t.generateAllOfType(name, schema, spec)
+	}
+
 	switch schema.Type {
 	case "object":
 		buf.WriteString(fmt.Sprintf("type %s struct {\n", name))
@@ -349,4 +362,134 @@ func (t *TypesGenerator) generateResponseTypeName(endpoint client.Endpoint, stat
 	path = strings.ReplaceAll(path, "}", "")
 
 	return t.toGoFieldName(fmt.Sprintf("%s%sResponse%d", endpoint.Method, path, statusCode))
+}
+
+// generateOneOfType generates a Go interface for oneOf schemas.
+func (t *TypesGenerator) generateOneOfType(name string, schema *client.Schema, spec *client.APISpec) string {
+	var buf strings.Builder
+
+	// Generate interface
+	if schema.Description != "" {
+		buf.WriteString(fmt.Sprintf("// %s %s\n", name, schema.Description))
+	} else {
+		buf.WriteString(fmt.Sprintf("// %s is a union type (oneOf)\n", name))
+	}
+
+	buf.WriteString(fmt.Sprintf("type %s interface {\n", name))
+	buf.WriteString(fmt.Sprintf("\tis%s()\n", name))
+	buf.WriteString("}\n\n")
+
+	// Generate concrete types for each option
+	for i, option := range schema.OneOf {
+		typeName := fmt.Sprintf("%sOption%d", name, i+1)
+		
+		// If the option has a ref, use that name instead
+		if option.Ref != "" {
+			refName := t.extractRefName(option.Ref)
+			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", refName, name))
+		} else {
+			// Generate a concrete struct for inline schemas
+			typeCode := t.generateType(typeName, option, spec)
+			buf.WriteString(typeCode)
+			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", typeName, name))
+		}
+	}
+
+	// Add discriminator support if present
+	if schema.Discriminator != nil && schema.Discriminator.PropertyName != "" {
+		buf.WriteString(fmt.Sprintf("// Discriminator field: %s\n", schema.Discriminator.PropertyName))
+	}
+
+	return buf.String()
+}
+
+// generateAnyOfType generates a Go interface for anyOf schemas.
+func (t *TypesGenerator) generateAnyOfType(name string, schema *client.Schema, spec *client.APISpec) string {
+	var buf strings.Builder
+
+	// AnyOf is similar to oneOf in Go - use interface
+	if schema.Description != "" {
+		buf.WriteString(fmt.Sprintf("// %s %s\n", name, schema.Description))
+	} else {
+		buf.WriteString(fmt.Sprintf("// %s is a union type (anyOf)\n", name))
+	}
+
+	buf.WriteString(fmt.Sprintf("type %s interface {\n", name))
+	buf.WriteString(fmt.Sprintf("\tis%s()\n", name))
+	buf.WriteString("}\n\n")
+
+	// Generate concrete types for each option
+	for i, option := range schema.AnyOf {
+		typeName := fmt.Sprintf("%sVariant%d", name, i+1)
+		
+		if option.Ref != "" {
+			refName := t.extractRefName(option.Ref)
+			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", refName, name))
+		} else {
+			typeCode := t.generateType(typeName, option, spec)
+			buf.WriteString(typeCode)
+			buf.WriteString(fmt.Sprintf("func (%s) is%s() {}\n\n", typeName, name))
+		}
+	}
+
+	return buf.String()
+}
+
+// generateAllOfType generates a Go struct with embedded types for allOf schemas.
+func (t *TypesGenerator) generateAllOfType(name string, schema *client.Schema, spec *client.APISpec) string {
+	var buf strings.Builder
+
+	if schema.Description != "" {
+		buf.WriteString(fmt.Sprintf("// %s %s\n", name, schema.Description))
+	} else {
+		buf.WriteString(fmt.Sprintf("// %s is a composition type (allOf)\n", name))
+	}
+
+	buf.WriteString(fmt.Sprintf("type %s struct {\n", name))
+
+	// Embed all schemas
+	for i, allOfSchema := range schema.AllOf {
+		if allOfSchema.Ref != "" {
+			// Embed the referenced type
+			refName := t.extractRefName(allOfSchema.Ref)
+			buf.WriteString(fmt.Sprintf("\t%s\n", refName))
+		} else if allOfSchema.Type == "object" && len(allOfSchema.Properties) > 0 {
+			// Inline properties
+			propNames := make([]string, 0, len(allOfSchema.Properties))
+			for propName := range allOfSchema.Properties {
+				propNames = append(propNames, propName)
+			}
+			sort.Strings(propNames)
+
+			for _, propName := range propNames {
+				prop := allOfSchema.Properties[propName]
+				fieldName := t.toGoFieldName(propName)
+				goType := t.schemaToGoType(prop, spec)
+				required := t.isRequired(propName, allOfSchema.Required)
+
+				jsonTag := propName
+				if prop.Nullable || !required {
+					jsonTag += ",omitempty"
+				}
+
+				comment := ""
+				if prop.Description != "" {
+					comment = " // " + prop.Description
+				}
+
+				buf.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\"`%s\n",
+					fieldName, goType, jsonTag, comment))
+			}
+		} else {
+			// Create an embedded inline struct
+			inlineName := fmt.Sprintf("%sComposed%d", name, i+1)
+			typeCode := t.generateType(inlineName, allOfSchema, spec)
+			buf.WriteString(typeCode)
+			buf.WriteString(fmt.Sprintf("\t%s\n", inlineName))
+		}
+	}
+
+	buf.WriteString("}\n")
+
+	return buf.String()
 }

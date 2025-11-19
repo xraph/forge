@@ -3,54 +3,55 @@ package shared
 // OpenAPIConfig configures OpenAPI 3.1.0 generation.
 type OpenAPIConfig struct {
 	// Basic info
-	Title       string
-	Description string
-	Version     string
+	Title       string `json:"title" yaml:"title"`
+	Description string `json:"description" yaml:"description"`
+	Version     string `json:"version" yaml:"version"`
 
 	// OpenAPI version (default: "3.1.0")
-	OpenAPIVersion string
+	OpenAPIVersion string `json:"openAPIVersion" yaml:"openAPIVersion"`
 
 	// Server configuration
-	Servers []OpenAPIServer
+	Servers []OpenAPIServer `json:"servers" yaml:"servers"`
 
 	// Security schemes
-	Security map[string]SecurityScheme
+	Security map[string]SecurityScheme `json:"security" yaml:"security"`
 
 	// Global tags
-	Tags []OpenAPITag
+	Tags []OpenAPITag `json:"tags" yaml:"tags"`
 
 	// External docs
-	ExternalDocs *ExternalDocs
+	ExternalDocs *ExternalDocs `json:"externalDocs" yaml:"externalDocs"`
 
 	// Contact info
-	Contact *Contact
-	License *License
+	Contact *Contact `json:"contact" yaml:"contact"`
+	License *License `json:"license" yaml:"license"`
 
 	// UI configuration
-	UIPath      string // Default: "/swagger"
-	SpecPath    string // Default: "/openapi.json"
-	UIEnabled   bool   // Default: true
-	SpecEnabled bool   // Default: true
+	UIPath      string `json:"uiPath" yaml:"uiPath"`           // Default: "/swagger"
+	SpecPath    string `json:"specPath" yaml:"specPath"`       // Default: "/openapi.json"
+	UIEnabled   bool   `json:"uiEnabled" yaml:"uiEnabled"`     // Default: true
+	SpecEnabled bool   `json:"specEnabled" yaml:"specEnabled"` // Default: true
 
 	// Generation options
-	PrettyJSON          bool
-	IncludeExamples     bool
-	IncludeDescriptions bool
-	ValidateResponses   bool
+	PrettyJSON          bool `json:"prettyJSON" yaml:"prettyJSON"`
+	IncludeExamples     bool `json:"includeExamples" yaml:"includeExamples"`
+	IncludeDescriptions bool `json:"includeDescriptions" yaml:"includeDescriptions"`
+	ValidateResponses   bool `json:"validateResponses" yaml:"validateResponses"`
 }
 
 // OpenAPIServer represents a server in the OpenAPI spec.
 type OpenAPIServer struct {
-	URL         string
-	Description string
-	Variables   map[string]ServerVariable
+	URL         string                    `json:"url" yaml:"url"`
+	Description string                    `json:"description" yaml:"description"`
+	Title       string                    `json:"title" yaml:"title"`
+	Variables   map[string]ServerVariable `json:"variables" yaml:"variables"`
 }
 
 // ServerVariable represents a variable in a server URL.
 type ServerVariable struct {
-	Default     string
-	Enum        []string
-	Description string
+	Default     string   `json:"default" yaml:"default"`
+	Enum        []string `json:"enum" yaml:"enum"`
+	Description string   `json:"description" yaml:"description"`
 }
 
 // SecurityScheme defines a security scheme.
@@ -75,36 +76,36 @@ type OAuthFlows struct {
 
 // OAuthFlow defines a single OAuth 2.0 flow.
 type OAuthFlow struct {
-	AuthorizationURL string
-	TokenURL         string
-	RefreshURL       string
-	Scopes           map[string]string
+	AuthorizationURL string            `json:"authorizationUrl" yaml:"authorizationUrl"`
+	TokenURL         string            `json:"tokenUrl" yaml:"tokenUrl"`
+	RefreshURL       string            `json:"refreshUrl" yaml:"refreshUrl"`
+	Scopes           map[string]string `json:"scopes,omitempty" yaml:"scopes,omitempty"`
 }
 
 // OpenAPITag represents a tag in the OpenAPI spec.
 type OpenAPITag struct {
-	Name         string
-	Description  string
-	ExternalDocs *ExternalDocs
+	Name         string        `json:"name" yaml:"name"`
+	Description  string        `json:"description" yaml:"description"`
+	ExternalDocs *ExternalDocs `json:"externalDocs,omitempty" yaml:"externalDocs,omitempty"`
 }
 
 // ExternalDocs points to external documentation.
 type ExternalDocs struct {
-	Description string
-	URL         string
+	Description string `json:"description" yaml:"description"`
+	URL         string `json:"url" yaml:"url"`
 }
 
 // Contact represents contact information.
 type Contact struct {
-	Name  string
-	Email string
-	URL   string
+	Name  string `json:"name" yaml:"name"`
+	Email string `json:"email" yaml:"email"`
+	URL   string `json:"url" yaml:"url"`
 }
 
 // License represents license information.
 type License struct {
-	Name string
-	URL  string
+	Name string `json:"name" yaml:"name"`
+	URL  string `json:"url" yaml:"url"`
 }
 
 // OpenAPISpec represents the complete OpenAPI 3.1.0 specification.

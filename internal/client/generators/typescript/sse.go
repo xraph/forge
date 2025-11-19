@@ -19,9 +19,36 @@ func NewSSEGenerator() *SSEGenerator {
 func (s *SSEGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString("import EventSource from 'eventsource';\n")
-	buf.WriteString("import { EventEmitter } from 'events';\n")
-	buf.WriteString("import * as types from './types';\n\n")
+	// Use conditional imports for browser/Node compatibility
+	buf.WriteString("// EventSource polyfill for Node.js\n")
+	buf.WriteString("let EventSourceImpl: any;\n")
+	buf.WriteString("let EventEmitterImpl: any;\n\n")
+
+	buf.WriteString("if (typeof window !== 'undefined' && window.EventSource) {\n")
+	buf.WriteString("  // Browser environment\n")
+	buf.WriteString("  EventSourceImpl = window.EventSource;\n")
+	buf.WriteString("  // Use a simple event emitter for browser\n")
+	buf.WriteString("  EventEmitterImpl = class {\n")
+	buf.WriteString("    private listeners: Map<string, Function[]> = new Map();\n")
+	buf.WriteString("    on(event: string, handler: Function) {\n")
+	buf.WriteString("      if (!this.listeners.has(event)) this.listeners.set(event, []);\n")
+	buf.WriteString("      this.listeners.get(event)!.push(handler);\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("    emit(event: string, ...args: any[]) {\n")
+	buf.WriteString("      const handlers = this.listeners.get(event) || [];\n")
+	buf.WriteString("      handlers.forEach(h => h(...args));\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("  };\n")
+	buf.WriteString("} else {\n")
+	buf.WriteString("  // Node.js environment\n")
+	buf.WriteString("  const esModule = await import('eventsource');\n")
+	buf.WriteString("  EventSourceImpl = esModule.default || esModule;\n")
+	buf.WriteString("  const eventsModule = await import('events');\n")
+	buf.WriteString("  EventEmitterImpl = eventsModule.EventEmitter;\n")
+	buf.WriteString("}\n\n")
+
+	buf.WriteString("import * as types from './types';\n")
+	buf.WriteString("import { ConnectionState } from './types';\n\n")
 
 	// Generate client for each SSE endpoint
 	for _, sse := range spec.SSEs {
@@ -47,8 +74,8 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	}
 
 	buf.WriteString(" */\n")
-	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
-	buf.WriteString("  private eventSource: EventSource | null = null;\n")
+	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitterImpl {\n", className))
+	buf.WriteString("  private eventSource: any | null = null;\n")
 	buf.WriteString("  private baseURL: string;\n")
 	buf.WriteString("  private auth?: types.AuthConfig;\n")
 	buf.WriteString("  private state: ConnectionState = ConnectionState.DISCONNECTED;\n")
@@ -94,7 +121,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		buf.WriteString("    }\n\n")
 	}
 
-	buf.WriteString("    this.eventSource = new EventSource(url, { headers });\n\n")
+	buf.WriteString("    this.eventSource = new EventSourceImpl(url, { headers });\n\n")
 
 	buf.WriteString("    this.eventSource.onopen = () => {\n")
 	buf.WriteString("      this.setState(ConnectionState.CONNECTED);\n")
@@ -110,7 +137,8 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	buf.WriteString("      this.emit('error', error);\n")
 
 	if config.Features.Reconnection {
-		buf.WriteString("      if (this.eventSource && this.eventSource.readyState === EventSource.CLOSED) {\n")
+		buf.WriteString("      const CLOSED = typeof EventSourceImpl.CLOSED !== 'undefined' ? EventSourceImpl.CLOSED : 2;\n")
+		buf.WriteString("      if (this.eventSource && this.eventSource.readyState === CLOSED) {\n")
 		buf.WriteString("        if (!this.closed) {\n")
 		buf.WriteString("          this.reconnect();\n")
 		buf.WriteString("        }\n")

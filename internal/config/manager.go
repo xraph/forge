@@ -1583,6 +1583,19 @@ func (m *Manager) BindWithOptions(key string, target any, options configcore.Bin
 		data = m.getValue(key)
 	}
 
+	// Convert struct defaultValue to map if needed (before checking if data is nil)
+	if options.DefaultValue != nil {
+		defaultVal := reflect.ValueOf(options.DefaultValue)
+		if defaultVal.Kind() == reflect.Struct || (defaultVal.Kind() == reflect.Ptr && defaultVal.Elem().Kind() == reflect.Struct) {
+			if converted, err := m.structToMap(options.DefaultValue, options.TagName); err == nil {
+				// Replace DefaultValue with converted map for proper deep merge
+				options.DefaultValue = converted
+			} else {
+				return ErrConfigError(fmt.Sprintf("failed to convert struct defaultValue: %v", err), nil)
+			}
+		}
+	}
+
 	if data == nil {
 		if options.DefaultValue != nil {
 			data = options.DefaultValue
@@ -2214,6 +2227,90 @@ func (m *Manager) parseSizeInBytes(s string) uint64 {
 	return 0
 }
 
+// structToMap converts a struct to map[string]any using struct tags
+// Supports yaml tags (preferred) and json tags as fallback, with optional custom tagName
+func (m *Manager) structToMap(v any, tagName string) (map[string]any, error) {
+	val := reflect.ValueOf(v)
+
+	// Handle pointer to struct
+	if val.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return nil, fmt.Errorf("cannot convert nil pointer to map")
+		}
+		val = val.Elem()
+	}
+
+	if val.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("value must be a struct, got %s", val.Kind())
+	}
+
+	result := make(map[string]any)
+	typ := val.Type()
+
+	for i := 0; i < val.NumField(); i++ {
+		field := typ.Field(i)
+		fieldVal := val.Field(i)
+
+		// Skip unexported fields
+		if !field.IsExported() {
+			continue
+		}
+
+		// Get field name from tags (yaml takes precedence over json)
+		fieldName := field.Name
+
+		// Try yaml tag first
+		if yamlTag := field.Tag.Get("yaml"); yamlTag != "" {
+			if idx := strings.Index(yamlTag, ","); idx != -1 {
+				fieldName = yamlTag[:idx]
+			} else {
+				fieldName = yamlTag
+			}
+			if fieldName == "-" {
+				continue
+			}
+		} else if jsonTag := field.Tag.Get("json"); jsonTag != "" {
+			// Fallback to json tag
+			if idx := strings.Index(jsonTag, ","); idx != -1 {
+				fieldName = jsonTag[:idx]
+			} else {
+				fieldName = jsonTag
+			}
+			if fieldName == "-" {
+				continue
+			}
+		}
+
+		// If using custom tagName from options (not yaml/json), respect it
+		if tagName != "" && tagName != "yaml" && tagName != "json" {
+			if customTag := field.Tag.Get(tagName); customTag != "" {
+				if idx := strings.Index(customTag, ","); idx != -1 {
+					fieldName = customTag[:idx]
+				} else {
+					fieldName = customTag
+				}
+				if fieldName == "-" {
+					continue
+				}
+			}
+		}
+
+		// Handle nested structs recursively
+		if fieldVal.Kind() == reflect.Struct {
+			nested, err := m.structToMap(fieldVal.Interface(), tagName)
+			if err == nil {
+				result[fieldName] = nested
+				continue
+			}
+		}
+
+		// Set the value
+		result[fieldName] = fieldVal.Interface()
+	}
+
+	return result, nil
+}
+
 func (m *Manager) bindValue(value any, target any) error {
 	targetValue := reflect.ValueOf(target)
 	if targetValue.Kind() != reflect.Ptr {
@@ -2430,11 +2527,28 @@ func (m *Manager) setMapValue(field reflect.Value, mapData map[string]any) error
 
 func (m *Manager) bindValueWithOptions(value any, target any, options configcore.BindOptions) error {
 	targetValue := reflect.ValueOf(target)
-	if targetValue.Kind() != reflect.Ptr || targetValue.Elem().Kind() != reflect.Struct {
-		return ErrConfigError("target must be a pointer to struct", nil)
+	if targetValue.Kind() != reflect.Ptr {
+		return ErrConfigError("target must be a pointer", nil)
 	}
 
-	targetStruct := targetValue.Elem()
+	targetElem := targetValue.Elem()
+
+	// Handle primitive target types
+	if targetElem.Kind() != reflect.Struct {
+		sourceValue := reflect.ValueOf(value)
+		if sourceValue.Type().AssignableTo(targetElem.Type()) {
+			targetElem.Set(sourceValue)
+			return nil
+		}
+		if sourceValue.Type().ConvertibleTo(targetElem.Type()) {
+			targetElem.Set(sourceValue.Convert(targetElem.Type()))
+			return nil
+		}
+		return ErrConfigError(fmt.Sprintf("cannot convert %s to %s", sourceValue.Type(), targetElem.Type()), nil)
+	}
+
+	// Handle struct target (existing logic continues...)
+	targetStruct := targetElem
 
 	// Apply struct tag defaults (lowest precedence)
 	if err := m.applyStructDefaults(targetStruct); err != nil {

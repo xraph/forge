@@ -64,6 +64,10 @@ type Context interface {
 	BindJSON(v any) error
 	BindXML(v any) error
 
+	// BindRequest binds and validates request data from all sources (path, query, header, body)
+	// using struct tags. Automatically validates based on validation tags.
+	BindRequest(v any) error
+
 	// Multipart form data
 	FormFile(name string) (multipart.File, *multipart.FileHeader, error)
 	FormFiles(name string) ([]*multipart.FileHeader, error)

@@ -19,19 +19,36 @@ func NewWebSocketGenerator() *WebSocketGenerator {
 func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString("import WebSocket from 'ws';\n")
-	buf.WriteString("import { EventEmitter } from 'events';\n")
-	buf.WriteString("import * as types from './types';\n\n")
+	// Use conditional imports for browser/Node compatibility
+	buf.WriteString("// WebSocket polyfill for Node.js\n")
+	buf.WriteString("let WebSocketImpl: any;\n")
+	buf.WriteString("let EventEmitterImpl: any;\n\n")
 
-	// ConnectionState enum
-	buf.WriteString("export enum ConnectionState {\n")
-	buf.WriteString("  DISCONNECTED = 'disconnected',\n")
-	buf.WriteString("  CONNECTING = 'connecting',\n")
-	buf.WriteString("  CONNECTED = 'connected',\n")
-	buf.WriteString("  RECONNECTING = 'reconnecting',\n")
-	buf.WriteString("  CLOSED = 'closed',\n")
-	buf.WriteString("  ERROR = 'error',\n")
+	buf.WriteString("if (typeof window !== 'undefined' && window.WebSocket) {\n")
+	buf.WriteString("  // Browser environment\n")
+	buf.WriteString("  WebSocketImpl = window.WebSocket;\n")
+	buf.WriteString("  // Use a simple event emitter for browser\n")
+	buf.WriteString("  EventEmitterImpl = class {\n")
+	buf.WriteString("    private listeners: Map<string, Function[]> = new Map();\n")
+	buf.WriteString("    on(event: string, handler: Function) {\n")
+	buf.WriteString("      if (!this.listeners.has(event)) this.listeners.set(event, []);\n")
+	buf.WriteString("      this.listeners.get(event)!.push(handler);\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("    emit(event: string, ...args: any[]) {\n")
+	buf.WriteString("      const handlers = this.listeners.get(event) || [];\n")
+	buf.WriteString("      handlers.forEach(h => h(...args));\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("  };\n")
+	buf.WriteString("} else {\n")
+	buf.WriteString("  // Node.js environment\n")
+	buf.WriteString("  const wsModule = await import('ws');\n")
+	buf.WriteString("  WebSocketImpl = wsModule.default || wsModule;\n")
+	buf.WriteString("  const eventsModule = await import('events');\n")
+	buf.WriteString("  EventEmitterImpl = eventsModule.EventEmitter;\n")
 	buf.WriteString("}\n\n")
+
+	buf.WriteString("import * as types from './types';\n")
+	buf.WriteString("import { ConnectionState } from './types';\n\n")
 
 	// Generate client for each WebSocket endpoint
 	for _, ws := range spec.WebSockets {
@@ -59,8 +76,8 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	}
 
 	buf.WriteString(" */\n")
-	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitter {\n", className))
-	buf.WriteString("  private ws: WebSocket | null = null;\n")
+	buf.WriteString(fmt.Sprintf("export class %s extends EventEmitterImpl {\n", className))
+	buf.WriteString("  private ws: any | null = null;\n")
 	buf.WriteString("  private baseURL: string;\n")
 	buf.WriteString("  private auth?: types.AuthConfig;\n")
 	buf.WriteString("  private state: ConnectionState = ConnectionState.DISCONNECTED;\n")
@@ -102,7 +119,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("        headers['X-API-Key'] = this.auth.apiKey;\n")
 	buf.WriteString("      }\n\n")
 
-	buf.WriteString("      this.ws = new WebSocket(wsURL, { headers });\n\n")
+	buf.WriteString("      this.ws = new WebSocketImpl(wsURL, { headers });\n\n")
 
 	buf.WriteString("      this.ws.on('open', () => {\n")
 	buf.WriteString("        this.setState(ConnectionState.CONNECTED);\n")
@@ -153,7 +170,8 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 
 	// Send method
 	buf.WriteString(fmt.Sprintf("  send(message: %s): void {\n", sendType))
-	buf.WriteString("    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {\n")
+	buf.WriteString("    const OPEN = typeof WebSocketImpl.OPEN !== 'undefined' ? WebSocketImpl.OPEN : 1;\n")
+	buf.WriteString("    if (!this.ws || this.ws.readyState !== OPEN) {\n")
 	buf.WriteString("      throw new Error('WebSocket is not connected');\n")
 	buf.WriteString("    }\n")
 	buf.WriteString("    this.ws.send(JSON.stringify(message));\n")

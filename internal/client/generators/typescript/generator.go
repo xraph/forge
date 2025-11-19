@@ -80,6 +80,16 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	tsconfigJSON := g.generateTSConfig()
 	genClient.Files["tsconfig.json"] = tsconfigJSON
 
+	// Generate fetch client
+	fetchGen := NewFetchClientGenerator()
+	fetchCode := fetchGen.GenerateBaseClient(spec, config)
+	genClient.Files["src/fetch.ts"] = fetchCode
+
+	// Generate error classes
+	errorGen := NewErrorGenerator()
+	errorCode := errorGen.Generate(spec, config)
+	genClient.Files["src/errors.ts"] = errorCode
+
 	// Generate types
 	typesCode := g.generateTypes(spec, config)
 	genClient.Files["src/types.ts"] = typesCode
@@ -93,6 +103,13 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		restGen := NewRESTGenerator()
 		restCode := restGen.Generate(spec, config)
 		genClient.Files["src/rest.ts"] = restCode
+	}
+
+	// Generate pagination helpers if enabled
+	if config.Pagination && len(spec.Endpoints) > 0 {
+		paginationGen := NewPaginationGenerator()
+		paginationCode := paginationGen.GeneratePaginationHelpers(spec, config)
+		genClient.Files["src/pagination.ts"] = paginationCode
 	}
 
 	// Generate WebSocket clients
@@ -120,6 +137,34 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	indexCode := g.generateIndex(spec, config)
 	genClient.Files["src/index.ts"] = indexCode
 
+	// Generate testing setup if enabled
+	if config.GenerateTests {
+		testGen := NewTestingGenerator()
+		genClient.Files["jest.config.js"] = testGen.GenerateJestConfig(spec, config)
+		genClient.Files["tests/client.test.ts"] = testGen.GenerateExampleTest(spec, config)
+		genClient.Files["tests/utils.ts"] = testGen.GenerateTestUtils(spec, config)
+	}
+
+	// Generate linting setup if enabled
+	if config.GenerateLinting {
+		lintGen := NewLintingGenerator()
+		genClient.Files[".eslintrc.js"] = lintGen.GenerateESLintConfig(spec, config)
+		genClient.Files[".prettierrc"] = lintGen.GeneratePrettierConfig(spec, config)
+		genClient.Files[".prettierignore"] = lintGen.GeneratePrettierIgnore(spec, config)
+		genClient.Files[".eslintignore"] = lintGen.GenerateESLintIgnore(spec, config)
+	}
+
+	// Generate CI setup if enabled
+	if config.GenerateCI {
+		ciGen := NewCIGenerator()
+		genClient.Files[".github/workflows/ci.yml"] = ciGen.GenerateGitHubActions(spec, config)
+		genClient.Files[".gitignore"] = ciGen.GenerateGitIgnore(spec, config)
+	}
+
+	// Generate .npmignore
+	npmIgnoreGen := NewNPMIgnoreGenerator()
+	genClient.Files[".npmignore"] = npmIgnoreGen.Generate(spec, config)
+
 	// Generate instructions
 	genClient.Instructions = g.generateInstructions(spec, config)
 
@@ -134,48 +179,70 @@ func (g *Generator) generatePackageJSON(spec *client.APISpec, config client.Gene
 	}
 
 	deps := make(map[string]string)
-	deps["axios"] = "^1.6.0"
-
+	
+	// Only add streaming deps if needed (Node.js polyfills)
 	if config.IncludeStreaming {
 		deps["ws"] = "^8.16.0"
 		deps["eventsource"] = "^2.0.2"
 	}
 
 	depsJSON := "{\n"
-
-	first := true
-
-	var depsJSONSb143 strings.Builder
-
-	for name, version := range deps {
-		if !first {
-			depsJSONSb143.WriteString(",\n")
+	if len(deps) > 0 {
+		first := true
+		var depsJSONSb strings.Builder
+		for name, version := range deps {
+			if !first {
+				depsJSONSb.WriteString(",\n")
+			}
+			depsJSONSb.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, version))
+			first = false
 		}
-
-		depsJSONSb143.WriteString(fmt.Sprintf("    \"%s\": \"%s\"", name, version))
-
-		first = false
+		depsJSON += depsJSONSb.String() + "\n  }"
+	} else {
+		depsJSON = "{}"
 	}
 
-	depsJSON += depsJSONSb143.String()
-
-	depsJSON += "\n  }"
-
+	// Modern dual package structure
 	return fmt.Sprintf(`{
   "name": "%s",
   "version": "%s",
   "description": "%s",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
-    "build": "tsc",
-    "prepublish": "npm run build"
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "prepublish": "npm run build",
+    "test": "jest",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
   },
   "dependencies": %s,
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/ws": "^8.5.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "tsup": "^8.0.0",
+    "eslint": "^8.55.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "prettier": "^3.1.1",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.11"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
 `, packageName, config.Version, spec.Info.Description, depsJSON)
@@ -186,19 +253,23 @@ func (g *Generator) generateTSConfig() string {
 	return `{
   "compilerOptions": {
     "target": "ES2020",
-    "module": "commonjs",
-    "lib": ["ES2020"],
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM"],
     "declaration": true,
+    "declarationMap": true,
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node"
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
 `
 }
@@ -208,6 +279,18 @@ func (g *Generator) generateTypes(spec *client.APISpec, config client.GeneratorC
 	var buf strings.Builder
 
 	buf.WriteString("// Generated types\n\n")
+
+	// Add ConnectionState enum for streaming
+	if config.IncludeStreaming {
+		buf.WriteString("export enum ConnectionState {\n")
+		buf.WriteString("  DISCONNECTED = 'disconnected',\n")
+		buf.WriteString("  CONNECTING = 'connecting',\n")
+		buf.WriteString("  CONNECTED = 'connected',\n")
+		buf.WriteString("  RECONNECTING = 'reconnecting',\n")
+		buf.WriteString("  CLOSED = 'closed',\n")
+		buf.WriteString("  ERROR = 'error',\n")
+		buf.WriteString("}\n\n")
+	}
 
 	// Generate types from schemas
 	for name, schema := range spec.Schemas {
@@ -287,8 +370,51 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 
 	if schema.Ref != "" {
 		parts := strings.Split(schema.Ref, "/")
+		typeName := parts[len(parts)-1]
+		
+		// Add null union if nullable
+		if schema.Nullable {
+			return typeName + " | null"
+		}
+		return typeName
+	}
 
-		return parts[len(parts)-1]
+	// Handle polymorphic types
+	if len(schema.OneOf) > 0 {
+		var types []string
+		for _, s := range schema.OneOf {
+			types = append(types, g.schemaToTSType(s, spec))
+		}
+		result := strings.Join(types, " | ")
+		if schema.Nullable {
+			result += " | null"
+		}
+		return result
+	}
+
+	if len(schema.AnyOf) > 0 {
+		var types []string
+		for _, s := range schema.AnyOf {
+			types = append(types, g.schemaToTSType(s, spec))
+		}
+		result := strings.Join(types, " | ")
+		if schema.Nullable {
+			result += " | null"
+		}
+		return result
+	}
+
+	if len(schema.AllOf) > 0 {
+		var types []string
+		for _, s := range schema.AllOf {
+			types = append(types, g.schemaToTSType(s, spec))
+		}
+		result := strings.Join(types, " & ")
+		if schema.Nullable {
+			result = "(" + result + ")"
+			result += " | null"
+		}
+		return result
 	}
 
 	switch schema.Type {
@@ -298,25 +424,50 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 			for _, v := range schema.Enum {
 				values = append(values, fmt.Sprintf("'%v'", v))
 			}
-
-			return strings.Join(values, " | ")
+			result := strings.Join(values, " | ")
+			if schema.Nullable {
+				result += " | null"
+			}
+			return result
 		}
-
+		if schema.Nullable {
+			return "string | null"
+		}
 		return "string"
 	case "integer", "number":
+		if schema.Nullable {
+			return "number | null"
+		}
 		return "number"
 	case "boolean":
+		if schema.Nullable {
+			return "boolean | null"
+		}
 		return "boolean"
 	case "array":
 		if schema.Items != nil {
-			return g.schemaToTSType(schema.Items, spec) + "[]"
+			itemType := g.schemaToTSType(schema.Items, spec)
+			if schema.Nullable {
+				return itemType + "[] | null"
+			}
+			return itemType + "[]"
 		}
-
+		if schema.Nullable {
+			return "any[] | null"
+		}
 		return "any[]"
 	case "object":
+		if schema.Nullable {
+			return "Record<string, any> | null"
+		}
 		return "Record<string, any>"
+	case "null":
+		return "null"
 	}
 
+	if schema.Nullable {
+		return "any | null"
+	}
 	return "any"
 }
 
@@ -324,41 +475,45 @@ func (g *Generator) schemaToTSType(schema *client.Schema, spec *client.APISpec) 
 func (g *Generator) generateClient(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString("import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';\n")
-	buf.WriteString("import { ClientConfig, AuthConfig } from './types';\n\n")
+	buf.WriteString("import { HTTPClient, RequestConfig } from './fetch';\n")
+	buf.WriteString("import { ClientConfig, AuthConfig } from './types';\n")
+	buf.WriteString("import { createError } from './errors';\n\n")
 
 	buf.WriteString(fmt.Sprintf("export class %s {\n", config.APIName))
-	buf.WriteString("  private client: AxiosInstance;\n")
+	buf.WriteString("  protected httpClient: HTTPClient;\n")
 	buf.WriteString("  private auth?: AuthConfig;\n\n")
 
 	buf.WriteString("  constructor(config: ClientConfig) {\n")
 	buf.WriteString("    this.auth = config.auth;\n")
-	buf.WriteString("    this.client = axios.create({\n")
-	buf.WriteString("      baseURL: config.baseURL,\n")
-	buf.WriteString("      timeout: config.timeout || 30000,\n")
-	buf.WriteString("      headers: {\n")
-	buf.WriteString("        'Content-Type': 'application/json',\n")
-	buf.WriteString("      },\n")
-	buf.WriteString("    });\n\n")
+	buf.WriteString("    this.httpClient = new HTTPClient(\n")
+	buf.WriteString("      config.baseURL,\n")
+	buf.WriteString("      config.timeout || 30000\n")
+	buf.WriteString("    );\n\n")
 
-	buf.WriteString("    // Add auth interceptor\n")
-	buf.WriteString("    this.client.interceptors.request.use((config) => {\n")
-	buf.WriteString("      if (this.auth?.bearerToken) {\n")
-	buf.WriteString("        config.headers.Authorization = `Bearer ${this.auth.bearerToken}`;\n")
+	buf.WriteString("    // Setup auth headers\n")
+	buf.WriteString("    if (this.auth?.bearerToken) {\n")
+	buf.WriteString("      this.httpClient.setDefaultHeader('Authorization', `Bearer ${this.auth.bearerToken}`);\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("    if (this.auth?.apiKey) {\n")
+	buf.WriteString("      this.httpClient.setDefaultHeader('X-API-Key', this.auth.apiKey);\n")
+	buf.WriteString("    }\n")
+	buf.WriteString("    if (this.auth?.customHeaders) {\n")
+	buf.WriteString("      for (const [key, value] of Object.entries(this.auth.customHeaders)) {\n")
+	buf.WriteString("        this.httpClient.setDefaultHeader(key, value);\n")
 	buf.WriteString("      }\n")
-	buf.WriteString("      if (this.auth?.apiKey) {\n")
-	buf.WriteString("        config.headers['X-API-Key'] = this.auth.apiKey;\n")
-	buf.WriteString("      }\n")
-	buf.WriteString("      if (this.auth?.customHeaders) {\n")
-	buf.WriteString("        Object.assign(config.headers, this.auth.customHeaders);\n")
-	buf.WriteString("      }\n")
-	buf.WriteString("      return config;\n")
-	buf.WriteString("    });\n")
+	buf.WriteString("    }\n")
 	buf.WriteString("  }\n\n")
 
-	buf.WriteString("  protected async request<T>(config: AxiosRequestConfig): Promise<T> {\n")
-	buf.WriteString("    const response = await this.client.request<T>(config);\n")
-	buf.WriteString("    return response.data;\n")
+	buf.WriteString("  protected async request<T>(config: RequestConfig): Promise<T> {\n")
+	buf.WriteString("    try {\n")
+	buf.WriteString("      return await this.httpClient.request<T>(config);\n")
+	buf.WriteString("    } catch (error: any) {\n")
+	buf.WriteString("      // Transform errors into typed error classes\n")
+	buf.WriteString("      if (error.statusCode) {\n")
+	buf.WriteString("        throw createError(error.statusCode, error.message, error.code, error.details);\n")
+	buf.WriteString("      }\n")
+	buf.WriteString("      throw error;\n")
+	buf.WriteString("    }\n")
 	buf.WriteString("  }\n")
 	buf.WriteString("}\n")
 
@@ -369,11 +524,20 @@ func (g *Generator) generateClient(spec *client.APISpec, config client.Generator
 func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
+	// Export base modules
+	buf.WriteString("export * from './fetch';\n")
+	buf.WriteString("export * from './errors';\n")
 	buf.WriteString("export * from './types';\n")
-	buf.WriteString("export * from './client';\n")
+	buf.WriteString("export * from './client';\n\n")
 
+	// Export generated clients
 	if len(spec.Endpoints) > 0 {
 		buf.WriteString("export * from './rest';\n")
+	}
+
+	// Export pagination helpers
+	if config.Pagination && len(spec.Endpoints) > 0 {
+		buf.WriteString("export * from './pagination';\n")
 	}
 
 	if len(spec.WebSockets) > 0 && config.IncludeStreaming {
@@ -384,16 +548,21 @@ func (g *Generator) generateIndex(spec *client.APISpec, config client.GeneratorC
 		buf.WriteString("export * from './sse';\n")
 	}
 
+	if len(spec.WebTransports) > 0 && config.IncludeStreaming {
+		buf.WriteString("export * from './webtransport';\n")
+	}
+
 	return buf.String()
 }
 
 // getDependencies returns the list of dependencies.
 func (g *Generator) getDependencies(config client.GeneratorConfig) []generators.Dependency {
 	deps := []generators.Dependency{
-		{Name: "axios", Version: "^1.6.0", Type: "direct"},
 		{Name: "typescript", Version: "^5.3.0", Type: "dev"},
+		{Name: "tsup", Version: "^8.0.0", Type: "dev"},
 	}
 
+	// Add Node.js polyfills for streaming when needed
 	if config.IncludeStreaming {
 		deps = append(deps,
 			generators.Dependency{Name: "ws", Version: "^8.16.0", Type: "direct"},

@@ -19,7 +19,7 @@ func NewRESTGenerator() *RESTGenerator {
 func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
-	buf.WriteString("import { AxiosRequestConfig } from 'axios';\n")
+	buf.WriteString("import { RequestConfig } from './fetch';\n")
 	buf.WriteString("import { Client } from './client';\n")
 	buf.WriteString("import * as types from './types';\n\n")
 
@@ -28,7 +28,7 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 
 	// Generate method for each endpoint
 	for _, endpoint := range spec.Endpoints {
-		methodCode := r.generateEndpointMethod(endpoint, spec)
+		methodCode := r.generateEndpointMethod(endpoint, spec, config)
 		buf.WriteString(methodCode)
 		buf.WriteString("\n")
 	}
@@ -39,7 +39,7 @@ func (r *RESTGenerator) Generate(spec *client.APISpec, config client.GeneratorCo
 }
 
 // generateEndpointMethod generates a TypeScript method for an endpoint.
-func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *client.APISpec) string {
+func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *client.APISpec, config client.GeneratorConfig) string {
 	var buf strings.Builder
 
 	methodName := r.generateMethodName(endpoint)
@@ -61,8 +61,13 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 
 	buf.WriteString("   */\n")
 
-	// Method signature
+	// Method signature with optional options parameter
 	params := r.generateParameters(endpoint, spec)
+	if params != "" {
+		params += ", "
+	}
+	params += "options?: { signal?: AbortSignal; retry?: { maxAttempts?: number } }"
+	
 	returnType := r.generateReturnType(endpoint, spec)
 
 	buf.WriteString(fmt.Sprintf("  async %s(%s): Promise<%s> {\n", methodName, params, returnType))
@@ -93,13 +98,13 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	}
 
 	// Build request config
-	buf.WriteString("    const config: AxiosRequestConfig = {\n")
+	buf.WriteString("    const config: RequestConfig = {\n")
 	buf.WriteString(fmt.Sprintf("      method: '%s',\n", strings.ToUpper(endpoint.Method)))
 	buf.WriteString("      url: path,\n")
 
 	// Add request body
 	if endpoint.RequestBody != nil {
-		buf.WriteString("      data: body,\n")
+		buf.WriteString("      body,\n")
 	}
 
 	// Add custom headers
@@ -117,6 +122,10 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 
 		buf.WriteString("      },\n")
 	}
+
+	// Add signal and retry from options
+	buf.WriteString("      signal: options?.signal,\n")
+	buf.WriteString("      retry: options?.retry,\n")
 
 	buf.WriteString("    };\n\n")
 

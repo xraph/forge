@@ -886,6 +886,431 @@ func TestManager_BindWithOptions(t *testing.T) {
 }
 
 // =============================================================================
+// STRUCT DEFAULT VALUE TESTS
+// =============================================================================
+
+// Test struct with both yaml and json tags
+type TestStructDefaultConfig struct {
+	MaxOrganizationsPerUser   int  `yaml:"maxOrganizationsPerUser" json:"maxOrganizationsPerUser"`
+	MaxMembersPerOrganization int  `yaml:"maxMembersPerOrganization" json:"maxMembersPerOrganization"`
+	MaxTeamsPerOrganization   int  `yaml:"maxTeamsPerOrganization" json:"maxTeamsPerOrganization"`
+	EnableUserCreation        bool `yaml:"enableUserCreation" json:"enableUserCreation"`
+	RequireInvitation         bool `yaml:"requireInvitation" json:"requireInvitation"`
+	InvitationExpiryHours     int  `yaml:"invitationExpiryHours" json:"invitationExpiryHours"`
+}
+
+// Test struct with only json tags
+type TestJSONOnlyConfig struct {
+	MaxValue    int    `json:"maxValue"`
+	MinValue    int    `json:"minValue"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// Test struct with nested structs
+type TestNestedDefaultConfig struct {
+	Name     string                  `yaml:"name" json:"name"`
+	Settings TestStructDefaultConfig `yaml:"settings" json:"settings"`
+	Active   bool                    `yaml:"active" json:"active"`
+}
+
+func TestManager_BindWithDefault_StructValue(t *testing.T) {
+	manager := NewManager(ManagerConfig{}).(*Manager)
+	manager.data = map[string]any{} // Empty config
+
+	t.Run("struct default with yaml tags", func(t *testing.T) {
+		var config TestStructDefaultConfig
+
+		defaultStruct := TestStructDefaultConfig{
+			MaxOrganizationsPerUser:   5,
+			MaxMembersPerOrganization: 50,
+			MaxTeamsPerOrganization:   20,
+			EnableUserCreation:        true,
+			RequireInvitation:         false,
+			InvitationExpiryHours:     72,
+		}
+
+		err := manager.BindWithDefault("nonexistent.key", &config, defaultStruct)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		if config.MaxOrganizationsPerUser != 5 {
+			t.Errorf("config.MaxOrganizationsPerUser = %v, want %v", config.MaxOrganizationsPerUser, 5)
+		}
+		if config.MaxMembersPerOrganization != 50 {
+			t.Errorf("config.MaxMembersPerOrganization = %v, want %v", config.MaxMembersPerOrganization, 50)
+		}
+		if config.MaxTeamsPerOrganization != 20 {
+			t.Errorf("config.MaxTeamsPerOrganization = %v, want %v", config.MaxTeamsPerOrganization, 20)
+		}
+		if !config.EnableUserCreation {
+			t.Errorf("config.EnableUserCreation = %v, want %v", config.EnableUserCreation, true)
+		}
+		if config.RequireInvitation {
+			t.Errorf("config.RequireInvitation = %v, want %v", config.RequireInvitation, false)
+		}
+		if config.InvitationExpiryHours != 72 {
+			t.Errorf("config.InvitationExpiryHours = %v, want %v", config.InvitationExpiryHours, 72)
+		}
+	})
+
+	t.Run("struct default with json tags only", func(t *testing.T) {
+		var config TestJSONOnlyConfig
+
+		defaultStruct := TestJSONOnlyConfig{
+			MaxValue:    100,
+			MinValue:    10,
+			Description: "Test description",
+			Enabled:     true,
+		}
+
+		err := manager.BindWithDefault("another.nonexistent.key", &config, defaultStruct)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		if config.MaxValue != 100 {
+			t.Errorf("config.MaxValue = %v, want %v", config.MaxValue, 100)
+		}
+		if config.MinValue != 10 {
+			t.Errorf("config.MinValue = %v, want %v", config.MinValue, 10)
+		}
+		if config.Description != "Test description" {
+			t.Errorf("config.Description = %v, want %v", config.Description, "Test description")
+		}
+		if !config.Enabled {
+			t.Errorf("config.Enabled = %v, want %v", config.Enabled, true)
+		}
+	})
+
+	t.Run("struct default with nested structs", func(t *testing.T) {
+		var config TestNestedDefaultConfig
+
+		defaultStruct := TestNestedDefaultConfig{
+			Name: "Test Config",
+			Settings: TestStructDefaultConfig{
+				MaxOrganizationsPerUser:   3,
+				MaxMembersPerOrganization: 25,
+				MaxTeamsPerOrganization:   10,
+				EnableUserCreation:        false,
+				RequireInvitation:         true,
+				InvitationExpiryHours:     48,
+			},
+			Active: true,
+		}
+
+		err := manager.BindWithDefault("nested.config", &config, defaultStruct)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		if config.Name != "Test Config" {
+			t.Errorf("config.Name = %v, want %v", config.Name, "Test Config")
+		}
+		if config.Settings.MaxOrganizationsPerUser != 3 {
+			t.Errorf("config.Settings.MaxOrganizationsPerUser = %v, want %v", config.Settings.MaxOrganizationsPerUser, 3)
+		}
+		if config.Settings.MaxMembersPerOrganization != 25 {
+			t.Errorf("config.Settings.MaxMembersPerOrganization = %v, want %v", config.Settings.MaxMembersPerOrganization, 25)
+		}
+		if !config.Active {
+			t.Errorf("config.Active = %v, want %v", config.Active, true)
+		}
+	})
+
+	t.Run("struct default with pointer", func(t *testing.T) {
+		var config TestStructDefaultConfig
+
+		defaultStruct := &TestStructDefaultConfig{
+			MaxOrganizationsPerUser:   7,
+			MaxMembersPerOrganization: 100,
+			MaxTeamsPerOrganization:   30,
+			EnableUserCreation:        true,
+			RequireInvitation:         false,
+			InvitationExpiryHours:     96,
+		}
+
+		err := manager.BindWithDefault("pointer.config", &config, defaultStruct)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		if config.MaxOrganizationsPerUser != 7 {
+			t.Errorf("config.MaxOrganizationsPerUser = %v, want %v", config.MaxOrganizationsPerUser, 7)
+		}
+		if config.MaxMembersPerOrganization != 100 {
+			t.Errorf("config.MaxMembersPerOrganization = %v, want %v", config.MaxMembersPerOrganization, 100)
+		}
+	})
+
+	t.Run("config overrides struct default", func(t *testing.T) {
+		// Set actual config data
+		manager.data = map[string]any{
+			"override": map[string]any{
+				"maxOrganizationsPerUser": 999,
+				"maxMembersPerOrganization": 888,
+			},
+		}
+
+		var config TestStructDefaultConfig
+
+		defaultStruct := TestStructDefaultConfig{
+			MaxOrganizationsPerUser:   5,
+			MaxMembersPerOrganization: 50,
+			MaxTeamsPerOrganization:   20,
+		}
+
+		err := manager.BindWithDefault("override", &config, defaultStruct)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		// Config values should override defaults
+		if config.MaxOrganizationsPerUser != 999 {
+			t.Errorf("config.MaxOrganizationsPerUser = %v, want %v", config.MaxOrganizationsPerUser, 999)
+		}
+		if config.MaxMembersPerOrganization != 888 {
+			t.Errorf("config.MaxMembersPerOrganization = %v, want %v", config.MaxMembersPerOrganization, 888)
+		}
+		// This one was not in config, should use default
+		if config.MaxTeamsPerOrganization != 20 {
+			t.Errorf("config.MaxTeamsPerOrganization = %v, want %v (from default)", config.MaxTeamsPerOrganization, 20)
+		}
+
+		// Reset data
+		manager.data = map[string]any{}
+	})
+}
+
+func TestManager_BindWithDefault_PrimitiveValue(t *testing.T) {
+	manager := NewManager(ManagerConfig{}).(*Manager)
+	manager.data = map[string]any{} // Empty config
+
+	t.Run("int default", func(t *testing.T) {
+		var value int
+		defaultValue := 42
+
+		err := manager.BindWithDefault("nonexistent.int", &value, defaultValue)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		if value != 42 {
+			t.Errorf("value = %v, want %v", value, 42)
+		}
+	})
+
+	t.Run("string default", func(t *testing.T) {
+		var value string
+		defaultValue := "default string"
+
+		err := manager.BindWithDefault("nonexistent.string", &value, defaultValue)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		if value != "default string" {
+			t.Errorf("value = %v, want %v", value, "default string")
+		}
+	})
+
+	t.Run("bool default", func(t *testing.T) {
+		var value bool
+		defaultValue := true
+
+		err := manager.BindWithDefault("nonexistent.bool", &value, defaultValue)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		if !value {
+			t.Errorf("value = %v, want %v", value, true)
+		}
+	})
+
+	t.Run("float default", func(t *testing.T) {
+		var value float64
+		defaultValue := 3.14
+
+		err := manager.BindWithDefault("nonexistent.float", &value, defaultValue)
+		if err != nil {
+			t.Fatalf("BindWithDefault() error = %v", err)
+		}
+
+		if value != 3.14 {
+			t.Errorf("value = %v, want %v", value, 3.14)
+		}
+	})
+}
+
+func TestManager_structToMap(t *testing.T) {
+	manager := NewManager(ManagerConfig{}).(*Manager)
+
+	t.Run("yaml tags precedence over json", func(t *testing.T) {
+		type TestBothTags struct {
+			Field1 string `yaml:"yaml_name" json:"json_name"`
+			Field2 int    `yaml:"yaml_field2" json:"json_field2"`
+		}
+
+		input := TestBothTags{
+			Field1: "test value",
+			Field2: 123,
+		}
+
+		result, err := manager.structToMap(input, "yaml")
+		if err != nil {
+			t.Fatalf("structToMap() error = %v", err)
+		}
+
+		// Should use yaml tag names
+		if result["yaml_name"] != "test value" {
+			t.Errorf("result[yaml_name] = %v, want %v", result["yaml_name"], "test value")
+		}
+		if result["yaml_field2"] != 123 {
+			t.Errorf("result[yaml_field2] = %v, want %v", result["yaml_field2"], 123)
+		}
+
+		// json names should not exist
+		if _, exists := result["json_name"]; exists {
+			t.Error("result should not have json_name key when yaml tag exists")
+		}
+	})
+
+	t.Run("json tags as fallback", func(t *testing.T) {
+		type TestJSONOnly struct {
+			Field1 string `json:"json_field1"`
+			Field2 int    `json:"json_field2"`
+		}
+
+		input := TestJSONOnly{
+			Field1: "json value",
+			Field2: 456,
+		}
+
+		result, err := manager.structToMap(input, "yaml")
+		if err != nil {
+			t.Fatalf("structToMap() error = %v", err)
+		}
+
+		// Should fall back to json tags
+		if result["json_field1"] != "json value" {
+			t.Errorf("result[json_field1] = %v, want %v", result["json_field1"], "json value")
+		}
+		if result["json_field2"] != 456 {
+			t.Errorf("result[json_field2] = %v, want %v", result["json_field2"], 456)
+		}
+	})
+
+	t.Run("skip fields with dash tag", func(t *testing.T) {
+		type TestSkipFields struct {
+			Field1 string `yaml:"field1"`
+			Field2 string `yaml:"-"`
+			Field3 int    `json:"-"`
+		}
+
+		input := TestSkipFields{
+			Field1: "included",
+			Field2: "excluded",
+			Field3: 999,
+		}
+
+		result, err := manager.structToMap(input, "yaml")
+		if err != nil {
+			t.Fatalf("structToMap() error = %v", err)
+		}
+
+		if result["field1"] != "included" {
+			t.Errorf("result[field1] = %v, want %v", result["field1"], "included")
+		}
+
+		// Field2 and Field3 should not exist
+		if _, exists := result["Field2"]; exists {
+			t.Error("Field2 should be skipped due to - tag")
+		}
+		if _, exists := result["Field3"]; exists {
+			t.Error("Field3 should be skipped due to - tag")
+		}
+	})
+
+	t.Run("nested struct recursion", func(t *testing.T) {
+		type Inner struct {
+			InnerField string `yaml:"innerField"`
+		}
+		type Outer struct {
+			OuterField string `yaml:"outerField"`
+			Nested     Inner  `yaml:"nested"`
+		}
+
+		input := Outer{
+			OuterField: "outer",
+			Nested: Inner{
+				InnerField: "inner",
+			},
+		}
+
+		result, err := manager.structToMap(input, "yaml")
+		if err != nil {
+			t.Fatalf("structToMap() error = %v", err)
+		}
+
+		if result["outerField"] != "outer" {
+			t.Errorf("result[outerField] = %v, want %v", result["outerField"], "outer")
+		}
+
+		nested, ok := result["nested"].(map[string]any)
+		if !ok {
+			t.Fatalf("result[nested] is not a map")
+		}
+
+		if nested["innerField"] != "inner" {
+			t.Errorf("nested[innerField] = %v, want %v", nested["innerField"], "inner")
+		}
+	})
+
+	t.Run("pointer to struct", func(t *testing.T) {
+		type TestPointer struct {
+			Field string `yaml:"field"`
+		}
+
+		input := &TestPointer{
+			Field: "pointer value",
+		}
+
+		result, err := manager.structToMap(input, "yaml")
+		if err != nil {
+			t.Fatalf("structToMap() error = %v", err)
+		}
+
+		if result["field"] != "pointer value" {
+			t.Errorf("result[field] = %v, want %v", result["field"], "pointer value")
+		}
+	})
+
+	t.Run("nil pointer error", func(t *testing.T) {
+		type TestPointer struct {
+			Field string `yaml:"field"`
+		}
+
+		var input *TestPointer = nil
+
+		_, err := manager.structToMap(input, "yaml")
+		if err == nil {
+			t.Error("structToMap() should return error for nil pointer")
+		}
+	})
+
+	t.Run("non-struct error", func(t *testing.T) {
+		input := "not a struct"
+
+		_, err := manager.structToMap(input, "yaml")
+		if err == nil {
+			t.Error("structToMap() should return error for non-struct input")
+		}
+	})
+}
+
+// =============================================================================
 // WATCH AND CALLBACK TESTS
 // =============================================================================
 

@@ -126,6 +126,32 @@ func (e *ForgeError) WithContext(key string, value any) *ForgeError {
 	return e
 }
 
+// StatusCode returns 500 for ForgeError (implements shared.HTTPResponder)
+func (e *ForgeError) StatusCode() int {
+	return 500
+}
+
+// ResponseBody returns the response body (implements shared.HTTPResponder)
+func (e *ForgeError) ResponseBody() any {
+	body := map[string]any{
+		"error":     e.Message,
+		"code":      e.Code,
+		"timestamp": e.Timestamp,
+	}
+
+	// Include cause if present
+	if e.Cause != nil {
+		body["cause"] = e.Cause.Error()
+	}
+
+	// Include context if present and not empty
+	if len(e.Context) > 0 {
+		body["context"] = e.Context
+	}
+
+	return body
+}
+
 // ErrConfigError creates a config error.
 func ErrConfigError(message string, cause error) *ForgeError {
 	return &ForgeError{
@@ -316,6 +342,26 @@ func (e *HTTPError) Is(target error) bool {
 	}
 
 	return e.Code == t.Code
+}
+
+// StatusCode returns the HTTP status code (implements shared.HTTPResponder)
+func (e *HTTPError) StatusCode() int {
+	return e.Code
+}
+
+// ResponseBody returns the response body (implements shared.HTTPResponder)
+func (e *HTTPError) ResponseBody() any {
+	body := map[string]any{
+		"error": e.Message,
+		"code":  e.Code,
+	}
+
+	// Include underlying error details if present
+	if e.Err != nil {
+		body["details"] = e.Err.Error()
+	}
+
+	return body
 }
 
 // HTTP error constructors.
