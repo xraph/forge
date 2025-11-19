@@ -6,12 +6,13 @@ import (
 	"time"
 
 	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 func TestQualityMonitor(t *testing.T) {
 	// Create mock peer connection
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 
 	peer, err := NewPeerConnection("test-peer", "test-user", config, logger)
 	if err != nil {
@@ -103,7 +104,7 @@ func TestQualityMonitor_ConfigValidation(t *testing.T) {
 		MonitorEnabled: false,
 	}
 
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 	metrics := forge.NewNoOpMetrics()
 
 	peer, err := NewPeerConnection("test-peer", "test-user", DefaultConfig(), logger)
@@ -128,7 +129,7 @@ func TestQualityMonitor_ConfigValidation(t *testing.T) {
 func TestQualityMonitor_ConcurrentAccess(t *testing.T) {
 	// Create mock peer connection
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 
 	peer, err := NewPeerConnection("concurrent-peer", "concurrent-user", config, logger)
 	if err != nil {
@@ -179,7 +180,7 @@ func TestQualityMonitor_ConcurrentAccess(t *testing.T) {
 func TestQualityMonitor_EdgeCases(t *testing.T) {
 	// Create mock peer connection
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 
 	peer, err := NewPeerConnection("edge-peer", "edge-user", config, logger)
 	if err != nil {
@@ -262,7 +263,7 @@ func TestConnectionQuality_Calculation(t *testing.T) {
 func BenchmarkQualityMonitor_Checks(b *testing.B) {
 	// Create mock peer connection
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 
 	peer, err := NewPeerConnection("bench-peer", "bench-user", config, logger)
 	if err != nil {

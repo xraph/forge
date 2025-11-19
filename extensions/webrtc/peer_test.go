@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/xraph/forge"
+	"github.com/xraph/forge/internal/logger"
 )
 
 func TestNewPeerConnection(t *testing.T) {
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 
 	peer, err := NewPeerConnection("test-peer-1", "user-1", config, logger)
 	if err != nil {
@@ -36,7 +36,7 @@ func TestNewPeerConnection(t *testing.T) {
 
 func TestPeerConnection_CreateOffer(t *testing.T) {
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 	ctx := context.Background()
 
 	peer, err := NewPeerConnection("test-peer-2", "user-2", config, logger)
@@ -65,7 +65,7 @@ func TestPeerConnection_CreateOffer(t *testing.T) {
 
 func TestPeerConnection_OfferAnswerFlow(t *testing.T) {
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 	ctx := context.Background()
 
 	// Create two peers
@@ -141,7 +141,7 @@ func containsICECredentials(sdp string) bool {
 
 func TestPeerConnection_AddTrack(t *testing.T) {
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 	ctx := context.Background()
 
 	peer, err := NewPeerConnection("test-peer-3", "user-3", config, logger)
@@ -174,7 +174,7 @@ func TestPeerConnection_AddTrack(t *testing.T) {
 
 func TestPeerConnection_RemoveTrack(t *testing.T) {
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 	ctx := context.Background()
 
 	peer, err := NewPeerConnection("test-peer-4", "user-4", config, logger)
@@ -207,7 +207,7 @@ func TestPeerConnection_RemoveTrack(t *testing.T) {
 
 func TestPeerConnection_ICECandidateCallback(t *testing.T) {
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 	ctx := context.Background()
 
 	peer, err := NewPeerConnection("test-peer-5", "user-5", config, logger)
@@ -248,7 +248,7 @@ func TestPeerConnection_ICECandidateCallback(t *testing.T) {
 
 func BenchmarkPeerConnection_CreateOffer(b *testing.B) {
 	config := DefaultConfig()
-	logger := forge.NewNoopLogger()
+	logger := logger.NewTestLogger()
 	ctx := context.Background()
 
 	peer, err := NewPeerConnection("bench-peer", "bench-user", config, logger)
