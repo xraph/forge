@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/xraph/forge/internal/di"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // Benchmarks for router performance
@@ -24,7 +25,9 @@ func BenchmarkRouter_Registration(b *testing.B) {
 }
 
 func BenchmarkRouter_StandardHandler(b *testing.B) {
-	router := NewRouter()
+	router := NewRouter(
+		WithLogger(logger.NewTestLogger()),
+	)
 	_ = router.GET("/test", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
@@ -40,7 +43,9 @@ func BenchmarkRouter_StandardHandler(b *testing.B) {
 }
 
 func BenchmarkRouter_ContextHandler(b *testing.B) {
-	router := NewRouter()
+	router := NewRouter(
+		WithLogger(logger.NewTestLogger()),
+	)
 	_ = router.GET("/test", func(ctx Context) error {
 		return ctx.String(200, "ok")
 	})
@@ -63,7 +68,9 @@ func BenchmarkRouter_OpinionatedHandler(b *testing.B) {
 		Name string `json:"name"`
 	}
 
-	router := NewRouter()
+	router := NewRouter(
+		WithLogger(logger.NewTestLogger()),
+	)
 	_ = router.POST("/test", func(ctx Context, req *TestRequest) (*TestResponse, error) {
 		return &TestResponse{Name: req.Name}, nil
 	})
@@ -105,7 +112,9 @@ func BenchmarkRouter_ServiceHandler(b *testing.B) {
 }
 
 func BenchmarkRouter_Middleware(b *testing.B) {
-	router := NewRouter()
+	router := NewRouter(
+		WithLogger(logger.NewTestLogger()),
+	)
 
 	// Add middleware
 	router.Use(func(next Handler) Handler {
@@ -128,7 +137,9 @@ func BenchmarkRouter_Middleware(b *testing.B) {
 }
 
 func BenchmarkRouter_MiddlewareChain(b *testing.B) {
-	router := NewRouter()
+	router := NewRouter(
+		WithLogger(logger.NewTestLogger()),
+	)
 
 	// Add 5 middleware
 	for range 5 {
