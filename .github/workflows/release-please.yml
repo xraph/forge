@@ -40,25 +40,29 @@ jobs:
       - name: Generate workflow summary
         if: always()
         run: |
-          cat >> $GITHUB_STEP_SUMMARY << EOF
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
           # 🤖 Release Please Automation
           
           EOF
           
-          if [ -n "${{ steps.release.outputs.pr }}" ]; then
+          PR_NUMBER="${{ steps.release.outputs.pr }}"
+          RELEASE_CREATED="${{ steps.release.outputs.release_created }}"
+          TAG_NAME="${{ steps.release.outputs.tag_name }}"
+          
+          if [ -n "$PR_NUMBER" ] && [ "$PR_NUMBER" != "null" ]; then
             cat >> $GITHUB_STEP_SUMMARY << EOF
           ## 📝 Release PR Created/Updated
           
-          - **PR**: #${{ steps.release.outputs.pr }}
+          - **PR**: #${PR_NUMBER}
           - **Auto-merge**: Enabled (will merge when checks pass)
           
           Review the PR to verify version bump and changelog before it merges.
           EOF
-          elif [ "${{ steps.release.outputs.release_created }}" = "true" ]; then
+          elif [ "$RELEASE_CREATED" = "true" ]; then
             cat >> $GITHUB_STEP_SUMMARY << EOF
           ## 🎉 Release Created
           
-          - **Tag**: ${{ steps.release.outputs.tag_name }}
+          - **Tag**: ${TAG_NAME}
           - **Version**: ${{ steps.release.outputs.major }}.${{ steps.release.outputs.minor }}.${{ steps.release.outputs.patch }}
           - **SHA**: ${{ steps.release.outputs.sha }}
           
