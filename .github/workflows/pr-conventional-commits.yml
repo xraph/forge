@@ -8,6 +8,10 @@ on:
 jobs:
   validate-commits:
     runs-on: ubuntu-latest
+    # Skip validation for Release Please PRs (they are auto-generated)
+    if: |
+      !startsWith(github.event.pull_request.title, 'chore(main): release') &&
+      !contains(github.event.pull_request.labels.*.name, 'autorelease: pending')
     permissions:
       contents: read
       pull-requests: write

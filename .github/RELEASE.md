@@ -4,7 +4,7 @@ This document describes the automated release process for the Forge framework, w
 
 ## Overview
 
-The release process is fully automated using GitHub Actions and follows the [Conventional Commits](https://www.conventionalcommits.org/) specification. The system creates both CLI binary releases and Go module package releases.
+The release process is fully automated using **Google's Release Please** and GitHub Actions. It follows the [Conventional Commits](https://www.conventionalcommits.org/) specification and creates both CLI binary releases and Go module package releases.
 
 ## Release Workflow
 
@@ -18,27 +18,27 @@ The release process is fully automated using GitHub Actions and follows the [Con
 - ✅ Adds appropriate labels to PRs
 - ✅ Posts validation comments on PRs
 - ✅ Sets status checks for branch protection
+- ✅ Automatically skips Release Please PRs (auto-generated)
 
 ### 2. Release Preparation
 
-**Workflow**: `.github/workflows/conventional-commits.yml`
+**Workflow**: `.github/workflows/release-please.yml`
 
 Triggers on push to `main` branch:
 
-- ✅ Analyzes commits since last release using conventional commits
+- ✅ Analyzes commits since last release using Release Please
 - ✅ Determines if a release is needed
 - ✅ Calculates next version number (semver)
-- ✅ **Checks for existing release PRs to avoid duplicates**
 - ✅ Creates or updates release preparation PR with:
-    - Updated version file
+    - Updated version in `.release-please-manifest.json`
     - Generated changelog
-    - Release checklist
-- ✅ Enables auto-merge on release PRs
+    - Release notes
+- ✅ Enables auto-merge on release PRs (when checks pass)
 - ✅ Creates and pushes release tag when PR is merged
 
 ### 3. CLI Release
 
-**Workflow**: `.github/workflows/release.yml`
+**Workflow**: `.github/workflows/cli-release.yml`
 
 Triggers on version tags (e.g., `v1.2.3`):
 
@@ -137,29 +137,31 @@ GoReleaser configuration for CLI builds:
 
 ### Version Management
 
-Version information is stored in `.github/version.json`:
+Version information is tracked by Release Please in `.release-please-manifest.json`:
 
 ```json
 {
-  "version": "1.2.3"
+  ".": "1.2.3"
 }
 ```
+
+This file is automatically updated by Release Please when creating release PRs. You should never need to edit it manually.
 
 ## Branch Strategy
 
 - **main**: Main development branch
-- **release/vX.Y.Z**: Release preparation branches (auto-created)
-- **Tags**: `vX.Y.Z` format triggers releases
+- **release-please--branches--main--components--forge**: Release preparation branches (auto-created by Release Please)
+- **Tags**: `vX.Y.Z` format triggers CLI releases
 
 ## Troubleshooting
 
 ### Release PR Issues
 
-**Problem**: Multiple release PRs created
-- **Solution**: The workflow now checks for existing release PRs and updates them instead of creating duplicates
+**Problem**: Release PR not created after merging to main
+- **Solution**: Ensure your commits use conventional commit format (`feat:`, `fix:`, etc.). Only these types trigger releases.
 
 **Problem**: Release PR not auto-merging
-- **Solution**: Ensure all required status checks are passing
+- **Solution**: Ensure all required status checks are passing. Check the PR for any failing checks.
 
 ### Failed Releases
 
@@ -172,14 +174,14 @@ Version information is stored in `.github/version.json`:
 ### Version Issues
 
 **Problem**: Wrong version number
-- **Solution**: Ensure commits follow conventional commits format exactly
+- **Solution**: Release Please follows semantic versioning strictly. Check the PR to see how it calculated the version based on conventional commits.
 
 **Problem**: No release created
-- **Solution**: Check if commits are release-worthy (feat/fix/breaking changes)
+- **Solution**: Only `feat:`, `fix:`, and commits with `BREAKING CHANGE` trigger releases. Other types (`docs:`, `chore:`, etc.) don't create releases.
 
 ## Manual Release
 
-If needed, you can trigger a manual release:
+If needed, you can trigger a manual release by creating a tag:
 
 1. Create a properly formatted version tag:
    ```bash
@@ -187,7 +189,17 @@ If needed, you can trigger a manual release:
    git push origin v1.2.3
    ```
 
-2. The release workflows will automatically trigger
+2. The CLI release workflow will automatically trigger
+
+**Note**: Release Please tracks versions automatically. If you manually create a tag, update `.release-please-manifest.json` to match to keep the system in sync:
+
+```bash
+# After creating v1.2.3 tag manually
+echo '{".":" 1.2.3"}' > .release-please-manifest.json
+git add .release-please-manifest.json
+git commit -m "chore: update version manifest after manual release"
+git push origin main
+```
 
 ## Environment Variables / Secrets
 
@@ -209,10 +221,22 @@ Monitor releases via:
 ## Best Practices
 
 1. **Always use conventional commit format**
-2. **Let the automated system handle releases**
-3. **Review release PRs before merging**
+2. **Let Release Please handle versioning** - Don't manually edit version files
+3. **Review release PRs carefully** - Check version bump and changelog before merging
 4. **Test CLI binaries after release**
 5. **Monitor for any release failures**
-6. **Keep changelog and documentation updated**
+6. **Let Release Please generate the changelog** - It automatically creates well-formatted changelogs
+
+## Benefits of Release Please
+
+The system uses **Google's Release Please** for release automation, providing:
+
+- ✅ **Zero maintenance** - Google maintains the action
+- ✅ **Battle-tested** - Used by Angular, Terraform, and many Google projects
+- ✅ **Smart version bumping** - Automatically determines correct semver based on commits
+- ✅ **Excellent changelog** - Auto-generated with links to PRs and commits
+- ✅ **Monorepo support** - Native support for Go modules (can handle extensions independently)
+- ✅ **No duplicate PRs** - Reuses existing release PRs automatically
+- ✅ **Simple configuration** - Just 2 JSON files: `release-please-config.json` and `.release-please-manifest.json`
 
 The release system is designed to be fully automated and reliable, reducing manual intervention while ensuring consistent, high-quality releases.
