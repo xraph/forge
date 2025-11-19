@@ -1,3 +1,83 @@
+# Changelog
+
+## [0.6.0](https://github.com/xraph/forge/compare/forge-v0.5.0...forge-v0.6.0) (2025-11-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **ci:** Release automation now uses Release Please instead of custom workflow. Version tracking moved from .github/version.json to .release-please-manifest.json.
+
+### Features
+
+* add initial documentation structure and configuration files ([a14bc4f](https://github.com/xraph/forge/commit/a14bc4fdaf5db9c6689edc08a7fc7e35751edfad))
+* **app:** introduce functional options for AppConfig and update app creation methods ([69e2319](https://github.com/xraph/forge/commit/69e2319b8265b71865af2614d163983ff09ef20c))
+* **banner:** implement startup banner display with configuration options ([c1faf4d](https://github.com/xraph/forge/commit/c1faf4d53311a3226c923b58b083bf1d1a713df8))
+* **ci:** implement comprehensive CI/CD workflows and documentation ([5e3c81e](https://github.com/xraph/forge/commit/5e3c81e571812b50ed8d2a172b8cabeab8d7cd54))
+* **ci:** migrate to Release Please for automated releases ([412e43b](https://github.com/xraph/forge/commit/412e43ba39e9b69056076cd9c0a523225dcbf46f))
+* **config:** enhance DI container integration and update license ([f41a2ba](https://github.com/xraph/forge/commit/f41a2babbc20ddf7647e8d3e8387332ec2031efd))
+* **consensus:** enhance RaftNode interface and implement new methods ([75423fe](https://github.com/xraph/forge/commit/75423fe039e2bd51b097544fd10e9a0b9a3b52ed))
+* **dev:** implement hot reload functionality and update command syntax ([5ee99c6](https://github.com/xraph/forge/commit/5ee99c6b725f5347fa749744d3405c48c6b46858))
+* **discovery:** remove outdated discovery examples and introduce database helpers ([25f2ab0](https://github.com/xraph/forge/commit/25f2ab07fc7ed7d17a7beb2c476e9e03c2a67f7d))
+* **docs:** add comprehensive documentation and branding for Forge framework ([cf770d2](https://github.com/xraph/forge/commit/cf770d205cd5875e94758fe7e14bbb8a8b80621f))
+* **docs:** add themed logo component and update extensions documentation ([b6a9838](https://github.com/xraph/forge/commit/b6a98380b1de22d801337220648c988e5fc387bb))
+* **docs:** update metrics and add logo assets ([d1e4c55](https://github.com/xraph/forge/commit/d1e4c55f4d3cc5ce982a1cf6996fd44c8d74f1fc))
+* enhance client generator with new features and error handling ([51692e5](https://github.com/xraph/forge/commit/51692e573f68a92c60c5948953faeec4f8be7471))
+* **extension:** enhance process management with wait channel ([76427c0](https://github.com/xraph/forge/commit/76427c0076cc0505ba9f048643938a38eaa43ea9))
+* **farp:** add new FARP extension with initial implementation ([67fed23](https://github.com/xraph/forge/commit/67fed23eb5620914a4b435c083b40698f5a820ca))
+* **health:** add Windows-specific disk and system metrics collectors ([d61f475](https://github.com/xraph/forge/commit/d61f475c091df0df11fc33f57eb9fcedec9e22e2))
+* introduce new CLI framework and dashboard extension ([c64dac8](https://github.com/xraph/forge/commit/c64dac8351f17444040c26fb65351d648c8474a3))
+* **license:** add Forge License Decision Tree for quick licensing guidance ([e73443c](https://github.com/xraph/forge/commit/e73443c683a94e3eb4bfe1cf07ccb7037e16ecbc))
+* **lifecycle:** introduce LifecycleManager for managing application lifecycle hooks ([b831e50](https://github.com/xraph/forge/commit/b831e509a2012ed75cd987eb5082ba1744877d17))
+* **lifecycle:** introduce LifecycleManager for managing application lifecycle hooks ([52b2cff](https://github.com/xraph/forge/commit/52b2cffeae98b6f7ed53dd782b75bfdb5ceaf7b3))
+* **local:** add stubs for presence and room store methods ([fe50c28](https://github.com/xraph/forge/commit/fe50c28107d6151ab7238035af5a63323314cbf9))
+* **logger:** introduce BeautifulLogger for enhanced logging experience ([e2415d9](https://github.com/xraph/forge/commit/e2415d993ba143b2a1d25248598f2b610216834a))
+* **logo:** add new SVG logo asset ([3103a69](https://github.com/xraph/forge/commit/3103a692b5d04fd4e1adbca9fb93b1d2a8f5ceec))
+* **memory:** enhance memory manager with embedding function and consolidation testing ([69a56d5](https://github.com/xraph/forge/commit/69a56d5e81c33ab9ff8c5b456028330e61bdbe52))
+* **observability:** add metrics and health endpoints to app ([a253e7d](https://github.com/xraph/forge/commit/a253e7da28bb9537a4ad5fb1f08f66c041c9dc7b))
+* **process:** implement platform-specific process management for Unix and Windows ([7ae559e](https://github.com/xraph/forge/commit/7ae559ee3c92d0906b086180d35b75c17cd77cc2))
+* **scripts:** add script to fix gosec SARIF file format ([96ce0a0](https://github.com/xraph/forge/commit/96ce0a06f426e5aa3e3392b2d70fe4cf62acf602))
+* **tests:** add logger and metrics configuration to runnable extension tests ([4704e6b](https://github.com/xraph/forge/commit/4704e6b318bc5cb4ff13f03786090b64dbbae98e))
+
+
+### Bug Fixes
+
+* add comprehensive README for Forge v2 framework ([fc02c41](https://github.com/xraph/forge/commit/fc02c41a28b56e55b9853174a3222fdd270c1b3c))
+* **app:** enhance error handling for endpoint setup and response writing ([5316849](https://github.com/xraph/forge/commit/531684992b11dbbeabe4f91edab579736116427f))
+* cast page.data to any to avoid type errors ([004a2d3](https://github.com/xraph/forge/commit/004a2d320f5781ee15aea51f7879b189e456370f))
+* **ci:** add continue-on-error to quality job and improve vulnerability check step ([d295ec6](https://github.com/xraph/forge/commit/d295ec661282de39524dd9e9e1369acb48f60a9a))
+* **ci:** disable snapcraft builds in GoReleaser - snapcraft not available in GitHub Actions ([0fffc76](https://github.com/xraph/forge/commit/0fffc7675fbe5b6aee8d399e6afa60c95b2969f6))
+* **ci:** enable snapcraft builds and install snapcraft in release workflow ([9ad702e](https://github.com/xraph/forge/commit/9ad702e231215ae5bf7b0b299f8e7fc06cf55d56))
+* **ci:** exclude Windows from release tests due to flaky AI extension tests ([27a5b6d](https://github.com/xraph/forge/commit/27a5b6d6e9d25a8a5d6b9050063da900ea5a125d))
+* **ci:** improve create-or-update-release-pr workflow robustness ([7301d16](https://github.com/xraph/forge/commit/7301d16a5ad257d418de1619a866955712341d5d))
+* **ci:** install snapcraft via snap instead of apt ([4d19aad](https://github.com/xraph/forge/commit/4d19aade361977387b7cc97ddff7ae5a326f6734))
+* **ci:** make quality checks non-blocking in release workflow ([e73f75e](https://github.com/xraph/forge/commit/e73f75ee906a3f0393fb2c4390768fb3d30a0aa8))
+* **ci:** make Windows tests optional in multi-module release workflow ([1ada987](https://github.com/xraph/forge/commit/1ada9872f81392b920701cf5846f43c49a00d968))
+* **ci:** prevent auto-release on direct release commits ([d481cbb](https://github.com/xraph/forge/commit/d481cbb8fa344ffe99402354e244081feb10d32e))
+* **ci:** resolve bash syntax error in Release Please workflow summary ([3931722](https://github.com/xraph/forge/commit/393172215af9f8119e0a29c1ec04fd997d7a2f84))
+* **ci:** trigger auto-release on PR merge event ([77c635b](https://github.com/xraph/forge/commit/77c635b936fbeba71588c0832a4eec9bfb33c775))
+* **config:** add range checks for type conversions in GetInt8, GetInt16, and GetUint8 methods ([e0c7451](https://github.com/xraph/forge/commit/e0c745116d4b710d717cf15926415d69917ede35))
+* correct loop iteration and enhance comments for clarity ([500ee2b](https://github.com/xraph/forge/commit/500ee2bb90c1e1e5ef1f81fe9ec588d6176fbae6))
+* **docs:** update button variants and type assertions ([08305d6](https://github.com/xraph/forge/commit/08305d641aa7aa008066ec0ac2f7d5eba54b1159))
+* fixed tests ([c3e812c](https://github.com/xraph/forge/commit/c3e812c1efa70518ec1c778e9f6bdfe1110da0e4))
+* force release v0.0.3 ([29c2674](https://github.com/xraph/forge/commit/29c2674ef46231db26bbc1801513b2e8507b7923))
+* forced release ([b3fe39f](https://github.com/xraph/forge/commit/b3fe39fe55e760ae07e9809e31c8428f3f6db908))
+* forced release ([5f98a16](https://github.com/xraph/forge/commit/5f98a16fbc93a13275ea852895dec896dfc28617))
+* **hero:** correct typo in hero component text ([b6a9838](https://github.com/xraph/forge/commit/b6a98380b1de22d801337220648c988e5fc387bb))
+* improve GoReleaser config validation in release workflow ([5e81e7f](https://github.com/xraph/forge/commit/5e81e7f9a4b48cd9b5c893a0f2f068e82e5831ff))
+* **init:** correct substring length for single-module layout check in project initialization ([ac12030](https://github.com/xraph/forge/commit/ac12030bbd4afce242c0ca08c3134facd394a3a8))
+* resolve cross-platform test timing issues in consensus cluster tests ([6c47900](https://github.com/xraph/forge/commit/6c479001d438eaa6c6cb2d2b5b8a57736815513f))
+* resolve deadlock between metrics and health manager during concurrent access ([f1a750d](https://github.com/xraph/forge/commit/f1a750d507b8149a7deb5466469216730d6df434))
+* update Go version and GitHub Actions dependencies ([9f1777c](https://github.com/xraph/forge/commit/9f1777cdc86ac1e7582518b9fb87df900e500ae1))
+* update TypeScript client generator to use HTTPClient ([f95192c](https://github.com/xraph/forge/commit/f95192c1b109697399650de9e3e497e04aafabbd))
+
+
+### Documentation
+
+* **ci:** add Release Please migration summary ([802d84b](https://github.com/xraph/forge/commit/802d84be8222f8c10e6a260aade720288e3de9a3))
+* **extensions:** add comprehensive documentation for core, consensus, events, and hls extensions ([b6a9838](https://github.com/xraph/forge/commit/b6a98380b1de22d801337220648c988e5fc387bb))
+* **forge:** add icons to documentation pages ([2e87a10](https://github.com/xraph/forge/commit/2e87a10da8a7306a0c6dc0578c6482c55939d7df))
+* update documentation structure and content ([409dd57](https://github.com/xraph/forge/commit/409dd57a44ddf1b242329b1d972318a3815ae639))
+
 ### Bug Fixes
 
 * update TypeScript client generator to use HTTPClient ([f95192c](https://github.com/xraph/forge/commit/f95192c1b109697399650de9e3e497e04aafabbd))
