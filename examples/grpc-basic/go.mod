@@ -1,6 +1,6 @@
 module github.com/xraph/forge/examples/grpc-basic
 
-go 1.25.0
+go 1.25.3
 
 replace github.com/xraph/forge => ../..
 

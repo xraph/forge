@@ -1,6 +1,6 @@
 module github.com/xraph/forge/extensions/grpc
 
-go 1.25.0
+go 1.25.3
 
 require (
 	github.com/xraph/forge v0.0.6

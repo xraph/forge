@@ -1,6 +1,6 @@
 module example.com/webtransport
 
-go 1.25.0
+go 1.25.3
 
 replace github.com/xraph/forge => ../../
 

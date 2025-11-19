@@ -137,6 +137,10 @@ func TestExtensionStopNotStarted(t *testing.T) {
 	log := logger.NewNoopLogger()
 	met := forge.NewNoOpMetrics()
 
+	// Initialize the extension properly
+	ext.SetLogger(log)
+	ext.SetMetrics(met)
+
 	ext.client = &kafkaClient{
 		config:  config,
 		logger:  log,
