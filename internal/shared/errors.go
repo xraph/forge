@@ -2,66 +2,67 @@ package shared
 
 import (
 	"context"
-	"time"
+	"errors"
 
-	"github.com/xraph/forge/errors"
 	"github.com/xraph/forge/internal/logger"
 )
 
-// ErrorHandler defines how errors should be handled.
-type ErrorHandler interface {
-	HandleError(ctx context.Context, err error) error
-	ShouldRetry(err error) bool
-	GetRetryDelay(attempt int, err error) time.Duration
+// HTTPResponder represents an error that knows how to format itself as an HTTP response.
+// This interface provides a unified way to handle errors across the framework, allowing
+// different error types (HTTPError, ValidationErrors, ForgeError) to format themselves
+// consistently for HTTP responses.
+type HTTPResponder interface {
+	error
+
+	// StatusCode returns the HTTP status code
+	StatusCode() int
+
+	// ResponseBody returns the response body (typically a struct/map for JSON)
+	ResponseBody() any
 }
 
-// DefaultErrorHandler is the default error handler.
+// ErrorHandler handles errors from HTTP handlers.
+type ErrorHandler interface {
+	// HandleError handles an error and returns the formatted error response
+	HandleError(ctx context.Context, err error) error
+}
+
+// DefaultErrorHandler is the default implementation of ErrorHandler.
 type DefaultErrorHandler struct {
-	logger logger.Logger
+	logger Logger
 }
 
 // NewDefaultErrorHandler creates a new default error handler.
-func NewDefaultErrorHandler(l logger.Logger) ErrorHandler {
+func NewDefaultErrorHandler(log Logger) ErrorHandler {
 	return &DefaultErrorHandler{
-		logger: l,
+		logger: log,
 	}
 }
 
-// HandleError handles an error.
+// HandleError handles an error and returns it formatted for HTTP response.
+// It checks if the error implements HTTPResponder and uses that for formatting,
+// otherwise falls back to default error formatting.
 func (h *DefaultErrorHandler) HandleError(ctx context.Context, err error) error {
-	var forgeErr errors.ForgeError
-	if errors.Is(err, &forgeErr) {
-		h.logger.Error(forgeErr.Message,
-			logger.String("error_code", forgeErr.Code),
-			logger.Any("context", forgeErr.Context),
-			logger.Error(forgeErr.Cause),
+	if err == nil {
+		return nil
+	}
+
+	// Log the error
+	if h.logger != nil {
+		h.logger.Error("handler error occurred",
+			logger.Any("error", err.Error()),
 		)
 	}
 
-	return err
-}
-
-// ShouldRetry determines if an operation should be retried.
-func (h *DefaultErrorHandler) ShouldRetry(err error) bool {
-	var forgeErr errors.ForgeError
-	if errors.Is(err, &forgeErr) {
-		switch forgeErr.Code {
-		case errors.CodeTimeoutError, errors.CodeContextCancelled:
-			return true
-		case errors.CodeServiceNotFound, errors.CodeServiceAlreadyExists, errors.CodeCircularDependency:
-			return false
-		default:
-			return true
+	// Check if error implements HTTPResponder
+	var responder HTTPResponder
+	if errors.As(err, &responder) {
+		// Error knows how to format itself
+		if c, ok := ctx.(Context); ok {
+			return c.JSON(responder.StatusCode(), responder.ResponseBody())
 		}
 	}
 
-	return true
-}
-
-// GetRetryDelay returns the delay before retrying.
-func (h *DefaultErrorHandler) GetRetryDelay(attempt int, err error) time.Duration {
-	// Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1.6s, 3.2s, max 10s
-	delay := min(time.Duration(100*attempt*attempt)*time.Millisecond, 10*time.Second)
-
-	return delay
+	// Return the error as-is for the caller to handle
+	return err
 }

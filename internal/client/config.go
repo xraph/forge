@@ -38,6 +38,16 @@ type GeneratorConfig struct {
 
 	// Version is the version of the generated client
 	Version string
+
+	// Enhanced features
+	UseFetch        bool // Use fetch instead of axios (TypeScript)
+	DualPackage     bool // Generate ESM + CJS (TypeScript)
+	GenerateTests   bool // Generate test setup
+	GenerateLinting bool // Generate linting setup
+	GenerateCI      bool // Generate CI config
+	ErrorTaxonomy   bool // Generate typed error classes
+	Interceptors    bool // Generate interceptor support
+	Pagination      bool // Generate pagination helpers
 }
 
 // Features contains feature flags for client generation.
@@ -87,6 +97,15 @@ func DefaultConfig() GeneratorConfig {
 			Middleware:      false,
 			Logging:         false,
 		},
+		// Enhanced features - enabled by default
+		UseFetch:        true,
+		DualPackage:     true,
+		GenerateTests:   true,
+		GenerateLinting: true,
+		GenerateCI:      true,
+		ErrorTaxonomy:   true,
+		Interceptors:    true,
+		Pagination:      true,
 	}
 }
 
