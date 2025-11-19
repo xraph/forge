@@ -36,6 +36,7 @@ arch.md
 # Project specific
 project/
 v2/design/
+!**/llm.txt
 *.txt
 
 # Coverage reports
