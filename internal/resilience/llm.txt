@@ -1,0 +1,175 @@
+# Forge Resilience Internal Package
+
+## Purpose
+
+Resilience patterns for building fault-tolerant systems including circuit breakers, retries with exponential backoff, timeouts, bulkheads, and rate limiting.
+
+## Key Components
+
+- **Circuit Breaker**: Prevent cascading failures
+- **Retry**: Automatic retry with exponential backoff
+- **Timeout**: Request timeout handling
+- **Bulkhead**: Resource isolation
+- **Rate Limiter**: Request rate limiting
+
+## Architecture
+
+```
+Resilience Package
+├── Circuit Breaker
+│   ├── Open/Closed/Half-Open States
+│   ├── Failure Threshold
+│   └── Recovery Timeout
+├── Retry
+│   ├── Exponential Backoff
+│   ├── Jitter
+│   └── Max Attempts
+├── Timeout
+│   └── Context Deadline
+├── Bulkhead
+│   └── Semaphore-based Isolation
+└── Rate Limiter
+    └── Token Bucket Algorithm
+```
+
+## Public API
+
+### Core Types
+
+```go
+type CircuitBreaker interface {
+    Execute(fn func() error) error
+    State() CircuitState
+}
+
+type Retry interface {
+    Do(fn func() error) error
+}
+
+type Timeout interface {
+    Execute(ctx context.Context, fn func() error) error
+}
+
+type Bulkhead interface {
+    Execute(fn func() error) error
+}
+
+type RateLimiter interface {
+    Allow() bool
+    Wait(ctx context.Context) error
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Circuit breaker
+cb := NewCircuitBreaker(Config{
+    Threshold:      5,
+    Timeout:        30 * time.Second,
+})
+err := cb.Execute(func() error {
+    return callExternalService()
+})
+
+// Retry
+retry := NewRetry(Config{
+    MaxAttempts: 3,
+    InitialBackoff: 1 * time.Second,
+})
+err := retry.Do(func() error {
+    return callAPI()
+})
+
+// Timeout
+timeout := NewTimeout(5 * time.Second)
+err := timeout.Execute(ctx, func() error {
+    return longRunningOperation()
+})
+```
+
+## Usage Examples
+
+### Circuit Breaker
+
+```go
+import "github.com/xraph/forge/internal/resilience"
+
+// Create circuit breaker
+cb := resilience.NewCircuitBreaker(resilience.CircuitBreakerConfig{
+    Threshold:      5,           // Open after 5 failures
+    Timeout:        30 * time.Second,
+    HalfOpenSuccessThreshold: 2, // Close after 2 successes
+})
+
+// Use circuit breaker
+err := cb.Execute(func() error {
+    return externalService.Call()
+})
+
+if err == resilience.ErrCircuitOpen {
+    return errors.New("service unavailable")
+}
+```
+
+### Retry with Exponential Backoff
+
+```go
+retry := resilience.NewRetry(resilience.RetryConfig{
+    MaxAttempts:    5,
+    InitialBackoff: 1 * time.Second,
+    MaxBackoff:     30 * time.Second,
+    Multiplier:     2.0,
+    Jitter:         true,
+})
+
+err := retry.Do(func() error {
+    return api.Request()
+})
+
+// Automatically retries with: 1s, 2s, 4s, 8s, 16s (with jitter)
+```
+
+### Bulkhead Pattern
+
+```go
+// Limit concurrent executions
+bulkhead := resilience.NewBulkhead(resilience.BulkheadConfig{
+    MaxConcurrent: 10,
+    MaxWaitTime:   5 * time.Second,
+})
+
+err := bulkhead.Execute(func() error {
+    return processRequest()
+})
+
+// Only 10 concurrent executions allowed
+```
+
+## Dependencies
+
+### External
+- golang.org/x/time/rate - Rate limiting
+
+### Internal
+None
+
+## Notes
+
+### Production Readiness
+- ✅ Circuit breaker
+- ✅ Retry with backoff
+- ✅ Timeout handling
+- ✅ Bulkhead isolation
+- ✅ Rate limiting
+
+### Best Practices
+1. Use circuit breakers for external services
+2. Implement retries with exponential backoff
+3. Set appropriate timeouts
+4. Isolate resources with bulkheads
+5. Rate limit to prevent overload
+
+### License
+MIT License - Part of Forge Framework (internal package)
+

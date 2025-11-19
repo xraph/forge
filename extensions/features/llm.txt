@@ -1,0 +1,203 @@
+# Forge Feature Flags Extension
+
+## Purpose
+
+Feature flag management system for controlled feature rollouts, A/B testing, and progressive deployment. Supports multiple providers (LaunchDarkly, Flagsmith, Unleash, in-memory) with real-time flag updates.
+
+## Key Components
+
+- **Feature Flag Management**: Enable/disable features dynamically
+- **Multiple Providers**: LaunchDarkly, Flagsmith, Unleash, in-memory
+- **Targeting Rules**: User-based, percentage-based rollouts
+- **A/B Testing**: Experiment management
+- **Real-time Updates**: Flag changes without deployment
+
+## Architecture
+
+```
+Features Extension
+├── Flag Evaluation
+│   ├── Boolean Flags
+│   ├── String/Number Flags
+│   └── JSON Flags
+├── Providers
+│   ├── LaunchDarkly
+│   ├── Flagsmith
+│   ├── Unleash
+│   └── In-Memory
+├── Targeting
+│   ├── User Targeting
+│   ├── Percentage Rollouts
+│   └── Custom Rules
+└── Caching
+    └── Local Flag Cache
+```
+
+## Public API
+
+### Core Types
+
+```go
+type FeatureFlags interface {
+    IsEnabled(ctx context.Context, flagKey string, user User) (bool, error)
+    GetVariation(ctx context.Context, flagKey string, user User) (interface{}, error)
+    Track(ctx context.Context, event string, user User, data map[string]interface{}) error
+}
+
+type User struct {
+    Key        string
+    Email      string
+    Attributes map[string]interface{}
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get feature flags service
+func GetFeatureFlags(c forge.Container) (FeatureFlags, error)
+
+// Check flag
+enabled, _ := flags.IsEnabled(ctx, "new-checkout", user)
+if enabled {
+    // Use new checkout flow
+}
+
+// Get variation
+variant, _ := flags.GetVariation(ctx, "button-color", user)
+color := variant.(string)  // "blue", "green", etc.
+```
+
+## Usage Examples
+
+### Basic Feature Flag
+
+```go
+import "github.com/xraph/forge/extensions/features"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        features.NewExtension(features.Config{
+            Provider: "launchdarkly",
+            SDKKey:   os.Getenv("LAUNCHDARKLY_SDK_KEY"),
+        }),
+    },
+})
+
+// Get feature flags
+flags, _ := features.GetFeatureFlags(app.Container())
+
+// Check flag
+user := features.User{
+    Key:   "user-123",
+    Email: "user@example.com",
+}
+
+if enabled, _ := flags.IsEnabled(ctx, "new-ui", user); enabled {
+    // Show new UI
+} else {
+    // Show old UI
+}
+```
+
+### Multivariate Flags
+
+```go
+// Get string variation
+theme := flags.GetVariation(ctx, "theme", user).(string)
+
+switch theme {
+case "dark":
+    // Apply dark theme
+case "light":
+    // Apply light theme
+case "auto":
+    // Auto theme based on system
+}
+```
+
+### Percentage Rollouts
+
+```go
+// Configure in provider dashboard:
+// new-algorithm: 10% of users see new algorithm
+
+if enabled, _ := flags.IsEnabled(ctx, "new-algorithm", user); enabled {
+    result = newAlgorithm()  // 10% of users
+} else {
+    result = oldAlgorithm()  // 90% of users
+}
+```
+
+### A/B Testing
+
+```go
+variant, _ := flags.GetVariation(ctx, "checkout-experiment", user)
+
+switch variant {
+case "control":
+    // Original checkout (50%)
+    showCheckoutV1()
+case "variant-a":
+    // Test variant A (25%)
+    showCheckoutV2()
+case "variant-b":
+    // Test variant B (25%)
+    showCheckoutV3()
+}
+
+// Track conversion
+flags.Track(ctx, "purchase-completed", user, map[string]interface{}{
+    "amount": 99.99,
+    "variant": variant,
+})
+```
+
+## Configuration
+
+```yaml
+extensions:
+  features:
+    provider: launchdarkly
+    sdk_key: ${LAUNCHDARKLY_SDK_KEY}
+    
+    # Cache settings
+    cache_ttl: 5m
+    stream_enabled: true  # Real-time updates
+```
+
+## Dependencies
+
+### External
+- github.com/launchdarkly/go-server-sdk/v7 - LaunchDarkly
+- github.com/Flagsmith/flagsmith-go-client/v3 - Flagsmith
+- github.com/Unleash/unleash-client-go/v4 - Unleash
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ Multiple provider support
+- ✅ Real-time flag updates
+- ✅ A/B testing support
+- ✅ Percentage rollouts
+- ✅ User targeting
+
+### Best Practices
+1. Use feature flags for new features
+2. Remove flags after full rollout
+3. Track flag usage metrics
+4. Test both enabled/disabled paths
+5. Use meaningful flag names
+6. Document flag purposes
+7. Implement fallback values
+8. Monitor flag performance
+
+### License
+MIT License - Part of Forge Framework
+

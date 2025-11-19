@@ -1,0 +1,124 @@
+# Forge HLS Extension
+
+## Purpose
+
+HTTP Live Streaming (HLS) support for delivering video and audio content with adaptive bitrate streaming, segmentation, and playlist generation.
+
+## Key Components
+
+- **HLS Server**: Serve HLS streams
+- **Segmentation**: Automatic media segmentation
+- **Playlist Generation**: M3U8 playlist creation
+- **Adaptive Bitrate**: Multiple quality levels
+- **Live & VOD**: Support for live and on-demand content
+
+## Architecture
+
+```
+HLS Extension
+├── Stream Server
+│   ├── Segment Serving
+│   └── Playlist Serving
+├── Segmenter
+│   ├── Video Segmentation
+│   └── TS File Generation
+├── Playlist Generator
+│   └── M3U8 Creation
+└── Transcoding
+    └── Multiple Bitrates
+```
+
+## Public API
+
+### Core Types
+
+```go
+type HLS interface {
+    CreateStream(name string, config StreamConfig) (*Stream, error)
+    GetStream(name string) (*Stream, error)
+    StopStream(name string) error
+}
+
+type Stream struct {
+    Name      string
+    URL       string
+    Bitrates  []int
+    Status    StreamStatus
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get HLS service
+func GetHLS(c forge.Container) (HLS, error)
+
+// Create stream
+stream, _ := hls.CreateStream("live-stream", StreamConfig{
+    Bitrates: []int{1000000, 500000, 250000},
+})
+
+// Stream available at /hls/live-stream/playlist.m3u8
+```
+
+## Usage Examples
+
+### Basic HLS Streaming
+
+```go
+import "github.com/xraph/forge/extensions/hls"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        hls.NewExtension(hls.Config{
+            BasePath:    "/hls",
+            SegmentDuration: 6 * time.Second,
+        }),
+    },
+})
+
+// Get HLS service
+hlsService, _ := hls.GetHLS(app.Container())
+
+// Create live stream
+stream, _ := hlsService.CreateStream("live", hls.StreamConfig{
+    Type:     hls.StreamTypeLive,
+    Bitrates: []int{1000000, 500000},
+})
+
+// Access stream at: http://localhost:8080/hls/live/playlist.m3u8
+```
+
+## Configuration
+
+```yaml
+extensions:
+  hls:
+    base_path: /hls
+    segment_duration: 6s
+    playlist_size: 10
+    storage_path: ./hls-segments
+```
+
+## Dependencies
+
+### External
+- Video processing libraries
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ HLS streaming
+- ✅ Adaptive bitrate
+- ✅ Live and VOD
+- ✅ M3U8 playlists
+
+### License
+MIT License - Part of Forge Framework
+

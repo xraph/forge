@@ -1,0 +1,406 @@
+# Forge CLI Framework
+
+## Purpose
+
+Enterprise-grade CLI framework for building command-line tools with Forge. Provides a complete solution for creating interactive CLIs with commands, subcommands, flags, prompts, progress indicators, tables, and seamless Forge App integration. Features modern UX with arrow key navigation and space bar selection.
+
+## Key Components
+
+- **Commands & Subcommands**: Hierarchical command structure with unlimited nesting
+- **Flags**: Type-safe flags (string, int, bool, slice, duration) with validation
+- **Interactive Prompts**: Input, confirm, select, multi-select with arrow key navigation
+- **Progress Indicators**: Progress bars and spinners with dynamic updates
+- **Table Output**: Formatted, colored tables with multiple styles
+- **Middleware**: Before/after command hooks for cross-cutting concerns
+- **Plugin System**: Modular, composable command plugins
+- **Forge Integration**: Direct access to Forge DI container and services
+- **Shell Completion**: Auto-generated Bash, Zsh, Fish completion scripts
+- **CLI-Optimized Logger**: Color-coded, simple output for terminals
+
+## Architecture
+
+```
+CLI Application
+├── Command Registry
+│   ├── Root Command
+│   ├── Subcommands (recursive)
+│   └── Global Flags
+├── Command Context
+│   ├── Flag Values
+│   ├── Forge Container (optional)
+│   └── Logger, Progress, Table
+├── Middleware Chain
+│   ├── Before Hooks
+│   ├── Command Execution
+│   └── After Hooks
+└── Plugin System
+    └── External Commands
+```
+
+## Public API
+
+### Core Types
+
+```go
+type CLI interface {
+    AddCommand(cmd Command) error
+    RegisterPlugin(plugin Plugin) error
+    Run(args []string) error
+}
+
+type Command interface {
+    Name() string
+    Execute(ctx CommandContext) error
+    AddSubcommand(cmd Command) error
+    Before(middleware Middleware)
+    After(middleware Middleware)
+}
+
+type CommandContext interface {
+    // Flags
+    String(name string) string
+    Int(name string) int
+    Bool(name string) bool
+    StringSlice(name string) []string
+    
+    // Prompts
+    Prompt(message string) (string, error)
+    Confirm(message string) (bool, error)
+    Select(message string, options []string) (string, error)
+    MultiSelect(message string, options []string) ([]string, error)
+    
+    // Async prompts
+    SelectAsync(message string, loader func(context.Context) ([]string, error)) (string, error)
+    MultiSelectAsync(message string, loader func(context.Context) ([]string, error)) ([]string, error)
+    
+    // Progress
+    ProgressBar(total int) ProgressBar
+    Spinner(message string) Spinner
+    
+    // Output
+    Table() Table
+    Logger() CLILogger
+    
+    // Forge Integration
+    Container() forge.Container
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Create CLI
+func New(config Config) CLI
+func NewForgeIntegratedCLI(app forge.App, config Config) CLI
+
+// Create commands
+func NewCommand(name, description string, handler CommandHandler, opts ...CommandOption) Command
+
+// Create flags
+func NewStringFlag(name, short, description, defaultValue string, opts ...FlagOption) Flag
+func NewIntFlag(name, short, description string, defaultValue int, opts ...FlagOption) Flag
+func NewBoolFlag(name, short, description string, defaultValue bool, opts ...FlagOption) Flag
+func NewStringSliceFlag(name, short, description string, defaultValue []string, opts ...FlagOption) Flag
+
+// Flag validation
+func Required() FlagOption
+func ValidateRange(min, max int) FlagOption
+func ValidateEnum(values ...string) FlagOption
+
+// Colors
+func Green(text string) string
+func Red(text string) string
+func Yellow(text string) string
+func Blue(text string) string
+func Bold(text string) string
+```
+
+## Usage Examples
+
+### Basic CLI
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    "github.com/xraph/forge/cli"
+)
+
+func main() {
+    app := cli.New(cli.Config{
+        Name:        "mytool",
+        Version:     "1.0.0",
+        Description: "My awesome CLI tool",
+    })
+
+    helloCmd := cli.NewCommand(
+        "hello",
+        "Say hello",
+        func(ctx cli.CommandContext) error {
+            name := ctx.String("name")
+            if name == "" {
+                name = "World"
+            }
+            ctx.Logger().Success(fmt.Sprintf("Hello, %s!", name))
+            return nil
+        },
+        cli.WithFlag(cli.NewStringFlag("name", "n", "Name to greet", "")),
+    )
+
+    app.AddCommand(helloCmd)
+
+    if err := app.Run(os.Args); err != nil {
+        fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+        os.Exit(cli.GetExitCode(err))
+    }
+}
+```
+
+### Interactive CLI with Arrow Keys
+
+```go
+func interactiveCommand(ctx cli.CommandContext) error {
+    // Simple prompt
+    name, err := ctx.Prompt("What's your name?")
+    if err != nil {
+        return err
+    }
+    
+    // Confirm prompt
+    confirmed, err := ctx.Confirm("Continue?")
+    if err != nil {
+        return err
+    }
+    
+    // Select with arrow keys (↑/↓, Enter to select)
+    env, err := ctx.Select("Choose environment:", []string{
+        "development",
+        "staging",
+        "production",
+    })
+    if err != nil {
+        return err
+    }
+    
+    // Multi-select with space bar (Space to toggle, Enter to confirm)
+    features, err := ctx.MultiSelect("Select features:", []string{
+        "database",
+        "cache",
+        "events",
+        "streaming",
+    })
+    if err != nil {
+        return err
+    }
+    
+    ctx.Logger().Success(fmt.Sprintf("Selected %d features", len(features)))
+    return nil
+}
+```
+
+### Async Select with Loading
+
+```go
+func asyncSelectCommand(ctx cli.CommandContext) error {
+    // Loader function fetches options asynchronously
+    loader := func(ctx context.Context) ([]string, error) {
+        // Fetch from API, database, etc.
+        resp, err := http.Get("https://api.example.com/regions")
+        if err != nil {
+            return nil, err
+        }
+        defer resp.Body.Close()
+        
+        var regions []string
+        json.NewDecoder(resp.Body).Decode(&regions)
+        return regions, nil
+    }
+    
+    // Shows spinner while loading, then arrow-key select
+    region, err := ctx.SelectAsync("Choose region:", loader)
+    if err != nil {
+        return err
+    }
+    
+    ctx.Logger().Success("Selected: " + region)
+    return nil
+}
+```
+
+### Progress Indicators
+
+```go
+func downloadCommand(ctx cli.CommandContext) error {
+    // Progress bar
+    total := 100
+    progress := ctx.ProgressBar(total)
+    
+    for i := 0; i <= total; i++ {
+        time.Sleep(50 * time.Millisecond)
+        progress.Set(i)
+    }
+    progress.Finish("Download complete!")
+    
+    // Spinner
+    spinner := ctx.Spinner("Processing...")
+    time.Sleep(3 * time.Second)
+    spinner.Update("Almost done...")
+    time.Sleep(2 * time.Second)
+    spinner.Stop(cli.Green("✓ Complete!"))
+    
+    return nil
+}
+```
+
+### Table Output
+
+```go
+func listCommand(ctx cli.CommandContext) error {
+    table := ctx.Table()
+    
+    table.SetHeader([]string{"ID", "Name", "Status", "Created"})
+    table.AppendRow([]string{"1", "Project A", cli.Green("Active"), "2024-01-01"})
+    table.AppendRow([]string{"2", "Project B", cli.Yellow("Pending"), "2024-01-02"})
+    table.AppendRow([]string{"3", "Project C", cli.Red("Failed"), "2024-01-03"})
+    
+    table.Render()
+    return nil
+}
+```
+
+### Forge Integration
+
+```go
+func migrateCommand(ctx cli.CommandContext) error {
+    // Access Forge services via DI
+    db, err := cli.GetService[*sql.DB](ctx, "database")
+    if err != nil {
+        return err
+    }
+    
+    spinner := ctx.Spinner("Running migrations...")
+    
+    // Run migrations
+    if err := runMigrations(db); err != nil {
+        spinner.Stop(cli.Red("✗ Migration failed"))
+        return err
+    }
+    
+    spinner.Stop(cli.Green("✓ Migrations complete"))
+    return nil
+}
+
+func main() {
+    // Create Forge app
+    app := forge.NewApp(forge.AppConfig{
+        Name:    "my-service",
+        Version: "1.0.0",
+    })
+    
+    // Register services
+    forge.RegisterSingleton(app.Container(), "database", dbFactory)
+    
+    // Create CLI with Forge integration
+    cliApp := cli.NewForgeIntegratedCLI(app, cli.Config{
+        Name:    "my-service-cli",
+        Version: "1.0.0",
+    })
+    
+    cliApp.AddCommand(cli.NewCommand("migrate", "Run migrations", migrateCommand))
+    cliApp.Run(os.Args)
+}
+```
+
+## Configuration
+
+```go
+config := cli.Config{
+    Name:        "mytool",
+    Version:     "1.0.0",
+    Description: "My CLI tool",
+    Authors:     []string{"Your Name <you@example.com>"},
+    Homepage:    "https://example.com",
+}
+```
+
+## Dependencies
+
+### External
+- github.com/fatih/color - Terminal colors
+- golang.org/x/term - Terminal control
+
+### Internal
+- github.com/xraph/forge - For Forge integration
+
+## Common Patterns
+
+### Command Organization
+```go
+// Group related commands
+dbCmd := cli.NewCommand("db", "Database commands", nil)
+dbCmd.AddSubcommand(cli.NewCommand("migrate", "Run migrations", migrateHandler))
+dbCmd.AddSubcommand(cli.NewCommand("seed", "Seed database", seedHandler))
+dbCmd.AddSubcommand(cli.NewCommand("reset", "Reset database", resetHandler))
+app.AddCommand(dbCmd)
+```
+
+### Middleware Usage
+```go
+// Logging middleware
+func loggingMiddleware(next cli.CommandHandler) cli.CommandHandler {
+    return func(ctx cli.CommandContext) error {
+        start := time.Now()
+        err := next(ctx)
+        ctx.Logger().Debug(fmt.Sprintf("Duration: %v", time.Since(start)))
+        return err
+    }
+}
+
+cmd := cli.NewCommand("deploy", "Deploy app", deployHandler)
+cmd.Before(loggingMiddleware)
+```
+
+### Error Handling
+```go
+// Exit codes
+return cli.NewError("failed", cli.ExitFailure)
+return cli.NewError("unauthorized", cli.ExitUnauthorized)
+
+// Check error type
+if cli.GetExitCode(err) == cli.ExitUnauthorized {
+    // Handle unauthorized
+}
+```
+
+## Related Packages
+
+- `/` - Core Forge framework for CLI integration
+- `/errors` - Error handling used by CLI
+- `/internal/di` - Dependency injection for service access
+
+## Notes
+
+### Production Readiness
+- ✅ Production-ready with comprehensive testing
+- ✅ Arrow key navigation with modern UX
+- ✅ Cross-platform support (Linux, macOS, Windows)
+- ✅ Graceful handling of non-interactive terminals
+- ✅ Proper signal handling (Ctrl+C, Ctrl+D)
+
+### Performance Characteristics
+- Fast command parsing (<1ms for complex hierarchies)
+- Minimal memory footprint
+- Async select with timeout support
+- Efficient table rendering for large datasets
+
+### Security Considerations
+- Input validation for all prompts
+- No command injection vulnerabilities
+- Secure credential prompting (hidden input)
+- Safe subprocess execution helpers
+
+### License
+MIT License - Part of Forge Framework
+

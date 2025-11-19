@@ -1,0 +1,145 @@
+# Forge Extras Package
+
+## Purpose
+
+Additional utility functions and helpers that complement the core Forge framework, providing common patterns, helper functions, and convenience utilities for building applications more efficiently.
+
+## Key Components
+
+- **Utility Functions**: Common helper functions
+- **String Utilities**: String manipulation and formatting
+- **Time Utilities**: Time parsing and formatting
+- **Validation Helpers**: Input validation utilities
+- **Conversion Helpers**: Type conversion utilities
+- **Crypto Helpers**: Hashing and encryption utilities
+
+## Architecture
+
+```
+Extras Package
+├── Utilities
+│   ├── String Utils
+│   ├── Time Utils
+│   ├── Validation Utils
+│   ├── Conversion Utils
+│   └── Crypto Utils
+└── Helpers
+    ├── HTTP Helpers
+    ├── JSON Helpers
+    └── Error Helpers
+```
+
+## Public API
+
+### Main Functions/Methods
+
+```go
+// String utilities
+func TruncateString(s string, maxLen int) string
+func Slugify(s string) string
+func RandomString(length int) string
+
+// Time utilities
+func ParseDuration(s string) (time.Duration, error)
+func FormatDuration(d time.Duration) string
+
+// Validation
+func IsEmail(s string) bool
+func IsURL(s string) bool
+func IsUUID(s string) bool
+
+// Crypto
+func HashPassword(password string) (string, error)
+func VerifyPassword(password, hash string) bool
+func GenerateToken(length int) string
+```
+
+## Usage Examples
+
+### String Utilities
+
+```go
+import "github.com/xraph/forge/extras"
+
+// Truncate long strings
+title := extras.TruncateString("Very long title here...", 20)
+// Result: "Very long title he..."
+
+// Create URL-friendly slugs
+slug := extras.Slugify("Hello World! This is a Test")
+// Result: "hello-world-this-is-a-test"
+
+// Generate random strings
+token := extras.RandomString(32)
+```
+
+### Validation Helpers
+
+```go
+// Validate email
+if !extras.IsEmail("user@example.com") {
+    return errors.New("invalid email")
+}
+
+// Validate URL
+if !extras.IsURL("https://example.com") {
+    return errors.New("invalid URL")
+}
+
+// Validate UUID
+if !extras.IsUUID("550e8400-e29b-41d4-a716-446655440000") {
+    return errors.New("invalid UUID")
+}
+```
+
+### Password Hashing
+
+```go
+// Hash password (bcrypt)
+hash, err := extras.HashPassword("secret123")
+
+// Store hash in database
+user.PasswordHash = hash
+
+// Verify password
+if !extras.VerifyPassword("secret123", user.PasswordHash) {
+    return errors.New("invalid credentials")
+}
+```
+
+### Time Utilities
+
+```go
+// Parse human-readable durations
+duration, _ := extras.ParseDuration("2h30m")
+
+// Format durations nicely
+formatted := extras.FormatDuration(5*time.Hour + 30*time.Minute)
+// Result: "5h 30m"
+```
+
+## Dependencies
+
+### External
+- Standard library utilities
+
+### Internal
+None - standalone utility package
+
+## Notes
+
+### Production Readiness
+- ✅ Tested utility functions
+- ✅ No external dependencies
+- ✅ Thread-safe operations
+
+### Best Practices
+1. Use for common patterns
+2. Don't reinvent the wheel
+3. Validate inputs at boundaries
+4. Use crypto helpers for security
+5. Test edge cases
+
+### License
+MIT License - Part of Forge Framework
+

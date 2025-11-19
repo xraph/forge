@@ -1,0 +1,114 @@
+# Forge Shared Internal Package
+
+## Purpose
+
+Shared interfaces, types, and utilities used across multiple internal packages to avoid circular dependencies and provide common contracts.
+
+## Key Components
+
+- **Shared Interfaces**: Common interfaces (Container, Logger, Metrics, etc.)
+- **Shared Types**: Common types and structures
+- **Constants**: Shared constants and enumerations
+- **Utilities**: Internal utility functions
+
+## Architecture
+
+```
+Shared Package
+├── Interfaces
+│   ├── Container Interface
+│   ├── Logger Interface
+│   ├── Metrics Interface
+│   └── Config Interface
+├── Types
+│   ├── Common Structures
+│   └── Enumerations
+└── Constants
+    └── Shared Constants
+```
+
+## Public API
+
+### Core Interfaces
+
+```go
+// Container interface for DI
+type Container interface {
+    RegisterSingleton(name string, factory Factory) error
+    RegisterTransient(name string, factory Factory) error
+    Resolve(name string) (interface{}, error)
+    Has(name string) bool
+}
+
+// Logger interface
+type Logger interface {
+    Debug(msg string, fields ...Field)
+    Info(msg string, fields ...Field)
+    Warn(msg string, fields ...Field)
+    Error(msg string, fields ...Field)
+}
+
+// Metrics interface
+type Metrics interface {
+    Counter(name string, labels ...string) Counter
+    Gauge(name string, labels ...string) Gauge
+    Histogram(name string, buckets []float64, labels ...string) Histogram
+}
+
+// ConfigManager interface
+type ConfigManager interface {
+    Get(key string, opts ...GetOption) (interface{}, error)
+    Set(key string, value interface{}) error
+}
+
+// HealthManager interface
+type HealthManager interface {
+    RegisterCheck(name string, check HealthCheck) error
+    CheckAll(ctx context.Context) (*HealthReport, error)
+}
+```
+
+## Usage Examples
+
+### Using Shared Interfaces
+
+```go
+import "github.com/xraph/forge/internal/shared"
+
+// Function accepting shared container interface
+func NewService(container shared.Container) *Service {
+    logger := container.Resolve("logger").(shared.Logger)
+    metrics := container.Resolve("metrics").(shared.Metrics)
+    
+    return &Service{
+        logger:  logger,
+        metrics: metrics,
+    }
+}
+```
+
+## Dependencies
+
+### External
+None - pure interfaces and types
+
+### Internal
+None - shared across all internal packages
+
+## Notes
+
+### Production Readiness
+- ✅ Shared interfaces
+- ✅ Avoid circular dependencies
+- ✅ Type-safe contracts
+
+### Best Practices
+1. Use shared interfaces for common contracts
+2. Avoid implementation in shared package
+3. Keep interfaces minimal
+4. Document all interfaces
+5. Version interfaces carefully
+
+### License
+MIT License - Part of Forge Framework (internal package)
+

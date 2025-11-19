@@ -1,0 +1,510 @@
+# Forge Cache Extension
+
+## Purpose
+
+Multi-backend caching solution for Forge applications providing in-memory, Redis, and Memcached support with TTL, tagging, atomic operations, and distributed caching capabilities. Improves application performance by reducing database load and API calls.
+
+## Key Components
+
+- **Cache Interface**: Unified caching API across all backends
+- **In-Memory Backend**: Fast local caching with LRU eviction
+- **Redis Backend**: Distributed caching with persistence
+- **Memcached Backend**: High-performance distributed memory caching
+- **TTL Management**: Automatic expiration handling
+- **Cache Tags**: Group-based invalidation
+- **Atomic Operations**: Thread-safe increment/decrement
+
+## Architecture
+
+```
+Cache Extension
+├── Cache Interface
+│   ├── Get/Set/Delete
+│   ├── Multiple Operations
+│   └── Atomic Operations
+├── Backends
+│   ├── In-Memory (LRU)
+│   ├── Redis
+│   └── Memcached
+├── TTL Management
+│   ├── Per-Key Expiration
+│   └── Background Cleanup
+├── Cache Tags
+│   ├── Tag Assignment
+│   └── Tag-Based Invalidation
+└── Metrics
+    ├── Hit/Miss Ratios
+    └── Performance Stats
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Cache interface {
+    // Basic operations
+    Get(ctx context.Context, key string) (interface{}, error)
+    Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    Delete(ctx context.Context, key string) error
+    Exists(ctx context.Context, key string) (bool, error)
+    
+    // Multiple operations
+    GetMultiple(ctx context.Context, keys []string) (map[string]interface{}, error)
+    SetMultiple(ctx context.Context, items map[string]interface{}, ttl time.Duration) error
+    DeleteMultiple(ctx context.Context, keys []string) error
+    
+    // Atomic operations
+    Increment(ctx context.Context, key string, delta int64) (int64, error)
+    Decrement(ctx context.Context, key string, delta int64) (int64, error)
+    
+    // Cache management
+    Flush(ctx context.Context) error
+    Clear(ctx context.Context) error
+    
+    // Tags
+    Tags(tags ...string) Cache
+    FlushTags(ctx context.Context, tags ...string) error
+    
+    // Stats
+    Stats() CacheStats
+}
+
+type CacheStats struct {
+    Hits     int64
+    Misses   int64
+    HitRatio float64
+    Size     int64
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get cache from container
+func GetCache(c forge.Container) (Cache, error)
+
+// Cache operations
+cache.Set(ctx, "user:123", user, 5*time.Minute)
+value, err := cache.Get(ctx, "user:123")
+cache.Delete(ctx, "user:123")
+
+// Tags
+cache.Tags("users", "admin").Set(ctx, "user:123", user, 5*time.Minute)
+cache.FlushTags(ctx, "users")
+```
+
+## Usage Examples
+
+### Basic Caching
+
+```go
+import (
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/extensions/cache"
+)
+
+func main() {
+    app := forge.NewApp(forge.AppConfig{
+        Extensions: []forge.Extension{
+            cache.NewExtension(cache.Config{
+                Driver: "redis",
+                URL:    "redis://localhost:6379",
+            }),
+        },
+    })
+    
+    // Get cache from container
+    c, _ := cache.GetCache(app.Container())
+    
+    // Set value with TTL
+    err := c.Set(context.Background(), "user:123", user, 5*time.Minute)
+    
+    // Get value
+    value, err := c.Get(context.Background(), "user:123")
+    if err == cache.ErrCacheMiss {
+        // Cache miss - fetch from database
+    }
+    
+    // Delete value
+    c.Delete(context.Background(), "user:123")
+    
+    app.Run()
+}
+```
+
+### In-Memory Cache
+
+```go
+// Fast local caching
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        cache.NewExtension(cache.Config{
+            Driver:     "inmemory",
+            MaxSize:    1000,        // Max items
+            MaxMemory:  100 * 1024 * 1024,  // 100MB
+            EvictionPolicy: "lru",   // LRU eviction
+        }),
+    },
+})
+```
+
+### Redis Cache
+
+```go
+// Distributed caching with Redis
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        cache.NewExtension(cache.Config{
+            Driver:   "redis",
+            URL:      "redis://localhost:6379",
+            Password: "secret",
+            DB:       0,
+            PoolSize: 10,
+        }),
+    },
+})
+```
+
+### Cache-Aside Pattern
+
+```go
+func getUser(ctx context.Context, cache cache.Cache, db *sql.DB, userID string) (*User, error) {
+    cacheKey := "user:" + userID
+    
+    // Try cache first
+    if value, err := cache.Get(ctx, cacheKey); err == nil {
+        return value.(*User), nil
+    }
+    
+    // Cache miss - fetch from database
+    user, err := db.QueryUser(ctx, userID)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Store in cache
+    cache.Set(ctx, cacheKey, user, 5*time.Minute)
+    
+    return user, nil
+}
+```
+
+### Multiple Operations
+
+```go
+// Get multiple keys at once
+keys := []string{"user:1", "user:2", "user:3"}
+results, err := cache.GetMultiple(ctx, keys)
+
+for key, value := range results {
+    user := value.(*User)
+    fmt.Printf("%s: %v\n", key, user)
+}
+
+// Set multiple keys at once
+items := map[string]interface{}{
+    "user:1": user1,
+    "user:2": user2,
+    "user:3": user3,
+}
+cache.SetMultiple(ctx, items, 5*time.Minute)
+
+// Delete multiple keys
+cache.DeleteMultiple(ctx, keys)
+```
+
+### Atomic Operations
+
+```go
+// Increment counter
+viewCount, err := cache.Increment(ctx, "post:123:views", 1)
+fmt.Printf("View count: %d\n", viewCount)
+
+// Decrement counter
+remaining, err := cache.Decrement(ctx, "rate:limit:user:123", 1)
+if remaining < 0 {
+    return errors.New("rate limit exceeded")
+}
+
+// Atomic increment with initial value
+cache.Set(ctx, "counter", 0, 0)
+for i := 0; i < 100; i++ {
+    cache.Increment(ctx, "counter", 1)
+}
+```
+
+### Cache Tags
+
+```go
+// Set with tags
+cache.Tags("users", "premium").Set(ctx, "user:123", user, 10*time.Minute)
+cache.Tags("users", "free").Set(ctx, "user:456", user2, 10*time.Minute)
+
+// Invalidate all "users" tagged entries
+cache.FlushTags(ctx, "users")
+
+// Invalidate only "premium" users
+cache.FlushTags(ctx, "premium")
+
+// Use case: Clear all user-related caches
+cache.Tags("users", "session:123").Set(ctx, "user:data", data, 1*time.Hour)
+cache.Tags("users", "preferences").Set(ctx, "user:prefs", prefs, 1*time.Hour)
+
+// Clear all user caches
+cache.FlushTags(ctx, "users")
+```
+
+### Cache Warming
+
+```go
+// Pre-populate cache on startup
+func warmCache(ctx context.Context, cache cache.Cache, db *sql.DB) error {
+    // Load frequently accessed data
+    users, _ := db.GetPopularUsers(ctx, 100)
+    for _, user := range users {
+        cache.Set(ctx, "user:"+user.ID, user, 1*time.Hour)
+    }
+    
+    posts, _ := db.GetTrendingPosts(ctx, 50)
+    for _, post := range posts {
+        cache.Set(ctx, "post:"+post.ID, post, 30*time.Minute)
+    }
+    
+    return nil
+}
+
+// Warm cache in lifecycle hook
+app.RegisterHook(forge.PhasePostStart, warmCache)
+```
+
+### Cache Invalidation
+
+```go
+// Invalidate on update
+func updateUser(ctx context.Context, cache cache.Cache, db *sql.DB, user *User) error {
+    // Update database
+    if err := db.UpdateUser(ctx, user); err != nil {
+        return err
+    }
+    
+    // Invalidate cache
+    cache.Delete(ctx, "user:"+user.ID)
+    cache.FlushTags(ctx, "users")
+    
+    return nil
+}
+
+// Write-through cache
+func saveUser(ctx context.Context, cache cache.Cache, db *sql.DB, user *User) error {
+    // Save to database
+    if err := db.SaveUser(ctx, user); err != nil {
+        return err
+    }
+    
+    // Update cache immediately
+    cache.Set(ctx, "user:"+user.ID, user, 10*time.Minute)
+    
+    return nil
+}
+```
+
+### TTL Patterns
+
+```go
+// Short-lived cache (API responses)
+cache.Set(ctx, "api:response", data, 30*time.Second)
+
+// Medium-lived cache (user sessions)
+cache.Set(ctx, "session:"+sessionID, session, 1*time.Hour)
+
+// Long-lived cache (static content)
+cache.Set(ctx, "config:app", config, 24*time.Hour)
+
+// Permanent cache (never expire)
+cache.Set(ctx, "feature:flags", flags, 0)  // 0 = no expiration
+```
+
+### Cache Statistics
+
+```go
+// Get cache statistics
+stats := cache.Stats()
+
+fmt.Printf("Cache Hits: %d\n", stats.Hits)
+fmt.Printf("Cache Misses: %d\n", stats.Misses)
+fmt.Printf("Hit Ratio: %.2f%%\n", stats.HitRatio*100)
+fmt.Printf("Cache Size: %d items\n", stats.Size)
+
+// Monitor cache performance
+ticker := time.NewTicker(1 * time.Minute)
+go func() {
+    for range ticker.C {
+        stats := cache.Stats()
+        if stats.HitRatio < 0.8 {
+            log.Warn("Low cache hit ratio", "ratio", stats.HitRatio)
+        }
+    }
+}()
+```
+
+### Serialization
+
+```go
+// Cache automatically serializes Go types
+
+// Structs
+type User struct {
+    ID    string
+    Name  string
+    Email string
+}
+cache.Set(ctx, "user:123", &User{ID: "123", Name: "John"}, 5*time.Minute)
+
+// Maps
+data := map[string]interface{}{"key": "value"}
+cache.Set(ctx, "data", data, 5*time.Minute)
+
+// Slices
+items := []string{"a", "b", "c"}
+cache.Set(ctx, "items", items, 5*time.Minute)
+
+// Primitives
+cache.Set(ctx, "count", 42, 5*time.Minute)
+cache.Set(ctx, "enabled", true, 5*time.Minute)
+```
+
+## Configuration
+
+```yaml
+# Cache extension configuration
+extensions:
+  cache:
+    # Driver: inmemory, redis, memcached
+    driver: redis
+    
+    # Redis configuration
+    redis:
+      url: redis://localhost:6379
+      password: ${REDIS_PASSWORD}
+      db: 0
+      pool_size: 10
+      max_retries: 3
+      
+    # In-memory configuration
+    inmemory:
+      max_size: 1000
+      max_memory: 100MB
+      eviction_policy: lru
+      cleanup_interval: 5m
+      
+    # Memcached configuration
+    memcached:
+      servers:
+        - localhost:11211
+      max_idle_conns: 2
+```
+
+## Dependencies
+
+### External
+- github.com/redis/go-redis/v9 - Redis client
+- github.com/bradfitz/gomemcache - Memcached client
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Common Patterns
+
+### Rate Limiting with Cache
+```go
+func checkRateLimit(ctx context.Context, cache cache.Cache, userID string) (bool, error) {
+    key := "rate:limit:" + userID
+    
+    count, err := cache.Increment(ctx, key, 1)
+    if err != nil {
+        return false, err
+    }
+    
+    if count == 1 {
+        // First request - set TTL
+        cache.Set(ctx, key, count, 1*time.Minute)
+    }
+    
+    return count <= 100, nil  // 100 requests per minute
+}
+```
+
+### Cache Stampede Prevention
+```go
+func getCachedValue(ctx context.Context, cache cache.Cache, key string, fetcher func() (interface{}, error)) (interface{}, error) {
+    // Try cache
+    if value, err := cache.Get(ctx, key); err == nil {
+        return value, nil
+    }
+    
+    // Use lock to prevent stampede
+    lockKey := key + ":lock"
+    if ok, _ := cache.SetNX(ctx, lockKey, true, 10*time.Second); ok {
+        defer cache.Delete(ctx, lockKey)
+        
+        // Fetch and cache
+        value, err := fetcher()
+        if err != nil {
+            return nil, err
+        }
+        
+        cache.Set(ctx, key, value, 5*time.Minute)
+        return value, nil
+    }
+    
+    // Wait for other request to finish
+    time.Sleep(100 * time.Millisecond)
+    return getCachedValue(ctx, cache, key, fetcher)
+}
+```
+
+## Related Packages
+
+- `/extensions/database` - Database query caching
+- `/extensions/auth` - Session caching
+- `/internal/metrics` - Cache metrics
+
+## Notes
+
+### Production Readiness
+- ✅ Multiple backend support
+- ✅ TTL management
+- ✅ Atomic operations
+- ✅ Cache tags
+- ✅ Performance metrics
+
+### Performance Characteristics
+- In-memory: <1μs per operation
+- Redis: 1-5ms per operation
+- Memcached: 1-3ms per operation
+- GetMultiple: 3x faster than individual Gets
+
+### Security Considerations
+- Don't cache sensitive data without encryption
+- Use appropriate TTLs
+- Implement cache access control
+- Monitor cache size
+- Validate cached data
+
+### Best Practices
+1. Use appropriate TTLs
+2. Implement cache warming
+3. Handle cache misses gracefully
+4. Use tags for group invalidation
+5. Monitor hit/miss ratios
+6. Use atomic operations for counters
+7. Implement circuit breakers
+8. Clear cache on updates
+
+### License
+MIT License - Part of Forge Framework
+

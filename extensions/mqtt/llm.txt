@@ -1,0 +1,137 @@
+# Forge MQTT Extension
+
+## Purpose
+
+MQTT broker and client implementation for IoT applications providing publish/subscribe messaging with QoS support, retained messages, and last will and testament.
+
+## Key Components
+
+- **MQTT Broker**: Embedded MQTT broker
+- **MQTT Client**: Connect to external brokers
+- **QoS Levels**: 0, 1, 2 quality of service
+- **Retained Messages**: Last message persistence
+- **Last Will**: Automatic disconnect messages
+
+## Architecture
+
+```
+MQTT Extension
+├── Broker
+│   ├── Topic Management
+│   ├── Subscription Management
+│   └── Message Routing
+├── Client
+│   ├── Publishing
+│   └── Subscribing
+├── QoS Handler
+│   └── Message Delivery
+└── Persistence
+    └── Retained Messages
+```
+
+## Public API
+
+### Core Types
+
+```go
+type MQTT interface {
+    Publish(topic string, qos byte, retained bool, payload []byte) error
+    Subscribe(topic string, qos byte, handler MessageHandler) error
+    Unsubscribe(topics ...string) error
+}
+
+type MessageHandler func(topic string, payload []byte)
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get MQTT service
+func GetMQTT(c forge.Container) (MQTT, error)
+
+// Publish message
+mqtt.Publish("sensors/temperature", 1, false, []byte("22.5"))
+
+// Subscribe to topic
+mqtt.Subscribe("sensors/#", 1, func(topic string, payload []byte) {
+    log.Printf("%s: %s", topic, payload)
+})
+```
+
+## Usage Examples
+
+### Basic MQTT Broker
+
+```go
+import "github.com/xraph/forge/extensions/mqtt"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        mqtt.NewExtension(mqtt.Config{
+            Mode:    "broker",
+            Address: ":1883",
+        }),
+    },
+})
+
+// MQTT broker running on port 1883
+```
+
+### MQTT Client
+
+```go
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        mqtt.NewExtension(mqtt.Config{
+            Mode:   "client",
+            Broker: "tcp://localhost:1883",
+        }),
+    },
+})
+
+// Get MQTT client
+mqtt, _ := mqtt.GetMQTT(app.Container())
+
+// Publish
+mqtt.Publish("home/lights/living-room", 1, false, []byte("ON"))
+
+// Subscribe
+mqtt.Subscribe("home/sensors/#", 1, func(topic string, payload []byte) {
+    log.Printf("Sensor update: %s = %s", topic, payload)
+})
+```
+
+## Configuration
+
+```yaml
+extensions:
+  mqtt:
+    mode: broker  # or client
+    address: :1883
+    broker: tcp://localhost:1883
+    client_id: forge-mqtt
+```
+
+## Dependencies
+
+### External
+- github.com/eclipse/paho.mqtt.golang - MQTT client
+- MQTT broker library
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ MQTT broker
+- ✅ MQTT client
+- ✅ QoS support
+- ✅ Retained messages
+
+### License
+MIT License - Part of Forge Framework
+

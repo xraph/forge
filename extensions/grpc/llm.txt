@@ -1,0 +1,143 @@
+# Forge gRPC Extension
+
+## Purpose
+
+gRPC server implementation providing high-performance RPC services with Protocol Buffers, server reflection, health checks, and interceptors for authentication and logging.
+
+## Key Components
+
+- **gRPC Server**: High-performance RPC server
+- **Service Registration**: Register protobuf services
+- **Reflection**: Server reflection for dynamic clients
+- **Interceptors**: Middleware for auth, logging, tracing
+- **Health Checks**: gRPC health checking protocol
+
+## Architecture
+
+```
+gRPC Extension
+├── Server
+│   ├── Service Registration
+│   ├── Interceptors
+│   └── Lifecycle
+├── Reflection
+│   └── Service Introspection
+├── Health Checks
+│   └── gRPC Health Protocol
+└── Streaming
+    ├── Server Streaming
+    ├── Client Streaming
+    └── Bidirectional Streaming
+```
+
+## Public API
+
+### Core Types
+
+```go
+type GRPC interface {
+    RegisterService(desc *grpc.ServiceDesc, impl interface{}) error
+    Server() *grpc.Server
+    Start(ctx context.Context, address string) error
+    Stop(ctx context.Context) error
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get gRPC server
+func GetGRPC(c forge.Container) (GRPC, error)
+
+// Register service
+server := grpc.GetGRPC(app.Container())
+server.RegisterService(&pb.UserService_ServiceDesc, &userService{})
+```
+
+## Usage Examples
+
+### Basic gRPC Server
+
+```go
+import "github.com/xraph/forge/extensions/grpc"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        grpc.NewExtension(grpc.Config{
+            Address:    ":50051",
+            Reflection: true,  // Enable server reflection
+        }),
+    },
+})
+
+// Get gRPC server
+server, _ := grpc.GetGRPC(app.Container())
+
+// Register service implementation
+server.RegisterService(&pb.UserServiceDesc, &UserServiceImpl{})
+
+// Start server (handled by Forge lifecycle)
+app.Run()
+```
+
+### Service Implementation
+
+```go
+type UserServiceImpl struct {
+    pb.UnimplementedUserServiceServer
+}
+
+func (s *UserServiceImpl) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.User, error) {
+    return &pb.User{
+        Id:    req.Id,
+        Name:  "John Doe",
+        Email: "john@example.com",
+    }, nil
+}
+
+func (s *UserServiceImpl) ListUsers(req *pb.ListUsersRequest, stream pb.UserService_ListUsersServer) error {
+    for _, user := range users {
+        if err := stream.Send(user); err != nil {
+            return err
+        }
+    }
+    return nil
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  grpc:
+    address: :50051
+    reflection: true
+    health_check: true
+    max_recv_msg_size: 4MB
+    max_send_msg_size: 4MB
+```
+
+## Dependencies
+
+### External
+- google.golang.org/grpc - gRPC framework
+- google.golang.org/protobuf - Protocol Buffers
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ gRPC server
+- ✅ Service registration
+- ✅ Reflection
+- ✅ Health checks
+- ✅ Streaming support
+
+### License
+MIT License - Part of Forge Framework
+

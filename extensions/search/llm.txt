@@ -1,0 +1,153 @@
+# Forge Search Extension
+
+## Purpose
+
+Full-text search capabilities with multiple backend support (in-memory, Elasticsearch, Typesense, Meilisearch) providing indexing, querying, faceting, and ranking.
+
+## Key Components
+
+- **Search Interface**: Query and index documents
+- **Multiple Backends**: In-memory, Elasticsearch, Typesense, Meilisearch
+- **Full-Text Search**: Tokenization and relevance ranking
+- **Faceted Search**: Filter by attributes
+- **Autocomplete**: Search suggestions
+
+## Architecture
+
+```
+Search Extension
+├── Search Interface
+│   ├── Indexing
+│   ├── Querying
+│   └── Deletion
+├── Backends
+│   ├── In-Memory
+│   ├── Elasticsearch
+│   ├── Typesense
+│   └── Meilisearch
+├── Features
+│   ├── Full-Text Search
+│   ├── Faceting
+│   ├── Filtering
+│   └── Autocomplete
+└── Ranking
+    └── Relevance Scoring
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Search interface {
+    Index(ctx context.Context, index string, document Document) error
+    Query(ctx context.Context, index string, query Query) (*SearchResult, error)
+    Delete(ctx context.Context, index string, id string) error
+}
+
+type Document struct {
+    ID     string
+    Fields map[string]interface{}
+}
+
+type Query struct {
+    Text    string
+    Filters map[string]interface{}
+    Limit   int
+    Offset  int
+}
+
+type SearchResult struct {
+    Hits       []Hit
+    Total      int64
+    Facets     map[string]Facet
+}
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get search service
+func GetSearch(c forge.Container) (Search, error)
+
+// Index document
+search.Index(ctx, "products", Document{
+    ID: "123",
+    Fields: map[string]interface{}{
+        "title": "Laptop",
+        "price": 999.99,
+    },
+})
+
+// Search
+results, _ := search.Query(ctx, "products", Query{
+    Text:  "laptop",
+    Limit: 10,
+})
+```
+
+## Usage Examples
+
+### Basic Search
+
+```go
+import "github.com/xraph/forge/extensions/search"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        search.NewExtension(search.Config{
+            Driver: "elasticsearch",
+            URL:    "http://localhost:9200",
+        }),
+    },
+})
+
+// Get search service
+s, _ := search.GetSearch(app.Container())
+
+// Index documents
+s.Index(ctx, "products", search.Document{
+    ID: "1",
+    Fields: map[string]interface{}{
+        "title":       "MacBook Pro",
+        "category":    "laptops",
+        "price":       1999.99,
+        "description": "Powerful laptop",
+    },
+})
+
+// Search
+results, _ := s.Query(ctx, "products", search.Query{
+    Text:  "laptop",
+    Limit: 10,
+})
+
+for _, hit := range results.Hits {
+    fmt.Printf("Found: %s (score: %.2f)\n", hit.Document.Fields["title"], hit.Score)
+}
+```
+
+## Configuration
+
+```yaml
+extensions:
+  search:
+    driver: elasticsearch
+    url: http://localhost:9200
+    index_prefix: myapp_
+```
+
+## Notes
+
+### Production Readiness
+- ✅ Multiple backends
+- ✅ Full-text search
+- ✅ Faceting
+- ✅ Autocomplete
+
+### License
+MIT License - Part of Forge Framework
+

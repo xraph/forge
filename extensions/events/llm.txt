@@ -1,0 +1,189 @@
+# Forge Events Extension
+
+## Purpose
+
+Event-driven architecture support providing event bus, event sourcing, and pub/sub patterns with multiple broker backends (in-memory, NATS, RabbitMQ, Kafka).
+
+## Key Components
+
+- **Event Bus**: Publish/subscribe event system
+- **Event Sourcing**: Store events as source of truth
+- **Multiple Brokers**: In-memory, NATS, RabbitMQ, Kafka
+- **Event Store**: Persistent event storage
+- **Replay**: Event replay and rehydration
+- **Handlers**: Event handler registration
+
+## Architecture
+
+```
+Events Extension
+├── Event Bus
+│   ├── Publishing
+│   ├── Subscribing
+│   └── Routing
+├── Brokers
+│   ├── In-Memory
+│   ├── NATS
+│   ├── RabbitMQ
+│   └── Kafka
+├── Event Sourcing
+│   ├── Event Store
+│   ├── Snapshots
+│   └── Projections
+└── Handlers
+    └── Event Processing
+```
+
+## Public API
+
+### Core Types
+
+```go
+type EventBus interface {
+    Publish(ctx context.Context, event Event) error
+    Subscribe(eventType string, handler EventHandler) error
+    Unsubscribe(eventType string, handler EventHandler) error
+}
+
+type Event struct {
+    ID        string
+    Type      string
+    Data      interface{}
+    Timestamp time.Time
+    Metadata  map[string]string
+}
+
+type EventHandler func(ctx context.Context, event Event) error
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get event bus
+func GetEventBus(c forge.Container) (EventBus, error)
+
+// Publish event
+bus.Publish(ctx, Event{
+    Type: "user.created",
+    Data: user,
+})
+
+// Subscribe to events
+bus.Subscribe("user.created", func(ctx context.Context, event Event) error {
+    // Handle event
+    return nil
+})
+```
+
+## Usage Examples
+
+### Basic Event Publishing
+
+```go
+import "github.com/xraph/forge/extensions/events"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        events.NewExtension(events.Config{
+            Broker: "nats",
+            NATSConfig: &events.NATSConfig{
+                URL: "nats://localhost:4222",
+            },
+        }),
+    },
+})
+
+// Get event bus
+bus, _ := events.GetEventBus(app.Container())
+
+// Publish event
+bus.Publish(ctx, events.Event{
+    Type: "order.created",
+    Data: map[string]interface{}{
+        "order_id": "123",
+        "amount":   99.99,
+    },
+})
+
+// Subscribe to events
+bus.Subscribe("order.created", func(ctx context.Context, event events.Event) error {
+    log.Printf("Order created: %v", event.Data)
+    // Process order
+    return nil
+})
+```
+
+### Event Sourcing
+
+```go
+// Event store
+store := events.NewEventStore(db)
+
+// Store event
+store.Append(ctx, "order-123", events.Event{
+    Type: "order.created",
+    Data: orderData,
+})
+
+// Replay events
+events, _ := store.GetEvents(ctx, "order-123")
+for _, event := range events {
+    // Rebuild state from events
+    applyEvent(event)
+}
+```
+
+### Multiple Event Types
+
+```go
+// Subscribe to multiple events
+bus.Subscribe("user.*", userHandler)        // Wildcard
+bus.Subscribe("order.created", orderHandler)
+bus.Subscribe("payment.processed", paymentHandler)
+
+// Publish different event types
+bus.Publish(ctx, events.Event{Type: "user.created", Data: user})
+bus.Publish(ctx, events.Event{Type: "user.updated", Data: user})
+bus.Publish(ctx, events.Event{Type: "order.created", Data: order})
+```
+
+## Configuration
+
+```yaml
+extensions:
+  events:
+    broker: nats
+    
+    nats:
+      url: nats://localhost:4222
+      
+    kafka:
+      brokers:
+        - localhost:9092
+      topic: events
+```
+
+## Dependencies
+
+### External
+- github.com/nats-io/nats.go - NATS client
+- github.com/rabbitmq/amqp091-go - RabbitMQ client
+- github.com/segmentio/kafka-go - Kafka client
+
+### Internal
+- github.com/xraph/forge - Core framework
+
+## Notes
+
+### Production Readiness
+- ✅ Multiple broker support
+- ✅ Event sourcing
+- ✅ Pub/sub patterns
+- ✅ Event replay
+
+### License
+MIT License - Part of Forge Framework
+

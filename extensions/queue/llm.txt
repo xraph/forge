@@ -1,0 +1,166 @@
+# Forge Queue Extension
+
+## Purpose
+
+Message queue management providing task queuing, job processing, and background workers with multiple backend support (in-memory, Redis, RabbitMQ, NATS).
+
+## Key Components
+
+- **Queue Interface**: Push/pop messages
+- **Workers**: Background job processing
+- **Priority Queues**: Message prioritization
+- **Delayed Jobs**: Schedule future execution
+- **Retry Logic**: Automatic retries with exponential backoff
+
+## Architecture
+
+```
+Queue Extension
+├── Queue Management
+│   ├── Push Messages
+│   ├── Pop Messages
+│   └── Peek Messages
+├── Workers
+│   ├── Worker Pool
+│   ├── Job Processing
+│   └── Concurrency Control
+├── Scheduling
+│   ├── Delayed Jobs
+│   └── Recurring Jobs
+└── Backends
+    ├── In-Memory
+    ├── Redis
+    ├── RabbitMQ
+    └── NATS
+```
+
+## Public API
+
+### Core Types
+
+```go
+type Queue interface {
+    Push(ctx context.Context, message Message) error
+    Pop(ctx context.Context) (*Message, error)
+    Process(ctx context.Context, handler MessageHandler) error
+}
+
+type Message struct {
+    ID       string
+    Queue    string
+    Payload  []byte
+    Priority int
+    Retry    int
+}
+
+type MessageHandler func(ctx context.Context, msg Message) error
+```
+
+### Main Functions/Methods
+
+```go
+// Extension
+func NewExtension(config Config) forge.Extension
+
+// Get queue service
+func GetQueue(c forge.Container) (Queue, error)
+
+// Push message
+queue.Push(ctx, Message{
+    Queue:   "emails",
+    Payload: emailData,
+})
+
+// Process messages
+queue.Process(ctx, func(ctx context.Context, msg Message) error {
+    return sendEmail(msg.Payload)
+})
+```
+
+## Usage Examples
+
+### Basic Queue
+
+```go
+import "github.com/xraph/forge/extensions/queue"
+
+app := forge.NewApp(forge.AppConfig{
+    Extensions: []forge.Extension{
+        queue.NewExtension(queue.Config{
+            Driver: "redis",
+            URL:    "redis://localhost:6379",
+        }),
+    },
+})
+
+// Get queue
+q, _ := queue.GetQueue(app.Container())
+
+// Push message
+q.Push(ctx, queue.Message{
+    Queue:   "tasks",
+    Payload: []byte(`{"task":"send_email"}`),
+})
+
+// Process messages
+q.Process(ctx, func(ctx context.Context, msg queue.Message) error {
+    log.Printf("Processing: %s", msg.Payload)
+    return nil
+})
+```
+
+### Priority Queue
+
+```go
+// High priority
+q.Push(ctx, queue.Message{
+    Queue:    "tasks",
+    Payload:  urgentTask,
+    Priority: 10,  // Higher priority
+})
+
+// Normal priority
+q.Push(ctx, queue.Message{
+    Queue:    "tasks",
+    Payload:  normalTask,
+    Priority: 5,
+})
+
+// High priority messages processed first
+```
+
+### Delayed Jobs
+
+```go
+// Execute in 1 hour
+q.PushDelayed(ctx, queue.Message{
+    Queue:   "reminders",
+    Payload: reminderData,
+}, 1*time.Hour)
+```
+
+## Configuration
+
+```yaml
+extensions:
+  queue:
+    driver: redis
+    url: redis://localhost:6379
+    workers: 5
+    retry:
+      max_attempts: 3
+      backoff: exponential
+```
+
+## Notes
+
+### Production Readiness
+- ✅ Multiple backends
+- ✅ Worker pools
+- ✅ Priority queues
+- ✅ Retry logic
+- ✅ Delayed jobs
+
+### License
+MIT License - Part of Forge Framework
+
