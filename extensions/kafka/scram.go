@@ -23,7 +23,7 @@ var (
 type XDGSCRAMClient struct {
 	*scram.Client
 	*scram.ClientConversation
-	scram.HashGeneratorFcn
+	HashGeneratorFcn scram.HashGeneratorFcn
 }
 
 // Begin starts the SCRAM authentication process

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"net/http"
 
 	"github.com/xraph/forge"
 )
@@ -237,13 +236,6 @@ func main() {
 		forge.WithOperationID("toggleMaintenance"),
 	)
 
-	// Mount the OpenAPI-enabled router
-	app.Router().Group("/api/v1").Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			app.Router().ServeHTTP(w, r)
-		})
-	})
-
 	// Print startup information
 	fmt.Println("")
 	fmt.Println("╔════════════════════════════════════════════════════════════╗")
@@ -253,24 +245,24 @@ func main() {
 	fmt.Println("🚀 Server starting on http://localhost:8080")
 	fmt.Println("")
 	fmt.Println("📚 OpenAPI Documentation:")
-	fmt.Printf("   • Swagger UI:    http://localhost:8080/api/v1/swagger\n")
-	fmt.Printf("   • OpenAPI Spec:  http://localhost:8080/api/v1/openapi.json\n")
+	fmt.Printf("   • Swagger UI:    http://localhost:8080/swagger\n")
+	fmt.Printf("   • OpenAPI Spec:  http://localhost:8080/openapi.json\n")
 	fmt.Println("")
 	fmt.Println("📌 API Endpoints:")
-	fmt.Println("   • GET    /api/v1/users           - List all users")
-	fmt.Println("   • GET    /api/v1/users/:id       - Get user by ID")
-	fmt.Println("   • POST   /api/v1/users           - Create new user")
-	fmt.Println("   • PUT    /api/v1/users/:id       - Update user")
-	fmt.Println("   • DELETE /api/v1/users/:id       - Delete user")
-	fmt.Println("   • GET    /api/v1/users/search    - Search users")
-	fmt.Println("   • GET    /api/v1/health          - Health check")
-	fmt.Println("   • GET    /api/v1/admin/stats     - System stats")
-	fmt.Println("   • POST   /api/v1/admin/maintenance - Toggle maintenance")
+	fmt.Println("   • GET    /users           - List all users")
+	fmt.Println("   • GET    /users/:id       - Get user by ID")
+	fmt.Println("   • POST   /users           - Create new user")
+	fmt.Println("   • PUT    /users/:id       - Update user")
+	fmt.Println("   • DELETE /users/:id       - Delete user")
+	fmt.Println("   • GET    /users/search    - Search users")
+	fmt.Println("   • GET    /health          - Health check")
+	fmt.Println("   • GET    /admin/stats     - System stats")
+	fmt.Println("   • POST   /admin/maintenance - Toggle maintenance")
 	fmt.Println("")
 	fmt.Println("🧪 Test Examples:")
-	fmt.Println("   curl http://localhost:8080/api/v1/users")
-	fmt.Println("   curl http://localhost:8080/api/v1/users/1")
-	fmt.Println("   curl -X POST http://localhost:8080/api/v1/users -H 'Content-Type: application/json' \\")
+	fmt.Println("   curl http://localhost:8080/users")
+	fmt.Println("   curl http://localhost:8080/users/1")
+	fmt.Println("   curl -X POST http://localhost:8080/users -H 'Content-Type: application/json' \\")
 	fmt.Println("        -d '{\"username\":\"alice\",\"email\":\"alice@example.com\",\"password\":\"secret123\"}'")
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop...")

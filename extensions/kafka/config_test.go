@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"testing"
-	"time"
 
 	"github.com/IBM/sarama"
 )

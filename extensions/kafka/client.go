@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
+	"github.com/xdg-go/scram"
 	"github.com/xraph/forge"
 )
 
@@ -54,16 +55,16 @@ func NewKafkaClient(config Config, logger forge.Logger, metrics forge.Metrics) (
 		switch config.SASLMechanism {
 		case "PLAIN":
 			saramaConfig.Net.SASL.Mechanism = sarama.SASLTypePlaintext
-		case "SCRAM-SHA-256":
-			saramaConfig.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA256
-			saramaConfig.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
-				return &XDGSCRAMClient{HashGeneratorFcn: SHA256}
-			}
-		case "SCRAM-SHA-512":
-			saramaConfig.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA512
-			saramaConfig.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
-				return &XDGSCRAMClient{HashGeneratorFcn: SHA512}
-			}
+	case "SCRAM-SHA-256":
+		saramaConfig.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA256
+		saramaConfig.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
+			return &XDGSCRAMClient{HashGeneratorFcn: scram.HashGeneratorFcn(SHA256)}
+		}
+	case "SCRAM-SHA-512":
+		saramaConfig.Net.SASL.Mechanism = sarama.SASLTypeSCRAMSHA512
+		saramaConfig.Net.SASL.SCRAMClientGeneratorFunc = func() sarama.SCRAMClient {
+			return &XDGSCRAMClient{HashGeneratorFcn: scram.HashGeneratorFcn(SHA512)}
+		}
 		}
 	}
 
@@ -617,13 +618,8 @@ func (c *kafkaClient) recordSendMetric(topic string, size int) {
 		return
 	}
 
-	c.metrics.Counter("kafka.messages.sent", forge.Tags{
-		"topic": topic,
-	}).Inc()
-
-	c.metrics.Gauge("kafka.bytes.sent", forge.Tags{
-		"topic": topic,
-	}).Set(float64(size))
+	c.metrics.Counter("kafka.messages.sent", "topic", topic).Inc()
+	c.metrics.Gauge("kafka.bytes.sent", "topic", topic).Set(float64(size))
 }
 
 func (c *kafkaClient) recordReceiveMetric(topic string, size int) {
@@ -631,13 +627,8 @@ func (c *kafkaClient) recordReceiveMetric(topic string, size int) {
 		return
 	}
 
-	c.metrics.Counter("kafka.messages.received", forge.Tags{
-		"topic": topic,
-	}).Inc()
-
-	c.metrics.Gauge("kafka.bytes.received", forge.Tags{
-		"topic": topic,
-	}).Set(float64(size))
+	c.metrics.Counter("kafka.messages.received", "topic", topic).Inc()
+	c.metrics.Gauge("kafka.bytes.received", "topic", topic).Set(float64(size))
 }
 
 // buildTLSConfig creates TLS configuration

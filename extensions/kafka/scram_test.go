@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"testing"
+
+	"github.com/xdg-go/scram"
 )
 
 func TestHashGenerators(t *testing.T) {
@@ -34,7 +36,7 @@ func TestHashGenerators(t *testing.T) {
 
 func TestXDGSCRAMClient(t *testing.T) {
 	client := &XDGSCRAMClient{
-		HashGeneratorFcn: SHA256,
+		HashGeneratorFcn: scram.HashGeneratorFcn(SHA256),
 	}
 
 	// Test Begin
@@ -59,7 +61,7 @@ func TestXDGSCRAMClient(t *testing.T) {
 
 func TestXDGSCRAMClientSHA512(t *testing.T) {
 	client := &XDGSCRAMClient{
-		HashGeneratorFcn: SHA512,
+		HashGeneratorFcn: scram.HashGeneratorFcn(SHA512),
 	}
 
 	err := client.Begin("testuser", "testpass", "")
@@ -74,7 +76,7 @@ func TestXDGSCRAMClientSHA512(t *testing.T) {
 
 func TestXDGSCRAMClientStep(t *testing.T) {
 	client := &XDGSCRAMClient{
-		HashGeneratorFcn: SHA256,
+		HashGeneratorFcn: scram.HashGeneratorFcn(SHA256),
 	}
 
 	err := client.Begin("testuser", "testpass", "")
@@ -95,7 +97,7 @@ func TestXDGSCRAMClientStep(t *testing.T) {
 
 func TestXDGSCRAMClientEmptyPassword(t *testing.T) {
 	client := &XDGSCRAMClient{
-		HashGeneratorFcn: SHA256,
+		HashGeneratorFcn: scram.HashGeneratorFcn(SHA256),
 	}
 
 	err := client.Begin("testuser", "", "")
@@ -106,7 +108,7 @@ func TestXDGSCRAMClientEmptyPassword(t *testing.T) {
 
 func TestXDGSCRAMClientWithAuthzID(t *testing.T) {
 	client := &XDGSCRAMClient{
-		HashGeneratorFcn: SHA256,
+		HashGeneratorFcn: scram.HashGeneratorFcn(SHA256),
 	}
 
 	err := client.Begin("testuser", "testpass", "authzuser")
