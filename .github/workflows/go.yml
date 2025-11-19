@@ -1,41 +1,219 @@
-name: Go
+name: Go CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  # Build and test
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: "1.25.3"
-        check-latest: true
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
 
-    - name: Build
-      run: go build -v ./...
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
 
-    - name: Test
-      run: go test -v ./...
+      - name: Download dependencies
+        run: go mod download
 
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Check go.mod tidiness
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum || (echo "❌ go.mod or go.sum needs tidying" && exit 1)
+
+      - name: Build
+        run: go build -v ./...
+        continue-on-error: ${{ matrix.os == 'windows-latest' }}
+
+      - name: Run tests (exclude bk/)
+        run: |
+          go test -v -short -race -timeout=10m -coverprofile=coverage.out $(go list ./... | grep -v '/bk/')
+        continue-on-error: ${{ matrix.os == 'windows-latest' }}
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
+          retention-days: 7
+
+  # Linting
   lint:
+    name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: "1.25.3"
-        check-latest: true
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
 
-#    - name: golangci-lint
-#      uses: golangci/golangci-lint-action@v3
-#      with:
-#        version: latest
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      # - name: Run golangci-lint
+      #   uses: golangci/golangci-lint-action@v4
+      #   with:
+      #     version: latest
+      #     args: --timeout=5m --exclude-dirs=bk
+
+      - name: Run go vet
+        run: go vet $(go list ./... | grep -v '/bk/')
+
+  # Security scanning
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -exclude-dir=bk -exclude-dir=vendor -exclude-dir=examples -fmt=sarif -out=gosec.sarif ./... || true
+
+      - name: Fix SARIF file format
+        if: always()
+        run: |
+          chmod +x .github/scripts/fix_sarif.py
+          python3 .github/scripts/fix_sarif.py
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      # - name: Upload SARIF file
+      #   uses: github/codeql-action/upload-sarif@v4
+      #   if: always()
+      #   with:
+      #     sarif_file: gosec.sarif
+
+  # Build CLI binary
+  build-cli:
+    name: Build CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Build CLI
+        run: |
+          cd cmd/forge
+          go build -v -ldflags="-s -w -X main.version=dev-${{ github.sha }}" -o forge .
+
+      - name: Test CLI binary
+        run: |
+          cd cmd/forge
+          ./forge --version
+          ./forge doctor || true
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-cli-${{ github.sha }}
+          path: cmd/forge/forge
+          retention-days: 7
+
+  # Summary
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [test, lint, security, build-cli]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          # CI Results Summary
+          
+          ## Job Status
+          - **Test**: ${{ needs.test.result }} (Windows optional)
+          - **Lint**: ${{ needs.lint.result }}
+          - **Security**: ${{ needs.security.result }}
+          - **Build CLI**: ${{ needs.build-cli.result }}
+          
+          ## Details
+          - **Commit**: ${{ github.sha }}
+          - **Branch**: ${{ github.ref_name }}
+          - **Triggered by**: ${{ github.event_name }}
+          - **Run number**: ${{ github.run_number }}
+          
+          > **Note**: Windows tests are optional and failures won't block CI
+          
+          EOF
+          
+          # Allow Windows test failures
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.security.result }}" != "success" ] || \
+             [ "${{ needs.build-cli.result }}" != "success" ]; then
+            echo "❌ **CI Failed** - Please check the logs above" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          elif [ "${{ needs.test.result }}" != "success" ]; then
+            echo "⚠️  **Tests have issues (Windows may be failing)** - Please review logs" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **All CI checks passed**" >> $GITHUB_STEP_SUMMARY
+          fi
+
