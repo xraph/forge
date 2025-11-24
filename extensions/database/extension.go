@@ -127,9 +127,16 @@ func (e *Extension) Register(app forge.App) error {
 		}
 
 		// If SQL, register Bun instance
+		// Note: The *bun.DB will be nil until Start() opens the connection
 		if defaultConfig.Type == TypePostgres || defaultConfig.Type == TypeMySQL || defaultConfig.Type == TypeSQLite {
 			if err := forge.RegisterSingleton(app.Container(), SQLKey, func(c forge.Container) (*bun.DB, error) {
-				return e.manager.SQL(defaultName)
+				db, err := e.manager.SQL(defaultName)
+				if err != nil {
+					return nil, err
+				}
+				// During Register() phase of other extensions, this will be nil
+				// It's only valid after Start() opens the connection
+				return db, nil
 			}); err != nil {
 				return fmt.Errorf("failed to register Bun DB: %w", err)
 			}

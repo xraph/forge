@@ -7,6 +7,7 @@ import (
 // DependencyGraph manages service dependencies.
 type DependencyGraph struct {
 	nodes map[string]*node
+	order []string // Preserve registration order
 }
 
 type node struct {
@@ -18,18 +19,22 @@ type node struct {
 func NewDependencyGraph() *DependencyGraph {
 	return &DependencyGraph{
 		nodes: make(map[string]*node),
+		order: make([]string, 0),
 	}
 }
 
 // AddNode adds a node with its dependencies.
+// Nodes are processed in the order they are added (FIFO) when no dependencies exist.
 func (g *DependencyGraph) AddNode(name string, dependencies []string) {
 	g.nodes[name] = &node{
 		name:         name,
 		dependencies: dependencies,
 	}
+	g.order = append(g.order, name)
 }
 
-// TopologicalSort returns nodes in dependency order
+// TopologicalSort returns nodes in dependency order.
+// Nodes without dependencies maintain their registration order (FIFO).
 // Returns error if circular dependency detected.
 func (g *DependencyGraph) TopologicalSort() ([]string, error) {
 	// Track visited nodes
@@ -37,8 +42,8 @@ func (g *DependencyGraph) TopologicalSort() ([]string, error) {
 	visiting := make(map[string]bool)
 	result := make([]string, 0, len(g.nodes))
 
-	// Visit each node
-	for name := range g.nodes {
+	// Visit nodes in registration order to preserve FIFO for nodes without dependencies
+	for _, name := range g.order {
 		if err := g.visit(name, visited, visiting, &result); err != nil {
 			return nil, err
 		}
