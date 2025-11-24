@@ -73,13 +73,17 @@ func setupRoutes(app *forge.App) {
 
 Apply middleware to all routes in a group:
 
-<Tabs items={["Basic Middleware", "Multiple Middleware", "Conditional Middleware"]}>
+<Tabs items={["Basic Middleware", "Multiple Middleware", "Built-in Middleware"]}>
 <Tab value="Basic Middleware">
 
 ```go
+import "github.com/xraph/forge/middleware"
+
 func setupAuthenticatedRoutes(app *forge.App) {
     // Create authenticated group with middleware
-    auth := app.Group("/auth", forge.WithGroupMiddleware(authMiddleware))
+    auth := app.Router().Group("/auth", 
+        forge.WithGroupMiddleware(jwtAuthMiddleware("secret")),
+    )
     
     auth.GET("/profile", getProfileHandler)
     auth.PUT("/profile", updateProfileHandler)
@@ -88,17 +92,22 @@ func setupAuthenticatedRoutes(app *forge.App) {
     // All routes above require authentication
 }
 
-func authMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        token := r.Header.Get("Authorization")
-        if token == "" {
-            http.Error(w, "Unauthorized", http.StatusUnauthorized)
-            return
+// Authentication middleware
+func jwtAuthMiddleware(secretKey string) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            token := ctx.Request().Header.Get("Authorization")
+            if token == "" {
+                return forge.Unauthorized("authentication required")
+            }
+            
+            // Validate token logic here
+            // Store user info in context
+            ctx.Set("user_id", extractedUserID)
+            
+            return next(ctx)
         }
-        
-        // Validate token logic here
-        next.ServeHTTP(w, r)
-    })
+    }
 }
 ```
 
@@ -106,43 +115,59 @@ func authMiddleware(next http.Handler) http.Handler {
 <Tab value="Multiple Middleware">
 
 ```go
+import "github.com/xraph/forge/middleware"
+
 func setupSecureAPI(app *forge.App) {
     // Apply multiple middleware to group
-    secure := app.Group("/secure", 
-        forge.WithGroupMiddleware(authMiddleware),
-        forge.WithGroupMiddleware(rateLimitMiddleware),
-        forge.WithGroupMiddleware(loggingMiddleware),
+    limiter := middleware.NewRateLimiter(100, 200)
+    
+    secure := app.Router().Group("/secure", 
+        forge.WithGroupMiddleware(middleware.RequestID()),
+        forge.WithGroupMiddleware(jwtAuthMiddleware("secret")),
+        forge.WithGroupMiddleware(middleware.RateLimit(limiter, app.Logger())),
+        forge.WithGroupMiddleware(middleware.Logging(app.Logger())),
     )
     
     secure.GET("/data", getSecureDataHandler)
     secure.POST("/upload", uploadSecureFileHandler)
 }
 
-func rateLimitMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Rate limiting logic
-        next.ServeHTTP(w, r)
-    })
-}
-
-func loggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        start := time.Now()
-        next.ServeHTTP(w, r)
-        log.Printf("%s %s - %v", r.Method, r.URL.Path, time.Since(start))
-    })
+// Custom middleware
+func customLoggingMiddleware(logger forge.Logger) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            start := time.Now()
+            
+            err := next(ctx)
+            
+            duration := time.Since(start)
+            logger.Info("request completed",
+                "path", ctx.Request().URL.Path,
+                "duration", duration,
+            )
+            
+            return err
+        }
+    }
 }
 ```
 
 </Tab>
-<Tab value="Conditional Middleware">
+<Tab value="Built-in Middleware">
 
 ```go
-func setupConditionalMiddleware(app *forge.App) {
-    // Admin group with role-based middleware
-    admin := app.Group("/admin", 
-        forge.WithGroupMiddleware(authMiddleware),
-        forge.WithGroupMiddleware(requireAdminRole),
+import "github.com/xraph/forge/middleware"
+
+func setupWithBuiltInMiddleware(app *forge.App) {
+    // Admin group with built-in middleware
+    adminLimiter := middleware.NewRateLimiter(10, 20)
+    
+    admin := app.Router().Group("/admin",
+        forge.WithGroupMiddleware(middleware.RequestID()),
+        forge.WithGroupMiddleware(middleware.Recovery(app.Logger())),
+        forge.WithGroupMiddleware(jwtAuthMiddleware("secret")),
+        forge.WithGroupMiddleware(requireAdminRole()),
+        forge.WithGroupMiddleware(middleware.RateLimit(adminLimiter, app.Logger())),
     )
     
     admin.GET("/users", adminListUsersHandler)
@@ -180,35 +205,54 @@ Configure groups with various options:
 ```go
 func setupConfiguredGroups(app *forge.App) {
     // Group with metadata and tags
-    api := app.Group("/api/v1",
+    api := app.Router().Group("/api/v1",
         forge.WithGroupTags("api", "v1"),
-        forge.WithGroupMetadata(map[string]any{
-            "version": "1.0.0",
-            "deprecated": false,
-        }),
+        forge.WithGroupMetadata("version", "1.0.0"),
+        forge.WithGroupMetadata("deprecated", false),
     )
     
-    // Group with timeout configuration
-    longRunning := app.Group("/batch",
-        forge.WithGroupMiddleware(timeoutMiddleware(30*time.Second)),
+    // Internal admin group excluded from schemas
+    admin := app.Router().Group("/internal/admin",
+        forge.WithGroupSchemaExclude(), // Excludes from OpenAPI/AsyncAPI/oRPC
+        forge.WithGroupMiddleware(adminAuthMiddleware()),
     )
     
-    longRunning.POST("/process", batchProcessHandler)
-    longRunning.GET("/status/:id", batchStatusHandler)
-}
-
-func timeoutMiddleware(timeout time.Duration) forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            ctx, cancel := context.WithTimeout(r.Context(), timeout)
-            defer cancel()
-            
-            r = r.WithContext(ctx)
-            next.ServeHTTP(w, r)
-        })
-    }
+    admin.GET("/debug", debugHandler)
+    admin.DELETE("/cache", flushCacheHandler)
+    // These routes won't appear in API documentation
 }
 ```
+
+### Schema Exclusion
+
+Exclude entire route groups from API documentation:
+
+```go
+// Internal endpoints not for public documentation
+internalGroup := app.Router().Group("/internal",
+    forge.WithGroupSchemaExclude(),
+)
+
+internalGroup.GET("/health", internalHealthHandler)
+internalGroup.GET("/metrics", metricsHandler)
+internalGroup.POST("/reload", reloadConfigHandler)
+
+// Debug group excluded from schemas
+debugGroup := app.Router().Group("/debug",
+    forge.WithGroupSchemaExclude(),
+    forge.WithGroupMiddleware(debugAuthMiddleware()),
+)
+
+debugGroup.GET("/vars", debugVarsHandler)
+debugGroup.GET("/pprof", pprofHandler)
+```
+
+**Use Cases for Schema Exclusion:**
+- Internal/debug endpoints
+- Health checks and monitoring
+- Admin-only routes
+- Development-only endpoints
+- Metrics and profiling routes
 
 ## Authentication and Authorization Groups
 

@@ -1,0 +1,589 @@
+---
+title: Error Handling
+description: Production-ready error handling with structured errors and HTTP integration
+---
+
+import { Callout } from 'fumadocs-ui/components/callout'
+import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
+
+Forge provides a comprehensive error handling system with support for Go's standard `errors.Is` and `errors.As` patterns, structured error context, and seamless HTTP integration.
+
+## Error Types
+
+### HTTP Errors
+
+Standard HTTP error responses:
+
+```go
+import "github.com/xraph/forge"
+
+app.Router().GET("/users/:id", func(ctx forge.Context) error {
+    id := ctx.Param("id")
+    
+    user, err := userService.GetUser(id)
+    if err != nil {
+        // Return structured HTTP errors
+        if errors.Is(err, sql.ErrNoRows) {
+            return forge.NotFound("user not found")
+        }
+        return forge.InternalError("failed to get user")
+    }
+    
+    return ctx.JSON(200, user)
+})
+```
+
+**Built-in HTTP Error Constructors:**
+
+| Function | Status Code | Use Case |
+|----------|-------------|----------|
+| `BadRequest(msg)` | 400 | Invalid input, malformed requests |
+| `Unauthorized(msg)` | 401 | Missing or invalid authentication |
+| `Forbidden(msg)` | 403 | Valid auth but insufficient permissions |
+| `NotFound(msg)` | 404 | Resource doesn't exist |
+| `InternalError(msg)` | 500 | Server-side errors |
+
+### Custom HTTP Errors
+
+Create errors with custom status codes and metadata:
+
+```go
+// Custom status code
+err := forge.NewHTTPError(422, "validation failed")
+
+// With structured metadata
+err := forge.NewHTTPError(422, "validation failed", map[string]interface{}{
+    "field": "email",
+    "error": "invalid format",
+    "code":  "INVALID_EMAIL",
+})
+
+// Return from handler
+app.Router().POST("/users", func(ctx forge.Context) error {
+    var req CreateUserRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid JSON")
+    }
+    
+    if !isValidEmail(req.Email) {
+        return forge.NewHTTPError(422, "validation failed", map[string]interface{}{
+            "field": "email",
+            "error": "invalid email format",
+        })
+    }
+    
+    // Process request...
+    return ctx.JSON(201, user)
+})
+```
+
+## Forge Error System
+
+### Error Codes
+
+Type-safe error codes for application errors:
+
+```go
+import "github.com/xraph/forge/errors"
+
+// Predefined error codes
+const (
+    CodeConfigError           = "CONFIG_ERROR"
+    CodeValidationError       = "VALIDATION_ERROR"
+    CodeServiceNotFound       = "SERVICE_NOT_FOUND"
+    CodeServiceAlreadyExists  = "SERVICE_ALREADY_EXISTS"
+    CodeCircularDependency    = "CIRCULAR_DEPENDENCY"
+    CodeTimeoutError          = "TIMEOUT_ERROR"
+    CodeContextCancelled      = "CONTEXT_CANCELLED"
+)
+```
+
+### Creating Structured Errors
+
+Use error constructors for rich error context:
+
+```go
+import "github.com/xraph/forge/errors"
+
+// Service errors
+err := errors.ErrServiceNotFound("database")
+err := errors.ErrServiceAlreadyExists("cache", "redis")
+
+// Validation errors
+err := errors.ErrValidationError("email", fmt.Errorf("invalid format"))
+
+// Configuration errors
+err := errors.ErrConfigError("failed to load config", underlyingErr)
+
+// Timeout errors
+err := errors.ErrTimeoutError("query", 5*time.Second)
+
+// With additional context
+err := errors.ErrServiceNotFound("database").
+    WithContext("host", "localhost").
+    WithContext("port", 5432).
+    WithContext("database", "users")
+```
+
+### Checking Error Types
+
+<Tabs items={["Sentinel Errors", "Helper Functions", "Error Codes", "Type Extraction"]}>
+<Tab value="Sentinel Errors">
+
+Most concise approach using sentinel errors:
+
+```go
+import (
+    "errors"
+    forgeerrors "github.com/xraph/forge/errors"
+)
+
+if errors.Is(err, forgeerrors.ErrServiceNotFoundSentinel) {
+    // Handle service not found
+}
+
+if errors.Is(err, forgeerrors.ErrValidationErrorSentinel) {
+    // Handle validation error
+}
+
+if errors.Is(err, forgeerrors.ErrTimeoutErrorSentinel) {
+    // Handle timeout
+}
+```
+
+**Available Sentinels:**
+- `ErrServiceNotFoundSentinel`
+- `ErrServiceAlreadyExistsSentinel`
+- `ErrValidationErrorSentinel`
+- `ErrConfigErrorSentinel`
+- `ErrCircularDependencySentinel`
+- `ErrTimeoutErrorSentinel`
+- `ErrContextCancelledSentinel`
+
+</Tab>
+<Tab value="Helper Functions">
+
+Clearest intent with helper functions:
+
+```go
+import forgeerrors "github.com/xraph/forge/errors"
+
+if forgeerrors.IsServiceNotFound(err) {
+    // Handle service not found
+}
+
+if forgeerrors.IsValidationError(err) {
+    // Handle validation error
+}
+
+if forgeerrors.IsTimeout(err) {
+    // Handle timeout
+}
+
+if forgeerrors.IsCircularDependency(err) {
+    // Handle circular dependency
+}
+```
+
+</Tab>
+<Tab value="Error Codes">
+
+Most flexible using error codes:
+
+```go
+import (
+    "errors"
+    forgeerrors "github.com/xraph/forge/errors"
+)
+
+var forgeErr *forgeerrors.ForgeError
+if errors.As(err, &forgeErr) {
+    switch forgeErr.Code {
+    case forgeerrors.CodeServiceNotFound:
+        log.Printf("Service not found: %s", forgeErr.Message)
+    case forgeerrors.CodeValidationError:
+        log.Printf("Validation failed: %s", forgeErr.Message)
+    case forgeerrors.CodeTimeoutError:
+        log.Printf("Timeout: %s", forgeErr.Message)
+    default:
+        log.Printf("Unknown error: %s", forgeErr.Message)
+    }
+}
+```
+
+</Tab>
+<Tab value="Type Extraction">
+
+Extract specific error types for detailed information:
+
+```go
+import (
+    "errors"
+    forgeerrors "github.com/xraph/forge/errors"
+)
+
+// Extract ServiceError
+var serviceErr *forgeerrors.ServiceError
+if errors.As(err, &serviceErr) {
+    log.Printf("Service: %s, Operation: %s",
+        serviceErr.Service,
+        serviceErr.Operation)
+}
+
+// Extract ValidationError
+var validationErr *forgeerrors.ValidationError
+if errors.As(err, &validationErr) {
+    log.Printf("Field: %s, Reason: %v",
+        validationErr.Field,
+        validationErr.Reason)
+}
+
+// Extract ConfigError
+var configErr *forgeerrors.ConfigError
+if errors.As(err, &configErr) {
+    log.Printf("Config error: %s, Cause: %v",
+        configErr.Message,
+        configErr.Cause)
+}
+```
+
+</Tab>
+</Tabs>
+
+## Error Wrapping and Chains
+
+### Wrapping Errors
+
+Preserve error chains while adding context:
+
+```go
+import forgeerrors "github.com/xraph/forge/errors"
+
+func loadDatabase() error {
+    err := connectToDatabase()
+    if err != nil {
+        // Wrap the error with context
+        return forgeerrors.ErrConfigError("failed to initialize database", err)
+    }
+    return nil
+}
+
+func initializeApp() error {
+    err := loadDatabase()
+    if err != nil {
+        // Wrap again with more context
+        return forgeerrors.ErrLifecycleError("app initialization failed", err)
+    }
+    return nil
+}
+```
+
+### Unwrapping Error Chains
+
+Check errors anywhere in the chain:
+
+```go
+import (
+    "errors"
+    forgeerrors "github.com/xraph/forge/errors"
+)
+
+err := initializeApp()
+
+// errors.Is traverses the chain
+if errors.Is(err, forgeerrors.ErrServiceNotFoundSentinel) {
+    // Found even if deeply nested
+}
+
+// errors.As extracts from chain
+var serviceErr *forgeerrors.ServiceError
+if errors.As(err, &serviceErr) {
+    // Extract specific type from anywhere in chain
+}
+```
+
+## HTTP Integration
+
+### Automatic HTTP Status Code Mapping
+
+Forge automatically converts errors to appropriate HTTP responses:
+
+```go
+import forgeerrors "github.com/xraph/forge/errors"
+
+app.Router().GET("/users/:id", func(ctx forge.Context) error {
+    id := ctx.Param("id")
+    
+    user, err := userService.GetUser(id)
+    if err != nil {
+        // These automatically become HTTP responses
+        if forgeerrors.IsServiceNotFound(err) {
+            return forge.NotFound("user service unavailable")
+        }
+        if forgeerrors.IsTimeout(err) {
+            return forge.NewHTTPError(504, "request timeout")
+        }
+        return forge.InternalError("internal server error")
+    }
+    
+    return ctx.JSON(200, user)
+})
+```
+
+### Custom Error Handler
+
+Customize error response format:
+
+```go
+import forgeerrors "github.com/xraph/forge/errors"
+
+type CustomErrorHandler struct {
+    logger forge.Logger
+}
+
+func (h *CustomErrorHandler) HandleError(ctx forge.Context, err error) {
+    // Extract request ID for tracking
+    requestID := ctx.Get("request_id")
+    
+    // Log the error
+    h.logger.Error("request failed",
+        "error", err,
+        "request_id", requestID,
+        "path", ctx.Request().URL.Path,
+    )
+    
+    // Convert to HTTP error
+    var httpErr *forge.HTTPError
+    if errors.As(err, &httpErr) {
+        _ = ctx.JSON(httpErr.StatusCode, map[string]interface{}{
+            "error":      httpErr.Message,
+            "request_id": requestID,
+            "metadata":   httpErr.Metadata,
+        })
+        return
+    }
+    
+    // Default to 500
+    _ = ctx.JSON(500, map[string]interface{}{
+        "error":      "internal server error",
+        "request_id": requestID,
+    })
+}
+
+// Register custom error handler
+app := forge.NewApp(forge.AppConfig{
+    ErrorHandler: &CustomErrorHandler{logger: logger},
+})
+```
+
+## Error Patterns
+
+### Service Layer Errors
+
+Return structured errors from services:
+
+```go
+import forgeerrors "github.com/xraph/forge/errors"
+
+type UserService struct {
+    db *sql.DB
+}
+
+func (s *UserService) GetUser(id string) (*User, error) {
+    var user User
+    err := s.db.QueryRow("SELECT * FROM users WHERE id = ?", id).Scan(&user)
+    
+    if err == sql.ErrNoRows {
+        return nil, forgeerrors.ErrServiceNotFound("user").
+            WithContext("user_id", id)
+    }
+    
+    if err != nil {
+        return nil, forgeerrors.ErrConfigError("database query failed", err).
+            WithContext("user_id", id).
+            WithContext("operation", "GetUser")
+    }
+    
+    return &user, nil
+}
+
+func (s *UserService) CreateUser(user *User) error {
+    _, err := s.db.Exec("INSERT INTO users ...", user)
+    
+    if isDuplicateKeyError(err) {
+        return forgeerrors.ErrServiceAlreadyExists("user", user.Email).
+            WithContext("email", user.Email)
+    }
+    
+    if err != nil {
+        return forgeerrors.ErrConfigError("database insert failed", err)
+    }
+    
+    return nil
+}
+```
+
+### Handler Error Conversion
+
+Convert service errors to HTTP errors:
+
+```go
+app.Router().POST("/users", func(ctx forge.Context) error {
+    var req CreateUserRequest
+    if err := ctx.BindJSON(&req); err != nil {
+        return forge.BadRequest("invalid JSON")
+    }
+    
+    user, err := userService.CreateUser(&req)
+    if err != nil {
+        // Convert service errors to HTTP errors
+        if forgeerrors.IsServiceAlreadyExists(err) {
+            return forge.NewHTTPError(409, "user already exists")
+        }
+        if forgeerrors.IsValidationError(err) {
+            return forge.NewHTTPError(422, "validation failed")
+        }
+        return forge.InternalError("failed to create user")
+    }
+    
+    return ctx.JSON(201, user)
+})
+```
+
+### Validation Errors
+
+Handle validation with structured errors:
+
+```go
+import (
+    "github.com/go-playground/validator/v10"
+    forgeerrors "github.com/xraph/forge/errors"
+)
+
+func validateUser(user *User) error {
+    validate := validator.New()
+    
+    if err := validate.Struct(user); err != nil {
+        // Convert validator errors to structured errors
+        validationErrors := err.(validator.ValidationErrors)
+        
+        details := make(map[string]string)
+        for _, fe := range validationErrors {
+            details[fe.Field()] = fe.Tag()
+        }
+        
+        return forge.NewHTTPError(422, "validation failed", details)
+    }
+    
+    return nil
+}
+
+app.Router().POST("/users", func(ctx forge.Context) error {
+    var user User
+    if err := ctx.BindJSON(&user); err != nil {
+        return forge.BadRequest("invalid JSON")
+    }
+    
+    if err := validateUser(&user); err != nil {
+        return err // Already an HTTPError
+    }
+    
+    return ctx.JSON(201, user)
+})
+```
+
+## Best Practices
+
+<Callout type="info">
+**Error Handling Best Practices**
+
+1. **Use Structured Errors**: Use `forge/errors` for application errors
+2. **Wrap Errors**: Preserve context with error wrapping
+3. **HTTP at Edges**: Convert to HTTP errors only in handlers
+4. **Log Once**: Log errors at boundaries, not every layer
+5. **Include Context**: Add relevant context with `WithContext()`
+6. **Don't Panic**: Return errors, don't panic except for bugs
+7. **Sentinel Comparison**: Use `errors.Is()` for type checking
+8. **Type Extraction**: Use `errors.As()` for details
+9. **Unique Codes**: Use distinct error codes for monitoring
+10. **Request IDs**: Always include request ID in error logs
+</Callout>
+
+### Example: Complete Error Flow
+
+```go
+package main
+
+import (
+    "database/sql"
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/errors"
+    "github.com/xraph/forge/middleware"
+)
+
+// Service layer
+type UserService struct {
+    db *sql.DB
+}
+
+func (s *UserService) GetUser(id string) (*User, error) {
+    var user User
+    err := s.db.QueryRow("SELECT * FROM users WHERE id = ?", id).Scan(&user)
+    
+    if err == sql.ErrNoRows {
+        return nil, errors.ErrServiceNotFound("user").
+            WithContext("user_id", id)
+    }
+    
+    if err != nil {
+        return nil, errors.ErrConfigError("query failed", err).
+            WithContext("user_id", id)
+    }
+    
+    return &user, nil
+}
+
+// Handler layer
+func main() {
+    app := forge.New()
+    
+    // Middleware for error context
+    app.Router().Use(middleware.RequestID())
+    
+    userService := &UserService{db: db}
+    
+    app.Router().GET("/users/:id", func(ctx forge.Context) error {
+        id := ctx.Param("id")
+        
+        user, err := userService.GetUser(id)
+        if err != nil {
+            // Log with context
+            ctx.Logger().Error("failed to get user",
+                "error", err,
+                "user_id", id,
+                "request_id", middleware.GetRequestIDFromForgeContext(ctx),
+            )
+            
+            // Convert to HTTP error
+            if errors.IsServiceNotFound(err) {
+                return forge.NotFound("user not found")
+            }
+            
+            return forge.InternalError("failed to retrieve user")
+        }
+        
+        return ctx.JSON(200, user)
+    })
+    
+    if err := app.Run(); err != nil {
+        panic(err)
+    }
+}
+```
+
+## Next Steps
+
+- Explore [Middleware](/docs/forge/router/middleware) for error handling middleware
+- Learn about [Context](/docs/forge/concepts/context) for request-scoped data
+- Check [Observability](/docs/forge/concepts/observability) for error monitoring
+
