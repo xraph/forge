@@ -6,724 +6,1111 @@ description: Process requests and responses with powerful middleware system
 import { Callout } from 'fumadocs-ui/components/callout'
 import { Tabs, Tab } from 'fumadocs-ui/components/tabs'
 
-Middleware in Forge allows you to process HTTP requests and responses in a pipeline, enabling cross-cutting concerns like authentication, logging, CORS, and more.
+Middleware in Forge allows you to process HTTP requests and responses in a pipeline, enabling cross-cutting concerns like authentication, logging, CORS, error handling, and more. Forge provides a powerful middleware system that works seamlessly with its handler pattern.
+
+## Middleware Pattern
+
+Forge middleware uses a functional pattern with `forge.Handler` and `forge.Context`:
+
+```go
+type Middleware func(next forge.Handler) forge.Handler
+type Handler func(ctx forge.Context) error
+```
+
+This pattern provides type-safe, composable middleware with proper error handling.
 
 ## Basic Middleware
 
-Middleware functions wrap HTTP handlers to add functionality:
+Create custom middleware by wrapping handlers:
 
 ```go
 package main
 
 import (
-    "log"
-    "net/http"
     "time"
     
     "github.com/xraph/forge"
+    "github.com/xraph/forge/middleware"
 )
 
 func main() {
     app := forge.New()
     
     // Apply middleware globally
-    app.Use(loggingMiddleware)
-    app.Use(corsMiddleware)
+    app.Router().Use(
+        middleware.RequestID(),
+        middleware.Logging(app.Logger()),
+        middleware.Recovery(app.Logger()),
+        middleware.CORS(middleware.DefaultCORSConfig()),
+    )
     
-    app.GET("/users", getUsersHandler)
-    app.Start(":8080")
+    app.Router().GET("/users", getUsersHandler)
+    
+    if err := app.Run(); err != nil {
+        panic(err)
+    }
 }
 
-// Basic logging middleware
-func loggingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// Custom logging middleware
+func customLoggingMiddleware(logger forge.Logger) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
         start := time.Now()
         
-        // Call the next handler
-        next.ServeHTTP(w, r)
-        
-        // Log after request completion
-        log.Printf("%s %s - %v", r.Method, r.URL.Path, time.Since(start))
-    })
-}
-
-// CORS middleware
-func corsMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Access-Control-Allow-Origin", "*")
-        w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        
-        if r.Method == "OPTIONS" {
-            w.WriteHeader(http.StatusOK)
-            return
+            logger.Info("request started",
+                "method", ctx.Request().Method,
+                "path", ctx.Request().URL.Path,
+            )
+            
+            // Call next handler
+            err := next(ctx)
+            
+            duration := time.Since(start)
+            logger.Info("request completed",
+                "method", ctx.Request().Method,
+                "path", ctx.Request().URL.Path,
+                "duration", duration,
+            )
+            
+            return err
         }
-        
-        next.ServeHTTP(w, r)
-    })
+    }
 }
 ```
 
-## Middleware Types
+## Built-In Middleware
 
-<Tabs items={["Authentication", "Logging", "Rate Limiting", "Validation"]}>
-<Tab value="Authentication">
+Forge provides production-ready middleware out of the box:
+
+<Tabs items={["CORS", "Logging", "Recovery", "Rate Limiting", "Request ID", "Compression", "Timeout"]}>
+<Tab value="CORS">
+
+### CORS Middleware
+
+Handle Cross-Origin Resource Sharing (CORS) with full configuration support:
 
 ```go
-// JWT Authentication middleware
-func jwtAuthMiddleware(secretKey string) forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            authHeader := r.Header.Get("Authorization")
-            if authHeader == "" {
-                http.Error(w, "Authorization header required", http.StatusUnauthorized)
-                return
-            }
-            
-            tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-            if tokenString == authHeader {
-                http.Error(w, "Bearer token required", http.StatusUnauthorized)
-                return
-            }
-            
-            // Validate JWT token
-            token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-                return []byte(secretKey), nil
-            })
-            
-            if err != nil || !token.Valid {
-                http.Error(w, "Invalid token", http.StatusUnauthorized)
-                return
-            }
-            
-            // Add user info to context
-            claims := token.Claims.(jwt.MapClaims)
-            ctx := context.WithValue(r.Context(), "user_id", claims["user_id"])
-            ctx = context.WithValue(ctx, "username", claims["username"])
-            
-            next.ServeHTTP(w, r.WithContext(ctx))
-        })
-    }
-}
+import "github.com/xraph/forge/middleware"
 
-// API Key authentication
-func apiKeyMiddleware(validKeys map[string]bool) forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            apiKey := r.Header.Get("X-API-Key")
-            if apiKey == "" {
-                http.Error(w, "API key required", http.StatusUnauthorized)
-                return
-            }
-            
-            if !validKeys[apiKey] {
-                http.Error(w, "Invalid API key", http.StatusUnauthorized)
-                return
-            }
-            
-            next.ServeHTTP(w, r)
-        })
-    }
-}
+// Default CORS configuration (permissive for development)
+app.Router().Use(middleware.CORS(middleware.DefaultCORSConfig()))
+
+// Custom CORS configuration
+app.Router().Use(middleware.CORS(middleware.CORSConfig{
+    AllowOrigins:     []string{"https://example.com", "https://app.example.com"},
+    AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+    AllowHeaders:     []string{"Content-Type", "Authorization", "X-API-Key"},
+    ExposeHeaders:    []string{"X-Request-ID"},
+    AllowCredentials: true,
+    MaxAge:           3600, // Cache preflight for 1 hour
+}))
+
+// Wildcard subdomain support
+app.Router().Use(middleware.CORS(middleware.CORSConfig{
+    AllowOrigins: []string{"*.example.com"}, // Matches any subdomain
+    AllowMethods: []string{"GET", "POST"},
+}))
 ```
+
+**Features:**
+- Automatic OPTIONS preflight handling
+- Wildcard origin support (`*`)
+- Subdomain wildcard support (`*.example.com`)
+- Credentials handling with security validation
+- Proper Vary header management
+- Method and header validation
+
+<Callout type="warn">
+**Security Note:** `AllowOrigins: ["*"]` and `AllowCredentials: true` cannot be used together. The middleware will panic if misconfigured.
+</Callout>
 
 </Tab>
 <Tab value="Logging">
 
+### Logging Middleware
+
+Structured logging with request/response tracking:
+
 ```go
-// Structured logging middleware
-func structuredLoggingMiddleware(logger *log.Logger) forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            start := time.Now()
-            
-            // Wrap response writer to capture status code
-            wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-            
-            // Generate request ID
-            requestID := generateRequestID()
-            ctx := context.WithValue(r.Context(), "request_id", requestID)
-            
-            // Log request start
-            logger.Printf("Request started: %s %s [%s]", r.Method, r.URL.Path, requestID)
-            
-            next.ServeHTTP(wrapped, r.WithContext(ctx))
-            
-            // Log request completion
-            duration := time.Since(start)
-            logger.Printf("Request completed: %s %s [%s] - %d (%v)", 
-                r.Method, r.URL.Path, requestID, wrapped.statusCode, duration)
-        })
-    }
-}
+import "github.com/xraph/forge/middleware"
 
-type responseWriter struct {
-    http.ResponseWriter
-    statusCode int
-}
+// Basic logging with default configuration
+app.Router().Use(middleware.Logging(app.Logger()))
 
-func (rw *responseWriter) WriteHeader(code int) {
-    rw.statusCode = code
-    rw.ResponseWriter.WriteHeader(code)
-}
+// Custom logging configuration
+app.Router().Use(middleware.LoggingWithConfig(
+    app.Logger(),
+    middleware.LoggingConfig{
+        IncludeHeaders:   true,
+        ExcludePaths:     []string{"/health", "/metrics"},
+        SensitiveHeaders: []string{"Authorization", "Cookie"},
+    },
+))
+```
 
-func generateRequestID() string {
-    return fmt.Sprintf("%d", time.Now().UnixNano())
-}
+**Features:**
+- Request start/completion logging
+- Duration tracking
+- Path exclusion for health checks
+- Sensitive header redaction
+- Structured logging support
+
+**Default Excluded Paths:**
+- `/health`
+- `/metrics`
+
+**Default Sensitive Headers:**
+- `Authorization`
+- `Cookie`
+- `Set-Cookie`
+
+</Tab>
+<Tab value="Recovery">
+
+### Recovery Middleware
+
+Recover from panics gracefully:
+
+```go
+import "github.com/xraph/forge/middleware"
+
+app.Router().Use(middleware.Recovery(app.Logger()))
+```
+
+**Features:**
+- Catches panics in handlers
+- Logs panic details with stack trace
+- Returns `500 Internal Server Error`
+- Prevents server crashes
+- Production-ready error handling
+
+```go
+// Example handler that panics
+app.Router().GET("/panic", func(ctx forge.Context) error {
+    panic("something went wrong!")
+    // Recovery middleware catches this and returns 500
+})
 ```
 
 </Tab>
 <Tab value="Rate Limiting">
 
+### Rate Limiting Middleware
+
+Token bucket algorithm for precise rate limiting:
+
 ```go
-import (
-    "sync"
-    "time"
+import "github.com/xraph/forge/middleware"
+
+// Create rate limiter: 100 requests per second, burst of 200
+limiter := middleware.NewRateLimiter(100, 200)
+
+// Apply to all routes
+app.Router().Use(middleware.RateLimit(limiter, app.Logger()))
+
+// Per-route rate limiting
+app.Router().GET("/expensive", handler,
+    forge.WithMiddleware(middleware.RateLimit(
+        middleware.NewRateLimiter(10, 20), // Stricter limits
+        app.Logger(),
+    )),
 )
-
-// Simple rate limiting middleware
-func rateLimitMiddleware(requestsPerMinute int) forge.Middleware {
-    type client struct {
-        requests []time.Time
-        mutex    sync.Mutex
-    }
-    
-    clients := make(map[string]*client)
-    var globalMutex sync.RWMutex
-    
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            clientIP := getClientIP(r)
-            now := time.Now()
-            
-            globalMutex.RLock()
-            c, exists := clients[clientIP]
-            globalMutex.RUnlock()
-            
-            if !exists {
-                globalMutex.Lock()
-                c = &client{requests: make([]time.Time, 0)}
-                clients[clientIP] = c
-                globalMutex.Unlock()
-            }
-            
-            c.mutex.Lock()
-            defer c.mutex.Unlock()
-            
-            // Remove requests older than 1 minute
-            cutoff := now.Add(-time.Minute)
-            validRequests := make([]time.Time, 0)
-            for _, reqTime := range c.requests {
-                if reqTime.After(cutoff) {
-                    validRequests = append(validRequests, reqTime)
-                }
-            }
-            c.requests = validRequests
-            
-            // Check rate limit
-            if len(c.requests) >= requestsPerMinute {
-                http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
-                return
-            }
-            
-            // Add current request
-            c.requests = append(c.requests, now)
-            
-            next.ServeHTTP(w, r)
-        })
-    }
-}
-
-func getClientIP(r *http.Request) string {
-    forwarded := r.Header.Get("X-Forwarded-For")
-    if forwarded != "" {
-        return strings.Split(forwarded, ",")[0]
-    }
-    return r.RemoteAddr
-}
 ```
+
+**Features:**
+- Token bucket algorithm (industry standard)
+- Per-client rate limiting (by remote address)
+- Automatic token refill over time
+- Configurable burst capacity
+- Background cleanup of old buckets
+- Thread-safe implementation
+
+**Parameters:**
+- `rate`: Maximum requests per second
+- `burst`: Maximum burst size (bucket capacity)
+
+**Response:**
+- Returns `429 Too Many Requests` when limit exceeded
+- Sets `X-Ratelimit-Limit: exceeded` header
 
 </Tab>
-<Tab value="Validation">
+<Tab value="Request ID">
+
+### Request ID Middleware
+
+Track requests with unique identifiers:
 
 ```go
-// Request validation middleware
-func validationMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Content-Type validation for POST/PUT requests
-        if r.Method == "POST" || r.Method == "PUT" {
-            contentType := r.Header.Get("Content-Type")
-            if !strings.Contains(contentType, "application/json") {
-                http.Error(w, "Content-Type must be application/json", http.StatusBadRequest)
-                return
-            }
-        }
-        
-        // Request size validation
-        if r.ContentLength > 10*1024*1024 { // 10MB limit
-            http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
-            return
-        }
-        
-        // Custom header validation
-        if r.Header.Get("X-Client-Version") == "" {
-            w.Header().Set("X-Warning", "Client version not specified")
-        }
-        
-        next.ServeHTTP(w, r)
-    })
-}
+import "github.com/xraph/forge/middleware"
 
-// JSON schema validation middleware
-func jsonSchemaMiddleware(schema string) forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            if r.Method == "POST" || r.Method == "PUT" {
-                body, err := io.ReadAll(r.Body)
-                if err != nil {
-                    http.Error(w, "Error reading request body", http.StatusBadRequest)
-                    return
-                }
-                
-                // Restore body for next handler
-                r.Body = io.NopCloser(bytes.NewBuffer(body))
-                
-                // Validate JSON schema (implementation depends on schema library)
-                if !validateJSONSchema(body, schema) {
-                    http.Error(w, "Invalid request format", http.StatusBadRequest)
-                    return
-                }
-            }
-            
-            next.ServeHTTP(w, r)
-        })
-    }
-}
+app.Router().Use(middleware.RequestID())
+
+// Access request ID in handlers
+app.Router().GET("/users", func(ctx forge.Context) error {
+    requestID := middleware.GetRequestIDFromForgeContext(ctx)
+    
+    ctx.Logger().Info("processing request", "request_id", requestID)
+    
+    return ctx.JSON(200, map[string]string{
+        "request_id": requestID,
+    })
+})
 ```
+
+**Features:**
+- Generates UUID for each request
+- Reuses `X-Request-ID` header if present
+- Sets response header automatically
+- Stores in context for easy access
+- Perfect for distributed tracing
+
+</Tab>
+<Tab value="Compression">
+
+### Compression Middleware
+
+Gzip compression for responses:
+
+```go
+import "github.com/xraph/forge/middleware"
+
+// Default compression level
+app.Router().Use(middleware.CompressDefault())
+
+// Custom compression level (1-9)
+app.Router().Use(middleware.Compress(6))
+```
+
+**Features:**
+- Automatic gzip compression
+- Client capability detection
+- Configurable compression level
+- Response writer wrapping
+- Proper header management
+
+**Compression Levels:**
+- `1`: Best speed, least compression
+- `6`: Default balanced
+- `9`: Best compression, slower
+
+</Tab>
+<Tab value="Timeout">
+
+### Timeout Middleware
+
+Enforce request timeouts:
+
+```go
+import (
+    "net/http"
+    "time"
+    "github.com/xraph/forge/middleware"
+)
+
+// Note: Timeout uses http.Handler pattern
+timeoutMiddleware := middleware.Timeout(30*time.Second, app.Logger())
+
+// Apply using PureMiddleware conversion
+app.Router().Use(func(next forge.Handler) forge.Handler {
+    return func(ctx forge.Context) error {
+        // Create a wrapper that calls the timeout middleware
+        handler := timeoutMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            _ = next(ctx)
+        }))
+        
+        handler.ServeHTTP(ctx.Response(), ctx.Request())
+        return nil
+    }
+})
+```
+
+**Features:**
+- Context-based timeout enforcement
+- Safe response buffering
+- Race condition prevention
+- Returns `504 Gateway Timeout`
+- Goroutine-safe implementation
+
+<Callout type="info">
+The Timeout middleware uses `http.Handler` pattern due to goroutine requirements for proper timeout handling.
+</Callout>
 
 </Tab>
 </Tabs>
 
-## Middleware Chaining
+## Custom Middleware
 
-Chain multiple middleware together:
+### Authentication Example
+
+Create custom middleware for your application needs:
 
 ```go
+// JWT Authentication middleware
+func jwtAuthMiddleware(secretKey string) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            authHeader := ctx.Request().Header.Get("Authorization")
+            if authHeader == "" {
+                return forge.Unauthorized("authorization header required")
+            }
+            
+            tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+            if tokenString == authHeader {
+                return forge.Unauthorized("bearer token required")
+            }
+            
+            // Validate JWT token (pseudo-code)
+            claims, err := validateJWT(tokenString, secretKey)
+            if err != nil {
+                return forge.Unauthorized("invalid token")
+            }
+            
+            // Store claims in context
+            ctx.Set("user_id", claims.UserID)
+            ctx.Set("username", claims.Username)
+            
+            return next(ctx)
+        }
+    }
+}
+
+// API Key middleware
+func apiKeyMiddleware(validKeys map[string]bool) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            apiKey := ctx.Request().Header.Get("X-API-Key")
+            if apiKey == "" {
+                return forge.Unauthorized("API key required")
+            }
+            
+            if !validKeys[apiKey] {
+                return forge.Unauthorized("invalid API key")
+            }
+            
+            return next(ctx)
+        }
+    }
+}
+```
+
+### Validation Example
+
+```go
+import "github.com/go-playground/validator/v10"
+
+// Request validation middleware
+func validationMiddleware() forge.Middleware {
+    validate := validator.New()
+    
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            // Content-Type validation for POST/PUT
+            if ctx.Request().Method == "POST" || ctx.Request().Method == "PUT" {
+                contentType := ctx.Request().Header.Get("Content-Type")
+            if !strings.Contains(contentType, "application/json") {
+                    return forge.BadRequest("content-Type must be application/json")
+            }
+        }
+        
+        // Request size validation
+            if ctx.Request().ContentLength > 10*1024*1024 { // 10MB
+                return forge.NewHTTPError(413, "request body too large")
+            }
+            
+            return next(ctx)
+        }
+    }
+}
+
+// Struct validation middleware
+func structValidationMiddleware() forge.Middleware {
+    validate := validator.New()
+    
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            // This would be applied after BindJSON
+            // Handler should validate the struct manually
+            return next(ctx)
+        }
+    }
+}
+```
+
+## Middleware Chaining
+
+Chain multiple middleware in a specific order:
+
+```go
+import "github.com/xraph/forge/middleware"
+
 func setupMiddlewareChain(app *forge.App) {
     // Global middleware (applied to all routes)
-    app.Use(
-        requestIDMiddleware,
-        loggingMiddleware,
-        corsMiddleware,
-        recoveryMiddleware,
+    // Order matters: request ID → recovery → logging → CORS
+    app.Router().Use(
+        middleware.RequestID(),
+        middleware.Recovery(app.Logger()),
+        middleware.Logging(app.Logger()),
+        middleware.CORS(middleware.DefaultCORSConfig()),
     )
     
-    // API routes with additional middleware
-    api := app.Group("/api",
-        forge.WithGroupMiddleware(rateLimitMiddleware(100)),
-        forge.WithGroupMiddleware(authMiddleware),
+    // API routes with rate limiting and auth
+    limiter := middleware.NewRateLimiter(100, 200)
+    api := app.Router().Group("/api",
+        forge.WithGroupMiddleware(middleware.RateLimit(limiter, app.Logger())),
+        forge.WithGroupMiddleware(jwtAuthMiddleware("secret")),
     )
     
-    // Admin routes with extra security
+    // Admin routes with stricter limits
+    adminLimiter := middleware.NewRateLimiter(10, 20)
     admin := api.Group("/admin",
-        forge.WithGroupMiddleware(requireAdminRole),
-        forge.WithGroupMiddleware(auditLogMiddleware),
+        forge.WithGroupMiddleware(middleware.RateLimit(adminLimiter, app.Logger())),
+        forge.WithGroupMiddleware(requireAdminRole()),
+        forge.WithGroupMiddleware(auditLogMiddleware()),
     )
     
     admin.GET("/users", adminGetUsersHandler)
 }
 
-// Recovery middleware to handle panics
-func recoveryMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        defer func() {
-            if err := recover(); err != nil {
-                log.Printf("Panic recovered: %v", err)
-                http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+// Admin role validation
+func requireAdminRole() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            userRole := ctx.Get("user_role")
+            if userRole != "admin" {
+                return forge.Forbidden("admin access required")
             }
-        }()
-        
-        next.ServeHTTP(w, r)
-    })
+            return next(ctx)
+        }
+    }
 }
 
-// Request ID middleware
-func requestIDMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        requestID := r.Header.Get("X-Request-ID")
-        if requestID == "" {
-            requestID = generateRequestID()
+// Audit logging middleware
+func auditLogMiddleware() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            userID := ctx.Get("user_id")
+            ctx.Logger().Info("admin action",
+                "user_id", userID,
+                "path", ctx.Request().URL.Path,
+                "method", ctx.Request().Method,
+            )
+            return next(ctx)
         }
-        
-        w.Header().Set("X-Request-ID", requestID)
-        ctx := context.WithValue(r.Context(), "request_id", requestID)
-        
-        next.ServeHTTP(w, r.WithContext(ctx))
-    })
+    }
 }
 ```
+
+<Callout type="info">
+**Middleware Order Matters**
+
+The order of middleware execution is important:
+1. **Request ID** - Generate tracking ID first
+2. **Recovery** - Catch panics early
+3. **Logging** - Log with request ID
+4. **CORS** - Handle CORS before auth
+5. **Authentication** - Verify identity
+6. **Authorization** - Check permissions
+7. **Rate Limiting** - After auth for accurate limiting
+</Callout>
 
 ## Route-Specific Middleware
 
-Apply middleware to specific routes:
+Apply middleware to individual routes:
 
 ```go
+import "github.com/xraph/forge/middleware"
+
 func setupRouteMiddleware(app *forge.App) {
-    // Route with specific middleware
-    app.GET("/public/data", getPublicDataHandler)
+    // Public route (no middleware)
+    app.Router().GET("/public/data", getPublicDataHandler)
     
-    // Route with authentication middleware
-    app.GET("/private/data", getPrivateDataHandler,
-        forge.WithMiddleware(authMiddleware),
+    // Route with authentication
+    app.Router().GET("/private/data", getPrivateDataHandler,
+        forge.WithMiddleware(jwtAuthMiddleware("secret")),
     )
     
     // Route with multiple middleware
-    app.POST("/upload", uploadHandler,
-        forge.WithMiddleware(authMiddleware),
-        forge.WithMiddleware(fileSizeValidationMiddleware),
-        forge.WithMiddleware(virusScanMiddleware),
+    app.Router().POST("/upload", uploadHandler,
+        forge.WithMiddleware(jwtAuthMiddleware("secret")),
+        forge.WithMiddleware(fileSizeValidation(50*1024*1024)), // 50MB
+        forge.WithMiddleware(fileTypeValidation([]string{".jpg", ".png"})),
     )
     
-    // Route with conditional middleware
-    app.GET("/admin/stats", getStatsHandler,
-        forge.WithMiddleware(authMiddleware),
-        forge.WithMiddleware(requireAdminRole),
-        forge.WithMiddleware(rateLimitMiddleware(10)), // Lower rate limit for admin
+    // Admin route with strict rate limit
+    adminLimiter := middleware.NewRateLimiter(10, 20)
+    app.Router().GET("/admin/stats", getStatsHandler,
+        forge.WithMiddleware(jwtAuthMiddleware("secret")),
+        forge.WithMiddleware(requireAdminRole()),
+        forge.WithMiddleware(middleware.RateLimit(adminLimiter, app.Logger())),
     )
 }
 
-func fileSizeValidationMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        if r.ContentLength > 50*1024*1024 { // 50MB limit
-            http.Error(w, "File too large", http.StatusRequestEntityTooLarge)
-            return
+// File size validation middleware
+func fileSizeValidation(maxSize int64) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            if ctx.Request().ContentLength > maxSize {
+                return forge.NewHTTPError(413, "file too large")
+            }
+            return next(ctx)
         }
-        next.ServeHTTP(w, r)
-    })
-}
-```
-
-## Custom Middleware Patterns
-
-### Conditional Middleware
-
-```go
-// Conditional middleware based on environment
-func conditionalMiddleware(condition bool, middleware forge.Middleware) forge.Middleware {
-    if condition {
-        return middleware
-    }
-    return func(next http.Handler) http.Handler {
-        return next // No-op middleware
     }
 }
 
-func setupConditionalMiddleware(app *forge.App, config *Config) {
-    app.Use(
-        conditionalMiddleware(config.Debug, debugMiddleware),
-        conditionalMiddleware(config.EnableMetrics, metricsMiddleware),
-        conditionalMiddleware(config.EnableTracing, tracingMiddleware),
-    )
-}
-```
-
-### Middleware with Configuration
-
-```go
-// Configurable timeout middleware
-func timeoutMiddleware(timeout time.Duration) forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            ctx, cancel := context.WithTimeout(r.Context(), timeout)
-            defer cancel()
+// File type validation middleware
+func fileTypeValidation(allowedTypes []string) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            contentType := ctx.Request().Header.Get("Content-Type")
             
-            done := make(chan struct{})
-            go func() {
-                defer close(done)
-                next.ServeHTTP(w, r.WithContext(ctx))
-            }()
-            
-            select {
-            case <-done:
-                // Request completed normally
-            case <-ctx.Done():
-                http.Error(w, "Request timeout", http.StatusRequestTimeout)
-            }
-        })
-    }
-}
-
-// Configurable compression middleware
-func compressionMiddleware(level int) forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-                next.ServeHTTP(w, r)
-                return
-            }
-            
-            w.Header().Set("Content-Encoding", "gzip")
-            gz, _ := gzip.NewWriterLevel(w, level)
-            defer gz.Close()
-            
-            gzw := &gzipResponseWriter{Writer: gz, ResponseWriter: w}
-            next.ServeHTTP(gzw, r)
-        })
-    }
-}
-
-type gzipResponseWriter struct {
-    io.Writer
-    http.ResponseWriter
-}
-
-func (w *gzipResponseWriter) Write(b []byte) (int, error) {
-    return w.Writer.Write(b)
-}
-```
-
-### Middleware Factory Pattern
-
-```go
-// Middleware factory for creating reusable middleware
-type MiddlewareFactory struct {
-    logger *log.Logger
-    config *Config
-}
-
-func NewMiddlewareFactory(logger *log.Logger, config *Config) *MiddlewareFactory {
-    return &MiddlewareFactory{
-        logger: logger,
-        config: config,
-    }
-}
-
-func (mf *MiddlewareFactory) Auth(secretKey string) forge.Middleware {
-    return jwtAuthMiddleware(secretKey)
-}
-
-func (mf *MiddlewareFactory) RateLimit(rpm int) forge.Middleware {
-    return rateLimitMiddleware(rpm)
-}
-
-func (mf *MiddlewareFactory) Logging() forge.Middleware {
-    return structuredLoggingMiddleware(mf.logger)
-}
-
-func (mf *MiddlewareFactory) CORS(origins []string) forge.Middleware {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            origin := r.Header.Get("Origin")
-            for _, allowedOrigin := range origins {
-                if origin == allowedOrigin {
-                    w.Header().Set("Access-Control-Allow-Origin", origin)
+            allowed := false
+            for _, t := range allowedTypes {
+                if strings.Contains(contentType, t) {
+                    allowed = true
                     break
                 }
             }
             
-            w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-            w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-            
-            if r.Method == "OPTIONS" {
-                w.WriteHeader(http.StatusOK)
-                return
+            if !allowed {
+                return forge.BadRequest("invalid file type")
             }
             
-            next.ServeHTTP(w, r)
-        })
+            return next(ctx)
+        }
+    }
+}
+```
+
+## Advanced Middleware Patterns
+
+### Conditional Middleware
+
+Execute middleware based on conditions:
+
+```go
+// Conditional middleware factory
+func conditionalMiddleware(condition bool, middleware forge.Middleware) forge.Middleware {
+    if condition {
+        return middleware
+    }
+    // No-op middleware
+    return func(next forge.Handler) forge.Handler {
+        return next
     }
 }
 
-// Usage
-func setupWithFactory(app *forge.App) {
-    factory := NewMiddlewareFactory(logger, config)
-    
-    app.Use(
-        factory.Logging(),
-        factory.CORS([]string{"https://example.com", "https://app.example.com"}),
+func setupConditionalMiddleware(app *forge.App, config *AppConfig) {
+    app.Router().Use(
+        conditionalMiddleware(config.Debug, debugMiddleware()),
+        conditionalMiddleware(config.EnableMetrics, metricsMiddleware()),
+        conditionalMiddleware(config.EnableTracing, tracingMiddleware()),
     )
+}
+
+// Environment-based middleware
+func envMiddleware(env string) forge.Middleware {
+    if env == "development" {
+        return func(next forge.Handler) forge.Handler {
+            return func(ctx forge.Context) error {
+                // Add debug headers
+                ctx.SetHeader("X-Environment", "development")
+                ctx.SetHeader("X-Debug", "true")
+                return next(ctx)
+            }
+        }
+    }
+    return func(next forge.Handler) forge.Handler {
+        return next
+    }
+}
+```
+
+### Middleware with Dependencies
+
+Inject dependencies into middleware:
+
+```go
+import "github.com/xraph/forge/middleware"
+
+// Middleware factory with dependencies
+type MiddlewareFactory struct {
+    logger   forge.Logger
+    config   *AppConfig
+    cache    CacheService
+    metrics  MetricsService
+}
+
+func NewMiddlewareFactory(
+    logger forge.Logger,
+    config *AppConfig,
+    cache CacheService,
+    metrics MetricsService,
+) *MiddlewareFactory {
+    return &MiddlewareFactory{
+        logger:  logger,
+        config:  config,
+        cache:   cache,
+        metrics: metrics,
+    }
+}
+
+// Create middleware with injected dependencies
+func (mf *MiddlewareFactory) CachingMiddleware(ttl time.Duration) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            // Check cache
+            cacheKey := ctx.Request().URL.Path
+            if cached, found := mf.cache.Get(cacheKey); found {
+                mf.metrics.IncrementCacheHits()
+                return ctx.JSON(200, cached)
+            }
+            
+            // Process request
+            err := next(ctx)
+            
+            // Cache response (simplified)
+            mf.metrics.IncrementCacheMisses()
+            
+            return err
+        }
+    }
+}
+
+// Metrics middleware
+func (mf *MiddlewareFactory) MetricsMiddleware() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            start := time.Now()
+            
+            err := next(ctx)
+            
+            duration := time.Since(start)
+            mf.metrics.RecordRequest(
+                ctx.Request().Method,
+                ctx.Request().URL.Path,
+                duration,
+            )
+            
+            return err
+        }
+    }
+}
+```
+
+### Configurable Middleware
+
+Create reusable configurable middleware:
+
+```go
+// Cache configuration
+type CacheConfig struct {
+    TTL         time.Duration
+    KeyPrefix   string
+    OnlyMethods []string
+}
+
+// Caching middleware with config
+func cachingMiddleware(cache CacheService, config CacheConfig) forge.Middleware {
+    // Pre-compile method check map
+    allowedMethods := make(map[string]bool)
+    for _, method := range config.OnlyMethods {
+        allowedMethods[method] = true
+    }
     
-    api := app.Group("/api",
-        forge.WithGroupMiddleware(factory.RateLimit(100)),
-        forge.WithGroupMiddleware(factory.Auth("secret-key")),
-    )
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            method := ctx.Request().Method
+            
+            // Skip if method not allowed
+            if len(allowedMethods) > 0 && !allowedMethods[method] {
+                return next(ctx)
+            }
+            
+            cacheKey := config.KeyPrefix + ctx.Request().URL.Path
+            
+            // Check cache
+            if cached, found := cache.Get(cacheKey); found {
+                return ctx.JSON(200, cached)
+            }
+            
+            // Execute handler and cache result
+            err := next(ctx)
+            // Cache logic here
+            
+            return err
+        }
+    }
 }
 ```
 
 ## Error Handling in Middleware
 
-Handle errors gracefully in middleware:
+Forge's error handling system integrates seamlessly with middleware:
 
 ```go
-// Error handling middleware
-func errorHandlingMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        defer func() {
-            if err := recover(); err != nil {
-                log.Printf("Panic in handler: %v", err)
+import "github.com/xraph/forge/errors"
+
+// Error wrapping middleware
+func errorContextMiddleware() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            err := next(ctx)
+            if err != nil {
+                // Add context to errors
+                requestID := middleware.GetRequestIDFromForgeContext(ctx)
                 
-                // Send error response
-                w.Header().Set("Content-Type", "application/json")
-                w.WriteHeader(http.StatusInternalServerError)
-                json.NewEncoder(w).Encode(map[string]string{
-                    "error": "Internal server error",
-                    "code":  "INTERNAL_ERROR",
-                })
+                ctx.Logger().Error("request failed",
+                    "error", err,
+                    "request_id", requestID,
+                    "path", ctx.Request().URL.Path,
+                    "method", ctx.Request().Method,
+                )
+                
+                // Return the error for the error handler
+                return err
             }
-        }()
-        
-        next.ServeHTTP(w, r)
-    })
+            return nil
+        }
+    }
 }
 
 // Validation error middleware
-func validationErrorMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Custom response writer to capture errors
-        wrapped := &errorResponseWriter{ResponseWriter: w}
-        
-        next.ServeHTTP(wrapped, r)
-        
-        // Handle validation errors
-        if wrapped.hasError && wrapped.statusCode == http.StatusBadRequest {
-            w.Header().Set("Content-Type", "application/json")
-            json.NewEncoder(w).Encode(map[string]interface{}{
-                "error": "Validation failed",
-                "code":  "VALIDATION_ERROR",
-                "details": wrapped.errorDetails,
-            })
+func validationMiddleware(validator *validator.Validate) forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            // Handler will validate and return errors
+            err := next(ctx)
+            
+            // Transform validation errors
+            if verr, ok := err.(validator.ValidationErrors); ok {
+                details := make(map[string]string)
+                for _, fe := range verr {
+                    details[fe.Field()] = fe.Tag()
+                }
+                
+                return forge.NewHTTPError(422, "validation failed", details)
+            }
+            
+            return err
         }
-    })
-}
-
-type errorResponseWriter struct {
-    http.ResponseWriter
-    hasError     bool
-    statusCode   int
-    errorDetails interface{}
-}
-
-func (erw *errorResponseWriter) WriteHeader(code int) {
-    erw.statusCode = code
-    if code >= 400 {
-        erw.hasError = true
     }
-    erw.ResponseWriter.WriteHeader(code)
 }
-```
 
-## Performance Considerations
-
-Optimize middleware for performance:
-
-```go
-// Efficient middleware patterns
-func efficientMiddleware(next http.Handler) http.Handler {
-    // Pre-compile regex patterns
-    pathPattern := regexp.MustCompile(`^/api/v\d+/`)
-    
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        // Fast path for non-matching requests
-        if !pathPattern.MatchString(r.URL.Path) {
-            next.ServeHTTP(w, r)
-            return
+// Database error transformation
+func dbErrorMiddleware() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            err := next(ctx)
+            if err != nil {
+                // Transform database errors
+                if isDuplicateKeyError(err) {
+                    return forge.NewHTTPError(409, "resource already exists")
+                }
+                if isNotFoundError(err) {
+                    return forge.NotFound("resource not found")
+                }
+            }
+            return err
         }
-        
-        // Expensive operations only for matching requests
-        // ... middleware logic here
-        
-        next.ServeHTTP(w, r)
-    })
-}
-
-// Pool-based middleware for heavy operations
-var bufferPool = sync.Pool{
-    New: func() interface{} {
-        return make([]byte, 1024)
-    },
-}
-
-func pooledMiddleware(next http.Handler) http.Handler {
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        buffer := bufferPool.Get().([]byte)
-        defer bufferPool.Put(buffer)
-        
-        // Use buffer for operations
-        next.ServeHTTP(w, r)
-    })
+    }
 }
 ```
 
 <Callout type="info">
+**Error Flow in Forge**
+
+1. Handler returns error
+2. Middleware can wrap or transform errors
+3. Error handler converts to HTTP response
+4. Recovery middleware catches panics
+
+Use `forge.HTTPError` for structured error responses.
+</Callout>
+
+## Performance Optimization
+
+Optimize middleware for production workloads:
+
+### Pre-compilation
+
+Pre-compile expensive operations during initialization:
+
+```go
+    // Pre-compile regex patterns
+func pathMatchingMiddleware() forge.Middleware {
+    // Compile once at initialization
+    apiPattern := regexp.MustCompile(`^/api/v\d+/`)
+    
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            path := ctx.Request().URL.Path
+            
+            // Fast path check
+            if !apiPattern.MatchString(path) {
+                return next(ctx)
+            }
+            
+            // Expensive operations only for matching paths
+            // ... middleware logic
+            
+            return next(ctx)
+        }
+    }
+}
+```
+
+### Object Pooling
+
+Use sync.Pool for frequently allocated objects:
+
+```go
+import "sync"
+
+// Buffer pool for reading bodies
+var bufferPool = sync.Pool{
+    New: func() interface{} {
+        return make([]byte, 4096)
+    },
+}
+
+func bufferedMiddleware() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            // Get buffer from pool
+        buffer := bufferPool.Get().([]byte)
+        defer bufferPool.Put(buffer)
+        
+        // Use buffer for operations
+            // ... middleware logic
+            
+            return next(ctx)
+        }
+    }
+}
+```
+
+### Early Returns
+
+Exit middleware early when possible:
+
+```go
+func conditionalMiddleware() forge.Middleware {
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            // Fast path: skip middleware for certain routes
+            if strings.HasPrefix(ctx.Request().URL.Path, "/health") {
+                return next(ctx)
+            }
+            
+            // Only do expensive work when needed
+            if ctx.Request().Method == "POST" {
+                // Expensive validation
+            }
+            
+            return next(ctx)
+        }
+    }
+}
+```
+
+### Avoid Allocations
+
+Minimize memory allocations in hot paths:
+
+```go
+func lowAllocMiddleware() forge.Middleware {
+    // Pre-allocate reusable structures
+    type contextData struct {
+        StartTime time.Time
+        RequestID string
+    }
+    
+    return func(next forge.Handler) forge.Handler {
+        return func(ctx forge.Context) error {
+            // Reuse context values instead of creating new ones
+            start := time.Now()
+            
+            err := next(ctx)
+            
+            // Minimize string concatenation
+            _ = time.Since(start)
+            
+            return err
+        }
+    }
+}
+```
+
+## Best Practices
+
+<Callout type="info">
 **Middleware Best Practices**
 
-1. **Order Matters**: Apply middleware in logical order (auth before authorization)
-2. **Error Handling**: Always handle panics and errors gracefully
-3. **Performance**: Avoid expensive operations in frequently called middleware
-4. **Context**: Use request context to pass data between middleware
-5. **Testing**: Write unit tests for your middleware functions
-6. **Reusability**: Create configurable, reusable middleware components
+1. **Order Matters**: Request ID → Recovery → Logging → CORS → Auth → Business Logic
+2. **Error Handling**: Return `forge.HTTPError` for proper error responses
+3. **Performance**: Pre-compile patterns, use object pools, exit early
+4. **Context Usage**: Use `ctx.Set()` and `ctx.Get()` for request-scoped data
+5. **Testing**: Write table-driven tests for all middleware
+6. **Reusability**: Create configurable factories for common patterns
+7. **Security**: Validate all inputs, never log sensitive data
+8. **Observability**: Always include request ID in logs
 </Callout>
 
 ## Testing Middleware
 
-Test your middleware functions:
+Write comprehensive tests for your middleware:
 
 ```go
+package middleware_test
+
+import (
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    
+    "github.com/xraph/forge"
+    "github.com/xraph/forge/testing"
+)
+
 func TestAuthMiddleware(t *testing.T) {
-    // Create test handler
-    testHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.WriteHeader(http.StatusOK)
-        w.Write([]byte("success"))
-    })
-    
-    // Wrap with middleware
-    middleware := jwtAuthMiddleware("test-secret")
-    handler := middleware(testHandler)
-    
     tests := []struct {
         name           string
         authHeader     string
         expectedStatus int
+        expectedError  bool
     }{
         {
-            name:           "Valid token",
-            authHeader:     "Bearer valid-jwt-token",
-            expectedStatus: http.StatusOK,
+            name:           "valid token",
+            authHeader:     "Bearer valid-token",
+            expectedStatus: 200,
+            expectedError:  false,
         },
         {
-            name:           "Missing token",
+            name:           "missing token",
             authHeader:     "",
-            expectedStatus: http.StatusUnauthorized,
+            expectedStatus: 401,
+            expectedError:  true,
         },
         {
-            name:           "Invalid token",
-            authHeader:     "Bearer invalid-token",
-            expectedStatus: http.StatusUnauthorized,
+            name:           "invalid token",
+            authHeader:     "Bearer invalid",
+            expectedStatus: 401,
+            expectedError:  true,
         },
     }
     
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
+            // Create test handler
+            handler := func(ctx forge.Context) error {
+                return ctx.JSON(200, map[string]string{"status": "ok"})
+            }
+            
+            // Wrap with middleware
+            middleware := jwtAuthMiddleware("test-secret")
+            wrappedHandler := middleware(handler)
+            
+            // Create test request
             req := httptest.NewRequest("GET", "/test", nil)
             if tt.authHeader != "" {
                 req.Header.Set("Authorization", tt.authHeader)
             }
             
-            rr := httptest.NewRecorder()
-            handler.ServeHTTP(rr, req)
+            // Create test context
+            rec := httptest.NewRecorder()
+            ctx := forgetesting.NewTestContext(rec, req)
             
-            if rr.Code != tt.expectedStatus {
-                t.Errorf("Expected status %d, got %d", tt.expectedStatus, rr.Code)
+            // Execute handler
+            err := wrappedHandler(ctx)
+            
+            // Assertions
+            if tt.expectedError && err == nil {
+                t.Error("expected error, got nil")
+            }
+            if !tt.expectedError && err != nil {
+                t.Errorf("unexpected error: %v", err)
             }
         })
     }
 }
+
+func TestLoggingMiddleware(t *testing.T) {
+    // Mock logger
+    var loggedMessages []string
+    mockLogger := &MockLogger{
+        InfoFunc: func(msg string, args ...interface{}) {
+            loggedMessages = append(loggedMessages, msg)
+        },
+    }
+    
+    // Create middleware
+    middleware := customLoggingMiddleware(mockLogger)
+    handler := func(ctx forge.Context) error {
+        return ctx.JSON(200, map[string]string{"status": "ok"})
+    }
+    
+    // Test
+    req := httptest.NewRequest("GET", "/test", nil)
+    rec := httptest.NewRecorder()
+    ctx := forgetesting.NewTestContext(rec, req)
+    
+    wrappedHandler := middleware(handler)
+    _ = wrappedHandler(ctx)
+    
+    // Verify logging
+    if len(loggedMessages) < 2 {
+        t.Error("expected at least 2 log messages")
+    }
+}
+```
+
+## Middleware Reference
+
+### Built-In Middleware Summary
+
+| Middleware | Purpose | Import |
+|------------|---------|--------|
+| `CORS` | Cross-origin resource sharing | `middleware.CORS()` |
+| `Logging` | Request/response logging | `middleware.Logging()` |
+| `Recovery` | Panic recovery | `middleware.Recovery()` |
+| `RateLimit` | Token bucket rate limiting | `middleware.RateLimit()` |
+| `RequestID` | Unique request tracking | `middleware.RequestID()` |
+| `Compress` | Gzip compression | `middleware.Compress()` |
+| `Timeout` | Request timeout enforcement | `middleware.Timeout()` |
+
+### Common Middleware Patterns
+
+```go
+import "github.com/xraph/forge/middleware"
+
+// Production middleware stack
+app.Router().Use(
+    middleware.RequestID(),                    // 1. Generate request ID
+    middleware.Recovery(app.Logger()),         // 2. Catch panics
+    middleware.Logging(app.Logger()),          // 3. Log requests
+    middleware.CORS(middleware.DefaultCORSConfig()), // 4. Handle CORS
+    middleware.CompressDefault(),              // 5. Compress responses
+)
+
+// API group with auth and rate limiting
+limiter := middleware.NewRateLimiter(100, 200)
+api := app.Router().Group("/api",
+    forge.WithGroupMiddleware(middleware.RateLimit(limiter, app.Logger())),
+    forge.WithGroupMiddleware(jwtAuthMiddleware("secret")),
+)
+
+// Admin group with strict limits
+adminLimiter := middleware.NewRateLimiter(10, 20)
+admin := api.Group("/admin",
+    forge.WithGroupMiddleware(middleware.RateLimit(adminLimiter, app.Logger())),
+    forge.WithGroupMiddleware(requireAdminRole()),
+)
 ```
 
 ## Next Steps
 
 - Learn about [Route Parameters](/docs/forge/router/parameters) for dynamic routing
 - Explore [Controllers](/docs/forge/router/controllers) for organizing route logic
-- Check out [Advanced Features](/docs/forge/router/advanced) for OpenAPI and streaming
 - See [Route Groups](/docs/forge/router/groups) for organizing routes with shared middleware
+- Check out [Error Handling](/docs/forge/errors) for the error system
+- Review [Context API](/docs/forge/concepts/context) for request context usage
