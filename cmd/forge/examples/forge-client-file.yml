@@ -1,0 +1,29 @@
+# Example .forge-client.yml with file source
+# Use a specific specification file
+
+source:
+  type: file
+  path: ./api/openapi.yaml
+
+defaults:
+  language: go
+  output: ./pkg/client
+  package: client
+  module: github.com/myorg/myapp/pkg/client
+  base_url: "https://api.production.example.com"
+  
+  # Production-ready settings
+  auth: true
+  streaming: true
+  reconnection: true
+  heartbeat: true
+  state_management: true
+  use_fetch: false
+  dual_package: false
+  generate_tests: true
+  generate_linting: true
+  generate_ci: true
+  error_taxonomy: true
+  interceptors: true
+  pagination: true
+

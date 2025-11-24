@@ -312,7 +312,7 @@ func (p *DevPlugin) runApp(ctx cli.CommandContext, app *AppInfo) error {
 }
 
 func (p *DevPlugin) runWithWatch(ctx cli.CommandContext, app *AppInfo) error {
-	watcher, err := newAppWatcher(p.config.RootDir, app)
+	watcher, err := newAppWatcher(p.config, app)
 	if err != nil {
 		return fmt.Errorf("failed to create watcher: %w", err)
 	}
@@ -401,7 +401,7 @@ func (p *DevPlugin) findMainFile(dir string) (string, error) {
 // appWatcher manages file watching and process lifecycle for hot reload.
 type appWatcher struct {
 	watcher   *fsnotify.Watcher
-	rootDir   string
+	config    *config.ForgeConfig
 	app       *AppInfo
 	cmd       *exec.Cmd
 	mu        sync.Mutex
@@ -410,17 +410,23 @@ type appWatcher struct {
 }
 
 // newAppWatcher creates a new app watcher.
-func newAppWatcher(rootDir string, app *AppInfo) (*appWatcher, error) {
+func newAppWatcher(cfg *config.ForgeConfig, app *AppInfo) (*appWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fsnotify watcher: %w", err)
 	}
 
+	// Use delay from config if available, otherwise default to 300ms
+	delay := 300 * time.Millisecond
+	if cfg.Dev.HotReload.Enabled && cfg.Dev.HotReload.Delay > 0 {
+		delay = cfg.Dev.HotReload.Delay
+	}
+
 	aw := &appWatcher{
 		watcher:   watcher,
-		rootDir:   rootDir,
+		config:    cfg,
 		app:       app,
-		debouncer: newDebouncer(300 * time.Millisecond),
+		debouncer: newDebouncer(delay),
 	}
 
 	// Find main file
@@ -443,17 +449,19 @@ func newAppWatcher(rootDir string, app *AppInfo) (*appWatcher, error) {
 	return aw, nil
 }
 
-// setupWatchers adds directories to watch.
+// setupWatchers adds directories to watch based on config.
 func (aw *appWatcher) setupWatchers() error {
-	// Watch the app directory
+	// If watch is not enabled or no paths configured, use defaults
+	if !aw.config.Dev.Watch.Enabled || len(aw.config.Dev.Watch.Paths) == 0 {
+		// Default: watch the app directory
 	if err := aw.addWatchRecursive(aw.app.Path); err != nil {
 		return err
 	}
 
 	// Also watch common source directories
 	watchDirs := []string{
-		filepath.Join(aw.rootDir, "internal"),
-		filepath.Join(aw.rootDir, "pkg"),
+			filepath.Join(aw.config.RootDir, "internal"),
+			filepath.Join(aw.config.RootDir, "pkg"),
 	}
 
 	for _, dir := range watchDirs {
@@ -466,6 +474,109 @@ func (aw *appWatcher) setupWatchers() error {
 	}
 
 	return nil
+	}
+
+	// Use configured watch paths
+	watchedDirs := make(map[string]bool) // Track to avoid duplicates
+
+	for _, pattern := range aw.config.Dev.Watch.Paths {
+		// Handle glob patterns like ./**/*.go or ./cmd/**/*.go
+		dirs := aw.expandWatchPattern(pattern)
+		for _, dir := range dirs {
+			if watchedDirs[dir] {
+				continue
+			}
+
+			// Check if directory exists
+			if info, err := os.Stat(dir); err == nil && info.IsDir() {
+				if err := aw.addWatchRecursive(dir); err != nil {
+					// Non-fatal, just skip this directory
+					continue
+				}
+				watchedDirs[dir] = true
+			}
+		}
+	}
+
+	// Always ensure the app directory is watched
+	if !watchedDirs[aw.app.Path] {
+		if err := aw.addWatchRecursive(aw.app.Path); err == nil {
+			watchedDirs[aw.app.Path] = true
+		}
+	}
+
+	if len(watchedDirs) == 0 {
+		return fmt.Errorf("no valid watch directories found")
+	}
+
+	return nil
+}
+
+// expandWatchPattern expands a watch pattern like "./**/*.go" into directories to watch.
+func (aw *appWatcher) expandWatchPattern(pattern string) []string {
+	var dirs []string
+
+	// Clean up the pattern - remove leading "./"
+	cleanPattern := strings.TrimPrefix(pattern, "./")
+	
+	// Extract the directory part before the glob pattern
+	// For "./**/*.go" -> ""
+	// For "./cmd/**/*.go" -> "cmd"
+	// For "./internal/**/*.go" -> "internal"
+	dirPattern := ""
+	if strings.Contains(cleanPattern, "*") {
+		parts := strings.Split(cleanPattern, string(filepath.Separator))
+		var dirParts []string
+		for _, part := range parts {
+			if strings.Contains(part, "*") {
+				// Stop at the first wildcard
+				break
+			}
+			dirParts = append(dirParts, part)
+		}
+
+		if len(dirParts) > 0 {
+			dirPattern = filepath.Join(dirParts...)
+		}
+	} else {
+		dirPattern = cleanPattern
+	}
+
+	// Convert to absolute path
+	var absPath string
+	if dirPattern == "" {
+		// Empty means watch from root
+		absPath = aw.config.RootDir
+	} else if filepath.IsAbs(dirPattern) {
+		absPath = dirPattern
+	} else {
+		absPath = filepath.Join(aw.config.RootDir, dirPattern)
+	}
+
+	// Check if directory exists
+	if info, err := os.Stat(absPath); err == nil && info.IsDir() {
+		// If pattern contains **, walk subdirectories recursively
+		if strings.Contains(pattern, "**") {
+			_ = filepath.Walk(absPath, func(path string, info os.FileInfo, err error) error {
+				if err != nil || !info.IsDir() {
+					return nil
+				}
+
+				// Skip excluded directories
+				if aw.shouldSkipDir(info.Name()) {
+					return filepath.SkipDir
+				}
+
+				dirs = append(dirs, path)
+				return nil
+			})
+		} else {
+			// Just add the single directory
+			dirs = append(dirs, absPath)
+		}
+	}
+
+	return dirs
 }
 
 // addWatchRecursive adds a directory and all its subdirectories to the watcher.
@@ -475,15 +586,8 @@ func (aw *appWatcher) addWatchRecursive(dir string) error {
 			return err
 		}
 
-		// Skip hidden directories, vendor, and build artifacts
 		if info.IsDir() {
-			name := info.Name()
-			if strings.HasPrefix(name, ".") ||
-				name == "vendor" ||
-				name == "node_modules" ||
-				name == "bin" ||
-				name == "dist" ||
-				name == "tmp" {
+			if aw.shouldSkipDir(info.Name()) {
 				return filepath.SkipDir
 			}
 
@@ -492,6 +596,21 @@ func (aw *appWatcher) addWatchRecursive(dir string) error {
 
 		return nil
 	})
+}
+
+// shouldSkipDir determines if a directory should be skipped during watching.
+func (aw *appWatcher) shouldSkipDir(name string) bool {
+	// Always skip hidden directories and common build/vendor directories
+	if strings.HasPrefix(name, ".") ||
+		name == "vendor" ||
+		name == "node_modules" ||
+		name == "bin" ||
+		name == "dist" ||
+		name == "tmp" {
+		return true
+	}
+
+	return false
 }
 
 // Start starts the application process.
@@ -527,7 +646,7 @@ func (aw *appWatcher) Start(ctx cli.CommandContext) error {
 
 	// Create new command
 	cmd := exec.Command("go", "run", aw.mainFile)
-	cmd.Dir = aw.rootDir
+	cmd.Dir = aw.config.RootDir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -655,16 +774,75 @@ func (aw *appWatcher) shouldReload(event fsnotify.Event) bool {
 		return false
 	}
 
-	// Skip temporary files and test files
+	// Skip temporary files
 	base := filepath.Base(event.Name)
 	if strings.HasPrefix(base, ".") ||
-		strings.HasSuffix(base, "_test.go") ||
 		strings.HasSuffix(base, "~") ||
 		strings.Contains(base, ".swp") {
 		return false
 	}
 
+	// Check against configured exclude patterns
+	if aw.config.Dev.Watch.Enabled && len(aw.config.Dev.Watch.Exclude) > 0 {
+		relPath := event.Name
+		if filepath.IsAbs(event.Name) && strings.HasPrefix(event.Name, aw.config.RootDir) {
+			relPath = strings.TrimPrefix(event.Name, aw.config.RootDir)
+			relPath = strings.TrimPrefix(relPath, string(filepath.Separator))
+		}
+
+		for _, pattern := range aw.config.Dev.Watch.Exclude {
+			if matched := matchGlobPattern(pattern, relPath, base); matched {
+				return false
+			}
+		}
+	} else {
+		// Default: skip test files if no config
+		if strings.HasSuffix(base, "_test.go") {
+			return false
+		}
+	}
+
 	return true
+}
+
+// matchGlobPattern matches a file against a glob pattern.
+func matchGlobPattern(pattern, relPath, base string) bool {
+	// Handle simple patterns first
+	if matched, _ := filepath.Match(pattern, base); matched {
+		return true
+	}
+
+	// Handle ** patterns (match any number of directories)
+	if strings.Contains(pattern, "**") {
+		// Convert pattern to a simple regex-like match
+		parts := strings.Split(pattern, "**")
+		if len(parts) == 2 {
+			prefix := strings.TrimPrefix(parts[0], "./")
+			suffix := strings.TrimPrefix(parts[1], "/")
+
+		// Check if path matches the pattern
+		hasPrefix := prefix == "" || strings.HasPrefix(relPath, prefix)
+		
+		hasSuffix := suffix == "" || strings.HasSuffix(relPath, suffix)
+		if !hasSuffix {
+			// Also check if the suffix matches as a glob pattern
+			if matched, _ := filepath.Match(suffix, base); matched {
+				hasSuffix = true
+			}
+		}
+
+		if hasPrefix && hasSuffix {
+			return true
+		}
+		}
+	}
+
+	// Try matching against the full relative path
+	if matched, _ := filepath.Match(pattern, relPath); matched {
+		return true
+	}
+
+	return false
 }
 
 // Close closes the watcher.

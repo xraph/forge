@@ -10,7 +10,8 @@ import (
 
 // BunRouterAdapter wraps uptrace/bunrouter.
 type BunRouterAdapter struct {
-	router *bunrouter.Router
+	router             *bunrouter.Router
+	globalMiddlewares  []func(http.Handler) http.Handler
 }
 
 // NewBunRouterAdapter creates a BunRouter adapter (default).
@@ -57,8 +58,32 @@ func (a *BunRouterAdapter) Mount(path string, handler http.Handler) {
 	})
 }
 
+// UseGlobal registers global middleware that runs before routing.
+// This middleware will run for ALL requests, even those that don't match any route.
+// This is critical for CORS preflight handling.
+func (a *BunRouterAdapter) UseGlobal(middleware func(http.Handler) http.Handler) {
+	a.globalMiddlewares = append(a.globalMiddlewares, middleware)
+}
+
 // ServeHTTP dispatches requests.
 func (a *BunRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// If there are global middlewares, apply them first
+	if len(a.globalMiddlewares) > 0 {
+		// Build the middleware chain
+		// Start with the router as the final handler
+		handler := http.Handler(a.router)
+		
+		// Apply middlewares in reverse order (first added wraps last)
+		for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
+			handler = a.globalMiddlewares[i](handler)
+		}
+		
+		// Execute the chain
+		handler.ServeHTTP(w, r)
+		return
+	}
+	
+	// No global middleware, just use the router directly
 	a.router.ServeHTTP(w, r)
 }
 

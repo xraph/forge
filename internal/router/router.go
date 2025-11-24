@@ -39,6 +39,7 @@ type Router interface {
 
 	// Middleware - wrap handlers
 	Use(middleware ...Middleware)
+	UseGlobal(middleware ...Middleware)
 
 	// Controller registration
 	RegisterController(controller Controller) error

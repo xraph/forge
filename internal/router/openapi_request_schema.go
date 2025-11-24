@@ -21,7 +21,7 @@ type RequestComponents struct {
 // 2. query:"name" - Query parameter
 // 3. header:"name" - Header parameter
 // 4. body:"" or json:"name" - Body field.
-func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType interface{}) *RequestComponents {
+func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType interface{}) (*RequestComponents, error) {
 	components := &RequestComponents{
 		PathParams:   []Parameter{},
 		QueryParams:  []Parameter{},
@@ -30,7 +30,7 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 
 	rt := reflect.TypeOf(schemaType)
 	if rt == nil {
-		return components
+		return components, nil
 	}
 
 	if rt.Kind() == reflect.Ptr {
@@ -39,10 +39,14 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 
 	if rt.Kind() != reflect.Struct {
 		// Not a struct, treat as body schema
-		components.BodySchema = schemaGen.GenerateSchema(schemaType)
+		schema, err := schemaGen.GenerateSchema(schemaType)
+		if err != nil {
+			return nil, err
+		}
+		components.BodySchema = schema
 		components.HasBody = true
 
-		return components
+		return components, nil
 	}
 
 	// Classify fields by tags
@@ -56,6 +60,35 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 		// Skip unexported fields
 		if !field.IsExported() {
 			continue
+		}
+
+		// Handle embedded/anonymous struct fields - flatten them
+		if field.Anonymous {
+			// Check if any tag is explicitly set (would mean it's not truly flattened)
+			hasExplicitTag := field.Tag.Get("path") != "" ||
+				field.Tag.Get("query") != "" ||
+				field.Tag.Get("header") != "" ||
+				field.Tag.Get("form") != "" ||
+				field.Tag.Get("body") != "" ||
+				field.Tag.Get("json") != ""
+
+			if !hasExplicitTag {
+				// Recursively extract components from embedded struct
+				embeddedComponents, err := extractEmbeddedComponents(schemaGen, field, bodyProperties, &bodyRequired)
+				if err != nil {
+					return nil, err
+				}
+				components.PathParams = append(components.PathParams, embeddedComponents.PathParams...)
+				components.QueryParams = append(components.QueryParams, embeddedComponents.QueryParams...)
+				components.HeaderParams = append(components.HeaderParams, embeddedComponents.HeaderParams...)
+				if embeddedComponents.HasBody {
+					components.HasBody = true
+				}
+				if embeddedComponents.IsMultipart {
+					components.IsMultipart = true
+				}
+				continue
+			}
 		}
 
 		// Check tags in priority order
@@ -85,7 +118,10 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 			}
 
 			// Generate field schema
-			fieldSchema := schemaGen.generateSchemaFromType(field.Type)
+			fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+			if err != nil {
+				return nil, err // Return error on collision
+			}
 			schemaGen.applyStructTags(fieldSchema, field)
 			bodyProperties[formName] = fieldSchema
 
@@ -109,7 +145,10 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 			}
 
 			// Generate field schema
-			fieldSchema := schemaGen.generateSchemaFromType(field.Type)
+			fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+			if err != nil {
+				return nil, err // Return error on collision
+			}
 			schemaGen.applyStructTags(fieldSchema, field)
 
 			// Check if field is a file (binary format)
@@ -137,7 +176,129 @@ func extractUnifiedRequestComponents(schemaGen *schemaGenerator, schemaType inte
 		}
 	}
 
-	return components
+	return components, nil
+}
+
+// extractEmbeddedComponents recursively extracts request components from an embedded struct field.
+func extractEmbeddedComponents(schemaGen *schemaGenerator, field reflect.StructField, bodyProperties map[string]*Schema, bodyRequired *[]string) (*RequestComponents, error) {
+	components := &RequestComponents{
+		PathParams:   []Parameter{},
+		QueryParams:  []Parameter{},
+		HeaderParams: []Parameter{},
+	}
+
+	fieldType := field.Type
+
+	// Handle pointer types
+	if fieldType.Kind() == reflect.Ptr {
+		fieldType = fieldType.Elem()
+	}
+
+	// If it's not a struct, return empty
+	if fieldType.Kind() != reflect.Struct {
+		return components, nil
+	}
+
+	// Recursively process embedded struct fields
+	for i := 0; i < fieldType.NumField(); i++ {
+		embeddedField := fieldType.Field(i)
+
+		// Skip unexported fields
+		if !embeddedField.IsExported() {
+			continue
+		}
+
+		// Handle nested embedded structs recursively
+		if embeddedField.Anonymous {
+			hasExplicitTag := embeddedField.Tag.Get("path") != "" ||
+				embeddedField.Tag.Get("query") != "" ||
+				embeddedField.Tag.Get("header") != "" ||
+				embeddedField.Tag.Get("form") != "" ||
+				embeddedField.Tag.Get("body") != "" ||
+				embeddedField.Tag.Get("json") != ""
+
+			if !hasExplicitTag {
+				nestedComponents, err := extractEmbeddedComponents(schemaGen, embeddedField, bodyProperties, bodyRequired)
+				if err != nil {
+					return nil, err
+				}
+				components.PathParams = append(components.PathParams, nestedComponents.PathParams...)
+				components.QueryParams = append(components.QueryParams, nestedComponents.QueryParams...)
+				components.HeaderParams = append(components.HeaderParams, nestedComponents.HeaderParams...)
+				if nestedComponents.HasBody {
+					components.HasBody = true
+				}
+				if nestedComponents.IsMultipart {
+					components.IsMultipart = true
+				}
+				continue
+			}
+		}
+
+		// Check tags in priority order
+		if pathTag := embeddedField.Tag.Get("path"); pathTag != "" {
+			param := generatePathParamFromField(schemaGen, embeddedField, pathTag)
+			components.PathParams = append(components.PathParams, param)
+		} else if queryTag := embeddedField.Tag.Get("query"); queryTag != "" {
+			param := generateQueryParamFromField(schemaGen, embeddedField, queryTag)
+			components.QueryParams = append(components.QueryParams, param)
+		} else if headerTag := embeddedField.Tag.Get("header"); headerTag != "" {
+			param := generateHeaderParamFromField(schemaGen, embeddedField, headerTag)
+			components.HeaderParams = append(components.HeaderParams, param)
+		} else if formTag := embeddedField.Tag.Get("form"); formTag != "" {
+			// Multipart form field
+			components.HasBody = true
+			components.IsMultipart = true
+
+			formName := embeddedField.Name
+			name, _ := parseTagWithOmitempty(formTag)
+			if name != "" && name != "-" {
+				formName = name
+			}
+
+			fieldSchema, err := schemaGen.generateSchemaFromType(embeddedField.Type)
+			if err != nil {
+				return nil, err
+			}
+			schemaGen.applyStructTags(fieldSchema, embeddedField)
+			bodyProperties[formName] = fieldSchema
+
+			if isFieldRequired(embeddedField) {
+				*bodyRequired = append(*bodyRequired, formName)
+			}
+		} else if bodyTag := embeddedField.Tag.Get("body"); bodyTag != "" || embeddedField.Tag.Get("json") != "" {
+			// Body field
+			components.HasBody = true
+
+			jsonName := embeddedField.Name
+			if jsonTag := embeddedField.Tag.Get("json"); jsonTag != "" {
+				name, _ := parseJSONTag(jsonTag)
+				if name != "" && name != "-" {
+					jsonName = name
+				}
+			} else if bodyTag != "" && bodyTag != "-" {
+				jsonName = bodyTag
+			}
+
+			fieldSchema, err := schemaGen.generateSchemaFromType(embeddedField.Type)
+			if err != nil {
+				return nil, err
+			}
+			schemaGen.applyStructTags(fieldSchema, embeddedField)
+
+			if fieldSchema.Format == "binary" {
+				components.IsMultipart = true
+			}
+
+			bodyProperties[jsonName] = fieldSchema
+
+			if isFieldRequired(embeddedField) {
+				*bodyRequired = append(*bodyRequired, jsonName)
+			}
+		}
+	}
+
+	return components, nil
 }
 
 // generatePathParamFromField generates a path parameter from a struct field.
@@ -149,7 +310,16 @@ func generatePathParamFromField(schemaGen *schemaGenerator, field reflect.Struct
 	}
 
 	// Generate schema
-	fieldSchema := schemaGen.generateSchemaFromType(field.Type)
+	fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+	if err != nil {
+		// Return minimal parameter on error
+		return Parameter{
+			Name:     paramName,
+			In:       "path",
+			Required: true,
+			Schema:   &Schema{Type: "string"},
+		}
+	}
 	schemaGen.applyStructTags(fieldSchema, field)
 
 	// Path parameters are always required
@@ -173,12 +343,26 @@ func generateQueryParamFromField(schemaGen *schemaGenerator, field reflect.Struc
 	}
 
 	// Generate schema
-	fieldSchema := schemaGen.generateSchemaFromType(field.Type)
+	fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+	if err != nil {
+		// Return minimal parameter on error
+		return Parameter{
+			Name:     paramName,
+			In:       "path",
+			Required: true,
+			Schema:   &Schema{Type: "string"},
+		}
+	}
 	schemaGen.applyStructTags(fieldSchema, field)
 
 	// Determine if required
-	required := field.Tag.Get("required") == "true"
-	if !required && !omitempty && field.Type.Kind() != reflect.Ptr {
+	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+	required := false
+	if field.Tag.Get("optional") == "true" {
+		required = false
+	} else if field.Tag.Get("required") == "true" {
+		required = true
+	} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 		required = true
 	}
 
@@ -200,12 +384,26 @@ func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.Stru
 	}
 
 	// Generate schema
-	fieldSchema := schemaGen.generateSchemaFromType(field.Type)
+	fieldSchema, err := schemaGen.generateSchemaFromType(field.Type)
+	if err != nil {
+		// Return minimal parameter on error
+		return Parameter{
+			Name:     paramName,
+			In:       "path",
+			Required: true,
+			Schema:   &Schema{Type: "string"},
+		}
+	}
 	schemaGen.applyStructTags(fieldSchema, field)
 
 	// Determine if required
-	required := field.Tag.Get("required") == "true"
-	if !required && !omitempty && field.Type.Kind() != reflect.Ptr {
+	// Check for optional tag first (explicit opt-out), then required tag (explicit opt-in), then fall back to omitempty logic
+	required := false
+	if field.Tag.Get("optional") == "true" {
+		required = false
+	} else if field.Tag.Get("required") == "true" {
+		required = true
+	} else if !omitempty && field.Type.Kind() != reflect.Ptr {
 		required = true
 	}
 
@@ -220,6 +418,11 @@ func generateHeaderParamFromField(schemaGen *schemaGenerator, field reflect.Stru
 
 // isFieldRequired determines if a body field is required.
 func isFieldRequired(field reflect.StructField) bool {
+	// Explicit optional tag takes precedence (opt-out)
+	if field.Tag.Get("optional") == "true" {
+		return false
+	}
+
 	// Explicit required tag
 	if field.Tag.Get("required") == "true" {
 		return true

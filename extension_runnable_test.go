@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xraph/forge/errors"
+	"github.com/xraph/forge/internal/logger"
 )
 
 // =============================================================================
@@ -68,7 +69,7 @@ func TestRunnableExtension_AutoRegistration(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HTTPAddress = ":0" // Use random port
 	app := NewApp(config)
-	config.Logger = NewNoopLogger()
+	config.Logger = logger.NewTestLogger()
 	config.Metrics = NewNoOpMetrics()
 
 	mockExt := NewMockRunnableExtension("test-runnable")
@@ -119,7 +120,7 @@ func TestRunnableExtension_LifecycleIntegration(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HTTPAddress = ":0"
 	config.Extensions = []Extension{mockExt}
-	config.Logger = NewNoopLogger()
+	config.Logger = logger.NewTestLogger()
 	config.Metrics = NewNoOpMetrics()
 
 	app := NewApp(config)
@@ -158,7 +159,7 @@ func TestRunnableExtension_ErrorHandling(t *testing.T) {
 	config := DefaultAppConfig()
 	config.HTTPAddress = ":0"
 	config.Extensions = []Extension{mockExt}
-	config.Logger = NewNoopLogger()
+	config.Logger = logger.NewTestLogger()
 	config.Metrics = NewNoOpMetrics()
 
 	app := NewApp(config)
@@ -196,7 +197,7 @@ func TestExternalAppExtension_BasicLifecycle(t *testing.T) {
 	config.ForwardOutput = false
 
 	ext := NewExternalAppExtension(config)
-	ext.SetLogger(NewNoopLogger())
+	ext.SetLogger(logger.NewTestLogger())
 	ext.SetMetrics(NewNoOpMetrics())
 	ctx := context.Background()
 
@@ -246,7 +247,7 @@ func TestExternalAppExtension_GracefulShutdown(t *testing.T) {
 	config.ShutdownTimeout = 2 * time.Second
 
 	ext := NewExternalAppExtension(config)
-	ext.SetLogger(NewNoopLogger())
+	ext.SetLogger(logger.NewTestLogger())
 
 	ctx := context.Background()
 
@@ -287,7 +288,7 @@ func TestExternalAppExtension_HealthCheck(t *testing.T) {
 	config.ForwardOutput = false
 
 	ext := NewExternalAppExtension(config)
-	ext.SetLogger(NewNoopLogger())
+	ext.SetLogger(logger.NewTestLogger())
 
 	ctx := context.Background()
 
@@ -327,7 +328,7 @@ func TestExternalAppExtension_InvalidCommand(t *testing.T) {
 	config.ForwardOutput = false
 
 	ext := NewExternalAppExtension(config)
-	ext.SetLogger(NewNoopLogger())
+	ext.SetLogger(logger.NewTestLogger())
 
 	ctx := context.Background()
 
@@ -365,7 +366,7 @@ func TestExternalAppExtension_WithEnvironment(t *testing.T) {
 	config.ForwardOutput = false
 
 	ext := NewExternalAppExtension(config)
-	ext.SetLogger(NewNoopLogger())
+	ext.SetLogger(logger.NewTestLogger())
 
 	ctx := context.Background()
 
@@ -402,6 +403,8 @@ func TestExternalAppExtension_WithEnvironment(t *testing.T) {
 
 func BenchmarkRunnableExtension_Registration(b *testing.B) {
 	config := DefaultAppConfig()
+	config.Logger = logger.NewTestLogger()
+	config.Metrics = NewNoOpMetrics()
 	config.HTTPAddress = ":0"
 
 	for b.Loop() {

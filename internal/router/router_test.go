@@ -416,6 +416,197 @@ func TestRouter_GroupWithMiddleware(t *testing.T) {
 	assert.True(t, called, "Group middleware not called")
 }
 
+// TestRouter_GroupMiddlewareIsolation verifies that middleware added to a group
+// does not affect routes outside that group (bug fix for group middleware leaking globally).
+func TestRouter_GroupMiddlewareIsolation(t *testing.T) {
+	router := NewRouter()
+
+	// Track which middleware was called
+	groupMiddlewareCalled := false
+	rootMiddlewareCalled := false
+
+	// Add root middleware
+	rootMiddleware := func(next Handler) Handler {
+		return func(ctx Context) error {
+			rootMiddlewareCalled = true
+			return next(ctx)
+		}
+	}
+	router.Use(rootMiddleware)
+
+	// Create a protected group with its own middleware
+	protectedRoutes := router.Group("")
+	protectedMiddleware := func(next Handler) Handler {
+		return func(ctx Context) error {
+			groupMiddlewareCalled = true
+			return next(ctx)
+		}
+	}
+	protectedRoutes.Use(protectedMiddleware)
+
+	// Register route in the protected group
+	err := protectedRoutes.GET("/protected", func(ctx Context) error {
+		return ctx.String(200, "protected")
+	})
+	require.NoError(t, err)
+
+	// Register route directly on root (not in the group)
+	err = router.GET("/public", func(ctx Context) error {
+		return ctx.String(200, "public")
+	})
+	require.NoError(t, err)
+
+	// Test 1: Protected route should have BOTH root and group middleware
+	t.Run("protected route has both middlewares", func(t *testing.T) {
+		groupMiddlewareCalled = false
+		rootMiddlewareCalled = false
+
+		req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.True(t, rootMiddlewareCalled, "Root middleware should be called for protected route")
+		assert.True(t, groupMiddlewareCalled, "Group middleware should be called for protected route")
+	})
+
+	// Test 2: Public route should have ONLY root middleware (NOT group middleware)
+	t.Run("public route has only root middleware", func(t *testing.T) {
+		groupMiddlewareCalled = false
+		rootMiddlewareCalled = false
+
+		req := httptest.NewRequest(http.MethodGet, "/public", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.True(t, rootMiddlewareCalled, "Root middleware should be called for public route")
+		assert.False(t, groupMiddlewareCalled, "Group middleware should NOT be called for public route (bug: middleware leaking)")
+	})
+}
+
+// TestRouter_UseGlobal verifies that UseGlobal applies middleware to ALL routes.
+func TestRouter_UseGlobal(t *testing.T) {
+	router := NewRouter()
+
+	globalCalled := false
+	globalMiddleware := func(next Handler) Handler {
+		return func(ctx Context) error {
+			globalCalled = true
+			return next(ctx)
+		}
+	}
+
+	// Create a group
+	group := router.Group("/api")
+
+	// Apply global middleware from the group
+	group.UseGlobal(globalMiddleware)
+
+	// Register route on root (not in group)
+	err := router.GET("/public", func(ctx Context) error {
+		return ctx.String(200, "public")
+	})
+	require.NoError(t, err)
+
+	// Register route in group
+	err = group.GET("/protected", func(ctx Context) error {
+		return ctx.String(200, "protected")
+	})
+	require.NoError(t, err)
+
+	// Test that global middleware applies to root route
+	t.Run("global middleware applies to root route", func(t *testing.T) {
+		globalCalled = false
+		req := httptest.NewRequest(http.MethodGet, "/public", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		assert.True(t, globalCalled, "Global middleware should apply to root route")
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	// Test that global middleware applies to group route
+	t.Run("global middleware applies to group route", func(t *testing.T) {
+		globalCalled = false
+		req := httptest.NewRequest(http.MethodGet, "/api/protected", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		assert.True(t, globalCalled, "Global middleware should apply to group route")
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+}
+
+// TestRouter_UseVsUseGlobal verifies the difference between Use and UseGlobal.
+func TestRouter_UseVsUseGlobal(t *testing.T) {
+	router := NewRouter()
+
+	scopedCalled := false
+	globalCalled := false
+
+	scopedMiddleware := func(next Handler) Handler {
+		return func(ctx Context) error {
+			scopedCalled = true
+			return next(ctx)
+		}
+	}
+
+	globalMiddleware := func(next Handler) Handler {
+		return func(ctx Context) error {
+			globalCalled = true
+			return next(ctx)
+		}
+	}
+
+	// Apply scoped middleware to root router
+	router.Use(scopedMiddleware)
+
+	// Apply global middleware
+	router.UseGlobal(globalMiddleware)
+
+	// Create a group
+	group := router.Group("/api")
+
+	// Register route on root router
+	err := router.GET("/root-route", func(ctx Context) error {
+		return ctx.String(200, "root")
+	})
+	require.NoError(t, err)
+
+	// Register route in group
+	err = group.GET("/group-route", func(ctx Context) error {
+		return ctx.String(200, "group")
+	})
+	require.NoError(t, err)
+
+	// Test root route has both scoped and global middleware
+	t.Run("root route has scoped and global middleware", func(t *testing.T) {
+		scopedCalled = false
+		globalCalled = false
+
+		req := httptest.NewRequest(http.MethodGet, "/root-route", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		assert.True(t, scopedCalled, "Scoped middleware should apply to root route")
+		assert.True(t, globalCalled, "Global middleware should apply to root route")
+	})
+
+	// Test group route has both middleware (inherits scoped from parent + global)
+	t.Run("group route inherits parent scoped middleware plus global", func(t *testing.T) {
+		scopedCalled = false
+		globalCalled = false
+
+		req := httptest.NewRequest(http.MethodGet, "/api/group-route", nil)
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+
+		assert.True(t, scopedCalled, "Group inherits parent's scoped middleware")
+		assert.True(t, globalCalled, "Global middleware should apply to group route")
+	})
+}
+
 // Middleware Tests.
 func TestRouter_Use(t *testing.T) {
 	router := NewRouter()

@@ -10,7 +10,8 @@ import (
 
 // HTTPRouterAdapter wraps julienschmidt/httprouter.
 type HTTPRouterAdapter struct {
-	router *httprouter.Router
+	router             *httprouter.Router
+	globalMiddlewares  []func(http.Handler) http.Handler
 }
 
 // NewHTTPRouterAdapter creates an HTTPRouter adapter.
@@ -47,8 +48,32 @@ func (a *HTTPRouterAdapter) Mount(path string, handler http.Handler) {
 	a.router.Handler("HEAD", path+"/*filepath", handler)
 }
 
+// UseGlobal registers global middleware that runs before routing.
+// This middleware will run for ALL requests, even those that don't match any route.
+// This is critical for CORS preflight handling.
+func (a *HTTPRouterAdapter) UseGlobal(middleware func(http.Handler) http.Handler) {
+	a.globalMiddlewares = append(a.globalMiddlewares, middleware)
+}
+
 // ServeHTTP dispatches requests.
 func (a *HTTPRouterAdapter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// If there are global middlewares, apply them first
+	if len(a.globalMiddlewares) > 0 {
+		// Build the middleware chain
+		// Start with the router as the final handler
+		handler := http.Handler(a.router)
+		
+		// Apply middlewares in reverse order (first added wraps last)
+		for i := len(a.globalMiddlewares) - 1; i >= 0; i-- {
+			handler = a.globalMiddlewares[i](handler)
+		}
+		
+		// Execute the chain
+		handler.ServeHTTP(w, r)
+		return
+	}
+	
+	// No global middleware, just use the router directly
 	a.router.ServeHTTP(w, r)
 }
 
