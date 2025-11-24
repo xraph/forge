@@ -79,6 +79,48 @@ func TestDependencyGraph_TopologicalSort_Empty(t *testing.T) {
 	assert.Empty(t, result)
 }
 
+func TestDependencyGraph_TopologicalSort_PreservesRegistrationOrder(t *testing.T) {
+	// Test that nodes without dependencies maintain registration order (FIFO)
+	g := NewDependencyGraph()
+	
+	// Add nodes in specific order without dependencies
+	g.AddNode("first", nil)
+	g.AddNode("second", nil)
+	g.AddNode("third", nil)
+	g.AddNode("fourth", nil)
+
+	result, err := g.TopologicalSort()
+	require.NoError(t, err)
+
+	// Should maintain registration order (FIFO) for nodes without dependencies
+	assert.Equal(t, []string{"first", "second", "third", "fourth"}, result)
+}
+
+func TestDependencyGraph_TopologicalSort_MixedDependenciesAndOrder(t *testing.T) {
+	// Test that dependency constraints are respected while preserving registration order for independent nodes
+	g := NewDependencyGraph()
+	
+	// Add nodes with mixed dependencies
+	g.AddNode("independent1", nil)    // No deps - position 0
+	g.AddNode("dependent", []string{"base"}) // Depends on base
+	g.AddNode("base", nil)            // No deps - position 2
+	g.AddNode("independent2", nil)    // No deps - position 3
+
+	result, err := g.TopologicalSort()
+	require.NoError(t, err)
+
+	// Verify constraints:
+	// 1. "base" must come before "dependent"
+	baseIdx := indexOf(result, "base")
+	dependentIdx := indexOf(result, "dependent")
+	assert.Less(t, baseIdx, dependentIdx, "base must come before dependent")
+
+	// 2. Independent nodes without shared dependencies should maintain relative registration order
+	ind1Idx := indexOf(result, "independent1")
+	ind2Idx := indexOf(result, "independent2")
+	assert.Less(t, ind1Idx, ind2Idx, "independent1 registered before independent2, should maintain order")
+}
+
 func TestDependencyGraph_Visit_AlreadyVisited(t *testing.T) {
 	g := NewDependencyGraph()
 	g.AddNode("a", nil)

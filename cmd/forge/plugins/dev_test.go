@@ -60,7 +60,9 @@ func TestDebouncerMultipleCalls(t *testing.T) {
 }
 
 func TestShouldReload(t *testing.T) {
-	aw := &appWatcher{}
+	aw := &appWatcher{
+		config: &config.ForgeConfig{},
+	}
 
 	tests := []struct {
 		name     string
@@ -170,7 +172,9 @@ func TestAddWatchRecursive(t *testing.T) {
 
 	aw := &appWatcher{
 		watcher: watcher,
-		rootDir: tmpDir,
+		config: &config.ForgeConfig{
+			RootDir: tmpDir,
+		},
 	}
 
 	// Add watch recursively
@@ -276,7 +280,9 @@ func main() {}`
 
 			expectedPath := tt.setup(testDir)
 
-			aw := &appWatcher{}
+			aw := &appWatcher{
+				config: &config.ForgeConfig{},
+			}
 			mainPath, err := aw.findMainFile(testDir)
 
 			if tt.expectError {

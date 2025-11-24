@@ -30,6 +30,37 @@ import (
 //	    return err
 //	}
 //
+// LIFECYCLE TIMING:
+//
+//   ⚠️  IMPORTANT: Timing matters for database resolution!
+//
+//   During Extension Register() phase:
+//     ✅ GetManager()     - Manager exists, safe to call
+//     ✅ GetDatabase()    - Database instance exists (but not connected)
+//     ⚠️  GetSQL()        - Returns nil until database.Start() opens connections
+//     ⚠️  GetMongo()      - Returns nil until database.Start() opens connections
+//
+//   During Extension Start() phase (AFTER database extension starts):
+//     ✅ GetManager()     - Manager exists
+//     ✅ GetDatabase()    - Database instance exists and is connected
+//     ✅ GetSQL()         - Returns *bun.DB (ready to use)
+//     ✅ GetMongo()       - Returns *mongo.Client (ready to use)
+//
+//   Best Practice: Resolve in Start(), or declare database dependency
+//
+//	// Option 1: Resolve during Start()
+//	func (e *Extension) Start(ctx context.Context) error {
+//	    e.db = database.MustGetSQL(e.App().Container())
+//	    return nil
+//	}
+//
+//	// Option 2: Declare dependency, resolve anytime
+//	func NewExtension() forge.Extension {
+//	    base := forge.NewBaseExtension("my-ext", "1.0.0", "...")
+//	    base.SetDependencies([]string{"database"})  // Database starts first
+//	    return &Extension{BaseExtension: base}
+//	}
+//
 // PATTERNS:
 //   - Use Must* variants when database is required (fail-fast)
 //   - Use regular variants when database is optional (explicit errors)
@@ -66,26 +97,78 @@ func MustGetDatabase(c forge.Container) Database {
 	return forge.Must[Database](c, DatabaseKey)
 }
 
-// GetSQL retrieves the default Bun SQL database from the container
-// Returns error if not found, type assertion fails, or default is not a SQL database.
+// GetSQL retrieves the default Bun SQL database from the container.
+//
+// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
+//
+// Safe to call:
+//   - During/after extension Start() phase (if database started first)
+//   - Anytime if you declared SetDependencies([]string{"database"})
+//
+// Returns nil if:
+//   - Called during Register() phase (database not opened yet)
+//   - Database extension Start() hasn't been called yet
+//
+// Returns error if:
+//   - Database extension not registered
+//   - Default database is not a SQL database (e.g., it's MongoDB)
 func GetSQL(c forge.Container) (*bun.DB, error) {
 	return forge.Resolve[*bun.DB](c, SQLKey)
 }
 
-// MustGetSQL retrieves the default Bun SQL database from the container
-// Panics if not found, type assertion fails, or default is not a SQL database.
+// MustGetSQL retrieves the default Bun SQL database from the container.
+//
+// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
+//
+// Safe to call:
+//   - During/after extension Start() phase (if database started first)
+//   - Anytime if you declared SetDependencies([]string{"database"})
+//
+// Panics if:
+//   - Database extension not registered
+//   - Default database is not a SQL database (e.g., it's MongoDB)
+//
+// Returns nil if:
+//   - Called during Register() phase (database not opened yet)
+//   - Database extension Start() hasn't been called yet
 func MustGetSQL(c forge.Container) *bun.DB {
 	return forge.Must[*bun.DB](c, SQLKey)
 }
 
-// GetMongo retrieves the default MongoDB client from the container
-// Returns error if not found, type assertion fails, or default is not MongoDB.
+// GetMongo retrieves the default MongoDB client from the container.
+//
+// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
+//
+// Safe to call:
+//   - During/after extension Start() phase (if database started first)
+//   - Anytime if you declared SetDependencies([]string{"database"})
+//
+// Returns nil if:
+//   - Called during Register() phase (database not opened yet)
+//   - Database extension Start() hasn't been called yet
+//
+// Returns error if:
+//   - Database extension not registered
+//   - Default database is not MongoDB (e.g., it's SQL)
 func GetMongo(c forge.Container) (*mongo.Client, error) {
 	return forge.Resolve[*mongo.Client](c, MongoKey)
 }
 
-// MustGetMongo retrieves the default MongoDB client from the container
-// Panics if not found, type assertion fails, or default is not MongoDB.
+// MustGetMongo retrieves the default MongoDB client from the container.
+//
+// ⚠️  LIFECYCLE WARNING: This returns nil until database.Extension.Start() opens connections.
+//
+// Safe to call:
+//   - During/after extension Start() phase (if database started first)
+//   - Anytime if you declared SetDependencies([]string{"database"})
+//
+// Panics if:
+//   - Database extension not registered
+//   - Default database is not MongoDB (e.g., it's SQL)
+//
+// Returns nil if:
+//   - Called during Register() phase (database not opened yet)
+//   - Database extension Start() hasn't been called yet
 func MustGetMongo(c forge.Container) *mongo.Client {
 	return forge.Must[*mongo.Client](c, MongoKey)
 }
